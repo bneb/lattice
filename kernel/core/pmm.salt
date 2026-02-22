@@ -76,3 +76,22 @@ pub fn free(page: u64) {  // page: PhysAddr
 pub fn available() -> u64 {
     return TOTAL_PAGES;
 }
+
+// ============================================================================
+// Benchmark wrappers — short names for extern fn access from benchmarks
+// (Salt reserves __ for mangling, so benchmarks cannot use mangled names)
+// ============================================================================
+@no_mangle
+pub fn pmm_alloc() -> u64 {
+    return alloc();
+}
+
+@no_mangle
+pub fn pmm_free(page: u64) {
+    free(page);
+}
+
+@no_mangle
+pub fn pmm_available() -> u64 {
+    return available();
+}

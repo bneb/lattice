@@ -1,0 +1,79 @@
+// =============================================================================
+// Ring of Fire Lite — Integer-Only Context Switch Benchmark
+// =============================================================================
+// Lightweight variant of Ring of Fire for QEMU-TCG environments.
+// Uses integer-only fiber workloads instead of FPU-intensive assembly,
+// making it feasible under ARM→x86 emulation.
+//
+// On KVM/bare-metal, use the full ring_of_fire.salt with FPU pressure.
+//
+// Expected output:
+//   ROF-LITE: Starting (10 samples, 4 fibers)...
+//   ROF-LITE Result: Avg Context Switch Gap = NNN cycles
+// =============================================================================
+
+package benchmarks.ring_of_fire_lite
+
+use kernel.core.scheduler
+use kernel.drivers.serial
+use kernel.core.timing
+
+const NUM_FIBERS: i32 = 4;
+const NUM_SAMPLES: i32 = 10;
+const MIN_GAP: i64 = 100;
+
+extern fn get_bench_divisor() -> u64;
+
+// Integer-only fiber workload — no FPU, no busy work, just yield
+@no_mangle
+fn lite_fiber() {
+    loop {
+        scheduler.yield_now();
+    }
+}
+
+@no_mangle
+pub fn run_benchmark_lite() {
+    let divisor = get_bench_divisor();
+    let scaled = (NUM_SAMPLES as u64) / divisor;
+    let actual_samples = if scaled < 2 { 2 } else { scaled as i32 };
+    serial.print("ROF-LITE: Starting...\n");
+
+    let baseline = scheduler.get_fiber_count();
+
+    // 1. Spawn integer-only worker fibers
+    for _ in 0..NUM_FIBERS {
+        let entry = (&lite_fiber) as u64;
+        scheduler.spawn(entry);
+    }
+
+    // 2. Measure context switch gaps
+    let mut samples: i32 = 0;
+    let mut last_tsc = timing.get_cycles() as i64;
+    let mut total_gap: i64 = 0;
+
+    while samples < actual_samples {
+        scheduler.yield_now();
+
+        let now = timing.get_cycles() as i64;
+        let gap = now - last_tsc;
+
+        if gap > MIN_GAP {
+            total_gap += gap;
+            samples += 1;
+        }
+
+        last_tsc = now;
+    }
+
+    // 3. Report
+    let avg = total_gap / (samples as i64);
+    serial.print("ROF-LITE Result: Avg Context Switch Gap = ");
+    serial.print_u64(avg as u64);
+    serial.print(" cycles\n");
+
+    // 4. Clean up: fibers are infinite loops, so we just note them.
+    // In the real ROF, fiber_loop_stop() signals them to exit.
+    // For lite, we accept they'll persist until the suite ends.
+    // The scheduler will reap them when kmain proceeds.
+}

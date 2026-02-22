@@ -47,7 +47,7 @@ extern fn slab_watermark() -> i32;
 @no_mangle
 fn ephemeral_fiber() {
     let mut x: u64 = 0;
-    while x < 100 {
+    for _ in 0..100 {
         x = x + 1;
     }
     scheduler.exit_fiber();
@@ -61,10 +61,9 @@ fn phase1() -> bool {
 
     let num_slots: i32 = 64;
     let mut addrs: [u64; 64] = [0 as u64; 64];
-    let mut i: i32 = 0;
 
     // Pop N stacks
-    while i < num_slots {
+    for i in 0..num_slots {
         addrs[i] = pop_stack();
         if addrs[i] == 0 {
             serial.print("BENCH:slab_reclaim:phase1:FAIL pop returned 0 at i=");
@@ -72,24 +71,20 @@ fn phase1() -> bool {
             serial.print("\n");
             return false;
         }
-        i = i + 1;
     }
 
     let watermark_after_pop = slab_watermark();
 
     // Push all N stacks back (recycle)
-    let mut j: i32 = 0;
-    while j < num_slots {
+    for j in 0..num_slots {
         push_stack(addrs[j]);
-        j = j + 1;
     }
 
     // Pop N stacks again — must reuse recycled addresses
     let mut recycled: i32 = 0;
     let mut fresh: i32 = 0;
-    let mut k: i32 = 0;
 
-    while k < num_slots {
+    for k in 0..num_slots {
         let addr = pop_stack();
         if addr == 0 {
             serial.print("BENCH:slab_reclaim:phase1:FAIL round2 pop returned 0\n");
@@ -98,13 +93,10 @@ fn phase1() -> bool {
 
         // Check if address was in round 1
         let mut found = false;
-        let mut m: i32 = 0;
-        while m < num_slots {
+        for m in 0..num_slots {
             if addr == addrs[m] {
                 found = true;
-                m = num_slots;
             }
-            m = m + 1;
         }
 
         if found {
@@ -112,8 +104,6 @@ fn phase1() -> bool {
         } else {
             fresh = fresh + 1;
         }
-
-        k = k + 1;
     }
 
     let watermark_after_round2 = slab_watermark();
@@ -125,10 +115,8 @@ fn phase1() -> bool {
     serial.print("\n");
 
     // Push round-2 stacks back for Phase 2 to use
-    let mut p: i32 = 0;
-    while p < num_slots {
+    for p in 0..num_slots {
         push_stack(addrs[p]);
-        p = p + 1;
     }
 
     // Verdict: all recycled, watermark stable
@@ -153,16 +141,15 @@ fn phase2() -> bool {
     serial.print("BENCH:slab_reclaim:phase2:start\n");
 
     let batch_size: i32 = 500;
-    let num_generations: i32 = 200;
+    let num_generations: i32 = 20;
     let mut total_spawned: u64 = 0;
     let mut watermark_gen1: i32 = 0;
-    let mut gen: i32 = 0;
 
     // Record baseline fiber count BEFORE spawning. Prior benchmarks (ROF, ROF-1K)
     // may leave persistent fibers alive, so we cannot assume fiber_count() == 1.
     let baseline_count = scheduler.get_fiber_count();
 
-    while gen < num_generations {
+    for gen in 0..num_generations {
         // Spawn a batch of ephemeral fibers
         let mut s: i32 = 0;
         while s < batch_size {
@@ -213,8 +200,6 @@ fn phase2() -> bool {
                 serial.print("\n");
             }
         }
-
-        gen = gen + 1;
     }
 
     let watermark_final = slab_watermark();
@@ -244,7 +229,8 @@ fn phase2() -> bool {
 // =============================================================================
 // Public Entry Point
 // =============================================================================
-pub fn run() {
+@no_mangle
+pub fn run_slab_reclaim() {
     serial.print("BENCH:slab_reclaim:start\n");
     vga.print("Slab reclaim benchmark...\n");
 

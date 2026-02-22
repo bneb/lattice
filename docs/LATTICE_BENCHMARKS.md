@@ -1,184 +1,100 @@
 # Lattice OS Kernel Benchmarks
 
-Verified performance characteristics of the Lattice unikernel, measured on two platforms:
+Self-hosted benchmarks measuring Lattice unikernel primitives on real x86 hardware. Salt compiles directly to kernel code via MLIR → LLVM IR → ELF. No OS abstraction layer, no libc, no runtime.
 
-- **KVM** (hardware-virtualized): AWS z1d.metal, Intel Xeon Platinum 8151 (Skylake), QEMU 8.2.2 + KVM
-- **TCG** (software-emulated): QEMU x86_64 TCG, Apple M4 host
+## Platforms
 
-All benchmarks run on bare metal with no OS abstraction layer — Salt compiles directly to kernel code via MLIR → LLVM IR → ELF.
+| Platform | Hardware | Hypervisor | Purpose |
+|:---------|:---------|:-----------|:--------|
+| **KVM** | AWS z1d.metal, Intel Xeon 8151 (Skylake, 4.0 GHz) | QEMU 8.2 + KVM (`-cpu host`) | Authoritative cycle counts |
+| **TCG** | Apple M4, QEMU x86_64 software emulation | None (interpreted) | Development iteration |
 
-## Benchmark Results (February 18, 2026)
-
-### KVM — Hardware-Virtualized (AWS z1d.metal, Intel Xeon Platinum 8151)
+## KVM Results (February 22, 2026)
 
 > [!IMPORTANT]
-> These are the **authoritative** performance numbers. KVM runs the kernel on real x86 hardware via hardware-assisted virtualization with `-cpu host`. Cycle counts reflect actual CPU pipeline behavior.
+> KVM runs kernel instructions on real x86 silicon via hardware-assisted virtualization. These cycle counts reflect actual CPU pipeline behavior, cache effects, and branch prediction.
 
 | Benchmark | Avg (cycles) | Min | Max | Samples | What It Measures |
-|:----------|------------:|---------:|---------:|------:|:-----------------|
-| **Ring of Fire** | **936** | — | — | 1,000 | Context switch latency (4 fibers) |
-| **Ring of Fire 1K** | **354,285** | — | — | 1,000 | Scheduler scalability (1000 fibers) |
-| **Syscall** | **96** | 94 | 15,030 | 10,000 | `syscall`/`sysret` null round-trip |
-| **IPC Ping-Pong** | **360,594** | 352,598 | 397,148 | 10 | Fiber-to-fiber message latency (post-1K) |
-| **Slab Allocator** | **52** | 50 | 94 | 1,000 | Bump-allocator slot throughput |
+|:----------|------------:|---------:|---------:|--------:|:-----------------|
+| **Arena alloc** | **59** | 56 | 432 | 1,000 | Bump-allocator slot throughput |
+| **PMM alloc/free** | **73** | 70 | 504 | 500 | Physical page alloc + free pair |
+| **IPC ping-pong** | **297** | 218 | 842 | 10 | Fiber-to-fiber yield round-trip (4 fibers) |
+| **Ring of Fire** | **487** | — | — | 1,000 | Context switch latency (4 fibers, full FPU save) |
+| **IRQ latency** | **31.6M** | 9.9M | 34.3M | 10 | PIT interrupt delivery latency |
 
-### TCG — Software-Emulated (QEMU, Apple M4 host)
+### What the Numbers Mean
 
-> [!NOTE]
-> TCG inflates absolute cycle counts substantially because the CPU is emulated in software. These numbers are useful for relative comparisons within the suite but should not be treated as hardware performance claims.
+**Arena alloc (59 cy / ~15 ns)**: A single arena slot allocation resolves in 59 cycles. This is pure L1 cache territory: pointer increment, bounds check, return. For comparison, glibc `malloc` typically costs 1,000-5,000 cycles due to binning logic and lock acquisition.
 
-| Benchmark | Avg (cycles) | Min | Max | Samples | TCG/KVM Ratio |
-|:----------|------------:|---------:|---------:|------:|:------|
-| **Ring of Fire** | **36,480** | — | — | 1,000 | 39× |
-| **Ring of Fire 1K** | **7,896,068** | — | — | 1,000 | 22× |
-| **Syscall** | **375** | 358 | 11,436 | 9,999 | 3.9× |
-| **IPC Ping-Pong** | **7,951,655** | 7,895,202 | 8,276,004 | 10 | 22× |
-| **Slab Allocator** | **191** | 186 | 664 | 999 | 3.7× |
+**PMM alloc/free (73 cy / ~18 ns)**: A physical page allocation and free pair (LIFO stack). The benchmark pops and pushes in reverse order, so the hardware prefetcher predicts access patterns perfectly.
 
-## Analysis
+**IPC ping-pong (297 cy / ~74 ns)**: A sender-receiver pair yields back and forth via `sched_yield`. Each round-trip involves writing to a shared mailbox and two context switches. Zero-copy, zero privilege transition (shared address space unikernel).
 
-### Syscall — 96 Cycles
+**Ring of Fire (487 cy / ~122 ns)**: 4 fibers in a ring, each yielding cooperatively. Each context switch includes a full `FXSAVE`/`FXRSTOR` (512 bytes of FPU/SSE state) and GPR save/restore. The gap between IPC (297 cy, 2 switches) and ROF (487 cy, 1 switch with FPU) reflects the FXSAVE cost.
 
-A 96-cycle null `syscall`/`sysret` round-trip. For context, Linux measures ~100–150 cycles for a null syscall on Skylake. Lattice achieves this with a minimal fast path: `test rax, rax; jz; sysretq` (3 instructions, zero register saves).
+**IRQ latency (31.6M cy / ~7.9 ms)**: Measures the cycle gap between consecutive PIT timer interrupts. The PIT is configured at 100 Hz (10 ms period). At 4.0 GHz, 10 ms = 40M cycles. The measured 31.6M average is consistent with PIT delivery jitter and the measurement window.
 
-- MSRs configured at boot: EFER.SCE, STAR, LSTAR → `syscall_entry_fast`, FMASK = 0x200
-- GDT includes Ring 3 segments + 16-byte TSS descriptor for interrupt delivery from Ring 3
-- Previous `int 0x80` IDT path measured ~18,042 cycles (TCG) — **17.9× improvement** before KVM
-
-### Ring of Fire — 936 Cycles (4 Fibers)
-
-Sub-microsecond cooperative context switching. Spawns 4 fibers in a ring, each yielding cooperatively. Measures `rdtsc` gap across 1,000 consecutive context switches.
-
-- 936 cycles includes: `sched_yield()` → O(1) bitmap scan (BSF/TZCNT) → `switch_stacks` (full GPR + 512-byte FXSAVE)
-- Sub-microsecond at 3.4 GHz (~275 ns)
-
-### Ring of Fire 1K — 354,285 Cycles (1000 Fibers)
-
-1000 concurrent fibers, measuring scheduler scalability under pressure.
-
-- Dominated by FXSAVE/FXRSTOR cache pressure at 1000 active fibers
-- Each fiber's 512-byte FPU context thrashes L1/L2 cache
-
-### IPC Ping-Pong — 360,594 Cycles
-
-Sender writes to shared `MAILBOX` via volatile store, signals responder, yields. Responder acknowledges, yields back.
-
-- Elevated because IPC runs after ROF1K (1000+ fibers in scheduler ring)
-- In isolation (4 fibers only), IPC achieves ~2,666 cycles/round-trip (TCG estimate)
-- IPC is zero-copy, zero-crossing (shared address space unikernel)
-
-### Slab Allocator — 52 Cycles
-
-- Single pointer increment + bounds check
-- 50-cycle minimum is near the floor for bump allocation with `rdtsc` measurement overhead
-
-## Architecture
+## TCG Results (February 22, 2026)
 
 > [!NOTE]
-> The SYSCALL/SYSRET fast path required several hardware-level changes beyond MSR programming:
-> - **GDT expansion**: 6 entries → 8 (Ring 3 User CS32/DS/CS64 + 16-byte TSS descriptor)
-> - **TSS with RSP0**: Required for interrupt delivery when CPU is at Ring 3 (CPL=3) after SYSRET
-> - **Page table User bits**: PML4/PDPT/PD entries set to 0x07/0x07/0x87 for Ring 3 memory access
-> - **Ring 0 re-escalation**: Syscall 128 returns via IRETQ with kernel segments (CS=0x08, SS=0x10)
+> TCG emulates x86 instructions in software on the ARM host. Absolute cycle counts are inflated 20-40x. These numbers are useful for development but should not be cited as performance claims.
 
-## KVM Compatibility: GDT Boot Fix
+| Benchmark | Avg (cycles) | Min | Max | Samples |
+|:----------|------------:|---------:|---------:|--------:|
+| Arena alloc | 1,542 | 1,000 | 39,000 | 70 |
+| PMM alloc/free | 1,637 | 1,000 | 38,000 | 58 |
+| IPC ping-pong | 8,000 | 1,000 | 31,000 | 5 |
 
-During cloud benchmarking, we discovered a latent bug that only manifests under hardware virtualization:
+TCG runs use a 100x divisor to reduce iteration counts (otherwise benchmarks take minutes under emulation).
 
-**Root cause**: The Kernel Data GDT descriptor at offset `0x10` had `limit=0` and `D/B=0`:
+## Benchmarks Not Yet Passing on KVM
 
-```diff
--    .quad 0x0000920000000000 # 0x10: Kernel Data (DPL 0) — limit=0, D/B=0
-+    .quad 0x00CF92000000FFFF # 0x10: Kernel Data (DPL 0) — flat 4GB, G=1, D/B=1
-```
+Five benchmarks are disabled on KVM due to specific hardware-level issues. Each is documented here for transparency.
 
-After loading this into SS during the 32→64-bit transition, any stack operation (`push` for `retf`) exceeded the zero-byte segment limit, causing a triple fault. TCG's emulator doesn't enforce segment limits in this transitional state. KVM, backed by the real CPU, does.
+| Benchmark | Issue | Root Cause |
+|:----------|:------|:-----------|
+| **Syscall** | Crashes | `syscall_noop()` invokes `SYSCALL` from Ring 0. `syscall_entry_fast` assumes Ring 3 caller and swaps to a stale kernel stack, corrupting execution state. Needs Ring 3 benchmark infrastructure. |
+| **Ring of Fire 1K** | Crashes | 1,000 fibers exhaust the PMM's mapped physical memory range. The kernel's page tables map 1 GB, but 1,000 fiber stacks (16 KB each = 16 MB) plus slab metadata exceed available memory. |
+| **Slab stress** | Hangs | `lock cmpxchgq` CAS loop in the Treiber stack spins forever on KVM. Likely an ABA issue or timing-dependent CAS retry that real silicon exposes but TCG emulation masks. |
+| **Slab reclaim** | Timeout | 100,000 fiber spawn/exit cycles exceed the 300s benchmark timeout. Same fiber memory pressure as ROF-1K at 100x scale. |
+| **Net echo** | Skipped | Requires external UDP packet injection via `test_net` harness. Not a bug. |
 
-**Diagnostic**: The boot sequence outputs characters `Y12Z789!X` at each stage. Under KVM, output stopped at `Y12Z78` — after GDT load ('8') but before the far jump ('9'). The stack push for `retf` is exactly where the zero-limit SS would fault.
+### Why These Work on TCG but Not KVM
 
-## Cloud Benchmarking: Operational Chronicle
+TCG is a software interpreter. It doesn't enforce:
+- **Stack swap correctness** (syscall): TCG's SYSRET emulation is more permissive about stack state.
+- **Physical memory limits** (ROF-1K, slab_reclaim): TCG's memory model doesn't fault on the same boundaries.
+- **Atomic timing** (slab_stress): TCG executes `lock cmpxchgq` as a sequential operation with no real contention or cache coherence.
 
-This section documents the full debugging journey for reproducibility and institutional knowledge.
+## KVM Compatibility Fixes
 
-### Infrastructure
+Three bugs were discovered and fixed during KVM bring-up:
 
-| Item | Detail |
-|:--|:--|
-| **Instance type** | z1d.metal (48 vCPUs, Intel Xeon Platinum 8151, bare-metal) |
-| **Region** | us-east-1 |
-| **AMI** | Ubuntu 24.04 LTS (ami-0136735c2bb5cf5bf) |
-| **Strategy** | Build kernel locally (macOS), scp kernel.elf to instance, run QEMU+KVM remotely |
+### 1. Pulse Ring Buffer Triple Fault
+`pulse::push()` writes to a global array (`RING` at `0xffffffff8011c940`) that crashes on KVM. Other BSS globals (slab cache, VMA, scheduler) work fine. The crash is specific to pulse's calling context (ISR re-entrancy). Fixed by no-opping `push()`.
 
-### Issues Encountered and Resolved
+### 2. CPUID Byte-Swap Bug
+KVM was misdetected as TCG because the CPUID hypervisor check compared `0x4b564d4b` instead of the correct `0x4b4d564b` ("KVMK" in little-endian EBX). All KVM benchmarks ran at 100x reduced iterations until this was fixed.
 
-#### 1. Stale AMI ID
-The hardcoded AMI in `cloud_config.sh` was no longer valid. Fixed by looking up the current Ubuntu 24.04 canonical AMI for us-east-1.
-
-#### 2. Spot Instance Quota
-New AWS accounts have low spot instance request quotas. The first spot request failed with `MaxSpotInstanceCountExceeded`. Fixed by adding an on-demand fallback in `run_benchmarks.sh`.
-
-#### 3. On-Demand vCPU Quota
-The `c5.metal` (96 vCPUs) exceeded the default on-demand limit of 64. Switched to `z1d.metal` (48 vCPUs) which fits within the 64 vCPU default quota.
-
-#### 4. Zombie Instances
-Metal instances take 10–20 minutes to transition from `shutting-down` to `terminated`. Multiple failed runs left zombie instances consuming vCPU quota, blocking subsequent launches. Resolution: wait for instances to fully terminate, or use `aws ec2 describe-instances` to check state before launching.
-
-#### 5. salt-opt MLIR API Mismatch
-The `salt-opt` MLIR optimizer wouldn't compile on Ubuntu 24.04 — the apt-packaged LLVM/MLIR 18 has different C++ API signatures than the Homebrew version on macOS. This was a non-issue once we switched to build-local/run-remote strategy.
-
-#### 6. Missing CMake Dev Packages
-The LLVM 18 CMake config on Ubuntu expects `ZLIB::ZLIB` as a CMake imported target, which requires `zlib1g-dev`. Also missing: `libzstd-dev`, `libcurl4-openssl-dev`, `libedit-dev`. Fixed in `setup_instance.sh`.
-
-#### 7. CMake Error Swallowed by `set -e`
-Bash's `set -euo pipefail` killed the setup script before the CMake error message could be printed, making debugging impossible. Fixed by capturing the exit code with `|| CMAKE_EXIT=$?`.
-
-#### 8. KVM Triple Fault (Root Cause)
-The kernel's Kernel Data GDT descriptor had `limit=0`. Under KVM, the CPU enforces segment limits during the 32→64-bit transition, causing a triple fault on the first stack push. See [GDT Boot Fix](#kvm-compatibility-gdt-boot-fix).
-
-### Final Working Strategy
-
-Instead of building the entire toolchain on the remote instance, the successful approach was:
-
-1. **Build locally** on macOS: `python3 tools/runner_qemu.py build`
-2. **scp** the 41KB `kernel.elf` to the instance
-3. **Run QEMU+KVM** remotely: `qemu-system-x86_64 -enable-kvm -cpu host -kernel kernel.elf ...`
-4. **Terminate** the instance when done
-
-This avoids all toolchain compatibility issues and reduces the remote setup to just QEMU.
-
-### Cost Summary
-
-| Run | Instance | Duration | Cost |
-|:--|:--|:--|:--|
-| Run 1 (c5.metal, spot, setup fail) | c5.metal | ~3 min | ~$0.20 |
-| Run 2 (z1d.metal, on-demand, CMake fail) | z1d.metal | ~4 min | ~$0.30 |
-| Run 3 (z1d.metal, spot, CMake fail) | z1d.metal | ~3 min | ~$0.08 |
-| Run 4 (z1d.metal, spot, CMake fail) | z1d.metal | ~3 min | ~$0.08 |
-| Run 5 (z1d.metal, interactive debug + bench) | z1d.metal | ~15 min | ~$0.38 |
-| **Total** | | | **~$1.04** |
+### 3. GDT Kernel Data Descriptor
+The Kernel Data GDT entry at offset `0x10` had `limit=0` and `D/B=0`. Under KVM, the CPU enforces segment limits during the 32→64-bit boot transition, causing a triple fault on `retf`. TCG's emulator doesn't enforce this. Fixed to flat 4GB (`0x00CF92000000FFFF`).
 
 ## Reproduce
 
-### Local (TCG, any host)
+### Local (TCG)
 ```bash
-python3 tools/runner_qemu.py build   # Compile Salt → MLIR → LLVM IR → kernel.elf
-python3 tools/runner_qemu.py run     # Boot QEMU, run suite, parse results
+python3 tools/runner_qemu.py bench   # Build + run full suite
 ```
 
-### Cloud (KVM, AWS)
+### Cloud (KVM)
 ```bash
-# Automated (launches instance, runs, terminates):
-./tools/cloud/run_benchmarks.sh
-
-# Manual (for debugging / iterating):
-# 1. Launch z1d.metal instance
-# 2. scp qemu_build/kernel.elf ubuntu@<IP>:/tmp/kernel.elf
-# 3. ssh ubuntu@<IP> 'qemu-system-x86_64 -enable-kvm -cpu host \
-#      -kernel /tmp/kernel.elf -nographic -m 128M -no-reboot -serial mon:stdio'
+./tools/cloud/bench_launch.sh        # Launch persistent z1d.metal (~$4/hr)
+./tools/cloud/bench_run.sh           # SCP kernel.elf + run (~2 seconds)
+./tools/cloud/bench_teardown.sh      # Terminate instance
 ```
 
-Requires: LLVM 18, QEMU x86_64, Rust toolchain. See [ARCH.md](ARCH.md) for build prerequisites. For cloud runs: AWS CLI, SSH key pair.
+Iteration speed: ~2 seconds per cycle (SCP 45KB ELF + QEMU boot + benchmark execution).
 
-## Comparison: Userspace Benchmarks
+## Userspace Benchmarks
 
-For Salt vs C/Rust userspace benchmarks (22 compute benchmarks, Basalt LLM inference, TCP networking, HTTP server), see [benchmarks/BENCHMARKS.md](../benchmarks/BENCHMARKS.md).
+For Salt vs C/Rust userspace benchmarks (22 compute benchmarks, Basalt LLM inference, TCP networking, HTTP server), see [BENCHMARKS.md](../benchmarks/BENCHMARKS.md).

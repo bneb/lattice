@@ -62,6 +62,8 @@ mod tests_kernel_halt;
 mod tests_datalayout;
 #[cfg(test)]
 mod tests_method_receiver;
+#[cfg(test)]
+mod tests_forward_ref;
 
 use crate::grammar::{SaltFile, Item, SaltFn, SaltImpl, ExternFnDecl, SaltConcept, SaltTrait};
 use crate::codegen::context::{CodegenContext, LocalKind, GenericContextGuard};
@@ -888,7 +890,12 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
     // Note: `extern fn` is a syntactic form (ExternFnDecl), not an @extern attribute.
     // When converted to SaltFn wrappers during module registration, the extern-ness
     // is tracked in `external_decls`, not in attributes.
-    if ctx.external_decls().contains(&func.name.to_string()) {
+    //
+    // [FORWARD REFERENCE FIX] ensure_func_declared adds local @no_mangle functions
+    // to external_decls when they are called before their definition. These functions
+    // have NON-EMPTY bodies and must be emitted. True externs have empty bodies
+    // (set by register_signatures). Only skip emission for truly empty-bodied externs.
+    if ctx.external_decls().contains(&func.name.to_string()) && func.body.stmts.is_empty() {
         return Ok(String::new());
     }
 

@@ -400,3 +400,8 @@ pub fn get_fiber_count() -> u64 {
 pub fn exit_fiber() {
     fiber_exit();
 }
+
+@no_mangle
+pub fn get_current_fiber() -> u64 {
+    return GLOBAL_SCHED.current;
+}

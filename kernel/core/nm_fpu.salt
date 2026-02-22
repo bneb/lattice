@@ -1,0 +1,102 @@
+// =============================================================================
+// kernel/core/nm_fpu.salt
+// Lazy FPU Handler — #NM (Device Not Available) demand-load path
+// =============================================================================
+//
+// When a fiber uses FPU/SSE after a context switch set CR0.TS, the CPU
+// fires #NM (vector 7). This handler:
+//   1. Clears TS so FPU instructions work
+//   2. Saves the old FPU owner's state (if different from current fiber)
+//   3. Restores the current fiber's FPU state
+//   4. Updates ownership tracking
+//
+// FPU state buffers are statically allocated (1024 * 512 bytes = 512KB).
+// Each buffer is 16-byte aligned as required by FXSAVE/FXRSTOR.
+// =============================================================================
+
+package kernel.core.nm_fpu
+
+import kernel.drivers.serial
+
+extern fn clear_ts_flag();
+extern fn fxsave_to(buf: u64);
+extern fn fxrstor_from(buf: u64);
+extern fn get_current_fiber() -> u64;
+extern fn init_fpu_state();
+
+// Per-fiber FPU state: 64-slot pool (32KB total).
+// Fibers get a slot assigned on first FPU use.
+const FPU_POOL_SIZE: i32 = 64;
+const FPU_BUF_U64S: i32 = 64;      // 512 / 8
+
+// 64 buffers × 64 u64s = 4096 u64s = 32KB
+global FPU_BUFFERS: [u64; 4096] = [0 as u64; 4096];
+
+// Map: fiber_id -> pool_slot (-1 = no slot assigned)
+global FPU_SLOT_MAP: [i32; 1024] = [-1 as i32; 1024];
+
+// Next free pool slot
+global FPU_NEXT_SLOT: i32 = 0;
+
+// Which fiber currently has FPU loaded. 0xFFFFFFFFFFFFFFFF = nobody.
+global FPU_OWNER: u64 = 0xFFFFFFFFFFFFFFFF;
+
+fn get_fpu_buffer_addr(fiber_id: u64) -> u64 {
+    let slot = FPU_SLOT_MAP[fiber_id as i32];
+    if slot < 0 {
+        // Assign a new pool slot
+        let new_slot = FPU_NEXT_SLOT;
+        if new_slot >= FPU_POOL_SIZE {
+            // Pool exhausted — recycle slot 0
+            FPU_NEXT_SLOT = 1;
+            FPU_SLOT_MAP[fiber_id as i32] = 0;
+            let base = ((&FPU_BUFFERS) as u64) & 0xFFFFFFFFFFFFFFF0;  // 16-byte align
+            return base;
+        }
+        FPU_SLOT_MAP[fiber_id as i32] = new_slot;
+        FPU_NEXT_SLOT = new_slot + 1;
+        let base = ((&FPU_BUFFERS) as u64) & 0xFFFFFFFFFFFFFFF0;  // 16-byte align
+        return base + ((new_slot as u64) * 512);
+    }
+    let base = ((&FPU_BUFFERS) as u64) & 0xFFFFFFFFFFFFFFF0;  // 16-byte align
+    return base + ((slot as u64) * 512);
+}
+
+@no_mangle
+pub fn nm_handler_c() {
+    // 1. Clear CR0.TS so FPU works
+    clear_ts_flag();
+
+    // 2. Who needs the FPU?
+    let current = get_current_fiber();
+
+    // 3. Already owns it?
+    if FPU_OWNER == current {
+        return;
+    }
+
+    // 4. Save old owner's state
+    if FPU_OWNER != 0xFFFFFFFFFFFFFFFF {
+        let old_slot = FPU_SLOT_MAP[FPU_OWNER as i32];
+        if old_slot >= 0 {
+            let old_buf = get_fpu_buffer_addr(FPU_OWNER);
+            fxsave_to(old_buf);
+        }
+    }
+
+    // 5. Restore current fiber's state (if it has one)
+    let cur_slot = FPU_SLOT_MAP[current as i32];
+    if cur_slot >= 0 {
+        let new_buf = get_fpu_buffer_addr(current);
+        fxrstor_from(new_buf);
+    } else {
+        // FIRST FPU USE — initialize hardware to valid defaults
+        // (calling fxrstor on zeroed buffer causes #GP from invalid MXCSR)
+        init_fpu_state();
+        // Assign a pool slot for future saves
+        let new_buf = get_fpu_buffer_addr(current);
+    }
+
+    // 6. Transfer ownership
+    FPU_OWNER = current;
+}

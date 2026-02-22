@@ -1,0 +1,94 @@
+// =============================================================================
+// kernel/benchmarks/suite.salt
+// Benchmark Suite Runner — CPUID-aware, Lazy-FPU-enabled
+// =============================================================================
+
+package benchmarks.suite
+
+use kernel.drivers.serial
+use kernel.drivers.vga
+use kernel.core.scheduler
+use kernel.core.cpuid
+
+// Benchmark entry points (@no_mangle in each benchmark file)
+extern fn run();                 // alloc_bench
+extern fn run_syscall_bench();   // syscall_bench
+extern fn ipc_responder();       // ipc_bench responder fiber
+extern fn run_ipc_bench();       // ipc_bench
+extern fn run_slab_reclaim();    // slab_reclaim_bench
+extern fn run_benchmark();       // ring_of_fire (FPU fibers)
+extern fn run_benchmark_1k();    // ring_of_fire_1k (1000 FPU fibers)
+extern fn run_benchmark_lite();  // ring_of_fire_lite (integer-only)
+extern fn run_net_echo();        // net_echo_bench
+extern fn run_irq_latency();     // irq_latency_bench
+extern fn run_pmm_bench();       // pmm_bench
+extern fn run_slab_stress();     // slab_stress_bench
+extern fn get_bench_divisor() -> u64;
+
+@no_mangle
+pub fn bench_suite_run() {
+    serial.print("BENCHMARK SUITE BEGIN\n");
+    vga.print_colored(" Benchmark Suite ", 0x1F);
+    vga.print("\n");
+
+    // ── CPUID Topology Detection ─────────────────────────────────────
+    cpuid.print_topology();
+    let divisor = get_bench_divisor();
+
+    // ── 1. Slab allocation throughput ────────────────────────────────
+    serial.print("BENCH:suite:running alloc_bench\n");
+    run();
+
+    // ── 2. Syscall latency ──────────────────────────────────────────
+    // SYSRET from Ring 0 is fundamentally broken: the stack swap in
+    // syscall_entry_fast assumes caller is Ring 3. Needs Ring 3 bench infra.
+    serial.print("BENCH:suite:SKIP syscall_bench (needs Ring 3 infrastructure)\n");
+
+    // ── 3. IPC ping-pong (fiber-to-fiber message latency) ───────────
+    serial.print("BENCH:suite:running ipc_bench\n");
+    let responder_addr = (&ipc_responder) as u64;
+    scheduler.spawn(responder_addr);
+    scheduler.yield_now();
+    run_ipc_bench();
+
+    // ── 4. Context switch — Ring of Fire ──────────────────────────────
+    if divisor <= 1 {
+        serial.print("BENCH:suite:running ring_of_fire\n");
+        run_benchmark();
+
+        serial.print("BENCH:suite:SKIP ring_of_fire_1k (fiber memory limit on KVM)\n");
+    } else {
+        serial.print("BENCH:suite:SKIP ring_of_fire (TCG emulation too slow)\n");
+        serial.print("BENCH:suite:SKIP ring_of_fire_1k (TCG emulation too slow)\n");
+    }
+
+    // ── 5. Interrupt latency ─────────────────────────────────────────
+    if divisor <= 1 {
+        serial.print("BENCH:suite:running irq_latency_bench\n");
+        run_irq_latency();
+    } else {
+        serial.print("BENCH:suite:SKIP irq_latency_bench (PIT too slow under TCG)\n");
+    }
+
+    // ── 6. PMM page alloc/free ──────────────────────────────────────
+    serial.print("BENCH:suite:running pmm_bench\n");
+    run_pmm_bench();
+
+    // ── 7. Slab stress (Treiber stack CAS) ──────────────────────────
+    // CAS loop spins forever on KVM — likely ABA or timing issue.
+    serial.print("BENCH:suite:SKIP slab_stress_bench (KVM CAS spin — debugging separately)\n");
+
+    // ── 8. Slab reclamation (ephemeral fibers) ──────────────────────
+    // 100K fibers exceeds KVM memory limits (same as ROF-1K).
+    serial.print("BENCH:suite:SKIP slab_reclaim_bench (fiber memory limit on KVM)\n");
+
+    // ── 9. Net echo (VirtIO-Net, passive) ────────────────────────────
+    // Always skipped in bench mode — blocks waiting for UDP injection.
+    // Run manually via: python3 tools/runner_qemu.py test_net
+    serial.print("BENCH:suite:SKIP net_echo_bench (requires packet injection)\n");
+
+    // ── Done ─────────────────────────────────────────────────────────
+    serial.print("BENCHMARK SUITE COMPLETE\n");
+    vga.print_colored(" Suite Complete ", 0x2F);
+    vga.print("\n");
+}

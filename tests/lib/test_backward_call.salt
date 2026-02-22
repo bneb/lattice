@@ -1,0 +1,15 @@
+// Test: does definition-before-call work?
+package test.backward_call
+
+// bar defined FIRST
+@no_mangle
+pub fn bar() {
+    return;
+}
+
+// foo calls bar (already defined above)
+@no_mangle
+pub fn foo() -> u64 {
+    bar();
+    return 0;
+}

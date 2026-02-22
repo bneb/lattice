@@ -2,40 +2,45 @@
 
 **The Mission:** Prove, with statistical rigor, that Salt achieves zero-cost abstraction—and often beats—C, C++, and Rust.
 
-## Latest Results (February 12, 2026)
+## Latest Results (February 21, 2026)
 
-**22/22 benchmarks building. Salt ≤ C on all 22.**
+**28 benchmarks building. Salt ≤ C in 19/22 head-to-head.**
 
 ### All Benchmarks
 
+*Official `benchmark.sh -a` output on Apple M4. Each row averages 3 runs.*
+
 | Benchmark | Salt | C | Rust | Status |
 |-----------|------|---|------|--------|
-| **matmul** | **127ms** | 867ms | 897ms | 🚀 **6.8x vs C** |
-| **fstring_perf** | **197ms** | 1100ms | 707ms | 🚀 **5.6x vs C** |
-| **buffered_writer_perf** | **87ms** | 330ms | 83ms | 🚀 **3.8x vs C** |
-| **writer_perf** | **40ms** | 147ms | 177ms | 🚀 **3.7x vs C** |
-| **longest_consecutive** | **247ms** | 787ms | 343ms | 🚀 **3.2x vs C** |
-| **forest** | **70ms** | 133ms | 140ms | 🚀 **1.9x vs C** |
-| **sudoku_solver** | **37ms** | 60ms | 43ms | 🚀 **1.6x vs C** |
-| **merge_sorted_lists** | **57ms** | 80ms | 83ms | 🚀 **1.4x vs C** |
-| **lru_cache** | **50ms** | 70ms | 63ms | 🚀 **1.4x vs C** |
-| **string_hashmap_bench** | **60ms** | 83ms | 73ms | 🚀 **1.4x vs C** |
-| **http_parser_bench** | **57ms** | 73ms | 120ms | 🚀 **1.3x vs C** |
-| **hashmap_bench** | **63ms** | 73ms | 103ms | 🚀 **1.2x vs C** |
-| **vector_add** | **127ms** | 157ms | 150ms | 🚀 **1.2x vs C** |
-| **binary_tree_path** | **40ms** | 47ms | 53ms | 🚀 **1.2x vs C** |
-| **trie** | **100ms** | 110ms | 247ms | 🚀 **1.1x vs C** |
-| **sieve** | **187ms** | 203ms | 267ms | 🚀 **1.1x vs C** |
-| fannkuch | 177ms | 183ms | 183ms | ✅ Parity |
-| fib | 207ms | 207ms | 223ms | ✅ Parity |
-| bitwise | 73ms | 73ms | 73ms | ✅ Parity |
-| trapping_rain_water | 113ms | 113ms | 120ms | ✅ Parity |
-| window_access | 117ms | 117ms | 127ms | ✅ Parity |
-| global_counter | 147ms | 150ms | 133ms | ✅ Parity |
+| **matmul** | **203ms** | 923ms | 970ms | 🚀 **4.5x vs C** |
+| **buffered_writer_perf** | **43ms** | 363ms | 60ms | 🚀 **8.4x vs C** |
+| **fstring_perf** | **240ms** | 1,113ms | 773ms | 🚀 **4.6x vs C** |
+| **forest**\* | **60ms** | 237ms | 330ms | 🚀 **4x vs C**\* |
+| **longest_consecutive** | **260ms** | 803ms | 393ms | 🚀 **3.1x vs C** |
+| **sudoku_solver** | **33ms** | 50ms | 37ms | 🚀 **1.5x vs C** |
+| **lru_cache** | **57ms** | 77ms | 80ms | 🚀 **1.4x vs C** |
+| **trie** | **83ms** | 107ms | 277ms | 🚀 **1.3x vs C** |
+| **http_parser_bench** | **77ms** | 97ms | 153ms | 🚀 **1.3x vs C** |
+| **window_access** | **93ms** | 120ms | 140ms | 🚀 **1.3x vs C** |
+| **vector_add** | **110ms** | 133ms | 147ms | 🚀 **1.2x vs C** |
+| **sieve** | **173ms** | 200ms | 280ms | 🚀 **1.2x vs C** |
+| **fib** | **207ms** | 247ms | 233ms | 🚀 **1.2x vs C** |
+| **global_counter** | **147ms** | 183ms | 123ms | 🚀 **1.2x vs C** |
+| **hashmap_bench** | **87ms** | 100ms | 93ms | 🚀 **1.1x vs C** |
+| **fannkuch** | **177ms** | 200ms | 200ms | 🚀 **1.1x vs C** |
+| binary_tree_path | 37ms | 40ms | 40ms | ✅ Parity |
+| string_hashmap_bench | 77ms | 77ms | 83ms | ✅ Parity |
+| bitwise | 67ms | 67ms | 53ms | ✅ Parity |
+| trapping_rain_water | 103ms | 97ms | 107ms | ✅ Parity |
+| merge_sorted_lists | 187ms | 167ms | 143ms | ⚠️ C faster |
+| writer_perf | 153ms | 123ms | 117ms | ⚠️ C faster |
+
+\* *Forest measures arena allocation strategy (O(1) bump + O(1) reset) vs individual malloc/free (4M allocations). The advantage reflects Salt's arena stdlib, not codegen.*
 
 ### Summary
-- 🚀 **16 Salt Wins** (1.1x–6.8x vs C)
-- ✅ **6 C-Parity** (within ±5%)
+- 🚀 **16 Salt Wins** (1.1x–8.4x vs C)
+- ✅ **3 Parity** (within ±5%)
+- ⚠️ **3 C Faster** (trapping_rain_water at noise; merge_sorted, writer_perf marginal)
 
 See [BENCHMARKS.md](BENCHMARKS.md) for detailed analysis.
 

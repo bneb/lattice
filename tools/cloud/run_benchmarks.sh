@@ -215,6 +215,10 @@ else
         --exclude 'node_modules' \
         --exclude '.DS_Store' \
         --exclude 'qemu_build' \
+        --exclude '*.log' \
+        --exclude '*.profraw' \
+        --exclude 'coverage_report' \
+        --exclude '.bench_basalt' \
         -e "ssh -i $EC2_KEY_PATH -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR" \
         "$ROOT/" \
         "${EC2_USER}@${INSTANCE_IP}:lattice/"
@@ -249,7 +253,7 @@ if $DRY_RUN; then
     echo -e "${CYAN}[DRY RUN]${NC} Would run: python3 tools/runner_qemu.py run"
     BENCH_OUTPUT="[dry run — no output]"
 else
-    BENCH_OUTPUT=$(ssh_cmd "cd lattice && python3 tools/runner_qemu.py run" 2>&1 || true)
+    BENCH_OUTPUT=$(ssh_cmd "cd lattice && python3 tools/runner_qemu.py bench" 2>&1 || true)
     echo "$BENCH_OUTPUT"
 fi
 

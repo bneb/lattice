@@ -3396,8 +3396,6 @@ impl<'a> CodegenContext<'a> {
             }
         }
 
-
-        
         // 2. PENDING REGISTRATION: Recursion Guard
         self.defined_functions_mut().insert(mangled_name.clone());
 

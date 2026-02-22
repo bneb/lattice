@@ -92,9 +92,16 @@ fn pic_remap(offset1: u8, offset2: u8) {
 
 extern fn lidt_wrapper(limit: u16, base: u64);
 
+@no_mangle
+extern fn nm_isr_wrapper();
+
 pub fn init() {
     region idt_init(0x0000, 0) {
         pic_remap(0x20, 0x28);
+
+        // 0x07: #NM (Device Not Available) — Lazy FPU switching
+        let nm_handler = (&nm_isr_wrapper) as u64;
+        register_gate(0x07, nm_handler);
 
         // 0x8E: 32-bit Interrupt Gate, Present, Ring 0
         // 0x20: PIT IRQ0 (Master PIC offset)

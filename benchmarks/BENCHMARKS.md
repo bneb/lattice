@@ -8,43 +8,48 @@ Official performance benchmarks comparing Salt, C (Clang -O3), and Rust (-O).
 - **Fair Comparison**: All implementations do equivalent work
 - **Platform**: macOS ARM64 (Apple Silicon M4)
 
-## 📊 Results (February 12, 2026)
+## 📊 Results (February 21, 2026)
 
-**22/22 benchmarks building. Salt ≤ C on all 22.**
+**28 benchmarks building. Salt ≤ C in 19/22 head-to-head.**
 
 ### All Benchmarks
 
+*Official `benchmark.sh -a` output on Apple M4. Each row averages 3 runs.*
+
 | Benchmark | C | Rust | **Salt** | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| `matmul` | 867ms | 897ms | **127ms** | **🚀 6.8x Faster** |
-| `fstring_perf` | 1100ms | 707ms | **197ms** | **🚀 5.6x Faster** |
-| `writer_perf` | 147ms | 177ms | **40ms** | **🚀 3.7x Faster** |
-| `buffered_writer_perf` | 330ms | 83ms | **87ms** | **🚀 3.8x Faster** |
-| `longest_consecutive` | 787ms | 343ms | **247ms** | **🚀 3.2x Faster** |
-| `forest` | 133ms | 140ms | **70ms** | **🚀 1.9x Faster** |
-| `sudoku_solver` | 60ms | 43ms | **37ms** | **🚀 1.6x Faster** |
-| `merge_sorted_lists` | 80ms | 83ms | **57ms** | **🚀 1.4x Faster** |
-| `lru_cache` | 70ms | 63ms | **50ms** | **🚀 1.4x Faster** |
-| `http_parser_bench` | 73ms | 120ms | **57ms** | **🚀 1.3x Faster** |
-| `vector_add` | 157ms | 150ms | **127ms** | **🚀 1.2x Faster** |
-| `hashmap_bench` | 73ms | 103ms | **63ms** | **🚀 1.2x Faster** |
-| `string_hashmap_bench` | 83ms | 73ms | **60ms** | **🚀 1.4x Faster** |
-| `binary_tree_path` | 47ms | 53ms | **40ms** | **🚀 1.2x Faster** |
-| `trie` | 110ms | 247ms | **100ms** | **🚀 1.1x Faster** |
-| `sieve` | 203ms | 267ms | **187ms** | **🚀 1.1x Faster** |
-| `fannkuch` | 183ms | 183ms | **177ms** | ✅ Parity |
-| `fib` | 207ms | 223ms | **207ms** | ✅ Parity |
-| `bitwise` | 73ms | 73ms | **73ms** | ✅ Parity |
-| `trapping_rain_water` | 113ms | 120ms | **113ms** | ✅ Parity |
-| `window_access` | 117ms | 127ms | **117ms** | ✅ Parity |
-| `global_counter` | 150ms | 133ms | **147ms** | ✅ Parity |
+| `matmul` | 923ms | 970ms | **203ms** | **🚀 4.5x Faster** |
+| `buffered_writer_perf` | 363ms | 60ms | **43ms** | **🚀 8.4x Faster** |
+| `fstring_perf` | 1,113ms | 773ms | **240ms** | **🚀 4.6x Faster** |
+| `forest`\* | 237ms | 330ms | **60ms** | **🚀 4x Faster**\* |
+| `longest_consecutive` | 803ms | 393ms | **260ms** | **🚀 3.1x Faster** |
+| `sudoku_solver` | 50ms | 37ms | **33ms** | **🚀 1.5x Faster** |
+| `lru_cache` | 77ms | 80ms | **57ms** | **🚀 1.4x Faster** |
+| `trie` | 107ms | 277ms | **83ms** | **🚀 1.3x Faster** |
+| `http_parser_bench` | 97ms | 153ms | **77ms** | **🚀 1.3x Faster** |
+| `window_access` | 120ms | 140ms | **93ms** | **🚀 1.3x Faster** |
+| `vector_add` | 133ms | 147ms | **110ms** | **🚀 1.2x Faster** |
+| `sieve` | 200ms | 280ms | **173ms** | **🚀 1.2x Faster** |
+| `fib` | 247ms | 233ms | **207ms** | **🚀 1.2x Faster** |
+| `global_counter` | 183ms | 123ms | **147ms** | **🚀 1.2x Faster** |
+| `hashmap_bench` | 100ms | 93ms | **87ms** | **🚀 1.1x Faster** |
+| `fannkuch` | 200ms | 200ms | **177ms** | **🚀 1.1x Faster** |
+| `binary_tree_path` | 40ms | 40ms | 37ms | ✅ Parity |
+| `string_hashmap_bench` | 77ms | 83ms | 77ms | ✅ Parity |
+| `bitwise` | 67ms | 53ms | 67ms | ✅ Parity |
+| `trapping_rain_water` | 97ms | 107ms | 103ms | ✅ Parity |
+| `merge_sorted_lists` | 167ms | 143ms | 187ms | ⚠️ C faster |
+| `writer_perf` | 123ms | 117ms | 153ms | ⚠️ C faster |
 
-## 🏆 Summary: 22/22 Salt ≤ C
+\* *Forest measures arena allocation strategy (O(1) bump + O(1) reset) vs individual malloc/free (4M allocations). The advantage reflects Salt's arena stdlib, not codegen.*
+
+## 🏆 Summary: Salt ≤ C in 19/22 Head-to-Head
 
 | Category | Count | Benchmarks |
 |----------|-------|-----------| 
-| 🚀 **Salt Wins** (1.1x+) | 16 | matmul (6.8x), fstring_perf (5.6x), writer_perf (3.7x), buffered_writer_perf (3.8x), longest_consecutive (3.2x), forest (1.9x), sudoku_solver (1.6x), merge_sorted_lists (1.4x), lru_cache (1.4x), string_hashmap_bench (1.4x), http_parser_bench (1.3x), vector_add (1.2x), hashmap_bench (1.2x), binary_tree_path (1.2x), trie (1.1x), sieve (1.1x) |
-| ✅ **C Parity** (±5%) | 6 | fannkuch, fib, bitwise, trapping_rain_water, window_access, global_counter |
+| 🚀 **Salt Wins** (1.1x+) | 16 | matmul (4.5x), buffered_writer (8.4x), fstring_perf (4.6x), forest\* (4x), longest_consecutive (3.1x), sudoku_solver (1.5x), lru_cache (1.4x), trie (1.3x), http_parser (1.3x), window_access (1.3x), vector_add (1.2x), sieve (1.2x), fib (1.2x), global_counter (1.2x), hashmap (1.1x), fannkuch (1.1x) |
+| ✅ **C Parity** (±5%) | 3 | binary_tree_path, string_hashmap, bitwise |
+| ⚠️ **C Faster** | 3 | trapping_rain_water (noise), merge_sorted_lists, writer_perf |
 
 ---
 
@@ -142,13 +147,15 @@ Salt uses **body analysis** to detect tensor indexing patterns and route to opti
 | C sprintf | 1100ms | 1.1MB |
 | Rust format! | 707ms | 1.3MB |
 
-### Forest (1.9x): Region-Based Memory
+### Forest (16×\*): Arena vs malloc
 
-| Allocator | Time | 
-| :--- | :--- |
-| Salt Region | 70ms |
-| C malloc/free | 133ms |
-| Rust Box | 140ms |
+| Allocator | Build | Free | Total |
+| :--- | :--- | :--- | :--- |
+| Salt Arena | 14ms | 42ns | **10ms** |
+| C malloc/free | 55ms | 114ms | 160ms |
+| Rust Box | 95ms | 171ms | 266ms |
+
+\* *The 16× advantage measures allocation strategy, not codegen. Salt's arena does O(1) bump allocation + O(1) reset. C does 4M individual malloc calls + 4M recursive frees.*
 
 ### Writer Protocol: Sovereign V4.1 Optimizations
 

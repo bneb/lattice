@@ -1,9 +1,9 @@
 // benchmarks/syscall_bench.salt
-// Syscall Overhead Benchmark — measures raw int 0x80 round-trip cost.
+// Syscall Overhead Benchmark — measures raw SYSCALL/SYSRET round-trip cost.
 //
 // Methodology (lmbench-style):
 //   1. Warmup phase: 100 null syscalls to prime TLB + branch predictor
-//   2. Measurement: NUM_SAMPLES iterations of rdtsc → int 0x80 (eax=0) → rdtsc
+//   2. Measurement: NUM_SAMPLES iterations of rdtsc → syscall_noop → rdtsc
 //   3. Filter: discard samples < MIN_CYCLES (noise) or > MAX_CYCLES (preempted)
 //   4. Report: average cycles per null syscall
 //
@@ -13,38 +13,42 @@ package benchmarks.syscall_bench
 
 use kernel.drivers.serial
 use kernel.drivers.vga
+use kernel.core.timing
 
-extern fn rdtsc() -> u64;
 extern fn syscall_noop();
 extern fn syscall_escalate_ring0();
+extern fn get_bench_divisor() -> u64;
 
-const NUM_SAMPLES: i32 = 10000;
-const WARMUP: i32 = 100;
+const NUM_SAMPLES: i32 = 100;
+const WARMUP: i32 = 10;
 const MIN_CYCLES: u64 = 10;
 const MAX_CYCLES: u64 = 50000;
 
-pub fn run() {
+@no_mangle
+pub fn run_syscall_bench() {
     serial.print("BENCH:syscall:start\n");
-    vga.print("Syscall benchmark (10000 samples)...\n");
+
+    let divisor = get_bench_divisor();
+    let actual_samples = (NUM_SAMPLES as u64) / divisor;
+    let actual_warmup = (WARMUP as u64) / divisor;
+    let samples_i32 = if actual_samples < 1 { 1 } else { actual_samples as i32 };
+    let warmup_i32 = if actual_warmup < 1 { 1 } else { actual_warmup as i32 };
 
     // Phase 1: Warmup — prime instruction cache and branch predictor
-    let mut w: i32 = 0;
-    while w < WARMUP {
+    for _ in 0..warmup_i32 {
         syscall_noop();
-        w = w + 1;
     }
 
     // Phase 2: Measurement
     let mut total: u64 = 0;
     let mut valid: i32 = 0;
-    let mut min_cy: u64 = 999999999;
+    let mut min_cy: u64 = 0xFFFFFFFFFFFFFFFF;
     let mut max_cy: u64 = 0;
-    let mut i: i32 = 0;
 
-    while i < NUM_SAMPLES {
-        let t0 = rdtsc();
+    for _ in 0..samples_i32 {
+        let t0 = timing.get_cycles();
         syscall_noop();
-        let t1 = rdtsc();
+        let t1 = timing.get_cycles();
 
         let elapsed = t1 - t0;
 
@@ -61,7 +65,6 @@ pub fn run() {
                 }
             }
         }
-        i = i + 1;
     }
 
     // Re-escalate to Ring 0 — SYSRET left us at Ring 3,

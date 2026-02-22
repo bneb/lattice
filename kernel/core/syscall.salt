@@ -226,16 +226,10 @@ pub fn timer_preempt() {
     schedule_next();
 }
 
-// =============================================================================
-// sched_yield — Voluntary yield (called by Task 0 when queue is empty)
-// =============================================================================
-// Unlike timer_preempt which is called from ISR context, sched_yield
-// is called from normal kernel context (Task 0 with IF=1).
-// =============================================================================
-@no_mangle
-pub fn sched_yield() {
-    schedule_next();
-}
+// sched_yield — Voluntary yield
+// The @no_mangle implementation lives in scheduler.salt (full O(1) bitmap).
+// This extern declaration lets call sites in this file resolve the symbol.
+extern fn sched_yield();
 
 // =============================================================================
 // sys_brk — Linear Heap Growth (syscall 12)

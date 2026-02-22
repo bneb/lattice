@@ -1,99 +1,103 @@
 // =============================================================================
 // kernel/mem/slab.salt
-// Sovereign Slab Allocator for Fiber Stacks — Lock-Free with Reclamation
+// Sovereign Slab Allocator for Fiber Stacks — ABA-Proof Lock-Free Treiber Stack
 // =============================================================================
 //
 // Two-phase O(1) allocator:
 //   1. Fast path: Pop from a lock-free Treiber stack of recycled slots.
-//   2. Fallback:  Bump allocate from the virgin slab region.
+//   2. Fallback:  Atomic bump allocate from the virgin slab region.
 //
-// The Treiber stack uses CAS (cmpxchg) for thread-safety, mirroring the
-// pattern established in kernel/core/pmm.salt. Each recycled slot embeds
-// a RecycleNode at its base address, containing a single !llvm.ptr to the
-// next free slot.
+// ABA Protection:
+//   On x86_64, virtual addresses use only the bottom 48 bits. We pack a
+//   16-bit generation counter into bits 48-63 of the FREE_STACK_HEAD pointer.
+//   This allows a standard 64-bit cmpxchg (lock cmpxchgq) while remaining
+//   100% ABA-proof without needing cmpxchg16b.
 //
 // Memory layout:
 //   SLAB_BASE (0xFFFFFFFF90000000)
-//   ├── Slot 0:  [RecycleNode | 16KB stack space]
-//   ├── Slot 1:  [RecycleNode | 16KB stack space]
+//   ├── Slot 0:  [next_packed_ptr | 16KB stack space]
+//   ├── Slot 1:  [next_packed_ptr | 16KB stack space]
 //   └── ...
 //   └── Slot 10239
 //
-// Invariants (verified by Z3 contracts and the slab_reclaim_bench):
+// Invariants (verified by slab_reclaim_bench):
 //   - pop_stack returns addresses aligned to SLOT_SIZE (16KB)
 //   - push_stack only accepts addresses within the slab region
-//   - The bump counter never retreats
-//   - The Treiber stack is ABA-safe for single-threaded use (P2 adds CAS)
+//   - FRESH_ALLOC_COUNT plateaus once recycling kicks in
 // =============================================================================
 
 package kernel.mem
 
-import kernel.core.panic
+use kernel.drivers.serial
 
 // Constants derived from kernel/mem/mm_layout.salt (single source of truth).
-// Salt's compiler cannot handle cross-module const imports, so we mirror
-// the values here. Any change to mm_layout.salt must be reflected below.
-const SLAB_BASE: u64 = 0xFFFFFFFF90000000; // mm_layout.SLAB_BASE
-const SLOT_SIZE: u64 = 16384;              // mm_layout.SLAB_SLOT_SIZE
-const MAX_SLOTS: i32 = 10240;              // mm_layout.SLAB_MAX_FIBERS
-const SLAB_END: u64  = 0xFFFFFFFF9A000000; // mm_layout.SLAB_MAX
+const SLAB_BASE: u64 = 0xFFFFFFFF90000000;
+const SLOT_SIZE: u64 = 16384;
+const MAX_SLOTS: i32 = 10240;
+const SLAB_END: u64  = 0xFFFFFFFF9A000000;
+
+// Mask for the 48-bit address portion of a packed pointer.
+const ADDR_MASK: u64 = 0x0000FFFFFFFFFFFF;
 
 // =============================================================================
-// Recycle Free-List (Treiber Stack)
+// Packed Pointer Helpers
 // =============================================================================
-// Each free slot has a RecycleNode written at its base address.
-// The node contains a single pointer to the next free slot.
+// Bits 0-47:  Memory address (the actual pointer)
+// Bits 48-63: Generation counter (prevents the ABA problem)
 
-pub struct RecycleNode {
-    pub next: !llvm.ptr,
-}
-
-// Head of the Treiber stack. Null means the free-list is empty.
-global RECYCLE_HEAD: !llvm.ptr = 0 as !llvm.ptr;
+fn get_ptr(packed: u64) -> u64 { return packed & ADDR_MASK; }
+fn get_gen(packed: u64) -> u64 { return packed >> 48; }
+fn pack(ptr: u64, gen: u64) -> u64 { return (ptr & ADDR_MASK) | (gen << 48); }
 
 // =============================================================================
-// Bump Allocator (Fallback)
+// Global State
 // =============================================================================
-// Monotonically increasing counter. Only advances when the recycle list
-// is empty. This is the high-water mark of the slab.
-var bump_next: Atomic<i32> = 0;
+
+// Head of the Treiber stack. Packed: [16-bit gen | 48-bit addr].
+// Zero means the free-list is empty.
+pub global FREE_STACK_HEAD: u64 = 0;
+
+// Fresh allocation counter — high-water mark of virgin slot consumption.
+// Atomic for SMP safety on the bump allocator.
+pub global FRESH_ALLOC_COUNT: Atomic<i32> = 0;
 
 // =============================================================================
 // pop_stack — O(1) Lock-Free Stack Allocation
 // =============================================================================
-// Returns the BASE address of a 16KB slot. The caller must add SLOT_SIZE
-// to get the stack top (stacks grow downward on x86_64).
-//
-// Phase 1: Try the recycle Treiber stack (CAS pop).
-// Phase 2: Fall back to atomic bump allocation.
+// Returns the BASE address of a 16KB slot, or 0 if exhausted.
+// Phase 1: Try the recycle free-list (CAS pop with ABA protection).
+// Phase 2: Fall back to atomic bump allocation from virgin region.
 // =============================================================================
 @no_mangle
 pub fn pop_stack() -> u64 {
     // Phase 1: Try recycle free-list
     loop {
-        let head = RECYCLE_HEAD;
+        let current_packed = FREE_STACK_HEAD;
+        let current_ptr = get_ptr(current_packed);
+        let current_gen = get_gen(current_packed);
 
         // Empty free-list — fall through to bump allocator
-        if head == (0 as !llvm.ptr) {
-            // Phase 2: Bump allocate a virgin slot
-            let idx = bump_next.fetch_add(1);
-
+        if current_ptr == 0 {
+            // Phase 2: Atomic bump allocate a virgin slot
+            let idx = FRESH_ALLOC_COUNT.fetch_add(1);
             if idx >= MAX_SLOTS {
-                panic.panic("SLAB EXHAUSTED");
+                serial.print("SLAB EXHAUSTED\n");
                 return 0;
             }
-
-            return SLAB_BASE + (idx as u64 * SLOT_SIZE);
+            return SLAB_BASE + ((idx as u64) * SLOT_SIZE);
         }
 
-        // Read the next pointer from the head node
-        let next_node = (head as &RecycleNode).next;
+        // Read the next packed pointer from first 8 bytes of the head block
+        let link = current_ptr as &u64;
+        let next_ptr = get_ptr(link[0]);
 
-        // CAS: Atomically swap head to head.next
-        let (old_head, success) = cmpxchg(&RECYCLE_HEAD, head, next_node);
+        // Create new state: next pointer with incremented generation
+        let new_packed = pack(next_ptr, current_gen + 1);
 
+        // Hardware CAS: Attempt to swing head from current to next
+        let (old, success) = cmpxchg(&FREE_STACK_HEAD, current_packed, new_packed);
         if success {
-            return head as u64;
+            return current_ptr;
         }
         // CAS failed (concurrent modification) — retry
     }
@@ -104,16 +108,15 @@ pub fn pop_stack() -> u64 {
 // =============================================================================
 // push_stack — O(1) Lock-Free Stack Reclamation
 // =============================================================================
-// Returns a 16KB slot to the recycle free-list. The slot's base address
-// is reused to store a RecycleNode pointing to the current head.
-//
-// Contract: ptr must be within the slab region and aligned to SLOT_SIZE.
+// Returns a 16KB slot to the recycle free-list. Uses the first 8 bytes
+// of the freed block to store the next pointer in the LIFO chain.
 // =============================================================================
 @no_mangle
-pub fn push_stack(ptr: u64)
-    requires(ptr >= SLAB_BASE)
-{
-    // Defensive: reject addresses outside the slab region
+pub fn push_stack(ptr: u64) {
+    // Defensive: reject null or out-of-range addresses
+    if ptr == 0 {
+        return;
+    }
     if ptr < SLAB_BASE {
         return;
     }
@@ -121,17 +124,22 @@ pub fn push_stack(ptr: u64)
         return;
     }
 
+    let link = ptr as &mut u64;
+
     loop {
         // Snapshot current head
-        let head = RECYCLE_HEAD;
+        let current_packed = FREE_STACK_HEAD;
+        let current_ptr = get_ptr(current_packed);
+        let current_gen = get_gen(current_packed);
 
-        // Write a RecycleNode at the slot's base address
-        // This links the new node to the current head
-        *(ptr as &mut RecycleNode) = RecycleNode(head);
+        // Chain the freed block to the current head
+        link[0] = current_ptr;
 
-        // CAS: Atomically swap head to this node
-        let (old_head, success) = cmpxchg(&RECYCLE_HEAD, head, ptr as !llvm.ptr);
+        // Create new state: this block as head with incremented generation
+        let new_packed = pack(ptr, current_gen + 1);
 
+        // Hardware CAS: Attempt to swing head to this block
+        let (old, success) = cmpxchg(&FREE_STACK_HEAD, current_packed, new_packed);
         if success {
             return;
         }
@@ -140,14 +148,13 @@ pub fn push_stack(ptr: u64)
 }
 
 // =============================================================================
-// slab_watermark — Diagnostic: current bump counter value
+// slab_watermark — Diagnostic: fresh allocation count
 // =============================================================================
-// Returns the number of virgin slots consumed. Used by slab_reclaim_bench
-// to verify that recycled pops do not advance the bump counter.
+// Returns the total number of fresh (bump) allocations made.
+// If push/pop recycling works, this number plateaus after generation 1.
 // =============================================================================
 @no_mangle
 pub fn slab_watermark() -> i32 {
-    // Read the atomic counter. In single-threaded context this is exact.
-    // The fetch_add(0) idiom performs an atomic load.
-    return bump_next.fetch_add(0);
+    // Atomic load via fetch_add(0) identity — returns current value
+    return FRESH_ALLOC_COUNT.fetch_add(0);
 }

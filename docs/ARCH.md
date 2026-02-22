@@ -49,8 +49,8 @@ graph TD
     
     subgraph "Lattice Kernel (bare metal)"
         J["boot.S<br/>(Multiboot → Long Mode)"]
-        K["kmain<br/>(GDT → IDT → PIT → Scheduler)"]
-        L["Drivers<br/>(Serial, VGA, PIT)"]
+        K["kmain<br/>(GDT → IDT → PIT → Task 0 → Ring 3)"]
+        L["Drivers<br/>(Serial, VirtIO-Net, PIT)"]
     end
 
     A --> C --> D --> E --> F --> G --> H --> I
@@ -205,14 +205,13 @@ If the kernel calls `pmm.init(0x100000, 0x400000)`, Z3 proves `0x100000 < 0x4000
 
 ## 4. The Lattice Unikernel
 
-Lattice is a **unikernel**, meaning the application and kernel share a single address space with no protection boundaries. Safety is guaranteed by the **compiler** (Z3 proofs) rather than hardware mechanisms like MMU page tables or privilege rings.
+Lattice is a **hybrid unikernel** with Ring 0/3 isolation. The kernel runs in Ring 0, user processes run in Ring 3 with separate page tables. Safety is reinforced by the **compiler** (Z3 proofs) in addition to hardware protection mechanisms.
 
 ### Why This Matters
 
 | Traditional OS | Lattice |
 |---------------|---------|
-| Safety via MMU + Ring 0/3 isolation | Safety via Z3 compile-time proofs |
-| Syscall = `SYSCALL`/`SYSRET` (~1,007 cycles) | Function call (~3 cycles) |
+| Safety via MMU + Ring 0/3 isolation | Safety via Z3 compile-time proofs + hardware rings |
 | Driver crashes kernel | Driver is compiler-verified |
 | Runtime overhead for protection | Zero-overhead: protection at compile time |
 
@@ -221,32 +220,65 @@ Lattice is a **unikernel**, meaning the application and kernel share a single ad
 ```
 kernel/
 ├── arch/
-│   ├── x86/           # 32-bit bootstrap
-│   │   ├── boot.S     # Multiboot header → Protected Mode → Long Mode
-│   │   ├── isr_wrapper.S  # Interrupt Service Routine wrapper
-│   │   └── syscall_entry.S
-│   └── x86_64/        # 64-bit runtime
-│       ├── context_switch_asm.S  # GPR save/restore for fiber switch
-│       ├── fiber_loop.S          # Fiber entry trampoline
-│       └── rdtsc.S               # Cycle counter (benchmarking)
+│   ├── x86/              # 32-bit bootstrap + ISRs
+│   │   ├── boot.S        # Multiboot header → Protected Mode → Long Mode
+│   │   ├── isr_wrapper.S # Interrupt Service Routine wrapper
+│   │   ├── gdt.S         # GDT load + Ring 3 expansion
+│   │   └── syscall_entry_fast.S  # SYSCALL/SYSRET fast path
+│   └── x86_64/           # 64-bit runtime
+│       ├── proc_switch.S     # Ring 0/3 context switch
+│       ├── proc_helpers.S    # Address/trampoline helpers
+│       ├── rdtsc.S           # Cycle counter (benchmarking)
+│       ├── syscall_noop.S    # Null syscall stub (benchmarking)
+│       └── context_switch_asm.S  # Fiber context switch (GPR + FXSAVE)
+├── benchmarks/           # Self-hosted kernel benchmarks
+│   ├── suite.salt        # Benchmark harness + CPUID topology detection
+│   ├── alloc_bench.salt  # Arena allocation (59 cy KVM)
+│   ├── ring_of_fire.salt # Context switch — 4 fibers (487 cy KVM)
+│   ├── ring_of_fire_1k.salt  # Scheduler scalability — 1000 fibers
+│   ├── ipc_bench.salt    # Fiber-to-fiber IPC (297 cy KVM)
+│   ├── pmm_bench.salt    # Physical page alloc/free (73 cy KVM)
+│   ├── irq_latency_bench.salt  # PIT interrupt delivery
+│   ├── slab_stress_bench.salt  # Treiber stack CAS stress
+│   └── slab_reclaim_bench.salt # Ephemeral fiber slab reclaim
+├── boot/                 # Boot-time utilities
 ├── core/
-│   ├── main.salt       # kmain() — kernel entry point after boot.S
-│   ├── scheduler.salt  # Round-robin fiber scheduler (16 slots)
-│   ├── pmm.salt        # Lock-free physical memory manager (Treiber stack + CAS)
-│   ├── panic.salt      # Kernel panic with status codes to serial
-│   ├── context_switch.salt  # FFI bridge to assembly switch_stacks
-│   ├── io.salt         # Port I/O (inb/outb)
-│   ├── region.salt     # Memory region abstraction
-│   ├── syscall.salt    # Syscall dispatch
-│   └── timing.salt     # TSC-based timing
+│   ├── main.salt         # kmain() — kernel entry point
+│   ├── scheduler.salt    # Cooperative/preemptive round-robin scheduler
+│   ├── syscall.salt      # Syscall dispatch (SYSCALL/SYSRET + INT 0x80)
+│   ├── dispatcher.salt   # Task 0 immortal Ring 0 event loop
+│   ├── pulse.salt        # SPSC ring buffer (ISR → dispatcher)
+│   ├── process.salt      # Process table (16 slots)
+│   ├── exec_user.salt    # ELF loader + Ring 3 process spawner
+│   ├── pmm.salt          # Lock-free physical memory manager
+│   ├── vma.salt          # Virtual memory area factory
+│   ├── cpuid.salt        # CPUID detection (KVM vs TCG)
+│   ├── timing.salt       # Cycle counter wrappers
+│   ├── context.salt      # Fiber context structures
+│   ├── context_switch.salt  # Fiber switch Salt-side logic
+│   ├── nm_fpu.salt       # FPU state save/restore (FXSAVE/FXRSTOR)
+│   ├── elf_loader.salt   # Multiboot ELF section parser
+│   ├── memory.salt       # Memory subsystem init + verification
+│   ├── region.salt       # Region allocator
+│   └── panic.salt        # Kernel panic with serial diagnostics
 ├── drivers/
-│   ├── serial.salt     # COM1 UART (115200 baud, 8N1)
-│   ├── vga.salt        # VGA text mode (80×25 @ 0xB8000)
-│   └── pit.salt        # Programmable Interval Timer (100Hz)
+│   ├── serial.salt       # COM1 UART (115200 baud, 8N1)
+│   ├── vga.salt          # VGA text mode (80×25)
+│   ├── pit.salt          # PIT timer (100 Hz)
+│   ├── virtio.salt       # VirtIO transport layer
+│   └── virtio_net.salt   # VirtIO-Net driver
 ├── mem/
-│   └── slab.salt       # O(1) bump slab allocator (10,240 × 16KB slots)
-└── sched/
-    └── affinity.salt   # CPU affinity policies
+│   ├── slab_cache.salt   # Slab cache registry + factory
+│   ├── slab.salt         # O(1) slab allocator (Treiber stack + CAS)
+│   ├── page.salt         # Page-level operations
+│   ├── user_paging.salt  # Per-process page tables
+│   └── mm_layout.salt    # Memory map constants
+├── net/
+│   ├── eth.salt          # Ethernet frame parsing
+│   ├── ip.salt           # IPv4 parsing + checksum
+│   ├── udp.salt          # UDP datagram handling
+│   └── arp.salt          # ARP table
+└── sched/                # Scheduler support modules
 ```
 
 ---
@@ -261,20 +293,27 @@ sequenceDiagram
     participant Hardware
     
     BIOS/GRUB->>boot.S: Multiboot handoff (Protected Mode, 32-bit)
-    boot.S->>boot.S: Set up page tables (identity + higher-half)
+    boot.S->>boot.S: Set up page tables (1GB identity + higher-half)
     boot.S->>boot.S: Enable PAE + Long Mode (CR4.PAE, EFER.LME)
+    boot.S->>boot.S: Configure SYSCALL MSRs (STAR, LSTAR, FMASK)
     boot.S->>boot.S: Jump to 64-bit code segment
     Note over boot.S: Diagnostic output: "Y12Z789!X"
     boot.S->>kmain: Call kmain(magic, mb_info)
     
     kmain->>Hardware: serial.init() — COM1 UART @ 115200
     kmain->>Hardware: gdt.init() — Global Descriptor Table
-    kmain->>Hardware: idt.init() — Interrupt Descriptor Table (256 entries)
-    kmain->>Hardware: pit.init() — PIT @ 100Hz (Channel 0, Mode 2)
-    kmain->>kmain: scheduler.init() — Fiber slot 0 = kernel thread
-    kmain->>kmain: scheduler.start() — STI (enable interrupts)
-    kmain->>kmain: ring_of_fire.run_benchmark()
-    kmain->>Hardware: panic.halt() — CLI + HLT
+    kmain->>Hardware: idt.init() — Interrupt Descriptor Table
+    kmain->>Hardware: pit.init() — PIT @ 100Hz
+    kmain->>kmain: scheduler.init() — Fiber slot 0 = kernel
+    kmain->>kmain: pmm.init(32MB–64MB) — Physical Memory Manager
+    kmain->>kmain: slab_cache.init() — Slab allocator registry
+    kmain->>kmain: vma.init() — Virtual memory areas
+    kmain->>kmain: scheduler.start() — STI (preemptive mode)
+    kmain->>kmain: bench_suite_run() — Self-hosted benchmarks
+    kmain->>Hardware: tss.init_tss() + gdt.init_ring3() — Ring 3 ready
+    kmain->>kmain: Spawn Task 0 (Ring 0 dispatcher)
+    kmain->>kmain: Spawn Ring 3 user processes
+    kmain->>kmain: proc_context_switch() → first user process
 ```
 
 ### Boot Stages (Detailed)
@@ -282,14 +321,21 @@ sequenceDiagram
 | # | Stage | Component | What Happens | Why |
 |---|-------|-----------|-------------|-----|
 | 1 | **Multiboot** | `boot.S` | GRUB loads kernel ELF, sets up 32-bit Protected Mode | Standard x86 boot protocol |
-| 2 | **Page Tables** | `boot.S` | Identity-maps first 4MB + higher-half map at `0xFFFFFFFF80000000` | Higher-half kernel needs virtual addresses |
+| 2 | **Page Tables** | `boot.S` | 1GB identity map (512 × 2MB pages) + higher-half at `0xFFFFFFFF80000000` | Kernel + BSS + PMM all within mapped range |
 | 3 | **Long Mode** | `boot.S` | Enables PAE (CR4), Long Mode (EFER.LME), paging (CR0) | 64-bit mode required for full address space |
-| 4 | **Serial Init** | `serial.salt` | COM1 @ 115200 baud, 8N1, FIFO enabled with 14-byte threshold | **First** — all diagnostics depend on serial |
-| 5 | **GDT** | `gdt.salt` | 64-bit code/data segments, TSS | CPU needs valid segment descriptors for Long Mode |
-| 6 | **IDT** | `idt.salt` | 256-entry interrupt vector table, ISR wrappers | Must be set up before enabling interrupts (STI) |
-| 7 | **PIT** | `pit.salt` | Channel 0 at 100Hz (divisor = 11932) | Drives preemptive scheduling |
-| 8 | **Scheduler** | `scheduler.salt` | Marks fiber slot 0 (kernel) as active | Scheduler must exist before spawning fibers |
-| 9 | **STI** | `scheduler.start()` | Calls `enable_interrupts()` assembly FFI | Enables PIT interrupts → preemptive scheduling begins |
+| 4 | **SYSCALL MSRs** | `boot.S` | Programs EFER.SCE, STAR, LSTAR → `syscall_entry_fast`, FMASK = 0x200 | SYSCALL/SYSRET fast path for Ring 3 |
+| 5 | **Serial Init** | `serial.salt` | COM1 @ 115200 baud, 8N1, FIFO enabled | **First** — all diagnostics depend on serial |
+| 6 | **GDT** | `gdt.salt` | 64-bit code/data segments (flat 4GB, D/B=1, G=1) | CPU needs valid segment descriptors |
+| 7 | **IDT** | `idt.salt` | 256-entry interrupt vector table, ISR wrappers | Must be set up before enabling interrupts (STI) |
+| 8 | **PIT** | `pit.salt` | Channel 0 at 100Hz (divisor = 11932) | Drives preemptive scheduling |
+| 9 | **Scheduler** | `scheduler.salt` | Marks fiber slot 0 (kernel) as active | Scheduler must exist before spawning fibers |
+| 10 | **PMM** | `pmm.salt` | Initializes Treiber stack over 32MB–64MB physical range | Dynamic memory for slab, VMA, user pages |
+| 11 | **Slab Cache** | `slab_cache.salt` | Registry + factory for typed object caches | O(1) allocation for kernel structures |
+| 12 | **VMA** | `vma.salt` | Virtual memory area cache (32-byte objects) | `sys_brk` / `sys_mmap` support |
+| 13 | **STI** | `scheduler.start()` | Enables interrupts → preemptive scheduling begins | PIT drives timeslicing |
+| 14 | **Benchmarks** | `bench_suite_run()` | Runs self-hosted kernel benchmarks (alloc, IPC, ROF, PMM, IRQ) | Clean measurements before user processes |
+| 15 | **Ring 3** | `tss.init_tss()` + `gdt.init_ring3()` | TSS with RSP0, Ring 3 GDT entries (User CS/DS) | Hardware protection for user processes |
+| 16 | **Process Spawn** | `exec_user.spawn_process()` | Task 0 dispatcher + Ring 3 user processes with per-process page tables | Full userspace isolation |
 
 > [!CAUTION]
 > **Order matters.** The IDT _must_ be initialized before `scheduler.start()` calls `STI`. If interrupts fire before the IDT is set up, the CPU triple-faults and QEMU resets.
@@ -326,11 +372,13 @@ let (_, success) = cmpxchg(&FREE_LIST_HEAD, head, addr as !llvm.ptr);
 
 ### Slab Allocator (Fiber Stacks)
 
-Pre-allocated region at `0xFFFFFFFF90000000` with 10,240 × 16KB slots for fiber stacks. Allocation is **O(1)** via atomic `fetch_add`:
+The slab allocator uses a **lock-free Treiber stack** for O(1) allocation and deallocation. Each slab cache maintains a free list of pre-sized slots. The `slab_cache.salt` provides a registry/factory pattern, while `slab.salt` implements the core Treiber stack with `lock cmpxchgq` (ABA-proof CAS):
 
 ```salt
-let idx = free_list_head.fetch_add(1);
-return SLAB_BASE + (idx as u64 * SLOT_SIZE);
+// pop_stack: atomic CAS to pop from free list
+let (old_head, success) = cmpxchg(&FREE_LIST_HEAD, head, next);
+// push_stack: link freed slot back to head
+let (_, success) = cmpxchg(&FREE_LIST_HEAD, head, slot);
 ```
 
 ### Userspace Memory (runtime.c)
@@ -363,18 +411,22 @@ stateDiagram-v2
 ### Context Switch Path
 
 1. **Trigger**: Either `sched_yield()` (cooperative) or PIT timer ISR sets `yield_pending = true` (preemptive)
-2. **Find next**: Round-robin scan of `fibers[0..16]` for next `active == true`
+2. **Find next**: Round-robin scan of `fibers[0..16]` for next `active == true` (O(1) via BSF/TZCNT bitmap)
 3. **Switch**: Calls `switch_stacks(old_sp_ptr, new_sp)` via assembly FFI
-4. **Assembly** (`context_switch_asm.S`): Saves all GPRs + FXSAVE state on old stack, restores from new stack
+4. **Assembly** (`context_switch_asm.S`): Saves all GPRs + 512-byte FXSAVE/FXRSTOR state on old stack, restores from new stack
 
-### Performance
+### Performance (KVM — Intel Xeon 8151, Feb 2026)
 
 | Metric | Result |
 |--------|--------|
-| Context switch latency | **~1,719 cycles** |
+| Arena allocation | **59 cycles** (~15 ns) |
+| PMM alloc/free pair | **73 cycles** (~18 ns) |
+| IPC ping-pong | **297 cycles** (~74 ns) |
+| Context switch (4 fibers) | **487 cycles** (~122 ns) |
 | Fiber slots | 16 (configurable `MAX_FIBERS`) |
 | Stack per fiber | 16KB |
-| Scaling | Flat from 100 → 10,000 fibers |
+
+See [LATTICE_BENCHMARKS.md](LATTICE_BENCHMARKS.md) for full results and methodology.
 
 ---
 

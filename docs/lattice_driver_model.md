@@ -1,5 +1,8 @@
 # Lattice OS Driver Model specification
 
+> [!NOTE]
+> This document describes a **design target**, not the current implementation. The `Window<T>` and `map_window` primitives have not been implemented yet. Current Lattice drivers use raw port I/O (`io.outb`/`io.inb`) via assembly FFI and direct memory-mapped addresses. See [`kernel/drivers/`](../kernel/drivers/) for the current driver code.
+
 Lattice replaces the traditional kernel-mode driver model (Linux/Windows) with a compiler-verified, zero-overhead Safety Model.
 
 ## 1. The Core Thesis: "Compiler IS the OS"

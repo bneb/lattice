@@ -564,7 +564,9 @@ impl Type {
             Type::I16 | Type::U16 => 2,
             Type::I32 | Type::U32 | Type::F32 => 4,
             Type::I64 | Type::U64 | Type::Usize | Type::F64 => 8,
-            Type::Pointer { .. } | Type::Reference(_, _) | Type::Owned(_) | Type::Fn(_, _) | Type::Atomic(_) | Type::Generic(_) | Type::SelfType | Type::Unit => 8,
+            Type::Pointer { .. } | Type::Reference(_, _) | Type::Owned(_) | Type::Fn(_, _) | Type::Generic(_) | Type::SelfType | Type::Unit => 8,
+            // [SOVEREIGN FIX] Atomic<T> storage is T, not a pointer. Delegate to inner type.
+            Type::Atomic(inner) => inner.internal_size_of(struct_registry, depth + 1),
             Type::Array(inner, len, _) => inner.internal_size_of(struct_registry, depth + 1) * len,
             Type::Tensor(inner, dims) => inner.internal_size_of(struct_registry, depth + 1) * dims.iter().product::<usize>(),
             Type::Tuple(elems) => {
@@ -613,7 +615,9 @@ impl Type {
             Type::I16 | Type::U16 => 2,
             Type::I32 | Type::U32 | Type::F32 => 4,
             Type::I64 | Type::U64 | Type::Usize | Type::F64 => 8,
-            Type::Pointer { .. } | Type::Reference(_, _) | Type::Owned(_) | Type::Fn(_, _) | Type::Atomic(_) | Type::Generic(_) | Type::SelfType => 8,
+            Type::Pointer { .. } | Type::Reference(_, _) | Type::Owned(_) | Type::Fn(_, _) | Type::Generic(_) | Type::SelfType => 8,
+            // [SOVEREIGN FIX] Atomic<T> alignment follows inner type T.
+            Type::Atomic(inner) => inner.internal_align_of(struct_registry, depth + 1),
             Type::Array(inner, _, _) | Type::Tensor(inner, _) => inner.internal_align_of(struct_registry, depth + 1),
             Type::Tuple(elems) => {
                 elems.iter().map(|ty| ty.internal_align_of(struct_registry, depth + 1)).max().unwrap_or(1)

@@ -35,6 +35,7 @@ pub struct GdtEntry {
     access: u8,
     granularity: u8,
     base_high: u8,
+    _pad: u8,          // Padding: prevents codegen from overflowing into return address
 }
 
 // =============================================================================
@@ -81,25 +82,25 @@ global GDT_ENTRIES: [GdtEntry; 8];
 // init -- Basic 3-entry GDT for early boot
 // =============================================================================
 pub fn init() {
-    GDT_ENTRIES[0] = GdtEntry(0, 0, 0, 0, 0, 0);
+    GDT_ENTRIES[0] = GdtEntry(0, 0, 0, 0, 0, 0, 0);
 
-    let mut kcode = GdtEntry(0, 0, 0, 0, 0, 0);
+    let mut kcode = GdtEntry(0, 0, 0, 0, 0, 0, 0);
     kcode.limit_low = 0xFFFF;
     kcode.access = ACCESS_KERNEL_CODE;
     kcode.granularity = GRAN_CODE64;
     GDT_ENTRIES[1] = kcode;
 
-    let mut kdata = GdtEntry(0, 0, 0, 0, 0, 0);
+    let mut kdata = GdtEntry(0, 0, 0, 0, 0, 0, 0);
     kdata.limit_low = 0xFFFF;
     kdata.access = ACCESS_KERNEL_DATA;
     kdata.granularity = GRAN_DATA64;
     GDT_ENTRIES[2] = kdata;
 
-    GDT_ENTRIES[3] = GdtEntry(0, 0, 0, 0, 0, 0);
-    GDT_ENTRIES[4] = GdtEntry(0, 0, 0, 0, 0, 0);
-    GDT_ENTRIES[5] = GdtEntry(0, 0, 0, 0, 0, 0);
-    GDT_ENTRIES[6] = GdtEntry(0, 0, 0, 0, 0, 0);
-    GDT_ENTRIES[7] = GdtEntry(0, 0, 0, 0, 0, 0);
+    GDT_ENTRIES[3] = GdtEntry(0, 0, 0, 0, 0, 0, 0);
+    GDT_ENTRIES[4] = GdtEntry(0, 0, 0, 0, 0, 0, 0);
+    GDT_ENTRIES[5] = GdtEntry(0, 0, 0, 0, 0, 0, 0);
+    GDT_ENTRIES[6] = GdtEntry(0, 0, 0, 0, 0, 0, 0);
+    GDT_ENTRIES[7] = GdtEntry(0, 0, 0, 0, 0, 0, 0);
 }
 
 // =============================================================================
@@ -107,38 +108,38 @@ pub fn init() {
 // =============================================================================
 pub fn init_ring3(tss_addr: u64) {
     // Index 0: Null
-    GDT_ENTRIES[0] = GdtEntry(0, 0, 0, 0, 0, 0);
+    GDT_ENTRIES[0] = GdtEntry(0, 0, 0, 0, 0, 0, 0);
 
     // Index 1 (0x08): Kernel Code 64
-    let mut kcode = GdtEntry(0, 0, 0, 0, 0, 0);
+    let mut kcode = GdtEntry(0, 0, 0, 0, 0, 0, 0);
     kcode.limit_low = 0xFFFF;
     kcode.access = ACCESS_KERNEL_CODE;
     kcode.granularity = GRAN_CODE64;
     GDT_ENTRIES[1] = kcode;
 
     // Index 2 (0x10): Kernel Data 64
-    let mut kdata = GdtEntry(0, 0, 0, 0, 0, 0);
+    let mut kdata = GdtEntry(0, 0, 0, 0, 0, 0, 0);
     kdata.limit_low = 0xFFFF;
     kdata.access = ACCESS_KERNEL_DATA;
     kdata.granularity = GRAN_DATA64;
     GDT_ENTRIES[2] = kdata;
 
     // Index 3 (0x18): User Code 32 (DPL 3) -- SYSRET base (compat mode stub)
-    let mut ucode32 = GdtEntry(0, 0, 0, 0, 0, 0);
+    let mut ucode32 = GdtEntry(0, 0, 0, 0, 0, 0, 0);
     ucode32.limit_low = 0xFFFF;
     ucode32.access = ACCESS_USER_CODE;
     ucode32.granularity = GRAN_CODE32;
     GDT_ENTRIES[3] = ucode32;
 
     // Index 4 (0x20): User Data 64 (DPL 3) -- selector 0x23
-    let mut udata = GdtEntry(0, 0, 0, 0, 0, 0);
+    let mut udata = GdtEntry(0, 0, 0, 0, 0, 0, 0);
     udata.limit_low = 0xFFFF;
     udata.access = ACCESS_USER_DATA;
     udata.granularity = GRAN_DATA64;
     GDT_ENTRIES[4] = udata;
 
     // Index 5 (0x28): User Code 64 (DPL 3) -- selector 0x2B
-    let mut ucode64 = GdtEntry(0, 0, 0, 0, 0, 0);
+    let mut ucode64 = GdtEntry(0, 0, 0, 0, 0, 0, 0);
     ucode64.limit_low = 0xFFFF;
     ucode64.access = ACCESS_USER_CODE;
     ucode64.granularity = GRAN_CODE64;
@@ -151,7 +152,7 @@ pub fn init_ring3(tss_addr: u64) {
     let tss_base_high: u8 = ((tss_addr >> 24) & 0xFF) as u8;
     let tss_base_upper: u32 = ((tss_addr >> 32) & 0xFFFFFFFF) as u32;
 
-    let mut tss_lo = GdtEntry(0, 0, 0, 0, 0, 0);
+    let mut tss_lo = GdtEntry(0, 0, 0, 0, 0, 0, 0);
     tss_lo.limit_low = tss_limit;
     tss_lo.base_low = tss_base_low;
     tss_lo.base_mid = tss_base_mid;
@@ -160,7 +161,7 @@ pub fn init_ring3(tss_addr: u64) {
     tss_lo.base_high = tss_base_high;
     GDT_ENTRIES[6] = tss_lo;
 
-    let mut tss_hi = GdtEntry(0, 0, 0, 0, 0, 0);
+    let mut tss_hi = GdtEntry(0, 0, 0, 0, 0, 0, 0);
     tss_hi.limit_low = (tss_base_upper & 0xFFFF) as u16;
     tss_hi.base_low = ((tss_base_upper >> 16) & 0xFFFF) as u16;
     GDT_ENTRIES[7] = tss_hi;

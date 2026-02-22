@@ -27,6 +27,7 @@ extern fn proc_context_switch(old_rsp_ptr: u64, new_rsp: u64, new_cr3: u64, new_
 extern fn get_user_elf_a_addr() -> u64;
 extern fn get_user_elf_b_addr() -> u64;
 extern fn get_kernel_event_loop_addr() -> u64;
+extern fn bench_suite_run();
 
 // Local copies of process constants
 const MAX_PROCS: u64   = 16;
@@ -65,6 +66,11 @@ pub fn kmain(magic: u32, mb_info: &u8) {
 
     scheduler.start();
     serial.print("[Lattice] PREEMPTIVE MODE\n");
+
+    // =========================================================================
+    // BENCHMARK SUITE — runs before user processes for clean measurements
+    // =========================================================================
+    bench_suite_run();
 
     // GDT/TSS for Ring 3
     let kernel_rsp0: u64 = 0xFFFFFFFF80126000;

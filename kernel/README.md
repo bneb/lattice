@@ -22,21 +22,25 @@ export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
 
 ```
 Y12Z789!X
+LATTICE BOOT: Serial OK
 LATTICE BOOT: GDT...
 LATTICE BOOT: IDT...
 LATTICE BOOT: PIT...
 LATTICE BOOT: Scheduler...
+LATTICE BOOT: PMM...
+LATTICE BOOT: Slab Cache...
+LATTICE BOOT: VMA...
 
-========================================
-  LATTICE OS v0.5
-  Salt-Powered | Z3-Verified
-  10,240 Fiber Slots | 128MB RAM
-========================================
-
-[Lattice] PREEMPTIVE MODE (PIT Active)
-ROF: Starting Ring of Fire (1000 samples)...
-ROF Result: Avg Context Switch Gap = 1719 cycles
-BENCHMARK COMPLETE - HALTING
+LATTICE KERNEL BOOT [OK]
+[Lattice] PREEMPTIVE MODE
+[Lattice] GDT/TSS Ring 3 ready
+[spawn_kernel] Task 0 slot=0
+[Lattice] Task 0 (dispatcher) spawned
+[Lattice] SPAWNING PROCESSES
+[Lattice] Switching to first process...
+ALL TESTS PASSED: Memory subsystem verified
+[Task 0] Dispatcher thread started
+[B] Hello from Process B!
 ```
 
 The `Y12Z789!X` prefix is diagnostic output from the bootloader confirming successful 32-bit → 64-bit Long Mode transition.
@@ -46,32 +50,42 @@ The `Y12Z789!X` prefix is diagnostic output from the bootloader confirming succe
 ```mermaid
 graph TD
     A["boot.S<br/>(Multiboot → Long Mode)"] --> B["kmain<br/>(kernel/core/main.salt)"]
-    B --> C["GDT / IDT / PIC"]
+    B --> C["GDT / IDT / PIC / TSS"]
     B --> D["PIT Timer @ 100Hz"]
-    B --> E["Round-Robin Scheduler"]
-    B --> F["Ring of Fire Benchmark"]
+    B --> E["Reactive Scheduler"]
+    B --> MM["Dynamic Memory<br/>(PMM + Slab + VMA)"]
     
-    E --> G["Lock-Free PMM<br/>(Treiber Stack + CAS)"]
-    E --> H["O(1) Slab Allocator<br/>(10,240 fiber slots)"]
-    E --> I["Context Switch<br/>(~1,719 cycles)"]
+    B --> T0["Task 0<br/>(Ring 0 Dispatcher)"]
+    T0 --> PQ["Pulse Queue<br/>(SPSC Ring Buffer)"]
+    D -.->|"push event"| PQ
+    PQ -.->|"drain events"| T0
+    T0 -->|"sched_yield()"| E
     
-    F --> J["Serial Output<br/>(COM1 UART)"]
-    F --> K["VGA Text Mode<br/>(80×25 @ 0xB8000)"]
+    B --> R3["Ring 3 Processes<br/>(ELF Loader + User Paging)"]
+    E --> R3
+    E --> T0
+    
+    MM --> G["Lock-Free PMM<br/>(Treiber Stack + CAS)"]
+    MM --> H["O(1) Slab Allocator<br/>(Redzone Guards)"]
+    MM --> VMA["VMA Factory<br/>(sys_brk + sys_mmap)"]
+    
+    R3 --> J["Serial Output<br/>(COM1 UART)"]
     
     style A fill:#2d3748,color:#fff
     style B fill:#2b6cb0,color:#fff
-    style F fill:#c05621,color:#fff
+    style T0 fill:#c05621,color:#fff
+    style R3 fill:#276749,color:#fff
 ```
 
 ## Component Structure
 
 | Directory | Role | Key Invariant |
 |-----------|------|---------------|
-| [`core/`](./core) | Scheduler, PMM, syscalls, panic | **Memory Hoisting:** No dynamic allocation in critical paths |
-| [`arch/`](./arch) | x86_64 boot, GDT, IDT, ISRs | **C-Parity:** Context switch matches C implementation |
-| [`drivers/`](./drivers) | Serial (UART), VGA text, PIT | **Isolation:** Drivers cannot corrupt kernel state |
-| [`mem/`](./mem) | Slab allocator for fiber stacks | **O(1):** Bump allocation, zero free cost |
-| [`sched/`](./sched) | CPU affinity policies | **Fairness:** Round-robin guarantees |
+| [`core/`](./core) | Scheduler, PMM, syscalls, dispatcher, process mgmt | **Memory Hoisting:** No dynamic allocation in critical paths |
+| [`arch/`](./arch) | x86_64 boot, GDT/TSS, IDT, ISRs, SYSCALL fast path | **C-Parity:** Context switch matches C implementation |
+| [`drivers/`](./drivers) | Serial (UART), VirtIO-Net | **Isolation:** Drivers cannot corrupt kernel state |
+| [`mem/`](./mem) | Slab allocator, user paging, VMA, mm_layout | **O(1):** Bump allocation, zero free cost |
+| [`net/`](./net) | Ethernet, IP, UDP, ARP | **Zero-copy:** Packet parsing without allocation |
 
 ## Verified Kernel Primitives
 
@@ -91,15 +105,15 @@ pub fn alloc(size: u64) -> u64
 
 These contracts are checked by Z3 at every call site — if any caller could violate the precondition, the code **does not compile**.
 
-## Performance
+## Performance (KVM — Intel Xeon 8151, Feb 2026)
 
 | Metric | Result | Notes |
 |--------|--------|-------|
-| **Context Switch** | 1,719 cycles | Flat from 100 → 10,000 fibers |
-| **Syscall Latency** | 1,007 cycles | `SYSCALL`/`SYSRET` fast path (17.9× over `int 0x80`) |
-| **PMM Alloc** | O(1) | Lock-free CAS (Treiber stack) |
-| **Slab Alloc** | O(1) | Atomic fetch_add bump pointer |
-| **Region Alloc** | 6.6× faster than C | vs. libc malloc on 1M objects |
+| **Arena Alloc** | 59 cycles (~15 ns) | Bump pointer, L1 cache resident |
+| **PMM Alloc/Free** | 73 cycles (~18 ns) | Lock-free CAS (Treiber stack) |
+| **IPC Ping-Pong** | 297 cycles (~74 ns) | Fiber-to-fiber zero-copy yield |
+| **Context Switch** | 487 cycles (~122 ns) | Full GPR + 512B FXSAVE/FXRSTOR |
+| **Slab Alloc** | O(1) | Treiber stack with `lock cmpxchgq` |
 
 See [LATTICE_BENCHMARKS.md](../docs/LATTICE_BENCHMARKS.md) for full methodology.
 
