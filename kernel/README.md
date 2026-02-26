@@ -127,7 +127,8 @@ graph TD
 | [`arch/`](./arch) | x86_64 boot, GDT/TSS, IDT, ISRs, SMP, SYSCALL fast path (SWAPGS), preempt_stub (user_stack_init) | **4-Core SMP:** Sequential AP handshake with GS_BASE per-CPU data. **Preemptive ABI:** `invoke_preemptive_thread` + `preempt_return_to_scheduler`. **Ring 3:** `user_stack_init` (SS=0x23, CS=0x2B). |
 | [`drivers/`](./drivers) | Serial (UART), VirtIO-Net | **Isolation:** Drivers cannot corrupt kernel state |
 | [`mem/`](./mem) | Slab allocator (128-bit CAS), user paging, VMA, mm_layout | **O(1):** Bump allocation, zero free cost |
-| [`net/`](./net) | Ethernet, IP, UDP, ARP | **Zero-copy:** Packet parsing without allocation |
+| [`net/`](./net) | Ethernet, IP, UDP, ARP, **NetD bridges** (RX/TX SPSC), ARP cache (256-entry LRU), TCP connection manager (1024 TCBs), TCP parser + RFC 793 checksum | **Zero-copy:** Ring 3 data plane. Kernel is immune to packet-parsing RCE. |
+| [`lib/`](./lib) | SPSC ring buffer (ipc_shm) | **Lock-free:** Single-producer single-consumer queue |
 
 ## Verified Kernel Primitives
 
@@ -164,6 +165,9 @@ The `@pulse` verifier extends this to async functions: every path through a stat
 | **Context Switch** | 487 cycles (~122 ns) | Full GPR + 512B FXSAVE/FXRSTOR |
 | **Slab Alloc** | O(1) | Treiber stack with `lock cmpxchgq` |
 | **SIP IPC Ring** | 188 cycles (~47 ns) | 4-SPSC mailbox token pass (2.1× faster than seL4) |
+| **NetD RX throughput** | ~43 cy/pkt (KVM est.) | SPSC bridge push+pop, 47B UDP frame |
+| **NetD TX throughput** | ~46 cy/pkt (KVM est.) | SPSC bridge push+drain, 47B UDP frame |
+| **NetD C10M PPS** | ~60M+ PPS (KVM est.) | **6× C10M threshold** (10M PPS) |
 
 See [LATTICE_BENCHMARKS.md](../docs/LATTICE_BENCHMARKS.md) for full methodology.
 

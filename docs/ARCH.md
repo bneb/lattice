@@ -283,7 +283,8 @@ kernel/
 │   ├── smp_bench.salt    # Per-core PMM/slab throughput + AP boot verification
 │   ├── irq_latency_bench.salt  # PIT interrupt delivery
 │   ├── slab_stress_bench.salt  # Treiber stack CAS stress
-│   └── slab_reclaim_bench.salt # Ephemeral fiber slab reclaim
+│   ├── slab_reclaim_bench.salt # Ephemeral fiber slab reclaim
+│   └── netd_bench.salt         # NetD C10M: 19-gate data plane + TCP stack
 ├── boot/                 # Boot-time utilities
 ├── core/
 │   ├── main.salt         # kmain() — kernel entry point
@@ -327,7 +328,15 @@ kernel/
 │   ├── eth.salt          # Ethernet frame parsing
 │   ├── ip.salt           # IPv4 parsing + checksum
 │   ├── udp.salt          # UDP datagram handling
-│   └── arp.salt          # ARP table
+│   ├── arp.salt          # ARP table
+│   ├── netd_bridge.salt      # NetD RX: VirtIO → SPSC ring (len-prefixed)
+│   ├── netd_tx_bridge.salt   # NetD TX: SPSC ring → VirtIO (symmetric)
+│   ├── netd_parse.salt       # bswap16/32 + ARP header parse/build
+│   ├── netd_arp.salt         # 256-entry static ARP cache, LRU eviction
+│   ├── netd_tcp.salt         # 1024-entry static TCB pool (32KB)
+│   └── netd_tcp_parse.salt   # TCP parse/build + RFC 793 checksum
+├── lib/
+│   └── ipc_shm.salt          # SPSC ring buffer (producer/consumer)
 └── sched/                # Scheduler support modules
 ```
 

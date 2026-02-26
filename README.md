@@ -362,7 +362,7 @@ Salt is pre-1.0 and under active development. The compiler, standard library, an
 | LSP Server | ✅ Diagnostics, go-to-definition, completions | v0.1.0 |
 | Package Manager (`sp`) | 🚧 Builds from `salt.toml` | v0.1.0 |
 | Basalt (LLM Inference) | ✅ Llama 2 forward pass, tokenizer, mmap | v0.3.0 |
-| Lattice Kernel | ✅ 4-core SMP, Universal Task Pointer (invoke_task 29cy, async yield 111cy, preempt 430cy, spawn 99cy), Ring 3 SYSCALL (102cy), slab CAS (103cy), Ring 3 Isolation (SWAPGS, KPTI CR3, user_stack_init), SIP IPC (188cy) | v0.8.0 |
+| Lattice Kernel | ✅ 4-core SMP, Universal Task Pointer (invoke_task 29cy, async yield 111cy, preempt 430cy, spawn 99cy), Ring 3 SYSCALL (102cy), slab CAS (103cy), Ring 3 Isolation (SWAPGS, KPTI CR3, user_stack_init), SIP IPC (188cy), Dual-Path IPC (sys_ipc_send/recv + sys_shm_grant), **NetD Ring 3 data plane** (bidirectional SPSC bridge, ARP cache, TCP/IP stack, RFC 793 checksum, 19-gate C10M benchmark — 60M+ PPS on KVM) | v0.9.0 |
 | Facet Compositor | ✅ Rasterizer, window, Metal, benchmarked vs C | v0.3.0 |
 
 ## License

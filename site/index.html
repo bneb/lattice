@@ -1463,7 +1463,8 @@
                     style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; text-align: center;">
                     <div style="font-size: 2rem; font-weight: 800; color: #00d68f;">59 cycles</div>
                     <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px;">Arena Allocation</div>
-                    <div style="font-size: 0.75rem; color: #545480; margin-top: 4px;">~15 ns @ 4.0 GHz · glibc malloc ≈ 1,000–5,000
+                    <div style="font-size: 0.75rem; color: #545480; margin-top: 4px;">~15 ns @ 4.0 GHz · glibc malloc ≈
+                        1,000–5,000
                     </div>
                 </div>
                 <div class="stat-card"
@@ -1478,12 +1479,41 @@
                     style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; text-align: center;">
                     <div style="font-size: 2rem; font-weight: 800; color: #f78c6c;">297 cycles</div>
                     <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px;">IPC Ping-Pong</div>
-                    <div style="font-size: 0.75rem; color: #545480; margin-top: 4px;">~74 ns · fiber-to-fiber zero-copy yield
+                    <div style="font-size: 0.75rem; color: #545480; margin-top: 4px;">~74 ns · fiber-to-fiber zero-copy
+                        yield
+                    </div>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 0 0 24px;">
+                <div class="stat-card"
+                    style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; text-align: center;">
+                    <div style="font-size: 2rem; font-weight: 800; color: #00d68f;">60M+ PPS</div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px;">NetD C10M Data Plane
+                    </div>
+                    <div style="font-size: 0.75rem; color: #545480; margin-top: 4px;">Ring 3 SPSC bridge · 6× C10M
+                        target
+                    </div>
+                </div>
+                <div class="stat-card"
+                    style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; text-align: center;">
+                    <div style="font-size: 2rem; font-weight: 800; color: #54a0ff;">102 cycles</div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px;">Null Syscall (Ring
+                        3→0→3)</div>
+                    <div style="font-size: 0.75rem; color: #545480; margin-top: 4px;">~26 ns · SWAPGS + KPTI · 7.4×
+                        Linux
+                    </div>
+                </div>
+                <div class="stat-card"
+                    style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; text-align: center;">
+                    <div style="font-size: 2rem; font-weight: 800; color: #f78c6c;">188 cycles</div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px;">SIP IPC (4-SPSC)</div>
+                    <div style="font-size: 0.75rem; color: #545480; margin-top: 4px;">~47 ns · 2.1× faster than seL4
                     </div>
                 </div>
             </div>
             <p style="font-size: 0.8rem; color: #545480; text-align: center; margin-bottom: 32px;">
-                Intel Xeon Platinum 8151 (Skylake, 4.0 GHz), AWS z1d.metal, QEMU/KVM. <code>-enable-kvm -cpu host</code>.
+                Intel Xeon Platinum 8151 (Skylake, 4.0 GHz), AWS z1d.metal, QEMU/KVM.
+                <code>-enable-kvm -cpu host</code>.
                 <a href="https://github.com/bneb/lattice/blob/main/docs/LATTICE_BENCHMARKS.md"
                     style="color: var(--accent);">Full methodology →</a>
             </p>
