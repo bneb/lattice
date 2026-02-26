@@ -1,0 +1,193 @@
+// =============================================================================
+// kernel/net/netd_tcp.salt
+// NetD TCP Connection Manager — Static TCB Pool
+// =============================================================================
+//
+// Zero-allocation TCP connection tracking. 1024 Transmission Control Blocks
+// pre-allocated in a static array. A SYN flood can exhaust the pool but
+// CANNOT exhaust kernel memory or fragment the heap.
+//
+// Lookup is 4-tuple: (local_port, remote_ip, remote_port, protocol).
+// Allocation is linear scan for first CLOSED slot.
+//
+// "Aerospace Brutalism": deterministic 32KB footprint, bounded scan time.
+// =============================================================================
+
+package kernel.net.netd_tcp
+
+use kernel.drivers.serial
+
+// RFC 793 TCP States
+pub const TCP_CLOSED: u8       = 0;
+pub const TCP_LISTEN: u8       = 1;
+pub const TCP_SYN_SENT: u8     = 2;
+pub const TCP_SYN_RECEIVED: u8 = 3;
+pub const TCP_ESTABLISHED: u8  = 4;
+pub const TCP_FIN_WAIT_1: u8   = 5;
+pub const TCP_FIN_WAIT_2: u8   = 6;
+pub const TCP_CLOSE_WAIT: u8   = 7;
+pub const TCP_CLOSING: u8      = 8;
+pub const TCP_LAST_ACK: u8     = 9;
+pub const TCP_TIME_WAIT: u8    = 10;
+
+// TCP Flags
+pub const FLAG_FIN: u16 = 0x0001;
+pub const FLAG_SYN: u16 = 0x0002;
+pub const FLAG_RST: u16 = 0x0004;
+pub const FLAG_PSH: u16 = 0x0008;
+pub const FLAG_ACK: u16 = 0x0010;
+
+// The Transmission Control Block
+pub struct TcpConnection {
+    pub state: u8,
+    pub local_port: u16,
+    pub remote_port: u16,
+    pub remote_ip: u32,
+    pub seq_snd: u32,       // Next sequence number to send
+    pub seq_rcv: u32,       // Next sequence number expected to receive
+    pub wnd_snd: u16,       // Remote receiver's advertised window
+    pub wnd_rcv: u16,       // Our advertised window
+    pub last_activity: u64, // Monotonic timestamp
+}
+
+// Zero-Allocation Connection Pool — 1024 entries = ~32KB
+pub const MAX_TCP_SOCKETS: u64 = 1024;
+
+global TCP_POOL: [TcpConnection; 1024] = [TcpConnection {
+    state: 0,
+    local_port: 0,
+    remote_port: 0,
+    remote_ip: 0,
+    seq_snd: 0,
+    seq_rcv: 0,
+    wnd_snd: 0,
+    wnd_rcv: 0,
+    last_activity: 0,
+}; 1024];
+
+global TCP_ISN_COUNTER: u32 = 0x12345678;
+
+// =============================================================================
+// tcp_alloc — Allocate a TCB slot. Returns slot index or 0xFFFFFFFF.
+// =============================================================================
+pub fn alloc() -> u64 {
+    let mut i: u64 = 0;
+    while i < MAX_TCP_SOCKETS {
+        if TCP_POOL[i].state == TCP_CLOSED {
+            TCP_POOL[i].state = TCP_LISTEN;
+            return i;
+        }
+        i = i + 1;
+    }
+    return 0xFFFFFFFF;  // Pool exhausted
+}
+
+// =============================================================================
+// tcp_free — Release a TCB slot back to CLOSED state.
+// =============================================================================
+pub fn free(idx: u64) {
+    if idx >= MAX_TCP_SOCKETS {
+        return;
+    }
+    TCP_POOL[idx].state = TCP_CLOSED;
+    TCP_POOL[idx].local_port = 0;
+    TCP_POOL[idx].remote_port = 0;
+    TCP_POOL[idx].remote_ip = 0;
+    TCP_POOL[idx].seq_snd = 0;
+    TCP_POOL[idx].seq_rcv = 0;
+    TCP_POOL[idx].wnd_snd = 0;
+    TCP_POOL[idx].wnd_rcv = 0;
+    TCP_POOL[idx].last_activity = 0;
+}
+
+// =============================================================================
+// tcp_lookup — Find TCB by 4-tuple. Returns slot or 0xFFFFFFFF.
+// =============================================================================
+pub fn lookup(local_port: u16, remote_ip: u32, remote_port: u16) -> u64 {
+    let mut i: u64 = 0;
+    while i < MAX_TCP_SOCKETS {
+        if TCP_POOL[i].state != TCP_CLOSED {
+            if TCP_POOL[i].local_port == local_port
+            && TCP_POOL[i].remote_ip == remote_ip
+            && TCP_POOL[i].remote_port == remote_port {
+                return i;
+            }
+        }
+        i = i + 1;
+    }
+    return 0xFFFFFFFF;
+}
+
+// =============================================================================
+// get/set accessors for TCB fields
+// =============================================================================
+pub fn get_state(idx: u64) -> u8 {
+    if idx >= MAX_TCP_SOCKETS { return TCP_CLOSED; }
+    return TCP_POOL[idx].state;
+}
+
+pub fn set_state(idx: u64, state: u8) {
+    if idx >= MAX_TCP_SOCKETS { return; }
+    TCP_POOL[idx].state = state;
+}
+
+pub fn get_seq_snd(idx: u64) -> u32 {
+    if idx >= MAX_TCP_SOCKETS { return 0; }
+    return TCP_POOL[idx].seq_snd;
+}
+
+pub fn get_seq_rcv(idx: u64) -> u32 {
+    if idx >= MAX_TCP_SOCKETS { return 0; }
+    return TCP_POOL[idx].seq_rcv;
+}
+
+pub fn setup_connection(idx: u64, local_port: u16, remote_ip: u32,
+                         remote_port: u16, seq_snd: u32, seq_rcv: u32) {
+    if idx >= MAX_TCP_SOCKETS { return; }
+    TCP_POOL[idx].local_port = local_port;
+    TCP_POOL[idx].remote_ip = remote_ip;
+    TCP_POOL[idx].remote_port = remote_port;
+    TCP_POOL[idx].seq_snd = seq_snd;
+    TCP_POOL[idx].seq_rcv = seq_rcv;
+    TCP_POOL[idx].wnd_snd = 8192 as u16;
+    TCP_POOL[idx].wnd_rcv = 8192 as u16;
+}
+
+// =============================================================================
+// generate_isn — Monotonic ISN for SYN-ACK
+// =============================================================================
+pub fn generate_isn() -> u32 {
+    TCP_ISN_COUNTER = TCP_ISN_COUNTER + 64000;
+    return TCP_ISN_COUNTER;
+}
+
+// =============================================================================
+// active_count — Count non-CLOSED TCBs (for testing)
+// =============================================================================
+pub fn active_count() -> u64 {
+    let mut count: u64 = 0;
+    let mut i: u64 = 0;
+    while i < MAX_TCP_SOCKETS {
+        if TCP_POOL[i].state != TCP_CLOSED {
+            count = count + 1;
+        }
+        i = i + 1;
+    }
+    return count;
+}
+
+// =============================================================================
+// clear — Reset all TCBs (for testing)
+// =============================================================================
+pub fn clear() {
+    let mut i: u64 = 0;
+    while i < MAX_TCP_SOCKETS {
+        TCP_POOL[i].state = TCP_CLOSED;
+        TCP_POOL[i].local_port = 0;
+        TCP_POOL[i].remote_port = 0;
+        TCP_POOL[i].remote_ip = 0;
+        TCP_POOL[i].seq_snd = 0;
+        TCP_POOL[i].seq_rcv = 0;
+        i = i + 1;
+    }
+}

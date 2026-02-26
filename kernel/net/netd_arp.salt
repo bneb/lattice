@@ -1,0 +1,137 @@
+// =============================================================================
+// kernel/net/netd_arp.salt
+// NetD Static ARP Cache — Zero-Allocation IP→MAC Resolution
+// =============================================================================
+//
+// Fixed-size, pre-allocated ARP table. 256 entries. No malloc. No heap.
+// Lookup is linear scan (O(n), n=256 = 4KB = 1 cache line sweep on L2).
+// Eviction is LRU via monotonic timestamp.
+//
+// This guarantees that NetD can never crash from heap fragmentation or
+// memory exhaustion under a flood of ARP requests.
+//
+// "Aerospace Brutalism": deterministic memory footprint, bounded scan time.
+// =============================================================================
+
+package kernel.net.netd_arp
+
+use kernel.drivers.serial
+
+const ARP_TABLE_SIZE: u64 = 256;
+
+pub struct ArpEntry {
+    pub ip: u32,
+    pub mac: [u8; 6],
+    pub valid: bool,
+    pub timestamp: u64,
+}
+
+// Static ARP cache — zero-allocation
+global ARP_TABLE: [ArpEntry; 256] = [ArpEntry {
+    ip: 0,
+    mac: [0 as u8; 6],
+    valid: false,
+    timestamp: 0,
+}; 256];
+
+global ARP_CLOCK: u64 = 0;
+
+// =============================================================================
+// arp_lookup — Find MAC for a given IP. Returns true if found.
+// =============================================================================
+pub fn lookup(ip: u32, out_mac: &mut [u8; 6]) -> bool {
+    let mut i: u64 = 0;
+    while i < ARP_TABLE_SIZE {
+        if ARP_TABLE[i].valid && ARP_TABLE[i].ip == ip {
+            // Element-by-element copy via dereference (Salt limitation)
+            let mut j: u32 = 0;
+            while j < 6 {
+                (*out_mac)[j] = ARP_TABLE[i].mac[j];
+                j = j + 1;
+            }
+            // Touch timestamp for LRU
+            ARP_CLOCK = ARP_CLOCK + 1;
+            ARP_TABLE[i].timestamp = ARP_CLOCK;
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+// =============================================================================
+// arp_update — Insert or update an IP→MAC mapping
+// =============================================================================
+pub fn update(ip: u32, mac: [u8; 6]) {
+    ARP_CLOCK = ARP_CLOCK + 1;
+
+    // 1. Scan for existing entry to update
+    let mut i: u64 = 0;
+    while i < ARP_TABLE_SIZE {
+        if ARP_TABLE[i].valid && ARP_TABLE[i].ip == ip {
+            ARP_TABLE[i].mac = mac;
+            ARP_TABLE[i].timestamp = ARP_CLOCK;
+            return;
+        }
+        i = i + 1;
+    }
+
+    // 2. Find a free slot
+    i = 0;
+    while i < ARP_TABLE_SIZE {
+        if !ARP_TABLE[i].valid {
+            ARP_TABLE[i].ip = ip;
+            ARP_TABLE[i].mac = mac;
+            ARP_TABLE[i].valid = true;
+            ARP_TABLE[i].timestamp = ARP_CLOCK;
+            return;
+        }
+        i = i + 1;
+    }
+
+    // 3. Table full — evict oldest (LRU)
+    let mut oldest_idx: u64 = 0;
+    let mut oldest_ts: u64 = ARP_TABLE[0].timestamp;
+    i = 1;
+    while i < ARP_TABLE_SIZE {
+        if ARP_TABLE[i].timestamp < oldest_ts {
+            oldest_ts = ARP_TABLE[i].timestamp;
+            oldest_idx = i;
+        }
+        i = i + 1;
+    }
+
+    ARP_TABLE[oldest_idx].ip = ip;
+    ARP_TABLE[oldest_idx].mac = mac;
+    ARP_TABLE[oldest_idx].valid = true;
+    ARP_TABLE[oldest_idx].timestamp = ARP_CLOCK;
+}
+
+// =============================================================================
+// arp_entry_count — Count valid entries (for testing)
+// =============================================================================
+pub fn entry_count() -> u64 {
+    let mut count: u64 = 0;
+    let mut i: u64 = 0;
+    while i < ARP_TABLE_SIZE {
+        if ARP_TABLE[i].valid {
+            count = count + 1;
+        }
+        i = i + 1;
+    }
+    return count;
+}
+
+// =============================================================================
+// arp_clear — Reset entire table (for testing)
+// =============================================================================
+pub fn clear() {
+    let mut i: u64 = 0;
+    while i < ARP_TABLE_SIZE {
+        ARP_TABLE[i].valid = false;
+        ARP_TABLE[i].ip = 0;
+        ARP_TABLE[i].timestamp = 0;
+        i = i + 1;
+    }
+    ARP_CLOCK = 0;
+}

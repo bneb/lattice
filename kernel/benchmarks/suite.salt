@@ -28,6 +28,10 @@ extern fn run_utp_async_bench();  // utp_async_bench
 extern fn run_utp_preempt_bench(); // utp_preempt_bench
 extern fn run_utp_spawn_bench();  // utp_spawn_bench
 extern fn run_sip_ipc_ring(w0: u64, w1: u64, w2: u64, w3: u64);
+extern fn run_ipc_fastpath_bench(); // ipc_fastpath_bench
+extern fn run_shm_grant_bench(); // shm_grant_bench
+extern fn run_spsc_bench(); // spsc_bench
+extern fn run_netd_bench(); // netd_bench: 19-gate C10M data plane + TCP stack
 extern fn test_ring3_iretq_frame();  // ring3_test TDD Gate 1
 extern fn test_ring3_kpti();          // ring3_test TDD Gate 2
 extern fn test_kpti_user_pml4_isolated(); // ring3_test TDD Gate 6
@@ -138,6 +142,22 @@ pub fn bench_suite_run() {
     // ── 14. SIP IPC Ring (4-core token pass) ────────────────────────────
     serial.print("BENCH:suite:running sip_ipc_ring\n");
     run_sip_ipc_ring(0, 0, 0, 0);  // args unused in sequential mode
+
+    // ── 15. IPC Fast-Path Ping-Pong ─────────────────────────────────
+    serial.print("BENCH:suite:running ipc_fastpath_bench\n");
+    run_ipc_fastpath_bench();
+
+    // ── 16. Shared Memory Grant ─────────────────────────────────────
+    serial.print("BENCH:suite:running shm_grant_bench\n");
+    run_shm_grant_bench();
+
+    // ── 17. SPSC Ring Buffer ───────────────────────────────────────
+    serial.print("BENCH:suite:running spsc_bench\n");
+    run_spsc_bench();
+
+    // ── 18. NetD Data Plane ────────────────────────────────────────
+    serial.print("BENCH:suite:running netd_bench\n");
+    run_netd_bench();
 
     // ── Done ─────────────────────────────────────────────────────────
     serial.print("BENCHMARK SUITE COMPLETE\n");

@@ -1,0 +1,170 @@
+// =============================================================================
+// kernel/net/netd_parse.salt
+// NetD Protocol Parsers — Byte-Order Utilities + Wire-Format Parsing
+// =============================================================================
+//
+// User-space-ready parsing utilities for the NetD network daemon.
+// All multi-byte fields arrive in Network Byte Order (Big Endian) from
+// the wire. x86-64 is Little Endian. These functions handle the conversion.
+//
+// Design: Zero-allocation. All parsing is done into stack-local structs.
+// If a parsing bug causes a fault, it only crashes NetD (Ring 3), not
+// the kernel. This is the structural RCE immunity guarantee.
+// =============================================================================
+
+package kernel.net.netd_parse
+
+use kernel.drivers.serial
+
+// =============================================================================
+// Byte-Order Utilities
+// =============================================================================
+// x86-64 is Little Endian. Network Byte Order is Big Endian.
+// bswap16: swaps 0x0800 ↔ 0x0008 for EtherType, ports, etc.
+// bswap32: swaps 4-byte fields for IP addresses.
+
+pub fn bswap16(val: u16) -> u16 {
+    return ((val & 0x00FF) << 8) | ((val & 0xFF00) >> 8);
+}
+
+pub fn bswap32(val: u32) -> u32 {
+    let b0 = (val & 0xFF) as u32;
+    let b1 = ((val >> 8) & 0xFF) as u32;
+    let b2 = ((val >> 16) & 0xFF) as u32;
+    let b3 = ((val >> 24) & 0xFF) as u32;
+    return (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+}
+
+// =============================================================================
+// ARP Header — Wire format (28 bytes after ETH header)
+// =============================================================================
+pub struct ArpHeader {
+    pub htype: u16,       // Hardware Type (Ethernet = 1) — network order
+    pub ptype: u16,       // Protocol Type (IPv4 = 0x0800) — network order
+    pub hlen: u8,         // Hardware Address Length (6 for MAC)
+    pub plen: u8,         // Protocol Address Length (4 for IPv4)
+    pub oper: u16,        // Operation (1=Request, 2=Reply) — network order
+    pub sha: [u8; 6],     // Sender Hardware Address (MAC)
+    pub spa: u32,         // Sender Protocol Address (IPv4)
+    pub tha: [u8; 6],     // Target Hardware Address (MAC)
+    pub tpa: u32,         // Target Protocol Address (IPv4)
+}
+
+pub const ARP_OPER_REQUEST: u16 = 1;
+pub const ARP_OPER_REPLY: u16 = 2;
+
+// =============================================================================
+// parse_arp — Parse ARP packet from a raw byte buffer
+// =============================================================================
+// buf points to the start of the ARP payload (after the 14-byte ETH header).
+// All multi-byte fields are byte-swapped from network to host order.
+pub fn parse_arp(buf: u64, len: u64) -> ArpHeader {
+    let mut hdr = ArpHeader {
+        htype: 0, ptype: 0, hlen: 0, plen: 0, oper: 0,
+        sha: [0 as u8; 6], spa: 0,
+        tha: [0 as u8; 6], tpa: 0,
+    };
+
+    if len < 28 {
+        return hdr;
+    }
+
+    // Hardware type (bytes 0-1, big-endian)
+    let ht_hi = *(buf as &u8) as u16;
+    let ht_lo = *((buf + 1) as &u8) as u16;
+    hdr.htype = (ht_hi << 8) | ht_lo;
+
+    // Protocol type (bytes 2-3, big-endian)
+    let pt_hi = *((buf + 2) as &u8) as u16;
+    let pt_lo = *((buf + 3) as &u8) as u16;
+    hdr.ptype = (pt_hi << 8) | pt_lo;
+
+    // Hardware/Protocol lengths (bytes 4-5)
+    hdr.hlen = *((buf + 4) as &u8);
+    hdr.plen = *((buf + 5) as &u8);
+
+    // Operation (bytes 6-7, big-endian)
+    let op_hi = *((buf + 6) as &u8) as u16;
+    let op_lo = *((buf + 7) as &u8) as u16;
+    hdr.oper = (op_hi << 8) | op_lo;
+
+    // Sender MAC (bytes 8-13)
+    let mut i: u64 = 0;
+    while i < 6 {
+        hdr.sha[i as u32] = *((buf + 8 + i) as &u8);
+        i = i + 1;
+    }
+
+    // Sender IP (bytes 14-17, big-endian → stored in host order)
+    let s0 = *((buf + 14) as &u8) as u32;
+    let s1 = *((buf + 15) as &u8) as u32;
+    let s2 = *((buf + 16) as &u8) as u32;
+    let s3 = *((buf + 17) as &u8) as u32;
+    hdr.spa = (s0 << 24) | (s1 << 16) | (s2 << 8) | s3;
+
+    // Target MAC (bytes 18-23)
+    i = 0;
+    while i < 6 {
+        hdr.tha[i as u32] = *((buf + 18 + i) as &u8);
+        i = i + 1;
+    }
+
+    // Target IP (bytes 24-27, big-endian → stored in host order)
+    let d0 = *((buf + 24) as &u8) as u32;
+    let d1 = *((buf + 25) as &u8) as u32;
+    let d2 = *((buf + 26) as &u8) as u32;
+    let d3 = *((buf + 27) as &u8) as u32;
+    hdr.tpa = (d0 << 24) | (d1 << 16) | (d2 << 8) | d3;
+
+    return hdr;
+}
+
+// =============================================================================
+// build_arp — Build a 28-byte ARP packet at buf. Returns 28.
+// =============================================================================
+pub fn build_arp(buf: u64, oper: u16, sha: [u8; 6], spa: u32,
+                 tha: [u8; 6], tpa: u32) -> u32 {
+    // Hardware type = 1 (Ethernet), big-endian
+    *(buf as &mut u8) = 0;
+    *((buf + 1) as &mut u8) = 1;
+
+    // Protocol type = 0x0800 (IPv4), big-endian
+    *((buf + 2) as &mut u8) = 0x08;
+    *((buf + 3) as &mut u8) = 0x00;
+
+    // Hardware/Protocol lengths
+    *((buf + 4) as &mut u8) = 6;
+    *((buf + 5) as &mut u8) = 4;
+
+    // Operation, big-endian
+    *((buf + 6) as &mut u8) = ((oper >> 8) & 0xFF) as u8;
+    *((buf + 7) as &mut u8) = (oper & 0xFF) as u8;
+
+    // Sender MAC
+    let mut i: u32 = 0;
+    while i < 6 {
+        *((buf + 8 + i as u64) as &mut u8) = sha[i];
+        i = i + 1;
+    }
+
+    // Sender IP, big-endian
+    *((buf + 14) as &mut u8) = ((spa >> 24) & 0xFF) as u8;
+    *((buf + 15) as &mut u8) = ((spa >> 16) & 0xFF) as u8;
+    *((buf + 16) as &mut u8) = ((spa >> 8) & 0xFF) as u8;
+    *((buf + 17) as &mut u8) = (spa & 0xFF) as u8;
+
+    // Target MAC
+    i = 0;
+    while i < 6 {
+        *((buf + 18 + i as u64) as &mut u8) = tha[i];
+        i = i + 1;
+    }
+
+    // Target IP, big-endian
+    *((buf + 24) as &mut u8) = ((tpa >> 24) & 0xFF) as u8;
+    *((buf + 25) as &mut u8) = ((tpa >> 16) & 0xFF) as u8;
+    *((buf + 26) as &mut u8) = ((tpa >> 8) & 0xFF) as u8;
+    *((buf + 27) as &mut u8) = (tpa & 0xFF) as u8;
+
+    return 28;
+}

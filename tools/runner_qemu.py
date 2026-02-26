@@ -301,6 +301,7 @@ def build_kernel():
                  glob.glob(f"{KERNEL_ROOT}/sched/*.salt") + \
                  glob.glob(f"{KERNEL_ROOT}/net/*.salt") + \
                  glob.glob(f"{KERNEL_ROOT}/sys/*.salt") + \
+                 glob.glob(f"{KERNEL_ROOT}/lib/*.salt") + \
                  glob.glob(f"{KERNEL_ROOT}/arch/x86/*.salt")
     # Exclude df_test_runner.salt — only used for test_df mode, contains
     # bench_suite_run which conflicts with suite.o in normal bench mode
@@ -347,6 +348,10 @@ def build_benchmark(bench_file, kernel_objs):
         "utp_preempt_bench.salt",
         "utp_spawn_bench.salt",
         "sip_ipc_ring.salt",
+        "ipc_fastpath_bench.salt",
+        "shm_grant_bench.salt",
+        "spsc_bench.salt",
+        "netd_bench.salt",
     ]
     
     if len(sys.argv) > 1 and sys.argv[1] == "test_df":
@@ -439,7 +444,7 @@ def run_qemu_test(kernel_path, timeout=600, termination_string="BENCHMARK SUITE 
         '-no-reboot',
         '-serial', 'mon:stdio',
         '-device', 'virtio-net-pci,netdev=net0',
-        '-netdev', 'user,id=net0,hostfwd=udp::5555-:7'
+        '-netdev', 'user,id=net0,hostfwd=udp::5555-:5555'
     ]
 
     if use_kvm:

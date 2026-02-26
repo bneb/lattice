@@ -1,0 +1,167 @@
+// =============================================================================
+// kernel/net/netd_bridge.salt
+// NetD Kernel Bridge — VirtIO RX → SPSC Ring with Length-Prefixed Framing
+// =============================================================================
+//
+// This module is the kernel's ONLY role in the network data plane:
+//   1. Push raw Ethernet frames into the shared SPSC ring (length-prefixed)
+//   2. Fire sys_ipc_send to wake NetD
+//
+// Frame format in the SPSC ring:
+//   [2 bytes: frame_len (little-endian)] [frame_len bytes: raw Ethernet frame]
+//
+// The kernel does NOT parse MAC addresses, IP headers, or any protocol logic.
+// All protocol parsing happens in Ring 3 NetD, isolating the kernel from
+// packet-parsing RCE vulnerabilities.
+//
+// "Aerospace Brutalism" guarantees:
+//   - Zero malloc in the RX hot path
+//   - Single memory copy (DMA buffer → SPSC ring)
+//   - Sub-1000-cycle context switch to wake NetD
+// =============================================================================
+
+package kernel.net.netd_bridge
+
+use kernel.lib.ipc_shm
+use kernel.core.pmm
+use kernel.core.memory
+use kernel.drivers.serial
+
+// Control plane signal constants
+pub const CMD_RX_NOTIFY: u64 = 1;
+pub const CMD_LINK_UP: u64 = 2;
+pub const CMD_LINK_DOWN: u64 = 3;
+
+// Bridge state
+global NETD_PID: u64 = 0;
+global RX_RING_BASE: u64 = 0;
+global RX_RING_PHYS: u64 = 0;
+global BRIDGE_ACTIVE: bool = false;
+global FRAMES_PUSHED: u64 = 0;
+global FRAMES_DROPPED: u64 = 0;
+
+// =============================================================================
+// netd_bridge_init — Allocate shared page, init SPSC ring
+// =============================================================================
+// Called during kernel boot after NetD process is spawned.
+// The shared page is granted to NetD via sys_shm_grant (done separately
+// after process creation).
+//
+// Returns the physical address of the ring page (for sys_shm_grant).
+// =============================================================================
+pub fn init(netd_pid: u64) -> u64 {
+    // Allocate physical page for the SPSC ring
+    let phys = pmm.alloc();
+    if phys == 0 {
+        serial.print("[netd_bridge] FATAL: cannot allocate ring page\n");
+        return 0;
+    }
+
+    let base = memory.phys_to_virt(memory.PhysAddr { val: phys }).val;
+
+    // Initialize the SPSC ring header
+    ipc_shm.spsc_init(base);
+
+    // Store bridge state
+    NETD_PID = netd_pid;
+    RX_RING_BASE = base;
+    RX_RING_PHYS = phys;
+    BRIDGE_ACTIVE = true;
+
+    serial.print("[netd_bridge] initialized for NetD pid=");
+    serial.print_u64(netd_pid);
+    serial.print(" ring_phys=");
+    serial.print_u64(phys);
+    serial.print("\n");
+
+    return phys;
+}
+
+// =============================================================================
+// init_at — Initialize bridge with a pre-allocated ring buffer
+// =============================================================================
+// Used by benchmarks that need to control the ring buffer externally.
+pub fn init_at(netd_pid: u64, ring_base: u64) {
+    NETD_PID = netd_pid;
+    RX_RING_BASE = ring_base;
+    RX_RING_PHYS = 0;
+    BRIDGE_ACTIVE = true;
+
+    // Ring should already be initialized by caller
+}
+
+// =============================================================================
+// push_frame — Push a length-prefixed Ethernet frame into the SPSC ring
+// =============================================================================
+// Frame format: [2B len][N bytes frame]
+// Returns true if the frame was accepted, false if ring is full (drop).
+//
+// This function is designed to be called from the VirtIO RX ISR bottom half.
+// It must not block, must not allocate, and must not call any function
+// that can sleep.
+// =============================================================================
+pub fn push_frame(buf: u64, frame_len: u64) -> bool {
+    if !BRIDGE_ACTIVE {
+        return false;
+    }
+
+    // Need 2 bytes for length prefix + frame_len bytes for the frame
+    let total_needed = frame_len + 2;
+    let available_space = ipc_shm.spsc_free_space(RX_RING_BASE);
+
+    if available_space < total_needed {
+        FRAMES_DROPPED = FRAMES_DROPPED + 1;
+        return false;
+    }
+
+    // Push 2-byte length prefix (little-endian)
+    let len_lo = (frame_len & 0xFF) as u8;
+    let len_hi = ((frame_len >> 8) & 0xFF) as u8;
+    ipc_shm.spsc_push(RX_RING_BASE, len_lo);
+    ipc_shm.spsc_push(RX_RING_BASE, len_hi);
+
+    // Push the raw frame bytes
+    ipc_shm.spsc_push_bulk(RX_RING_BASE, buf, frame_len);
+
+    FRAMES_PUSHED = FRAMES_PUSHED + 1;
+    return true;
+}
+
+// =============================================================================
+// pop_frame_len — Pop the 2-byte length prefix from the ring
+// =============================================================================
+// Returns the frame length, or 0 if ring has < 2 bytes available.
+pub fn pop_frame_len(ring_base: u64) -> u64 {
+    let avail = ipc_shm.spsc_available(ring_base);
+    if avail < 2 {
+        return 0;
+    }
+
+    let lo = ipc_shm.spsc_pop(ring_base);
+    let hi = ipc_shm.spsc_pop(ring_base);
+
+    if lo < 0 || hi < 0 {
+        return 0;
+    }
+
+    return (lo as u64) | ((hi as u64) << 8);
+}
+
+// =============================================================================
+// Accessors
+// =============================================================================
+pub fn get_ring_base() -> u64 {
+    return RX_RING_BASE;
+}
+
+pub fn get_frames_pushed() -> u64 {
+    return FRAMES_PUSHED;
+}
+
+pub fn get_frames_dropped() -> u64 {
+    return FRAMES_DROPPED;
+}
+
+pub fn is_active() -> bool {
+    return BRIDGE_ACTIVE;
+}

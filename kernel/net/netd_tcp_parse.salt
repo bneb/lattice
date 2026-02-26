@@ -1,0 +1,214 @@
+// =============================================================================
+// kernel/net/netd_tcp_parse.salt
+// TCP Header Parser, Builder, and RFC 793 Checksum
+// =============================================================================
+//
+// Parses and constructs TCP segments. Implements the RFC 793 checksum
+// using the IPv4 pseudo-header without allocating a temporary buffer.
+//
+// TCP Header (20 bytes minimum, no options):
+//   [16b src_port][16b dst_port]
+//   [32b seq_num]
+//   [32b ack_num]
+//   [4b data_offset][6b reserved][6b flags][16b window]
+//   [16b checksum][16b urgent_ptr]
+//
+// All multi-byte fields are in Network Byte Order (Big Endian).
+// =============================================================================
+
+package kernel.net.netd_tcp_parse
+
+use kernel.drivers.serial
+use kernel.net.netd_parse
+
+const TCP_HEADER_SIZE: u32 = 20;
+
+pub struct TcpHeader {
+    pub src_port: u16,
+    pub dst_port: u16,
+    pub seq_num: u32,
+    pub ack_num: u32,
+    pub data_offset: u8,  // In 32-bit words (multiply by 4 for bytes)
+    pub flags: u16,       // Lower 9 bits of offset_and_flags
+    pub window: u16,
+    pub checksum: u16,
+    pub urgent: u16,
+}
+
+// =============================================================================
+// parse_tcp — Parse TCP header from raw bytes (already in host order)
+// =============================================================================
+pub fn parse_tcp(buf: u64, len: u64) -> TcpHeader {
+    let mut hdr = TcpHeader {
+        src_port: 0, dst_port: 0,
+        seq_num: 0, ack_num: 0,
+        data_offset: 0, flags: 0,
+        window: 0, checksum: 0, urgent: 0,
+    };
+
+    if len < 20 {
+        return hdr;
+    }
+
+    // Source port (bytes 0-1, big-endian → host)
+    let sp_hi = *(buf as &u8) as u16;
+    let sp_lo = *((buf + 1) as &u8) as u16;
+    hdr.src_port = (sp_hi << 8) | sp_lo;
+
+    // Destination port (bytes 2-3)
+    let dp_hi = *((buf + 2) as &u8) as u16;
+    let dp_lo = *((buf + 3) as &u8) as u16;
+    hdr.dst_port = (dp_hi << 8) | dp_lo;
+
+    // Sequence number (bytes 4-7)
+    let s0 = *((buf + 4) as &u8) as u32;
+    let s1 = *((buf + 5) as &u8) as u32;
+    let s2 = *((buf + 6) as &u8) as u32;
+    let s3 = *((buf + 7) as &u8) as u32;
+    hdr.seq_num = (s0 << 24) | (s1 << 16) | (s2 << 8) | s3;
+
+    // Acknowledgment number (bytes 8-11)
+    let a0 = *((buf + 8) as &u8) as u32;
+    let a1 = *((buf + 9) as &u8) as u32;
+    let a2 = *((buf + 10) as &u8) as u32;
+    let a3 = *((buf + 11) as &u8) as u32;
+    hdr.ack_num = (a0 << 24) | (a1 << 16) | (a2 << 8) | a3;
+
+    // Data offset + flags (bytes 12-13)
+    let of_hi = *((buf + 12) as &u8) as u16;
+    let of_lo = *((buf + 13) as &u8) as u16;
+    let offset_and_flags = (of_hi << 8) | of_lo;
+    hdr.data_offset = ((offset_and_flags >> 12) & 0x000F) as u8;
+    hdr.flags = offset_and_flags & 0x01FF;  // Lower 9 bits
+
+    // Window size (bytes 14-15)
+    let w_hi = *((buf + 14) as &u8) as u16;
+    let w_lo = *((buf + 15) as &u8) as u16;
+    hdr.window = (w_hi << 8) | w_lo;
+
+    // Checksum (bytes 16-17)
+    let c_hi = *((buf + 16) as &u8) as u16;
+    let c_lo = *((buf + 17) as &u8) as u16;
+    hdr.checksum = (c_hi << 8) | c_lo;
+
+    // Urgent pointer (bytes 18-19)
+    let u_hi = *((buf + 18) as &u8) as u16;
+    let u_lo = *((buf + 19) as &u8) as u16;
+    hdr.urgent = (u_hi << 8) | u_lo;
+
+    return hdr;
+}
+
+// =============================================================================
+// build_tcp — Build a 20-byte TCP header at buf. Returns 20.
+// =============================================================================
+// All fields written in Network Byte Order (Big Endian).
+pub fn build_tcp(buf: u64, src_port: u16, dst_port: u16,
+                  seq_num: u32, ack_num: u32,
+                  flags: u16, window: u16) -> u32 {
+    // Source port
+    *(buf as &mut u8) = ((src_port >> 8) & 0xFF) as u8;
+    *((buf + 1) as &mut u8) = (src_port & 0xFF) as u8;
+
+    // Destination port
+    *((buf + 2) as &mut u8) = ((dst_port >> 8) & 0xFF) as u8;
+    *((buf + 3) as &mut u8) = (dst_port & 0xFF) as u8;
+
+    // Sequence number
+    *((buf + 4) as &mut u8) = ((seq_num >> 24) & 0xFF) as u8;
+    *((buf + 5) as &mut u8) = ((seq_num >> 16) & 0xFF) as u8;
+    *((buf + 6) as &mut u8) = ((seq_num >> 8) & 0xFF) as u8;
+    *((buf + 7) as &mut u8) = (seq_num & 0xFF) as u8;
+
+    // Acknowledgment number
+    *((buf + 8) as &mut u8) = ((ack_num >> 24) & 0xFF) as u8;
+    *((buf + 9) as &mut u8) = ((ack_num >> 16) & 0xFF) as u8;
+    *((buf + 10) as &mut u8) = ((ack_num >> 8) & 0xFF) as u8;
+    *((buf + 11) as &mut u8) = (ack_num & 0xFF) as u8;
+
+    // Data offset (5 words = 20 bytes) + flags
+    // offset_and_flags = (data_offset << 12) | flags
+    let offset_and_flags: u16 = (5 << 12) | (flags & 0x01FF);
+    *((buf + 12) as &mut u8) = ((offset_and_flags >> 8) & 0xFF) as u8;
+    *((buf + 13) as &mut u8) = (offset_and_flags & 0xFF) as u8;
+
+    // Window size
+    *((buf + 14) as &mut u8) = ((window >> 8) & 0xFF) as u8;
+    *((buf + 15) as &mut u8) = (window & 0xFF) as u8;
+
+    // Checksum (set to 0 — caller fills after calculation)
+    *((buf + 16) as &mut u8) = 0;
+    *((buf + 17) as &mut u8) = 0;
+
+    // Urgent pointer
+    *((buf + 18) as &mut u8) = 0;
+    *((buf + 19) as &mut u8) = 0;
+
+    return TCP_HEADER_SIZE;
+}
+
+// =============================================================================
+// tcp_checksum — RFC 793 checksum with IPv4 pseudo-header
+// =============================================================================
+// Computes over: pseudo-header + TCP header + payload.
+// tcp_buf points to the 20-byte TCP header in wire format.
+// payload_len is the TCP payload length (0 for SYN/SYN-ACK).
+// src_ip and dst_ip are in HOST byte order.
+// The checksum field in the TCP header at tcp_buf MUST be 0.
+pub fn tcp_checksum(tcp_buf: u64, tcp_hdr_len: u32, payload_len: u32,
+                     src_ip: u32, dst_ip: u32) -> u16 {
+    let mut sum: u32 = 0;
+
+    // 1. IPv4 Pseudo-Header
+    // Source IP (two 16-bit words, network order)
+    sum = sum + ((src_ip >> 16) & 0xFFFF);
+    sum = sum + (src_ip & 0xFFFF);
+
+    // Destination IP
+    sum = sum + ((dst_ip >> 16) & 0xFFFF);
+    sum = sum + (dst_ip & 0xFFFF);
+
+    // Reserved (0) + Protocol (TCP = 6)
+    sum = sum + 6;
+
+    // TCP Length (header + payload)
+    let tcp_total: u32 = tcp_hdr_len + payload_len;
+    sum = sum + tcp_total;
+
+    // 2. TCP Header (word-by-word, including the zeroed checksum field)
+    let mut i: u32 = 0;
+    while i + 1 < tcp_hdr_len {
+        let hi = *((tcp_buf + i as u64) as &u8) as u32;
+        let lo = *((tcp_buf + i as u64 + 1) as &u8) as u32;
+        sum = sum + ((hi << 8) | lo);
+        i = i + 2;
+    }
+
+    // Handle odd trailing byte in header
+    if i < tcp_hdr_len {
+        let hi = *((tcp_buf + i as u64) as &u8) as u32;
+        sum = sum + (hi << 8);
+    }
+
+    // 3. TCP Payload (if any)
+    let payload_start = tcp_buf + tcp_hdr_len as u64;
+    let mut pi: u32 = 0;
+    while pi + 1 < payload_len {
+        let hi = *((payload_start + pi as u64) as &u8) as u32;
+        let lo = *((payload_start + pi as u64 + 1) as &u8) as u32;
+        sum = sum + ((hi << 8) | lo);
+        pi = pi + 2;
+    }
+    if pi < payload_len {
+        let hi = *((payload_start + pi as u64) as &u8) as u32;
+        sum = sum + (hi << 8);
+    }
+
+    // 4. Fold 32-bit sum to 16 bits
+    while (sum >> 16) != 0 {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+
+    // 5. One's complement
+    return ((sum ^ 0xFFFF) & 0xFFFF) as u16;
+}

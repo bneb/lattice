@@ -1,0 +1,148 @@
+// =============================================================================
+// kernel/net/netd_tx_bridge.salt
+// NetD TX Bridge — User-Space → VirtIO Transmission Pipeline
+// =============================================================================
+//
+// Symmetric to netd_bridge.salt (RX). NetD pushes length-prefixed frames
+// into the TX SPSC ring. The kernel drains the ring and feeds VirtIO TX.
+//
+// Frame format in the TX SPSC ring:
+//   [2 bytes: frame_len (little-endian)] [frame_len bytes: raw Ethernet frame]
+//
+// The kernel does NOT inspect frame contents. It trusts the length prefix
+// and forwards the payload directly to the VirtIO TX descriptor chain.
+//
+// "Aerospace Brutalism": zero-malloc, ISR-safe, single-copy TX path.
+// =============================================================================
+
+package kernel.net.netd_tx_bridge
+
+use kernel.lib.ipc_shm
+use kernel.core.pmm
+use kernel.core.memory
+use kernel.drivers.serial
+
+// Control plane signal constants
+pub const CMD_TX_NOTIFY: u64 = 4;
+
+// Bridge state
+global TX_RING_BASE: u64 = 0;
+global TX_RING_PHYS: u64 = 0;
+global TX_ACTIVE: bool = false;
+global TX_FRAMES_SENT: u64 = 0;
+global TX_FRAMES_DROPPED: u64 = 0;
+
+// =============================================================================
+// init — Allocate TX ring page, init SPSC
+// =============================================================================
+pub fn init() -> u64 {
+    let phys = pmm.alloc();
+    if phys == 0 {
+        serial.print("[tx_bridge] FATAL: cannot allocate TX ring page\n");
+        return 0;
+    }
+
+    let base = memory.phys_to_virt(memory.PhysAddr { val: phys }).val;
+    ipc_shm.spsc_init(base);
+
+    TX_RING_BASE = base;
+    TX_RING_PHYS = phys;
+    TX_ACTIVE = true;
+
+    serial.print("[tx_bridge] initialized ring_phys=");
+    serial.print_u64(phys);
+    serial.print("\n");
+
+    return phys;
+}
+
+// =============================================================================
+// init_at — Initialize with pre-allocated ring (for benchmarks)
+// =============================================================================
+pub fn init_at(ring_base: u64) {
+    TX_RING_BASE = ring_base;
+    TX_RING_PHYS = 0;
+    TX_ACTIVE = true;
+}
+
+// =============================================================================
+// push_frame — NetD pushes a frame into the TX ring (called from Ring 3)
+// =============================================================================
+// Frame format: [2B len (LE)][N bytes frame]
+// Returns true if accepted, false if ring full.
+pub fn push_frame(buf: u64, frame_len: u64) -> bool {
+    if !TX_ACTIVE {
+        return false;
+    }
+
+    // Runt/oversize protection
+    if frame_len < 14 || frame_len > 1514 {
+        TX_FRAMES_DROPPED = TX_FRAMES_DROPPED + 1;
+        return false;
+    }
+
+    let total_needed = frame_len + 2;
+    let free = ipc_shm.spsc_free_space(TX_RING_BASE);
+
+    if free < total_needed {
+        TX_FRAMES_DROPPED = TX_FRAMES_DROPPED + 1;
+        return false;
+    }
+
+    // Push 2-byte length prefix (little-endian)
+    let len_lo = (frame_len & 0xFF) as u8;
+    let len_hi = ((frame_len >> 8) & 0xFF) as u8;
+    ipc_shm.spsc_push(TX_RING_BASE, len_lo);
+    ipc_shm.spsc_push(TX_RING_BASE, len_hi);
+
+    // Push the raw frame bytes
+    ipc_shm.spsc_push_bulk(TX_RING_BASE, buf, frame_len);
+
+    TX_FRAMES_SENT = TX_FRAMES_SENT + 1;
+    return true;
+}
+
+// =============================================================================
+// pop_frame_len — Kernel drains: pop the 2-byte length prefix
+// =============================================================================
+pub fn pop_frame_len() -> u64 {
+    let avail = ipc_shm.spsc_available(TX_RING_BASE);
+    if avail < 2 {
+        return 0;
+    }
+
+    let lo = ipc_shm.spsc_pop(TX_RING_BASE);
+    let hi = ipc_shm.spsc_pop(TX_RING_BASE);
+
+    if lo < 0 || hi < 0 {
+        return 0;
+    }
+
+    return (lo as u64) | ((hi as u64) << 8);
+}
+
+// =============================================================================
+// pop_frame — Pop frame_len bytes into dst buffer
+// =============================================================================
+pub fn pop_frame(dst: u64, frame_len: u64) -> u64 {
+    return ipc_shm.spsc_pop_bulk(TX_RING_BASE, dst, frame_len);
+}
+
+// =============================================================================
+// Accessors
+// =============================================================================
+pub fn get_ring_base() -> u64 {
+    return TX_RING_BASE;
+}
+
+pub fn get_frames_sent() -> u64 {
+    return TX_FRAMES_SENT;
+}
+
+pub fn get_frames_dropped() -> u64 {
+    return TX_FRAMES_DROPPED;
+}
+
+pub fn is_active() -> bool {
+    return TX_ACTIVE;
+}
