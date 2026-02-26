@@ -1,0 +1,77 @@
+// =============================================================================
+// user/hello.salt
+// Ring 3 Process C: Structured Lifecycle Verification
+// =============================================================================
+//
+// Exercises the full syscall surface with machine-parseable markers:
+//   1. sys_brk(0)          — query initial heap boundary
+//   2. sys_brk(initial+4096) — expand heap by one page
+//   3. Write sentinel to heap — proves PMM/PTE/TLB correctness
+//   4. sys_write            — print structured PASS/FAIL to serial
+//   5. sys_exit(0)          — clean process termination
+//
+// Output markers (parsed by runner_qemu.py):
+//   PROC:C:BRK_PASS       — sys_brk heap expansion + write verified
+//   PROC:C:LIFECYCLE_PASS  — full lifecycle completed
+// =============================================================================
+
+package user.hello
+
+import user.lib.syscall
+
+extern fn sys_str_data(sv: &u64) -> u64;
+
+@no_mangle
+pub fn main() {
+    // ─── Phase 1: Announce ──────────────────────────────────────────────
+    let hello_msg = "[C] Hello from Process C!\n";
+    let hello_ptr = sys_str_data(&hello_msg);
+    syscall.write(hello_ptr, 26);
+
+    // ─── Phase 2: sys_brk Fire Test ─────────────────────────────────────
+    // Query current heap boundary
+    let initial_brk = syscall.brk(0);
+
+    // Expand by exactly one 4KB page
+    let new_brk = syscall.brk(initial_brk + 4096);
+
+    if new_brk > initial_brk {
+        // THE FIRE TEST: write to the newly mapped heap page.
+        // If PMM didn't allocate, PTE wasn't set, or TLB wasn't flushed,
+        // this write triggers a Ring 3 #PF → kernel panic.
+        let heap_ptr = (initial_brk + 8) as &mut u64;
+        *heap_ptr = 0xC0FFEE42;
+
+        // Verify the write stuck
+        let readback = *(heap_ptr as &u64);
+        if readback == 0xC0FFEE42 {
+            let pass_msg = "PROC:C:BRK_PASS\n";
+            let pass_ptr = sys_str_data(&pass_msg);
+            syscall.write(pass_ptr, 17);
+        }
+    }
+
+    // ─── Phase 3: Spin under preemption ─────────────────────────────────
+    // Stay alive long enough for the PIT timer to preempt us at least once,
+    // proving round-robin scheduling with PCID-tagged CR3 switches.
+    let mut i: u64 = 0;
+    while i < 3 {
+        let tick_msg = "[C] tick\n";
+        let tick_ptr = sys_str_data(&tick_msg);
+        syscall.write(tick_ptr, 9);
+
+        let mut spin: u64 = 0;
+        while spin < 5000000 {
+            spin = spin + 1;
+        }
+
+        i = i + 1;
+    }
+
+    // ─── Phase 4: Clean Exit ────────────────────────────────────────────
+    let done_msg = "PROC:C:LIFECYCLE_PASS\n";
+    let done_ptr = sys_str_data(&done_msg);
+    syscall.write(done_ptr, 22);
+
+    syscall.exit(0);
+}

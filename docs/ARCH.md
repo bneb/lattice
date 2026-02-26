@@ -49,8 +49,8 @@ graph TD
     
     subgraph "Lattice Kernel (bare metal)"
         J["boot.S<br/>(Multiboot → Long Mode)"]
-        K["kmain<br/>(GDT → IDT → PIT → Scheduler)"]
-        L["Drivers<br/>(Serial, VGA, PIT)"]
+        K["kmain<br/>(GDT → IDT → PIT → SMP → Task 0 → Ring 3)"]
+        L["Drivers<br/>(Serial, VirtIO-Net, PIT, APIC)"]
     end
 
     A --> C --> D --> E --> F --> G --> H --> I
@@ -99,6 +99,7 @@ flowchart LR
 |---|-------|------|--------------|--------|
 | 1 | **Parse & Type Check** | `salt-front` | Recursive-descent parsing, monomorphization, trait resolution | Typed AST |
 | 2 | **Z3 Verification** | `salt-front` (Z3 embedded) | Proves `requires`/`ensures` contracts. Proven → elide. Unproven → runtime check. | Proof results |
+| 2.5 | **Async Lowering** | `salt-front` | `async fn` → state machine CFG. `@pulse` verifier asserts all paths yield within cycle budget. | `BasicBlock` CFG |
 | 3 | **MLIR Emission** | `salt-front` | Emits textual MLIR using `affine`, `scf`, `func`, `arith`, `memref`, `llvm` dialects | `.mlir` file |
 | 4 | **Dialect Lowering** | `mlir-opt` | `--convert-scf-to-cf`, `--convert-func-to-llvm`, `--finalize-memref-to-llvm`, etc. | LLVM dialect MLIR |
 | 5 | **LLVM IR Translation** | `mlir-translate` | `--mlir-to-llvmir` | `.ll` file |
@@ -124,6 +125,9 @@ Salt's key compiler innovation is **body analysis**: the compiler inspects loop 
 | Parser | `salt-front/src/grammar/` | Custom recursive-descent parser |
 | Codegen | `salt-front/src/codegen/` | MLIR emission (30+ modules) |
 | Z3 Verification | `salt-front/src/codegen/verification/` | Contract proving, arena escape analysis |
+| @pulse Verifier | `salt-front/src/hir/verify_pulse_bounds/` | DFS path-cost analysis for async CFGs |
+| Async Lowering | `salt-front/src/hir/async_lower.rs` | CFG builder, state machine transformation |
+| Async Codegen | `salt-front/src/codegen/passes/async_to_state.rs` | MLIR emission: TaskFrame, jump tables, spill/reload |
 | Type System | `salt-front/src/types.rs` | Type representation and promotion |
 | Runtime | `salt-front/runtime.c` | Arena allocator, panic hooks, threading |
 
@@ -201,18 +205,47 @@ pub fn alloc() -> u64
 
 If the kernel calls `pmm.init(0x100000, 0x400000)`, Z3 proves `0x100000 < 0x400000` and the entire contract check is **erased from the binary**. The resulting MLIR contains only the function body — no guards, no branches, no overhead.
 
+### @pulse: Cycle-Budget Verification for Async Functions
+
+Async functions are compiled into stackless state machines. Without safeguards, a state machine that loops without yielding could starve other fibers on the same core. The `@pulse` verifier solves this at compile time.
+
+```mermaid
+flowchart LR
+    CFG["BasicBlock CFG<br/>(from async_lower.rs)"] --> DFS["DFS Path<br/>Enumerator"]
+    DFS --> COST["Cost Model<br/>arith=1, mem=4<br/>div=20, call=5"]
+    COST --> CHECK{"Σcost ≤ budget?"}
+    CHECK -->|Yes| PASS["✅ Verified"]
+    CHECK -->|No| FAIL["❌ Violation<br/>'insert yield here'"]
+    CFG --> LOOP{"Unbounded loop<br/>without yield?"}
+    LOOP -->|Yes| UB["❌ UnboundedLoop"]
+
+    style PASS fill:#38a169,color:#fff
+    style FAIL fill:#c05621,color:#fff
+    style UB fill:#c05621,color:#fff
+```
+
+**How it works:** After `build_cfg()` constructs the `BasicBlock` graph, the verifier DFS-enumerates all acyclic paths from entry to `Yield`/`Return`. Each path's cost is the sum of its statement costs. If any path exceeds the budget, the compiler rejects the function.
+
+| Operation | Cost (cycles) |
+|-----------|:---:|
+| Arithmetic (add, sub, mul) | 1 |
+| Comparison / branch | 1 |
+| Memory load/store | 4 |
+| Division / modulo | 20 |
+| Function call | 5 |
+| Unbounded loop (no yield) | ∞ |
+
 ---
 
 ## 4. The Lattice Unikernel
 
-Lattice is a **unikernel**, meaning the application and kernel share a single address space with no protection boundaries. Safety is guaranteed by the **compiler** (Z3 proofs) rather than hardware mechanisms like MMU page tables or privilege rings.
+Lattice is a **hybrid unikernel** with Ring 0/3 isolation. The kernel runs in Ring 0, user processes run in Ring 3 with separate page tables. Safety is reinforced by the **compiler** (Z3 proofs) in addition to hardware protection mechanisms.
 
 ### Why This Matters
 
 | Traditional OS | Lattice |
 |---------------|---------|
-| Safety via MMU + Ring 0/3 isolation | Safety via Z3 compile-time proofs |
-| Syscall = `SYSCALL`/`SYSRET` (~1,007 cycles) | Function call (~3 cycles) |
+| Safety via MMU + Ring 0/3 isolation | Safety via Z3 compile-time proofs + hardware rings |
 | Driver crashes kernel | Driver is compiler-verified |
 | Runtime overhead for protection | Zero-overhead: protection at compile time |
 
@@ -221,32 +254,81 @@ Lattice is a **unikernel**, meaning the application and kernel share a single ad
 ```
 kernel/
 ├── arch/
-│   ├── x86/           # 32-bit bootstrap
-│   │   ├── boot.S     # Multiboot header → Protected Mode → Long Mode
-│   │   ├── isr_wrapper.S  # Interrupt Service Routine wrapper
-│   │   └── syscall_entry.S
-│   └── x86_64/        # 64-bit runtime
-│       ├── context_switch_asm.S  # GPR save/restore for fiber switch
-│       ├── fiber_loop.S          # Fiber entry trampoline
-│       └── rdtsc.S               # Cycle counter (benchmarking)
+│   ├── x86/              # 32-bit bootstrap, ISRs, SMP
+│   │   ├── boot.S        # Multiboot header → Protected Mode → Long Mode → SYSCALL MSRs
+│   │   ├── isr_wrapper.S # Interrupt Service Routine wrapper
+│   │   ├── gdt.salt      # GDT setup + Ring 3 expansion
+│   │   ├── tss.salt      # TSS setup for Ring 3
+│   │   ├── acpi.salt     # ACPI RSDP/RSDT/MADT parser (CPU enumeration)
+│   │   ├── apic.salt     # Local APIC + MMIO access
+│   │   ├── smp.salt      # SMP controller: INIT-SIPI-SIPI AP bring-up + scheduler wiring
+│   │   ├── smp_test.salt # TDD tests for SMP bring-up (5 layers)
+│   │   ├── smp_helpers.S # GS_BASE MSR writes, atomic helpers
+│   │   ├── linker.ld     # Linker script (AP trampoline section)
+│   │   └── syscall_entry_fast.S  # SYSCALL/SYSRET fast path (SWAPGS, Ring 3 isolation)
+│   └── x86_64/           # 64-bit runtime
+│       ├── proc_switch.S     # Ring 0/3 context switch
+│       ├── proc_helpers.S    # Address/trampoline helpers
+│       ├── async_call.S      # invoke_task: 3-instruction indirect call (Universal Task Pointer)
+│       ├── preempt_stub.S    # Preemptive ABI wrapper (IRETQ frame, exit trampoline, user_stack_init for Ring 3)
+│       ├── rdtsc.S           # Cycle counter (benchmarking)
+│       ├── syscall_noop.S    # Null syscall stub (benchmarking)
+│       └── context_switch_asm.S  # Fiber context switch (GPR + FXSAVE)
+├── benchmarks/           # Self-hosted kernel benchmarks
+│   ├── suite.salt        # Benchmark harness + CPUID topology detection
+│   ├── alloc_bench.salt  # Arena allocation (60 cy KVM)
+│   ├── ctx_switch_bench.salt # Context switch scaling (4/16/64 fibers)
+│   ├── ipc_bench.salt    # Fiber-to-fiber IPC (284 cy KVM)
+│   ├── pmm_bench.salt    # Physical page alloc/free (78 cy KVM)
+│   ├── smp_bench.salt    # Per-core PMM/slab throughput + AP boot verification
+│   ├── irq_latency_bench.salt  # PIT interrupt delivery
+│   ├── slab_stress_bench.salt  # Treiber stack CAS stress
+│   └── slab_reclaim_bench.salt # Ephemeral fiber slab reclaim
+├── boot/                 # Boot-time utilities
 ├── core/
-│   ├── main.salt       # kmain() — kernel entry point after boot.S
-│   ├── scheduler.salt  # Round-robin fiber scheduler (16 slots)
-│   ├── pmm.salt        # Lock-free physical memory manager (Treiber stack + CAS)
-│   ├── panic.salt      # Kernel panic with status codes to serial
-│   ├── context_switch.salt  # FFI bridge to assembly switch_stacks
-│   ├── io.salt         # Port I/O (inb/outb)
-│   ├── region.salt     # Memory region abstraction
-│   ├── syscall.salt    # Syscall dispatch
-│   └── timing.salt     # TSC-based timing
+│   ├── main.salt         # kmain() — kernel entry point
+│   ├── scheduler.salt    # O(1) bitmap scheduler (per-core sharded, 256 fibers/core)
+│   ├── syscall.salt      # Syscall dispatch (SYSCALL/SYSRET + INT 0x80)
+│   ├── dispatcher.salt   # Task 0 immortal Ring 0 event loop
+│   ├── pulse.salt        # SPSC ring buffer (ISR → dispatcher)
+│   ├── process.salt      # Process table (16 slots)
+│   ├── exec_user.salt    # ELF loader + Ring 3 process spawner
+│   ├── pmm.salt          # Lock-free physical memory manager (per-core sharding)
+│   ├── percpu.salt       # Per-CPU data structure (GS segment indexed)
+│   ├── percpu_test.salt  # TDD tests for per-core sharding
+│   ├── vma.salt          # Virtual memory area factory
+│   ├── cpuid.salt        # CPUID detection (KVM vs TCG)
+│   ├── timing.salt       # Cycle counter wrappers
+│   ├── context.salt      # Fiber context structures
+│   ├── context_switch.salt  # Fiber switch Salt-side logic
+│   ├── async_test.salt   # TDD tests for async fiber dispatch (4 layers)
+│   ├── preempt_test.salt # TDD tests for preemptive unification (6 layers)
+│   ├── nm_fpu.salt       # FPU state save/restore (FXSAVE/FXRSTOR)
+│   ├── elf_loader.salt   # Multiboot ELF section parser
+│   ├── memory.salt       # Memory subsystem init + verification
+│   ├── region.salt       # Region allocator
+│   ├── ring3_test.salt   # Ring 3 TDD tests (IRETQ frame, KPTI CR3, end-to-end SYSCALL)
+│   └── panic.salt        # Kernel panic with serial diagnostics
 ├── drivers/
-│   ├── serial.salt     # COM1 UART (115200 baud, 8N1)
-│   ├── vga.salt        # VGA text mode (80×25 @ 0xB8000)
-│   └── pit.salt        # Programmable Interval Timer (100Hz)
+│   ├── serial.salt       # COM1 UART (115200 baud, 8N1)
+│   ├── vga.salt          # VGA text mode (80×25)
+│   ├── pit.salt          # PIT timer (100 Hz)
+│   ├── virtio.salt       # VirtIO transport layer
+│   └── virtio_net.salt   # VirtIO-Net driver
 ├── mem/
-│   └── slab.salt       # O(1) bump slab allocator (10,240 × 16KB slots)
-└── sched/
-    └── affinity.salt   # CPU affinity policies
+│   ├── slab_cache.salt   # Slab cache registry + factory
+│   ├── slab.salt         # O(1) slab allocator (Treiber stack + CAS)
+│   ├── page.salt         # Page-level operations
+│   ├── user_paging.salt  # Per-process page tables
+│   └── mm_layout.salt    # Memory map constants
+├── user/
+│   └── ring3_payload.S   # Minimal Ring 3 binary: syscall(60, 42)
+├── net/
+│   ├── eth.salt          # Ethernet frame parsing
+│   ├── ip.salt           # IPv4 parsing + checksum
+│   ├── udp.salt          # UDP datagram handling
+│   └── arp.salt          # ARP table
+└── sched/                # Scheduler support modules
 ```
 
 ---
@@ -261,20 +343,32 @@ sequenceDiagram
     participant Hardware
     
     BIOS/GRUB->>boot.S: Multiboot handoff (Protected Mode, 32-bit)
-    boot.S->>boot.S: Set up page tables (identity + higher-half)
+    boot.S->>boot.S: Set up page tables (1GB identity + higher-half)
     boot.S->>boot.S: Enable PAE + Long Mode (CR4.PAE, EFER.LME)
+    boot.S->>boot.S: Configure SYSCALL MSRs (STAR, LSTAR, FMASK)
     boot.S->>boot.S: Jump to 64-bit code segment
     Note over boot.S: Diagnostic output: "Y12Z789!X"
     boot.S->>kmain: Call kmain(magic, mb_info)
     
     kmain->>Hardware: serial.init() — COM1 UART @ 115200
     kmain->>Hardware: gdt.init() — Global Descriptor Table
-    kmain->>Hardware: idt.init() — Interrupt Descriptor Table (256 entries)
-    kmain->>Hardware: pit.init() — PIT @ 100Hz (Channel 0, Mode 2)
-    kmain->>kmain: scheduler.init() — Fiber slot 0 = kernel thread
-    kmain->>kmain: scheduler.start() — STI (enable interrupts)
-    kmain->>kmain: ring_of_fire.run_benchmark()
-    kmain->>Hardware: panic.halt() — CLI + HLT
+    kmain->>Hardware: idt.init() — Interrupt Descriptor Table
+    kmain->>Hardware: pit.init() — PIT @ 100Hz
+    kmain->>Hardware: run_smp_tests() — ACPI parse → APIC → AP boot (INIT-SIPI-SIPI)
+    kmain->>kmain: percpu_init_bsp() — GS segment → per-CPU data block
+    kmain->>kmain: pmm_init_cpu_count() + init_cores() — Per-core allocator setup
+    kmain->>kmain: scheduler.init() — Fiber slot 0 = kernel (BSP only)
+    kmain->>kmain: pmm.init(32MB–64MB) — Physical Memory Manager
+    kmain->>kmain: slab_cache.init() — Slab allocator registry
+    kmain->>kmain: vma.init() — Virtual memory areas
+    kmain->>kmain: run_percpu_tests() — Per-core sharding TDD tests (GS, PMM, slab, scheduler)
+    kmain->>kmain: smp_release_aps() — Set AP_GO_FLAG, APs enter idle loop
+    kmain->>kmain: scheduler.start() — STI (preemptive mode)
+    kmain->>kmain: bench_suite_run() — Self-hosted benchmarks (8 active)
+    kmain->>Hardware: tss.init_tss() + gdt.init_ring3() — Ring 3 ready
+    kmain->>kmain: Spawn Task 0 (Ring 0 dispatcher)
+    kmain->>kmain: Spawn Ring 3 user processes
+    kmain->>kmain: proc_context_switch() → first user process
 ```
 
 ### Boot Stages (Detailed)
@@ -282,14 +376,28 @@ sequenceDiagram
 | # | Stage | Component | What Happens | Why |
 |---|-------|-----------|-------------|-----|
 | 1 | **Multiboot** | `boot.S` | GRUB loads kernel ELF, sets up 32-bit Protected Mode | Standard x86 boot protocol |
-| 2 | **Page Tables** | `boot.S` | Identity-maps first 4MB + higher-half map at `0xFFFFFFFF80000000` | Higher-half kernel needs virtual addresses |
+| 2 | **Page Tables** | `boot.S` | 1GB identity map (512 × 2MB pages) + higher-half at `0xFFFFFFFF80000000` | Kernel + BSS + PMM all within mapped range |
 | 3 | **Long Mode** | `boot.S` | Enables PAE (CR4), Long Mode (EFER.LME), paging (CR0) | 64-bit mode required for full address space |
-| 4 | **Serial Init** | `serial.salt` | COM1 @ 115200 baud, 8N1, FIFO enabled with 14-byte threshold | **First** — all diagnostics depend on serial |
-| 5 | **GDT** | `gdt.salt` | 64-bit code/data segments, TSS | CPU needs valid segment descriptors for Long Mode |
-| 6 | **IDT** | `idt.salt` | 256-entry interrupt vector table, ISR wrappers | Must be set up before enabling interrupts (STI) |
-| 7 | **PIT** | `pit.salt` | Channel 0 at 100Hz (divisor = 11932) | Drives preemptive scheduling |
-| 8 | **Scheduler** | `scheduler.salt` | Marks fiber slot 0 (kernel) as active | Scheduler must exist before spawning fibers |
-| 9 | **STI** | `scheduler.start()` | Calls `enable_interrupts()` assembly FFI | Enables PIT interrupts → preemptive scheduling begins |
+| 4 | **SYSCALL MSRs** | `boot.S` | Programs EFER.SCE, STAR, LSTAR → `syscall_entry_fast`, FMASK = 0x200 | SYSCALL/SYSRET fast path for Ring 3 |
+| 5 | **Serial Init** | `serial.salt` | COM1 @ 115200 baud, 8N1, FIFO enabled | **First** — all diagnostics depend on serial |
+| 6 | **GDT** | `gdt.salt` | 64-bit code/data segments (flat 4GB, D/B=1, G=1) | CPU needs valid segment descriptors |
+| 7 | **IDT** | `idt.salt` | 256-entry interrupt vector table, ISR wrappers | Must be set up before enabling interrupts (STI) |
+| 8 | **PIT** | `pit.salt` | Channel 0 at 100Hz (divisor = 11932) | Drives preemptive scheduling |
+| 9 | **SMP Bring-up** | `smp.salt` | ACPI MADT parse → APIC enable → INIT-SIPI-SIPI for each AP (sequential, per-AP handshake) | Multi-core CPU enumeration and AP wake |
+| 10 | **Per-CPU Init** | `percpu.salt` | BSP GS segment → `PerCpuData` block; per-core PMM/slab setup | `get_cpu_id()` via `mov rax, gs:[0]` |
+| 11 | **Scheduler** | `scheduler.salt` | Marks fiber slot 0 (kernel) as active on BSP | Scheduler must exist before spawning fibers |
+| 12 | **PMM** | `pmm.salt` | Initializes Treiber stack over 32MB–64MB physical range | Dynamic memory for slab, VMA, user pages |
+| 13 | **Slab Cache** | `slab_cache.salt` | Registry + factory for typed object caches | O(1) allocation for kernel structures |
+| 14 | **VMA** | `vma.salt` | Virtual memory area cache (32-byte objects) | `sys_brk` / `sys_mmap` support |
+| 15 | **Per-Core Tests** | `percpu_test.salt` | TDD assertions: BSP GS, PMM, slab, scheduler, zero contention | Validates GS-indexed per-CPU data paths |
+| 15.5 | **Async Fiber Tests** | `async_test.salt` | TDD assertions: Poll ABI, spawn_async slot, immediate completion, multi-step coroutine | Validates async dispatch via `invoke_task` |
+| 15.75 | **Preemptive Unification Tests** | `preempt_test.salt` | 6-layer bottom-up TDD: symbol resolve, IRETQ frame validation, direct dispatch, invoke_task wrapper, spawn+yield integration | Validates the Universal Task Pointer end-to-end |
+| 16 | **AP Release** | `smp_release_aps()` | Sets `AP_GO_FLAG`; each AP calls `sched_enter_idle_loop()` (init per-core state + STI + HLT) | APs join scheduling matrix |
+| 17 | **STI** | `scheduler.start()` | Enables interrupts on BSP → preemptive scheduling begins | PIT drives timeslicing |
+| 17.5 | **Kernel CR3** | `percpu_set_kernel_cr3()` | Saves kernel PML4 to `PerCpuData.kernel_cr3` (GS:[64]) for KPTI CR3 swap | Must be before benchmarks (Arrow of Time) |
+| 18 | **Benchmarks** | `bench_suite_run()` | Ring 3 TDD gates (IRETQ frame, KPTI CR3, SYSCALL e2e) + self-hosted kernel benchmarks | Clean measurements before user processes |
+| 19 | **Ring 3** | `tss.init_tss()` + `gdt.init_ring3()` | TSS with RSP0, Ring 3 GDT entries (User CS=0x2B, DS=0x23) | Hardware protection for user processes |
+| 20 | **Process Spawn** | `exec_user.spawn_process()` | Task 0 dispatcher + Ring 3 user processes with per-process page tables | Full userspace isolation |
 
 > [!CAUTION]
 > **Order matters.** The IDT _must_ be initialized before `scheduler.start()` calls `STI`. If interrupts fire before the IDT is set up, the CPU triple-faults and QEMU resets.
@@ -326,12 +434,30 @@ let (_, success) = cmpxchg(&FREE_LIST_HEAD, head, addr as !llvm.ptr);
 
 ### Slab Allocator (Fiber Stacks)
 
-Pre-allocated region at `0xFFFFFFFF90000000` with 10,240 × 16KB slots for fiber stacks. Allocation is **O(1)** via atomic `fetch_add`:
+The slab allocator uses a **per-core sharded Treiber stack** for O(1) allocation and deallocation with zero cross-core contention. Each core owns a `SlabCoreState` struct, cacheline-padded to 64 bytes to prevent false sharing:
 
 ```salt
-let idx = free_list_head.fetch_add(1);
-return SLAB_BASE + (idx as u64 * SLOT_SIZE);
+@atomic @packed
+struct SlabCoreState {
+    head_ptr: u64,      // Treiber stack head (16-byte aligned for cmpxchg16b)
+    head_gen: u64,      // ABA generation counter
+    fresh_count: i32,   // Bump allocator watermark
+    core_offset: i32,   // This core's slot partition offset
+    // ... padding to 64 bytes
+}
 ```
+
+Allocation uses **128-bit hardware CAS** (`cmpxchg16b`) with a generation counter to eliminate the ABA problem:
+
+```salt
+let (old_ptr, old_gen, success) = atomic_cas_128(
+    head_addr,
+    current_ptr, current_gen,    // Expected
+    next_ptr, current_gen + 1    // Desired
+);
+```
+
+When the free stack is empty, the allocator falls back to a per-core bump allocator within the core's partition of the slab region.
 
 ### Userspace Memory (runtime.c)
 
@@ -347,34 +473,184 @@ For userspace Salt programs, `runtime.c` provides:
 
 ## 7. Scheduler & Fibers
 
-Lattice uses a **round-robin cooperative/preemptive scheduler** with 16 fiber slots.
+Lattice uses an **O(1) multi-level bitmap scheduler**, per-core sharded across all online CPUs. Each core owns an independent `SchedulerState` with 256 fiber slots, indexed by `cpu_id` via GS segment. This eliminates all cross-core contention on spawn/yield/exit paths.
+
+### The Universal Task Pointer
+
+The scheduler is **type-blind**. Every fiber, whether it is a cooperative async state machine or a hardware-preempted thread, is dispatched through a single 3-instruction assembly primitive:
+
+```asm
+invoke_task:
+    mov  rax, rdi      // rax = step_fn
+    mov  rdi, rsi      // rdi = ctx
+    call rax            // call step_fn(ctx) → returns i64
+    ret
+```
+
+The return value is a **Poll ABI** discriminant:
+
+| Value | Meaning | Scheduler Action |
+|:-----:|---------|------------------|
+| `0` | `POLL_PENDING` | Fiber is suspended. Keep in bitmap. |
+| `1` | `POLL_READY` | Fiber is complete. Reclaim resources. |
+
+There is no branch on fiber type. No virtual function table. No tag-match. The scheduler calls `invoke_task(step_fn, ctx)` and acts on the integer it gets back.
+
+### ZST Context Erasure
+
+The `ctx` pointer passed to `invoke_task` is determined at spawn time with zero runtime branching:
+
+| Fiber Type | `step_fn` | `ctx` Source | What `ctx` Points To |
+|------------|-----------|-------------|---------------------|
+| **Async** (cooperative) | Compiler-emitted state machine | `task_frame` (slab-allocated TaskFrame) | Resume state index, spilled locals, coroutine payload |
+| **Preemptive** (hardware) | `invoke_preemptive_thread` (assembly) | `stack_ptr` (IRETQ frame + saved GPRs) | 15 zeroed GPRs + 5-word IRETQ frame (RIP, CS, RFLAGS, RSP, SS) |
+
+The scheduler selects `ctx` with a single conditional:
+
+```salt
+let mut ctx = fibers[next].task_frame;   // Non-zero for async
+if ctx == 0 {
+    ctx = fibers[next].stack_ptr;        // Fallback for preemptive
+}
+let status = invoke_task(step_fn, ctx);  // Type-blind dispatch
+```
+
+The fiber type is erased into the function pointer. `invoke_preemptive_thread` knows how to interpret `ctx` as a saved hardware context; the async step function knows how to interpret `ctx` as a TaskFrame. The scheduler knows neither.
+
+### Preemptive ABI Wrapper
+
+`invoke_preemptive_thread` makes a hardware thread look like a function call. It resides in `preempt_stub.S` and has four cooperating routines:
+
+```mermaid
+sequenceDiagram
+    participant Sched as sched_yield
+    participant IPT as invoke_preemptive_thread
+    participant IRETQ as CPU (IRETQ)
+    participant Thread as preempt_worker
+    participant Tramp as preemptive_exit_trampoline
+
+    Sched->>IPT: invoke_task(ipt, ctx_ptr)
+    IPT->>IPT: Save callee-saved regs
+    IPT->>IPT: Save scheduler RSP → GS:[48]
+    IPT->>IPT: Switch RSP → ctx_ptr
+    IPT->>IPT: Pop 15 GPRs from thread stack
+    IPT->>IRETQ: IRETQ (RIP, CS, RFLAGS, RSP, SS)
+    IRETQ->>Thread: Execute at entry address
+    Thread->>Thread: ... thread work ...
+    Thread->>Tramp: ret (lands on planted address)
+    Tramp->>Tramp: CLI, restore scheduler RSP from GS:[48]
+    Tramp->>Tramp: Clear GS:[48] sentinel
+    Tramp->>IPT: Pop callee-saved regs
+    Note over IPT: RAX = POLL_READY (1)
+    IPT-->>Sched: return 1
+```
+
+**Timer preemption** follows a parallel path. When the APIC timer fires during a preemptive fiber:
+
+1. The ISR checks `GS:[48]` (non-zero = preemptive fiber running)
+2. `preempt_return_to_scheduler` saves 15 GPRs on the thread stack, records the thread's RSP in `GS:[56]`
+3. Restores the scheduler RSP from `GS:[48]`, clears the sentinel, sends EOI
+4. Returns `POLL_PENDING (0)` to the scheduler as if the function returned cooperatively
+
+The scheduler updates `fibers[next].stack_ptr` from `GS:[56]` and keeps the fiber in the bitmap. On the next dispatch, `invoke_preemptive_thread` resumes exactly where the timer interrupted.
+
+### The Z3 `@pulse` Verifier
+
+Async fibers are compiled into stackless state machines. Without safeguards, a state machine that loops without yielding could starve other fibers on the same core. The `@pulse` verifier catches this at compile time.
+
+After `build_cfg()` constructs the `BasicBlock` graph, the verifier DFS-enumerates all acyclic paths from entry to `Yield`/`Return`. Each path's cost is the sum of its statement costs. If any path exceeds the budget, the compiler rejects the function.
+
+| Operation | Cost (cycles) |
+|-----------|:---:|
+| Arithmetic (add, sub, mul) | 1 |
+| Comparison / branch | 1 |
+| Memory load/store | 4 |
+| Division / modulo | 20 |
+| Function call | 5 |
+| Unbounded loop (no yield) | ∞ |
+
+Preemptive fibers do not need `@pulse` verification. The APIC timer enforces yield boundaries in hardware.
+
+> [!TIP]
+> This is the Sovereign Synthesis: async fibers are yield-verified by the compiler (Z3 `@pulse`), preemptive fibers are yield-enforced by hardware (APIC timer), and the scheduler cannot distinguish between the two. Cooperative speed with preemptive safety.
 
 ### State Machine
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Idle: spawn()
-    Idle --> Running: scheduled by round-robin
-    Running --> Idle: sched_yield() or timer ISR
-    Running --> Dead: fiber returns
-    Dead --> [*]
+    [*] --> Idle: spawn() / sched_spawn()
+    Idle --> Running: O(1) bitmap scan (TZCNT)
+    Running --> Idle: POLL_PENDING (async yield or timer preemption)
+    Running --> Dead: POLL_READY (async return or thread exit)
+    Dead --> [*]: bitmap_clear + slab reclaim
 ```
 
-### Context Switch Path
+### Per-Core Architecture
 
-1. **Trigger**: Either `sched_yield()` (cooperative) or PIT timer ISR sets `yield_pending = true` (preemptive)
-2. **Find next**: Round-robin scan of `fibers[0..16]` for next `active == true`
-3. **Switch**: Calls `switch_stacks(old_sp_ptr, new_sp)` via assembly FFI
-4. **Assembly** (`context_switch_asm.S`): Saves all GPRs + FXSAVE state on old stack, restores from new stack
+Each CPU core gets its own `SCHED_ARRAY[cpu_id]` containing:
+- **256 fiber slots** with O(1) free-slot lookup via inverted 2-level bitmap
+- **L1 summary bitmap** (1 bit per group of 64 fibers)
+- **L2 detail bitmaps** (1 bit per fiber within each group)
+- **Per-CPU data** via GS segment: `sched_rsp` (offset 48), `saved_thread_rsp` (offset 56), `kernel_cr3` (offset 64)
 
-### Performance
+### SMP AP Boot → Scheduler Integration
 
-| Metric | Result |
-|--------|--------|
-| Context switch latency | **~1,719 cycles** |
-| Fiber slots | 16 (configurable `MAX_FIBERS`) |
-| Stack per fiber | 16KB |
-| Scaling | Flat from 100 → 10,000 fibers |
+```mermaid
+sequenceDiagram
+    participant BSP as BSP (CPU 0)
+    participant AP1 as AP 1
+    participant AP2 as AP 2
+    participant AP3 as AP 3
+
+    BSP->>AP1: INIT-SIPI-SIPI
+    AP1->>AP1: Trampoline → Long Mode
+    AP1->>AP1: APIC init, GS_BASE set
+    AP1-->>BSP: AP_READY_COUNT++
+    BSP->>AP2: INIT-SIPI-SIPI
+    AP2->>AP2: Trampoline → Long Mode
+    AP2->>AP2: APIC init, GS_BASE set
+    AP2-->>BSP: AP_READY_COUNT++
+    BSP->>AP3: INIT-SIPI-SIPI
+    AP3->>AP3: Trampoline → Long Mode
+    AP3->>AP3: APIC init, GS_BASE set
+    AP3-->>BSP: AP_READY_COUNT++
+    BSP->>BSP: Per-core tests, scheduler init
+    BSP-->>AP1: AP_GO_FLAG = 1
+    BSP-->>AP2: AP_GO_FLAG = 1
+    BSP-->>AP3: AP_GO_FLAG = 1
+    AP1->>AP1: sched_enter_idle_loop()
+    AP2->>AP2: sched_enter_idle_loop()
+    AP3->>AP3: sched_enter_idle_loop()
+    BSP->>BSP: sched_start() → PREEMPTIVE MODE
+```
+
+Each AP enters `enter_idle_loop()`, which initializes its per-core `SchedulerState`, enables interrupts, and enters a HLT loop. Timer IRQs wake APs; `spawn()` calls on any core schedule work via the local bitmap.
+
+### Z3 Verification on `spawn_async`
+
+```salt
+pub fn spawn_async(step_fn_addr: u64, frame_size: u64) -> u64
+    requires(step_fn_addr != 0)
+    requires(frame_size > 0)
+```
+Z3 proves at every call site that no null function pointer or zero-byte frame can be spawned.
+
+### Performance (KVM — Intel Xeon 8151, Feb 2026)
+
+| Metric | Lattice | Linux 6.x | Speedup |
+|--------|---------|-----------|--------:|
+| Null syscall (Ring 3→0→3, SWAPGS) | **102 cy** | ~760 cy | 7.4× |
+| Slab alloc+free (128-bit CAS) | **103 cy** | ~1,200 cy | 11.7× |
+| Arena allocation | **60 cy** | ~200 cy | 3.3× |
+| PMM alloc/free pair | **78 cy** | — | — |
+| IPC ping-pong | **284 cy** | ~12,000 cy | 42× |
+| Context switch (4 fibers) | **494 cy** | ~5,200 cy | 10.5× |
+| Fiber slots | 256 per core (bitmap-indexed) | — | — |
+| Stack per fiber | 16KB (slab-backed, per-core sharded) | — | — |
+| SIP IPC ring (4-SPSC) | **188 cy** | ~400 cy (seL4) | 2.1× |
+| Online CPUs | 4 (1 BSP + 3 APs) | — | — |
+
+Linux numbers: `getpid()` on Skylake-X (191ns), `malloc`/`free` pair via glibc (300ns), pipe IPC (~3µs), context switch with CPU pinning (~1.3µs). Full methodology and comparison notes in [LATTICE_BENCHMARKS.md](LATTICE_BENCHMARKS.md).
 
 ---
 
@@ -411,7 +687,7 @@ All drivers are Salt modules that use port I/O (`io.outb` / `io.inb`) via inline
 | Mode | Square wave generator (Mode 2) |
 | Divisor | 11,932 (1,193,182 Hz / 100) |
 
-The PIT fires IRQ 0, which triggers the ISR wrapper → `timer_isr()` → sets `yield_pending = true` for preemptive scheduling.
+The PIT fires IRQ 0, which triggers the ISR wrapper. The ISR first checks the `GS:[48]` sentinel: if non-zero, a preemptive fiber is running and the ISR saves its state via `preempt_return_to_scheduler`. Otherwise, the legacy path sets `yield_pending = true` for cooperative scheduling.
 
 ---
 

@@ -1,0 +1,34 @@
+// =============================================================================
+// user/sip_app.salt
+// Dummy Mode B SIP Application — Proof of Ring 0 Execution
+// =============================================================================
+//
+// Mode B SIPs share the kernel address space and call kernel functions
+// directly (5-cycle direct call vs 300-cycle syscall). This dummy SIP
+// performs a verifiable computation and then yields in an infinite loop.
+//
+// Compilation (PIE required — mapped to 0xFFFFFFFFA0000000 by elf_load_sip):
+//   salt-front user/sip_app.salt --lib --no-verify --disable-alias-scopes > qemu_build/sip_app.mlir
+//   salt-opt --emit-llvm --verify=false < qemu_build/sip_app.mlir 2>/dev/null > qemu_build/sip_app.ll
+//   llc qemu_build/sip_app.ll -filetype=obj -o qemu_build/sip_app.o \
+//       -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64
+//   rust-lld -flavor gnu -pie --no-dynamic-linker --unresolved-symbols=ignore-all \
+//       qemu_build/sip_app.o -o qemu_build/sip_app.elf
+// =============================================================================
+
+extern fn scheduler_yield_now();
+
+@no_mangle
+pub fn _start() -> u64 {
+    // 1. Perform a verifiable computation
+    let a: u64 = 0xDEADC0DE;
+    let b: u64 = 0x11111111;
+    let result = a + b; // 0xEEEDB1EF
+
+    // 2. Yield forever — the natural SIP daemon pattern
+    loop {
+        scheduler_yield_now();
+    }
+
+    return result;
+}

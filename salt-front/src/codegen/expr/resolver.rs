@@ -264,23 +264,29 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                     let struct_reg = self.ctx.struct_registry();
                     // Try mangled name first (e.g., main__Board)
                     if let Some(info) = struct_reg.values().find(|i| i.name == mangled_name.to_string()) {
-                        let fields: Vec<(String, Type)> = info.fields.iter()
-                            .map(|(name, (_offset, ty))| (name.clone(), ty.clone()))
-                            .collect();
+                        let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
+                            .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
+                            .collect::<Vec<_>>();
+                        fields_with_idx.sort_by_key(|(_, offset, _)| *offset);
+                        let fields: Vec<(String, Type)> = fields_with_idx.into_iter().map(|(n, _, t)| (n, t)).collect();
                         return Ok(CallKind::StructLiteral(mangled_name.to_string(), fields));
                     }
                     // Also try raw name (for unmangled structs)
                     if let Some(info) = struct_reg.values().find(|i| i.name == raw_name) {
-                        let fields: Vec<(String, Type)> = info.fields.iter()
-                            .map(|(name, (_offset, ty))| (name.clone(), ty.clone()))
-                            .collect();
+                        let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
+                            .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
+                            .collect::<Vec<_>>();
+                        fields_with_idx.sort_by_key(|(_, offset, _)| *offset);
+                        let fields: Vec<(String, Type)> = fields_with_idx.into_iter().map(|(n, _, t)| (n, t)).collect();
                         return Ok(CallKind::StructLiteral(raw_name, fields));
                     }
                     // [VERIFIED METAL] Phase 5: Use centralized struct lookup
                     if let Some(info) = self.ctx.find_struct_by_name(&raw_name) {
-                        let fields: Vec<(String, Type)> = info.fields.iter()
-                            .map(|(name, (_offset, ty))| (name.clone(), ty.clone()))
-                            .collect();
+                        let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
+                            .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
+                            .collect::<Vec<_>>();
+                        fields_with_idx.sort_by_key(|(_, offset, _)| *offset);
+                        let fields: Vec<(String, Type)> = fields_with_idx.into_iter().map(|(n, _, t)| (n, t)).collect();
                         return Ok(CallKind::StructLiteral(info.name.clone(), fields));
                     }
                 }
@@ -302,9 +308,11 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                         // Re-check registry after instantiation
                         let struct_reg = self.ctx.struct_registry();
                         if let Some(info) = struct_reg.values().find(|i| i.name == mangled_name.to_string()) {
-                            let fields: Vec<(String, Type)> = info.fields.iter()
-                                .map(|(name, (_offset, ty))| (name.clone(), ty.clone()))
-                                .collect();
+                            let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
+                                .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
+                                .collect::<Vec<_>>();
+                            fields_with_idx.sort_by_key(|(_, offset, _)| *offset);
+                            let fields: Vec<(String, Type)> = fields_with_idx.into_iter().map(|(n, _, t)| (n, t)).collect();
                             return Ok(CallKind::StructLiteral(mangled_name.to_string(), fields));
                         }
                     }
@@ -315,9 +323,11 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                         // Re-check registry after instantiation
                         let struct_reg = self.ctx.struct_registry();
                         if let Some(info) = struct_reg.values().find(|i| i.name == template_name) {
-                            let fields: Vec<(String, Type)> = info.fields.iter()
-                                .map(|(name, (_offset, ty))| (name.clone(), ty.clone()))
-                                .collect();
+                            let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
+                                .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
+                                .collect::<Vec<_>>();
+                            fields_with_idx.sort_by_key(|(_, offset, _)| *offset);
+                            let fields: Vec<(String, Type)> = fields_with_idx.into_iter().map(|(n, _, t)| (n, t)).collect();
                             return Ok(CallKind::StructLiteral(info.name.clone(), fields));
                         }
                     }
@@ -402,9 +412,11 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         {
             let struct_reg = self.ctx.struct_registry();
             if let Some(info) = struct_reg.values().find(|i| i.name == func_name) {
-                let fields: Vec<(String, Type)> = info.fields.iter()
-                    .map(|(name, (_offset, ty))| (name.clone(), ty.clone()))
-                    .collect();
+                let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
+                    .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
+                    .collect::<Vec<_>>();
+                fields_with_idx.sort_by_key(|(_, offset, _)| *offset);
+                let fields: Vec<(String, Type)> = fields_with_idx.into_iter().map(|(n, _, t)| (n, t)).collect();
                 return Ok(CallKind::StructLiteral(func_name, fields));
             }
         }
@@ -700,7 +712,13 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         name == "expf" || name == "logf" || name == "sqrtf" || name == "powf" ||
         name == "sinf" || name == "cosf" || name == "fabsf" || name == "floorf" || name == "ceilf" ||
         // [SOVEREIGN FIX] Atomic intrinsics for kernel lock-free data structures
-        name == "cmpxchg" || name.contains("atomic_cas") || name.contains("ptr_is_null")
+        name == "cmpxchg" || name.contains("atomic_cas") || name.contains("ptr_is_null") ||
+        // [salt.atomic] Concurrency primitives — must bypass package mangling
+        // so they route to the intrinsic handler in intrinsics.rs
+        name == "spin_loop_hint" || name == "cycle_counter" || name == "read_tls_deadline" ||
+        name == "atomic_add_i64" || name == "atomic_load_i64" || name == "atomic_store_i64" ||
+        // [salt.fn_ptr] Function pointer address extraction
+        name == "fn_addr"
     }
     
     /// Extract generic type arguments from a path segment (e.g., println::<T> -> [T])

@@ -1082,12 +1082,12 @@ fn extract_force_unwrap_expr(s: &str) -> String {
 // with full TraitRegistry context for signature-aware format spec dispatch.
 
 
-pub fn compile_ast(file: &mut SaltFile, release_mode: bool, registry: Option<&crate::registry::Registry>, skip_scan: bool, vverify: bool, disable_alias_scopes: bool, no_verify: bool, lib_mode: bool, debug_info: bool, source_file: &str) -> anyhow::Result<String> {
+pub fn compile_ast(file: &mut SaltFile, release_mode: bool, registry: Option<&crate::registry::Registry>, skip_scan: bool, vverify: bool, disable_alias_scopes: bool, no_verify: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> anyhow::Result<String> {
     // Run Comptime Evaluation Pass
     passes::comptime::run(file)
         .map_err(|e| anyhow::anyhow!("Comptime Error: {:?}", e))?;
 
-    let mut mlir = emit_mlir(file, release_mode, registry, skip_scan, no_verify, disable_alias_scopes, lib_mode, debug_info, source_file).map_err(|e| anyhow::anyhow!(e))?;
+    let mut mlir = emit_mlir(file, release_mode, registry, skip_scan, no_verify, disable_alias_scopes, lib_mode, sip_mode, debug_info, source_file).map_err(|e| anyhow::anyhow!(e))?;
     
     // Prepend Alias Scope Definitions (MLIR Attribute Aliases)
     // V7.3: Added per-argument scopes (scope_arg_0 through scope_arg_9) for fine-grained noalias
@@ -1127,7 +1127,7 @@ pub fn compile(source: &str, release_mode: bool, registry: Option<&crate::regist
     }
     let processed = preprocess(source);
     let mut file: SaltFile = parse_str(&processed)?;
-    compile_ast(&mut file, release_mode, registry, skip_scan, vverify, false, false, false, false, "<stdin>")
+    compile_ast(&mut file, release_mode, registry, skip_scan, vverify, false, false, false, false, false, "<stdin>")
 }
 
 /// [CROSS-MODULE STRUCT] Convert `module.StructName { ... }` to `module::StructName { ... }`

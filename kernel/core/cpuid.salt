@@ -1,0 +1,64 @@
+// =============================================================================
+// kernel/core/cpuid.salt
+// CPUID Topology Detection for Benchmark Harness
+// =============================================================================
+//
+// Queries x86 CPUID to determine execution environment:
+//   - Bare metal vs hypervisor (ECX bit 31 from leaf 0x1)
+//   - QEMU TCG vs KVM vs other (hypervisor brand string from leaf 0x40000000)
+//
+// Used by the benchmark suite to dynamically scale iteration counts.
+// =============================================================================
+
+package kernel.core.cpuid
+
+use kernel.drivers.serial
+
+extern fn cpuid_leaf1_ecx() -> u64;
+extern fn cpuid_hypervisor_id() -> u64;
+
+// Check if running inside a hypervisor (CPUID leaf 1, ECX bit 31)
+pub fn is_hypervisor() -> bool {
+    let ecx = cpuid_leaf1_ecx();
+    return (ecx & 0x80000000) != 0;
+}
+
+// Return a scale factor for benchmark iteration counts.
+// 1 = bare metal / KVM (full speed)
+// 100 = divisor for TCG (drastically reduce iterations)
+@no_mangle
+pub fn get_bench_divisor() -> u64 {
+    if is_hypervisor() {
+        // Under any hypervisor, check if it's KVM (KVM reports KVMKVMKVM)
+        // For now: assume all hypervisors need some scaling.
+        // KVM is near-native so use divisor 1; TCG needs 100.
+        // QEMU TCG sets the hypervisor bit but doesn't report KVMKVMKVM.
+        // KVM reports KVMKVMKVM in CPUID leaf 0x40000000.
+        let hv_id = cpuid_hypervisor_id();
+        // KVMKVMKVM in little-endian: EBX=0x4b4d564b ("KVMK")
+        if hv_id == 0x4b4d564b {
+            return 1;  // KVM — near-native speed
+        }
+        return 100;    // TCG or unknown hypervisor — scale down
+    }
+    return 1;          // Bare metal — full speed
+}
+
+pub fn print_topology() {
+    serial.print("[BENCH HARNESS] Topology: ");
+    if is_hypervisor() {
+        let hv_id = cpuid_hypervisor_id();
+        if hv_id == 0x4b4d564b {
+            serial.print("KVM (hardware-accelerated)\n");
+        } else {
+            serial.print("Emulated (QEMU TCG or similar)\n");
+        }
+    } else {
+        serial.print("Bare Metal\n");
+    }
+
+    let divisor = get_bench_divisor();
+    serial.print("[BENCH HARNESS] Scale divisor: ");
+    serial.print_u64(divisor);
+    serial.print("x\n");
+}

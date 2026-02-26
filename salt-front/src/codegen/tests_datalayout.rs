@@ -176,4 +176,66 @@ mod tests {
             expected_triple, mlir
         );
     }
+
+    // =========================================================================
+    // Test 7: lib_mode emits x86-64 target-cpu, NOT apple-m4
+    // =========================================================================
+    // REGRESSION TEST: Hardcoded apple-m4 caused salt-opt to segfault when
+    // the module triple was x86_64-unknown-none-elf (ARM backend + x86 triple
+    // = crash). lib_mode MUST emit x86-64.
+
+    #[test]
+    fn test_lib_mode_emits_x86_target_cpu() {
+        let file: SaltFile = syn::parse_str(r#"
+            package test::crosscomp
+            @no_mangle
+            pub fn sip_entry() -> i32 {
+                return 42;
+            }
+        "#).unwrap();
+        let z3_cfg = z3::Config::new();
+        let z3_ctx = z3::Context::new(&z3_cfg);
+        let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
+        ctx.lib_mode = true;
+        let mlir = ctx.drive_codegen()
+            .unwrap_or_else(|e| panic!("Codegen failed: {}", e));
+
+        assert!(
+            mlir.contains("x86-64"),
+            "lib_mode must emit target-cpu=x86-64 for kernel cross-compilation. \
+             apple-m4 causes salt-opt to segfault. MLIR:\n{}",
+            mlir
+        );
+        assert!(
+            !mlir.contains("apple-m4"),
+            "lib_mode must NOT emit apple-m4 (causes salt-opt ARM/x86 triple conflict). \
+             MLIR:\n{}",
+            mlir
+        );
+    }
+
+    // =========================================================================
+    // Test 8: non-lib-mode (native) emits apple-m4 target-cpu
+    // =========================================================================
+
+    #[test]
+    fn test_native_mode_emits_apple_m4_target_cpu() {
+        let mlir = compile_to_mlir(r#"
+            package main
+            @no_mangle
+            pub fn native_fn() -> i32 {
+                return 42;
+            }
+            fn main() -> i32 {
+                return native_fn();
+            }
+        "#);
+
+        // Non-lib mode = native macOS compilation → apple-m4 is correct
+        assert!(
+            mlir.contains("apple-m4"),
+            "Native mode must emit target-cpu=apple-m4 for host compilation. MLIR:\n{}",
+            mlir
+        );
+    }
 }

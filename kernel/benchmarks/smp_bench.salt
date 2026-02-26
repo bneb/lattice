@@ -1,0 +1,202 @@
+// =============================================================================
+// kernel/benchmarks/smp_bench.salt
+// SMP Benchmark — Per-Core Allocation Throughput & AP Boot Verification
+// =============================================================================
+//
+// Verifies SMP bring-up and measures the throughput gain from per-core
+// sharded allocators. Runs in three stages:
+//
+//   Stage 1: AP Boot Count — Confirms all APs reported online
+//   Stage 2: Per-Core PMM  — Measures per-core page alloc/free throughput
+//   Stage 3: Per-Core Slab — Measures per-core slab pop/push throughput
+//
+// This benchmark runs on the BSP only (single-threaded). It measures the
+// benefit of per-core data structures: zero CAS contention on the hot path.
+// Multi-core parallel benchmarks require Phase 3 AP scheduler integration.
+//
+// Expected results:
+//   - pmm alloc/free: ~50-200 cycles/pair (identical to global, zero contention)
+//   - slab pop/push: ~80-300 cycles/pair (identical to global, zero contention)
+//   - AP boot count: matches LATTICE_SMP environment variable
+// =============================================================================
+
+package benchmarks.smp_bench
+
+use kernel.drivers.serial
+use kernel.drivers.vga
+use kernel.core.timing
+
+// Per-CPU accessor
+extern fn get_cpu_id() -> u64;
+extern fn get_online_cpus() -> u64;
+
+// Slab functions
+extern fn pop_stack() -> u64;
+extern fn push_stack(ptr: u64);
+
+// PMM wrappers
+extern fn pmm_alloc() -> u64;
+extern fn pmm_free(page: u64);
+extern fn pmm_available() -> u64;
+
+const PMM_ITERS: i32 = 1000;
+const SLAB_ITERS: i32 = 1000;
+const MIN_CYCLES: u64 = 1;
+const MAX_CYCLES: u64 = 500000;
+
+// =============================================================================
+// Stage 1: AP Boot Count Verification
+// =============================================================================
+
+fn bench_ap_count() {
+    serial.print("BENCH:smp_boot:start\n");
+
+    let online = get_online_cpus();
+    let cpu = get_cpu_id();
+
+    serial.print("BENCH:smp_boot:online=");
+    serial.print_u64(online);
+    serial.print(" bsp_cpu_id=");
+    serial.print_u64(cpu);
+    serial.print("\n");
+
+    vga.print("  SMP: ");
+    vga.print_u64(online);
+    vga.print(" CPUs online\n");
+}
+
+// =============================================================================
+// Stage 2: Per-Core PMM Throughput
+// =============================================================================
+// Measures alloc/free pairs on core 0's per-core Treiber stack.
+// With per-core sharding, this is a pure push/pop with no CAS contention.
+// =============================================================================
+
+fn bench_percpu_pmm() {
+    serial.print("BENCH:smp_pmm:start\n");
+
+    let avail = pmm_available();
+    if avail == 0 {
+        serial.print("BENCH:smp_pmm:SKIP no pages on core 0\n");
+        return;
+    }
+
+    let mut total: u64 = 0;
+    let mut valid: i32 = 0;
+    let mut min_cy: u64 = 0xFFFFFFFFFFFFFFFF;
+    let mut max_cy: u64 = 0;
+
+    for i in 0..PMM_ITERS {
+        let t0 = timing.get_cycles();
+        let page = pmm_alloc();
+        pmm_free(page);
+        let t1 = timing.get_cycles();
+
+        let elapsed = t1 - t0;
+
+        if elapsed >= MIN_CYCLES {
+            if elapsed <= MAX_CYCLES {
+                total = total + elapsed;
+                valid = valid + 1;
+                if elapsed < min_cy { min_cy = elapsed; }
+                if elapsed > max_cy { max_cy = elapsed; }
+            }
+        }
+    }
+
+    if valid > 0 {
+        let avg = total / (valid as u64);
+
+        serial.print("BENCH:smp_pmm:avg=");
+        serial.print_u64(avg);
+        serial.print(" min=");
+        serial.print_u64(min_cy);
+        serial.print(" max=");
+        serial.print_u64(max_cy);
+        serial.print(" pairs=");
+        serial.print_u64(valid as u64);
+        serial.print("\n");
+
+        vga.print("  PMM/core avg: ");
+        vga.print_u64(avg);
+        vga.print(" cy/pair\n");
+    } else {
+        serial.print("BENCH:smp_pmm:ERROR no valid samples\n");
+    }
+}
+
+// =============================================================================
+// Stage 3: Per-Core Slab Throughput
+// =============================================================================
+// Measures pop/push pairs on core 0's per-core slab partition.
+// =============================================================================
+
+fn bench_percpu_slab() {
+    serial.print("BENCH:smp_slab:start\n");
+
+    let mut total: u64 = 0;
+    let mut valid: i32 = 0;
+    let mut min_cy: u64 = 0xFFFFFFFFFFFFFFFF;
+    let mut max_cy: u64 = 0;
+
+    for i in 0..SLAB_ITERS {
+        let t0 = timing.get_cycles();
+        let slot = pop_stack();
+        push_stack(slot);
+        let t1 = timing.get_cycles();
+
+        if slot == 0 {
+            serial.print("BENCH:smp_slab:WARNING exhausted at i=");
+            serial.print_u64(i as u64);
+            serial.print("\n");
+            break;
+        }
+
+        let elapsed = t1 - t0;
+
+        if elapsed >= MIN_CYCLES {
+            if elapsed <= MAX_CYCLES {
+                total = total + elapsed;
+                valid = valid + 1;
+                if elapsed < min_cy { min_cy = elapsed; }
+                if elapsed > max_cy { max_cy = elapsed; }
+            }
+        }
+    }
+
+    if valid > 0 {
+        let avg = total / (valid as u64);
+
+        serial.print("BENCH:smp_slab:avg=");
+        serial.print_u64(avg);
+        serial.print(" min=");
+        serial.print_u64(min_cy);
+        serial.print(" max=");
+        serial.print_u64(max_cy);
+        serial.print(" pairs=");
+        serial.print_u64(valid as u64);
+        serial.print("\n");
+
+        vga.print("  Slab/core avg: ");
+        vga.print_u64(avg);
+        vga.print(" cy/pair\n");
+    } else {
+        serial.print("BENCH:smp_slab:ERROR no valid samples\n");
+    }
+}
+
+// =============================================================================
+// run_smp_bench — Entry Point
+// =============================================================================
+@no_mangle
+pub fn run_smp_bench() {
+    serial.print("BENCH:smp:start\n");
+    vga.print_colored(" SMP Benchmark ", 0x3F);
+    vga.print("\n");
+
+    bench_ap_count();
+    bench_percpu_pmm();
+    bench_percpu_slab();
+
+    serial.print("BENCH:smp:done\n");
+}

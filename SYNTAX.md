@@ -39,6 +39,7 @@ fn main() -> i32 {
 | `&T`, `&mut T` | References |
 | `[T; N]` | Fixed-size arrays |
 | `(T, U)` | Tuples |
+| `fn(T1, T2) -> R` | Function pointer type (first-class) |
 | `String` | Heap-owning string (`{data, len, cap}`) |
 | `StringView` | Non-owning string slice (`{ptr, len}`) |
 
@@ -95,6 +96,23 @@ pub fn public_function(x: i64) -> i64 {
 // Generic functions
 fn identity<T>(x: T) -> T {
     return x;
+}
+```
+
+### Function Pointers
+
+```salt
+// First-class function pointer types
+let f: fn(u64, u64) -> u64 = add;
+let result = f(3, 4);           // Indirect call through function pointer
+
+// Get raw address of a function
+let addr: u64 = fn_addr(add);   // For IDT vectors, dispatch tables
+
+// Function pointers in struct fields (SIP dispatch tables)
+struct Handler {
+    on_read: fn(u64) -> u64,
+    on_write: fn(u64, u64) -> u64,
 }
 ```
 
@@ -635,7 +653,7 @@ salt-front my_program.salt
 | Explicit return | Simpler control flow analysis |
 | Result<T>, Not Result<T, E> | Status uses canonical gRPC codes + diagnostic messages |
 | `?` operator | Ergonomic error propagation with early return |
-| `fn as i64` | First-class function references via ptrtoint |
+| `fn(T) -> R` types | First-class function pointers: `fn(u64, u64) -> u64`, indirect call, `fn_addr()` |
 | `@derive` | Source-level expansion — zero magic, inspectable output |
 | Unbounded channels | Heap-backed doubling ring buffer — send never blocks |
 

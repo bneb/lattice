@@ -62,6 +62,22 @@ mod tests_kernel_halt;
 mod tests_datalayout;
 #[cfg(test)]
 mod tests_method_receiver;
+#[cfg(test)]
+mod tests_forward_ref;
+#[cfg(test)]
+mod tests_salt_atomic;
+#[cfg(test)]
+mod tests_fn_ptr;
+#[cfg(test)]
+mod tests_cf_br_backedge;
+#[cfg(test)]
+mod tests_z3_alignment;
+#[cfg(test)]
+mod tests_sip_safety;
+#[cfg(test)]
+mod tests_packed_struct;
+#[cfg(test)]
+mod tests_mixed_width_struct;
 
 use crate::grammar::{SaltFile, Item, SaltFn, SaltImpl, ExternFnDecl, SaltConcept, SaltTrait};
 use crate::codegen::context::{CodegenContext, LocalKind, GenericContextGuard};
@@ -73,7 +89,7 @@ use crate::common::mangling::Mangler;
 use crate::types::Type;
 use crate::registry::Registry;
 use std::collections::{HashMap, HashSet};
-    pub fn emit_mlir(file: &SaltFile, release_mode: bool, _registry: Option<&Registry>, _skip_scan: bool, no_verify: bool, disable_alias_scopes: bool, lib_mode: bool, debug_info: bool, source_file: &str) -> Result<String, String> {
+    pub fn emit_mlir(file: &SaltFile, release_mode: bool, _registry: Option<&Registry>, _skip_scan: bool, no_verify: bool, disable_alias_scopes: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> Result<String, String> {
     // 1. Recursive Module Loading
     let mut loader_registry = Registry::new();
     let mut loader = ModuleLoader::new(vec![
@@ -100,6 +116,7 @@ use std::collections::{HashMap, HashSet};
     ctx.emit_alias_scopes = !disable_alias_scopes;
     ctx.no_verify = no_verify;
     ctx.lib_mode = lib_mode;
+    ctx.sip_mode = sip_mode;
     ctx.debug_info = debug_info;
     ctx.source_file = source_file.to_string();
     ctx.register_builtins();
@@ -270,6 +287,9 @@ use std::collections::{HashMap, HashSet};
 
 impl<'a> CodegenContext<'a> {
     pub fn drive_codegen(&mut self) -> Result<String, String> {
+        // [FORMAL SHADOW] Verify @atomic field alignment before any emission
+        self.verify_atomic_alignments()?;
+
         // State 1 (Discovery): Seeding Lazy Recursion
         
         if self.lib_mode {
@@ -347,7 +367,11 @@ impl<'a> CodegenContext<'a> {
             );
         }
 
-        out.push_str("module attributes {llvm.data_layout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\", llvm.target_triple = \"x86_64-unknown-none-elf\"} {\n");
+        // [SIP SAFETY] Emit salt.sip_verified marker only for Mode B SIP compilations.
+        // MLIR requires dialect-prefixed attributes on builtin.module ops.
+        // Kernel code (lib_mode without sip_mode) does NOT get this marker.
+        let sip_attr = if self.sip_mode { ", \"salt.sip_verified\" = true" } else { "" };
+        out.push_str(&format!("module attributes {{llvm.data_layout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\", llvm.target_triple = \"x86_64-unknown-none-elf\"{}}} {{\n", sip_attr));
         
         // Standard Declarations (Structs, Enums, Globals - captured in decl_out during scan/emit)
         // Also emit pending function declarations, but ONLY for functions that were never defined.
@@ -462,6 +486,204 @@ impl<'a> CodegenContext<'a> {
         
         out.push_str("}\n");
         Ok(out)
+    }
+
+    /// [FORMAL SHADOW] Verify that all @atomic struct fields are 16-byte aligned.
+    /// Uses Z3 integer modular arithmetic to prove alignment is invariant.
+    /// Returns Err if any @atomic field fails the alignment proof.
+    fn verify_atomic_alignments(&self) -> Result<(), String> {
+        use z3::ast::Ast;
+
+        // Extract struct definitions first to avoid RefCell borrow conflict
+        // (bridge_resolve_type needs to borrow discovery state)
+        let structs: Vec<_> = {
+            let file = self.file.borrow();
+            file.items.iter().filter_map(|item| {
+                if let Item::Struct(s) = item {
+                    if s.generics.is_none() {
+                        return Some(s.clone());
+                    }
+                }
+                None
+            }).collect()
+        };
+        // file borrow dropped here
+
+        for s in &structs {
+            let mut byte_offset: usize = 0;
+            
+            for f in &s.fields {
+                let has_atomic = f.attributes.iter().any(|a| a.name == "atomic");
+                
+                if has_atomic {
+                    let z3_cfg = z3::Config::new();
+                    let z3_ctx = z3::Context::new(&z3_cfg);
+                    let solver = z3::Solver::new(&z3_ctx);
+
+                    let base = z3::ast::Int::new_const(&z3_ctx, "base_addr");
+                    let sixteen = z3::ast::Int::from_i64(&z3_ctx, 16);
+                    let zero = z3::ast::Int::from_i64(&z3_ctx, 0);
+
+                    solver.assert(&base.ge(&zero));
+                    solver.assert(&base.modulo(&sixteen)._eq(&zero));
+
+                    let offset_val = z3::ast::Int::from_i64(&z3_ctx, byte_offset as i64);
+                    let field_addr = z3::ast::Int::add(&z3_ctx, &[&base, &offset_val]);
+
+                    solver.assert(&field_addr.modulo(&sixteen)._eq(&zero).not());
+
+                    match solver.check() {
+                        z3::SatResult::Unsat => {
+                            eprintln!(
+                                "[Formal Shadow] Z3 PROVED: @atomic field '{}' in struct '{}' \
+                                 is 16-byte aligned at offset {} (z3_aligned)",
+                                f.name, s.name, byte_offset
+                            );
+                        }
+                        _ => {
+                            return Err(format!(
+                                "[Formal Shadow] ALIGNMENT VIOLATION: @atomic field '{}' \
+                                 in struct '{}' is at byte offset {}, which is NOT \
+                                 16-byte aligned. The Z3 SMT solver proved this layout \
+                                 violates the hardware alignment contract for cmpxchg16b. \
+                                 Fix: reorder fields or add padding so @atomic fields \
+                                 start at offsets that are multiples of 16.",
+                                f.name, s.name, byte_offset
+                            ));
+                        }
+                    }
+                }
+
+                // Advance byte offset by field size
+                let field_ty = self.bridge_resolve_type(&f.ty);
+                let struct_reg = self.struct_registry();
+                byte_offset += field_ty.size_of(&*struct_reg);
+            }
+
+            // =====================================================================
+            // STRUCT-LEVEL @atomic: Z3 Stride Alignment Proof
+            // =====================================================================
+            // When @atomic is on the struct itself, Z3 must prove:
+            //   sizeof(struct) % 16 == 0
+            // This guarantees that in an array [Struct; N], every element
+            // sits on a 16-byte boundary (required for cmpxchg16b).
+            // =====================================================================
+            let has_struct_atomic = s.attributes.iter().any(|a| a.name == "atomic");
+            if has_struct_atomic {
+                let total_size = byte_offset; // byte_offset == total size after all fields
+
+                let z3_cfg = z3::Config::new();
+                let z3_ctx = z3::Context::new(&z3_cfg);
+                let solver = z3::Solver::new(&z3_ctx);
+
+                let size = z3::ast::Int::from_i64(&z3_ctx, total_size as i64);
+                let sixteen = z3::ast::Int::from_i64(&z3_ctx, 16);
+                let zero = z3::ast::Int::from_i64(&z3_ctx, 0);
+
+                // Assert the negation: size % 16 != 0
+                // If UNSAT, the stride is guaranteed safe.
+                solver.assert(&size.modulo(&sixteen)._eq(&zero).not());
+
+                match solver.check() {
+                    z3::SatResult::Unsat => {
+                        eprintln!(
+                            "[Formal Shadow] Z3 PROVED: @atomic struct '{}' has size {} bytes, \
+                             which is 16-byte stride-safe for cmpxchg16b arrays (z3_stride_aligned)",
+                            s.name, total_size
+                        );
+                    }
+                    _ => {
+                        return Err(format!(
+                            "[Formal Shadow] STRIDE VIOLATION: @atomic struct '{}' has size {} bytes. \
+                             {} % 16 != 0, so array elements would NOT be 16-byte aligned. \
+                             The Z3 SMT solver proved this layout violates the hardware \
+                             alignment contract for cmpxchg16b. Fix: ensure sizeof(@atomic struct) \
+                             is a multiple of 16 bytes.",
+                            s.name, total_size, total_size
+                        ));
+                    }
+                }
+            }
+
+            // =====================================================================
+            // STRUCT-LEVEL @packed: Z3 Zero-Padding Proof
+            // =====================================================================
+            // When @packed is on a struct, Z3 must prove:
+            //   ABI_layout_size == sum(field_natural_sizes)
+            // This guarantees zero implicit padding between fields, so the
+            // struct layout in MLIR/LLVM exactly matches the hardware-facing
+            // byte offsets (critical for SMP mailbox protocols, MMIO structs).
+            // =====================================================================
+            let has_packed = s.attributes.iter().any(|a| a.name == "packed");
+            if has_packed {
+                let unpadded_sum = byte_offset; // sum of natural field sizes
+                
+                // Pre-compute field sizes in two phases to avoid RefCell conflicts
+                // Phase 1: resolve types (borrows self for bridge_resolve_type)
+                let resolved_types: Vec<_> = s.fields.iter()
+                    .map(|f| self.bridge_resolve_type(&f.ty))
+                    .collect();
+                // Phase 2: get sizes (borrows struct_registry)
+                let field_sizes: Vec<usize> = {
+                    let struct_reg = self.struct_registry();
+                    resolved_types.iter().map(|ty| ty.size_of(&*struct_reg)).collect()
+                };
+                
+                // Simulate LLVM struct layout rules to detect implicit padding
+                let mut abi_offset: usize = 0;
+                let mut max_align: usize = 1;
+                
+                for &field_size in &field_sizes {
+                    // Natural alignment: min(size, 8) for primitives
+                    let field_align = field_size.min(8).max(1);
+                    
+                    // Align to field's natural alignment
+                    let padding = (field_align - (abi_offset % field_align)) % field_align;
+                    abi_offset += padding;
+                    abi_offset += field_size;
+                    
+                    if field_align > max_align {
+                        max_align = field_align;
+                    }
+                }
+                
+                // LLVM also pads the struct to its overall alignment
+                let tail_padding = (max_align - (abi_offset % max_align)) % max_align;
+                let abi_total = abi_offset + tail_padding;
+                
+                let z3_cfg = z3::Config::new();
+                let z3_ctx = z3::Context::new(&z3_cfg);
+                let solver = z3::Solver::new(&z3_ctx);
+
+                let abi_size = z3::ast::Int::from_i64(&z3_ctx, abi_total as i64);
+                let raw_sum = z3::ast::Int::from_i64(&z3_ctx, unpadded_sum as i64);
+
+                // Assert the negation: ABI_size != raw_sum
+                // If UNSAT, the struct has zero padding (guaranteed).
+                solver.assert(&abi_size._eq(&raw_sum).not());
+
+                match solver.check() {
+                    z3::SatResult::Unsat => {
+                        eprintln!(
+                            "[Formal Shadow] Z3 PROVED: @packed struct '{}' has {} bytes \
+                             with ZERO implicit padding (z3_packed_verified)",
+                            s.name, abi_total
+                        );
+                    }
+                    _ => {
+                        return Err(format!(
+                            "[Formal Shadow] PACKED VIOLATION: @packed struct '{}' has implicit \
+                             padding. ABI layout = {} bytes, but raw field sum = {} bytes \
+                             ({} bytes of hidden padding). The Z3 SMT solver proved this \
+                             layout violates the zero-padding contract. Fix: reorder fields \
+                             or add explicit padding fields to eliminate gaps.",
+                            s.name, abi_total, unpadded_sum, abi_total - unpadded_sum
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(())
     }
     
     fn create_main_task(&self, name: &str) -> Option<crate::codegen::collector::MonomorphizationTask> {
@@ -888,7 +1110,12 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
     // Note: `extern fn` is a syntactic form (ExternFnDecl), not an @extern attribute.
     // When converted to SaltFn wrappers during module registration, the extern-ness
     // is tracked in `external_decls`, not in attributes.
-    if ctx.external_decls().contains(&func.name.to_string()) {
+    //
+    // [FORWARD REFERENCE FIX] ensure_func_declared adds local @no_mangle functions
+    // to external_decls when they are called before their definition. These functions
+    // have NON-EMPTY bodies and must be emitted. True externs have empty bodies
+    // (set by register_signatures). Only skip emission for truly empty-bodied externs.
+    if ctx.external_decls().contains(&func.name.to_string()) && func.body.stmts.is_empty() {
         return Ok(String::new());
     }
 
@@ -1055,7 +1282,16 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
         if has_noinline { pt_items.push("\"noinline\"".to_string()); }
         if is_no_mangle {
              pt_items.push("[\"frame-pointer\", \"non-leaf\"]".to_string());
-             pt_items.push("[\"target-cpu\", \"apple-m4\"]".to_string());
+             // [CROSS-COMPILATION FIX] Use lib_mode to select CPU.
+             // In --lib mode, we're cross-compiling for x86_64 kernel.
+             // Hardcoding apple-m4 caused salt-opt to segfault when the module triple
+             // is x86_64-unknown-none-elf (ARM backend init + x86 triple = crash).
+             let target_cpu = if ctx.lib_mode {
+                 "x86-64"
+             } else {
+                 "apple-m4"
+             };
+             pt_items.push(format!("[\"target-cpu\", \"{}\"]", target_cpu));
              pt_items.push("[\"stack-alignment\", \"16\"]".to_string());
         }
         format!(" attributes {{ passthrough = [ {} ] }}", pt_items.join(", "))

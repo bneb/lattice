@@ -1067,6 +1067,13 @@ pub fn emit_cast(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCast,
             return Ok((val, target_ty));
         }
         if matches!(ty, Type::U64 | Type::I64 | Type::Usize) {
+            // [SIP SAFETY GATE] Reject integer-to-pointer in sip_mode (Mode B SIPs)
+            // Allowing this would let SIPs write to arbitrary kernel memory.
+            // Kernel code (lib_mode without sip_mode) is NOT gated.
+            if ctx.config.sip_mode {
+                return Err("SIP safety violation: integer-to-pointer cast is not allowed in Mode B SIPs. \
+                    Raw pointer creation bypasses compiler verification.".to_string());
+            }
             let res = format!("%inttoptr_{}", ctx.next_id());
             out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", res, val));
             return Ok((res, target_ty));
@@ -1083,6 +1090,11 @@ pub fn emit_cast(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCast,
             return Ok((val, target_ty));
         }
         if matches!(ty, Type::U64 | Type::I64 | Type::Usize) {
+            // [SIP SAFETY GATE] Reject integer-to-reference in sip_mode (Mode B SIPs)
+            if ctx.config.sip_mode {
+                return Err("SIP safety violation: integer-to-pointer cast is not allowed in Mode B SIPs. \
+                    Raw pointer creation bypasses compiler verification.".to_string());
+            }
             let res = format!("%inttoptr_ref_{}", ctx.next_id());
             let int_val = if ty == Type::Usize {
                 let temp = format!("%idx_to_i64_{}", ctx.next_id());

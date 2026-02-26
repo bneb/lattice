@@ -4,7 +4,7 @@ use salt_front::codegen::context::LocalKind;
 use salt_front::codegen::expr::{emit_expr, emit_path};
 use salt_front::codegen::stmt::{emit_stmt, emit_block};
 use salt_front::codegen::type_bridge::{resolve_type, resolve_codegen_type};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use salt_front::registry::StructInfo;
 use salt_front::grammar::SaltFile;
 use std::cell::RefCell;
@@ -56,7 +56,7 @@ fn test_saturation_attack_salt_file() {
 fn test_stmt_error_paths_saturation() {
     with_ctx!(ctx, {
         let mut out = String::new();
-        let mut locals = HashMap::new();
+        let mut locals = BTreeMap::new();
 
         // 1. Non-bool while condition
         let code_while = "while 123 { }";
@@ -102,7 +102,7 @@ fn test_stmt_error_paths_saturation() {
         assert!(res_struct.unwrap_err().contains("Unknown struct Unknown"));
 
         // 7. SSA to Ptr re-assignment (promotion to storage)
-        let mut locals_ptr = HashMap::new();
+        let mut locals_ptr = BTreeMap::new();
         locals_ptr.insert("x".to_string(), (Type::I32, LocalKind::Ptr("%x_ptr".to_string())));
         let code_ptr = "let x = 10;";
         let stmt_ptr: salt_front::grammar::Stmt = syn::parse_str(code_ptr).unwrap();
@@ -127,7 +127,7 @@ fn test_stmt_error_paths_saturation() {
             semi_token: Default::default(),
         };
         let stmt_hoist = salt_front::grammar::Stmt::Syn(syn::Stmt::Local(manual_local));
-        let mut locals_hoist = HashMap::new();
+        let mut locals_hoist = BTreeMap::new();
         let res_hoist = emit_block(&ctx, &mut out, &[stmt_hoist], &mut locals_hoist);
         assert!(res_hoist.is_ok());
         assert!(locals_hoist.contains_key("hoist_fallback"));
@@ -139,7 +139,7 @@ fn test_stmt_error_paths_saturation() {
 fn test_expr_error_paths_saturation() {
     with_ctx!(ctx, {
         let mut out = String::new();
-        let mut locals = HashMap::new();
+        let mut locals = BTreeMap::new();
 
         // 1. Package used as value
         ctx.imports.borrow_mut().push(salt_front::grammar::ImportDecl {
@@ -248,7 +248,7 @@ fn test_expr_error_paths_saturation() {
         assert!(res_else_if.is_ok());
 
         // 15. emit_cleanup_for_return with Type::Owned
-        let mut locals_owned = HashMap::new();
+        let mut locals_owned = BTreeMap::new();
         locals_owned.insert("pkg_ptr".to_string(), (Type::Owned(Box::new(Type::I32)), LocalKind::Ptr("%ptr".to_string())));
         let res_cleanup = salt_front::codegen::stmt::emit_cleanup_for_return(&ctx, &mut out, &locals_owned);
         assert!(res_cleanup.is_ok());
@@ -395,7 +395,7 @@ fn test_expr_error_paths_saturation() {
 fn test_expr_extreme_paths_saturation() {
     with_ctx!(ctx, {
         let mut out = String::new();
-        let mut locals = HashMap::new();
+        let mut locals = BTreeMap::new();
 
         // 1. Try (?) operator on Result
         let key = TypeKey { path: vec![], name: "Result_i32".to_string(), specialization: None };

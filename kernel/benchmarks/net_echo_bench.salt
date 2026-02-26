@@ -27,10 +27,10 @@ use kernel.drivers.serial
 use kernel.drivers.vga
 use kernel.drivers.virtio_net
 use kernel.net.netcore
+use kernel.core.scheduler
 
-extern fn sched_yield();
-
-pub fn run() {
+@no_mangle
+pub fn run_net_echo() {
     serial.print("BENCH:net_echo:start\n");
     vga.print("Net echo benchmark...\n");
 
@@ -49,14 +49,12 @@ pub fn run() {
     // Iteration-based (not rdtsc) for TCG compatibility.
     // Yield frequently to give QEMU's I/O thread time to process
     // packets and complete the ARP handshake before UDP delivery.
-    let mut polls: i32 = 0;
-    while polls < 50000 {
+    for polls in 0..50000 {
         netcore.poll_all();
-        polls = polls + 1;
 
         // Yield every 500 polls to balance between I/O time and TCG overhead
         if (polls % 500) == 0 {
-            sched_yield();
+            scheduler.yield_now();
         }
     }
 

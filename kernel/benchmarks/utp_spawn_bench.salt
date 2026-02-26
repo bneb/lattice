@@ -1,0 +1,133 @@
+// UTP Spawn Latency Benchmark
+// Measures the cost of sched_spawn() and sched_spawn_async():
+//   sched_spawn: bitmap scan → slab alloc → preemptive_stack_init → bitmap set
+//   sched_spawn_async: bitmap scan → slab alloc → frame init → bitmap set
+//
+// Each spawn is immediately followed by a yield to dispatch and clean up,
+// ensuring the slab slot is reclaimed for the next iteration.
+//
+// On KVM, expected ~100-150 cycles per spawn. On TCG, inflated but functional.
+
+package benchmarks.utp_spawn_bench
+
+use kernel.drivers.serial
+use kernel.drivers.vga
+use kernel.core.timing
+
+extern fn sched_spawn(entry_addr: u64) -> u64;
+extern fn sched_spawn_async(step_fn_addr: u64, frame_size: u64) -> u64;
+extern fn sched_yield();
+
+const POLL_READY: i64 = 1;
+const NUM_SAMPLES: i32 = 100;
+const MIN_CYCLES: i64 = 1;
+const MAX_CYCLES: i64 = 10000000;
+
+// Trivial targets for spawn
+pub fn bench_spawn_noop() {
+    // Preemptive fiber: immediately returns → trampoline → POLL_READY
+}
+
+pub fn bench_spawn_async_noop(frame: u64) -> i64 {
+    return POLL_READY;
+}
+
+@no_mangle
+pub fn run_utp_spawn_bench() {
+    serial.print("BENCH:utp_spawn:start\n");
+    vga.print("UTP spawn latency...\n");
+
+    // ── Preemptive spawn latency ─────────────────────────────────────
+    let mut total: i64 = 0;
+    let mut valid: i32 = 0;
+    let mut min_cy: i64 = 999999999;
+    let mut max_cy: i64 = 0;
+
+    for i in 0..NUM_SAMPLES {
+        let t0 = timing.get_cycles() as i64;
+        let slot = sched_spawn(fn_addr(bench_spawn_noop));
+        let t1 = timing.get_cycles() as i64;
+
+        if slot >= 256 { continue; }
+
+        let elapsed = t1 - t0;
+        if elapsed >= MIN_CYCLES {
+            if elapsed <= MAX_CYCLES {
+                total += elapsed;
+                valid += 1;
+                if elapsed < min_cy { min_cy = elapsed; }
+                if elapsed > max_cy { max_cy = elapsed; }
+            }
+        }
+
+        // Yield to dispatch and reclaim the fiber for next iteration
+        sched_yield();
+    }
+
+    if valid > 0 {
+        let avg = total / (valid as i64);
+        serial.print("BENCH:utp_spawn_preempt:avg=");
+        serial.print_u64(avg as u64);
+        serial.print(" min=");
+        serial.print_u64(min_cy as u64);
+        serial.print(" max=");
+        serial.print_u64(max_cy as u64);
+        serial.print(" valid=");
+        serial.print_u64(valid as u64);
+        serial.print("\n");
+
+        vga.print("  spawn(preempt) avg: ");
+        vga.print_u64(avg as u64);
+        vga.print(" cycles\n");
+    } else {
+        serial.print("BENCH:utp_spawn_preempt:ERROR no valid samples\n");
+    }
+
+    // ── Async spawn latency ──────────────────────────────────────────
+    total = 0;
+    valid = 0;
+    min_cy = 999999999;
+    max_cy = 0;
+
+    let step_addr = fn_addr(bench_spawn_async_noop);
+
+    for i in 0..NUM_SAMPLES {
+        let t0 = timing.get_cycles() as i64;
+        let slot = sched_spawn_async(step_addr, 64);
+        let t1 = timing.get_cycles() as i64;
+
+        if slot >= 256 { continue; }
+
+        let elapsed = t1 - t0;
+        if elapsed >= MIN_CYCLES {
+            if elapsed <= MAX_CYCLES {
+                total += elapsed;
+                valid += 1;
+                if elapsed < min_cy { min_cy = elapsed; }
+                if elapsed > max_cy { max_cy = elapsed; }
+            }
+        }
+
+        // Yield to dispatch and reclaim
+        sched_yield();
+    }
+
+    if valid > 0 {
+        let avg = total / (valid as i64);
+        serial.print("BENCH:utp_spawn_async:avg=");
+        serial.print_u64(avg as u64);
+        serial.print(" min=");
+        serial.print_u64(min_cy as u64);
+        serial.print(" max=");
+        serial.print_u64(max_cy as u64);
+        serial.print(" valid=");
+        serial.print_u64(valid as u64);
+        serial.print("\n");
+
+        vga.print("  spawn(async) avg: ");
+        vga.print_u64(avg as u64);
+        vga.print(" cycles\n");
+    } else {
+        serial.print("BENCH:utp_spawn_async:ERROR no valid samples\n");
+    }
+}

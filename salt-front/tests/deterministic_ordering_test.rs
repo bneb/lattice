@@ -13,7 +13,7 @@ use salt_front::grammar::SaltFile;
 fn compile(src: &str) -> Result<String, String> {
     let file: SaltFile = syn::parse_str(src)
         .map_err(|e| format!("Parse error: {}", e))?;
-    salt_front::codegen::emit_mlir(&file, false, None, false, true, false, false, false, "")
+    salt_front::codegen::emit_mlir(&file, false, None, false, true, false, false, false, false, "")
 }
 
 // ─── Two-Parameter Struct: Declaration Order ───────────────────────────────

@@ -1,0 +1,142 @@
+// =============================================================================
+// kernel/core/ist_test.salt
+// NMI/IST TDD Suite — Verifies IST infrastructure is correctly wired
+// =============================================================================
+//
+// TDD Gate: Validates that the IST stacks are allocated, 16-byte aligned,
+//   and correctly populated in the TSS before any Ring 3 transition.
+//
+// This runs as part of bench_suite_run() — if any check fails, serial output
+// emits FAIL markers that the QEMU test harness catches.
+// =============================================================================
+
+package kernel.core.ist_test
+
+use kernel.drivers.serial
+
+// TSS accessors (ABI boundary — @no_mangle in tss.salt)
+extern fn tss_get_ist(index: u64) -> u64;
+
+// =============================================================================
+// test_ist_isolation — Verify IST stacks are populated and usable
+// =============================================================================
+@no_mangle
+pub fn test_ist_isolation() {
+    serial.print("TEST:ist:BEGIN\n");
+
+    let mut pass_count: u64 = 0;
+
+    // 1. IST 1 (NMI stack) must be non-zero
+    let ist1 = tss_get_ist(1);
+    if ist1 != 0 {
+        serial.print("TEST:ist:ist1_populated:PASS ist1=0x");
+        serial.print_hex(ist1);
+        serial.print("\n");
+        pass_count = pass_count + 1;
+    } else {
+        serial.print("TEST:ist:ist1_populated:FAIL ist1=0 (not initialized)\n");
+    }
+
+    // 2. IST 2 (DF stack) must be non-zero
+    let ist2 = tss_get_ist(2);
+    if ist2 != 0 {
+        serial.print("TEST:ist:ist2_populated:PASS ist2=0x");
+        serial.print_hex(ist2);
+        serial.print("\n");
+        pass_count = pass_count + 1;
+    } else {
+        serial.print("TEST:ist:ist2_populated:FAIL ist2=0 (not initialized)\n");
+    }
+
+    // 3. IST 1 must be 16-byte aligned (hardware requirement)
+    if ist1 != 0 {
+        if (ist1 & 15) == 0 {
+            serial.print("TEST:ist:ist1_aligned:PASS\n");
+            pass_count = pass_count + 1;
+        } else {
+            serial.print("TEST:ist:ist1_aligned:FAIL (not 16-byte aligned)\n");
+        }
+    }
+
+    // 4. IST 2 must be 16-byte aligned (hardware requirement)
+    if ist2 != 0 {
+        if (ist2 & 15) == 0 {
+            serial.print("TEST:ist:ist2_aligned:PASS\n");
+            pass_count = pass_count + 1;
+        } else {
+            serial.print("TEST:ist:ist2_aligned:FAIL (not 16-byte aligned)\n");
+        }
+    }
+
+    // 5. IST 1 and IST 2 must be different stacks
+    if ist1 != 0 && ist2 != 0 {
+        if ist1 != ist2 {
+            serial.print("TEST:ist:distinct_stacks:PASS\n");
+            pass_count = pass_count + 1;
+        } else {
+            serial.print("TEST:ist:distinct_stacks:FAIL (IST1 == IST2)\n");
+        }
+    }
+
+    // Summary
+    if pass_count == 5 {
+        serial.print("TEST:ist:ALL_PASS (5/5)\n");
+    } else {
+        serial.print("TEST:ist:PARTIAL pass_count=");
+        serial.print_u64(pass_count);
+        serial.print("/5\n");
+    }
+}
+
+extern fn outb(port: u16, val: u8);
+
+// =============================================================================
+// df_handler_c — Double-Fault Panic Handler (called from df_handler.S)
+// =============================================================================
+// This is the terminal crash path. The #DF exception is unrecoverable.
+// We print the faulting RIP and RSP for post-mortem analysis, then halt.
+// The assembly wrapper guarantees RSP is 16-byte aligned before this call.
+// =============================================================================
+@no_mangle
+pub fn df_handler_c(rip: u64, rsp: u64) {
+    // RAW TRACE TO PROVE WE ENTERED df_handler_c
+    // Bypass serial.print entirely
+    outb(0x3F8, 0x23); // '#'
+    outb(0x3F8, 0x44); // 'D'
+    outb(0x3F8, 0x46); // 'F'
+    outb(0x3F8, 0x21); // '!'
+    outb(0x3F8, 0x0A); // '\n'
+
+    serial.print("[FATAL] DOUBLE FAULT (#DF)\n");
+    serial.print("[FATAL]   RIP=");
+    serial.print_u64(rip);
+    serial.print("\n");
+    serial.print("[FATAL]   RSP=");
+    serial.print_u64(rsp);
+    serial.print("\n");
+    serial.print("[FATAL] System halted.\n");
+    // The assembly stub will cli; hlt after we return
+}
+
+extern fn trigger_double_fault();
+
+// =============================================================================
+// test_double_fault_manual_trigger()
+// =============================================================================
+// This diagnostic test forcibly corrupts RSP and triggers an exception to
+// exhaust the stack, which immediately triggers a Double Fault (#DF).
+// 
+// SUCCESS CRITERIA:
+// If IST 2 is configured correctly, the hardware will seamlessly transition to 
+// the known-good IST 2 stack, and the df_handler_c will successfully print
+// the [FATAL] DOUBLE FAULT banner with RIP/RSP values, then halt.
+//
+// NOTE: This test is MANUAL because a successful completion halts the machine.
+// Call this from suite.salt for interactive diagnostic verification.
+// =============================================================================
+@no_mangle
+pub fn test_double_fault_manual_trigger() {
+    serial.print("TEST:ist:trigger_double_fault:BEGIN\n");
+    serial.print("TEST:ist:trigger_double_fault:EXPECT HALT WITH [FATAL] BANNER\n");
+    trigger_double_fault();
+}

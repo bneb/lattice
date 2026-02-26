@@ -2,7 +2,7 @@ use salt_front::grammar::*;
 use salt_front::codegen::context::{CodegenContext, LocalKind};
 use salt_front::codegen::stmt::emit_stmt;
 use salt_front::types::Type;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 macro_rules! with_ctx {
     ($ctx:ident, $block:block) => {
@@ -19,7 +19,7 @@ macro_rules! with_ctx {
 fn test_label_resolution_stress() {
     with_ctx!(ctx, {
         let mut out = String::new();
-        let mut locals = HashMap::new();
+        let mut locals = BTreeMap::new();
         
         // 11 levels of nested while loops (no labels since Salt parser/codegen doesn't support them yet)
         // This still exercises the break/continue label stack push/pop.
@@ -47,7 +47,7 @@ fn test_label_resolution_stress() {
 fn test_early_return_matrix() {
     with_ctx!(ctx, {
         let mut out = String::new();
-        let mut locals = HashMap::new();
+        let mut locals = BTreeMap::new();
         
         // Register 'x' so it's defined
         locals.insert("x".to_string(), (Type::I32, LocalKind::SSA("%x".to_string())));
@@ -79,7 +79,7 @@ fn test_early_return_matrix() {
 fn test_nested_if_expr_stmt() {
     with_ctx!(ctx, {
         let mut out = String::new();
-        let mut locals = HashMap::new();
+        let mut locals = BTreeMap::new();
         
         // Test an if expression as a statement
         let code = "let x = if true { 1 } else { 2 };";
@@ -112,7 +112,7 @@ fn test_affine_for_with_simple_body_allowed() {
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     
     let mut out = String::new();
-    let mut locals = HashMap::new();
+    let mut locals = BTreeMap::new();
     
     let func = match &file.items[0] {
         Item::Fn(f) => f,
@@ -143,7 +143,7 @@ fn test_affine_for_with_if_expr_falls_back_to_cf() {
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     
     let mut out = String::new();
-    let mut locals = HashMap::new();
+    let mut locals = BTreeMap::new();
     
     let func = match &file.items[0] {
         Item::Fn(f) => f,
@@ -178,7 +178,7 @@ fn test_affine_for_with_if_stmt_falls_back_to_cf() {
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     
     let mut out = String::new();
-    let mut locals = HashMap::new();
+    let mut locals = BTreeMap::new();
     
     let func = match &file.items[0] {
         Item::Fn(f) => f,
@@ -217,7 +217,7 @@ fn test_while_loop_inside_for_falls_back_to_cf() {
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     
     let mut out = String::new();
-    let mut locals = HashMap::new();
+    let mut locals = BTreeMap::new();
     
     let func = match &file.items[0] {
         Item::Fn(f) => f,
@@ -255,7 +255,7 @@ fn test_nested_for_loops_stay_in_affine() {
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     
     let mut out = String::new();
-    let mut locals = HashMap::new();
+    let mut locals = BTreeMap::new();
     
     let func = match &file.items[0] {
         Item::Fn(f) => f,
@@ -291,7 +291,7 @@ fn test_nested_for_with_deep_while_falls_back() {
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     
     let mut out = String::new();
-    let mut locals = HashMap::new();
+    let mut locals = BTreeMap::new();
     
     let func = match &file.items[0] {
         Item::Fn(f) => f,
@@ -322,7 +322,7 @@ fn test_standalone_while_emits_cf() {
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     
     let mut out = String::new();
-    let mut locals = HashMap::new();
+    let mut locals = BTreeMap::new();
     
     let func = match &file.items[0] {
         Item::Fn(f) => f,

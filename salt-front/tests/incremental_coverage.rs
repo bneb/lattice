@@ -3,7 +3,7 @@ use salt_front::grammar::*;
 use salt_front::types::Type;
 use salt_front::codegen::context::{CodegenContext, LocalKind};
 use salt_front::codegen::expr::emit_expr;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use salt_front::registry::EnumInfo;
 use salt_front::types::TypeKey;
 

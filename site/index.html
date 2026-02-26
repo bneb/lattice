@@ -1414,34 +1414,37 @@
     gdt.<span class="fn">init</span>();
     idt.<span class="fn">init</span>();
     pit.<span class="fn">init</span>();
+    <span class="fn">run_smp_tests</span>();  <span class="cmt">// ACPI → APIC → AP boot</span>
+    <span class="fn">percpu_init_bsp</span>();
     scheduler.<span class="fn">init</span>();
 
     serial.<span class="fn">print</span>(<span class="str">"LATTICE BOOT [OK]\n"</span>);
     scheduler.<span class="fn">start</span>();
     <span class="cmt">// Preemptive scheduling is live</span>
-    ring_of_fire.<span class="fn">run_benchmark</span>();
+    <span class="fn">bench_suite_run</span>();
 }</pre>
                     </div>
                     <div>
                         <h2>Lattice</h2>
                         <p style="color: var(--text-muted); margin-top: 12px; line-height: 1.7;">
                             A unikernel that boots on real x86 hardware, written from scratch in Salt.
-                            It has its own GDT, IDT, PIT timer, preemptive scheduler, physical memory
-                            manager, and serial driver. No C runtime, no libc, no external dependencies
-                            at all. Benchmarked on bare-metal AWS instances with KVM.
+                            It has its own GDT, IDT, PIT timer, ACPI/APIC, SMP bring-up (INIT-SIPI-SIPI),
+                            preemptive scheduler, per-core sharded allocators, and serial driver. No C
+                            runtime, no libc, no external dependencies at all. Benchmarked on bare-metal
+                            AWS instances with KVM.
                         </p>
                         <div class="lettuce-stats">
                             <div class="stat-card">
-                                <div class="stat-value green">96</div>
-                                <div class="stat-label">cycle syscall</div>
+                                <div class="stat-value green">59</div>
+                                <div class="stat-label">cycle alloc</div>
                             </div>
                             <div class="stat-card">
-                                <div class="stat-value orange">936</div>
+                                <div class="stat-value orange">487</div>
                                 <div class="stat-label">cycle ctx switch</div>
                             </div>
                             <div class="stat-card">
-                                <div class="stat-value" style="color: var(--blue);">52</div>
-                                <div class="stat-label">cycle alloc</div>
+                                <div class="stat-value" style="color: var(--blue);">297</div>
+                                <div class="stat-label">cycle IPC</div>
                             </div>
                             <div class="stat-card">
                                 <div class="stat-value" style="color: var(--accent);">KVM</div>
@@ -1458,30 +1461,29 @@
             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 24px 0;">
                 <div class="stat-card"
                     style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; text-align: center;">
-                    <div style="font-size: 2rem; font-weight: 800; color: #00d68f;">96 cycles</div>
-                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px;">Null Syscall
-                        (SYSCALL/SYSRET)</div>
-                    <div style="font-size: 0.75rem; color: #545480; margin-top: 4px;">~28 ns @ 3.4 GHz · Linux ≈ 100–150
+                    <div style="font-size: 2rem; font-weight: 800; color: #00d68f;">59 cycles</div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px;">Arena Allocation</div>
+                    <div style="font-size: 0.75rem; color: #545480; margin-top: 4px;">~15 ns @ 4.0 GHz · glibc malloc ≈ 1,000–5,000
                     </div>
                 </div>
                 <div class="stat-card"
                     style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; text-align: center;">
-                    <div style="font-size: 2rem; font-weight: 800; color: #54a0ff;">936 cycles</div>
+                    <div style="font-size: 2rem; font-weight: 800; color: #54a0ff;">487 cycles</div>
                     <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px;">Context Switch (4
                         fibers)</div>
-                    <div style="font-size: 0.75rem; color: #545480; margin-top: 4px;">~275 ns · full GPR + 512B FXSAVE
+                    <div style="font-size: 0.75rem; color: #545480; margin-top: 4px;">~122 ns · full GPR + 512B FXSAVE
                     </div>
                 </div>
                 <div class="stat-card"
                     style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; text-align: center;">
-                    <div style="font-size: 2rem; font-weight: 800; color: #f78c6c;">52 cycles</div>
-                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px;">Slab Allocation</div>
-                    <div style="font-size: 0.75rem; color: #545480; margin-top: 4px;">~15 ns · bump pointer + bounds
-                        check</div>
+                    <div style="font-size: 2rem; font-weight: 800; color: #f78c6c;">297 cycles</div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px;">IPC Ping-Pong</div>
+                    <div style="font-size: 0.75rem; color: #545480; margin-top: 4px;">~74 ns · fiber-to-fiber zero-copy yield
+                    </div>
                 </div>
             </div>
             <p style="font-size: 0.8rem; color: #545480; text-align: center; margin-bottom: 32px;">
-                Intel Xeon Platinum 8151 (Skylake), AWS z1d.metal, QEMU/KVM. <code>-enable-kvm -cpu host</code>.
+                Intel Xeon Platinum 8151 (Skylake, 4.0 GHz), AWS z1d.metal, QEMU/KVM. <code>-enable-kvm -cpu host</code>.
                 <a href="https://github.com/bneb/lattice/blob/main/docs/LATTICE_BENCHMARKS.md"
                     style="color: var(--accent);">Full methodology →</a>
             </p>

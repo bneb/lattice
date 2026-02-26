@@ -1,0 +1,152 @@
+// =============================================================================
+// kernel/core/flight_recorder.salt
+// Lock-Free Per-Core Flight Recorder — Nanosecond-Resolution Context Switch Log
+// =============================================================================
+//
+// Architecture:
+//   Each CPU core gets its own 2MB ring buffer of 16-byte TraceEvent structs.
+//   Because the buffer is strictly per-core, NO atomic operations or LOCK
+//   prefixes are required. The index wraps via bitwise AND (zero branches).
+//
+// Hot-path cost: ~5 cycles (2 stores + 1 rdtsc + 1 AND)
+//
+// Memory layout per core:
+//   TRACE_BUFFERS[cpu_id * TRACE_CAPACITY .. (cpu_id+1) * TRACE_CAPACITY]
+//   TRACE_INDICES[cpu_id] = current write index
+//
+// Event types:
+//   0 = DISPATCH  (about to invoke_task)
+//   1 = YIELD     (fiber returned POLL_PENDING)
+//   2 = COMPLETED (fiber returned POLL_READY)
+//   3 = TIMER_ISR (timer interrupt fired)
+// =============================================================================
+
+package kernel.core.flight_recorder
+
+import kernel.drivers.serial
+
+extern fn get_cpu_id() -> u64;
+extern fn get_cycles_asm() -> u64;
+
+// =============================================================================
+// Constants
+// =============================================================================
+pub const EVENT_DISPATCH: u64  = 0;
+pub const EVENT_YIELD: u64     = 1;
+pub const EVENT_COMPLETED: u64 = 2;
+pub const EVENT_TIMER_ISR: u64 = 3;
+
+const MAX_CPUS: u64 = 16;
+
+// Per-core capacity: 131,072 events × 16 bytes = 2MB
+// Total: 16 cores × 2MB = 32MB (within our 32MB-64MB PMM range)
+// NOTE: We use a smaller buffer (4096 events = 64KB per core) to avoid
+// crashing the MLIR constant materializer on 32MB global arrays.
+// 4096 events still captures ~4000 context switches per core — plenty
+// for diagnosing deadlocks and scheduling anomalies.
+pub const TRACE_CAPACITY: u64 = 4096;
+const TRACE_MASK: u64 = 4095;  // TRACE_CAPACITY - 1, power-of-2 for AND wrap
+
+// Total buffer entries across all cores
+const TOTAL_ENTRIES: u64 = 65536;  // MAX_CPUS * TRACE_CAPACITY
+
+// =============================================================================
+// TraceEvent — 16 bytes, cache-line friendly
+// =============================================================================
+// Two events pack into one 32-byte half-cacheline.
+// Four events pack into one 64-byte cacheline.
+// =============================================================================
+pub struct TraceEvent {
+    pub tsc: u64,         // Hardware timestamp counter (rdtsc)
+    pub fiber_id: u32,    // Fiber slot index from scheduler bitmap
+    pub event_type: u32,  // EVENT_DISPATCH / EVENT_YIELD / EVENT_COMPLETED / EVENT_TIMER_ISR
+}
+
+// =============================================================================
+// Global Trace Buffers — Flat array indexed by [cpu_id * TRACE_CAPACITY + idx]
+// =============================================================================
+global TRACE_BUFFERS: [TraceEvent; 65536] = [TraceEvent {
+    tsc: 0,
+    fiber_id: 0,
+    event_type: 0
+}; 65536];
+
+// Per-core write index
+global TRACE_INDICES: [u64; 16] = [0 as u64; 16];
+
+// =============================================================================
+// log_trace — The Hot-Path Logger
+// =============================================================================
+// Cost: ~5 cycles (rdtsc + 2 stores + 1 AND)
+// No atomics. No branches. No LOCK prefix.
+// =============================================================================
+pub fn log_trace(fiber_id: u64, event: u64) {
+    let cpu = get_cpu_id();
+    let idx = TRACE_INDICES[cpu];
+    let buf_offset = cpu * TRACE_CAPACITY + idx;
+
+    TRACE_BUFFERS[buf_offset].tsc = get_cycles_asm();
+    TRACE_BUFFERS[buf_offset].fiber_id = fiber_id as u32;
+    TRACE_BUFFERS[buf_offset].event_type = event as u32;
+
+    // Zero-branch wrap-around increment
+    TRACE_INDICES[cpu] = (idx + 1) & TRACE_MASK;
+}
+
+// =============================================================================
+// dump_trace — Debug: Print last N events for a given core
+// =============================================================================
+pub fn dump_trace(cpu: u64, count: u64) {
+    serial.print("[FLIGHT] Core ");
+    serial.print_u64(cpu);
+    serial.print(" last ");
+    serial.print_u64(count);
+    serial.print(" events:\n");
+
+    let current_idx = TRACE_INDICES[cpu];
+    let mut i: u64 = 0;
+    while i < count {
+        // Walk backwards from current index
+        let raw_idx = (current_idx + TRACE_CAPACITY - count + i) & TRACE_MASK;
+        let buf_offset = cpu * TRACE_CAPACITY + raw_idx;
+        let ev = &TRACE_BUFFERS[buf_offset];
+
+        if ev.tsc != 0 {
+            serial.print("  [");
+            serial.print_u64(i);
+            serial.print("] tsc=");
+            serial.print_u64(ev.tsc);
+            serial.print(" fiber=");
+            serial.print_u64(ev.fiber_id as u64);
+            serial.print(" type=");
+            serial.print_u64(ev.event_type as u64);
+            serial.print("\n");
+        }
+        i = i + 1;
+    }
+}
+
+// =============================================================================
+// get_trace_count — Number of events written to a core's buffer
+// =============================================================================
+pub fn get_trace_count(cpu: u64) -> u64 {
+    return TRACE_INDICES[cpu];
+}
+
+// =============================================================================
+// @no_mangle ABI Wrappers
+// =============================================================================
+@no_mangle
+pub fn flight_log_trace(fiber_id: u64, event: u64) {
+    log_trace(fiber_id, event);
+}
+
+@no_mangle
+pub fn flight_dump_trace(cpu: u64, count: u64) {
+    dump_trace(cpu, count);
+}
+
+@no_mangle
+pub fn flight_get_trace_count(cpu: u64) -> u64 {
+    return get_trace_count(cpu);
+}

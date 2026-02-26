@@ -212,3 +212,8 @@ pub fn free(cache_id: u64, ptr: u64) {
     *(ptr as &mut u64) = old_head;
     *((base + 24) as &mut u64) = ptr;
 }
+
+// @no_mangle ABI Wrappers
+@no_mangle
+pub fn slab_cache_init() { init(); }
+

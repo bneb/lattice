@@ -1,0 +1,290 @@
+// =============================================================================
+// kernel/arch/x86/acpi.salt
+// ACPI RSDP Scanner, RSDT/XSDT Walker, and MADT Parser
+// =============================================================================
+//
+// Discovers CPU topology by parsing ACPI tables in firmware memory.
+//
+// Boot sequence:
+//   1. find_rsdp()   — Scan EBDA + BIOS ROM for "RSD PTR " signature
+//   2. parse_madt()  — Walk RSDT to find MADT, extract Local APIC entries
+//   3. get_cpu_count() / get_apic_id(i) — Query results
+//
+// All physical addresses are accessed via the higher-half direct map
+// (memory.phys_to_virt_raw). The kernel's 1GB identity map at
+// 0xFFFFFFFF80000000 covers the BIOS ROM region (0xE0000-0xFFFFF)
+// and the ACPI tables (typically below 4GB).
+//
+// ACPI Spec References:
+//   - RSDP: ACPI 6.4, Section 5.2.5.3
+//   - RSDT: ACPI 6.4, Section 5.2.7
+//   - MADT: ACPI 6.4, Section 5.2.12
+//   - Local APIC entry: ACPI 6.4, Table 5-20 (Type 0)
+// =============================================================================
+
+package kernel.arch.x86.acpi
+
+use kernel.core.memory
+use kernel.drivers.serial
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+// RSDP signature: "RSD PTR " (8 bytes, with trailing space)
+const RSDP_SIG_LO: u32 = 0x20445352;  // "RSD " in little-endian
+const RSDP_SIG_HI: u32 = 0x20525450;  // "PTR " in little-endian
+
+// MADT signature: "APIC" (4 bytes)
+const MADT_SIG: u32 = 0x43495041;     // "APIC" in little-endian
+
+// RSDP search regions (physical addresses)
+const EBDA_START: u64  = 0x80000;
+const EBDA_END: u64    = 0x9FFFF;
+const BIOS_START: u64  = 0xE0000;
+const BIOS_END: u64    = 0xFFFFF;
+
+// MADT entry types
+const MADT_TYPE_LOCAL_APIC: u8 = 0;
+const MADT_TYPE_IO_APIC: u8    = 1;
+
+// Local APIC flags (bit 0 = Processor Enabled)
+const LAPIC_FLAG_ENABLED: u32 = 1;
+
+// Maximum CPUs we support
+const MAX_CPUS: u64 = 16;
+
+// =============================================================================
+// Global CPU Topology Results
+// =============================================================================
+global CPU_COUNT: u64 = 0;
+global APIC_IDS: [u8; 16] = [0 as u8; 16];
+global LAPIC_BASE_PHYS: u64 = 0xFEE00000;  // Default, overridden by MADT
+
+// =============================================================================
+// RSDP Scanner
+// =============================================================================
+// The RSDP is aligned on a 16-byte boundary somewhere in:
+//   1. The first 1KB of the EBDA (Extended BIOS Data Area)
+//   2. The BIOS ROM area (0xE0000 - 0xFFFFF)
+// =============================================================================
+
+pub fn find_rsdp() -> u64 {
+    // Scan BIOS ROM area first (more reliable on QEMU)
+    let result = scan_region(BIOS_START, BIOS_END);
+    if result != 0 {
+        return result;
+    }
+
+    // Fallback: scan EBDA
+    let result2 = scan_region(EBDA_START, EBDA_END);
+    return result2;
+}
+
+fn scan_region(start: u64, end: u64) -> u64 {
+    let mut addr = start;
+    while addr < end {
+        let vaddr = memory.phys_to_virt_raw(addr);
+        let sig_lo = *(vaddr as &u32);
+        let sig_hi = *((vaddr + 4) as &u32);
+
+        if sig_lo == RSDP_SIG_LO {
+            if sig_hi == RSDP_SIG_HI {
+                // Verify checksum (first 20 bytes must sum to 0 mod 256)
+                if verify_rsdp_checksum(vaddr) {
+                    return addr;
+                }
+            }
+        }
+
+        addr = addr + 16;  // RSDP is 16-byte aligned
+    }
+    return 0;
+}
+
+fn verify_rsdp_checksum(vaddr: u64) -> bool {
+    let mut sum: u64 = 0;
+    let mut i: u64 = 0;
+    while i < 20 {
+        let byte = *((vaddr + i) as &u8);
+        sum = sum + (byte as u64);
+        i = i + 1;
+    }
+    return (sum & 0xFF) == 0;
+}
+
+// =============================================================================
+// MADT Parser
+// =============================================================================
+// Given the physical address of the RSDP:
+//   1. Read RSDT address from RSDP offset 16
+//   2. Walk RSDT entries looking for "APIC" signature
+//   3. Parse MADT entries for Type 0 (Local APIC)
+//
+// Returns the number of enabled CPUs found.
+// =============================================================================
+
+pub fn parse_madt(rsdp_phys: u64) -> u64 {
+    if rsdp_phys == 0 {
+        serial.print("[ACPI] ERROR: No RSDP found\n");
+        return 0;
+    }
+
+    serial.print("[ACPI] RSDP found at 0x");
+    serial.print_hex(rsdp_phys);
+    serial.print("\n");
+
+    let rsdp_virt = memory.phys_to_virt_raw(rsdp_phys);
+
+    // RSDP revision: offset 15 (u8)
+    // Revision 0 = ACPI 1.0 (RSDT only), Revision 2+ = ACPI 2.0+ (XSDT available)
+    let revision = *((rsdp_virt + 15) as &u8);
+
+    // RSDT physical address: offset 16 (u32)
+    let rsdt_phys = *((rsdp_virt + 16) as &u32) as u64;
+
+    serial.print("[ACPI] RSDT at 0x");
+    serial.print_hex(rsdt_phys);
+    serial.print(" (revision ");
+    serial.print_u64(revision as u64);
+    serial.print(")\n");
+
+    // Walk RSDT to find MADT
+    let rsdt_virt = memory.phys_to_virt_raw(rsdt_phys);
+    let rsdt_length = *((rsdt_virt + 4) as &u32) as u64;
+
+    // RSDT header is 36 bytes. Remaining bytes are 32-bit pointers to SDTs.
+    let entries_start = rsdt_virt + 36;
+    let entries_end = rsdt_virt + rsdt_length;
+    let mut ptr = entries_start;
+
+    while ptr < entries_end {
+        let sdt_phys = *(ptr as &u32) as u64;
+
+        if sdt_phys != 0 {
+            let sdt_virt = memory.phys_to_virt_raw(sdt_phys);
+            let sig = *(sdt_virt as &u32);
+
+            if sig == MADT_SIG {
+                serial.print("[ACPI] MADT found at 0x");
+                serial.print_hex(sdt_phys);
+                serial.print("\n");
+                return parse_madt_entries(sdt_virt);
+            }
+        }
+
+        ptr = ptr + 4;  // 32-bit pointers in RSDT
+    }
+
+    serial.print("[ACPI] ERROR: MADT not found in RSDT\n");
+    return 0;
+}
+
+fn parse_madt_entries(madt_virt: u64) -> u64 {
+    // MADT header:
+    //   Bytes 0-3:   Signature ("APIC")
+    //   Bytes 4-7:   Length (u32)
+    //   Bytes 36-39: Local APIC Address (u32)
+    //   Bytes 40-43: Flags (u32)
+    //   Bytes 44+:   Interrupt Controller Structure entries
+
+    let madt_length = *((madt_virt + 4) as &u32) as u64;
+    let lapic_addr = *((madt_virt + 36) as &u32) as u64;
+
+    LAPIC_BASE_PHYS = lapic_addr;
+
+    serial.print("[ACPI] Local APIC base: 0x");
+    serial.print_hex(lapic_addr);
+    serial.print("\n");
+
+    // Walk variable-length entries starting at offset 44
+    let mut offset: u64 = 44;
+    let mut count: u64 = 0;
+
+    while offset < madt_length {
+        let entry_addr = madt_virt + offset;
+        let entry_type = *(entry_addr as &u8);
+        let entry_length = *((entry_addr + 1) as &u8) as u64;
+
+        if entry_length == 0 {
+            // Malformed entry — avoid infinite loop
+            serial.print("[ACPI] WARNING: zero-length MADT entry at offset ");
+            serial.print_u64(offset);
+            serial.print("\n");
+            return count;
+        }
+
+        if entry_type == MADT_TYPE_LOCAL_APIC {
+            // Type 0: Processor Local APIC
+            //   Byte 2: ACPI Processor ID
+            //   Byte 3: APIC ID
+            //   Bytes 4-7: Flags (bit 0 = enabled, bit 1 = online capable)
+            let apic_id = *((entry_addr + 3) as &u8);
+            let flags = *((entry_addr + 4) as &u32);
+
+            if (flags & LAPIC_FLAG_ENABLED) != 0 {
+                if count < MAX_CPUS {
+                    APIC_IDS[count] = apic_id;
+                    count = count + 1;
+                }
+            }
+        }
+
+        offset = offset + entry_length;
+    }
+
+    CPU_COUNT = count;
+
+    serial.print("[ACPI] MADT: ");
+    serial.print_u64(count);
+    serial.print(" CPUs detected, APIC IDs: [");
+
+    let mut i: u64 = 0;
+    while i < count {
+        if i > 0 {
+            serial.print(", ");
+        }
+        serial.print_u64(APIC_IDS[i] as u64);
+        i = i + 1;
+    }
+    serial.print("]\n");
+
+    return count;
+}
+
+// =============================================================================
+// Public Accessors
+// =============================================================================
+
+pub fn get_cpu_count() -> u64 {
+    return CPU_COUNT;
+}
+
+pub fn get_apic_id(index: u64) -> u8 {
+    if index >= CPU_COUNT {
+        return 0xFF;  // Invalid
+    }
+    return APIC_IDS[index];
+}
+
+pub fn get_lapic_base() -> u64 {
+    return LAPIC_BASE_PHYS;
+}
+
+// =============================================================================
+// @no_mangle ABI Wrappers
+// =============================================================================
+@no_mangle
+pub fn acpi_find_rsdp() -> u64 { return find_rsdp(); }
+
+@no_mangle
+pub fn acpi_parse_madt(rsdp_phys: u64) -> u64 { return parse_madt(rsdp_phys); }
+
+@no_mangle
+pub fn acpi_get_cpu_count() -> u64 { return get_cpu_count(); }
+
+@no_mangle
+pub fn acpi_get_apic_id(index: u64) -> u8 { return get_apic_id(index); }
+
+@no_mangle
+pub fn acpi_get_lapic_base() -> u64 { return get_lapic_base(); }

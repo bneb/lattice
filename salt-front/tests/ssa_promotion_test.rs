@@ -33,7 +33,7 @@ fn test_reinterpret_cast_field_access_no_spill() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "SSA promotion failed: {:?}", res.err());
     
@@ -77,7 +77,7 @@ fn test_multiple_field_access_no_spill() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "Multi-field access failed: {:?}", res.err());
     
@@ -121,7 +121,7 @@ fn test_mutable_field_write_no_spill() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "Mutable field write failed: {:?}", res.err());
     
@@ -166,7 +166,7 @@ fn test_loop_field_access_no_spill() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "Loop field access failed: {:?}", res.err());
     
@@ -207,7 +207,7 @@ fn test_reinterpret_cast_primitive_still_works() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "Primitive reinterpret_cast failed: {:?}", res.err());
     
@@ -247,7 +247,7 @@ fn test_struct_with_inner_struct_field_access() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "Struct with inner struct failed: {:?}", res.err());
     
@@ -283,7 +283,7 @@ fn test_reference_struct_is_aggregate() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "Reference struct aggregate failed: {:?}", res.err());
     
@@ -324,7 +324,7 @@ fn test_ephemeral_ref_through_let_binding() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "Let binding ephemeral ref failed: {:?}", res.err());
     
@@ -361,7 +361,7 @@ fn test_no_field_base_load_for_ephemeral_ref() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "Field base load test failed: {:?}", res.err());
     

@@ -14,3 +14,4 @@ pub mod lower;
 pub mod typeck;
 pub mod vc;
 pub mod async_lower;
+pub mod verify_pulse_bounds;

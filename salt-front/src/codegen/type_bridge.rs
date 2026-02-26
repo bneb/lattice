@@ -108,6 +108,9 @@ impl Type {
     // Mutability/ownership are access permissions, not changes to storage layout
     match self {
         Type::Owned(inner) => return inner.to_mlir_storage_type(ctx),
+        // [SOVEREIGN FIX] Atomic<T> storage is just T — atomicrmw/cmpxchg operate
+        // on the address of the scalar value, not an opaque pointer.
+        Type::Atomic(inner) => return inner.to_mlir_storage_type(ctx),
         _ => {}
     }
     
@@ -3030,24 +3033,33 @@ pub fn emit_const(ctx: &mut LoweringContext, _out: &mut String, c: &crate::gramm
 }
 
 pub fn emit_global_def(ctx: &mut LoweringContext, _out: &mut String, g: &crate::grammar::GlobalDef) -> Result<(), String> {
-    let ty = resolve_type(ctx, &g.ty);
+    let ty_raw = resolve_type(ctx, &g.ty);
+    // [SOVEREIGN FIX] Atomic<T> is a semantic wrapper — storage is just T.
+    // Unwrap for MLIR emission (type + init_val), but keep Atomic<T> in globals table
+    // so method dispatch (fetch_add, compare_exchange, load, store) still works.
+    let ty_storage = match &ty_raw {
+        Type::Atomic(inner) => (**inner).clone(),
+        other => other.clone(),
+    };
     let name = ctx.mangle_fn_name(&g.name.to_string());
     
     if ctx.initialized_globals().contains(&*name) {
         return Ok(());
     }
     
-    ctx.globals_mut().insert(name.to_string(), ty.clone());
+    // Store ORIGINAL type (Atomic<i32>) for method dispatch
+    ctx.globals_mut().insert(name.to_string(), ty_raw.clone());
     ctx.initialized_globals_mut().insert(name.to_string());
     
-    let mlir_ty = ty.to_mlir_storage_type(ctx)?;
+    // Use UNWRAPPED type (i32) for MLIR emission
+    let mlir_ty = ty_storage.to_mlir_storage_type(ctx)?;
     
     // Check for explicit initializer and evaluate it
     let init_val = if let Some(val_expr) = &g.init {
         let eval = crate::evaluator::Evaluator::new();
         match eval.eval_expr(val_expr) {
             Ok(crate::evaluator::ConstValue::Integer(i)) => {
-                let suffix = match &ty {
+                let suffix = match &ty_storage {
                     Type::I64 | Type::U64 | Type::Usize => "i64",
                     Type::I32 | Type::U32 => "i32",
                     Type::I16 | Type::U16 => "i16",
@@ -3058,7 +3070,7 @@ pub fn emit_global_def(ctx: &mut LoweringContext, _out: &mut String, g: &crate::
                 format!("{} : {}", i, suffix)
             }
             Ok(crate::evaluator::ConstValue::Float(f)) => {
-                let suffix = if matches!(&ty, Type::F32) { "f32" } else { "f64" };
+                let suffix = if matches!(&ty_storage, Type::F32) { "f32" } else { "f64" };
                 format!("{} : {}", f, suffix)
             }
             Ok(crate::evaluator::ConstValue::Bool(b)) => {
@@ -3072,7 +3084,7 @@ pub fn emit_global_def(ctx: &mut LoweringContext, _out: &mut String, g: &crate::
     
     if init_val.is_empty() {
         // [ALIGNMENT ENFORCER] Calculate mandatory alignment based on type size
-        let alignment = match &ty {
+        let alignment = match &ty_storage {
             Type::Array(_, len, _) if *len >= 16 => 64,  // Cache-line aligned for large arrays
             Type::Struct(_) | Type::Concrete(_, _) => 16, // 16-byte for aggregates
             _ => 8, // Default 8-byte alignment
@@ -3098,7 +3110,10 @@ pub fn zero_attr(ctx: &mut LoweringContext<'_, '_>, ty: &Type) -> Result<String,
         Type::I64| Type::U64 | Type::Usize => Ok("0 : i64".to_string()),
         Type::F32 => Ok("0.0 : f32".to_string()),
         Type::F64 => Ok("0.0 : f64".to_string()),
-        Type::Owned(_) | Type::Reference(_, _) | Type::Atomic(_) | Type::Fn(_, _) => Ok("null : !llvm.ptr".to_string()),
+        Type::Owned(_) | Type::Reference(_, _) | Type::Fn(_, _) => Ok("null : !llvm.ptr".to_string()),
+        // [SOVEREIGN FIX] Atomic<T> storage is the inner type T, not a pointer.
+        // Recurse to get the correct zero value (e.g., Atomic<i32> → "0 : i32").
+        Type::Atomic(inner) => zero_attr(ctx, inner),
         
         Type::Array(inner, len, _) => {
             let inner_attr = zero_attr(ctx, inner)?;
@@ -3288,5 +3303,102 @@ mod tests {
         assert!(result.is_ok(), "promote_numeric(Usize, Usize) should succeed");
         assert!(out.is_empty(),
             "Usize→Usize should be identity (no MLIR emitted), got: {}", out);
+    }
+
+    // =========================================================================
+    // TDD: Atomic<T> Type Emission — The Slab Memory Leak Root Cause
+    // =========================================================================
+    // Bug: Atomic<i32> globals emitted as `!llvm.ptr` with `null` init instead
+    // of `i32` with `0 : i32` init. This causes LLVM Translation to reject the
+    // MLIR with: "Global variable initializer type does not match global variable type!"
+    //
+    // Call graph layers to fix:
+    //   Layer 0: to_mlir_type_simple(Atomic<T>) → T's MLIR type  [already works]
+    //   Layer 1: zero_attr(Atomic<T>) → recurse to inner T
+    //   Layer 2: to_mlir_storage_type_simple(Atomic<T>) → T's storage type
+    //   Layer 3: emit_global_def sees Atomic<T> → unwraps to T for init_val
+
+    // --- Layer 0: to_mlir_type_simple (already correct, assert for safety) ---
+    #[test]
+    fn test_atomic_i32_mlir_type_simple() {
+        let ty = Type::Atomic(Box::new(Type::I32));
+        assert_eq!(ty.to_mlir_type_simple(), "i32",
+            "Atomic<i32> MLIR type should be 'i32', not '!llvm.ptr'");
+    }
+
+    #[test]
+    fn test_atomic_u64_mlir_type_simple() {
+        let ty = Type::Atomic(Box::new(Type::U64));
+        assert_eq!(ty.to_mlir_type_simple(), "i64",
+            "Atomic<u64> MLIR type should be 'i64'");
+    }
+
+    // --- Layer 1: zero_attr should recurse into inner type ---
+    #[test]
+    fn test_atomic_i32_zero_attr() {
+        let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
+        let z3_cfg = z3::Config::new();
+        let z3_ctx = z3::Context::new(&z3_cfg);
+        let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
+
+        let ty = Type::Atomic(Box::new(Type::I32));
+        let result = ctx.with_lowering_ctx(|lctx| zero_attr(lctx, &ty));
+        assert!(result.is_ok(), "zero_attr(Atomic<i32>) should succeed");
+        assert_eq!(result.unwrap(), "0 : i32",
+            "zero_attr(Atomic<i32>) must be '0 : i32', not 'null : !llvm.ptr'");
+    }
+
+    #[test]
+    fn test_atomic_u64_zero_attr() {
+        let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
+        let z3_cfg = z3::Config::new();
+        let z3_ctx = z3::Context::new(&z3_cfg);
+        let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
+
+        let ty = Type::Atomic(Box::new(Type::U64));
+        let result = ctx.with_lowering_ctx(|lctx| zero_attr(lctx, &ty));
+        assert!(result.is_ok(), "zero_attr(Atomic<u64>) should succeed");
+        assert_eq!(result.unwrap(), "0 : i64",
+            "zero_attr(Atomic<u64>) must be '0 : i64', not 'null : !llvm.ptr'");
+    }
+
+    // --- Layer 2: to_mlir_storage_type_simple should unwrap to inner type ---
+    #[test]
+    fn test_atomic_i32_storage_type_simple() {
+        let ty = Type::Atomic(Box::new(Type::I32));
+        assert_eq!(ty.to_mlir_storage_type_simple(), "i32",
+            "Atomic<i32> storage type should be 'i32', not '!llvm.ptr'");
+    }
+
+    #[test]
+    fn test_atomic_u64_storage_type_simple() {
+        let ty = Type::Atomic(Box::new(Type::U64));
+        assert_eq!(ty.to_mlir_storage_type_simple(), "i64",
+            "Atomic<u64> storage type should be 'i64'");
+    }
+
+    // --- Layer 3: k_is_ptr_type should NOT match Atomic ---
+    #[test]
+    fn test_atomic_is_not_ptr_type() {
+        let ty = Type::Atomic(Box::new(Type::I32));
+        assert!(!ty.k_is_ptr_type(),
+            "Atomic<i32> is NOT a pointer type — it is a scalar wrapper");
+    }
+
+    // --- Layer 4: size_of should reflect inner type, not pointer ---
+    #[test]
+    fn test_atomic_i32_size_of() {
+        let reg = std::collections::HashMap::new();
+        let ty = Type::Atomic(Box::new(Type::I32));
+        assert_eq!(ty.size_of(&reg), 4,
+            "Atomic<i32> should be 4 bytes, not 8 (pointer size)");
+    }
+
+    #[test]
+    fn test_atomic_u64_size_of() {
+        let reg = std::collections::HashMap::new();
+        let ty = Type::Atomic(Box::new(Type::U64));
+        assert_eq!(ty.size_of(&reg), 8,
+            "Atomic<u64> should be 8 bytes");
     }
 }

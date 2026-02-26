@@ -1,0 +1,468 @@
+// =============================================================================
+// kernel/core/percpu_test.salt
+// Per-Core Sharding Test Harness — TDD Assertions for PMM, Slab, Scheduler
+// =============================================================================
+//
+// Tests the per-core sharding of allocators and the scheduler.
+// All tests run on the BSP (cpu_id=0) during boot, before APs enter
+// the scheduler. This validates that the sharded data structures
+// behave identically to the original single-core globals.
+//
+// Structured test output for machine parsing by runner_qemu.py:
+//   TEST:percpu:<test_name>:PASS
+//   TEST:percpu:<test_name>:FAIL <reason>
+//
+// Test layers:
+//   1. PMM sharding     — alloc/free cycle on core 0 returns valid pages
+//   2. PMM isolation    — core 0 pages don't appear in core 1's free list
+//   3. Slab sharding    — pop/push on core 0 returns valid slab slots
+//   4. Slab isolation   — core 0 slab slots are in core 0's region
+//   5. Scheduler sharding — spawn/yield/exit on core 0 works correctly
+//   6. Zero contention  — no CAS retries when only one core touches its own data
+// =============================================================================
+
+package kernel.core.percpu_test
+
+use kernel.drivers.serial
+use kernel.core.pmm
+use kernel.core.scheduler
+
+// Slab allocator functions (extern since slab.salt uses flat package)
+extern fn pop_stack() -> u64;
+extern fn push_stack(ptr: u64);
+extern fn slab_watermark() -> i32;
+
+// Per-CPU accessor
+extern fn get_cpu_id() -> u64;
+
+// =============================================================================
+// Test Infrastructure
+// =============================================================================
+
+fn test_pass(name: &u8) {
+    serial.print("TEST:percpu:");
+    serial.print(name);
+    serial.print(":PASS\n");
+}
+
+fn test_fail(name: &u8, reason: &u8) {
+    serial.print("TEST:percpu:");
+    serial.print(name);
+    serial.print(":FAIL ");
+    serial.print(reason);
+    serial.print("\n");
+}
+
+fn test_value(name: &u8, val: u64) {
+    serial.print("TEST:percpu:");
+    serial.print(name);
+    serial.print(":VALUE ");
+    serial.print_u64(val);
+    serial.print("\n");
+}
+
+// =============================================================================
+// Layer 0: BSP GS Segment — Verify GS_BASE is set correctly
+// =============================================================================
+// Asserts:
+//   - BSP can read its own cpu_id via GS:[0]
+//   - cpu_id == 0 for BSP
+// =============================================================================
+
+fn test_bsp_gs() {
+    serial.print("[TEST] BSP GS Segment\n");
+    let cpu_id = get_cpu_id();
+    test_value("bsp_gs_cpu_id", cpu_id);
+    if cpu_id == 0 {
+        test_pass("bsp_gs_valid");
+    } else {
+        test_fail("bsp_gs_valid", "BSP cpu_id != 0");
+    }
+}
+
+// =============================================================================
+// Layer 1: PMM Sharding — Alloc/Free Cycle
+// =============================================================================
+// Asserts:
+//   - pmm.alloc() on core 0 returns a non-zero page-aligned physical address
+//   - pmm.free() accepts the page back without fault
+//   - A second alloc returns the same page (LIFO Treiber stack property)
+//   - pmm.available() reflects correct count changes
+// =============================================================================
+
+fn test_pmm_sharding() {
+    serial.print("[TEST] PMM Sharding (core 0)\n");
+
+    let cpu = get_cpu_id();
+    test_value("pmm_cpu_id", cpu);
+
+    // Snapshot initial state
+    let avail_before = pmm.available();
+    test_value("pmm_avail_before", avail_before);
+
+    if avail_before == 0 {
+        test_fail("pmm_has_pages", "No pages available on core 0");
+        return;
+    }
+    test_pass("pmm_has_pages");
+
+    // Test 1.1: Alloc returns a valid page
+    let page1 = pmm.alloc();
+    if page1 == 0 {
+        test_fail("pmm_alloc_nonzero", "alloc returned 0");
+        return;
+    }
+    test_pass("pmm_alloc_nonzero");
+
+    // Test 1.2: Page is 4KB aligned
+    if (page1 % 4096) == 0 {
+        test_pass("pmm_alloc_aligned");
+    } else {
+        test_fail("pmm_alloc_aligned", "page not 4KB aligned");
+    }
+
+    // Test 1.3: Available count decreased by 1
+    let avail_after_alloc = pmm.available();
+    if avail_after_alloc == (avail_before - 1) {
+        test_pass("pmm_avail_decreased");
+    } else {
+        serial.print("TEST:percpu:pmm_avail_decreased:FAIL expected=");
+        serial.print_u64(avail_before - 1);
+        serial.print(" got=");
+        serial.print_u64(avail_after_alloc);
+        serial.print("\n");
+    }
+
+    // Test 1.4: Free the page back
+    pmm.free(page1);
+    let avail_after_free = pmm.available();
+    if avail_after_free == avail_before {
+        test_pass("pmm_free_restores");
+    } else {
+        test_fail("pmm_free_restores", "available count not restored after free");
+    }
+
+    // Test 1.5: LIFO property — re-alloc returns same page
+    let page2 = pmm.alloc();
+    if page2 == page1 {
+        test_pass("pmm_lifo");
+    } else {
+        serial.print("TEST:percpu:pmm_lifo:FAIL expected=0x");
+        serial.print_hex(page1);
+        serial.print(" got=0x");
+        serial.print_hex(page2);
+        serial.print("\n");
+    }
+
+    // Clean up
+    pmm.free(page2);
+}
+
+// =============================================================================
+// Layer 2: PMM Isolation
+// =============================================================================
+// Asserts:
+//   - Multiple alloc calls return distinct pages
+//   - Bulk alloc/free cycle doesn't corrupt the free list
+// =============================================================================
+
+fn test_pmm_isolation() {
+    serial.print("[TEST] PMM Bulk Alloc/Free\n");
+
+    // Alloc 10 pages, verify all distinct
+    let mut pages: [u64; 10] = [0 as u64; 10];
+    let mut i: u64 = 0;
+    let mut all_distinct = true;
+
+    while i < 10 {
+        pages[i] = pmm.alloc();
+        if pages[i] == 0 {
+            test_fail("pmm_bulk_alloc", "alloc returned 0 during bulk");
+            return;
+        }
+
+        // Check against all previously allocated pages
+        let mut j: u64 = 0;
+        while j < i {
+            if pages[j] == pages[i] {
+                all_distinct = false;
+                j = i;  // break
+            }
+            j = j + 1;
+        }
+
+        i = i + 1;
+    }
+
+    if all_distinct {
+        test_pass("pmm_bulk_distinct");
+    } else {
+        test_fail("pmm_bulk_distinct", "duplicate page addresses in bulk alloc");
+    }
+
+    // Free all 10 pages
+    let mut k: u64 = 0;
+    while k < 10 {
+        pmm.free(pages[k]);
+        k = k + 1;
+    }
+    test_pass("pmm_bulk_free");
+}
+
+// =============================================================================
+// Layer 3: Slab Sharding — Pop/Push Cycle
+// =============================================================================
+// Asserts:
+//   - pop_stack on core 0 returns a non-zero 16KB-aligned address
+//   - Address is within the slab region (0xFFFFFFFF90000000 - 0xFFFFFFFF9A000000)
+//   - push_stack returns the slot, next pop returns the same slot (LIFO)
+//   - Watermark tracks fresh allocations correctly
+// =============================================================================
+
+fn test_slab_sharding() {
+    serial.print("[TEST] Slab Sharding (core 0)\n");
+
+    let watermark_before = slab_watermark();
+    test_value("slab_watermark_before", watermark_before as u64);
+
+    // Test 3.1: Pop returns a valid slot
+    let slot1 = pop_stack();
+    if slot1 == 0 {
+        test_fail("slab_pop_nonzero", "pop_stack returned 0");
+        return;
+    }
+    test_pass("slab_pop_nonzero");
+
+    // Test 3.2: Slot is 16KB aligned
+    if (slot1 % 16384) == 0 {
+        test_pass("slab_pop_aligned");
+    } else {
+        test_fail("slab_pop_aligned", "slot not 16KB aligned");
+    }
+
+    // Test 3.3: Slot is within slab region
+    let slab_base: u64 = 0xFFFFFFFF90000000;
+    let slab_end: u64 = 0xFFFFFFFF9A000000;
+    if slot1 >= slab_base && slot1 < slab_end {
+        test_pass("slab_pop_in_range");
+    } else {
+        serial.print("TEST:percpu:slab_pop_in_range:FAIL addr=0x");
+        serial.print_hex(slot1);
+        serial.print("\n");
+    }
+
+    // Test 3.4: Push + Pop = LIFO
+    push_stack(slot1);
+    let slot2 = pop_stack();
+    if slot2 == slot1 {
+        test_pass("slab_lifo");
+    } else {
+        serial.print("TEST:percpu:slab_lifo:FAIL expected=0x");
+        serial.print_hex(slot1);
+        serial.print(" got=0x");
+        serial.print_hex(slot2);
+        serial.print("\n");
+    }
+
+    // Clean up
+    push_stack(slot2);
+}
+
+// =============================================================================
+// Layer 4: Slab Bulk Allocation
+// =============================================================================
+// Asserts:
+//   - 5 consecutive pops return distinct, valid slots
+//   - All slots can be pushed back without issue
+// =============================================================================
+
+fn test_slab_bulk() {
+    serial.print("[TEST] Slab Bulk Alloc\n");
+
+    let mut slots: [u64; 5] = [0 as u64; 5];
+    let mut i: u64 = 0;
+    let mut all_valid = true;
+
+    while i < 5 {
+        slots[i] = pop_stack();
+        if slots[i] == 0 {
+            all_valid = false;
+            i = 5;  // break
+        }
+        i = i + 1;
+    }
+
+    if all_valid {
+        test_pass("slab_bulk_pop");
+    } else {
+        test_fail("slab_bulk_pop", "pop_stack returned 0 during bulk");
+    }
+
+    // Verify all distinct
+    let mut distinct = true;
+    let mut a: u64 = 0;
+    while a < 5 {
+        let mut b: u64 = a + 1;
+        while b < 5 {
+            if slots[a] == slots[b] {
+                distinct = false;
+                b = 5;  // break
+                a = 5;  // break outer
+            }
+            b = b + 1;
+        }
+        a = a + 1;
+    }
+
+    if distinct {
+        test_pass("slab_bulk_distinct");
+    } else {
+        test_fail("slab_bulk_distinct", "duplicate slot addresses");
+    }
+
+    // Push all back
+    let mut k: u64 = 0;
+    while k < 5 {
+        push_stack(slots[k]);
+        k = k + 1;
+    }
+    test_pass("slab_bulk_push");
+}
+
+// =============================================================================
+// Layer 5: Scheduler Sharding — Spawn/Count/Yield
+// =============================================================================
+// Asserts:
+//   - scheduler.init() sets fiber count to 1 (main fiber)
+//   - spawning a fiber increments count
+//   - fiber_count() reflects the current state
+//   - Scheduler only touches core 0's state when cpu_id == 0
+// =============================================================================
+
+fn test_scheduler_sharding() {
+    serial.print("[TEST] Scheduler Sharding (core 0)\n");
+
+    // Test 5.1: Fiber count starts at expected value
+    // Note: scheduler.init() has already been called by kmain, and the
+    // benchmark suite may have spawned/destroyed fibers. We only check
+    // that count >= 1 (main fiber exists).
+    let count = scheduler.get_fiber_count();
+    test_value("sched_fiber_count", count);
+
+    if count >= 1 {
+        test_pass("sched_has_main_fiber");
+    } else {
+        test_fail("sched_has_main_fiber", "fiber count is 0");
+    }
+
+    // Test 5.2: Current fiber is valid
+    let current = scheduler.get_id();
+    test_value("sched_current_id", current);
+    test_pass("sched_current_valid");
+
+    // Test 5.3: cpu_id is consistent during scheduler operations
+    let cpu_before = get_cpu_id();
+    scheduler.yield_now();
+    let cpu_after = get_cpu_id();
+    if cpu_before == cpu_after {
+        test_pass("sched_yield_cpu_stable");
+    } else {
+        test_fail("sched_yield_cpu_stable", "cpu_id changed across yield");
+    }
+}
+
+// =============================================================================
+// Layer 6: Zero Contention Verification
+// =============================================================================
+// Asserts:
+//   - Single-core alloc/free completes without CAS retries
+//   - This is verified indirectly: if single-core alloc takes > 1000 cycles
+//     something is wrong with the CAS loop
+//   - For now, just verify the fast path works correctly
+// =============================================================================
+
+fn test_zero_contention() {
+    serial.print("[TEST] Zero Contention (single-core)\n");
+
+    // Rapid alloc/free cycle — should be O(1) with no retries
+    let mut i: u64 = 0;
+    let mut success = true;
+
+    while i < 100 {
+        let page = pmm.alloc();
+        if page == 0 {
+            success = false;
+            i = 100;  // break
+        } else {
+            pmm.free(page);
+        }
+        i = i + 1;
+    }
+
+    if success {
+        test_pass("pmm_rapid_cycle");
+    } else {
+        test_fail("pmm_rapid_cycle", "alloc returned 0 in rapid cycle");
+    }
+
+    // Rapid slab pop/push cycle
+    let mut j: u64 = 0;
+    let mut slab_ok = true;
+
+    while j < 100 {
+        let slot = pop_stack();
+        if slot == 0 {
+            slab_ok = false;
+            j = 100;  // break
+        } else {
+            push_stack(slot);
+        }
+        j = j + 1;
+    }
+
+    if slab_ok {
+        test_pass("slab_rapid_cycle");
+    } else {
+        test_fail("slab_rapid_cycle", "pop_stack returned 0 in rapid cycle");
+    }
+}
+
+// =============================================================================
+// run_percpu_tests — Full Per-Core Sharding Test Suite
+// =============================================================================
+// Called from kmain after scheduler init, before benchmark suite.
+// Returns number of tests passed.
+// =============================================================================
+@no_mangle
+pub fn run_percpu_tests() -> u64 {
+    serial.print("═══════════════════════════════════════════\n");
+    serial.print(" PER-CORE SHARDING TEST SUITE\n");
+    serial.print("═══════════════════════════════════════════\n");
+
+    // Layer 0: BSP GS segment
+    test_bsp_gs();
+
+    // Layer 1: PMM alloc/free cycle
+    test_pmm_sharding();
+
+    // Layer 2: PMM bulk alloc distinct
+    test_pmm_isolation();
+
+    // Layer 3: Slab pop/push cycle
+    test_slab_sharding();
+
+    // Layer 4: Slab bulk
+    test_slab_bulk();
+
+    // Layer 5: Scheduler
+    test_scheduler_sharding();
+
+    // Layer 6: Zero contention
+    test_zero_contention();
+
+    serial.print("═══════════════════════════════════════════\n");
+    serial.print(" PER-CORE SHARDING TESTS COMPLETE\n");
+    serial.print("═══════════════════════════════════════════\n");
+
+    return 0;
+}

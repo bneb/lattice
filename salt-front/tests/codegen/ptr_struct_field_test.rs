@@ -13,7 +13,7 @@ mod tests {
     use salt_front::types::{Type, TypeKey, Provenance};
     use salt_front::grammar::SaltFile;
     use salt_front::registry::StructInfo;
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
 
     macro_rules! with_ctx {
         ($name:ident, $block:block) => {

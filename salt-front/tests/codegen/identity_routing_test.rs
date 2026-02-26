@@ -10,7 +10,7 @@
 mod tests {
     use salt_front::registry::StructInfo;
     use salt_front::types::Type;
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
     
     // ============================================================================
     // Test: TypeID-based canonical name generation

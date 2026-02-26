@@ -173,6 +173,8 @@ pub enum SynType {
     Array(Box<SynType>, Expr),
     /// Tuple: (A, B, C)
     Tuple(SynTuple),
+    /// Function pointer: fn(T1, T2) -> R
+    FnPtr(Vec<SynType>, Option<Box<SynType>>),
     /// Fallback/Other types (e.g. Infer, Slice - mapped as needed)
     Other(String), 
 }
@@ -410,16 +412,16 @@ impl SynType {
                  Ok(SynType::Reference(Box::new(inner), tr.mutability.is_some()))
              },
              syn::Type::BareFn(bf) => {
-                 // Encode bare function type as "fn(arg_types) -> ret_type" marker
-                 // that Type::from_syn can parse into Type::Fn
-                 let arg_types: Vec<String> = bf.inputs.iter().map(|arg| {
-                     quote::quote!(#arg.ty).to_string()
-                 }).collect();
-                 let ret_str = match &bf.output {
-                     syn::ReturnType::Default => "()".to_string(),
-                     syn::ReturnType::Type(_, ty) => quote::quote!(#ty).to_string(),
+                 // [SOVEREIGN] First-class function pointer types
+                 let mut args = Vec::new();
+                 for arg in &bf.inputs {
+                     args.push(Self::from_std(arg.ty.clone())?);
+                 }
+                 let ret = match &bf.output {
+                     syn::ReturnType::Default => None,
+                     syn::ReturnType::Type(_, ty) => Some(Box::new(Self::from_std((**ty).clone())?)),
                  };
-                 Ok(SynType::Other(format!("__fn__({})__{}", arg_types.join(","), ret_str)))
+                 Ok(SynType::FnPtr(args, ret))
              },
             _ => Ok(SynType::Other(quote::quote!(#ty).to_string()))
         }
@@ -455,6 +457,7 @@ pub struct ConstDef {
 
 #[derive(Clone, Debug)]
 pub struct StructDef {
+    pub attributes: Vec<Attribute>,
     pub name: Ident,
     pub generics: Option<Generics>,
     pub fields: Vec<FieldDef>,
@@ -600,7 +603,7 @@ impl Parse for SaltFile {
                  } else {
                      items.push(Item::Fn(input.parse()?));
                  }
-             } else if input.peek(Token![struct]) {
+             } else if input.peek(Token![struct]) || (input.peek(Token![@]) && fork.peek(Token![struct])) {
                  items.push(Item::Struct(input.parse()?));
              } else if input.peek(global) || input.peek(var) {
                  items.push(Item::Global(input.parse()?));
@@ -751,6 +754,14 @@ impl Parse for Generics {
 
 impl Parse for StructDef {
     fn parse(input: ParseStream) -> syn::Result<Self> {
+        // Parse struct-level attributes (e.g., @atomic)
+        let attributes = attr::parse_attributes(input)?;
+
+        // Skip optional `pub`
+        if input.peek(Token![pub]) {
+            input.parse::<Token![pub]>()?;
+        }
+
         input.parse::<Token![struct]>()?;
         let name: Ident = parse_user_ident(input)?;
         
@@ -774,8 +785,6 @@ impl Parse for StructDef {
                  if fork.peek(invariant) {
                      content.parse::<Token![@]>()?;
                      content.parse::<invariant>()?;
-                     // Expect one or more requires clauses? Or just invariants?
-                     // User syntax: @invariant requires ...;
                      while content.peek(crate::keywords::requires) {
                          content.parse::<crate::keywords::requires>()?;
                          let e: Expr = content.parse()?;
@@ -792,7 +801,7 @@ impl Parse for StructDef {
             }
         }
         
-        Ok(StructDef { name, generics, fields, invariants })
+        Ok(StructDef { attributes, name, generics, fields, invariants })
     }
 }
 

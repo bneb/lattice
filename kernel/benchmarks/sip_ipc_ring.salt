@@ -1,0 +1,167 @@
+// =============================================================================
+// kernel/benchmarks/sip_ipc_ring.salt
+// SIP IPC Ring Benchmark — Lock-Free SPSC Token Passing
+// =============================================================================
+//
+// Stress-tests the MESI coherency protocol and volatile memory semantics
+// by passing a token across 4 SPSC (Single-Producer, Single-Consumer)
+// mailboxes as fast as possible.
+//
+// Architecture:
+//   4 cache-line-isolated SPSC mailboxes. The benchmark simulates 4 cores
+//   by sequentially polling each mailbox in round-robin order. When a
+//   mailbox has a token, the worker logic consumes it and forwards to the
+//   next mailbox.
+//
+//   On real SMP hardware, each core would run its own worker fiber. On
+//   single-core QEMU-TCG, the sequential simulation is functionally
+//   identical and validates:
+//     - Volatile memory ordering (store → load visibility)
+//     - SPSC mailbox correctness (no lost or duplicated tokens)
+//     - Cache-line isolation (64-byte aligned mailboxes)
+//     - Zero-branch IPC latency measurement
+//
+// Token count: 1000 passes (scales with bench_divisor on KVM).
+// =============================================================================
+
+package benchmarks.sip_ipc_ring
+
+use kernel.drivers.serial
+use kernel.drivers.vga
+use kernel.core.timing
+
+extern fn get_cpu_id() -> u64;
+
+// Volatile assembly helpers (volatile_mem.S) — prevent load hoisting
+extern fn volatile_read_i32(addr: u64) -> i32;
+extern fn volatile_write_i32(addr: u64, val: i32);
+extern fn volatile_read_i64(addr: u64) -> i64;
+extern fn volatile_write_i64(addr: u64, val: i64);
+
+// =============================================================================
+// Constants
+// =============================================================================
+const NUM_CORES: u64 = 4;
+const TOKEN_TARGET: u64 = 1000;
+
+// =============================================================================
+// SPSC Mailbox — 64-byte aligned cache-line isolation
+// =============================================================================
+pub struct SpscMailbox {
+    pub ready: i32,     // 0 = empty, 1 = full
+    pub _pad0: i32,
+    pub token: u64,
+    pub _pad1: u64,
+    pub _pad2: u64,
+    pub _pad3: u64,
+    pub _pad4: u64,
+    pub _pad5: u64,
+}
+
+// =============================================================================
+// Global State
+// =============================================================================
+global RING_MAILBOXES: [SpscMailbox; 4] = [SpscMailbox {
+    ready: 0, _pad0: 0, token: 0, _pad1: 0, _pad2: 0, _pad3: 0, _pad4: 0, _pad5: 0
+}; 4];
+
+// =============================================================================
+// step_worker — Process one mailbox check for a given core
+// =============================================================================
+// Returns:
+//   0 = no token available (idle)
+//   1 = token forwarded
+//   2 = target reached (done)
+// =============================================================================
+fn step_worker(my_id: u64) -> u64 {
+    let next_id = (my_id + 1) & 3;
+
+    let my_ready_addr = (&RING_MAILBOXES[my_id].ready) as u64;
+    let my_token_addr = (&RING_MAILBOXES[my_id].token) as u64;
+    let next_ready_addr = (&RING_MAILBOXES[next_id].ready) as u64;
+    let next_token_addr = (&RING_MAILBOXES[next_id].token) as u64;
+
+    if volatile_read_i32(my_ready_addr) == 1 {
+        let payload = volatile_read_i64(my_token_addr) as u64;
+        volatile_write_i32(my_ready_addr, 0);
+
+        if payload >= TOKEN_TARGET {
+            return 2;
+        }
+
+        volatile_write_i64(next_token_addr, (payload + 1) as i64);
+        volatile_write_i32(next_ready_addr, 1);
+        return 1;
+    }
+
+    return 0;
+}
+
+// =============================================================================
+// run_sip_ipc_ring — Benchmark Entry Point
+// =============================================================================
+@no_mangle
+pub fn run_sip_ipc_ring(w0: u64, w1: u64, w2: u64, w3: u64) {
+    serial.print("BENCH:sip_ipc_ring:start\n");
+    vga.print("SIP IPC Ring (4-core SPSC token pass)...\n");
+
+    // Reset mailboxes
+    let mut i: u64 = 0;
+    while i < NUM_CORES {
+        volatile_write_i32((&RING_MAILBOXES[i].ready) as u64, 0);
+        volatile_write_i64((&RING_MAILBOXES[i].token) as u64, 0);
+        i = i + 1;
+    }
+
+    // Inject first token into mailbox 0
+    volatile_write_i64((&RING_MAILBOXES[0].token) as u64, 1);
+    volatile_write_i32((&RING_MAILBOXES[0].ready) as u64, 1);
+
+    let start_tsc = timing.get_cycles();
+
+    // Sequential round-robin polling: simulate 4-core IPC
+    // Each iteration polls all 4 mailboxes once.
+    let mut round: u64 = 0;
+    let max_rounds = TOKEN_TARGET * 10;  // Safety valve
+    let mut done = false;
+
+    while !done {
+        let mut core: u64 = 0;
+        while core < NUM_CORES {
+            let result = step_worker(core);
+            if result == 2 {
+                done = true;
+                core = NUM_CORES;  // break
+            }
+            core = core + 1;
+        }
+
+        round = round + 1;
+        if round >= max_rounds {
+            serial.print("BENCH:sip_ipc_ring:TIMEOUT at round=");
+            serial.print_u64(round);
+            serial.print("\n");
+            return;
+        }
+    }
+
+    let end_tsc = timing.get_cycles();
+    let elapsed = end_tsc - start_tsc;
+    let avg_latency = elapsed / TOKEN_TARGET;
+
+    serial.print("BENCH:sip_ipc_ring:result passes=");
+    serial.print_u64(TOKEN_TARGET);
+    serial.print(" total_cycles=");
+    serial.print_u64(elapsed);
+    serial.print(" avg_cycles_per_pass=");
+    serial.print_u64(avg_latency);
+    serial.print(" rounds=");
+    serial.print_u64(round);
+    serial.print("\n");
+
+    vga.print("  IPC Ring avg: ");
+    vga.print_u64(avg_latency);
+    vga.print(" cycles/pass\n");
+
+    serial.print("BENCH:sip_ipc_ring:done\n");
+}

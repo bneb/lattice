@@ -146,8 +146,24 @@ int emitObjectFile(llvm::Module &llvmModule,
   return 0;
 }
 
-void buildLoweringPipeline(mlir::PassManager &pm) {
+void buildLoweringPipeline(mlir::PassManager &pm, mlir::ModuleOp module) {
   llvm::errs() << "DEBUG: Building Lowering Pipeline\n";
+
+  // Detect if the module uses tensor/linalg/vector dialect ops.
+  // Salt kernel MLIR only uses func/arith/cf/llvm — applying
+  // tensor/bufferization passes to this IR causes segfaults on cf.br back-edges
+  // in mixed-dialect functions.
+  bool needsTensorPipeline = false;
+  module.walk([&](mlir::Operation *op) {
+    auto dialectNamespace = op->getDialect()->getNamespace();
+    if (dialectNamespace == "tensor" || dialectNamespace == "linalg" ||
+        dialectNamespace == "bufferization" || dialectNamespace == "vector") {
+      needsTensorPipeline = true;
+      return mlir::WalkResult::interrupt();
+    }
+    return mlir::WalkResult::advance();
+  });
+
   // Pre-processing (module level)
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::createCSEPass());
@@ -158,31 +174,36 @@ void buildLoweringPipeline(mlir::PassManager &pm) {
   }
 
   // 1. Lower Salt High-Level Ops EARLY
-  // Converts !salt.region -> !llvm.ptr while keeping func.func intact
   pm.addPass(createLowerSaltPass());
 
-  // A2. Convert remaining tensor ops to linalg (for tensor.extract etc.)
-  pm.addPass(mlir::createConvertTensorToLinalgPass());
+  if (needsTensorPipeline) {
+    llvm::errs() << "DEBUG: Using full tensor/linalg lowering pipeline\n";
+    // A2. Convert remaining tensor ops to linalg
+    pm.addPass(mlir::createConvertTensorToLinalgPass());
 
-  // B. "Bufferize" (Tensor -> MemRef)
-  pm.addPass(mlir::bufferization::createEmptyTensorToAllocTensorPass());
+    // B. "Bufferize" (Tensor -> MemRef)
+    pm.addPass(mlir::bufferization::createEmptyTensorToAllocTensorPass());
 
-  mlir::bufferization::OneShotBufferizePassOptions bufferizationOpts;
-  bufferizationOpts.bufferizeFunctionBoundaries = true;
-  bufferizationOpts.allowUnknownOps = true;
-  pm.addPass(
-      mlir::bufferization::createOneShotBufferizePass(bufferizationOpts));
+    mlir::bufferization::OneShotBufferizePassOptions bufferizationOpts;
+    bufferizationOpts.bufferizeFunctionBoundaries = true;
+    bufferizationOpts.allowUnknownOps = true;
+    pm.addPass(
+        mlir::bufferization::createOneShotBufferizePass(bufferizationOpts));
 
-  // B2. Expand strided metadata from tiled subviews
-  pm.addPass(mlir::memref::createExpandStridedMetadataPass());
+    // B2. Expand strided metadata from tiled subviews
+    pm.addPass(mlir::memref::createExpandStridedMetadataPass());
 
-  // C. Lower Linalg to Loops (Stable)
-  pm.addPass(mlir::createConvertLinalgToLoopsPass());
+    // C. Lower Linalg to Loops (Stable)
+    pm.addPass(mlir::createConvertLinalgToLoopsPass());
 
-  // 4. Vector Lowering
-  pm.addPass(mlir::createConvertVectorToLLVMPass());
+    // 4. Vector Lowering
+    pm.addPass(mlir::createConvertVectorToLLVMPass());
+  } else {
+    llvm::errs()
+        << "DEBUG: Using kernel fast-path (no tensor/linalg ops detected)\n";
+  }
 
-  // 5. Standard Lowering (memref/scf/cf/arith to LLVM)
+  // 5. Standard Lowering (scf/cf/arith/math/memref to LLVM)
   pm.addPass(mlir::createSCFToControlFlowPass());
   pm.addPass(mlir::createConvertControlFlowToLLVMPass());
   pm.addPass(mlir::createArithToLLVMConversionPass());
@@ -277,7 +298,7 @@ int main(int argc, char **argv) {
   buildOptimizationPipeline(pm);
 
   llvm::errs() << "DEBUG: Starting Lowering Pipeline\n";
-  buildLoweringPipeline(pm);
+  buildLoweringPipeline(pm, *module);
   if (mlir::failed(pm.run(*module))) {
     llvm::errs() << "Lowering failed.\n";
     return 1;

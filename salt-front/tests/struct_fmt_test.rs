@@ -23,7 +23,7 @@ fn compile_salt(src: &str) -> Result<String, String> {
     let preprocessed = preprocess(src);
     let file: SaltFile = syn::parse_str(&preprocessed)
         .map_err(|e| format!("Parse error: {} (preprocessed: {})", e, preprocessed))?;
-    emit_mlir(&file, false, None, false, false, false, false, false, "")
+    emit_mlir(&file, false, None, false, false, false, false, false, false, "")
 }
 
 /// Standard imports for f-string tests (InterpolatedStringHandler + deps)

@@ -7,13 +7,14 @@ package benchmarks.ipc_bench
 
 use kernel.drivers.serial
 use kernel.drivers.vga
+use kernel.core.timing
 
-extern fn rdtsc() -> i64;
-extern fn sched_yield();
 extern fn volatile_read_i32(addr: u64) -> i32;
 extern fn volatile_write_i32(addr: u64, val: i32);
 extern fn volatile_read_i64(addr: u64) -> i64;
 extern fn volatile_write_i64(addr: u64, val: i64);
+extern fn sched_yield();
+extern fn fiber_exit();
 
 const NUM_SAMPLES: i32 = 10;
 const MIN_CYCLES: i64 = 100;
@@ -31,8 +32,7 @@ pub fn ipc_responder() {
     let mailbox_addr = (&MAILBOX) as u64;
     let done_addr = (&IPC_DONE) as u64;
 
-    let mut count: i32 = 0;
-    while count < NUM_SAMPLES {
+    for count in 0..NUM_SAMPLES {
         // Spin-wait for sender signal (volatile read prevents hoisting)
         while volatile_read_i32(token_addr) != 1 {
             sched_yield();
@@ -42,18 +42,17 @@ pub fn ipc_responder() {
         let _msg = volatile_read_i64(mailbox_addr);
         volatile_write_i32(token_addr, 2);
 
-        count += 1;
         sched_yield();
     }
 
-    // Signal done and park forever
+    // Signal done and exit fiber
+    // NOTE: infinite loop removed — salt-opt SIGSEGV on cf.br back-edge
     volatile_write_i32(done_addr, 1);
-    loop {
-        sched_yield();
-    }
+    fiber_exit();
 }
 
-pub fn run() {
+@no_mangle
+pub fn run_ipc_bench() {
     serial.print("BENCH:ipc:start\n");
     vga.print("IPC ping-pong (10 samples)...\n");
 
@@ -66,10 +65,9 @@ pub fn run() {
     let mut valid: i32 = 0;
     let mut min_cy: i64 = 999999999;
     let mut max_cy: i64 = 0;
-    let mut i: i32 = 0;
 
-    while i < NUM_SAMPLES {
-        let t0 = rdtsc();
+    for i in 0..NUM_SAMPLES {
+        let t0 = timing.get_cycles() as i64;
 
         // Send: write timestamp, signal responder
         volatile_write_i64(mailbox_addr, t0);
@@ -81,7 +79,7 @@ pub fn run() {
             sched_yield();
         }
 
-        let t1 = rdtsc();
+        let t1 = timing.get_cycles() as i64;
 
         // Reset token for next round
         volatile_write_i32(token_addr, 0);
@@ -100,8 +98,6 @@ pub fn run() {
                 }
             }
         }
-
-        i += 1;
     }
 
     if valid > 0 {

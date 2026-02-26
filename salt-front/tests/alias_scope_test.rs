@@ -158,7 +158,7 @@ fn test_matvec_pattern_emits_per_arg_scopes() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "matvec alias scope emission failed: {:?}", res.err());
     
@@ -196,7 +196,7 @@ fn test_single_pointer_arg_no_noalias() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "single arg scope emission failed: {:?}", res.err());
     
@@ -222,7 +222,7 @@ fn test_non_pointer_args_no_scope() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "non-pointer args should compile: {:?}", res.err());
     
@@ -256,7 +256,7 @@ fn test_gep_inherits_scope_in_mlir() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "GEP scope inheritance failed: {:?}", res.err());
     

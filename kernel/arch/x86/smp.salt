@@ -1,0 +1,421 @@
+// =============================================================================
+// kernel/arch/x86/smp.salt
+// SMP Controller — AP Initialization via INIT-SIPI-SIPI Protocol
+// =============================================================================
+//
+// Orchestrates the boot of Application Processors (APs) from the BSP.
+//
+// Protocol (Intel SDM Vol 3A, Section 8.4.4.1):
+//   1. Copy AP trampoline code to physical 0x8000
+//   2. For each AP (from MADT, excluding BSP):
+//      a. Send INIT IPI → resets AP to INIT state
+//      b. Wait 10ms
+//      c. Send SIPI with vector=0x08 → AP begins executing at 0x8000
+//      d. Wait 200μs
+//      e. Send second SIPI (per spec, may be needed)
+//      f. Wait for AP to set its READY flag
+//   3. Once all APs are online, BSP sets GO flag
+//
+// The trampoline (ap_trampoline.S) transitions APs from:
+//   Real mode (16-bit) → Protected mode (32-bit) → Long mode (64-bit)
+// then jumps to ap_entry() in this module.
+// =============================================================================
+
+package kernel.arch.x86.smp
+
+use kernel.drivers.serial
+use kernel.arch.x86.acpi
+use kernel.arch.x86.apic
+use kernel.core.percpu
+use kernel.core.memory
+
+// =============================================================================
+// Assembly FFI
+// =============================================================================
+extern fn delay_cycles(count: u64);
+extern fn read_cr3() -> u64;
+extern fn spin_loop_hint();
+extern fn sidt_store(dest: u64);
+extern fn sgdt_store(dest: u64);
+extern fn ap_entry_asm();
+extern fn sched_enter_idle_loop();
+
+// =============================================================================
+// Trampoline Linker Symbols (defined in linker.ld)
+// =============================================================================
+extern fn _ap_trampoline_start();
+extern fn _ap_trampoline_end();
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+// Physical address where AP trampoline is copied
+const AP_TRAMPOLINE_DEST: u64 = 0x8000;
+
+// SIPI vector: page number of trampoline (0x8000 / 0x1000 = 0x08)
+const SIPI_VECTOR: u8 = 0x08;
+
+// Delay constants (approximate, depends on CPU frequency)
+// On KVM ~3GHz: 30M cycles ≈ 10ms, 600K cycles ≈ 200μs
+// QEMU TCG: reduced 1000x to avoid 30s+ boot times under emulation.
+const DELAY_10MS: u64   = 30000;
+const DELAY_200US: u64  = 600;
+const DELAY_100MS: u64  = 300000;
+
+// AP stack size (16KB per AP, allocated from upper physical memory)
+const AP_STACK_SIZE: u64 = 16384;
+
+// Maximum time to wait for an AP to check in (in delay loop iterations)
+const AP_TIMEOUT_CYCLES: u64 = 500000000;
+
+// =============================================================================
+// Mailbox Offsets (match ap_trampoline.S layout from TRAMPOLINE_BASE)
+// =============================================================================
+// These named constants eliminate magic number offsets between Salt and .S.
+// The 16-bit assembly reads from TRAMPOLINE_BASE + MBOX_*, and the BSP
+// writes via phys_to_virt_raw(TRAMPOLINE_BASE + MBOX_*).
+const MBOX_IDTR: u64       = 0xFA0;
+const MBOX_GDTR: u64       = 0xFB0;
+const MBOX_LOGICAL_ID: u64 = 0xFC0;
+const MBOX_STACK_TOP: u64  = 0xFC8;
+const MBOX_ENTRY: u64      = 0xFD0;
+const MBOX_CR3: u64        = 0xFD8;
+
+// =============================================================================
+// AP State Machine (deterministic lifecycle transitions)
+// =============================================================================
+// OFFLINE → TRAMPOLINE → LONG_MODE → SCHEDULER
+// The BSP sets OFFLINE, the AP transitions through each state.
+// If timeout, BSP marks ERROR. Z3-verifiable bounded wait loop.
+const AP_STATE_OFFLINE: u64    = 0;
+const AP_STATE_TRAMPOLINE: u64 = 1;
+const AP_STATE_LONG_MODE: u64  = 2;
+const AP_STATE_ERROR: u64      = 3;
+
+// =============================================================================
+// Shared State (BSP ↔ AP synchronization)
+// =============================================================================
+// These globals are accessed by both BSP and AP code.
+// AP_READY_COUNT is atomically incremented by each AP after init.
+// AP_GO_FLAG is set by BSP to release APs into the scheduler.
+// =============================================================================
+
+pub global AP_READY_COUNT: Atomic<u64> = 0;
+pub global AP_GO_FLAG: Atomic<u64> = 0;
+pub global ONLINE_CPU_COUNT: u64 = 1;  // BSP counts as 1
+
+// Per-AP stack top pointers (BSP writes, AP reads its own slot)
+global AP_STACK_TOPS: [u64; 16] = [0 as u64; 16];
+
+// BSP's CR3 (PML4 physical address) — APs load this before entering long mode
+// Set by BSP before starting AP boot.
+global BSP_CR3: u64 = 0;
+
+// =============================================================================
+// boot_aps — Main SMP Initialization Entry Point
+// =============================================================================
+// Called by BSP during kernel boot. Wakes all APs enumerated by ACPI.
+// =============================================================================
+
+pub fn boot_aps() {
+    let cpu_count = acpi.get_cpu_count();
+
+    if cpu_count <= 1 {
+        serial.print("[SMP] Single CPU detected, skipping AP boot\n");
+        return;
+    }
+
+    serial.print("[SMP] Booting ");
+    serial.print_u64(cpu_count - 1);
+    serial.print(" Application Processors\n");
+
+    // Save BSP's CR3 for APs to use
+    BSP_CR3 = read_cr3();
+
+    // Step 1: Copy trampoline to physical 0x8000
+    copy_trampoline();
+
+    // Verify: dump first 8 bytes at 0x8000 using print_u64 (print_hex is broken)
+    // Expected decimal: 250 252 49 192 142 216 142 192
+    // Which is hex:     FA  FC  31 C0  8E  D8  8E  C0
+    serial.print("[SMP] 0x8000 bytes: ");
+    let dump_base = memory.phys_to_virt_raw(AP_TRAMPOLINE_DEST);
+    let mut di: u64 = 0;
+    while di < 8 {
+        let byte_val = *((dump_base + di) as &u8);
+        serial.print_u64(byte_val as u64);
+        serial.print(" ");
+        di = di + 1;
+    }
+    serial.print("\n");
+
+    // Step 2: Write BSP CR3 into the trampoline mailbox
+    let cr3_slot = memory.phys_to_virt_raw(AP_TRAMPOLINE_DEST + MBOX_CR3);
+    *(cr3_slot as &mut u64) = BSP_CR3;
+
+    // Step 2b: Save BSP's IDT and GDT descriptors into the mailbox
+    // APs load these to inherit BSP's interrupt & segment state
+    let idtr_slot = memory.phys_to_virt_raw(AP_TRAMPOLINE_DEST + MBOX_IDTR);
+    sidt_store(idtr_slot);
+    let gdtr_slot = memory.phys_to_virt_raw(AP_TRAMPOLINE_DEST + MBOX_GDTR);
+    sgdt_store(gdtr_slot);
+
+    // Step 3: Write AP entry point address into the trampoline mailbox
+    let entry_addr = (&ap_entry) as u64;
+    let entry_slot = memory.phys_to_virt_raw(AP_TRAMPOLINE_DEST + MBOX_ENTRY);
+    *(entry_slot as &mut u64) = entry_addr;
+
+    serial.print("[SMP] ap_entry written to mailbox: ");
+    serial.print_u64(entry_addr);
+    serial.print("\n");
+
+    // Step 4: Allocate stacks for APs
+    allocate_ap_stacks(cpu_count);
+
+    // Step 5: Send INIT-SIPI-SIPI to each AP
+    let bsp_apic_id = apic.read_id();
+    let mut i: u64 = 0;
+
+    while i < cpu_count {
+        let target_id = acpi.get_apic_id(i) as u32;
+
+        // Skip BSP
+        if target_id != bsp_apic_id {
+            boot_single_ap(target_id, i);
+
+            // Wait for THIS AP to report ALIVE before overwriting its mailbox
+            // with the info for the NEXT AP.
+            let mut waited: u64 = 0;
+            loop {
+                // If it successfully booted, READY_COUNT will increment.
+                // Because we wait synchronously, READY_COUNT should reach exactly
+                // the number of APs we've successfully booted. But we only need
+                // to know the current AP finished the mailbox phase.
+                // We're iterating `i` from 1 to `cpu_count-1`.
+                let ready = AP_READY_COUNT.fetch_add(0);
+                if ready >= i {
+                    break;
+                }
+
+                delay_cycles(10000);
+                waited = waited + 1;
+                if waited > 30000 {
+                    serial.print("[SMP] TIMEOUT: AP ");
+                    serial.print_u64(i);
+                    serial.print(" failed to report alive.\n");
+                    break;
+                }
+            }
+        }
+
+        i = i + 1;
+    }
+
+    // Step 6: Verify total online CPUs
+    let expected_aps = cpu_count - 1;
+    let ready = AP_READY_COUNT.fetch_add(0);
+    
+    if ready >= expected_aps {
+        serial.print("[SMP] All ");
+        serial.print_u64(ready);
+        serial.print(" APs online\n");
+        ONLINE_CPU_COUNT = cpu_count;
+        return;
+    }
+
+    serial.print("[SMP] TIMEOUT: only ");
+    serial.print_u64(ready);
+    serial.print("/");
+    serial.print_u64(expected_aps);
+    serial.print(" APs responded\n");
+    ONLINE_CPU_COUNT = 1 + ready;
+    return;
+}
+
+// =============================================================================
+// boot_single_ap — INIT-SIPI-SIPI sequence for one AP
+// =============================================================================
+
+fn boot_single_ap(target_apic_id: u32, logical_id: u64) {
+    serial.print("[SMP] Waking AP ");
+    serial.print_u64(logical_id);
+    serial.print(" (APIC ID ");
+    serial.print_u64(target_apic_id as u64);
+    serial.print(")...\n");
+
+    // Write this AP's stack top and logical ID into the trampoline mailbox
+    let stack_slot = memory.phys_to_virt_raw(AP_TRAMPOLINE_DEST + MBOX_STACK_TOP);
+    *(stack_slot as &mut u64) = AP_STACK_TOPS[logical_id];
+
+    let id_slot = memory.phys_to_virt_raw(AP_TRAMPOLINE_DEST + MBOX_LOGICAL_ID);
+    *(id_slot as &mut u64) = logical_id;
+
+    // INIT IPI
+    apic.send_init(target_apic_id);
+    delay_cycles(DELAY_10MS);
+
+    // First SIPI
+    apic.send_sipi(target_apic_id, SIPI_VECTOR);
+    delay_cycles(DELAY_200US);
+
+    // Second SIPI (spec says two may be needed)
+    apic.send_sipi(target_apic_id, SIPI_VECTOR);
+    delay_cycles(DELAY_200US);
+}
+
+// =============================================================================
+// copy_trampoline — Copy AP trampoline to physical 0x8000
+// =============================================================================
+
+fn copy_trampoline() {
+    let src_start = (&_ap_trampoline_start) as u64;
+    let src_end = (&_ap_trampoline_end) as u64;
+    let size = src_end - src_start;
+
+    let dest = memory.phys_to_virt_raw(AP_TRAMPOLINE_DEST);
+
+    // Debug: print addresses
+    serial.print("[SMP] Trampoline src=");
+    serial.print_u64(src_start);
+    serial.print(" dest=");
+    serial.print_u64(dest);
+    serial.print(" size=");
+    serial.print_u64(size);
+    serial.print("\n");
+
+    // Debug: print first byte at source
+    let first_byte = *((src_start) as &u8);
+    serial.print("[SMP] First byte at src: ");
+    serial.print_u64(first_byte as u64);
+    serial.print(" (expected 250=0xFA=cli)\n");
+
+    // Byte-by-byte copy (trampoline is small, < 4KB)
+    let mut i: u64 = 0;
+    while i < size {
+        let byte = *((src_start + i) as &u8);
+        *((dest + i) as &mut u8) = byte;
+        i = i + 1;
+    }
+
+    // Debug: verify first byte at dest after copy
+    let dest_byte = *((dest) as &u8);
+    serial.print("[SMP] First byte at dest after copy: ");
+    serial.print_u64(dest_byte as u64);
+    serial.print("\n");
+
+    serial.print("[SMP] Trampoline copied to 0x8000 (");
+    serial.print_u64(size);
+    serial.print(" bytes)\n");
+}
+
+// =============================================================================
+// allocate_ap_stacks — Pre-allocate kernel stacks for APs
+// =============================================================================
+// Uses a simple bump allocator from the top of the PMM region.
+// Each AP gets AP_STACK_SIZE (16KB) of stack space.
+// =============================================================================
+
+fn allocate_ap_stacks(cpu_count: u64) {
+    // Allocate from a fixed physical region above the kernel
+    // Start at physical 64MB (above PMM area) — each AP gets 16KB
+    let stack_region_base: u64 = 0x4000000;  // 64MB physical
+
+    let mut i: u64 = 1;  // Start from 1 (BSP doesn't need this)
+    while i < cpu_count {
+        let stack_base = stack_region_base + (i * AP_STACK_SIZE);
+        let stack_top = stack_base + AP_STACK_SIZE;
+        AP_STACK_TOPS[i] = memory.phys_to_virt_raw(stack_top);
+        i = i + 1;
+    }
+
+    serial.print("[SMP] Allocated ");
+    serial.print_u64(cpu_count - 1);
+    serial.print(" AP stacks at 0x");
+    serial.print_hex(stack_region_base);
+    serial.print("\n");
+}
+
+// =============================================================================
+// ap_entry — Long Mode Entry Point for Application Processors
+// =============================================================================
+// Called by the AP trampoline after transitioning to 64-bit long mode.
+// At this point the AP has:
+//   - The BSP's page tables loaded (CR3)
+//   - A valid GDT loaded
+//   - A stack (from AP_STACK_TOPS)
+//   - Interrupts disabled
+//
+// Performs:
+//   1. Enable Local APIC
+//   2. Set up GS segment for per-CPU data
+//   3. Signal ready to BSP
+//   4. Wait for GO signal
+// =============================================================================
+@no_mangle
+pub fn ap_entry() {
+    // 1. Enable Local APIC for this AP
+    apic.init();
+
+    // 2. Read Logical ID from the Trampoline Mailbox
+    // The BSP wrote this before sending the SIPI sequence.
+    let mbox_id = memory.phys_to_virt_raw(AP_TRAMPOLINE_DEST + MBOX_LOGICAL_ID);
+    let logical_id = *(mbox_id as &u64);
+    let apic_id = apic.read_id() as u64;
+
+    // 3. Initialize GS_BASE with Per-CPU data
+    let stack_top = AP_STACK_TOPS[logical_id];
+    percpu.init_ap(logical_id, apic_id, stack_top);
+
+    // MINIMAL DEBUG: prove we're alive and configured
+    serial.print("[SMP] AP ");
+    serial.print_u64(logical_id);
+    serial.print(" ALIVE! GS_BASE loaded.\n");
+    serial.print("[SMP] AP ");
+    serial.print_u64(logical_id);
+    serial.print(" entering scheduler...\n");
+    
+    // Signal BSP that this AP is fully configured
+    AP_READY_COUNT.fetch_add(1);
+    
+    // Wait for BSP to set the GO flag before entering scheduler
+    loop {
+        let go = AP_GO_FLAG.fetch_add(0);
+        if go > 0 {
+            break;
+        }
+        spin_loop_hint();
+    }
+
+    // Enter Scheduler — HLT idle loop, timer IRQs schedule work
+    sched_enter_idle_loop();
+
+    loop {
+        spin_loop_hint();
+    }
+}
+
+// =============================================================================
+// get_online_cpus — Return total online CPU count
+// =============================================================================
+@no_mangle
+pub fn get_online_cpus() -> u64 {
+    return ONLINE_CPU_COUNT;
+}
+
+// =============================================================================
+// release_aps — BSP calls this to let APs enter the scheduler
+// =============================================================================
+pub fn release_aps() {
+    AP_GO_FLAG.fetch_add(1);  // Atomic store via fetch_add
+    serial.print("[SMP] APs released\n");
+}
+
+// =============================================================================
+// @no_mangle ABI Wrappers
+// =============================================================================
+@no_mangle
+pub fn smp_boot_aps() { boot_aps(); }
+
+@no_mangle
+pub fn smp_release_aps() { release_aps(); }

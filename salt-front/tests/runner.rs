@@ -144,7 +144,7 @@ fn test_fuzz_smoke() {
             let mut salt_file = fuzz_file.to_salt();
             // We expect this might fail compilation due to semantic rules (e.g. variable usage),
             // but it should NOT panic.
-            let result = salt_front::compile_ast(&mut salt_file, false, None, true, false, false, false, false, false, "<test>");
+            let result = salt_front::compile_ast(&mut salt_file, false, None, true, false, false, false, false, false, false, "<test>");
              if result.is_ok() {} // valid AST
              // invalid semantics, still covered parsing/codegen paths
         }

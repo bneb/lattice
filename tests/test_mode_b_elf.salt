@@ -1,0 +1,917 @@
+// =============================================================================
+// TDD: Mode B ELF Loader & SIP Control Block
+// =============================================================================
+// Tests every function in the Mode B call stack:
+//
+//   Layer 1: ELF Validation (validate_sip_elf)
+//   Layer 2: Address Calculation (sip_slot_base)
+//   Layer 3: ELF Parsing (PT_LOAD + PF_X identification)
+//   Layer 4: Page Flags (SIP_PAGE_FLAGS correctness)
+//   Layer 5: Entry Point Relocation
+//   Layer 6: SIP Table (alloc_sip_slot, register_sip)
+//   Layer 7: SIP Lifecycle (state transitions)
+//   Layer 8: SIP Direct-Call ABI (register convention validation)
+//   Layer 8b: call_sip() end-to-end via function pointer dispatch
+//   Layer 9: Multi-Slot Isolation (non-overlapping addresses)
+//   Layer 10: SipLoadResult Construction
+//   Layer 11: Edge Cases (dead slot, running slot, null entry)
+//   Layer 12: Stress Test (100-cycle alloc/register/call/free)
+//
+// Self-contained: mirrors all structs and constants inline.
+// run_test.sh does not support multi-file imports.
+// =============================================================================
+
+package main
+
+extern fn exit(code: i32);
+
+// =============================================================================
+// Test Harness
+// =============================================================================
+global TESTS_RUN: i32 = 0;
+global TESTS_PASSED: i32 = 0;
+
+fn assert_true(cond: bool, test_name: &str, test_id: i32) {
+    TESTS_RUN = TESTS_RUN + 1;
+    if cond {
+        println(f"  [PASS] {test_name}");
+        TESTS_PASSED = TESTS_PASSED + 1;
+    } else {
+        println(f"  [FAIL] {test_name}");
+        exit(test_id);
+    }
+}
+
+fn assert_false(cond: bool, test_name: &str, test_id: i32) {
+    TESTS_RUN = TESTS_RUN + 1;
+    if !cond {
+        println(f"  [PASS] {test_name}");
+        TESTS_PASSED = TESTS_PASSED + 1;
+    } else {
+        println(f"  [FAIL] {test_name}: expected false, got true");
+        exit(test_id);
+    }
+}
+
+fn assert_eq_u64(got: u64, expected: u64, test_name: &str, test_id: i32) {
+    TESTS_RUN = TESTS_RUN + 1;
+    if got == expected {
+        println(f"  [PASS] {test_name}");
+        TESTS_PASSED = TESTS_PASSED + 1;
+    } else {
+        println(f"  [FAIL] {test_name}: got {got}, expected {expected}");
+        exit(test_id);
+    }
+}
+
+fn assert_neq_u64(got: u64, not_expected: u64, test_name: &str, test_id: i32) {
+    TESTS_RUN = TESTS_RUN + 1;
+    if got != not_expected {
+        println(f"  [PASS] {test_name}");
+        TESTS_PASSED = TESTS_PASSED + 1;
+    } else {
+        println(f"  [FAIL] {test_name}: got {got}, expected NOT {not_expected}");
+        exit(test_id);
+    }
+}
+
+// =============================================================================
+// Mirrored Constants (from kernel/sys/elf.salt & kernel/sys/sip.salt)
+// =============================================================================
+const SIP_BASE: u64      = 0xFFFFFFFFA0000000;
+const SIP_SLOT_SIZE: u64 = 0x200000;   // 2MB per SIP slot
+const SIP_MAX_SLOTS: u64 = 16;
+const SIP_PAGE_FLAGS: u64 = 0x1;       // PRESENT only
+
+const PF_X: u32 = 1;
+const PF_W: u32 = 2;
+const PF_R: u32 = 4;
+
+const PT_LOAD: u32 = 1;
+const PT_NOTE: u32 = 4;
+
+const SIP_FREE: u64    = 0;
+const SIP_LOADED: u64  = 1;
+const SIP_RUNNING: u64 = 2;
+const SIP_DEAD: u64    = 3;
+
+// =============================================================================
+// Mirrored Structs
+// =============================================================================
+struct Elf64Header {
+    e_ident0: u8,
+    e_ident1: u8,
+    e_ident2: u8,
+    e_ident3: u8,
+    e_ident_class: u8,
+    e_ident_data: u8,
+    e_ident_version: u8,
+    e_ident_osabi: u8,
+    e_ident_pad0: u8,
+    e_ident_pad1: u8,
+    e_ident_pad2: u8,
+    e_ident_pad3: u8,
+    e_ident_pad4: u8,
+    e_ident_pad5: u8,
+    e_ident_pad6: u8,
+    e_ident_pad7: u8,
+    e_type: u16,
+    e_machine: u16,
+    e_version: u32,
+    e_entry: u64,
+    e_phoff: u64,
+    e_shoff: u64,
+    e_flags: u32,
+    e_ehsize: u16,
+    e_phentsize: u16,
+    e_phnum: u16,
+    e_shentsize: u16,
+    e_shnum: u16,
+    e_shstrndx: u16,
+}
+
+struct Elf64Phdr {
+    p_type: u32,
+    p_flags: u32,
+    p_offset: u64,
+    p_vaddr: u64,
+    p_paddr: u64,
+    p_filesz: u64,
+    p_memsz: u64,
+    p_align: u64,
+}
+
+struct SipLoadResult {
+    entry_vaddr: u64,
+    code_size: u64,
+    ok: u64,           // 1 = success, 0 = failure
+}
+
+struct SipInfo {
+    entry_vaddr: u64,
+    code_size: u64,
+    slot: u64,
+    state: u64,
+}
+
+// =============================================================================
+// Layer 1: ELF Validation
+// =============================================================================
+fn validate_sip_elf_from_header(header: &Elf64Header) -> bool {
+    if header.e_ident0 != 0x7F { return false; }
+    if header.e_ident1 != 69 { return false; }
+    if header.e_ident2 != 76 { return false; }
+    if header.e_ident3 != 70 { return false; }
+    if header.e_ident_class != 2 { return false; }
+    if header.e_ident_data != 1 { return false; }
+    if header.e_machine != 0x3E { return false; }
+    // Mode B accepts both ET_EXEC (2) and ET_DYN (3)
+    if header.e_type != 2 {
+        if header.e_type != 3 {
+            return false;
+        }
+    }
+    return true;
+}
+
+// =============================================================================
+// Layer 2: SIP Address Calculation
+// =============================================================================
+fn sip_slot_base(slot: u64) -> u64 {
+    return SIP_BASE + (slot * SIP_SLOT_SIZE);
+}
+
+// =============================================================================
+// Layer 3: PT_LOAD + PF_X identification
+// =============================================================================
+fn is_executable_load(phdr: &Elf64Phdr) -> bool {
+    if phdr.p_type != PT_LOAD { return false; }
+    if (phdr.p_flags & PF_X) == 0 { return false; }
+    return true;
+}
+
+// =============================================================================
+// Layer 5: Entry Point Relocation
+// =============================================================================
+fn compute_relocated_entry(original_entry: u64, seg_vaddr: u64, seg_memsz: u64, target_base: u64) -> u64 {
+    if original_entry >= seg_vaddr {
+        if original_entry < (seg_vaddr + seg_memsz) {
+            return target_base + (original_entry - seg_vaddr);
+        }
+    }
+    return 0;
+}
+
+// =============================================================================
+// Layer 6: SIP Table
+// =============================================================================
+global SIP_TABLE: [SipInfo; 16] = [SipInfo {
+    entry_vaddr: 0, code_size: 0, slot: 0, state: 0
+}; 16];
+global SIP_COUNT: u64 = 0;
+
+fn alloc_sip_slot() -> u64 {
+    let mut i: u64 = 0;
+    while i < SIP_MAX_SLOTS {
+        if SIP_TABLE[i].state == SIP_FREE {
+            return i;
+        }
+        i = i + 1;
+    }
+    return SIP_MAX_SLOTS;
+}
+
+fn register_sip(slot: u64, entry_vaddr: u64, code_size: u64) -> u64 {
+    if slot >= SIP_MAX_SLOTS { return SIP_MAX_SLOTS; }
+    if SIP_TABLE[slot].state != SIP_FREE { return SIP_MAX_SLOTS; }
+
+    SIP_TABLE[slot].entry_vaddr = entry_vaddr;
+    SIP_TABLE[slot].code_size = code_size;
+    SIP_TABLE[slot].slot = slot;
+    SIP_TABLE[slot].state = SIP_LOADED;
+    SIP_COUNT = SIP_COUNT + 1;
+    return slot;
+}
+
+fn free_sip_slot(slot: u64) {
+    if slot >= SIP_MAX_SLOTS { return; }
+    if SIP_TABLE[slot].state == SIP_FREE { return; }
+    SIP_TABLE[slot].entry_vaddr = 0;
+    SIP_TABLE[slot].code_size = 0;
+    SIP_TABLE[slot].state = SIP_FREE;
+    SIP_COUNT = SIP_COUNT - 1;
+}
+
+// Helper: count loaded SIPs by scanning state (workaround for LLVM global caching)
+fn count_sips() -> u64 {
+    let mut count: u64 = 0;
+    let mut i: u64 = 0;
+    while i < SIP_MAX_SLOTS {
+        if SIP_TABLE[i].state != SIP_FREE {
+            count = count + 1;
+        }
+        i = i + 1;
+    }
+    return count;
+}
+
+// =============================================================================
+// Layer 8: SIP ABI test functions
+// =============================================================================
+// These simulate Mode B SIP entry points following the System V AMD64 ABI:
+//   arg0 → RDI, arg1 → RSI, return → RAX
+
+fn sip_add(a: u64, b: u64) -> u64 {
+    return a + b;
+}
+
+fn sip_mul(a: u64, b: u64) -> u64 {
+    return a * b;
+}
+
+fn sip_identity(a: u64, b: u64) -> u64 {
+    return a;
+}
+
+// =============================================================================
+// SIP Dispatch Table -- Function Pointer Array
+// =============================================================================
+// Uses Salt's first-class fn(u64, u64) -> u64 type for type-safe dispatch.
+// Each slot stores a callable function pointer alongside the SipInfo metadata.
+//
+// In the real kernel, this will be populated by the ELF loader once
+// Track 1 delivers the u64 -> fn(...) cast (for resolving symbol addresses).
+// For testing, we bind function pointers directly via name.
+// =============================================================================
+
+// Stub fn used as "null" sentinel in dispatch table
+fn sip_null_handler(a: u64, b: u64) -> u64 {
+    return 0;
+}
+
+global SIP_DISPATCH: [fn(u64, u64) -> u64; 16] = [sip_null_handler; 16];
+
+fn register_sip_fn(slot: u64, f: fn(u64, u64) -> u64) {
+    if slot >= SIP_MAX_SLOTS { return; }
+    SIP_DISPATCH[slot] = f;
+}
+
+fn call_sip(slot: u64, arg0: u64, arg1: u64) -> u64 {
+    if slot >= SIP_MAX_SLOTS { return 0; }
+    if SIP_TABLE[slot].state != SIP_LOADED { return 0; }
+
+    let entry = SIP_TABLE[slot].entry_vaddr;
+    if entry == 0 { return 0; }
+
+    SIP_TABLE[slot].state = SIP_RUNNING;
+
+    // Indirect call through type-safe fn pointer dispatch table
+    let dispatch_fn: fn(u64, u64) -> u64 = SIP_DISPATCH[slot];
+    let result = dispatch_fn(arg0, arg1);
+
+    SIP_TABLE[slot].state = SIP_LOADED;
+    return result;
+}
+
+// =============================================================================
+// Test Header Builder
+// =============================================================================
+fn make_valid_mode_b_header() -> Elf64Header {
+    let mut h = Elf64Header(
+        0x7F, 69, 76, 70,        // magic: \x7FELF
+        2, 1, 1, 0,              // class=64, data=LE, version=1, osabi=0
+        0, 0, 0, 0, 0, 0, 0, 0, // padding
+        0, 0, 0,                 // e_type, e_machine, e_version (set below)
+        0, 0, 0,                 // e_entry, e_phoff, e_shoff (set below)
+        0, 0, 0, 0, 0, 0, 0     // remaining (set below)
+    );
+    h.e_type = 2;                // ET_EXEC
+    h.e_machine = 0x3E;          // x86-64
+    h.e_version = 1;
+    h.e_entry = 0x401000;
+    h.e_phoff = 64;
+    h.e_shoff = 0;
+    h.e_flags = 0;
+    h.e_ehsize = 64;
+    h.e_phentsize = 56;
+    h.e_phnum = 2;
+    h.e_shentsize = 64;
+    h.e_shnum = 0;
+    h.e_shstrndx = 0;
+    return h;
+}
+
+// =============================================================================
+// MAIN — Test Execution
+// =============================================================================
+fn main() -> i32 {
+    println("=== Mode B ELF Loader & SIP Tests ===");
+    println("");
+
+    // =========================================================================
+    // Layer 1: ELF Validation
+    // =========================================================================
+    println("--- Layer 1: ELF Validation ---");
+
+    let valid = make_valid_mode_b_header();
+    assert_true(validate_sip_elf_from_header(&valid), "1.1 valid Mode B header accepted", 1);
+
+    let mut bad_magic = make_valid_mode_b_header();
+    bad_magic.e_ident0 = 0x00;
+    assert_false(validate_sip_elf_from_header(&bad_magic), "1.2 corrupted magic[0] rejected", 2);
+
+    let mut bad_e = make_valid_mode_b_header();
+    bad_e.e_ident1 = 0x00;
+    assert_false(validate_sip_elf_from_header(&bad_e), "1.3 corrupted magic[1] rejected", 3);
+
+    let mut bad_l = make_valid_mode_b_header();
+    bad_l.e_ident2 = 0x00;
+    assert_false(validate_sip_elf_from_header(&bad_l), "1.4 corrupted magic[2] rejected", 4);
+
+    let mut bad_f = make_valid_mode_b_header();
+    bad_f.e_ident3 = 0x00;
+    assert_false(validate_sip_elf_from_header(&bad_f), "1.5 corrupted magic[3] rejected", 5);
+
+    let mut bad_class = make_valid_mode_b_header();
+    bad_class.e_ident_class = 1;
+    assert_false(validate_sip_elf_from_header(&bad_class), "1.6 32-bit ELF class rejected", 6);
+
+    let mut bad_endian = make_valid_mode_b_header();
+    bad_endian.e_ident_data = 2;
+    assert_false(validate_sip_elf_from_header(&bad_endian), "1.7 big-endian rejected", 7);
+
+    let mut bad_machine = make_valid_mode_b_header();
+    bad_machine.e_machine = 0xB7;
+    assert_false(validate_sip_elf_from_header(&bad_machine), "1.8 ARM64 machine rejected", 8);
+
+    let mut dyn_header = make_valid_mode_b_header();
+    dyn_header.e_type = 3; // ET_DYN
+    assert_true(validate_sip_elf_from_header(&dyn_header), "1.9 ET_DYN accepted for Mode B", 9);
+
+    let mut rel_header = make_valid_mode_b_header();
+    rel_header.e_type = 1; // ET_REL
+    assert_false(validate_sip_elf_from_header(&rel_header), "1.10 ET_REL rejected", 10);
+
+    let mut core_header = make_valid_mode_b_header();
+    core_header.e_type = 4; // ET_CORE
+    assert_false(validate_sip_elf_from_header(&core_header), "1.11 ET_CORE rejected", 11);
+
+    println("");
+
+    // =========================================================================
+    // Layer 2: SIP Address Calculation
+    // =========================================================================
+    println("--- Layer 2: SIP Address Calculation ---");
+
+    assert_eq_u64(sip_slot_base(0), SIP_BASE,
+        "2.1 slot 0 = SIP_BASE (0xFFFFFFFFA0000000)", 20);
+
+    assert_eq_u64(sip_slot_base(1), SIP_BASE + SIP_SLOT_SIZE,
+        "2.2 slot 1 = SIP_BASE + 2MB", 21);
+
+    assert_eq_u64(sip_slot_base(15), SIP_BASE + (15 * SIP_SLOT_SIZE),
+        "2.3 slot 15 = SIP_BASE + 30MB", 22);
+
+    let slot0_end = sip_slot_base(0) + SIP_SLOT_SIZE;
+    let slot1_start = sip_slot_base(1);
+    assert_eq_u64(slot0_end, slot1_start,
+        "2.4 slot 0 end == slot 1 start (contiguous)", 23);
+
+    assert_eq_u64(SIP_SLOT_SIZE, 0x200000,
+        "2.5 SIP_SLOT_SIZE == 2MB (0x200000)", 24);
+
+    println("");
+
+    // =========================================================================
+    // Layer 3: PT_LOAD + PF_X Identification
+    // =========================================================================
+    println("--- Layer 3: PT_LOAD + PF_X Identification ---");
+
+    let mut text_phdr = Elf64Phdr(0, 0, 0, 0, 0, 0, 0, 0);
+    text_phdr.p_type = 1;
+    text_phdr.p_flags = 5;  // PF_R | PF_X
+    text_phdr.p_offset = 0x1000;
+    text_phdr.p_vaddr = 0x401000;
+    text_phdr.p_paddr = 0x401000;
+    text_phdr.p_filesz = 0x500;
+    text_phdr.p_memsz = 0x500;
+    text_phdr.p_align = 0x1000;
+    assert_true(is_executable_load(&text_phdr), "3.1 PT_LOAD+PF_X is executable", 30);
+
+    let mut data_phdr = Elf64Phdr(0, 0, 0, 0, 0, 0, 0, 0);
+    data_phdr.p_type = 1;
+    data_phdr.p_flags = 6;  // PF_R | PF_W
+    data_phdr.p_offset = 0x2000;
+    data_phdr.p_vaddr = 0x402000;
+    data_phdr.p_paddr = 0x402000;
+    data_phdr.p_filesz = 0x100;
+    data_phdr.p_memsz = 0x200;
+    data_phdr.p_align = 0x1000;
+    assert_false(is_executable_load(&data_phdr), "3.2 PT_LOAD+PF_W (data) not executable", 31);
+
+    let mut note_phdr = Elf64Phdr(0, 0, 0, 0, 0, 0, 0, 0);
+    note_phdr.p_type = 4;   // PT_NOTE
+    note_phdr.p_flags = 4;  // PF_R
+    note_phdr.p_offset = 0x100;
+    note_phdr.p_vaddr = 0x400100;
+    note_phdr.p_paddr = 0x400100;
+    note_phdr.p_filesz = 0x20;
+    note_phdr.p_memsz = 0x20;
+    note_phdr.p_align = 0x4;
+    assert_false(is_executable_load(&note_phdr), "3.3 PT_NOTE rejected", 32);
+
+    let mut rwx_phdr = Elf64Phdr(0, 0, 0, 0, 0, 0, 0, 0);
+    rwx_phdr.p_type = 1;
+    rwx_phdr.p_flags = 7;  // PF_R | PF_W | PF_X
+    rwx_phdr.p_offset = 0x1000;
+    rwx_phdr.p_vaddr = 0x401000;
+    rwx_phdr.p_paddr = 0x401000;
+    rwx_phdr.p_filesz = 0x500;
+    rwx_phdr.p_memsz = 0x500;
+    rwx_phdr.p_align = 0x1000;
+    assert_true(is_executable_load(&rwx_phdr), "3.4 PT_LOAD+RWX is executable", 33);
+
+    let mut noflags_phdr = Elf64Phdr(0, 0, 0, 0, 0, 0, 0, 0);
+    noflags_phdr.p_type = 1;
+    noflags_phdr.p_flags = 0;
+    noflags_phdr.p_offset = 0x1000;
+    noflags_phdr.p_vaddr = 0x401000;
+    noflags_phdr.p_paddr = 0x401000;
+    noflags_phdr.p_filesz = 0x500;
+    noflags_phdr.p_memsz = 0x500;
+    noflags_phdr.p_align = 0x1000;
+    assert_false(is_executable_load(&noflags_phdr), "3.5 PT_LOAD+0 flags rejected", 34);
+
+    println("");
+
+    // =========================================================================
+    // Layer 4: Page Flags
+    // =========================================================================
+    println("--- Layer 4: Page Flags ---");
+
+    assert_eq_u64(SIP_PAGE_FLAGS, 0x1, "4.1 SIP_PAGE_FLAGS == PRESENT (0x1)", 40);
+
+    let has_write = (SIP_PAGE_FLAGS & 0x2) != 0;
+    assert_false(has_write, "4.2 SIP pages not writable", 41);
+
+    let has_user = (SIP_PAGE_FLAGS & 0x4) != 0;
+    assert_false(has_user, "4.3 SIP pages not user-accessible", 42);
+
+    // Contrast with Ring 3 user page flags
+    let user_flags: u64 = 0x7;
+    assert_true((user_flags & 0x1) != 0, "4.4a user pages have PRESENT", 43);
+    assert_true((user_flags & 0x2) != 0, "4.4b user pages have WRITE", 44);
+    assert_true((user_flags & 0x4) != 0, "4.4c user pages have USER", 45);
+
+    println("");
+
+    // =========================================================================
+    // Layer 5: Entry Point Relocation
+    // =========================================================================
+    println("--- Layer 5: Entry Point Relocation ---");
+
+    let relocated = compute_relocated_entry(0x401100, 0x401000, 0x1000, SIP_BASE);
+    assert_eq_u64(relocated, SIP_BASE + 0x100,
+        "5.1 entry 0x401100 relocated to SIP_BASE+0x100", 50);
+
+    let relocated_start = compute_relocated_entry(0x401000, 0x401000, 0x1000, SIP_BASE);
+    assert_eq_u64(relocated_start, SIP_BASE,
+        "5.2 entry at segment start relocated to SIP_BASE", 51);
+
+    let relocated_miss = compute_relocated_entry(0x500000, 0x401000, 0x1000, SIP_BASE);
+    assert_eq_u64(relocated_miss, 0,
+        "5.3 entry outside segment returns 0", 52);
+
+    let slot1_base = sip_slot_base(1);
+    let relocated_s1 = compute_relocated_entry(0x401200, 0x401000, 0x1000, slot1_base);
+    assert_eq_u64(relocated_s1, slot1_base + 0x200,
+        "5.4 entry relocated to slot 1 base + offset", 53);
+
+    let relocated_end = compute_relocated_entry(0x401FFF, 0x401000, 0x1000, SIP_BASE);
+    assert_eq_u64(relocated_end, SIP_BASE + 0xFFF,
+        "5.5 entry at last byte of segment", 54);
+
+    println("");
+
+    // =========================================================================
+    // Layer 6: SIP Table — Slot Allocation & Registration
+    // =========================================================================
+    println("--- Layer 6: SIP Table (alloc/register) ---");
+
+    let s0 = alloc_sip_slot();
+    assert_eq_u64(s0, 0, "6.1 first alloc returns slot 0", 60);
+
+    let reg0 = register_sip(0, SIP_BASE + 0x100, 0x500);
+    assert_eq_u64(reg0, 0, "6.2 register slot 0 succeeds", 61);
+
+    assert_eq_u64(SIP_TABLE[0].state, SIP_LOADED, "6.3 slot 0 state == LOADED", 62);
+
+    assert_eq_u64(SIP_TABLE[0].entry_vaddr, SIP_BASE + 0x100,
+        "6.4 slot 0 entry == SIP_BASE+0x100", 63);
+
+    assert_eq_u64(SIP_TABLE[0].code_size, 0x500,
+        "6.5 slot 0 code_size == 0x500", 64);
+
+    assert_eq_u64(count_sips(), 1, "6.6 count_sips() == 1 after first register", 65);
+
+    let s1 = alloc_sip_slot();
+    assert_eq_u64(s1, 1, "6.7 next alloc returns slot 1", 66);
+
+    let dup = register_sip(0, SIP_BASE + 0x200, 0x600);
+    assert_eq_u64(dup, SIP_MAX_SLOTS, "6.8 duplicate registration rejected", 67);
+
+    let reg1 = register_sip(1, sip_slot_base(1) + 0x50, 0x300);
+    assert_eq_u64(reg1, 1, "6.9 register slot 1 succeeds", 68);
+    assert_eq_u64(count_sips(), 2, "6.9b count_sips() == 2", 69);
+
+    let bad_reg = register_sip(SIP_MAX_SLOTS, SIP_BASE, 0x100);
+    assert_eq_u64(bad_reg, SIP_MAX_SLOTS, "6.10 invalid slot rejected", 70);
+
+    println("");
+
+    // =========================================================================
+    // Layer 7: SIP Lifecycle (State Transitions)
+    // =========================================================================
+    println("--- Layer 7: SIP Lifecycle ---");
+
+    free_sip_slot(0);
+    assert_eq_u64(SIP_TABLE[0].state, SIP_FREE, "7.1 freed slot 0 state == FREE", 71);
+
+    assert_eq_u64(count_sips(), 1, "7.2 count_sips() == 1 after free", 72);
+
+    assert_eq_u64(SIP_TABLE[0].entry_vaddr, 0, "7.3 freed slot entry == 0", 73);
+
+    let realloc = alloc_sip_slot();
+    assert_eq_u64(realloc, 0, "7.4 freed slot 0 re-allocated", 74);
+
+    let rereg = register_sip(0, SIP_BASE + 0x400, 0x800);
+    assert_eq_u64(rereg, 0, "7.5 re-register slot 0 succeeds", 75);
+    assert_eq_u64(SIP_TABLE[0].state, SIP_LOADED, "7.5b re-registered state == LOADED", 76);
+
+    free_sip_slot(0);
+    free_sip_slot(0); // double-free should be no-op
+    assert_eq_u64(SIP_TABLE[0].state, SIP_FREE, "7.6 double-free is safe", 77);
+
+    // Clean up slot 1 for layer 8
+    free_sip_slot(1);
+
+    println("");
+
+    // =========================================================================
+    // Layer 8: Direct-Call ABI (Register Convention)
+    // =========================================================================
+    println("--- Layer 8: Direct-Call ABI ---");
+
+    // The SIP ABI uses System V AMD64 calling convention:
+    //   arg0 → RDI, arg1 → RSI, return → RAX
+    // We validate this by calling functions with the same signature
+    // that a SIP entry point would have: fn(u64, u64) -> u64
+
+    // 8.1 Addition: arg0 + arg1
+    let sum = sip_add(10, 32);
+    assert_eq_u64(sum, 42, "8.1 sip_add(10, 32) == 42", 80);
+
+    // 8.2 Multiplication: arg0 * arg1
+    let product = sip_mul(7, 6);
+    assert_eq_u64(product, 42, "8.2 sip_mul(7, 6) == 42", 81);
+
+    // 8.3 Zero arguments
+    let zero_sum = sip_add(0, 0);
+    assert_eq_u64(zero_sum, 0, "8.3 sip_add(0, 0) == 0", 82);
+
+    // 8.4 Identity: only arg0 returned (arg1 ignored)
+    let id_val = sip_identity(99, 100);
+    assert_eq_u64(id_val, 99, "8.4 sip_identity(99, 100) == 99 (arg0 only)", 83);
+
+    // 8.5 Large u64 values (no truncation)
+    let big_sum = sip_add(0xFFFFFFFF, 1);
+    assert_eq_u64(big_sum, 0x100000000, "8.5 large u64 args work correctly", 84);
+
+    // 8.6 Commutativity sanity check
+    let ab = sip_add(100, 200);
+    let ba = sip_add(200, 100);
+    assert_eq_u64(ab, ba, "8.6 sip_add is commutative", 85);
+
+    // 8.7 Max value test
+    let max_mul = sip_mul(1, 0xFFFFFFFFFFFFFFFF);
+    assert_eq_u64(max_mul, 0xFFFFFFFFFFFFFFFF, "8.7 multiply by max u64 identity", 86);
+
+    println("");
+
+    // =========================================================================
+    // Layer 8b: call_sip() End-to-End via Function Pointer Dispatch
+    // =========================================================================
+    println("--- Layer 8b: call_sip() End-to-End ---");
+
+    // Register SIP functions via first-class fn pointers
+    let f_add: fn(u64, u64) -> u64 = sip_add;
+    let f_mul: fn(u64, u64) -> u64 = sip_mul;
+    let f_id:  fn(u64, u64) -> u64 = sip_identity;
+
+    // Get addresses via fn_addr() intrinsic for metadata storage
+    let add_addr = fn_addr(f_add);
+    let mul_addr = fn_addr(f_mul);
+    let id_addr  = fn_addr(f_id);
+
+    let cs0 = alloc_sip_slot();
+    register_sip(cs0, add_addr, 0x100);
+    register_sip_fn(cs0, f_add);
+
+    let cs1 = alloc_sip_slot();
+    register_sip(cs1, mul_addr, 0x100);
+    register_sip_fn(cs1, f_mul);
+
+    let cs2 = alloc_sip_slot();
+    register_sip(cs2, id_addr, 0x100);
+    register_sip_fn(cs2, f_id);
+
+    // 8b.1 call_sip dispatches through function pointer correctly
+    let cs_sum = call_sip(cs0, 10, 32);
+    assert_eq_u64(cs_sum, 42, "8b.1 call_sip(add, 10, 32) == 42", 110);
+
+    // 8b.2 Different SIP in different slot
+    let cs_product = call_sip(cs1, 7, 6);
+    assert_eq_u64(cs_product, 42, "8b.2 call_sip(mul, 7, 6) == 42", 111);
+
+    // 8b.3 Identity via dispatch
+    let cs_id = call_sip(cs2, 99, 100);
+    assert_eq_u64(cs_id, 99, "8b.3 call_sip(identity, 99, 100) == 99", 112);
+
+    // 8b.4 State returns to LOADED after dispatch
+    assert_eq_u64(SIP_TABLE[cs0].state, SIP_LOADED,
+        "8b.4 state == LOADED after call_sip returns", 113);
+
+    // 8b.5 Large values through dispatch (no truncation)
+    let cs_big = call_sip(cs0, 0xFFFFFFFF, 1);
+    assert_eq_u64(cs_big, 0x100000000, "8b.5 large u64 through call_sip", 114);
+
+    // 8b.6 Multiple calls to same SIP (re-entrant ready)
+    let cs_r1 = call_sip(cs1, 3, 14);
+    let cs_r2 = call_sip(cs1, 5, 8);
+    assert_eq_u64(cs_r1, 42, "8b.6a first call to mul SIP", 115);
+    assert_eq_u64(cs_r2, 40, "8b.6b second call to mul SIP", 116);
+
+    // 8b.7 call_sip to invalid slot returns 0
+    let cs_bad = call_sip(SIP_MAX_SLOTS, 1, 2);
+    assert_eq_u64(cs_bad, 0, "8b.7 invalid slot returns 0", 117);
+
+    // 8b.8 call_sip to FREE slot returns 0
+    free_sip_slot(cs0);
+    let cs_free = call_sip(cs0, 1, 2);
+    assert_eq_u64(cs_free, 0, "8b.8 call to FREE slot returns 0", 118);
+
+    // Clean up for next layers
+    free_sip_slot(cs1);
+    free_sip_slot(cs2);
+
+    println("");
+
+    // =========================================================================
+    // Layer 9: Multi-Slot Isolation
+    // =========================================================================
+    println("--- Layer 9: Multi-Slot Isolation ---");
+
+    // 9.1 All 16 slots can be allocated
+    let mut alloc_i: u64 = 0;
+    while alloc_i < SIP_MAX_SLOTS {
+        let s = alloc_sip_slot();
+        let entry = sip_slot_base(s) + 0x100;
+        register_sip(s, entry, 0x100);
+        alloc_i = alloc_i + 1;
+    }
+    assert_eq_u64(count_sips(), SIP_MAX_SLOTS, "9.1 all 16 slots allocated", 90);
+
+    // 9.2 17th allocation fails
+    let overflow = alloc_sip_slot();
+    assert_eq_u64(overflow, SIP_MAX_SLOTS, "9.2 17th alloc returns SIP_MAX_SLOTS", 91);
+
+    // 9.3 No two slots share the same base address
+    let mut iso_ok: bool = true;
+    let mut i: u64 = 0;
+    while i < SIP_MAX_SLOTS {
+        let mut j: u64 = i + 1;
+        while j < SIP_MAX_SLOTS {
+            if sip_slot_base(i) == sip_slot_base(j) {
+                iso_ok = false;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    assert_true(iso_ok, "9.3 all slot bases are unique", 92);
+
+    // 9.4 No slot ranges overlap
+    let mut overlap_ok: bool = true;
+    i = 0;
+    while i < SIP_MAX_SLOTS {
+        let a_start = sip_slot_base(i);
+        let a_end = a_start + SIP_SLOT_SIZE;
+        let mut j: u64 = i + 1;
+        while j < SIP_MAX_SLOTS {
+            let b_start = sip_slot_base(j);
+            if b_start < a_end {
+                overlap_ok = false;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    assert_true(overlap_ok, "9.4 no slot ranges overlap", 93);
+
+    // 9.5 Clean up all slots
+    i = 0;
+    while i < SIP_MAX_SLOTS {
+        free_sip_slot(i);
+        i = i + 1;
+    }
+    assert_eq_u64(count_sips(), 0, "9.5 all slots freed, count == 0", 94);
+
+    println("");
+
+    // =========================================================================
+    // Layer 10: SipLoadResult Struct
+    // =========================================================================
+    println("--- Layer 10: SipLoadResult Struct ---");
+
+    let mut ok_result = SipLoadResult(0, 0, 0);
+    ok_result.entry_vaddr = SIP_BASE + 0x100;
+    ok_result.code_size = 0x500;
+    ok_result.ok = 1;
+    assert_eq_u64(ok_result.ok, 1, "10.1 success result ok == 1", 100);
+    assert_eq_u64(ok_result.entry_vaddr, SIP_BASE + 0x100,
+        "10.1b success entry correct", 101);
+    assert_eq_u64(ok_result.code_size, 0x500,
+        "10.1c success code_size correct", 102);
+
+    let fail_result = SipLoadResult(0, 0, 0);
+    assert_eq_u64(fail_result.ok, 0, "10.2 failure result ok == 0", 103);
+    assert_eq_u64(fail_result.entry_vaddr, 0,
+        "10.2b failure entry == 0", 104);
+
+    println("");
+
+    // =========================================================================
+    // Layer 11: Edge Cases (Guards and Error Paths)
+    // =========================================================================
+    println("--- Layer 11: Edge Cases ---");
+
+    // 11.1 Manually set SIP_DEAD state, call_sip should reject
+    let es = alloc_sip_slot();
+    let es_fn: fn(u64, u64) -> u64 = sip_add;
+    register_sip(es, fn_addr(es_fn), 0x100);
+    register_sip_fn(es, es_fn);
+    SIP_TABLE[es].state = SIP_DEAD;   // Force DEAD state
+    let dead_call = call_sip(es, 1, 2);
+    assert_eq_u64(dead_call, 0, "11.1 call to DEAD slot returns 0", 120);
+
+    // 11.2 Manually set SIP_RUNNING state, call_sip should reject
+    SIP_TABLE[es].state = SIP_RUNNING;
+    let running_call = call_sip(es, 1, 2);
+    assert_eq_u64(running_call, 0, "11.2 call to RUNNING slot returns 0", 121);
+
+    // 11.3 Reset to LOADED with null entry, call_sip should reject
+    SIP_TABLE[es].state = SIP_LOADED;
+    SIP_TABLE[es].entry_vaddr = 0;
+    let null_call = call_sip(es, 1, 2);
+    assert_eq_u64(null_call, 0, "11.3 call with null entry returns 0", 122);
+
+    // 11.4 free_sip_slot on invalid slot is safe
+    free_sip_slot(999);
+    assert_true(true, "11.4 free_sip_slot(999) no crash", 123);
+
+    // 11.5 alloc after all slots freed returns 0
+    SIP_TABLE[es].state = SIP_FREE;  // Clean up manually
+    SIP_TABLE[es].entry_vaddr = 0;
+    let fresh = alloc_sip_slot();
+    assert_eq_u64(fresh, 0, "11.5 alloc after full cleanup returns slot 0", 124);
+
+    // 11.6 register_sip with slot 0 but entry at slot 5's address (cross-slot entry)
+    // This should succeed — register doesn't validate entry is within slot range
+    let cross = register_sip(0, sip_slot_base(5) + 0x100, 0x200);
+    assert_eq_u64(cross, 0, "11.6 cross-slot entry allowed (loader validates)", 125);
+    free_sip_slot(0);
+
+    println("");
+
+    // =========================================================================
+    // Layer 12: Stress Test (Rapid Alloc/Register/Call/Free Churn)
+    // =========================================================================
+    println("--- Layer 12: Stress Test (100 cycles) ---");
+
+    let stress_fn: fn(u64, u64) -> u64 = sip_add;
+    let stress_fn_addr = fn_addr(stress_fn);
+    let mut stress_ok: bool = true;
+    let mut cycle: u64 = 0;
+    while cycle < 100 {
+        // Alloc
+        let ss = alloc_sip_slot();
+        if ss >= SIP_MAX_SLOTS {
+            stress_ok = false;
+        }
+
+        // Register with the real sip_add function
+        if stress_ok {
+            let sr = register_sip(ss, stress_fn_addr, 0x100);
+            register_sip_fn(ss, stress_fn);
+            if sr >= SIP_MAX_SLOTS {
+                stress_ok = false;
+            }
+        }
+
+        // Call through dispatch
+        if stress_ok {
+            let sv = call_sip(ss, cycle, 1);
+            if sv != (cycle + 1) {
+                stress_ok = false;
+            }
+        }
+
+        // Free
+        if stress_ok {
+            free_sip_slot(ss);
+            if SIP_TABLE[ss].state != SIP_FREE {
+                stress_ok = false;
+            }
+        }
+
+        cycle = cycle + 1;
+    }
+    assert_true(stress_ok, "12.1 100 alloc/register/call/free cycles pass", 130);
+
+    // Verify table is clean after stress test
+    assert_eq_u64(count_sips(), 0, "12.2 table clean after stress test", 131);
+
+    // 12.3 Stress: fill all 16 slots, call all, free all
+    let mut fs: u64 = 0;
+    while fs < SIP_MAX_SLOTS {
+        let fi = alloc_sip_slot();
+        register_sip(fi, stress_fn_addr, 0x100);
+        register_sip_fn(fi, stress_fn);
+        fs = fs + 1;
+    }
+    assert_eq_u64(count_sips(), SIP_MAX_SLOTS, "12.3a all 16 slots filled", 132);
+
+    // Call all 16
+    let mut call_ok: bool = true;
+    fs = 0;
+    while fs < SIP_MAX_SLOTS {
+        let cv = call_sip(fs, fs, 10);
+        if cv != (fs + 10) {
+            call_ok = false;
+        }
+        fs = fs + 1;
+    }
+    assert_true(call_ok, "12.3b all 16 SIPs called successfully", 133);
+
+    // Free all 16
+    fs = 0;
+    while fs < SIP_MAX_SLOTS {
+        free_sip_slot(fs);
+        fs = fs + 1;
+    }
+    assert_eq_u64(count_sips(), 0, "12.3c all 16 slots freed", 134);
+
+    println("");
+    println(f"=== {TESTS_PASSED}/{TESTS_RUN} Mode B tests passed ===");
+    return 0;
+}

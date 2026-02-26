@@ -36,6 +36,26 @@ pub const USER_PAGE_FLAGS: u64  = 0x7;
 
 const KERNEL_PML4_START: u64 = 256;
 
+// =============================================================================
+// PCID Allocator — Per-Process TLB Tags (12-bit, 1..4095)
+// =============================================================================
+// PCID 0 is reserved for the kernel address space.
+// Each new process gets the next sequential PCID.
+// Wraps at 4095 back to 1 (not 0, which is kernel-reserved).
+// =============================================================================
+global PCID_COUNTER: u64 = 1;
+
+@no_mangle
+pub fn allocate_pcid() -> u64 {
+    let pcid = PCID_COUNTER;
+    PCID_COUNTER = PCID_COUNTER + 1;
+    // Wrap: 12-bit field, 0 reserved for kernel
+    if PCID_COUNTER >= 4096 {
+        PCID_COUNTER = 1;
+    }
+    return pcid;
+}
+
 
 // =============================================================================
 // Index Extraction
@@ -86,12 +106,11 @@ pub fn create_user_pml4(kernel_pml4: u64) -> u64 {
         i = i + 1;
     }
 
-    // Copy PML4[0] -- identity map for CR3 switch transition.
-    // IMPORTANT: User ELF must be linked ABOVE 0x40000000 (1GB) to avoid
-    // being shadowed by the identity map's 2MB huge pages at 0x0-0x3FFFFFFF.
+    // 1. No identity map cloned!
+    // We explicitly let map_user_page allocate a fresh PML4[0] tree specifically for the user ELFs.
+    // Cloning PML4[0] would cause map_user_page to traverse the shared kernel PDPT/PD,
+    // misinterpreting 2MB Huge Pages as Page Tables and corrupting RAM.
     let kern_virt = memory.phys_to_virt(memory.PhysAddr { val: kernel_pml4 }).val;
-    let src0 = *(kern_virt as &u64);
-    *(user_virt as &mut u64) = src0;
 
     // Copy kernel half: PML4[256..511] (higher-half kernel mappings)
     i = KERNEL_PML4_START;
@@ -103,6 +122,96 @@ pub fn create_user_pml4(kernel_pml4: u64) -> u64 {
     }
 
     return user_pml4;  // Return physical address
+}
+
+// =============================================================================
+// create_user_pml4_kpti -- Allocate PML4, zero it, map Precise Trampoline
+// =============================================================================
+// Constructs a surgical Meltdown-resistant Address Space.
+// We map only the exact 4KB pages backing `.kpti_trampoline_text` (read-only)
+// and the single 4KB page backing the current CPU's `PerCpuData` (read/write).
+// Everything else in the higher-half kernel is absent, defeating speculative
+// execution reads of kernel memory from Ring 3.
+// =============================================================================
+extern fn kpti_trampoline_text_start();
+extern fn kpti_trampoline_text_end();
+extern fn kpti_trampoline_data_start();
+extern fn kpti_trampoline_data_end();
+extern fn user_text_start();
+extern fn user_text_end();
+extern fn user_data_start();
+extern fn user_data_end();
+extern fn read_gs_base() -> u64;
+
+@no_mangle
+pub fn create_user_pml4_kpti(kernel_pml4: u64) -> u64 {
+    let user_pml4 = pmm.alloc();
+    if user_pml4 == 0 {
+        return 0;
+    }
+
+    // Zero the entire PML4 via virtual address
+    let user_virt = memory.phys_to_virt(memory.PhysAddr { val: user_pml4 }).val;
+    let mut i: u64 = 0;
+    while i < ENTRIES {
+        let entry_addr = user_virt + (i * 8);
+        *(entry_addr as &mut u64) = 0;
+        i = i + 1;
+    }
+
+    // 1. No identity map cloned!
+    // We explicitly map the Ring 3 Test Framework and ELF segments below.
+    // Cloning PML4[0] causes map_user_page to traverse the shared kernel PDPT/PD,
+    // misinterpreting 2MB Huge Pages as Page Tables and corrupting RAM.
+    let text_start = (&kpti_trampoline_text_start) as u64;
+    let text_end   = (&kpti_trampoline_text_end) as u64;
+    
+    let mut vaddr = text_start;
+    while vaddr < text_end {
+        let paddr = memory.virt_to_phys_raw(vaddr);
+        map_user_page(user_pml4, vaddr, paddr, PTE_PRESENT); // User=0, Write=0
+        vaddr = vaddr + PAGE_SIZE;
+    }
+
+    // 3. Map the KPTI Trampoline Data Section (Supervisor, Read-Write, Present)
+    // Contains the scratch stack used during the CR3 swap window.
+    let data_start = (&kpti_trampoline_data_start) as u64;
+    let data_end   = (&kpti_trampoline_data_end) as u64;
+    vaddr = data_start;
+    while vaddr < data_end {
+        let paddr = memory.virt_to_phys_raw(vaddr);
+        map_user_page(user_pml4, vaddr, paddr, PTE_PRESENT | PTE_WRITE); // Supervisor-only
+        vaddr = vaddr + PAGE_SIZE;
+    }
+
+    // 4. Map the CPU's Dynamic PerCpuData Page (Supervisor, Read-Write, Present)
+    // The fast path writes saved RSPs and reads the kernel CR3 from here.
+    let percpu_virt = read_gs_base();
+    let percpu_page_virt = percpu_virt & 0xFFFFFFFFFFFFF000;
+    let percpu_paddr = memory.virt_to_phys_raw(percpu_page_virt);
+    map_user_page(user_pml4, percpu_page_virt, percpu_paddr, PTE_PRESENT | PTE_WRITE);
+
+    // 4. Map the Ring 3 Test Framework Payloads (User, Read-Only/Read-Write)
+    // This allows the QEMU E2E and SWAPGS tests to execute inside Ring 3 safely.
+    let utext_start = (&user_text_start) as u64;
+    let utext_end   = (&user_text_end) as u64;
+    vaddr = utext_start;
+    while vaddr < utext_end {
+        let paddr = memory.virt_to_phys_raw(vaddr);
+        map_user_page(user_pml4, vaddr, paddr, PTE_PRESENT | PTE_USER); 
+        vaddr = vaddr + PAGE_SIZE;
+    }
+
+    let udata_start = (&user_data_start) as u64;
+    let udata_end   = (&user_data_end) as u64;
+    vaddr = udata_start;
+    while vaddr < udata_end {
+        let paddr = memory.virt_to_phys_raw(vaddr);
+        map_user_page(user_pml4, vaddr, paddr, PTE_PRESENT | PTE_USER | PTE_WRITE); 
+        vaddr = vaddr + PAGE_SIZE;
+    }
+
+    return user_pml4;
 }
 
 // =============================================================================
@@ -134,6 +243,51 @@ pub fn map_user_page(pml4_phys: u64, vaddr: u64, paddr: u64, flags: u64) {
     let pt_virt = memory.phys_to_virt(memory.PhysAddr { val: pt }).val;
     let pt_entry_addr = pt_virt + (pt_index(vaddr) * 8);
     *(pt_entry_addr as &mut u64) = paddr | flags;
+}
+
+// =============================================================================
+// translate_user_addr -- Walk page tables (read-only) to get physical address
+// =============================================================================
+// Returns the FULL physical address (page base + offset) for a user vaddr.
+// Returns 0 if any page table level is not present (unmapped).
+// Used by sys_write under KPTI to read user buffers via kernel direct map.
+// =============================================================================
+pub fn translate_user_addr(pml4_phys: u64, vaddr: u64) -> u64 {
+    // Walk PML4
+    let pml4_virt = memory.phys_to_virt(memory.PhysAddr { val: pml4_phys }).val;
+    let pml4e = *((pml4_virt + (pml4_index(vaddr) * 8)) as &u64);
+    if (pml4e & PTE_PRESENT) == 0 {
+        return 0;
+    }
+
+    // Walk PDP
+    let pdp_phys = pml4e & ADDR_MASK;
+    let pdp_virt = memory.phys_to_virt(memory.PhysAddr { val: pdp_phys }).val;
+    let pdpe = *((pdp_virt + (pdp_index(vaddr) * 8)) as &u64);
+    if (pdpe & PTE_PRESENT) == 0 {
+        return 0;
+    }
+
+    // Walk PD
+    let pd_phys = pdpe & ADDR_MASK;
+    let pd_virt = memory.phys_to_virt(memory.PhysAddr { val: pd_phys }).val;
+    let pde = *((pd_virt + (pd_index(vaddr) * 8)) as &u64);
+    if (pde & PTE_PRESENT) == 0 {
+        return 0;
+    }
+
+    // Walk PT
+    let pt_phys = pde & ADDR_MASK;
+    let pt_virt = memory.phys_to_virt(memory.PhysAddr { val: pt_phys }).val;
+    let pte = *((pt_virt + (pt_index(vaddr) * 8)) as &u64);
+    if (pte & PTE_PRESENT) == 0 {
+        return 0;
+    }
+
+    // Physical page base + page offset
+    let page_phys = pte & ADDR_MASK;
+    let page_offset = vaddr & 0xFFF;
+    return page_phys + page_offset;
 }
 
 // =============================================================================

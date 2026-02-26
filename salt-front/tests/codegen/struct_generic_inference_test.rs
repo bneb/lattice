@@ -15,7 +15,7 @@ mod tests {
     use salt_front::types::Type;
     use salt_front::grammar::SaltFile;
     use salt_front::codegen::expr::resolver::CallSiteResolver;
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
 
     macro_rules! with_ctx {
         ($name:ident, $block:block) => {
@@ -52,7 +52,7 @@ mod tests {
                     vec![Type::Struct("main__Node".to_string())]
                 );
             
-                let mut map = HashMap::new();
+                let mut map = BTreeMap::new();
                 let result = resolver.unify_types(&pattern, &concrete, &mut map);
             
                 assert!(result.is_ok(), "Unification should succeed: {:?}", result.err());
@@ -134,7 +134,7 @@ mod tests {
                     vec![Type::I32]
                 );
             
-                let mut map = HashMap::new();
+                let mut map = BTreeMap::new();
                 let result = resolver.verify_completeness_with_struct_generics(
                     &template,
                     &mut map,
@@ -179,7 +179,7 @@ mod tests {
                 );
             
                 // Pre-populate map as if turbofish was used: T = i32
-                let mut map = HashMap::new();
+                let mut map = BTreeMap::new();
                 map.insert("T".to_string(), Type::I32);
             
                 let result = resolver.verify_completeness_with_struct_generics(
@@ -220,7 +220,7 @@ mod tests {
                     vec![Type::Generic("T".to_string())]
                 ));
             
-                let mut map = HashMap::new();
+                let mut map = BTreeMap::new();
                 let result = resolver.verify_completeness_with_struct_generics(
                     &template,
                     &mut map,

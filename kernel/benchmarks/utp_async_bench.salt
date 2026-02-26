@@ -1,0 +1,129 @@
+// UTP Async Dispatch Latency Benchmark
+// Measures the cost of invoke_task(step_fn, task_frame) for a trivial async fiber.
+// This is the 3-instruction dispatch path: mov rax,rdi; mov rdi,rsi; call rax; ret.
+// On KVM, expected ~5-10 cycles. On TCG, meaningless but functional.
+
+package benchmarks.utp_async_bench
+
+use kernel.drivers.serial
+use kernel.drivers.vga
+use kernel.core.timing
+
+extern fn sched_spawn_async(step_fn_addr: u64, frame_size: u64) -> u64;
+extern fn sched_yield();
+extern fn fiber_count() -> u64;
+extern fn invoke_task(step_fn: u64, ctx: u64) -> i64;
+extern fn pop_stack() -> u64;
+extern fn push_stack(addr: u64);
+
+const POLL_READY: i64 = 1;
+const NUM_SAMPLES: i32 = 100;
+const DIRECT_SAMPLES: i32 = 1000;
+const MIN_CYCLES: i64 = 1;
+const MAX_CYCLES: i64 = 10000000;
+const SLAB_SLOT_SIZE: u64 = 16384;
+
+// Immediately returns POLL_READY — measures pure dispatch overhead.
+pub fn bench_async_noop(frame: u64) -> i64 {
+    return POLL_READY;
+}
+
+@no_mangle
+pub fn run_utp_async_bench() {
+    serial.print("BENCH:utp_async:start\n");
+    vga.print("UTP async dispatch...\n");
+
+    // ── Phase 1: Full sched_yield round-trip ──────────────────────────
+    let mut total: i64 = 0;
+    let mut valid: i32 = 0;
+    let mut min_cy: i64 = 999999999;
+    let mut max_cy: i64 = 0;
+
+    let step_addr = fn_addr(bench_async_noop);
+    let frame_size: u64 = 64;
+
+    for i in 0..NUM_SAMPLES {
+        let slot = sched_spawn_async(step_addr, frame_size);
+        if slot >= 256 { continue; }
+
+        let t0 = timing.get_cycles() as i64;
+        sched_yield();
+        let t1 = timing.get_cycles() as i64;
+
+        let elapsed = t1 - t0;
+        if elapsed >= MIN_CYCLES {
+            if elapsed <= MAX_CYCLES {
+                total += elapsed;
+                valid += 1;
+                if elapsed < min_cy { min_cy = elapsed; }
+                if elapsed > max_cy { max_cy = elapsed; }
+            }
+        }
+    }
+
+    if valid > 0 {
+        let avg = total / (valid as i64);
+        serial.print("BENCH:utp_async:avg=");
+        serial.print_u64(avg as u64);
+        serial.print(" min=");
+        serial.print_u64(min_cy as u64);
+        serial.print(" max=");
+        serial.print_u64(max_cy as u64);
+        serial.print(" valid=");
+        serial.print_u64(valid as u64);
+        serial.print("\n");
+    } else {
+        serial.print("BENCH:utp_async:ERROR no valid samples\n");
+    }
+
+    // ── Phase 2: Direct invoke_task (bypass scheduler) ───────────────
+    // Measures just: mov rax,rdi; mov rdi,rsi; call rax; ret
+    // Allocate a frame manually from slab, call invoke_task directly.
+    let frame_ptr = pop_stack();
+    if frame_ptr == 0 {
+        serial.print("BENCH:utp_async_direct:ERROR no slab slot\n");
+        return;
+    }
+
+    total = 0;
+    valid = 0;
+    min_cy = 999999999;
+    max_cy = 0;
+
+    for i in 0..DIRECT_SAMPLES {
+        let t0 = timing.get_cycles() as i64;
+        let result = invoke_task(step_addr, frame_ptr);
+        let t1 = timing.get_cycles() as i64;
+
+        let elapsed = t1 - t0;
+        if elapsed >= MIN_CYCLES {
+            if elapsed <= MAX_CYCLES {
+                total += elapsed;
+                valid += 1;
+                if elapsed < min_cy { min_cy = elapsed; }
+                if elapsed > max_cy { max_cy = elapsed; }
+            }
+        }
+    }
+
+    push_stack(frame_ptr);
+
+    if valid > 0 {
+        let avg = total / (valid as i64);
+        serial.print("BENCH:utp_async_direct:avg=");
+        serial.print_u64(avg as u64);
+        serial.print(" min=");
+        serial.print_u64(min_cy as u64);
+        serial.print(" max=");
+        serial.print_u64(max_cy as u64);
+        serial.print(" valid=");
+        serial.print_u64(valid as u64);
+        serial.print("\n");
+
+        vga.print("  UTP async direct: ");
+        vga.print_u64(avg as u64);
+        vga.print(" cycles\n");
+    } else {
+        serial.print("BENCH:utp_async_direct:ERROR no valid samples\n");
+    }
+}

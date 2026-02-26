@@ -166,9 +166,9 @@ mod hashmap_eq_dispatch_tests {
     /// substitute() should resolve it to I64.
     #[test]
     fn test_substitute_struct_k_resolves_to_i64() {
-        use std::collections::HashMap;
+        use std::collections::{BTreeMap, HashMap};
 
-        let mut type_map = HashMap::new();
+        let mut type_map = BTreeMap::new();
         type_map.insert("K".to_string(), Type::I64);
         type_map.insert("V".to_string(), Type::I64);
 
@@ -181,9 +181,9 @@ mod hashmap_eq_dispatch_tests {
 
     #[test]
     fn test_substitute_reference_struct_k_becomes_reference_i64() {
-        use std::collections::HashMap;
+        use std::collections::{BTreeMap, HashMap};
 
-        let mut type_map = HashMap::new();
+        let mut type_map = BTreeMap::new();
         type_map.insert("K".to_string(), Type::I64);
 
         let ref_k = Type::Reference(Box::new(Type::Struct("K".to_string())), false);
@@ -196,7 +196,7 @@ mod hashmap_eq_dispatch_tests {
     /// Verifying substitute for all primitive types used as generic parameters.
     #[test]
     fn test_substitute_generic_param_to_all_primitives() {
-        use std::collections::HashMap;
+        use std::collections::{BTreeMap, HashMap};
 
         let primitives = vec![
             ("i8", Type::I8), ("i16", Type::I16), ("i32", Type::I32), ("i64", Type::I64),
@@ -205,7 +205,7 @@ mod hashmap_eq_dispatch_tests {
         ];
 
         for (name, expected_ty) in primitives {
-            let mut type_map = HashMap::new();
+            let mut type_map = BTreeMap::new();
             type_map.insert("T".to_string(), expected_ty.clone());
 
             let field_ty = Type::Struct("T".to_string());

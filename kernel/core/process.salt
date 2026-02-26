@@ -18,6 +18,9 @@ import kernel.core.pmm
 import kernel.core.memory
 import kernel.mem.user_paging
 
+// ABI boundary: allocate_pcid is @no_mangle in user_paging.salt
+extern fn allocate_pcid() -> u64;
+
 // =============================================================================
 // Constants
 // =============================================================================
@@ -53,6 +56,7 @@ pub struct Process {
     pub brk_current: u64,       // Dynamic top of the heap (advanced by sys_brk)
     pub mmap_base: u64,         // Starting search address for anonymous mappings
     pub vma_list_head: u64,     // Pointer to first Vma struct (slab-allocated linked list)
+    pub pcid: u64,              // PCID (12-bit, 1..4095) for TLB tagging
 }
 
 // =============================================================================
@@ -63,7 +67,8 @@ global PROC_TABLE: [Process; 16] = [Process {
     kernel_stack_base: 0, kernel_stack_top: 0,
     user_entry: 0, user_stack_top: 0,
     brk_base: 0, brk_current: 0,
-    mmap_base: 0, vma_list_head: 0
+    mmap_base: 0, vma_list_head: 0,
+    pcid: 0
 }; 16];
 
 global CURRENT_PID: u64 = 0;
@@ -204,6 +209,11 @@ pub fn init_slot(slot: u64, pml4: u64, kstack_base: u64, kstack_top: u64,
     PROC_TABLE[slot].brk_current = 0;
     PROC_TABLE[slot].mmap_base = 0;
     PROC_TABLE[slot].vma_list_head = 0;
+    PROC_TABLE[slot].pcid = allocate_pcid();
+}
+
+pub fn get_pcid(slot: u64) -> u64 {
+    return PROC_TABLE[slot].pcid;
 }
 
 // =============================================================================
@@ -249,3 +259,23 @@ pub fn get_vma_list_head(slot: u64) -> u64 {
 pub fn set_vma_list_head(slot: u64, val: u64) {
     PROC_TABLE[slot].vma_list_head = val;
 }
+
+// @no_mangle ABI Wrappers
+@no_mangle
+pub fn process_set_state(slot: u64, state: u64) { set_state(slot, state); }
+
+@no_mangle
+pub fn process_set_current(slot: u64) { set_current(slot); }
+
+@no_mangle
+pub fn process_get_kernel_rsp(slot: u64) -> u64 { return get_kernel_rsp(slot); }
+
+@no_mangle
+pub fn process_get_pml4(slot: u64) -> u64 { return get_pml4(slot); }
+
+@no_mangle
+pub fn process_get_pcid(slot: u64) -> u64 { return get_pcid(slot); }
+
+@no_mangle
+pub fn process_get_kernel_stack_top(slot: u64) -> u64 { return get_kernel_stack_top(slot); }
+

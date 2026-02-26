@@ -55,6 +55,18 @@ pub const DMA_BASE: u64         = SLAB_MAX;
 pub const DMA_MAX: u64          = KERNEL_BASE + DIRECT_MAP_SIZE;
 
 // -----------------------------------------------------------------------------
+// 7. SIP Code Region -- Mode B Ring 0 Binaries
+// -----------------------------------------------------------------------------
+// Software-Isolated Processes run in Ring 0 with .text mapped into the
+// kernel high-half. Each SIP slot is 2MB-aligned for clean PD-entry mapping.
+// The region sits ABOVE the 1GB direct map (0xFFFFFFFF80000000-0xFFFFFFFFBFFFFFFF)
+// in the same PML4[511] entry, using PDP index 0, PD indices 256-271.
+pub const SIP_BASE: u64         = 0xFFFFFFFFA0000000;
+pub const SIP_SLOT_SIZE: u64    = 0x200000;   // 2MB per SIP slot
+pub const SIP_MAX_SLOTS: u64    = 16;
+pub const SIP_MAX: u64          = SIP_BASE + (SIP_SLOT_SIZE * SIP_MAX_SLOTS);
+
+// -----------------------------------------------------------------------------
 // 6. Userspace Virtual Memory Layout (Lower Canonical Half)
 // -----------------------------------------------------------------------------
 // Standard x86_64 canonical lower half: 0x0 to 0x7FFFFFFFFFFF.

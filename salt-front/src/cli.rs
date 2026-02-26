@@ -12,6 +12,7 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
     let mut disable_alias_scopes = false;
     let mut no_verify = false;
     let mut lib_mode = false;
+    let mut sip_mode = false;
     let mut debug_info = false;
     let mut target_name: Option<String> = None;
     
@@ -31,6 +32,7 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
             println!("  --verify     Run Z3 verification passes");
             println!("  --skip-scan  Skip import scanning");
             println!("  --lib        Library mode (no main entry point required)");
+            println!("  --sip        Mode B SIP safety enforcement (rejects raw pointer creation)");
             println!("  -g           Emit DWARF debug info (MLIR loc annotations)");
             println!("  --debug-info Emit DWARF debug info (same as -g)");
             println!("  --disable-alias-scopes  Suppress LLVM alias scope metadata (for mlir-opt compatibility)");
@@ -64,6 +66,9 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
             no_verify = true;
         } else if arg == "--lib" {
             lib_mode = true;
+        } else if arg == "--sip" {
+            sip_mode = true;
+            lib_mode = true; // SIPs are always libraries (no kernel main)
         } else if arg == "-g" || arg == "--debug-info" {
             debug_info = true;
         } else if arg == "-o" {
@@ -110,7 +115,7 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
 
     load_imports(&file, &mut registry);
 
-    match crate::compile_ast(&mut file, release_mode, Some(&registry), skip_scan, vverify, disable_alias_scopes, no_verify, lib_mode, debug_info, &path) {
+    match crate::compile_ast(&mut file, release_mode, Some(&registry), skip_scan, vverify, disable_alias_scopes, no_verify, lib_mode, sip_mode, debug_info, &path) {
         Ok(mlir) => {
             if binary_mode {
                 // ============================================================

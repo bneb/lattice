@@ -21,14 +21,14 @@ package kernel.core.dispatcher
 import kernel.core.pulse
 import kernel.drivers.serial
 
-extern fn sched_yield();
+extern fn idle_halt();
 
 // =============================================================================
 // kernel_event_loop — Immortal event drain loop (Task 0 entry point)
 // =============================================================================
 // This function never returns. It runs as a Ring 0 kernel thread with IF=1.
-// When the queue is empty, it yields back to user-space processes.
-// The scheduler will wake it again when new events arrive.
+// When the queue is empty, it halts the CPU until the next hardware interrupt.
+// The preemptive scheduler will context-switch to user processes as needed.
 // =============================================================================
 @no_mangle
 pub fn kernel_event_loop() {
@@ -54,9 +54,10 @@ pub fn kernel_event_loop() {
             event_type = pulse.pop(&data, &timestamp);
         }
 
-        // Queue is empty — yield CPU back to user space.
-        // The reactive scheduler will wake Task 0 when new events arrive.
-        sched_yield();
+        // Queue is empty — pause CPU until next hardware interrupt.
+        // Timer interrupts will automatically preempt this thread
+        // to run user processes via schedule_next().
+        idle_halt();
 
         // When rescheduled, we resume right here and drain again.
     }

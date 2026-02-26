@@ -1,0 +1,7 @@
+package kernel.core.df_test_runner
+extern fn test_double_fault_manual_trigger();
+
+@no_mangle
+pub fn bench_suite_run() {
+    test_double_fault_manual_trigger();
+}

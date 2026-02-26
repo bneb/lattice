@@ -1,0 +1,153 @@
+// =============================================================================
+// kernel/sys/elf.salt
+// Mode B SIP Loader — Compiler-Verified Ring 0 ELF Execution
+// =============================================================================
+//
+// This loader parses a standard ELF64 binary and maps its PT_LOAD segments
+// directly into the kernel's Ring 0 high-half address space. No MMU page
+// table switch, no privilege level drop. The compiler (Z3 Formal Shadow)
+// is the security perimeter, not hardware isolation.
+//
+// Mode B SIPs execute as Ring 0 fibers with direct function call access
+// to kernel services (scheduler, network stack, slab allocator). A yield
+// costs 5 cycles (direct call), not 300 cycles (syscall trap).
+//
+// CRITICAL: SIP payloads MUST be compiled as PIE (-relocation-model=pic)
+// so that RIP-relative addressing works at any load base.
+//
+// Memory layout:
+//   SIP_LOAD_BASE (0xFFFFFFFFA0000000)
+//   ├── .text   (PT_LOAD, PF_R|PF_X)
+//   ├── .rodata (PT_LOAD, PF_R)
+//   ├── .data   (PT_LOAD, PF_R|PF_W)
+//   └── .bss    (zero-filled, memsz - filesz)
+// =============================================================================
+
+package kernel.sys
+
+use kernel.drivers.serial
+
+// ABI boundary to the kernel scheduler
+extern fn scheduler_spawn(entry_addr: u64) -> u64;
+
+// =============================================================================
+// ELF64 Constants
+// =============================================================================
+
+// ELF Magic: 0x7F 'E' 'L' 'F' (Little Endian: 0x464C457F)
+const ELF_MAGIC: u32 = 0x464C457F;
+
+// Program Header Types
+const PT_LOAD: u32 = 1;
+
+// Segment Permissions
+const PF_X: u32 = 1;
+const PF_W: u32 = 2;
+const PF_R: u32 = 4;
+
+// Ring 0 SIP Arena — high-half canonical address
+const SIP_LOAD_BASE: u64 = 0xFFFFFFFFA0000000;
+
+// =============================================================================
+// ELF64 Header (64 bytes)
+// =============================================================================
+struct Elf64_Ehdr {
+    ident: [u8; 16],
+    type_: u16,
+    machine: u16,
+    version: u32,
+    entry: u64,
+    phoff: u64,
+    shoff: u64,
+    flags: u32,
+    ehsize: u16,
+    phentsize: u16,
+    phnum: u16,
+    shentsize: u16,
+    shnum: u16,
+    shstrndx: u16,
+}
+
+// =============================================================================
+// ELF64 Program Header (56 bytes)
+// =============================================================================
+struct Elf64_Phdr {
+    type_: u32,
+    flags: u32,
+    offset: u64,
+    vaddr: u64,
+    paddr: u64,
+    filesz: u64,
+    memsz: u64,
+    align: u64,
+}
+
+// =============================================================================
+// elf_load_sip — Parse ELF64, map PT_LOAD segments, spawn fiber
+// =============================================================================
+// Returns: fiber_id (>0) on success, 0 on failure.
+// =============================================================================
+@no_mangle
+pub fn elf_load_sip(elf_base_ptr: u64) -> u64 {
+    let header = elf_base_ptr as &Elf64_Ehdr;
+
+    // 1. Verify ELF Magic Number
+    let magic_ptr = elf_base_ptr as &u32;
+    if magic_ptr[0] != ELF_MAGIC {
+        serial.print("SIP Loader: Invalid ELF Magic\n");
+        return 0;
+    }
+
+    // 2. Parse Program Headers — copy PT_LOAD segments into SIP Arena
+    let phdr_base = elf_base_ptr + header.phoff;
+    let mut i: u16 = 0;
+
+    while i < header.phnum {
+        let phdr_addr = phdr_base + ((i as u64) * (header.phentsize as u64));
+        let phdr = phdr_addr as &Elf64_Phdr;
+
+        if phdr.type_ == PT_LOAD {
+            let dest_addr = SIP_LOAD_BASE + phdr.vaddr;
+            let src_addr = elf_base_ptr + phdr.offset;
+
+            // Copy .text / .rodata / .data
+            memcpy(dest_addr, src_addr, phdr.filesz);
+
+            // Zero out .bss (memsz - filesz)
+            if phdr.memsz > phdr.filesz {
+                memzero(dest_addr + phdr.filesz, phdr.memsz - phdr.filesz);
+            }
+        }
+        i = i + 1;
+    }
+
+    // 3. Calculate absolute entry point and spawn as Ring 0 fiber
+    let absolute_entry = SIP_LOAD_BASE + header.entry;
+    serial.print("SIP Loader: Mapped Mode B Binary. Entry at ");
+    serial.print_hex(absolute_entry);
+    serial.print("\n");
+
+    return scheduler_spawn(absolute_entry);
+}
+
+// =============================================================================
+// Memory helpers
+// =============================================================================
+fn memcpy(dest: u64, src: u64, len: u64) {
+    let d = dest as &mut u8;
+    let s = src as &u8;
+    let mut i: u64 = 0;
+    while i < len {
+        d[i] = s[i];
+        i = i + 1;
+    }
+}
+
+fn memzero(dest: u64, len: u64) {
+    let d = dest as &mut u8;
+    let mut i: u64 = 0;
+    while i < len {
+        d[i] = 0;
+        i = i + 1;
+    }
+}

@@ -224,6 +224,13 @@ impl Type {
                      })
                  }
              }
+             SynType::FnPtr(args, ret) => {
+                 let fn_args: Vec<Type> = args.iter().filter_map(|t| Type::from_syn_with_generics(t, generic_names)).collect();
+                 let fn_ret = ret.as_ref()
+                     .and_then(|r| Type::from_syn_with_generics(r, generic_names))
+                     .unwrap_or(Type::Unit);
+                 Some(Type::Fn(fn_args, Box::new(fn_ret)))
+             }
              SynType::Other(s) => {
                  if s.contains("llvm") && s.contains("ptr") {
                      Some(Type::Pointer {
@@ -564,7 +571,9 @@ impl Type {
             Type::I16 | Type::U16 => 2,
             Type::I32 | Type::U32 | Type::F32 => 4,
             Type::I64 | Type::U64 | Type::Usize | Type::F64 => 8,
-            Type::Pointer { .. } | Type::Reference(_, _) | Type::Owned(_) | Type::Fn(_, _) | Type::Atomic(_) | Type::Generic(_) | Type::SelfType | Type::Unit => 8,
+            Type::Pointer { .. } | Type::Reference(_, _) | Type::Owned(_) | Type::Fn(_, _) | Type::Generic(_) | Type::SelfType | Type::Unit => 8,
+            // [SOVEREIGN FIX] Atomic<T> storage is T, not a pointer. Delegate to inner type.
+            Type::Atomic(inner) => inner.internal_size_of(struct_registry, depth + 1),
             Type::Array(inner, len, _) => inner.internal_size_of(struct_registry, depth + 1) * len,
             Type::Tensor(inner, dims) => inner.internal_size_of(struct_registry, depth + 1) * dims.iter().product::<usize>(),
             Type::Tuple(elems) => {
@@ -613,7 +622,9 @@ impl Type {
             Type::I16 | Type::U16 => 2,
             Type::I32 | Type::U32 | Type::F32 => 4,
             Type::I64 | Type::U64 | Type::Usize | Type::F64 => 8,
-            Type::Pointer { .. } | Type::Reference(_, _) | Type::Owned(_) | Type::Fn(_, _) | Type::Atomic(_) | Type::Generic(_) | Type::SelfType => 8,
+            Type::Pointer { .. } | Type::Reference(_, _) | Type::Owned(_) | Type::Fn(_, _) | Type::Generic(_) | Type::SelfType => 8,
+            // [SOVEREIGN FIX] Atomic<T> alignment follows inner type T.
+            Type::Atomic(inner) => inner.internal_align_of(struct_registry, depth + 1),
             Type::Array(inner, _, _) | Type::Tensor(inner, _) => inner.internal_align_of(struct_registry, depth + 1),
             Type::Tuple(elems) => {
                 elems.iter().map(|ty| ty.internal_align_of(struct_registry, depth + 1)).max().unwrap_or(1)

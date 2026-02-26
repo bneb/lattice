@@ -38,6 +38,12 @@ KNOWN_FAILING=(
     "test_sync"                  # Missing salt_atomic_cas_i64 intrinsic link
     "test_file_io"               # Undefined global O_WRONLY in addressof
     "test_channel"               # Numeric promotion Unit → Result<i32>
+    # Kernel-only tests — import kernel.core.* modules that require
+    # the bare-metal build pipeline. Verified through QEMU integration.
+    "test_elf_loader"            # Imports kernel.core.pmm, kernel.core.memory
+    "test_process_heap_boundary" # Imports kernel.core.process
+    "test_pulse_queue"           # Imports kernel.core.pulse
+    "test_task0_spawn"           # Imports kernel.core.process
 )
 
 is_known_failing() {

@@ -2,7 +2,7 @@
 // Tests all Type variants for is_numeric, is_unsigned, mangle_suffix, size_of
 
 use salt_front::types::Type;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use salt_front::grammar::SaltFile;
 use salt_front::codegen::context::CodegenContext;
 use salt_front::types::TypeKey;

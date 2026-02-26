@@ -345,3 +345,11 @@ pub fn spawn_kernel_thread(entry_fn: u64, kernel_pml4: u64) -> u64 {
 
     return slot;
 }
+
+// @no_mangle ABI Wrappers
+@no_mangle
+pub fn exec_spawn_kernel_thread(entry: u64, pml4: u64) -> u64 { return spawn_kernel_thread(entry, pml4); }
+
+@no_mangle
+pub fn exec_spawn_process(elf_addr: u64, pml4: u64) -> u64 { return spawn_process(elf_addr, pml4); }
+

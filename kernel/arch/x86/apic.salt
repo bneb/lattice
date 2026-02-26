@@ -1,0 +1,299 @@
+// =============================================================================
+// kernel/arch/x86/apic.salt
+// Local APIC Interface — MMIO Register Access
+// =============================================================================
+//
+// The Local APIC (Advanced Programmable Interrupt Controller) is the per-core
+// interrupt controller on x86_64. Each CPU has its own Local APIC mapped at
+// the same physical address (default 0xFEE00000, confirmed from MADT).
+//
+// This module provides:
+//   - APIC enable (via IA32_APIC_BASE MSR + Spurious Vector Register)
+//   - EOI (End Of Interrupt)
+//   - ICR (Interrupt Command Register) for INIT and SIPI IPIs
+//   - Timer configuration (periodic mode, replaces PIT on BSP)
+//
+// All register access uses MMIO via the apic_stubs.S helpers
+// (mmio_read32 / mmio_write32) through the higher-half direct map.
+//
+// Intel SDM References:
+//   - IA32_APIC_BASE MSR: Vol 3A, Section 11.4.4
+//   - Local APIC Registers: Vol 3A, Table 11-1
+//   - ICR: Vol 3A, Section 11.6.1
+//   - Timer: Vol 3A, Section 11.5.4
+// =============================================================================
+
+package kernel.arch.x86.apic
+
+use kernel.drivers.serial
+use kernel.arch.x86.acpi
+
+// =============================================================================
+// Assembly FFI
+// =============================================================================
+extern fn rdmsr(ecx: u32) -> u64;
+extern fn wrmsr(ecx: u32, val: u64);
+extern fn mmio_read32(addr: u64) -> u32;
+extern fn mmio_write32(addr: u64, val: u32);
+extern fn disable_pic();
+extern fn delay_cycles(count: u64);
+
+// =============================================================================
+// MSR Constants
+// =============================================================================
+const IA32_APIC_BASE_MSR: u32 = 0x1B;
+const APIC_BASE_ENABLE: u64   = 0x800;  // Bit 11: APIC Global Enable
+
+// =============================================================================
+// Local APIC Register Offsets (from APIC base)
+// =============================================================================
+const APIC_ID: u64           = 0x020;  // Local APIC ID Register
+const APIC_VERSION: u64      = 0x030;  // Local APIC Version Register
+const APIC_TPR: u64          = 0x080;  // Task Priority Register
+const APIC_EOI: u64          = 0x0B0;  // End Of Interrupt Register
+const APIC_SVR: u64          = 0x0F0;  // Spurious Interrupt Vector Register
+const APIC_ICR_LO: u64       = 0x300;  // Interrupt Command Register (bits 0-31)
+const APIC_ICR_HI: u64       = 0x310;  // Interrupt Command Register (bits 32-63)
+const APIC_TIMER_LVT: u64    = 0x320;  // LVT Timer Register
+const APIC_TIMER_ICR: u64    = 0x380;  // Timer Initial Count Register
+const APIC_TIMER_CCR: u64    = 0x390;  // Timer Current Count Register
+const APIC_TIMER_DCR: u64    = 0x3E0;  // Timer Divide Configuration Register
+
+// =============================================================================
+// SVR Constants
+// =============================================================================
+const SVR_ENABLE: u32     = 0x100;       // Bit 8: APIC Software Enable
+const SVR_VECTOR: u32     = 0xFF;        // Spurious vector = 0xFF
+
+// =============================================================================
+// ICR Delivery Modes
+// =============================================================================
+const ICR_INIT: u32       = 0x00000500;  // INIT IPI
+const ICR_STARTUP: u32    = 0x00000600;  // Startup IPI (SIPI)
+const ICR_LEVEL_ASSERT: u32   = 0x00004000;  // Level = Assert
+const ICR_LEVEL_DEASSERT: u32 = 0x00000000;  // Level = Deassert
+
+const ICR_NMI_DELIVERY: u32   = 0x00000400;  // Delivery Mode = NMI (100b)
+const ICR_DEST_SELF: u32      = 0x00040000;  // Destination Shorthand = Self (01b)
+
+// =============================================================================
+// Timer Constants
+// =============================================================================
+const TIMER_PERIODIC: u32 = 0x00020000;  // Periodic mode (bit 17)
+const TIMER_ONESHOT: u32  = 0x00000000;  // One-Shot mode (bit 17 = 0)
+const TIMER_MASKED: u32   = 0x00010000;  // Masked (bit 16)
+
+// =============================================================================
+// Local APIC Virtual Base (computed from MADT physical base)
+// =============================================================================
+global LAPIC_VIRT_BASE: u64 = 0;
+
+// =============================================================================
+// init — Enable the Local APIC on this core
+// =============================================================================
+// Called by BSP during boot and by each AP in ap_entry.
+//
+// Sequence:
+//   1. Disable the legacy 8259 PIC (mask all interrupts)
+//   2. Read IA32_APIC_BASE MSR and set bit 11 (Global Enable)
+//   3. Compute the virtual address of the APIC MMIO region
+//   4. Set Spurious Vector Register: enable bit + vector 0xFF
+//   5. Set Task Priority to 0 (accept all interrupts)
+// =============================================================================
+pub fn init() {
+    // Step 1: Mask all PIC interrupts to prevent ghost IRQs
+    disable_pic();
+    serial.print("[APIC] 8259 PIC disabled\n");
+
+    // Step 2: Enable APIC via MSR
+    let apic_base_msr = rdmsr(IA32_APIC_BASE_MSR);
+    let enabled = apic_base_msr | APIC_BASE_ENABLE;
+    wrmsr(IA32_APIC_BASE_MSR, enabled);
+
+    // Step 3: Use MADT-reported physical base directly (identity-mapped)
+    // NOTE: phys_to_virt_raw(0xFEE00000) wraps due to 64-bit overflow
+    // (KERNEL_BASE + 0xFEE00000 > 2^64). The identity map covers 0-4GB
+    // via boot.S PDPT[0-3] entries, so physical addresses work directly.
+    let phys_base = acpi.get_lapic_base();
+    LAPIC_VIRT_BASE = phys_base;
+
+    serial.print("[APIC] MMIO base: 0x");
+    serial.print_hex(LAPIC_VIRT_BASE);
+    serial.print("\n");
+
+    // Step 4: Enable APIC via Spurious Vector Register
+    let svr = read_reg(APIC_SVR);
+    write_reg(APIC_SVR, svr | SVR_ENABLE | SVR_VECTOR);
+
+    // Step 5: Accept all interrupt priorities
+    write_reg(APIC_TPR, 0);
+
+    // Read and report APIC ID
+    let id = read_id();
+    serial.print("[APIC] Local APIC ID: ");
+    serial.print_u64(id as u64);
+    serial.print(", version: 0x");
+    serial.print_hex(read_reg(APIC_VERSION) as u64);
+    serial.print("\n");
+}
+
+// =============================================================================
+// Register Access Helpers
+// =============================================================================
+
+fn read_reg(offset: u64) -> u32 {
+    return mmio_read32(LAPIC_VIRT_BASE + offset);
+}
+
+fn write_reg(offset: u64, val: u32) {
+    mmio_write32(LAPIC_VIRT_BASE + offset, val);
+}
+
+// =============================================================================
+// read_id — Read this core's Local APIC ID
+// =============================================================================
+pub fn read_id() -> u32 {
+    let raw = read_reg(APIC_ID);
+    return raw >> 24;  // APIC ID is in bits 24-31
+}
+
+// =============================================================================
+// send_eoi — Acknowledge the current interrupt
+// =============================================================================
+pub fn send_eoi() {
+    write_reg(APIC_EOI, 0);
+}
+
+// =============================================================================
+// send_init — Send INIT IPI to target APIC ID
+// =============================================================================
+// The INIT IPI resets the target processor to its INIT state.
+// After INIT, the target waits for a Startup IPI (SIPI).
+// =============================================================================
+pub fn send_init(target_apic_id: u32) {
+    // Write destination APIC ID to ICR high (bits 24-31)
+    write_reg(APIC_ICR_HI, target_apic_id << 24);
+
+    // Send INIT with level assert
+    write_reg(APIC_ICR_LO, ICR_INIT | ICR_LEVEL_ASSERT);
+
+    // Wait for delivery (poll bit 12 = Delivery Status)
+    wait_for_icr_idle();
+}
+
+// =============================================================================
+// send_sipi — Send Startup IPI to target APIC ID
+// =============================================================================
+// The SIPI vector is a physical page number (vector * 4KB = start address).
+// For trampoline at 0x8000: vector = 0x08 (0x08 * 0x1000 = 0x8000).
+// =============================================================================
+pub fn send_sipi(target_apic_id: u32, vector: u8) {
+    write_reg(APIC_ICR_HI, target_apic_id << 24);
+    write_reg(APIC_ICR_LO, ICR_STARTUP | (vector as u32));
+    wait_for_icr_idle();
+}
+
+// =============================================================================
+// send_self_nmi — Trigger hardware NMI to local core via APIC
+// =============================================================================
+pub fn send_self_nmi() {
+    // Delivery Mode = NMI, Destination Shorthand = Self (Vector is ignored)
+    write_reg(APIC_ICR_LO, ICR_NMI_DELIVERY | ICR_DEST_SELF);
+    wait_for_icr_idle();
+}
+
+fn wait_for_icr_idle() {
+    // Poll ICR low bit 12 (Delivery Status): 0 = idle, 1 = pending
+    let mut attempts: u64 = 0;
+    loop {
+        let icr = read_reg(APIC_ICR_LO);
+        if (icr & 0x1000) == 0 {
+            return;
+        }
+        delay_cycles(100);
+        attempts = attempts + 1;
+        if attempts > 100000 {
+            serial.print("[APIC] WARNING: ICR delivery timeout\n");
+            return;
+        }
+    }
+}
+
+// =============================================================================
+// init_timer — Configure Local APIC Timer (Periodic Mode)
+// =============================================================================
+// Replaces the legacy PIT for preemptive scheduling on the BSP.
+// vector: IDT vector for timer interrupt (e.g., 0x20)
+// initial_count: Countdown value. Higher = slower tick rate.
+//   On KVM with divide-by-16: ~10000000 ≈ ~100Hz, ~1000000 ≈ ~1000Hz
+// =============================================================================
+pub fn init_timer(vector: u8, initial_count: u32) {
+    // Set divide configuration (divide by 16)
+    write_reg(APIC_TIMER_DCR, 0x03);  // 0b0011 = divide by 16
+
+    // Configure LVT Timer: periodic mode + vector
+    write_reg(APIC_TIMER_LVT, TIMER_PERIODIC | (vector as u32));
+
+    // Set initial count — starts the timer
+    write_reg(APIC_TIMER_ICR, initial_count);
+
+    serial.print("[APIC] Timer configured: vector=0x");
+    serial.print_hex(vector as u64);
+    serial.print(", count=");
+    serial.print_u64(initial_count as u64);
+    serial.print(", div=16\n");
+}
+
+// =============================================================================
+// init_nmi_timer — Configure APIC Timer in One-Shot NMI mode
+// =============================================================================
+// Used for testing preemption races (e.g., SWAPGS from Ring 3).
+// Delivery Mode = NMI (0x400), Vector = ignored, Mode = One-Shot.
+// =============================================================================
+pub fn init_nmi_timer(initial_count: u32) {
+    write_reg(APIC_TIMER_DCR, 0x03);
+
+    // One-Shot mode (bit 17=0), NMI delivery (bits 8-10 = 100b)
+    let lvt_nmi = TIMER_ONESHOT | 0x00000400;
+    write_reg(APIC_TIMER_LVT, lvt_nmi);
+
+    write_reg(APIC_TIMER_ICR, initial_count);
+    serial.print("[APIC] NMI Timer configured (One-Shot): count=");
+    serial.print_u64(initial_count as u64);
+    serial.print("\n");
+}
+
+// =============================================================================
+// mask_timer / unmask_timer — Control timer interrupt delivery
+// =============================================================================
+pub fn mask_timer() {
+    let lvt = read_reg(APIC_TIMER_LVT);
+    write_reg(APIC_TIMER_LVT, lvt | TIMER_MASKED);
+}
+
+pub fn unmask_timer() {
+    let lvt = read_reg(APIC_TIMER_LVT);
+    let unmasked = lvt & (0xFFFFFFFF ^ TIMER_MASKED);
+    write_reg(APIC_TIMER_LVT, unmasked);
+}
+
+// =============================================================================
+// @no_mangle ABI Wrappers
+// =============================================================================
+@no_mangle
+pub fn apic_init() { init(); }
+
+@no_mangle
+pub fn apic_read_id() -> u32 { return read_id(); }
+
+@no_mangle
+pub fn apic_send_eoi() { send_eoi(); }
+
+@no_mangle
+pub fn apic_init_timer(vector: u8, initial_count: u32) { init_timer(vector, initial_count); }
+
+@no_mangle
+pub fn apic_send_self_nmi() { send_self_nmi(); }
+
+@no_mangle
+pub fn apic_init_nmi_timer(count: u32) { init_nmi_timer(count); }

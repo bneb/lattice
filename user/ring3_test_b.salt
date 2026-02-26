@@ -1,16 +1,21 @@
 // user/ring3_test_b.salt
 // Process B: prints identification message in a loop, then exits
+//
+// MODE B SIP: This is a verified user-space process.
+// No raw pointer creation is allowed. String data extraction
+// uses the formal StringView struct field access boundary.
 
 package user.ring3_test_b
 
 extern fn sys_write(fd: u64, buf: u64, len: u64);
 extern fn sys_exit(code: u64);
+extern fn sys_str_data(sv: &u64) -> u64;
 
 @no_mangle
 pub fn main() {
     let msg = "[B] Hello from Process B!\n";
-    let slice_addr = (&msg) as u64;
-    let data_ptr = *(slice_addr as &u64);
+    // Formal boundary: extract data pointer through extern hardware helper.
+    let data_ptr = sys_str_data(&msg);
     let len: u64 = 26;
 
     let mut i: u64 = 0;

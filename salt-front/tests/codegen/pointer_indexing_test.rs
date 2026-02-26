@@ -15,7 +15,7 @@ use salt_front::codegen::stmt::emit_stmt;
 use salt_front::codegen::expr::emit_expr;
 use salt_front::codegen::type_bridge::promote_numeric;
 use salt_front::types::Type;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 macro_rules! with_ctx {
     ($ctx:ident, $block:block) => {
@@ -49,7 +49,7 @@ fn test_loop_iv_registered_as_usize() {
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     
     let mut out = String::new();
-    let mut locals = HashMap::new();
+    let mut locals = BTreeMap::new();
     
     let func = match &file.items[0] {
         Item::Fn(f) => f,
@@ -86,7 +86,7 @@ fn test_pointer_index_assignment_compiles() {
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     
     let mut out = String::new();
-    let mut locals = HashMap::new();
+    let mut locals = BTreeMap::new();
     
     // Register 'w' as Ptr<f32>
     locals.insert("w".to_string(), (
@@ -175,7 +175,7 @@ fn test_pointer_read_in_loop_compiles() {
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     
     let mut out = String::new();
-    let mut locals = HashMap::new();
+    let mut locals = BTreeMap::new();
     
     // Register 'arr' as Ptr<f32>
     locals.insert("arr".to_string(), (
@@ -223,7 +223,7 @@ fn test_init_xavier_pattern_compiles() {
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     
     let mut out = String::new();
-    let mut locals = HashMap::new();
+    let mut locals = BTreeMap::new();
     
     let func = match &file.items[0] {
         Item::Fn(f) => f,

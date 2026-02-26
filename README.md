@@ -4,7 +4,7 @@
 
 Salt is an ahead-of-time compiled systems language that combines the performance characteristics of C with formal verification through an embedded Z3 theorem prover. Programs are compiled through an MLIR multi-dialect pipeline: polyhedral loop tiling, register-pressure-aware scheduling, and arena escape analysis operate at a level of granularity unavailable to traditional single-IR compilers.
 
-[![Benchmarks](https://img.shields.io/badge/vs_C-22%2F22_Won_or_Parity-brightgreen?style=flat-square)](benchmarks/BENCHMARKS.md)
+[![Benchmarks](https://img.shields.io/badge/vs_C-19%2F22_Won_or_Parity-brightgreen?style=flat-square)](benchmarks/BENCHMARKS.md)
 [![Z3 Verified](https://img.shields.io/badge/Safety-Z3_Verified-blue?style=flat-square)](docs/ARCH.md)
 [![70+ Stdlib Modules](https://img.shields.io/badge/Stdlib-70%2B_Modules-orange?style=flat-square)](salt-front/std/README.md)
 
@@ -51,18 +51,38 @@ This is the mechanism behind Salt's performance results. When a matmul kernel is
 
 ## Performance
 
-All benchmarks use runtime-dynamic inputs to prevent constant folding, and results are printed to prevent dead code elimination. Full methodology is documented in the [benchmark suite](benchmarks/BENCHMARKS.md).
+All benchmarks use runtime-dynamic inputs to prevent constant folding, and results are printed to prevent dead code elimination. Each measurement averages 3 runs with cached binaries. Full methodology is documented in the [benchmark suite](benchmarks/BENCHMARKS.md).
+
+*Verified February 21, 2026 on Apple M4*
 
 | Benchmark | Salt | C (`clang -O3`) | Rust | vs. C |
 |-----------|------|-----------------|------|-------|
-| **matmul** (1024³) | **127ms** | 867ms | 897ms | 6.8× |
-| **fstring_perf** (10M) | **197ms** | 1,100ms | 707ms | 5.6× |
-| **writer_perf** | **40ms** | 147ms | 177ms | 3.7× |
-| **forest** (trees) | **70ms** | 133ms | 140ms | 1.9× |
-| **sudoku_solver** | **37ms** | 60ms | 43ms | 1.6× |
-| **sieve** (10M) | **187ms** | 203ms | 267ms | 1.1× |
+| **matmul** (1024³) | **203ms** | 923ms | 970ms | 4.5× |
+| **buffered_writer** | **43ms** | 363ms | 60ms | 8.4× |
+| **fstring_perf** (10M) | **240ms** | 1,113ms | 773ms | 4.6× |
+| **forest** (depth-22)\* | **60ms** | 237ms | 330ms | 4×\* |
+| **longest_consecutive** | **260ms** | 803ms | 393ms | 3.1× |
+| **http_parser** | **77ms** | 97ms | 153ms | 1.3× |
+| **trie** | **83ms** | 107ms | 277ms | 1.3× |
+| **vector_add** | **110ms** | 133ms | 147ms | 1.2× |
+| **sudoku_solver** | **33ms** | 50ms | 37ms | 1.5× |
+| **lru_cache** | **57ms** | 77ms | 80ms | 1.4× |
+| **window_access** | **93ms** | 120ms | 140ms | 1.3× |
+| **hashmap_bench** | **87ms** | 100ms | 93ms | 1.1× |
+| sieve (10M) | 173ms | 200ms | 280ms | 1.2× |
+| fib | 207ms | 247ms | 233ms | 1.2× |
+| fannkuch | 177ms | 200ms | 200ms | 1.1× |
+| global_counter | 147ms | 183ms | 123ms | 1.2× |
+| binary_tree_path | 37ms | 40ms | 40ms | parity |
+| string_hashmap | 77ms | 77ms | 83ms | parity |
+| bitwise | 67ms | 67ms | 53ms | parity |
+| trapping_rain_water | 103ms | 97ms | 107ms | 0.9× |
+| merge_sorted_lists | 187ms | 167ms | 143ms | 0.9× |
+| writer_perf | 153ms | 123ms | 117ms | 0.8× |
 
-**22/22 benchmarks** at C-parity or better. 16 outright wins, 6 at parity, 0 losses.
+**Salt ≤ C in 19/22** head-to-head benchmarks. 28 total (including 6 Salt-only). 0 build failures. Binary size ~38KB (vs Rust ~430KB).
+
+\* *Forest measures arena allocation strategy (O(1) bump + O(1) reset) vs individual malloc/free. The advantage is Salt's arena stdlib, not codegen.*
 
 ## Verified Safety
 
@@ -335,14 +355,14 @@ Salt is pre-1.0 and under active development. The compiler, standard library, an
 
 | Component | Status | Version |
 |-----------|--------|---------|
-| Compiler (`salt-front`) | ✅ Compiles all benchmarks and examples | v0.5.0 |
-| Standard Library | ✅ 70+ modules, production-tested in LETTUCE | v0.5.0 |
-| Z3 Verification | ✅ Contracts verified at compile time | v0.5.0 |
-| Benchmarks | ✅ 22/22 at C-parity or better | — |
+| Compiler (`salt-front`) | ✅ Compiles all benchmarks and examples | v0.7.0 |
+| Standard Library | ✅ 70+ modules, production-tested in LETTUCE | v0.7.0 |
+| Z3 Verification | ✅ Contracts + @pulse async cycle-budget proofs | v0.7.0 |
+| Benchmarks | ✅ 19/22 at C-parity or better | — |
 | LSP Server | ✅ Diagnostics, go-to-definition, completions | v0.1.0 |
 | Package Manager (`sp`) | 🚧 Builds from `salt.toml` | v0.1.0 |
 | Basalt (LLM Inference) | ✅ Llama 2 forward pass, tokenizer, mmap | v0.3.0 |
-| Lattice Kernel | 🚧 Boots in QEMU, basic scheduling | v0.1.0 |
+| Lattice Kernel | ✅ 4-core SMP, Universal Task Pointer (invoke_task 29cy, async yield 111cy, preempt 430cy, spawn 99cy), Ring 3 SYSCALL (102cy), slab CAS (103cy), Ring 3 Isolation (SWAPGS, KPTI CR3, user_stack_init), SIP IPC (188cy) | v0.8.0 |
 | Facet Compositor | ✅ Rasterizer, window, Metal, benchmarked vs C | v0.3.0 |
 
 ## License

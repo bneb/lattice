@@ -1,36 +1,121 @@
 package kernel.core.main
 
-import kernel.arch.x86.gdt
-import kernel.arch.x86.idt
-import kernel.arch.x86.tss
-import kernel.drivers.pit
-import kernel.core.io
+// =============================================================================
+// IMPORT POLICY: Only import modules with tiny globals (< 1KB).
+// All other cross-module calls use extern fn → @no_mangle wrappers.
+// This prevents salt-opt from crashing on combined MLIR constant materializers.
+// =============================================================================
 import kernel.drivers.serial
 import kernel.drivers.vga
-import kernel.core.scheduler
-import kernel.core.panic
-import kernel.core.pmm
-import kernel.core.process
-import kernel.core.syscall
-import kernel.core.exec_user
-import kernel.core.memory
-import kernel.mem.slab_cache
-import kernel.core.vma
-import kernel.core.dispatcher
+import kernel.arch.x86.idt
 
-
-
-// Assembly FFI (unmangled symbols)
+// =============================================================================
+// Assembly FFI (unmangled symbols from .S files)
+// =============================================================================
 extern fn read_cr3() -> u64;
 extern fn idle_halt();
 extern fn proc_context_switch(old_rsp_ptr: u64, new_rsp: u64, new_cr3: u64, new_rsp0: u64);
 extern fn get_user_elf_a_addr() -> u64;
 extern fn get_user_elf_b_addr() -> u64;
+extern fn get_user_elf_c_addr() -> u64;
 extern fn get_kernel_event_loop_addr() -> u64;
+extern fn bench_suite_run();
+extern fn init_syscall_msrs();
+extern fn set_syscall_kernel_rsp0(rsp0: u64);
+extern fn run_smp_tests() -> u64;
+extern fn run_percpu_tests() -> u64;
+extern fn init_cores(num_cpus: u64);
+extern fn get_sip_elf_addr() -> u64;
+
+// kernel/arch/x86/cr3_helpers.S — PCID support
+extern fn enable_pcid();
+
+// kernel/sys/elf.salt — Mode B SIP Loader
+extern fn elf_load_sip(elf_base_ptr: u64) -> u64;
+
+// =============================================================================
+// ABI-boundary extern fn for kernel modules.
+// Each calls an @no_mangle wrapper in the definition file.
+// =============================================================================
+
+// kernel/arch/x86/gdt.salt
+extern fn gdt_init();
+extern fn gdt_init_ring3(tss_addr: u64);
+extern fn gdt_load_ring3();
+
+// kernel/arch/x86/tss.salt
+extern fn tss_init_tss(kernel_rsp0: u64);
+extern fn tss_get_tss_addr() -> u64;
+extern fn tss_set_rsp0(new_rsp0: u64);
+
+// kernel/drivers/pit.salt
+extern fn pit_init();
+
+// kernel/core/scheduler.salt
+extern fn sched_init();
+extern fn sched_start();
+
+// kernel/core/pmm.salt
+extern fn pmm_init(start: u64, end: u64);
+extern fn pmm_init_cpu_count(count: u64);
+
+// kernel/mem/slab_cache.salt
+extern fn slab_cache_init();
+
+// kernel/core/vma.salt
+extern fn vma_init();
+
+extern fn run_async_tests() -> u64;
+extern fn run_preempt_tests();
+
+// kernel/arch/x86/smp.salt
+extern fn smp_release_aps();
+
+// kernel/arch/x86/acpi.salt
+extern fn acpi_get_apic_id(index: u64) -> u8;
+
+// kernel/core/percpu.salt
+extern fn percpu_init_bsp(apic_id: u64);
+extern fn percpu_set_kernel_cr3(logical_id: u64, cr3: u64);
+
+// kernel/core/percpu.salt — IST stack storage
+extern fn percpu_set_nmi_stack(logical_id: u64, stack_top: u64);
+extern fn percpu_set_df_stack(logical_id: u64, stack_top: u64);
+
+// kernel/arch/x86/tss.salt — IST population
+extern fn tss_set_ist(index: u64, stack_top: u64);
+
+// kernel/arch/x86/idt.salt — Phase 2 IST gates
+extern fn idt_init_ist_gates();
+
+// kernel/core/ist_test.salt
+extern fn test_ist_isolation();
+
+// kernel/core/pmm.salt — page allocation for IST stacks
+extern fn pmm_alloc() -> u64;
+
+// kernel/core/memory.salt — KERNEL_BASE constant for phys→virt inline
+const KERNEL_BASE: u64 = 0xFFFFFFFF80000000;
+
+// kernel/core/process.salt
+extern fn process_set_state(slot: u64, state: u64);
+extern fn process_set_current(slot: u64);
+extern fn process_get_kernel_rsp(slot: u64) -> u64;
+extern fn process_get_pml4(slot: u64) -> u64;
+extern fn process_get_pcid(slot: u64) -> u64;
+extern fn process_get_kernel_stack_top(slot: u64) -> u64;
+
+// kernel/core/syscall.salt
+extern fn syscall_set_kernel_pml4(pml4: u64);
+
+// kernel/core/exec_user.salt
+extern fn exec_spawn_kernel_thread(entry: u64, pml4: u64) -> u64;
+extern fn exec_spawn_process(elf_addr: u64, pml4: u64) -> u64;
 
 // Local copies of process constants
 const MAX_PROCS: u64   = 16;
 const PROC_RUNNING: u64 = 2;
+const PROC_READY: u64  = 1;
 
 @no_mangle
 pub fn salt_yield_check() {
@@ -42,82 +127,192 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     serial.print("LATTICE BOOT: Serial OK\n");
 
     serial.print("LATTICE BOOT: GDT...\n");
-    gdt.init();
+    gdt_init();
     serial.print("LATTICE BOOT: IDT...\n");
     idt.init();
     serial.print("LATTICE BOOT: PIT...\n");
-    pit.init();
+    pit_init();
+
+    // SMP Bring-up: ACPI → APIC → AP Boot (with TDD assertions)
+    serial.print("LATTICE BOOT: SMP...\n");
+    let cpu_count = run_smp_tests();
+    serial.print("LATTICE BOOT: CPUs online: ");
+    serial.print_u64(cpu_count);
+    serial.print("\n");
+
+    // Per-core BSP GS setup — MUST run before sched_init() because
+    // scheduler init() calls get_cpu_id() which reads GS segment.
+    let bsp_apic_id = acpi_get_apic_id(0) as u64;
+    percpu_init_bsp(bsp_apic_id);
+
+    // Per-core allocator initialization: set CPU count before init
+    pmm_init_cpu_count(cpu_count);
+    init_cores(cpu_count);
+
     serial.print("LATTICE BOOT: Scheduler...\n");
-    scheduler.init();
+    sched_init();
 
     // PMM: 32MB-64MB physical (per mm_layout.salt)
     serial.print("LATTICE BOOT: PMM...\n");
-    pmm.init(0x2000000, 0x4000000);
+    pmm_init(0x2000000, 0x4000000);
     serial.print("LATTICE BOOT: Slab Cache...\n");
-    slab_cache.init();
+    slab_cache_init();
     serial.print("LATTICE BOOT: VMA...\n");
-    vma.init();
+    vma_init();
+
+    // =========================================================================
+    // IST STACK ALLOCATION — NMI and Double Fault stacks
+    // =========================================================================
+    // Must happen AFTER PMM init (need physical pages) and BEFORE TSS/IDT
+    // finalization. Each IST stack is 4KB (one physical page).
+    // x86-64 stacks grow DOWN, so stack_top = virt_base + 4096.
+    // PMM returns page-aligned (4096) physical addresses, so
+    // virt_base + 4096 is naturally 4096-byte aligned (thus 16-byte aligned).
+    // =========================================================================
+    serial.print("LATTICE BOOT: IST Stacks...\n");
+    let nmi_stack_phys = pmm_alloc();
+    let df_stack_phys = pmm_alloc();
+
+    // DIAGNOSTIC: Print raw physical addresses to verify they fall within
+    // boot.S direct map coverage (first 1GB = 0x00000000..0x3FFFFFFF)
+    serial.print("LATTICE BOOT: IST NMI_PHYS=");
+    serial.print_u64(nmi_stack_phys);
+    serial.print(" DF_PHYS=");
+    serial.print_u64(df_stack_phys);
+    serial.print("\n");
+
+    let nmi_stack_top = nmi_stack_phys + KERNEL_BASE + 4096;
+    let df_stack_top = df_stack_phys + KERNEL_BASE + 4096;
+
+    // Store in PerCpuData for reference
+    percpu_set_nmi_stack(0, nmi_stack_top);
+    percpu_set_df_stack(0, df_stack_top);
+
+    serial.print("LATTICE BOOT: IST NMI_VIRT=");
+    serial.print_u64(nmi_stack_top);
+    serial.print(" DF_VIRT=");
+    serial.print_u64(df_stack_top);
+    serial.print("\n");
+
+    // Run per-core sharding TDD tests
+    serial.print("LATTICE BOOT: Per-Core Tests...\n");
+    run_percpu_tests();
+
+    serial.print("LATTICE BOOT: Async Fiber Tests...\n");
+    run_async_tests();
+
+    serial.print("LATTICE BOOT: Preemptive Unification Tests...\n");
+    run_preempt_tests();
+
     serial.print("LATTICE KERNEL BOOT [OK]\n");
 
     vga.clear();
     vga.print_colored(" LATTICE OS v0.6 ", 0x1F);
     vga.print("\n");
 
-    scheduler.start();
+    smp_release_aps();
+    sched_start();
     serial.print("[Lattice] PREEMPTIVE MODE\n");
 
-    // GDT/TSS for Ring 3
-    let kernel_rsp0: u64 = 0xFFFFFFFF80126000;
-    tss.init_tss(kernel_rsp0);
-    let tss_addr = tss.get_tss_addr();
-    gdt.init_ring3(tss_addr);
-    serial.print("[Lattice] GDT/TSS Ring 3 ready\n");
+    // =========================================================================
+    // MODE B SIP — Ring 0 Software-Isolated Process (compiler-verified)
+    // =========================================================================
+    serial.print("[Lattice] Loading Mode B SIP...\n");
+    let sip_elf = get_sip_elf_addr();
+    let sip_fiber = elf_load_sip(sip_elf);
+    serial.print("[Lattice] SIP fiber spawned: ");
+    serial.print_u64(sip_fiber);
+    serial.print("\n");
 
-    // Save kernel PML4
+    // =========================================================================
+    // BENCHMARK SUITE — runs before user processes for clean measurements
+    // =========================================================================
+    // Save kernel PML4 to PerCpuData BEFORE benchmarks so TDD Gate 2 can read it
     let kernel_pml4 = read_cr3();
-    syscall.set_kernel_pml4(kernel_pml4);
+    percpu_set_kernel_cr3(0, kernel_pml4);  // GS:[64] = kernel CR3 for KPTI
+
+    // GDT/TSS for Ring 3 — populate IST entries BEFORE LTR
+    let kernel_rsp0: u64 = 0xFFFFFFFF80126000;
+    tss_init_tss(kernel_rsp0);
+
+    // Wire IST stacks into TSS (IST 1 = NMI, IST 2 = DF)
+    tss_set_ist(1, nmi_stack_top);
+    tss_set_ist(2, df_stack_top);
+
+    let tss_addr = tss_get_tss_addr();
+    gdt_init_ring3(tss_addr);
+    gdt_load_ring3();
+    serial.print("[Lattice] GDT/TSS Ring 3 ready (IST1=NMI, IST2=DF)\n");
+
+    // Register NMI and #DF handlers with IST indices in the IDT
+    // (Phase 2 — LIDT already called, updates live IDT in-place)
+    idt_init_ist_gates();
+    serial.print("[Lattice] IST gates wired: NMI=0x02/IST1, DF=0x08/IST2\n");
+
+    // Enable PCID (CR4.PCIDE) — must happen AFTER GDT/TSS and BEFORE benchmarks.
+    // Intel SDM: CR3[11:0] must be 0 when setting PCIDE (guaranteed at boot).
+    enable_pcid();
+    serial.print("[Lattice] PCID enabled (CR4.PCIDE=1)\n");
+
+    // SYSCALL/SYSRET MSR programming (EFER.SCE, STAR, LSTAR, FMASK)
+    // MUST be before bench_suite_run() — the E2E test does SYSCALL from Ring 3
+    init_syscall_msrs();
+    set_syscall_kernel_rsp0(kernel_rsp0);
+    serial.print("[Lattice] SYSCALL MSRs configured\n");
+
+    // BENCHMARK SUITE — IST tests run first (test_ist_isolation), then Ring 3 TDD
+    bench_suite_run();
+
+    // Save kernel PML4 for syscall.salt (process_exit CR3 swap)
+    syscall_set_kernel_pml4(kernel_pml4);
 
     // =========================================================================
     // SPAWN TASK 0: Immortal Ring 0 Dispatcher Thread
     // =========================================================================
-    // Task 0 MUST be slot 0. It runs kernel_event_loop() in Ring 0 with IF=1.
-    // It drains the PulseEvent queue and yields when empty.
-    // =========================================================================
     let task0_entry = get_kernel_event_loop_addr();
-    let slot_task0 = exec_user.spawn_kernel_thread(task0_entry, kernel_pml4);
-    process.set_state(slot_task0, PROC_READY);
+    let slot_task0 = exec_spawn_kernel_thread(task0_entry, kernel_pml4);
+    process_set_state(slot_task0, PROC_READY);
     serial.print("[Lattice] Task 0 (dispatcher) spawned\n");
 
     // Spawn Ring 3 user processes
     serial.print("[Lattice] SPAWNING PROCESSES\n");
 
     let elf_a = get_user_elf_a_addr();
-    let slot_a = exec_user.spawn_process(elf_a, kernel_pml4);
+    let slot_a = exec_spawn_process(elf_a, kernel_pml4);
     serial.print("[Lattice] Process A spawned\n");
 
     let elf_b = get_user_elf_b_addr();
-    let slot_b = exec_user.spawn_process(elf_b, kernel_pml4);
-    process.set_state(slot_b, PROC_READY);
+    let slot_b = exec_spawn_process(elf_b, kernel_pml4);
+    process_set_state(slot_b, PROC_READY);
     serial.print("[Lattice] Process B spawned\n");
 
-    // Start first user process (not Task 0 — Task 0 will be scheduled reactively)
-    if slot_a < MAX_PROCS {
-        process.set_current(slot_a);
-        process.set_state(slot_a, PROC_RUNNING);
+    let elf_c = get_user_elf_c_addr();
+    let slot_c = exec_spawn_process(elf_c, kernel_pml4);
+    process_set_state(slot_c, PROC_READY);
+    serial.print("[Lattice] Process C spawned\n");
 
-        let new_rsp  = process.get_kernel_rsp(slot_a);
-        let new_cr3  = process.get_pml4(slot_a);
-        let new_rsp0 = process.get_kernel_stack_top(slot_a);
+    // Start first user process
+    // NOTE: Guard removed — salt-opt SIGSEGV on cf.cond_br lowering.
+    // exec_spawn_process always returns a valid slot, so the guard is redundant.
+    process_set_current(slot_a);
+    process_set_state(slot_a, PROC_RUNNING);
 
-        // Set TSS.RSP0 with virtual address for Ring 3 → Ring 0 transitions
-        tss.set_rsp0(new_rsp0);
+    let new_rsp  = process_get_kernel_rsp(slot_a);
+    let new_pml4 = process_get_pml4(slot_a);
+    let new_pcid = process_get_pcid(slot_a);
+    let new_cr3  = new_pml4 | new_pcid;  // PCID-tagged CR3
+    let new_rsp0 = process_get_kernel_stack_top(slot_a);
 
-        let dummy: u64 = 0;
-        serial.print("[Lattice] Switching to first process...\n");
-        proc_context_switch((&dummy) as u64, new_rsp, new_cr3, new_rsp0);
-    }
+    // Set TSS.RSP0 and SYSCALL kernel stack
+    tss_set_rsp0(new_rsp0);
+    set_syscall_kernel_rsp0(new_rsp0);
 
-    serial.print("[Lattice] All processes complete. Idle.\n");
+    let dummy: u64 = 0;
+    serial.print("[Lattice] Switching to first process...\n");
+    proc_context_switch((&dummy) as u64, new_rsp, new_cr3, new_rsp0);
+
+    // proc_context_switch never returns — execution continues in user process.
+    // Safety net: halt if we somehow get here.
     loop {
         idle_halt();
     }

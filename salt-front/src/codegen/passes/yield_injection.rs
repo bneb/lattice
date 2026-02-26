@@ -12,6 +12,7 @@
 //! If Z3 can prove a loop's total execution time is < 10μs (~50k cycles),
 //! the yield check is skipped for that loop.
 
+use syn::Expr;
 use crate::grammar::{SaltFn, SaltBlock, Stmt, SaltFor, SaltWhile};
 use crate::codegen::passes::pulse_injection::PulseInjectionContext;
 
@@ -31,6 +32,10 @@ pub struct YieldInjectionConfig {
     pub use_register_pinned_deadline: bool,
     /// [PARETO V2.0] Maximum stripe factor (clamped to power of 2)
     pub max_stripe_factor: u32,
+    /// [SPRINT 2] Explicit cycle budget from @pulse_budget(N) annotation
+    /// When Some(N), inject rdtsc deadline checks at loop back-edges
+    /// with budget = N cycles. When None, use automatic analysis.
+    pub explicit_budget_cycles: Option<u64>,
 }
 
 impl Default for YieldInjectionConfig {
@@ -42,6 +47,7 @@ impl Default for YieldInjectionConfig {
             jitter_budget_cycles: 40_000,      // 10μs @ 4GHz
             use_register_pinned_deadline: true, // [PARETO] Default ON
             max_stripe_factor: 256,            // Power of 2 for alignment
+            explicit_budget_cycles: None,       // No explicit budget by default
         }
     }
 }
@@ -174,13 +180,25 @@ impl YieldInjector {
         self.visit_block(&while_stmt.body, depth + 1);
     }
     
-    /// Estimate the number of iterations for a for loop
-    fn estimate_loop_iterations(&self, _for_stmt: &SaltFor) -> Option<u64> {
-        // TODO: Extract range bounds from `for_stmt.iter` expression
-        // Pattern: for i in 0..N where N is a literal
-        // SaltFor has: pat (pattern), iter (iterator expr), body (block)
-        // Full Z3 analysis would walk `iter` to find range bounds
-        None
+    /// Estimate the number of iterations for a for loop.
+    /// Pattern-matches range expressions to extract proven bounds:
+    ///   - `0..N` where N is a literal → `Some(N)`
+    ///   - `start..end` where both are literals → `Some(end - start)`
+    ///   - Variable or complex ranges → `None` (conservative fallback)
+    fn estimate_loop_iterations(&self, for_stmt: &SaltFor) -> Option<u64> {
+        // SaltFor.iter is a syn::Expr. Range expressions are Expr::Range.
+        if let Expr::Range(range) = &for_stmt.iter {
+            let start_val = range.start.as_ref().and_then(|e| extract_literal_u64(e));
+            let end_val = range.end.as_ref().and_then(|e| extract_literal_u64(e));
+
+            match (start_val, end_val) {
+                (Some(s), Some(e)) if e > s => Some(e - s),
+                (None, Some(e)) => Some(e),  // Implicit start=0
+                _ => None,
+            }
+        } else {
+            None
+        }
     }
     
     /// [PARETO V2.0] Estimate worst-case cycles per loop iteration
@@ -296,6 +314,27 @@ pub fn generate_yielding_loop_header_mlir() -> String {
     "#.to_string()
 }
 
+/// [SPRINT 2] Generate budget-based rdtsc yield check MLIR
+/// Injected at loop back-edges for @pulse_budget(N) annotated functions.
+/// Reads the hardware cycle counter (rdtsc on x86-64), compares against
+/// the budget deadline, and yields to the executor if exceeded.
+///
+/// This is the runtime safety net for I/O-touching loops that could stall
+/// the kernel if the hardware device doesn't respond.
+pub fn generate_budget_yield_check_mlir(budget_cycles: u64) -> String {
+    format!(r#"
+    // [SPRINT 2] @pulse_budget({budget}) — rdtsc deadline check
+    %budget_now = "salt.cycle_counter"() : () -> i64
+    %budget_deadline = arith.constant {budget} : i64
+    %budget_start = "salt.get_pinned_deadline"() : () -> i64
+    %budget_elapsed = arith.subi %budget_now, %budget_start : i64
+    %budget_exceeded = arith.cmpi sgt, %budget_elapsed, %budget_deadline : i64
+    scf.if %budget_exceeded {{
+        "salt.yield_to_executor"() : () -> ()
+    }}
+    "#, budget = budget_cycles)
+}
+
 // =============================================================================
 // SOVEREIGN INTRINSICS - Register-Pinned Deadline
 // =============================================================================
@@ -337,6 +376,21 @@ entry:
   ret i64 %cycles
 }
     "#.to_string()
+}
+
+// =============================================================================
+// HELPERS
+// =============================================================================
+
+/// Extract a u64 value from a literal integer expression.
+/// Handles `syn::Expr::Lit(ExprLit { lit: Lit::Int(..), .. })`.
+fn extract_literal_u64(expr: &Expr) -> Option<u64> {
+    if let Expr::Lit(lit_expr) = expr {
+        if let syn::Lit::Int(lit_int) = &lit_expr.lit {
+            return lit_int.base10_parse::<u64>().ok();
+        }
+    }
+    None
 }
 
 // =============================================================================
@@ -469,5 +523,172 @@ mod tests {
         assert!(llir.contains("llvm.read_register.i64"));
         assert!(llir.contains("x19"));
         assert!(llir.contains("sovereign_deadline_reg"));
+    }
+
+    // =========================================================================
+    // Sprint 2: Loop Bound Extraction TDD Tests
+    // =========================================================================
+
+    /// Helper: build a syn::Pat::Ident without requiring the Parse trait
+    fn make_pat_ident(name: &str) -> syn::Pat {
+        syn::Pat::Ident(syn::PatIdent {
+            attrs: vec![],
+            by_ref: None,
+            mutability: None,
+            ident: syn::Ident::new(name, proc_macro2::Span::call_site()),
+            subpat: None,
+        })
+    }
+
+    #[test]
+    fn test_extract_literal_u64_integer() {
+        let expr: syn::Expr = syn::parse_str("42").unwrap();
+        assert_eq!(extract_literal_u64(&expr), Some(42));
+    }
+
+    #[test]
+    fn test_extract_literal_u64_non_literal() {
+        let expr: syn::Expr = syn::parse_str("n").unwrap();
+        assert_eq!(extract_literal_u64(&expr), None);
+    }
+
+    #[test]
+    fn test_for_literal_range_extracts_bound() {
+        // Build a SaltFor with iter = 0..100
+        let for_stmt = SaltFor {
+            pat: make_pat_ident("i"),
+            iter: syn::parse_str("0..100").unwrap(),
+            body: SaltBlock { stmts: vec![] },
+        };
+        let config = YieldInjectionConfig::default();
+        let ctx = PulseInjectionContext::new();
+        let injector = YieldInjector::new(config, ctx);
+        assert_eq!(injector.estimate_loop_iterations(&for_stmt), Some(100));
+    }
+
+    #[test]
+    fn test_for_offset_range_extracts_bound() {
+        // Build a SaltFor with iter = 10..50 → should extract 40
+        let for_stmt = SaltFor {
+            pat: make_pat_ident("i"),
+            iter: syn::parse_str("10..50").unwrap(),
+            body: SaltBlock { stmts: vec![] },
+        };
+        let config = YieldInjectionConfig::default();
+        let ctx = PulseInjectionContext::new();
+        let injector = YieldInjector::new(config, ctx);
+        assert_eq!(injector.estimate_loop_iterations(&for_stmt), Some(40));
+    }
+
+    #[test]
+    fn test_for_variable_range_returns_none() {
+        // Build a SaltFor with iter = 0..n (variable bound → None)
+        let for_stmt = SaltFor {
+            pat: make_pat_ident("i"),
+            iter: syn::parse_str("0..n").unwrap(),
+            body: SaltBlock { stmts: vec![] },
+        };
+        let config = YieldInjectionConfig::default();
+        let ctx = PulseInjectionContext::new();
+        let injector = YieldInjector::new(config, ctx);
+        assert_eq!(injector.estimate_loop_iterations(&for_stmt), None);
+    }
+
+    #[test]
+    fn test_short_loop_skips_yield_non_aggressive() {
+        // In non-aggressive mode, loops with < min_loop_iterations should skip
+        let config = YieldInjectionConfig {
+            aggressive_mode: false,
+            min_loop_iterations: 100,
+            ..Default::default()
+        };
+        let ctx = PulseInjectionContext::new();
+        let injector = YieldInjector::new(config, ctx);
+
+        // 10 iterations < 100 minimum → skip
+        assert!(injector.should_skip_injection(Some(10)));
+        // 1000 iterations >= 100 minimum → inject
+        assert!(!injector.should_skip_injection(Some(1000)));
+    }
+
+    #[test]
+    fn test_handle_for_loop_with_literal_bound() {
+        // Verify handle_for_loop propagates extracted bound into YieldPoint
+        let for_stmt = SaltFor {
+            pat: make_pat_ident("i"),
+            iter: syn::parse_str("0..100").unwrap(),
+            body: SaltBlock { stmts: vec![] },
+        };
+        let config = YieldInjectionConfig::default();
+        let ctx = PulseInjectionContext::new();
+        let mut injector = YieldInjector::new(config, ctx);
+        injector.handle_for_loop(&for_stmt, 0);
+
+        assert_eq!(injector.yield_points.len(), 1);
+        let yp = &injector.yield_points[0];
+        assert_eq!(yp.kind, YieldPointKind::LoopBackEdge);
+        // 100 iterations * 10 cycles/iter = 1000 estimated cycles
+        assert_eq!(yp.estimated_cycles, Some(1000));
+    }
+
+    // =========================================================================
+    // Sprint 2: @pulse_budget(N) and rdtsc Fallback TDD Tests
+    // =========================================================================
+
+    #[test]
+    fn test_extract_pulse_budget_present() {
+        use crate::grammar::attr::{Attribute, extract_pulse_budget};
+        let attr = Attribute {
+            name: syn::Ident::new("pulse_budget", proc_macro2::Span::call_site()),
+            args: vec![],
+            int_arg: Some(5000),
+            string_arg: None,
+        };
+        assert_eq!(extract_pulse_budget(&[attr]), Some(5000));
+    }
+
+    #[test]
+    fn test_extract_pulse_budget_absent() {
+        use crate::grammar::attr::{Attribute, extract_pulse_budget};
+        let attr = Attribute {
+            name: syn::Ident::new("pulse", proc_macro2::Span::call_site()),
+            args: vec![],
+            int_arg: Some(60),
+            string_arg: None,
+        };
+        assert_eq!(extract_pulse_budget(&[attr]), None);
+    }
+
+    #[test]
+    fn test_config_default_no_explicit_budget() {
+        let config = YieldInjectionConfig::default();
+        assert!(config.explicit_budget_cycles.is_none(),
+            "Default config should have no explicit budget");
+    }
+
+    #[test]
+    fn test_config_with_explicit_budget() {
+        let config = YieldInjectionConfig {
+            explicit_budget_cycles: Some(10_000),
+            ..Default::default()
+        };
+        assert_eq!(config.explicit_budget_cycles, Some(10_000));
+    }
+
+    #[test]
+    fn test_budget_yield_check_mlir_contains_rdtsc() {
+        let mlir = generate_budget_yield_check_mlir(50_000);
+        // Must contain the cycle counter read (rdtsc on x86-64)
+        assert!(mlir.contains("salt.cycle_counter"),
+            "Budget yield check must read cycle counter");
+        // Must contain the budget value
+        assert!(mlir.contains("50000"),
+            "Budget yield check must embed the budget constant");
+        // Must contain yield-to-executor call
+        assert!(mlir.contains("salt.yield_to_executor"),
+            "Budget yield check must yield when exceeded");
+        // Must contain the comparison
+        assert!(mlir.contains("arith.cmpi"),
+            "Budget yield check must compare elapsed vs budget");
     }
 }

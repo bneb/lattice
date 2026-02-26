@@ -1,0 +1,16 @@
+// Minimal reproducer for sched_yield MLIR error
+// Bug: @no_mangle pub fn defined AFTER call site is dropped from MLIR output
+package test.forward_call
+
+// This function calls bar() which is defined BELOW
+@no_mangle
+pub fn foo() -> u64 {
+    bar();
+    return 0;
+}
+
+// This function is defined AFTER the call site
+@no_mangle
+pub fn bar() {
+    return;
+}

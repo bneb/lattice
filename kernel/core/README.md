@@ -37,7 +37,7 @@ concept StackBounded<T> {
 
 ## Entry & Critical Paths
 
-### The Context Switch Loop (~1,719 cycles)
+### The Context Switch Loop (~487 cycles on KVM)
 The critical path for performance is defined in `scheduler.salt` -> `sched_yield`.
 1. **Check Yield Pending:** `GLOBAL_SCHED.fibers[next].active`
 2. **Select Next:** Round-robin logic.

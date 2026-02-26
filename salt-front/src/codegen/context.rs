@@ -118,6 +118,9 @@ pub struct CodegenContext<'a> {
     /// Set via --no-verify CLI flag for fast iteration builds.
     pub no_verify: bool,
     pub lib_mode: bool,
+    /// When true, enforce Mode B SIP safety checks (reject inttoptr, etc.).
+    /// Set via --sip CLI flag. Kernel code uses lib_mode without sip_mode.
+    pub sip_mode: bool,
     /// When true, emit MLIR `loc()` annotations for DWARF debug info.
     /// Set via -g / --debug-info CLI flag.
     pub debug_info: bool,
@@ -169,6 +172,7 @@ pub struct CodegenConfig<'a> {
     pub emit_alias_scopes: bool,
     pub no_verify: bool,
     pub lib_mode: bool,
+    pub sip_mode: bool,
     pub debug_info: bool,
     pub source_file: &'a str,
 }
@@ -1542,6 +1546,7 @@ impl<'a> CodegenContext<'a> {
                 emit_alias_scopes: self.emit_alias_scopes,
                 no_verify: self.no_verify,
                 lib_mode: self.lib_mode,
+                sip_mode: self.sip_mode,
                 debug_info: self.debug_info,
                 source_file: &self.source_file,
             },
@@ -1575,6 +1580,7 @@ impl<'a> CodegenContext<'a> {
             emit_alias_scopes: true, // default: emit scopes
             no_verify: false, // default: verification enabled
             lib_mode: false,
+            sip_mode: false,
             debug_info: false,
             source_file: String::new(),
             
@@ -3396,8 +3402,6 @@ impl<'a> CodegenContext<'a> {
             }
         }
 
-
-        
         // 2. PENDING REGISTRATION: Recursion Guard
         self.defined_functions_mut().insert(mangled_name.clone());
 
@@ -4381,11 +4385,83 @@ impl<'a> CodegenContext<'a> {
                     // HYDRATE: Replace stub with complete info
                     self.struct_registry_mut().insert(key, StructInfo {
                         name: name.clone(),
-                        fields,
-                        field_order,
+                        fields: fields.clone(),
+                        field_order: field_order.clone(),
                         template_name: None,
                         specialization_args: vec![],
                     });
+
+                    // =========================================================
+                    // [FORMAL SHADOW] Z3 Alignment Verification for @atomic Fields
+                    //
+                    // If any field is tagged @atomic, verify that its byte offset
+                    // within the struct is 16-byte aligned. This prevents hardware
+                    // Alignment Check (#AC) faults and cache-line straddling on
+                    // cmpxchg16b operations.
+                    //
+                    // The compiler REFUSES to emit the binary unless Z3 can
+                    // mathematically prove alignment is invariant.
+                    // =========================================================
+                    {
+                        use z3::ast::Ast;  // for _eq() and not()
+
+                        let struct_reg = self.struct_registry();
+                        let mut byte_offset: usize = 0;
+                        for (i, f) in s.fields.iter().enumerate() {
+                            let has_atomic = f.attributes.iter().any(|a| a.name == "atomic");
+                            if has_atomic {
+                                // Use Z3 to formally verify alignment via integer modular arithmetic
+                                let z3_cfg = z3::Config::new();
+                                let z3_ctx = z3::Context::new(&z3_cfg);
+                                let solver = z3::Solver::new(&z3_ctx);
+
+                                // Model: base address is an arbitrary non-negative integer
+                                // that is 16-byte aligned (struct allocator contract)
+                                let base = z3::ast::Int::new_const(&z3_ctx, "base_addr");
+                                let sixteen = z3::ast::Int::from_i64(&z3_ctx, 16);
+                                let zero = z3::ast::Int::from_i64(&z3_ctx, 0);
+
+                                // Constraint: base >= 0 and base % 16 == 0
+                                solver.assert(&base.ge(&zero));
+                                solver.assert(&base.modulo(&sixteen)._eq(&zero));
+
+                                // Compute field address: base + byte_offset
+                                let offset_val = z3::ast::Int::from_i64(&z3_ctx, byte_offset as i64);
+                                let field_addr = z3::ast::Int::add(&z3_ctx, &[&base, &offset_val]);
+
+                                // Assert NEGATION: field_addr % 16 != 0
+                                // UNSAT => always aligned (proof), SAT => misaligned (error)
+                                solver.assert(&field_addr.modulo(&sixteen)._eq(&zero).not());
+
+                                match solver.check() {
+                                    z3::SatResult::Unsat => {
+                                        // PROOF COMPLETE: Z3 proved alignment invariant.
+                                        eprintln!(
+                                            "[Formal Shadow] Z3 PROVED: @atomic field '{}' in struct '{}' \
+                                             is 16-byte aligned at offset {} (z3_aligned)",
+                                            f.name, s.name, byte_offset
+                                        );
+                                    }
+                                    _ => {
+                                        // COUNTEREXAMPLE: The compiler REFUSES to emit.
+                                        drop(struct_reg);
+                                        return Err(format!(
+                                            "[Formal Shadow] ALIGNMENT VIOLATION: @atomic field '{}' \
+                                             in struct '{}' is at byte offset {}, which is NOT \
+                                             16-byte aligned. The Z3 SMT solver proved this layout \
+                                             violates the hardware alignment contract for cmpxchg16b. \
+                                             Fix: reorder fields or add padding so @atomic fields \
+                                             start at offsets that are multiples of 16.",
+                                            f.name, s.name, byte_offset
+                                        ));
+                                    }
+                                }
+                            }
+                            // Advance byte offset by field size
+                            let field_ty = &field_order[i];
+                            byte_offset += field_ty.size_of(&*struct_reg);
+                        }
+                    }
                 }
             } else if let Item::Enum(e) = item {
                  let name = format!("{}{}", pkg_prefix, e.name);

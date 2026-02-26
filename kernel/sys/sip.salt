@@ -1,0 +1,234 @@
+// =============================================================================
+// kernel/sys/sip.salt
+// SIP Control Block -- Software-Isolated Process Table & Direct-Call ABI
+// =============================================================================
+//
+// Manages the lifecycle of Mode B Software-Isolated Processes (SIPs).
+// SIPs run in Ring 0 and communicate via direct register-based function calls
+// (RDI=arg0, RSI=arg1, RAX=return) bypassing the syscall dispatcher entirely.
+//
+// The SIP table is a fixed-size array of 16 slots. Each slot tracks the
+// entry point, code size, and runtime state of a loaded SIP.
+//
+// Architecture:
+//   1. ELF loader (kernel/sys/elf.salt) loads binary into SIP address range
+//   2. register_sip() stores the entry point in the SIP table
+//   3. call_sip() performs a direct Ring 0 function call to the SIP
+//
+// The 5-cycle IPC target:
+//   Ring 3 IPC: SYSCALL → dispatcher → handler → SYSRET  (~80+ cycles)
+//   Mode B IPC: MOV RDI,arg → CALL sip_entry                (~5 cycles)
+// =============================================================================
+
+package kernel.sys.sip
+
+import kernel.drivers.serial
+
+// =============================================================================
+// Constants
+// =============================================================================
+pub const SIP_MAX_SLOTS: u64 = 16;
+
+// SIP lifecycle states
+pub const SIP_FREE: u64    = 0;   // Slot is unused
+pub const SIP_LOADED: u64  = 1;   // Binary loaded, ready to call
+pub const SIP_RUNNING: u64 = 2;   // Currently executing
+pub const SIP_DEAD: u64    = 3;   // Terminated, awaiting cleanup
+
+// =============================================================================
+// SipInfo -- Per-SIP control block
+// =============================================================================
+pub struct SipInfo {
+    pub entry_vaddr: u64,   // Relocated entry point in SIP address range
+    pub code_size: u64,     // Total bytes of executable code
+    pub slot: u64,          // Slot index in SIP_TABLE
+    pub state: u64,         // SIP_FREE / SIP_LOADED / SIP_RUNNING / SIP_DEAD
+}
+
+// =============================================================================
+// Global SIP Table
+// =============================================================================
+global SIP_TABLE: [SipInfo; 16] = [SipInfo {
+    entry_vaddr: 0, code_size: 0, slot: 0, state: 0
+}; 16];
+
+global SIP_COUNT: u64 = 0;
+
+// =============================================================================
+// SIP Dispatch Table -- Function Pointer Array
+// =============================================================================
+// Stores first-class fn(u64, u64) -> u64 pointers for type-safe indirect calls.
+// Populated by register_sip_fn() after ELF loading.
+//
+// NOTE: u64 -> fn(...) casts are not yet supported in Salt.
+// Track 1 will add this once Z3 can verify the target is in a valid .text
+// segment. Until then, fn pointers must be bound at registration time.
+// =============================================================================
+fn sip_null_handler(a: u64, b: u64) -> u64 {
+    return 0;
+}
+
+global SIP_DISPATCH: [fn(u64, u64) -> u64; 16] = [sip_null_handler; 16];
+
+// =============================================================================
+// register_sip -- Register a loaded SIP in the table
+// =============================================================================
+// Called after elf.load_sip() succeeds. Stores the entry point and marks
+// the slot as SIP_LOADED.
+//
+// Returns the slot index, or SIP_MAX_SLOTS on failure.
+// =============================================================================
+pub fn register_sip(slot: u64, entry_vaddr: u64, code_size: u64) -> u64 {
+    if slot >= SIP_MAX_SLOTS {
+        serial.print("[sip] FATAL: Invalid slot for registration\n");
+        return SIP_MAX_SLOTS;
+    }
+
+    if SIP_TABLE[slot].state != SIP_FREE {
+        serial.print("[sip] FATAL: Slot already occupied\n");
+        return SIP_MAX_SLOTS;
+    }
+
+    SIP_TABLE[slot].entry_vaddr = entry_vaddr;
+    SIP_TABLE[slot].code_size = code_size;
+    SIP_TABLE[slot].slot = slot;
+    SIP_TABLE[slot].state = SIP_LOADED;
+    SIP_COUNT = SIP_COUNT + 1;
+
+    serial.print("[sip] Registered SIP slot=");
+    serial.print_u64(slot);
+    serial.print(" entry=0x");
+    serial.print_u64(entry_vaddr);
+    serial.print("\n");
+
+    return slot;
+}
+
+// =============================================================================
+// register_sip_fn -- Store a function pointer for dispatch
+// =============================================================================
+// Called after register_sip() to bind the callable fn pointer.
+// =============================================================================
+pub fn register_sip_fn(slot: u64, f: fn(u64, u64) -> u64) {
+    if slot >= SIP_MAX_SLOTS { return; }
+    SIP_DISPATCH[slot] = f;
+    serial.print("[sip] Bound dispatch fn for slot=");
+    serial.print_u64(slot);
+    serial.print("\n");
+}
+
+// =============================================================================
+// alloc_sip_slot -- Find the next free SIP slot
+// =============================================================================
+pub fn alloc_sip_slot() -> u64 {
+    let mut i: u64 = 0;
+    while i < SIP_MAX_SLOTS {
+        if SIP_TABLE[i].state == SIP_FREE {
+            return i;
+        }
+        i = i + 1;
+    }
+    return SIP_MAX_SLOTS; // No free slots
+}
+
+// =============================================================================
+// call_sip -- Direct Ring 0 function call to a SIP
+// =============================================================================
+// Performs an indirect CALL to the SIP's entry point. The calling convention
+// follows the System V AMD64 ABI register layout:
+//
+//   RDI = arg0 (first argument)
+//   RSI = arg1 (second argument)
+//   RAX = return value
+//
+// This is a synchronous call — the caller blocks until the SIP returns.
+// No context switch, no ring transition, no syscall overhead.
+//
+// SAFETY: The caller MUST ensure the SIP slot is SIP_LOADED. Calling a
+// SIP_FREE or SIP_DEAD slot is undefined behavior.
+//
+// TODO(track-1): Gate this behind Z3 signature verification. Currently
+// any loaded SIP can be called without cryptographic proof.
+// =============================================================================
+pub fn call_sip(slot: u64, arg0: u64, arg1: u64) -> u64 {
+    if slot >= SIP_MAX_SLOTS {
+        serial.print("[sip] FATAL: call_sip invalid slot\n");
+        return 0;
+    }
+
+    if SIP_TABLE[slot].state != SIP_LOADED {
+        serial.print("[sip] FATAL: SIP not in LOADED state\n");
+        return 0;
+    }
+
+    let entry = SIP_TABLE[slot].entry_vaddr;
+    if entry == 0 {
+        serial.print("[sip] FATAL: SIP entry is null\n");
+        return 0;
+    }
+
+    // Mark as running
+    SIP_TABLE[slot].state = SIP_RUNNING;
+
+    // Indirect call through type-safe fn pointer dispatch table.
+    // SIP_DISPATCH[slot] was bound at registration time via register_sip_fn().
+    // Salt compiles this to an indirect CALL with args in RDI/RSI per
+    // System V AMD64 ABI — zero overhead.
+    //
+    // TODO(track-1): Gate behind Z3 signature verification to prove
+    // the pointer targets a valid .text segment.
+    let sip_fn: fn(u64, u64) -> u64 = SIP_DISPATCH[slot];
+    let result = sip_fn(arg0, arg1);
+
+    // Mark as loaded again (available for re-call)
+    SIP_TABLE[slot].state = SIP_LOADED;
+
+    return result;
+}
+
+// =============================================================================
+// get_sip_entry -- Get the entry point of a registered SIP
+// =============================================================================
+pub fn get_sip_entry(slot: u64) -> u64 {
+    if slot >= SIP_MAX_SLOTS {
+        return 0;
+    }
+    return SIP_TABLE[slot].entry_vaddr;
+}
+
+// =============================================================================
+// get_sip_state -- Get the state of a SIP slot
+// =============================================================================
+pub fn get_sip_state(slot: u64) -> u64 {
+    if slot >= SIP_MAX_SLOTS {
+        return SIP_FREE;
+    }
+    return SIP_TABLE[slot].state;
+}
+
+// =============================================================================
+// get_sip_count -- Get the number of registered SIPs
+// =============================================================================
+pub fn get_sip_count() -> u64 {
+    return SIP_COUNT;
+}
+
+// =============================================================================
+// free_sip_slot -- Release a SIP slot for reuse
+// =============================================================================
+// NOTE: Does NOT unmap the SIP code pages. Page reclamation is deferred
+// to a future garbage collection pass (not yet implemented).
+// =============================================================================
+pub fn free_sip_slot(slot: u64) {
+    if slot >= SIP_MAX_SLOTS { return; }
+    if SIP_TABLE[slot].state == SIP_FREE { return; }
+
+    SIP_TABLE[slot].entry_vaddr = 0;
+    SIP_TABLE[slot].code_size = 0;
+    SIP_TABLE[slot].state = SIP_FREE;
+    SIP_COUNT = SIP_COUNT - 1;
+
+    serial.print("[sip] Freed slot=");
+    serial.print_u64(slot);
+    serial.print("\n");
+}

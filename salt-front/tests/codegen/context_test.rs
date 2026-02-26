@@ -5,7 +5,7 @@ mod tests {
     use salt_front::grammar::SaltFile;
     use salt_front::types::Type;
     use std::rc::Rc;
-    // use std::collections::HashMap; // unused
+    // use std::collections::{BTreeMap, HashMap}; // unused
 
     #[test]
     fn test_string_interner() {

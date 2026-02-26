@@ -17,7 +17,7 @@ fn test_enum_result_resolution() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).unwrap();
-    let res = salt_front::codegen::emit_mlir(&file, false, None, false, true, false, false);
+    let res = salt_front::codegen::emit_mlir(&file, false, None, false, true, false, false, false, false, "");
     assert!(res.is_ok(), "Enum resolution failed via codegen_file entry point: {:?}", res.err());
     
     // Check for correct mangling in output
@@ -49,7 +49,7 @@ fn test_scope_merging_generic_leak() {
     // SaltFile might be `crate::grammar::SaltFile`.
     let file: salt_front::grammar::SaltFile = syn::parse_str(src).expect("Failed to parse test source");
 
-    let res = salt_front::codegen::emit_mlir(&file, false, None, false, true, false, false);
+    let res = salt_front::codegen::emit_mlir(&file, false, None, false, true, false, false, false, false, "");
     
     // P0: MUST NOT PANIC and MUST NOT ERROR with "Generic Leak Detected"
     assert!(res.is_ok(), "Compilation failed: {:?}", res.err());
@@ -79,7 +79,7 @@ fn test_scope_merging_generic_leak() {
 fn test_self_hydration_invariant() {
     use salt_front::codegen::{CodegenContext, GenericContextGuard};
     use salt_front::types::Type;
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
 
     // 1. Setup: Create a generic context
     let src = ""; 
@@ -115,7 +115,7 @@ fn test_self_hydration_invariant() {
         ctx.struct_templates_mut().insert(struct_name.clone(), def);
     }
 
-    let mut type_map = HashMap::new();
+    let mut type_map = BTreeMap::new();
     type_map.insert(t_param.clone(), Type::U8);
 
     // This is the identity we EXPECT 'Self' to resolve to

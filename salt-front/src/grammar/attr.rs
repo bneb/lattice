@@ -133,3 +133,12 @@ pub fn extract_workgroup_size(attrs: &[Attribute]) -> u32 {
         .unwrap_or(64)
 }
 
+/// [SPRINT 2] Extract explicit cycle budget from @pulse_budget attribute
+/// Returns Some(cycles) if @pulse_budget is present, None otherwise
+/// Examples: @pulse_budget(1000) -> Some(1000), @pulse_budget(50000) -> Some(50000)
+pub fn extract_pulse_budget(attrs: &[Attribute]) -> Option<u32> {
+    attrs.iter()
+        .find(|a| a.name == "pulse_budget")
+        .and_then(|a| a.int_arg)
+}
+

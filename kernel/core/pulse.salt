@@ -64,23 +64,11 @@ global DROP_COUNT: u64 = 0;
 // Returns 1 on success, 0 if the ring is full (event dropped).
 // =============================================================================
 pub fn push(event_type: u64, data: u64) -> u64 {
-    let next_head = (HEAD + 1) % RING_SIZE;
-
-    // Ring full — drop the event
-    if next_head == TAIL {
-        DROP_COUNT = DROP_COUNT + 1;
-        return 0;
-    }
-
-    // Write the event into the ring at HEAD position
-    let base = HEAD * 3;  // 3 u64s per event
-    RING[base] = event_type;
-    RING[base + 1] = data;
-    RING[base + 2] = TICK_COUNTER;
-
-    // Advance HEAD
-    HEAD = next_head;
-    return 1;
+    // DISABLED: Writing to RING global causes triple fault on KVM.
+    // The BSS section at 0xffffffff8011xxxx is not mapped writable
+    // in the kernel's page tables under hardware page table enforcement.
+    // TODO: Fix page table mapping for kernel data/BSS range.
+    return 0;
 }
 
 // =============================================================================

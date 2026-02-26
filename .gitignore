@@ -10,6 +10,7 @@
 *.mlir
 *.ll
 *.s
+!kernel/arch/**/*.S
 *.bc
 *.testmlir
 build/
@@ -137,7 +138,6 @@ salt-front/*_c
 salt-front/*.py
 salt-front/Makefile
 salt-front/*.sh
-salt-front/runtime.c
 salt-front/contextual_trie_verification.salt
 salt-front/nested_hydration.salt
 salt-front/test_io.salt

@@ -1,0 +1,119 @@
+// =============================================================================
+// Context Switch Benchmark — Scheduler Scaling (4 → 16 → 64 fibers)
+// =============================================================================
+// Measures context switch latency at 3 fiber counts to reveal how scheduling
+// cost scales as the fiber set crosses L1/L2 cache boundaries.
+//
+// Each tier spawns N fibers running FPU-intensive assembly workloads
+// (fiber_loop.S), measures cooperative yield round-trip gaps, then cleans up
+// before the next tier.
+//
+// Output format (machine-parseable):
+//   BENCH:ctx_switch:tier fibers=4 avg=494 min=480 max=520
+//   BENCH:ctx_switch:tier fibers=16 avg=510 min=490 max=550
+//   BENCH:ctx_switch:tier fibers=64 avg=560 min=530 max=610
+// =============================================================================
+
+package benchmarks.ctx_switch_bench
+
+use kernel.core.scheduler
+use kernel.drivers.serial
+use kernel.core.timing
+
+// The fiber workload — implemented in assembly (kernel/arch/x86_64/fiber_loop.S)
+// to guarantee FPU register pressure across context switches.
+extern fn fiber_loop();
+
+extern fn enable_interrupts();
+extern fn fiber_loop_stop();
+extern fn fiber_loop_reset();
+extern fn get_bench_divisor() -> u64;
+
+const NUM_SAMPLES: i32 = 100;
+const MIN_GAP: i64 = 100;    // Ignore sub-100 cycle noise (cache/pipeline artifacts)
+
+// =============================================================================
+// run_rof_tier — Run one tier of the scaling benchmark
+// =============================================================================
+// Spawns `n` fibers, collects yield gap samples, reports avg/min/max,
+// then drains all spawned fibers before returning.
+// =============================================================================
+fn run_rof_tier(n: i32, actual_samples: i32) {
+    let baseline = scheduler.get_fiber_count();
+
+    // 1. Spawn worker fibers
+    for _ in 0..n {
+        let entry = (&fiber_loop) as u64;
+        scheduler.spawn(entry);
+    }
+
+    // 2. Enable preemptive interrupts
+    enable_interrupts();
+
+    // 3. Measure context switch gaps
+    let mut samples: i32 = 0;
+    let mut last_tsc = timing.get_cycles() as i64;
+    let mut total_gap: i64 = 0;
+    let mut min_gap: i64 = 999999999;
+    let mut max_gap: i64 = 0;
+
+    while samples < actual_samples {
+        // Yield to next fiber and back
+        scheduler.yield_now();
+
+        let now = timing.get_cycles() as i64;
+        let gap = now - last_tsc;
+
+        // Only count meaningful gaps (filter out back-to-back noise)
+        if gap > MIN_GAP {
+            total_gap += gap;
+            if gap < min_gap { min_gap = gap; }
+            if gap > max_gap { max_gap = gap; }
+            samples += 1;
+        }
+
+        last_tsc = now;
+    }
+
+    // 4. Report
+    let avg = total_gap / (actual_samples as i64);
+    serial.print("BENCH:ctx_switch:tier fibers=");
+    serial.print_u64(n as u64);
+    serial.print(" avg=");
+    serial.print_u64(avg as u64);
+    serial.print(" min=");
+    serial.print_u64(min_gap as u64);
+    serial.print(" max=");
+    serial.print_u64(max_gap as u64);
+    serial.print("\n");
+
+    // 5. Clean up: signal all fiber_loop fibers to exit, then drain
+    fiber_loop_stop();
+    while scheduler.get_fiber_count() > baseline {
+        scheduler.yield_now();
+    }
+    fiber_loop_reset();
+}
+
+// =============================================================================
+// run_ctx_switch_bench — 3-Tier Scaling Benchmark (4 → 16 → 64 fibers)
+// =============================================================================
+@no_mangle
+pub fn run_ctx_switch_bench() {
+    let divisor = get_bench_divisor();
+    let scaled = (NUM_SAMPLES as u64) / divisor;
+    let actual_samples = if scaled < 1 { 1 } else { scaled as i32 };
+
+    serial.print("BENCH:ctx_switch:start\n");
+
+    // Tier 1: 4 fibers — baseline, fits in L1 cache
+    run_rof_tier(4, actual_samples);
+
+    // Tier 2: 16 fibers — crosses L1, fits in L2
+    run_rof_tier(16, actual_samples);
+
+    // Tier 3: 64 fibers — crosses L2, stresses TLB/prefetch
+    run_rof_tier(64, actual_samples);
+
+    serial.print("BENCH:ctx_switch:done\n");
+}

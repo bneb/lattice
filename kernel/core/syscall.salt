@@ -14,6 +14,7 @@ extern fn proc_context_switch(old_rsp_ptr: u64, new_rsp: u64, new_cr3: u64, new_
 extern fn switch_cr3(pml4_phys: u64);
 extern fn idle_halt();
 extern fn invlpg_addr(vaddr: u64);
+extern fn set_syscall_kernel_rsp0(rsp0: u64);
 
 // =============================================================================
 // User Pointer Validation
@@ -88,10 +89,40 @@ fn sys_write(fd: u64, buf: u64, len: u64) {
         actual_len = 4096;
     }
     if !is_valid_user_ptr(buf, actual_len) {
-        serial.print("[sys_write] REJECTED: invalid user pointer\n");
         return;
     }
-    serial.print_buf(buf, actual_len);
+
+    // KPTI: Under the kernel CR3, user virtual addresses are NOT mapped.
+    // We walk the user's page tables to translate each page, then read
+    // via the kernel's higher-half direct map. We chunk at page boundaries
+    // because virtually contiguous memory may be physically discontiguous.
+    let pid = process.current();
+    let user_pml4 = process.get_pml4(pid);
+    let mut remaining = actual_len;
+    let mut current_va = buf;
+
+    while remaining > 0 {
+        // Translate current user VA to physical address
+        let phys = user_paging.translate_user_addr(user_pml4, current_va);
+        if phys == 0 {
+            return;  // Unmapped page — stop
+        }
+
+        // Calculate chunk size: bytes until next page boundary or end of buffer
+        let offset_in_page = current_va & 0xFFF;
+        let bytes_to_page_end = PAGE_SIZE - offset_in_page;
+        let mut chunk_size = remaining;
+        if chunk_size > bytes_to_page_end {
+            chunk_size = bytes_to_page_end;
+        }
+
+        // Read chunk from physical address via kernel direct map
+        let kern_ptr = memory.phys_to_virt_raw(phys);
+        serial.print_buf(kern_ptr, chunk_size);
+
+        current_va = current_va + chunk_size;
+        remaining = remaining - chunk_size;
+    }
 }
 
 // =============================================================================
@@ -118,30 +149,54 @@ pub fn process_exit(exit_code: u64) {
     process.set_state(slot, PROC_ZOMBIE);
     process.dec_count();
 
-    // Schedule next READY process
+    // Schedule next READY process — prefer user processes over Task 0
     let count = process.get_count();
     if count > 0 {
-        let mut i: u64 = 0;
+        // First pass: scan for user processes (skip Task 0 at slot 0)
+        let mut i: u64 = 1;
         while i < MAX_PROCS {
-            let state = process.get_state(i);
-            if state == PROC_READY || state == PROC_RUNNING {
-                process.set_state(i, PROC_RUNNING);
-                process.set_current(i);
+            let next = (slot + i) % MAX_PROCS;
+            if next != 0 {
+                let state = process.get_state(next);
+                if state == PROC_READY || state == PROC_RUNNING {
+                    process.set_state(next, PROC_RUNNING);
+                    process.set_current(next);
 
-                let new_rsp  = process.get_kernel_rsp(i);
-                let new_cr3  = process.get_pml4(i);
-                let new_rsp0 = process.get_kernel_stack_top(i);
+                    let new_rsp  = process.get_kernel_rsp(next);
+                    let new_pml4 = process.get_pml4(next);
+                    let new_pcid = process.get_pcid(next);
+                    let new_cr3  = new_pml4 | new_pcid;
+                    let new_rsp0 = process.get_kernel_stack_top(next);
 
-                // Update TSS.RSP0 for the new process (virtual address)
-                tss.set_rsp0(new_rsp0);
+                    tss.set_rsp0(new_rsp0);
+                    set_syscall_kernel_rsp0(new_rsp0);
 
-                // Dummy old_rsp_ptr — current process is ZOMBIE
-                let dummy: u64 = 0;
-                proc_context_switch((&dummy) as u64, new_rsp, new_cr3, new_rsp0);
-                // Never returns
-                return;
+                    let dummy: u64 = 0;
+                    proc_context_switch((&dummy) as u64, new_rsp, new_cr3, new_rsp0);
+                    return;
+                }
             }
             i = i + 1;
+        }
+
+        // Fallback: no user processes READY, switch to Task 0
+        let task0_state = process.get_state(0);
+        if task0_state == PROC_READY || task0_state == PROC_RUNNING {
+            process.set_state(0, PROC_RUNNING);
+            process.set_current(0);
+
+            let new_rsp  = process.get_kernel_rsp(0);
+            let new_pml4 = process.get_pml4(0);
+            let new_pcid = process.get_pcid(0);
+            let new_cr3  = new_pml4 | new_pcid;
+            let new_rsp0 = process.get_kernel_stack_top(0);
+
+            tss.set_rsp0(new_rsp0);
+            set_syscall_kernel_rsp0(new_rsp0);
+
+            let dummy: u64 = 0;
+            proc_context_switch((&dummy) as u64, new_rsp, new_cr3, new_rsp0);
+            return;
         }
     }
 
@@ -209,11 +264,14 @@ fn switch_to_process(current: u64, next: u64) {
 
     let old_rsp_addr = process.get_rsp_addr(current);
     let new_rsp  = process.get_kernel_rsp(next);
-    let new_cr3  = process.get_pml4(next);
+    let new_pml4 = process.get_pml4(next);
+    let new_pcid = process.get_pcid(next);
+    let new_cr3  = new_pml4 | new_pcid;  // PCID-tagged CR3
     let new_rsp0 = process.get_kernel_stack_top(next);
 
-    // Update TSS.RSP0 for the new process (virtual address)
+    // Update TSS.RSP0 and SYSCALL kernel stack for the new process
     tss.set_rsp0(new_rsp0);
+    set_syscall_kernel_rsp0(new_rsp0);
 
     proc_context_switch(old_rsp_addr, new_rsp, new_cr3, new_rsp0);
 }
@@ -226,16 +284,10 @@ pub fn timer_preempt() {
     schedule_next();
 }
 
-// =============================================================================
-// sched_yield — Voluntary yield (called by Task 0 when queue is empty)
-// =============================================================================
-// Unlike timer_preempt which is called from ISR context, sched_yield
-// is called from normal kernel context (Task 0 with IF=1).
-// =============================================================================
-@no_mangle
-pub fn sched_yield() {
-    schedule_next();
-}
+// sched_yield — Voluntary yield
+// The @no_mangle implementation lives in scheduler.salt (full O(1) bitmap).
+// This extern declaration lets call sites in this file resolve the symbol.
+extern fn sched_yield();
 
 // =============================================================================
 // sys_brk — Linear Heap Growth (syscall 12)
@@ -276,9 +328,7 @@ fn sys_brk(new_brk: u64) -> u64 {
 
             // STRICT OOM PROPAGATION — deny the brk increase
             if paddr == 0 {
-                serial.print("[sys_brk] OOM at 0x");
-                serial.print_u64(vaddr_cursor);
-                serial.print("\n");
+                serial.print("[sys_brk] OOM\n");
                 return current_brk;
             }
 
@@ -375,3 +425,8 @@ fn sys_mmap(length: u64, prot: u64) -> u64 {
 
     return start_vaddr;
 }
+
+// @no_mangle ABI Wrappers
+@no_mangle
+pub fn syscall_set_kernel_pml4(pml4: u64) { set_kernel_pml4(pml4); }
+

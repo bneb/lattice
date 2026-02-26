@@ -25,40 +25,52 @@ package kernel.arch.x86.tss
 // TSS64 -- 104 bytes hardware-dictated layout
 // =============================================================================
 pub struct TSS64 {
-    reserved0: u32,
-    rsp0: u64,       // Ring 0 stack pointer -- THE critical field
-    rsp1: u64,       // Ring 1 stack (unused on x86_64)
-    rsp2: u64,       // Ring 2 stack (unused on x86_64)
-    reserved1: u64,
-    ist1: u64,       // Interrupt Stack Table entry 1 (for NMI, #DF, etc.)
-    ist2: u64,
-    ist3: u64,
-    ist4: u64,
-    ist5: u64,
-    ist6: u64,
-    ist7: u64,
-    reserved2: u64,
-    reserved3: u16,
-    iomap_base: u16, // Offset to IO permission bitmap (104 = deny all)
+    reserved0: u32,  // 0
+    rsp0_lo: u32,    // 4
+    rsp0_hi: u32,    // 8
+    rsp1_lo: u32,    // 12
+    rsp1_hi: u32,    // 16
+    rsp2_lo: u32,    // 20
+    rsp2_hi: u32,    // 24
+    reserved1_lo: u32, // 28
+    reserved1_hi: u32, // 32
+    ist1_lo: u32,    // 36
+    ist1_hi: u32,    // 40
+    ist2_lo: u32,    // 44
+    ist2_hi: u32,    // 48
+    ist3_lo: u32,
+    ist3_hi: u32,
+    ist4_lo: u32,
+    ist4_hi: u32,
+    ist5_lo: u32,
+    ist5_hi: u32,
+    ist6_lo: u32,
+    ist6_hi: u32,
+    ist7_lo: u32,    // 84
+    ist7_hi: u32,    // 88
+    reserved2_lo: u32, // 92
+    reserved2_hi: u32, // 96
+    reserved3: u16,  // 100
+    iomap_base: u16, // 102
 }
 
-// =============================================================================
-// Static TSS instance -- lives in kernel .bss
-// =============================================================================
-global TSS: TSS64;
+global TSS: TSS64 = TSS64 {
+    reserved0: 0, rsp0_lo: 0, rsp0_hi: 0,
+    rsp1_lo: 0, rsp1_hi: 0, rsp2_lo: 0, rsp2_hi: 0,
+    reserved1_lo: 0, reserved1_hi: 0,
+    ist1_lo: 0, ist1_hi: 0, ist2_lo: 0, ist2_hi: 0,
+    ist3_lo: 0, ist3_hi: 0, ist4_lo: 0, ist4_hi: 0,
+    ist5_lo: 0, ist5_hi: 0, ist6_lo: 0, ist6_hi: 0,
+    ist7_lo: 0, ist7_hi: 0,
+    reserved2_lo: 0, reserved2_hi: 0,
+    reserved3: 0, iomap_base: 0
+};
 
-// =============================================================================
-// init_tss -- Configure the TSS with the kernel stack pointer
-// =============================================================================
-// Must be called before LTR instruction and before any Ring 3 transition.
-//
-// kernel_rsp0: The top of the kernel stack that the CPU will switch to
-//              when returning from Ring 3 -> Ring 0.
-// =============================================================================
 pub fn init_tss(kernel_rsp0: u64) {
-    TSS.rsp0 = kernel_rsp0;
+    TSS.rsp0_lo = (kernel_rsp0 & 0xFFFFFFFF) as u32;
+    TSS.rsp0_hi = ((kernel_rsp0 >> 32) & 0xFFFFFFFF) as u32;
     TSS.iomap_base = 104;  // sizeof(TSS64) -- deny all IO ports to Ring 3
-    // All other fields default to zero (IST entries, reserved fields)
+    // IST entries are populated separately via set_ist() after PMM provides memory
 }
 
 // =============================================================================
@@ -77,5 +89,55 @@ pub fn get_tss_addr() -> u64 {
 // This is critical for per-task kernel stacks.
 // =============================================================================
 pub fn set_rsp0(new_rsp0: u64) {
-    TSS.rsp0 = new_rsp0;
+    TSS.rsp0_lo = (new_rsp0 & 0xFFFFFFFF) as u32;
+    TSS.rsp0_hi = ((new_rsp0 >> 32) & 0xFFFFFFFF) as u32;
 }
+
+pub fn set_ist(index: u64, stack_top: u64) {
+    if (stack_top & 15) != 0 {
+        return;
+    }
+    let lo = (stack_top & 0xFFFFFFFF) as u32;
+    let hi = ((stack_top >> 32) & 0xFFFFFFFF) as u32;
+    
+    if index == 1 { TSS.ist1_lo = lo; TSS.ist1_hi = hi; }
+    else if index == 2 { TSS.ist2_lo = lo; TSS.ist2_hi = hi; }
+    else if index == 3 { TSS.ist3_lo = lo; TSS.ist3_hi = hi; }
+    else if index == 4 { TSS.ist4_lo = lo; TSS.ist4_hi = hi; }
+    else if index == 5 { TSS.ist5_lo = lo; TSS.ist5_hi = hi; }
+    else if index == 6 { TSS.ist6_lo = lo; TSS.ist6_hi = hi; }
+    else if index == 7 { TSS.ist7_lo = lo; TSS.ist7_hi = hi; }
+}
+
+pub fn get_ist(index: u64) -> u64 {
+    let mut lo: u32 = 0;
+    let mut hi: u32 = 0;
+    
+    if index == 1 { lo = TSS.ist1_lo; hi = TSS.ist1_hi; }
+    else if index == 2 { lo = TSS.ist2_lo; hi = TSS.ist2_hi; }
+    else if index == 3 { lo = TSS.ist3_lo; hi = TSS.ist3_hi; }
+    else if index == 4 { lo = TSS.ist4_lo; hi = TSS.ist4_hi; }
+    else if index == 5 { lo = TSS.ist5_lo; hi = TSS.ist5_hi; }
+    else if index == 6 { lo = TSS.ist6_lo; hi = TSS.ist6_hi; }
+    else if index == 7 { lo = TSS.ist7_lo; hi = TSS.ist7_hi; }
+    else { return 0; }
+    
+    return (lo as u64) | ((hi as u64) << 32);
+}
+
+// @no_mangle ABI Wrappers
+@no_mangle
+pub fn tss_init_tss(kernel_rsp0: u64) { init_tss(kernel_rsp0); }
+
+@no_mangle
+pub fn tss_get_tss_addr() -> u64 { return get_tss_addr(); }
+
+@no_mangle
+pub fn tss_set_rsp0(new_rsp0: u64) { set_rsp0(new_rsp0); }
+
+@no_mangle
+pub fn tss_set_ist(index: u64, stack_top: u64) { set_ist(index, stack_top); }
+
+@no_mangle
+pub fn tss_get_ist(index: u64) -> u64 { return get_ist(index); }
+

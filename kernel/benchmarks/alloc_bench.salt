@@ -16,8 +16,7 @@ package benchmarks.alloc_bench
 
 use kernel.drivers.serial
 use kernel.drivers.vga
-
-extern fn rdtsc() -> u64;
+use kernel.core.timing
 
 // slab.salt (kernel.mem) — @no_mangle pub fn pop_stack()
 extern fn pop_stack() -> u64;
@@ -26,46 +25,47 @@ const NUM_SAMPLES: i32 = 1000;
 const MIN_CYCLES: u64 = 5;
 const MAX_CYCLES: u64 = 50000;
 
+@no_mangle
 pub fn run() {
     serial.print("BENCH:alloc:start\n");
     vga.print("Alloc benchmark (1000 samples)...\n");
 
-    // Measure slab allocation throughput
     let mut total: u64 = 0;
     let mut valid: i32 = 0;
-    let mut min_cy: u64 = 999999999;
+    let mut min_cy: u64 = 0xFFFFFFFFFFFFFFFF;
     let mut max_cy: u64 = 0;
-    let mut i: i32 = 0;
+    let mut exhausted = false;
 
-    while i < NUM_SAMPLES {
-        let t0 = rdtsc();
-        let slot = pop_stack();
-        let t1 = rdtsc();
+    for i in 0..NUM_SAMPLES {
+        if exhausted {
+            // Already hit slab exhaustion — stop measuring
+        } else {
+            let t0 = timing.get_cycles();
+            let slot = pop_stack();
+            let t1 = timing.get_cycles();
 
-        let elapsed = t1 - t0;
+            let elapsed = t1 - t0;
 
-        if elapsed >= MIN_CYCLES {
-            if elapsed <= MAX_CYCLES {
-                total = total + elapsed;
-                valid = valid + 1;
-                if elapsed < min_cy {
-                    min_cy = elapsed;
-                }
-                if elapsed > max_cy {
-                    max_cy = elapsed;
+            if elapsed >= MIN_CYCLES {
+                if elapsed <= MAX_CYCLES {
+                    total = total + elapsed;
+                    valid = valid + 1;
+                    if elapsed < min_cy {
+                        min_cy = elapsed;
+                    }
+                    if elapsed > max_cy {
+                        max_cy = elapsed;
+                    }
                 }
             }
-        }
 
-        // Check for exhaustion
-        if slot == 0 {
-            serial.print("BENCH:alloc:WARNING slab exhausted at i=");
-            serial.print_u64(i as u64);
-            serial.print("\n");
-            i = NUM_SAMPLES; // Break
+            if slot == 0 {
+                serial.print("BENCH:alloc:WARNING slab exhausted at i=");
+                serial.print_u64(i as u64);
+                serial.print("\n");
+                exhausted = true;
+            }
         }
-
-        i = i + 1;
     }
 
     // Report

@@ -1,0 +1,244 @@
+package kernel.core.async_test
+
+import kernel.drivers.serial
+
+// =============================================================================
+// Async Fiber Test Suite — TDD Layer Tests
+// =============================================================================
+// Validates the async runtime handshake between compiler-emitted state
+// machines and the per-core scheduler. Each layer tests one invariant.
+//
+// Layer 0: Poll ABI constants
+// Layer 1: spawn_async returns valid slot
+// Layer 2: Immediate completion (step_fn returns POLL_READY on first call)
+// Layer 3: Multi-step coroutine (yield 3x, then complete)
+// =============================================================================
+
+// Cross-module externs
+extern fn get_cpu_id() -> u64;
+extern fn sched_spawn_async(step_fn_addr: u64, frame_size: u64) -> u64;
+extern fn sched_yield();
+extern fn fiber_count() -> u64;
+
+// Poll ABI constants — must match scheduler.salt
+const POLL_PENDING: i64 = 0;
+const POLL_READY: i64 = 1;
+
+// =============================================================================
+// Test Infrastructure
+// =============================================================================
+
+fn test_pass(name: &u8) {
+    serial.print("TEST:async:");
+    serial.print(name);
+    serial.print(":PASS\n");
+}
+
+fn test_fail(name: &u8, reason: &u8) {
+    serial.print("TEST:async:");
+    serial.print(name);
+    serial.print(":FAIL ");
+    serial.print(reason);
+    serial.print("\n");
+}
+
+fn test_value(name: &u8, val: u64) {
+    serial.print("TEST:async:");
+    serial.print(name);
+    serial.print(":VALUE ");
+    serial.print_u64(val);
+    serial.print("\n");
+}
+
+// =============================================================================
+// Layer 0: Poll Constants — Verify ABI contract
+// =============================================================================
+
+fn test_poll_constants() {
+    serial.print("[TEST] Layer 0: Poll ABI Constants\n");
+    if POLL_PENDING == 0 {
+        test_pass("poll_pending_is_zero");
+    } else {
+        test_fail("poll_pending_is_zero", "POLL_PENDING != 0");
+    }
+    if POLL_READY == 1 {
+        test_pass("poll_ready_is_one");
+    } else {
+        test_fail("poll_ready_is_one", "POLL_READY != 1");
+    }
+}
+
+// =============================================================================
+// Layer 1: spawn_async — Slot Allocation
+// =============================================================================
+// A valid spawn_async call must return a slot < 256.
+// The fiber count must increase by 1.
+// =============================================================================
+
+fn test_spawn_async_slot() {
+    serial.print("[TEST] Layer 1: spawn_async Slot\n");
+
+    let count_before = fiber_count();
+    test_value("fiber_count_before", count_before);
+
+    // Use the immediate-ready step function as a safe target
+    let step_addr = fn_addr(mock_step_ready);
+    let frame_size: u64 = 64;
+    let slot = sched_spawn_async(step_addr, frame_size);
+    test_value("spawn_slot", slot);
+
+    if slot < 256 {
+        test_pass("spawn_slot_valid");
+    } else {
+        test_fail("spawn_slot_valid", "slot >= 256");
+    }
+
+    let count_after = fiber_count();
+    test_value("fiber_count_after", count_after);
+
+    if count_after == count_before + 1 {
+        test_pass("fiber_count_increased");
+    } else {
+        test_fail("fiber_count_increased", "count did not increase by 1");
+    }
+
+    // Yield to execute and clean up the spawned fiber (POLL_READY → deactivate)
+    // This prevents orphan fibers from corrupting subsequent test layers.
+    sched_yield();
+}
+
+// =============================================================================
+// Layer 2: Immediate Completion — POLL_READY on first call
+// =============================================================================
+// After spawning and yielding, the async fiber should execute its step_fn,
+// see POLL_READY, deactivate the fiber, and free the frame.
+// The fiber count should return to its pre-spawn value.
+// =============================================================================
+
+fn test_async_step_ready() {
+    serial.print("[TEST] Layer 2: Async Step Ready\n");
+
+    let count_before = fiber_count();
+
+    let step_addr = fn_addr(mock_step_ready);
+    let slot = sched_spawn_async(step_addr, 64);
+    test_value("ready_slot", slot);
+
+    // Yield to let the scheduler run the async fiber
+    sched_yield();
+
+    // After yield, the async fiber should have completed and been cleaned up
+    let count_after = fiber_count();
+    test_value("ready_count_after", count_after);
+
+    if count_after == count_before {
+        test_pass("step_ready_immediate");
+    } else {
+        test_fail("step_ready_immediate", "fiber not cleaned up after POLL_READY");
+    }
+}
+
+// =============================================================================
+// Layer 3: Multi-Step Coroutine — Yield N times, then complete
+// =============================================================================
+// The mock_step_counting function increments STEP_COUNTER each call.
+// After 4 calls (3x POLL_PENDING + 1x POLL_READY), the counter should be 4.
+// =============================================================================
+
+global STEP_COUNTER: u64 = 0;
+
+fn test_async_step_pending() {
+    serial.print("[TEST] Layer 3: Async Step Pending\n");
+
+    STEP_COUNTER = 0;
+    let count_before = fiber_count();
+
+    let step_addr = fn_addr(mock_step_counting);
+    let slot = sched_spawn_async(step_addr, 64);
+    test_value("counting_slot", slot);
+
+    // Yield multiple times to step the coroutine
+    sched_yield();
+    sched_yield();
+    sched_yield();
+    sched_yield();
+    sched_yield(); // Extra yields to ensure completion
+
+    let counter = get_step_counter();
+    test_value("step_counter", counter);
+
+    if counter == 4 {
+        test_pass("step_pending_count");
+    } else {
+        test_fail("step_pending_count", "counter != 4");
+    }
+
+    let count_after = fiber_count();
+    if count_after == count_before {
+        test_pass("step_pending_cleanup");
+    } else {
+        test_fail("step_pending_cleanup", "fiber not cleaned up");
+    }
+}
+
+// Accessor to prevent compiler from caching STEP_COUNTER in a register
+// across sched_yield() boundaries (invoke_task is opaque to the optimizer)
+@no_mangle
+pub fn get_step_counter() -> u64 {
+    return STEP_COUNTER;
+}
+
+// =============================================================================
+// Mock Step Functions — Simulate compiler-generated state machines
+// =============================================================================
+
+// Immediately returns POLL_READY (coroutine completes in one step)
+@no_mangle
+pub fn mock_step_ready(frame: u64) -> i64 {
+    return POLL_READY;
+}
+
+// Counts calls. Returns POLL_PENDING 3 times, then POLL_READY.
+// Uses first 8 bytes of frame as the state counter.
+@no_mangle
+pub fn mock_step_counting(frame: u64) -> i64 {
+    STEP_COUNTER = STEP_COUNTER + 1;
+    let state = *(frame as &i64);
+
+    if state < 3 {
+        *(frame as &mut i64) = state + 1;
+        return POLL_PENDING;
+    }
+
+    // Final state — return Ready
+    return POLL_READY;
+}
+
+// =============================================================================
+// Test Suite Entry Point
+// =============================================================================
+
+@no_mangle
+pub fn run_async_tests() -> u64 {
+    serial.print("═══════════════════════════════════════════\n");
+    serial.print(" ASYNC FIBER TEST SUITE\n");
+    serial.print("═══════════════════════════════════════════\n");
+
+    // Layer 0: Constants
+    test_poll_constants();
+
+    // Layer 1: Slot allocation
+    test_spawn_async_slot();
+
+    // Layer 2: Immediate completion
+    test_async_step_ready();
+
+    // Layer 3: Multi-step coroutine
+    test_async_step_pending();
+
+    serial.print("═══════════════════════════════════════════\n");
+    serial.print(" ASYNC FIBER TESTS COMPLETE\n");
+    serial.print("═══════════════════════════════════════════\n");
+
+    return 0;
+}

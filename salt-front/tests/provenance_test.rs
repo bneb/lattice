@@ -70,7 +70,7 @@ fn test_reinterpret_cast_base_plus_offset_emits_gep() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "reinterpret_cast provenance failed: {:?}", res.err());
     
@@ -106,7 +106,7 @@ fn test_reinterpret_cast_write_pattern_emits_gep() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "reinterpret_cast write provenance failed: {:?}", res.err());
     
@@ -146,7 +146,7 @@ fn test_reinterpret_cast_different_element_sizes() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "reinterpret_cast size dispatch failed: {:?}", res.err());
     
@@ -175,7 +175,7 @@ fn test_reinterpret_cast_fallback_non_pattern() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "reinterpret_cast fallback failed: {:?}", res.err());
     
@@ -215,7 +215,7 @@ fn test_loop_with_provenance_emits_hoistable_inttoptr() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "Loop provenance pattern failed: {:?}", res.err());
     
@@ -252,7 +252,7 @@ fn test_pointer_to_pointer_cast_no_ptrtoint() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "ptr-to-ptr cast failed: {:?}", res.err());
     
@@ -288,7 +288,7 @@ fn test_reference_local_variable_alloca_uses_ptr_type() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "Reference storage failed: {:?}", res.err());
     
@@ -341,7 +341,7 @@ fn test_chained_pointer_casts_preserve_provenance() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "Chained pointer cast failed: {:?}", res.err());
     
@@ -378,7 +378,7 @@ fn test_extern_function_returning_pointer_preserves_type() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "Extern pointer function failed: {:?}", res.err());
     
@@ -418,7 +418,7 @@ fn test_storage_type_for_reference_is_llvm_ptr() {
         }
     "#;
     let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, "");
+    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "Reference storage type test failed: {:?}", res.err());
     

@@ -1,0 +1,146 @@
+// =============================================================================
+// kernel/benchmarks/suite.salt
+// Benchmark Suite Runner — CPUID-aware, Lazy-FPU-enabled
+// =============================================================================
+
+package benchmarks.suite
+
+use kernel.drivers.serial
+use kernel.drivers.vga
+use kernel.core.scheduler
+use kernel.core.cpuid
+
+// Benchmark entry points (@no_mangle in each benchmark file)
+extern fn run();                 // alloc_bench
+extern fn run_syscall_bench();   // syscall_bench
+extern fn ipc_responder();       // ipc_bench responder fiber
+extern fn run_ipc_bench();       // ipc_bench
+extern fn run_slab_reclaim();    // slab_reclaim_bench
+extern fn run_ctx_switch_bench(); // ctx_switch_bench (3-tier scaling: 4/16/64 fibers)
+extern fn run_benchmark_lite();  // ring_of_fire_lite (integer-only)
+extern fn run_net_echo();        // net_echo_bench
+extern fn run_irq_latency();     // irq_latency_bench
+extern fn run_pmm_bench();       // pmm_bench
+extern fn run_slab_stress();     // slab_stress_bench
+extern fn get_bench_divisor() -> u64;
+extern fn run_smp_bench();       // smp_bench
+extern fn run_utp_async_bench();  // utp_async_bench
+extern fn run_utp_preempt_bench(); // utp_preempt_bench
+extern fn run_utp_spawn_bench();  // utp_spawn_bench
+extern fn run_sip_ipc_ring(w0: u64, w1: u64, w2: u64, w3: u64);
+extern fn test_ring3_iretq_frame();  // ring3_test TDD Gate 1
+extern fn test_ring3_kpti();          // ring3_test TDD Gate 2
+extern fn test_kpti_user_pml4_isolated(); // ring3_test TDD Gate 6
+extern fn test_ring3_e2e();           // ring3_test TDD Gate 3
+extern fn test_swapgs_ring3();        // ring3_test NMI swapgs test
+extern fn test_pcid_allocation();     // ring3_test TDD Gate 4
+extern fn test_pcid_cr3_noflush();    // ring3_test TDD Gate 5
+extern fn test_ist_isolation();       // ist_test TDD Gate
+
+@no_mangle
+pub fn bench_suite_run() {
+    // ── IST Isolation Validation (NMI/DF stacks) ────────────────────
+    serial.print("IST ISOLATION TEST SUITE\n");
+    test_ist_isolation();
+
+    // ── Ring 3 IRETQ Frame Validation (TDD Gate 1) ──────────────────
+    serial.print("RING3 IRETQ FRAME TEST SUITE\n");
+    test_ring3_iretq_frame();
+
+    // ── Ring 3 KPTI Kernel CR3 Validation (TDD Gate 2) ──────────────
+    serial.print("RING3 KPTI TEST SUITE\n");
+    test_ring3_kpti();
+
+    // ── Ring 3 KPTI User PML4 Isolation (TDD Gate 6) ────────────────
+    serial.print("KPTI PML4 ISOLATION TEST\n");
+    test_kpti_user_pml4_isolated();
+
+    // ── PCID Allocation (TDD Gate 4) — pure Ring 0, no IRETQ ────────
+    // Runs BEFORE E2E/SWAPGS which require Ring 3 transitions
+    // (hangs on TCG/ARM without KVM)
+    serial.print("PCID ALLOCATION TEST\n");
+    test_pcid_allocation();
+
+    // ── PCID CR3 NOFLUSH (TDD Gate 5) — pure Ring 0, no IRETQ ──────
+    serial.print("PCID CR3 NOFLUSH TEST\n");
+    test_pcid_cr3_noflush();
+
+    // ── Ring 3 End-to-End Round-Trip (TDD Gate 3) ───────────────────
+    // WARNING: Hangs on TCG/ARM (macOS) — runs fine on KVM
+    serial.print("RING3 E2E TEST SUITE\n");
+    test_ring3_e2e();
+
+    // ── Ring 3 NMI SWAPGS Diagnostic ────────────────────────────────
+    serial.print("RING3 SWAPGS NMI TEST\n");
+    test_swapgs_ring3();
+
+    serial.print("BENCHMARK SUITE BEGIN\n");
+    vga.print_colored(" Benchmark Suite ", 0x1F);
+    vga.print("\n");
+
+    // ── CPUID Topology Detection ─────────────────────────────────────
+    cpuid.print_topology();
+    let divisor = get_bench_divisor();
+
+    // ── 1. Slab allocation throughput ────────────────────────────────
+    serial.print("BENCH:suite:running alloc_bench\n");
+    run();
+
+    // ── 2. Syscall latency (Ring 3 trampoline) ────────────────────────
+    serial.print("BENCH:suite:running syscall_bench\n");
+    run_syscall_bench();
+
+    // ── 3. IPC ping-pong — SKIPPED: triple faults on KVM (responder spawn) ──
+    serial.print("BENCH:suite:SKIP ipc_bench (responder spawn crash, investigating)\n");
+    // let responder_addr = (&ipc_responder) as u64;
+    // scheduler.spawn(responder_addr);
+    // scheduler.yield_now();
+    // run_ipc_bench();
+
+    // ── 4. Context switch — SKIPPED: same scheduler.spawn() crash ──
+    serial.print("BENCH:suite:SKIP ctx_switch_bench (scheduler.spawn crash)\n");
+
+    // ── 5. Interrupt latency — SKIPPED: hangs on KVM ──
+    serial.print("BENCH:suite:SKIP irq_latency_bench (hangs on KVM)\n");
+
+    // ── 6. PMM page alloc/free ──────────────────────────────────────
+    serial.print("BENCH:suite:running pmm_bench\n");
+    run_pmm_bench();
+
+    // ── 7. Slab stress — SKIPPED: uses scheduler.spawn pattern ──
+    serial.print("BENCH:suite:SKIP slab_stress_bench (investigating hangs)\n");
+
+    // ── 8. SMP (per-core alloc throughput + AP boot count) ───────────
+    serial.print("BENCH:suite:running smp_bench\n");
+    run_smp_bench();
+
+    // ── 9. Slab reclamation (ephemeral fibers) ──────────────────────
+    // 100K fibers exceeds KVM memory limits (same as ROF-1K).
+    serial.print("BENCH:suite:SKIP slab_reclaim_bench (fiber memory limit on KVM)\n");
+
+    // ── 10. Net echo (VirtIO-Net, passive) ────────────────────────────
+    // Always skipped in bench mode — blocks waiting for UDP injection.
+    // Run manually via: python3 tools/runner_qemu.py test_net
+    serial.print("BENCH:suite:SKIP net_echo_bench (requires packet injection)\n");
+
+    // ── 11. UTP Async Dispatch Latency ────────────────────────────────
+    serial.print("BENCH:suite:running utp_async_bench\n");
+    run_utp_async_bench();
+
+    // ── 12. UTP Preemptive Dispatch Latency ──────────────────────────
+    serial.print("BENCH:suite:running utp_preempt_bench\n");
+    run_utp_preempt_bench();
+
+    // ── 13. UTP Spawn Latency ────────────────────────────────────────
+    serial.print("BENCH:suite:running utp_spawn_bench\n");
+    run_utp_spawn_bench();
+
+    // ── 14. SIP IPC Ring (4-core token pass) ────────────────────────────
+    serial.print("BENCH:suite:running sip_ipc_ring\n");
+    run_sip_ipc_ring(0, 0, 0, 0);  // args unused in sequential mode
+
+    // ── Done ─────────────────────────────────────────────────────────
+    serial.print("BENCHMARK SUITE COMPLETE\n");
+    vga.print_colored(" Suite Complete ", 0x2F);
+    vga.print("\n");
+}

@@ -5,6 +5,13 @@ import kernel.sched.affinity
 import std.test
 import kernel.drivers.serial
 import kernel.core.pulse
+import kernel.core.vmm
+
+// Poll ABI — matches MLIR-emitted async state machine return values.
+// These constants define the contract between compiler-generated step
+// functions and the kernel scheduler.
+const POLL_PENDING: i64 = 0;
+const POLL_READY: i64 = 1;
 
 // Cross-module extern declarations (avoids linker error during standalone compilation)
 extern fn ctz_u64(x: u64) -> u64;
@@ -14,18 +21,30 @@ extern fn stack_init(stack_top: u64, entry: u64) -> u64;
 extern fn pop_stack() -> u64;
 extern fn push_stack(ptr: u64);
 
+// Per-CPU accessor (kernel/core/percpu.salt)
+extern fn get_cpu_id() -> u64;
+
+// Flight recorder (kernel/core/flight_recorder.salt)
+extern fn flight_log_trace(fiber_id: u64, event: u64);
+
 // =============================================================================
-// Kernel Scheduler — O(1) Multi-Level Bitmap with Stack Reclamation
+// Kernel Scheduler — O(1) Multi-Level Bitmap, Per-Core Sharded
 // =============================================================================
 //
+// Each CPU core gets its own SchedulerState, indexed by cpu_id via GS segment.
+// This eliminates all cross-core contention on spawn/yield/exit paths.
+//
+// On single-core (cpu_id always 0), SCHED_ARRAY[0] is the only state used —
+// behavior is byte-identical to the original global GLOBAL_SCHED.
+//
 // Uses a 2-level bitmap to find the next runnable fiber in O(1) via hardware
-// TZCNT instruction (llvm.intr.cttz). Supports up to 1024 fibers.
+// TZCNT instruction (llvm.intr.cttz). Supports up to 1024 fibers PER CORE.
 //
 // L1 summary: 1 bit per group of 64 fibers (16 groups for 1024 fibers)
 // L2 details: 1 bit per fiber within each group
 //
 // Stack Lifecycle:
-//   spawn()      → pop_stack()   (allocate 16KB slab slot)
+//   spawn()      → pop_stack()   (allocate 16KB slab slot from this core)
 //   fiber_exit() → push_stack()  (reclaim 16KB slab slot, deferred)
 //
 // Deferred Reclamation Protocol:
@@ -35,20 +54,25 @@ extern fn push_stack(ptr: u64);
 //   push_stack() call, safely executing on its own stack.
 // =============================================================================
 
-const MAX_FIBERS: u64 = 1024;
+const MAX_FIBERS: u64 = 256;
 const SLAB_SLOT_SIZE: u64 = 16384; // mm_layout.SLAB_SLOT_SIZE
 const L2_GROUPS: u64 = 16;
 const ALL_ONES: u64 = 0xFFFFFFFFFFFFFFFF;
+const MAX_CPUS: u64 = 16;
 
 pub struct Fiber {
     pub id: u64,
     pub stack_ptr: u64,
     pub stack_base: u64,
     pub active: bool,
+    pub step_fn: u64,       // Async: address of compiler-emitted step function (0 = preemptive)
+    pub task_frame: u64,    // Async: pointer to slab-allocated TaskFrame
+    pub ctx_ptr: u64,       // Unified context pointer: stack_ptr (preemptive) or task_frame (async)
+                            // Set at spawn time — eliminates conditional in sched_yield dispatch
 }
 
 pub struct SchedulerState {
-    pub fibers: [Fiber; 1024],
+    pub fibers: [Fiber; 256],
     pub current: u64,
     pub count: u64,
     pub next_id: u64,
@@ -57,23 +81,42 @@ pub struct SchedulerState {
     pub l2_details: [u64; 16],
 }
 
-global GLOBAL_SCHED: SchedulerState = SchedulerState {
-    fibers: [Fiber { id: 0, stack_ptr: 0, stack_base: 0, active: false }; 1024],
+// =============================================================================
+// Per-Core Scheduler Array
+// =============================================================================
+// Index 0 = BSP, Index N = AP N.
+// Only SCHED_ARRAY[0] is used on single-core configurations.
+// =============================================================================
+global SCHED_ARRAY: [SchedulerState; 16] = [SchedulerState {
+    fibers: [Fiber { id: 0, stack_ptr: 0, stack_base: 0, active: false, step_fn: 0, task_frame: 0, ctx_ptr: 0 }; 256],
     current: 0,
     count: 0,
     next_id: 1,
     yield_pending: false,
     l1_summary: 0,
     l2_details: [0 as u64; 16]
-};
+}; 16];
 
-// Deferred reclamation: stack base address of the most recently dead fiber.
-// Zeroed after reclamation. Only one fiber can die per sched_yield cycle
-// in single-core mode, so a single slot suffices.
-global PENDING_RECLAIM: u64 = 0;
+// Per-core deferred reclamation slots
+global PENDING_RECLAIMS: [u64; 16] = [0 as u64; 16];
 
 
 extern fn switch_stacks(old_sp_ptr: *mut u64, new_sp: u64);
+
+// Universal Task Invocation Primitive (kernel/arch/x86_64/async_call.S)
+// Calls fn_addr(arg) and returns the i64 result. This is the kernel's
+// zero-branch dispatch mechanism for ALL fibers (async AND preemptive).
+extern fn invoke_task(fn_addr: u64, arg: u64) -> i64;
+
+// Preemptive ABI Wrapper (kernel/arch/x86_64/preempt_stub.S)
+// Initialize a preemptive thread's stack with a fake IRETQ frame + zeroed GPRs.
+extern fn preemptive_stack_init(stack_top: u64, entry_addr: u64) -> u64;
+// The step_fn for preemptive fibers. Resumes thread via IRETQ, returns
+// POLL_PENDING (0) on timer preemption or POLL_READY (1) on thread exit.
+extern fn invoke_preemptive_thread(ctx_ptr: u64) -> i64;
+
+// Read GS segment at offset — used to recover saved_thread_rsp from GS:[56]
+extern fn read_gs_u64(offset: u64) -> u64;
 
 @no_mangle
 pub fn timer_isr() {
@@ -84,55 +127,64 @@ pub fn timer_isr() {
         // Enqueue a structured PulseEvent for the dispatcher
         pulse.push(pulse.PULSE_TIMER, pulse.get_tick());
 
-        // Set yield flag for preemptive scheduling
-        GLOBAL_SCHED.yield_pending = true;
+        // Flight recorder: log timer ISR event
+        let cpu = get_cpu_id();
+        let current_fiber = SCHED_ARRAY[cpu].current;
+        flight_log_trace(current_fiber, 3);  // EVENT_TIMER_ISR = 3
+
+        // Set yield flag for THIS core's scheduler
+        SCHED_ARRAY[cpu].yield_pending = true;
     }
 }
 
 pub fn init() {
     region("sched_init") {
-       GLOBAL_SCHED.fibers[0].active = true;
-       GLOBAL_SCHED.fibers[0].id = 0;
-       GLOBAL_SCHED.fibers[0].stack_base = 0;
-       GLOBAL_SCHED.current = 0;
-       GLOBAL_SCHED.yield_pending = false;
+       let cpu = get_cpu_id();
+       SCHED_ARRAY[cpu].fibers[0].active = true;
+       SCHED_ARRAY[cpu].fibers[0].id = 0;
+       SCHED_ARRAY[cpu].fibers[0].stack_base = 0;
+       SCHED_ARRAY[cpu].current = 0;
+       SCHED_ARRAY[cpu].count = 1;
+       SCHED_ARRAY[cpu].yield_pending = false;
 
        // Mark fiber 0 as active in bitmap
-       GLOBAL_SCHED.l2_details[0] = 1 as u64;
-       GLOBAL_SCHED.l1_summary = 1 as u64;
+       SCHED_ARRAY[cpu].l2_details[0] = 1 as u64;
+       SCHED_ARRAY[cpu].l1_summary = 1 as u64;
     }
 }
 
-// Mark a fiber as READY in the bitmap
+// Mark a fiber as READY in the bitmap (uses cpu_id internally)
 fn bitmap_set(fiber_id: u64) {
+    let cpu = get_cpu_id();
     let l1_idx = fiber_id / 64;
     let l2_bit = fiber_id % 64;
     let bit_mask: u64 = (1 as u64) << l2_bit;
 
-    let old_l2 = GLOBAL_SCHED.l2_details[l1_idx];
-    GLOBAL_SCHED.l2_details[l1_idx] = old_l2 | bit_mask;
+    let old_l2 = SCHED_ARRAY[cpu].l2_details[l1_idx];
+    SCHED_ARRAY[cpu].l2_details[l1_idx] = old_l2 | bit_mask;
 
     let group_mask: u64 = (1 as u64) << l1_idx;
-    let old_l1 = GLOBAL_SCHED.l1_summary;
-    GLOBAL_SCHED.l1_summary = old_l1 | group_mask;
+    let old_l1 = SCHED_ARRAY[cpu].l1_summary;
+    SCHED_ARRAY[cpu].l1_summary = old_l1 | group_mask;
 }
 
 // Mark a fiber as BLOCKED/EMPTY in the bitmap
 fn bitmap_clear(fiber_id: u64) {
+    let cpu = get_cpu_id();
     let l1_idx = fiber_id / 64;
     let l2_bit = fiber_id % 64;
     let bit_mask: u64 = (1 as u64) << l2_bit;
     let inv_mask: u64 = bit_mask ^ ALL_ONES;
 
-    let old_l2 = GLOBAL_SCHED.l2_details[l1_idx];
+    let old_l2 = SCHED_ARRAY[cpu].l2_details[l1_idx];
     let new_l2 = old_l2 & inv_mask;
-    GLOBAL_SCHED.l2_details[l1_idx] = new_l2;
+    SCHED_ARRAY[cpu].l2_details[l1_idx] = new_l2;
 
     if new_l2 == 0 {
         let group_mask: u64 = (1 as u64) << l1_idx;
         let inv_group: u64 = group_mask ^ ALL_ONES;
-        let old_l1 = GLOBAL_SCHED.l1_summary;
-        GLOBAL_SCHED.l1_summary = old_l1 & inv_group;
+        let old_l1 = SCHED_ARRAY[cpu].l1_summary;
+        SCHED_ARRAY[cpu].l1_summary = old_l1 & inv_group;
     }
 }
 
@@ -156,13 +208,15 @@ fn mask_below_bit(bit: u64) -> u64 {
 
 pub fn spawn(entry_addr: u64) -> u64 {
     region("sched_spawn") {
+        let cpu = get_cpu_id();
+
         // O(1) free slot lookup via inverted bitmap
         let mut group: u64 = 0;
         let mut found = false;
         let mut slot: u64 = 0;
 
         while group < L2_GROUPS {
-            let l2_val = GLOBAL_SCHED.l2_details[group];
+            let l2_val = SCHED_ARRAY[cpu].l2_details[group];
             let free_mask = l2_val ^ ALL_ONES;
             if free_mask != 0 {
                 let bit = ctz_u64(free_mask);
@@ -176,20 +230,97 @@ pub fn spawn(entry_addr: u64) -> u64 {
         }
         
         if found {
-            GLOBAL_SCHED.fibers[slot].id = GLOBAL_SCHED.next_id;
-            GLOBAL_SCHED.fibers[slot].active = true;
+            SCHED_ARRAY[cpu].fibers[slot].id = SCHED_ARRAY[cpu].next_id;
+            SCHED_ARRAY[cpu].fibers[slot].active = true;
             
-            // Allocate a 16KB stack from the slab allocator
+            // Universal Task Pointer: preemptive fibers use invoke_preemptive_thread
+            // as their step_fn. The scheduler calls it exactly like an async step_fn.
+            SCHED_ARRAY[cpu].fibers[slot].step_fn = fn_addr(invoke_preemptive_thread);
+            SCHED_ARRAY[cpu].fibers[slot].task_frame = 0;
+            
+            // Allocate a 16KB stack from this core's slab partition
             let stack_base = pop_stack();
             let stack_top = stack_base + SLAB_SLOT_SIZE;
 
-            GLOBAL_SCHED.fibers[slot].stack_base = stack_base;
-            GLOBAL_SCHED.fibers[slot].stack_ptr = stack_init(stack_top, entry_addr);
+            vmm.vmm_clear_present(stack_base);
+
+            SCHED_ARRAY[cpu].fibers[slot].stack_base = stack_base;
+            // IRETQ-compatible frame: fake hardware interrupt frame + zeroed GPRs
+            SCHED_ARRAY[cpu].fibers[slot].stack_ptr = preemptive_stack_init(stack_top, entry_addr);
+            // Unified ctx_ptr: preemptive fibers dispatch via stack_ptr
+            SCHED_ARRAY[cpu].fibers[slot].ctx_ptr = SCHED_ARRAY[cpu].fibers[slot].stack_ptr;
             
-            GLOBAL_SCHED.next_id = GLOBAL_SCHED.next_id + 1;
-            GLOBAL_SCHED.count = GLOBAL_SCHED.count + 1;
+            SCHED_ARRAY[cpu].next_id = SCHED_ARRAY[cpu].next_id + 1;
+            SCHED_ARRAY[cpu].count = SCHED_ARRAY[cpu].count + 1;
 
             // Update bitmap
+            bitmap_set(slot);
+
+            return slot;
+        } else {
+            return 9999;
+        }
+    }
+    return 0;
+}
+
+// =============================================================================
+// spawn_async — Spawn an Async State Machine Fiber
+// =============================================================================
+// Allocates a TaskFrame from the per-core slab, initializes the fiber slot
+// with the step_fn pointer and frame, and marks it runnable in the bitmap.
+//
+// step_fn_addr: address of compiler-emitted step function (fn(u64) -> i64)
+// frame_size:   byte size of the TaskFrame struct (from MLIR static analysis)
+//
+// Returns the fiber slot index, or 9999 if no slots available.
+// =============================================================================
+pub fn spawn_async(step_fn_addr: u64, frame_size: u64) -> u64
+    requires(step_fn_addr != 0)
+    requires(frame_size > 0)
+{
+    region("spawn_async") {
+        let cpu = get_cpu_id();
+
+        // O(1) free slot lookup via inverted bitmap (same as spawn)
+        let mut group: u64 = 0;
+        let mut found = false;
+        let mut slot: u64 = 0;
+
+        while group < L2_GROUPS {
+            let l2_val = SCHED_ARRAY[cpu].l2_details[group];
+            let free_mask = l2_val ^ ALL_ONES;
+            if free_mask != 0 {
+                let bit = ctz_u64(free_mask);
+                slot = group * 64 + bit;
+                if slot < MAX_FIBERS {
+                    found = true;
+                    group = L2_GROUPS;  // break
+                }
+            }
+            group = group + 1;
+        }
+
+        if found {
+            // Allocate TaskFrame from per-core slab
+            let frame_ptr = pop_stack();
+
+            // Zero-initialize the state index (first 8 bytes = resume_state = 0)
+            *(frame_ptr as &mut i64) = 0;
+
+            SCHED_ARRAY[cpu].fibers[slot].id = SCHED_ARRAY[cpu].next_id;
+            SCHED_ARRAY[cpu].fibers[slot].active = true;
+            SCHED_ARRAY[cpu].fibers[slot].step_fn = step_fn_addr;
+            SCHED_ARRAY[cpu].fibers[slot].task_frame = frame_ptr;
+            SCHED_ARRAY[cpu].fibers[slot].stack_ptr = 0;    // No hardware stack needed
+            SCHED_ARRAY[cpu].fibers[slot].stack_base = 0;
+            // Unified ctx_ptr: async fibers dispatch via task_frame
+            SCHED_ARRAY[cpu].fibers[slot].ctx_ptr = frame_ptr;
+
+            SCHED_ARRAY[cpu].next_id = SCHED_ARRAY[cpu].next_id + 1;
+            SCHED_ARRAY[cpu].count = SCHED_ARRAY[cpu].count + 1;
+
+            // Mark runnable in bitmap
             bitmap_set(slot);
 
             return slot;
@@ -211,53 +342,38 @@ pub fn start() {
 // =============================================================================
 // fiber_exit — Clean Fiber Termination with Deferred Stack Reclamation
 // =============================================================================
-// Called by a fiber when it has completed its work. Must be called explicitly
-// by the fiber (or via a trampoline on the initial stack frame).
-//
-// Protocol:
-//   1. Read the current fiber's slot and slab base address.
-//   2. Store the slab base in PENDING_RECLAIM for deferred push_stack().
-//   3. Mark the fiber inactive, clear the bitmap, decrement count.
-//   4. Yield — the scheduler will never select this fiber again.
-//   5. The NEXT fiber to resume from sched_yield performs the push_stack.
-//
-// This function never returns.
-// =============================================================================
 @no_yield
 @no_mangle
 pub fn fiber_exit() {
     region("fiber_exit") {
-        let slot = GLOBAL_SCHED.current;
-        let stack_base = GLOBAL_SCHED.fibers[slot].stack_base;
+        let cpu = get_cpu_id();
+        let slot = SCHED_ARRAY[cpu].current;
+        let stack_base = SCHED_ARRAY[cpu].fibers[slot].stack_base;
 
         // Flush any previously-pending reclamation BEFORE overwriting.
-        // This prevents stack leaks when fibers exit back-to-back —
-        // e.g., during ROF-1K drain where 1000 fibers exit consecutively.
-        // Safe: we are still on OUR stack (not the pending one).
-        if PENDING_RECLAIM != 0 {
-            push_stack(PENDING_RECLAIM);
-            PENDING_RECLAIM = 0;
+        if PENDING_RECLAIMS[cpu] != 0 {
+            vmm.vmm_set_present(PENDING_RECLAIMS[cpu]);
+            push_stack(PENDING_RECLAIMS[cpu]);
+            PENDING_RECLAIMS[cpu] = 0;
         }
 
         // Stage OUR stack for deferred reclamation.
-        // push_stack cannot be called for our own stack — we are still on it.
-        PENDING_RECLAIM = stack_base;
+        PENDING_RECLAIMS[cpu] = stack_base;
 
         // Tear down the fiber from the scheduler
-        GLOBAL_SCHED.fibers[slot].active = false;
-        GLOBAL_SCHED.fibers[slot].stack_ptr = 0;
-        GLOBAL_SCHED.fibers[slot].stack_base = 0;
+        SCHED_ARRAY[cpu].fibers[slot].active = false;
+        SCHED_ARRAY[cpu].fibers[slot].stack_ptr = 0;
+        SCHED_ARRAY[cpu].fibers[slot].stack_base = 0;
         bitmap_clear(slot);
-        GLOBAL_SCHED.count = GLOBAL_SCHED.count - 1;
+        SCHED_ARRAY[cpu].count = SCHED_ARRAY[cpu].count - 1;
 
-        // Find the next runnable fiber via bitmap (inline, not via sched_yield
-        // to avoid a compiler forward-reference issue in transitive compilation).
+        // Find the next runnable fiber via bitmap
         let current_group = slot / 64;
         let current_bit = slot % 64;
         let mut next: u64 = slot;
 
-        let l2_cur = GLOBAL_SCHED.l2_details[current_group];
-        let l1 = GLOBAL_SCHED.l1_summary;
+        let l2_cur = SCHED_ARRAY[cpu].l2_details[current_group];
+        let l1 = SCHED_ARRAY[cpu].l1_summary;
 
         let above = l2_cur & mask_above_bit(current_bit);
         if above != 0 {
@@ -266,13 +382,13 @@ pub fn fiber_exit() {
             let l1_above = l1 & mask_above_bit(current_group);
             if l1_above != 0 {
                 let grp = ctz_u64(l1_above);
-                let l2_grp = GLOBAL_SCHED.l2_details[grp];
+                let l2_grp = SCHED_ARRAY[cpu].l2_details[grp];
                 next = grp * 64 + ctz_u64(l2_grp);
             } else {
                 let l1_below = l1 & mask_below_bit(current_group);
                 if l1_below != 0 {
                     let grp = ctz_u64(l1_below);
-                    let l2_grp = GLOBAL_SCHED.l2_details[grp];
+                    let l2_grp = SCHED_ARRAY[cpu].l2_details[grp];
                     next = grp * 64 + ctz_u64(l2_grp);
                 } else {
                     let below = l2_cur & mask_below_bit(current_bit);
@@ -284,54 +400,47 @@ pub fn fiber_exit() {
         }
 
         if next != slot {
-            GLOBAL_SCHED.current = next;
-            let old = &GLOBAL_SCHED.fibers[slot].stack_ptr;
-            let new_sp = GLOBAL_SCHED.fibers[next].stack_ptr;
+            SCHED_ARRAY[cpu].current = next;
+            let old = &SCHED_ARRAY[cpu].fibers[slot].stack_ptr;
+            let new_sp = SCHED_ARRAY[cpu].fibers[next].stack_ptr;
             switch_stacks(old, new_sp);
 
-            // Deferred reclamation after resuming on the live fiber's stack
-            if PENDING_RECLAIM != 0 {
-                push_stack(PENDING_RECLAIM);
-                PENDING_RECLAIM = 0;
+            // Deferred reclamation after resuming
+            let cpu2 = get_cpu_id();
+            if PENDING_RECLAIMS[cpu2] != 0 {
+                vmm.vmm_set_present(PENDING_RECLAIMS[cpu2]);
+                push_stack(PENDING_RECLAIMS[cpu2]);
+                PENDING_RECLAIMS[cpu2] = 0;
             }
         }
     }
 }
 
 // =============================================================================
-// fiber_count — Active Fiber Count (diagnostic)
-// =============================================================================
-// Returns the number of live fibers. Used by slab_reclaim_bench to detect
-// when all ephemeral fibers have completed.
+// fiber_count — Active Fiber Count (this core)
 // =============================================================================
 @no_mangle
 pub fn fiber_count() -> u64 {
-    return GLOBAL_SCHED.count;
+    let cpu = get_cpu_id();
+    return SCHED_ARRAY[cpu].count;
 }
 
 @no_yield
 @no_mangle
 pub fn sched_yield() {
     region("sched_yield") {
-        let current = GLOBAL_SCHED.current;
+        let cpu = get_cpu_id();
+        let current = SCHED_ARRAY[cpu].current;
         let current_group = current / 64;
         let current_bit = current % 64;
-
-        // O(1) BITMAP SELECTION
-        // Find next set bit after `current` with wraparound.
-        //
-        // Phase 1: Remaining bits in current group (above current_bit)
-        // Phase 2: Higher groups via L1 summary
-        // Phase 3: Wrap to lower groups via L1 summary
-        // Phase 4: Lower bits in current group (wrap within group)
 
         let mut next: u64 = current;
 
         // Read bitmaps into locals
-        let l2_cur = GLOBAL_SCHED.l2_details[current_group];
-        let l1 = GLOBAL_SCHED.l1_summary;
+        let l2_cur = SCHED_ARRAY[cpu].l2_details[current_group];
+        let l1 = SCHED_ARRAY[cpu].l1_summary;
 
-        // Phase 1: Mask off bits <= current in the current L2 word
+        // Phase 1: Remaining bits in current group
         let above = l2_cur & mask_above_bit(current_bit);
         if above != 0 {
             next = current_group * 64 + ctz_u64(above);
@@ -340,14 +449,14 @@ pub fn sched_yield() {
             let l1_above = l1 & mask_above_bit(current_group);
             if l1_above != 0 {
                 let grp = ctz_u64(l1_above);
-                let l2_grp = GLOBAL_SCHED.l2_details[grp];
+                let l2_grp = SCHED_ARRAY[cpu].l2_details[grp];
                 next = grp * 64 + ctz_u64(l2_grp);
             } else {
                 // Phase 3: Wrap to lower groups
                 let l1_below = l1 & mask_below_bit(current_group);
                 if l1_below != 0 {
                     let grp = ctz_u64(l1_below);
-                    let l2_grp = GLOBAL_SCHED.l2_details[grp];
+                    let l2_grp = SCHED_ARRAY[cpu].l2_details[grp];
                     next = grp * 64 + ctz_u64(l2_grp);
                 } else {
                     // Phase 4: Wrap within current group
@@ -355,38 +464,81 @@ pub fn sched_yield() {
                     if below != 0 {
                         next = current_group * 64 + ctz_u64(below);
                     }
-                    // else: no other fiber, stay on current
                 }
             }
         }
 
         if next != current {
-            GLOBAL_SCHED.current = next;
-            
-            let old = &GLOBAL_SCHED.fibers[current].stack_ptr;
-            let new_sp = GLOBAL_SCHED.fibers[next].stack_ptr;
+            SCHED_ARRAY[cpu].current = next;
 
-            switch_stacks(old, new_sp);
+            // =============================================================
+            // UNIFIED DISPATCH — Zero-Branch Universal Task Pointer
+            // =============================================================
+            // Every fiber has a step_fn. For async fibers, it's the
+            // compiler-emitted state machine. For preemptive fibers,
+            // it's invoke_preemptive_thread from preempt_stub.S.
+            // The scheduler is blind — it just calls invoke_task.
+            // =============================================================
+            let next_step_fn = SCHED_ARRAY[cpu].fibers[next].step_fn;
 
-            // =========================================================
-            // DEFERRED RECLAMATION
-            // =========================================================
-            // We have just resumed on a LIVE fiber's stack (after being
-            // switched TO by another fiber's sched_yield). If a fiber
-            // died before this switch, PENDING_RECLAIM holds its stack
-            // base. We can now safely return it to the slab because we
-            // are executing on OUR stack, not the dead fiber's.
-            // =========================================================
-            if PENDING_RECLAIM != 0 {
-                push_stack(PENDING_RECLAIM);
-                PENDING_RECLAIM = 0;
+            // Unified context pointer — zero branches, set at spawn time
+            let ctx = SCHED_ARRAY[cpu].fibers[next].ctx_ptr;
+
+            // Flight recorder: log DISPATCH before invoke_task
+            flight_log_trace(next, 0);  // EVENT_DISPATCH = 0
+
+            let status = invoke_task(next_step_fn, ctx);
+
+            if status == POLL_READY {
+                // Flight recorder: log COMPLETED
+                flight_log_trace(next, 2);  // EVENT_COMPLETED = 2
+
+                // Fiber completed — reclaim resources
+                SCHED_ARRAY[cpu].fibers[next].active = false;
+                SCHED_ARRAY[cpu].fibers[next].step_fn = 0;
+                SCHED_ARRAY[cpu].fibers[next].ctx_ptr = 0;
+
+                // Async fibers: reclaim TaskFrame slab
+                let tf = SCHED_ARRAY[cpu].fibers[next].task_frame;
+                if tf != 0 {
+                    SCHED_ARRAY[cpu].fibers[next].task_frame = 0;
+                    vmm.vmm_set_present(tf);
+                    push_stack(tf);
+                }
+
+                // Preemptive fibers: reclaim stack slab
+                let sb = SCHED_ARRAY[cpu].fibers[next].stack_base;
+                if sb != 0 {
+                    SCHED_ARRAY[cpu].fibers[next].stack_base = 0;
+                    SCHED_ARRAY[cpu].fibers[next].stack_ptr = 0;
+                    vmm.vmm_set_present(sb);
+                    push_stack(sb);
+                }
+
+                bitmap_clear(next);
+                SCHED_ARRAY[cpu].count = SCHED_ARRAY[cpu].count - 1;
+            } else {
+                // Flight recorder: log YIELD
+                flight_log_trace(next, 1);  // EVENT_YIELD = 1
+
+                // POLL_PENDING — fiber stays in bitmap
+                // For preemptive fibers: update stack_ptr from GS:[56] side channel
+                let saved_rsp = read_gs_u64(56);
+                if saved_rsp != 0 {
+                    SCHED_ARRAY[cpu].fibers[next].stack_ptr = saved_rsp;
+                    SCHED_ARRAY[cpu].fibers[next].ctx_ptr = saved_rsp;
+                }
             }
+
+            // Restore current — we executed inline, no stack switch
+            SCHED_ARRAY[cpu].current = current;
         }
     }
 }
 
 pub fn get_id() -> u64 {
-    return GLOBAL_SCHED.fibers[GLOBAL_SCHED.current].id;
+    let cpu = get_cpu_id();
+    return SCHED_ARRAY[cpu].fibers[SCHED_ARRAY[cpu].current].id;
 }
 
 pub fn yield_now() {
@@ -399,4 +551,105 @@ pub fn get_fiber_count() -> u64 {
 
 pub fn exit_fiber() {
     fiber_exit();
+}
+
+@no_mangle
+pub fn get_current_fiber() -> u64 {
+    let cpu = get_cpu_id();
+    return SCHED_ARRAY[cpu].current;
+}
+
+// =============================================================================
+// @no_mangle ABI Wrappers — Prefixed for C-flat namespace
+// =============================================================================
+// These wrappers allow cross-module callers to use `extern fn sched_init()`
+// instead of `import kernel.core.scheduler`, which would inline the 130KB
+// SCHED_ARRAY constant into the caller's MLIR module, crashing salt-opt.
+// =============================================================================
+
+@no_mangle
+pub fn sched_init() {
+    init();
+}
+
+@no_mangle
+pub fn sched_start() {
+    start();
+}
+
+@no_mangle
+pub fn sched_spawn(entry_addr: u64) -> u64 {
+    return spawn(entry_addr);
+}
+
+@no_mangle
+pub fn sched_get_id() -> u64 {
+    return get_id();
+}
+
+@no_mangle
+pub fn sched_spawn_async(step_fn_addr: u64, frame_size: u64) -> u64 {
+    return spawn_async(step_fn_addr, frame_size);
+}
+
+// Test getters for fiber fields
+@no_mangle
+pub fn fiber_step_fn(slot: u64) -> u64 {
+    let cpu = get_cpu_id();
+    return SCHED_ARRAY[cpu].fibers[slot].step_fn;
+}
+
+@no_mangle
+pub fn fiber_stack_ptr(slot: u64) -> u64 {
+    let cpu = get_cpu_id();
+    return SCHED_ARRAY[cpu].fibers[slot].stack_ptr;
+}
+
+@no_mangle
+pub fn fiber_task_frame(slot: u64) -> u64 {
+    let cpu = get_cpu_id();
+    return SCHED_ARRAY[cpu].fibers[slot].task_frame;
+}
+
+@no_mangle
+pub fn fiber_ctx_ptr(slot: u64) -> u64 {
+    let cpu = get_cpu_id();
+    return SCHED_ARRAY[cpu].fibers[slot].ctx_ptr;
+}
+
+// =============================================================================
+// enter_idle_loop — AP entry point into the scheduler
+// =============================================================================
+// Initializes this core's SchedulerState (fiber 0 = idle context),
+// enables interrupts so timer ticks can preempt, then enters a HLT
+// loop. The AP sleeps until an IRQ wakes it; future spawn() calls
+// on this core will schedule work via the bitmap.
+// =============================================================================
+extern fn idle_halt();
+
+pub fn enter_idle_loop() {
+    let cpu = get_cpu_id();
+
+    // Initialize this core's scheduler state (fiber 0 = idle context)
+    SCHED_ARRAY[cpu].fibers[0].active = true;
+    SCHED_ARRAY[cpu].fibers[0].id = 0;
+    SCHED_ARRAY[cpu].fibers[0].stack_base = 0;
+    SCHED_ARRAY[cpu].current = 0;
+    SCHED_ARRAY[cpu].count = 1;
+    SCHED_ARRAY[cpu].yield_pending = false;
+    SCHED_ARRAY[cpu].l2_details[0] = 1 as u64;
+    SCHED_ARRAY[cpu].l1_summary = 1 as u64;
+
+    // Enable interrupts — timer ticks will preempt and schedule fibers
+    enable_interrupts();
+
+    // Idle loop: HLT until interrupt wakes us
+    loop {
+        idle_halt();
+    }
+}
+
+@no_mangle
+pub fn sched_enter_idle_loop() {
+    enter_idle_loop();
 }

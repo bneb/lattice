@@ -165,3 +165,19 @@ pub fn init_ring3(tss_addr: u64) {
     tss_hi.base_low = ((tss_base_upper >> 16) & 0xFFFF) as u16;
     GDT_ENTRIES[7] = tss_hi;
 }
+
+extern fn lgdt_wrapper(limit: u16, base: u64);
+extern fn ltr_wrapper(selector: u16);
+
+// @no_mangle ABI Wrappers
+@no_mangle
+pub fn gdt_init() { init(); }
+
+@no_mangle
+pub fn gdt_init_ring3(tss_addr: u64) { init_ring3(tss_addr); }
+
+@no_mangle
+pub fn gdt_load_ring3() {
+    lgdt_wrapper(63, (&GDT_ENTRIES) as u64);
+    ltr_wrapper(0x30);
+}

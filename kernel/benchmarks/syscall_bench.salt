@@ -1,93 +1,135 @@
-// benchmarks/syscall_bench.salt
-// Syscall Overhead Benchmark — measures raw int 0x80 round-trip cost.
+// =============================================================================
+// kernel/benchmarks/syscall_bench.salt
+// SYSCALL/SYSRET Round-Trip Latency Benchmark — Ring 3 Native
+// =============================================================================
 //
-// Methodology (lmbench-style):
-//   1. Warmup phase: 100 null syscalls to prime TLB + branch predictor
-//   2. Measurement: NUM_SAMPLES iterations of rdtsc → int 0x80 (eax=0) → rdtsc
-//   3. Filter: discard samples < MIN_CYCLES (noise) or > MAX_CYCLES (preempted)
-//   4. Report: average cycles per null syscall
+// Purpose:
+//   Measure the hardware cost of a null SYSCALL/SYSRET round-trip.
+//   This is the CONTROL GROUP for the v0.9.0 SIP architecture:
+//   if SIPs achieve < 5 cycles, the delta against this baseline
+//   (expected 150-300 cycles on Skylake) proves their value.
 //
-// Expected: 500–2000 cycles (QEMU), 200–500 cycles (bare metal)
+// Architecture:
+//   1. Salt (Ring 0) calls drop_to_ring3_and_bench() — IRETQ drops CPL to 3
+//   2. ring3_bench_loop_asm (Ring 3, pure x86-64 assembly):
+//      - Warmup: 10 × SYSCALL(0) to prime the pipeline
+//      - Measurement: 100 × rdtsc → SYSCALL(0) → SYSRET → rdtsc
+//      - All state in callee-saved registers (immune to SYSCALL clobber)
+//   3. Sentinel SYSCALL(0xBEEF) escapes to bench_ring0_restore
+//   4. Salt reads results via extern fn accessors and prints report
+//
+// Why assembly?
+//   LLVM's PIC (-relocation-model=pic) generates function prologues that
+//   crash at Ring 3 under QEMU TCG. The assembly loop uses only
+//   RIP-relative addressing and callee-saved registers, avoiding all
+//   relocation issues.
+//
+// Dependencies:
+//   - ring3_bench_trampoline.S: trampoline, loop, escape hatch, accessors
+//   - syscall_entry_fast.S: sentinel check (.Lbench_escape)
+//   - boot.S: MSR/GDT/TSS already configured for Ring 3
+// =============================================================================
 
 package benchmarks.syscall_bench
 
 use kernel.drivers.serial
 use kernel.drivers.vga
 
-extern fn rdtsc() -> u64;
-extern fn syscall_noop();
-extern fn syscall_escalate_ring0();
+// Assembly FFI — defined in ring3_bench_trampoline.S
+extern fn drop_to_ring3_and_bench(ring3_func: u64, ring3_stack: u64);
+extern fn ring3_bench_loop_asm();
 
-const NUM_SAMPLES: i32 = 10000;
-const WARMUP: i32 = 100;
-const MIN_CYCLES: u64 = 10;
-const MAX_CYCLES: u64 = 50000;
+// Assembly-owned result accessors (ring3_bench_trampoline.S)
+extern fn read_bench_diag_phase() -> u64;
+extern fn read_bench_asm_total() -> u64;
+extern fn read_bench_asm_valid() -> u64;
+extern fn read_bench_asm_min() -> u64;
+extern fn read_bench_asm_max() -> u64;
+extern fn read_bench_asm_loops() -> u64;
+extern fn read_bench_asm_first_t0() -> u64;
+extern fn read_bench_asm_first_elapsed() -> u64;
 
-pub fn run() {
+// =============================================================================
+// TDD Constants — Assert Against Ideal Behavior
+// =============================================================================
+const TARGET_MIN_CYCLES: u64 = 100;     // v0.9.0 roadmap lower bound
+const TARGET_MAX_CYCLES: u64 = 500;     // v0.9.0 roadmap upper bound
+
+// =============================================================================
+// Ring 3 stack — allocated in kernel BSS, mapped User-accessible
+// =============================================================================
+global ring3_stack: [u64; 1024] = [0; 1024];
+
+// =============================================================================
+// run_syscall_bench — Entry point called from Ring 0 benchmark suite
+// =============================================================================
+@no_mangle
+pub fn run_syscall_bench() {
     serial.print("BENCH:syscall:start\n");
-    vga.print("Syscall benchmark (10000 samples)...\n");
 
-    // Phase 1: Warmup — prime instruction cache and branch predictor
-    let mut w: i32 = 0;
-    while w < WARMUP {
-        syscall_noop();
-        w = w + 1;
+    // ── THE DROP ────────────────────────────────────────────────────────
+    // IRETQ drops CPL to 3, ring3_bench_loop_asm runs the benchmark,
+    // sentinel SYSCALL(0xBEEF) escapes back here.
+    let stack_top = (&ring3_stack[1023]) as u64;
+    let ring3_entry = (&ring3_bench_loop_asm) as u64;
+    drop_to_ring3_and_bench(ring3_entry, stack_top);
+
+    // ── BACK IN RING 0 ─────────────────────────────────────────────────
+    // Read assembly-owned results
+    let phase = read_bench_diag_phase();
+    let valid = read_bench_asm_valid();
+    let total = read_bench_asm_total();
+    let min_cy = read_bench_asm_min();
+    let max_cy = read_bench_asm_max();
+    let loops = read_bench_asm_loops();
+    let first_t0 = read_bench_asm_first_t0();
+    let first_elapsed = read_bench_asm_first_elapsed();
+
+    // Diagnostics
+    serial.print("BENCH:syscall:diag phase=");
+    serial.print_u64(phase);
+    serial.print(" loops=");
+    serial.print_u64(loops);
+    serial.print(" first_t0=");
+    serial.print_u64(first_t0);
+    serial.print(" first_elapsed=");
+    serial.print_u64(first_elapsed);
+    serial.print(" valid=");
+    serial.print_u64(valid);
+    serial.print("\n");
+
+    // ── TDD ASSERTIONS ─────────────────────────────────────────────────
+    if valid == 0 {
+        serial.print("BENCH:syscall:FAIL no valid samples\n");
+        vga.print("  Syscall: FAIL (no samples)\n");
+        return;
     }
 
-    // Phase 2: Measurement
-    let mut total: u64 = 0;
-    let mut valid: i32 = 0;
-    let mut min_cy: u64 = 999999999;
-    let mut max_cy: u64 = 0;
-    let mut i: i32 = 0;
+    let avg = total / valid;
 
-    while i < NUM_SAMPLES {
-        let t0 = rdtsc();
-        syscall_noop();
-        let t1 = rdtsc();
+    // ── REPORT ──────────────────────────────────────────────────────────
+    serial.print("BENCH:syscall:avg=");
+    serial.print_u64(avg);
+    serial.print(" min=");
+    serial.print_u64(min_cy);
+    serial.print(" max=");
+    serial.print_u64(max_cy);
+    serial.print(" valid=");
+    serial.print_u64(valid);
+    serial.print("\n");
 
-        let elapsed = t1 - t0;
+    vga.print("  Syscall avg: ");
+    vga.print_u64(avg);
+    vga.print(" cycles\n");
 
-        // Filter: reject noise and preemption outliers
-        if elapsed >= MIN_CYCLES {
-            if elapsed <= MAX_CYCLES {
-                total = total + elapsed;
-                valid = valid + 1;
-                if elapsed < min_cy {
-                    min_cy = elapsed;
-                }
-                if elapsed > max_cy {
-                    max_cy = elapsed;
-                }
-            }
+    // ── TARGET ASSESSMENT ───────────────────────────────────────────────
+    if avg >= TARGET_MIN_CYCLES {
+        if avg <= TARGET_MAX_CYCLES {
+            serial.print("BENCH:syscall:PASS (within v0.9.0 target 100-500cy)\n");
+        } else {
+            serial.print("BENCH:syscall:WARN above target (");
+            serial.print_u64(avg);
+            serial.print(" > 500cy target)\n");
         }
-        i = i + 1;
-    }
-
-    // Re-escalate to Ring 0 — SYSRET left us at Ring 3,
-    // but serial.print requires privileged I/O (outb)
-    syscall_escalate_ring0();
-
-    // Phase 3: Report
-    if valid > 0 {
-        let avg = total / (valid as u64);
-        serial.print("BENCH:syscall:avg=");
-        serial.print_u64(avg);
-        serial.print(" min=");
-        serial.print_u64(min_cy);
-        serial.print(" max=");
-        serial.print_u64(max_cy);
-        serial.print(" valid=");
-        serial.print_u64(valid as u64);
-        serial.print(" total=");
-        serial.print_u64(total);
-        serial.print("\n");
-
-        vga.print("  Syscall avg: ");
-        vga.print_u64(avg);
-        vga.print(" cycles\n");
-    } else {
-        serial.print("BENCH:syscall:ERROR no valid samples\n");
-        vga.print("  Syscall: ERROR\n");
     }
 }

@@ -78,3 +78,8 @@ pub fn free(ptr: u64) {
     if ptr == 0 { return; }
     slab_cache.free(VMA_CACHE_ID, ptr);
 }
+
+// @no_mangle ABI Wrappers
+@no_mangle
+pub fn vma_init() { init(); }
+

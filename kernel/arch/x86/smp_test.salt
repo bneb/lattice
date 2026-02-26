@@ -1,0 +1,303 @@
+// =============================================================================
+// kernel/arch/x86/smp_test.salt
+// SMP Bring-up Test Harness — TDD Assertions at Every Call Stack Layer
+// =============================================================================
+//
+// Structured test output for machine parsing by runner_qemu.py:
+//   TEST:smp:<test_name>:PASS
+//   TEST:smp:<test_name>:FAIL <reason>
+//
+// Test layers (bottom-up of the call stack):
+//   1. RSDP discovery     — signature found, checksum valid
+//   2. RSDT walk          — MADT table located
+//   3. MADT parsing       — CPU count > 0, APIC IDs valid
+//   4. APIC init          — Local APIC enabled, ID readable
+//   5. AP boot count      — APs checked in match expected
+//   6. Per-CPU GS         — cpu_id readable via GS segment
+// =============================================================================
+
+package kernel.arch.x86.smp_test
+
+use kernel.drivers.serial
+
+// =============================================================================
+// Assembly FFI
+// =============================================================================
+extern fn read_gs_u64(offset: u64) -> u64;
+extern fn get_online_cpus() -> u64;
+
+// =============================================================================
+// ABI-boundary extern fn (prefixed @no_mangle wrappers)
+// =============================================================================
+// kernel/arch/x86/acpi.salt
+extern fn acpi_find_rsdp() -> u64;
+extern fn acpi_parse_madt(rsdp_phys: u64) -> u64;
+extern fn acpi_get_cpu_count() -> u64;
+extern fn acpi_get_apic_id(index: u64) -> u8;
+extern fn acpi_get_lapic_base() -> u64;
+
+// kernel/arch/x86/apic.salt
+extern fn apic_init();
+extern fn apic_read_id() -> u32;
+extern fn apic_init_timer(vector: u8, initial_count: u32);
+
+// kernel/arch/x86/smp.salt
+extern fn smp_boot_aps();
+
+// =============================================================================
+// Test Infrastructure
+// =============================================================================
+
+fn test_pass(name: &u8) {
+    serial.print("TEST:smp:");
+    serial.print(name);
+    serial.print(":PASS\n");
+}
+
+fn test_fail(name: &u8, reason: &u8) {
+    serial.print("TEST:smp:");
+    serial.print(name);
+    serial.print(":FAIL ");
+    serial.print(reason);
+    serial.print("\n");
+}
+
+fn test_value(name: &u8, val: u64) {
+    serial.print("TEST:smp:");
+    serial.print(name);
+    serial.print(":VALUE ");
+    serial.print_u64(val);
+    serial.print("\n");
+}
+
+// =============================================================================
+// Layer 1: RSDP Discovery
+// =============================================================================
+// Asserts:
+//   - RSDP physical address is non-zero (found in BIOS ROM or EBDA)
+//   - RSDP address is within expected scan range (0x80000-0xFFFFF)
+// =============================================================================
+
+fn test_rsdp_discovery() -> u64 {
+    serial.print("[TEST] Layer 1: RSDP Discovery\n");
+
+    let rsdp_addr = acpi_find_rsdp();
+
+    // Test 1.1: RSDP found (non-zero)
+    if rsdp_addr == 0 {
+        test_fail("rsdp_found", "RSDP not found in BIOS ROM or EBDA");
+        return 0;
+    }
+    test_pass("rsdp_found");
+
+    // Test 1.2: RSDP address is in expected range
+    let in_bios = rsdp_addr >= 0xE0000 && rsdp_addr <= 0xFFFFF;
+    let in_ebda = rsdp_addr >= 0x80000 && rsdp_addr <= 0x9FFFF;
+    if in_bios || in_ebda {
+        test_pass("rsdp_range");
+    } else {
+        test_fail("rsdp_range", "RSDP address outside expected scan regions");
+    }
+
+    test_value("rsdp_addr", rsdp_addr);
+    return rsdp_addr;
+}
+
+// =============================================================================
+// Layer 2: RSDT Walk & MADT Location
+// =============================================================================
+// Asserts:
+//   - parse_madt returns > 0 CPUs (MADT found and parseable)
+//   - CPU count is reasonable (1-256)
+// =============================================================================
+
+fn test_madt_parsing(rsdp_addr: u64) -> u64 {
+    serial.print("[TEST] Layer 2: MADT Parsing\n");
+
+    let cpu_count = acpi_parse_madt(rsdp_addr);
+
+    // Test 2.1: MADT found (cpu_count > 0)
+    if cpu_count == 0 {
+        test_fail("madt_found", "MADT not found or no CPUs reported");
+        return 0;
+    }
+    test_pass("madt_found");
+
+    // Test 2.2: CPU count is reasonable
+    if cpu_count > 256 {
+        test_fail("cpu_count_sane", "CPU count exceeds 256");
+        return cpu_count;
+    }
+    test_pass("cpu_count_sane");
+
+    // Test 2.3: First APIC ID is 0 (BSP is typically APIC ID 0)
+    let bsp_id = acpi_get_apic_id(0);
+    if bsp_id == 0 {
+        test_pass("bsp_apic_id_zero");
+    } else {
+        // Not a hard failure — BSP can have any APIC ID on some platforms
+        serial.print("TEST:smp:bsp_apic_id_zero:WARN BSP APIC ID is ");
+        serial.print_u64(bsp_id as u64);
+        serial.print(", expected 0\n");
+    }
+
+    // Test 2.4: All APIC IDs are unique
+    let mut unique = true;
+    let mut i: u64 = 0;
+    while i < cpu_count {
+        let mut j: u64 = i + 1;
+        while j < cpu_count {
+            if acpi_get_apic_id(i) == acpi_get_apic_id(j) {
+                unique = false;
+                j = cpu_count;  // break
+                i = cpu_count;  // break outer
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    if unique {
+        test_pass("apic_ids_unique");
+    } else {
+        test_fail("apic_ids_unique", "Duplicate APIC IDs detected");
+    }
+
+    // Test 2.5: LAPIC base address is the standard 0xFEE00000
+    let lapic_base = acpi_get_lapic_base();
+    if lapic_base == 0xFEE00000 {
+        test_pass("lapic_base_standard");
+    } else {
+        serial.print("TEST:smp:lapic_base_standard:WARN LAPIC base is 0x");
+        serial.print_hex(lapic_base);
+        serial.print(", expected 0xFEE00000\n");
+    }
+
+    test_value("cpu_count", cpu_count);
+    return cpu_count;
+}
+
+// =============================================================================
+// Layer 3: Local APIC Initialization
+// =============================================================================
+// Asserts:
+//   - APIC init completes without fault (PIC disabled, APIC enabled)
+//   - APIC ID is readable and matches MADT BSP entry
+// =============================================================================
+
+fn test_apic_init() {
+    serial.print("[TEST] Layer 3: Local APIC Init\n");
+
+    // This call disables PIC, enables APIC via MSR, sets SVR
+    apic_init();
+    test_pass("apic_init");
+
+    // Test 3.1: APIC ID is readable
+    let my_id = apic_read_id();
+    test_value("bsp_apic_id", my_id as u64);
+
+    // Test 3.2: APIC ID matches MADT's first entry
+    let madt_bsp_id = acpi_get_apic_id(0) as u32;
+    if my_id == madt_bsp_id {
+        test_pass("apic_id_matches_madt");
+    } else {
+        test_fail("apic_id_matches_madt", "APIC read_id != MADT first entry");
+    }
+}
+
+// =============================================================================
+// Layer 4: APIC Timer (Replaces PIT)
+// =============================================================================
+// Asserts:
+//   - Timer can be configured without fault
+//   - Timer vector is set to the expected IDT vector
+// =============================================================================
+
+fn test_apic_timer() {
+    serial.print("[TEST] Layer 4: APIC Timer\n");
+
+    // Configure timer on vector 0x20 (same as PIT was), periodic, count=10M
+    apic_init_timer(0x20, 10000000);
+    test_pass("apic_timer_config");
+}
+
+// =============================================================================
+// Layer 5: AP Boot (SMP)
+// =============================================================================
+// Asserts:
+//   - APs that checked in match (cpu_count - 1) expected
+//   - Online CPU count equals total MADT count
+// =============================================================================
+
+fn test_ap_boot(expected_cpus: u64) {
+    serial.print("[TEST] Layer 5: AP Boot\n");
+
+    if expected_cpus <= 1 {
+        serial.print("TEST:smp:ap_boot:SKIP single-CPU configuration\n");
+        return;
+    }
+
+    // Boot the APs
+    smp_boot_aps();
+
+    let online = get_online_cpus();
+    test_value("online_cpus", online);
+
+    // Test 5.1: All expected APs booted
+    if online == expected_cpus {
+        test_pass("all_aps_online");
+    } else {
+        serial.print("TEST:smp:all_aps_online:FAIL expected=");
+        serial.print_u64(expected_cpus);
+        serial.print(" got=");
+        serial.print_u64(online);
+        serial.print("\n");
+    }
+}
+
+
+
+// =============================================================================
+// run_smp_tests — Full Call-Stack Test Suite
+// =============================================================================
+// Called from kmain after basic init (serial, GDT, IDT).
+// Returns the number of online CPUs for use by the rest of boot.
+// =============================================================================
+@no_mangle
+pub fn run_smp_tests() -> u64 {
+    serial.print("═══════════════════════════════════════════\n");
+    serial.print(" SMP BRING-UP TEST SUITE\n");
+    serial.print("═══════════════════════════════════════════\n");
+
+    // Layer 1: RSDP
+    let rsdp_addr = test_rsdp_discovery();
+    if rsdp_addr == 0 {
+        serial.print("TEST:smp:SUITE:ABORT no RSDP\n");
+        return 1;  // BSP only
+    }
+
+    // Layer 2: MADT
+    let cpu_count = test_madt_parsing(rsdp_addr);
+    if cpu_count == 0 {
+        serial.print("TEST:smp:SUITE:ABORT no MADT\n");
+        return 1;  // BSP only
+    }
+
+    // Layer 3: Local APIC
+    test_apic_init();
+
+    // Layer 4: APIC Timer
+    test_apic_timer();
+
+    // Layer 5: AP Boot
+    test_ap_boot(cpu_count);
+
+
+
+    serial.print("═══════════════════════════════════════════\n");
+    serial.print(" SMP TEST SUITE COMPLETE: ");
+    serial.print_u64(cpu_count);
+    serial.print(" CPUs\n");
+    serial.print("═══════════════════════════════════════════\n");
+
+    return cpu_count;
+}

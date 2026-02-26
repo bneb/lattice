@@ -9,7 +9,7 @@ Salt is a systems programming language with Z3-verified safety, arena-based memo
 1. **Z3 Verification**: `requires()` and `ensures()` contracts proven at compile time
 2. **Arena Memory**: O(1) bulk free via mark/reset — no GC, no borrow checker
 3. **MLIR Pipeline**: Source → MLIR → LLVM → binary, with affine tiling for tensor ops
-4. **C-Parity Performance**: 22/22 benchmarks building, 16 faster than C, 6 at parity
+4. **C-Parity Performance**: 19/22 benchmarks at C-parity or better
 
 ## Documentation Index
 

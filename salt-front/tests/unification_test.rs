@@ -13,7 +13,7 @@
 #[cfg(test)]
 mod unification_tests {
     use salt_front::types::Type;
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
 
     /// Helper to create a simple CallSiteResolver context for testing
     /// Note: This is a simplified version that only tests unify_types logic
@@ -46,11 +46,11 @@ mod unification_tests {
 
     /// Simulates the unify_types logic for test purposes
     fn simulate_unify(pattern: &Type, concrete: &Type) -> Result<(), String> {
-        let mut map: HashMap<String, Type> = HashMap::new();
+        let mut map: BTreeMap<String, Type> = BTreeMap::new();
         simulate_unify_internal(pattern, concrete, &mut map)
     }
 
-    fn simulate_unify_internal(pattern: &Type, concrete: &Type, map: &mut HashMap<String, Type>) -> Result<(), String> {
+    fn simulate_unify_internal(pattern: &Type, concrete: &Type, map: &mut BTreeMap<String, Type>) -> Result<(), String> {
         match (pattern, concrete) {
             // Identity
             (p, c) if p == c => Ok(()),

@@ -17,3 +17,8 @@ pub fn init() {
         outb(0x40, ((divisor >> 8) & 0xFF) as u8);
     }
 }
+
+// @no_mangle ABI Wrappers
+@no_mangle
+pub fn pit_init() { init(); }
+

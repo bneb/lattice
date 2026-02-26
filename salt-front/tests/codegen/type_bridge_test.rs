@@ -112,7 +112,7 @@ mod tests {
             
             // We need to manually register the struct info to simulate a parsed struct
             use salt_front::registry::StructInfo;
-            use std::collections::HashMap;
+            use std::collections::{BTreeMap, HashMap};
             use salt_front::types::TypeKey;
             
             let name = "PaddingTest".to_string();
@@ -156,7 +156,7 @@ mod tests {
             let fields = vec![Type::I32, Type::Struct(name.clone())];
             
             use salt_front::registry::StructInfo;
-            use std::collections::HashMap;
+            use std::collections::{BTreeMap, HashMap};
              let info = StructInfo {
                 name: name.clone(),
                 fields: HashMap::new(),
@@ -491,7 +491,7 @@ mod tests {
     fn test_prove_layout_compatibility_same_size() {
         with_ctx!(ctx, {
             use salt_front::registry::StructInfo;
-            use std::collections::HashMap;
+            use std::collections::{BTreeMap, HashMap};
             use salt_front::types::TypeKey;
             
             // Register two structs with identical layouts: { x: i64, y: i64 }
@@ -521,7 +521,7 @@ mod tests {
     fn test_prove_layout_compatibility_different_size() {
         with_ctx!(ctx, {
             use salt_front::registry::StructInfo;
-            use std::collections::HashMap;
+            use std::collections::{BTreeMap, HashMap};
             use salt_front::types::TypeKey;
             
             // Small: { x: i32 } = 4 bytes
@@ -559,7 +559,7 @@ mod tests {
     fn test_struct_cast_rejects_incompatible_layouts() {
         with_ctx!(ctx, {
             use salt_front::registry::StructInfo;
-            use std::collections::HashMap;
+            use std::collections::{BTreeMap, HashMap};
             use salt_front::types::TypeKey;
             
             // Small: { x: i32 } = 4 bytes
@@ -602,7 +602,7 @@ mod tests {
     fn test_struct_cast_accepts_compatible_layouts() {
         with_ctx!(ctx, {
             use salt_front::registry::StructInfo;
-            use std::collections::HashMap;
+            use std::collections::{BTreeMap, HashMap};
             use salt_front::types::TypeKey;
             
             // Both structs have identical layout: { i64, i64 } = 16 bytes, align 8
@@ -659,7 +659,7 @@ mod tests {
     fn test_prove_layout_compatibility_same_size_different_align() {
         with_ctx!(ctx, {
             use salt_front::registry::StructInfo;
-            use std::collections::HashMap;
+            use std::collections::{BTreeMap, HashMap};
             use salt_front::types::TypeKey;
             
             // StructAlign8: { x: i64 } = 8 bytes, align 8

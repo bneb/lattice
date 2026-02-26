@@ -1,0 +1,88 @@
+// =============================================================================
+// Interrupt Latency Benchmark — PIT IRQ Round-Trip Cost
+// =============================================================================
+// Measures the full interrupt service round-trip: hlt → PIT fires → ISR runs →
+// EOI → iret → execution resumes. Uses hlt for the cleanest possible entry
+// (no instruction-in-flight penalty).
+//
+// Methodology:
+//   1. Enable interrupts (sti)
+//   2. Read rdtsc (t0)
+//   3. hlt — CPU halts until next interrupt
+//   4. Read rdtsc (t1) — first instruction after wakeup
+//   5. delta = t1 - t0 (includes PIT wait + ISR + iret)
+//
+// The PIT fires at 100Hz (10ms). The delta includes the idle wait time,
+// so we report the RAW round-trip (dominated by PIT period under TCG,
+// but the ISR overhead is visible on bare metal as a consistent floor).
+//
+// Expected: ~50-500 cycles ISR overhead (bare metal), ~10K+ (TCG)
+// =============================================================================
+
+package benchmarks.irq_latency_bench
+
+use kernel.drivers.serial
+use kernel.drivers.vga
+use kernel.core.timing
+
+extern fn enable_interrupts();
+extern fn disable_interrupts();
+extern fn idle_halt();
+
+const NUM_SAMPLES: i32 = 10;
+const MAX_CYCLES: u64 = 100000000;  // 100M cap (filters TCG startup outliers)
+
+@no_mangle
+pub fn run_irq_latency() {
+    serial.print("BENCH:irq:start\n");
+    vga.print("IRQ latency benchmark...\n");
+
+    let mut total: u64 = 0;
+    let mut valid: i32 = 0;
+    let mut min_cy: u64 = 0xFFFFFFFFFFFFFFFF;
+    let mut max_cy: u64 = 0;
+
+    for i in 0..NUM_SAMPLES {
+        enable_interrupts();
+
+        let t0 = timing.get_cycles();
+        idle_halt();  // CPU sleeps until next PIT tick
+        let t1 = timing.get_cycles();
+
+        disable_interrupts();
+
+        let elapsed = t1 - t0;
+
+        if elapsed < MAX_CYCLES {
+            total = total + elapsed;
+            valid = valid + 1;
+            if elapsed < min_cy {
+                min_cy = elapsed;
+            }
+            if elapsed > max_cy {
+                max_cy = elapsed;
+            }
+        }
+    }
+
+    // Report
+    if valid > 0 {
+        let avg = total / (valid as u64);
+        serial.print("BENCH:irq:avg=");
+        serial.print_u64(avg);
+        serial.print(" min=");
+        serial.print_u64(min_cy);
+        serial.print(" max=");
+        serial.print_u64(max_cy);
+        serial.print(" valid=");
+        serial.print_u64(valid as u64);
+        serial.print("\n");
+
+        vga.print("  IRQ latency avg: ");
+        vga.print_u64(avg);
+        vga.print(" cycles\n");
+    } else {
+        serial.print("BENCH:irq:ERROR no valid samples\n");
+        vga.print("  IRQ latency: ERROR\n");
+    }
+}

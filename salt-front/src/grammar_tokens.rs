@@ -60,6 +60,23 @@ impl ToTokens for SynType {
                 ));
             }
             SynType::Tuple(t) => t.to_tokens(tokens),
+            SynType::FnPtr(args, ret) => {
+                // Emit: fn(T1, T2) -> R
+                tokens.append(quote::format_ident!("fn"));
+                let mut inner = proc_macro2::TokenStream::new();
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        inner.append(proc_macro2::Punct::new(',', proc_macro2::Spacing::Alone));
+                    }
+                    arg.to_tokens(&mut inner);
+                }
+                tokens.append(proc_macro2::Group::new(proc_macro2::Delimiter::Parenthesis, inner));
+                if let Some(ret_ty) = ret {
+                    tokens.append(proc_macro2::Punct::new('-', proc_macro2::Spacing::Joint));
+                    tokens.append(proc_macro2::Punct::new('>', proc_macro2::Spacing::Alone));
+                    ret_ty.to_tokens(tokens);
+                }
+            }
             SynType::Other(s) => {
                  if let Ok(ts) = s.parse::<proc_macro2::TokenStream>() {
                      tokens.extend(ts);

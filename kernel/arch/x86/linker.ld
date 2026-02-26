@@ -24,6 +24,45 @@ SECTIONS
         . = ALIGN(4096);
     }
 
+    /* KPTI TRAMPOLINE TEXT - Surgical Isolation */
+    . = ALIGN(4096);
+    kpti_trampoline_text_start = .;
+    .kpti_trampoline_text : AT(ADDR(.kpti_trampoline_text) - 0xFFFFFFFF80000000)
+    {
+        *(.kpti_trampoline_text)
+        . = ALIGN(4096);
+    }
+    kpti_trampoline_text_end = .;
+
+    /* KPTI TRAMPOLINE DATA - Currently empty, reserved for static trampoline data */
+    . = ALIGN(4096);
+    kpti_trampoline_data_start = .;
+    .kpti_trampoline_data : AT(ADDR(.kpti_trampoline_data) - 0xFFFFFFFF80000000)
+    {
+        *(.kpti_trampoline_data)
+        . = ALIGN(4096);
+    }
+    kpti_trampoline_data_end = .;
+
+    /* KPTI RING 3 TESTING SECTIONS - Explicitly mapped to User PML4 */
+    . = ALIGN(4096);
+    user_text_start = .;
+    .user_text : AT(ADDR(.user_text) - 0xFFFFFFFF80000000)
+    {
+        *(.user_text)
+        . = ALIGN(4096);
+    }
+    user_text_end = .;
+
+    . = ALIGN(4096);
+    user_data_start = .;
+    .user_data : AT(ADDR(.user_data) - 0xFFFFFFFF80000000)
+    {
+        *(.user_data)
+        . = ALIGN(4096);
+    }
+    user_data_end = .;
+
     .rodata : AT(ADDR(.rodata) - 0xFFFFFFFF80000000)
     {
         _rodata = .;
@@ -38,6 +77,17 @@ SECTIONS
         *(.got)
         . = ALIGN(4096);
         _data_end = .;
+    }
+
+    /* AP Boot Trampoline — source bytes, copied to 0x8000 at runtime.
+     * MUST be before .bss — BSS has FileSiz=0 in ELF, so any section
+     * after it won't be loaded by QEMU's multiboot loader. */
+    .ap_trampoline : AT(ADDR(.ap_trampoline) - 0xFFFFFFFF80000000)
+    {
+        _ap_trampoline_start = .;
+        *(.ap_trampoline)
+        _ap_trampoline_end = .;
+        . = ALIGN(4096);
     }
 
     .bss : AT(ADDR(.bss) - 0xFFFFFFFF80000000)
@@ -58,4 +108,9 @@ SECTIONS
     stack_top_phys = stack_top - 0xFFFFFFFF80000000;
     long_mode_start_phys = long_mode_start;
     gdt64_ptr_phys = gdt64_ptr - 0xFFFFFFFF80000000;
+    
+    /* Multiboot AOUT Kludge dynamically-sized physical end addresses */
+    _data_end_phys = _data_end - 0xFFFFFFFF80000000;
+    _bss_phys = _bss - 0xFFFFFFFF80000000;
+    _bss_end_phys = _bss_end - 0xFFFFFFFF80000000;
 }

@@ -1,0 +1,149 @@
+package kernel.core.vmm
+
+import kernel.core.pmm
+import kernel.core.memory
+import kernel.drivers.serial
+
+extern fn read_cr3() -> u64;
+extern fn switch_cr3(cr3: u64);
+extern fn invlpg_stub(vaddr: u64);
+
+const PAGE_SIZE: u64    = 4096;
+const ENTRIES: u64      = 512;
+const INDEX_MASK: u64   = 0x1FF;
+const ADDR_MASK: u64    = 0x000FFFFFFFFFF000;
+
+const PTE_PRESENT: u64 = 0x1;
+const PTE_WRITE: u64   = 0x2;
+const PTE_USER: u64    = 0x4;
+const PTE_PS: u64      = 0x80;
+
+fn pml4_index(vaddr: u64) -> u64 { return (vaddr >> 39) & INDEX_MASK; }
+fn pdp_index(vaddr: u64)  -> u64 { return (vaddr >> 30) & INDEX_MASK; }
+fn pd_index(vaddr: u64)   -> u64 { return (vaddr >> 21) & INDEX_MASK; }
+fn pt_index(vaddr: u64)   -> u64 { return (vaddr >> 12) & INDEX_MASK; }
+
+pub fn vmm_clear_present(vaddr: u64) {
+    let cr3 = read_cr3();
+    let pml4_phys = cr3 & ADDR_MASK;
+    let pml4_virt = memory.phys_to_virt_raw(pml4_phys);
+    
+    let pml4_entry_addr = pml4_virt + (pml4_index(vaddr) * 8);
+    let pml4_entry = *(pml4_entry_addr as &u64);
+    if (pml4_entry & PTE_PRESENT) == 0 { return; }
+    
+    let pdp_phys = pml4_entry & ADDR_MASK;
+    let pdp_virt = memory.phys_to_virt_raw(pdp_phys);
+    
+    let pdp_entry_addr = pdp_virt + (pdp_index(vaddr) * 8);
+    let pdp_entry = *(pdp_entry_addr as &u64);
+    if (pdp_entry & PTE_PRESENT) == 0 { return; }
+    
+    let pd_phys = pdp_entry & ADDR_MASK;
+    let pd_virt = memory.phys_to_virt_raw(pd_phys);
+    
+    let pd_entry_addr = pd_virt + (pd_index(vaddr) * 8);
+    let pd_entry = *(pd_entry_addr as &u64);
+    if (pd_entry & PTE_PRESENT) == 0 { return; }
+    
+    let mut pt_phys: u64 = 0;
+    let mut did_split = false;
+    
+    // Check if it's a 2MB huge page (bit 7)
+    if (pd_entry & PTE_PS) != 0 {
+        pt_phys = pmm.alloc();
+        if pt_phys == 0 {
+            serial.print("FATAL: OOM splitting huge page for guard page\n");
+            return;
+        }
+        
+        let pt_virt = memory.phys_to_virt_raw(pt_phys);
+        let base_phys = pd_entry & ADDR_MASK;
+        // Strip PS bit, keep Present/RW/User. Also strip Accessed/Dirty (bits 5-6)
+        // to use clean flags for the new PT entries.
+        let inherited_flags = pd_entry & (PTE_PRESENT | PTE_WRITE | PTE_USER);
+        
+        // Populate all 512 4KB PTEs mapping back to the original physical range
+        let mut i: u64 = 0;
+        while i < ENTRIES {
+            let pte_addr = pt_virt + (i * 8);
+            *(pte_addr as &mut u64) = (base_phys + (i * PAGE_SIZE)) | inherited_flags;
+            i = i + 1;
+        }
+        
+        // Update PD entry to point to new page table (not a huge page anymore)
+        *(pd_entry_addr as &mut u64) = pt_phys | inherited_flags;
+        did_split = true;
+    } else {
+        pt_phys = pd_entry & ADDR_MASK;
+    }
+    
+    let pt_virt = memory.phys_to_virt_raw(pt_phys);
+    let pt_entry_addr = pt_virt + (pt_index(vaddr) * 8);
+    
+    let old_pte = *(pt_entry_addr as &u64);
+    let inv_present = PTE_PRESENT ^ 0xFFFFFFFFFFFFFFFF;
+    *(pt_entry_addr as &mut u64) = old_pte & inv_present;
+    
+    // TLB flush: After splitting a 2MB huge page, a single invlpg may not
+    // properly flush the stale 2MB TLB entry on QEMU TCG's softmmu.
+    // Reload CR3 to flush the ENTIRE TLB, ensuring all 512 new 4KB mappings
+    // are picked up. Strip bit 63 (NOFLUSH) to guarantee a full flush.
+    if did_split {
+        let flush_cr3 = cr3 & 0x7FFFFFFFFFFFFFFF;
+        switch_cr3(flush_cr3);
+    } else {
+        invlpg_stub(vaddr);
+    }
+}
+
+@no_mangle
+pub fn vmm_clear_present_abi(vaddr: u64) {
+    vmm_clear_present(vaddr);
+}
+
+// =============================================================================
+// vmm_set_present — Restore Present bit on a previously-guarded page
+// =============================================================================
+// Called BEFORE push_stack() to re-map the guard page so the slab allocator's
+// Treiber link pointer (written at offset 0 of the slot) can safely access it.
+// =============================================================================
+pub fn vmm_set_present(vaddr: u64) {
+    let cr3 = read_cr3();
+    let pml4_phys = cr3 & ADDR_MASK;
+    let pml4_virt = memory.phys_to_virt_raw(pml4_phys);
+    
+    let pml4_entry_addr = pml4_virt + (pml4_index(vaddr) * 8);
+    let pml4_entry = *(pml4_entry_addr as &u64);
+    if (pml4_entry & PTE_PRESENT) == 0 { return; }
+    
+    let pdp_phys = pml4_entry & ADDR_MASK;
+    let pdp_virt = memory.phys_to_virt_raw(pdp_phys);
+    
+    let pdp_entry_addr = pdp_virt + (pdp_index(vaddr) * 8);
+    let pdp_entry = *(pdp_entry_addr as &u64);
+    if (pdp_entry & PTE_PRESENT) == 0 { return; }
+    
+    let pd_phys = pdp_entry & ADDR_MASK;
+    let pd_virt = memory.phys_to_virt_raw(pd_phys);
+    
+    let pd_entry_addr = pd_virt + (pd_index(vaddr) * 8);
+    let pd_entry = *(pd_entry_addr as &u64);
+    // If PD entry has PS bit, it's still a huge page — guard was never set
+    if (pd_entry & PTE_PS) != 0 { return; }
+    if (pd_entry & PTE_PRESENT) == 0 { return; }
+    
+    let pt_phys = pd_entry & ADDR_MASK;
+    let pt_virt = memory.phys_to_virt_raw(pt_phys);
+    let pt_entry_addr = pt_virt + (pt_index(vaddr) * 8);
+    
+    let old_pte = *(pt_entry_addr as &u64);
+    *(pt_entry_addr as &mut u64) = old_pte | PTE_PRESENT;
+    
+    invlpg_stub(vaddr);
+}
+
+@no_mangle
+pub fn vmm_set_present_abi(vaddr: u64) {
+    vmm_set_present(vaddr);
+}

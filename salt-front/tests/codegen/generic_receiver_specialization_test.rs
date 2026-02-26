@@ -99,7 +99,7 @@ mod tests {
     fn test_concrete_type_to_mlir_includes_specialization() {
         with_ctx!(ctx, {
             use salt_front::registry::StructInfo;
-            use std::collections::HashMap;
+            use std::collections::{BTreeMap, HashMap};
             use salt_front::types::TypeKey;
             
             // Register a generic struct template
@@ -154,7 +154,7 @@ mod tests {
     fn test_concrete_type_distinct_from_reference() {
         with_ctx!(ctx, {
             use salt_front::registry::StructInfo;
-            use std::collections::HashMap;
+            use std::collections::{BTreeMap, HashMap};
             use salt_front::types::TypeKey;
             
             // Register a concrete struct
@@ -201,7 +201,7 @@ mod tests {
         let input_ty = Type::Struct("Self".to_string());
         let target_ty = Type::Concrete("std__core__ptr__Ptr".to_string(), vec![Type::U8]);
         
-        let mut subst_map = std::collections::HashMap::new();
+        let mut subst_map = std::collections::BTreeMap::new();
         subst_map.insert("Self".to_string(), target_ty.clone());
         
         let result = input_ty.substitute(&subst_map);
@@ -219,7 +219,7 @@ mod tests {
         let input_ty = Type::Reference(Box::new(Type::Struct("Self".to_string())), false);
         let target_ty = Type::Concrete("Ptr".to_string(), vec![Type::U8]);
         
-        let mut subst_map = std::collections::HashMap::new();
+        let mut subst_map = std::collections::BTreeMap::new();
         subst_map.insert("Self".to_string(), target_ty.clone());
         
         let result = input_ty.substitute(&subst_map);

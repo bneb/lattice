@@ -40,6 +40,7 @@
 - **No Null**: Strict `Option<T>` and `Result<T>`
 - **Traits**: `Clone`, `Eq`, `Hash`, `Ord` (derivable via `@derive`)
 - **Generics**: Full monomorphization with multi-parameter support (`Vec<T, A>`)
+- **Function Pointers**: `fn(u64, u64) -> u64` — first-class types for dispatch tables, IDT vectors, and indirect calls
 
 ### 1.5 Verification (The "High Ground")
 
@@ -171,4 +172,5 @@ WARNING: Could not formally prove contract. Emitting runtime check.
 | RAII-Lite (Automatic cleanup) | ✅ Complete |
 | Vector intrinsics (SIMD) | ✅ Complete |
 | SSA Reduction (iter_args) | ✅ Complete |
+| Function pointer types (`fn(T) -> R`) | ✅ Complete |
 | LLVM JIT execution | 📋 Planned |

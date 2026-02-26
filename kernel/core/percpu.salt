@@ -1,0 +1,194 @@
+// =============================================================================
+// kernel/core/percpu.salt
+// Per-CPU Data Structure — GS Segment Indexed
+// =============================================================================
+//
+// Each CPU core gets a PerCpuData block. The GS segment base is set to
+// point at the core's block via IA32_GS_BASE MSR during AP init.
+//
+// Access pattern:
+//   cpu_id = read_gs_u64(0)  → single instruction: mov rax, gs:[0]
+//
+// The BSP sets up its per-CPU block during boot (cpu_id=0).
+// Each AP sets its own block during ap_entry.
+//
+// Memory layout:
+//   PERCPU_ARRAY[0]   → BSP
+//   PERCPU_ARRAY[1]   → AP 1
+//   PERCPU_ARRAY[N-1] → AP N-1
+// =============================================================================
+
+package kernel.core.percpu
+
+use kernel.drivers.serial
+
+// Assembly FFI for GS base manipulation
+extern fn write_gs_base(val: u64);
+extern fn read_gs_base() -> u64;
+extern fn read_gs_u64(offset: u64) -> u64;
+
+// =============================================================================
+// Per-CPU Data Block (64 bytes, cache-line aligned)
+// =============================================================================
+pub struct PerCpuData {
+    pub cpu_id: u64,           // Offset 0:  Logical CPU index (0 = BSP)
+    pub apic_id: u64,          // Offset 8:  Hardware APIC ID
+    pub current_fiber: u64,    // Offset 16: Currently running fiber slot
+    pub stack_top: u64,        // Offset 24: This CPU's kernel stack top
+    pub pmm_head: u64,         // Offset 32: Per-core PMM Treiber stack head
+    pub slab_head: u64,        // Offset 40: Per-core slab free stack head
+    pub sched_rsp: u64,        // Offset 48: Scheduler RSP sentinel (0 = no unified fiber running)
+    pub saved_thread_rsp: u64, // Offset 56: Saved thread RSP after preemption
+    pub kernel_cr3: u64,       // Offset 64: Kernel PML4 physical address (KPTI CR3 swap)
+    pub nmi_stack_top: u64,    // Offset 72: NMI IST stack top (virtual address)
+    pub nmi_pending: u64,      // Offset 80: NMI pending flag (set by NMI handler, cleared by scheduler)
+    pub df_stack_top: u64,     // Offset 88: Double-fault IST stack top (virtual address)
+    pub kernel_rsp0_scratch: u64, // Offset 96: SYSCALL kernel stack pointer scratch
+    pub user_rsp_scratch: u64,    // Offset 104: SYSCALL user stack pointer scratch
+    pub syscall_ret_scratch: u64, // Offset 112: SYSCALL return value scratch
+    pub ring3_test_exit_code: u64,// Offset 120: TDD testing escape hatch exit code
+    pub user_cr3_scratch: u64,    // Offset 128: SYSCALL KPTI CR3 fast-path restoration
+}
+
+// =============================================================================
+// Global Per-CPU Array (max 256 CPUs)
+// =============================================================================
+const MAX_CPUS: u64 = 16;
+
+global PERCPU_ARRAY: [PerCpuData; 16] = [PerCpuData {
+    cpu_id: 0,
+    apic_id: 0,
+    current_fiber: 0,
+    stack_top: 0,
+    pmm_head: 0,
+    slab_head: 0,
+    sched_rsp: 0,
+    saved_thread_rsp: 0,
+    kernel_cr3: 0,
+    nmi_stack_top: 0,
+    nmi_pending: 0,
+    df_stack_top: 0,
+    kernel_rsp0_scratch: 0,
+    user_rsp_scratch: 0,
+    syscall_ret_scratch: 0,
+    ring3_test_exit_code: 0xFFFFFFFFFFFFFFFF,
+    user_cr3_scratch: 0,
+}; 16];
+
+// =============================================================================
+// init_bsp — Initialize BSP per-CPU data (called once during boot)
+// =============================================================================
+pub fn init_bsp(apic_id: u64) {
+    PERCPU_ARRAY[0].cpu_id = 0;
+    PERCPU_ARRAY[0].apic_id = apic_id;
+
+    // Point GS at BSP's per-CPU block
+    let bsp_addr = (&PERCPU_ARRAY[0]) as u64;
+    write_gs_base(bsp_addr);
+
+    serial.print("[PERCPU] BSP initialized, GS base=0x");
+    serial.print_hex(bsp_addr);
+    serial.print("\n");
+}
+
+// =============================================================================
+// init_ap — Initialize an AP's per-CPU data (called from ap_entry)
+// =============================================================================
+pub fn init_ap(logical_id: u64, apic_id: u64, stack_top: u64) {
+    if logical_id >= MAX_CPUS {
+        return;
+    }
+
+    PERCPU_ARRAY[logical_id].cpu_id = logical_id;
+    PERCPU_ARRAY[logical_id].apic_id = apic_id;
+    PERCPU_ARRAY[logical_id].stack_top = stack_top;
+
+    // Point this AP's GS at its per-CPU block
+    let ap_addr = (&PERCPU_ARRAY[logical_id]) as u64;
+    write_gs_base(ap_addr);
+}
+
+// =============================================================================
+// get_cpu_id — Read current CPU's logical ID via GS segment
+// =============================================================================
+// This is the hot-path function. A single mov instruction.
+// =============================================================================
+@no_mangle
+pub fn get_cpu_id() -> u64 {
+    return read_gs_u64(0);  // GS:[0] = cpu_id field
+}
+
+// =============================================================================
+// get_apic_id — Read current CPU's APIC ID via GS segment
+// =============================================================================
+@no_mangle
+pub fn get_apic_id() -> u64 {
+    return read_gs_u64(8);  // GS:[8] = apic_id field
+}
+
+// =============================================================================
+// get_percpu_ptr — Get raw pointer to a CPU's per-CPU data
+// =============================================================================
+pub fn get_percpu_ptr(logical_id: u64) -> u64 {
+    if logical_id >= MAX_CPUS {
+        return 0;
+    }
+    return (&PERCPU_ARRAY[logical_id]) as u64;
+}
+
+// =============================================================================
+// set_kernel_cr3 — Store kernel PML4 for KPTI CR3 swap (GS:[64])
+// =============================================================================
+pub fn set_kernel_cr3(logical_id: u64, cr3: u64) {
+    if logical_id >= MAX_CPUS {
+        return;
+    }
+    PERCPU_ARRAY[logical_id].kernel_cr3 = cr3;
+}
+
+// =============================================================================
+// get_kernel_cr3 — Read kernel PML4 for the given core
+// =============================================================================
+pub fn get_kernel_cr3(logical_id: u64) -> u64 {
+    if logical_id >= MAX_CPUS {
+        return 0;
+    }
+    return PERCPU_ARRAY[logical_id].kernel_cr3;
+}
+
+// =============================================================================
+// set_nmi_stack — Store NMI IST stack top for the given core
+// =============================================================================
+pub fn set_nmi_stack(logical_id: u64, stack_top: u64) {
+    if logical_id >= MAX_CPUS { return; }
+    PERCPU_ARRAY[logical_id].nmi_stack_top = stack_top;
+}
+
+// =============================================================================
+// set_df_stack — Store Double-Fault IST stack top for the given core
+// =============================================================================
+pub fn set_df_stack(logical_id: u64, stack_top: u64) {
+    if logical_id >= MAX_CPUS { return; }
+    PERCPU_ARRAY[logical_id].df_stack_top = stack_top;
+}
+
+// =============================================================================
+// @no_mangle ABI Wrappers
+// =============================================================================
+@no_mangle
+pub fn percpu_init_bsp(apic_id: u64) { init_bsp(apic_id); }
+
+@no_mangle
+pub fn percpu_init_ap(logical_id: u64, apic_id: u64, stack_top: u64) { init_ap(logical_id, apic_id, stack_top); }
+
+@no_mangle
+pub fn percpu_set_kernel_cr3(logical_id: u64, cr3: u64) { set_kernel_cr3(logical_id, cr3); }
+
+@no_mangle
+pub fn percpu_get_kernel_cr3(logical_id: u64) -> u64 { return get_kernel_cr3(logical_id); }
+
+@no_mangle
+pub fn percpu_set_nmi_stack(logical_id: u64, stack_top: u64) { set_nmi_stack(logical_id, stack_top); }
+
+@no_mangle
+pub fn percpu_set_df_stack(logical_id: u64, stack_top: u64) { set_df_stack(logical_id, stack_top); }

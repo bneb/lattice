@@ -511,7 +511,68 @@ pub fn emit_path(ctx: &mut LoweringContext, out: &mut String, p: &syn::ExprPath,
                      }
                  }
             }
-    
+            // [SOVEREIGN] Function-as-value resolution: If name resolves to a function
+            // in the current file, register it as Type::Fn global and restart resolution.
+            // This enables `let f: fn(u64) -> u64 = add_one;`
+            if segments.len() == 1 {
+                let name = &segments[0];
+                let current_pkg_prefix = ctx.package_prefix();
+                let mangled_fn = format!("{}{}", current_pkg_prefix, name);
+
+                // Scan source file for a matching function declaration
+                let fn_sig = ctx.config.file.items.iter().find_map(|item| {
+                    if let crate::grammar::Item::Fn(f) = item {
+                        let my_mangled = if f.attributes.iter().any(|a| a.name == "no_mangle") {
+                            f.name.to_string()
+                        } else {
+                            format!("{}{}", current_pkg_prefix, f.name)
+                        };
+                        if my_mangled == mangled_fn {
+                            // Build Type::Fn from the function signature
+                            let arg_types: Vec<Type> = f.args.iter().filter_map(|arg| {
+                                arg.ty.as_ref().and_then(|t| Type::from_syn(t))
+                            }).collect();
+                            let ret_type = f.ret_type.as_ref()
+                                .and_then(|t| Type::from_syn(t))
+                                .unwrap_or(Type::Unit);
+                            Some((mangled_fn.clone(), Type::Fn(arg_types, Box::new(ret_type))))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                });
+
+                if let Some((fn_mangled, fn_ty)) = fn_sig {
+                    // Register as global so future lookups find it directly
+                    ctx.globals_mut().insert(fn_mangled.clone(), fn_ty.clone());
+                    // Emit func.constant + unrealized_conversion_cast
+                    if let Type::Fn(ref param_tys, ref ret_ty) = fn_ty {
+                        let typed_ref = format!("%fn_typed_{}", ctx.next_id());
+                        let ptr_var = format!("%fn_ref_{}", ctx.next_id());
+                        let arg_tys_mlir: Vec<String> = param_tys.iter()
+                            .map(|t| t.to_mlir_type(ctx).unwrap_or("!llvm.ptr".to_string()))
+                            .collect();
+                        let ret_ty_mlir = if **ret_ty == Type::Unit {
+                            "()".to_string()
+                        } else {
+                            ret_ty.to_mlir_type(ctx).unwrap_or("!llvm.ptr".to_string())
+                        };
+                        let fn_type_str = if **ret_ty == Type::Unit {
+                            format!("({}) -> ()", arg_tys_mlir.join(", "))
+                        } else {
+                            format!("({}) -> {}", arg_tys_mlir.join(", "), ret_ty_mlir)
+                        };
+                        out.push_str(&format!("    {} = func.constant @{} : {}\n",
+                            typed_ref, fn_mangled, fn_type_str));
+                        out.push_str(&format!("    {} = builtin.unrealized_conversion_cast {} : {} to !llvm.ptr\n",
+                            ptr_var, typed_ref, fn_type_str));
+                        return Ok((ptr_var, fn_ty));
+                    }
+                }
+            }
+
         Err(format!("Undefined variable or constant: {}", segments.join(".")))
     }
 

@@ -1,153 +1,230 @@
 // =============================================================================
 // kernel/mem/slab.salt
-// Sovereign Slab Allocator for Fiber Stacks — Lock-Free with Reclamation
+// Sovereign Slab Allocator — 128-bit Lock-Free Treiber Stack
 // =============================================================================
 //
-// Two-phase O(1) allocator:
-//   1. Fast path: Pop from a lock-free Treiber stack of recycled slots.
-//   2. Fallback:  Bump allocate from the virgin slab region.
+// Two-phase O(1) allocator, sharded per-core:
+//   1. Fast path: Pop from THIS core's lock-free Treiber stack of recycled slots.
+//   2. Fallback:  Atomic bump allocate from THIS core's virgin slab region.
 //
-// The Treiber stack uses CAS (cmpxchg) for thread-safety, mirroring the
-// pattern established in kernel/core/pmm.salt. Each recycled slot embeds
-// a RecycleNode at its base address, containing a single !llvm.ptr to the
-// next free slot.
+// 128-BIT CAS (cmpxchg16b):
+//   The @atomic FreeHead struct holds a full 64-bit pointer and a 64-bit ABA
+//   generation counter. This eliminates the 48-bit packed pointer hacks
+//   (ADDR_MASK, SIGN_EXT, BIT47) and reclaims the full virtual address space.
+//   A 64-bit ABA counter takes hundreds of years to overflow, making the
+//   ABA problem mathematically impossible in our lifetimes.
+//
+// TORN-READ HEALING:
+//   x86-64 does not guarantee atomic 128-bit reads via standard mov. If an
+//   interrupt fires between reading .ptr and .gen, the subsequent 128-bit CAS
+//   will simply fail and return the true atomically-consistent state. The CAS
+//   intrinsic acts as an atomic load upon failure.
+//
+// Z3 FORMAL SHADOW:
+//   The @atomic decorator triggers the Z3 SMT solver during MLIR lowering.
+//   Z3 proves:
+//     1. Base alignment: FreeHead sits on a 16-byte boundary
+//     2. Stride alignment: sizeof(FreeHead) % 16 == 0 for array indexing
+//   This guarantees x86-64 will never throw a #GP fault on cmpxchg16b.
 //
 // Memory layout:
 //   SLAB_BASE (0xFFFFFFFF90000000)
-//   ├── Slot 0:  [RecycleNode | 16KB stack space]
-//   ├── Slot 1:  [RecycleNode | 16KB stack space]
-//   └── ...
-//   └── Slot 10239
-//
-// Invariants (verified by Z3 contracts and the slab_reclaim_bench):
-//   - pop_stack returns addresses aligned to SLOT_SIZE (16KB)
-//   - push_stack only accepts addresses within the slab region
-//   - The bump counter never retreats
-//   - The Treiber stack is ABA-safe for single-threaded use (P2 adds CAS)
+//   ├── Core 0: Slots [0 .. slots_per_core)
+//   ├── Core 1: Slots [slots_per_core .. 2*slots_per_core)
+//   └── Core N: Slots [N*slots_per_core .. MAX_SLOTS)
 // =============================================================================
 
 package kernel.mem
 
-import kernel.core.panic
+use kernel.drivers.serial
+
+// x86 PAUSE for CAS spin-wait loops — prevents pipeline flooding on KVM.
+extern fn spin_loop_hint();
+
+// Per-CPU accessor
+extern fn get_cpu_id() -> u64;
+
+// Atomic intrinsics — required for ISR reentrancy safety.
+extern fn atomic_fetch_add_i32(ptr: u64, val: i32) -> i32;
+extern fn atomic_load_i32(ptr: u64) -> i32;
+
+// atomic_cas_128 is a compiler intrinsic (like cmpxchg, spin_loop_hint).
+// No extern fn declaration needed — the compiler routes it automatically.
+// Returns (old_ptr: u64, old_gen: u64, success: bool).
 
 // Constants derived from kernel/mem/mm_layout.salt (single source of truth).
-// Salt's compiler cannot handle cross-module const imports, so we mirror
-// the values here. Any change to mm_layout.salt must be reflected below.
-const SLAB_BASE: u64 = 0xFFFFFFFF90000000; // mm_layout.SLAB_BASE
-const SLOT_SIZE: u64 = 16384;              // mm_layout.SLAB_SLOT_SIZE
-const MAX_SLOTS: i32 = 10240;              // mm_layout.SLAB_MAX_FIBERS
-const SLAB_END: u64  = 0xFFFFFFFF9A000000; // mm_layout.SLAB_MAX
+const SLAB_BASE: u64 = 0xFFFFFFFF90000000;
+const SLOT_SIZE: u64 = 16384;
+const MAX_SLOTS: i32 = 10240;
+const SLAB_END: u64  = 0xFFFFFFFF9A000000;
+const MAX_CPUS: u64  = 16;
 
 // =============================================================================
-// Recycle Free-List (Treiber Stack)
+// The Formal Shadow
 // =============================================================================
-// Each free slot has a RecycleNode written at its base address.
-// The node contains a single pointer to the next free slot.
+// The @atomic decorator triggers the Z3 SMT solver during MLIR lowering.
+// It mathematically proves this struct is 16-byte aligned in memory,
+// guaranteeing the x86-64 hardware will never throw a #GP fault on CAS.
+// And @packed ensures we control memory layout to the byte.
+// 
+// SlabCoreState is exactly 64 bytes (cacheline size) to prevent False Sharing
+// between CPU cores.
+@atomic
+@packed
+struct SlabCoreState {
+    head_ptr: u64,     // offset 0 (16-byte aligned for cmpxchg16b)
+    head_gen: u64,     // offset 8
+    fresh_count: i32,  // offset 16
+    core_offset: i32,  // offset 20
+    pad0: u64,         // offset 24
+    pad1: u64,         // offset 32
+    pad2: u64,         // offset 40
+    pad3: u64,         // offset 48
+    pad4: u64,         // offset 56
+}                      // total = 64 bytes
 
-pub struct RecycleNode {
-    pub next: !llvm.ptr,
+// =============================================================================
+// Per-Core State
+// =============================================================================
+
+// Per-core cacheline-padded allocator shards.
+global SLAB_SHARDS: [SlabCoreState; 16] = [SlabCoreState {
+    head_ptr: 0, head_gen: 0, fresh_count: 0, core_offset: 0,
+    pad0: 0, pad1: 0, pad2: 0, pad3: 0, pad4: 0,
+}; 16];
+
+// Per-core slot limits (how many slots this core owns).
+global SLOTS_PER_CORE: i32 = 10240;
+
+// Number of online CPUs (set by init_cores)
+global NUM_CPUS: u64 = 1;
+
+// =============================================================================
+// init_cores — Partition the slab region across CPU cores
+// =============================================================================
+@no_mangle
+pub fn init_cores(num_cpus: u64) {
+    if num_cpus == 0 || num_cpus > MAX_CPUS { return; }
+
+    NUM_CPUS = num_cpus;
+    let total = MAX_SLOTS as u64;
+    let per_core = total / num_cpus;
+    SLOTS_PER_CORE = per_core as i32;
+
+    let mut i: u64 = 0;
+    while i < num_cpus {
+        SLAB_SHARDS[i].core_offset = (i * per_core) as i32;
+        i = i + 1;
+    }
 }
 
-// Head of the Treiber stack. Null means the free-list is empty.
-global RECYCLE_HEAD: !llvm.ptr = 0 as !llvm.ptr;
-
 // =============================================================================
-// Bump Allocator (Fallback)
-// =============================================================================
-// Monotonically increasing counter. Only advances when the recycle list
-// is empty. This is the high-water mark of the slab.
-var bump_next: Atomic<i32> = 0;
-
-// =============================================================================
-// pop_stack — O(1) Lock-Free Stack Allocation
-// =============================================================================
-// Returns the BASE address of a 16KB slot. The caller must add SLOT_SIZE
-// to get the stack top (stacks grow downward on x86_64).
-//
-// Phase 1: Try the recycle Treiber stack (CAS pop).
-// Phase 2: Fall back to atomic bump allocation.
+// pop_stack — 128-bit Lock-Free Allocation
 // =============================================================================
 @no_mangle
 pub fn pop_stack() -> u64 {
-    // Phase 1: Try recycle free-list
+    let cpu = get_cpu_id();
+
+    // Torn-read healing: We read the 128-bit struct normally.
+    // If an interrupt fires between reading .ptr and .gen, the subsequent
+    // 128-bit CAS will simply fail, and the intrinsic will return the
+    // true atomic state to our loop for the next iteration.
+    let mut current_ptr = SLAB_SHARDS[cpu].head_ptr;
+    let mut current_gen = SLAB_SHARDS[cpu].head_gen;
+
     loop {
-        let head = RECYCLE_HEAD;
+        if current_ptr == 0 {
+            // Bump allocator fallback
+            let count_ptr = (&SLAB_SHARDS[cpu].fresh_count) as u64;
+            let idx = atomic_fetch_add_i32(count_ptr, 1);
+            let absolute_idx = SLAB_SHARDS[cpu].core_offset + idx;
 
-        // Empty free-list — fall through to bump allocator
-        if head == (0 as !llvm.ptr) {
-            // Phase 2: Bump allocate a virgin slot
-            let idx = bump_next.fetch_add(1);
-
-            if idx >= MAX_SLOTS {
-                panic.panic("SLAB EXHAUSTED");
+            if idx >= SLOTS_PER_CORE {
+                serial.print("SLAB EXHAUSTED\n");
                 return 0;
             }
-
-            return SLAB_BASE + (idx as u64 * SLOT_SIZE);
+            return SLAB_BASE + ((absolute_idx as u64) * SLOT_SIZE);
         }
 
-        // Read the next pointer from the head node
-        let next_node = (head as &RecycleNode).next;
+        // Dereference the canonical pointer to get the next block
+        let link = current_ptr as &u64;
+        let next_ptr = link[0];
 
-        // CAS: Atomically swap head to head.next
-        let (old_head, success) = cmpxchg(&RECYCLE_HEAD, head, next_node);
+        // 128-bit Hardware CAS
+        let head_addr = (&SLAB_SHARDS[cpu]) as u64;
+        let (old_ptr, old_gen, success) = atomic_cas_128(
+            head_addr,
+            current_ptr, current_gen,       // Expected
+            next_ptr, current_gen + 1       // Desired
+        );
 
         if success {
-            return head as u64;
+            return current_ptr;
         }
-        // CAS failed (concurrent modification) — retry
-    }
 
+        // CAS failed. Heal the torn read / update state and retry.
+        current_ptr = old_ptr;
+        current_gen = old_gen;
+        spin_loop_hint();
+    }
     return 0;
 }
 
 // =============================================================================
-// push_stack — O(1) Lock-Free Stack Reclamation
-// =============================================================================
-// Returns a 16KB slot to the recycle free-list. The slot's base address
-// is reused to store a RecycleNode pointing to the current head.
-//
-// Contract: ptr must be within the slab region and aligned to SLOT_SIZE.
+// push_stack — 128-bit Lock-Free Reclamation
 // =============================================================================
 @no_mangle
-pub fn push_stack(ptr: u64)
-    requires(ptr >= SLAB_BASE)
-{
-    // Defensive: reject addresses outside the slab region
-    if ptr < SLAB_BASE {
-        return;
-    }
-    if ptr >= SLAB_END {
-        return;
-    }
+pub fn push_stack(ptr: u64) {
+    if ptr == 0 || ptr < SLAB_BASE || ptr >= SLAB_END { return; }
+
+    let cpu = get_cpu_id();
+    let link = ptr as &mut u64;
+
+    let mut current_ptr = SLAB_SHARDS[cpu].head_ptr;
+    let mut current_gen = SLAB_SHARDS[cpu].head_gen;
 
     loop {
-        // Snapshot current head
-        let head = RECYCLE_HEAD;
+        // Chain the freed block
+        link[0] = current_ptr;
 
-        // Write a RecycleNode at the slot's base address
-        // This links the new node to the current head
-        *(ptr as &mut RecycleNode) = RecycleNode(head);
-
-        // CAS: Atomically swap head to this node
-        let (old_head, success) = cmpxchg(&RECYCLE_HEAD, head, ptr as !llvm.ptr);
+        let head_addr = (&SLAB_SHARDS[cpu]) as u64;
+        let (old_ptr, old_gen, success) = atomic_cas_128(
+            head_addr,
+            current_ptr, current_gen,       // Expected
+            ptr, current_gen + 1            // Desired (New head is ptr)
+        );
 
         if success {
             return;
         }
-        // CAS failed — retry
+
+        current_ptr = old_ptr;
+        current_gen = old_gen;
+        spin_loop_hint();
     }
 }
 
 // =============================================================================
-// slab_watermark — Diagnostic: current bump counter value
-// =============================================================================
-// Returns the number of virgin slots consumed. Used by slab_reclaim_bench
-// to verify that recycled pops do not advance the bump counter.
+// slab_watermark — Diagnostic: fresh allocation count for this core
 // =============================================================================
 @no_mangle
 pub fn slab_watermark() -> i32 {
-    // Read the atomic counter. In single-threaded context this is exact.
-    // The fetch_add(0) idiom performs an atomic load.
-    return bump_next.fetch_add(0);
+    let cpu = get_cpu_id();
+    let count_ptr = (&SLAB_SHARDS[cpu].fresh_count) as u64;
+    return atomic_load_i32(count_ptr);
+}
+
+// =============================================================================
+// slab_watermark_total — Diagnostic: total fresh allocations across all cores
+// =============================================================================
+@no_mangle
+pub fn slab_watermark_total() -> i32 {
+    let mut total: i32 = 0;
+    let mut i: u64 = 0;
+    while i < NUM_CPUS {
+        let count_ptr = (&SLAB_SHARDS[i].fresh_count) as u64;
+        total = total + atomic_load_i32(count_ptr);
+        i = i + 1;
+    }
+    return total;
 }

@@ -223,11 +223,33 @@ pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall,
                      // [KERNEL FIX] In lib mode, cross-module functions should NOT be hydrated —
                      // they're compiled separately in their own .o file. Emit external declarations
                      // instead, preventing failures from missing module globals (e.g., GLOBAL_SCHED).
+                     //
+                     // [FORWARD REFERENCE FIX] @no_mangle functions have bare mangled names
+                     // (e.g., "sched_yield") that don't start with the package prefix
+                     // (e.g., "kernel__core__syscall__"). Without this fix, they are
+                     // misclassified as cross-module and only get forward declarations,
+                     // silently dropping their bodies from the MLIR output.
                      let is_cross_module = ctx.config.lib_mode && {
                          let current_pkg = &ctx.current_package;
                          if let Some(pkg) = current_pkg.as_ref() {
                              let pkg_prefix = pkg.name.iter().map(|i| i.to_string()).collect::<Vec<_>>().join("__");
-                             !mangled_name.starts_with(&format!("{}__", pkg_prefix))
+                             let name_mismatches_prefix = !mangled_name.starts_with(&format!("{}__", pkg_prefix));
+                             if name_mismatches_prefix {
+                                 // Before declaring cross-module, check if this function is
+                                 // actually defined in the current file with @no_mangle.
+                                 // If so, it's a local function with a bare name — NOT cross-module.
+                                 let is_local_no_mangle = ctx.config.file.items.iter().any(|item| {
+                                     if let crate::grammar::Item::Fn(f) = item {
+                                         let is_nm = f.attributes.iter().any(|a| a.name == "no_mangle");
+                                         is_nm && f.name.to_string() == mangled_name
+                                     } else {
+                                         false
+                                     }
+                                 });
+                                 !is_local_no_mangle
+                             } else {
+                                 false
+                             }
                          } else {
                              false
                          }

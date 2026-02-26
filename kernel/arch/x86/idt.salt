@@ -43,6 +43,18 @@ pub fn register_gate(vector: u8, handler: u64) {
     GLOBAL_IDT[vector as i32].reserved = 0;
 }
 
+// =============================================================================
+// register_gate_ist — Register an IDT gate with an IST index
+// =============================================================================
+// Same as register_gate but sets the IST field so the CPU uses a dedicated
+// stack from the TSS for this exception vector. Critical for:
+//   IST 1 → NMI (vector 0x02)   — non-maskable, can fire during CLI
+//   IST 2 → #DF (vector 0x08)   — double fault needs known-good stack
+// =============================================================================
+pub fn register_gate_ist(vector: u8, handler: u64, ist_index: u8) {
+    register_gate(vector, handler);
+    GLOBAL_IDT[vector as i32].ist = ist_index;
+}
 
 @no_mangle
 extern fn timer_isr_wrapper();
@@ -52,6 +64,13 @@ extern fn syscall_entry();
 
 @no_mangle
 extern fn virtio_isr_wrapper();
+
+// NMI and Double Fault handlers (IST-based)
+@no_mangle
+extern fn nmi_isr_wrapper();
+
+@no_mangle
+extern fn df_isr_wrapper();
 
 fn pic_remap(offset1: u8, offset2: u8) {
     region("pic_remap") {
@@ -92,9 +111,16 @@ fn pic_remap(offset1: u8, offset2: u8) {
 
 extern fn lidt_wrapper(limit: u16, base: u64);
 
+@no_mangle
+extern fn nm_isr_wrapper();
+
 pub fn init() {
     region idt_init(0x0000, 0) {
         pic_remap(0x20, 0x28);
+
+        // 0x07: #NM (Device Not Available) — Lazy FPU switching
+        let nm_handler = (&nm_isr_wrapper) as u64;
+        register_gate(0x07, nm_handler);
 
         // 0x8E: 32-bit Interrupt Gate, Present, Ring 0
         // 0x20: PIT IRQ0 (Master PIC offset)
@@ -116,3 +142,33 @@ pub fn init() {
         lidt_wrapper(limit, base);
     }
 }
+
+// =============================================================================
+// init_ist_gates — Phase 2 IDT init: wire IST-based exception handlers
+// =============================================================================
+// MUST be called AFTER:
+//   1. PMM init (IST stacks need physical pages)
+//   2. tss_set_ist() (TSS must know the IST stack addresses)
+//   3. idt.init() (base IDT + LIDT already loaded)
+//
+// Updates the live IDT in-place. Since LIDT was already called, the CPU
+// picks up the new entries immediately — no need to reload.
+// =============================================================================
+pub fn init_ist_gates() {
+    // Vector 0x02: NMI — Non-Maskable Interrupt
+    // Uses IST 1 so NMI always lands on a known-good stack,
+    // even if it fires during CLI or mid-SWAPGS.
+    let nmi_handler = (&nmi_isr_wrapper) as u64;
+    register_gate_ist(0x02, nmi_handler, 1);
+
+    // Vector 0x08: #DF — Double Fault
+    // Uses IST 2 so #DF can fire even when the current stack is exhausted.
+    // This prevents the triple-fault → reboot cascade.
+    let df_handler = (&df_isr_wrapper) as u64;
+    register_gate_ist(0x08, df_handler, 2);
+}
+
+// @no_mangle ABI Wrappers
+@no_mangle
+pub fn idt_init_ist_gates() { init_ist_gates(); }
+
