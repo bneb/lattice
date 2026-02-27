@@ -1,0 +1,104 @@
+// =============================================================================
+// kernel/lib/ipc_ring.salt
+// Struct-Based SPSC Ring Buffer with Z3-Verified Cache-Line Isolation
+// =============================================================================
+//
+// This module provides a formal struct definition for the SPSC ring buffer
+// with @align(64) ensuring that producer (head) and consumer (tail) indexes
+// sit on separate 64-byte cache lines — preventing false-sharing invalidation
+// storms between CPU cores.
+//
+// Z3 Formal Proofs (verified at compile time):
+//   [z3_align_verified] head  is 64-byte aligned at offset  0
+//   [z3_align_verified] tail  is 64-byte aligned at offset 64
+//
+// Memory Layout (verified):
+//   Cache Line 0 (bytes  0- 63): head (u64) + capacity (u64) + 48B padding
+//   Cache Line 1 (bytes 64-127): tail (u64) + 56B padding
+//   Bytes 128+:                  Data ring
+//
+// This struct replaces the raw offset constants in ipc_shm.salt with a
+// type-safe, Z3-verified definition. The raw API in ipc_shm.salt remains
+// for backward compatibility with existing call sites.
+//
+// Directive 1.1: Mechanical Sympathy (v0.9.1)
+// KPI: Cycles per Packet (Cpp) < 150
+// =============================================================================
+
+package kernel.lib.ipc_ring
+
+// =============================================================================
+// SpscRing — Cache-Line Isolated SPSC Ring Header
+// =============================================================================
+// @align(64) forces each annotated field to the start of a new 64-byte
+// cache line. The Z3 formal shadow verifies this at compile time:
+//
+//   Given: base_addr % 64 == 0  (struct allocation contract)
+//   Prove: (base_addr + field_offset) % 64 == 0
+//   Method: Z3 proof by contradiction (assert negation → UNSAT)
+//
+// This eliminates false sharing between producer and consumer cores:
+//   - Core P writes head without invalidating Core C's L1 line for tail
+//   - Core C writes tail without invalidating Core P's L1 line for head
+// =============================================================================
+
+struct SpscRing {
+    @align(64)
+    head: u64,         // Producer-owned: write index (cache line 0)
+    capacity: u64,     // Read-only after init (same cache line as head)
+
+    @align(64)
+    tail: u64,         // Consumer-owned: read index (cache line 1, offset 64)
+}
+
+pub const RING_HEADER_SIZE: u64 = 128;  // 2 cache lines (verified by @align)
+pub const PAGE_SIZE: u64 = 4096;
+pub const DATA_CAPACITY: u64 = 3968;    // PAGE_SIZE - RING_HEADER_SIZE
+
+// =============================================================================
+// Verification Constants — Cross-check with ipc_shm.salt
+// =============================================================================
+// These constants MUST match the raw offsets in ipc_shm.salt:
+//   HEAD_OFFSET     = 0    →  SpscRing.head     at offset 0
+//   CAPACITY_OFFSET = 8    →  SpscRing.capacity  at offset 8
+//   TAIL_OFFSET     = 64   →  SpscRing.tail     at offset 64
+//   DATA_OFFSET     = 128  →  RING_HEADER_SIZE   = 128
+// The Z3 formal shadow guarantees these relationships hold.
+// =============================================================================
+
+// =============================================================================
+// SpscDescriptor — Proof-Carrying IPC Capability Token (Directive 2.1)
+// =============================================================================
+// When a process pushes data through the SPSC ring, it passes an
+// SpscDescriptor that bundles the ring pointer with a Z3-sealed proof_hint.
+//
+// The proof_hint is a 64-bit hash generated at compile time:
+//   proof_hint = hash_combine(struct_name_to_id("SpscRing"), field_offset, alignment)
+//
+// The NetD arbiter validates this descriptor in O(1) cycles:
+//   1. Mechanical: (desc.ptr & 0x3F) == 0  (64-byte alignment check)
+//   2. Logical:    desc.proof_hint == authorized_hint  (bitwise comparison)
+//
+// If either check fails, the descriptor is rejected as a SecurityViolation.
+// This prevents both Alignment Subversion (Vector A) and Hint Forgery (Vector B).
+// =============================================================================
+
+struct SpscDescriptor {
+    ptr: u64,           // Pointer to the SPSC ring (must be 64-byte aligned)
+    len: u32,           // Length of the descriptor region
+    proof_hint: u64,    // Z3-sealed alignment proof (hash_combine output)
+}
+
+// =============================================================================
+// SipHash-2-4 Sovereign Keys — Shared between compiler (Rust) and runtime (Salt)
+// =============================================================================
+// These constants MUST match:
+//   salt-front/src/codegen/verification/proof_hint.rs (SIPHASH_K0, SIPHASH_K1)
+//   kernel/lib/ipc_arbiter.salt (SIPHASH_K0, SIPHASH_K1)
+//
+// Algorithm: SipHash-2-4 (2 compression rounds + 4 finalization rounds)
+// Directive 2.3: Upgraded from FNV-1a for stronger collision resistance.
+// =============================================================================
+
+pub const SIPHASH_K0: u64 = 0x4c61747469636521;  // "Lattice!"
+pub const SIPHASH_K1: u64 = 0x536f76657265696e;  // "Soverein"

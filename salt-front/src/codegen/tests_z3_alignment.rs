@@ -185,5 +185,94 @@ mod tests {
              Expected compilation error."
         );
     }
-}
 
+    // =========================================================================
+    // LAYER 6: Z3 @align(N) — Cache-Line Isolation Proof [RED]
+    // =========================================================================
+    // When @align(N) is on a field, Z3 must prove:
+    //   (base_addr + field_offset) % N == 0, given base_addr % N == 0
+    // This is the foundation for Directive 1.1: Mechanical Sympathy.
+
+    /// @align(64) on two u64 fields must compile and Z3 must prove each field
+    /// sits on a separate 64-byte cache line. The formal shadow emits
+    /// `z3_align_verified` to stderr when the proof succeeds.
+    #[test]
+    fn test_z3_proves_align64_cacheline_isolation() {
+        let mlir = compile_to_mlir(r#"
+            package main
+            struct SpscHeader {
+                @align(64) head: u64,
+                @align(64) tail: u64,
+            }
+            fn main() -> i32 {
+                return 0;
+            }
+        "#);
+
+        // Compilation must succeed — Z3 proves both fields are 64-byte aligned.
+        // The proof runs inside verify_struct_alignments.
+        assert!(
+            !mlir.is_empty(),
+            "Z3 must prove @align(64) field alignment. MLIR should be generated."
+        );
+    }
+
+    // =========================================================================
+    // LAYER 7: Z3 @align(N) — Power-of-Two Rejection [RED]
+    // =========================================================================
+    // @align(N) where N is not a power of 2 is architecturally invalid.
+    // The compiler must reject it at compile time.
+
+    /// @align(7) is not a power of 2 and must be rejected at compile time.
+    #[test]
+    fn test_z3_rejects_align_not_power_of_two() {
+        let result = try_compile(r#"
+            package main
+            struct BadAlign {
+                @align(7) data: u64,
+            }
+            fn main() -> i32 {
+                return 0;
+            }
+        "#);
+
+        assert!(
+            result.is_err(),
+            "Compiler must reject @align(7) — not a power of 2. \
+             Expected compilation error, got MLIR:\n{}",
+            result.unwrap_or_default()
+        );
+    }
+
+    // =========================================================================
+    // LAYER 8: Z3 @align(64) — Full SPSC Ring Struct [RED]
+    // =========================================================================
+    // The real-world use case: SPSC ring with cache-line-isolated head/tail
+    // and a data array. Z3 must prove the layout is correct.
+
+    /// Full SPSC ring struct with @align(64) on head and tail, plus a data
+    /// array. This represents the production layout from Directive 1.1.
+    #[test]
+    fn test_z3_align64_spsc_ring_struct_compiles() {
+        let mlir = compile_to_mlir(r#"
+            package main
+            struct SpscRing {
+                @align(64) head: u64,
+                capacity: u64,
+                @align(64) tail: u64,
+            }
+            fn main() -> i32 {
+                return 0;
+            }
+        "#);
+
+        // Z3 must prove:
+        //   head is at offset 0 → 0 % 64 == 0 ✓
+        //   capacity is at offset 8 (same cache line as head) → no @align constraint
+        //   tail is at offset 64 → 64 % 64 == 0 ✓
+        assert!(
+            !mlir.is_empty(),
+            "Z3 must prove SPSC ring layout with @align(64). MLIR should be generated."
+        );
+    }
+}

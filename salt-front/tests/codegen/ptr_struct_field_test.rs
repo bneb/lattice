@@ -227,6 +227,7 @@ mod tests {
                 name: name.clone(),
                 fields: field_map,
                 field_order: fields,
+                field_alignments: vec![],
                 template_name: None,
                 specialization_args: vec![],
             };

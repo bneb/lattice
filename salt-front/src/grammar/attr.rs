@@ -142,3 +142,12 @@ pub fn extract_pulse_budget(attrs: &[Attribute]) -> Option<u32> {
         .and_then(|a| a.int_arg)
 }
 
+/// [SOVEREIGN V0.9.1] Extract memory alignment from @align attribute
+/// Returns Some(alignment) if @align(N) is present, None otherwise
+/// Examples: @align(64) -> Some(64)
+pub fn extract_align(attrs: &[Attribute]) -> Option<u32> {
+    attrs.iter()
+        .find(|a| a.name == "align")
+        .and_then(|a| a.int_arg)
+}
+

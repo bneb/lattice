@@ -145,6 +145,7 @@ mod tests {
                 name: "Status".to_string(),
                 fields: std::collections::HashMap::new(),
                 field_order: vec![],
+                field_alignments: vec![],
                 template_name: None,
                 specialization_args: vec![],
             };

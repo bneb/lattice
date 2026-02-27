@@ -54,6 +54,7 @@ mod tests {
             name: "TestNode".to_string(),
             fields: fields.clone(),
             field_order: vec![Type::I64, Type::I64],
+            field_alignments: vec![],
             template_name: None,
             specialization_args: vec![],
         };

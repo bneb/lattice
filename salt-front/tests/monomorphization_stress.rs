@@ -16,6 +16,7 @@ fn test_specialized_concrete_layout() {
         name: "Box_i64".to_string(),
         fields: fields_map,
         field_order: fields,
+        field_alignments: vec![],
         template_name: None,
         specialization_args: vec![],
     };
@@ -40,6 +41,7 @@ fn test_specialized_concrete_layout() {
         name: "Pair_i32_i32".to_string(),
         fields: pair_map,
         field_order: pair_fields,
+        field_alignments: vec![],
         template_name: None,
         specialization_args: vec![],
     };
@@ -60,7 +62,7 @@ fn test_complex_nested_layout() {
     let fields_a = vec![Type::I32];
     let mut map_a = HashMap::new();
     map_a.insert("x".to_string(), (0, Type::I32));
-    let info_a = StructInfo { name: "A".to_string(), fields: map_a, field_order: fields_a, template_name: None, specialization_args: vec![] };
+    let info_a = StructInfo { name: "A".to_string(), fields: map_a, field_order: fields_a, field_alignments: vec![], template_name: None, specialization_args: vec![] };
     let key_a = TypeKey { path: vec![], name: "A".to_string(), specialization: None };
     reg.insert(key_a, info_a);
     
@@ -73,7 +75,7 @@ fn test_complex_nested_layout() {
     map_b.insert("arr".to_string(), (0, fields_b[0].clone()));
     map_b.insert("y".to_string(), (1, fields_b[1].clone()));
     
-    let info_b = StructInfo { name: "B".to_string(), fields: map_b, field_order: fields_b, template_name: None, specialization_args: vec![] };
+    let info_b = StructInfo { name: "B".to_string(), fields: map_b, field_order: fields_b, field_alignments: vec![], template_name: None, specialization_args: vec![] };
     let key_b = TypeKey { path: vec![], name: "B".to_string(), specialization: None };
     reg.insert(key_b, info_b);
     

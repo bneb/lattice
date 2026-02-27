@@ -22,6 +22,7 @@ pub mod stack_stability;
 pub mod pointer_state;
 pub mod arena_escape;
 pub mod ptr_bounds_verifier;
+pub mod proof_hint;
 
 pub use state_tracker::{OwnershipState, Z3StateTracker};
 pub use malloc_tracker::MallocTracker;

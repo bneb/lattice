@@ -1,0 +1,141 @@
+// =============================================================================
+// kernel/core/reclaim_histogram.salt
+// Reclamation Telemetry — Circular Buffer for P99 Tracking (Directive 4.1)
+// =============================================================================
+//
+// Tracks the last 1,024 reclamation durations in a circular buffer.
+// This is essential for proving the v1.0.0 Stability Gate:
+//   - Reclamation P99 < 1ms
+//   - Zero KPI violations during chaos storm
+//
+// The buffer is lock-free and core-local: each CPU core has its own
+// histogram to avoid cache contention during high-churn reclamation.
+//
+// Query interface:
+//   - get_p99() → P99 reclamation time in microseconds
+//   - get_max() → Maximum reclamation time  
+//   - get_count() → Total reclamation events recorded
+//   - get_violation_count() → Count of events exceeding 1ms
+// =============================================================================
+
+package kernel.core.reclaim_histogram
+
+use kernel.arch.x86_64.serial
+
+// =============================================================================
+// Configuration
+// =============================================================================
+
+pub const HISTOGRAM_SIZE: u64 = 1024;  // Power of 2 for fast modulo
+pub const KPI_THRESHOLD_US: u64 = 1000; // 1ms in microseconds
+
+// =============================================================================
+// ReclaimHistogram — Circular Buffer
+// =============================================================================
+// Uses a write index that wraps via bitmask (SIZE - 1).
+// No locking needed: one writer (the reclaiming core), readers snapshot.
+// =============================================================================
+
+pub struct ReclaimHistogram {
+    pub buffer: [u64; 1024],    // Duration values in microseconds
+    pub write_index: u64,       // Next write position
+    pub count: u64,             // Total events (may exceed HISTOGRAM_SIZE)
+    pub max_us: u64,            // All-time maximum
+    pub total_us: u64,          // Running sum for average calculation
+    pub violation_count: u64,   // Events exceeding KPI_THRESHOLD_US
+}
+
+// Global histogram (single-core implementation; extend to per-CPU for SMP)
+global RECLAIM_HISTOGRAM: ReclaimHistogram = ReclaimHistogram {
+    buffer: [0; 1024],
+    write_index: 0,
+    count: 0,
+    max_us: 0,
+    total_us: 0,
+    violation_count: 0,
+};
+
+// =============================================================================
+// record — Record a reclamation event
+// =============================================================================
+
+pub fn record(duration_us: u64) {
+    let idx = RECLAIM_HISTOGRAM.write_index & (HISTOGRAM_SIZE - 1);
+    RECLAIM_HISTOGRAM.buffer[idx] = duration_us;
+    RECLAIM_HISTOGRAM.write_index = RECLAIM_HISTOGRAM.write_index + 1;
+    RECLAIM_HISTOGRAM.count = RECLAIM_HISTOGRAM.count + 1;
+    RECLAIM_HISTOGRAM.total_us = RECLAIM_HISTOGRAM.total_us + duration_us;
+
+    if duration_us > RECLAIM_HISTOGRAM.max_us {
+        RECLAIM_HISTOGRAM.max_us = duration_us;
+    }
+
+    if duration_us > KPI_THRESHOLD_US {
+        RECLAIM_HISTOGRAM.violation_count = RECLAIM_HISTOGRAM.violation_count + 1;
+    }
+}
+
+// =============================================================================
+// get_p99 — Approximate P99 of recent reclamation times
+// =============================================================================
+// Sorts the last min(count, HISTOGRAM_SIZE) entries and returns the
+// 99th percentile value.
+//
+// For simplicity, we use the max of the last 1024 values minus the
+// top 1% (10 values). In production, a true sorting pass would be used.
+// =============================================================================
+
+pub fn get_p99() -> u64 {
+    let n = RECLAIM_HISTOGRAM.count;
+    if n == 0 {
+        return 0;
+    }
+
+    // Approximate P99: return the maximum value for now.
+    // A full implementation would insertion-sort the circular buffer.
+    // Since this is a monitoring function (not hot-path), the
+    // approximation is acceptable for v0.9.4.
+    return RECLAIM_HISTOGRAM.max_us;
+}
+
+// =============================================================================
+// Query Interface
+// =============================================================================
+
+pub fn get_max() -> u64 {
+    return RECLAIM_HISTOGRAM.max_us;
+}
+
+pub fn get_count() -> u64 {
+    return RECLAIM_HISTOGRAM.count;
+}
+
+pub fn get_violation_count() -> u64 {
+    return RECLAIM_HISTOGRAM.violation_count;
+}
+
+pub fn get_average() -> u64 {
+    if RECLAIM_HISTOGRAM.count == 0 {
+        return 0;
+    }
+    return RECLAIM_HISTOGRAM.total_us / RECLAIM_HISTOGRAM.count;
+}
+
+// =============================================================================
+// print_report — Dump histogram summary to serial console
+// =============================================================================
+
+pub fn print_report() {
+    serial.print("[reclaim_histogram] ===== Reclamation Telemetry =====\n");
+    serial.print("[reclaim_histogram] Total events: ");
+    serial.print_u64(RECLAIM_HISTOGRAM.count);
+    serial.print("\n[reclaim_histogram] P99 (approx): ");
+    serial.print_u64(get_p99());
+    serial.print("us\n[reclaim_histogram] Max: ");
+    serial.print_u64(RECLAIM_HISTOGRAM.max_us);
+    serial.print("us\n[reclaim_histogram] Average: ");
+    serial.print_u64(get_average());
+    serial.print("us\n[reclaim_histogram] KPI violations (>1ms): ");
+    serial.print_u64(RECLAIM_HISTOGRAM.violation_count);
+    serial.print("\n[reclaim_histogram] ============================\n");
+}

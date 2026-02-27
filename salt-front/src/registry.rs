@@ -45,6 +45,7 @@ pub struct StructInfo {
     pub name: String,
     pub fields: HashMap<String, (usize, Type)>,
     pub field_order: Vec<Type>,
+    pub field_alignments: Vec<Option<u32>>,
     pub template_name: Option<String>,
     pub specialization_args: Vec<Type>,
 }

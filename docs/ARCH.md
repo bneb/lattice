@@ -310,6 +310,8 @@ kernel/
 │   ├── memory.salt       # Memory subsystem init + verification
 │   ├── region.salt       # Region allocator
 │   ├── ring3_test.salt   # Ring 3 TDD tests (IRETQ frame, KPTI CR3, end-to-end SYSCALL)
+│   ├── sovereign_reclaim.salt # Sovereign Reclamation: 5-phase hardware-fenced teardown
+│   ├── reclaim_histogram.salt # P99 reclamation telemetry (1024-entry circular buffer)
 │   └── panic.salt        # Kernel panic with serial diagnostics
 ├── drivers/
 │   ├── serial.salt       # COM1 UART (115200 baud, 8N1)
@@ -321,6 +323,7 @@ kernel/
 │   ├── slab_cache.salt   # Slab cache registry + factory
 │   ├── slab.salt         # O(1) slab allocator (Treiber stack + CAS)
 │   ├── page.salt         # Page-level operations
+│   ├── page_sweep.salt   # Atomic Page Table Sweep: non-recursive PML4 teardown (4KB/2MB/1GB)
 │   ├── user_paging.salt  # Per-process page tables
 │   └── mm_layout.salt    # Memory map constants
 ├── user/
@@ -337,7 +340,9 @@ kernel/
 │   ├── netd_tcp.salt         # 1024-entry static TCB pool (32KB)
 │   └── netd_tcp_parse.salt   # TCP parse/build + RFC 793 checksum
 ├── lib/
-│   └── ipc_shm.salt          # SPSC ring buffer (producer/consumer)
+│   ├── ipc_shm.salt          # SPSC ring buffer (producer/consumer)
+│   ├── ipc_ring.salt         # SpscRing struct (@align(64)) + SpscDescriptor
+│   └── ipc_arbiter.salt      # SipHash-2-4 proof-hint arbiter (O(1) validation)
 ├── sched/                # Scheduler support modules
 user/
 ├── lib/
@@ -765,11 +770,14 @@ flowchart LR
 ### Benchmarks
 
 ```bash
-# Run all Salt benchmarks (22 benchmarks vs C and Rust)
+# Run all Salt benchmarks (28 benchmarks vs C and Rust)
 cd benchmarks && ./benchmark.sh -a
 
 # Run specific benchmarks
 ./benchmark.sh matmul forest lru_cache
+
+# Run compilation time benchmarks
+cd benchmarks && ./compile_time_bench.sh
 
 # Run Sovereign Train (MNIST neural network)
 cd benchmarks/ml && ./benchmark.sh --salt

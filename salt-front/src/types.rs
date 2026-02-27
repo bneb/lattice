@@ -597,8 +597,11 @@ impl Type {
                 if let Some(info) = struct_registry.values().find(|info| info.name == lookup_name) {
                     let mut offset = 0;
                     let mut max_align = 1;
-                    for ty in &info.field_order {
-                        let align = ty.internal_align_of(struct_registry, depth + 1);
+                    for (i, ty) in info.field_order.iter().enumerate() {
+                        let mut align = ty.internal_align_of(struct_registry, depth + 1);
+                        if let Some(Some(explicit_align)) = info.field_alignments.get(i) {
+                            align = align.max(*explicit_align as usize);
+                        }
                         max_align = max_align.max(align);
                         offset = (offset + align - 1) & !(align - 1);
                         offset += ty.internal_size_of(struct_registry, depth + 1);
@@ -635,7 +638,13 @@ impl Type {
                     _ => name.clone(),
                 };
                 if let Some(info) = struct_registry.values().find(|info| info.name == lookup_name) {
-                    info.field_order.iter().map(|ty| ty.internal_align_of(struct_registry, depth + 1)).max().unwrap_or(1)
+                    info.field_order.iter().enumerate().map(|(i, ty)| {
+                        let mut align = ty.internal_align_of(struct_registry, depth + 1);
+                        if let Some(Some(explicit_align)) = info.field_alignments.get(i) {
+                            align = align.max(*explicit_align as usize);
+                        }
+                        align
+                    }).max().unwrap_or(1)
                 } else { 8 }
             }
             Type::Window(_, _) => 8,

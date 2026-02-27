@@ -310,6 +310,7 @@ fn test_expr_error_paths_saturation() {
             name: "std.MyStruct".to_string(),
             fields: HashMap::new(),
             field_order: vec![],
+            field_alignments: vec![],
             template_name: None,
             specialization_args: vec![],
         });
@@ -484,6 +485,7 @@ fn test_expr_extreme_paths_saturation() {
             name: "Point".to_string(),
             fields: vec![("x".to_string(), (0, Type::I32))].into_iter().collect(),
             field_order: vec![Type::I32],
+            field_alignments: vec![],
             template_name: None,
             specialization_args: vec![],
         });

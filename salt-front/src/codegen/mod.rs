@@ -84,7 +84,8 @@ mod tests_z3_loop_verification;
 mod tests_pmm_aba;
 #[cfg(test)]
 mod tests_kernel_unsafe;
-
+#[cfg(test)]
+mod tests_proof_hint;
 use crate::grammar::{SaltFile, Item, SaltFn, SaltImpl, ExternFnDecl, SaltConcept, SaltTrait};
 use crate::codegen::context::{CodegenContext, LocalKind, GenericContextGuard};
 use crate::codegen::type_bridge::{resolve_type, resolve_codegen_type};
@@ -293,8 +294,8 @@ use std::collections::{HashMap, HashSet};
 
 impl<'a> CodegenContext<'a> {
     pub fn drive_codegen(&mut self) -> Result<String, String> {
-        // [FORMAL SHADOW] Verify @atomic field alignment before any emission
-        self.verify_atomic_alignments()?;
+        // [FORMAL SHADOW] Verify struct alignment constraints before any emission
+        self.verify_struct_alignments()?;
 
         // State 1 (Discovery): Seeding Lazy Recursion
         
@@ -313,7 +314,17 @@ impl<'a> CodegenContext<'a> {
                 }
             }
             if tasks.is_empty() {
-                return Ok("module attributes {llvm.data_layout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\", llvm.target_triple = \"x86_64-unknown-none-elf\"} {}\n".to_string());
+                // [Directive 2.1] Include proof_hints even for struct-only lib compilations
+                let proof_hints = self.proof_hints.borrow();
+                let proof_hints_attr = if proof_hints.is_empty() {
+                    String::new()
+                } else {
+                    let entries: Vec<String> = proof_hints.iter()
+                        .map(|(key, val)| format!("\"{}\" = {}", key, val))
+                        .collect();
+                    format!(", \"salt.proof_hints\" = {{{}}}", entries.join(", "))
+                };
+                return Ok(format!("module attributes {{llvm.data_layout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\", llvm.target_triple = \"x86_64-unknown-none-elf\"{}}} {{}}\n", proof_hints_attr));
             }
             for task in tasks {
                 self.hydrate_specialization(task)?;
@@ -377,7 +388,19 @@ impl<'a> CodegenContext<'a> {
         // MLIR requires dialect-prefixed attributes on builtin.module ops.
         // Kernel code (lib_mode without sip_mode) does NOT get this marker.
         let sip_attr = if self.sip_mode { ", \"salt.sip_verified\" = true" } else { "" };
-        out.push_str(&format!("module attributes {{llvm.data_layout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\", llvm.target_triple = \"x86_64-unknown-none-elf\"{}}} {{\n", sip_attr));
+        
+        // [Directive 2.1] Emit salt.proof_hints if any @align(N) fields were verified
+        let proof_hints = self.proof_hints.borrow();
+        let proof_hints_attr = if proof_hints.is_empty() {
+            String::new()
+        } else {
+            let entries: Vec<String> = proof_hints.iter()
+                .map(|(key, val)| format!("\"{}\" = {}", key, val))
+                .collect();
+            format!(", \"salt.proof_hints\" = {{{}}}", entries.join(", "))
+        };
+        drop(proof_hints); // Release borrow
+        out.push_str(&format!("module attributes {{llvm.data_layout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\", llvm.target_triple = \"x86_64-unknown-none-elf\"{}{}}} {{\n", sip_attr, proof_hints_attr));
         
         // Standard Declarations (Structs, Enums, Globals - captured in decl_out during scan/emit)
         // Also emit pending function declarations, but ONLY for functions that were never defined.
@@ -494,10 +517,13 @@ impl<'a> CodegenContext<'a> {
         Ok(out)
     }
 
-    /// [FORMAL SHADOW] Verify that all @atomic struct fields are 16-byte aligned.
+    /// [FORMAL SHADOW] Verify all struct alignment constraints:
+    ///   - @atomic fields: 16-byte alignment for cmpxchg16b
+    ///   - @align(N) fields: N-byte alignment (cache-line isolation)
+    ///   - @atomic structs: stride alignment (sizeof % 16 == 0)
+    ///   - @packed structs: zero implicit padding
     /// Uses Z3 integer modular arithmetic to prove alignment is invariant.
-    /// Returns Err if any @atomic field fails the alignment proof.
-    fn verify_atomic_alignments(&self) -> Result<(), String> {
+    fn verify_struct_alignments(&self) -> Result<(), String> {
         use z3::ast::Ast;
 
         // Extract struct definitions first to avoid RefCell borrow conflict
@@ -555,6 +581,82 @@ impl<'a> CodegenContext<'a> {
                                  Fix: reorder fields or add padding so @atomic fields \
                                  start at offsets that are multiples of 16.",
                                 f.name, s.name, byte_offset
+                            ));
+                        }
+                    }
+                }
+
+                // =====================================================================
+                // FIELD-LEVEL @align(N): Z3 Cache-Line Isolation Proof
+                // =====================================================================
+                // When @align(N) is on a field, the compiler must:
+                //   1. Validate N is a power of 2 (architectural requirement)
+                //   2. Pad byte_offset to the next N-byte boundary
+                //   3. Use Z3 to prove: (base + padded_offset) % N == 0,
+                //      given base % N == 0
+                // This is the formal foundation for Directive 1.1 (Mechanical Sympathy).
+                // =====================================================================
+                let align_value = crate::grammar::attr::extract_align(&f.attributes);
+                if let Some(n) = align_value {
+                    // Gate 1: Power-of-two validation
+                    if n == 0 || (n & (n - 1)) != 0 {
+                        return Err(format!(
+                            "[Formal Shadow] ALIGNMENT ERROR: @align({}) on field '{}' \
+                             in struct '{}' is not a power of 2. \
+                             Alignment values must be powers of 2 (e.g., 1, 2, 4, 8, 16, 32, 64).",
+                            n, f.name, s.name
+                        ));
+                    }
+
+                    // Pad byte_offset to N-byte boundary (mirrors Type::size_of logic)
+                    let align_n = n as usize;
+                    byte_offset = (byte_offset + align_n - 1) & !(align_n - 1);
+
+                    // Gate 2: Z3 formal proof of alignment
+                    let z3_cfg = z3::Config::new();
+                    let z3_ctx = z3::Context::new(&z3_cfg);
+                    let solver = z3::Solver::new(&z3_ctx);
+
+                    let base = z3::ast::Int::new_const(&z3_ctx, "base_addr");
+                    let align_const = z3::ast::Int::from_i64(&z3_ctx, n as i64);
+                    let zero = z3::ast::Int::from_i64(&z3_ctx, 0);
+
+                    // Assume base_addr is N-byte aligned (struct allocation contract)
+                    solver.assert(&base.ge(&zero));
+                    solver.assert(&base.modulo(&align_const)._eq(&zero));
+
+                    let offset_val = z3::ast::Int::from_i64(&z3_ctx, byte_offset as i64);
+                    let field_addr = z3::ast::Int::add(&z3_ctx, &[&base, &offset_val]);
+
+                    // Assert negation: (base + offset) % N != 0
+                    // If UNSAT → alignment is guaranteed (proof by contradiction)
+                    solver.assert(&field_addr.modulo(&align_const)._eq(&zero).not());
+
+                    match solver.check() {
+                        z3::SatResult::Unsat => {
+                            eprintln!(
+                                "[Formal Shadow] Z3 PROVED: @align({}) field '{}' in struct '{}' \
+                                 is {}-byte aligned at offset {} (z3_align_verified)",
+                                n, f.name, s.name, n, byte_offset
+                            );
+                            // [Directive 2.1] Seal the Z3 proof into a 64-bit hint
+                            let struct_id = crate::codegen::verification::proof_hint::struct_name_to_id(&s.name.to_string());
+                            let hint = crate::codegen::verification::proof_hint::hash_combine(
+                                struct_id, byte_offset as u64, n as u64
+                            );
+                            self.proof_hints.borrow_mut().push((
+                                format!("{}_{}", s.name, f.name), hint
+                            ));
+                        }
+                        _ => {
+                            return Err(format!(
+                                "[Formal Shadow] ALIGNMENT VIOLATION: @align({}) field '{}' \
+                                 in struct '{}' is at byte offset {}, which is NOT \
+                                 {}-byte aligned. The Z3 SMT solver proved this layout \
+                                 violates the cache-line isolation contract. \
+                                 Fix: reorder fields or adjust alignment so @align({}) fields \
+                                 start at offsets that are multiples of {}.",
+                                n, f.name, s.name, byte_offset, n, n, n
                             ));
                         }
                     }

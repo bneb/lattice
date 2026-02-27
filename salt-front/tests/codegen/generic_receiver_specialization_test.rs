@@ -108,6 +108,7 @@ mod tests {
                 name: format!("{}_u8", template_name),
                 fields: HashMap::new(),
                 field_order: vec![Type::I64, Type::I64], // Ptr has addr + len
+                field_alignments: vec![],
                 template_name: Some(template_name.clone()),
                 specialization_args: vec![Type::U8],
             };
@@ -163,6 +164,7 @@ mod tests {
                 name: name.clone(),
                 fields: HashMap::new(),
                 field_order: vec![Type::I64],
+                field_alignments: vec![],
                 template_name: None,
                 specialization_args: vec![],
             };

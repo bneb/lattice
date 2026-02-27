@@ -127,3 +127,24 @@ fn test_extract_pulse_multiple_attributes_pulse_last() {
     }
 }
 
+// =============================================================================
+// extract_align tests
+// =============================================================================
+
+#[test]
+fn test_extract_align_with_value() {
+    let attr1: Attribute = syn::parse_str("@align(64)").unwrap();
+    let attrs = vec![attr1];
+    
+    let result = salt_front::grammar::attr::extract_align(&attrs);
+    assert_eq!(result, Some(64));
+}
+
+#[test]
+fn test_extract_align_no_attribute() {
+    let attr1: Attribute = syn::parse_str("@hot").unwrap();
+    let attrs = vec![attr1];
+    
+    let result = salt_front::grammar::attr::extract_align(&attrs);
+    assert_eq!(result, None);
+}

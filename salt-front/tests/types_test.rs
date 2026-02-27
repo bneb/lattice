@@ -176,7 +176,8 @@ fn test_size_of_wrappers() {
     assert_eq!(Type::Owned(Box::new(Type::I32)).size_of(&reg), 8);
     assert_eq!(Type::Reference(Box::new(Type::I32), false).size_of(&reg), 8);
     assert_eq!(Type::Reference(Box::new(Type::I32), true).size_of(&reg), 8);
-    assert_eq!(Type::Atomic(Box::new(Type::I32)).size_of(&reg), 8);
+    // [SOVEREIGN FIX] Atomic<T> storage matches T, not a pointer
+    assert_eq!(Type::Atomic(Box::new(Type::I32)).size_of(&reg), 4);
     
     // Window is 16 bytes (ptr + len)
     assert_eq!(Type::Window(Box::new(Type::I32), "RAM".to_string()).size_of(&reg), 16);
@@ -214,6 +215,7 @@ fn test_size_of_struct_with_registry() {
         name: "Point".to_string(),
         fields: fields_map,
         field_order: fields,
+        field_alignments: vec![],
         template_name: None,
         specialization_args: vec![],
     };
@@ -327,6 +329,7 @@ fn test_deep_recursion_layout_caching() {
             name: name.clone(),
             fields: fields_map,
             field_order: fields_vec,
+            field_alignments: vec![],
             template_name: None,
             specialization_args: vec![],
         };
@@ -598,6 +601,7 @@ fn test_prove_layout_compatibility_struct_same_size() {
             name: name.to_string(),
             fields: fields_map,
             field_order: fields,
+            field_alignments: vec![],
             template_name: None,
             specialization_args: vec![],
         };
@@ -628,6 +632,7 @@ fn test_prove_layout_compatibility_struct_different_size() {
             name: "LayoutSmall".to_string(),
             fields: fields_map,
             field_order: vec![Type::I32],
+            field_alignments: vec![],
             template_name: None,
             specialization_args: vec![],
         };
@@ -644,6 +649,7 @@ fn test_prove_layout_compatibility_struct_different_size() {
             name: "LayoutLarge".to_string(),
             fields: fields_map,
             field_order: vec![Type::I64, Type::I64],
+            field_alignments: vec![],
             template_name: None,
             specialization_args: vec![],
         };
@@ -674,6 +680,7 @@ fn test_struct_cast_rejects_incompatible_layouts() {
             name: "CastSmall".to_string(),
             fields: fields_map,
             field_order: vec![Type::I32],
+            field_alignments: vec![],
             template_name: None,
             specialization_args: vec![],
         };
@@ -690,6 +697,7 @@ fn test_struct_cast_rejects_incompatible_layouts() {
             name: "CastLarge".to_string(),
             fields: fields_map,
             field_order: vec![Type::I64, Type::I64],
+            field_alignments: vec![],
             template_name: None,
             specialization_args: vec![],
         };
@@ -950,4 +958,167 @@ fn test_pointer_not_equal_to_other_types() {
     assert!(!ptr.structural_eq(&Type::Reference(Box::new(Type::U8), false)));
     assert!(!ptr.structural_eq(&Type::Owned(Box::new(Type::U8))));
     assert!(!ptr.structural_eq(&Type::Concrete("Ptr".to_string(), vec![Type::U8])));
+}
+
+// =============================================================================
+// TDD: @align(64) Cache-Line Isolation Tests (Directive 1.1)
+// =============================================================================
+// These tests verify that the `field_alignments` vector in StructInfo
+// correctly influences `Type::size_of` and `Type::align_of` calculations.
+// The goal: an `@align(64)` attribute on a struct field forces that field's
+// offset to a 64-byte boundary, preventing false sharing between CPU cores.
+// =============================================================================
+
+#[test]
+fn test_align64_forces_field_to_cacheline_boundary() {
+    // Simulates:
+    //   struct SpscRing {
+    //       @align(64)
+    //       head: u64,    // Producer-owned
+    //       @align(64)
+    //       tail: u64,    // Consumer-owned
+    //   }
+    //
+    // Without @align(64): size = 16 (two u64s packed together)
+    // With @align(64):    head starts at offset 0 (trivially 64-aligned),
+    //                     tail starts at offset 64 (forced to next cache line),
+    //                     total size = 128 (64 + 8 tail, padded to 64 align)
+    let mut reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+
+    let fields = vec![Type::U64, Type::U64];
+    let mut fields_map = HashMap::new();
+    fields_map.insert("head".to_string(), (0, Type::U64));
+    fields_map.insert("tail".to_string(), (1, Type::U64));
+
+    let info = salt_front::registry::StructInfo {
+        name: "SpscRing".to_string(),
+        fields: fields_map,
+        field_order: fields,
+        field_alignments: vec![Some(64), Some(64)],  // @align(64) on both fields
+        template_name: None,
+        specialization_args: vec![],
+    };
+
+    let key = TypeKey { path: vec![], name: "SpscRing".to_string(), specialization: None };
+    reg.insert(key, info);
+
+    let ty = Type::Struct("SpscRing".to_string());
+
+    // Without @align, two u64s would be 16 bytes. With @align(64), tail is pushed
+    // to offset 64, making the struct 128 bytes (64 for head region + 64 for tail region).
+    assert_eq!(ty.size_of(&reg), 128,
+        "SpscRing with @align(64) on both fields should be 128 bytes (two cache lines)");
+
+    // Struct alignment should be the max of all field alignments (64)
+    assert_eq!(ty.align_of(&reg), 64,
+        "SpscRing alignment should be 64 (from @align(64))");
+}
+
+#[test]
+fn test_align64_single_field() {
+    // Simulates:
+    //   struct Header {
+    //       @align(64)
+    //       counter: u64,
+    //   }
+    //
+    // With @align(64): size = 64 (8 bytes of data, padded to 64 alignment)
+    let mut reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+
+    let info = salt_front::registry::StructInfo {
+        name: "Header".to_string(),
+        fields: {
+            let mut m = HashMap::new();
+            m.insert("counter".to_string(), (0, Type::U64));
+            m
+        },
+        field_order: vec![Type::U64],
+        field_alignments: vec![Some(64)],
+        template_name: None,
+        specialization_args: vec![],
+    };
+
+    let key = TypeKey { path: vec![], name: "Header".to_string(), specialization: None };
+    reg.insert(key, info);
+
+    let ty = Type::Struct("Header".to_string());
+    assert_eq!(ty.size_of(&reg), 64,
+        "Header with @align(64) counter should be 64 bytes (padded to cache line)");
+    assert_eq!(ty.align_of(&reg), 64,
+        "Header alignment should be 64");
+}
+
+#[test]
+fn test_no_align_attribute_unchanged() {
+    // Sanity check: without any @align attribute, layout is unchanged
+    let mut reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+
+    let info = salt_front::registry::StructInfo {
+        name: "NormalStruct".to_string(),
+        fields: {
+            let mut m = HashMap::new();
+            m.insert("a".to_string(), (0, Type::U64));
+            m.insert("b".to_string(), (1, Type::U64));
+            m
+        },
+        field_order: vec![Type::U64, Type::U64],
+        field_alignments: vec![None, None],  // No explicit alignment
+        template_name: None,
+        specialization_args: vec![],
+    };
+
+    let key = TypeKey { path: vec![], name: "NormalStruct".to_string(), specialization: None };
+    reg.insert(key, info);
+
+    let ty = Type::Struct("NormalStruct".to_string());
+    assert_eq!(ty.size_of(&reg), 16,
+        "NormalStruct without @align should be 16 bytes (two u64s)");
+    assert_eq!(ty.align_of(&reg), 8,
+        "NormalStruct alignment should be 8 (natural u64)");
+}
+
+#[test]
+fn test_align64_with_trailing_data_field() {
+    // Simulates:
+    //   struct SpscRing {
+    //       @align(64)
+    //       head: u64,
+    //       @align(64)
+    //       tail: u64,
+    //       data: [u8; 4096],  // No explicit align, just packed after tail
+    //   }
+    //
+    // head at offset 0 (64-aligned), tail at offset 64 (64-aligned),
+    // data at offset 72 (8-aligned), size = 72 + 4096 = 4168, padded to 64 = 4224
+    let mut reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+
+    let info = salt_front::registry::StructInfo {
+        name: "FullSpsc".to_string(),
+        fields: {
+            let mut m = HashMap::new();
+            m.insert("head".to_string(), (0, Type::U64));
+            m.insert("tail".to_string(), (1, Type::U64));
+            m.insert("data".to_string(), (2, Type::Array(Box::new(Type::U8), 4096, false)));
+            m
+        },
+        field_order: vec![Type::U64, Type::U64, Type::Array(Box::new(Type::U8), 4096, false)],
+        field_alignments: vec![Some(64), Some(64), None],
+        template_name: None,
+        specialization_args: vec![],
+    };
+
+    let key = TypeKey { path: vec![], name: "FullSpsc".to_string(), specialization: None };
+    reg.insert(key, info);
+
+    let ty = Type::Struct("FullSpsc".to_string());
+
+    // Layout:
+    //   head: offset 0, size 8
+    //   tail: offset 64 (aligned to 64), size 8
+    //   data: offset 72, size 4096
+    //   Total: 4168, padded to next 64 = 4224
+    assert_eq!(ty.size_of(&reg), 4224,
+        "FullSpsc with two @align(64) fields + 4096B data should be 4224 bytes");
+    assert_eq!(ty.align_of(&reg), 64,
+        "FullSpsc alignment should be 64");
 }

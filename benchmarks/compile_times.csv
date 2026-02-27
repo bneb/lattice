@@ -1,0 +1,10 @@
+timestamp,benchmark,salt_compile_ms,mlir_opt_ms,llvm_lower_ms,link_ms,total_ms,binary_size_kb
+2026-02-27T20:10:17Z,matmul,64,76,0,0,140,0
+2026-02-27T20:10:17Z,fib,67,71,0,0,138,0
+2026-02-27T20:10:17Z,sieve,70,71,0,0,141,0
+2026-02-27T20:10:17Z,hashmap_bench,91,74,0,0,165,0
+2026-02-27T20:10:17Z,lru_cache,91,81,0,0,172,0
+2026-02-27T20:10:17Z,http_parser_bench,80,77,0,0,157,0
+2026-02-27T20:10:17Z,sudoku_solver,73,76,0,0,149,0
+2026-02-27T20:10:17Z,trie,69,71,0,0,140,0
+2026-02-27T20:10:17Z,vector_add,67,72,0,0,139,0

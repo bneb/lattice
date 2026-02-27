@@ -8,9 +8,9 @@ Official performance benchmarks comparing Salt, C (Clang -O3), and Rust (-O).
 - **Fair Comparison**: All implementations do equivalent work
 - **Platform**: macOS ARM64 (Apple Silicon M4)
 
-## 📊 Results (February 21, 2026)
+## 📊 Results (February 27, 2026)
 
-**28 benchmarks building. Salt ≤ C in 19/22 head-to-head.**
+**28 benchmarks building. Salt ≤ C in 18/22 head-to-head.**
 
 ### All Benchmarks
 
@@ -43,13 +43,35 @@ Official performance benchmarks comparing Salt, C (Clang -O3), and Rust (-O).
 
 \* *Forest measures arena allocation strategy (O(1) bump + O(1) reset) vs individual malloc/free (4M allocations). The advantage reflects Salt's arena stdlib, not codegen.*
 
-## 🏆 Summary: Salt ≤ C in 19/22 Head-to-Head
+## 🏆 Summary: Salt ≤ C in 18/22 Head-to-Head
 
 | Category | Count | Benchmarks |
 |----------|-------|-----------| 
 | 🚀 **Salt Wins** (1.1x+) | 16 | matmul (4.5x), buffered_writer (8.4x), fstring_perf (4.6x), forest\* (4x), longest_consecutive (3.1x), sudoku_solver (1.5x), lru_cache (1.4x), trie (1.3x), http_parser (1.3x), window_access (1.3x), vector_add (1.2x), sieve (1.2x), fib (1.2x), global_counter (1.2x), hashmap (1.1x), fannkuch (1.1x) |
 | ✅ **C Parity** (±5%) | 3 | binary_tree_path, string_hashmap, bitwise |
 | ⚠️ **C Faster** | 3 | trapping_rain_water (noise), merge_sorted_lists, writer_perf |
+
+---
+
+## ⏱️ Compilation Times (February 27, 2026)
+
+End-to-end Salt pipeline compilation times, measured per benchmark file.
+Tracked in `benchmarks/compile_times.csv` for historical regression detection.
+
+| Benchmark | Salt→MLIR | MLIR-opt | Total |
+|-----------|-----------|----------|-------|
+| `matmul` | 64ms | 76ms | 140ms |
+| `fib` | 67ms | 71ms | 138ms |
+| `sieve` | 70ms | 71ms | 141ms |
+| `hashmap_bench` | 91ms | 74ms | 165ms |
+| `lru_cache` | 91ms | 81ms | 172ms |
+| `http_parser_bench` | 80ms | 77ms | 157ms |
+| `sudoku_solver` | 73ms | 76ms | 149ms |
+| `trie` | 69ms | 71ms | 140ms |
+| `vector_add` | 67ms | 72ms | 139ms |
+| **Average** | **75ms** | **74ms** | **149ms** |
+
+Run: `./compile_time_bench.sh` (appends results to CSV with timestamp)
 
 ---
 

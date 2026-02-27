@@ -122,6 +122,7 @@ mod tests {
                 name: name.clone(),
                 fields: HashMap::new(), 
                 field_order: fields,
+                field_alignments: vec![],
                 template_name: None,
                 specialization_args: vec![],
             };
@@ -161,6 +162,7 @@ mod tests {
                 name: name.clone(),
                 fields: HashMap::new(),
                 field_order: fields,
+                field_alignments: vec![],
                 template_name: None,
                 specialization_args: vec![],
             };
@@ -501,6 +503,7 @@ mod tests {
                     name: name.to_string(),
                     fields: HashMap::new(),
                     field_order: fields,
+                    field_alignments: vec![],
                     template_name: None,
                     specialization_args: vec![],
                 };
@@ -529,6 +532,7 @@ mod tests {
                 name: "Small".to_string(),
                 fields: HashMap::new(),
                 field_order: vec![Type::I32],
+                field_alignments: vec![],
                 template_name: None,
                 specialization_args: vec![],
             };
@@ -540,6 +544,7 @@ mod tests {
                 name: "Large".to_string(),
                 fields: HashMap::new(),
                 field_order: vec![Type::I64, Type::I64],
+                field_alignments: vec![],
                 template_name: None,
                 specialization_args: vec![],
             };
@@ -567,6 +572,7 @@ mod tests {
                 name: "SmallCast".to_string(),
                 fields: HashMap::new(),
                 field_order: vec![Type::I32],
+                field_alignments: vec![],
                 template_name: None,
                 specialization_args: vec![],
             };
@@ -578,6 +584,7 @@ mod tests {
                 name: "LargeCast".to_string(),
                 fields: HashMap::new(),
                 field_order: vec![Type::I64, Type::I64],
+                field_alignments: vec![],
                 template_name: None,
                 specialization_args: vec![],
             };
@@ -611,6 +618,7 @@ mod tests {
                     name: name.to_string(),
                     fields: HashMap::new(),
                     field_order: vec![Type::I64, Type::I64],
+                    field_alignments: vec![],
                     template_name: None,
                     specialization_args: vec![],
                 };
@@ -667,6 +675,7 @@ mod tests {
                 name: "StructAlign8".to_string(),
                 fields: HashMap::new(),
                 field_order: vec![Type::I64],
+                field_alignments: vec![],
                 template_name: None,
                 specialization_args: vec![],
             };
@@ -678,6 +687,7 @@ mod tests {
                 name: "StructAlign4".to_string(),
                 fields: HashMap::new(),
                 field_order: vec![Type::I32, Type::I32],
+                field_alignments: vec![],
                 template_name: None,
                 specialization_args: vec![],
             };

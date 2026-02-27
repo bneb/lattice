@@ -2508,7 +2508,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         } else {
              let mut reg = self.struct_registry_mut();
              reg.insert(key.clone(), StructInfo {
-                 name: mangled.clone(), fields: HashMap::new(), field_order: Vec::new(),
+                 name: mangled.clone(), fields: HashMap::new(), field_order: Vec::new(), field_alignments: Vec::new(),
                  template_name: if concrete_tys.is_empty() { None } else { Some(base_name.to_string()) },
                  specialization_args: concrete_tys.to_vec(),
              });
@@ -2755,6 +2755,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                 name: template_name.to_string(),
                 fields: std::collections::HashMap::new(),
                 field_order: vec![],
+                field_alignments: vec![],
                 template_name: Some(template_name.to_string()),
                 specialization_args: vec![],
             });
@@ -2787,6 +2788,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         // 5. Recursive Discovery: Map fields in the new context
         let mut resolved_fields = HashMap::new();
         let mut field_order = Vec::new();
+        let mut field_alignments = Vec::new();
 
         for (i, field) in fields.iter().enumerate() {
             // resolve_type is recursive and might access struct_templates/current_type_map
@@ -2800,9 +2802,12 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                       eprintln!("Warning: @packed attribute ignored on non-array field '{}' in struct '{}'", field.name, template_name);
                  }
             }
+            
+            let align = crate::grammar::attr::extract_align(&field.attributes);
 
             resolved_fields.insert(field.name.to_string(), (i, field_ty.clone()));
             field_order.push(field_ty);
+            field_alignments.push(align);
         }
         
         // 6. Transactional Restore: Roll back the context
@@ -2849,6 +2854,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             name: self.specialize_template(template_name, args, false)?.mangle(),
             fields: resolved_fields,
             field_order,
+            field_alignments,
             template_name: Some(template_name.to_string()),
             specialization_args: args.to_vec(),
         })
