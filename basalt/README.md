@@ -282,17 +282,19 @@ zsh scripts/run_test.sh basalt/tests/test_transformer.salt
 
 ### Quickstart (Pre-built Binary)
 
-No toolchain required — grab the pre-built binary:
+No toolchain required — grab the pre-built binary and the reference worker:
 
 ```bash
 basalt/wasm/dist/basalt.wasm    # 38KB inference engine (includes q8_0 kernels)
-basalt/wasm/engine-worker.js    # JS Web Worker
+basalt/wasm/engine-worker.js    # Reference JS Web Worker (includes BPETokenizer)
 ```
+
+The reference `engine-worker.js` provides a complete implementation of the WASM bridge, BPE decoding, repetition penalties, and multi-turn chat management. It is highly recommended to use this worker as the foundation for web integrations.
 
 ```javascript
 const worker = new Worker('/engine-worker.js');
 worker.postMessage({ type: 'LOAD_MODEL', modelUrl: '/model.bin', tokenizerUrl: '/tokenizer.bin' });
-worker.postMessage({ type: 'RUN_PROMPT', prompt: 'Once upon a time', maxNewTokens: 256 });
+worker.postMessage({ type: 'RUN_PROMPT', prompt: 'Once upon a time', maxNewTokens: 256, temperature: 0.8, topP: 0.9 });
 worker.onmessage = ({ data }) => {
     if (data.type === 'TOKEN') process.stdout.write(data.text);
     if (data.type === 'DONE')  console.log(`${data.totalTokens} tokens in ${data.elapsedMs}ms`);
@@ -319,13 +321,17 @@ bash scripts/build_basalt_wasm.sh
 | `basalt_free` | `()` | Burn the context down |
 | `basalt_reset` | `()` | Zero KV cache + reset position (multi-turn chat, keeps loaded weights) |
 
-### Conversation Context
+### Conversation Context & Multi-Turn Chat
 
-The KV cache supports **reset without re-init** — enabling multi-turn chat without re-parsing model weights.
+The KV cache supports **reset without re-init** — enabling multi-turn chat without re-parsing model weights. To implement multi-turn chat:
+
+1. Maintain the full conversation history (System Prompt + User/Assistant turns) in your JS layer, formatted with the model's chat template (e.g., ChatML).
+2. Call `basalt_reset()` before each new turn to clear the KV cache and reset the position back to 0.
+3. Call `basalt_ingest_prompt(full_history_tokens_ptr, count)` with the **entire** conversation history.
 
 | Scenario | How |
 |----------|-----|
-| Multi-turn chat | `basalt_reset()` → `basalt_ingest_prompt(new_history)` — clears KV cache, keeps weights |
+| Multi-turn chat | `basalt_reset()` → `basalt_ingest_prompt(full_string)` — clears KV cache, keeps weights |
 | Switch models | `worker.terminate()` → new Worker (only way to reclaim WASM memory) |
 
 ### Config Param IDs
@@ -406,6 +412,6 @@ Supporting a modern 1B parameter model (like Llama 3.2 1B or TinyLlama 1.1B) int
 - [x] WASM SIMD v128 kernel optimization (Tier 2) — `v_load`/`v_fma`/`v_hsum` intrinsics
 - [x] Weight quantization q8_0 (Tier 2.5) — `convert_q8.py`, 3.77× compression, ~300 tok/s
 - [x] Top-p / temperature sampling in generation loop
-- [ ] `bitcast` intrinsic for f16→f32 (compiler-level, would speed up q8 kernels)
+- [x] `bitcast` intrinsic for f16→f32 (compiler-level, would speed up q8 kernels)
 - [ ] WebGPU orchestration for 1B inference (Tier 3)
 
