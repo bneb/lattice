@@ -90,9 +90,9 @@ log() { [[ "$VERBOSE" == true ]] && echo "  → $1" || true; }
 # Step 1: salt-front → MLIR
 log "salt-front → MLIR"
 if [[ "$LIB_MODE" == true ]]; then
-    "$SALT_FRONT/target/debug/salt-front" "$SALT_FILE" --lib > "$MLIR_OUT"
+    "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --lib --release > "$MLIR_OUT"
 else
-    "$SALT_FRONT/target/debug/salt-front" "$SALT_FILE" > "$MLIR_OUT"
+    "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --release > "$MLIR_OUT"
 fi
 echo "  ✓ MLIR generated"
 
@@ -100,7 +100,10 @@ echo "  ✓ MLIR generated"
 log "mlir-opt → optimized MLIR"
 mlir-opt "$MLIR_OUT" \
     --allow-unregistered-dialect \
+    --canonicalize --cse --loop-invariant-code-motion --sccp --canonicalize --cse \
+    --lower-affine \
     --convert-scf-to-cf \
+    --convert-vector-to-llvm \
     --convert-cf-to-llvm \
     --convert-arith-to-llvm \
     --convert-math-to-llvm \

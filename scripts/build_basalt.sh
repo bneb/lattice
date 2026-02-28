@@ -34,6 +34,7 @@ echo "" >> "$COMBINED_SRC"
 MODULES=(
     "$PROJECT_ROOT/basalt/src/kernels.salt"
     "$PROJECT_ROOT/basalt/src/sampler.salt"
+    "$PROJECT_ROOT/basalt/src/quant.salt"
     "$PROJECT_ROOT/basalt/src/transformer.salt"
     "$PROJECT_ROOT/basalt/src/model_loader.salt"
     "$PROJECT_ROOT/basalt/src/tokenizer.salt"
@@ -64,9 +65,12 @@ mlir-opt "$MLIR_OUT" \
     --sccp \
     --canonicalize \
     --cse \
+    --lower-affine \
     --convert-scf-to-cf \
+    --convert-vector-to-llvm \
     --convert-cf-to-llvm \
     --convert-arith-to-llvm \
+    --convert-math-to-llvm \
     --convert-func-to-llvm \
     --reconcile-unrealized-casts \
     -o "$OPT_OUT"

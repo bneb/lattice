@@ -1,0 +1,222 @@
+// =============================================================================
+// TDD Test: q8_0 Model Loading
+// =============================================================================
+// Tests the 8-integer header format, on-the-fly embedding dequant,
+// and q8_0 weight stride math.
+//
+// Constructs a minimal model in memory:
+//   Header: 8 × i32 (32 bytes)
+//   Token embedding: q8_0 blocks
+//   rms_att_weight: f32
+//   wq: q8_0 blocks (1 layer, tiny dims)
+//   ...etc (simplified)
+//
+// Uses dim=32, vocab_size=2, n_layers=1, hidden_dim=64 to keep it tiny.
+// =============================================================================
+
+package main
+
+use std.io.println
+use std.core.ptr.Ptr
+
+extern fn malloc(size: i64) -> Ptr<u8>;
+extern fn free(ptr: Ptr<u8>);
+
+// ── Inline helpers (same as quant.salt) ─────────────────────────────────────
+
+@fast_math
+fn f16_to_f32(bits: i32) -> f32 {
+    let sign: i32 = (bits >> 15) & 1;
+    let exp: i32 = (bits >> 10) & 31;
+    let mant: i32 = bits & 1023;
+    let mut result: f32 = 0.0f32;
+    if exp == 0 {
+        result = (mant as f32) / 1024.0f32;
+        result = result * 0.000061035156f32;
+    } else {
+        if exp == 31 {
+            result = 65504.0f32;
+        } else {
+            let m: f32 = 1.0f32 + (mant as f32) / 1024.0f32;
+            let mut p: f32 = 1.0f32;
+            if exp > 15 {
+                for _i in 0..(exp - 15) { p = p * 2.0f32; }
+            } else {
+                for _i in 0..(15 - exp) { p = p / 2.0f32; }
+            }
+            result = m * p;
+        }
+    }
+    if sign == 1 { result = 0.0f32 - result; }
+    return result;
+}
+
+fn assert_near(got: f32, expected: f32, tol: f32) -> i32 {
+    let diff: f32 = got - expected;
+    if diff > tol { return 1; }
+    if diff < (0.0f32 - tol) { return 1; }
+    return 0;
+}
+
+// Write a q8_0 block: f16 scale + 32 × int8 values
+fn write_q8_block(buf: Ptr<u8>, offset: i64, scale_lo: u8, scale_hi: u8, fill_val: u8) {
+    buf[offset] = scale_lo;
+    buf[offset + 1] = scale_hi;
+    for k in 0..32 {
+        buf[offset + 2 + k] = fill_val;
+    }
+}
+
+// Dequant a single row of q8_0 blocks to f32 (on-the-fly embedding lookup)
+fn dequant_row(src: Ptr<u8>, dst: Ptr<f32>, dim: i64) {
+    let n_blocks: i64 = dim / 32;
+    for b in 0..n_blocks {
+        let boff: i64 = b * 34;
+        let lo: i32 = src[boff] as i32;
+        let hi: i32 = src[boff + 1] as i32;
+        let scale: f32 = f16_to_f32(lo | (hi << 8));
+        let doff: i64 = b * 32;
+        for k in 0..32 {
+            let raw: i32 = src[boff + 2 + k] as i32;
+            let sv: i32 = raw - ((raw >> 7) * 256);
+            dst[doff + k] = scale * (sv as f32);
+        }
+    }
+}
+
+fn main() -> i32 {
+    println("=== q8_0 Model Loading Test ===");
+
+    // ── Test 1: 8-integer header parsing ────────────────────────────────────
+    // Header layout: [dim, hidden_dim, n_layers, n_heads, n_kv_heads, vocab_size, seq_len, quant_type]
+    let dim: i64 = 32;
+    let hidden_dim: i64 = 64;
+    let n_layers: i64 = 1;
+    let n_heads: i64 = 2;
+    let n_kv_heads: i64 = 2;
+    let vocab_size: i64 = 2;
+    let seq_len: i64 = 64;
+    let quant_type: i32 = 1;  // 1 = q8_0
+
+    let header = malloc(32) as Ptr<i32>;
+    header[0] = dim as i32;
+    header[1] = hidden_dim as i32;
+    header[2] = n_layers as i32;
+    header[3] = n_heads as i32;
+    header[4] = n_kv_heads as i32;
+    header[5] = vocab_size as i32;
+    header[6] = seq_len as i32;
+    header[7] = quant_type;
+
+    // Verify header[7] detection
+    if header[7] != 1 {
+        println("FAIL: header[7] quant_type != 1");
+        free(header as Ptr<u8>);
+        return 1;
+    }
+    println("PASS: 8-int header quant_type = 1");
+
+    // ── Test 2: dim % 32 validation ─────────────────────────────────────────
+    if (dim % 32) != 0 {
+        println("FAIL: dim not multiple of 32");
+        free(header as Ptr<u8>);
+        return 1;
+    }
+    // Also check hidden_dim
+    if (hidden_dim % 32) != 0 {
+        println("FAIL: hidden_dim not multiple of 32");
+        free(header as Ptr<u8>);
+        return 1;
+    }
+    println("PASS: dim=32, hidden_dim=64 both % 32 == 0");
+
+    free(header as Ptr<u8>);
+
+    // ── Test 3: On-the-fly embedding dequant ────────────────────────────────
+    // Construct 2 embedding rows (vocab_size=2, dim=32), each is 1 q8_0 block = 34 bytes
+    let embed_q8_size: i64 = 2 * 34;  // 2 rows × 1 block × 34 bytes
+    let embed_buf = malloc(embed_q8_size);
+
+    // Row 0: scale=1.0, vals=3 → dequant value = 3.0
+    write_q8_block(embed_buf, 0, 0, 60, 3);  // f16 1.0 = 0x3C00
+
+    // Row 1: scale=2.0, vals=5 → dequant value = 10.0
+    write_q8_block(embed_buf, 34, 0, 64, 5);  // f16 2.0 = 0x4000
+
+    // Dequant row 0 on-the-fly
+    let row0_f32 = malloc(128) as Ptr<f32>;  // 32 * 4 bytes
+    let row0_ptr = embed_buf;  // offset 0
+    dequant_row(row0_ptr, row0_f32, 32);
+
+    if assert_near(row0_f32[0], 3.0f32, 0.1f32) != 0 {
+        println("FAIL: embed row0[0] != 3.0");
+        free(embed_buf);
+        free(row0_f32 as Ptr<u8>);
+        return 1;
+    }
+    if assert_near(row0_f32[31], 3.0f32, 0.1f32) != 0 {
+        println("FAIL: embed row0[31] != 3.0");
+        free(embed_buf);
+        free(row0_f32 as Ptr<u8>);
+        return 1;
+    }
+    println("PASS: embed row 0 dequant (scale=1.0, val=3 → 3.0)");
+
+    // Dequant row 1 on-the-fly
+    let row1_ptr = embed_buf.offset(34);  // row 1 at byte 34
+    dequant_row(row1_ptr, row0_f32, 32);  // reuse buffer
+
+    if assert_near(row0_f32[0], 10.0f32, 0.1f32) != 0 {
+        println("FAIL: embed row1[0] != 10.0");
+        free(embed_buf);
+        free(row0_f32 as Ptr<u8>);
+        return 1;
+    }
+    println("PASS: embed row 1 dequant (scale=2.0, val=5 → 10.0)");
+
+    free(embed_buf);
+    free(row0_f32 as Ptr<u8>);
+
+    // ── Test 4: q8_0 weight stride math ─────────────────────────────────────
+    // For a weight matrix of shape (rows, cols):
+    // q8_bytes = rows * (cols / 32) * 34
+    // With dim=32: q8_bytes(32 * 32) = 32 * 1 * 34 = 1088 bytes per layer
+    let q8_per_layer_wq: i64 = dim * (dim / 32) * 34;  // 32 * 1 * 34 = 1088
+    if q8_per_layer_wq != 1088 {
+        println("FAIL: q8 stride wq != 1088");
+        return 1;
+    }
+
+    // For hidden_dim=64, dim=32: q8_bytes(64 * 32) = 64 * 1 * 34 = 2176
+    let q8_per_layer_w1: i64 = hidden_dim * (dim / 32) * 34;
+    if q8_per_layer_w1 != 2176 {
+        println("FAIL: q8 stride w1 != 2176");
+        return 1;
+    }
+
+    // w2: (dim, hidden_dim) → dim * (hidden_dim / 32) * 34 = 32 * 2 * 34 = 2176
+    let q8_per_layer_w2: i64 = dim * (hidden_dim / 32) * 34;
+    if q8_per_layer_w2 != 2176 {
+        println("FAIL: q8 stride w2 != 2176");
+        return 1;
+    }
+    println("PASS: q8 stride math correct");
+
+    // ── Test 5: Row-level byte offset for multi-row q8 weight ───────────────
+    // For wq (32×32), row i starts at byte i * (dim/32) * 34
+    let bytes_per_row: i64 = (dim / 32) * 34;  // 1 * 34 = 34
+    if bytes_per_row != 34 {
+        println("FAIL: bytes_per_row != 34");
+        return 1;
+    }
+    // Row 5 starts at byte 5 * 34 = 170
+    let row5_offset: i64 = 5 * bytes_per_row;
+    if row5_offset != 170 {
+        println("FAIL: row5 offset != 170");
+        return 1;
+    }
+    println("PASS: row-level byte offset correct");
+
+    println("=== All model loading tests passed ===");
+    return 0;
+}

@@ -36,7 +36,7 @@ echo "// Auto-generated" > "$COMBINED"
 echo "package main" >> "$COMBINED"
 echo "use std.core.ptr.Ptr" >> "$COMBINED"
 echo "" >> "$COMBINED"
-for f in basalt/src/kernels.salt basalt/src/sampler.salt basalt/src/transformer.salt basalt/src/model_loader.salt basalt/src/tokenizer.salt basalt/src/main.salt; do
+for f in basalt/src/kernels.salt basalt/src/sampler.salt basalt/src/quant.salt basalt/src/transformer.salt basalt/src/model_loader.salt basalt/src/tokenizer.salt basalt/src/main.salt; do
     grep -v "^package " "$PROJECT/$f" | grep -v "^use basalt\." >> "$COMBINED"
     echo "" >> "$COMBINED"
 done
@@ -45,7 +45,8 @@ $SF/target/release/salt-front "$COMBINED" > $OUT/basalt.mlir
 mlir-opt $OUT/basalt.mlir \
     --allow-unregistered-dialect \
     --canonicalize --cse --loop-invariant-code-motion --sccp --canonicalize --cse \
-    --convert-scf-to-cf --convert-vector-to-llvm --convert-cf-to-llvm --convert-arith-to-llvm --convert-func-to-llvm \
+    --lower-affine \
+    --convert-scf-to-cf --convert-vector-to-llvm --convert-cf-to-llvm --convert-arith-to-llvm --convert-math-to-llvm --convert-func-to-llvm \
     --reconcile-unrealized-casts -o $OUT/basalt.opt.mlir
 sed -i '' '/"salt.verify"/d' $OUT/basalt.opt.mlir
 mlir-translate --mlir-to-llvmir $OUT/basalt.opt.mlir -o $OUT/basalt.ll

@@ -11,6 +11,7 @@ package basalt.transformer
 
 use std.core.ptr.Ptr
 use basalt.kernels.{rmsnorm, softmax, mat_mul}
+use basalt.quant.{mat_mul_vec_q8, dequant_block_q8}
 
 extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: Ptr<u8>);
@@ -34,25 +35,38 @@ pub struct Config {
 // Weights (Mmap View)
 // -----------------------------------------------------------------------------
 pub struct TransformerWeights {
-    pub token_embedding_table: Ptr<f32>, // (vocab_size, dim)
+    pub token_embedding_table: Ptr<f32>, // (vocab_size, dim) — always f32
     
-    pub rms_att_weight: Ptr<f32>, // (layer, dim)
+    pub rms_att_weight: Ptr<f32>, // (layer, dim) — always f32
     pub wq: Ptr<f32>,             // (layer, dim, n_heads * head_size)
     pub wk: Ptr<f32>,             // (layer, dim, n_kv_heads * head_size)
     pub wv: Ptr<f32>,             // (layer, dim, n_kv_heads * head_size)
     pub wo: Ptr<f32>,             // (layer, n_heads * head_size, dim)
     
-    pub rms_ffn_weight: Ptr<f32>, // (layer, dim)
+    pub rms_ffn_weight: Ptr<f32>, // (layer, dim) — always f32
     pub w1: Ptr<f32>,             // (layer, dim, hidden_dim)
     pub w2: Ptr<f32>,             // (layer, hidden_dim, dim)
     pub w3: Ptr<f32>,             // (layer, dim, hidden_dim)
     
-    pub rms_final_weight: Ptr<f32>, // (dim)
+    pub rms_final_weight: Ptr<f32>, // (dim) — always f32
     
     pub freq_cis_real: Ptr<f32>, // (seq_len, dim/2)
     pub freq_cis_imag: Ptr<f32>, // (seq_len, dim/2)
     
     pub w_cls: Ptr<f32>, // (dim, vocab_size)
+    
+    // q8_0 quantized weight pointers (null when using f32)
+    pub wq_q8: Ptr<u8>,
+    pub wk_q8: Ptr<u8>,
+    pub wv_q8: Ptr<u8>,
+    pub wo_q8: Ptr<u8>,
+    pub w1_q8: Ptr<u8>,
+    pub w2_q8: Ptr<u8>,
+    pub w3_q8: Ptr<u8>,
+    pub w_cls_q8: Ptr<u8>,
+    pub embed_q8: Ptr<u8>,      // token embedding in q8_0 (on-the-fly dequant)
+    
+    pub is_q8: i32,  // 1 if quantized, 0 if f32
 }
 
 // -----------------------------------------------------------------------------
@@ -132,12 +146,18 @@ pub fn forward(cfg: Config, w: TransformerWeights, s: RunState, token: i64, pos:
     let kv_mul: i64 = cfg.n_heads / cfg.n_kv_heads; 
     let sqrt_head_size: f32 = sqrtf(head_size as f32);
 
-    // 1. Embedding
-    let embed_row = w.token_embedding_table;
-    let offset: i64 = token * dim;
-    for i in 0..dim {
-        let val: f32 = embed_row[offset + i];
-        s.x[i] = val;
+    // 1. Embedding — on-the-fly dequant for q8, direct copy for f32
+    if w.is_q8 == 1 {
+        // Each row is (dim / 32) q8_0 blocks × 34 bytes
+        let row_bytes: i64 = (dim / 32) * 34;
+        let row_ptr = w.embed_q8.offset(token * row_bytes);
+        dequant_block_q8(row_ptr, s.x, dim / 32);
+    } else {
+        let embed_row = w.token_embedding_table;
+        let offset: i64 = token * dim;
+        for i in 0..dim {
+            s.x[i] = embed_row[offset + i];
+        }
     }
     
     // 2. Layers Loop
@@ -150,9 +170,18 @@ pub fn forward(cfg: Config, w: TransformerWeights, s: RunState, token: i64, pos:
         let wk_offset: i64 = l * kv_dim * dim;
         let wv_offset: i64 = l * kv_dim * dim;
         
-        mat_mul(s.q, w.wq.offset(wq_offset), s.xb, dim, 1, dim);
-        mat_mul(s.k, w.wk.offset(wk_offset), s.xb, kv_dim, 1, dim);
-        mat_mul(s.v, w.wv.offset(wv_offset), s.xb, kv_dim, 1, dim);
+        if w.is_q8 == 1 {
+            let wq_q8_off: i64 = l * dim * (dim / 32) * 34;
+            let wk_q8_off: i64 = l * kv_dim * (dim / 32) * 34;
+            let wv_q8_off: i64 = l * kv_dim * (dim / 32) * 34;
+            mat_mul_vec_q8(s.q, w.wq_q8.offset(wq_q8_off), s.xb, dim, dim);
+            mat_mul_vec_q8(s.k, w.wk_q8.offset(wk_q8_off), s.xb, kv_dim, dim);
+            mat_mul_vec_q8(s.v, w.wv_q8.offset(wv_q8_off), s.xb, kv_dim, dim);
+        } else {
+            mat_mul(s.q, w.wq.offset(wq_offset), s.xb, dim, 1, dim);
+            mat_mul(s.k, w.wk.offset(wk_offset), s.xb, kv_dim, 1, dim);
+            mat_mul(s.v, w.wv.offset(wv_offset), s.xb, kv_dim, 1, dim);
+        }
 
         // RoPE Rotation
         for h in 0..cfg.n_heads {
@@ -232,7 +261,12 @@ pub fn forward(cfg: Config, w: TransformerWeights, s: RunState, token: i64, pos:
 
         // Output Projection
         let wo_offset: i64 = l * dim * dim;
-        mat_mul(s.xb2, w.wo.offset(wo_offset), s.xb, dim, 1, dim);
+        if w.is_q8 == 1 {
+            let wo_q8_off: i64 = l * dim * (dim / 32) * 34;
+            mat_mul_vec_q8(s.xb2, w.wo_q8.offset(wo_q8_off), s.xb, dim, dim);
+        } else {
+            mat_mul(s.xb2, w.wo.offset(wo_offset), s.xb, dim, 1, dim);
+        }
 
         // Residual Connection
         for i in 0..dim {
@@ -248,8 +282,15 @@ pub fn forward(cfg: Config, w: TransformerWeights, s: RunState, token: i64, pos:
         let w2_offset: i64 = l * dim * hidden_dim;
         let w3_offset: i64 = l * hidden_dim * dim;
         
-        mat_mul(s.hb, w.w1.offset(w1_offset), s.xb, hidden_dim, 1, dim);
-        mat_mul(s.hb2, w.w3.offset(w3_offset), s.xb, hidden_dim, 1, dim);
+        if w.is_q8 == 1 {
+            let w1_q8_off: i64 = l * hidden_dim * (dim / 32) * 34;
+            let w3_q8_off: i64 = l * hidden_dim * (dim / 32) * 34;
+            mat_mul_vec_q8(s.hb, w.w1_q8.offset(w1_q8_off), s.xb, hidden_dim, dim);
+            mat_mul_vec_q8(s.hb2, w.w3_q8.offset(w3_q8_off), s.xb, hidden_dim, dim);
+        } else {
+            mat_mul(s.hb, w.w1.offset(w1_offset), s.xb, hidden_dim, 1, dim);
+            mat_mul(s.hb2, w.w3.offset(w3_offset), s.xb, hidden_dim, 1, dim);
+        }
 
         for i in 0..hidden_dim {
             let val: f32 = s.hb[i];
@@ -261,7 +302,12 @@ pub fn forward(cfg: Config, w: TransformerWeights, s: RunState, token: i64, pos:
         }
 
         // Down projection
-        mat_mul(s.xb, w.w2.offset(w2_offset), s.hb, dim, 1, hidden_dim);
+        if w.is_q8 == 1 {
+            let w2_q8_off: i64 = l * dim * (hidden_dim / 32) * 34;
+            mat_mul_vec_q8(s.xb, w.w2_q8.offset(w2_q8_off), s.hb, dim, hidden_dim);
+        } else {
+            mat_mul(s.xb, w.w2.offset(w2_offset), s.hb, dim, 1, hidden_dim);
+        }
 
         // Residual Connection
         for i in 0..dim {
@@ -274,5 +320,9 @@ pub fn forward(cfg: Config, w: TransformerWeights, s: RunState, token: i64, pos:
     rmsnorm(s.x, s.x, w.rms_final_weight, cfg.dim);
     
     // 4. Classifier
-    mat_mul(s.logits, w.w_cls, s.x, cfg.vocab_size, 1, cfg.dim);
+    if w.is_q8 == 1 {
+        mat_mul_vec_q8(s.logits, w.w_cls_q8, s.x, cfg.vocab_size, cfg.dim);
+    } else {
+        mat_mul(s.logits, w.w_cls, s.x, cfg.vocab_size, 1, cfg.dim);
+    }
 }

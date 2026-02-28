@@ -1,5 +1,5 @@
 [package]
 name = "basalt"
-version = "0.4.1"
+version = "0.5.0"
 description = "Basalt — MLIR-Native Llama 2 Inference Engine with Z3 Formal Verification"
 entry = "src/main.salt"

@@ -4,6 +4,12 @@
 // JS owns: BPE tokenization, string decoding, Memory allocation
 // WASM owns: math (forward passes, sampling, RoPE).
 
+// ── Float bit-casting helper ────────────────────────────────────────────────
+const _f32buf = new ArrayBuffer(4);
+const _f32view = new Float32Array(_f32buf);
+const _i32view = new Int32Array(_f32buf);
+function floatBitsToInt(f) { _f32view[0] = f; return _i32view[0]; }
+
 let wasm = null;
 let vocab = null;
 let vocabDecode = null;
@@ -108,9 +114,17 @@ async function loadModel(modelUrl, tokenizerUrl) {
     postMessage({ type: 'READY' });
 }
 
-async function runPrompt(prompt, maxNewTokens = 128) {
+async function runPrompt(prompt, maxNewTokens = 128, temperature = 0.0, topP = 0.9, seed = 0) {
     if (!wasm) throw new Error('Model not loaded');
     running = true;
+
+    // Set sampling parameters before generation
+    const actualSeed = seed || Date.now();
+    wasm.exports.basalt_set_sampling(
+        floatBitsToInt(temperature),
+        floatBitsToInt(topP),
+        BigInt(actualSeed)
+    );
 
     postMessage({ type: 'STATUS', message: 'Tokenizing prompt...' });
     const tokens = encodePrompt(prompt);
@@ -153,7 +167,13 @@ async function runPrompt(prompt, maxNewTokens = 128) {
 self.onmessage = async (e) => {
     try {
         if (e.data.type === 'LOAD_MODEL') await loadModel(e.data.modelUrl, e.data.tokenizerUrl);
-        else if (e.data.type === 'RUN_PROMPT') await runPrompt(e.data.prompt, e.data.maxNewTokens);
+        else if (e.data.type === 'RUN_PROMPT') await runPrompt(
+            e.data.prompt,
+            e.data.maxNewTokens,
+            e.data.temperature ?? 0.0,
+            e.data.topP ?? 0.9,
+            e.data.seed ?? 0
+        );
         else if (e.data.type === 'STOP') running = false;
         else if (e.data.type === 'RESET') {
             if (wasm) wasm.exports.basalt_reset();

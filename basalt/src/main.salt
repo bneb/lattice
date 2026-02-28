@@ -8,8 +8,9 @@ use std.io.println
 use std.core.ptr.Ptr
 
 use basalt.transformer.{Config, TransformerWeights, RunState, alloc_run_state, free_run_state, forward}
-use basalt.sampler.{sample_argmax, sample_token}
-use basalt.model_loader.{load_config, get_weights}
+use basalt.kernels.softmax
+use basalt.sampler.{sample_argmax, sample_token, sample_topp}
+use basalt.model_loader.{load_config, get_weights, get_weights_q8, is_model_q8}
 use basalt.tokenizer.{Tokenizer, load_tokenizer, decode_token, decode_token_len}
 
 // -----------------------------------------------------------------------------
@@ -135,9 +136,17 @@ fn run_inference(model_path: Ptr<u8>, tok_path: Ptr<u8>) -> i32 {
     }
 
     let cfg = load_config(model_data);
+    let q8: i32 = is_model_q8(model_data);
     println("Config: dim={}, layers={}, heads={}, vocab={}", cfg.dim, cfg.n_layers, cfg.n_heads, cfg.vocab_size);
+    if q8 == 1 {
+        println("Model format: q8_0");
+    }
     
-    let mut w = get_weights(model_data, cfg);
+    let mut w = if q8 == 1 {
+        get_weights_q8(model_data, cfg)
+    } else {
+        get_weights(model_data, cfg)
+    };
     
     let rope_w = build_freq_cis(cfg);
     w.freq_cis_real = rope_w.freq_cis_real;
@@ -149,6 +158,7 @@ fn run_inference(model_path: Ptr<u8>, tok_path: Ptr<u8>) -> i32 {
         vocab: 0 as Ptr<TokenizerEntry>,
         vocab_size: 0,
         max_token_length: 0,
+        text_arena: 0 as Ptr<u8>,
     };
     if has_tok {
         tok = load_tokenizer(tok_data, cfg.vocab_size);
@@ -199,7 +209,7 @@ fn run_inference(model_path: Ptr<u8>, tok_path: Ptr<u8>) -> i32 {
 }
 
 fn main() -> i32 {
-    println("Basalt v0.4.1 (Llama 2 Inference)");
+    println("Basalt v0.5.0 (Llama 2 Inference)");
     
     let argc = salt_get_argc();
     if argc < 2 {
@@ -221,6 +231,7 @@ fn main() -> i32 {
         basalt_engine_ingest_prompt(es, 0 as Ptr<i64>, 0);
         let _t = basalt_engine_generate_step(es);
         let _c = basalt_engine_get_config(es, 0);
+        basalt_engine_set_sampling(es, 0.0f32, 0.0f32, 0);
         basalt_engine_reset(es);
         basalt_engine_free(es);
     }
@@ -249,11 +260,19 @@ struct EngineState {
     pos: i64,
     token: i64,
     initialized: i32,
+    temperature: f32,
+    topp: f32,
+    rng_state: i64,
 }
 
 pub fn basalt_engine_init(model_data: Ptr<u8>, model_size: i64) -> Ptr<EngineState> {
     let cfg = load_config(model_data);
-    let mut w = get_weights(model_data, cfg);
+    let q8: i32 = is_model_q8(model_data);
+    let mut w = if q8 == 1 {
+        get_weights_q8(model_data, cfg)
+    } else {
+        get_weights(model_data, cfg)
+    };
     let rope_w = build_freq_cis(cfg);
     w.freq_cis_real = rope_w.freq_cis_real;
     w.freq_cis_imag = rope_w.freq_cis_imag;
@@ -266,6 +285,9 @@ pub fn basalt_engine_init(model_data: Ptr<u8>, model_size: i64) -> Ptr<EngineSta
     es_ptr.pos = 0;
     es_ptr.token = 1;
     es_ptr.initialized = 1;
+    es_ptr.temperature = 0.0f32;
+    es_ptr.topp = 0.9f32;
+    es_ptr.rng_state = 42;
     
     return es_ptr;
 }
@@ -303,11 +325,61 @@ pub fn basalt_engine_generate_step(es_ptr: Ptr<EngineState>) -> i64 {
     if es_ptr.pos >= cfg.seq_len { return -1; }
 
     forward(cfg, es_ptr.weights, es_ptr.state, es_ptr.token, es_ptr.pos);
-    let next = sample_argmax(es_ptr.state.logits, cfg.vocab_size);
+
+    // ── Sampling: temperature → softmax → sample ────────────────────────
+    let logits: Ptr<f32> = es_ptr.state.logits;
+    let vocab: i64 = cfg.vocab_size;
+    let temp: f32 = es_ptr.temperature;
+
+    let mut next: i64 = 0;
+
+    if temp <= 0.0f32 {
+        // Greedy: deterministic argmax (temperature = 0)
+        next = sample_argmax(logits, vocab);
+    } else {
+        // Scale logits by 1/temperature, then softmax
+        for i in 0..vocab {
+            logits[i] = logits[i] / temp;
+        }
+        softmax(logits, vocab);
+
+        // Generate random coin via xoshiro128+
+        let mut s: i64 = es_ptr.rng_state;
+        s = s ^ (s << 13);
+        s = s ^ (s >> 7);
+        s = s ^ (s << 17);
+        es_ptr.rng_state = s;
+        // Map to [0, 1): take lower 31 bits, divide by 2^31
+        let coin_bits: i64 = s & 2147483647;
+        let coin: f32 = (coin_bits as f32) / 2147483648.0f32;
+
+        let tp: f32 = es_ptr.topp;
+        if tp > 0.0f32 {
+            if tp < 1.0f32 {
+                next = sample_topp(logits, vocab, tp, coin);
+            } else {
+                next = sample_token(logits, vocab, coin);
+            }
+        } else {
+            next = sample_token(logits, vocab, coin);
+        }
+    }
+
     es_ptr.token = next;
     es_ptr.pos = es_ptr.pos + 1;
 
     return next;
+}
+
+// ── Set sampling parameters ────────────────────────────────────────────────
+
+pub fn basalt_engine_set_sampling(es_ptr: Ptr<EngineState>, temp: f32, topp: f32, seed: i64) {
+    if es_ptr.initialized == 0 { return; }
+    es_ptr.temperature = temp;
+    es_ptr.topp = topp;
+    if seed != 0 {
+        es_ptr.rng_state = seed;
+    }
 }
 
 pub fn basalt_engine_free(es_ptr: Ptr<EngineState>) {

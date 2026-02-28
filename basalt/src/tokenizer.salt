@@ -35,6 +35,7 @@ pub struct Tokenizer {
     pub vocab: Ptr<TokenizerEntry>,
     pub vocab_size: i64,
     pub max_token_length: i32,
+    pub text_arena: Ptr<u8>,
 }
 
 // -----------------------------------------------------------------------------
@@ -50,6 +51,13 @@ pub fn load_tokenizer(data: Ptr<u8>, vocab_size: i64) -> Tokenizer {
     let vocab_buf = malloc(vocab_size * entry_size);
     let vocab = vocab_buf as Ptr<TokenizerEntry>;
     
+    // Allocate a single contiguous arena for all token text.
+    // Upper bound: vocab_size * (max_token_length + 1) for null terminators.
+    // Cache-friendly: all string data lives in one allocation.
+    let arena_size: i64 = vocab_size * (max_len as i64 + 1);
+    let text_arena = malloc(arena_size);
+    let mut arena_offset: i64 = 0;
+    
     for i in 0..vocab_size {
         let score = (data.offset(offset) as Ptr<f32>)[0];
         offset = offset + 4;
@@ -57,18 +65,24 @@ pub fn load_tokenizer(data: Ptr<u8>, vocab_size: i64) -> Tokenizer {
         let len = (data.offset(offset) as Ptr<i32>)[0];
         offset = offset + 4;
         
-        // Copy text bytes + null terminator
-        let text_buf = malloc(len as i64 + 1);
+        // Copy text bytes into arena + null terminator
+        let text_ptr = text_arena.offset(arena_offset);
         for j in 0..(len as i64) {
-            text_buf[j] = data[offset + j];
+            text_ptr[j] = data[offset + j];
         }
-        text_buf[len as i64] = 0;
+        text_ptr[len as i64] = 0;
+        arena_offset = arena_offset + len as i64 + 1;
         offset = offset + len as i64;
         
-        vocab[i] = TokenizerEntry { text: text_buf, len: len, score: score };
+        vocab[i] = TokenizerEntry { text: text_ptr, len: len, score: score };
     }
     
-    return Tokenizer { vocab: vocab, vocab_size: vocab_size, max_token_length: max_len };
+    return Tokenizer { vocab: vocab, vocab_size: vocab_size, max_token_length: max_len, text_arena: text_arena };
+}
+
+pub fn free_tokenizer(tok: Tokenizer) {
+    free(tok.text_arena);
+    free(tok.vocab as Ptr<u8>);
 }
 
 // -----------------------------------------------------------------------------

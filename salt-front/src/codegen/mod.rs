@@ -1466,6 +1466,13 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
     let saved_malloc_tracker = ctx.malloc_tracker.replace(crate::codegen::verification::MallocTracker::new());
     let saved_arena_escape = ctx.arena_escape_tracker.replace(crate::codegen::verification::ArenaEscapeTracker::new());
 
+    // [SOVEREIGN V5.1] Clear stale pending_malloc_result to prevent cross-function contamination.
+    // When a function like `alloc_u8` does `return malloc(count)`, the pending flag is set by
+    // the malloc call but never consumed (no let-binding in the function body). Without this
+    // reset, the stale flag leaks to the next function compiled, falsely tagging its first
+    // let-binding as a malloc'd allocation (e.g., `malloc:entry` for `let entry = tok.vocab[i]`).
+    *ctx.pending_malloc_result.borrow_mut() = None;
+
     // [ARENA ESCAPE ANALYSIS] Register function arguments at depth 1.
     // MUST happen AFTER the tracker is replaced with a fresh one (above).
     // Arguments outlive the function body — their depth is Caller-owned.

@@ -1,7 +1,16 @@
 // =============================================================================
 // Basalt Model Loader
 // =============================================================================
-// Handles parsing of the binary model file format (compatible with llama2.c).
+// Handles parsing of the binary model file format.
+//
+// Header format (Basalt v0.5):
+//   8 × i32 = 32 bytes
+//   [dim, hidden_dim, n_layers, n_heads, n_kv_heads, vocab_size, seq_len, quant_type]
+//   quant_type: 0 = f32, 1 = q8_0
+//
+// For f32 models with the legacy 7-int (28-byte) header, header[7] will read
+// as the first bytes of token_embedding_table — typically a small float whose
+// i32 reinterpretation is neither 0 nor 1, so it falls through to f32 mode.
 // =============================================================================
 
 package basalt.model_loader
@@ -10,21 +19,20 @@ use std.core.ptr.Ptr
 use std.io.println
 use basalt.transformer.{Config, TransformerWeights}
 
-// -----------------------------------------------------------------------------
-// Helper: Pointer Arithmetic wrapper
-// -----------------------------------------------------------------------------
-// We assume std.core.ptr.Ptr is available via global use in build script, 
-// but local helper is safer if build setup changes.
-// Actually Ptr<T>.offset exists in std.
+// No malloc needed — embeddings stay in q8_0 format in memory
 
 // -----------------------------------------------------------------------------
 // Header Parsing
 // -----------------------------------------------------------------------------
 
 pub fn load_config(data: Ptr<u8>) -> Config {
-    // Header is sequence of i32
-    // struct { dim, hidden_dim, n_layers, n_heads, n_kv_heads, vocab_size, seq_len }
     let header = data as Ptr<i32>;
+    
+    // Support both legacy 7-int and new 8-int headers.
+    // vocab_size follows llama2.c convention: negative = shared weights.
+    let raw_vocab: i32 = header[5];
+    let shared: i32 = if raw_vocab < 0 { 1 } else { 0 };
+    let vocab: i64 = if raw_vocab < 0 { (0 - raw_vocab) as i64 } else { raw_vocab as i64 };
     
     return Config {
         dim: header[0] as i64,
@@ -32,138 +40,186 @@ pub fn load_config(data: Ptr<u8>) -> Config {
         n_layers: header[2] as i64,
         n_heads: header[3] as i64,
         n_kv_heads: header[4] as i64,
-        vocab_size: header[5] as i64, // usually positive
+        vocab_size: vocab,
         seq_len: header[6] as i64,
     };
 }
 
+/// Check if a model file is q8_0 quantized.
+/// Uses header[7] (quant_type): 0 = f32, 1 = q8_0.
+pub fn is_model_q8(data: Ptr<u8>) -> i32 {
+    let header = data as Ptr<i32>;
+    if header[7] == 1 { return 1; }
+    return 0;
+}
+
 // -----------------------------------------------------------------------------
-// Weights Mapping
+// Weights Mapping (f32)
 // -----------------------------------------------------------------------------
 
 pub fn get_weights(data: Ptr<u8>, cfg: Config) -> TransformerWeights {
-    let header_size: i64 = 7 * 4; // 7 fields * 4 bytes
+    // Legacy 7-int header: 28 bytes. New 8-int header: 32 bytes.
+    // For backward compat with existing f32 models, keep 28-byte offset.
+    let header_size: i64 = 7 * 4;
     
-    // Base pointer for weights (skip header)
-    // We do pointer arithmetic on u8 pointer.
-    // data.offset(header_size) returns Ptr<u8>
     let weights_base_u8 = data.offset(header_size);
     let mut w_ptr = weights_base_u8 as Ptr<f32>;
     
-    // Helper to advance pointer
-    // count is number of floats
-    // We return current ptr, and advance w_ptr
-    // But Salt doesn't support closures well yet.
-    // We'll just calculate offsets manually or incrementally.
-    
-    // Sizes
     let dim = cfg.dim;
     let hidden_dim = cfg.hidden_dim;
     let n_layers = cfg.n_layers;
     let n_heads = cfg.n_heads;
     let n_kv_heads = cfg.n_kv_heads;
     let vocab_size = cfg.vocab_size;
-    let seq_len = cfg.seq_len;
     
     let head_size = dim / n_heads;
     let kv_dim = (dim * n_kv_heads) / n_heads;
     
-    // 1. Token Embedding
     let token_embedding_table = w_ptr;
     w_ptr = w_ptr.offset(vocab_size * dim);
     
-    // 2. Layers
     let rms_att_weight = w_ptr;
     w_ptr = w_ptr.offset(n_layers * dim);
     
     let wq = w_ptr;
-    w_ptr = w_ptr.offset(n_layers * dim * (n_heads * head_size)); // dim * dim
+    w_ptr = w_ptr.offset(n_layers * dim * (n_heads * head_size));
     
     let wk = w_ptr;
-    w_ptr = w_ptr.offset(n_layers * dim * (n_kv_heads * head_size)); // dim * kv_dim
+    w_ptr = w_ptr.offset(n_layers * dim * (n_kv_heads * head_size));
     
     let wv = w_ptr;
-    w_ptr = w_ptr.offset(n_layers * dim * (n_kv_heads * head_size)); // dim * kv_dim
+    w_ptr = w_ptr.offset(n_layers * dim * (n_kv_heads * head_size));
     
     let wo = w_ptr;
-    w_ptr = w_ptr.offset(n_layers * (n_heads * head_size) * dim); // dim * dim
+    w_ptr = w_ptr.offset(n_layers * (n_heads * head_size) * dim);
     
     let rms_ffn_weight = w_ptr;
     w_ptr = w_ptr.offset(n_layers * dim);
     
     let w1 = w_ptr;
-    w_ptr = w_ptr.offset(n_layers * dim * hidden_dim); // gate
+    w_ptr = w_ptr.offset(n_layers * dim * hidden_dim);
     
     let w2 = w_ptr;
-    w_ptr = w_ptr.offset(n_layers * hidden_dim * dim); // down
+    w_ptr = w_ptr.offset(n_layers * hidden_dim * dim);
     
     let w3 = w_ptr;
-    w_ptr = w_ptr.offset(n_layers * dim * hidden_dim); // up
+    w_ptr = w_ptr.offset(n_layers * dim * hidden_dim);
     
-    // 3. Final RMS
     let rms_final_weight = w_ptr;
     w_ptr = w_ptr.offset(dim);
     
-    // 4. Freq Cis (RoPE)
-    // The file format might include freq_cis?
-    // Current llama2.c format usually computes them at runtime (not in file).
-    // Original llama2.c: precomputes frequencies but doesn't load them from file.
-    // So we should compute them!
-    // But TransformerWeights struct has pointers for them.
-    // If they are not in the file, we can't point to the file.
-    // We must allocate them in RunState or Main, and pass them.
-    // But TransformerWeights holds Ptr<f32>.
-    // Hack: We'll point freq_cis to a buffer allocated in RunState?
-    // Or we should update TransformerWeights to NOT include freq_cis if they are runtime state?
-    // Actually, freq_cis are constant for the model config, so they are "weights" effectively, but computed.
-    // For now, let's assume we point to some allocated memory.
-    // But `get_weights` returns `TransformerWeights`.
-    // We will set them to null/dummy here, and caller must populate them?
-    // Or we allocate here? `malloc`?
-    // Better: let the caller handle freq_cis separately.
-    
-    // 5. Classifier (if shared)
-    // Sometimes w_cls is not in file if shared with embedding.
-    // But usually it is checking if vocab_size > 0?
-    // Let's assume w_cls is NOT in file (shared) or IS in file.
-    // llama2.c: "skip..." - actually the file format ends after rms_final_weight usually?
-    // Wait, check karpathy/llama2.c `run.c`.
-    // It reads:
-    // token_embedding_table
-    // rms_att_weight
-    // wq, wk, wv, wo
-    // rms_ffn_weight
-    // w1, w2, w3
-    // rms_final_weight
-    // freq_cis_real (head_size/2 * seq_len) -- Wait, does it read them?
-    // No, `precompute_freqs`.
-    // AND: `w_cls`?
-    // "if (shared_weights) w_cls = token_embedding_table"
-    // The file doesn't have w_cls if shared?
-    // Let's assume NO w_cls in file for now (common for small models).
-    // If w_cls is needed, we point to token_embedding_table.
-    // IF the file has it (e.g. explicitly), we'd read it.
-    // Use `token_embedding_table` as default for `w_cls`.
-    
-    // Dummy pointers for things not in file
-    let freq_cis_real = w_ptr; // Unsafe reuse
+    let freq_cis_real = w_ptr;
     let freq_cis_imag = w_ptr;
-    let w_cls = token_embedding_table; // Shared weights assumption
+    let w_cls = token_embedding_table; // Shared weights
+    
+    let null_u8 = 0 as Ptr<u8>;
     
     return TransformerWeights {
         token_embedding_table: token_embedding_table,
         rms_att_weight: rms_att_weight,
-        wq: wq,
-        wk: wk,
-        wv: wv,
-        wo: wo,
+        wq: wq, wk: wk, wv: wv, wo: wo,
         rms_ffn_weight: rms_ffn_weight,
-        w1: w1,
-        w2: w2,
-        w3: w3,
+        w1: w1, w2: w2, w3: w3,
         rms_final_weight: rms_final_weight,
-        freq_cis_real: freq_cis_real, // Caller must fix
-        freq_cis_imag: freq_cis_imag, // Caller must fix
-        w_cls: w_cls,                 // Shared
+        freq_cis_real: freq_cis_real,
+        freq_cis_imag: freq_cis_imag,
+        w_cls: w_cls,
+        wq_q8: null_u8, wk_q8: null_u8, wv_q8: null_u8, wo_q8: null_u8,
+        w1_q8: null_u8, w2_q8: null_u8, w3_q8: null_u8, w_cls_q8: null_u8,
+        embed_q8: null_u8,
+        is_q8: 0,
+    };
+}
+
+// -----------------------------------------------------------------------------
+// Weights Mapping (q8_0)
+// -----------------------------------------------------------------------------
+// q8_0 format layout (after 32-byte header):
+//   1. token_embedding_table — q8_0 blocks (stay as Ptr<u8>, dequant on-the-fly)
+//   2. rms_att_weight — f32
+//   3. wq, wk, wv, wo — q8_0 blocks
+//   4. rms_ffn_weight — f32
+//   5. w1, w2, w3 — q8_0 blocks
+//   6. rms_final_weight — f32
+//   7. w_cls — q8_0, shared with embedding pointer
+// -----------------------------------------------------------------------------
+
+/// Compute q8_0 byte size for a weight matrix of n_floats total
+fn q8_bytes(n_floats: i64) -> i64 {
+    return (n_floats / 32) * 34;
+}
+
+pub fn get_weights_q8(data: Ptr<u8>, cfg: Config) -> TransformerWeights {
+    // New 8-int header: 32 bytes
+    let header_size: i64 = 8 * 4;
+    
+    let dim = cfg.dim;
+    let hidden_dim = cfg.hidden_dim;
+    let n_layers = cfg.n_layers;
+    let n_heads = cfg.n_heads;
+    let n_kv_heads = cfg.n_kv_heads;
+    let vocab_size = cfg.vocab_size;
+    
+    let head_size = dim / n_heads;
+    let kv_dim = (dim * n_kv_heads) / n_heads;
+    
+    let mut b_ptr = data.offset(header_size);
+    
+    // 1. Token Embedding: stays as q8_0 (on-the-fly dequant in forward)
+    let embed_q8 = b_ptr;
+    b_ptr = b_ptr.offset(q8_bytes(vocab_size * dim));
+    
+    // 2. RMS attention weights: f32
+    let rms_att_weight = b_ptr as Ptr<f32>;
+    b_ptr = b_ptr.offset(n_layers * dim * 4);
+    
+    // 3. QKV + O projections: q8_0
+    let wq_q8 = b_ptr;
+    b_ptr = b_ptr.offset(n_layers * q8_bytes(dim * dim));
+    
+    let wk_q8 = b_ptr;
+    b_ptr = b_ptr.offset(n_layers * q8_bytes(kv_dim * dim));
+    
+    let wv_q8 = b_ptr;
+    b_ptr = b_ptr.offset(n_layers * q8_bytes(kv_dim * dim));
+    
+    let wo_q8 = b_ptr;
+    b_ptr = b_ptr.offset(n_layers * q8_bytes(dim * dim));
+    
+    // 4. RMS FFN weights: f32
+    let rms_ffn_weight = b_ptr as Ptr<f32>;
+    b_ptr = b_ptr.offset(n_layers * dim * 4);
+    
+    // 5. FFN projections: q8_0
+    let w1_q8 = b_ptr;
+    b_ptr = b_ptr.offset(n_layers * q8_bytes(hidden_dim * dim));
+    
+    let w2_q8 = b_ptr;
+    b_ptr = b_ptr.offset(n_layers * q8_bytes(dim * hidden_dim));
+    
+    let w3_q8 = b_ptr;
+    b_ptr = b_ptr.offset(n_layers * q8_bytes(hidden_dim * dim));
+    
+    // 6. Final RMS: f32
+    let rms_final_weight = b_ptr as Ptr<f32>;
+    
+    // f32 weight fields are unused in q8 mode
+    let null_f32 = 0 as Ptr<f32>;
+    
+    return TransformerWeights {
+        token_embedding_table: null_f32,  // not used — embed_q8 used instead
+        rms_att_weight: rms_att_weight,
+        wq: null_f32, wk: null_f32, wv: null_f32, wo: null_f32,
+        rms_ffn_weight: rms_ffn_weight,
+        w1: null_f32, w2: null_f32, w3: null_f32,
+        rms_final_weight: rms_final_weight,
+        freq_cis_real: null_f32,  // Caller must fix
+        freq_cis_imag: null_f32,
+        w_cls: null_f32,          // w_cls uses q8 shared embedding
+        wq_q8: wq_q8, wk_q8: wk_q8, wv_q8: wv_q8, wo_q8: wo_q8,
+        w1_q8: w1_q8, w2_q8: w2_q8, w3_q8: w3_q8,
+        w_cls_q8: embed_q8,       // w_cls shares embedding pointer (q8_0)
+        embed_q8: embed_q8,
+        is_q8: 1,
     };
 }

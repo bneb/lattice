@@ -276,3 +276,18 @@ WASM_EXPORT void basalt_free(void) {
 //    Keeps loaded model weights — no re-init needed.
 extern void main__basalt_engine_reset(void *);
 WASM_EXPORT void basalt_reset(void) { main__basalt_engine_reset(g_engine_ptr); }
+
+// 8. Set sampling parameters: temperature, top-p, and PRNG seed.
+//    temperature_bits and topp_bits are f32 values reinterpreted as i32.
+//    Call BEFORE generate_next. seed=0 keeps current PRNG state.
+extern void main__basalt_engine_set_sampling(void *, float, float, int64_t);
+WASM_EXPORT void basalt_set_sampling(int32_t temperature_bits,
+                                     int32_t topp_bits, int64_t seed) {
+  union {
+    int32_t i;
+    float f;
+  } t, p;
+  t.i = temperature_bits;
+  p.i = topp_bits;
+  main__basalt_engine_set_sampling(g_engine_ptr, t.f, p.f, seed);
+}
