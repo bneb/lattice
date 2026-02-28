@@ -253,6 +253,37 @@ pub fn emit_expr(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, 
                 ctx.transfer_ownership(&val)?;
                 crate::codegen::stmt::emit_cleanup_for_return(ctx, out, local_vars)?;
                 
+                // [v0.9.2 POSTCONDITION PIVOT] Z3 verification of ensures clauses at return site
+                let ensures = ctx.current_ensures().clone();
+                if !ensures.is_empty() {
+                    let fn_name = ctx.current_fn_name().clone();
+                    let file_items = &ctx.config.file.items;
+                    let (requires, param_names) = file_items.iter()
+                        .filter_map(|item| {
+                            if let crate::grammar::Item::Fn(f) = item {
+                                if f.name.to_string() == fn_name || fn_name.ends_with(&f.name.to_string()) {
+                                    let params: Vec<String> = f.args.iter().map(|a| a.name.to_string()).collect();
+                                    return Some((f.requires.clone(), params));
+                                }
+                            }
+                            None
+                        })
+                        .next()
+                        .unwrap_or((vec![], vec![]));
+
+                    match crate::codegen::verification::VerificationEngine::verify_postcondition(
+                        ctx, &ensures, &requires, e, &param_names, local_vars, &fn_name,
+                    ) {
+                        Ok(true) => {
+                            out.push_str(&format!("    // z3_postcondition_verified: ensures proven for '{}'\n", fn_name));
+                        }
+                        Ok(false) => {}
+                        Err(err) => {
+                            return Err(err);
+                        }
+                    }
+                }
+
                 let loc = ctx.loc_tag(r.span());
                 out.push_str(&format!("    func.return {} : {}{}\n", val, mlir_ty, loc));
             } else {

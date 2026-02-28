@@ -481,6 +481,8 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
     pub fn current_self_ty_mut(&mut self) -> &mut Option<Type> { &mut self.expansion.current_self_ty }
     pub fn current_ret_ty(&self) -> &Option<Type> { &self.expansion.current_ret_ty }
     pub fn current_ret_ty_mut(&mut self) -> &mut Option<Type> { &mut self.expansion.current_ret_ty }
+    pub fn current_ensures(&self) -> &Vec<syn::Expr> { &self.expansion.current_ensures }
+    pub fn current_ensures_mut(&mut self) -> &mut Vec<syn::Expr> { &mut self.expansion.current_ensures }
     pub fn current_fn_name(&self) -> &String { &self.expansion.current_fn_name }
     pub fn current_fn_name_mut(&mut self) -> &mut String { &mut self.expansion.current_fn_name }
     pub fn monomorphizer(&self) -> &crate::codegen::phases::MonomorphizerState { &self.expansion.monomorphizer }
@@ -2237,6 +2239,12 @@ impl<'a> CodegenContext<'a> {
     pub fn current_ret_ty_mut(&self) -> std::cell::RefMut<'_, Option<Type>> {
         std::cell::RefMut::map(self.expansion.borrow_mut(), |e| &mut e.current_ret_ty)
     }
+    pub fn current_ensures(&self) -> std::cell::Ref<'_, Vec<syn::Expr>> {
+        std::cell::Ref::map(self.expansion.borrow(), |e| &e.current_ensures)
+    }
+    pub fn current_ensures_mut(&self) -> std::cell::RefMut<'_, Vec<syn::Expr>> {
+        std::cell::RefMut::map(self.expansion.borrow_mut(), |e| &mut e.current_ensures)
+    }
     pub fn current_fn_name(&self) -> std::cell::Ref<'_, String> {
         std::cell::Ref::map(self.expansion.borrow(), |e| &e.current_fn_name)
     }
@@ -3422,6 +3430,7 @@ impl<'a> CodegenContext<'a> {
         let prev_self = self.current_self_ty().clone();
         let prev_imports = self.imports().clone();
         let prev_ret_ty = self.current_ret_ty().clone();
+        let prev_ensures = self.current_ensures().clone();
 
         // 4. CONTEXT SWITCH: Load callee environment
         // [CANONICAL RESOLUTION] Canonicalize type_map entries before emission.
@@ -3510,6 +3519,7 @@ impl<'a> CodegenContext<'a> {
         *self.current_self_ty_mut() = prev_self;
         *self.imports_mut() = prev_imports;
         *self.current_ret_ty_mut() = prev_ret_ty;
+        *self.current_ensures_mut() = prev_ensures;
         self.current_package.replace(prev_pkg);
         debug_assert_eq!(self.imports().len(), expected_import_count, 
             "IMPORT CLOBBER in hydrate_specialization for '{}': saved {} imports but restored {}",

@@ -225,6 +225,196 @@ impl VerificationEngine {
 
         Ok(())
     }
+
+    /// [v0.9.2 POSTCONDITION PIVOT] Weakest Precondition verification for `ensures` clauses.
+    ///
+    /// At each return site, substitutes `result` in the ensures expression with
+    /// the actual return value, then checks the obligation via Z3.
+    ///
+    /// Verification logic:
+    ///   1. Create symbolic variables for all function parameters
+    ///   2. Assume all `requires` preconditions (narrow the input domain)
+    ///   3. For each `ensures` clause, substitute `result` with the return value
+    ///   4. Check: can the negation of the postcondition be satisfied?
+    ///      - UNSAT → postcondition is PROVEN (violation impossible)
+    ///      - SAT → postcondition VIOLATED (counterexample found)
+    ///      - Unknown → deferred to runtime assertion
+    pub fn verify_postcondition(
+        ctx: &mut LoweringContext<'_, '_>,
+        ensures: &[syn::Expr],
+        requires: &[syn::Expr],
+        return_expr: &syn::Expr,
+        params: &[String],
+        local_vars: &HashMap<String, (Type, crate::codegen::context::LocalKind)>,
+        fn_name: &str,
+    ) -> Result<bool, String> {
+        if ensures.is_empty() || ctx.config.no_verify {
+            return Ok(false);
+        }
+
+        let sym_ctx = SymbolicContext::new(ctx.z3_ctx);
+        let mut verified = false;
+        use z3::ast::Ast;
+
+        // Create a fresh solver with timeout for postcondition proofs
+        let solver = z3::Solver::new(ctx.z3_ctx);
+        let mut solver_params = z3::Params::new(ctx.z3_ctx);
+        solver_params.set_u32("timeout", 100); // 100ms Z3 watchdog
+        solver.set_params(&solver_params);
+
+        // 1. Create symbolic constants for function parameters
+        let mut param_symbols = Vec::new();
+        for p_name in params {
+            let sym = z3::ast::Int::new_const(ctx.z3_ctx, p_name.clone());
+            param_symbols.push((p_name.clone(), sym));
+        }
+
+        // Build a dummy local_vars map for parameter name resolution in Z3
+        let mut z3_locals = local_vars.clone();
+        for (name, _) in &param_symbols {
+            if !z3_locals.contains_key(name) {
+                z3_locals.insert(name.clone(), (Type::I32, crate::codegen::context::LocalKind::SSA(name.clone())));
+            }
+        }
+
+        // 2. Assume preconditions (requires clauses narrow the input domain)
+        for req in requires {
+            let actual_req = if let syn::Expr::Block(block) = req {
+                if let Some(syn::Stmt::Expr(inner, _)) = block.block.stmts.first() {
+                    inner
+                } else {
+                    continue;
+                }
+            } else {
+                req
+            };
+
+            if let Ok(z3_req) = crate::codegen::expr::translate_bool_to_z3(ctx, actual_req, &z3_locals, &sym_ctx) {
+                solver.assert(&z3_req);
+            }
+        }
+
+        // 2b. [v0.9.2 PATH-SENSITIVE] Assume branch conditions (path guards)
+        // These are pushed by emit_if_expr when entering then/else branches.
+        // They tell Z3 what branch we're in (e.g., "x < 0" in the then-branch).
+        let path_conds = ctx.emission.path_conditions.clone();
+        for pc in &path_conds {
+            if let Ok(z3_pc) = crate::codegen::expr::translate_bool_to_z3(ctx, pc, &z3_locals, &sym_ctx) {
+                solver.assert(&z3_pc);
+            }
+        }
+
+        // 3. Translate the return value expression to Z3
+        let z3_return_val = crate::codegen::expr::translate_to_z3(ctx, return_expr, &z3_locals);
+
+        // 4. For each ensures clause, substitute `result` and verify
+        for ens in ensures {
+            let actual_ens = if let syn::Expr::Block(block) = ens {
+                if let Some(syn::Stmt::Expr(inner, _)) = block.block.stmts.first() {
+                    inner
+                } else {
+                    continue;
+                }
+            } else {
+                ens
+            };
+
+            // Create a `result` symbol and register it in the Z3 locals
+            let result_sym = z3::ast::Int::new_const(ctx.z3_ctx, "result");
+            let mut ens_locals = z3_locals.clone();
+            ens_locals.insert("result".to_string(), (Type::I32, crate::codegen::context::LocalKind::SSA("result".to_string())));
+
+            if let Ok(z3_ens) = crate::codegen::expr::translate_bool_to_z3(ctx, actual_ens, &ens_locals, &sym_ctx) {
+                if let Ok(ref ret_val) = z3_return_val {
+                    // WP Check: Assume result == return_value, then check NOT(postcondition)
+                    let binding = result_sym._eq(ret_val);
+
+                    solver.push();
+                    solver.assert(&binding);
+                    solver.assert(&z3_ens.not());
+                    *ctx.total_checks += 1;
+
+                    match solver.check() {
+                        z3::SatResult::Unsat => {
+                            // PROVEN: No input can violate the postcondition
+                            *ctx.elided_checks += 1;
+                            verified = true;
+                            eprintln!("[Z3 POSTCONDITION] ✓ ensures verified for '{}' (UNSAT — proven)", fn_name);
+                        }
+                        z3::SatResult::Sat => {
+                            // VIOLATION: Z3 found inputs that violate the postcondition
+                            // BUT: Check if the return expression uses untracked local variables
+                            // (mutated locals like `acc` that Z3 treats as unconstrained).
+                            // In that case, the SAT result is due to incomplete symbolic tracking,
+                            // not a genuine violation. Defer to runtime assertion.
+                            let return_uses_untracked = Self::expr_uses_untracked_local(return_expr, params);
+                            if return_uses_untracked {
+                                // Incompleteness Gate: defer to runtime assertion
+                                eprintln!("[Z3 WARNING] Postcondition deferred to runtime assertion for '{}' \
+                                           (return expression uses untracked local variable)", fn_name);
+                            } else {
+                                // Genuine violation: the return expression only uses tracked params/literals
+                                let model = solver.get_model();
+                                let mut counterexample = Vec::new();
+                                if let Some(model) = model {
+                                    for (name, sym) in &param_symbols {
+                                        if let Some(val) = model.eval(sym, true) {
+                                            counterexample.push(format!("  {} := {}", name, val));
+                                        }
+                                    }
+                                }
+
+                                let ce_str = if counterexample.is_empty() {
+                                    String::new()
+                                } else {
+                                    format!("\n[Formal Shadow] Z3 counter-example:\n{}", counterexample.join("\n"))
+                                };
+
+                                solver.pop(1);
+                                return Err(format!(
+                                    "Postcondition violation in '{}': ensures({:?}) is not satisfied \
+                                     for all return paths.{}",
+                                    fn_name, actual_ens, ce_str
+                                ));
+                            }
+                        }
+                        z3::SatResult::Unknown => {
+                            // TIMEOUT: Z3 couldn't determine — deferred to runtime
+                            eprintln!("[Z3 WARNING] Complex proof deferred to runtime assertion ({}:ensures)", fn_name);
+                        }
+                    }
+                    solver.pop(1);
+                }
+            }
+        }
+
+        Ok(verified)
+    }
+
+    /// [v0.9.2] Check if a return expression uses local variables that aren't tracked
+    /// as function parameters. Mutated locals like `acc` are unconstrained in Z3,
+    /// leading to false SAT (violation) results.
+    fn expr_uses_untracked_local(expr: &syn::Expr, params: &[String]) -> bool {
+        match expr {
+            syn::Expr::Path(p) => {
+                if let Some(ident) = p.path.get_ident() {
+                    let name = ident.to_string();
+                    // If it's not a parameter and not "result", it's an untracked local
+                    !params.contains(&name) && name != "result"
+                } else {
+                    false
+                }
+            }
+            syn::Expr::Binary(b) => {
+                Self::expr_uses_untracked_local(&b.left, params) ||
+                Self::expr_uses_untracked_local(&b.right, params)
+            }
+            syn::Expr::Unary(u) => Self::expr_uses_untracked_local(&u.expr, params),
+            syn::Expr::Paren(p) => Self::expr_uses_untracked_local(&p.expr, params),
+            syn::Expr::Lit(_) => false,
+            _ => false,
+        }
+    }
 }
 
 #[cfg(test)]

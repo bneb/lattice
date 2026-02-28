@@ -149,5 +149,8 @@ python3 tools/runner_qemu.py kernel/build/lattice.elf
 |---------|----------|-------------|
 | v0.9.0 | *Sovereign Networking* | Ring 3 NetD, zero-trap sockets, SPSC IPC |
 | v0.9.1 | *Sovereign Foundation* | `@align(64)` cache-line isolation, proof-carrying IPC, SipHash-2-4 hardening, sovereign reclaim, chaos testing |
-| v0.9.2 | *Persistence Pillar* | Block-VMO storage, NVMe SPSC bridge (planned) |
-| v1.0.0 | *Lattice Sovereign* | ABI freeze, self-hosting (planned) |
+| v0.9.2 | *Postcondition Pivot* | Z3-backed `ensures` for pure functions — path-sensitive WP verification, implicit guard negation, incompleteness gate (6/6 GREEN) |
+| v0.9.3 | *Loop Sovereignty* | `invariant` keyword, induction-based termination proofs (planned) |
+| v0.9.4 | *Persistence Pillar* | Block-VMO storage, NVMe SPSC bridge (planned) |
+| v0.9.5 | *Total Verification* | Z3-unified arena bounds, SPSC pointer proofs (planned) |
+| v1.0.0 | *Lattice Sovereign* | ABI freeze, self-hosting, full formal verification (planned) |

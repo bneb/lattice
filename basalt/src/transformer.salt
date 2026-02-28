@@ -13,6 +13,7 @@ use std.core.ptr.Ptr
 use basalt.kernels.{rmsnorm, softmax, mat_mul}
 
 extern fn malloc(size: i64) -> Ptr<u8>;
+extern fn free(ptr: Ptr<u8>);
 extern fn expf(x: f32) -> f32;
 extern fn sqrtf(x: f32) -> f32;
 
@@ -101,6 +102,21 @@ pub fn alloc_run_state(cfg: Config) -> RunState {
         key_cache: alloc_f32(cfg.n_layers * cfg.seq_len * kw_dim),
         value_cache: alloc_f32(cfg.n_layers * cfg.seq_len * kw_dim),
     };
+}
+
+pub fn free_run_state(s: RunState) {
+    free(s.x as Ptr<u8>);
+    free(s.xb as Ptr<u8>);
+    free(s.xb2 as Ptr<u8>);
+    free(s.hb as Ptr<u8>);
+    free(s.hb2 as Ptr<u8>);
+    free(s.q as Ptr<u8>);
+    free(s.k as Ptr<u8>);
+    free(s.v as Ptr<u8>);
+    free(s.att as Ptr<u8>);
+    free(s.logits as Ptr<u8>);
+    free(s.key_cache as Ptr<u8>);
+    free(s.value_cache as Ptr<u8>);
 }
 
 // -----------------------------------------------------------------------------

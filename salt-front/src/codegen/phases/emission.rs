@@ -145,6 +145,12 @@ pub struct EmissionState {
     pub next_tensor_scope_id: usize,
     /// [V7.3] Flag indicating alias preamble has been emitted
     pub alias_preamble_emitted: bool,
+    
+    /// [v0.9.2] Path condition stack for Z3 postcondition verification.
+    /// Tracks the branch conditions that are known to hold at the current code point.
+    /// Pushed when entering if-then (condition) or if-else (negated condition),
+    /// popped when leaving the branch.
+    pub path_conditions: Vec<syn::Expr>,
 }
 
 impl EmissionState {

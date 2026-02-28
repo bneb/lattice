@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Salt: Systems programming, mathematically verified</title>
     <meta name="description"
-        content="Salt is a systems language with an embedded Z3 theorem prover that checks preconditions at compile time. Arena memory, MLIR codegen, and C-level performance without the usual tradeoffs.">
+        content="Salt is a systems language with an embedded Z3 theorem prover that checks preconditions and postconditions at compile time. Arena memory, MLIR codegen, and C-level performance without the usual tradeoffs.">
     <meta property="og:title" content="Salt: Systems programming, mathematically verified">
     <meta property="og:description"
         content="A language where safety contracts are checked by Z3 at compile time. Arena memory, MLIR codegen, and performance that matches or outperforms C.">
@@ -16,11 +16,11 @@
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Salt: Systems programming, mathematically verified">
     <meta name="twitter:description"
-        content="Preconditions checked at compile time by Z3. Arena memory. MLIR codegen. Matches or beats clang -O3 on 18 of 22 benchmarks.">
+        content="Preconditions and postconditions checked at compile time by Z3. Arena memory. MLIR codegen. Matches or beats clang -O3 on 18 of 22 benchmarks.">
     <meta name="twitter:image" content="https://bneb.github.io/lattice/og_image.png">
     <meta name="twitter:title" content="Salt: Systems programming, mathematically verified">
     <meta name="twitter:description"
-        content="Preconditions checked at compile time by Z3. Arena memory. MLIR codegen. Matches or beats clang -O3 on 18 of 22 benchmarks.">
+        content="Preconditions and postconditions checked at compile time by Z3. Arena memory. MLIR codegen. Matches or beats clang -O3 on 18 of 22 benchmarks.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -1907,8 +1907,10 @@
                 <div class="feature-card">
                     <div class="feature-icon purple">🔬</div>
                     <h3>Compile-time proofs</h3>
-                    <p>You write <code>requires()</code> preconditions on your functions.
-                        The compiler hands these to Z3, a world-class theorem prover, and checks every call site.
+                    <p>You write <code>requires()</code> preconditions and <code>ensures()</code> postconditions on your
+                        functions.
+                        The compiler hands these to Z3, a world-class theorem prover, and checks every call site and
+                        return site.
                         When Z3 can prove the condition holds, the check is elided entirely &mdash; zero runtime cost.
                         When it finds a violation, it reports concrete counterexample values.</p>
                 </div>
@@ -2096,13 +2098,15 @@ process(&amp;buf);     <span class="cmt">// ✗ compile error: use of moved valu
     <span class="kw">return</span> a / b;
 }
 
-<span class="kw">fn</span> <span class="fn">get</span>(arr: &amp;[<span class="ty">i32</span>; <span class="num">10</span>], i: <span class="ty">i32</span>) -&gt; <span class="ty">i32</span>
-    <span class="fn">requires</span>(i &gt;= <span class="num">0</span> &amp;&amp; i &lt; <span class="num">10</span>)
+<span class="kw">fn</span> <span class="fn">clamp</span>(val: <span class="ty">i32</span>) -&gt; <span class="ty">i32</span>
+    <span class="fn">ensures</span>(result &gt;= <span class="num">0</span> &amp;&amp; result &lt;= <span class="num">100</span>)
 {
-    <span class="kw">return</span> arr[i];
+    <span class="kw">if</span> val &lt; <span class="num">0</span>   { <span class="kw">return</span> <span class="num">0</span>; }
+    <span class="kw">if</span> val &gt; <span class="num">100</span> { <span class="kw">return</span> <span class="num">100</span>; }
+    <span class="kw">return</span> val;
 }
-<span class="cmt">// Z3 checks every call site at compile time.</span>
-<span class="cmt">// If it can't prove safety, the build fails.</span></pre>
+<span class="cmt">// Z3 checks every call site and return site.</span>
+<span class="cmt">// requires: caller must prove. ensures: compiler proves.</span></pre>
                     <div class="ergo-note">No runtime cost when Z3 can prove it. Otherwise, the compiler emits a safe
                         runtime check as fallback.</div>
                 </div>

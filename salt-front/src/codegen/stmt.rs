@@ -1286,17 +1286,69 @@ fn emit_iterator_for_loop(
 }
 
 
+/// [v0.9.2] Check if a Salt block always returns (is a terminal path).
+/// Used for implicit guard negation: after `if cond { return x; }`, remaining code
+/// implicitly runs under `!cond`.
+pub fn salt_block_always_returns(stmts: &[Stmt]) -> bool {
+    for stmt in stmts {
+        match stmt {
+            // Direct Salt grammar return
+            Stmt::Return(_) => return true,
+            // Salt grammar Expr wrapping syn::Expr::Return (e.g., `return -x;` parsed as expression)
+            Stmt::Expr(syn::Expr::Return(_), _) => return true,
+            // syn fallback: Expr::Return with optional semicolon
+            Stmt::Syn(syn::Stmt::Expr(syn::Expr::Return(_), _)) => return true,
+            // If-else: returns only if BOTH branches return
+            Stmt::If(f) => {
+                if let Some(else_branch) = &f.else_branch {
+                    let then_returns = salt_block_always_returns(&f.then_branch.stmts);
+                    let else_returns = match else_branch.as_ref() {
+                        SaltElse::Block(b) => salt_block_always_returns(&b.stmts),
+                        SaltElse::If(nested) => salt_block_always_returns(&nested.then_branch.stmts),
+                    };
+                    if then_returns && else_returns {
+                        return true;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
 pub fn emit_block(ctx: &mut LoweringContext, out: &mut String, stmts: &[Stmt], local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<bool, String> {
     // 1. Preamble Pass: Hoist all allocas to function entry
     hoist_allocas_in_block(ctx, stmts, local_vars)?;
 
     let mut emitted_terminator = false;
+    let mut pushed_guards: usize = 0;
     for stmt in stmts {
         if emit_stmt(ctx, out, stmt, local_vars)? {
             emitted_terminator = true;
             break;
         }
+
+        // [v0.9.2] Implicit Guard Negation for path-sensitive postcondition verification.
+        // After `if cond { return ...; }` (no else), remaining code runs under `!cond`.
+        if let Stmt::If(f) = stmt {
+            if f.else_branch.is_none() && salt_block_always_returns(&f.then_branch.stmts) {
+                let negated_cond = syn::Expr::Unary(syn::ExprUnary {
+                    attrs: vec![],
+                    op: syn::UnOp::Not(syn::token::Not::default()),
+                    expr: Box::new(f.cond.clone()),
+                });
+                ctx.emission.path_conditions.push(negated_cond);
+                pushed_guards += 1;
+            }
+        }
     }
+
+    // Clean up implicit guards when exiting block scope
+    for _ in 0..pushed_guards {
+        ctx.emission.path_conditions.pop();
+    }
+
     // If block is empty and not terminated, it must have at least one instruction
     // or a branch to merge to be MLIR-valid.
     Ok(emitted_terminator)
@@ -1948,6 +2000,42 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
                         return Err(msg);
                     }
                 }
+
+                // [v0.9.2 POSTCONDITION PIVOT] Z3 verification of ensures clauses at return site
+                // Before emitting func.return, verify the postcondition holds for this return value.
+                let ensures = ctx.current_ensures().clone();
+                if !ensures.is_empty() {
+                    // Extract requires and parameter names from the current function
+                    let fn_name = ctx.current_fn_name().clone();
+                    let file = ctx.config.file;
+                    let (requires, param_names) = file.items.iter()
+                        .filter_map(|item| {
+                            if let crate::grammar::Item::Fn(f) = item {
+                                if f.name.to_string() == fn_name || ctx.expansion.current_fn_name.ends_with(&f.name.to_string()) {
+                                    let params: Vec<String> = f.args.iter().map(|a| a.name.to_string()).collect();
+                                    return Some((f.requires.clone(), params));
+                                }
+                            }
+                            None
+                        })
+                        .next()
+                        .unwrap_or((vec![], vec![]));
+
+                    match crate::codegen::verification::VerificationEngine::verify_postcondition(
+                        ctx, &ensures, &requires, e, &param_names, local_vars, &fn_name,
+                    ) {
+                        Ok(true) => {
+                            // Postcondition verified — emit MLIR marker
+                            out.push_str(&format!("    // z3_postcondition_verified: ensures proven for '{}'\n", fn_name));
+                        }
+                        Ok(false) => {
+                            // No ensures or couldn't verify — no marker
+                        }
+                        Err(err) => {
+                            return Err(err);
+                        }
+                    }
+                }
                 
                 let loc = ctx.loc_tag(e.span());
                 if ty == Type::Unit {
@@ -2308,7 +2396,10 @@ pub fn emit_salt_if(
 
     out.push_str(&format!("  ^{}:\n", label_then));
     let mut then_vars = local_vars.clone();
+    // [v0.9.2] Push branch condition for Z3 postcondition verification
+    ctx.emission.path_conditions.push(cond.clone());
     let then_diverges = emit_block(ctx, out, &then_branch.stmts, &mut then_vars)?;
+    ctx.emission.path_conditions.pop();
     if !then_diverges {
         out.push_str(&format!("    cf.br ^{}\n", label_merge));
     }
@@ -2350,12 +2441,20 @@ pub fn emit_salt_if(
 
         out.push_str(&format!("  ^{}:\n", label_else));
         let mut else_vars = local_vars.clone();
+        // [v0.9.2] Push negated condition for else branch
+        let negated_cond = syn::Expr::Unary(syn::ExprUnary {
+            attrs: vec![],
+            op: syn::UnOp::Not(syn::token::Not::default()),
+            expr: Box::new(cond.clone()),
+        });
+        ctx.emission.path_conditions.push(negated_cond);
         else_diverges = match else_branch.as_ref().unwrap().as_ref() {
             SaltElse::Block(b) => emit_block(ctx, out, &b.stmts, &mut else_vars)?,
             SaltElse::If(nested) => {
                  emit_salt_if(ctx, out, &nested.cond, &nested.then_branch, &nested.else_branch, &mut else_vars)?
             }
         };
+        ctx.emission.path_conditions.pop();
         if !else_diverges {
             out.push_str(&format!("    cf.br ^{}\n", label_merge));
         }

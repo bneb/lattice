@@ -96,7 +96,7 @@ This targets the **Cycles per Packet (Cpp)** KPI. We aren't just fast; we are *d
 
 ## Approach
 
-Salt takes a different path. The compiler integrates Z3 as a first-class verification backend: developers write `requires` preconditions on functions, and the compiler checks each call site against these contracts using Z3. When Z3 proves the condition always holds, the check is elided entirely — zero runtime cost. When Z3 finds a concrete counterexample, it reports the violating values. When neither can be determined, the compiler emits a standard runtime assertion as a fallback.
+Salt takes a different path. The compiler integrates Z3 as a first-class verification backend: developers write `requires` preconditions and `ensures` postconditions on functions, and the compiler checks each contract using Z3. Preconditions are verified at every call site; postconditions are verified at every return site using Weakest Precondition (WP) generation with path-sensitive branch analysis. When Z3 proves the condition always holds, the check is elided entirely — zero runtime cost. When Z3 finds a concrete counterexample, it reports the violating values. When neither can be determined, the compiler emits a standard runtime assertion as a fallback.
 
 Memory is managed through arenas with compile-time escape analysis. No garbage collector, no lifetime annotations, no borrow checker. The `ArenaVerifier` verifies statically that no reference outlives its region, giving you the performance profile of manual allocation with the safety properties of managed memory.
 
@@ -176,6 +176,31 @@ fn binary_search(arr: &[i64], target: i64) -> i64
 ```
 
 Z3 verifies `requires(arr.len() > 0)` at every call site. Passing an empty array is a compile-time error with a concrete counterexample. Passing a non-empty array causes the check to be elided — the binary contains no guard.
+
+### Postconditions (v0.9.2)
+
+`ensures` postconditions are verified at every return site using Weakest Precondition (WP) generation. The compiler tracks branch conditions through the control flow graph and provides Z3 with path-sensitive context at each exit point:
+
+```salt
+fn absolute_value(x: i32) -> i32
+    ensures(result >= 0)
+{
+    if x < 0 {
+        return -x;    // Z3 proves: given x < 0, -x >= 0  ✓
+    }
+    return x;         // Z3 proves: given !(x < 0), x >= 0  ✓
+}
+
+fn clamp_to_unit(val: i32) -> i32
+    ensures(result >= 0 && result <= 100)
+{
+    if val < 0   { return 0; }
+    if val > 100 { return 100; }
+    return val;       // Z3 proves: given !(val < 0) && !(val > 100), 0 <= val <= 100  ✓
+}
+```
+
+Every `return` site becomes a Z3 proof obligation. Guard clauses with early returns automatically narrow the path conditions — Z3 knows that surviving `if x < 0 { return -x; }` implies `x >= 0`.
 
 ## Arena Memory
 
@@ -464,11 +489,11 @@ lattice/
 
 ## Status
 
-Lattice is in the **v0.9.x "Sovereign Sprint"** era — implementing verified zero-trap networking and proof-carrying IPC. The path to v1.0.0 requires completing sovereign persistence (Block-VMO storage) and the self-hosting mandate.
+Lattice is in the **v0.9.x "March to Sovereignty"** era — pursuing full formal verification (Z3-backed postconditions, loop invariants, and unified memory proofs) on the path to v1.0.0.
 
 | Component | Version | Milestone |
 | :--- | :--- | :--- |
-| **Salt Compiler / Stdlib** | `v0.7.0` | Z3 Verification Stable & Multi-Dialect Codegen |
+| **Salt Compiler / Stdlib** | `v0.8.0` | Z3 Verification (requires + ensures), Multi-Dialect Codegen, Path-Sensitive WP |
 | **Lattice Platform** (OS) | `v0.9.1` | Cache-Line IPC, SipHash-2-4 Proof Hints, Sovereign Reclaim |
 | **Lattice Kernel** | `v0.9.1` | 4-Core SMP, Preemptive Scheduler, Ring 3 Isolation, Atomic Page Sweep |
 | **Basalt** (LLM Inference) | `v0.3.0` | Proof-of-Concept (C-parity inference speed) |
@@ -481,8 +506,11 @@ Lattice is in the **v0.9.x "Sovereign Sprint"** era — implementing verified ze
 | Sprint | Objective | KPI |
 |--------|-----------|-----|
 | **v0.9.1** ✅ | Sovereign Foundation — Cache-line isolation, Proof-Carrying IPC, SipHash-2-4 Hardening, Sovereign Reclaim | Salt ≤ C 18/22, Reclamation < 1ms |
-| **v0.9.2** | Persistence — Block-VMO storage, NVMe SPSC bridge | Cold boot < 100ms |
-| **v1.0.0** | ABI Freeze — Salt compiler self-hosts inside Lattice | All KPIs met |
+| **v0.9.2** ✅ | Postcondition Pivot — Z3-backed `ensures` for pure functions (Weakest Precondition generation, path-sensitive verification) | 6/6 postcondition tests GREEN |
+| **v0.9.3** | Loop Sovereignty — `invariant` keyword, induction-based termination proofs | No unbounded loops in kernel |
+| **v0.9.4** | Persistence — Block-VMO storage, NVMe SPSC bridge | Cold boot < 100ms |
+| **v0.9.5** | Total Verification — Z3-unified arena bounds, SPSC pointer safety proofs | Zero algorithmic-only checks |
+| **v1.0.0** | Lattice Sovereign — ABI freeze, self-hosting, incremental verification | All KPIs met, full proof |
 
 ## License
 

@@ -7,7 +7,7 @@ package main
 use std.io.println
 use std.core.ptr.Ptr
 
-use basalt.transformer.{Config, TransformerWeights, RunState, alloc_run_state, forward}
+use basalt.transformer.{Config, TransformerWeights, RunState, alloc_run_state, free_run_state, forward}
 use basalt.sampler.{sample_argmax, sample_token}
 use basalt.model_loader.{load_config, get_weights}
 use basalt.tokenizer.{Tokenizer, load_tokenizer, decode_token, decode_token_len}
@@ -24,6 +24,10 @@ extern fn powf(base: f32, exp: f32) -> f32;
 
 extern fn salt_get_argc() -> i32;
 extern fn salt_get_argv(idx: i32) -> Ptr<u8>;
+
+// Pre-tokenized prompt (set by JS, stored in C globals)
+extern fn salt_get_prompt_count() -> i64;
+extern fn salt_get_prompt_token(idx: i64) -> i64;
 
 extern fn open(path: Ptr<u8>, flags: i32) -> i32;
 extern fn mmap(addr: Ptr<u8>, len: u64, prot: i32, flags: i32, fd: i32, offset: i64) -> Ptr<u8>;
@@ -118,6 +122,7 @@ fn run_mock() -> i32 {
     println("Sampled token: {}", next_token);
     
     free(dummy_ptr);
+    free_run_state(state);
     return 0;
 }
 
@@ -155,22 +160,33 @@ fn run_inference(model_path: Ptr<u8>, tok_path: Ptr<u8>) -> i32 {
         println("Tokenizer loaded ({} entries).", tok.vocab_size);
     }
     
-    // Run Loop
+    // ── Pre-tokenized prompt (set by JS via basalt_set_prompt_tokens) ──
+    let n_prompt_tokens = salt_get_prompt_count();
+    println("Prompt tokens: {}", n_prompt_tokens);
+
+    // ── Inference ──
     let state = alloc_run_state(cfg);
-    let steps: i64 = cfg.seq_len; // Generate up to max context
+    let steps: i64 = cfg.seq_len;
     
     println("Generating {} tokens...", steps);
     let mut token: i64 = 1; // BOS
+    let mut pos: i64 = 0;
     
-    // Start timing AFTER model loading (matches llama2.c methodology)
     let t_start = salt_clock_now();
-    
-    for pos in 0..steps {
+
+    // Phase 1: Prefill — process pre-tokenized prompt through the transformer
+    for pi in 0..n_prompt_tokens {
         forward(cfg, w, state, token, pos);
+        token = salt_get_prompt_token(pi);
+        pos = pos + 1;
+    }
+
+    // Phase 2: Generation — sample and output new tokens
+    for gp in pos..steps {
+        forward(cfg, w, state, token, gp);
         token = sample_argmax(state.logits, cfg.vocab_size);
         
         if has_tok {
-            // Print decoded text (raw write to stdout, no newline)
             let text = decode_token(tok, token);
             let text_len = decode_token_len(tok, token);
             write(1, text, text_len as i64);
@@ -180,9 +196,6 @@ fn run_inference(model_path: Ptr<u8>, tok_path: Ptr<u8>) -> i32 {
     let t_end = salt_clock_now();
     let elapsed_ns = t_end - t_start;
     let elapsed_ms = elapsed_ns / 1000000;
-    
-    // Compute tok/s: (steps * 1_000_000_000) / elapsed_ns
-    // Use integer arithmetic to avoid float precision issues
     let toks_per_sec = (steps * 1000000000) / elapsed_ns;
     
     println("");

@@ -86,6 +86,8 @@ mod tests_pmm_aba;
 mod tests_kernel_unsafe;
 #[cfg(test)]
 mod tests_proof_hint;
+#[cfg(test)]
+mod tests_postcondition;
 use crate::grammar::{SaltFile, Item, SaltFn, SaltImpl, ExternFnDecl, SaltConcept, SaltTrait};
 use crate::codegen::context::{CodegenContext, LocalKind, GenericContextGuard};
 use crate::codegen::type_bridge::{resolve_type, resolve_codegen_type};
@@ -1339,6 +1341,8 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
     let ret_ty_raw = if let Some(rt) = &func.ret_type { ctx.bridge_resolve_type(rt) } else { Type::Unit };
     let ret_ty = ret_ty_raw.substitute(&ctx.current_type_map());
     *ctx.current_ret_ty_mut() = Some(ret_ty.clone());
+    // [v0.9.2 POSTCONDITION PIVOT] Store ensures clauses for Z3 verification at return sites
+    *ctx.current_ensures_mut() = func.ensures.clone();
     let ret_part = if ret_ty == Type::Unit { "".to_string() } else { format!(" -> {}", ctx.resolve_mlir_type(&ret_ty)?) };
     
     // V1.1 OPTIMIZATION: Check for @inline attribute
