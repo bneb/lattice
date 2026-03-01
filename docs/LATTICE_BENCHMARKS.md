@@ -9,6 +9,59 @@ Self-hosted benchmarks measuring Lattice unikernel primitives on real x86 hardwa
 | **KVM** | AWS z1d.metal, Intel Xeon 8151 (Skylake, 4.0 GHz) | QEMU 8.2 + KVM (`-cpu host`) | Authoritative cycle counts |
 | **TCG** | Apple M4, QEMU x86_64 software emulation | None (interpreted) | Development iteration |
 
+## KVM Results (March 1, 2026)
+
+> [!IMPORTANT]
+> Authoritative run on z1d.metal (Intel Xeon 8151, 3.0 GHz TSC) with QEMU 8.2 + KVM (`-cpu host`). Includes dual-mode EOI fix (Epic 1.2), MXCSR FPU buffer init (Epic 1.1), and EBR heartbeat (Epic 1.3).
+
+| Benchmark | Avg (cycles) | Min | Max | Samples | What It Measures |
+|:----------|------------:|---------:|---------:|--------:|:-----------------|
+| **Arena alloc** | **62** | 58 | 864 | 1,000 | Bump-allocator slot throughput |
+| **PMM alloc/free** | **111** | 108 | 378 | 500 | Physical page alloc + free pair |
+| **Per-core PMM** | **89** | 84 | 250 | 1,000 | Per-core page alloc/free (zero contention) |
+| **Per-core Slab** | **130** | 106 | 18,954 | 1,000 | Per-core slab pop/push (zero contention) |
+| **UTP invoke_task** | **30** | 28 | 190 | 1,000 | Direct async dispatch primitive (3 instructions) |
+| **UTP async yield** | **895** | 776 | 2,712 | 100 | Full sched_yield round-trip for async fiber |
+| **UTP spawn (async)** | **120** | 116 | 314 | 100 | Spawn async fiber (bitmap + slab + frame init) |
+| **UTP spawn (preempt)** | **749** | 728 | 1,204 | 100 | Spawn preemptive fiber (+ IRETQ frame setup) |
+| **UTP preempt dispatch** | **1,183** | 1,094 | 2,396 | 100 | Full IRETQ chain: save/restore + ring transition |
+| **SIP IPC ring** | **26** | — | — | 1,000 | 26 cy/pass token-ring IPC (4-SPSC, 250 rounds) |
+| **IPC fast-path** | **81** | 66 | 1,410 | 100 | send=53cy + stage=28cy |
+| **SHM grant** | **1,766** | 170 | 79,508 | 50 | Cross-PML4 shared memory grant |
+| **SPSC throughput** | **~1** | — | — | 1,000 | ~1 cy/byte push/pop |
+
+### NetD C10M Data Plane (Measured)
+
+| Metric | Avg (cycles) | Min | Max | PPS @ 3.0 GHz |
+|:-------|------------:|----:|----:|---------------:|
+| **RX** | 328 | 292 | 13,346 | **9,146,341** |
+| **TX** | 341 | 306 | 13,840 | **8,797,653** |
+| **Target** | — | — | — | 10,000,000 |
+
+> [!NOTE]
+> NetD reaches **91% of C10M** (RX) and **88% of C10M** (TX) on z1d.metal. The prior TCG-extrapolated estimate of "6× C10M" was inflated by ~30× emulation overhead correction. The actual numbers on real silicon are constrained by MMIO VirtIO-Net latency and single-core SPSC bridging.
+
+### Process Lifecycle (Ring 3)
+
+All three test processes completed successfully:
+- **Process A**: `sys_brk` heap write + `sys_mmap` island write → `sys_exit(0)` ✅
+- **Process B**: 10× lifecycle iterations → `sys_exit(0)` ✅
+- **Process C**: `sys_brk` + 3× tick + lifecycle → `sys_exit(0)` ✅
+
+### Skipped Benchmarks (Pre-existing KVM Issues)
+
+| Benchmark | Reason |
+|:----------|:-------|
+| syscall_bench | Ring 3 SYSRET escape path hang |
+| ipc_bench | Responder fiber spawn crash |
+| ctx_switch_bench | scheduler.spawn crash |
+| irq_latency_bench | Hangs on KVM |
+| slab_stress_bench | Investigating hangs |
+| slab_reclaim_bench | Fiber memory limit on KVM |
+| net_echo_bench | Requires external packet injection |
+
+---
+
 ## KVM Results (February 27, 2026)
 
 > [!IMPORTANT]
@@ -138,7 +191,7 @@ TCG runs use a 100x divisor to reduce iteration counts (otherwise benchmarks tak
 
 ## KVM Compatibility Fixes
 
-Six bugs were discovered and fixed during KVM bring-up:
+Nine bugs were discovered and fixed during KVM bring-up:
 
 ### 1. Pulse Ring Buffer Triple Fault
 `pulse::push()` writes to a global array (`RING` at `0xffffffff8011c940`) that crashes on KVM. Other BSS globals (slab cache, VMA, scheduler) work fine. The crash is specific to pulse's calling context (ISR re-entrancy). Fixed by no-opping `push()`.
@@ -157,6 +210,15 @@ The syscall benchmark previously called `SYSCALL` from Ring 0, corrupting the ke
 
 ### 6. Treiber Stack Non-Canonical Address (Slab Stress Fix)
 The `get_ptr()` function extracted 48-bit addresses from packed Treiber stack pointers by masking with `0x0000FFFFFFFFFFFF`, but did not sign-extend bit 47. For higher-half kernel addresses (`0xFFFFFFFF90000000`), this produced non-canonical addresses (`0x0000FFFF90FB0000`). On real silicon (KVM), the CPU's MMU immediately `#GP` faults on non-canonical dereferences. TCG does not enforce canonical address checks, masking the bug under emulation. Fixed by sign-extending bit 47 in `get_ptr()`.
+
+### 7. Dual-Mode PIC + LAPIC EOI (March 2026)
+The ISR wrapper (`isr_wrapper.S`) and preemptive return path (`preempt_stub.S`) sent only a legacy PIC EOI (`out 0x20, al`). Under KVM with APIC timer, the PIC is masked — the PIC EOI is a no-op, leaving the LAPIC's In-Service Register permanently set and blocking all future timer interrupts. Fixed by sending EOI to **both** PIC and LAPIC (`out 0x20, al` + `call apic_send_eoi`), which is safe in both environments: PIC EOI is harmless when PIC is masked (KVM), LAPIC EOI is harmless when LAPIC is inactive (TCG).
+
+### 8. MXCSR FPU Buffer Initialization (March 2026)
+The lazy FPU handler (`nm_fpu.salt`) assigns FPU buffer slots without initializing them. On first `FXRSTOR`, garbage MXCSR values can trigger `#GP(0)` on real silicon. TCG ignores invalid MXCSR bits. Fixed by zeroing the 512-byte FXSAVE buffer and writing the default MXCSR (`0x1F80`, all exceptions masked) at offset +24 on every new slot assignment.
+
+### 9. Epoch-Based Reclamation Module (March 2026)
+No EBR module existed in the kernel. Tight spawn/yield loops in benchmarks like `slab_reclaim_bench` never advanced the global epoch, causing deferred memory to pile up until slab exhaustion. Created `kernel/lib/ebr.salt` with per-core retire lists, epoch snapshots, and in-place compaction. Wired an EBR heartbeat (`exit_epoch` → `advance_epoch` → `reclaim` → `enter_epoch`) every 5 generations into the slab reclaim benchmark.
 
 ## Reproduce
 

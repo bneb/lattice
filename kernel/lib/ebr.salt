@@ -1,0 +1,159 @@
+// =============================================================================
+// kernel/lib/ebr.salt
+// Epoch-Based Reclamation (EBR) — Lock-Free Deferred Memory Reclamation
+// =============================================================================
+//
+// When a core retires memory (e.g., a slab slot freed during a hot loop),
+// it cannot be reused immediately because sibling cores may still hold stale
+// references. EBR solves this with three operations:
+//
+//   enter_epoch(cpu)  — Snapshot the global epoch for this core
+//   exit_epoch(cpu)   — Signal this core is no longer reading shared data
+//   advance_epoch()   — Advance the global epoch if all cores have exited
+//   retire(cpu, ptr)  — Defer a pointer for later reclamation
+//   reclaim(cpu)      — Free all pointers retired before the safe epoch
+//
+// Safety invariant: A retired pointer is only freed when ALL cores have
+// observed at least one epoch boundary since the retirement.
+//
+// This implementation is intentionally minimal — it provides the semantic
+// contract needed to prevent slab exhaustion under stress, not a full
+// production-grade EBR (which would need hazard pointers or RCU integration).
+// =============================================================================
+
+package kernel.lib.ebr
+
+import kernel.drivers.serial
+
+extern fn get_cpu_id() -> u64;
+extern fn push_stack(ptr: u64);
+
+const MAX_CPUS: u64 = 16;
+const MAX_RETIRE_PER_CORE: u64 = 512;
+
+// Global monotonic epoch
+global GLOBAL_EPOCH: u64 = 0;
+
+// Per-core epoch snapshot (set on enter, cleared on exit)
+global CORE_EPOCH: [u64; 16] = [0 as u64; 16];
+
+// Per-core "in epoch" flag (1 = this core is inside a critical section)
+global CORE_IN_EPOCH: [u64; 16] = [0 as u64; 16];
+
+// Per-core retire lists: flat arrays of (epoch_at_retire, ptr) pairs
+// Stored as [epoch0, ptr0, epoch1, ptr1, ...] — 2 u64s per entry
+global RETIRE_LIST: [u64; 16384] = [0 as u64; 16384];  // 16 cores × 512 entries × 2 u64s
+global RETIRE_COUNT: [u64; 16] = [0 as u64; 16];
+
+// =============================================================================
+// ebr_enter_epoch — Snapshot global epoch for this core
+// =============================================================================
+@no_mangle
+pub fn ebr_enter_epoch(cpu: u64) {
+    CORE_EPOCH[cpu] = GLOBAL_EPOCH;
+    CORE_IN_EPOCH[cpu] = 1;
+}
+
+// =============================================================================
+// ebr_exit_epoch — Signal this core is done with shared data
+// =============================================================================
+@no_mangle
+pub fn ebr_exit_epoch(cpu: u64) {
+    CORE_IN_EPOCH[cpu] = 0;
+}
+
+// =============================================================================
+// ebr_advance_epoch — Advance global epoch if safe
+// =============================================================================
+// The epoch can only advance if no core is still inside an epoch that
+// references the current global epoch. In practice, for single-core
+// benchmarks, this always succeeds immediately.
+// =============================================================================
+@no_mangle
+pub fn ebr_advance_epoch() {
+    let current = GLOBAL_EPOCH;
+    let mut safe = true;
+
+    let mut i: u64 = 0;
+    while i < MAX_CPUS {
+        if CORE_IN_EPOCH[i] == 1 {
+            if CORE_EPOCH[i] < current {
+                // This core is in an old epoch — it's safe
+            } else {
+                // This core is in the current epoch — cannot advance
+                safe = false;
+            }
+        }
+        i = i + 1;
+    }
+
+    if safe {
+        GLOBAL_EPOCH = current + 1;
+    }
+}
+
+// =============================================================================
+// ebr_retire — Defer a pointer for later reclamation
+// =============================================================================
+@no_mangle
+pub fn ebr_retire(cpu: u64, ptr: u64) {
+    let count = RETIRE_COUNT[cpu];
+    if count >= MAX_RETIRE_PER_CORE {
+        // Retire list full — force an immediate reclaim cycle
+        ebr_reclaim(cpu);
+    }
+
+    let idx = RETIRE_COUNT[cpu];
+    let base = cpu * MAX_RETIRE_PER_CORE * 2;
+    RETIRE_LIST[base + idx * 2] = GLOBAL_EPOCH;
+    RETIRE_LIST[base + idx * 2 + 1] = ptr;
+    RETIRE_COUNT[cpu] = idx + 1;
+}
+
+// =============================================================================
+// ebr_reclaim — Free all pointers retired before the safe epoch
+// =============================================================================
+// The safe epoch is the minimum epoch observed across all cores.
+// Any pointer retired at or before (safe_epoch - 1) is guaranteed to be
+// invisible to all cores and can be freed.
+// =============================================================================
+@no_mangle
+pub fn ebr_reclaim(cpu: u64) {
+    // Compute safe epoch: minimum of all active core epochs
+    let mut safe_epoch = GLOBAL_EPOCH;
+    let mut i: u64 = 0;
+    while i < MAX_CPUS {
+        if CORE_IN_EPOCH[i] == 1 {
+            if CORE_EPOCH[i] < safe_epoch {
+                safe_epoch = CORE_EPOCH[i];
+            }
+        }
+        i = i + 1;
+    }
+
+    // Sweep the retire list: free entries where retire_epoch < safe_epoch
+    let base = cpu * MAX_RETIRE_PER_CORE * 2;
+    let count = RETIRE_COUNT[cpu];
+    let mut read_idx: u64 = 0;
+    let mut write_idx: u64 = 0;
+
+    while read_idx < count {
+        let retire_epoch = RETIRE_LIST[base + read_idx * 2];
+        let ptr = RETIRE_LIST[base + read_idx * 2 + 1];
+
+        if retire_epoch < safe_epoch {
+            // Safe to free — return to slab
+            push_stack(ptr);
+        } else {
+            // Not yet safe — compact in place
+            if write_idx != read_idx {
+                RETIRE_LIST[base + write_idx * 2] = retire_epoch;
+                RETIRE_LIST[base + write_idx * 2 + 1] = ptr;
+            }
+            write_idx = write_idx + 1;
+        }
+        read_idx = read_idx + 1;
+    }
+
+    RETIRE_COUNT[cpu] = write_idx;
+}

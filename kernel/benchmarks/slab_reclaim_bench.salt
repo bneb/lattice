@@ -38,6 +38,14 @@ extern fn pop_stack() -> u64;
 extern fn push_stack(ptr: u64);
 extern fn slab_watermark() -> i32;
 
+// EBR (kernel/lib/ebr.salt) — @no_mangle
+extern fn ebr_enter_epoch(cpu: u64);
+extern fn ebr_exit_epoch(cpu: u64);
+extern fn ebr_advance_epoch();
+extern fn ebr_retire(cpu: u64, ptr: u64);
+extern fn ebr_reclaim(cpu: u64);
+extern fn get_cpu_id() -> u64;
+
 // =============================================================================
 // Ephemeral Fiber Entry Point
 // =============================================================================
@@ -149,6 +157,10 @@ fn phase2() -> bool {
     // may leave persistent fibers alive, so we cannot assume fiber_count() == 1.
     let baseline_count = scheduler.get_fiber_count();
 
+    // EBR: Enter an epoch for this core's reclamation tracking
+    let cpu = get_cpu_id();
+    ebr_enter_epoch(cpu);
+
     for gen in 0..num_generations {
         // Spawn a batch of ephemeral fibers
         let mut s: i32 = 0;
@@ -187,10 +199,19 @@ fn phase2() -> bool {
             serial.print("\n");
         }
 
-        // Periodic progress report (every 50 generations)
+        // Periodic progress report (every 5 generations)
         if gen > 0 {
-            let check = gen % 50;
+            let check = gen % 5;
             if check == 0 {
+                // EBR HEARTBEAT: Advance epoch and reclaim deferred memory.
+                // Without this, retired slab slots pile up indefinitely
+                // because the global epoch never advances during the tight
+                // spawn/yield loop, causing slab exhaustion (OOM).
+                ebr_exit_epoch(cpu);
+                ebr_advance_epoch();
+                ebr_reclaim(cpu);
+                ebr_enter_epoch(cpu);
+
                 serial.print("BENCH:slab_reclaim:phase2 gen=");
                 serial.print_u64((gen + 1) as u64);
                 serial.print(" watermark=");
@@ -201,6 +222,11 @@ fn phase2() -> bool {
             }
         }
     }
+
+    // EBR: Final exit before checking watermark
+    ebr_exit_epoch(cpu);
+    ebr_advance_epoch();
+    ebr_reclaim(cpu);
 
     let watermark_final = slab_watermark();
 

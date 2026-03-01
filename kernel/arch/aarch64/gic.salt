@@ -1,0 +1,242 @@
+// =============================================================================
+// kernel/arch/aarch64/gic.salt
+// ARM GICv3 — Generic Interrupt Controller (Distributor + CPU Interface)
+// =============================================================================
+//
+// The GICv3 replaces the x86 APIC for interrupt routing on AArch64.
+// It has three major components:
+//
+//   GICD (Distributor):     Global — routes SPIs to target CPUs
+//   GICR (Redistributor):  Per-CPU — manages SGIs and PPIs
+//   ICC  (CPU Interface):   Per-CPU — system register access (no MMIO)
+//
+// GICv3 uses system registers (ICC_*) for the CPU interface instead of
+// MMIO, which is a key difference from GICv2. This gives lower latency
+// EOI and priority management.
+//
+// Interrupt Types:
+//   SGI (0-15):   Software-Generated Interrupts (IPI between cores)
+//   PPI (16-31):  Private Peripheral Interrupts (per-core timers)
+//   SPI (32+):    Shared Peripheral Interrupts (devices)
+//
+// ARM Generic Timer:
+//   IRQ 30 (PPI): Non-Secure EL1 Physical Timer (CNTPNSIRQ)
+//   This is the ARM64 equivalent of the x86 APIC Timer.
+// =============================================================================
+
+package kernel.arch.aarch64.gic
+
+import kernel.drivers.serial
+
+// =============================================================================
+// Assembly FFI for MMIO and System Register Access
+// =============================================================================
+extern fn mmio_read32(addr: u64) -> u32;
+extern fn mmio_write32(addr: u64, val: u32);
+
+// GICv3 CPU Interface uses system registers (ICC_*)
+// These are accessed via MSR/MRS instructions, wrapped as FFI
+extern fn aarch64_read_icc_iar1() -> u32;     // MRS x0, ICC_IAR1_EL1
+extern fn aarch64_write_icc_eoir1(val: u32);  // MSR ICC_EOIR1_EL1, x0
+extern fn aarch64_write_icc_pmr(val: u32);    // MSR ICC_PMR_EL1, x0
+extern fn aarch64_write_icc_ctlr(val: u32);   // MSR ICC_CTLR_EL1, x0
+extern fn aarch64_write_icc_igrpen1(val: u32);// MSR ICC_IGRPEN1_EL1, x0
+extern fn aarch64_isb();                       // ISB instruction barrier
+
+// =============================================================================
+// GICv3 Distributor Register Offsets (from GICD base)
+// =============================================================================
+const GICD_CTLR: u64         = 0x0000;  // Distributor Control
+const GICD_TYPER: u64         = 0x0004;  // Interrupt Controller Type
+const GICD_ISENABLER0: u64    = 0x0100;  // Interrupt Set-Enable (bank 0)
+const GICD_ICENABLER0: u64    = 0x0180;  // Interrupt Clear-Enable (bank 0)
+const GICD_IPRIORITYR0: u64   = 0x0400;  // Interrupt Priority (bank 0)
+const GICD_ITARGETSR0: u64    = 0x0800;  // Interrupt Target (bank 0, GICv2 compat)
+const GICD_ICFGR0: u64        = 0x0C00;  // Interrupt Configuration (bank 0)
+
+// GICD_CTLR bits
+const GICD_CTLR_ENABLE_GRP1: u32 = 0x02;  // Enable Group 1 interrupts
+const GICD_CTLR_ARE_NS: u32      = 0x10;  // Affinity Routing Enable (Non-Secure)
+
+// =============================================================================
+// GICv3 Redistributor Register Offsets (from GICR base, per-CPU)
+// =============================================================================
+const GICR_WAKER: u64         = 0x0014;  // Redistributor Wake
+const GICR_SGI_BASE: u64      = 0x10000; // SGI region offset from GICR frame
+
+// GICR_WAKER bits
+const GICR_WAKER_PROCESSOR_SLEEP: u32 = 0x02;
+const GICR_WAKER_CHILDREN_ASLEEP: u32 = 0x04;
+
+// =============================================================================
+// Hardware Base Addresses (set from DeviceTree or ACPI during boot)
+// =============================================================================
+global GICD_BASE: u64 = 0;
+global GICR_BASE: u64 = 0;
+
+// =============================================================================
+// Generic Timer PPI
+// =============================================================================
+const TIMER_PPI_NSPHYS: u32 = 30;   // Non-Secure EL1 Physical Timer
+
+// =============================================================================
+// init_gicd — Enable the GIC Distributor (Global, once per system)
+// =============================================================================
+pub fn init_gicd(gicd_base: u64) {
+    GICD_BASE = gicd_base;
+
+    // Disable distributor during configuration
+    mmio_write32(GICD_BASE + GICD_CTLR, 0);
+
+    // Read TYPER to determine max interrupt lines
+    let typer = mmio_read32(GICD_BASE + GICD_TYPER);
+    let it_lines = (typer & 0x1F) + 1;
+
+    serial.print("[GIC] Distributor: ITLinesNumber = ");
+    serial.print_u64(it_lines as u64);
+    serial.print(" (");
+    serial.print_u64((it_lines as u64) * 32);
+    serial.print(" interrupts)\n");
+
+    // Set all SPIs (32+) to default priority 0xA0 and target CPU 0
+    let mut i: u64 = 32;
+    while i < (it_lines as u64) * 32 {
+        // Priority: lower value = higher priority. 0xA0 = moderate.
+        mmio_write32(GICD_BASE + GICD_IPRIORITYR0 + i, 0xA0A0A0A0);
+        i = i + 4;
+    }
+
+    // Enable distributor with Group 1 and Affinity Routing
+    mmio_write32(GICD_BASE + GICD_CTLR, GICD_CTLR_ENABLE_GRP1 | GICD_CTLR_ARE_NS);
+
+    serial.print("[GIC] Distributor enabled (Group 1, ARE)\n");
+}
+
+// =============================================================================
+// init_gicr — Wake the Redistributor for this CPU
+// =============================================================================
+pub fn init_gicr(gicr_base: u64) {
+    GICR_BASE = gicr_base;
+
+    // Clear ProcessorSleep to wake this CPU's redistributor
+    let waker = mmio_read32(GICR_BASE + GICR_WAKER);
+    let cleared = waker & (0xFFFFFFFF ^ GICR_WAKER_PROCESSOR_SLEEP);
+    mmio_write32(GICR_BASE + GICR_WAKER, cleared);
+
+    // Wait for ChildrenAsleep to clear (redistributor is awake)
+    let mut attempts: u64 = 0;
+    loop {
+        let w = mmio_read32(GICR_BASE + GICR_WAKER);
+        if (w & GICR_WAKER_CHILDREN_ASLEEP) == 0 {
+            serial.print("[GIC] Redistributor awake\n");
+            return;
+        }
+        attempts = attempts + 1;
+        if attempts > 100000 {
+            serial.print("[GIC] WARNING: Redistributor wake timeout\n");
+            return;
+        }
+    }
+}
+
+// =============================================================================
+// init_cpu_interface — Configure GICv3 CPU Interface via System Registers
+// =============================================================================
+pub fn init_cpu_interface() {
+    // Set Priority Mask: accept all priorities (0xFF = lowest threshold)
+    aarch64_write_icc_pmr(0xFF);
+
+    // Enable Group 1 interrupts on this CPU
+    aarch64_write_icc_igrpen1(1);
+
+    aarch64_isb();
+
+    serial.print("[GIC] CPU interface enabled (PMR=0xFF, Group 1)\n");
+}
+
+// =============================================================================
+// enable_timer_ppi — Enable the Generic Timer PPI (IRQ 30)
+// =============================================================================
+pub fn enable_timer_ppi() {
+    // PPIs are in the SGI region of the Redistributor (offset 0x10000)
+    // ISENABLER0 covers interrupts 0-31 (SGIs + PPIs)
+    let sgi_base = GICR_BASE + GICR_SGI_BASE;
+    let isenabler = mmio_read32(sgi_base + 0x0100);  // GICR_ISENABLER0
+    let enabled = isenabler | (1 << TIMER_PPI_NSPHYS);
+    mmio_write32(sgi_base + 0x0100, enabled);
+
+    // Set timer PPI priority to high (0x20)
+    // Priority register for PPI 30 is at byte offset 30 within IPRIORITYR
+    let prio_offset = (TIMER_PPI_NSPHYS / 4) as u64;
+    let prio_shift = (TIMER_PPI_NSPHYS % 4) * 8;
+    let prio_reg = mmio_read32(sgi_base + 0x0400 + prio_offset * 4);
+    let prio_mask = 0xFF << prio_shift;
+    let prio_val = 0x20 << prio_shift;
+    let new_prio = (prio_reg & (0xFFFFFFFF ^ prio_mask)) | prio_val;
+    mmio_write32(sgi_base + 0x0400 + prio_offset * 4, new_prio);
+
+    serial.print("[GIC] Timer PPI 30 enabled (priority 0x20)\n");
+}
+
+// =============================================================================
+// send_eoi — Acknowledge interrupt completion (GICv3 System Register)
+// =============================================================================
+// ARM64 equivalent of Epic 1.2's APIC EOI.
+// Writes to ICC_EOIR1_EL1 to signal End of Interrupt.
+// =============================================================================
+pub fn send_eoi(irq_number: u32) {
+    aarch64_write_icc_eoir1(irq_number);
+}
+
+// =============================================================================
+// acknowledge_irq — Read the highest-priority pending interrupt
+// =============================================================================
+// Returns the interrupt ID from ICC_IAR1_EL1.
+// If 1023 (INTID_SPURIOUS), no interrupt is pending.
+// =============================================================================
+const INTID_SPURIOUS: u32 = 1023;
+
+pub fn acknowledge_irq() -> u32 {
+    return aarch64_read_icc_iar1();
+}
+
+// =============================================================================
+// is_spurious — Check if an acknowledged IRQ is spurious
+// =============================================================================
+pub fn is_spurious(irq: u32) -> bool {
+    return irq >= INTID_SPURIOUS;
+}
+
+// =============================================================================
+// enable_spi — Enable a specific SPI (interrupt 32+) in the Distributor
+// =============================================================================
+pub fn enable_spi(irq: u32) {
+    if irq < 32 {
+        return;  // SGIs/PPIs are not managed via GICD
+    }
+    let reg_offset = (irq / 32) as u64;
+    let bit_offset = irq % 32;
+    let addr = GICD_BASE + GICD_ISENABLER0 + reg_offset * 4;
+    mmio_write32(addr, 1 << bit_offset);
+}
+
+// =============================================================================
+// @no_mangle ABI Wrappers
+// =============================================================================
+@no_mangle
+pub fn gic_init_gicd(base: u64) { init_gicd(base); }
+
+@no_mangle
+pub fn gic_init_gicr(base: u64) { init_gicr(base); }
+
+@no_mangle
+pub fn gic_init_cpu() { init_cpu_interface(); }
+
+@no_mangle
+pub fn gic_send_eoi(irq: u32) { send_eoi(irq); }
+
+@no_mangle
+pub fn gic_acknowledge() -> u32 { return acknowledge_irq(); }
+
+@no_mangle
+pub fn gic_enable_timer() { enable_timer_ppi(); }

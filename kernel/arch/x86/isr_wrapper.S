@@ -60,9 +60,13 @@ timer_isr_wrapper:
     mov rdi, rsp
     call timer_isr
 
-    # 3. Send EOI (End of Interrupt) to Master PIC
+    # 3. Send EOI to BOTH PIC and LAPIC for dual-mode compatibility.
+    # Under KVM with APIC timer: PIC is masked, PIC EOI is harmless no-op.
+    # Under TCG with legacy PIT: LAPIC EOI is harmless no-op.
+    # This ensures timer interrupts are never permanently blocked in either mode.
     mov al, 0x20
     out 0x20, al
+    call apic_send_eoi
 
     # 4. Ring 3 process preemption (round-robin scheduling)
     call timer_preempt

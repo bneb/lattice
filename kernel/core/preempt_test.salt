@@ -497,8 +497,9 @@ pub fn run_preempt_tests() {
     test_layer_075();
     test_layer_0875();
     // test_layer_09375();  // Skip: leaves dangling bitmap entry
-    // test_layer_1();  // SKIP: sched_yield() hangs under TCG on macOS ARM (no timer IRQ).
-                       // Re-enable when running on KVM with real APIC timers.
+    // test_layer_1();  // KVM Gate 1.2 FIXED: PIC→LAPIC EOI now correct.
+                       // Still hangs under TCG on macOS ARM because QEMU-TCG
+                       // doesn't fire APIC timer IRQs. Verify on KVM (z1d.metal).
     // test_layer_2_overflow(); // VERIFIED: triggers #PF at guard page. Commented out
     //                         // to allow benchmark suite to complete. Invoke manually
     //                         // via sched_spawn(fn_addr(int_stack_overflow)) for TDD.

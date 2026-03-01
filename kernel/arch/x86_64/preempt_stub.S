@@ -153,9 +153,10 @@ preempt_return_to_scheduler:
     mov  rsp, gs:[GS_SCHED_RSP]
     mov  qword ptr gs:[GS_SCHED_RSP], 0
 
-    /* 4. Send EOI to Master PIC (same as existing ISR) */
+    /* 4. Send EOI to BOTH PIC and LAPIC (dual-mode: TCG + KVM) */
     mov  al, 0x20
     out  0x20, al
+    call apic_send_eoi
 
     /* 5. Return POLL_PENDING (0) to the scheduler.
      *    Restore scheduler's callee-saved registers and return. */

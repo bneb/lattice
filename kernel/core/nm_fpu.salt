@@ -1,6 +1,7 @@
 // =============================================================================
 // kernel/core/nm_fpu.salt
 // Lazy FPU Handler — #NM (Device Not Available) demand-load path
+// KVM Gate 1.1: MXCSR default (0x1F80) written on first slot assignment
 // =============================================================================
 //
 // When a fiber uses FPU/SSE after a context switch set CR0.TS, the CPU
@@ -41,6 +42,19 @@ global FPU_NEXT_SLOT: i32 = 0;
 // Which fiber currently has FPU loaded. 0xFFFFFFFFFFFFFFFF = nobody.
 global FPU_OWNER: u64 = 0xFFFFFFFFFFFFFFFF;
 
+// Zero 512 bytes at the given address (FPU buffer initialization)
+fn zero_fpu_buffer(addr: u64) {
+    let mut i: u64 = 0;
+    while i < 64 {
+        *((addr + i * 8) as &mut u64) = 0;
+        i = i + 1;
+    }
+    // Write default MXCSR (0x1F80) at offset 24 within the FXSAVE area.
+    // This masks all floating-point exceptions and prevents #GP(0) on
+    // the first FXRSTOR for a fiber that has never had FPU state saved.
+    *((addr + 24) as &mut u32) = 0x1F80;
+}
+
 fn get_fpu_buffer_addr(fiber_id: u64) -> u64 {
     let slot = FPU_SLOT_MAP[fiber_id as i32];
     if slot < 0 {
@@ -51,12 +65,15 @@ fn get_fpu_buffer_addr(fiber_id: u64) -> u64 {
             FPU_NEXT_SLOT = 1;
             FPU_SLOT_MAP[fiber_id as i32] = 0;
             let base = ((&FPU_BUFFERS) as u64) & 0xFFFFFFFFFFFFFFF0;  // 16-byte align
+            zero_fpu_buffer(base);
             return base;
         }
         FPU_SLOT_MAP[fiber_id as i32] = new_slot;
         FPU_NEXT_SLOT = new_slot + 1;
         let base = ((&FPU_BUFFERS) as u64) & 0xFFFFFFFFFFFFFFF0;  // 16-byte align
-        return base + ((new_slot as u64) * 512);
+        let buf_addr = base + ((new_slot as u64) * 512);
+        zero_fpu_buffer(buf_addr);
+        return buf_addr;
     }
     let base = ((&FPU_BUFFERS) as u64) & 0xFFFFFFFFFFFFFFF0;  // 16-byte align
     return base + ((slot as u64) * 512);

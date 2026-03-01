@@ -240,7 +240,8 @@ pub fn spawn(entry_addr: u64) -> u64 {
             
             // Allocate a 16KB stack from this core's slab partition
             let stack_base = pop_stack();
-            let stack_top = stack_base + SLAB_SLOT_SIZE;
+            // CRITICAL: 16-byte align stack_top for FXSAVE/FXRSTOR (KVM #GP(0) defense)
+            let stack_top = (stack_base + SLAB_SLOT_SIZE) & 0xFFFFFFFFFFFFFFF0;
 
             vmm.vmm_clear_present(stack_base);
 

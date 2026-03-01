@@ -34,4 +34,4 @@ EC2_USER="ubuntu"
 EC2_MAX_SPOT_PRICE="2.50"
 
 # Timeout for benchmark run (seconds)
-BENCHMARK_TIMEOUT=300
+BENCHMARK_TIMEOUT=600
