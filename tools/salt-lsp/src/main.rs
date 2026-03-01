@@ -5,6 +5,7 @@
 mod backend;
 mod completion;
 mod diagnostics;
+pub mod sir_index;
 
 use tower_lsp::{LspService, Server};
 

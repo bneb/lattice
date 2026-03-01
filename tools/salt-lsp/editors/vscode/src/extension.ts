@@ -1,7 +1,10 @@
-// Salt Language — VS Code Extension
+// Salt Language — VS Code Extension (v0.2.0)
 //
-// Provides syntax highlighting via TextMate grammar (always active).
-// Optionally launches the salt-lsp language server for completions/diagnostics.
+// Features:
+//   - Syntax highlighting via TextMate grammar (always active)
+//   - In-memory diagnostics via salt-front library (salt-lsp v0.2.0)
+//   - Semantic hover: function signatures + Z3 contracts
+//   - SIR-powered completions: functions + structs from compiled modules
 
 import * as path from 'path';
 import * as fs from 'fs';
@@ -14,16 +17,46 @@ import {
 
 let client: LanguageClient | undefined;
 
-export function activate(_context: ExtensionContext) {
+/** Find the salt-lsp binary in standard locations. */
+function findLspBinary(extensionPath: string): string | undefined {
+    // 1. User-configured path
+    const configPath = workspace.getConfiguration('salt').get<string>('lspPath');
+    if (configPath && fs.existsSync(configPath)) {
+        return configPath;
+    }
+
+    // 2. Environment variable
+    const envPath = process.env.SALT_LSP_PATH;
+    if (envPath && fs.existsSync(envPath)) {
+        return envPath;
+    }
+
+    // 3. Monorepo relative paths (release first for performance)
+    const candidates = [
+        path.join(extensionPath, '..', '..', 'target', 'release', 'salt-lsp'),
+        path.join(extensionPath, '..', '..', 'target', 'debug', 'salt-lsp'),
+        // From vscode extension dir → tools/salt-lsp/target
+        path.join(extensionPath, '..', '..', '..', '..', 'target', 'debug', 'salt-lsp'),
+    ];
+
+    for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) {
+            return candidate;
+        }
+    }
+
+    return undefined;
+}
+
+export function activate(context: ExtensionContext) {
     // Syntax highlighting is provided by the TextMate grammar in package.json
     // — it works automatically without any code here.
 
-    // Optionally start the LSP server for completions and diagnostics.
-    const serverPath = process.env.SALT_LSP_PATH
-        || path.join(_context.extensionPath, '..', '..', '..', '..', 'target', 'debug', 'salt-lsp');
+    const serverPath = findLspBinary(context.extensionPath);
 
-    if (!fs.existsSync(serverPath)) {
-        console.log(`[Salt] LSP binary not found at ${serverPath} — syntax highlighting still active.`);
+    if (!serverPath) {
+        console.log('[Salt] LSP binary not found — syntax highlighting still active.');
+        console.log('[Salt] Build with: cd tools/salt-lsp && cargo build');
         return;
     }
 
@@ -52,7 +85,7 @@ export function activate(_context: ExtensionContext) {
             client = undefined;
         });
     } catch (err) {
-        console.log(`[Salt] LSP initialization error — syntax highlighting still active.`);
+        console.log('[Salt] LSP initialization error — syntax highlighting still active.');
         client = undefined;
     }
 }

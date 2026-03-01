@@ -34,6 +34,7 @@ pub fn emit_sir_function(
         body,
         is_pub,
         attributes,
+        location: None,
     }
 }
 
@@ -188,6 +189,25 @@ fn expr_to_string(expr: &syn::Expr) -> String {
     quote::quote!(#expr).to_string()
 }
 
+/// Extract a location from a syn::Ident's span.
+fn ident_to_location(ident: &syn::Ident) -> Option<SirLocation> {
+    let span = ident.span();
+    let start = span.start();
+    let end = span.end();
+    // proc-macro2 with span-locations returns line=0,col=0 when locations
+    // are not available (e.g., in some test contexts). Only emit a location
+    // if we have real coordinates.
+    if start.line == 0 && start.column == 0 {
+        return None;
+    }
+    Some(SirLocation {
+        line: start.line,
+        column: start.column,
+        end_line: end.line,
+        end_column: end.column,
+    })
+}
+
 /// Extract a SIR struct from a Salt StructDef.
 fn extract_sir_struct(s: &StructDef) -> SirStruct {
     let fields = s.fields.iter().map(|f| {
@@ -198,11 +218,13 @@ fn extract_sir_struct(s: &StructDef) -> SirStruct {
     }).collect();
 
     let attributes = s.attributes.iter().map(|a| a.name.to_string()).collect();
+    let location = ident_to_location(&s.name);
 
     SirStruct {
         name: s.name.to_string(),
         fields,
         attributes,
+        location,
     }
 }
 
@@ -238,6 +260,7 @@ fn extract_sir_function(f: &SaltFn) -> SirFunction {
     }
 
     let attributes = f.attributes.iter().map(|a| a.name.to_string()).collect();
+    let location = ident_to_location(&f.name);
 
     // We emit an empty body for now — full body lowering is future work.
     // The critical contract and signature metadata is preserved.
@@ -249,6 +272,7 @@ fn extract_sir_function(f: &SaltFn) -> SirFunction {
         body: vec![],
         is_pub: f.is_pub,
         attributes,
+        location,
     }
 }
 

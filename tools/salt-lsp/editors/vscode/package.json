@@ -1,9 +1,9 @@
 {
     "name": "salt-language",
     "displayName": "Salt Language",
-    "description": "Salt language support — syntax highlighting, diagnostics, and completions",
+    "description": "Salt language support — syntax highlighting, in-memory diagnostics, semantic hover, and Z3 contract display",
     "icon": "icon.png",
-    "version": "0.1.1",
+    "version": "0.2.0",
     "license": "MIT",
     "publisher": "salt-lang",
     "repository": {
@@ -15,9 +15,6 @@
     },
     "categories": [
         "Programming Languages"
-    ],
-    "activationEvents": [
-        "onLanguage:salt"
     ],
     "main": "./out/extension.js",
     "contributes": {
@@ -40,7 +37,17 @@
                 "scopeName": "source.salt",
                 "path": "./syntaxes/salt.tmLanguage.json"
             }
-        ]
+        ],
+        "configuration": {
+            "title": "Salt Language",
+            "properties": {
+                "salt.lspPath": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Path to the salt-lsp binary. Auto-detected if blank."
+                }
+            }
+        }
     },
     "scripts": {
         "compile": "tsc -p ./",

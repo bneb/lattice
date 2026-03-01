@@ -18,6 +18,19 @@
 /// SIR version for forward compatibility.
 pub const SIR_VERSION: u32 = 1;
 
+/// Source location for a SIR definition (for Go-to-Definition).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SirLocation {
+    /// 1-indexed line number where the definition starts.
+    pub line: usize,
+    /// 0-indexed column number where the definition starts.
+    pub column: usize,
+    /// 1-indexed line number where the definition ends.
+    pub end_line: usize,
+    /// 0-indexed column number where the definition ends.
+    pub end_column: usize,
+}
+
 /// A SIR value — the operand of instructions.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SirValue {
@@ -133,6 +146,8 @@ pub struct SirFunction {
     pub body: Vec<SirBlock>,
     pub is_pub: bool,
     pub attributes: Vec<String>,
+    /// Source location of the function definition.
+    pub location: Option<SirLocation>,
 }
 
 /// A SIR struct definition.
@@ -141,6 +156,8 @@ pub struct SirStruct {
     pub name: String,
     pub fields: Vec<SirParam>,
     pub attributes: Vec<String>,
+    /// Source location of the struct definition.
+    pub location: Option<SirLocation>,
 }
 
 /// A SIR module — the top-level compilation unit.
