@@ -14,6 +14,7 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
     let mut lib_mode = false;
     let mut sip_mode = false;
     let mut debug_info = false;
+    let mut emit_sir = false;
     let mut target_name: Option<String> = None;
     
     let mut i = 1;
@@ -22,7 +23,7 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
         if arg == "--release" {
             release_mode = true;
         } else if arg == "--help" || arg == "-h" {
-            println!("Usage: salt-front <file.salt> [-o output] [--release] [--binary] [-c] [--target <target>] [--lib] [-g] [--skip-scan] [--verify] [--danger-no-verify] [--disable-alias-scopes]");
+            println!("Usage: salt-front <file.salt> [-o output] [--release] [--binary] [-c] [--target <target>] [--lib] [-g] [--emit-sir] [--skip-scan] [--verify] [--danger-no-verify] [--disable-alias-scopes]");
             println!("");
             println!("Flags:");
             println!("  --release    Enable optimizations");
@@ -36,6 +37,7 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
             println!("  -g           Emit DWARF debug info (MLIR loc annotations)");
             println!("  --debug-info Emit DWARF debug info (same as -g)");
             println!("  --disable-alias-scopes  Suppress LLVM alias scope metadata (for mlir-opt compatibility)");
+            println!("  --emit-sir  Emit SIR (Salt Intermediate Representation) as JSON alongside MLIR");
             println!("  --danger-no-verify  Skip ALL Z3/ownership verification (NOT for production)");
             println!("  -o <path>    Output path (MLIR or binary)");
             return Ok(());
@@ -87,6 +89,8 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
         } else if arg == "--sip" {
             sip_mode = true;
             lib_mode = true; // SIPs are always libraries (no kernel main)
+        } else if arg == "--emit-sir" {
+            emit_sir = true;
         } else if arg == "-g" || arg == "--debug-info" {
             debug_info = true;
         } else if arg == "-o" {
@@ -135,6 +139,30 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
 
     match crate::compile_ast(&mut file, release_mode, Some(&registry), skip_scan, vverify, disable_alias_scopes, no_verify, lib_mode, sip_mode, debug_info, &path) {
         Ok(mlir) => {
+            // SIR emission (if requested)
+            if emit_sir {
+                use crate::codegen::sir::types::*;
+                use crate::codegen::sir::sir_emit::*;
+
+                let module_name = std::path::Path::new(&path)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("module");
+
+                let sir_module = extract_sir_from_ast(&file, module_name);
+
+                let sir_json = sir_module.to_json();
+                let sir_path = output_path.as_deref()
+                    .map(|p| format!("{}.sir.json", p.trim_end_matches(".mlir")))
+                    .unwrap_or_else(|| format!("{}.sir.json", module_name));
+
+                if let Err(e) = fs::write(&sir_path, &sir_json) {
+                    eprintln!("⚠️  SIR emission failed: {}", e);
+                } else {
+                    eprintln!("📋 SIR emitted: {} ({} structs, {} functions, v{})",
+                        sir_path, sir_module.structs.len(), sir_module.functions.len(), SIR_VERSION);
+                }
+            }
             if binary_mode {
                 // ============================================================
                 // SOVEREIGN BINARY MODE — Full MLIR → Native Pipeline

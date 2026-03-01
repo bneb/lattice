@@ -1,0 +1,289 @@
+// =============================================================================
+// TEST: Full Fiber Migration — dispatch_stolen() Context Switch
+// =============================================================================
+// Tests that a stolen fiber's context (step_fn, ctx_ptr, task_frame,
+// stack_ptr) is correctly migrated from the victim core's SCHED_ARRAY
+// to the stealer core's SCHED_ARRAY, and the fiber can be dispatched.
+// =============================================================================
+
+package main
+
+extern fn puts(s: &str) -> i32;
+
+// --- Simulated per-core scheduler state ---
+
+pub const MAX_FIBERS: u64 = 32;
+pub const MAX_CPUS: u64 = 4;
+
+pub struct Fiber {
+    pub id: u64,
+    pub stack_ptr: u64,
+    pub stack_base: u64,
+    pub active: bool,
+    pub step_fn: u64,
+    pub task_frame: u64,
+    pub ctx_ptr: u64,
+}
+
+pub struct SchedState {
+    pub fibers: [Fiber; 32],
+    pub count: u64,
+    pub l2_bitmap: u64,
+}
+
+global SCHED: [SchedState; 4] = [SchedState {
+    fibers: [Fiber { id: 0, stack_ptr: 0, stack_base: 0, active: false,
+                     step_fn: 0, task_frame: 0, ctx_ptr: 0 }; 32],
+    count: 0,
+    l2_bitmap: 0,
+}; 4];
+
+global DISPATCH_LOG: [u64; 16] = [0 as u64; 16];
+global DISPATCH_IDX: u64 = 0;
+
+fn reset_sched() {
+    let mut c: u64 = 0;
+    while c < MAX_CPUS {
+        SCHED[c].count = 0;
+        SCHED[c].l2_bitmap = 0;
+        let mut f: u64 = 0;
+        while f < MAX_FIBERS {
+            SCHED[c].fibers[f].id = 0;
+            SCHED[c].fibers[f].stack_ptr = 0;
+            SCHED[c].fibers[f].stack_base = 0;
+            SCHED[c].fibers[f].active = false;
+            SCHED[c].fibers[f].step_fn = 0;
+            SCHED[c].fibers[f].task_frame = 0;
+            SCHED[c].fibers[f].ctx_ptr = 0;
+            f = f + 1;
+        }
+        c = c + 1;
+    }
+    DISPATCH_IDX = 0;
+}
+
+// --- bitmap helpers ---
+fn bitmap_set(cpu: u64, slot: u64) {
+    let bit: u64 = (1 as u64) << slot;
+    SCHED[cpu].l2_bitmap = SCHED[cpu].l2_bitmap | bit;
+}
+
+fn bitmap_clear(cpu: u64, slot: u64) {
+    let bit: u64 = (1 as u64) << slot;
+    let inv: u64 = bit ^ 0xFFFFFFFFFFFFFFFF;
+    SCHED[cpu].l2_bitmap = SCHED[cpu].l2_bitmap & inv;
+}
+
+fn find_free_slot(cpu: u64) -> u64 {
+    let inv_bitmap = SCHED[cpu].l2_bitmap ^ 0xFFFFFFFFFFFFFFFF;
+    if inv_bitmap == 0 { return 0xFFFFFFFF; }
+    // Simple linear scan for first free bit
+    let mut i: u64 = 1;  // slot 0 reserved for idle
+    while i < MAX_FIBERS {
+        let bit: u64 = (1 as u64) << i;
+        if (SCHED[cpu].l2_bitmap & bit) == 0 {
+            return i;
+        }
+        i = i + 1;
+    }
+    return 0xFFFFFFFF;
+}
+
+// --- spawn helper ---
+fn spawn_on_core(cpu: u64, step_fn: u64, ctx_ptr: u64, task_frame: u64) -> u64 {
+    let slot = find_free_slot(cpu);
+    if slot == 0xFFFFFFFF { return 0xFFFFFFFF; }
+    SCHED[cpu].fibers[slot].id = slot + cpu * 1000;
+    SCHED[cpu].fibers[slot].active = true;
+    SCHED[cpu].fibers[slot].step_fn = step_fn;
+    SCHED[cpu].fibers[slot].ctx_ptr = ctx_ptr;
+    SCHED[cpu].fibers[slot].task_frame = task_frame;
+    SCHED[cpu].fibers[slot].stack_ptr = ctx_ptr;
+    bitmap_set(cpu, slot);
+    SCHED[cpu].count = SCHED[cpu].count + 1;
+    return slot;
+}
+
+// =============================================================================
+// dispatch_stolen — FULL IMPLEMENTATION (no stubs)
+// =============================================================================
+// Migrates a fiber from victim_cpu/victim_slot to a new local slot on cpu.
+// Copies all 4 critical fields: step_fn, ctx_ptr, task_frame, stack_ptr.
+// Clears the victim's slot. Marks the local slot runnable in bitmap.
+//
+// NOTE: In the real kernel, TLS assumptions are safe because Salt fibers
+// don't use per-thread TLS — they use per-core GS-relative slots which
+// are set up by the scheduler, not by the fiber itself.
+// =============================================================================
+fn dispatch_stolen(cpu: u64, victim_cpu: u64, victim_slot: u64) -> u64 {
+    // 1. Validate the victim fiber is actually active
+    if !SCHED[victim_cpu].fibers[victim_slot].active {
+        return 0xFFFFFFFF;  // Stale steal — fiber already completed
+    }
+
+    // 2. Allocate a local slot on the stealing core
+    let local_slot = find_free_slot(cpu);
+    if local_slot == 0xFFFFFFFF {
+        return 0xFFFFFFFF;  // Stealer is full — drop the steal
+    }
+
+    // 3. Copy the 4 critical context fields
+    SCHED[cpu].fibers[local_slot].step_fn    = SCHED[victim_cpu].fibers[victim_slot].step_fn;
+    SCHED[cpu].fibers[local_slot].ctx_ptr    = SCHED[victim_cpu].fibers[victim_slot].ctx_ptr;
+    SCHED[cpu].fibers[local_slot].task_frame = SCHED[victim_cpu].fibers[victim_slot].task_frame;
+    SCHED[cpu].fibers[local_slot].stack_ptr  = SCHED[victim_cpu].fibers[victim_slot].stack_ptr;
+
+    // 4. Copy metadata
+    SCHED[cpu].fibers[local_slot].id         = SCHED[victim_cpu].fibers[victim_slot].id;
+    SCHED[cpu].fibers[local_slot].stack_base = SCHED[victim_cpu].fibers[victim_slot].stack_base;
+    SCHED[cpu].fibers[local_slot].active     = true;
+
+    // 5. Mark runnable in local bitmap
+    bitmap_set(cpu, local_slot);
+    SCHED[cpu].count = SCHED[cpu].count + 1;
+
+    // 6. Clear the victim's slot (the steal is complete)
+    SCHED[victim_cpu].fibers[victim_slot].active = false;
+    SCHED[victim_cpu].fibers[victim_slot].step_fn = 0;
+    SCHED[victim_cpu].fibers[victim_slot].ctx_ptr = 0;
+    SCHED[victim_cpu].fibers[victim_slot].task_frame = 0;
+    bitmap_clear(victim_cpu, victim_slot);
+    SCHED[victim_cpu].count = SCHED[victim_cpu].count - 1;
+
+    // 7. Log dispatch for test verification
+    if DISPATCH_IDX < 16 {
+        DISPATCH_LOG[DISPATCH_IDX] = local_slot + cpu * 1000;
+        DISPATCH_IDX = DISPATCH_IDX + 1;
+    }
+
+    return local_slot;
+}
+
+// =============================================================================
+// TESTS
+// =============================================================================
+
+// Test 1: Stolen fiber runs on new core
+fn test_stolen_fiber_runs_on_new_core() -> bool {
+    reset_sched();
+
+    // Core 0 has a fiber at slot 1
+    let victim_slot = spawn_on_core(0, 0xAAAA0001, 0xBBBB0001, 0xCCCC0001);
+    if victim_slot == 0xFFFFFFFF { return false; }
+
+    // Core 2 steals it
+    let local_slot = dispatch_stolen(2, 0, victim_slot);
+    if local_slot == 0xFFFFFFFF { return false; }
+
+    // Fiber is now on core 2, not core 0
+    if !SCHED[2].fibers[local_slot].active { return false; }
+    if SCHED[0].fibers[victim_slot].active { return false; }
+
+    // Core 2 has 1 fiber, core 0 has 0
+    if SCHED[2].count != 1 { return false; }
+    if SCHED[0].count != 0 { return false; }
+
+    return true;
+}
+
+// Test 2: step_fn preserved after migration
+fn test_migration_preserves_step_fn() -> bool {
+    reset_sched();
+
+    let step_fn: u64 = 0xDEADBEEF12345678;
+    let victim_slot = spawn_on_core(0, step_fn, 0x1111, 0x2222);
+    let local_slot = dispatch_stolen(1, 0, victim_slot);
+    if local_slot == 0xFFFFFFFF { return false; }
+
+    return SCHED[1].fibers[local_slot].step_fn == step_fn;
+}
+
+// Test 3: ctx_ptr preserved after migration
+fn test_migration_preserves_ctx_ptr() -> bool {
+    reset_sched();
+
+    let ctx: u64 = 0xFEEDFACECAFEBABE;
+    let victim_slot = spawn_on_core(1, 0x1111, ctx, 0x3333);
+    let local_slot = dispatch_stolen(3, 1, victim_slot);
+    if local_slot == 0xFFFFFFFF { return false; }
+
+    return SCHED[3].fibers[local_slot].ctx_ptr == ctx;
+}
+
+// Test 4: Local bitmap updated correctly
+fn test_local_slot_allocated_on_steal() -> bool {
+    reset_sched();
+
+    // Spawn 3 fibers on core 0
+    spawn_on_core(0, 0xA1, 0xB1, 0xC1);
+    spawn_on_core(0, 0xA2, 0xB2, 0xC2);
+    let victim_slot = spawn_on_core(0, 0xA3, 0xB3, 0xC3);
+
+    // Core 2 steals the third one
+    let local_slot = dispatch_stolen(2, 0, victim_slot);
+    if local_slot == 0xFFFFFFFF { return false; }
+
+    // Core 2's bitmap should have the local_slot bit set
+    let bit: u64 = (1 as u64) << local_slot;
+    if (SCHED[2].l2_bitmap & bit) == 0 { return false; }
+
+    // Victim's bitmap should have the slot cleared
+    let vbit: u64 = (1 as u64) << victim_slot;
+    if (SCHED[0].l2_bitmap & vbit) != 0 { return false; }
+
+    // Total counts: core 0 had 3, lost 1 → 2. Core 2 had 0, gained 1 → 1.
+    if SCHED[0].count != 2 { return false; }
+    if SCHED[2].count != 1 { return false; }
+
+    return true;
+}
+
+// Test 5: task_frame preserved after migration
+fn test_migration_preserves_task_frame() -> bool {
+    reset_sched();
+
+    let tf: u64 = 0x1234567890ABCDEF;
+    let victim_slot = spawn_on_core(0, 0xAA, 0xBB, tf);
+    let local_slot = dispatch_stolen(2, 0, victim_slot);
+    if local_slot == 0xFFFFFFFF { return false; }
+
+    return SCHED[2].fibers[local_slot].task_frame == tf;
+}
+
+fn main() -> i32 {
+    let mut pass: i32 = 0;
+    let mut fail: i32 = 0;
+
+    if test_stolen_fiber_runs_on_new_core() {
+        puts("PASS: test_stolen_fiber_runs_on_new_core"); pass = pass + 1;
+    } else {
+        puts("FAIL: test_stolen_fiber_runs_on_new_core"); fail = fail + 1;
+    }
+
+    if test_migration_preserves_step_fn() {
+        puts("PASS: test_migration_preserves_step_fn"); pass = pass + 1;
+    } else {
+        puts("FAIL: test_migration_preserves_step_fn"); fail = fail + 1;
+    }
+
+    if test_migration_preserves_ctx_ptr() {
+        puts("PASS: test_migration_preserves_ctx_ptr"); pass = pass + 1;
+    } else {
+        puts("FAIL: test_migration_preserves_ctx_ptr"); fail = fail + 1;
+    }
+
+    if test_local_slot_allocated_on_steal() {
+        puts("PASS: test_local_slot_allocated_on_steal"); pass = pass + 1;
+    } else {
+        puts("FAIL: test_local_slot_allocated_on_steal"); fail = fail + 1;
+    }
+
+    if test_migration_preserves_task_frame() {
+        puts("PASS: test_migration_preserves_task_frame"); pass = pass + 1;
+    } else {
+        puts("FAIL: test_migration_preserves_task_frame"); fail = fail + 1;
+    }
+
+    if fail == 0 { return 0; }
+    return 1;
+}

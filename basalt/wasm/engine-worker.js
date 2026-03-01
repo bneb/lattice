@@ -43,26 +43,57 @@ async function loadTokenizer(url) {
 
 function encodePrompt(text) {
     const tokens = [];
-    const chars = [...text];
-    const pieces = chars.map(c => vocab.get(c) ?? 0);
-
     tokens.push(1); // BOS
 
-    let i = 0;
-    while (i < chars.length) {
-        let bestLen = 1;
-        let bestId = pieces[i];
-
-        for (let len = 2; len <= Math.min(20, chars.length - i); len++) {
-            const substr = chars.slice(i, i + len).join('');
-            const id = vocab.get(substr);
-            if (id !== undefined) {
-                bestLen = len;
-                bestId = id;
-            }
+    // Build special-token regex from vocab entries matching <|...|> pattern
+    const specialTokens = [];
+    for (const [key, id] of vocab.entries()) {
+        if (/^<\|.*\|>$/.test(key)) {
+            specialTokens.push({ text: key, id });
         }
-        tokens.push(bestId);
-        i += bestLen;
+    }
+
+    // Split input into [non-special, special, non-special, ...] segments
+    // Sort by length descending to match longest special tokens first
+    specialTokens.sort((a, b) => b.text.length - a.text.length);
+
+    const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = specialTokens.length > 0
+        ? new RegExp(`(${specialTokens.map(s => escapeRegex(s.text)).join('|')})`)
+        : null;
+
+    const segments = pattern ? text.split(pattern) : [text];
+
+    for (const segment of segments) {
+        if (!segment) continue;
+
+        // Check if this segment is a special token
+        const specialMatch = specialTokens.find(s => s.text === segment);
+        if (specialMatch) {
+            tokens.push(specialMatch.id);
+            continue;
+        }
+
+        // Normal segment: greedy substring matching
+        const chars = [...segment];
+        const pieces = chars.map(c => vocab.get(c) ?? 0);
+
+        let i = 0;
+        while (i < chars.length) {
+            let bestLen = 1;
+            let bestId = pieces[i];
+
+            for (let len = 2; len <= Math.min(20, chars.length - i); len++) {
+                const substr = chars.slice(i, i + len).join('');
+                const id = vocab.get(substr);
+                if (id !== undefined) {
+                    bestLen = len;
+                    bestId = id;
+                }
+            }
+            tokens.push(bestId);
+            i += bestLen;
+        }
     }
     return tokens;
 }

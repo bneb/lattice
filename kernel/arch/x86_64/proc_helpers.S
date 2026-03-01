@@ -12,6 +12,51 @@ idle_halt:
     hlt
     ret
 
+/* cpu_pause()
+ * Emits the x86 PAUSE instruction. Reduces power in spin-wait loops
+ * and prevents memory-order violations on hyperthreaded cores.
+ * On ARM, this would be YIELD.
+ */
+.global cpu_pause
+cpu_pause:
+    pause
+    ret
+
+/* broadcast_nmi_halt()
+ * Sends NMI IPI to all sibling cores via Local APIC ICR.
+ * This immediately halts all other cores, preventing them from
+ * corrupting shared state after a kernel panic.
+ *
+ * APIC ICR (Interrupt Command Register):
+ *   ICR High (0xFEE00310): Destination field (0 for broadcast)
+ *   ICR Low  (0xFEE00300): Vector + delivery mode + destination shorthand
+ *     Bits [10:8]  = 100 (NMI delivery mode)
+ *     Bits [19:18] = 11  (all-excluding-self shorthand)
+ *     Bit  [14]    = 1   (level = assert)
+ *
+ * Uses higher-half virtual addresses (kernel base + APIC MMIO).
+ */
+.global broadcast_nmi_halt
+broadcast_nmi_halt:
+    /* ICR High: destination = 0 (broadcast) */
+    mov rdi, 0xFFFFFFFFFEE00310
+    mov dword ptr [rdi], 0
+    /* ICR Low: NMI | all-excluding-self | level assert */
+    /* 0x000C4400 = shorthand:all-excl-self(11) | level:assert(1) | NMI(100) */
+    mov rdi, 0xFFFFFFFFFEE00300
+    mov dword ptr [rdi], 0x000C4400
+    ret
+
+/* virtio_block_dump_flight_recorder(header_ptr: u64, header_size: u64) -> bool
+ * Weak stub — returns false (no block device) if not overridden by
+ * the VirtIO-blk driver. In QEMU configs with virtio-blk, the strong
+ * symbol from virtio.salt takes priority.
+ */
+.weak virtio_block_dump_flight_recorder
+virtio_block_dump_flight_recorder:
+    xor eax, eax
+    ret
+
 /* get_proc_trampoline_addr() -> u64
  * Returns the address of proc_trampoline (defined in proc_switch.S).
  * Salt can't take address of extern asm functions via func.constant.

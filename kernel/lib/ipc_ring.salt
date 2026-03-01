@@ -49,20 +49,24 @@ struct SpscRing {
 
     @align(64)
     tail: u64,         // Consumer-owned: read index (cache line 1, offset 64)
+
+    @align(64)
+    consumer_waiting: u64,  // 1 = consumer sleeping, producer must wake (cache line 2, offset 128)
 }
 
-pub const RING_HEADER_SIZE: u64 = 128;  // 2 cache lines (verified by @align)
+pub const RING_HEADER_SIZE: u64 = 192;  // 3 cache lines (verified by @align)
 pub const PAGE_SIZE: u64 = 4096;
-pub const DATA_CAPACITY: u64 = 3968;    // PAGE_SIZE - RING_HEADER_SIZE
+pub const DATA_CAPACITY: u64 = 3904;    // PAGE_SIZE - RING_HEADER_SIZE
 
 // =============================================================================
 // Verification Constants — Cross-check with ipc_shm.salt
 // =============================================================================
 // These constants MUST match the raw offsets in ipc_shm.salt:
-//   HEAD_OFFSET     = 0    →  SpscRing.head     at offset 0
-//   CAPACITY_OFFSET = 8    →  SpscRing.capacity  at offset 8
-//   TAIL_OFFSET     = 64   →  SpscRing.tail     at offset 64
-//   DATA_OFFSET     = 128  →  RING_HEADER_SIZE   = 128
+//   HEAD_OFFSET              = 0    →  SpscRing.head             at offset 0
+//   CAPACITY_OFFSET          = 8    →  SpscRing.capacity         at offset 8
+//   TAIL_OFFSET              = 64   →  SpscRing.tail             at offset 64
+//   CONSUMER_WAITING_OFFSET  = 128  →  SpscRing.consumer_waiting at offset 128
+//   DATA_OFFSET              = 192  →  RING_HEADER_SIZE          = 192
 // The Z3 formal shadow guarantees these relationships hold.
 // =============================================================================
 

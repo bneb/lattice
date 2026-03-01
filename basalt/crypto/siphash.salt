@@ -1,0 +1,129 @@
+// =============================================================================
+// basalt/crypto/siphash.salt
+// SipHash-2-4 — Keyed Hash Function for SYN Cookie Generation
+// =============================================================================
+//
+// RFC 7693 compliant SipHash-2-4 for fast, keyed hashing of TCP connection
+// tuples. Used by the SYN cookie generator to produce unpredictable ISNs.
+//
+// Performance target: < 50 cycles per hash (inline-friendly).
+//
+// The 128-bit key is passed as Ptr<u64> pointing to two consecutive u64s:
+//   key[0] = k0 (low 64 bits)
+//   key[1] = k1 (high 64 bits)
+//
+// Reference: Aumasson & Bernstein, "SipHash: a fast short-input PRF" (2012)
+// =============================================================================
+
+package basalt.crypto.siphash
+
+// ============================================================================
+// SipHash State — Four 64-bit mixing registers
+// ============================================================================
+
+pub struct SipHashState {
+    pub v0: u64,
+    pub v1: u64,
+    pub v2: u64,
+    pub v3: u64,
+}
+
+// ============================================================================
+// Rotate Left (64-bit)
+// ============================================================================
+@inline
+fn rotl64(x: u64, n: i32) -> u64 {
+    return (x << n) | (x >> (64 - n));
+}
+
+// ============================================================================
+// sip_round — One round of SipHash mixing
+// ============================================================================
+// Each round performs:
+//   v0 += v1;  v1 = rotl(v1, 13);  v1 ^= v0;  v0 = rotl(v0, 32);
+//   v2 += v3;  v3 = rotl(v3, 16);  v3 ^= v2;
+//   v0 += v3;  v3 = rotl(v3, 21);  v3 ^= v0;
+//   v2 += v1;  v1 = rotl(v1, 17);  v1 ^= v2;  v2 = rotl(v2, 32);
+// ============================================================================
+@inline
+pub fn sip_round(s: &mut SipHashState) {
+    s.v0 = s.v0 + s.v1;
+    s.v1 = rotl64(s.v1, 13);
+    s.v1 = s.v1 ^ s.v0;
+    s.v0 = rotl64(s.v0, 32);
+
+    s.v2 = s.v2 + s.v3;
+    s.v3 = rotl64(s.v3, 16);
+    s.v3 = s.v3 ^ s.v2;
+
+    s.v0 = s.v0 + s.v3;
+    s.v3 = rotl64(s.v3, 21);
+    s.v3 = s.v3 ^ s.v0;
+
+    s.v2 = s.v2 + s.v1;
+    s.v1 = rotl64(s.v1, 17);
+    s.v1 = s.v1 ^ s.v2;
+    s.v2 = rotl64(s.v2, 32);
+}
+
+// ============================================================================
+// siphash_init — Initialize state from 128-bit key
+// ============================================================================
+pub fn siphash_init(k0: u64, k1: u64) -> SipHashState {
+    return SipHashState {
+        v0: k0 ^ 0x736f6d6570736575,  // "somepseu"
+        v1: k1 ^ 0x646f72616e646f6d,  // "dorandom"
+        v2: k0 ^ 0x6c7967656e657261,  // "lygenera"
+        v3: k1 ^ 0x7465646279746573,  // "tedbytes"
+    };
+}
+
+// ============================================================================
+// siphash_2_4 — Full SipHash-2-4 for two 64-bit message words
+// ============================================================================
+// Processes m0 and m1 as two message blocks, applies 2 rounds per block
+// and 4 finalization rounds.
+//
+// This is optimized for the TCP 4-tuple use case where we have exactly
+// two 64-bit words of input (src_ip:dst_ip and src_port:dst_port).
+// ============================================================================
+pub fn siphash_2_4(k0: u64, k1: u64, m0: u64, m1: u64) -> u64 {
+    let mut s = siphash_init(k0, k1);
+
+    // Block 1: XOR m0 into v3, run 2 rounds, XOR m0 into v0
+    s.v3 = s.v3 ^ m0;
+    sip_round(&mut s);
+    sip_round(&mut s);
+    s.v0 = s.v0 ^ m0;
+
+    // Block 2: XOR m1 into v3, run 2 rounds, XOR m1 into v0
+    s.v3 = s.v3 ^ m1;
+    sip_round(&mut s);
+    sip_round(&mut s);
+    s.v0 = s.v0 ^ m1;
+
+    // Length byte: 2 * 8 = 16 bytes total, encoded in high byte
+    let len_byte: u64 = 16 << 56;
+    s.v3 = s.v3 ^ len_byte;
+    sip_round(&mut s);
+    sip_round(&mut s);
+    s.v0 = s.v0 ^ len_byte;
+
+    // Finalization: XOR 0xFF into v2, run 4 rounds
+    s.v2 = s.v2 ^ 0xFF;
+    sip_round(&mut s);
+    sip_round(&mut s);
+    sip_round(&mut s);
+    sip_round(&mut s);
+
+    // Final hash = v0 ^ v1 ^ v2 ^ v3
+    return s.v0 ^ s.v1 ^ s.v2 ^ s.v3;
+}
+
+// ============================================================================
+// siphash_2_4_u32 — Convenience: return lower 32 bits
+// ============================================================================
+pub fn siphash_2_4_u32(k0: u64, k1: u64, m0: u64, m1: u64) -> u32 {
+    let full = siphash_2_4(k0, k1, m0, m1);
+    return (full & 0xFFFFFFFF) as u32;
+}

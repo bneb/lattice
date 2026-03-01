@@ -24,9 +24,9 @@ package kernel.core.sovereign_reclaim
 
 use kernel.core.process
 use kernel.core.reclaim_histogram
-use kernel.mem.pmm
+use kernel.core.pmm
 use kernel.mem.page_sweep
-use kernel.arch.x86_64.serial
+use kernel.drivers.serial
 
 // =============================================================================
 // Reclamation Result — Instrumented for KPI monitoring

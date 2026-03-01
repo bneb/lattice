@@ -6,6 +6,11 @@
 //   - load_tokenizer: parse llama2.c tokenizer.bin format
 //   - decode_token: token ID → text
 //   - bpe_encode: text → token IDs via Byte-Pair Encoding
+//   - register_special_token: add special tokens for pre-scan matching
+//
+// Special tokens (e.g. <|im_start|>, <|im_end|>) are matched as whole units
+// BEFORE byte decomposition. Without this, they fragment into individual byte
+// tokens that BPE merges can never reconstruct.
 //
 // Format (tokenizer.bin):
 //   [max_token_length: i32]
@@ -31,11 +36,20 @@ pub struct TokenizerEntry {
     pub score: f32,
 }
 
+pub struct SpecialToken {
+    pub text: Ptr<u8>,
+    pub len: i64,
+    pub token_id: i64,
+}
+
 pub struct Tokenizer {
     pub vocab: Ptr<TokenizerEntry>,
     pub vocab_size: i64,
     pub max_token_length: i32,
     pub text_arena: Ptr<u8>,
+    pub special_tokens: Ptr<SpecialToken>,
+    pub n_special: i64,
+    pub special_capacity: i64,
 }
 
 // -----------------------------------------------------------------------------
@@ -77,12 +91,51 @@ pub fn load_tokenizer(data: Ptr<u8>, vocab_size: i64) -> Tokenizer {
         vocab[i] = TokenizerEntry { text: text_ptr, len: len, score: score };
     }
     
-    return Tokenizer { vocab: vocab, vocab_size: vocab_size, max_token_length: max_len, text_arena: text_arena };
+    // Allocate special token registry (capacity 16)
+    let special_cap: i64 = 16;
+    let special_buf = malloc(special_cap * 24); // sizeof(SpecialToken) = 8+8+8 = 24
+    let special_tokens = special_buf as Ptr<SpecialToken>;
+    
+    return Tokenizer {
+        vocab: vocab,
+        vocab_size: vocab_size,
+        max_token_length: max_len,
+        text_arena: text_arena,
+        special_tokens: special_tokens,
+        n_special: 0,
+        special_capacity: special_cap,
+    };
 }
 
 pub fn free_tokenizer(tok: Tokenizer) {
     free(tok.text_arena);
     free(tok.vocab as Ptr<u8>);
+    free(tok.special_tokens as Ptr<u8>);
+}
+
+// -----------------------------------------------------------------------------
+// Special Token Registration
+// -----------------------------------------------------------------------------
+
+// Register a special token for pre-scan matching during bpe_encode.
+// text/len: the raw bytes of the special token string (e.g. "<|im_start|>")
+// token_id: the vocab index this should map to
+// The text pointer must remain valid for the lifetime of the tokenizer.
+pub fn register_special_token(tok: Ptr<Tokenizer>, text: Ptr<u8>, len: i64, token_id: i64) {
+    let t = tok[0];
+    if t.n_special >= t.special_capacity {
+        return; // Registry full — silently ignore
+    }
+    t.special_tokens[t.n_special] = SpecialToken { text: text, len: len, token_id: token_id };
+    tok[0] = Tokenizer {
+        vocab: t.vocab,
+        vocab_size: t.vocab_size,
+        max_token_length: t.max_token_length,
+        text_arena: t.text_arena,
+        special_tokens: t.special_tokens,
+        n_special: t.n_special + 1,
+        special_capacity: t.special_capacity,
+    };
 }
 
 // -----------------------------------------------------------------------------
@@ -123,34 +176,70 @@ pub fn find_token(tok: Tokenizer, text: Ptr<u8>, text_len: i64) -> i64 {
     return -1;
 }
 
-pub fn bpe_encode(tok: Tokenizer, text: Ptr<u8>, text_len: i64, out_tokens: Ptr<i64>) -> i64 {
+// Check if text at position pos matches a special token.
+// Returns the index into special_tokens array, or -1 if no match.
+// When multiple specials match, returns the longest match.
+fn match_special(tok: Tokenizer, text: Ptr<u8>, pos: i64, text_len: i64) -> i64 {
+    let mut best: i64 = -1;
+    let mut best_len: i64 = 0;
+    let remaining = text_len - pos;
+    for i in 0..tok.n_special {
+        let sp = tok.special_tokens[i];
+        if sp.len <= remaining {
+            if sp.len > best_len {
+                let mut match_ok: i32 = 1;
+                for j in 0..sp.len {
+                    if text[pos + j] != sp.text[j] {
+                        match_ok = 0;
+                    }
+                }
+                if match_ok != 0 {
+                    best = i;
+                    best_len = sp.len;
+                }
+            }
+        }
+    }
+    return best;
+}
+
+// BPE-encode a non-special text segment (byte-init + merge loop).
+// Appends tokens to out_tokens starting at offset, returns new offset.
+fn bpe_encode_segment(tok: Tokenizer, text: Ptr<u8>, seg_start: i64, seg_len: i64, out_tokens: Ptr<i64>, offset: i64) -> i64 {
+    if seg_len <= 0 { return offset; }
+    
+    let mut n: i64 = offset;
+    
     // Step 1: Initialize — each byte becomes a single-byte token
-    let mut n_tokens: i64 = 0;
-    for i in 0..text_len {
+    for i in 0..seg_len {
         let byte_buf = malloc(1);
-        byte_buf[0] = text[i];
+        byte_buf[0] = text[seg_start + i];
         let tid = find_token(tok, byte_buf, 1);
         if tid >= 0 {
-            out_tokens[n_tokens] = tid;
-            n_tokens = n_tokens + 1;
+            out_tokens[n] = tid;
+            n = n + 1;
         }
         free(byte_buf);
     }
     
     // Step 2: BPE merge — repeatedly merge best adjacent pair
+    // Only merge tokens within this segment (from offset to n)
+    let seg_token_start = offset;
     let merge_buf = malloc(tok.max_token_length as i64 + 1);
     
     let mut changed: i32 = 1;
     for iter in 0..1000 {
         if changed != 0 {
             changed = 0;
+            let seg_count = n - seg_token_start;
             let mut best_score: f32 = -1000000.0f32;
             let mut best_idx: i64 = -1;
             let mut best_tid: i64 = -1;
             
-            for i in 0..(n_tokens - 1) {
-                let t1 = out_tokens[i];
-                let t2 = out_tokens[i + 1];
+            for i in 0..(seg_count - 1) {
+                let abs_i = seg_token_start + i;
+                let t1 = out_tokens[abs_i];
+                let t2 = out_tokens[abs_i + 1];
                 let len1 = tok.vocab[t1].len as i64;
                 let len2 = tok.vocab[t2].len as i64;
                 let merged_len = len1 + len2;
@@ -169,7 +258,7 @@ pub fn bpe_encode(tok: Tokenizer, text: Ptr<u8>, text_len: i64, out_tokens: Ptr<
                     let score = tok.vocab[mid].score;
                     if score > best_score {
                         best_score = score;
-                        best_idx = i;
+                        best_idx = abs_i;
                         best_tid = mid;
                     }
                 }
@@ -178,15 +267,64 @@ pub fn bpe_encode(tok: Tokenizer, text: Ptr<u8>, text_len: i64, out_tokens: Ptr<
             if best_idx >= 0 {
                 out_tokens[best_idx] = best_tid;
                 let shift_from = best_idx + 2;
-                for j in shift_from..n_tokens {
+                for j in shift_from..n {
                     out_tokens[j - 1] = out_tokens[j];
                 }
-                n_tokens = n_tokens - 1;
+                n = n - 1;
                 changed = 1;
             }
         }
     }
     
     free(merge_buf);
+    return n;
+}
+
+pub fn bpe_encode(tok: Tokenizer, text: Ptr<u8>, text_len: i64, out_tokens: Ptr<i64>) -> i64 {
+    let mut n_tokens: i64 = 0;
+    let mut pos: i64 = 0;
+    
+    // Pre-scan: split input into special-token matches and normal segments.
+    // Special tokens emit directly; normal segments go through byte-init + BPE merge.
+    for scan in 0..text_len {
+        if pos >= text_len {
+            // done
+        }
+        if pos < text_len {
+            let sp_idx = match_special(tok, text, pos, text_len);
+            if sp_idx >= 0 {
+                // Emit special token directly
+                out_tokens[n_tokens] = tok.special_tokens[sp_idx].token_id;
+                n_tokens = n_tokens + 1;
+                pos = pos + tok.special_tokens[sp_idx].len;
+            }
+            if sp_idx < 0 {
+                // Find the end of this non-special segment
+                let seg_start = pos;
+                let mut seg_end = pos + 1;
+                let mut found_next: i32 = 0;
+                for look in 0..text_len {
+                    if found_next == 0 {
+                        if seg_end >= text_len {
+                            found_next = 1;
+                        }
+                        if found_next == 0 {
+                            let next_sp = match_special(tok, text, seg_end, text_len);
+                            if next_sp >= 0 {
+                                found_next = 1;
+                            }
+                            if next_sp < 0 {
+                                seg_end = seg_end + 1;
+                            }
+                        }
+                    }
+                }
+                // BPE-encode the normal segment
+                n_tokens = bpe_encode_segment(tok, text, seg_start, seg_end - seg_start, out_tokens, n_tokens);
+                pos = seg_end;
+            }
+        }
+    }
+    
     return n_tokens;
 }

@@ -6,11 +6,11 @@
 // TDD Gate: All assertions must print PASS. Any FAIL halts the benchmark.
 //
 // Tests:
-//   1. Init: head=0, tail=0, capacity=3968
+//   1. Init: head=0, tail=0, capacity=3904
 //   2. Push/Pop single byte: push 0xAB → pop returns 0xAB
 //   3. Empty ring: pop returns -1
-//   4. Fill ring: push 3968 bytes → ring full → push returns false
-//   5. Drain ring: pop 3968 bytes → all match → ring empty
+//   4. Fill ring: push 3904 bytes → ring full → push returns false
+//   5. Drain ring: pop 3904 bytes → all match → ring empty
 //   6. Bulk push/pop: write 256 bytes → read 256 bytes → all match
 //   7. Throughput: push+pop 10000 bytes, measure cycles
 // =============================================================================
@@ -44,7 +44,7 @@ pub fn run_spsc_bench() {
     let base = memory.phys_to_virt(memory.PhysAddr { val: page_phys }).val;
 
     // ═════════════════════════════════════════════════════════════════
-    // TEST 1: spsc_init sets head=0, tail=0, capacity=3968
+    // TEST 1: spsc_init sets head=0, tail=0, capacity=3904
     // ═════════════════════════════════════════════════════════════════
     ipc_shm.spsc_init(base);
 
@@ -52,7 +52,7 @@ pub fn run_spsc_bench() {
     let capacity = volatile_read_i64(base + 8) as u64;
     let tail = volatile_read_i64(base + 64) as u64;
 
-    if head == 0 && tail == 0 && capacity == 3968 {
+    if head == 0 && tail == 0 && capacity == 3904 {
         serial.print("TEST:spsc:init:PASS\n");
     } else {
         serial.print("TEST:spsc:init:FAIL head=");

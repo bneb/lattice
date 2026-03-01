@@ -25,8 +25,8 @@ package tests.chaos.reclamation_storm
 
 use kernel.core.sovereign_reclaim
 use kernel.core.process
-use kernel.mem.pmm
-use kernel.arch.x86_64.serial
+use kernel.core.pmm
+use kernel.drivers.serial
 
 // =============================================================================
 // Configuration

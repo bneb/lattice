@@ -61,16 +61,13 @@ fi
 # 2. Run Salt Sovereign (Standard)
 if [ "$RUN_SALT" = true ]; then
     echo -e "${GREEN}[Salt] Running Standard Sovereign V3...${NC}"
-    ./pipeline.sh benchmarks/ml/sovereign_train.salt
-    ./sovereign_train || echo "Salt failed"
+    ./scripts/run_test.sh benchmarks/ml/sovereign_train.salt || echo "Salt failed"
 fi
 
 # 3. Run Salt Sovereign (Batched)
 if [ "$RUN_SALT_BATCH" = true ]; then
     echo -e "${GREEN}[Salt] Running Batched Sovereign V3...${NC}"
-    ./pipeline.sh benchmarks/ml/sovereign_train_batch.salt
-    # The pipeline produces 'sovereign_train_batch' executable (basename)
-    ./sovereign_train_batch || echo "Salt Batch failed"
+    ./scripts/run_test.sh benchmarks/ml/sovereign_train_batch.salt || echo "Salt Batch failed"
 fi
 
 # 4. Run PyTorch (Reference)

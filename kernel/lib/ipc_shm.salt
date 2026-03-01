@@ -8,8 +8,8 @@
 //
 // Layout (4096 bytes):
 //   Cache Line 0 (bytes 0-63):   Producer-owned: head, capacity
-//   Cache Line 1 (bytes 64-127): Consumer-owned: tail
-//   Bytes 128-4095:              Data ring (3968 bytes usable)
+//   Bytes 128-191:              Consumer-owned: consumer_waiting flag
+//   Bytes 192-4095:              Data ring (3904 bytes usable)
 //
 // By placing head and tail on separate 64-byte cache lines, two cores
 // can spin on their respective variables at L1-cache speed without
@@ -39,14 +39,24 @@ extern fn volatile_read_i64(addr: u64) -> i64;
 extern fn volatile_write_i64(addr: u64, val: i64);
 
 const PAGE_SIZE: u64 = 4096;
-const HEADER_SIZE: u64 = 128;  // 2 cache lines for head + tail
-pub const DATA_CAPACITY: u64 = 3968;  // PAGE_SIZE - HEADER_SIZE
+const HEADER_SIZE: u64 = 192;  // 3 cache lines for head + tail + consumer_waiting
+pub const DATA_CAPACITY: u64 = 3904;  // PAGE_SIZE - HEADER_SIZE
 
 // Offsets within the shared page
-const HEAD_OFFSET: u64 = 0;       // u64 at byte 0 (cache line 0)
-const CAPACITY_OFFSET: u64 = 8;   // u64 at byte 8 (cache line 0)
-const TAIL_OFFSET: u64 = 64;      // u64 at byte 64 (cache line 1)
-const DATA_OFFSET: u64 = 128;     // byte[3968] at byte 128
+const HEAD_OFFSET: u64 = 0;                // u64 at byte 0 (cache line 0)
+const CAPACITY_OFFSET: u64 = 8;            // u64 at byte 8 (cache line 0)
+const TAIL_OFFSET: u64 = 64;               // u64 at byte 64 (cache line 1)
+pub const CONSUMER_WAITING_OFFSET: u64 = 128;  // u64 at byte 128 (cache line 2)
+const DATA_OFFSET: u64 = 192;              // byte[3904] at byte 192
+
+// =============================================================================
+// Spin-Poll Budget — Adaptive Heuristic Constant
+// =============================================================================
+// Number of PAUSE iterations before the consumer arms the WAITING flag
+// and yields via idle_halt(). Tunable: higher = more responsive but more CPU.
+// 50 iterations ≈ ~2-5μs on modern x86 (PAUSE is ~40 cycles on Skylake+).
+// =============================================================================
+pub const SPIN_POLL_BUDGET: u64 = 50;
 
 // =============================================================================
 // spsc_init — Format a page as an SPSC ring buffer
@@ -58,6 +68,7 @@ pub fn spsc_init(base_addr: u64) {
     volatile_write_i64(base_addr + HEAD_OFFSET, 0);
     volatile_write_i64(base_addr + CAPACITY_OFFSET, DATA_CAPACITY as i64);
     volatile_write_i64(base_addr + TAIL_OFFSET, 0);
+    volatile_write_i64(base_addr + CONSUMER_WAITING_OFFSET, 0);
 
     // Zero the data region
     let mut i: u64 = 0;
@@ -219,4 +230,130 @@ pub fn spsc_free_space(base_addr: u64) -> u64 {
     let tail = volatile_read_i64(base_addr + TAIL_OFFSET) as u64;
     let cap  = volatile_read_i64(base_addr + CAPACITY_OFFSET) as u64;
     return cap - (head - tail);
+}
+
+// =============================================================================
+// Adaptive Spin-Poll Consumer (Epic I: Zero-Trap Wakeup)
+// =============================================================================
+// State machine:
+//   1. Check head == tail (data available?) → fast-path return
+//   2. Empty → spin with PAUSE for SPIN_POLL_BUDGET iterations
+//   3. Budget exhausted → arm consumer_waiting flag, double-check, idle_halt()
+//   4. Producer checks consumer_waiting after write, signals wake-needed
+//
+// Critical invariant: consumer_waiting is set to 0 BEFORE processing data,
+// preventing the producer from skipping a wakeup on the next empty period.
+// =============================================================================
+
+extern fn cpu_pause();
+extern fn idle_halt();
+
+// =============================================================================
+// spsc_consume_adaptive — Spin-poll consumer with sleep transition
+// =============================================================================
+// Returns the byte value (0-255) on success.
+// In kernel context: may idle_halt() if ring is empty for SPIN_POLL_BUDGET
+// iterations. In userland test context: spins briefly then returns -1.
+// =============================================================================
+pub fn spsc_consume_adaptive(base_addr: u64) -> i64 {
+    let mut spins: u64 = 0;
+    let max_spins = SPIN_POLL_BUDGET;
+
+    // Spin-poll loop: check for data, PAUSE if empty
+    let mut head = volatile_read_i64(base_addr + HEAD_OFFSET) as u64;
+    let mut tail = volatile_read_i64(base_addr + TAIL_OFFSET) as u64;
+
+    while head == tail {
+        if spins >= max_spins {
+            // Budget exhausted. Arm the wakeup flag and sleep.
+            volatile_write_i64(base_addr + CONSUMER_WAITING_OFFSET, 1);
+
+            // Double-check to avoid lost-wakeup race condition:
+            // Producer may have pushed data between our last check and
+            // setting the flag. If so, clear flag and break to consume.
+            head = volatile_read_i64(base_addr + HEAD_OFFSET) as u64;
+            tail = volatile_read_i64(base_addr + TAIL_OFFSET) as u64;
+            if head != tail {
+                volatile_write_i64(base_addr + CONSUMER_WAITING_OFFSET, 0);
+                // Data arrived during the race window — consume it
+                break;
+            }
+
+            // No data. Yield the CPU until an interrupt (producer wakeup).
+            idle_halt();
+
+            // Awake. Clear the waiting flag and reset spin counter.
+            volatile_write_i64(base_addr + CONSUMER_WAITING_OFFSET, 0);
+            spins = 0;
+
+            // Re-read after wakeup
+            head = volatile_read_i64(base_addr + HEAD_OFFSET) as u64;
+            tail = volatile_read_i64(base_addr + TAIL_OFFSET) as u64;
+            continue;
+        }
+
+        cpu_pause();  // x86 PAUSE — pipeline hint for spin-wait
+        spins = spins + 1;
+
+        // Re-read head and tail for next iteration
+        head = volatile_read_i64(base_addr + HEAD_OFFSET) as u64;
+        tail = volatile_read_i64(base_addr + TAIL_OFFSET) as u64;
+    }
+
+    // Data available — extract one byte (same logic as spsc_pop)
+    let cap = volatile_read_i64(base_addr + CAPACITY_OFFSET) as u64;
+    let idx = tail % cap;
+    if idx >= DATA_CAPACITY {
+        return 0 - 1;
+    }
+    let byte = *((base_addr + DATA_OFFSET + idx) as &u8);
+    volatile_write_i64(base_addr + TAIL_OFFSET, (tail + 1) as i64);
+    return byte as i64;
+}
+
+// =============================================================================
+// spsc_push_wake — Producer push with wakeup signal
+// =============================================================================
+// Pushes one byte like spsc_push, but additionally checks consumer_waiting.
+// Returns:
+//   0 = push failed (ring full)
+//   1 = push succeeded, no wakeup needed
+//   2 = push succeeded, consumer was sleeping — caller should issue wakeup
+// =============================================================================
+pub fn spsc_push_wake(base_addr: u64, byte: u8) -> u64 {
+    let head = volatile_read_i64(base_addr + HEAD_OFFSET) as u64;
+    let tail = volatile_read_i64(base_addr + TAIL_OFFSET) as u64;
+    let cap  = volatile_read_i64(base_addr + CAPACITY_OFFSET) as u64;
+
+    if (head - tail) >= cap {
+        return 0;  // Full
+    }
+
+    let idx = head % cap;
+    if idx >= DATA_CAPACITY {
+        return 0;
+    }
+    *((base_addr + DATA_OFFSET + idx) as &mut u8) = byte;
+    volatile_write_i64(base_addr + HEAD_OFFSET, (head + 1) as i64);
+
+    // Check if consumer is sleeping and needs a wakeup
+    let waiting = volatile_read_i64(base_addr + CONSUMER_WAITING_OFFSET) as u64;
+    if waiting != 0 {
+        return 2;  // Push OK + wake needed
+    }
+    return 1;  // Push OK, no wake needed
+}
+
+// =============================================================================
+// spsc_get_consumer_waiting — Read the consumer_waiting flag
+// =============================================================================
+pub fn spsc_get_consumer_waiting(base_addr: u64) -> u64 {
+    return volatile_read_i64(base_addr + CONSUMER_WAITING_OFFSET) as u64;
+}
+
+// =============================================================================
+// spsc_set_consumer_waiting — Directly set the consumer_waiting flag (for tests)
+// =============================================================================
+pub fn spsc_set_consumer_waiting(base_addr: u64, val: u64) {
+    volatile_write_i64(base_addr + CONSUMER_WAITING_OFFSET, val as i64);
 }

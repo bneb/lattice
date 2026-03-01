@@ -1,0 +1,152 @@
+// =============================================================================
+// kernel/core/time.salt
+// RDTSC Blinding — Side-Channel Mitigation (Epic II)
+// =============================================================================
+//
+// Architecture:
+//   Ring 3 is denied raw RDTSC (CR4.TSD=1 causes #GP fault). Instead,
+//   user-space reads time via sys_get_blinded_time(), which injects
+//   SipHash-2-4 cryptographic jitter into the lower bits.
+//
+//   The noise masks L1/L2/L3 cache hit/miss timing differences (~1-500 cycles)
+//   by adding 0-1023 cycles of deterministic-but-unpredictable noise.
+//   The result is perfectly adequate for timeouts and spin-poll budgets,
+//   but completely useless for Prime+Probe or Flush+Reload attacks.
+//
+// Key separation:
+//   KERNEL_TIME_SECRET_K0/K1 are distinct from IPC SIPHASH_K0/K1 to prevent
+//   an IPC key leak from compromising timing blinding.
+//
+// =============================================================================
+
+package kernel.core.time
+
+// =============================================================================
+// Kernel Time Secrets — SipHash keys for RDTSC blinding
+// =============================================================================
+// These keys are initialized at boot and NEVER exposed to Ring 3.
+// They should be derived from hardware entropy (RDSEED/RDRAND) in production.
+// For now, compile-time constants provide deterministic blinding.
+// =============================================================================
+pub const KERNEL_TIME_SECRET_K0: u64 = 0x5369646543686E6C;  // "SideChnl"
+pub const KERNEL_TIME_SECRET_K1: u64 = 0x424C494E44494E47;  // "BLINDING"
+
+// Noise mask: lower 10 bits = 0-1023 cycles of jitter
+// This is sufficient to mask L1 hit (4cy) vs L3 miss (200cy) differences.
+pub const NOISE_MASK: u64 = 0x03FF;
+
+// =============================================================================
+// SipHash-2-4 — Inline implementation for Ring 0 (no cross-module dependency)
+// =============================================================================
+// We inline SipHash here rather than importing from basalt/crypto to keep
+// the time module self-contained in the kernel address space.
+// =============================================================================
+
+fn rotl64(x: u64, n: i32) -> u64 {
+    return (x << n) | (x >> (64 - n));
+}
+
+struct SipState {
+    v0: u64,
+    v1: u64,
+    v2: u64,
+    v3: u64,
+}
+
+fn sip_round(s: &mut SipState) {
+    s.v0 = s.v0 + s.v1;
+    s.v1 = rotl64(s.v1, 13);
+    s.v1 = s.v1 ^ s.v0;
+    s.v0 = rotl64(s.v0, 32);
+
+    s.v2 = s.v2 + s.v3;
+    s.v3 = rotl64(s.v3, 16);
+    s.v3 = s.v3 ^ s.v2;
+
+    s.v0 = s.v0 + s.v3;
+    s.v3 = rotl64(s.v3, 21);
+    s.v3 = s.v3 ^ s.v0;
+
+    s.v2 = s.v2 + s.v1;
+    s.v1 = rotl64(s.v1, 17);
+    s.v1 = s.v1 ^ s.v2;
+    s.v2 = rotl64(s.v2, 32);
+}
+
+fn siphash_2_4(k0: u64, k1: u64, m0: u64, m1: u64) -> u64 {
+    let mut s = SipState {
+        v0: k0 ^ 0x736f6d6570736575,
+        v1: k1 ^ 0x646f72616e646f6d,
+        v2: k0 ^ 0x6c7967656e657261,
+        v3: k1 ^ 0x7465646279746573,
+    };
+
+    s.v3 = s.v3 ^ m0;
+    sip_round(&mut s);
+    sip_round(&mut s);
+    s.v0 = s.v0 ^ m0;
+
+    s.v3 = s.v3 ^ m1;
+    sip_round(&mut s);
+    sip_round(&mut s);
+    s.v0 = s.v0 ^ m1;
+
+    let len_byte: u64 = 16 << 56;
+    s.v3 = s.v3 ^ len_byte;
+    sip_round(&mut s);
+    sip_round(&mut s);
+    s.v0 = s.v0 ^ len_byte;
+
+    s.v2 = s.v2 ^ 0xFF;
+    sip_round(&mut s);
+    sip_round(&mut s);
+    sip_round(&mut s);
+    sip_round(&mut s);
+
+    return s.v0 ^ s.v1 ^ s.v2 ^ s.v3;
+}
+
+// =============================================================================
+// sys_get_blinded_time — The public API
+// =============================================================================
+// Executed in Ring 0. Reads the raw hardware RDTSC, generates deterministic
+// but unpredictable noise via SipHash-2-4 keyed with the kernel secret,
+// and returns the blinded timestamp.
+//
+// Properties:
+//   - Monotonically increasing *on average* (noise < cycle rate)
+//   - Sub-microsecond precision preserved for timeouts
+//   - Cache-timing delta completely masked by noise floor
+// =============================================================================
+
+extern fn get_cycles_asm() -> u64;
+
+pub fn sys_get_blinded_time() -> u64 {
+    let raw_cycles = get_cycles_asm();
+
+    // Generate deterministic noise using kernel secret + raw timestamp
+    // We feed raw_cycles as both message words (m0=raw, m1=0) to maximize
+    // diffusion from the timestamp into the hash output.
+    let noise = siphash_2_4(KERNEL_TIME_SECRET_K0, KERNEL_TIME_SECRET_K1, raw_cycles, 0) & NOISE_MASK;
+
+    // Add jitter. The timing is now adequate for timeouts/spin-polls,
+    // but useless for exploiting microarchitectural side-channels.
+    return raw_cycles + noise;
+}
+
+// =============================================================================
+// get_blinded_cycles — In-kernel convenience wrapper
+// =============================================================================
+// For use by kernel subsystems (e.g., spin-poll budget in spsc_consume_adaptive)
+// that want blinded time without going through the syscall path.
+// =============================================================================
+pub fn get_blinded_cycles() -> u64 {
+    return sys_get_blinded_time();
+}
+
+// =============================================================================
+// compute_noise — Exposed for testing (deterministic noise from raw cycles)
+// =============================================================================
+pub fn compute_noise(raw_cycles: u64) -> u64 {
+    return siphash_2_4(KERNEL_TIME_SECRET_K0, KERNEL_TIME_SECRET_K1, raw_cycles, 0) & NOISE_MASK;
+}

@@ -618,14 +618,111 @@ pub fn fiber_ctx_ptr(slot: u64) -> u64 {
 }
 
 // =============================================================================
-// enter_idle_loop — AP entry point into the scheduler
+// enter_idle_loop — AP entry point into the scheduler (Work-Stealing)
 // =============================================================================
 // Initializes this core's SchedulerState (fiber 0 = idle context),
-// enables interrupts so timer ticks can preempt, then enters a HLT
-// loop. The AP sleeps until an IRQ wakes it; future spawn() calls
-// on this core will schedule work via the bitmap.
+// enables interrupts so timer ticks can preempt, then enters a
+// steal-or-halt loop. The AP first attempts to steal work from sibling
+// cores' Chase-Lev deques. If no work is found, it falls back to HLT.
+//
+// MEMORY ORDERING: steal_scan uses atomic_load_acquire on the victim's
+// `bottom` field and atomic CAS on `top`. In this single-compile-unit
+// version, plain loads are sufficient (the AP is the only reader of
+// sibling state during HLT). For true SMP, these must be hardened to
+// acquire/release pairs.
 // =============================================================================
 extern fn idle_halt();
+
+// --- Chase-Lev deque interface (from kernel/sched/chase_lev.salt) ---
+// These are stubbed as externs so the scheduler module compiles
+// independently. The linker resolves them from chase_lev.o.
+extern fn chase_lev_steal_scan(core: u64) -> u64;
+extern fn chase_lev_push(core: u64, task: u64);
+
+pub const DEQUE_EMPTY: u64 = 0;
+
+// dispatch_stolen — Full Fiber Migration (Context Switch)
+// =============================================================================
+// Migrates a stolen fiber from a sibling core's SCHED_ARRAY to the local
+// core's SCHED_ARRAY. This is the most critical operation in work-stealing:
+//
+//   1. Decode the stolen value into (victim_cpu, victim_slot)
+//   2. Validate the fiber is still active (guard against ABA/stale steal)
+//   3. Allocate a local slot via inverted bitmap scan
+//   4. Copy ALL 7 Fiber fields (step_fn, ctx_ptr, task_frame, stack_ptr,
+//      stack_base, id, active)
+//   5. Mark the local slot runnable in the bitmap
+//   6. Clear the victim's slot
+//   7. Dispatch via invoke_task
+//
+// TLS Safety: Salt fibers don't use per-thread TLS. They use GS-relative
+// per-core scheduler slots set up by the AP bootstrap, so migration between
+// cores is safe — the stolen fiber's TLS-free context runs identically on
+// any core.
+// =============================================================================
+fn dispatch_stolen(cpu: u64, stolen_word: u64) {
+    // Decode: stolen_word encodes (victim_cpu << 32 | victim_slot)
+    // For the initial single-deque-per-core model, stolen_word IS the
+    // fiber slot index from the victim. The victim identity comes from
+    // steal_scan's iteration order. For now, we use a simplified encoding
+    // where the deque push stores (cpu << 16 | slot).
+    let victim_cpu = (stolen_word >> 16) & 0xFFFF;
+    let victim_slot = stolen_word & 0xFFFF;
+
+    // Guard: fiber must still be active (ABA protection)
+    if !SCHED_ARRAY[victim_cpu].fibers[victim_slot].active {
+        return;  // Stale steal — fiber already completed or was re-stolen
+    }
+
+    // Find a free local slot via inverted bitmap scan
+    let inv_bitmap = SCHED_ARRAY[cpu].l1_summary ^ 0xFFFFFFFFFFFFFFFF;
+    if inv_bitmap == 0 {
+        return;  // Local runqueue full — drop the steal
+    }
+    // Linear scan for first free bit (slot 0 reserved for idle)
+    let mut local_slot: u64 = 1;
+    let mut found: bool = false;
+    while local_slot < 64 {
+        let bit: u64 = (1 as u64) << local_slot;
+        if (SCHED_ARRAY[cpu].l1_summary & bit) == 0 {
+            found = true;
+            // break out by setting local_slot to exit value
+            // (Salt doesn't have break yet, use a flag)
+            let _done = true;
+            // Copy ALL fiber context fields
+            SCHED_ARRAY[cpu].fibers[local_slot].step_fn    = SCHED_ARRAY[victim_cpu].fibers[victim_slot].step_fn;
+            SCHED_ARRAY[cpu].fibers[local_slot].ctx_ptr    = SCHED_ARRAY[victim_cpu].fibers[victim_slot].ctx_ptr;
+            SCHED_ARRAY[cpu].fibers[local_slot].task_frame = SCHED_ARRAY[victim_cpu].fibers[victim_slot].task_frame;
+            SCHED_ARRAY[cpu].fibers[local_slot].stack_ptr  = SCHED_ARRAY[victim_cpu].fibers[victim_slot].stack_ptr;
+            SCHED_ARRAY[cpu].fibers[local_slot].stack_base = SCHED_ARRAY[victim_cpu].fibers[victim_slot].stack_base;
+            SCHED_ARRAY[cpu].fibers[local_slot].id         = SCHED_ARRAY[victim_cpu].fibers[victim_slot].id;
+            SCHED_ARRAY[cpu].fibers[local_slot].active     = true;
+
+            // Mark runnable in local bitmap
+            SCHED_ARRAY[cpu].l1_summary = SCHED_ARRAY[cpu].l1_summary | bit;
+            SCHED_ARRAY[cpu].count = SCHED_ARRAY[cpu].count + 1;
+
+            // Clear victim's slot
+            let victim_bit: u64 = (1 as u64) << victim_slot;
+            let victim_inv: u64 = victim_bit ^ 0xFFFFFFFFFFFFFFFF;
+            SCHED_ARRAY[victim_cpu].l1_summary = SCHED_ARRAY[victim_cpu].l1_summary & victim_inv;
+            SCHED_ARRAY[victim_cpu].fibers[victim_slot].active = false;
+            SCHED_ARRAY[victim_cpu].count = SCHED_ARRAY[victim_cpu].count - 1;
+
+            // Dispatch: invoke the stolen fiber via its step_fn
+            // The step_fn is the compiler-emitted async step function.
+            // ctx_ptr is the unified context (task_frame for async, stack_ptr for preemptive).
+            let step = SCHED_ARRAY[cpu].fibers[local_slot].step_fn;
+            let ctx = SCHED_ARRAY[cpu].fibers[local_slot].ctx_ptr;
+            if step != 0 {
+                invoke_task(step, ctx);
+            }
+
+            return;
+        }
+        local_slot = local_slot + 1;
+    }
+}
 
 pub fn enter_idle_loop() {
     let cpu = get_cpu_id();
@@ -643,9 +740,14 @@ pub fn enter_idle_loop() {
     // Enable interrupts — timer ticks will preempt and schedule fibers
     enable_interrupts();
 
-    // Idle loop: HLT until interrupt wakes us
+    // Steal-or-Halt loop: try to steal work from siblings before halting
     loop {
-        idle_halt();
+        let stolen = chase_lev_steal_scan(cpu);
+        if stolen != DEQUE_EMPTY {
+            dispatch_stolen(cpu, stolen);
+        } else {
+            idle_halt();
+        }
     }
 }
 
@@ -653,3 +755,4 @@ pub fn enter_idle_loop() {
 pub fn sched_enter_idle_loop() {
     enter_idle_loop();
 }
+

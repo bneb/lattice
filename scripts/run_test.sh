@@ -81,6 +81,13 @@ if grep -q 'facet_gpu' "$SALT_FILE" 2>/dev/null || grep -q 'facet_gpu' $(dirname
     LD_FLAGS+=("-framework" "Metal" "-fobjc-arc")
 fi
 
+# Detect SPSC/kernel stub bridge (provides volatile_read_i64, cpu_pause, idle_halt)
+if grep -q 'volatile_read_i64\|volatile_write_i64\|cpu_pause' "$SALT_FILE" 2>/dev/null; then
+    if [[ -f "$PROJECT_ROOT/tests/bridges/spsc_bridge.c" ]]; then
+        BRIDGES+=("$PROJECT_ROOT/tests/bridges/spsc_bridge.c")
+    fi
+fi
+
 
 # Add explicit bridges
 BRIDGES+=("${EXTRA_BRIDGES[@]}")

@@ -100,6 +100,19 @@ mod tests_struct_ref_pass;
 mod tests_nested_ptr_access;
 #[cfg(test)]
 mod tests_simd_v128;
+#[cfg(test)]
+mod tests_chase_lev_verification;
+#[cfg(test)]
+mod tests_syn_cookie_verification;
+#[cfg(test)]
+mod tests_ebr_verification;
+pub mod sir;
+#[cfg(test)]
+mod tests_sir_emit;
+#[cfg(test)]
+mod tests_netd_integration;
+#[cfg(test)]
+mod tests_sir_ast_extraction;
 use crate::grammar::{SaltFile, Item, SaltFn, SaltImpl, ExternFnDecl, SaltConcept, SaltTrait};
 use crate::codegen::context::{CodegenContext, LocalKind, GenericContextGuard};
 use crate::codegen::type_bridge::{resolve_type, resolve_codegen_type};

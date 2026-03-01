@@ -20,6 +20,15 @@ use lettuce.store.{execute, ExecResult}
 extern fn puts(s: Ptr<u8>) -> i32;
 extern fn memcpy(dst: Ptr<u8>, src: Ptr<u8>, n: i64) -> Ptr<u8>;
 
+// EBR (Epoch-Based Reclamation) interface
+// These are resolved at link time from ebr_arena.o.
+// The event loop wraps each iteration in enter/exit to guarantee
+// that no core holds the global epoch during poll.wait().
+extern fn ebr_enter_epoch(core: u64);
+extern fn ebr_exit_epoch(core: u64);
+extern fn ebr_advance_epoch();
+extern fn ebr_reclaim(core: u64);
+
 const PORT: i32 = 6379;
 const MAX_EVENTS: i32 = 64;
 const MAX_FDS: i32 = 10000;
@@ -64,9 +73,21 @@ fn main() -> i32 {
     puts("LETTUCE (Slab<T> Reactor) listening on :6379" as Ptr<u8>);
 
     let mut events: [i64; 128] = [0; 128];
+    let mut epoch_counter: u64 = 0;
 
     while true {
+        // =====================================================================
+        // CRITICAL: exit_epoch(0) is guaranteed BEFORE poll.wait() blocks.
+        // The epoch is entered at the TOP of event processing and exited
+        // at the BOTTOM — no matter which path handle_client takes.
+        // This prevents any core from anchoring the global epoch during
+        // the blocking kqueue/epoll syscall.
+        // =====================================================================
         let nev = poll.wait(&events[0] as Ptr<i64>, MAX_EVENTS, -1);
+
+        // Enter epoch — signals this core is actively processing
+        ebr_enter_epoch(0);
+
         let mut i: i32 = 0;
         while i < nev {
             let idx = (i * 2) as i64;
@@ -89,6 +110,16 @@ fn main() -> i32 {
             }
 
             i = i + 1;
+        }
+
+        // Exit epoch BEFORE yielding back to poll.wait()
+        ebr_exit_epoch(0);
+
+        // Periodic reclamation: advance epoch and reclaim every 64 batches
+        epoch_counter = epoch_counter + 1;
+        if (epoch_counter & 63) == 0 {
+            ebr_advance_epoch();
+            ebr_reclaim(0);
         }
     }
 

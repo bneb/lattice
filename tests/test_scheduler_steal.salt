@@ -1,0 +1,227 @@
+// =============================================================================
+// TEST: Scheduler Work-Stealing Integration — Red-to-Green TDD
+// =============================================================================
+// Tests that the scheduler's idle loop attempts work-stealing via the
+// Chase-Lev deque before halting the core.
+// =============================================================================
+
+package main
+
+extern fn puts(s: &str) -> i32;
+
+// --- Simulated Chase-Lev Deque (simplified for test isolation) ---
+
+pub const DEQUE_EMPTY: u64 = 0;
+pub const MAX_CORES: u64 = 16;
+pub const DEQUE_CAPACITY: u64 = 256;
+
+pub struct WorkDeque {
+    pub top: i64,
+    pub bottom: i64,
+    pub buffer: [u64; 256],
+}
+
+global DEQUES: [WorkDeque; 16] = [WorkDeque {
+    top: 0,
+    bottom: 0,
+    buffer: [0 as u64; 256],
+}; 16];
+
+fn deque_push(core: u64, task: u64) {
+    if core >= MAX_CORES { return; }
+    let b = DEQUES[core].bottom;
+    let idx = b % (DEQUE_CAPACITY as i64);
+    DEQUES[core].buffer[idx as u64] = task;
+    DEQUES[core].bottom = b + 1;
+}
+
+fn deque_pop(core: u64) -> u64 {
+    if core >= MAX_CORES { return DEQUE_EMPTY; }
+    let b = DEQUES[core].bottom - 1;
+    DEQUES[core].bottom = b;
+    let t = DEQUES[core].top;
+    if t > b {
+        DEQUES[core].bottom = t;
+        return DEQUE_EMPTY;
+    }
+    let idx = b % (DEQUE_CAPACITY as i64);
+    let task = DEQUES[core].buffer[idx as u64];
+    if t == b {
+        DEQUES[core].top = t + 1;
+        DEQUES[core].bottom = t + 1;
+    }
+    return task;
+}
+
+fn deque_steal(victim: u64) -> u64 {
+    if victim >= MAX_CORES { return DEQUE_EMPTY; }
+    let t = DEQUES[victim].top;
+    let b = DEQUES[victim].bottom;
+    if t >= b { return DEQUE_EMPTY; }
+    let idx = t % (DEQUE_CAPACITY as i64);
+    let task = DEQUES[victim].buffer[idx as u64];
+    DEQUES[victim].top = t + 1;
+    return task;
+}
+
+fn steal_scan(core: u64) -> u64 {
+    let mut victim: u64 = 0;
+    while victim < MAX_CORES {
+        if victim != core {
+            let task = deque_steal(victim);
+            if task != DEQUE_EMPTY {
+                return task;
+            }
+        }
+        victim = victim + 1;
+    }
+    return DEQUE_EMPTY;
+}
+
+fn deque_clear() {
+    let mut i: u64 = 0;
+    while i < MAX_CORES {
+        DEQUES[i].top = 0;
+        DEQUES[i].bottom = 0;
+        i = i + 1;
+    }
+}
+
+// --- Simulated scheduler state ---
+global DISPATCHED_ON_CORE: [u64; 16] = [0 as u64; 16];
+global DISPATCH_COUNT: [u64; 16] = [0 as u64; 16];
+
+fn dispatch_stolen(core: u64, fiber_slot: u64) {
+    DISPATCHED_ON_CORE[core] = fiber_slot;
+    DISPATCH_COUNT[core] = DISPATCH_COUNT[core] + 1;
+}
+
+fn clear_dispatch() {
+    let mut i: u64 = 0;
+    while i < MAX_CORES {
+        DISPATCHED_ON_CORE[i] = 0;
+        DISPATCH_COUNT[i] = 0;
+        i = i + 1;
+    }
+}
+
+// --- Integration: idle loop with work-stealing ---
+fn idle_loop_one_pass(core: u64) -> bool {
+    let stolen = steal_scan(core);
+    if stolen != DEQUE_EMPTY {
+        dispatch_stolen(core, stolen);
+        return true;  // Work was found
+    }
+    return false;  // Would halt
+}
+
+// =============================================================================
+// TESTS
+// =============================================================================
+
+// Test 1: Idle core steals work from busy sibling
+fn test_idle_core_steals_work() -> bool {
+    deque_clear();
+    clear_dispatch();
+
+    // Core 0 has work (fiber slots 10, 20, 30)
+    deque_push(0, 10);
+    deque_push(0, 20);
+    deque_push(0, 30);
+
+    // Core 1 is idle — attempts steal
+    let found = idle_loop_one_pass(1);
+
+    if !found { return false; }
+    // Core 1 should have dispatched fiber 10 (FIFO steal from top)
+    if DISPATCHED_ON_CORE[1] != 10 { return false; }
+    if DISPATCH_COUNT[1] != 1 { return false; }
+
+    return true;
+}
+
+// Test 2: Idle core scans empty deques, no dispatch
+fn test_no_steal_when_empty() -> bool {
+    deque_clear();
+    clear_dispatch();
+
+    // All deques empty — core 5 attempts steal
+    let found = idle_loop_one_pass(5);
+
+    if found { return false; }  // Should not find work
+    if DISPATCH_COUNT[5] != 0 { return false; }  // No dispatch
+
+    return true;
+}
+
+// Test 3: spawn pushes to deque
+fn test_spawn_pushes_to_deque() -> bool {
+    deque_clear();
+
+    // Simulate spawn: push fiber slot to core's deque
+    let core: u64 = 3;
+    let slot: u64 = 42;
+    deque_push(core, slot);
+
+    // Pop should return the same slot
+    let popped = deque_pop(core);
+    return popped == 42;
+}
+
+// Test 4: Stolen fiber dispatches on stealing core
+fn test_stolen_fiber_dispatches() -> bool {
+    deque_clear();
+    clear_dispatch();
+
+    // Core 2 has pending work
+    deque_push(2, 100);
+    deque_push(2, 200);
+
+    // Core 7 steals
+    let found = idle_loop_one_pass(7);
+    if !found { return false; }
+    if DISPATCHED_ON_CORE[7] != 100 { return false; }
+
+    // Core 7 steals again
+    let found2 = idle_loop_one_pass(7);
+    if !found2 { return false; }
+    if DISPATCHED_ON_CORE[7] != 200 { return false; }
+
+    // No more work
+    let found3 = idle_loop_one_pass(7);
+    if found3 { return false; }
+
+    return true;
+}
+
+fn main() -> i32 {
+    let mut pass: i32 = 0;
+    let mut fail: i32 = 0;
+
+    if test_idle_core_steals_work() {
+        puts("PASS: test_idle_core_steals_work"); pass = pass + 1;
+    } else {
+        puts("FAIL: test_idle_core_steals_work"); fail = fail + 1;
+    }
+
+    if test_no_steal_when_empty() {
+        puts("PASS: test_no_steal_when_empty"); pass = pass + 1;
+    } else {
+        puts("FAIL: test_no_steal_when_empty"); fail = fail + 1;
+    }
+
+    if test_spawn_pushes_to_deque() {
+        puts("PASS: test_spawn_pushes_to_deque"); pass = pass + 1;
+    } else {
+        puts("FAIL: test_spawn_pushes_to_deque"); fail = fail + 1;
+    }
+
+    if test_stolen_fiber_dispatches() {
+        puts("PASS: test_stolen_fiber_dispatches"); pass = pass + 1;
+    } else {
+        puts("FAIL: test_stolen_fiber_dispatches"); fail = fail + 1;
+    }
+
+    if fail == 0 { return 0; }
+    return 1;
+}

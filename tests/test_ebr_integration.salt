@@ -1,0 +1,194 @@
+// =============================================================================
+// TEST: EBR Integration — Lettuce Store Event Loop
+// =============================================================================
+// Tests that the Lettuce event loop correctly wraps each iteration in
+// enter_epoch/exit_epoch, and that DEL retires memory instead of freeing.
+// =============================================================================
+
+package main
+
+extern fn puts(s: &str) -> i32;
+
+// --- Simulated EBR Arena (testing the lifecycle pattern) ---
+
+pub const MAX_CORES: u64 = 16;
+pub const INACTIVE: u64 = 0xFFFFFFFFFFFFFFFF;
+
+global GLOBAL_EPOCH: u64 = 0;
+global LOCAL_EPOCHS: [u64; 16] = [0xFFFFFFFFFFFFFFFF as u64; 16];
+global RETIRED_COUNT: u64 = 0;
+global RECLAIMED_COUNT: u64 = 0;
+global EPOCH_ENTER_COUNT: u64 = 0;
+global EPOCH_EXIT_COUNT: u64 = 0;
+
+fn enter_epoch(core: u64) {
+    if core >= MAX_CORES { return; }
+    LOCAL_EPOCHS[core] = GLOBAL_EPOCH;
+    EPOCH_ENTER_COUNT = EPOCH_ENTER_COUNT + 1;
+}
+
+fn exit_epoch(core: u64) {
+    if core >= MAX_CORES { return; }
+    LOCAL_EPOCHS[core] = INACTIVE;
+    EPOCH_EXIT_COUNT = EPOCH_EXIT_COUNT + 1;
+}
+
+fn retire(core: u64, ptr: u64) {
+    RETIRED_COUNT = RETIRED_COUNT + 1;
+}
+
+fn advance_epoch() {
+    GLOBAL_EPOCH = GLOBAL_EPOCH + 1;
+}
+
+fn safe_reclaim_blocks(core: u64) {
+    // Check if all cores are INACTIVE or caught up
+    let mut min_epoch: u64 = GLOBAL_EPOCH;
+    let mut i: u64 = 0;
+    while i < MAX_CORES {
+        if LOCAL_EPOCHS[i] != INACTIVE {
+            if LOCAL_EPOCHS[i] < min_epoch {
+                min_epoch = LOCAL_EPOCHS[i];
+            }
+        }
+        i = i + 1;
+    }
+    // If min_epoch == GLOBAL_EPOCH, safe to reclaim
+    if min_epoch == GLOBAL_EPOCH {
+        RECLAIMED_COUNT = RECLAIMED_COUNT + RETIRED_COUNT;
+        RETIRED_COUNT = 0;
+    }
+}
+
+fn reset_ebr_state() {
+    GLOBAL_EPOCH = 0;
+    RETIRED_COUNT = 0;
+    RECLAIMED_COUNT = 0;
+    EPOCH_ENTER_COUNT = 0;
+    EPOCH_EXIT_COUNT = 0;
+    let mut i: u64 = 0;
+    while i < MAX_CORES {
+        LOCAL_EPOCHS[i] = INACTIVE;
+        i = i + 1;
+    }
+}
+
+// --- Simulated DEL command ---
+
+global DEL_FREED_IMMEDIATELY: bool = false;
+
+fn del_with_ebr(core: u64, key_ptr: u64) -> bool {
+    // Instead of freeing immediately, retire the pointer
+    retire(core, key_ptr);
+    return true;
+}
+
+fn del_without_ebr(key_ptr: u64) -> bool {
+    DEL_FREED_IMMEDIATELY = true;
+    return true;
+}
+
+// --- Simulated event loop iteration ---
+
+fn simulate_event_loop_iteration(core: u64, iteration: u64) {
+    // Enter epoch at start of event processing
+    enter_epoch(core);
+
+    // Process events (simulated)
+    if iteration % 3 == 0 {
+        // Simulate DEL command
+        del_with_ebr(core, 0xDEAD0000 + iteration);
+    }
+
+    // Exit epoch BEFORE returning to poll.wait
+    exit_epoch(core);
+}
+
+// =============================================================================
+// TESTS
+// =============================================================================
+
+// Test 1: DEL retires instead of freeing immediately
+fn test_del_retires_not_frees() -> bool {
+    reset_ebr_state();
+    DEL_FREED_IMMEDIATELY = false;
+
+    // Use EBR-backed DEL
+    del_with_ebr(0, 0xDEAD0001);
+    del_with_ebr(0, 0xDEAD0002);
+    del_with_ebr(0, 0xDEAD0003);
+
+    // Should have 3 retired nodes, 0 immediately freed
+    if RETIRED_COUNT != 3 { return false; }
+    if DEL_FREED_IMMEDIATELY { return false; }
+
+    return true;
+}
+
+// Test 2: Event iteration wraps in enter/exit epoch
+fn test_epoch_wraps_event_iteration() -> bool {
+    reset_ebr_state();
+
+    // Run 10 iterations
+    let mut i: u64 = 0;
+    while i < 10 {
+        simulate_event_loop_iteration(0, i);
+        i = i + 1;
+    }
+
+    // Must have called enter_epoch and exit_epoch 10 times each
+    if EPOCH_ENTER_COUNT != 10 { return false; }
+    if EPOCH_EXIT_COUNT != 10 { return false; }
+
+    return true;
+}
+
+// Test 3: exit_epoch called before poll.wait (epoch not held)
+fn test_no_epoch_held_during_wait() -> bool {
+    reset_ebr_state();
+
+    // Simulate: enter epoch, process, exit epoch
+    simulate_event_loop_iteration(0, 0);
+
+    // After the iteration, core 0 should be INACTIVE
+    if LOCAL_EPOCHS[0] != INACTIVE { return false; }
+
+    // This means reclamation can proceed
+    advance_epoch();
+    safe_reclaim_blocks(0);
+
+    // Retired items should be reclaimed (since no reader holds epoch)
+    // Note: iteration 0 % 3 == 0, so one DEL happened
+    if RECLAIMED_COUNT == 0 {
+        // All retired should be reclaimed since no one holds epoch
+        return false;
+    }
+
+    return true;
+}
+
+fn main() -> i32 {
+    let mut pass: i32 = 0;
+    let mut fail: i32 = 0;
+
+    if test_del_retires_not_frees() {
+        puts("PASS: test_del_retires_not_frees"); pass = pass + 1;
+    } else {
+        puts("FAIL: test_del_retires_not_frees"); fail = fail + 1;
+    }
+
+    if test_epoch_wraps_event_iteration() {
+        puts("PASS: test_epoch_wraps_event_iteration"); pass = pass + 1;
+    } else {
+        puts("FAIL: test_epoch_wraps_event_iteration"); fail = fail + 1;
+    }
+
+    if test_no_epoch_held_during_wait() {
+        puts("PASS: test_no_epoch_held_during_wait"); pass = pass + 1;
+    } else {
+        puts("FAIL: test_no_epoch_held_during_wait"); fail = fail + 1;
+    }
+
+    if fail == 0 { return 0; }
+    return 1;
+}

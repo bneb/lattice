@@ -1,0 +1,246 @@
+// =============================================================================
+// tests/test_spsc_adaptive.salt
+// TDD Test Suite for Epic I: Hybrid Spin-Poll Heuristic
+// =============================================================================
+//
+// Tests:
+//   1. Init sets consumer_waiting to 0
+//   2. Immediate return: push data, then consume_adaptive returns instantly
+//   3. Empty ring: adaptive consume returns -1 after budget
+//   4. Producer wake signal: push_wake returns 2 when consumer_waiting=1
+//   5. No wake signal: push_wake returns 1 when consumer is NOT waiting
+//   6. Data integrity: push 256 bytes via push_wake, pop via adaptive
+//   7. Full ring rejection: push_wake returns 0 on full ring
+//
+// Run: ./scripts/run_test.sh tests/test_spsc_adaptive.salt --bridge tests/bridges/spsc_bridge.c
+// =============================================================================
+
+package main
+
+extern fn malloc(size: i64) -> Ptr<u8>;
+extern fn free(ptr: Ptr<u8>);
+extern fn volatile_read_i64(addr: u64) -> i64;
+extern fn volatile_write_i64(addr: u64, val: i64);
+extern fn cpu_pause();
+
+// =============================================================================
+// Inline SPSC constants (must match ipc_shm.salt)
+// =============================================================================
+const PAGE_SIZE: u64 = 4096;
+const DATA_CAPACITY: u64 = 3904;
+const HEAD_OFFSET: u64 = 0;
+const CAPACITY_OFFSET: u64 = 8;
+const TAIL_OFFSET: u64 = 64;
+const CONSUMER_WAITING_OFFSET: u64 = 128;
+const DATA_OFFSET: u64 = 192;
+const SPIN_POLL_BUDGET: u64 = 50;
+
+// =============================================================================
+// Self-contained SPSC functions
+// =============================================================================
+
+fn spsc_init(base: u64) {
+    volatile_write_i64(base + HEAD_OFFSET, 0);
+    volatile_write_i64(base + CAPACITY_OFFSET, DATA_CAPACITY as i64);
+    volatile_write_i64(base + TAIL_OFFSET, 0);
+    volatile_write_i64(base + CONSUMER_WAITING_OFFSET, 0);
+
+    let mut i: u64 = 0;
+    while i < DATA_CAPACITY {
+        *((base + DATA_OFFSET + i) as &mut u8) = 0;
+        i = i + 1;
+    }
+}
+
+fn spsc_push(base: u64, byte: u8) -> bool {
+    let head = volatile_read_i64(base + HEAD_OFFSET) as u64;
+    let tail = volatile_read_i64(base + TAIL_OFFSET) as u64;
+    let cap  = volatile_read_i64(base + CAPACITY_OFFSET) as u64;
+    if (head - tail) >= cap {
+        return false;
+    }
+    let idx = head % cap;
+    if idx >= DATA_CAPACITY {
+        return false;
+    }
+    *((base + DATA_OFFSET + idx) as &mut u8) = byte;
+    volatile_write_i64(base + HEAD_OFFSET, (head + 1) as i64);
+    return true;
+}
+
+fn spsc_push_wake(base: u64, byte: u8) -> u64 {
+    let head = volatile_read_i64(base + HEAD_OFFSET) as u64;
+    let tail = volatile_read_i64(base + TAIL_OFFSET) as u64;
+    let cap  = volatile_read_i64(base + CAPACITY_OFFSET) as u64;
+    if (head - tail) >= cap {
+        return 0;
+    }
+    let idx = head % cap;
+    if idx >= DATA_CAPACITY {
+        return 0;
+    }
+    *((base + DATA_OFFSET + idx) as &mut u8) = byte;
+    volatile_write_i64(base + HEAD_OFFSET, (head + 1) as i64);
+
+    let waiting = volatile_read_i64(base + CONSUMER_WAITING_OFFSET) as u64;
+    if waiting != 0 {
+        return 2;
+    }
+    return 1;
+}
+
+fn spsc_consume_adaptive(base: u64) -> i64 {
+    let mut spins: u64 = 0;
+    let max_spins = SPIN_POLL_BUDGET;
+
+    let mut head = volatile_read_i64(base + HEAD_OFFSET) as u64;
+    let mut tail = volatile_read_i64(base + TAIL_OFFSET) as u64;
+
+    while head == tail {
+        if spins >= max_spins {
+            // In userland: return -1 instead of idle_halt
+            return 0 - 1;
+        }
+        cpu_pause();
+        spins = spins + 1;
+        head = volatile_read_i64(base + HEAD_OFFSET) as u64;
+        tail = volatile_read_i64(base + TAIL_OFFSET) as u64;
+    }
+
+    let cap = volatile_read_i64(base + CAPACITY_OFFSET) as u64;
+    let idx = tail % cap;
+    if idx >= DATA_CAPACITY {
+        return 0 - 1;
+    }
+    let byte = *((base + DATA_OFFSET + idx) as &u8);
+    volatile_write_i64(base + TAIL_OFFSET, (tail + 1) as i64);
+    return byte as i64;
+}
+
+// =============================================================================
+// Main — Test Entry Point
+// =============================================================================
+
+fn main() -> i32 {
+    println("=== SPSC Adaptive Spin-Poll Tests ===");
+
+    let buf = malloc(PAGE_SIZE as i64 + 64);
+    let base = ((buf as u64) + 63) & 0xFFFFFFFFFFFFFFC0;
+
+    let mut all_pass = true;
+
+    // TEST 1: Init sets consumer_waiting to 0
+    spsc_init(base);
+    let cw = volatile_read_i64(base + CONSUMER_WAITING_OFFSET) as u64;
+    if cw == 0 {
+        println("PASS: init_cw_zero");
+    } else {
+        println("FAIL: init_cw_zero");
+        all_pass = false;
+    }
+
+    // TEST 2: Immediate return — push then adaptive consume
+    spsc_init(base);
+    spsc_push(base, 0xAB);
+    let val = spsc_consume_adaptive(base);
+    if val == 0xAB {
+        println("PASS: immediate_return");
+    } else {
+        println(f"FAIL: immediate_return got={val}");
+        all_pass = false;
+    }
+
+    // TEST 3: Empty ring — adaptive consume returns -1 after budget
+    spsc_init(base);
+    let empty_val = spsc_consume_adaptive(base);
+    if empty_val == (0 - 1) {
+        println("PASS: empty_budget_exhaust");
+    } else {
+        println(f"FAIL: empty_budget_exhaust got={empty_val}");
+        all_pass = false;
+    }
+
+    // TEST 4: Producer wake signal — push_wake returns 2 when waiting=1
+    spsc_init(base);
+    volatile_write_i64(base + CONSUMER_WAITING_OFFSET, 1);
+    let result = spsc_push_wake(base, 0xCD);
+    if result == 2 {
+        println("PASS: wake_signal");
+    } else {
+        println(f"FAIL: wake_signal got={result}");
+        all_pass = false;
+    }
+
+    // TEST 5: push_wake returns 1 when consumer is NOT waiting
+    spsc_init(base);
+    let result2 = spsc_push_wake(base, 0xEF);
+    if result2 == 1 {
+        println("PASS: no_wake_signal");
+    } else {
+        println(f"FAIL: no_wake_signal got={result2}");
+        all_pass = false;
+    }
+
+    // TEST 6: Data integrity — push 256 bytes via push_wake, pop via adaptive
+    spsc_init(base);
+    let mut integrity_ok = true;
+    let mut i: u64 = 0;
+    while i < 256 {
+        let r = spsc_push_wake(base, (i & 0xFF) as u8);
+        if r == 0 {
+            println(f"FAIL: integrity push at {i}");
+            integrity_ok = false;
+            i = 256;
+        }
+        i = i + 1;
+    }
+
+    if integrity_ok {
+        i = 0;
+        while i < 256 {
+            let v = spsc_consume_adaptive(base);
+            let expected = (i & 0xFF) as i64;
+            if v != expected {
+                println(f"FAIL: integrity at {i} got={v}");
+                integrity_ok = false;
+                i = 256;
+            }
+            i = i + 1;
+        }
+    }
+
+    if integrity_ok {
+        println("PASS: integrity_256");
+    } else {
+        all_pass = false;
+    }
+
+    // TEST 7: push_wake returns 0 on full ring
+    spsc_init(base);
+    let mut filled: u64 = 0;
+    while filled < DATA_CAPACITY {
+        let r = spsc_push_wake(base, 0x42);
+        if r == 0 {
+            println(f"FAIL: full_reject premature full at {filled}");
+            all_pass = false;
+            filled = DATA_CAPACITY;
+        }
+        filled = filled + 1;
+    }
+    let full_result = spsc_push_wake(base, 0x99);
+    if full_result == 0 {
+        println("PASS: full_reject");
+    } else {
+        println(f"FAIL: full_reject got={full_result}");
+        all_pass = false;
+    }
+
+    free(buf);
+
+    if all_pass {
+        println("=== ALL SPSC ADAPTIVE TESTS PASSED ===");
+        return 0;
+    }
+    println("=== SOME TESTS FAILED ===");
+    return 1;
+}

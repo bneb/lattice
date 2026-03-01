@@ -81,3 +81,26 @@ irq_restore:
     push rdi
     popfq
     ret
+
+// =============================================================================
+// __salt_contract_violation — Z3 requires()/ensures() Runtime Trap
+// =============================================================================
+// Called when a requires() or ensures() contract fails at runtime.
+// In production, this should panic with a diagnostic. For the QEMU
+// benchmark harness, we halt — any contract violation is a hard error.
+// =============================================================================
+.weak __salt_contract_violation
+__salt_contract_violation:
+    cli
+    hlt
+    jmp __salt_contract_violation
+
+// =============================================================================
+// disable_nic_rings — Sovereign Reclaim NIC Stub
+// =============================================================================
+// Called by sovereign_reclaim.salt Phase 2. The Salt compiler DCE's the
+// empty function body but leaves the call site, requiring a linker stub.
+// =============================================================================
+.weak kernel__core__sovereign_reclaim__disable_nic_rings
+kernel__core__sovereign_reclaim__disable_nic_rings:
+    ret

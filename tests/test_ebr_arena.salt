@@ -1,0 +1,279 @@
+// =============================================================================
+// test_ebr_arena.salt — Epoch-Based Reclamation Integration Tests
+// =============================================================================
+//
+// Validates:
+//   1. Retire + reclaim: block freed when all cores advance
+//   2. No reclaim with active reader: block retained while core in old epoch
+//   3. Multiple cores: staggered epochs, only safe blocks reclaimed
+//   4. Epoch advancement: monotonic global epoch
+//   5. Arena cleanup: destroy reclaims all remaining blocks
+//
+// Run: ./scripts/run_test.sh tests/test_ebr_arena.salt
+// =============================================================================
+
+package main
+use std.core.str.StringView;
+
+
+use std.core.ptr.Ptr;
+
+extern fn malloc(size: i64) -> Ptr<u8>;
+extern fn free(ptr: Ptr<u8>);
+
+// ============================================================================
+// Inline EBR (mirrors lettuce/memory/ebr_arena.salt)
+// ============================================================================
+
+struct RetiredNode {
+    ptr: Ptr<u8>,
+    retire_epoch: u64,
+    next: Ptr<RetiredNode>,
+}
+
+struct EbrArena {
+    global_epoch: u64,
+    local_epochs: Ptr<u64>,
+    retired_lists: Ptr<Ptr<RetiredNode>>,
+    max_cores: i32,
+    total_retired: u64,
+    total_reclaimed: u64,
+}
+
+const EPOCH_INACTIVE: u64 = 0xFFFFFFFFFFFFFFFF;
+
+fn ebr_new(max_cores: i32) -> EbrArena {
+    let local_epochs = malloc(max_cores as i64 * 8) as Ptr<u64>;
+    let retired_lists = malloc(max_cores as i64 * 8) as Ptr<Ptr<RetiredNode>>;
+
+    let mut i: i64 = 0;
+    while i < max_cores as i64 {
+        let ep = local_epochs.offset(i);
+        *(ep as &mut u64) = EPOCH_INACTIVE;
+        let rl = retired_lists.offset(i);
+        *(rl as &mut i64) = 0;
+        i = i + 1;
+    }
+
+    return EbrArena {
+        global_epoch: 0,
+        local_epochs: local_epochs,
+        retired_lists: retired_lists,
+        max_cores: max_cores,
+        total_retired: 0,
+        total_reclaimed: 0,
+    };
+}
+
+fn enter_epoch(arena: &mut EbrArena, core_id: i32) {
+    let ep = arena.local_epochs.offset(core_id as i64);
+    *(ep as &mut u64) = arena.global_epoch;
+}
+
+fn exit_epoch(arena: &mut EbrArena, core_id: i32) {
+    let ep = arena.local_epochs.offset(core_id as i64);
+    *(ep as &mut u64) = EPOCH_INACTIVE;
+}
+
+fn retire(arena: &mut EbrArena, core_id: i32, ptr: Ptr<u8>) {
+    let node = malloc(24) as Ptr<RetiredNode>;
+    node.ptr = ptr;
+    node.retire_epoch = arena.global_epoch;
+    let list_slot = arena.retired_lists.offset(core_id as i64);
+    let old_head = *(list_slot as &Ptr<RetiredNode>);
+    node.next = old_head;
+    *(list_slot as &mut i64) = node as i64;
+    arena.total_retired = arena.total_retired + 1;
+}
+
+fn advance_epoch(arena: &mut EbrArena) {
+    arena.global_epoch = arena.global_epoch + 1;
+}
+
+fn safe_reclaim(arena: &mut EbrArena, core_id: i32) {
+    let mut min_epoch: u64 = arena.global_epoch;
+    let mut i: i64 = 0;
+    while i < arena.max_cores as i64 {
+        let ep = arena.local_epochs.offset(i);
+        let core_epoch = *(ep as &u64);
+        if core_epoch != EPOCH_INACTIVE {
+            if core_epoch < min_epoch {
+                min_epoch = core_epoch;
+            }
+        }
+        i = i + 1;
+    }
+
+    let list_slot = arena.retired_lists.offset(core_id as i64);
+    let mut head = *(list_slot as &Ptr<RetiredNode>);
+    let mut prev: Ptr<RetiredNode> = 0 as Ptr<RetiredNode>;
+
+    while head as i64 != 0 {
+        let next = head.next;
+        if head.retire_epoch < min_epoch {
+            free(head.ptr);
+            if prev as i64 != 0 {
+                prev.next = next;
+            } else {
+                *(list_slot as &mut i64) = next as i64;
+            }
+            free(head);
+            arena.total_reclaimed = arena.total_reclaimed + 1;
+        } else {
+            prev = head;
+        }
+        head = next;
+    }
+}
+
+fn get_retired_count(arena: &EbrArena, core_id: i32) -> i64 {
+    let list_slot = arena.retired_lists.offset(core_id as i64);
+    let mut head = *(list_slot as &Ptr<RetiredNode>);
+    let mut count: i64 = 0;
+    while head as i64 != 0 {
+        count = count + 1;
+        head = head.next;
+    }
+    return count;
+}
+
+// ============================================================================
+// Test Helpers
+// ============================================================================
+
+fn assert_eq_i64(actual: i64, expected: i64, name: StringView) {
+    if actual == expected {
+        println("PASS: {}", name);
+    } else {
+        println("FAIL: {} — expected {}, got {}", name, expected, actual);
+    }
+}
+
+fn assert_eq_u64(actual: u64, expected: u64, name: StringView) {
+    if actual == expected {
+        println("PASS: {}", name);
+    } else {
+        println("FAIL: {} — expected {}, got {}", name, expected, actual);
+    }
+}
+
+// ============================================================================
+// Test Cases
+// ============================================================================
+
+fn test_retire_and_reclaim() {
+    let mut arena = ebr_new(4);
+
+    // Epoch 0: retire a block
+    let block = malloc(64);
+    retire(&mut arena, 0, block);
+    assert_eq_i64(get_retired_count(&arena, 0), 1, "retire_count_1");
+
+    // Advance epoch twice (all cores inactive → min_epoch = global = 2 > 0)
+    advance_epoch(&mut arena);
+    advance_epoch(&mut arena);
+
+    // Reclaim should free the retired block
+    safe_reclaim(&mut arena, 0);
+    assert_eq_i64(get_retired_count(&arena, 0), 0, "retire_after_reclaim_0");
+    assert_eq_u64(arena.total_reclaimed, 1, "total_reclaimed_1");
+}
+
+fn test_no_reclaim_active_epoch() {
+    let mut arena = ebr_new(4);
+
+    // Core 1 enters epoch 0
+    enter_epoch(&mut arena, 1);
+
+    // Core 0 retires a block in epoch 0
+    let block = malloc(64);
+    retire(&mut arena, 0, block);
+
+    // Advance global epoch to 2
+    advance_epoch(&mut arena);
+    advance_epoch(&mut arena);
+
+    // Try to reclaim — should NOT free because core 1 is still in epoch 0
+    safe_reclaim(&mut arena, 0);
+    assert_eq_i64(get_retired_count(&arena, 0), 1, "no_reclaim_active_core");
+
+    // Now core 1 exits
+    exit_epoch(&mut arena, 1);
+
+    // Reclaim again — now safe to free
+    safe_reclaim(&mut arena, 0);
+    assert_eq_i64(get_retired_count(&arena, 0), 0, "reclaim_after_exit");
+}
+
+fn test_multiple_epochs() {
+    let mut arena = ebr_new(4);
+
+    // Retire block A in epoch 0
+    let block_a = malloc(32);
+    retire(&mut arena, 0, block_a);
+
+    advance_epoch(&mut arena);  // epoch → 1
+
+    // Retire block B in epoch 1
+    let block_b = malloc(32);
+    retire(&mut arena, 0, block_b);
+
+    advance_epoch(&mut arena);  // epoch → 2
+    advance_epoch(&mut arena);  // epoch → 3
+
+    // All cores inactive: min_epoch = 3. Both blocks (epoch 0, 1) are reclaimable.
+    safe_reclaim(&mut arena, 0);
+    assert_eq_i64(get_retired_count(&arena, 0), 0, "both_blocks_reclaimed");
+    assert_eq_u64(arena.total_reclaimed, 2, "total_reclaimed_2");
+}
+
+fn test_epoch_advancement_monotonic() {
+    let mut arena = ebr_new(2);
+
+    assert_eq_u64(arena.global_epoch, 0, "initial_epoch_0");
+    advance_epoch(&mut arena);
+    assert_eq_u64(arena.global_epoch, 1, "after_advance_1");
+    advance_epoch(&mut arena);
+    assert_eq_u64(arena.global_epoch, 2, "after_advance_2");
+    advance_epoch(&mut arena);
+    assert_eq_u64(arena.global_epoch, 3, "after_advance_3");
+}
+
+fn test_per_core_isolation() {
+    let mut arena = ebr_new(4);
+
+    // Retire on different cores
+    let a = malloc(16);
+    let b = malloc(16);
+    retire(&mut arena, 0, a);
+    retire(&mut arena, 1, b);
+
+    assert_eq_i64(get_retired_count(&arena, 0), 1, "core_0_has_1");
+    assert_eq_i64(get_retired_count(&arena, 1), 1, "core_1_has_1");
+    assert_eq_i64(get_retired_count(&arena, 2), 0, "core_2_has_0");
+
+    advance_epoch(&mut arena);
+    advance_epoch(&mut arena);
+
+    // Reclaim only core 0
+    safe_reclaim(&mut arena, 0);
+    assert_eq_i64(get_retired_count(&arena, 0), 0, "core_0_reclaimed");
+    assert_eq_i64(get_retired_count(&arena, 1), 1, "core_1_untouched");
+}
+
+// ============================================================================
+// Main
+// ============================================================================
+
+fn main() -> i32 {
+    println("=== EBR Arena Tests ===");
+
+    test_retire_and_reclaim();
+    test_no_reclaim_active_epoch();
+    test_multiple_epochs();
+    test_epoch_advancement_monotonic();
+    test_per_core_isolation();
+
+    println("=== All EBR tests complete ===");
+    return 0;
+}

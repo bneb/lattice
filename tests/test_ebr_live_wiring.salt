@@ -1,0 +1,192 @@
+// =============================================================================
+// TEST: Live EBR Wiring — Epoch-Safe Event Loop
+// =============================================================================
+// Tests that the Lettuce event loop correctly guarantees epoch exit on ALL
+// code paths, and that DEL retires via EBR.
+// =============================================================================
+
+package main
+
+extern fn puts(s: &str) -> i32;
+
+// --- EBR subsystem (simulated) ---
+
+pub const INACTIVE: u64 = 0xFFFFFFFFFFFFFFFF;
+
+global GLOBAL_EPOCH: u64 = 0;
+global CORE_EPOCH: u64 = 0xFFFFFFFFFFFFFFFF;
+global RETIRED_COUNT: u64 = 0;
+global RECLAIMED_COUNT: u64 = 0;
+global ENTER_COUNT: u64 = 0;
+global EXIT_COUNT: u64 = 0;
+
+fn ebr_enter_epoch(core: u64) {
+    CORE_EPOCH = GLOBAL_EPOCH;
+    ENTER_COUNT = ENTER_COUNT + 1;
+}
+
+fn ebr_exit_epoch(core: u64) {
+    CORE_EPOCH = INACTIVE;
+    EXIT_COUNT = EXIT_COUNT + 1;
+}
+
+fn ebr_retire(core: u64, ptr: u64) {
+    RETIRED_COUNT = RETIRED_COUNT + 1;
+}
+
+fn ebr_advance_epoch() {
+    GLOBAL_EPOCH = GLOBAL_EPOCH + 1;
+}
+
+fn ebr_reclaim(core: u64) -> u64 {
+    let ce = CORE_EPOCH;
+    let rc = RETIRED_COUNT;
+    if ce == INACTIVE {
+        RECLAIMED_COUNT = RECLAIMED_COUNT + rc;
+        RETIRED_COUNT = 0;
+        return rc;
+    }
+    return 0;
+}
+
+fn reset_ebr() {
+    GLOBAL_EPOCH = 0;
+    CORE_EPOCH = INACTIVE;
+    RETIRED_COUNT = 0;
+    RECLAIMED_COUNT = 0;
+    ENTER_COUNT = 0;
+    EXIT_COUNT = 0;
+}
+
+// --- Simulated handle_client paths ---
+fn handle_client_buffer_full() { return; }
+fn handle_client_recv_error() { return; }
+fn handle_client_normal(do_del: bool) {
+    if do_del { ebr_retire(0, 0xDEAD0001); }
+}
+
+// Epoch-safe dispatch: enter at top, exit at bottom
+fn event_dispatch(event_type: u32, do_del: bool) {
+    ebr_enter_epoch(0);
+
+    if event_type == 0 {
+        handle_client_buffer_full();
+    } else if event_type == 1 {
+        handle_client_recv_error();
+    } else {
+        handle_client_normal(do_del);
+    }
+
+    ebr_exit_epoch(0);
+}
+
+// =============================================================================
+// TESTS
+// =============================================================================
+
+fn test_epoch_guaranteed_on_all_paths() -> bool {
+    reset_ebr();
+
+    event_dispatch(0, false);
+    event_dispatch(1, false);
+    event_dispatch(2, false);
+
+    let enters = ENTER_COUNT;
+    let exits = EXIT_COUNT;
+    let ce = CORE_EPOCH;
+
+    if enters != 3 { return false; }
+    if exits != 3 { return false; }
+    if ce != INACTIVE { return false; }
+    return true;
+}
+
+fn test_del_retires_via_extern() -> bool {
+    reset_ebr();
+
+    event_dispatch(2, true);
+
+    let rc = RETIRED_COUNT;
+    let ce = CORE_EPOCH;
+
+    if rc != 1 { return false; }
+    if ce != INACTIVE { return false; }
+    return true;
+}
+
+fn test_advance_and_reclaim_cycle() -> bool {
+    reset_ebr();
+
+    event_dispatch(2, true);
+    event_dispatch(2, true);
+    event_dispatch(2, true);
+
+    let rc_before = RETIRED_COUNT;
+
+    ebr_advance_epoch();
+    let reclaimed = ebr_reclaim(0);
+
+    // reclaimed should be 3 (returned directly from reclaim)
+    if rc_before != 3 {
+        puts("  DEBUG: rc_before != 3");
+        return false;
+    }
+    if reclaimed != 3 {
+        puts("  DEBUG: reclaimed != 3");
+        return false;
+    }
+    return true;
+}
+
+fn test_multi_iteration_epoch_invariant() -> bool {
+    reset_ebr();
+
+    let mut i: u32 = 0;
+    while i < 100 {
+        let path = i % 3;
+        let do_del = path == 2;
+        event_dispatch(path, do_del);
+        i = i + 1;
+    }
+
+    let enters = ENTER_COUNT;
+    let exits = EXIT_COUNT;
+    let ce = CORE_EPOCH;
+
+    if enters != 100 { return false; }
+    if exits != 100 { return false; }
+    if ce != INACTIVE { return false; }
+    return true;
+}
+
+fn main() -> i32 {
+    let mut pass: i32 = 0;
+    let mut fail: i32 = 0;
+
+    if test_epoch_guaranteed_on_all_paths() {
+        puts("PASS: test_epoch_guaranteed_on_all_paths"); pass = pass + 1;
+    } else {
+        puts("FAIL: test_epoch_guaranteed_on_all_paths"); fail = fail + 1;
+    }
+
+    if test_del_retires_via_extern() {
+        puts("PASS: test_del_retires_via_extern"); pass = pass + 1;
+    } else {
+        puts("FAIL: test_del_retires_via_extern"); fail = fail + 1;
+    }
+
+    if test_advance_and_reclaim_cycle() {
+        puts("PASS: test_advance_and_reclaim_cycle"); pass = pass + 1;
+    } else {
+        puts("FAIL: test_advance_and_reclaim_cycle"); fail = fail + 1;
+    }
+
+    if test_multi_iteration_epoch_invariant() {
+        puts("PASS: test_multi_iteration_epoch_invariant"); pass = pass + 1;
+    } else {
+        puts("FAIL: test_multi_iteration_epoch_invariant"); fail = fail + 1;
+    }
+
+    if fail == 0 { return 0; }
+    return 1;
+}

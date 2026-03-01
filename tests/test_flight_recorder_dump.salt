@@ -1,0 +1,245 @@
+// =============================================================================
+// tests/test_flight_recorder_dump.salt
+// TDD Test Suite for Epic III: Flight Recorder DMA Dump
+// =============================================================================
+//
+// Tests:
+//   1. Header magic: finalize_for_panic sets correct magic value
+//   2. Header CPU: faulting_cpu field correctly populated
+//   3. Header timestamp: timestamp field correctly populated
+//   4. Header trace count: total_trace_events sums across cores
+//   5. Log + finalize: events logged before panic are counted
+//   6. Event types: extended event types (PANIC, NMI_HALT) are valid
+//   7. Deterministic: calling finalize twice with same args gives same header
+//
+// Run: ./scripts/run_test.sh tests/test_flight_recorder_dump.salt --bridge tests/bridges/spsc_bridge.c
+// =============================================================================
+
+package main
+
+extern fn malloc(size: i64) -> Ptr<u8>;
+
+// =============================================================================
+// Flight Recorder Constants (mirrors flight_recorder.salt)
+// =============================================================================
+const MAX_CPUS: u64 = 16;
+const TRACE_CAPACITY: u64 = 4096;
+const TRACE_MASK: u64 = 4095;
+
+const EVENT_DISPATCH: u64  = 0;
+const EVENT_YIELD: u64     = 1;
+const EVENT_COMPLETED: u64 = 2;
+const EVENT_TIMER_ISR: u64 = 3;
+const EVENT_PANIC: u64     = 4;
+const EVENT_NMI_HALT: u64  = 5;
+const EVENT_SLEEP: u64     = 6;
+const EVENT_WAKE: u64      = 7;
+
+const FR_MAGIC: u64 = 0x464C494748545243;  // "FLIGHTRC"
+const FR_HEADER_SIZE: u64 = 64;
+
+struct TraceEvent {
+    tsc: u64,
+    fiber_id: u32,
+    event_type: u32,
+}
+
+struct FlightRecorderHeader {
+    magic: u64,
+    panic_reason_hash: u64,
+    faulting_cpu: u64,
+    timestamp: u64,
+    total_trace_events: u64,
+    global_epoch: u64,
+    reserved0: u64,
+    reserved1: u64,
+}
+
+// =============================================================================
+// Self-contained Flight Recorder (mirrors kernel/core/flight_recorder.salt)
+// =============================================================================
+
+global TRACE_BUFFERS: [TraceEvent; 65536] = [TraceEvent {
+    tsc: 0,
+    fiber_id: 0,
+    event_type: 0
+}; 65536];
+
+global TRACE_INDICES: [u64; 16] = [0 as u64; 16];
+
+global FR_HEADER: FlightRecorderHeader = FlightRecorderHeader {
+    magic: 0,
+    panic_reason_hash: 0,
+    faulting_cpu: 0,
+    timestamp: 0,
+    total_trace_events: 0,
+    global_epoch: 0,
+    reserved0: 0,
+    reserved1: 0,
+};
+
+fn log_trace(cpu: u64, fiber_id: u64, event: u64) {
+    let idx = TRACE_INDICES[cpu];
+    let buf_offset = cpu * TRACE_CAPACITY + idx;
+    TRACE_BUFFERS[buf_offset].tsc = 12345;  // Fake timestamp for test
+    TRACE_BUFFERS[buf_offset].fiber_id = fiber_id as u32;
+    TRACE_BUFFERS[buf_offset].event_type = event as u32;
+    TRACE_INDICES[cpu] = (idx + 1) & TRACE_MASK;
+}
+
+fn get_total_trace_count() -> u64 {
+    let mut total: u64 = 0;
+    let mut c: u64 = 0;
+    while c < MAX_CPUS {
+        total = total + TRACE_INDICES[c];
+        c = c + 1;
+    }
+    return total;
+}
+
+fn finalize_for_panic(reason_hash: u64, cpu_id: u64, timestamp: u64) {
+    FR_HEADER.magic = FR_MAGIC;
+    FR_HEADER.panic_reason_hash = reason_hash;
+    FR_HEADER.faulting_cpu = cpu_id;
+    FR_HEADER.timestamp = timestamp;
+    FR_HEADER.total_trace_events = get_total_trace_count();
+    FR_HEADER.global_epoch = 0;
+    FR_HEADER.reserved0 = 0;
+    FR_HEADER.reserved1 = 0;
+
+    // Log the panic event itself (on cpu_id, but use cpu 0 for simplicity)
+    log_trace(cpu_id, 0, EVENT_PANIC);
+}
+
+fn reset_indices() {
+    let mut c: u64 = 0;
+    while c < MAX_CPUS {
+        TRACE_INDICES[c] = 0;
+        c = c + 1;
+    }
+}
+
+// =============================================================================
+// Main — Test Entry Point
+// =============================================================================
+
+fn main() -> i32 {
+    println("=== Flight Recorder Dump Tests ===");
+
+    let mut all_pass = true;
+
+    // TEST 1: Header magic set correctly
+    reset_indices();
+    finalize_for_panic(0xDEAD, 3, 999999);
+    if FR_HEADER.magic == FR_MAGIC {
+        println("PASS: header_magic");
+    } else {
+        println(f"FAIL: header_magic got={FR_HEADER.magic}");
+        all_pass = false;
+    }
+
+    // TEST 2: Faulting CPU set correctly
+    if FR_HEADER.faulting_cpu == 3 {
+        println("PASS: header_cpu");
+    } else {
+        println(f"FAIL: header_cpu got={FR_HEADER.faulting_cpu}");
+        all_pass = false;
+    }
+
+    // TEST 3: Timestamp set correctly
+    if FR_HEADER.timestamp == 999999 {
+        println("PASS: header_timestamp");
+    } else {
+        println(f"FAIL: header_timestamp got={FR_HEADER.timestamp}");
+        all_pass = false;
+    }
+
+    // TEST 4: Reason hash set correctly
+    if FR_HEADER.panic_reason_hash == 0xDEAD {
+        println("PASS: header_reason_hash");
+    } else {
+        println(f"FAIL: header_reason_hash got={FR_HEADER.panic_reason_hash}");
+        all_pass = false;
+    }
+
+    // TEST 5: Total trace events = 0 when no events logged before panic
+    // (finalize logs one EVENT_PANIC, so total should be 1 after finalize)
+    // But total_trace_events is computed BEFORE the panic event is logged
+    if FR_HEADER.total_trace_events == 0 {
+        println("PASS: initial_trace_count_zero");
+    } else {
+        println(f"FAIL: initial_trace_count_zero got={FR_HEADER.total_trace_events}");
+        all_pass = false;
+    }
+
+    // TEST 6: Log events then finalize — events are counted
+    reset_indices();
+    log_trace(0, 42, EVENT_DISPATCH);
+    log_trace(0, 43, EVENT_YIELD);
+    log_trace(1, 10, EVENT_COMPLETED);
+    log_trace(2, 20, EVENT_TIMER_ISR);
+    // 4 events across 3 cores
+    finalize_for_panic(0xBEEF, 0, 777);
+    if FR_HEADER.total_trace_events == 4 {
+        println("PASS: trace_count_4");
+    } else {
+        println(f"FAIL: trace_count_4 got={FR_HEADER.total_trace_events}");
+        all_pass = false;
+    }
+
+    // TEST 7: After finalize, the panic event itself was logged
+    let total_after = get_total_trace_count();
+    // 4 original + 1 panic event = 5
+    if total_after == 5 {
+        println("PASS: panic_event_logged");
+    } else {
+        println(f"FAIL: panic_event_logged got={total_after}");
+        all_pass = false;
+    }
+
+    // TEST 8: Verify the panic event type in the buffer
+    let panic_idx = TRACE_INDICES[0] - 1;  // Last event on CPU 0
+    let buf_offset = 0 * TRACE_CAPACITY + panic_idx;
+    let panic_type = TRACE_BUFFERS[buf_offset].event_type as u64;
+    if panic_type == EVENT_PANIC {
+        println("PASS: panic_event_type");
+    } else {
+        println(f"FAIL: panic_event_type got={panic_type}");
+        all_pass = false;
+    }
+
+    // TEST 9: Deterministic — same args produce same header
+    reset_indices();
+    finalize_for_panic(0xCAFE, 7, 123456);
+    let magic1 = FR_HEADER.magic;
+    let cpu1 = FR_HEADER.faulting_cpu;
+    let ts1 = FR_HEADER.timestamp;
+
+    reset_indices();
+    finalize_for_panic(0xCAFE, 7, 123456);
+    let magic2 = FR_HEADER.magic;
+    let cpu2 = FR_HEADER.faulting_cpu;
+    let ts2 = FR_HEADER.timestamp;
+
+    if magic1 == magic2 && cpu1 == cpu2 && ts1 == ts2 {
+        println("PASS: deterministic");
+    } else {
+        println("FAIL: deterministic");
+        all_pass = false;
+    }
+
+    // TEST 10: Extended event types are valid constants
+    if EVENT_PANIC == 4 && EVENT_NMI_HALT == 5 && EVENT_SLEEP == 6 && EVENT_WAKE == 7 {
+        println("PASS: extended_event_types");
+    } else {
+        println("FAIL: extended_event_types");
+        all_pass = false;
+    }
+
+    if all_pass {
+        println("=== ALL FLIGHT RECORDER TESTS PASSED ===");
+        return 0;
+    }
+    println("=== SOME TESTS FAILED ===");
+    return 1;
+}

@@ -16,8 +16,9 @@
 
 package kernel.mem.page_sweep
 
-use kernel.mem.pmm
-use kernel.arch.x86_64.serial
+use kernel.core.pmm
+use kernel.drivers.serial
+use std.core.ptr.Ptr
 
 // =============================================================================
 // Page Table Constants
@@ -71,7 +72,8 @@ pub fn atomic_page_sweep(pml4_phys: u64) -> SweepResult {
     while i < USER_ENTRIES {
         // Read PML4 entry (identity-mapped physical memory)
         let entry_addr = pml4_phys + (i * 8);
-        let entry = unsafe { *(entry_addr as *u64) };
+        let entry_ptr = entry_addr as Ptr<u64>;
+        let entry = entry_ptr.read();
 
         if (entry & PT_PRESENT) != 0 && (entry & PT_USER) != 0 {
             let phys = entry & PT_ADDR_MASK;
@@ -95,7 +97,8 @@ pub fn atomic_page_sweep(pml4_phys: u64) -> SweepResult {
             }
 
             // Clear entry to prevent stale TLB hits
-            unsafe { *(entry_addr as *u64) = 0; }
+            let entry_ptr = entry_addr as Ptr<u64>;
+            entry_ptr.write(0);
             result.pml4_entries_swept = result.pml4_entries_swept + 1;
         }
 
@@ -120,7 +123,8 @@ fn sweep_pdpt(pdpt_phys: u64) -> SweepResult {
     let i: u64 = 0;
     while i < PML4_ENTRIES {
         let entry_addr = pdpt_phys + (i * 8);
-        let entry = unsafe { *(entry_addr as *u64) };
+        let entry_ptr = entry_addr as Ptr<u64>;
+        let entry = entry_ptr.read();
 
         if (entry & PT_PRESENT) != 0 {
             let phys = entry & PT_ADDR_MASK;
@@ -143,7 +147,8 @@ fn sweep_pdpt(pdpt_phys: u64) -> SweepResult {
                 result.total_bytes_freed = result.total_bytes_freed + PAGE_SIZE_4K;
             }
 
-            unsafe { *(entry_addr as *u64) = 0; }
+            let entry_ptr = entry_addr as Ptr<u64>;
+            entry_ptr.write(0);
         }
 
         i = i + 1;
@@ -167,7 +172,8 @@ fn sweep_pd(pd_phys: u64) -> SweepResult {
     let i: u64 = 0;
     while i < PML4_ENTRIES {
         let entry_addr = pd_phys + (i * 8);
-        let entry = unsafe { *(entry_addr as *u64) };
+        let entry_ptr = entry_addr as Ptr<u64>;
+        let entry = entry_ptr.read();
 
         if (entry & PT_PRESENT) != 0 {
             let phys = entry & PT_ADDR_MASK;
@@ -189,7 +195,8 @@ fn sweep_pd(pd_phys: u64) -> SweepResult {
                 result.total_bytes_freed = result.total_bytes_freed + PAGE_SIZE_4K;
             }
 
-            unsafe { *(entry_addr as *u64) = 0; }
+            let entry_ptr = entry_addr as Ptr<u64>;
+            entry_ptr.write(0);
         }
 
         i = i + 1;
@@ -210,7 +217,8 @@ fn sweep_pt(pt_phys: u64) -> u64 {
     let i: u64 = 0;
     while i < PML4_ENTRIES {
         let entry_addr = pt_phys + (i * 8);
-        let entry = unsafe { *(entry_addr as *u64) };
+        let entry_ptr = entry_addr as Ptr<u64>;
+        let entry = entry_ptr.read();
 
         if (entry & PT_PRESENT) != 0 {
             let phys = entry & PT_ADDR_MASK;
@@ -218,7 +226,8 @@ fn sweep_pt(pt_phys: u64) -> u64 {
             freed = freed + 1;
 
             // Clear entry
-            unsafe { *(entry_addr as *u64) = 0; }
+            let entry_ptr = entry_addr as Ptr<u64>;
+            entry_ptr.write(0);
         }
 
         i = i + 1;

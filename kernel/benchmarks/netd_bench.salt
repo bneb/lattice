@@ -747,13 +747,13 @@ pub fn run_netd_bench() {
 
     // Measurement pass — per-packet RDTSC for min/max/avg
     ipc_shm.spsc_init(ring_base);
+    let is_kvm = get_bench_divisor() == 1;
     let rx_count: u64 = if is_kvm { 10000 } else { 100 };  // 100 on TCG to avoid hang
     let mut rx_min: u64 = 0xFFFFFFFFFFFFFFFF;
     let mut rx_max: u64 = 0;
 
     // INTERRUPT SHIELD: CLI prevents timer/NMI from trashing L1 during measurement
     // GUARD: Only on KVM — TCG hangs if we disable its virtual timer
-    let is_kvm = get_bench_divisor() == 1;
     if is_kvm {
         cpu_cli();
     }

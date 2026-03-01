@@ -150,3 +150,115 @@ pub fn flight_dump_trace(cpu: u64, count: u64) {
 pub fn flight_get_trace_count(cpu: u64) -> u64 {
     return get_trace_count(cpu);
 }
+
+// =============================================================================
+// Extended Event Types for Flight Recorder DMA Dump (Epic III)
+// =============================================================================
+pub const EVENT_PANIC: u64     = 4;   // Kernel panic triggered
+pub const EVENT_NMI_HALT: u64  = 5;   // Core halted via NMI broadcast
+pub const EVENT_SLEEP: u64     = 6;   // Consumer entered idle_halt (Epic I)
+pub const EVENT_WAKE: u64      = 7;   // Consumer woken by producer (Epic I)
+
+// =============================================================================
+// FlightRecorderHeader — Panic Context Snapshot
+// =============================================================================
+// This header is populated by finalize_for_panic() and written as the first
+// 64 bytes of the VirtIO DMA dump. Post-crash tools read this to identify
+// the panic reason, faulting core, and timestamp without parsing trace events.
+//
+// Magic: 0x464C494748545243 = "FLIGHTREC" (minus the 'E' for alignment)
+// =============================================================================
+
+pub const FR_MAGIC: u64 = 0x464C494748545243;  // "FLIGHTRC"
+pub const FR_HEADER_SIZE: u64 = 64;
+
+pub struct FlightRecorderHeader {
+    pub magic: u64,              // 0x464C494748545243
+    pub panic_reason_hash: u64,  // SipHash of panic reason string
+    pub faulting_cpu: u64,       // CPU ID that triggered the panic
+    pub timestamp: u64,          // Blinded timestamp at panic
+    pub total_trace_events: u64, // Sum of trace events across all cores
+    pub global_epoch: u64,       // Current EBR epoch (if available)
+    pub reserved0: u64,          // Reserved for future use
+    pub reserved1: u64,          // Reserved for future use
+}
+
+// Global flight recorder header (populated during panic)
+global FR_HEADER: FlightRecorderHeader = FlightRecorderHeader {
+    magic: 0,
+    panic_reason_hash: 0,
+    faulting_cpu: 0,
+    timestamp: 0,
+    total_trace_events: 0,
+    global_epoch: 0,
+    reserved0: 0,
+    reserved1: 0,
+};
+
+// =============================================================================
+// get_total_trace_count — Sum of trace events across all cores
+// =============================================================================
+pub fn get_total_trace_count() -> u64 {
+    let mut total: u64 = 0;
+    let mut c: u64 = 0;
+    while c < MAX_CPUS {
+        total = total + TRACE_INDICES[c];
+        c = c + 1;
+    }
+    return total;
+}
+
+// =============================================================================
+// finalize_for_panic — Snapshot flight recorder state for DMA dump
+// =============================================================================
+// Called from the panic handler BEFORE DMA write. Populates the header
+// with crash context. The header must be written first in the DMA buffer
+// so post-crash tools can parse it without scanning trace events.
+//
+// reason_hash: Hash of the panic reason string (computed by caller via SipHash)
+// cpu_id: The CPU that triggered the panic
+// timestamp: Blinded timestamp (from sys_get_blinded_time)
+// =============================================================================
+pub fn finalize_for_panic(reason_hash: u64, cpu_id: u64, timestamp: u64) {
+    FR_HEADER.magic = FR_MAGIC;
+    FR_HEADER.panic_reason_hash = reason_hash;
+    FR_HEADER.faulting_cpu = cpu_id;
+    FR_HEADER.timestamp = timestamp;
+    FR_HEADER.total_trace_events = get_total_trace_count();
+    FR_HEADER.global_epoch = 0;  // TODO: read from EBR arena when integrated
+    FR_HEADER.reserved0 = 0;
+    FR_HEADER.reserved1 = 0;
+
+    // Log the panic event itself
+    log_trace(0, EVENT_PANIC);
+}
+
+// =============================================================================
+// get_header_ptr — Returns pointer to the flight recorder header
+// =============================================================================
+pub fn get_header_ptr() -> u64 {
+    return (&FR_HEADER) as u64;
+}
+
+// =============================================================================
+// get_header — Returns a copy of the flight recorder header (for tests)
+// =============================================================================
+pub fn get_header_magic() -> u64 {
+    return FR_HEADER.magic;
+}
+
+pub fn get_header_cpu() -> u64 {
+    return FR_HEADER.faulting_cpu;
+}
+
+pub fn get_header_timestamp() -> u64 {
+    return FR_HEADER.timestamp;
+}
+
+pub fn get_header_total_events() -> u64 {
+    return FR_HEADER.total_trace_events;
+}
+
+pub fn get_header_reason_hash() -> u64 {
+    return FR_HEADER.panic_reason_hash;
+}

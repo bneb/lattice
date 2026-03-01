@@ -25,6 +25,10 @@ use lettuce.resp.{
     write_bulk_string, write_null_bulk
 }
 
+// EBR retirement — defer memory reclamation instead of immediate free.
+// Resolved at link time from ebr_arena.o.
+extern fn ebr_retire(core: u64, ptr: u64);
+
 // ============================================================================
 // ExecResult — response length + input bytes consumed for pipelining
 // ============================================================================
@@ -214,6 +218,10 @@ pub fn execute(smap: &mut StringMap, input: StringView, out_buf: Ptr<u8>) -> Exe
         let key = StringView::from_raw(arg1.str_ptr, arg1.str_len);
         let deleted = smap.del(key);
         if deleted {
+            // EBR: defer reclamation instead of immediate free.
+            // The key's memory is retired to the EBR arena — it will be
+            // reclaimed when all concurrent readers have exited their epoch.
+            ebr_retire(0, arg1.str_ptr as u64);
             let r = write_integer(out_buf, 1);
             return ExecResult { resp_len: r, input_consumed: consumed };
         }

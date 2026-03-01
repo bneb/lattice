@@ -20,7 +20,7 @@
 
 package kernel.core.reclaim_histogram
 
-use kernel.arch.x86_64.serial
+use kernel.drivers.serial
 
 // =============================================================================
 // Configuration

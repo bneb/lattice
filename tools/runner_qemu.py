@@ -75,17 +75,57 @@ def ensure_build_dir():
     if not os.path.exists(BUILD_DIR):
         os.makedirs(BUILD_DIR)
 
+import hashlib
+import json
+
+CACHE_FILE = os.path.join(BUILD_DIR, ".build_cache.json")
+
+def _compute_file_hash(path):
+    """Compute SHA-256 hex digest of a file's contents."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+def _load_cache():
+    """Load the build cache from disk. Returns empty dict if missing/corrupt."""
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
+def _save_cache(cache):
+    """Persist the build cache to disk."""
+    ensure_build_dir()
+    with open(CACHE_FILE, "w") as f:
+        json.dump(cache, f, indent=2)
+
+# Global build cache — loaded once at startup, saved after all compilations
+BUILD_CACHE = _load_cache()
+
 def compile_salt(src_file):
     base_name = os.path.basename(src_file).replace(".salt", "")
     mlir_file = os.path.join(BUILD_DIR, f"{base_name}.mlir")
     ll_file = os.path.join(BUILD_DIR, f"{base_name}.ll")
     obj_file = os.path.join(BUILD_DIR, f"{base_name}.o")
 
+    # --- Build Cache Check ---
+    src_hash = _compute_file_hash(src_file)
+    cache_key = os.path.abspath(src_file)
+    cached = BUILD_CACHE.get(cache_key)
+    if cached and cached.get("hash") == src_hash and os.path.exists(obj_file):
+        print(f"  [CACHED] {src_file} (unchanged)")
+        return obj_file
+
     print(f"  [SALT] Compiling {src_file}...")
     
     # 1. Salt -> MLIR
     # salt-front prints to stdout. We capture it and write to file.
-    cmd = [SALT_FRONT, src_file, "--lib", "--no-verify", "--disable-alias-scopes"]
+    cmd = [SALT_FRONT, src_file, "--lib", "--disable-alias-scopes"]
     print(f"    Running: {' '.join(cmd)} > {mlir_file}")
     
     with open(mlir_file, "w") as out:
@@ -125,16 +165,33 @@ def compile_salt(src_file):
     print(f"    Running: {' '.join(cmd)}")
     subprocess.check_call(cmd)
     
+    # --- Update Build Cache ---
+    BUILD_CACHE[cache_key] = {"hash": src_hash}
+    _save_cache(BUILD_CACHE)
+
     return obj_file
 
 def compile_asm(src_file):
     base_name = os.path.basename(src_file).replace(".S", "")
     obj_file = os.path.join(BUILD_DIR, f"{base_name}.o")
     
+    # --- Build Cache Check ---
+    src_hash = _compute_file_hash(src_file)
+    cache_key = os.path.abspath(src_file)
+    cached = BUILD_CACHE.get(cache_key)
+    if cached and cached.get("hash") == src_hash and os.path.exists(obj_file):
+        print(f"  [CACHED] {src_file} (unchanged)")
+        return obj_file
+
     print(f"  [ASM]  Assembling {src_file}...")
     # Use cross-compilation target for assembly
     cmd = [TOOLCHAIN.clang, "-c", src_file, "-o", obj_file, "-target", TOOLCHAIN.target] 
     subprocess.check_call(cmd)
+
+    # --- Update Build Cache ---
+    BUILD_CACHE[cache_key] = {"hash": src_hash}
+    _save_cache(BUILD_CACHE)
+
     return obj_file
 
 def build_sip():
@@ -157,7 +214,7 @@ def build_sip():
     
     # Full custom PIE pipeline:
     # salt-front → salt-opt → llc → rust-lld
-    cmd = [SALT_FRONT, sip_src, "--lib", "--no-verify", "--disable-alias-scopes"]
+    cmd = [SALT_FRONT, sip_src, "--lib", "--disable-alias-scopes"]
     print(f"  [SIP]  salt-front → MLIR")
     with open(mlir_file, "w") as out:
         subprocess.check_call(cmd, stdout=out)
@@ -550,6 +607,16 @@ def run_qemu_test(kernel_path, timeout=600, termination_string="BENCHMARK SUITE 
     return True, output_buffer
 
 if __name__ == "__main__":
+    # --- Handle --clean flag ---
+    if "--clean" in sys.argv:
+        sys.argv.remove("--clean")
+        import shutil
+        if os.path.exists(BUILD_DIR):
+            shutil.rmtree(BUILD_DIR)
+            print(f"[CLEAN] Removed {BUILD_DIR}/")
+        BUILD_CACHE.clear()
+        print("[CLEAN] Build cache cleared. Full rebuild will be performed.")
+
     if len(sys.argv) > 1 and sys.argv[1] == "build":
         # Build-only mode (used by demo script)
         try:

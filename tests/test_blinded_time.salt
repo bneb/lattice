@@ -1,0 +1,228 @@
+// =============================================================================
+// tests/test_blinded_time.salt
+// TDD Test Suite for Epic II: RDTSC Blinding (Side-Channel Mitigation)
+// =============================================================================
+//
+// Tests:
+//   1. Noise is bounded: compute_noise always returns 0-1023
+//   2. Noise varies: different inputs produce different noise values
+//   3. Blinded time >= raw time: noise is additive (never negative)
+//   4. Blinded time diverges from raw: they should not be equal
+//   5. Noise is deterministic: same input produces same noise
+//   6. Statistical spread: noise samples have non-zero variance
+//
+// Run: ./scripts/run_test.sh tests/test_blinded_time.salt --bridge tests/bridges/spsc_bridge.c
+// =============================================================================
+
+package main
+
+extern fn malloc(size: i64) -> Ptr<u8>;
+
+// =============================================================================
+// SipHash-2-4 (mirrors kernel/core/time.salt)
+// =============================================================================
+
+const KERNEL_TIME_SECRET_K0: u64 = 0x5369646543686E6C;
+const KERNEL_TIME_SECRET_K1: u64 = 0x424C494E44494E47;
+const NOISE_MASK: u64 = 0x03FF;
+
+fn rotl64(x: u64, n: i32) -> u64 {
+    return (x << n) | (x >> (64 - n));
+}
+
+struct SipState {
+    v0: u64,
+    v1: u64,
+    v2: u64,
+    v3: u64,
+}
+
+fn sip_round(s: &mut SipState) {
+    s.v0 = s.v0 + s.v1;
+    s.v1 = rotl64(s.v1, 13);
+    s.v1 = s.v1 ^ s.v0;
+    s.v0 = rotl64(s.v0, 32);
+
+    s.v2 = s.v2 + s.v3;
+    s.v3 = rotl64(s.v3, 16);
+    s.v3 = s.v3 ^ s.v2;
+
+    s.v0 = s.v0 + s.v3;
+    s.v3 = rotl64(s.v3, 21);
+    s.v3 = s.v3 ^ s.v0;
+
+    s.v2 = s.v2 + s.v1;
+    s.v1 = rotl64(s.v1, 17);
+    s.v1 = s.v1 ^ s.v2;
+    s.v2 = rotl64(s.v2, 32);
+}
+
+fn siphash_2_4(k0: u64, k1: u64, m0: u64, m1: u64) -> u64 {
+    let mut s = SipState {
+        v0: k0 ^ 0x736f6d6570736575,
+        v1: k1 ^ 0x646f72616e646f6d,
+        v2: k0 ^ 0x6c7967656e657261,
+        v3: k1 ^ 0x7465646279746573,
+    };
+
+    s.v3 = s.v3 ^ m0;
+    sip_round(&mut s);
+    sip_round(&mut s);
+    s.v0 = s.v0 ^ m0;
+
+    s.v3 = s.v3 ^ m1;
+    sip_round(&mut s);
+    sip_round(&mut s);
+    s.v0 = s.v0 ^ m1;
+
+    let len_byte: u64 = 16 << 56;
+    s.v3 = s.v3 ^ len_byte;
+    sip_round(&mut s);
+    sip_round(&mut s);
+    s.v0 = s.v0 ^ len_byte;
+
+    s.v2 = s.v2 ^ 0xFF;
+    sip_round(&mut s);
+    sip_round(&mut s);
+    sip_round(&mut s);
+    sip_round(&mut s);
+
+    return s.v0 ^ s.v1 ^ s.v2 ^ s.v3;
+}
+
+fn compute_noise(raw_cycles: u64) -> u64 {
+    return siphash_2_4(KERNEL_TIME_SECRET_K0, KERNEL_TIME_SECRET_K1, raw_cycles, 0) & NOISE_MASK;
+}
+
+fn sys_get_blinded_time(raw_cycles: u64) -> u64 {
+    let noise = compute_noise(raw_cycles);
+    return raw_cycles + noise;
+}
+
+// =============================================================================
+// Main — Test Entry Point
+// =============================================================================
+
+fn main() -> i32 {
+    println("=== RDTSC Blinding Tests ===");
+
+    let mut all_pass = true;
+
+    // TEST 1: Noise is bounded (0-1023) for many inputs
+    let mut bounded_ok = true;
+    let mut i: u64 = 0;
+    while i < 10000 {
+        let noise = compute_noise(i * 1000);
+        if noise > 1023 {
+            println(f"FAIL: noise_bounded — got {noise} for input {i}");
+            bounded_ok = false;
+            i = 10000;
+        }
+        i = i + 1;
+    }
+    if bounded_ok {
+        println("PASS: noise_bounded (10000 samples all <= 1023)");
+    } else {
+        all_pass = false;
+    }
+
+    // TEST 2: Noise varies — different inputs produce different noise
+    let n0 = compute_noise(0);
+    let n1 = compute_noise(1000);
+    let n2 = compute_noise(2000);
+    let n3 = compute_noise(3000);
+    // At least 2 out of 4 should differ (SipHash is a PRF)
+    let mut distinct: u64 = 1;
+    if n1 != n0 { distinct = distinct + 1; }
+    if n2 != n0 && n2 != n1 { distinct = distinct + 1; }
+    if n3 != n0 && n3 != n1 && n3 != n2 { distinct = distinct + 1; }
+    if distinct >= 2 {
+        println(f"PASS: noise_varies ({distinct} distinct values from 4 inputs)");
+    } else {
+        println(f"FAIL: noise_varies — only {distinct} distinct values");
+        all_pass = false;
+    }
+
+    // TEST 3: Blinded time >= raw time (noise is additive)
+    let mut additive_ok = true;
+    i = 0;
+    while i < 1000 {
+        let raw = i * 5000;
+        let blinded = sys_get_blinded_time(raw);
+        if blinded < raw {
+            println(f"FAIL: additive — blinded={blinded} < raw={raw}");
+            additive_ok = false;
+            i = 1000;
+        }
+        i = i + 1;
+    }
+    if additive_ok {
+        println("PASS: additive (1000 samples: blinded >= raw)");
+    } else {
+        all_pass = false;
+    }
+
+    // TEST 4: Blinded diverges from raw (noise != 0 for most inputs)
+    let mut diverge_count: u64 = 0;
+    i = 0;
+    while i < 100 {
+        let raw = i * 7777 + 42;
+        let blinded = sys_get_blinded_time(raw);
+        if blinded != raw {
+            diverge_count = diverge_count + 1;
+        }
+        i = i + 1;
+    }
+    // At least 90% should diverge (noise=0 is possible but rare: 1/1024)
+    if diverge_count >= 90 {
+        println(f"PASS: divergence ({diverge_count}/100 samples blinded != raw)");
+    } else {
+        println(f"FAIL: divergence — only {diverge_count}/100 diverged");
+        all_pass = false;
+    }
+
+    // TEST 5: Noise is deterministic — same input = same noise
+    let na = compute_noise(123456789);
+    let nb = compute_noise(123456789);
+    if na == nb {
+        println("PASS: deterministic");
+    } else {
+        println(f"FAIL: deterministic — {na} != {nb}");
+        all_pass = false;
+    }
+
+    // TEST 6: Statistical spread — noise values are well-distributed
+    // Count how many of 256 noise values fall in [0,255], [256,511], [512,767], [768,1023]
+    let mut bucket0: u64 = 0;
+    let mut bucket1: u64 = 0;
+    let mut bucket2: u64 = 0;
+    let mut bucket3: u64 = 0;
+    i = 0;
+    while i < 1000 {
+        let noise = compute_noise(i * 31337);
+        if noise < 256 {
+            bucket0 = bucket0 + 1;
+        } else if noise < 512 {
+            bucket1 = bucket1 + 1;
+        } else if noise < 768 {
+            bucket2 = bucket2 + 1;
+        } else {
+            bucket3 = bucket3 + 1;
+        }
+        i = i + 1;
+    }
+    // Each bucket should have at least 100 entries (expected ~250 each)
+    if bucket0 >= 100 && bucket1 >= 100 && bucket2 >= 100 && bucket3 >= 100 {
+        println(f"PASS: distribution ({bucket0}/{bucket1}/{bucket2}/{bucket3})");
+    } else {
+        println(f"FAIL: distribution ({bucket0}/{bucket1}/{bucket2}/{bucket3})");
+        all_pass = false;
+    }
+
+    if all_pass {
+        println("=== ALL RDTSC BLINDING TESTS PASSED ===");
+        return 0;
+    }
+    println("=== SOME TESTS FAILED ===");
+    return 1;
+}
