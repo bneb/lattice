@@ -85,7 +85,7 @@ graph TD
     B --> D["PIT Timer @ 100Hz"]
     B --> SMP["SMP Bring-up<br/>(ACPI → APIC → INIT-SIPI-SIPI)"]
     SMP --> AP["3 APs<br/>(GS_BASE → idle loop)"]
-    B --> E["Per-Core Scheduler<br/>(O(1) bitmap, 256 fibers/core)"]
+    B --> E["Per-Core Scheduler<br/>(O(1) bitmap, Chase-Lev work-stealing, 256 fibers/core)"]
     B --> MM["Dynamic Memory<br/>(PMM + Slab + VMA)"]
     E --> UTP["Universal Task Pointer<br/>(invoke_task: zero-branch dispatch)"]
     UTP --> ASYNC["Async Fibers<br/>(Z3 @pulse verified)"]
@@ -123,13 +123,14 @@ graph TD
 
 | Directory | Role | Key Invariant |
 |-----------|------|---------------|
-| [`core/`](./core) | Scheduler, PMM, syscalls, dispatcher, per-CPU, process mgmt, Universal Task Pointer, Ring 3 TDD (ring3_test.salt) | **Zero-Branch Dispatch:** `invoke_task(step_fn, ctx)` for all fiber types. **Async:** Z3 `@pulse` verified. **Preemptive:** IRETQ + APIC timer. **Ring 3:** SWAPGS + KPTI CR3 (GS:[64]). |
-| [`arch/`](./arch) | x86_64 boot, GDT/TSS, IDT, ISRs, SMP, SYSCALL fast path (SWAPGS), preempt_stub (user_stack_init) | **4-Core SMP:** Sequential AP handshake with GS_BASE per-CPU data. **Preemptive ABI:** `invoke_preemptive_thread` + `preempt_return_to_scheduler`. **Ring 3:** `user_stack_init` (SS=0x23, CS=0x2B). |
+| [`core/`](./core) | Scheduler, PMM, syscalls, dispatcher, per-CPU, process mgmt, Universal Task Pointer, Ring 3 TDD (ring3_test.salt) | **Zero-Branch Dispatch:** `invoke_task(step_fn, ctx)` for all fiber types. **Chase-Lev Work-Stealing:** idle cores steal from sibling deques via full 7-field fiber migration. **Async:** Z3 `@pulse` verified. **Preemptive:** IRETQ + APIC timer. **Ring 3:** SWAPGS + KPTI CR3 (GS:[64]). |
+| [`sched/`](../kernel/sched) | Chase-Lev lock-free deque, fiber affinity, work distribution | **Static Buffers:** `DEQUE_BUFFERS[16][1024]` — zero malloc dependency. **Memory Ordering:** Release/Acquire barriers for cross-core steal. |
+| [`arch/`](./arch) | x86_64 boot, GDT/TSS, IDT, ISRs, SMP, SYSCALL fast path (SWAPGS), preempt_stub (user_stack_init) | **16-Core SMP:** Sequential AP handshake with GS_BASE per-CPU data. **Preemptive ABI:** `invoke_preemptive_thread` + `preempt_return_to_scheduler`. **Ring 3:** `user_stack_init` (SS=0x23, CS=0x2B). |
 | [`drivers/`](./drivers) | Serial (UART), VirtIO-Net | **Isolation:** Drivers cannot corrupt kernel state |
 | [`mem/`](./mem) | Slab allocator (128-bit CAS), user paging, VMA, mm_layout | **O(1):** Bump allocation, zero free cost |
-| [`net/`](./net) | Ethernet, IP, UDP, ARP, **NetD bridges** (RX/TX SPSC), ARP cache (256-entry LRU), TCP connection manager (1024 TCBs), TCP parser + RFC 793 checksum | **Zero-copy:** Ring 3 data plane. Kernel is immune to packet-parsing RCE. |
-| [`lib/`](./lib) | SPSC ring buffer (ipc_shm) | **Lock-free:** Single-producer single-consumer queue |
-| [`../user/`](../user) | **Socket API** (socket.salt, socket_protocol.salt), **NetD** (netd.salt), syscall bindings | **Zero-trap data plane:** `read()`/`write()` are pure shared-memory SPSC ops. Control plane (bind/accept/close) via IPC. |
+| [`net/`](./net) | Ethernet, IP, UDP, ARP, **NetD bridges** (RX/TX SPSC), ARP cache (256-entry LRU), TCP connection manager (1024 TCBs), TCP parser + RFC 793 checksum, **stateless SYN cookie defense** (SipHash-2-4) | **Zero-copy:** Ring 3 data plane. Kernel is immune to packet-parsing RCE. **SYN Flood Immune:** Zero TCBs allocated during SYN_RECEIVED — cookie ISN encodes connection state. |
+| [`lib/`](./lib) | SPSC ring buffer (ipc_shm), Epoch-Based Reclamation (EBR) | **Lock-free:** Single-producer single-consumer queue. **EBR:** `ebr_enter_epoch`/`exit_epoch` at kqueue dispatch level for zero-pause concurrent memory compaction. |
+| [`../user/`](../user) | **Socket API** (socket.salt, socket_protocol.salt), **NetD** (netd.salt), syscall bindings | **Zero-trap data plane:** `read()`/`write()` are pure shared-memory SPSC ops. Control plane (bind/accept/close) via IPC. **SYN cookies:** `handle_syn` generates stateless ISN via SipHash-2-4; `handle_ack` validates cookie before TCB allocation. |
 
 ## Verified Kernel Primitives
 

@@ -1531,11 +1531,12 @@
                     <div>
                         <h2>Lattice</h2>
                         <p style="color: var(--text-muted); margin-top: 12px; line-height: 1.7;">
-                            A unikernel that boots on real x86 hardware, written from scratch in Salt.
-                            GDT, IDT, PIT timer, ACPI/APIC, SMP bring-up (INIT-SIPI-SIPI),
-                            preemptive scheduler, per-core sharded allocators, a zero-trap socket API
-                            where <code>read()</code> and <code>write()</code> are pure shared-memory
-                            operations with no kernel traps, and a Ring 3 network daemon with TCP/IP stack.
+                            A sovereign microkernel that boots on real x86 hardware, written from scratch in Salt.
+                            16-core SMP with Chase-Lev work-stealing, ACPI/APIC,
+                            preemptive scheduler with 7-field fiber migration, per-core sharded allocators,
+                            a zero-trap socket API where <code>read()</code> and <code>write()</code> are pure shared-memory
+                            operations with no kernel traps, a Ring 3 TCP stack hardened with stateless SYN cookies
+                            (SipHash-2-4), and epoch-based memory reclamation.
                             No C runtime, no libc, no external dependencies.
                         </p>
                         <div class="lettuce-stats">
@@ -1575,8 +1576,8 @@
                 <div class="stat-card"
                     style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; text-align: center;">
                     <div style="font-size: 2rem; font-weight: 800; color: #54a0ff;">487 cycles</div>
-                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px;">Context Switch (4
-                        fibers)</div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px;">Context Switch (16-core
+                        SMP)</div>
                     <div style="font-size: 0.75rem; color: #545480; margin-top: 4px;">~122 ns · full GPR + 512B FXSAVE
                     </div>
                 </div>

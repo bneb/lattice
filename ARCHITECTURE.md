@@ -41,7 +41,7 @@ The key insight is that Salt's compile-time formal verification eliminates the n
 | Component | Location | Role |
 |-----------|----------|------|
 | **PMM** | `kernel/core/pmm.salt` | Physical page allocator (buddy system) |
-| **Scheduler** | `kernel/core/scheduler.salt` | 4-core SMP, preemptive, round-robin |
+| **Scheduler** | `kernel/core/scheduler.salt` | 16-core SMP, preemptive, Chase-Lev work-stealing |
 | **Syscalls** | `kernel/core/syscall.salt` | `sys_shm_grant`, `sys_ipc_send`, `sys_yield` |
 | **IPC** | `kernel/lib/ipc_shm.salt` | SPSC ring buffer (raw offset API) |
 | **IPC Ring** | `kernel/lib/ipc_ring.salt` | `SpscRing` struct with `@align(64)` + `SpscDescriptor` |
@@ -50,6 +50,9 @@ The key insight is that Salt's compile-time formal verification eliminates the n
 | **NetD Bridge** | `kernel/net/netd_bridge.salt` | VirtIO RX → SPSC ring pump |
 | **SMP** | `kernel/arch/x86/smp.salt` | AP bootstrap, per-CPU state |
 | **Sovereign Reclaim** | `kernel/core/sovereign_reclaim.salt` | 5-phase hardware-fenced process teardown |
+| **Chase-Lev Deque** | `kernel/sched/chase_lev.salt` | Per-core lock-free work-stealing deque, static `DEQUE_BUFFERS[16][1024]` |
+| **Epoch-Based Reclamation** | `kernel/lib/ebr_arena.salt` | Zero-pause concurrent memory compaction via `ebr_enter_epoch`/`exit_epoch` |
+| **SIR Boundary** | `salt-front/src/codegen/sir/` | Versioned AST extraction: types, contracts, spans → SirModule JSON/Flatbuffer |
 | **Page Sweep** | `kernel/mem/page_sweep.salt` | Non-recursive PML4 page table teardown |
 | **Reclaim Histogram** | `kernel/core/reclaim_histogram.salt` | P99 reclamation telemetry (1024-entry) |
 
@@ -57,7 +60,7 @@ The key insight is that Salt's compile-time formal verification eliminates the n
 
 | Daemon | Role | Communication |
 |--------|------|---------------|
-| **NetD** | Full TCP/IP stack: ARP, IP, TCP | SPSC ring from kernel bridge |
+| **NetD** | Full TCP/IP stack: ARP, IP, TCP (SYN cookie–hardened) | SPSC ring from kernel bridge |
 | **LatticeStore** | Block storage via VMO | SPSC ring (planned v0.9.2) |
 | **User Apps** | Application processes | Socket API via NetD |
 
@@ -89,7 +92,8 @@ Offset   Size   Field           Cache Line   Z3 Proof
 0x000    8B     head (u64)      Line 0       z3_align_verified @ 0
 0x008    8B     capacity (u64)  Line 0       (same line as head)
 0x040    8B     tail (u64)      Line 1       z3_align_verified @ 64
-0x080    3968B  data[]          Lines 2-63   (ring buffer payload)
+0x048    8B     consumer_wait   Line 1       @align(64) signal flag
+0x080    3904B  data[]          Lines 2-63   (ring buffer payload)
 ```
 
 The `@align(64)` attribute on `head` and `tail` is proven correct by Z3 at compile time:
@@ -150,7 +154,7 @@ python3 tools/runner_qemu.py kernel/build/lattice.elf
 | v0.9.0 | *Sovereign Networking* | Ring 3 NetD, zero-trap sockets, SPSC IPC |
 | v0.9.1 | *Sovereign Foundation* | `@align(64)` cache-line isolation, proof-carrying IPC, SipHash-2-4 hardening, sovereign reclaim, chaos testing |
 | v0.9.2 | *Postcondition Pivot* | Z3-backed `ensures` for pure functions — path-sensitive WP verification, implicit guard negation, incompleteness gate (6/6 GREEN) |
-| v0.9.3 | *Loop Sovereignty* | `invariant` keyword, induction-based termination proofs (planned) |
-| v0.9.4 | *Persistence Pillar* | Block-VMO storage, NVMe SPSC bridge (planned) |
-| v0.9.5 | *Total Verification* | Z3-unified arena bounds, SPSC pointer proofs (planned) |
-| v1.0.0 | *Lattice Sovereign* | ABI freeze, self-hosting, full formal verification (planned) |
+| v0.9.3 | *Sovereign Authority* | Chase-Lev work-stealing SMP, stateless SYN cookie hardening (SipHash-2-4), Epoch-Based Reclamation, SIR boundary decoupling (194/194 tests) |
+| v1.0.0 | *Sovereign Architecture* | Salt LSP v0.2.0 (zero-I/O, Z3 hover, Go-to-Definition), full 16-core SMP scale-out, adversarial NetD, 32/32 LSP tests |
+| v1.1.0 | *Loop Sovereignty* | `invariant` keyword, induction-based termination proofs (planned) |
+| v1.2.0 | *Persistence Pillar* | Block-VMO storage, NVMe SPSC bridge (planned) |
