@@ -33,6 +33,10 @@ extern fn run_shm_grant_bench(); // shm_grant_bench
 extern fn run_spsc_bench(); // spsc_bench
 extern fn run_netd_bench(); // netd_bench: 19-gate C10M data plane + TCP stack
 extern fn run_socket_bench(); // socket_bench: socket API TDD gates
+extern fn apic_mask_timer();   // mask LAPIC timer (suppress IRQs)
+extern fn apic_unmask_timer(); // unmask LAPIC timer (restore IRQs)
+extern fn apic_ioapic_mask_irq0();   // mask PIT IRQ0 at I/O APIC
+extern fn apic_ioapic_unmask_irq0(); // unmask PIT IRQ0 at I/O APIC
 extern fn test_ring3_iretq_frame();  // ring3_test TDD Gate 1
 extern fn test_ring3_kpti();          // ring3_test TDD Gate 2
 extern fn test_kpti_user_pml4_isolated(); // ring3_test TDD Gate 6
@@ -104,9 +108,15 @@ pub fn bench_suite_run() {
     run();
 
     // ── 2. Syscall latency (Ring 3 trampoline) ────────────────────────
-    // SKIPPED: Ring 3 SYSRET escape path hangs on KVM (SWAPGS NMI also
-    // fails — Ring 3 transitions need further investigation).
-    serial.print("BENCH:suite:SKIP syscall_bench (Ring 3 SYSRET hang, investigating)\n");
+    // Fixed: Warmup loop now uses R12 (callee-saved) instead of ECX.
+    // SYSCALL hardware clobbers RCX with the return RIP — using ECX as
+    // a loop counter across SYSCALL caused the 0x7FFFFFF* crash on KVM.
+    if is_kvm {
+        serial.print("BENCH:suite:running syscall_bench\n");
+        run_syscall_bench();
+    } else {
+        serial.print("BENCH:suite:SKIP syscall_bench (TCG — requires IRETQ+SYSRET)\n");
+    }
 
     // ── 3. IPC ping-pong — SKIPPED: triple faults on KVM (responder spawn) ──
     serial.print("BENCH:suite:SKIP ipc_bench (responder spawn crash, investigating)\n");

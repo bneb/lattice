@@ -58,12 +58,26 @@ drop_to_ring3_and_bench:
     /* 4. Build the IRETQ hardware frame (pushed in reverse order) */
     push 0x23               /* SS  = User Data (GDT[4]) | RPL 3 */
     push rsi                /* RSP = ring3_stack (passed in RSI) */
-    push 0x2                /* RFLAGS = reserved only; IF=0 (no PIT interrupts in Ring 3) */
+    push 0x202              /* RFLAGS: Reserved=1 (bit 1) + IF=1 (bit 9)       */
+                            /* CRITICAL: IF must be 1. SYSRET restores RFLAGS  */
+                            /* from R11, which captures user RFLAGS at SYSCALL */
+                            /* entry. IF=0 creates an interrupt black hole:    */
+                            /* LAPIC timer fires but CPU holds it pending,     */
+                            /* FMASK keeps IF=0 in kernel, SYSRET restores    */
+                            /* IF=0 from R11, Ring 3 is permanently deaf.     */
     push 0x2B               /* CS  = User Code 64 (GDT[5]) | RPL 3 */
     push rdi                /* RIP = ring3_func (passed in RDI) */
 
     /* Diagnostic: mark that trampoline reached IRETQ (1 = Ring 0 reached here) */
     mov qword ptr [rip + bench_diag_phase], 1
+
+    /* ═══ KPTI State Seeding ═══
+     * Seed gs:[128] (user_cr3_scratch) and gs:[64] (kernel_cr3) with
+     * the current CR3 so syscall_entry_fast has valid PML4 data for
+     * the KPTI CR3 swap on all iterations (not just the first). */
+    mov rax, cr3
+    mov gs:[128], rax       /* user_cr3_scratch = current PML4 */
+    mov gs:[64], rax        /* kernel_cr3 = current PML4 */
 
     /* SWAPGS: Kernel GS → User GS before entering Ring 3 */
     swapgs
@@ -100,30 +114,30 @@ ring3_bench_loop_asm:
     /* Mark: entered Ring 3 */
     mov qword ptr [rip + bench_diag_phase], 1
 
-    /* ── Warmup: prime SYSCALL/SYSRET pipeline ── */
-    mov ecx, WARMUP_COUNT
+    /* ── Warmup: prime SYSCALL/SYSRET pipeline ──
+     * CRITICAL: SYSCALL hardware clobbers RCX (with RIP) and R11 (with RFLAGS).
+     * We MUST use a callee-saved register (R12) as the loop counter.
+     * RCX/R11 are saved/restored around each SYSCALL via push/pop. */
+    mov r12d, WARMUP_COUNT
 .Lwarmup:
-    push rcx
-    /* inline syscall_noop: save RCX/R11 around SYSCALL */
     push rcx
     push r11
     xor eax, eax
     syscall
     pop r11
     pop rcx
-    pop rcx
-    dec ecx
+    dec r12d
     jnz .Lwarmup
 
     mov qword ptr [rip + bench_diag_phase], 2
 
     /* ── Measurement: rdtsc → SYSCALL(0) → SYSRET → rdtsc ── */
-    /* Use callee-saved registers to survive SYSCALL clobber:
+    /* All state registers are callee-saved (survive SYSCALL clobber):
      *   R12 = loop counter
      *   R13 = valid sample count
      *   R14 = total cycles
      *   R15 = min cycles
-     *   RBX = max cycles (also first_t0 temporarily)
+     *   RBX = max cycles
      */
     xor r12d, r12d          /* loop counter = 0 */
     xor r13d, r13d          /* valid = 0 */
@@ -135,12 +149,12 @@ ring3_bench_loop_asm:
     cmp r12d, SAMPLE_COUNT
     jge .Lmeasure_done
 
-    /* rdtsc → RBP (t0) — we save it in RBP */
+    /* rdtsc → RBP (t0) */
     rdtsc
     shl rdx, 32
     or rax, rdx
     push rbp
-    mov rbp, rax            /* t0 in RBP */
+    mov rbp, rax            /* t0 in RBP (callee-saved) */
 
     /* Save first t0 for diagnostics */
     test r12d, r12d
@@ -148,7 +162,7 @@ ring3_bench_loop_asm:
     mov [rip + bench_asm_first_t0], rax
 .Lskip_first_t0:
 
-    /* syscall_noop (inline) */
+    /* syscall_noop — RCX/R11 saved around SYSCALL */
     push rcx
     push r11
     xor eax, eax
@@ -171,7 +185,7 @@ ring3_bench_loop_asm:
     mov [rip + bench_asm_first_elapsed], rax
 .Lskip_first_elapsed:
 
-    /* Increment loop counter */
+    /* Increment loop counter (R12 — callee-saved, not clobbered) */
     inc r12d
     mov qword ptr [rip + bench_asm_loops], r12
 

@@ -297,3 +297,49 @@ pub fn apic_send_self_nmi() { send_self_nmi(); }
 
 @no_mangle
 pub fn apic_init_nmi_timer(count: u32) { init_nmi_timer(count); }
+
+@no_mangle
+pub fn apic_mask_timer() { mask_timer(); }
+
+@no_mangle
+pub fn apic_unmask_timer() { unmask_timer(); }
+
+// =============================================================================
+// I/O APIC — IRQ0 (PIT Timer) Masking
+// =============================================================================
+// The I/O APIC routes external interrupts (PIT, keyboard, etc.) to Local APICs.
+// Physical base: 0xFEC00000 (identity-mapped via boot.S PDPT[3] 1GB page).
+// Register access: indirect via IOREGSEL (base+0x00) and IOWIN (base+0x10).
+// RTE 0 (IRQ0 = PIT): register index 0x10 (low 32 bits), bit 16 = mask.
+//
+// Used to silence the PIT during Ring 3 SYSCALL benchmarks. Without this,
+// the PIT fires IRQ0 into Ring 3, the ISR runs the scheduler which overwrites
+// gs:[96] (kernel_rsp0_scratch), and the next SYSCALL loads a stale stack.
+// =============================================================================
+const IOAPIC_BASE: u64 = 0xFEC00000;
+const IOAPIC_IOREGSEL: u64 = 0xFEC00000;       // Register Select (offset 0x00)
+const IOAPIC_IOWIN: u64    = 0xFEC00000 + 0x10; // Data Window (offset 0x10)
+const IOAPIC_RTE0_LO: u32  = 0x10;              // RTE 0 low dword register index
+
+pub fn ioapic_mask_irq0() {
+    // Select RTE 0 (low 32 bits)
+    mmio_write32(IOAPIC_IOREGSEL, IOAPIC_RTE0_LO);
+    // Read current value
+    let rte_lo = mmio_read32(IOAPIC_IOWIN);
+    // Set bit 16 (Interrupt Mask)
+    mmio_write32(IOAPIC_IOREGSEL, IOAPIC_RTE0_LO);
+    mmio_write32(IOAPIC_IOWIN, rte_lo | 0x10000);
+}
+
+pub fn ioapic_unmask_irq0() {
+    mmio_write32(IOAPIC_IOREGSEL, IOAPIC_RTE0_LO);
+    let rte_lo = mmio_read32(IOAPIC_IOWIN);
+    mmio_write32(IOAPIC_IOREGSEL, IOAPIC_RTE0_LO);
+    mmio_write32(IOAPIC_IOWIN, rte_lo & 0xFFFEFFFF);
+}
+
+@no_mangle
+pub fn apic_ioapic_mask_irq0() { ioapic_mask_irq0(); }
+
+@no_mangle
+pub fn apic_ioapic_unmask_irq0() { ioapic_unmask_irq0(); }
