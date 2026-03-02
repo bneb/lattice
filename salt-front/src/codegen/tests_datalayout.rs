@@ -10,6 +10,7 @@
 //! that corrupts struct arrays and triggers Triple Faults in the kernel.
 
 #[cfg(test)]
+use crate::z3_shim as z3;
 mod tests {
     use crate::grammar::SaltFile;
     use crate::codegen::context::CodegenContext;
@@ -18,8 +19,8 @@ mod tests {
     fn compile_to_mlir(source: &str) -> String {
         let file: SaltFile = syn::parse_str(source)
             .unwrap_or_else(|e| panic!("Failed to parse Salt source: {}", e));
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
         ctx.drive_codegen()
             .unwrap_or_else(|e| panic!("Codegen failed: {}", e))
@@ -116,8 +117,8 @@ mod tests {
                 return 42;
             }
         "#).unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
         ctx.lib_mode = true;
         let mlir = ctx.drive_codegen()
@@ -193,8 +194,8 @@ mod tests {
                 return 42;
             }
         "#).unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
         ctx.lib_mode = true;
         let mlir = ctx.drive_codegen()

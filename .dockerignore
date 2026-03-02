@@ -1,0 +1,29 @@
+# Docker build artifacts
+qemu_build/
+.bench_instance
+
+# Rust build dirs
+salt-front/target/
+tools/salt-lsp/target/
+
+# C++ build dirs
+salt/build/
+
+# Git
+.git/
+
+# Large binary artifacts
+*.elf
+*.o
+*.bin
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Agent
+.agent/
+.gemini/

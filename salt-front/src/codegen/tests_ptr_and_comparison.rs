@@ -10,6 +10,7 @@
 //! Each test is designed to FAIL on the current (broken) code and PASS after fixes.
 
 #[cfg(test)]
+use crate::z3_shim as z3;
 mod tests {
     use crate::codegen::CodegenContext;
     use crate::grammar::SaltFile;
@@ -17,10 +18,10 @@ mod tests {
 
     /// Helper: Create a fresh CodegenContext for testing
     #[allow(dead_code)]
-    fn make_ctx() -> (SaltFile, z3::Config, z3::Context) {
+    fn make_ctx() -> (SaltFile, crate::z3_shim::Config, crate::z3_shim::Context) {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         (file, z3_cfg, z3_ctx)
     }
 
@@ -34,8 +35,8 @@ mod tests {
     /// Verify emit_gep output format for a given element type string
     fn assert_gep_elem_ty(elem_ty: &str) {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let mut out = String::new();
@@ -119,8 +120,8 @@ mod tests {
     #[test]
     fn test_ptr_offset_elem_type_i64() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let ptr_ty = Type::Concrete("std__core__ptr__Ptr".to_string(), vec![Type::I64]);
@@ -144,8 +145,8 @@ mod tests {
     #[test]
     fn test_ptr_offset_elem_type_u8() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let ptr_ty = Type::Concrete("std__core__ptr__Ptr".to_string(), vec![Type::U8]);
@@ -168,8 +169,8 @@ mod tests {
     #[test]
     fn test_ptr_offset_elem_type_i32() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let ptr_ty = Type::Concrete("std__core__ptr__Ptr".to_string(), vec![Type::I32]);
@@ -192,8 +193,8 @@ mod tests {
     #[test]
     fn test_ptr_offset_elem_type_f32() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let ptr_ty = Type::Concrete("std__core__ptr__Ptr".to_string(), vec![Type::F32]);
@@ -216,8 +217,8 @@ mod tests {
     #[test]
     fn test_ptr_offset_elem_type_f64() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let ptr_ty = Type::Concrete("std__core__ptr__Ptr".to_string(), vec![Type::F64]);
@@ -240,8 +241,8 @@ mod tests {
     #[test]
     fn test_ptr_offset_elem_type_u64() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let ptr_ty = Type::Concrete("std__core__ptr__Ptr".to_string(), vec![Type::U64]);
@@ -267,8 +268,8 @@ mod tests {
     #[test]
     fn test_ptr_offset_elem_type_struct_entry() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         // This is what happens after monomorphization:
@@ -298,8 +299,8 @@ mod tests {
     #[test]
     fn test_ptr_offset_elem_type_ptr_to_ptr() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let inner_ptr = Type::Concrete("std__core__ptr__Ptr".to_string(), vec![Type::I64]);
@@ -324,8 +325,8 @@ mod tests {
     #[test]
     fn test_ptr_offset_struct_fallback_i64() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let _ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         // When Ptr type comes through as Type::Struct after monomorphization
@@ -375,8 +376,8 @@ mod tests {
     #[test]
     fn test_emit_cmp_i64_values() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let mut out = String::new();
@@ -394,8 +395,8 @@ mod tests {
     #[test]
     fn test_emit_cmp_ptr_values() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let mut out = String::new();
@@ -412,8 +413,8 @@ mod tests {
     #[test]
     fn test_reference_type_resolves_to_ptr() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let ref_ty = Type::Reference(Box::new(Type::I64), false);
@@ -435,8 +436,8 @@ mod tests {
     #[test]
     fn test_reference_comparison_should_load_values() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         // Simulate what SHOULD happen for `&a == &b`:
@@ -472,8 +473,8 @@ mod tests {
     #[test]
     fn test_emit_gep_field_simple_struct() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let mut out = String::new();
@@ -489,8 +490,8 @@ mod tests {
     #[test]
     fn test_emit_gep_field_second_field() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let mut out = String::new();
@@ -504,8 +505,8 @@ mod tests {
     #[test]
     fn test_emit_gep_field_hashmap_entry() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let mut out = String::new();
@@ -521,8 +522,8 @@ mod tests {
     #[test]
     fn test_emit_gep_field_hashmap_struct() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let _out = String::new();
@@ -551,8 +552,8 @@ mod tests {
     #[test]
     fn test_type_to_mlir_primitives() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let cases = vec![
@@ -579,8 +580,8 @@ mod tests {
     #[test]
     fn test_type_to_mlir_reference() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let ref_i64 = Type::Reference(Box::new(Type::I64), false);
@@ -615,8 +616,8 @@ mod tests {
         len_is_i64: bool,
     ) -> String {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let mut out = String::new();

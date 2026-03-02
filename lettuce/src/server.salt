@@ -105,7 +105,7 @@ fn main() -> i32 {
                         client.close();
                     }
                 }
-            } else {
+            } else if event_fd >= 0 && event_fd < MAX_FDS {
                 handle_client(event_fd, &poll, &mut smap, &mut slab);
             }
 
@@ -134,6 +134,11 @@ fn main() -> i32 {
 // ============================================================================
 
 fn handle_client(fd: i32, poll: &Poller, smap: &mut StringMap, slab: &mut Slab<ClientSession>) {
+    // Pre-allocate send buffer FIRST to avoid stack corruption on Linux
+    let mut send_buf: [u8; 4096] = [0; 4096];
+    let send_ptr = &send_buf[0] as Ptr<u8>;
+    let send_buf_cap: i64 = 4096;
+
     let stream = TcpStream { fd: fd };
     let session = slab.get(fd);
 
@@ -163,10 +168,7 @@ fn handle_client(fd: i32, poll: &Poller, smap: &mut StringMap, slab: &mut Slab<C
 
     // 2. Parse loop (pipelining + fragmentation)
     let mut parse_cur = session.parse_cursor;
-    let mut send_buf: [u8; 4096] = [0; 4096];
-    let send_ptr = &send_buf[0] as Ptr<u8>;
     let mut total_resp: i64 = 0;
-    let send_buf_cap: i64 = 4096;
 
     while parse_cur < new_read_cur {
         let unparsed_len = new_read_cur - parse_cur;

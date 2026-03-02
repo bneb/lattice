@@ -35,25 +35,26 @@ pub use proof_witness::{ProofHint, VerificationFailure};
 use crate::codegen::context::{CodegenContext, LoweringContext};
 use crate::types::Type;
 use std::collections::HashMap;
-use z3::ast::Ast;
+use crate::z3_shim::ast::Ast;
 
 use std::rc::Rc;
+use crate::z3_shim as z3;
 
 pub struct SymbolicContext<'ctx> {
-    pub z3_ctx: &'ctx z3::Context,
+    pub z3_ctx: &'ctx crate::z3_shim::Context,
     // Cache for field access functions: "len" -> FuncDecl(Ptr -> Int)
-    field_decls: std::cell::RefCell<HashMap<String, Rc<z3::FuncDecl<'ctx>>>>,
+    field_decls: std::cell::RefCell<HashMap<String, Rc<crate::z3_shim::FuncDecl<'ctx>>>>,
 }
 
 impl<'ctx> SymbolicContext<'ctx> {
-    pub fn new(z3_ctx: &'ctx z3::Context) -> Self {
+    pub fn new(z3_ctx: &'ctx crate::z3_shim::Context) -> Self {
         Self {
             z3_ctx,
             field_decls: std::cell::RefCell::new(HashMap::new()),
         }
     }
 
-    pub fn get_field_func(&self, name: &str) -> Rc<z3::FuncDecl<'ctx>> {
+    pub fn get_field_func(&self, name: &str) -> Rc<crate::z3_shim::FuncDecl<'ctx>> {
         let mut cache = self.field_decls.borrow_mut();
         if let Some(decl) = cache.get(name) {
             return decl.clone();
@@ -61,12 +62,12 @@ impl<'ctx> SymbolicContext<'ctx> {
         
         // Create a new uninterpreted function: Field(Object) -> Int
         // This is where we solve the move error: use a reference/clone here
-        let symbol = z3::Symbol::String(name.to_string());
-        let decl = z3::FuncDecl::new(
+        let symbol = crate::z3_shim::Symbol::String(name.to_string());
+        let decl = crate::z3_shim::FuncDecl::new(
             self.z3_ctx,
             symbol,
-            &[&z3::Sort::int(self.z3_ctx)], // Domain: Struct/Object (as Int/Ptr)
-            &z3::Sort::int(self.z3_ctx)     // Range: Field Value (Int)
+            &[&crate::z3_shim::Sort::int(self.z3_ctx)], // Domain: Struct/Object (as Int/Ptr)
+            &crate::z3_shim::Sort::int(self.z3_ctx)     // Range: Field Value (Int)
         );
         let decl_rc = Rc::new(decl);
         
@@ -120,7 +121,7 @@ impl VerificationEngine {
        
         for (i, p_name) in params.iter().enumerate() {
              if i < call_vals_z3.len() {
-                 let sym = z3::ast::Int::new_const(ctx.z3_ctx, p_name.clone());
+                 let sym = crate::z3_shim::ast::Int::new_const(ctx.z3_ctx, p_name.clone());
                  created_symbols.push(sym);
                  
                  // We use SSA kind which will trigger fallback in translate_to_z3 to mk_var,
@@ -138,7 +139,7 @@ impl VerificationEngine {
             }
         }
         
-        let substitutions: Vec<(&z3::ast::Int, &z3::ast::Int)> = from_vec.iter().zip(to_vec.iter())
+        let substitutions: Vec<(&crate::z3_shim::ast::Int, &crate::z3_shim::ast::Int)> = from_vec.iter().zip(to_vec.iter())
             .map(|(f, t)| (*f, *t))
             .collect();
 
@@ -168,8 +169,8 @@ impl VerificationEngine {
                  
                  // Check: is the requirement definitely violated?
                  // We check if the requirement itself is provably false (UNSAT).
-                 let solver = z3::Solver::new(ctx.z3_ctx);
-                 let mut solver_params = z3::Params::new(ctx.z3_ctx);
+                 let solver = crate::z3_shim::Solver::new(ctx.z3_ctx);
+                 let mut solver_params = crate::z3_shim::Params::new(ctx.z3_ctx);
                  solver_params.set_u32("timeout", 100);
                  solver.set_params(&solver_params);
                  solver.assert(&z3_req_subst);
@@ -177,7 +178,7 @@ impl VerificationEngine {
                                   *ctx.total_checks += 1;
                  
                  match solver.check() {
-                     z3::SatResult::Unsat => {
+                     crate::z3_shim::SatResult::Unsat => {
                          // The requirement is DEFINITELY unsatisfiable → violation!
                          // Example: requires { b > 0 } with b=0 → (0 > 0) is UNSAT
                          let constraint_str = format!("{}", z3_req_subst);
@@ -208,11 +209,11 @@ impl VerificationEngine {
                          };
                          return Err(failure.format_error());
                      }
-                     z3::SatResult::Sat => {
+                     crate::z3_shim::SatResult::Sat => {
                          // Requirement CAN be satisfied → PASS
                          *ctx.elided_checks += 1;
                      }
-                     z3::SatResult::Unknown => {
+                     crate::z3_shim::SatResult::Unknown => {
                          // Z3 can't determine → conservative PASS
                          *ctx.elided_checks += 1;
                      }
@@ -254,18 +255,18 @@ impl VerificationEngine {
 
         let sym_ctx = SymbolicContext::new(ctx.z3_ctx);
         let mut verified = false;
-        use z3::ast::Ast;
+        use crate::z3_shim::ast::Ast;
 
         // Create a fresh solver with timeout for postcondition proofs
-        let solver = z3::Solver::new(ctx.z3_ctx);
-        let mut solver_params = z3::Params::new(ctx.z3_ctx);
+        let solver = crate::z3_shim::Solver::new(ctx.z3_ctx);
+        let mut solver_params = crate::z3_shim::Params::new(ctx.z3_ctx);
         solver_params.set_u32("timeout", 100); // 100ms Z3 watchdog
         solver.set_params(&solver_params);
 
         // 1. Create symbolic constants for function parameters
         let mut param_symbols = Vec::new();
         for p_name in params {
-            let sym = z3::ast::Int::new_const(ctx.z3_ctx, p_name.clone());
+            let sym = crate::z3_shim::ast::Int::new_const(ctx.z3_ctx, p_name.clone());
             param_symbols.push((p_name.clone(), sym));
         }
 
@@ -320,7 +321,7 @@ impl VerificationEngine {
             };
 
             // Create a `result` symbol and register it in the Z3 locals
-            let result_sym = z3::ast::Int::new_const(ctx.z3_ctx, "result");
+            let result_sym = crate::z3_shim::ast::Int::new_const(ctx.z3_ctx, "result");
             let mut ens_locals = z3_locals.clone();
             ens_locals.insert("result".to_string(), (Type::I32, crate::codegen::context::LocalKind::SSA("result".to_string())));
 
@@ -335,13 +336,13 @@ impl VerificationEngine {
                     *ctx.total_checks += 1;
 
                     match solver.check() {
-                        z3::SatResult::Unsat => {
+                        crate::z3_shim::SatResult::Unsat => {
                             // PROVEN: No input can violate the postcondition
                             *ctx.elided_checks += 1;
                             verified = true;
                             eprintln!("[Z3 POSTCONDITION] ✓ ensures verified for '{}' (UNSAT — proven)", fn_name);
                         }
-                        z3::SatResult::Sat => {
+                        crate::z3_shim::SatResult::Sat => {
                             // VIOLATION: Z3 found inputs that violate the postcondition
                             // BUT: Check if the return expression uses untracked local variables
                             // (mutated locals like `acc` that Z3 treats as unconstrained).
@@ -378,7 +379,7 @@ impl VerificationEngine {
                                 ));
                             }
                         }
-                        z3::SatResult::Unknown => {
+                        crate::z3_shim::SatResult::Unknown => {
                             // TIMEOUT: Z3 couldn't determine — deferred to runtime
                             eprintln!("[Z3 WARNING] Complex proof deferred to runtime assertion ({}:ensures)", fn_name);
                         }
@@ -420,87 +421,87 @@ impl VerificationEngine {
 #[cfg(test)]
 mod is_provably_safe_tests {
     #[allow(unused_imports)]
-    use z3::ast::Ast;
+    use crate::z3_shim::ast::Ast;
 
     /// Test that `is_provably_safe` returns true for trivially unsatisfiable violations
     #[test]
     fn test_trivially_safe_contradiction() {
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         
         // Create a contradiction: x > 0 AND x < 0 (impossible)
-        let x = z3::ast::Int::new_const(&z3_ctx, "x");
-        let zero = z3::ast::Int::from_i64(&z3_ctx, 0);
+        let x = crate::z3_shim::ast::Int::new_const(&z3_ctx, "x");
+        let zero = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 0);
         
         let gt_zero = x.gt(&zero);
         let lt_zero = x.lt(&zero);
-        let contradiction = z3::ast::Bool::and(&z3_ctx, &[&gt_zero, &lt_zero]);
+        let contradiction = crate::z3_shim::ast::Bool::and(&z3_ctx, &[&gt_zero, &lt_zero]);
         
         // This should be UNSAT (no value of x satisfies both x > 0 and x < 0)
-        let solver = z3::Solver::new(&z3_ctx);
+        let solver = crate::z3_shim::Solver::new(&z3_ctx);
         solver.assert(&contradiction);
-        assert_eq!(solver.check(), z3::SatResult::Unsat, 
+        assert_eq!(solver.check(), crate::z3_shim::SatResult::Unsat, 
             "Contradiction should be unsatisfiable");
     }
 
     /// Test that satisfiable violations return false
     #[test]
     fn test_satisfiable_violation_returns_false() {
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         
         // Create a satisfiable condition: x > 5 (counterexample: x = 6)
-        let x = z3::ast::Int::new_const(&z3_ctx, "x");
-        let five = z3::ast::Int::from_i64(&z3_ctx, 5);
+        let x = crate::z3_shim::ast::Int::new_const(&z3_ctx, "x");
+        let five = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 5);
         let gt_five = x.gt(&five);
         
         // This should be SAT (x = 6 satisfies x > 5)
-        let solver = z3::Solver::new(&z3_ctx);
+        let solver = crate::z3_shim::Solver::new(&z3_ctx);
         solver.assert(&gt_five);
-        assert_eq!(solver.check(), z3::SatResult::Sat,
+        assert_eq!(solver.check(), crate::z3_shim::SatResult::Sat,
             "x > 5 should be satisfiable");
     }
 
     /// Test that always-false conditions are UNSAT
     #[test]
     fn test_always_false_is_unsat() {
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         
         // Create: false (literal)
-        let always_false = z3::ast::Bool::from_bool(&z3_ctx, false);
+        let always_false = crate::z3_shim::ast::Bool::from_bool(&z3_ctx, false);
         
-        let solver = z3::Solver::new(&z3_ctx);
+        let solver = crate::z3_shim::Solver::new(&z3_ctx);
         solver.assert(&always_false);
-        assert_eq!(solver.check(), z3::SatResult::Unsat,
+        assert_eq!(solver.check(), crate::z3_shim::SatResult::Unsat,
             "Always-false should be unsatisfiable");
     }
 
     /// Test that always-true conditions are SAT
     #[test]
     fn test_always_true_is_sat() {
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         
         // Create: true (literal)
-        let always_true = z3::ast::Bool::from_bool(&z3_ctx, true);
+        let always_true = crate::z3_shim::ast::Bool::from_bool(&z3_ctx, true);
         
-        let solver = z3::Solver::new(&z3_ctx);
+        let solver = crate::z3_shim::Solver::new(&z3_ctx);
         solver.assert(&always_true);
-        assert_eq!(solver.check(), z3::SatResult::Sat,
+        assert_eq!(solver.check(), crate::z3_shim::SatResult::Sat,
             "Always-true should be satisfiable");
     }
 
     /// Test bounds check scenario: i < len where len = 10 and i ∈ [0, 10)
     #[test]
     fn test_bounds_check_provable() {
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         
         // Domain constraints: 0 <= i < 10, len = 10
-        let i = z3::ast::Int::new_const(&z3_ctx, "i");
-        let len = z3::ast::Int::from_i64(&z3_ctx, 10);
-        let zero = z3::ast::Int::from_i64(&z3_ctx, 0);
+        let i = crate::z3_shim::ast::Int::new_const(&z3_ctx, "i");
+        let len = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 10);
+        let zero = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 0);
         
         let i_ge_0 = i.ge(&zero);
         let i_lt_10 = i.lt(&len);
@@ -509,12 +510,12 @@ mod is_provably_safe_tests {
         let violation = i.ge(&len);
         
         // With domain constraints, violation should be UNSAT
-        let solver = z3::Solver::new(&z3_ctx);
+        let solver = crate::z3_shim::Solver::new(&z3_ctx);
         solver.assert(&i_ge_0);
         solver.assert(&i_lt_10);
         solver.assert(&violation);
         
-        assert_eq!(solver.check(), z3::SatResult::Unsat,
+        assert_eq!(solver.check(), crate::z3_shim::SatResult::Unsat,
             "With i ∈ [0, 10), violation i >= 10 should be unsatisfiable");
     }
 }

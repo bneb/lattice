@@ -4,6 +4,7 @@
 //! and that the host glue LLVM IR is properly generated.
 
 #[cfg(test)]
+use crate::z3_shim as z3;
 mod tests {
     use crate::grammar::SaltFile;
     use crate::codegen::context::CodegenContext;
@@ -238,8 +239,8 @@ mod tests {
             None
         }).expect("Should find vector_add function");
 
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
         
         let glue = ctx.with_lowering_ctx(|lctx| emit_shader_fn(lctx, shader_fn)).unwrap();

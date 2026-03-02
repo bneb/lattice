@@ -12,6 +12,7 @@
 //! of type A where type B is expected (e.g., function arguments).
 
 #[cfg(test)]
+use crate::z3_shim as z3;
 mod tests {
     use crate::types::Type;
     use crate::codegen::type_bridge::promote_numeric;
@@ -58,8 +59,8 @@ mod tests {
     /// Uses a real CodegenContext to exercise the full promotion logic.
     fn try_promote(from: &Type, to: &Type) -> Result<String, String> {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&cfg);
+        let cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
         let mut out = String::new();
         ctx.with_lowering_ctx(|lctx| promote_numeric(lctx, &mut out, "%test_var", from, to))

@@ -13,6 +13,7 @@
 //!   non-diverging). This prevents Result::unwrap() from compiling.
 
 #[cfg(test)]
+use crate::z3_shim as z3;
 mod tests {
     use crate::codegen::CodegenContext;
     use crate::grammar::SaltFile;
@@ -20,10 +21,10 @@ mod tests {
     use crate::registry::EnumInfo;
 
     /// Helper: Create a fresh CodegenContext for testing
-    fn make_ctx() -> (SaltFile, z3::Config, z3::Context) {
+    fn make_ctx() -> (SaltFile, crate::z3_shim::Config, crate::z3_shim::Context) {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         (file, z3_cfg, z3_ctx)
     }
 

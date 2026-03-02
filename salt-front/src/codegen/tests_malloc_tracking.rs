@@ -7,6 +7,7 @@
 //! Written BEFORE implementation (Red Phase).
 
 #[cfg(test)]
+use crate::z3_shim as z3;
 mod tests {
     use crate::codegen::verification::Z3StateTracker;
     use std::collections::HashMap;
@@ -19,9 +20,9 @@ mod tests {
     /// The Z3 tracker should detect this as a formal integrity error.
     #[test]
     fn test_malloc_without_free_is_leak() {
-        let cfg = z3::Config::new();
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let solver = crate::z3_shim::Solver::new(&ctx);
         let mut tracker = Z3StateTracker::new(&ctx);
 
         // Simulate: let buf = malloc(1024)
@@ -47,9 +48,9 @@ mod tests {
     /// This is the happy path — should verify cleanly.
     #[test]
     fn test_malloc_with_free_no_leak() {
-        let cfg = z3::Config::new();
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let solver = crate::z3_shim::Solver::new(&ctx);
         let mut tracker = Z3StateTracker::new(&ctx);
 
         // Simulate: let buf = malloc(1024)
@@ -77,9 +78,9 @@ mod tests {
     /// ```
     #[test]
     fn test_multiple_mallocs_partial_free() {
-        let cfg = z3::Config::new();
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let solver = crate::z3_shim::Solver::new(&ctx);
         let mut tracker = Z3StateTracker::new(&ctx);
 
         // Two mallocs
@@ -114,9 +115,9 @@ mod tests {
     /// that the allocation from the CURRENT function scope is not freed.
     #[test]
     fn test_malloc_in_loop_without_free_is_leak() {
-        let cfg = z3::Config::new();
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let solver = crate::z3_shim::Solver::new(&ctx);
         let mut tracker = Z3StateTracker::new(&ctx);
 
         // In the codegen, each function gets a fresh tracker.
@@ -140,9 +141,9 @@ mod tests {
     /// This should be silently allowed — we only track malloc'd resources.
     #[test]
     fn test_free_without_malloc_is_allowed() {
-        let cfg = z3::Config::new();
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let solver = crate::z3_shim::Solver::new(&ctx);
         let mut tracker = Z3StateTracker::new(&ctx);
 
         // Free something never registered via malloc
@@ -200,9 +201,9 @@ mod tests {
     /// survive solver.push()/pop().
     #[test]
     fn test_malloc_free_survives_nested_solver_scope() {
-        let cfg = z3::Config::new();
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let solver = crate::z3_shim::Solver::new(&ctx);
         let mut tracker = Z3StateTracker::new(&ctx);
 
         // malloc at function level
@@ -240,9 +241,9 @@ mod tests {
     /// ```
     #[test]
     fn test_correct_sieve_pattern_verifies() {
-        let cfg = z3::Config::new();
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let solver = crate::z3_shim::Solver::new(&ctx);
         let mut tracker = Z3StateTracker::new(&ctx);
 
         // malloc(is_prime)

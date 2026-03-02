@@ -7,9 +7,10 @@
 //! then the condition holds under all possible executions, and the compiler
 //! can elide the runtime check entirely.
 
-use z3::{Config, Context, Solver, SatResult, ast::{Int, Ast}};
+use crate::z3_shim::{Config, Context, Solver, SatResult, ast::{Int, Ast}};
 use std::collections::HashMap;
 use crate::hir::ids::VarId;
+use crate::z3_shim as z3;
 
 /// Z3-backed verification context for proving compile-time safety contracts.
 pub struct VerificationContext<'ctx> {
@@ -47,7 +48,7 @@ impl<'ctx> VerificationContext<'ctx> {
     }
 
     /// Assert an arbitrary Z3 boolean constraint.
-    pub fn assert_constraint(&self, constraint: &z3::ast::Bool<'ctx>) {
+    pub fn assert_constraint(&self, constraint: &crate::z3_shim::ast::Bool<'ctx>) {
         self.solver.assert(constraint);
     }
 
@@ -62,7 +63,7 @@ impl<'ctx> VerificationContext<'ctx> {
     /// - UNSAT => the negation is impossible => the condition always holds => SAFE
     /// - SAT   => the negation is satisfiable => the condition can be violated => UNSAFE
     /// - Unknown => Z3 timed out or couldn't decide
-    pub fn prove_requires(&self, safety_condition: &z3::ast::Bool<'ctx>) -> Result<(), String> {
+    pub fn prove_requires(&self, safety_condition: &crate::z3_shim::ast::Bool<'ctx>) -> Result<(), String> {
         self.solver.push(); // Save current state
 
         // Assert the NEGATION of what we want to prove
@@ -89,7 +90,7 @@ impl<'ctx> VerificationContext<'ctx> {
     /// Unlike `prove_requires` (which negates and checks UNSAT), this
     /// directly asserts the condition. No push/pop — the fact permanently
     /// restricts the state space for the remainder of this scope.
-    pub fn assume_condition(&self, condition: &z3::ast::Bool<'ctx>) {
+    pub fn assume_condition(&self, condition: &crate::z3_shim::ast::Bool<'ctx>) {
         self.solver.assert(condition);
     }
 
@@ -103,7 +104,7 @@ impl<'ctx> VerificationContext<'ctx> {
     pub fn lower_assume_expr(
         &self,
         expr: &crate::hir::expr::Expr,
-    ) -> Option<z3::ast::Bool<'ctx>> {
+    ) -> Option<crate::z3_shim::ast::Bool<'ctx>> {
         use crate::hir::expr::{ExprKind, BinOp, Literal, UnOp};
 
         match &expr.kind {
@@ -126,10 +127,10 @@ impl<'ctx> VerificationContext<'ctx> {
                 Some(z3_inner.not())
             }
             ExprKind::Literal(Literal::Bool(true)) => {
-                Some(z3::ast::Bool::from_bool(self.z3_ctx, true))
+                Some(crate::z3_shim::ast::Bool::from_bool(self.z3_ctx, true))
             }
             ExprKind::Literal(Literal::Bool(false)) => {
-                Some(z3::ast::Bool::from_bool(self.z3_ctx, false))
+                Some(crate::z3_shim::ast::Bool::from_bool(self.z3_ctx, false))
             }
             _ => None, // graceful degradation
         }
@@ -306,7 +307,7 @@ mod tests {
         vc.assume_condition(&x.lt(&five)); // assume x < 5 (contradicts!)
 
         // requires(false) — a guaranteed panic in reachable code
-        let false_cond = z3::ast::Bool::from_bool(&ctx, false);
+        let false_cond = crate::z3_shim::ast::Bool::from_bool(&ctx, false);
         let result = vc.prove_requires(&false_cond);
         assert!(result.is_ok(),
             "Contradictory assumes make path unreachable; requires(false) is vacuously safe");

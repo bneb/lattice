@@ -1,0 +1,124 @@
+# =============================================================================
+# Lattice CI — Linux Build Verification
+# =============================================================================
+# Triggered on push/PR to main. Builds salt-front (Rust) and salt-opt (C++/MLIR)
+# on Ubuntu with LLVM 19 to verify cross-platform compatibility.
+# =============================================================================
+
+name: CI — Linux Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  LLVM_VERSION: "21"
+
+jobs:
+  build-salt-front:
+    name: Build salt-front (Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            salt-front/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('salt-front/Cargo.lock') }}
+
+      - name: Build salt-front
+        run: cargo build --release
+        working-directory: salt-front
+
+      - name: Run salt-front tests
+        run: cargo test --release
+        working-directory: salt-front
+
+      - name: Upload salt-front binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: salt-front
+          path: salt-front/target/release/salt-front
+
+  build-salt-opt:
+    name: Build salt-opt (C++/MLIR)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM 21 + MLIR + Z3
+        run: |
+          # Add LLVM apt repository for LLVM 21
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" | sudo tee /etc/apt/sources.list.d/llvm-21.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            llvm-21-dev \
+            libmlir-21-dev \
+            mlir-21-tools \
+            libclang-21-dev \
+            clang-21 \
+            lld-21 \
+            libz3-dev \
+            libzstd-dev \
+            cmake \
+            ninja-build
+
+      - name: Symlink LLVM tools
+        run: |
+          for tool in llc clang clang++ opt mlir-opt; do
+            sudo ln -sf "/usr/bin/${tool}-21" "/usr/bin/${tool}" 2>/dev/null || true
+          done
+          sudo ln -sf /usr/bin/lld-21 /usr/bin/lld
+          sudo ln -sf /usr/bin/ld.lld-21 /usr/bin/ld.lld
+
+      - name: Build salt-opt
+        run: |
+          mkdir -p salt/build && cd salt/build
+          cmake .. \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMLIR_DIR=/usr/lib/llvm-21/lib/cmake/mlir \
+            -DLLVM_DIR=/usr/lib/llvm-21/lib/cmake/llvm
+          ninja salt-opt
+
+      - name: Upload salt-opt binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: salt-opt
+          path: salt/build/salt-opt
+
+  build-salt-lsp:
+    name: Build salt-lsp (Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tools/salt-lsp/target
+          key: ${{ runner.os }}-lsp-cargo-${{ hashFiles('tools/salt-lsp/Cargo.lock') }}
+
+      - name: Build salt-lsp
+        run: cargo build --release
+        working-directory: tools/salt-lsp
+
+      - name: Run salt-lsp tests
+        run: cargo test --release
+        working-directory: tools/salt-lsp

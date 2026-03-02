@@ -1,0 +1,23 @@
+[package]
+name = "salt-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "WebAssembly bridge for the Salt compiler — enables browser-based REPL"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Import salt-front WITHOUT the z3-backend feature, stripping the native Z3 C++ dependency
+salt-front = { path = "../../salt-front", default-features = false }
+wasm-bindgen = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+syn = { version = "2", features = ["full", "parsing"] }
+console_error_panic_hook = "0.1"
+
+[profile.release]
+# Optimize for size — critical for browser delivery
+opt-level = "s"
+lto = true
+codegen-units = 1

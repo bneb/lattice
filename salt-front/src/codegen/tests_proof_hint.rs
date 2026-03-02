@@ -16,6 +16,7 @@
 // =============================================================================
 
 #[cfg(test)]
+use crate::z3_shim as z3;
 mod tests {
     use crate::codegen::verification::proof_hint::{hash_combine, siphash24, K0, K1};
 
@@ -126,8 +127,8 @@ mod tests {
 
         let file: SaltFile = syn::parse_str(source)
             .unwrap_or_else(|e| panic!("Failed to parse: {}", e));
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
         let mlir = ctx.drive_codegen()
             .unwrap_or_else(|e| panic!("Codegen failed: {}", e));

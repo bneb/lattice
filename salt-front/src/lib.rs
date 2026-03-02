@@ -22,6 +22,19 @@ pub mod common;
 pub mod grammar_tokens;
 pub mod hir;
 
+// Z3 Wasm Bridge: conditional re-export.
+// When `z3-backend` is enabled (default, native), re-export the real z3 crate.
+// When disabled (Wasm builds), re-export zero-cost stub types.
+#[cfg(not(feature = "z3-backend"))]
+pub mod z3_stub;
+pub mod interpreter;
+
+#[cfg(feature = "z3-backend")]
+pub use z3 as z3_shim;
+
+#[cfg(not(feature = "z3-backend"))]
+pub use z3_stub as z3_shim;
+
 
 
 use syn::parse_str;

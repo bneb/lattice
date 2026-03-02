@@ -10,7 +10,8 @@
 //! - Epilogue covers exactly remaining bytes  
 //! - Complete coverage: main + epilogue = [0, len)
 
-use z3::{Context, Solver, ast::{Ast, Bool, Int}};
+use crate::z3_shim::{Context, Solver, ast::{Ast, Bool, Int}};
+use crate::z3_shim as z3;
 
 /// Z3 Hash Loop Verifier - Proves Loop Bound Safety
 pub struct HashLoopVerifier<'a> {
@@ -47,9 +48,9 @@ impl<'a> HashLoopVerifier<'a> {
         self.solver.assert(&violation);
         
         match self.solver.check() {
-            z3::SatResult::Unsat => Ok(()), // UNSAT = no violation possible
-            z3::SatResult::Sat => Err(format!("Scalar unroll violation found for len={}", len)),
-            z3::SatResult::Unknown => Err("Z3 timeout".to_string()),
+            crate::z3_shim::SatResult::Unsat => Ok(()), // UNSAT = no violation possible
+            crate::z3_shim::SatResult::Sat => Err(format!("Scalar unroll violation found for len={}", len)),
+            crate::z3_shim::SatResult::Unknown => Err("Z3 timeout".to_string()),
         }
     }
 
@@ -80,9 +81,9 @@ impl<'a> HashLoopVerifier<'a> {
         self.solver.assert(&violation);
         
         match self.solver.check() {
-            z3::SatResult::Unsat => Ok(()), // UNSAT = no violation possible
-            z3::SatResult::Sat => Err("SIMD bounds violation found".to_string()),
-            z3::SatResult::Unknown => Err("Z3 timeout".to_string()),
+            crate::z3_shim::SatResult::Unsat => Ok(()), // UNSAT = no violation possible
+            crate::z3_shim::SatResult::Sat => Err("SIMD bounds violation found".to_string()),
+            crate::z3_shim::SatResult::Unknown => Err("Z3 timeout".to_string()),
         }
     }
 
@@ -122,9 +123,9 @@ impl<'a> HashLoopVerifier<'a> {
         self.solver.assert(&violation);
         
         match self.solver.check() {
-            z3::SatResult::Unsat => Ok(()), // UNSAT = epilogue correctly bounded
-            z3::SatResult::Sat => Err("SIMD epilogue coverage violation".to_string()),
-            z3::SatResult::Unknown => Err("Z3 timeout".to_string()),
+            crate::z3_shim::SatResult::Unsat => Ok(()), // UNSAT = epilogue correctly bounded
+            crate::z3_shim::SatResult::Sat => Err("SIMD epilogue coverage violation".to_string()),
+            crate::z3_shim::SatResult::Unknown => Err("Z3 timeout".to_string()),
         }
     }
 
@@ -160,13 +161,13 @@ impl<'a> HashLoopVerifier<'a> {
         let access_pos = Int::add(self.ctx, &[&i, &j]);
         
         // Try to find: active lane but out-of-bounds access
-        let violation = z3::ast::Bool::and(self.ctx, &[&active, &access_pos.ge(&len)]);
+        let violation = crate::z3_shim::ast::Bool::and(self.ctx, &[&active, &access_pos.ge(&len)]);
         self.solver.assert(&violation);
         
         match self.solver.check() {
-            z3::SatResult::Unsat => Ok(()), // UNSAT = predicate always guards correctly
-            z3::SatResult::Sat => Err(format!("SVE predicate violation for VL={}", vl)),
-            z3::SatResult::Unknown => Err("Z3 timeout".to_string()),
+            crate::z3_shim::SatResult::Unsat => Ok(()), // UNSAT = predicate always guards correctly
+            crate::z3_shim::SatResult::Sat => Err(format!("SVE predicate violation for VL={}", vl)),
+            crate::z3_shim::SatResult::Unknown => Err("Z3 timeout".to_string()),
         }
     }
 }
@@ -174,7 +175,7 @@ impl<'a> HashLoopVerifier<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use z3::Config;
+    use crate::z3_shim::Config;
 
     fn get_z3_ctx() -> Context {
         let cfg = Config::new();

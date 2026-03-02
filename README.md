@@ -224,25 +224,25 @@ The `ArenaVerifier` checks at compile time that no reference escapes its arena. 
 Lattice is a **Sovereign Microkernel**: the kernel provides only memory management (PMM, VMO), scheduling (16-core SMP, preemptive, Chase-Lev work-stealing), and IPC (SPSC rings via `sys_shm_grant`). Everything else — networking, storage, device drivers — runs in Ring 3 as isolated System Daemons.
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    Ring 3 (User)                     │
-│  ┌──────────┐  ┌───────────┐  ┌──────────────────┐  │
-│  │   NetD   │  │  LatticeFS│  │   User Programs  │  │
-│  │ (TCP/IP) │  │ (Storage) │  │                  │  │
-│  └────┬─────┘  └─────┬─────┘  └────────┬─────────┘  │
-│       │              │                 │             │
-│  ═════╪══════════════╪═════════════════╪═════════    │
-│       │    SPSC Shared Memory Rings    │             │
-│  ═════╪══════════════╪═════════════════╪═════════    │
-│                                                      │
-├──────────────────────────────────────────────────────┤
-│                  Ring 0 (Kernel)                      │
-│  ┌────────┐  ┌─────────┐  ┌────────┐  ┌──────────┐  │
-│  │  PMM   │  │Scheduler│  │  IPC   │  │ VirtIO   │  │
-│  │(Pages) │  │(16-SMP) │  │ (SPSC) │  │(NIC/Blk) │  │
-│  │        │  │Chase-Lev│  │  EBR   │  │          │  │
-│  └────────┘  └─────────┘  └────────┘  └──────────┘  │
-└──────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                       Ring 3 (User)                     │
+│   ┌──────────┐   ┌───────────┐   ┌──────────────────┐   │
+│   │   NetD   │   │ LatticeFS │   │  User Programs   │   │
+│   │ (TCP/IP) │   │ (Storage) │   │                  │   │
+│   └────┬─────┘   └─────┬─────┘   └────────┬─────────┘   │
+│        │               │                  │             │
+│  ══════╪═══════════════╪══════════════════╪═══════════  │
+│        │     SPSC Shared Memory Rings     │             │
+│  ══════╪═══════════════╪══════════════════╪═══════════  │
+│                                                         │
+├─────────────────────────────────────────────────────────┤
+│                      Ring 0 (Kernel)                    │
+│  ┌─────────┐  ┌───────────┐  ┌────────┐  ┌───────────┐  │
+│  │   PMM   │  │ Scheduler │  │  IPC   │  │  VirtIO   │  │
+│  │ (Pages) │  │  (16-SMP) │  │ (SPSC) │  │ (NIC/Blk) │  │
+│  │         │  │ Chase-Lev │  │  EBR   │  │           │  │
+│  └─────────┘  └───────────┘  └────────┘  └───────────┘  │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ### Why Ring 3 Without the Speed Penalty?

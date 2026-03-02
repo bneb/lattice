@@ -1,0 +1,16 @@
+{
+  "name": "salt-wasm",
+  "type": "module",
+  "description": "WebAssembly bridge for the Salt compiler — enables browser-based REPL",
+  "version": "0.1.0",
+  "files": [
+    "salt_wasm_bg.wasm",
+    "salt_wasm.js",
+    "salt_wasm.d.ts"
+  ],
+  "main": "salt_wasm.js",
+  "types": "salt_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

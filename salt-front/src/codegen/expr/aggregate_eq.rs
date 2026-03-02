@@ -1,5 +1,6 @@
 use crate::codegen::context::LoweringContext;
 use crate::types::Type;
+use crate::z3_shim as z3;
 
 fn combine_conditions(ctx: &mut LoweringContext, out: &mut String, conds: Vec<String>, is_eq: bool) -> String {
      if conds.is_empty() {
@@ -283,10 +284,10 @@ mod tests {
     #[test]
     fn test_nested_tuple_array_equality() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let _z3_ctx = z3::Context::new(&z3_cfg);
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let _z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
         
         let inner_tuple = Type::Tuple(vec![Type::I64, Type::I64]);

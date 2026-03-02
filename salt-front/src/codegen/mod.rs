@@ -123,11 +123,12 @@ use crate::common::mangling::Mangler;
 use crate::types::Type;
 use crate::registry::Registry;
 use std::collections::{HashMap, HashSet};
+use crate::z3_shim as z3;
     pub fn emit_mlir(file: &SaltFile, release_mode: bool, _registry: Option<&Registry>, _skip_scan: bool, no_verify: bool, disable_alias_scopes: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> Result<String, String> {
     // 1. Recursive Module Loading
     let mut loader_registry = Registry::new();
     let mut loader = ModuleLoader::new(vec![
-        std::env::current_dir().unwrap(),
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
         std::path::PathBuf::from("."),
         std::path::PathBuf::from(".."),
         std::path::PathBuf::from("../std"),
@@ -142,8 +143,8 @@ use std::collections::{HashMap, HashSet};
     
 
 
-    let z3_cfg = z3::Config::new();
-    let z3_ctx = z3::Context::new(&z3_cfg);
+    let z3_cfg = crate::z3_shim::Config::new();
+    let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
     
     // Initialize Context
     let mut ctx = CodegenContext::new(file, release_mode, Some(&loader_registry), &z3_ctx);
@@ -551,7 +552,7 @@ impl<'a> CodegenContext<'a> {
     ///   - @packed structs: zero implicit padding
     /// Uses Z3 integer modular arithmetic to prove alignment is invariant.
     fn verify_struct_alignments(&self) -> Result<(), String> {
-        use z3::ast::Ast;
+        use crate::z3_shim::ast::Ast;
 
         // Extract struct definitions first to avoid RefCell borrow conflict
         // (bridge_resolve_type needs to borrow discovery state)
@@ -575,24 +576,24 @@ impl<'a> CodegenContext<'a> {
                 let has_atomic = f.attributes.iter().any(|a| a.name == "atomic");
                 
                 if has_atomic {
-                    let z3_cfg = z3::Config::new();
-                    let z3_ctx = z3::Context::new(&z3_cfg);
-                    let solver = z3::Solver::new(&z3_ctx);
+                    let z3_cfg = crate::z3_shim::Config::new();
+                    let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
+                    let solver = crate::z3_shim::Solver::new(&z3_ctx);
 
-                    let base = z3::ast::Int::new_const(&z3_ctx, "base_addr");
-                    let sixteen = z3::ast::Int::from_i64(&z3_ctx, 16);
-                    let zero = z3::ast::Int::from_i64(&z3_ctx, 0);
+                    let base = crate::z3_shim::ast::Int::new_const(&z3_ctx, "base_addr");
+                    let sixteen = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 16);
+                    let zero = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 0);
 
                     solver.assert(&base.ge(&zero));
                     solver.assert(&base.modulo(&sixteen)._eq(&zero));
 
-                    let offset_val = z3::ast::Int::from_i64(&z3_ctx, byte_offset as i64);
-                    let field_addr = z3::ast::Int::add(&z3_ctx, &[&base, &offset_val]);
+                    let offset_val = crate::z3_shim::ast::Int::from_i64(&z3_ctx, byte_offset as i64);
+                    let field_addr = crate::z3_shim::ast::Int::add(&z3_ctx, &[&base, &offset_val]);
 
                     solver.assert(&field_addr.modulo(&sixteen)._eq(&zero).not());
 
                     match solver.check() {
-                        z3::SatResult::Unsat => {
+                        crate::z3_shim::SatResult::Unsat => {
                             eprintln!(
                                 "[Formal Shadow] Z3 PROVED: @atomic field '{}' in struct '{}' \
                                  is 16-byte aligned at offset {} (z3_aligned)",
@@ -640,27 +641,27 @@ impl<'a> CodegenContext<'a> {
                     byte_offset = (byte_offset + align_n - 1) & !(align_n - 1);
 
                     // Gate 2: Z3 formal proof of alignment
-                    let z3_cfg = z3::Config::new();
-                    let z3_ctx = z3::Context::new(&z3_cfg);
-                    let solver = z3::Solver::new(&z3_ctx);
+                    let z3_cfg = crate::z3_shim::Config::new();
+                    let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
+                    let solver = crate::z3_shim::Solver::new(&z3_ctx);
 
-                    let base = z3::ast::Int::new_const(&z3_ctx, "base_addr");
-                    let align_const = z3::ast::Int::from_i64(&z3_ctx, n as i64);
-                    let zero = z3::ast::Int::from_i64(&z3_ctx, 0);
+                    let base = crate::z3_shim::ast::Int::new_const(&z3_ctx, "base_addr");
+                    let align_const = crate::z3_shim::ast::Int::from_i64(&z3_ctx, n as i64);
+                    let zero = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 0);
 
                     // Assume base_addr is N-byte aligned (struct allocation contract)
                     solver.assert(&base.ge(&zero));
                     solver.assert(&base.modulo(&align_const)._eq(&zero));
 
-                    let offset_val = z3::ast::Int::from_i64(&z3_ctx, byte_offset as i64);
-                    let field_addr = z3::ast::Int::add(&z3_ctx, &[&base, &offset_val]);
+                    let offset_val = crate::z3_shim::ast::Int::from_i64(&z3_ctx, byte_offset as i64);
+                    let field_addr = crate::z3_shim::ast::Int::add(&z3_ctx, &[&base, &offset_val]);
 
                     // Assert negation: (base + offset) % N != 0
                     // If UNSAT → alignment is guaranteed (proof by contradiction)
                     solver.assert(&field_addr.modulo(&align_const)._eq(&zero).not());
 
                     match solver.check() {
-                        z3::SatResult::Unsat => {
+                        crate::z3_shim::SatResult::Unsat => {
                             eprintln!(
                                 "[Formal Shadow] Z3 PROVED: @align({}) field '{}' in struct '{}' \
                                  is {}-byte aligned at offset {} (z3_align_verified)",
@@ -707,20 +708,20 @@ impl<'a> CodegenContext<'a> {
             if has_struct_atomic {
                 let total_size = byte_offset; // byte_offset == total size after all fields
 
-                let z3_cfg = z3::Config::new();
-                let z3_ctx = z3::Context::new(&z3_cfg);
-                let solver = z3::Solver::new(&z3_ctx);
+                let z3_cfg = crate::z3_shim::Config::new();
+                let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
+                let solver = crate::z3_shim::Solver::new(&z3_ctx);
 
-                let size = z3::ast::Int::from_i64(&z3_ctx, total_size as i64);
-                let sixteen = z3::ast::Int::from_i64(&z3_ctx, 16);
-                let zero = z3::ast::Int::from_i64(&z3_ctx, 0);
+                let size = crate::z3_shim::ast::Int::from_i64(&z3_ctx, total_size as i64);
+                let sixteen = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 16);
+                let zero = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 0);
 
                 // Assert the negation: size % 16 != 0
                 // If UNSAT, the stride is guaranteed safe.
                 solver.assert(&size.modulo(&sixteen)._eq(&zero).not());
 
                 match solver.check() {
-                    z3::SatResult::Unsat => {
+                    crate::z3_shim::SatResult::Unsat => {
                         eprintln!(
                             "[Formal Shadow] Z3 PROVED: @atomic struct '{}' has size {} bytes, \
                              which is 16-byte stride-safe for cmpxchg16b arrays (z3_stride_aligned)",
@@ -786,19 +787,19 @@ impl<'a> CodegenContext<'a> {
                 let tail_padding = (max_align - (abi_offset % max_align)) % max_align;
                 let abi_total = abi_offset + tail_padding;
                 
-                let z3_cfg = z3::Config::new();
-                let z3_ctx = z3::Context::new(&z3_cfg);
-                let solver = z3::Solver::new(&z3_ctx);
+                let z3_cfg = crate::z3_shim::Config::new();
+                let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
+                let solver = crate::z3_shim::Solver::new(&z3_ctx);
 
-                let abi_size = z3::ast::Int::from_i64(&z3_ctx, abi_total as i64);
-                let raw_sum = z3::ast::Int::from_i64(&z3_ctx, unpadded_sum as i64);
+                let abi_size = crate::z3_shim::ast::Int::from_i64(&z3_ctx, abi_total as i64);
+                let raw_sum = crate::z3_shim::ast::Int::from_i64(&z3_ctx, unpadded_sum as i64);
 
                 // Assert the negation: ABI_size != raw_sum
                 // If UNSAT, the struct has zero padding (guaranteed).
                 solver.assert(&abi_size._eq(&raw_sum).not());
 
                 match solver.check() {
-                    z3::SatResult::Unsat => {
+                    crate::z3_shim::SatResult::Unsat => {
                         eprintln!(
                             "[Formal Shadow] Z3 PROVED: @packed struct '{}' has {} bytes \
                              with ZERO implicit padding (z3_packed_verified)",
@@ -1517,7 +1518,7 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
                     lctx.z3_solver.assert(&z3_req.not());
                     let result = lctx.z3_solver.check();
                     lctx.z3_solver.pop(1);
-                    let is_proven = matches!(result, z3::SatResult::Unsat);
+                    let is_proven = matches!(result, crate::z3_shim::SatResult::Unsat);
                     // Register as assumption for downstream Z3 proofs
                     lctx.z3_solver.assert(&z3_req);
                     is_proven

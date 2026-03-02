@@ -101,7 +101,7 @@ int emitObjectFile(llvm::Module &llvmModule,
   llvmModule.setTargetTriple(triple);
 
   std::string error;
-  auto target = llvm::TargetRegistry::lookupTarget(triple.str(), error);
+  auto target = llvm::TargetRegistry::lookupTarget(tripleStr, error);
   if (!target) {
     llvm::errs() << "Target Lookup Failed: " << error << "\n";
     return 1;

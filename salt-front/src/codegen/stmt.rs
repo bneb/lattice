@@ -7,6 +7,7 @@ use crate::codegen::type_bridge::{resolve_type, promote_numeric};
 use std::collections::{HashMap, HashSet};
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
+use crate::z3_shim as z3;
 
 /// Try to extract a constant integer from an expression for affine loop bounds.
 /// Returns Some(value) if the expression is a compile-time constant literal.
@@ -1467,7 +1468,7 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
                                 if let Ok(z3_val) = crate::codegen::expr::translate_to_z3(
                                     ctx, &init.expr, local_vars
                                 ) {
-                                    use z3::ast::Ast;
+                                    use crate::z3_shim::ast::Ast;
                                     let z3_var = ctx.mk_var(&name);
                                     ctx.z3_solver.assert(&z3_var._eq(&z3_val));
                                 }
@@ -1501,7 +1502,7 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
                         if let Some(init) = &local.init {
                             if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(li), .. }) = &*init.expr {
                                 if let Ok(int_val) = li.base10_parse::<i64>() {
-                                    use z3::ast::Ast;
+                                    use crate::z3_shim::ast::Ast;
                                     let z3_var = ctx.mk_var(&name);
                                     let z3_val = ctx.mk_int(int_val);
                                     ctx.z3_solver.assert(&z3_var._eq(&z3_val));
@@ -1689,13 +1690,13 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
                     if let Ok(z3_inv) = crate::codegen::expr::translate_bool_to_z3(
                         ctx, inv_expr, &body_vars, &sym_ctx
                     ) {
-                        use z3::ast::Ast;
+                        use crate::z3_shim::ast::Ast;
                         ctx.z3_solver.push();
                         ctx.z3_solver.assert(&z3_inv.not());
                         let check = ctx.z3_solver.check();
                         ctx.z3_solver.pop(1);
 
-                        if check == z3::SatResult::Sat {
+                        if check == crate::z3_shim::SatResult::Sat {
                             ctx.z3_solver.pop(1); // Pop base-case registration scope
                             return Err(format!(
                                 "Z3 verification failed: loop invariant does not hold at entry. \
@@ -1772,7 +1773,7 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
                 if let Ok(z3_cond) = crate::codegen::expr::translate_bool_to_z3(
                     ctx, &w.cond, local_vars, &sym_ctx
                 ) {
-                    use z3::ast::Ast;
+                    use crate::z3_shim::ast::Ast;
                     ctx.z3_solver.assert(&z3_cond.not());
                 }
             }

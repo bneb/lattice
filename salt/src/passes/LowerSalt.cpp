@@ -29,10 +29,10 @@ public:
   }
 };
 
-struct VerifyOpLowering : public ConvertOpToLLVMPattern<salt::VerifyCheckOp> {
-  using ConvertOpToLLVMPattern<salt::VerifyCheckOp>::ConvertOpToLLVMPattern;
+struct VerifyOpLowering : public ConvertOpToLLVMPattern<salt::VerifyOp> {
+  using ConvertOpToLLVMPattern<salt::VerifyOp>::ConvertOpToLLVMPattern;
   LogicalResult
-  matchAndRewrite(salt::VerifyCheckOp op, OpAdaptor adaptor,
+  matchAndRewrite(salt::VerifyOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.eraseOp(op);
     return success();
@@ -125,8 +125,9 @@ struct LowerSaltPass
     target.addLegalDialect<linalg::LinalgDialect>(); // Still in IR when we run
     target.addLegalDialect<tensor::TensorDialect>(); // Still in IR when we run
     target.addLegalDialect<memref::MemRefDialect>(); // Still in IR when we run
-    target.addLegalDialect<bufferization::BufferizationDialect>(); // Bufferization
-                                                                   // ops
+    target.addLegalDialect<
+        bufferization::BufferizationDialect>(); // Bufferization
+                                                // ops
 
     target.addIllegalDialect<salt::SaltDialect>();
 

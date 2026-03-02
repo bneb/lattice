@@ -15,6 +15,7 @@
 // =============================================================================
 
 #[cfg(test)]
+use crate::z3_shim as z3;
 mod tests {
     use crate::grammar::SaltFile;
     use crate::codegen::context::CodegenContext;
@@ -24,8 +25,8 @@ mod tests {
     fn compile_sip(source: &str) -> Result<String, String> {
         let file: SaltFile = syn::parse_str(source)
             .map_err(|e| format!("Parse error: {}", e))?;
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
         ctx.lib_mode = true;
         ctx.sip_mode = true;
@@ -38,8 +39,8 @@ mod tests {
     fn compile_kernel(source: &str) -> Result<String, String> {
         let file: SaltFile = syn::parse_str(source)
             .map_err(|e| format!("Parse error: {}", e))?;
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
         ctx.lib_mode = true;
         ctx.sip_mode = false;  // Kernel code: NOT a SIP

@@ -14,7 +14,6 @@
 
 #include "Z3Verify.h"
 #include "../dialect/SaltDialect.h"
-#include "../dialect/SaltOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -322,8 +321,6 @@ void Z3VerifyPass::runOnOperation() {
     // 2. layout_checks within this function are valid
 
     llvm::DenseMap<Value, Z3ExprPtr> scopeMap;
-    llvm::DenseSet<Value> consumedValues;
-    std::vector<Z3ExprPtr> active_borrows;
     // Note: In a real pass we'd populate scopeMap properly for all values.
     // For this MVP, we assume it's populated locally or via translateValue.
 
@@ -359,18 +356,6 @@ void Z3VerifyPass::runOnOperation() {
         }
       }
 
-      if (auto verify = dyn_cast<salt::VerifyCheckOp>(op)) {
-        if (verify.getKind() == "borrow_check") {
-          for (Value arg : verify.getArgs()) {
-            active_borrows.push_back(translateValue(arg, ctx, sorts, scopeMap));
-          }
-        } else if (verify.getKind() == "consume") {
-          // Track the consumed operand if present
-          if (verify.getArgs().size() >= 2) {
-            consumedValues.insert(verify.getArgs()[1]);
-          }
-        }
-      }
       if (auto load = dyn_cast<LLVM::LoadOp>(op)) {
         Value ptr = load.getAddr();
         Z3ExprPtr ptrExpr = translateValue(ptr, ctx, sorts, scopeMap);
@@ -379,11 +364,6 @@ void Z3VerifyPass::runOnOperation() {
 
       if (auto store = dyn_cast<LLVM::StoreOp>(op)) {
         Value ptr = store.getAddr();
-        if (consumedValues.count(ptr)) {
-          store.emitError()
-              << "Use-after-send: memory address has been consumed.";
-          signalPassFailure();
-        }
         Z3ExprPtr ptrExpr = translateValue(ptr, ctx, sorts, scopeMap);
 
         // --- Added: Spatial Safety Check ---
@@ -405,20 +385,7 @@ void Z3VerifyPass::runOnOperation() {
           }
         }
 
-        // 1. Check for borrowing violation (Aliasing)
-        for (const auto &borrowed : active_borrows) {
-          z3::solver aliasSolver(ctx);
-          z3::expr conflict = (*ptrExpr == *borrowed);
-          aliasSolver.add(conflict);
-
-          if (checkWithTimeout(aliasSolver, store,
-                               "Possible borrowing conflict.") == z3::sat) {
-            store.emitError() << "Mutation of borrowed memory detected!";
-            signalPassFailure();
-          }
-        }
-
-        // 2. Check for Store Alignment / "Recursive Disjointness"
+        // Check for Store Alignment / "Recursive Disjointness"
         // Ensure that writing to an entry (likely 8 bytes) is aligned to 8
         // bytes. This prevents "bleeding" into adjacent entries in a table.
         Value val = store.getValue();

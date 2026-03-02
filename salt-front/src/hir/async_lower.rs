@@ -23,6 +23,7 @@ use crate::hir::expr::{Expr, ExprKind};
 use crate::hir::stmt::{Stmt, StmtKind, Pattern};
 use crate::hir::items::{self, Item, ItemKind, Param, Visibility, Field};
 use crate::hir::types::Type;
+use crate::z3_shim as z3;
 
 /// Metadata for a variable that crosses a yield boundary.
 /// Carries enough information to generate a struct field.
@@ -1912,7 +1913,7 @@ mod tests {
         };
 
         // Now feed it to Z3
-        use z3::{Config as Z3Config, Context as Z3Context, ast::Int};
+        use crate::z3_shim::{Config as Z3Config, Context as Z3Context, ast::Int};
         let z3_cfg = Z3Config::new();
         let z3_ctx = Z3Context::new(&z3_cfg);
         let mut vc = crate::hir::vc::VerificationContext::new(&z3_ctx);

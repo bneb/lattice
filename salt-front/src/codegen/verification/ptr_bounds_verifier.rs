@@ -15,7 +15,8 @@
 //!   - Assert the violation (index >= alloc_elements)
 //!   - UNSAT → proven safe, SAT → unsafe
 
-use z3::ast::Ast;
+use crate::z3_shim::ast::Ast;
+use crate::z3_shim as z3;
 
 /// Result of a Z3 pointer bounds verification attempt
 #[derive(Debug, Clone, PartialEq)]
@@ -75,41 +76,41 @@ impl PtrBoundsInfo {
 ///
 /// For a known allocation of N elements, access at index i is safe iff 0 <= i < N.
 pub fn verify_ptr_index(
-    z3_ctx: &z3::Context,
+    z3_ctx: &crate::z3_shim::Context,
     info: &PtrBoundsInfo,
     access_index: i64,
 ) -> PtrProofResult {
-    let solver = z3::Solver::new(z3_ctx);
-    let zero = z3::ast::Int::from_i64(z3_ctx, 0);
+    let solver = crate::z3_shim::Solver::new(z3_ctx);
+    let zero = crate::z3_shim::ast::Int::from_i64(z3_ctx, 0);
 
     // Declare allocation size (known or symbolic)
     let alloc_size = if let Some(n) = info.alloc_elements {
-        z3::ast::Int::from_i64(z3_ctx, n)
+        crate::z3_shim::ast::Int::from_i64(z3_ctx, n)
     } else {
-        let sym = z3::ast::Int::new_const(z3_ctx, "alloc_size");
+        let sym = crate::z3_shim::ast::Int::new_const(z3_ctx, "alloc_size");
         solver.assert(&sym.gt(&zero));
         sym
     };
 
     // The access index
-    let idx = z3::ast::Int::from_i64(z3_ctx, access_index);
+    let idx = crate::z3_shim::ast::Int::from_i64(z3_ctx, access_index);
 
     // Violation: idx < 0 OR idx >= alloc_size
     let neg_violation = idx.lt(&zero);
     let upper_violation = idx.ge(&alloc_size);
-    let violation = z3::ast::Bool::or(z3_ctx, &[&neg_violation, &upper_violation]);
+    let violation = crate::z3_shim::ast::Bool::or(z3_ctx, &[&neg_violation, &upper_violation]);
     solver.assert(&violation);
 
     match solver.check() {
-        z3::SatResult::Unsat => PtrProofResult::Proven,
-        z3::SatResult::Sat => {
+        crate::z3_shim::SatResult::Unsat => PtrProofResult::Proven,
+        crate::z3_shim::SatResult::Sat => {
             PtrProofResult::Unsafe(format!(
                 "Counterexample in '{}': ptr.index({}) may exceed allocation of {} elements",
                 info.func_name, access_index,
                 info.alloc_elements.map_or("unknown".to_string(), |n| n.to_string())
             ))
         }
-        z3::SatResult::Unknown => PtrProofResult::Unknown,
+        crate::z3_shim::SatResult::Unknown => PtrProofResult::Unknown,
     }
 }
 
@@ -119,40 +120,40 @@ pub fn verify_ptr_index(
 /// (offset N is valid — it's one-past-the-end, legal for pointer arithmetic
 /// but not for dereference. We use strict < for safety.)
 pub fn verify_ptr_offset(
-    z3_ctx: &z3::Context,
+    z3_ctx: &crate::z3_shim::Context,
     info: &PtrBoundsInfo,
     offset: i64,
 ) -> PtrProofResult {
-    let solver = z3::Solver::new(z3_ctx);
-    let zero = z3::ast::Int::from_i64(z3_ctx, 0);
+    let solver = crate::z3_shim::Solver::new(z3_ctx);
+    let zero = crate::z3_shim::ast::Int::from_i64(z3_ctx, 0);
 
     let alloc_size = if let Some(n) = info.alloc_elements {
-        z3::ast::Int::from_i64(z3_ctx, n)
+        crate::z3_shim::ast::Int::from_i64(z3_ctx, n)
     } else {
-        let sym = z3::ast::Int::new_const(z3_ctx, "alloc_size");
+        let sym = crate::z3_shim::ast::Int::new_const(z3_ctx, "alloc_size");
         solver.assert(&sym.gt(&zero));
         sym
     };
 
-    let off = z3::ast::Int::from_i64(z3_ctx, offset);
+    let off = crate::z3_shim::ast::Int::from_i64(z3_ctx, offset);
 
     // Violation: offset < 0 OR offset > alloc_size
     // Note: offset == alloc_size is technically one-past-end (legal in C for arithmetic).
     // For ptr.offset() which may be dereferenced, we check > alloc_size.
     let neg_violation = off.lt(&zero);
     let upper_violation = off.gt(&alloc_size);
-    let violation = z3::ast::Bool::or(z3_ctx, &[&neg_violation, &upper_violation]);
+    let violation = crate::z3_shim::ast::Bool::or(z3_ctx, &[&neg_violation, &upper_violation]);
     solver.assert(&violation);
 
     match solver.check() {
-        z3::SatResult::Unsat => PtrProofResult::Proven,
-        z3::SatResult::Sat => {
+        crate::z3_shim::SatResult::Unsat => PtrProofResult::Proven,
+        crate::z3_shim::SatResult::Sat => {
             PtrProofResult::Unsafe(format!(
                 "Counterexample in '{}': ptr.offset({}) may exceed allocation",
                 info.func_name, offset
             ))
         }
-        z3::SatResult::Unknown => PtrProofResult::Unknown,
+        crate::z3_shim::SatResult::Unknown => PtrProofResult::Unknown,
     }
 }
 
@@ -161,25 +162,25 @@ pub fn verify_ptr_offset(
 /// If `info.index_upper_bound` is set (e.g., from a loop invariant `i < N`),
 /// Z3 can prove safety when the bound matches the allocation size.
 pub fn verify_ptr_dynamic_index(
-    z3_ctx: &z3::Context,
+    z3_ctx: &crate::z3_shim::Context,
     info: &PtrBoundsInfo,
 ) -> PtrProofResult {
-    let solver = z3::Solver::new(z3_ctx);
-    let zero = z3::ast::Int::from_i64(z3_ctx, 0);
+    let solver = crate::z3_shim::Solver::new(z3_ctx);
+    let zero = crate::z3_shim::ast::Int::from_i64(z3_ctx, 0);
 
     let alloc_size = if let Some(n) = info.alloc_elements {
-        z3::ast::Int::from_i64(z3_ctx, n)
+        crate::z3_shim::ast::Int::from_i64(z3_ctx, n)
     } else {
-        let sym = z3::ast::Int::new_const(z3_ctx, "alloc_size");
+        let sym = crate::z3_shim::ast::Int::new_const(z3_ctx, "alloc_size");
         solver.assert(&sym.gt(&zero));
         sym
     };
 
-    let idx = z3::ast::Int::new_const(z3_ctx, "idx");
+    let idx = crate::z3_shim::ast::Int::new_const(z3_ctx, "idx");
 
     // Index must be non-negative
     let lower = if let Some(lb) = info.index_lower_bound {
-        z3::ast::Int::from_i64(z3_ctx, lb)
+        crate::z3_shim::ast::Int::from_i64(z3_ctx, lb)
     } else {
         zero.clone()
     };
@@ -187,7 +188,7 @@ pub fn verify_ptr_dynamic_index(
 
     // Apply upper bound from loop invariant if available
     if let Some(ub) = info.index_upper_bound {
-        let upper = z3::ast::Int::from_i64(z3_ctx, ub);
+        let upper = crate::z3_shim::ast::Int::from_i64(z3_ctx, ub);
         solver.assert(&idx.lt(&upper));
     }
 
@@ -196,14 +197,14 @@ pub fn verify_ptr_dynamic_index(
     solver.assert(&violation);
 
     match solver.check() {
-        z3::SatResult::Unsat => PtrProofResult::Proven,
-        z3::SatResult::Sat => {
+        crate::z3_shim::SatResult::Unsat => PtrProofResult::Proven,
+        crate::z3_shim::SatResult::Sat => {
             PtrProofResult::Unsafe(format!(
                 "Counterexample in '{}': dynamic ptr index may exceed allocation",
                 info.func_name
             ))
         }
-        z3::SatResult::Unknown => PtrProofResult::Unknown,
+        crate::z3_shim::SatResult::Unknown => PtrProofResult::Unknown,
     }
 }
 
@@ -216,9 +217,9 @@ pub fn verify_ptr_dynamic_index(
 mod tests {
     use super::*;
 
-    fn make_ctx() -> z3::Context {
-        let cfg = z3::Config::new();
-        z3::Context::new(&cfg)
+    fn make_ctx() -> crate::z3_shim::Context {
+        let cfg = crate::z3_shim::Config::new();
+        crate::z3_shim::Context::new(&cfg)
     }
 
     // -------------------------------------------------------------------------

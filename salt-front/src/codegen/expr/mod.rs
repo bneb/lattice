@@ -27,6 +27,7 @@ use literals::{emit_lit, emit_path, emit_array, emit_tuple, emit_repeat, emit_st
 pub(crate) use calls::{emit_call, emit_method_call, emit_tensor_constructor, resolve_call_path};
 use control_flow::{emit_if_expr, emit_block_expr, emit_match, emit_if_as_select};
 use memory::{emit_field, emit_index};
+use crate::z3_shim as z3;
 pub(crate) use memory::{translate_to_z3, translate_bool_to_z3};
 
 /// [SOVEREIGN WRITER PROTOCOL] Parse __target_fstring__!(target, "content") macro arguments
@@ -1447,8 +1448,8 @@ pub fn translate_bool_to_z3<'a, 'ctx>(
     expr: &syn::Expr, 
     local_vars: &HashMap<String, (Type, LocalKind)>,
     sym_ctx: &SymbolicContext<'a>
-) -> Result<z3::ast::Bool<'a>, String> {
-    use z3::ast::Ast;
+) -> Result<crate::z3_shim::ast::Bool<'a>, String> {
+    use crate::z3_shim::ast::Ast;
     match expr {
         syn::Expr::Binary(b) => {
             match b.op {
@@ -1468,12 +1469,12 @@ pub fn translate_bool_to_z3<'a, 'ctx>(
                 syn::BinOp::And(_) => {
                     let bl = translate_bool_to_z3(ctx, &b.left, local_vars, sym_ctx)?;
                     let br = translate_bool_to_z3(ctx, &b.right, local_vars, sym_ctx)?;
-                    Ok(z3::ast::Bool::and(ctx.z3_ctx, &[&bl, &br]))
+                    Ok(crate::z3_shim::ast::Bool::and(ctx.z3_ctx, &[&bl, &br]))
                 }
                 syn::BinOp::Or(_) => {
                     let bl = translate_bool_to_z3(ctx, &b.left, local_vars, sym_ctx)?;
                     let br = translate_bool_to_z3(ctx, &b.right, local_vars, sym_ctx)?;
-                    Ok(z3::ast::Bool::or(ctx.z3_ctx, &[&bl, &br]))
+                    Ok(crate::z3_shim::ast::Bool::or(ctx.z3_ctx, &[&bl, &br]))
                 }
                 _ => Err(format!("Unsupported symbolic boolean operator: {:?}", b.op)),
             }
@@ -1490,7 +1491,7 @@ pub fn translate_bool_to_z3<'a, 'ctx>(
         syn::Expr::Group(g) => translate_bool_to_z3(ctx, &g.expr, local_vars, sym_ctx),
         syn::Expr::Paren(p) => translate_bool_to_z3(ctx, &p.expr, local_vars, sym_ctx),
         syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Bool(b), .. }) => {
-            Ok(z3::ast::Bool::from_bool(ctx.z3_ctx, b.value))
+            Ok(crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, b.value))
         }
         _ => Err("Unsupported symbolic boolean expression".to_string()),
     }

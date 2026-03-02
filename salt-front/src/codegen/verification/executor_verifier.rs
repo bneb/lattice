@@ -12,7 +12,8 @@
 //! 5. Mailbox Lossless: posted frame is always reachable from drain
 //! 6. Arena Reset Safety: reset only when mailbox fully drained
 
-use z3::ast::Ast;
+use crate::z3_shim::ast::Ast;
+use crate::z3_shim as z3;
 
 const QUEUE_CAPACITY: i64 = 1024;
 
@@ -46,19 +47,19 @@ impl ExecutorProofResult {
 ///
 /// This ensures array indexing never goes out of bounds in the circular buffer.
 pub fn verify_index_wrap() -> ExecutorProofResult {
-    let cfg = z3::Config::new();
-    let ctx = z3::Context::new(&cfg);
-    let solver = z3::Solver::new(&ctx);
+    let cfg = crate::z3_shim::Config::new();
+    let ctx = crate::z3_shim::Context::new(&cfg);
+    let solver = crate::z3_shim::Solver::new(&ctx);
 
-    let b = z3::ast::Int::new_const(&ctx, "b");
-    let cap = z3::ast::Int::from_i64(&ctx, QUEUE_CAPACITY);
-    let zero = z3::ast::Int::from_i64(&ctx, 0);
+    let b = crate::z3_shim::ast::Int::new_const(&ctx, "b");
+    let cap = crate::z3_shim::ast::Int::from_i64(&ctx, QUEUE_CAPACITY);
+    let zero = crate::z3_shim::ast::Int::from_i64(&ctx, 0);
 
     // We model Salt's modulo: idx = b % 1024
     let idx = b.modulo(&cap);
 
     // Try to find a counterexample: idx < 0 || idx >= 1024
-    let out_of_bounds = z3::ast::Bool::or(&ctx, &[
+    let out_of_bounds = crate::z3_shim::ast::Bool::or(&ctx, &[
         &idx.lt(&zero),
         &idx.ge(&cap),
     ]);
@@ -66,11 +67,11 @@ pub fn verify_index_wrap() -> ExecutorProofResult {
     solver.assert(&out_of_bounds);
 
     match solver.check() {
-        z3::SatResult::Unsat => {
+        crate::z3_shim::SatResult::Unsat => {
             // UNSAT = no counterexample exists = property holds
             ExecutorProofResult::proven("index_wrap: ∀b: b % 1024 ∈ [0, 1024)")
         }
-        z3::SatResult::Sat => {
+        crate::z3_shim::SatResult::Sat => {
             let model = solver.get_model().unwrap();
             let b_val = model.eval(&b, true).unwrap();
             ExecutorProofResult::failed(
@@ -78,7 +79,7 @@ pub fn verify_index_wrap() -> ExecutorProofResult {
                 format!("Counterexample: b = {}", b_val),
             )
         }
-        z3::SatResult::Unknown => {
+        crate::z3_shim::SatResult::Unknown => {
             ExecutorProofResult::failed("index_wrap", "Z3 returned Unknown".to_string())
         }
     }
@@ -88,28 +89,28 @@ pub fn verify_index_wrap() -> ExecutorProofResult {
 ///
 /// When top > bottom, the queue is empty and pop must return null.
 pub fn verify_empty_queue_returns_null() -> ExecutorProofResult {
-    let cfg = z3::Config::new();
-    let ctx = z3::Context::new(&cfg);
-    let solver = z3::Solver::new(&ctx);
+    let cfg = crate::z3_shim::Config::new();
+    let ctx = crate::z3_shim::Context::new(&cfg);
+    let solver = crate::z3_shim::Solver::new(&ctx);
 
-    let top = z3::ast::Int::new_const(&ctx, "top");
-    let bottom = z3::ast::Int::new_const(&ctx, "bottom");
-    let _zero = z3::ast::Int::from_i64(&ctx, 0);
+    let top = crate::z3_shim::ast::Int::new_const(&ctx, "top");
+    let bottom = crate::z3_shim::ast::Int::new_const(&ctx, "bottom");
+    let _zero = crate::z3_shim::ast::Int::from_i64(&ctx, 0);
 
     // Precondition: top > bottom (empty queue)
     solver.assert(&top.gt(&bottom));
 
     // The pop algorithm: b = bottom - 1; if t <= b then take else null
-    let b_minus_1 = z3::ast::Int::sub(&ctx, &[&bottom, &z3::ast::Int::from_i64(&ctx, 1)]);
+    let b_minus_1 = crate::z3_shim::ast::Int::sub(&ctx, &[&bottom, &crate::z3_shim::ast::Int::from_i64(&ctx, 1)]);
 
     // Try to find a state where t <= b-1 when t > b (should be impossible)
     solver.assert(&top.le(&b_minus_1));
 
     match solver.check() {
-        z3::SatResult::Unsat => {
+        crate::z3_shim::SatResult::Unsat => {
             ExecutorProofResult::proven("empty_pop: ∀t,b: t > b ⟹ pop returns null")
         }
-        z3::SatResult::Sat => {
+        crate::z3_shim::SatResult::Sat => {
             let model = solver.get_model().unwrap();
             let t_val = model.eval(&top, true).unwrap();
             let b_val = model.eval(&bottom, true).unwrap();
@@ -118,7 +119,7 @@ pub fn verify_empty_queue_returns_null() -> ExecutorProofResult {
                 format!("Counterexample: top={}, bottom={}", t_val, b_val),
             )
         }
-        z3::SatResult::Unknown => {
+        crate::z3_shim::SatResult::Unknown => {
             ExecutorProofResult::failed("empty_pop", "Z3 returned Unknown".to_string())
         }
     }
@@ -129,13 +130,13 @@ pub fn verify_empty_queue_returns_null() -> ExecutorProofResult {
 /// Two thieves both read top=T. Only one CAS(T→T+1) can succeed.
 /// Models: thief_1 and thief_2 both attempt CAS with same expected value.
 pub fn verify_cas_theft_safety() -> ExecutorProofResult {
-    let cfg = z3::Config::new();
-    let ctx = z3::Context::new(&cfg);
-    let solver = z3::Solver::new(&ctx);
+    let cfg = crate::z3_shim::Config::new();
+    let ctx = crate::z3_shim::Context::new(&cfg);
+    let solver = crate::z3_shim::Solver::new(&ctx);
 
-    let top_initial = z3::ast::Int::new_const(&ctx, "top_initial");
-    let one = z3::ast::Int::from_i64(&ctx, 1);
-    let top_plus_1 = z3::ast::Int::add(&ctx, &[&top_initial, &one]);
+    let top_initial = crate::z3_shim::ast::Int::new_const(&ctx, "top_initial");
+    let one = crate::z3_shim::ast::Int::from_i64(&ctx, 1);
+    let top_plus_1 = crate::z3_shim::ast::Int::add(&ctx, &[&top_initial, &one]);
 
     // Both thieves read the same initial top value
     let _thief1_expected = top_initial.clone();
@@ -143,7 +144,7 @@ pub fn verify_cas_theft_safety() -> ExecutorProofResult {
 
     // CAS semantics: CAS(addr, expected, desired) succeeds iff *addr == expected
     // After thief 1 succeeds: top = top_initial + 1
-    let thief1_succeeds = z3::ast::Bool::from_bool(&ctx, true);
+    let thief1_succeeds = crate::z3_shim::ast::Bool::from_bool(&ctx, true);
     solver.assert(&thief1_succeeds);
 
     // After thief 1's CAS, top is now top_initial + 1
@@ -154,10 +155,10 @@ pub fn verify_cas_theft_safety() -> ExecutorProofResult {
     solver.assert(&thief2_cas_matches);
 
     match solver.check() {
-        z3::SatResult::Unsat => {
+        crate::z3_shim::SatResult::Unsat => {
             ExecutorProofResult::proven("cas_theft: CAS prevents double-steal")
         }
-        z3::SatResult::Sat => {
+        crate::z3_shim::SatResult::Sat => {
             let model = solver.get_model().unwrap();
             let t_val = model.eval(&top_initial, true).unwrap();
             ExecutorProofResult::failed(
@@ -165,7 +166,7 @@ pub fn verify_cas_theft_safety() -> ExecutorProofResult {
                 format!("Counterexample: top_initial={} allows double steal", t_val),
             )
         }
-        z3::SatResult::Unknown => {
+        crate::z3_shim::SatResult::Unknown => {
             ExecutorProofResult::failed("cas_theft", "Z3 returned Unknown".to_string())
         }
     }
@@ -180,23 +181,23 @@ pub fn verify_cas_theft_safety() -> ExecutorProofResult {
 ///
 /// Models: ownership as a symbolic enum {0=Deque, 1=Executing, 2=Mailbox}
 pub fn verify_frame_ownership() -> ExecutorProofResult {
-    let cfg = z3::Config::new();
-    let ctx = z3::Context::new(&cfg);
-    let solver = z3::Solver::new(&ctx);
+    let cfg = crate::z3_shim::Config::new();
+    let ctx = crate::z3_shim::Context::new(&cfg);
+    let solver = crate::z3_shim::Solver::new(&ctx);
 
     // Model ownership as 3 booleans (in_deque, executing, in_mailbox)
-    let in_deque = z3::ast::Bool::new_const(&ctx, "in_deque");
-    let executing = z3::ast::Bool::new_const(&ctx, "executing");
-    let in_mailbox = z3::ast::Bool::new_const(&ctx, "in_mailbox");
+    let in_deque = crate::z3_shim::ast::Bool::new_const(&ctx, "in_deque");
+    let executing = crate::z3_shim::ast::Bool::new_const(&ctx, "executing");
+    let in_mailbox = crate::z3_shim::ast::Bool::new_const(&ctx, "in_mailbox");
 
     // Exactly-one constraint: at least one is true
-    let at_least_one = z3::ast::Bool::or(&ctx, &[&in_deque, &executing, &in_mailbox]);
+    let at_least_one = crate::z3_shim::ast::Bool::or(&ctx, &[&in_deque, &executing, &in_mailbox]);
     solver.assert(&at_least_one);
 
     // At most one is true (no pair can both be true)
-    let no_deque_and_exec = z3::ast::Bool::and(&ctx, &[&in_deque, &executing]).not();
-    let no_deque_and_mail = z3::ast::Bool::and(&ctx, &[&in_deque, &in_mailbox]).not();
-    let no_exec_and_mail = z3::ast::Bool::and(&ctx, &[&executing, &in_mailbox]).not();
+    let no_deque_and_exec = crate::z3_shim::ast::Bool::and(&ctx, &[&in_deque, &executing]).not();
+    let no_deque_and_mail = crate::z3_shim::ast::Bool::and(&ctx, &[&in_deque, &in_mailbox]).not();
+    let no_exec_and_mail = crate::z3_shim::ast::Bool::and(&ctx, &[&executing, &in_mailbox]).not();
 
     solver.assert(&no_deque_and_exec);
     solver.assert(&no_deque_and_mail);
@@ -204,18 +205,18 @@ pub fn verify_frame_ownership() -> ExecutorProofResult {
 
     // Try to find ANY valid state (should be exactly 3 solutions)
     match solver.check() {
-        z3::SatResult::Sat => {
+        crate::z3_shim::SatResult::Sat => {
             // Good — the constraints are satisfiable. Now verify they prevent
             // a frame being in multiple locations simultaneously.
             // Push a new scope and try to break the invariant
             solver.push();
 
             // Try: frame is both in_deque AND executing
-            let both = z3::ast::Bool::and(&ctx, &[&in_deque, &executing]);
+            let both = crate::z3_shim::ast::Bool::and(&ctx, &[&in_deque, &executing]);
             solver.assert(&both);
 
             let double_ownership = match solver.check() {
-                z3::SatResult::Unsat => true,  // Good: can't be in both
+                crate::z3_shim::SatResult::Unsat => true,  // Good: can't be in both
                 _ => false,
             };
 
@@ -230,13 +231,13 @@ pub fn verify_frame_ownership() -> ExecutorProofResult {
                 )
             }
         }
-        z3::SatResult::Unsat => {
+        crate::z3_shim::SatResult::Unsat => {
             ExecutorProofResult::failed(
                 "frame_ownership",
                 "No valid ownership state exists (overconstrained)".to_string(),
             )
         }
-        z3::SatResult::Unknown => {
+        crate::z3_shim::SatResult::Unknown => {
             ExecutorProofResult::failed("frame_ownership", "Z3 returned Unknown".to_string())
         }
     }
@@ -247,9 +248,9 @@ pub fn verify_frame_ownership() -> ExecutorProofResult {
 /// A frame posted to the mailbox via Treiber stack push is always
 /// reachable from drain. Models the Treiber stack CAS push.
 pub fn verify_mailbox_no_loss() -> ExecutorProofResult {
-    let cfg = z3::Config::new();
-    let ctx = z3::Context::new(&cfg);
-    let solver = z3::Solver::new(&ctx);
+    let cfg = crate::z3_shim::Config::new();
+    let ctx = crate::z3_shim::Context::new(&cfg);
+    let solver = crate::z3_shim::Solver::new(&ctx);
 
     // Model a Treiber stack push:
     // 1. old_head = atomic_load(mailbox_head)
@@ -258,15 +259,15 @@ pub fn verify_mailbox_no_loss() -> ExecutorProofResult {
     //
     // After successful CAS: mailbox_head == new_node
 
-    let old_head = z3::ast::Int::new_const(&ctx, "old_head");
-    let new_node = z3::ast::Int::new_const(&ctx, "new_node");
-    let mailbox_head_after = z3::ast::Int::new_const(&ctx, "mailbox_head_after");
+    let old_head = crate::z3_shim::ast::Int::new_const(&ctx, "old_head");
+    let new_node = crate::z3_shim::ast::Int::new_const(&ctx, "new_node");
+    let mailbox_head_after = crate::z3_shim::ast::Int::new_const(&ctx, "mailbox_head_after");
 
     // CAS succeeded: mailbox_head_after == new_node
     solver.assert(&mailbox_head_after._eq(&new_node));
 
     // new_node.next == old_head (the chain is preserved)
-    let new_node_next = z3::ast::Int::new_const(&ctx, "new_node_next");
+    let new_node_next = crate::z3_shim::ast::Int::new_const(&ctx, "new_node_next");
     solver.assert(&new_node_next._eq(&old_head));
 
     // Property: new_node is reachable from mailbox_head_after
@@ -277,16 +278,16 @@ pub fn verify_mailbox_no_loss() -> ExecutorProofResult {
     solver.assert(&reachable.not());
 
     match solver.check() {
-        z3::SatResult::Unsat => {
+        crate::z3_shim::SatResult::Unsat => {
             ExecutorProofResult::proven("mailbox_no_loss: pushed frame always reachable from head")
         }
-        z3::SatResult::Sat => {
+        crate::z3_shim::SatResult::Sat => {
             ExecutorProofResult::failed(
                 "mailbox_no_loss",
                 "Pushed frame can become unreachable".to_string(),
             )
         }
-        z3::SatResult::Unknown => {
+        crate::z3_shim::SatResult::Unknown => {
             ExecutorProofResult::failed("mailbox_no_loss", "Z3 returned Unknown".to_string())
         }
     }
@@ -296,12 +297,12 @@ pub fn verify_mailbox_no_loss() -> ExecutorProofResult {
 ///
 /// Models: arena has N outstanding frames. Reset requires count == 0.
 pub fn verify_arena_reset_safety() -> ExecutorProofResult {
-    let cfg = z3::Config::new();
-    let ctx = z3::Context::new(&cfg);
-    let solver = z3::Solver::new(&ctx);
+    let cfg = crate::z3_shim::Config::new();
+    let ctx = crate::z3_shim::Context::new(&cfg);
+    let solver = crate::z3_shim::Solver::new(&ctx);
 
-    let outstanding = z3::ast::Int::new_const(&ctx, "outstanding_frames");
-    let zero = z3::ast::Int::from_i64(&ctx, 0);
+    let outstanding = crate::z3_shim::ast::Int::new_const(&ctx, "outstanding_frames");
+    let zero = crate::z3_shim::ast::Int::from_i64(&ctx, 0);
 
     // Precondition: Reset is attempted
     // Safety check: outstanding must be 0
@@ -314,17 +315,17 @@ pub fn verify_arena_reset_safety() -> ExecutorProofResult {
     solver.assert(&reset_allowed);
 
     match solver.check() {
-        z3::SatResult::Unsat => {
+        crate::z3_shim::SatResult::Unsat => {
             // UNSAT: can't have outstanding > 0 AND outstanding == 0 simultaneously
             ExecutorProofResult::proven("arena_reset: reset blocked when outstanding > 0")
         }
-        z3::SatResult::Sat => {
+        crate::z3_shim::SatResult::Sat => {
             ExecutorProofResult::failed(
                 "arena_reset",
                 "Reset allowed with outstanding frames".to_string(),
             )
         }
-        z3::SatResult::Unknown => {
+        crate::z3_shim::SatResult::Unknown => {
             ExecutorProofResult::failed("arena_reset", "Z3 returned Unknown".to_string())
         }
     }
@@ -411,14 +412,14 @@ mod tests {
 ///   - Invariant: mailbox_pending ≤ active_tasks
 ///   - Therefore: active_tasks = 0 ⟹ mailbox_pending = 0 ⟹ head = null
 pub fn verify_shutdown_integrity() -> ExecutorProofResult {
-    let cfg = z3::Config::new();
-    let ctx = z3::Context::new(&cfg);
-    let solver = z3::Solver::new(&ctx);
+    let cfg = crate::z3_shim::Config::new();
+    let ctx = crate::z3_shim::Context::new(&cfg);
+    let solver = crate::z3_shim::Solver::new(&ctx);
 
-    let active_tasks = z3::ast::Int::new_const(&ctx, "active_tasks");
-    let mailbox_pending = z3::ast::Int::new_const(&ctx, "mailbox_pending");
-    let shutdown_flag = z3::ast::Bool::new_const(&ctx, "shutdown_flag");
-    let zero = z3::ast::Int::from_i64(&ctx, 0);
+    let active_tasks = crate::z3_shim::ast::Int::new_const(&ctx, "active_tasks");
+    let mailbox_pending = crate::z3_shim::ast::Int::new_const(&ctx, "mailbox_pending");
+    let shutdown_flag = crate::z3_shim::ast::Bool::new_const(&ctx, "shutdown_flag");
+    let zero = crate::z3_shim::ast::Int::from_i64(&ctx, 0);
 
     // Invariant: mailbox_pending ≤ active_tasks
     // (every frame in the mailbox was spawned as a task, and hasn't been
@@ -436,14 +437,14 @@ pub fn verify_shutdown_integrity() -> ExecutorProofResult {
     solver.assert(&mailbox_pending.gt(&zero));
 
     match solver.check() {
-        z3::SatResult::Unsat => {
+        crate::z3_shim::SatResult::Unsat => {
             // UNSAT: impossible for mailbox_pending > 0 when active_tasks = 0
             // (because mailbox_pending ≤ active_tasks = 0 ⟹ mailbox_pending ≤ 0)
             ExecutorProofResult::proven(
                 "shutdown_integrity: shutdown_flag ∧ active_tasks=0 ⟹ mailbox.head=null"
             )
         }
-        z3::SatResult::Sat => {
+        crate::z3_shim::SatResult::Sat => {
             let model = solver.get_model().unwrap();
             let at_val = model.eval(&active_tasks, true).unwrap();
             let mp_val = model.eval(&mailbox_pending, true).unwrap();
@@ -452,7 +453,7 @@ pub fn verify_shutdown_integrity() -> ExecutorProofResult {
                 format!("Counterexample: active_tasks={}, mailbox_pending={}", at_val, mp_val),
             )
         }
-        z3::SatResult::Unknown => {
+        crate::z3_shim::SatResult::Unknown => {
             ExecutorProofResult::failed("shutdown_integrity", "Z3 returned Unknown".to_string())
         }
     }

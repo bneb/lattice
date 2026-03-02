@@ -14,7 +14,8 @@
 //   a new frame → stack_depth(dispatch^n) = n → overflow at ~1MB/8KB = 128
 // =============================================================================
 
-use z3::ast::Ast;
+use crate::z3_shim::ast::Ast;
+use crate::z3_shim as z3;
 
 /// Result of the stack stability proof.
 #[derive(Debug, Clone)]
@@ -51,18 +52,18 @@ impl StackStabilityResult {
 ///
 /// Proves: ∀n: musttail ⟹ stack_depth(n) = 1
 pub fn verify_stack_stability() -> StackStabilityResult {
-    let cfg = z3::Config::new();
-    let ctx = z3::Context::new(&cfg);
-    let solver = z3::Solver::new(&ctx);
+    let cfg = crate::z3_shim::Config::new();
+    let ctx = crate::z3_shim::Context::new(&cfg);
+    let solver = crate::z3_shim::Solver::new(&ctx);
 
     // Model stack_depth as an uninterpreted function from dispatch count → depth
-    let n = z3::ast::Int::new_const(&ctx, "n");
-    let depth_at_n = z3::ast::Int::new_const(&ctx, "depth_n");
-    let depth_at_n_plus_1 = z3::ast::Int::new_const(&ctx, "depth_n_plus_1");
+    let n = crate::z3_shim::ast::Int::new_const(&ctx, "n");
+    let depth_at_n = crate::z3_shim::ast::Int::new_const(&ctx, "depth_n");
+    let depth_at_n_plus_1 = crate::z3_shim::ast::Int::new_const(&ctx, "depth_n_plus_1");
 
     // Constraint: n ≥ 0 (dispatch count is non-negative)
-    let zero = z3::ast::Int::from_i64(&ctx, 0);
-    let one = z3::ast::Int::from_i64(&ctx, 1);
+    let zero = crate::z3_shim::ast::Int::from_i64(&ctx, 0);
+    let one = crate::z3_shim::ast::Int::from_i64(&ctx, 1);
 
     solver.assert(&n.ge(&zero));
 
@@ -78,15 +79,15 @@ pub fn verify_stack_stability() -> StackStabilityResult {
     solver.push();
     solver.assert(&depth_at_n._eq(&one)); // base depth = 1
     // Try to find: depth_at_(n+1) ≠ 1
-    solver.assert(&z3::ast::Bool::not(&depth_at_n_plus_1._eq(&one)));
+    solver.assert(&crate::z3_shim::ast::Bool::not(&depth_at_n_plus_1._eq(&one)));
 
     match solver.check() {
-        z3::SatResult::Unsat => {
+        crate::z3_shim::SatResult::Unsat => {
             // No counterexample: depth is always 1 under musttail
             solver.pop(1);
             StackStabilityResult::proven("Stack depth constant under MustTail: ∀n: depth(dispatch^n) = 1")
         }
-        z3::SatResult::Sat => {
+        crate::z3_shim::SatResult::Sat => {
             let model = solver.get_model().unwrap();
             let ce = format!("Counterexample: n={:?}, depth={:?}",
                 model.eval(&n, true),
@@ -95,7 +96,7 @@ pub fn verify_stack_stability() -> StackStabilityResult {
             solver.pop(1);
             StackStabilityResult::failed("Stack stability", ce)
         }
-        z3::SatResult::Unknown => {
+        crate::z3_shim::SatResult::Unknown => {
             solver.pop(1);
             StackStabilityResult::failed("Stack stability", "Z3: Unknown".to_string())
         }
@@ -107,25 +108,25 @@ pub fn verify_stack_stability() -> StackStabilityResult {
 /// Models: standard call semantics → depth(n+1) = depth(n) + 1
 /// Shows: ∃n: depth(n) > MAX_STACK_FRAMES (stack overflow is possible)
 pub fn verify_stack_without_musttail_overflows() -> StackStabilityResult {
-    let cfg = z3::Config::new();
-    let ctx = z3::Context::new(&cfg);
-    let solver = z3::Solver::new(&ctx);
+    let cfg = crate::z3_shim::Config::new();
+    let ctx = crate::z3_shim::Context::new(&cfg);
+    let solver = crate::z3_shim::Solver::new(&ctx);
 
     // Model: each dispatch PUSHES a frame (no musttail)
-    let n = z3::ast::Int::new_const(&ctx, "dispatch_count");
-    let depth = z3::ast::Int::new_const(&ctx, "stack_depth");
+    let n = crate::z3_shim::ast::Int::new_const(&ctx, "dispatch_count");
+    let depth = crate::z3_shim::ast::Int::new_const(&ctx, "stack_depth");
 
     // Without musttail: depth = n + 1 (base frame + n dispatches)
-    let one = z3::ast::Int::from_i64(&ctx, 1);
-    solver.assert(&depth._eq(&z3::ast::Int::add(&ctx, &[&n, &one])));
+    let one = crate::z3_shim::ast::Int::from_i64(&ctx, 1);
+    solver.assert(&depth._eq(&crate::z3_shim::ast::Int::add(&ctx, &[&n, &one])));
 
     // Can we find n where depth > 128 (typical stack limit: 1MB / 8KB frame)?
-    let max_frames = z3::ast::Int::from_i64(&ctx, 128);
-    solver.assert(&n.ge(&z3::ast::Int::from_i64(&ctx, 0)));
+    let max_frames = crate::z3_shim::ast::Int::from_i64(&ctx, 128);
+    solver.assert(&n.ge(&crate::z3_shim::ast::Int::from_i64(&ctx, 0)));
     solver.assert(&depth.gt(&max_frames));
 
     match solver.check() {
-        z3::SatResult::Sat => {
+        crate::z3_shim::SatResult::Sat => {
             // Found: without musttail, stack overflow is reachable
             StackStabilityResult {
                 property: "Stack overflow reachable without MustTail".to_string(),
@@ -133,13 +134,13 @@ pub fn verify_stack_without_musttail_overflows() -> StackStabilityResult {
                 detail: "Z3: Proven — without MustTail, ∃n > 128: stack_depth(n) > MAX_FRAMES".to_string(),
             }
         }
-        z3::SatResult::Unsat => {
+        crate::z3_shim::SatResult::Unsat => {
             StackStabilityResult::failed(
                 "Stack overflow reachability",
                 "Unexpected: Z3 could not find overflow scenario".to_string(),
             )
         }
-        z3::SatResult::Unknown => {
+        crate::z3_shim::SatResult::Unknown => {
             StackStabilityResult::failed("Stack overflow reachability", "Z3: Unknown".to_string())
         }
     }

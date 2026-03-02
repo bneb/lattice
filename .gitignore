@@ -163,3 +163,4 @@ fail_semantic_*.salt
 
 # Basalt benchmark cache
 .bench_basalt/
+salt/build_linux/

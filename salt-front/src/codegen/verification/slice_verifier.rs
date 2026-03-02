@@ -13,7 +13,8 @@
 //! returns a value, Z3 receives the invariant that the return value
 //! is <= buf.length, enabling downstream slice elision.
 
-use z3::ast::Ast;
+use crate::z3_shim::ast::Ast;
+use crate::z3_shim as z3;
 
 /// Result of a Z3 slice verification attempt
 #[derive(Debug, Clone, PartialEq)]
@@ -69,17 +70,17 @@ impl SliceInfo {
 /// The Z3 solver attempts to find a counterexample where the access is
 /// out of bounds. If no counterexample exists (UNSAT), the proof is solid.
 pub fn verify_slice_access(
-    z3_ctx: &z3::Context,
+    z3_ctx: &crate::z3_shim::Context,
     slice: &SliceInfo,
     access_offset: i64,
 ) -> SliceProofResult {
-    let solver = z3::Solver::new(z3_ctx);
+    let solver = crate::z3_shim::Solver::new(z3_ctx);
 
     // 1. Declare symbolic variables
-    let buf_len = z3::ast::Int::new_const(z3_ctx, "buf_len");
-    let start = z3::ast::Int::new_const(z3_ctx, "start");
-    let end = z3::ast::Int::new_const(z3_ctx, "end");
-    let zero = z3::ast::Int::from_i64(z3_ctx, 0);
+    let buf_len = crate::z3_shim::ast::Int::new_const(z3_ctx, "buf_len");
+    let start = crate::z3_shim::ast::Int::new_const(z3_ctx, "start");
+    let end = crate::z3_shim::ast::Int::new_const(z3_ctx, "end");
+    let zero = crate::z3_shim::ast::Int::from_i64(z3_ctx, 0);
 
     // 2. Add physical reality constraints (DMA Arena invariants)
     // buf_len > 0
@@ -91,28 +92,28 @@ pub fn verify_slice_access(
 
     // 3. Add concrete constraints from SliceInfo
     if let Some(len) = slice.buf_length {
-        let len_const = z3::ast::Int::from_i64(z3_ctx, len);
+        let len_const = crate::z3_shim::ast::Int::from_i64(z3_ctx, len);
         solver.assert(&buf_len._eq(&len_const));
     }
     if let Some(s) = slice.slice_start {
-        let s_const = z3::ast::Int::from_i64(z3_ctx, s);
+        let s_const = crate::z3_shim::ast::Int::from_i64(z3_ctx, s);
         solver.assert(&start._eq(&s_const));
     }
     if let Some(e) = slice.slice_end {
-        let e_const = z3::ast::Int::from_i64(z3_ctx, e);
+        let e_const = crate::z3_shim::ast::Int::from_i64(z3_ctx, e);
         solver.assert(&end._eq(&e_const));
     }
 
     // 4. Discovery integration: SIMD find_header_end provides an upper bound
     if let Some(bound) = slice.discovery_bound {
-        let bound_const = z3::ast::Int::from_i64(z3_ctx, bound);
+        let bound_const = crate::z3_shim::ast::Int::from_i64(z3_ctx, bound);
         solver.assert(&end.le(&bound_const));
         solver.assert(&bound_const.le(&buf_len));
     }
 
     // 5. THE PROOF: Can access at (start + offset) violate (< end)?
-    let offset_const = z3::ast::Int::from_i64(z3_ctx, access_offset);
-    let access_pos = z3::ast::Int::add(z3_ctx, &[&start, &offset_const]);
+    let offset_const = crate::z3_shim::ast::Int::from_i64(z3_ctx, access_offset);
+    let access_pos = crate::z3_shim::ast::Int::add(z3_ctx, &[&start, &offset_const]);
 
     // Violation: access_pos >= end (out of bounds)
     let violation = access_pos.ge(&end);
@@ -120,10 +121,10 @@ pub fn verify_slice_access(
 
     // If UNSAT: no counterexample exists → proof is solid
     match solver.check() {
-        z3::SatResult::Unsat => {
+        crate::z3_shim::SatResult::Unsat => {
             SliceProofResult::Proven
         }
-        z3::SatResult::Sat => {
+        crate::z3_shim::SatResult::Sat => {
             let _model = solver.get_model().unwrap();
             let counter = format!(
                 "Counterexample in '{}': access at offset {} may exceed slice bounds",
@@ -131,7 +132,7 @@ pub fn verify_slice_access(
             );
             SliceProofResult::Unsafe(counter)
         }
-        z3::SatResult::Unknown => {
+        crate::z3_shim::SatResult::Unknown => {
             SliceProofResult::Unknown
         }
     }
@@ -139,31 +140,31 @@ pub fn verify_slice_access(
 
 /// Verify a complete slice creation: buf.slice(start, end) where buf.length is known
 pub fn verify_slice_creation(
-    z3_ctx: &z3::Context,
+    z3_ctx: &crate::z3_shim::Context,
     buf_length: i64,
     slice_start: i64,
     slice_end: i64,
 ) -> SliceProofResult {
-    let solver = z3::Solver::new(z3_ctx);
-    let zero = z3::ast::Int::from_i64(z3_ctx, 0);
-    let len = z3::ast::Int::from_i64(z3_ctx, buf_length);
-    let start = z3::ast::Int::from_i64(z3_ctx, slice_start);
-    let end = z3::ast::Int::from_i64(z3_ctx, slice_end);
+    let solver = crate::z3_shim::Solver::new(z3_ctx);
+    let zero = crate::z3_shim::ast::Int::from_i64(z3_ctx, 0);
+    let len = crate::z3_shim::ast::Int::from_i64(z3_ctx, buf_length);
+    let start = crate::z3_shim::ast::Int::from_i64(z3_ctx, slice_start);
+    let end = crate::z3_shim::ast::Int::from_i64(z3_ctx, slice_end);
 
     // The violation: start > end OR end > buf_length OR start < 0
     let v1 = start.gt(&end);
     let v2 = end.gt(&len);
     let v3 = start.lt(&zero);
-    let any_violation = z3::ast::Bool::or(z3_ctx, &[&v1, &v2, &v3]);
+    let any_violation = crate::z3_shim::ast::Bool::or(z3_ctx, &[&v1, &v2, &v3]);
 
     solver.assert(&any_violation);
 
     match solver.check() {
-        z3::SatResult::Unsat => SliceProofResult::Proven,
-        z3::SatResult::Sat => {
+        crate::z3_shim::SatResult::Unsat => SliceProofResult::Proven,
+        crate::z3_shim::SatResult::Sat => {
             SliceProofResult::Unsafe("Slice bounds may exceed buffer".to_string())
         }
-        z3::SatResult::Unknown => SliceProofResult::Unknown,
+        crate::z3_shim::SatResult::Unknown => SliceProofResult::Unknown,
     }
 }
 
@@ -176,18 +177,18 @@ pub fn verify_slice_creation(
 /// If `offset_upper_bound` is provided, Z3 has a chance to prove safety
 /// if the bound is within the slice range.
 pub fn verify_dynamic_slice_access(
-    z3_ctx: &z3::Context,
+    z3_ctx: &crate::z3_shim::Context,
     slice: &SliceInfo,
     offset_upper_bound: Option<i64>,
 ) -> SliceProofResult {
-    let solver = z3::Solver::new(z3_ctx);
+    let solver = crate::z3_shim::Solver::new(z3_ctx);
 
     // Symbolic variables
-    let buf_len = z3::ast::Int::new_const(z3_ctx, "buf_len");
-    let start = z3::ast::Int::new_const(z3_ctx, "start");
-    let end = z3::ast::Int::new_const(z3_ctx, "end");
-    let offset = z3::ast::Int::new_const(z3_ctx, "offset"); // symbolic!
-    let zero = z3::ast::Int::from_i64(z3_ctx, 0);
+    let buf_len = crate::z3_shim::ast::Int::new_const(z3_ctx, "buf_len");
+    let start = crate::z3_shim::ast::Int::new_const(z3_ctx, "start");
+    let end = crate::z3_shim::ast::Int::new_const(z3_ctx, "end");
+    let offset = crate::z3_shim::ast::Int::new_const(z3_ctx, "offset"); // symbolic!
+    let zero = crate::z3_shim::ast::Int::from_i64(z3_ctx, 0);
 
     // Physical invariants
     solver.assert(&buf_len.gt(&zero));
@@ -200,43 +201,43 @@ pub fn verify_dynamic_slice_access(
 
     // Concrete constraints from SliceInfo
     if let Some(len) = slice.buf_length {
-        solver.assert(&buf_len._eq(&z3::ast::Int::from_i64(z3_ctx, len)));
+        solver.assert(&buf_len._eq(&crate::z3_shim::ast::Int::from_i64(z3_ctx, len)));
     }
     if let Some(s) = slice.slice_start {
-        solver.assert(&start._eq(&z3::ast::Int::from_i64(z3_ctx, s)));
+        solver.assert(&start._eq(&crate::z3_shim::ast::Int::from_i64(z3_ctx, s)));
     }
     if let Some(e) = slice.slice_end {
-        solver.assert(&end._eq(&z3::ast::Int::from_i64(z3_ctx, e)));
+        solver.assert(&end._eq(&crate::z3_shim::ast::Int::from_i64(z3_ctx, e)));
     }
 
     // If we have an upper bound on the offset (e.g., from a loop invariant)
     if let Some(bound) = offset_upper_bound {
-        let bound_const = z3::ast::Int::from_i64(z3_ctx, bound);
+        let bound_const = crate::z3_shim::ast::Int::from_i64(z3_ctx, bound);
         solver.assert(&offset.lt(&bound_const));
     }
 
     // Discovery integration
     if let Some(bound) = slice.discovery_bound {
-        let bound_const = z3::ast::Int::from_i64(z3_ctx, bound);
+        let bound_const = crate::z3_shim::ast::Int::from_i64(z3_ctx, bound);
         solver.assert(&end.le(&bound_const));
         solver.assert(&bound_const.le(&buf_len));
     }
 
     // THE PROOF: Can (start + offset) >= end?
-    let access_pos = z3::ast::Int::add(z3_ctx, &[&start, &offset]);
+    let access_pos = crate::z3_shim::ast::Int::add(z3_ctx, &[&start, &offset]);
     let violation = access_pos.ge(&end);
     solver.assert(&violation);
 
     match solver.check() {
-        z3::SatResult::Unsat => SliceProofResult::Proven,
-        z3::SatResult::Sat => {
+        crate::z3_shim::SatResult::Unsat => SliceProofResult::Proven,
+        crate::z3_shim::SatResult::Sat => {
             let counter = format!(
                 "Counterexample in '{}': symbolic offset may exceed slice bounds",
                 slice.func_name
             );
             SliceProofResult::Unsafe(counter)
         }
-        z3::SatResult::Unknown => SliceProofResult::Unknown,
+        crate::z3_shim::SatResult::Unknown => SliceProofResult::Unknown,
     }
 }
 
@@ -248,9 +249,9 @@ pub fn verify_dynamic_slice_access(
 mod tests {
     use super::*;
 
-    fn make_ctx() -> z3::Context {
-        let cfg = z3::Config::new();
-        z3::Context::new(&cfg)
+    fn make_ctx() -> crate::z3_shim::Context {
+        let cfg = crate::z3_shim::Config::new();
+        crate::z3_shim::Context::new(&cfg)
     }
 
     // -------------------------------------------------------------------------

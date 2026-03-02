@@ -6,6 +6,7 @@
 //! affect final binary performance.
 
 #[cfg(test)]
+use crate::z3_shim as z3;
 mod tests {
     use crate::grammar::SaltFile;
     use crate::codegen::context::CodegenContext;
@@ -14,8 +15,8 @@ mod tests {
     fn compile_to_mlir(source: &str) -> String {
         let file: SaltFile = syn::parse_str(source)
             .unwrap_or_else(|e| panic!("Failed to parse Salt source: {}", e));
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
         ctx.register_builtins();
         crate::codegen::register_templates(&ctx, &file);

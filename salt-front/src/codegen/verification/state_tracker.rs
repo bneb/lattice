@@ -9,8 +9,9 @@
 //! The Coroner's Audit runs BEFORE the function-level solver.pop(), ensuring
 //! all path-sensitive assertions are visible to Z3.
 
-use z3::ast::{Ast, Int, Bool};
+use crate::z3_shim::ast::{Ast, Int, Bool};
 use std::collections::HashMap;
+use crate::z3_shim as z3;
 
 /// The ownership state of a tracked resource.
 /// Each resource transitions through these states during its lifetime.
@@ -42,7 +43,7 @@ struct StateTransition {
 /// - At verify_leak_free time, we assert ALL transitions at function-level scope
 /// - This ensures Z3 sees the complete picture for path-sensitive analysis
 pub struct Z3StateTracker<'ctx> {
-    ctx: &'ctx z3::Context,
+    ctx: &'ctx crate::z3_shim::Context,
     /// Maps MLIR Value IDs to their Z3 symbolic state (represented as Int)
     /// These persist across solver scope changes for path-sensitive analysis
     states: HashMap<String, Int<'ctx>>,
@@ -57,7 +58,7 @@ pub struct Z3StateTracker<'ctx> {
 
 impl<'ctx> Z3StateTracker<'ctx> {
     /// Creates a new ownership tracker bound to the given Z3 context.
-    pub fn new(ctx: &'ctx z3::Context) -> Self {
+    pub fn new(ctx: &'ctx crate::z3_shim::Context) -> Self {
         Self {
             ctx,
             states: HashMap::new(),
@@ -78,7 +79,7 @@ impl<'ctx> Z3StateTracker<'ctx> {
     /// 
     /// The symbolic constant is initialized to Owned at the FUNCTION level.
     /// This creates a Proof Obligation: this pointer must eventually be Released or Moved.
-    pub fn register_allocation(&mut self, value_id: &str, solver: &z3::Solver<'ctx>) {
+    pub fn register_allocation(&mut self, value_id: &str, solver: &crate::z3_shim::Solver<'ctx>) {
         let state_var = Int::new_const(self.ctx, format!("{}_state", value_id));
         let owned_val = Int::from_i64(self.ctx, OwnershipState::Owned as i64);
         
@@ -93,7 +94,7 @@ impl<'ctx> Z3StateTracker<'ctx> {
     /// 
     /// Records the transition for later assertion at function-level scope.
     /// This avoids losing the assertion due to nested solver.pop() calls.
-    pub fn mark_moved(&mut self, value_id: &str, _solver: &z3::Solver<'ctx>) -> Result<(), String> {
+    pub fn mark_moved(&mut self, value_id: &str, _solver: &crate::z3_shim::Solver<'ctx>) -> Result<(), String> {
         if self.states.contains_key(value_id) {
             self.transitions.push(StateTransition {
                 value_id: value_id.to_string(),
@@ -110,7 +111,7 @@ impl<'ctx> Z3StateTracker<'ctx> {
     ///
     /// Records the transition for later assertion at function-level scope.
     /// This avoids losing the assertion due to nested solver.pop() calls.
-    pub fn mark_released(&mut self, value_id: &str, _solver: &z3::Solver<'ctx>) -> Result<(), String> {
+    pub fn mark_released(&mut self, value_id: &str, _solver: &crate::z3_shim::Solver<'ctx>) -> Result<(), String> {
         if self.states.contains_key(value_id) {
             self.transitions.push(StateTransition {
                 value_id: value_id.to_string(),
@@ -132,7 +133,7 @@ impl<'ctx> Z3StateTracker<'ctx> {
     /// Note: We use the transitions Vec to verify, because Z3 assertions for
     /// "state = Owned" AND "state = Released" create a contradiction (UNSAT),
     /// which would propagate globally. Instead we check the transition log.
-    pub fn verify_leak_free(&self, _solver: &z3::Solver<'ctx>) -> Result<(), String> {
+    pub fn verify_leak_free(&self, _solver: &crate::z3_shim::Solver<'ctx>) -> Result<(), String> {
         // For each tracked resource, verify it has a terminal transition
         for id in self.states.keys() {
             let has_terminal = self.transitions.iter().any(|t| t.value_id == *id);
@@ -181,9 +182,9 @@ mod tests {
 
     #[test]
     fn test_allocate_and_release_no_leak() {
-        let cfg = z3::Config::new();
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let solver = crate::z3_shim::Solver::new(&ctx);
         let mut tracker = Z3StateTracker::new(&ctx);
 
         // Allocate a resource
@@ -201,9 +202,9 @@ mod tests {
 
     #[test]
     fn test_allocate_and_move_no_leak() {
-        let cfg = z3::Config::new();
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let solver = crate::z3_shim::Solver::new(&ctx);
         let mut tracker = Z3StateTracker::new(&ctx);
 
         // Allocate a resource
@@ -223,9 +224,9 @@ mod tests {
 
     #[test]
     fn test_leak_detection_missing_release() {
-        let cfg = z3::Config::new();
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let solver = crate::z3_shim::Solver::new(&ctx);
         let mut tracker = Z3StateTracker::new(&ctx);
 
         // Allocate but never release
@@ -241,9 +242,9 @@ mod tests {
 
     #[test]
     fn test_leak_detection_partial_release() {
-        let cfg = z3::Config::new();
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let solver = crate::z3_shim::Solver::new(&ctx);
         let mut tracker = Z3StateTracker::new(&ctx);
 
         // Allocate two resources
@@ -268,9 +269,9 @@ mod tests {
 
     #[test]
     fn test_replay_survives_nested_scope_pop() {
-        let cfg = z3::Config::new();
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let solver = crate::z3_shim::Solver::new(&ctx);
         let mut tracker = Z3StateTracker::new(&ctx);
 
         // Function-level: allocate
@@ -295,9 +296,9 @@ mod tests {
 
     #[test]
     fn test_replay_survives_multiple_nested_scopes() {
-        let cfg = z3::Config::new();
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let solver = crate::z3_shim::Solver::new(&ctx);
         let mut tracker = Z3StateTracker::new(&ctx);
 
         // Allocate at function level
@@ -328,9 +329,9 @@ mod tests {
 
     #[test]
     fn test_multiple_resources_all_released() {
-        let cfg = z3::Config::new();
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let solver = crate::z3_shim::Solver::new(&ctx);
         let mut tracker = Z3StateTracker::new(&ctx);
 
         // Allocate many resources
@@ -351,9 +352,9 @@ mod tests {
 
     #[test]
     fn test_mixed_release_and_move() {
-        let cfg = z3::Config::new();
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let solver = crate::z3_shim::Solver::new(&ctx);
         let mut tracker = Z3StateTracker::new(&ctx);
 
         tracker.register_allocation("dropped", &solver);
@@ -375,9 +376,9 @@ mod tests {
 
     #[test]
     fn test_release_untracked_resource_allowed() {
-        let cfg = z3::Config::new();
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let solver = crate::z3_shim::Solver::new(&ctx);
         let mut tracker = Z3StateTracker::new(&ctx);
 
         // Release something that was never allocated (foreign pointer)
@@ -387,9 +388,9 @@ mod tests {
 
     #[test]
     fn test_move_untracked_resource_allowed() {
-        let cfg = z3::Config::new();
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let solver = crate::z3_shim::Solver::new(&ctx);
         let mut tracker = Z3StateTracker::new(&ctx);
 
         // Move something that was never allocated
@@ -399,9 +400,9 @@ mod tests {
 
     #[test]
     fn test_clear_resets_tracker() {
-        let cfg = z3::Config::new();
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let solver = crate::z3_shim::Solver::new(&ctx);
         let mut tracker = Z3StateTracker::new(&ctx);
 
         // Add some state
@@ -421,9 +422,9 @@ mod tests {
 
     #[test]
     fn test_empty_tracker_passes() {
-        let cfg = z3::Config::new();
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let solver = crate::z3_shim::Solver::new(&ctx);
         let tracker = Z3StateTracker::new(&ctx);
 
         // No allocations = no leaks

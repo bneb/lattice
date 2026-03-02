@@ -5,6 +5,7 @@ use crate::evaluator::ConstValue;
 use std::collections::HashMap;
 use crate::common::mangling::Mangler;
 use crate::codegen::abi::Layout;
+use crate::z3_shim as z3;
 
 // ============================================================================
 
@@ -3241,10 +3242,10 @@ mod tests {
     #[test]
     fn test_enum_payload_packing() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let _z3_ctx = z3::Context::new(&z3_cfg);
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let _z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let name = "PackingEnum".to_string();
@@ -3291,10 +3292,10 @@ mod tests {
     #[test]
     fn test_promote_numeric_usize_to_i64_emits_index_cast() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let _z3_ctx = z3::Context::new(&z3_cfg);
-        let z3_cfg2 = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg2);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let _z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
+        let z3_cfg2 = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg2);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let mut out = String::new();
@@ -3310,10 +3311,10 @@ mod tests {
     #[test]
     fn test_promote_numeric_i64_to_usize_emits_index_cast() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let _z3_ctx = z3::Context::new(&z3_cfg);
-        let z3_cfg2 = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg2);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let _z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
+        let z3_cfg2 = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg2);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let mut out = String::new();
@@ -3329,10 +3330,10 @@ mod tests {
     #[test]
     fn test_cast_numeric_usize_to_i64_emits_index_cast() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let _z3_ctx = z3::Context::new(&z3_cfg);
-        let z3_cfg2 = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg2);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let _z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
+        let z3_cfg2 = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg2);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let mut out = String::new();
@@ -3346,10 +3347,10 @@ mod tests {
     #[test]
     fn test_usize_identity_does_not_emit_cast() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let _z3_ctx = z3::Context::new(&z3_cfg);
-        let z3_cfg2 = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg2);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let _z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
+        let z3_cfg2 = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg2);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let mut out = String::new();
@@ -3392,8 +3393,8 @@ mod tests {
     #[test]
     fn test_atomic_i32_zero_attr() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let ty = Type::Atomic(Box::new(Type::I32));
@@ -3406,8 +3407,8 @@ mod tests {
     #[test]
     fn test_atomic_u64_zero_attr() {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
-        let z3_cfg = z3::Config::new();
-        let z3_ctx = z3::Context::new(&z3_cfg);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let ty = Type::Atomic(Box::new(Type::U64));

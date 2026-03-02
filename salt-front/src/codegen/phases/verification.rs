@@ -2,17 +2,17 @@
 //! Contains Z3 context, solver, and symbolic tracking for formal verification.
 
 use std::collections::HashMap;
-use z3;
+use crate::z3_shim as z3;
 
 /// Phase 4: Z3 verification state (isolated for solver queries)
 pub struct VerificationState<'a> {
     // --- Z3 verification core ---
     /// Z3 context reference
-    pub z3_ctx: &'a z3::Context,
+    pub z3_ctx: &'a crate::z3_shim::Context,
     /// Z3 solver instance
-    pub z3_solver: z3::Solver<'a>,
+    pub z3_solver: crate::z3_shim::Solver<'a>,
     /// Symbolic variable tracker: var_name -> Z3 integer
-    pub symbolic_tracker: HashMap<String, z3::ast::Int<'a>>,
+    pub symbolic_tracker: HashMap<String, crate::z3_shim::ast::Int<'a>>,
     /// Z3 ownership state tracker for RAII verification
     pub ownership_tracker: crate::codegen::verification::Z3StateTracker<'a>,
     /// Number of bounds checks elided by Z3 proofs
@@ -37,9 +37,9 @@ pub struct VerificationState<'a> {
 }
 
 impl<'a> VerificationState<'a> {
-    pub fn new(z3_ctx: &'a z3::Context) -> Self {
+    pub fn new(z3_ctx: &'a crate::z3_shim::Context) -> Self {
         Self {
-            z3_solver: z3::Solver::new(z3_ctx),
+            z3_solver: crate::z3_shim::Solver::new(z3_ctx),
             symbolic_tracker: HashMap::new(),
             ownership_tracker: crate::codegen::verification::Z3StateTracker::new(z3_ctx),
             elided_checks: 0,

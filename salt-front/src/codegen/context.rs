@@ -5,7 +5,6 @@ use crate::grammar::{SaltFile, SaltFn, Item, ImportDecl, StructDef, EnumDef};
 use crate::registry::{Registry, StructInfo, EnumInfo};
 use crate::types::{Type, TypeKey};
 use crate::evaluator::Evaluator;
-use z3;
 use crate::common::mangling::Mangler;
 use crate::codegen::collector::MonomorphizationTask;
 use crate::codegen::emit_fn;
@@ -97,9 +96,9 @@ pub struct CodegenContext<'a> {
     
     // === Verification State (has lifetime, cannot be Default) ===
     // === Verification State (has lifetime, cannot be Default) ===
-    pub z3_ctx: &'a z3::Context,
-    pub z3_solver: RefCell<z3::Solver<'a>>,
-    pub symbolic_tracker: RefCell<HashMap<String, z3::ast::Int<'a>>>,
+    pub z3_ctx: &'a crate::z3_shim::Context,
+    pub z3_solver: RefCell<crate::z3_shim::Solver<'a>>,
+    pub symbolic_tracker: RefCell<HashMap<String, crate::z3_shim::ast::Int<'a>>>,
     pub ownership_tracker: RefCell<crate::codegen::verification::Z3StateTracker<'a>>,
     pub elided_checks: RefCell<usize>,
     pub total_checks: RefCell<usize>,
@@ -191,9 +190,9 @@ pub struct LoweringContext<'a, 'ctx> {
     pub expansion: &'a mut crate::codegen::phases::ExpansionState,
     pub emission: &'a mut crate::codegen::phases::EmissionState,
     pub control_flow: &'a mut crate::codegen::phases::ControlFlowState,
-    pub z3_ctx: &'ctx z3::Context,
-    pub z3_solver: &'a mut z3::Solver<'ctx>,
-    pub symbolic_tracker: &'a mut std::collections::HashMap<String, z3::ast::Int<'ctx>>,
+    pub z3_ctx: &'ctx crate::z3_shim::Context,
+    pub z3_solver: &'a mut crate::z3_shim::Solver<'ctx>,
+    pub symbolic_tracker: &'a mut std::collections::HashMap<String, crate::z3_shim::ast::Int<'ctx>>,
     pub ownership_tracker: &'a mut crate::codegen::verification::Z3StateTracker<'ctx>,
     pub elided_checks: &'a mut usize,
     pub total_checks: &'a mut usize,
@@ -374,26 +373,26 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
     // =========================================================================
 
     pub fn z3_register_symbolic_int(&mut self, ssa_name: &str) {
-        let sym = z3::ast::Int::new_const(self.z3_ctx, ssa_name);
+        let sym = crate::z3_shim::ast::Int::new_const(self.z3_ctx, ssa_name);
         self.symbolic_tracker.insert(ssa_name.to_string(), sym);
     }
 
     pub fn z3_try_prove_positive(&self, ssa_name: &str) -> bool {
         if let Some(sym) = self.symbolic_tracker.get(ssa_name) {
-            let zero = z3::ast::Int::from_i64(self.z3_ctx, 0);
+            let zero = crate::z3_shim::ast::Int::from_i64(self.z3_ctx, 0);
             let cond = sym.ge(&zero);
             self.z3_solver.push();
             self.z3_solver.assert(&cond.not());
             let result = self.z3_solver.check();
             self.z3_solver.pop(1);
-            result == z3::SatResult::Unsat
+            result == crate::z3_shim::SatResult::Unsat
         } else {
             false
         }
     }
 
     pub fn mark_released(&mut self, var_name: &str) {
-        let z3_solver_ptr = self.z3_solver as *const z3::Solver;
+        let z3_solver_ptr = self.z3_solver as *const crate::z3_shim::Solver;
         let solver_ref = unsafe { &*z3_solver_ptr };
         self.ownership_tracker.mark_released(var_name, solver_ref).ok();
     }
@@ -570,7 +569,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
     pub fn is_hot_path_mut(&mut self) -> &mut bool { &mut self.control_flow.is_hot_path }
 
     // --- Verification Phase ---
-    pub fn get_symbolic_int(&self, ssa_name: &str) -> Option<z3::ast::Int<'ctx>> { self.symbolic_tracker.get(ssa_name).cloned() }
+    pub fn get_symbolic_int(&self, ssa_name: &str) -> Option<crate::z3_shim::ast::Int<'ctx>> { self.symbolic_tracker.get(ssa_name).cloned() }
 
     // =========================================================================
     // MLIR Builder Pattern Helpers (zero RefCell)
@@ -1014,20 +1013,20 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
     }
 
     // --- Z3 Helpers ---
-    pub fn mk_int(&self, val: i64) -> z3::ast::Int<'ctx> {
-        z3::ast::Int::from_i64(self.z3_ctx, val)
+    pub fn mk_int(&self, val: i64) -> crate::z3_shim::ast::Int<'ctx> {
+        crate::z3_shim::ast::Int::from_i64(self.z3_ctx, val)
     }
 
-    pub fn mk_var(&self, name: &str) -> z3::ast::Int<'ctx> {
-        z3::ast::Int::new_const(self.z3_ctx, name)
+    pub fn mk_var(&self, name: &str) -> crate::z3_shim::ast::Int<'ctx> {
+        crate::z3_shim::ast::Int::new_const(self.z3_ctx, name)
     }
 
-    pub fn is_provably_safe(&self, violation: &z3::ast::Bool<'ctx>) -> bool {
+    pub fn is_provably_safe(&self, violation: &crate::z3_shim::ast::Bool<'ctx>) -> bool {
         self.z3_solver.push();
         self.z3_solver.assert(violation);
         let result = self.z3_solver.check();
         self.z3_solver.pop(1);
-        result == z3::SatResult::Unsat
+        result == crate::z3_shim::SatResult::Unsat
     }
 
     // --- Ownership / Cleanup ---
@@ -1562,7 +1561,7 @@ impl<'a> CodegenContext<'a> {
 
         f(&mut lctx)
     }
-    pub fn new(file: &'a SaltFile, release_mode: bool, registry: Option<&'a Registry>, z3_ctx: &'a z3::Context) -> Self {
+    pub fn new(file: &'a SaltFile, release_mode: bool, registry: Option<&'a Registry>, z3_ctx: &'a crate::z3_shim::Context) -> Self {
         Self {
             // Phased state containers
             discovery: RefCell::new(crate::codegen::phases::DiscoveryState::new(file)),
@@ -1572,7 +1571,7 @@ impl<'a> CodegenContext<'a> {
             
             // Verification state (has lifetime)
             z3_ctx,
-            z3_solver: RefCell::new(z3::Solver::new(z3_ctx)),
+            z3_solver: RefCell::new(crate::z3_shim::Solver::new(z3_ctx)),
             symbolic_tracker: RefCell::new(HashMap::new()),
             ownership_tracker: RefCell::new(crate::codegen::verification::Z3StateTracker::new(z3_ctx)),
             elided_checks: RefCell::new(0),
@@ -2739,11 +2738,11 @@ impl<'a> CodegenContext<'a> {
             }
         }
     }
-    pub fn mk_int(&self, val: i64) -> z3::ast::Int<'a> {
-        z3::ast::Int::from_i64(self.z3_ctx, val)
+    pub fn mk_int(&self, val: i64) -> crate::z3_shim::ast::Int<'a> {
+        crate::z3_shim::ast::Int::from_i64(self.z3_ctx, val)
     }
-    pub fn mk_var(&self, name: &str) -> z3::ast::Int<'a> {
-        z3::ast::Int::new_const(self.z3_ctx, name)
+    pub fn mk_var(&self, name: &str) -> crate::z3_shim::ast::Int<'a> {
+        crate::z3_shim::ast::Int::new_const(self.z3_ctx, name)
     }
     pub fn push_solver(&self) {
         self.z3_solver.borrow().push();
@@ -2751,7 +2750,7 @@ impl<'a> CodegenContext<'a> {
     pub fn pop_solver(&self) {
         self.z3_solver.borrow().pop(1);
     }
-    pub fn add_assertion(&self, expr: &z3::ast::Bool<'a>) {
+    pub fn add_assertion(&self, expr: &crate::z3_shim::ast::Bool<'a>) {
         self.z3_solver.borrow().assert(expr);
     }
     /// [Z3 VERIFICATION] Check if a violation condition is provably unsatisfiable.
@@ -2759,14 +2758,14 @@ impl<'a> CodegenContext<'a> {
     /// Returns `true` if Z3 can prove the violation is impossible (UNSAT),
     /// meaning the code is provably safe. Returns `false` if Z3 finds a 
     /// counterexample (SAT) or times out (Unknown).
-    pub fn is_provably_safe(&self, violation: &z3::ast::Bool<'a>) -> bool {
+    pub fn is_provably_safe(&self, violation: &crate::z3_shim::ast::Bool<'a>) -> bool {
         
         
         // Create a fresh solver for this check (isolated from main solver state)
-        let solver = z3::Solver::new(self.z3_ctx);
+        let solver = crate::z3_shim::Solver::new(self.z3_ctx);
         
         // Set timeout to 100ms to prevent hangs on complex expressions
-        let mut params = z3::Params::new(self.z3_ctx);
+        let mut params = crate::z3_shim::Params::new(self.z3_ctx);
         params.set_u32("timeout", 100);
         solver.set_params(&params);
         
@@ -2774,25 +2773,25 @@ impl<'a> CodegenContext<'a> {
         solver.assert(violation);
         
         match solver.check() {
-            z3::SatResult::Unsat => {
+            crate::z3_shim::SatResult::Unsat => {
                 // No counterexample exists - code is provably safe
                 true
             }
-            z3::SatResult::Sat => {
+            crate::z3_shim::SatResult::Sat => {
                 // Counterexample found - violation is possible
                 false
             }
-            z3::SatResult::Unknown => {
+            crate::z3_shim::SatResult::Unknown => {
                 // Timeout or complexity limit - conservatively return false
                 eprintln!("Z3: Unknown result (timeout?) for violation check");
                 false
             }
         }
     }
-    pub fn register_symbolic_int(&self, ssa_name: String, val: z3::ast::Int<'a>) {
+    pub fn register_symbolic_int(&self, ssa_name: String, val: crate::z3_shim::ast::Int<'a>) {
         self.symbolic_tracker.borrow_mut().insert(ssa_name, val);
     }
-    pub fn get_symbolic_int(&self, ssa_name: &str) -> Option<z3::ast::Int<'a>> {
+    pub fn get_symbolic_int(&self, ssa_name: &str) -> Option<crate::z3_shim::ast::Int<'a>> {
         self.symbolic_tracker.borrow().get(ssa_name).cloned()
     }
 
@@ -4429,7 +4428,7 @@ impl<'a> CodegenContext<'a> {
                     // mathematically prove alignment is invariant.
                     // =========================================================
                     {
-                        use z3::ast::Ast;  // for _eq() and not()
+                        use crate::z3_shim::ast::Ast;  // for _eq() and not()
 
                         let struct_reg = self.struct_registry();
                         let mut byte_offset: usize = 0;
@@ -4437,30 +4436,30 @@ impl<'a> CodegenContext<'a> {
                             let has_atomic = f.attributes.iter().any(|a| a.name == "atomic");
                             if has_atomic {
                                 // Use Z3 to formally verify alignment via integer modular arithmetic
-                                let z3_cfg = z3::Config::new();
-                                let z3_ctx = z3::Context::new(&z3_cfg);
-                                let solver = z3::Solver::new(&z3_ctx);
+                                let z3_cfg = crate::z3_shim::Config::new();
+                                let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
+                                let solver = crate::z3_shim::Solver::new(&z3_ctx);
 
                                 // Model: base address is an arbitrary non-negative integer
                                 // that is 16-byte aligned (struct allocator contract)
-                                let base = z3::ast::Int::new_const(&z3_ctx, "base_addr");
-                                let sixteen = z3::ast::Int::from_i64(&z3_ctx, 16);
-                                let zero = z3::ast::Int::from_i64(&z3_ctx, 0);
+                                let base = crate::z3_shim::ast::Int::new_const(&z3_ctx, "base_addr");
+                                let sixteen = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 16);
+                                let zero = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 0);
 
                                 // Constraint: base >= 0 and base % 16 == 0
                                 solver.assert(&base.ge(&zero));
                                 solver.assert(&base.modulo(&sixteen)._eq(&zero));
 
                                 // Compute field address: base + byte_offset
-                                let offset_val = z3::ast::Int::from_i64(&z3_ctx, byte_offset as i64);
-                                let field_addr = z3::ast::Int::add(&z3_ctx, &[&base, &offset_val]);
+                                let offset_val = crate::z3_shim::ast::Int::from_i64(&z3_ctx, byte_offset as i64);
+                                let field_addr = crate::z3_shim::ast::Int::add(&z3_ctx, &[&base, &offset_val]);
 
                                 // Assert NEGATION: field_addr % 16 != 0
                                 // UNSAT => always aligned (proof), SAT => misaligned (error)
                                 solver.assert(&field_addr.modulo(&sixteen)._eq(&zero).not());
 
                                 match solver.check() {
-                                    z3::SatResult::Unsat => {
+                                    crate::z3_shim::SatResult::Unsat => {
                                         // PROOF COMPLETE: Z3 proved alignment invariant.
                                         eprintln!(
                                             "[Formal Shadow] Z3 PROVED: @atomic field '{}' in struct '{}' \
@@ -4513,6 +4512,7 @@ impl<'a> CodegenContext<'a> {
                      };
                      
                      use crate::codegen::context::EnumInfo;
+use crate::z3_shim as z3;
                      self.enum_registry_mut().insert(key, EnumInfo {
                          name,
                          variants,
@@ -5003,12 +5003,12 @@ impl<'a> CodegenContext<'a> {
     // =========================================================================
 
     /* [SOVEREIGN V3] Disabled Z3 methods
-    pub fn mk_int(&self, val: i64) -> z3::ast::Int<'a> {
-        z3::ast::Int::from_i64(self.z3_ctx, val)
+    pub fn mk_int(&self, val: i64) -> crate::z3_shim::ast::Int<'a> {
+        crate::z3_shim::ast::Int::from_i64(self.z3_ctx, val)
     }
 
-    pub fn mk_var(&self, name: &str) -> z3::ast::Int<'a> {
-        z3::ast::Int::new_const(self.z3_ctx, name)
+    pub fn mk_var(&self, name: &str) -> crate::z3_shim::ast::Int<'a> {
+        crate::z3_shim::ast::Int::new_const(self.z3_ctx, name)
     }
 
     pub fn push_solver(&self) {
@@ -5019,11 +5019,11 @@ impl<'a> CodegenContext<'a> {
         self.z3_solver.borrow_mut().pop(1);
     }
 
-    pub fn add_assertion(&self, expr: &z3::ast::Bool<'a>) {
+    pub fn add_assertion(&self, expr: &crate::z3_shim::ast::Bool<'a>) {
         self.z3_solver.borrow_mut().assert(expr);
     }
 
-    pub fn is_provably_safe(&self, violation: &z3::ast::Bool<'a>) -> bool {
+    pub fn is_provably_safe(&self, violation: &crate::z3_shim::ast::Bool<'a>) -> bool {
         *self.total_checks.borrow_mut() += 1;
         self.z3_solver.borrow_mut().push();
         self.add_assertion(violation);
@@ -5031,18 +5031,18 @@ impl<'a> CodegenContext<'a> {
         let res = self.z3_solver.borrow_mut().check();
         self.pop_solver();
 
-        let safe = matches!(res, z3::SatResult::Unsat);
+        let safe = matches!(res, crate::z3_shim::SatResult::Unsat);
         if safe {
             *self.elided_checks.borrow_mut() += 1;
         }
         safe
     }
 
-    pub fn register_symbolic_int(&self, ssa_name: String, val: z3::ast::Int<'a>) {
+    pub fn register_symbolic_int(&self, ssa_name: String, val: crate::z3_shim::ast::Int<'a>) {
         self.symbolic_tracker.borrow_mut().insert(ssa_name, val);
     }
 
-    pub fn get_symbolic_int(&self, ssa_name: &str) -> Option<z3::ast::Int<'a>> {
+    pub fn get_symbolic_int(&self, ssa_name: &str) -> Option<crate::z3_shim::ast::Int<'a>> {
         self.symbolic_tracker.borrow().get(ssa_name).cloned()
     }
     */

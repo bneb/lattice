@@ -4,6 +4,7 @@ use super::utils::*;
 use crate::codegen::type_bridge::*;
 use std::collections::HashMap;
 use super::{emit_expr, emit_lvalue, LValueKind};
+use crate::z3_shim as z3;
 
 pub fn emit_field(
     ctx: &mut LoweringContext,
@@ -489,13 +490,13 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
                                   let z3_zero = ctx.mk_int(0);
                                   let lt_zero = z3_idx.lt(&z3_zero);
                                   let ge_size = z3_idx.ge(&z3_size);
-                                  let violation = z3::ast::Bool::or(ctx.z3_ctx, &[&lt_zero, &ge_size]);
+                                  let violation = crate::z3_shim::ast::Bool::or(ctx.z3_ctx, &[&lt_zero, &ge_size]);
                                   *ctx.total_checks += 1;
                                   ctx.z3_solver.push();
                                   ctx.z3_solver.assert(&violation);
                                   let z3_result = ctx.z3_solver.check();
                                   ctx.z3_solver.pop(1);
-                                  if z3_result == z3::SatResult::Unsat {
+                                  if z3_result == crate::z3_shim::SatResult::Unsat {
                                       *ctx.elided_checks += 1;
                                   } else {
                                       all_safe = false;
@@ -509,13 +510,13 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
                           let z3_zero = ctx.mk_int(0);
                           let lt_zero = z3_idx.lt(&z3_zero);
                           let ge_size = z3_idx.ge(&z3_size);
-                          let violation = z3::ast::Bool::or(ctx.z3_ctx, &[&lt_zero, &ge_size]);
+                          let violation = crate::z3_shim::ast::Bool::or(ctx.z3_ctx, &[&lt_zero, &ge_size]);
                           *ctx.total_checks += 1;
                           ctx.z3_solver.push();
                           ctx.z3_solver.assert(&violation);
                           let z3_result = ctx.z3_solver.check();
                           ctx.z3_solver.pop(1);
-                          if z3_result == z3::SatResult::Unsat {
+                          if z3_result == crate::z3_shim::SatResult::Unsat {
                               *ctx.elided_checks += 1;
                           } else {
                               all_safe = false;
@@ -730,7 +731,7 @@ pub fn translate_to_z3<'a, 'ctx>(
     expr: &syn::Expr, 
     local_vars: &HashMap<String, (Type, LocalKind)>,
     // sym_ctx: &SymbolicContext<'a>
-) -> Result<z3::ast::Int<'a>, String> {
+) -> Result<crate::z3_shim::ast::Int<'a>, String> {
     match expr {
         syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(li), .. }) => {
             let val = li.base10_parse::<i64>().map_err(|e| e.to_string())?;
@@ -766,11 +767,11 @@ pub fn translate_to_z3<'a, 'ctx>(
             // [SOVEREIGN V4.0] Model field access as Z3 uninterpreted function: field(base) → Int
             if let syn::Member::Named(id) = &f.member {
                 let field_name = id.to_string();
-                let func = z3::FuncDecl::new(
+                let func = crate::z3_shim::FuncDecl::new(
                     ctx.z3_ctx,
-                    z3::Symbol::String(format!("field_{}", field_name)),
-                    &[&z3::Sort::int(ctx.z3_ctx)],
-                    &z3::Sort::int(ctx.z3_ctx),
+                    crate::z3_shim::Symbol::String(format!("field_{}", field_name)),
+                    &[&crate::z3_shim::Sort::int(ctx.z3_ctx)],
+                    &crate::z3_shim::Sort::int(ctx.z3_ctx),
                 );
                 let result = func.apply(&[&base_z3]);
                 result.as_int().ok_or_else(|| format!("Field access {} did not return Int", field_name))
@@ -796,20 +797,20 @@ pub fn translate_to_z3<'a, 'ctx>(
                 "unknown_fn".to_string()
             };
             // Translate arguments to Z3
-            let mut arg_z3s: Vec<z3::ast::Int> = Vec::new();
+            let mut arg_z3s: Vec<crate::z3_shim::ast::Int> = Vec::new();
             for arg in &call.args {
                 arg_z3s.push(translate_to_z3(ctx, arg, local_vars)?);
             }
             // Build Z3 uninterpreted function: func(args...) → Int
-            let sorts: Vec<z3::Sort> = arg_z3s.iter().map(|_| z3::Sort::int(ctx.z3_ctx)).collect();
-            let sort_refs: Vec<&z3::Sort> = sorts.iter().collect();
-            let func = z3::FuncDecl::new(
+            let sorts: Vec<crate::z3_shim::Sort> = arg_z3s.iter().map(|_| crate::z3_shim::Sort::int(ctx.z3_ctx)).collect();
+            let sort_refs: Vec<&crate::z3_shim::Sort> = sorts.iter().collect();
+            let func = crate::z3_shim::FuncDecl::new(
                 ctx.z3_ctx,
-                z3::Symbol::String(func_name),
+                crate::z3_shim::Symbol::String(func_name),
                 &sort_refs,
-                &z3::Sort::int(ctx.z3_ctx),
+                &crate::z3_shim::Sort::int(ctx.z3_ctx),
             );
-            let arg_refs: Vec<&dyn z3::ast::Ast> = arg_z3s.iter().map(|a| a as &dyn z3::ast::Ast).collect();
+            let arg_refs: Vec<&dyn crate::z3_shim::ast::Ast> = arg_z3s.iter().map(|a| a as &dyn crate::z3_shim::ast::Ast).collect();
             let result = func.apply(&arg_refs);
             result.as_int().ok_or_else(|| "Function call did not return Int in Z3".to_string())
         }
@@ -821,15 +822,15 @@ pub fn translate_to_z3<'a, 'ctx>(
             for arg in &mc.args {
                 arg_z3s.push(translate_to_z3(ctx, arg, local_vars)?);
             }
-            let sorts: Vec<z3::Sort> = arg_z3s.iter().map(|_| z3::Sort::int(ctx.z3_ctx)).collect();
-            let sort_refs: Vec<&z3::Sort> = sorts.iter().collect();
-            let func = z3::FuncDecl::new(
+            let sorts: Vec<crate::z3_shim::Sort> = arg_z3s.iter().map(|_| crate::z3_shim::Sort::int(ctx.z3_ctx)).collect();
+            let sort_refs: Vec<&crate::z3_shim::Sort> = sorts.iter().collect();
+            let func = crate::z3_shim::FuncDecl::new(
                 ctx.z3_ctx,
-                z3::Symbol::String(format!("method_{}", method_name)),
+                crate::z3_shim::Symbol::String(format!("method_{}", method_name)),
                 &sort_refs,
-                &z3::Sort::int(ctx.z3_ctx),
+                &crate::z3_shim::Sort::int(ctx.z3_ctx),
             );
-            let arg_refs: Vec<&dyn z3::ast::Ast> = arg_z3s.iter().map(|a| a as &dyn z3::ast::Ast).collect();
+            let arg_refs: Vec<&dyn crate::z3_shim::ast::Ast> = arg_z3s.iter().map(|a| a as &dyn crate::z3_shim::ast::Ast).collect();
             let result = func.apply(&arg_refs);
             result.as_int().ok_or_else(|| format!("Method call {} did not return Int in Z3", method_name))
         }
@@ -845,8 +846,8 @@ pub fn translate_bool_to_z3<'a, 'ctx>(
     expr: &syn::Expr, 
     local_vars: &HashMap<String, (Type, LocalKind)>,
     sym_ctx: &crate::codegen::verification::SymbolicContext<'a>
-) -> Result<z3::ast::Bool<'a>, String> {
-    use z3::ast::Ast;
+) -> Result<crate::z3_shim::ast::Bool<'a>, String> {
+    use crate::z3_shim::ast::Ast;
     match expr {
         syn::Expr::Binary(b) => {
             match b.op {
@@ -866,12 +867,12 @@ pub fn translate_bool_to_z3<'a, 'ctx>(
                 syn::BinOp::And(_) => {
                     let bl = translate_bool_to_z3(ctx, &b.left, local_vars, sym_ctx)?;
                     let br = translate_bool_to_z3(ctx, &b.right, local_vars, sym_ctx)?;
-                    Ok(z3::ast::Bool::and(ctx.z3_ctx, &[&bl, &br]))
+                    Ok(crate::z3_shim::ast::Bool::and(ctx.z3_ctx, &[&bl, &br]))
                 }
                 syn::BinOp::Or(_) => {
                     let bl = translate_bool_to_z3(ctx, &b.left, local_vars, sym_ctx)?;
                     let br = translate_bool_to_z3(ctx, &b.right, local_vars, sym_ctx)?;
-                    Ok(z3::ast::Bool::or(ctx.z3_ctx, &[&bl, &br]))
+                    Ok(crate::z3_shim::ast::Bool::or(ctx.z3_ctx, &[&bl, &br]))
                 }
                 _ => Err(format!("Unsupported symbolic boolean operator: {:?}", b.op)),
             }
@@ -888,7 +889,7 @@ pub fn translate_bool_to_z3<'a, 'ctx>(
         syn::Expr::Group(g) => translate_bool_to_z3(ctx, &g.expr, local_vars, sym_ctx),
         syn::Expr::Paren(p) => translate_bool_to_z3(ctx, &p.expr, local_vars, sym_ctx),
         syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Bool(b), .. }) => {
-            Ok(z3::ast::Bool::from_bool(ctx.z3_ctx, b.value))
+            Ok(crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, b.value))
         }
         // [SOVEREIGN V4.0] @pure function calls returning bool → Z3 uninterpreted Bool functions
         syn::Expr::Call(call) => {
@@ -897,38 +898,38 @@ pub fn translate_bool_to_z3<'a, 'ctx>(
             } else {
                 "unknown_bool_fn".to_string()
             };
-            let mut arg_z3s: Vec<z3::ast::Int<'a>> = Vec::new();
+            let mut arg_z3s: Vec<crate::z3_shim::ast::Int<'a>> = Vec::new();
             for arg in &call.args {
                 arg_z3s.push(translate_to_z3(ctx, arg, local_vars)?);
             }
-            let sorts: Vec<z3::Sort> = arg_z3s.iter().map(|_| z3::Sort::int(ctx.z3_ctx)).collect();
-            let sort_refs: Vec<&z3::Sort> = sorts.iter().collect();
-            let func = z3::FuncDecl::new(
+            let sorts: Vec<crate::z3_shim::Sort> = arg_z3s.iter().map(|_| crate::z3_shim::Sort::int(ctx.z3_ctx)).collect();
+            let sort_refs: Vec<&crate::z3_shim::Sort> = sorts.iter().collect();
+            let func = crate::z3_shim::FuncDecl::new(
                 ctx.z3_ctx,
-                z3::Symbol::String(func_name),
+                crate::z3_shim::Symbol::String(func_name),
                 &sort_refs,
-                &z3::Sort::bool(ctx.z3_ctx),
+                &crate::z3_shim::Sort::bool(ctx.z3_ctx),
             );
-            let arg_refs: Vec<&dyn z3::ast::Ast> = arg_z3s.iter().map(|a| a as &dyn z3::ast::Ast).collect();
+            let arg_refs: Vec<&dyn crate::z3_shim::ast::Ast> = arg_z3s.iter().map(|a| a as &dyn crate::z3_shim::ast::Ast).collect();
             let result = func.apply(&arg_refs);
             result.as_bool().ok_or_else(|| "Function call did not return Bool in Z3".to_string())
         }
         syn::Expr::MethodCall(mc) => {
             let method_name = mc.method.to_string();
-            let mut arg_z3s: Vec<z3::ast::Int<'a>> = Vec::new();
+            let mut arg_z3s: Vec<crate::z3_shim::ast::Int<'a>> = Vec::new();
             arg_z3s.push(translate_to_z3(ctx, &mc.receiver, local_vars)?);
             for arg in &mc.args {
                 arg_z3s.push(translate_to_z3(ctx, arg, local_vars)?);
             }
-            let sorts: Vec<z3::Sort> = arg_z3s.iter().map(|_| z3::Sort::int(ctx.z3_ctx)).collect();
-            let sort_refs: Vec<&z3::Sort> = sorts.iter().collect();
-            let func = z3::FuncDecl::new(
+            let sorts: Vec<crate::z3_shim::Sort> = arg_z3s.iter().map(|_| crate::z3_shim::Sort::int(ctx.z3_ctx)).collect();
+            let sort_refs: Vec<&crate::z3_shim::Sort> = sorts.iter().collect();
+            let func = crate::z3_shim::FuncDecl::new(
                 ctx.z3_ctx,
-                z3::Symbol::String(format!("method_{}", method_name)),
+                crate::z3_shim::Symbol::String(format!("method_{}", method_name)),
                 &sort_refs,
-                &z3::Sort::bool(ctx.z3_ctx),
+                &crate::z3_shim::Sort::bool(ctx.z3_ctx),
             );
-            let arg_refs: Vec<&dyn z3::ast::Ast> = arg_z3s.iter().map(|a| a as &dyn z3::ast::Ast).collect();
+            let arg_refs: Vec<&dyn crate::z3_shim::ast::Ast> = arg_z3s.iter().map(|a| a as &dyn crate::z3_shim::ast::Ast).collect();
             let result = func.apply(&arg_refs);
             result.as_bool().ok_or_else(|| format!("Method call {} did not return Bool in Z3", method_name))
         }

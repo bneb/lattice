@@ -80,11 +80,11 @@ target_link_libraries(salt-opt PRIVATE
   MLIRMemRefTransforms         # <--- createExpandStridedMetadataPass
   
   # --- Conversions (The Bridges) ---
-  MLIRArithToLLVM 
+  MLIRArithToLLVM
   MLIRMathToLLVM
-  MLIRMemRefToLLVM 
-  MLIRFuncToLLVM 
-  MLIRSCFToControlFlow 
+  MLIRMemRefToLLVM
+  MLIRFuncToLLVM
+  MLIRSCFToControlFlow
   MLIRControlFlowToLLVM
   MLIRVectorToLLVM           # Base conversion logic
   MLIRVectorToLLVMPass       # <--- FIX: This contains the actual Pass creation function
@@ -105,7 +105,7 @@ target_link_libraries(salt-opt PRIVATE
   
   # --- LLVM Backend Libraries ---
   LLVMSupport LLVMCore LLVMTarget LLVMAnalysis LLVMExecutionEngine
-  LLVMCodeGen LLVMTransformUtils LLVMScalarOpts LLVMInstCombine LLVMIPO
+  LLVMCodeGen LLVMTransformUtils LLVMScalarOpts LLVMInstCombine LLVMipo
   LLVMVectorize LLVMSelectionDAG LLVMAsmPrinter LLVMGlobalISel
   LLVMX86CodeGen LLVMX86AsmParser 
   LLVMAArch64CodeGen LLVMAArch64AsmParser
