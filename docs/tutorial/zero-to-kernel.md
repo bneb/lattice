@@ -7,7 +7,7 @@ This tutorial walks you through writing, compiling, and running your first Salt 
 Ensure you have the following installed:
 - **Rust 1.75+** — builds the Salt compiler
 - **Z3 4.12+** — `brew install z3`
-- **LLVM 18+** — `brew install llvm@18` (provides `mlir-opt`, `mlir-translate`, and `clang`)
+- **LLVM 21+** — `brew install llvm@21` (provides `mlir-opt`, `mlir-translate`, and `clang`)
 - **QEMU** — `brew install qemu` (for execution)
 
 Build the compiler:

@@ -25,7 +25,8 @@ if [ ! -f "$SALT_BIN" ]; then
 fi
 
 RUNTIME_C="../../salt-front/runtime.c"
-export PATH="/opt/homebrew/opt/llvm@18/bin:$PATH"
+LLVM_VERSION="${LLVM_VERSION:-21}"
+export PATH="/opt/homebrew/opt/llvm@${LLVM_VERSION}/bin:$PATH"
 export DYLD_LIBRARY_PATH="/opt/homebrew/lib:${DYLD_LIBRARY_PATH:-}"
 
 print_header() {

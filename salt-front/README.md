@@ -39,7 +39,7 @@ The compiler routes loops to different MLIR dialects based on analysis:
 
 ## Build & Test
 
-**Prerequisites**: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 18+ (`brew install llvm@18`).
+**Prerequisites**: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 21+ (`brew install llvm@21`).
 
 ```bash
 # Build the compiler
@@ -55,7 +55,7 @@ DYLD_LIBRARY_PATH=/opt/homebrew/lib ../hello
 
 > [!TIP]
 > If the build fails with `ld: library not found for -lz3`, install Z3: `brew install z3`
-> If `mlir-opt` is not found, add LLVM to PATH: `export PATH=/opt/homebrew/opt/llvm@18/bin:$PATH`
+> If `mlir-opt` is not found, add LLVM to PATH: `export PATH=/opt/homebrew/opt/llvm@21/bin:$PATH`
 
 ## Code Stats
 

@@ -7,7 +7,7 @@
 #
 # Prerequisites:
 #   - Rust 1.75+      (curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh)
-#   - LLVM 18+        (brew install llvm@18)
+#   - LLVM 21+        (brew install llvm@21)
 #   - Z3 4.12+        (brew install z3)
 #   - QEMU            (brew install qemu)
 # ============================================================================
@@ -39,18 +39,19 @@ MISSING=""
 command -v cargo &>/dev/null || MISSING="${MISSING}  - Rust/Cargo: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh\n"
 command -v qemu-system-x86_64 &>/dev/null || MISSING="${MISSING}  - QEMU: brew install qemu\n"
 
-# Check for LLVM 18 tools
+# Check for LLVM tools
+LLVM_VERSION="${LLVM_VERSION:-21}"
 LLVM_BIN=""
-if [ -d "/opt/homebrew/opt/llvm@18/bin" ]; then
-    LLVM_BIN="/opt/homebrew/opt/llvm@18/bin"
+if [ -d "/opt/homebrew/opt/llvm@${LLVM_VERSION}/bin" ]; then
+    LLVM_BIN="/opt/homebrew/opt/llvm@${LLVM_VERSION}/bin"
 elif [ -d "/opt/homebrew/opt/llvm/bin" ]; then
     LLVM_BIN="/opt/homebrew/opt/llvm/bin"
-elif [ -d "/usr/local/opt/llvm@18/bin" ]; then
-    LLVM_BIN="/usr/local/opt/llvm@18/bin"
+elif [ -d "/usr/local/opt/llvm@${LLVM_VERSION}/bin" ]; then
+    LLVM_BIN="/usr/local/opt/llvm@${LLVM_VERSION}/bin"
 fi
 
 if [ -z "$LLVM_BIN" ]; then
-    MISSING="${MISSING}  - LLVM 18: brew install llvm@18\n"
+    MISSING="${MISSING}  - LLVM ${LLVM_VERSION}: brew install llvm@${LLVM_VERSION}\n"
 fi
 
 # Check for Z3

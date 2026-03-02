@@ -7,10 +7,11 @@ set -euo pipefail
 # Builds basalt.wasm from Salt sources through the full MLIR pipeline.
 # Output: basalt/wasm/dist/basalt.wasm (22KB, 6 exports)
 #
-# Requirements: LLVM 18 (clang + wasm-ld), salt-front (release build)
+# Requirements: LLVM 21 (clang + wasm-ld), salt-front (release build)
 # =============================================================================
 
-export PATH="/opt/homebrew/opt/llvm@18/bin:$PATH"
+LLVM_VERSION="${LLVM_VERSION:-21}"
+export PATH="/opt/homebrew/opt/llvm@${LLVM_VERSION}/bin:$PATH"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 SALT_FRONT="$PROJECT_ROOT/salt-front"

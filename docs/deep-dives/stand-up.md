@@ -1,6 +1,6 @@
 # Technology Stand-up: The Salt Toolchain
 
-Salt is built on a stack that leverages three core technologies to achieve both performance and verified safety.
+Salt is built on three core technologies that together achieve both performance and verified safety.
 
 ## 1. Rust (Frontend Compiler)
 
@@ -28,7 +28,7 @@ The Z3 theorem prover is integrated directly into `salt-front` to verify `requir
 
 ## Build System
 
-**Prerequisites**: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 18+ (`brew install llvm@18`).
+**Prerequisites**: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 21+ (`brew install llvm@21`).
 
 - **Primary**: `cargo build` for `salt-front`, then shell scripts for MLIR → LLVM → native compilation
 - **Testing**: `cargo test` (1,200+ compiler unit tests) plus `bash benchmark_all.sh` for end-to-end benchmarks

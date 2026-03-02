@@ -28,9 +28,10 @@ BUILD_DIR="$SCRIPT_DIR/build"
 RESULTS_FILE="$SCRIPT_DIR/echo_benchmark_results.txt"
 
 # LLVM Tools
-export PATH="/opt/homebrew/opt/llvm@18/bin:$PATH"
-CLANG="${CLANG:-/opt/homebrew/opt/llvm@18/bin/clang}"
-LLC="${LLC:-/opt/homebrew/opt/llvm@18/bin/llc}"
+LLVM_VERSION="${LLVM_VERSION:-21}"
+export PATH="/opt/homebrew/opt/llvm@${LLVM_VERSION}/bin:$PATH"
+CLANG="${CLANG:-/opt/homebrew/opt/llvm@${LLVM_VERSION}/bin/clang}"
+LLC="${LLC:-/opt/homebrew/opt/llvm@${LLVM_VERSION}/bin/llc}"
 
 # Colors
 RED='\033[0;31m'

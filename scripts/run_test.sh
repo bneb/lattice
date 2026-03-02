@@ -22,8 +22,9 @@ SCRIPT_DIR="${0:A:h}"
 PROJECT_ROOT="${SCRIPT_DIR:h}"
 SALT_FRONT="$PROJECT_ROOT/salt-front"
 
-# LLVM 18 tools
-export PATH="/opt/homebrew/opt/llvm@18/bin:$PATH"
+# LLVM tools — override with: LLVM_VERSION=19 ./scripts/run_test.sh ...
+LLVM_VERSION="${LLVM_VERSION:-21}"
+export PATH="/opt/homebrew/opt/llvm@${LLVM_VERSION}/bin:$PATH"
 export DYLD_LIBRARY_PATH=/opt/homebrew/lib
 
 # Defaults

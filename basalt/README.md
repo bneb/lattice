@@ -15,7 +15,7 @@ Basalt exists to prove one claim: **Salt can replace C in performance-critical M
 | Requirement | Purpose |
 |:------------|:--------|
 | Salt compiler built | `./scripts/build.sh` from monorepo root |
-| LLVM 18 on PATH | `brew install llvm@18` — provides `mlir-opt`, `mlir-translate`, `clang` |
+| LLVM 21 on PATH | `brew install llvm@21` — provides `mlir-opt`, `mlir-translate`, `clang` |
 | Python 3 | Only for generating dummy test models |
 
 ### Build & Run (Mock Mode)

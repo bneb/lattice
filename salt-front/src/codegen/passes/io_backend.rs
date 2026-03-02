@@ -164,11 +164,15 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn test_target_platform_default_is_darwin() {
-        // On macOS (our dev environment), default should be Darwin
+    fn test_target_platform_default_matches_host() {
         let platform = TargetPlatform::host();
-        assert_eq!(platform, TargetPlatform::Darwin,
-            "Host platform on macOS must default to Darwin");
+        if cfg!(target_os = "macos") {
+            assert_eq!(platform, TargetPlatform::Darwin,
+                "Host platform on macOS must default to Darwin");
+        } else {
+            assert_eq!(platform, TargetPlatform::Linux,
+                "Host platform on Linux must default to Linux");
+        }
     }
 
     #[test]

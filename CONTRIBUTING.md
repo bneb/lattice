@@ -1,26 +1,50 @@
-# Contributing to Salt and Lattice
+# Contributing to Lattice
 
-Welcome! This repository tracks the development of the Salt programming language, its compiler `salt-front`, and the Lattice Operating System ecosystem (Kernel, NetD, baselines).
+Welcome to the Lattice project. We are currently in an **active research phase**, which means the internal structures and the system call ABI change frequently. We value contributions that help stabilize the platform and expand our userspace capabilities.
 
-## Versioning Policy: The "Sovereign Distribution" Model
+## Build Requirements
 
-Lattice is built as a cohesive, sovereign platform. As such, we use a **Unified Versioning Strategy** for all repository-wide Git releases (e.g., `v0.9.0`). 
+The project is currently standardized on **LLVM 21**. To build the kernel and the Salt compiler, you will need:
 
-When a user pulls a Lattice release, that tag guarantees that a specific version of the Salt compiler is verified to build a specific version of the Lattice Kernel, the Ring 3 NetD daemon, and the Socket API ecosystem.
+| Dependency | Purpose |
+|:-----------|:--------|
+| **LLVM 21** | `mlir-opt`, `mlir-translate`, and `clang` |
+| **Rust 1.75+** | Builds the Salt compiler (`salt-front`) |
+| **Z3 4.12+** | Formal verification of memory safety contracts |
+| **Zsh + Python 3** | Build scripts and tooling |
+| **clang + libclang-dev** | Required on Linux (Debian/Ubuntu) |
 
-### 1. The Unified Git Tag
-Every time there is a major architectural milestone (such as moving the networking stack to Ring 3 or completing a major pass of Z3 proofs), we cut a unified repository tag. 
-* Example: `v0.9.0` represents the "Unified Ring 3 Networking" milestone.
+> [!TIP]
+> We recommend using the provided Docker environment in the `tools/` directory to ensure a deterministic build.
 
-### 2. Internal Component Versions
-While the Git tag tracks the state of the unified platform, individual sub-systems (like the Kernel, standard library, and downstream applications like Basalt) track their own internal maturity versions. 
-* These are actively tracked in the `manifest.salt` file at the root of the repository.
-* When the platform version is bumped, `manifest.salt` is used by the build tools to verify that the internal components are synchronized.
+## How to Contribute
 
-### 3. Kernel Version Identification
-The kernel binary maintains its own version constant to report during the boot screen (e.g., `LATTICE BOOT [OK] v0.9.0`), decoupled from the compiler version used to build it.
+We are specifically looking for help in these areas:
 
-## Submitting Pull Requests
-1. All changes to the kernel or standard library *must* pass the Test-Driven Development (TDD) gates. Do not submit a PR unless `tools/test_local.py` or `tools/runner_qemu.py` reports GREEN for your gates.
-2. If your change affects cross-component compatibility (e.g., changing the IPC contract between the Kernel and NetD), you must update both components in the same atomic PR.
-3. If you introduce a new system service or major application, propose adding it to `manifest.salt` in your PR description.
+- **Userspace Tests** — Adding self-contained Ring 3 test programs to the `user/` directory.
+- **Documentation** — Clarifying architecture docs or fixing inaccuracies in the README.
+- **Bug Reports** — Reproducible reports for kernel panics or compiler crashes.
+
+> [!IMPORTANT]
+> We are **not** currently accepting major changes to the kernel internals or the compiler's core verification passes without prior discussion in the [GitHub Discussions](https://github.com/bneb/lattice/discussions) area.
+
+## Submission Process
+
+1. Fork the repository and create a feature branch.
+2. Ensure your code passes the Z3 memory safety verifier.
+3. All changes to the kernel or standard library **must** pass the TDD gates. Do not submit a PR unless `tools/runner_qemu.py` reports GREEN for your gates.
+4. If your change affects cross-component compatibility (e.g., changing the IPC contract between the Kernel and NetD), you must update both components in the same atomic PR.
+5. If you introduce a new system service or major application, propose adding it to `manifest.salt` in your PR description.
+6. Submit a pull request. For small fixes, no associated issue is required.
+
+## Versioning Policy: The Sovereign Distribution Model
+
+Lattice is built as a cohesive, sovereign platform. We use a **Unified Versioning Strategy** for all repository-wide Git releases (e.g., `v0.9.0`).
+
+- **Unified Git Tag** — Every major architectural milestone (e.g., moving the networking stack to Ring 3) gets a unified repository tag. When a user pulls a Lattice release, that tag guarantees that a specific version of the Salt compiler is verified to build a specific version of the Kernel, NetD, and the Socket API ecosystem.
+- **Internal Component Versions** — Individual sub-systems (Kernel, standard library, Basalt) track their own internal maturity versions in `manifest.salt` at the repository root. Build tools use this manifest to verify component synchronization.
+- **Kernel Version Identification** — The kernel binary maintains its own version constant for the boot screen (e.g., `LATTICE BOOT [OK] v0.9.0`), decoupled from the compiler version.
+
+## Project Status
+
+Lattice is an experimental sovereign systems language. **APIs and ABIs are subject to change without deprecation notices, but we will try to be as polite as possible.**

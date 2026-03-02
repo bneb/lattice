@@ -100,7 +100,7 @@ Primary advantage: NEON SIMD parsing (11.1x header scan speedup). See [`c10m/`](
 
 ## Run It
 
-**Prerequisites**: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 18+ (`brew install llvm@18`).
+**Prerequisites**: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 21+ (`brew install llvm@21`).
 
 ```bash
 # Run all benchmarks (Z3 must be on library path)

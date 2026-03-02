@@ -2,7 +2,7 @@
 
 Salt is a systems programming language with Z3-verified safety, arena-based memory, and MLIR codegen.
 
-**Prerequisites**: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 18+ (`brew install llvm@18`).
+**Prerequisites**: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 21+ (`brew install llvm@21`).
 
 ## Key Differentiators
 

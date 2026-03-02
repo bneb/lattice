@@ -155,7 +155,7 @@ def compile_salt(src_file):
         ll_content = f.read()
     ll_content = re.sub(r'"target-cpu"="[^"]*"', '"target-cpu"="x86-64"', ll_content)
     ll_content = re.sub(r'"target-features"="[^"]*"', '"target-features"="+cx16"', ll_content)
-    # Strip 'nuw' flag from getelementptr — LLVM 19 syntax unsupported by LLVM 18
+    # Strip 'nuw' flag from getelementptr — LLVM 19 syntax unsupported by older LLVM
     ll_content = ll_content.replace('getelementptr inbounds nuw', 'getelementptr inbounds')
     with open(ll_file, 'w') as f:
         f.write(ll_content)

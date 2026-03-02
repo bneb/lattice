@@ -5,7 +5,7 @@
 
 Salt is an ahead-of-time compiled systems language that combines the performance of C with compile-time safety through an embedded Z3 theorem prover. Lattice is a microkernel operating system written entirely in Salt, achieving unikernel-level latency while maintaining hardware-enforced Ring 0 / Ring 3 isolation.
 
-Together, they form a single system where the language's "superpowers" — formal verification and MLIR-based lowering — become the operating system's superpowers: zero-trap IPC, proof-carrying descriptors, and cache-line-deterministic data planes.
+Together, they form a single system where the language's core capabilities (formal verification and MLIR-based lowering) become the operating system's capabilities: zero-trap IPC, proof-carrying descriptors, and cache-line-deterministic data planes.
 
 [![Benchmarks](https://img.shields.io/badge/vs_C-18%2F22_Won_or_Parity-brightgreen?style=flat-square)](benchmarks/BENCHMARKS.md)
 [![Z3 Verified](https://img.shields.io/badge/Safety-Z3_Verified-blue?style=flat-square)](docs/ARCH.md)
@@ -34,15 +34,15 @@ fn main() {
 
 ## Why Salt + Lattice?
 
-Most operating systems are written in C (Linux, Xv6) or C++ (Fuchsia, seL4). They rely on extensive runtime checks, POSIX syscall conventions, and manual memory management. Salt replaces all three with **compile-time proofs**, **zero-trap shared memory**, and **arena-based allocation** — giving Lattice the performance of a unikernel with the isolation guarantees of a microkernel.
+Most operating systems are written in C (Linux, Xv6) or C++ (Fuchsia, seL4). They rely on extensive runtime checks, POSIX syscall conventions, and manual memory management. Salt replaces all three with **compile-time proofs**, **zero-trap shared memory**, and **arena-based allocation**, giving Lattice the performance of a unikernel with the isolation guarantees of a microkernel.
 
 ### The Three Pillars
 
 #### 🔥 Pillar A: Zero-Trap Data Plane (SPSC + Shared Memory)
 
-**Salt's Superpower:** High-performance, low-level memory control with MLIR-optimized lowering.
+**Salt:** High-performance, low-level memory control with MLIR-optimized lowering.
 
-**Lattice's Derivative:** Instead of legacy POSIX syscalls (`read`/`write`) that trap into the kernel on every packet, Lattice uses Shared Memory SPSC (Single-Producer, Single-Consumer) Rings. The networking stack (NetD) and storage stack (LatticeStore) run as Ring 3 "System Daemons" that communicate with the kernel through lock-free ring buffers in shared pages.
+**Lattice:** Instead of legacy POSIX syscalls (`read`/`write`) that trap into the kernel on every packet, Lattice uses Shared Memory SPSC (Single-Producer, Single-Consumer) Rings. The networking stack (NetD) and storage stack (LatticeStore) run as Ring 3 "System Daemons" that communicate with the kernel through lock-free ring buffers in shared pages.
 
 ```
 Traditional OS:  App → syscall → trap → kernel copy → return    (~1000 cycles)
@@ -53,9 +53,9 @@ The kernel's **only** role in the data plane is pushing raw Ethernet frames into
 
 #### 🔒 Pillar B: The Formal Shadow (Z3-Verified Sovereignty)
 
-**Salt's Superpower:** A built-in Z3 verification gate that proves memory safety and alignment at compile time.
+**Salt:** A built-in Z3 verification gate that proves memory safety and alignment at compile time.
 
-**Lattice's Derivative:** Proof-Carrying IPC. The compiler "seals" a Z3 proof into a 64-bit `proof_hint` embedded in every SPSC descriptor. The NetD arbiter verifies this hint in *O(1)* time (two CPU instructions: alignment mask + bitwise compare).
+**Lattice:** Proof-Carrying IPC. The compiler "seals" a Z3 proof into a 64-bit `proof_hint` embedded in every SPSC descriptor. The NetD arbiter verifies this hint in *O(1)* time (two CPU instructions: alignment mask + bitwise compare).
 
 ```salt
 // At compile time, Z3 proves @align(64) fields are on separate cache lines.
@@ -74,9 +74,9 @@ This eliminates the "Security Tax." We don't need expensive runtime bounds check
 
 #### ⚡ Pillar C: Mechanical Sympathy (The Cache-Line Guarantee)
 
-**Salt's Superpower:** First-class support for physical memory layout via the `@align(N)` attribute with Z3-verified struct padding.
+**Salt:** First-class support for physical memory layout via the `@align(N)` attribute with Z3-verified struct padding.
 
-**Lattice's Derivative:** False-sharing elimination. Lattice SPSC rings are formally proven to isolate Producer and Consumer indexes on separate L3 cache lines:
+**Lattice:** False-sharing elimination. Lattice SPSC rings are formally proven to isolate Producer and Consumer indexes on separate L3 cache lines:
 
 ```salt
 struct SpscRing {
@@ -96,7 +96,7 @@ This targets the **Cycles per Packet (Cpp)** KPI. We aren't just fast; we are *d
 
 ## Approach
 
-Salt takes a different path. The compiler integrates Z3 as a first-class verification backend: developers write `requires` preconditions and `ensures` postconditions on functions, and the compiler checks each contract using Z3. Preconditions are verified at every call site; postconditions are verified at every return site using Weakest Precondition (WP) generation with path-sensitive branch analysis. When Z3 proves the condition always holds, the check is elided entirely — zero runtime cost. When Z3 finds a concrete counterexample, it reports the violating values. When neither can be determined, the compiler emits a standard runtime assertion as a fallback.
+Salt takes a different path. The compiler integrates Z3 as a first-class verification backend: developers write `requires` preconditions and `ensures` postconditions on functions, and the compiler checks each contract using Z3. Preconditions are verified at every call site; postconditions are verified at every return site using Weakest Precondition (WP) generation with path-sensitive branch analysis. When Z3 proves the condition always holds, the check is elided entirely, at zero runtime cost. When Z3 finds a concrete counterexample, it reports the violating values. When neither can be determined, the compiler emits a standard runtime assertion as a fallback.
 
 Memory is managed through arenas with compile-time escape analysis. No garbage collector, no lifetime annotations, no borrow checker. The `ArenaVerifier` verifies statically that no reference outlives its region, giving you the performance profile of manual allocation with the safety properties of managed memory.
 
@@ -146,13 +146,13 @@ All benchmarks use runtime-dynamic inputs to prevent constant folding, and resul
 
 **Salt ≤ C in 18/22** head-to-head benchmarks. 28 total (including 6 Salt-only). 0 build failures. Binary size ~38KB (vs Rust ~430KB).
 
-The "Abstraction Tax" is zero: Salt's Z3 verification, arena memory, and MLIR pipeline add **no runtime overhead**. The proofs discharge at compile time, the arenas free in O(1), and MLIR optimizes the same way LLVM does — or better, when polyhedral tiling applies.
+The "Abstraction Tax" is zero: Salt's Z3 verification, arena memory, and MLIR pipeline add **no runtime overhead**. The proofs discharge at compile time, the arenas free in O(1), and MLIR optimizes the same way LLVM does, or better when polyhedral tiling applies.
 
 \* *Forest measures arena allocation strategy (O(1) bump + O(1) reset) vs individual malloc/free. The advantage is Salt's arena stdlib, not codegen.*
 
 ## Verified Safety
 
-Contracts are proof obligations checked by Z3 at compile time. When Z3 can prove a `requires` precondition holds at a call site, the check is elided entirely — zero runtime cost. When it cannot, the compiler emits a runtime assertion as a safe fallback.
+Contracts are proof obligations checked by Z3 at compile time. When Z3 can prove a `requires` precondition holds at a call site, the check is elided entirely, at zero runtime cost. When it cannot, the compiler emits a runtime assertion as a safe fallback.
 
 ```salt
 fn binary_search(arr: &[i64], target: i64) -> i64
@@ -363,7 +363,7 @@ impl Vec<T, A> {
 |:-----------|:--------|:----------------|
 | **Rust** | 1.75+ | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
 | **Z3** | 4.12+ | `brew install z3` |
-| **MLIR/LLVM** | 18+ | `brew install llvm@18` |
+| **MLIR/LLVM** | 21+ | `brew install llvm@21` |
 
 > [!IMPORTANT]
 > Z3 is required. The compiler links against `libz3` for verification. If you see `ld: library not found for -lz3`:
@@ -395,7 +395,7 @@ DYLD_LIBRARY_PATH=/opt/homebrew/lib ./hello
 
 > [!TIP]
 > If `cargo build` fails with Z3 errors: `ls /opt/homebrew/lib/libz3.*`
-> If MLIR tools are missing: `export PATH=/opt/homebrew/opt/llvm@18/bin:$PATH`
+> If MLIR tools are missing: `export PATH=/opt/homebrew/opt/llvm@21/bin:$PATH`
 
 ## Project Structure
 
@@ -491,17 +491,17 @@ lattice/
 
 ## Status
 
-Lattice has reached **v1.0.0 "Sovereign Architecture"** — a production-grade system with formally verified SMP scheduling, adversarial network hardening, epoch-based memory reclamation, and a zero-I/O developer toolchain.
+Lattice is at **v0.9.2 "Postcondition Pivot"**, with Z3-backed `ensures` verification, 16-core SMP scheduling, adversarial network hardening, and a zero-I/O developer toolchain.
 
 | Component | Version | Milestone |
 | :--- | :--- | :--- |
 | **Salt Compiler / Stdlib** | `v0.8.0` | Z3 Verification (requires + ensures), Multi-Dialect Codegen, Path-Sensitive WP |
-| **Lattice Platform** (OS) | `v1.0.0` | Sovereign Architecture — Cache-Line IPC, SipHash-2-4 Proof Hints, EBR, SYN Cookies |
-| **Lattice Kernel** | `v1.0.0` | 16-Core SMP, Chase-Lev Work-Stealing, Preemptive Scheduler, Ring 3 Isolation, Atomic Page Sweep |
+| **Lattice Platform** (OS) | `v0.9.2` | Postcondition Pivot — Cache-Line IPC, SipHash-2-4 Proof Hints, EBR |
+| **Lattice Kernel** | `v0.9.2` | 16-Core SMP, Chase-Lev Work-Stealing, Preemptive Scheduler, Ring 3 Isolation |
 | **Basalt** (LLM Inference) | `v0.3.0` | Proof-of-Concept (C-parity inference speed) |
 | **Facet** (2D Compositor) | `v0.3.0` | Proof-of-Concept (Metal compute & verified rasterizer) |
 | **Lettuce** (KV Store) | `v0.1.0` | Proof-of-Concept (234K ops/sec — 2x Redis throughput) |
-| **Tooling** (LSP & `sp` Build) | `v0.2.0` | Zero-I/O in-memory compilation, Z3 semantic hover, Go-to-Definition, SIR-powered completions |
+| **Tooling** (LSP & `sp` Build) | `v0.2.0` | Zero-I/O in-memory compilation, Z3 semantic hover, Go-to-Definition |
 
 ### Architecture Milestones
 
@@ -509,10 +509,8 @@ Lattice has reached **v1.0.0 "Sovereign Architecture"** — a production-grade s
 |--------|-----------|-----|
 | **v0.9.1** ✅ | Sovereign Foundation — Cache-line isolation, Proof-Carrying IPC, SipHash-2-4 Hardening, Sovereign Reclaim | Salt ≤ C 18/22, Reclamation < 1ms |
 | **v0.9.2** ✅ | Postcondition Pivot — Z3-backed `ensures` for pure functions (Weakest Precondition generation, path-sensitive verification) | 6/6 postcondition tests GREEN |
-| **v0.9.3** ✅ | Sovereign Authority — Chase-Lev work-stealing, SYN cookie hardening, Epoch-Based Reclamation, SIR boundary decoupling | 194/194 trait discovery tests, 21/21 benchmarks stable |
-| **v1.0.0** ✅ | Sovereign Architecture — Salt LSP v0.2.0 (zero-I/O, Z3 hover, Go-to-Definition), full SMP scale-out, adversarial NetD | 32/32 LSP tests, 60M+ PPS |
-| **v1.1.0** | Loop Sovereignty — `invariant` keyword, induction-based termination proofs | No unbounded loops in kernel |
-| **v1.2.0** | Persistence — Block-VMO storage, NVMe SPSC bridge | Cold boot < 100ms |
+| **v0.9.3** | Phase 1 Sandbox — LLVM 21 toolchain, Docker build, userspace verification onboarding, Ring 3 test suite | CI green, frictionless contributor build |
+| **v1.0.0** | Sovereign Architecture — Loop invariants, full SMP scale-out, stable ABI | No unbounded loops in kernel |
 
 ## License
 

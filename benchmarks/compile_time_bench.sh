@@ -12,11 +12,13 @@
 
 set -e
 
+LLVM_VERSION="${LLVM_VERSION:-21}"
+LLVM_BIN="/opt/homebrew/opt/llvm@${LLVM_VERSION}/bin"
 SALT_COMPILER="../salt-front/target/release/salt-front"
-MLIR_OPT="/opt/homebrew/opt/llvm@18/bin/mlir-opt"
-MLIR_TRANSLATE="/opt/homebrew/opt/llvm@18/bin/mlir-translate"
-OPT="/opt/homebrew/opt/llvm@18/bin/opt"
-CLANG="/opt/homebrew/opt/llvm@18/bin/clang"
+MLIR_OPT="${LLVM_BIN}/mlir-opt"
+MLIR_TRANSLATE="${LLVM_BIN}/mlir-translate"
+OPT="${LLVM_BIN}/opt"
+CLANG="${LLVM_BIN}/clang"
 
 export Z3_SYS_Z3_HEADER=/opt/homebrew/include/z3.h
 export LIBRARY_PATH=/opt/homebrew/lib

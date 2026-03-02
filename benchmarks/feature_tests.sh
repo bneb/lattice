@@ -15,7 +15,8 @@ set -e
 cd "$(dirname "$0")"
 
 # Paths
-export PATH="/opt/homebrew/opt/llvm@18/bin:$PATH"
+LLVM_VERSION="${LLVM_VERSION:-21}"
+export PATH="/opt/homebrew/opt/llvm@${LLVM_VERSION}/bin:$PATH"
 SALT_FRONT="../salt-front/target/release/salt-front"
 RUNTIME_C="../salt-front/runtime.c"
 BIN_DIR="bin"

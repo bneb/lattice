@@ -3,7 +3,7 @@
 > **Audience**: Engineers working on the Salt compiler, Lattice kernel, or standard library.
 > For the 2 AM reader: every acronym is defined, every command is copy-pasteable, every data flow has a diagram.
 >
-> **Prerequisites**: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 18+ (`brew install llvm@18`), QEMU (`brew install qemu`)
+> **Prerequisites**: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 21+ (`brew install llvm@21`), QEMU (`brew install qemu`)
 
 ---
 
@@ -726,7 +726,7 @@ LIBRARY_PATH=/opt/homebrew/lib \
 cargo build --release
 
 # Compile a Salt program to native binary
-export PATH="/opt/homebrew/opt/llvm@18/bin:$PATH"
+export PATH="/opt/homebrew/opt/llvm@21/bin:$PATH"
 export DYLD_LIBRARY_PATH="/opt/homebrew/lib"
 
 ./target/release/salt-front ../examples/hello_world.salt
@@ -812,7 +812,7 @@ cd benchmarks/ml && ./benchmark.sh --salt
 |---------|-------|-----|
 | `ld: library not found for -lz3` | Z3 not installed or not on library path | `brew install z3` then `export LIBRARY_PATH=/opt/homebrew/lib` |
 | `z3.h not found` | Z3 header path not set | `export Z3_SYS_Z3_HEADER=/opt/homebrew/include/z3.h` |
-| `mlir-opt: command not found` | LLVM 18 not on PATH | `export PATH="/opt/homebrew/opt/llvm@18/bin:$PATH"` |
+| `mlir-opt: command not found` | LLVM 21 not on PATH | `export PATH="/opt/homebrew/opt/llvm@21/bin:$PATH"` |
 
 ### Runtime Issues
 

@@ -173,7 +173,7 @@ packet are processed sequentially with a single response flush.
 
 ## Build & Run
 
-**Prerequisites**: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 18+ (`brew install llvm@18`).
+**Prerequisites**: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 21+ (`brew install llvm@21`).
 
 ```bash
 # From the lattice/ project root:
@@ -199,7 +199,7 @@ redis-benchmark -p 6379 -t ping,set,get -c 50 -n 100000 -q
 
 > [!TIP]
 > **If the binary segfaults or fails to start:** Verify `DYLD_LIBRARY_PATH` includes Z3: `ls /opt/homebrew/lib/libz3.*`
-> **If compilation fails:** `brew install z3 && brew install llvm@18`
+> **If compilation fails:** `brew install z3 && brew install llvm@21`
 
 ---
 

@@ -20,7 +20,8 @@ setopt NO_ERR_EXIT  # Don't exit on non-zero returns (compile failures are expec
 cd "$(dirname "$0")"
 
 # Paths
-export PATH="/opt/homebrew/opt/llvm@18/bin:$PATH"
+LLVM_VERSION="${LLVM_VERSION:-21}"
+export PATH="/opt/homebrew/opt/llvm@${LLVM_VERSION}/bin:$PATH"
 SALT_FRONT="../salt-front/target/release/salt-front"
 RUNTIME_C="../salt-front/runtime.c"
 BIN_DIR="bin"
@@ -100,7 +101,7 @@ clean_build() {
 compile_c() {
     local name=$1
     [[ -f "${name}.c" ]] || return 1
-    /opt/homebrew/opt/llvm@18/bin/clang -O3 -march=native -ffast-math "${name}.c" -o "${BIN_DIR}/${name}_c" 2>/dev/null
+    /opt/homebrew/opt/llvm@${LLVM_VERSION}/bin/clang -O3 -march=native -ffast-math "${name}.c" -o "${BIN_DIR}/${name}_c" 2>/dev/null
 }
 
 compile_rust() {

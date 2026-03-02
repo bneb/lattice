@@ -13,7 +13,7 @@ Facet exists to prove one claim: **Salt can replace C and Objective-C in latency
 | Requirement | Purpose |
 |:------------|:--------|
 | Salt compiler built | `./scripts/build.sh` from monorepo root |
-| LLVM 18 on PATH | `brew install llvm@18` — provides `mlir-opt`, `mlir-translate`, `clang` |
+| LLVM 21 on PATH | `brew install llvm@21` — provides `mlir-opt`, `mlir-translate`, `clang` |
 | macOS (Apple Silicon) | Metal API for GPU compute; AppKit for window management |
 
 ### Run the Rasterizer Tests
@@ -218,5 +218,5 @@ user/facet/
 | `ld: framework not found Metal` | Missing macOS SDK | Install Xcode Command Line Tools: `xcode-select --install` |
 | `A: unbound variable` | Running `run_test.sh` with `bash` | Use `zsh scripts/run_test.sh ...` |
 | `test_compute_dispatch` hangs | `let i = 0` instead of `let mut i = 0` in loop | Salt requires `let mut` for reassignable variables |
-| `mlir-opt: command not found` | LLVM 18 not on PATH | `export PATH=/opt/homebrew/opt/llvm@18/bin:$PATH` |
+| `mlir-opt: command not found` | LLVM 21 not on PATH | `export PATH=/opt/homebrew/opt/llvm@21/bin:$PATH` |
 | C rasterizer AA test fails | Expected — single-sample coverage doesn't produce partial alpha | Both Salt and C have this limitation; use multi-sample for AA |

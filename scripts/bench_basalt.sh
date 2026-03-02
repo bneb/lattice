@@ -2,14 +2,92 @@
 set -euo pipefail
 
 # =============================================================================
-# Basalt Benchmark — 10-run Salt vs C comparison
+# Basalt Build & Benchmark
+# =============================================================================
+# Usage:
+#   ./scripts/bench_basalt.sh                  # Full 40-run benchmark (Salt vs C)
+#   ./scripts/bench_basalt.sh --build-only     # Build and run once (replaces build_basalt.sh)
+#   ./scripts/bench_basalt.sh --runs 10        # Custom run count
 # =============================================================================
 
-export PATH="/opt/homebrew/opt/llvm@18/bin:$PATH"
+LLVM_VERSION="${LLVM_VERSION:-21}"
+export PATH="/opt/homebrew/opt/llvm@${LLVM_VERSION}/bin:$PATH"
+
+# Defaults
 PROJECT=${1:-/Users/kevin/projects/lattice}
+BUILD_ONLY=false
+RUNS=40
+
+# Parse flags (skip positional $1 which is PROJECT)
+shift 2>/dev/null || true
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --build-only) BUILD_ONLY=true; shift ;;
+        --runs) RUNS="$2"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+
 MODEL=$PROJECT/.bench_basalt/models/stories15M.bin
 TOK=$PROJECT/.bench_basalt/models/tokenizer.bin
-RUNS=40
+SF=$PROJECT/salt-front
+OUT=/tmp/salt_build
+
+# =============================================================================
+# Build Basalt
+# =============================================================================
+build_basalt() {
+    mkdir -p "$OUT"
+    local COMBINED=$OUT/basalt_combined.salt
+    echo "// Auto-generated build file for Basalt" > "$COMBINED"
+    echo "package main" >> "$COMBINED"
+    echo "use std.core.ptr.Ptr" >> "$COMBINED"
+    echo "" >> "$COMBINED"
+    for f in basalt/src/kernels.salt basalt/src/sampler.salt basalt/src/quant.salt basalt/src/transformer.salt basalt/src/model_loader.salt basalt/src/tokenizer.salt basalt/src/main.salt; do
+        echo "// ---- Module: $(basename $f) ----" >> "$COMBINED"
+        grep -v "^package " "$PROJECT/$f" | grep -v "^use basalt\." >> "$COMBINED"
+        echo "" >> "$COMBINED"
+    done
+    echo "Built source: $COMBINED"
+
+    echo "Running salt-front..."
+    $SF/target/release/salt-front "$COMBINED" > $OUT/basalt.mlir
+
+    echo "Running mlir-opt..."
+    mlir-opt $OUT/basalt.mlir \
+        --allow-unregistered-dialect \
+        --canonicalize --cse --loop-invariant-code-motion --sccp --canonicalize --cse \
+        --lower-affine \
+        --convert-scf-to-cf --convert-vector-to-llvm --convert-cf-to-llvm --convert-arith-to-llvm --convert-math-to-llvm --convert-func-to-llvm \
+        --reconcile-unrealized-casts -o $OUT/basalt.opt.mlir
+
+    sed -i '' '/"salt.verify"/d' $OUT/basalt.opt.mlir
+
+    echo "Running mlir-translate..."
+    mlir-translate --mlir-to-llvmir $OUT/basalt.opt.mlir -o $OUT/basalt.ll
+
+    echo "Running clang..."
+    clang -O3 -ffast-math -march=native $OUT/basalt.ll $SF/runtime.c -o $OUT/basalt -lm -Wno-override-module
+
+    echo "Build complete: $OUT/basalt"
+}
+
+# =============================================================================
+# Main
+# =============================================================================
+
+if [[ "$BUILD_ONLY" == true ]]; then
+    echo "╔══════════════════════════════════════════════╗"
+    echo "║   Basalt Build & Run                         ║"
+    echo "║   $(date '+%Y-%m-%d %H:%M:%S')                        ║"
+    echo "╚══════════════════════════════════════════════╝"
+    echo ""
+    build_basalt
+    echo ""
+    echo "----------------------------------------------------------------"
+    $OUT/basalt
+    exit 0
+fi
 
 echo "╔══════════════════════════════════════════════╗"
 echo "║   Basalt vs C — ${RUNS}-Run Benchmark              ║"
@@ -24,35 +102,10 @@ C_BIN=/tmp/salt_bench/llama2c
 mkdir -p /tmp/salt_bench
 clang -O3 -ffast-math -march=native "$C_SRC" -o "$C_BIN" -lm
 
-# --- Build Salt (Basalt) --- suppress the auto-run at end of build_basalt.sh
+# --- Build Salt (Basalt) ---
 echo "Building Salt (Basalt)..."
-SF=$PROJECT/salt-front
-OUT=/tmp/salt_build
-mkdir -p "$OUT"
-
-# Inline the build steps (skip the auto-run at end)
-COMBINED=$OUT/basalt_combined.salt
-echo "// Auto-generated" > "$COMBINED"
-echo "package main" >> "$COMBINED"
-echo "use std.core.ptr.Ptr" >> "$COMBINED"
-echo "" >> "$COMBINED"
-for f in basalt/src/kernels.salt basalt/src/sampler.salt basalt/src/quant.salt basalt/src/transformer.salt basalt/src/model_loader.salt basalt/src/tokenizer.salt basalt/src/main.salt; do
-    grep -v "^package " "$PROJECT/$f" | grep -v "^use basalt\." >> "$COMBINED"
-    echo "" >> "$COMBINED"
-done
-
-$SF/target/release/salt-front "$COMBINED" > $OUT/basalt.mlir
-mlir-opt $OUT/basalt.mlir \
-    --allow-unregistered-dialect \
-    --canonicalize --cse --loop-invariant-code-motion --sccp --canonicalize --cse \
-    --lower-affine \
-    --convert-scf-to-cf --convert-vector-to-llvm --convert-cf-to-llvm --convert-arith-to-llvm --convert-math-to-llvm --convert-func-to-llvm \
-    --reconcile-unrealized-casts -o $OUT/basalt.opt.mlir
-sed -i '' '/"salt.verify"/d' $OUT/basalt.opt.mlir
-mlir-translate --mlir-to-llvmir $OUT/basalt.opt.mlir -o $OUT/basalt.ll
-clang -O3 -ffast-math -march=native $OUT/basalt.ll $SF/runtime.c -o $OUT/basalt -lm -Wno-override-module
+build_basalt
 SALT_BIN=$OUT/basalt
-echo "Build complete."
 echo ""
 
 # --- Run benchmarks ---

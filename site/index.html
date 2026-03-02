@@ -1915,9 +1915,9 @@
                     <h3>Compile-time proofs</h3>
                     <p>You write <code>requires()</code> preconditions and <code>ensures()</code> postconditions on your
                         functions.
-                        The compiler hands these to Z3, a world-class theorem prover, and checks every call site and
+                        The compiler hands these to Z3, an SMT solver from Microsoft Research, and checks every call site and
                         return site.
-                        When Z3 can prove the condition holds, the check is elided entirely &mdash; zero runtime cost.
+                        When Z3 can prove the condition holds, the check is elided entirely, at zero runtime cost.
                         When it finds a violation, it reports concrete counterexample values.</p>
                 </div>
                 <div class="feature-card">

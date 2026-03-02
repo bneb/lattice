@@ -17,30 +17,30 @@ struct ComponentDef {
 }
 
 pub let CURRENT_MANIFEST = LatticeManifest {
-    platform_version: "0.9.0",
+    platform_version: "0.9.2",
     
     compiler: ComponentDef {
         name: "salt-front",
-        version: "0.7.0",
-        milestone: "Z3 Verification Stable & Multi-Dialect Codegen",
+        version: "0.8.0",
+        milestone: "Z3 Verification (requires + ensures), Multi-Dialect Codegen, Path-Sensitive WP",
     },
     
     kernel: ComponentDef {
         name: "lattice-core",
-        version: "0.9.0",
-        milestone: "4-Core SMP, Preemptive Scheduler, Ring 3 Isolation",
+        version: "0.9.2",
+        milestone: "16-Core SMP, Chase-Lev Work-Stealing, Preemptive Scheduler, Ring 3 Isolation",
     },
     
     services: [
         ComponentDef {
             name: "netd",
-            version: "0.9.0",
-            milestone: "Ring 3 Daemon & Zero-Trap Sockets",
+            version: "0.9.2",
+            milestone: "Ring 3 Daemon, Zero-Trap Sockets, SYN Cookie Hardening",
         },
         ComponentDef {
             name: "lsp",
-            version: "0.1.0",
-            milestone: "Diagnostics & Completions Foundation",
+            version: "0.2.0",
+            milestone: "Zero-I/O in-memory compilation, Z3 semantic hover, Go-to-Definition",
         }
     ],
     
