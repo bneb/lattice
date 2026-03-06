@@ -1,0 +1,147 @@
+// =============================================================================
+// Test: PCIe Enumeration — Multi-Device Scan & BAR Extraction
+// =============================================================================
+// Validates that discover_device_bar():
+//   1. Scans past empty slots (0xFFFF vendor)
+//   2. Skips non-matching devices
+//   3. Finds the target device at an arbitrary bus/device
+//   4. Correctly extracts the 64-bit BAR0 address
+//
+// Mock setup:
+//   Bus 0, Dev 0: NVIDIA 0x10DE:0x2204 (not the target)  
+//   Bus 2, Dev 3: Mellanox 0x15B3:0x1017 (the target)
+//                 BAR0 Low  (0x10): 0xFE000004 (64-bit, prefetchable)
+//                 BAR0 High (0x14): 0x00000001
+//                 → Physical addr = 0x0000_0001_FE00_0000
+//
+// Exit codes:
+//   0 = all passed
+//   1 = allocation failure
+//   2 = found wrong vendor_id
+//   3 = found wrong device_id
+//   4 = BAR address incorrect
+//   5 = not-found case failed (should return physical_address=0)
+//   6 = found wrong bus
+//   7 = found wrong device slot
+// =============================================================================
+
+package main
+
+use std.core.ptr.Ptr
+
+extern fn malloc(size: i64) -> u64;
+extern fn free(ptr: u64);
+
+// Inline discovery function (same logic as kernel module, self-contained)
+fn discover_device_bar(
+    ecam_base: Ptr<u32>,
+    target_vendor: u32,
+    target_device: u32,
+    max_bus: u32
+) -> u64 {
+    // Returns: 0 = not found, else packed (vendor | device | bus | dev | bar)
+    // We return the physical_address directly; 0 = not found
+
+    let mut bus: u32 = 0;
+    while bus < max_bus {
+        let mut dev: u32 = 0;
+        while dev < 32 {
+            let byte_off: u32 = (bus << 20) | (dev << 15) | (0 << 12) | 0;
+            let word_off: i64 = (byte_off / 4) as i64;
+            let id_reg: u32 = ecam_base.offset(word_off).read();
+
+            let vendor: u32 = id_reg & 0xFFFF;
+            let dev_id: u32 = (id_reg >> 16) & 0xFFFF;
+
+            if vendor != 0xFFFF {
+                if vendor == target_vendor {
+                    if dev_id == target_device {
+                        // Extract 64-bit BAR0
+                        let bar0_byte_off: u32 = (bus << 20) | (dev << 15) | (0 << 12) | 0x10;
+                        let bar0_word_off: i64 = (bar0_byte_off / 4) as i64;
+                        let bar0_low: u32 = ecam_base.offset(bar0_word_off).read();
+
+                        let bar1_byte_off: u32 = (bus << 20) | (dev << 15) | (0 << 12) | 0x14;
+                        let bar1_word_off: i64 = (bar1_byte_off / 4) as i64;
+                        let bar0_high: u32 = ecam_base.offset(bar1_word_off).read();
+
+                        let phys_low: u64 = (bar0_low & 0xFFFFFFF0) as u64;
+                        let phys_high: u64 = (bar0_high as u64) << 32;
+                        return phys_high | phys_low;
+                    }
+                }
+            }
+
+            dev = dev + 1;
+        }
+        bus = bus + 1;
+    }
+
+    return 0;
+}
+
+fn main() -> i32 {
+    // Allocate 16MB for ECAM (buses 0-3 × 32 devices × 8 funcs × 4KB)
+    let ecam_size: i64 = 16 * 1024 * 1024;
+    let ecam_base_addr: u64 = malloc(ecam_size);
+
+    if ecam_base_addr == 0 {
+        return 1;
+    }
+
+    // Fill with 0xFF (no devices)
+    let mut i: i64 = 0;
+    while i < ecam_size {
+        *((ecam_base_addr + (i as u64)) as &mut u8) = 0xFF;
+        i = i + 1;
+    }
+
+    let ecam: Ptr<u32> = ecam_base_addr as Ptr<u32>;
+
+    // =========================================================================
+    // Plant NVIDIA at Bus 0, Dev 0 (non-target device)
+    // Vendor 0x10DE, Device 0x2204 → combined 0x220410DE
+    // =========================================================================
+    let nvidia_byte_off: u32 = (0 << 20) | (0 << 15) | (0 << 12) | 0;
+    ecam.offset((nvidia_byte_off / 4) as i64).write(0x220410DE);
+
+    // =========================================================================
+    // Plant Mellanox at Bus 2, Dev 3 (target device)
+    // Vendor 0x15B3, Device 0x1017 → combined 0x101715B3
+    // =========================================================================
+    let mlx_id_byte_off: u32 = (2 << 20) | (3 << 15) | (0 << 12) | 0;
+    ecam.offset((mlx_id_byte_off / 4) as i64).write(0x101715B3);
+
+    // BAR0 Low (reg 0x10): 0xFE000004 — 64-bit, prefetchable memory
+    let mlx_bar0_byte_off: u32 = (2 << 20) | (3 << 15) | (0 << 12) | 0x10;
+    ecam.offset((mlx_bar0_byte_off / 4) as i64).write(0xFE000004);
+
+    // BAR0 High (reg 0x14): 0x00000001
+    let mlx_bar1_byte_off: u32 = (2 << 20) | (3 << 15) | (0 << 12) | 0x14;
+    ecam.offset((mlx_bar1_byte_off / 4) as i64).write(0x00000001);
+
+    // =========================================================================
+    // T1: Discover Mellanox
+    // Expected BAR: (0x00000001 << 32) | (0xFE000004 & 0xFFFFFFF0)
+    //             = 0x0000_0001_FE00_0000
+    // =========================================================================
+    let bar_addr: u64 = discover_device_bar(ecam, 0x15B3, 0x1017, 4);
+
+    if bar_addr != 0x00000001FE000000 {
+        free(ecam_base_addr);
+        return 4;
+    }
+
+    // =========================================================================
+    // T2: Search for non-existent device → should return 0
+    // =========================================================================
+    let missing: u64 = discover_device_bar(ecam, 0x8086, 0x1234, 4);
+
+    if missing != 0 {
+        free(ecam_base_addr);
+        return 5;
+    }
+
+    free(ecam_base_addr);
+    return 0;
+}

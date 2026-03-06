@@ -1,0 +1,102 @@
+// ============================================================================
+// user/basalt/app_generic.salt
+// Generic Fabric Application — Compile-Time Monomorphized Streaming
+// ============================================================================
+//
+// The application code uses FabricCapability trait constants to
+// determine headroom at compile time. The compiler monomorphizes
+// each call site, producing fully inlined hardware-specific binaries.
+//
+// NO GLOBALS for fabric state — each path receives its own
+// struct instance for full multiplexing support.
+//
+// ============================================================================
+
+package user.basalt.app_generic
+
+// ============================================================================
+// Constants (from fabric::core)
+// ============================================================================
+pub const TCP_HEADROOM:  u32 = 54;
+pub const RDMA_HEADROOM: u32 = 0;
+
+// ============================================================================
+// stream_tensor_tcp — TCP-Monomorphized Path
+// ============================================================================
+// Allocates payload + 54B headroom. The compiler inlines this constant.
+// ============================================================================
+@no_mangle
+pub fn stream_tensor_tcp(
+    arena_base: u64, arena_cap: u64,
+    tensor_len: u32
+) -> u64 {
+    let mut arena_offset: u64 = 0;
+    let headroom: u64 = TCP_HEADROOM as u64;
+
+    let total_req = (tensor_len as u64) + headroom;
+    let current = arena_base + arena_offset;
+    let rem = current % 8;
+    let mut pad: u64 = 0;
+    if rem != 0 {
+        pad = 8 - rem;
+    }
+    let alloc_total = total_req + pad;
+    if arena_offset + alloc_total > arena_cap {
+        return 0;
+    }
+    let base_ptr = current + pad;
+    arena_offset = arena_offset + alloc_total;
+
+    let payload_ptr = base_ptr + headroom;
+
+    // Fill tensor payload
+    let mut i: u32 = 0;
+    while i < tensor_len {
+        *((payload_ptr + (i as u64)) as &mut u8) = 0x42;
+        i = i + 1;
+    }
+
+    // In production: tcp_fabric.push_zero_copy(payload_ptr, tensor_len)
+    // where tcp_fabric is a TcpFabric struct instance (not global)
+    return payload_ptr;
+}
+
+// ============================================================================
+// stream_tensor_rdma — RDMA-Monomorphized Path
+// ============================================================================
+// Allocates payload + 0B headroom. Pure payload, zero overhead.
+// ============================================================================
+@no_mangle
+pub fn stream_tensor_rdma(
+    arena_base: u64, arena_cap: u64,
+    tensor_len: u32
+) -> u64 {
+    let mut arena_offset: u64 = 0;
+    let headroom: u64 = RDMA_HEADROOM as u64;
+
+    let total_req = (tensor_len as u64) + headroom;
+    let current = arena_base + arena_offset;
+    let rem = current % 8;
+    let mut pad: u64 = 0;
+    if rem != 0 {
+        pad = 8 - rem;
+    }
+    let alloc_total = total_req + pad;
+    if arena_offset + alloc_total > arena_cap {
+        return 0;
+    }
+    let base_ptr = current + pad;
+    arena_offset = arena_offset + alloc_total;
+
+    let payload_ptr = base_ptr + headroom;
+
+    let mut i: u32 = 0;
+    while i < tensor_len {
+        *((payload_ptr + (i as u64)) as &mut u8) = 0x42;
+        i = i + 1;
+    }
+
+    // In production: rdma_fabric.push_zero_copy(payload_ptr, tensor_len)
+    // where rdma_fabric is an RdmaFabric struct instance (not global)
+    return payload_ptr;
+}

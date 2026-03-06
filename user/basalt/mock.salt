@@ -1,0 +1,109 @@
+// ============================================================================
+// user/basalt/mock.salt
+// Basalt v0.1 — Streaming LLM Token Generator (Mock)
+// ============================================================================
+//
+// Deterministic state machine that simulates incremental token generation
+// of a large language model. Produces fixed-size "token" chunks to
+// stress-test the NetD TX encapsulator and the zero-copy pipeline.
+//
+// For v0.1, the response is a hardcoded 32-byte payload emitted as
+// 4-byte chunks. This creates 8 TCP frames per request, exercising
+// the full streaming network profile.
+//
+// In production Basalt v1.0, this would be replaced with actual
+// transformer inference calling into the GPU compute pipeline.
+//
+// ============================================================================
+
+package user.basalt.mock
+
+// ============================================================================
+// Token Generator Constants
+// ============================================================================
+
+// Default response length for the v0.1 benchmark (bytes)
+pub const DEFAULT_RESPONSE_LEN: u32 = 32;
+
+// Token chunk size — 4 bytes aggressively stress-tests the TX pipeline
+// with many small frames (worst case for header overhead ratio)
+pub const TOKEN_CHUNK_SIZE: u32 = 4;
+
+// Sentinel value indicating generation is complete
+pub const TOKEN_DONE: u32 = 0;
+
+// ============================================================================
+// TokenGenerator State
+// ============================================================================
+// Stored as globals for simplicity in the v0.1 mock.
+// Each Basalt request gets a fresh init() call.
+// ============================================================================
+
+global GEN_RESPONSE_LEN: u32 = 0;
+global GEN_CURRENT_IDX:  u32 = 0;
+
+// ============================================================================
+// init — Reset the Generator for a New Request
+// ============================================================================
+@no_mangle
+pub fn init(response_len: u32) {
+    GEN_RESPONSE_LEN = response_len;
+    GEN_CURRENT_IDX = 0;
+}
+
+// ============================================================================
+// init_default — Reset with the Default 32-byte Response
+// ============================================================================
+@no_mangle
+pub fn init_default() {
+    GEN_RESPONSE_LEN = DEFAULT_RESPONSE_LEN;
+    GEN_CURRENT_IDX = 0;
+}
+
+// ============================================================================
+// next_token_len — Yield the Next Token Chunk Length
+// ============================================================================
+// Returns the number of bytes in the next token chunk.
+// Returns TOKEN_DONE (0) when generation is complete.
+//
+// Each call advances the internal index by the chunk size.
+// The last chunk may be smaller if the response length is not
+// evenly divisible by TOKEN_CHUNK_SIZE.
+//
+// Z3 Contract:
+//   ensures { result <= TOKEN_CHUNK_SIZE }
+//   ensures { result == 0 iff GEN_CURRENT_IDX >= GEN_RESPONSE_LEN }
+//   ensures { GEN_CURRENT_IDX advances by result }
+// ============================================================================
+@no_mangle
+pub fn next_token_len() -> u32 {
+    if GEN_CURRENT_IDX >= GEN_RESPONSE_LEN {
+        return TOKEN_DONE;
+    }
+
+    let mut chunk: u32 = TOKEN_CHUNK_SIZE;
+
+    // Handle partial final chunk
+    if GEN_CURRENT_IDX + chunk > GEN_RESPONSE_LEN {
+        chunk = GEN_RESPONSE_LEN - GEN_CURRENT_IDX;
+    }
+
+    GEN_CURRENT_IDX = GEN_CURRENT_IDX + chunk;
+    return chunk;
+}
+
+// ============================================================================
+// get_progress — Diagnostic: Bytes Generated So Far
+// ============================================================================
+@no_mangle
+pub fn get_progress() -> u32 {
+    return GEN_CURRENT_IDX;
+}
+
+// ============================================================================
+// is_complete — Check if Generation is Finished
+// ============================================================================
+@no_mangle
+pub fn is_complete() -> bool {
+    return GEN_CURRENT_IDX >= GEN_RESPONSE_LEN;
+}

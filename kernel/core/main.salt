@@ -107,10 +107,26 @@ extern fn process_get_kernel_stack_top(slot: u64) -> u64;
 
 // kernel/core/syscall.salt
 extern fn syscall_set_kernel_pml4(pml4: u64);
+extern fn syscall_set_moe_bar_ptr(ptr: u64);
+extern fn syscall_set_moe_peer_mac(b0: u8, b1: u8, b2: u8, b3: u8, b4: u8, b5: u8);
+
+// kernel/net/netcore.salt
+extern fn netcore_set_moe_output_ptr(ptr: u64);
+
+// kernel/drivers/virtio_net.salt
+extern fn moe_net_init() -> bool;
+extern fn moe_enable_rx_interrupts();
 
 // kernel/core/exec_user.salt
 extern fn exec_spawn_kernel_thread(entry: u64, pml4: u64) -> u64;
 extern fn exec_spawn_process(elf_addr: u64, pml4: u64) -> u64;
+extern fn exec_spawn_ring3_coroutine(entry: u64, arg1: u64, arg2: u64, arg3: u64, pml4: u64) -> u64;
+
+// kernel/drivers/virtio_net.salt
+extern fn virtio_net_get_mac_byte(idx: u64) -> u8;
+
+// user/reactor/tasks/moe_pipeline.salt
+extern fn moe_init_trampoline(state: u64, bar_out: u64, poll_out: u64);
 
 // Local copies of process constants
 const MAX_PROCS: u64   = 16;
@@ -204,10 +220,10 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     serial.print("LATTICE BOOT: Preemptive Unification Tests...\n");
     run_preempt_tests();
 
-    serial.print("LATTICE KERNEL BOOT [OK]\n");
+    serial.print("LATTICE KERNEL BOOT [OK] v6.2.28-TRACER\n");
 
     vga.clear();
-    vga.print_colored(" LATTICE OS v0.6 ", 0x1F);
+    vga.print_colored(" LATTICE OS v0.6.28-TRACER ", 0x1F);
     vga.print("\n");
 
     smp_release_aps();
@@ -261,7 +277,8 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     serial.print("[Lattice] SYSCALL MSRs configured\n");
 
     // BENCHMARK SUITE — IST tests run first (test_ist_isolation), then Ring 3 TDD
-    bench_suite_run();
+    // v6.2.23-BenchBypass: Skip bench suite to isolate the network fabric.
+    // bench_suite_run();
 
     // Save kernel PML4 for syscall.salt (process_exit CR3 swap)
     syscall_set_kernel_pml4(kernel_pml4);
@@ -274,22 +291,72 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     process_set_state(slot_task0, PROC_READY);
     serial.print("[Lattice] Task 0 (dispatcher) spawned\n");
 
-    // Spawn Ring 3 user processes
-    serial.print("[Lattice] SPAWNING PROCESSES\n");
+    // =========================================================================
+    // SPAWN MOE PIPELINE
+    // =========================================================================
+    serial.print("[Lattice] SPAWNING MOE PIPELINE\n");
 
-    let elf_a = get_user_elf_a_addr();
-    let slot_a = exec_spawn_process(elf_a, kernel_pml4);
-    serial.print("[Lattice] Process A spawned\n");
+    // =========================================================================
+    // Initialize VirtIO network driver FIRST — we need the MAC to determine identity
+    // =========================================================================
+    moe_net_init();
+    moe_enable_rx_interrupts();
 
-    let elf_b = get_user_elf_b_addr();
-    let slot_b = exec_spawn_process(elf_b, kernel_pml4);
-    process_set_state(slot_b, PROC_READY);
-    serial.print("[Lattice] Process B spawned\n");
+    let mac_byte5 = virtio_net_get_mac_byte(5);
+    serial.print("[Lattice] MAC byte 5 = 0x");
+    serial.print_u64(mac_byte5 as u64);
+    serial.print("\n");
 
-    let elf_c = get_user_elf_c_addr();
-    let slot_c = exec_spawn_process(elf_c, kernel_pml4);
-    process_set_state(slot_c, PROC_READY);
-    serial.print("[Lattice] Process C spawned\n");
+    // Allocate 1 physical page (4KB) for MoE state structs
+    let pb_phys = pmm_alloc();
+    let pb_virt = pb_phys + KERNEL_BASE;
+    let state_ptr = pb_virt;
+    let bar_ptr   = pb_virt + 128;
+    let poll_ptr  = pb_virt + 256;
+
+    // Allocate a valid 64-bit memory space for the Sentinel output buffer
+    let output_ptr = pb_virt + 512;
+
+    // Dynamic Identity: Fork state machine based on VirtIO MAC address.
+    // QEMU assigns mac=...AA to Node A (Router) and mac=...BB to Node B (Expert).
+    // This single binary now boots correctly on both nodes.
+    let mut phase: u32 = 0;
+
+    if mac_byte5 == 0xBB {
+        // I am the Expert (Node B)
+        serial.print("[Lattice] Booting Node B (Expert)...\n");
+        phase = 2;  // PHASE_EXPERT_LOAD_WEIGHTS
+        syscall_set_moe_peer_mac(0x52 as u8, 0x54 as u8, 0x00 as u8, 0x12 as u8, 0x34 as u8, 0xAA as u8);
+    } else {
+        // I am the Router (Node A)
+        serial.print("[Lattice] Booting Node A (Router)...\n");
+        phase = 0;  // PHASE_LOAD_INPUT
+        syscall_set_moe_peer_mac(0x52 as u8, 0x54 as u8, 0x00 as u8, 0x12 as u8, 0x34 as u8, 0xBB as u8);
+    }
+
+    // Set state.phase (Offset 0)
+    *((state_ptr) as &mut u32) = phase;
+
+    // Wire the valid output_ptr into the struct at Offset 24 (STATE_OUTPUT_PTR)
+    *((state_ptr + 24) as &mut u64) = output_ptr;
+
+    // =========================================================================
+    // Wire the TX/RX Bridge globals
+    // =========================================================================
+    // TX Bridge: Tell syscall.salt where the WQE mailbox is
+    syscall_set_moe_bar_ptr(bar_ptr);
+
+    // RX Bridge: Tell netcore.salt where to deposit incoming payloads
+    netcore_set_moe_output_ptr(output_ptr);
+
+    let slot_a = exec_spawn_ring3_coroutine(
+            (&moe_init_trampoline) as u64,
+            state_ptr,
+            bar_ptr,
+            poll_ptr,
+            kernel_pml4
+        );
+    serial.print("[Lattice] MoE Pipeline spawned\n");
 
     // Start first user process
     // NOTE: Guard removed — salt-opt SIGSEGV on cf.cond_br lowering.

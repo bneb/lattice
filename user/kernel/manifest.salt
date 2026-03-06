@@ -1,0 +1,165 @@
+// ============================================================================
+// user/kernel/manifest.salt
+// Holographic Manifest — Boot-Time Substrate Resolution
+// ============================================================================
+//
+// The Genesis Probe discovers the physical environment and locks it into
+// an immutable manifest. After boot, Ring 3 code reads the resolved
+// fabric_bar_addr — it never knows or cares whether the underlying
+// hardware is Kinetic (raw SmartNIC) or Synthetic (VirtIO/emulation).
+//
+// This is the Holographic Principle: the Ring 3 abstraction is
+// indistinguishable from the Ring 0 reality. Math loops execute
+// identically on both substrates with zero architectural branching.
+//
+// Manifest Memory Layout (32 bytes):
+//   [0..4)   substrate       (u32) — 0=UNKNOWN, 1=KINETIC, 2=SYNTHETIC
+//   [4..8)   vendor_id       (u32) — PCIe vendor
+//   [8..16)  fabric_bar_addr (u64) — resolved physical BAR
+//   [16..20) device_id       (u32) — PCIe device
+//   [20..24) locked          (u32) — 1 = immutable, Ring 3 escalation blocked
+//   [24..28) bus             (u32) — discovered bus number
+//   [28..32) device          (u32) — discovered device number
+//
+// ============================================================================
+
+package user.kernel.manifest
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// Substrate Constants
+// ============================================================================
+pub const SUBSTRATE_UNKNOWN:   u32 = 0;
+pub const SUBSTRATE_KINETIC:   u32 = 1;
+pub const SUBSTRATE_SYNTHETIC: u32 = 2;
+
+// ============================================================================
+// Manifest Layout Offsets
+// ============================================================================
+pub const MANIFEST_SIZE:            u64 = 32;
+pub const MANIFEST_SUBSTRATE:       u64 = 0;
+pub const MANIFEST_VENDOR:          u64 = 4;
+pub const MANIFEST_BAR:             u64 = 8;
+pub const MANIFEST_DEVICE_ID:       u64 = 16;
+pub const MANIFEST_LOCKED:          u64 = 20;
+pub const MANIFEST_BUS:             u64 = 24;
+pub const MANIFEST_DEVICE:          u64 = 28;
+
+// Vendor IDs (mirrored from ecam.salt for independence)
+const VENDOR_AWS_NITRO: u32 = 0x1D0F;
+const VENDOR_MELLANOX:  u32 = 0x15B3;
+const VENDOR_VIRTIO:    u32 = 0x1AF4;
+const VENDOR_INVALID:   u32 = 0xFFFF;
+
+// ============================================================================
+// manifest_init — Zero-initialize a manifest buffer
+// ============================================================================
+pub fn manifest_init(manifest_addr: u64) {
+    let mut i: u64 = 0;
+    while i < MANIFEST_SIZE {
+        *((manifest_addr + i) as &mut u8) = 0;
+        i = i + 1;
+    }
+}
+
+// ============================================================================
+// resolve_holographic_boundary — The Genesis Probe
+// ============================================================================
+// Scans the PCIe bus via ECAM, discovers the NIC, extracts its BAR0,
+// classifies the substrate, and locks the manifest.
+//
+// Parameters:
+//   manifest_addr: pointer to HardwareManifest buffer (32 bytes)
+//   ecam_base:     base address of the ECAM region
+//
+// Scan strategy: bus 0..8, device 0..32, function 0 only.
+// Stops at the first recognized network device.
+// ============================================================================
+pub fn resolve_holographic_boundary(manifest_addr: u64, ecam_base: u64) {
+    // Guard: do not re-resolve a locked manifest
+    let locked: u32 = *((manifest_addr + MANIFEST_LOCKED) as &u32);
+    if locked == 1 { return; }
+
+    let mut bus: u32 = 0;
+    while bus < 8 {
+        let mut dev: u32 = 0;
+        while dev < 32 {
+            // Read vendor ID from ECAM
+            let config_addr: u64 = ecam_base + ((bus << 20) | (dev << 15)) as u64;
+            let vendor_word: u32 = *((config_addr) as &u32);
+            let vendor_id: u32 = vendor_word & 0xFFFF;
+            let device_id: u32 = (vendor_word >> 16) & 0xFFFF;
+
+            // Skip empty slots
+            if vendor_id != VENDOR_INVALID && vendor_id != 0 {
+                // Check if recognized NIC
+                let is_kinetic: bool = vendor_id == VENDOR_AWS_NITRO || vendor_id == VENDOR_MELLANOX;
+                let is_synthetic: bool = vendor_id == VENDOR_VIRTIO;
+
+                if is_kinetic || is_synthetic {
+                    // Read BAR0 (offset 0x10, mask bottom 4 bits)
+                    let bar0_raw: u32 = *((config_addr + 0x10) as &u32);
+                    let bar0_type: u32 = (bar0_raw >> 1) & 0x3;
+                    let bar0_low: u64 = (bar0_raw & 0xFFFFFFF0) as u64;
+
+                    let mut bar0: u64 = bar0_low;
+                    if bar0_type == 2 {
+                        let bar1_raw: u32 = *((config_addr + 0x14) as &u32);
+                        bar0 = ((bar1_raw as u64) << 32) | bar0_low;
+                    }
+
+                    // Write manifest
+                    *((manifest_addr + MANIFEST_VENDOR) as &mut u32) = vendor_id;
+                    *((manifest_addr + MANIFEST_DEVICE_ID) as &mut u32) = device_id;
+                    *((manifest_addr + MANIFEST_BAR) as &mut u64) = bar0;
+                    *((manifest_addr + MANIFEST_BUS) as &mut u32) = bus;
+                    *((manifest_addr + MANIFEST_DEVICE) as &mut u32) = dev;
+
+                    if is_kinetic {
+                        *((manifest_addr + MANIFEST_SUBSTRATE) as &mut u32) = SUBSTRATE_KINETIC;
+                    } else {
+                        *((manifest_addr + MANIFEST_SUBSTRATE) as &mut u32) = SUBSTRATE_SYNTHETIC;
+                    }
+
+                    // Lock the manifest — immutable from this point
+                    *((manifest_addr + MANIFEST_LOCKED) as &mut u32) = 1;
+                    return;
+                }
+            }
+
+            dev = dev + 1;
+        }
+        bus = bus + 1;
+    }
+
+    // No recognized device found — remain UNKNOWN, unlocked
+}
+
+// ============================================================================
+// Read-only manifest accessors
+// ============================================================================
+@inline
+pub fn get_fabric_bar(manifest_addr: u64) -> u64 {
+    return *((manifest_addr + MANIFEST_BAR) as &u64);
+}
+
+@inline
+pub fn get_substrate(manifest_addr: u64) -> u32 {
+    return *((manifest_addr + MANIFEST_SUBSTRATE) as &u32);
+}
+
+@inline
+pub fn is_locked(manifest_addr: u64) -> bool {
+    return *((manifest_addr + MANIFEST_LOCKED) as &u32) == 1;
+}
+
+@inline
+pub fn is_kinetic(manifest_addr: u64) -> bool {
+    return *((manifest_addr + MANIFEST_SUBSTRATE) as &u32) == SUBSTRATE_KINETIC;
+}
+
+@inline
+pub fn is_synthetic(manifest_addr: u64) -> bool {
+    return *((manifest_addr + MANIFEST_SUBSTRATE) as &u32) == SUBSTRATE_SYNTHETIC;
+}

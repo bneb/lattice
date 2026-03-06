@@ -1,0 +1,105 @@
+// ============================================================================
+// user/benchmarks/matmul_static.salt
+// MLIR Affine Catalyst — Statically Bounded Matrix Multiplication
+// ============================================================================
+//
+// The Death of `while` Loops.
+//
+// MLIR's polyhedral optimizer requires exact, compile-time-known loop
+// bounds to trigger scf.for → affine.for lowering. Dynamic `while i < n`
+// loops are opaque to the optimizer — it cannot prove trip counts,
+// cannot unroll, cannot tile, cannot hoist loop-invariant loads.
+//
+// These functions use strict `for i in 0..N` syntax, giving the MLIR
+// Affine dialect the mathematical certainty it needs to:
+//   1. Lower to `scf.for iter_args` (register-resident accumulation)
+//   2. Apply polyhedral tiling for L1 cache residency
+//   3. Vectorize the inner product with SIMD instructions
+//
+// Memory layout: row-major f64, base address passed explicitly.
+//   Element [i,j] of an N×N matrix at base addr:
+//     addr + ((i * N) + j) * 8
+//
+// ============================================================================
+
+package user.benchmarks.matmul_static
+
+use std.core.ptr.Ptr
+
+extern fn malloc(size: i64) -> u64;
+extern fn free(ptr: u64);
+
+// ============================================================================
+// matmul_static_4x4 — 64 MACs, fits in registers
+// ============================================================================
+pub fn matmul_static_4x4(a: u64, b: u64, c: u64) {
+    for i in 0..4 {
+        for j in 0..4 {
+            let mut acc: f64 = 0.0;
+            for k in 0..4 {
+                let av: f64 = *((a + ((i * 4 + k) as u64) * 8) as &f64);
+                let bv: f64 = *((b + ((k * 4 + j) as u64) * 8) as &f64);
+                acc = acc + (av * bv);
+            }
+            *((c + ((i * 4 + j) as u64) * 8) as &mut f64) = acc;
+        }
+    }
+}
+
+// ============================================================================
+// matmul_static_16x16 — 4,096 MACs, L1 cache sweet spot
+// ============================================================================
+pub fn matmul_static_16x16(a: u64, b: u64, c: u64) {
+    for i in 0..16 {
+        for j in 0..16 {
+            let mut acc: f64 = 0.0;
+            for k in 0..16 {
+                let av: f64 = *((a + ((i * 16 + k) as u64) * 8) as &f64);
+                let bv: f64 = *((b + ((k * 16 + j) as u64) * 8) as &f64);
+                acc = acc + (av * bv);
+            }
+            *((c + ((i * 16 + j) as u64) * 8) as &mut f64) = acc;
+        }
+    }
+}
+
+// ============================================================================
+// matmul_static_64x64 — 262,144 MACs, L1 pressure boundary
+// ============================================================================
+pub fn matmul_static_64x64(a: u64, b: u64, c: u64) {
+    for i in 0..64 {
+        for j in 0..64 {
+            let mut acc: f64 = 0.0;
+            for k in 0..64 {
+                let av: f64 = *((a + ((i * 64 + k) as u64) * 8) as &f64);
+                let bv: f64 = *((b + ((k * 64 + j) as u64) * 8) as &f64);
+                acc = acc + (av * bv);
+            }
+            *((c + ((i * 64 + j) as u64) * 8) as &mut f64) = acc;
+        }
+    }
+}
+
+// ============================================================================
+// fill_matrix — Initialize an N×N matrix with a constant value
+// ============================================================================
+pub fn fill_matrix(addr: u64, n: u32, val: f64) {
+    let total: u32 = n * n;
+    let mut i: u32 = 0;
+    while i < total {
+        *((addr + (i as u64) * 8) as &mut f64) = val;
+        i = i + 1;
+    }
+}
+
+// ============================================================================
+// zero_matrix — Zero an N×N matrix
+// ============================================================================
+pub fn zero_matrix(addr: u64, n: u32) {
+    let total: u32 = n * n;
+    let mut i: u32 = 0;
+    while i < total {
+        *((addr + (i as u64) * 8) as &mut f64) = 0.0;
+        i = i + 1;
+    }
+}

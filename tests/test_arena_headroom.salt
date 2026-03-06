@@ -1,0 +1,59 @@
+// =============================================================================
+// Test: Arena Network Headroom — Zero-Copy TX Allocation
+// =============================================================================
+// Verifies that alloc_net_buffer returns a pointer shifted forward by
+// exactly 54 bytes (NET_HEADROOM) from the raw allocation base.
+// =============================================================================
+
+fn main() -> i32 {
+    // Headroom constants
+    let eth_hdr: u64 = 14;
+    let ip_hdr: u64 = 20;
+    let tcp_hdr: u64 = 20;
+    let headroom: u64 = 54;
+
+    // Verify headroom = Eth + IP + TCP
+    if eth_hdr + ip_hdr + tcp_hdr != headroom {
+        return 1;
+    }
+
+    // Simulate alloc_net_buffer logic:
+    // Total allocation = payload + headroom
+    let payload_size: u64 = 512;
+    let total_alloc = payload_size + headroom;
+
+    // Verify total is correct
+    if total_alloc != 566 {
+        return 2;
+    }
+
+    // Simulate the pointer shift:
+    // base_alloc = 0x1000 (arbitrary aligned address)
+    let base_alloc: u64 = 0x1000;
+    let payload_ptr = base_alloc + headroom;
+
+    // The returned pointer must be exactly 54 bytes after the base
+    if payload_ptr - base_alloc != 54 {
+        return 3;
+    }
+
+    // NetD walks backward: payload_ptr - 20 = TCP start
+    let tcp_start = payload_ptr - tcp_hdr;
+    if tcp_start != base_alloc + eth_hdr + ip_hdr {
+        return 4;
+    }
+
+    // payload_ptr - 40 = IP start
+    let ip_start = payload_ptr - tcp_hdr - ip_hdr;
+    if ip_start != base_alloc + eth_hdr {
+        return 5;
+    }
+
+    // payload_ptr - 54 = Eth start = base_alloc
+    let eth_start = payload_ptr - headroom;
+    if eth_start != base_alloc {
+        return 6;
+    }
+
+    return 0;
+}

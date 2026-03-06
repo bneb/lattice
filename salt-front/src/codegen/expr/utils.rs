@@ -81,6 +81,10 @@ pub fn resolve_package_prefix(
                 }
             }
         }
+        // [STANDALONE FIX] If segments start with "std" but no registry module matched
+        // (standalone compilation mode), treat as absolute path and mangle directly.
+        // This prevents the step 6 fallback from prepending the caller's package (e.g., main__).
+        return Some((Mangler::mangle(segments), String::new()));
     }
 
     // 2. The Alias Lookup:

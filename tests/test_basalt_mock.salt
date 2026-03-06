@@ -1,0 +1,66 @@
+// =============================================================================
+// Test: Basalt Token Generator — Streaming Chunk State Machine
+// =============================================================================
+// Verifies that the token generator yields correct 4-byte chunks and
+// totals exactly 32 bytes (the mock response length).
+// =============================================================================
+
+fn main() -> i32 {
+    // Simulate TokenGenerator state
+    let response_len: u32 = 32;
+    let mut current_idx: u32 = 0;
+    let mut total_generated: u32 = 0;
+    let mut num_chunks: u32 = 0;
+
+    // Token generation loop
+    while current_idx < response_len {
+        let mut chunk: u32 = 4;
+        if current_idx + chunk > response_len {
+            chunk = response_len - current_idx;
+        }
+        current_idx = current_idx + chunk;
+        total_generated = total_generated + chunk;
+        num_chunks = num_chunks + 1;
+    }
+
+    // Test 1: Total generated must equal response_len
+    if total_generated != 32 {
+        return 1;
+    }
+
+    // Test 2: Must produce exactly 8 chunks (32 / 4 = 8)
+    if num_chunks != 8 {
+        return 2;
+    }
+
+    // Test 3: Generator must be exhausted
+    if current_idx != response_len {
+        return 3;
+    }
+
+    // Test 4: Verify with non-aligned response length (e.g., 30)
+    let response_len2: u32 = 30;
+    let mut idx2: u32 = 0;
+    let mut total2: u32 = 0;
+    let mut chunks2: u32 = 0;
+
+    while idx2 < response_len2 {
+        let mut chunk: u32 = 4;
+        if idx2 + chunk > response_len2 {
+            chunk = response_len2 - idx2;
+        }
+        idx2 = idx2 + chunk;
+        total2 = total2 + chunk;
+        chunks2 = chunks2 + 1;
+    }
+
+    // 30 / 4 = 7 full chunks + 1 partial (2 bytes) = 8 chunks
+    if total2 != 30 {
+        return 4;
+    }
+    if chunks2 != 8 {
+        return 5;
+    }
+
+    return 0;
+}

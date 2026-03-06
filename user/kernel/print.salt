@@ -1,0 +1,132 @@
+// ============================================================================
+// user/kernel/print.salt
+// Telemetry Formatter — Zero-Allocation Serial Output
+// ============================================================================
+//
+// All formatting happens on the coroutine stack. No LOC_ARENA touch.
+//
+// print_str:      Iterate bytes, call serial_write_byte
+// print_u64_hex:  Extract nibbles via shift+mask, emit "0x" prefix + 16 hex chars
+// print_u32_hex:  Same but 8 hex chars
+// print_newline:  Emit '\n'
+//
+// ============================================================================
+
+package user.kernel.print
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// Port I/O — direct extern (same link target as uart.salt)
+// ============================================================================
+extern fn kernel_outb(port: u16, data: u8);
+extern fn kernel_inb(port: u16) -> u8;
+
+const COM1_THR: u16 = 0x3F8;
+const COM1_LSR: u16 = 0x3FD;
+const LSR_THRE: u8 = 0x20;
+
+// Inline serial write to avoid cross-module call overhead
+fn emit(b: u8) {
+    while (kernel_inb(COM1_LSR) & LSR_THRE) == 0 { }
+    kernel_outb(COM1_THR, b);
+}
+
+// ============================================================================
+// print_str — Emit a string of known length
+// ============================================================================
+pub fn print_str(s: u64, len: u64) {
+    let mut i: u64 = 0;
+    while i < len {
+        let b: u8 = *((s + i) as &u8);
+        emit(b);
+        i = i + 1;
+    }
+}
+
+// ============================================================================
+// print_u64_hex — Zero-allocation 64-bit hex formatter
+// ============================================================================
+// Emits: "0x" + 16 uppercase hex digits
+// Example: 0x1A2B3C4D00000000
+//
+// Algorithm: extract nibbles from MSB to LSB via right-shift
+//   nibble[i] = (val >> (60 - i*4)) & 0xF
+// ============================================================================
+pub fn print_u64_hex(val: u64) {
+    emit(48);   // '0'
+    emit(120);  // 'x'
+
+    let mut i: i32 = 0;
+    while i < 16 {
+        let shift: u64 = (60 - i * 4) as u64;
+        let nibble: u64 = (val >> shift) & 0xF;
+        if nibble < 10 {
+            emit((nibble + 48) as u8);   // '0' = 48
+        } else {
+            emit((nibble + 55) as u8);   // 'A' = 65 = 10 + 55
+        }
+        i = i + 1;
+    }
+}
+
+// ============================================================================
+// print_u32_hex — Zero-allocation 32-bit hex formatter
+// ============================================================================
+pub fn print_u32_hex(val: u32) {
+    emit(48);   // '0'
+    emit(120);  // 'x'
+
+    let mut i: i32 = 0;
+    while i < 8 {
+        let shift: u32 = (28 - i * 4) as u32;
+        let nibble: u32 = (val >> shift) & 0xF;
+        if nibble < 10 {
+            emit((nibble + 48) as u8);
+        } else {
+            emit((nibble + 55) as u8);
+        }
+        i = i + 1;
+    }
+}
+
+// ============================================================================
+// print_newline — Emit '\n'
+// ============================================================================
+pub fn print_newline() {
+    emit(10);  // '\n'
+}
+
+// ============================================================================
+// print_dec — Zero-allocation decimal formatter (for small values)
+// ============================================================================
+pub fn print_dec(val: u64) {
+    if val == 0 {
+        emit(48);  // '0'
+        return;
+    }
+
+    // Extract digits into fixed buffer (20 digits max for u64)
+    let mut digits: u64 = 0;
+    let mut temp: u64 = val;
+    let mut count: i32 = 0;
+
+    // Count digits
+    while temp > 0 {
+        count = count + 1;
+        temp = temp / 10;
+    }
+
+    // Emit from MSB
+    temp = val;
+    let mut div: u64 = 1;
+    let mut j: i32 = 1;
+    while j < count { div = div * 10; j = j + 1; }
+
+    while div > 0 {
+        let d: u64 = temp / div;
+        emit((d + 48) as u8);
+        temp = temp - (d * div);
+        div = div / 10;
+    }
+}

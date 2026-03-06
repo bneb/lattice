@@ -1,0 +1,70 @@
+// =============================================================================
+// Test: Arena Core — Bump Allocation with Hardware Alignment
+// =============================================================================
+// Verifies O(1) bump allocation, alignment padding, and OOM bounds.
+// =============================================================================
+
+fn main() -> i32 {
+    // Use a stack-allocated buffer as the Arena's backing memory
+    let mut buffer: [u8; 256] = [0; 256];
+    let base = (&buffer) as u64;
+    let capacity: u64 = 256;
+    let mut offset: u64 = 0;
+
+    // Test 1: Simple allocation (8 bytes, 8-byte aligned)
+    let size1: u64 = 8;
+    let align1: u64 = 8;
+    let addr1 = base + offset;
+    let remainder1 = addr1 % align1;
+    let mut padding1: u64 = 0;
+    if remainder1 != 0 {
+        padding1 = align1 - remainder1;
+    }
+    let total1 = size1 + padding1;
+    if offset + total1 > capacity {
+        return 1;  // OOM on first alloc — impossible with 256 bytes
+    }
+    let result1 = base + offset + padding1;
+    offset = offset + total1;
+
+    // Verify alignment: result must be divisible by align
+    if result1 % align1 != 0 {
+        return 2;
+    }
+
+    // Test 2: Second allocation (16 bytes, 16-byte aligned)
+    let size2: u64 = 16;
+    let align2: u64 = 16;
+    let addr2 = base + offset;
+    let remainder2 = addr2 % align2;
+    let mut padding2: u64 = 0;
+    if remainder2 != 0 {
+        padding2 = align2 - remainder2;
+    }
+    let total2 = size2 + padding2;
+    if offset + total2 > capacity {
+        return 3;
+    }
+    let result2 = base + offset + padding2;
+    offset = offset + total2;
+
+    // Second allocation must not overlap first
+    if result2 < result1 + size1 {
+        return 4;
+    }
+
+    // Verify alignment
+    if result2 % align2 != 0 {
+        return 5;
+    }
+
+    // Test 3: OOM — allocate more than remaining capacity
+    let remaining = capacity - offset;
+    let too_big = remaining + 1;
+    if offset + too_big <= capacity {
+        return 6;  // Should be OOM
+    }
+    // Correctly detected OOM — pass
+
+    return 0;
+}

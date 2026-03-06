@@ -1,0 +1,152 @@
+// ============================================================================
+// user/kernel/drivers/virtio/net.salt
+// VirtIO v1.0 Network Device — Hypervisor Handshake
+// ============================================================================
+//
+// Implements the OASIS VirtIO v1.0 initialization state machine:
+//
+//   1. Reset      → write 0 to device_status
+//   2. ACKNOWLEDGE → set bit 0 (0x01) — "I see you"
+//   3. DRIVER      → set bit 1 (0x02) — "I know how to drive you"
+//   4. Feature negotiation (read device features, write driver features)
+//   5. FEATURES_OK → set bit 3 (0x08) — "We agree on features"
+//   6. Read back status to verify FEATURES_OK persisted
+//   7. Queue setup → select TX queue, write desc/avail/used addresses
+//   8. DRIVER_OK   → set bit 2 (0x04) — "Go live"
+//
+// VirtIO PCI Common Configuration Structure:
+//   [0..4)    device_feature_select  (LE32, r/w)
+//   [4..8)    device_feature         (LE32, r/o)
+//   [8..12)   driver_feature_select  (LE32, r/w)
+//   [12..16)  driver_feature         (LE32, r/w)
+//   [16..18)  msix_config            (LE16, r/w)
+//   [18..20)  num_queues             (LE16, r/o)
+//   [20..21)  device_status          (u8, r/w)
+//   [21..22)  config_generation      (u8, r/o)
+//   [22..24)  queue_select           (LE16, r/w)
+//   [24..26)  queue_size             (LE16, r/w)
+//   [26..28)  queue_msix_vector      (LE16, r/w)
+//   [28..30)  queue_enable           (LE16, r/w)
+//   [30..32)  queue_notify_off       (LE16, r/o)
+//   [32..40)  queue_desc             (LE64, r/w)
+//   [40..48)  queue_avail            (LE64, r/w)
+//   [48..56)  queue_used             (LE64, r/w)
+//
+// ============================================================================
+
+package user.kernel.drivers.virtio.net
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// VirtIO Status Bits
+// ============================================================================
+pub const STATUS_RESET:       u8 = 0;
+pub const STATUS_ACKNOWLEDGE: u8 = 1;
+pub const STATUS_DRIVER:      u8 = 2;
+pub const STATUS_DRIVER_OK:   u8 = 4;
+pub const STATUS_FEATURES_OK: u8 = 8;
+pub const STATUS_FAILED:      u8 = 128;
+
+// ============================================================================
+// PCI Common Config Offsets
+// ============================================================================
+pub const CFG_DEVICE_FEATURE_SELECT: u64 = 0;
+pub const CFG_DEVICE_FEATURE:        u64 = 4;
+pub const CFG_DRIVER_FEATURE_SELECT: u64 = 8;
+pub const CFG_DRIVER_FEATURE:        u64 = 12;
+pub const CFG_MSIX_CONFIG:           u64 = 16;
+pub const CFG_NUM_QUEUES:            u64 = 18;
+pub const CFG_DEVICE_STATUS:         u64 = 20;
+pub const CFG_CONFIG_GENERATION:     u64 = 21;
+pub const CFG_QUEUE_SELECT:          u64 = 22;
+pub const CFG_QUEUE_SIZE:            u64 = 24;
+pub const CFG_QUEUE_MSIX_VECTOR:     u64 = 26;
+pub const CFG_QUEUE_ENABLE:          u64 = 28;
+pub const CFG_QUEUE_NOTIFY_OFF:      u64 = 30;
+pub const CFG_QUEUE_DESC:            u64 = 32;
+pub const CFG_QUEUE_AVAIL:           u64 = 40;
+pub const CFG_QUEUE_USED:            u64 = 48;
+pub const CFG_SIZE:                  u64 = 56;
+
+// TX queue index
+pub const TX_QUEUE_INDEX: u16 = 1;
+
+// ============================================================================
+// init_virtio_net — Full v1.0 initialization state machine
+// ============================================================================
+// Parameters:
+//   cfg:            PCI common config base address
+//   tx_desc_addr:   physical address of TX VirtqDesc table
+//   tx_avail_addr:  physical address of TX VirtqAvail ring
+//   tx_used_addr:   physical address of TX VirtqUsed ring
+//   tx_queue_size:  number of queue entries (typically 256)
+//
+// Returns: 0 on success, non-zero on failure
+// ============================================================================
+pub fn init_virtio_net(
+    cfg: u64,
+    tx_desc_addr: u64,
+    tx_avail_addr: u64,
+    tx_used_addr: u64,
+    tx_queue_size: u16
+) -> i32 {
+    // Step 1: Reset the device
+    *((cfg + CFG_DEVICE_STATUS) as &mut u8) = STATUS_RESET;
+
+    // Step 2: ACKNOWLEDGE — "I see you"
+    *((cfg + CFG_DEVICE_STATUS) as &mut u8) = STATUS_ACKNOWLEDGE;
+
+    // Step 3: DRIVER — "I know how to drive you"
+    let mut status: u8 = *((cfg + CFG_DEVICE_STATUS) as &u8);
+    *((cfg + CFG_DEVICE_STATUS) as &mut u8) = status | STATUS_DRIVER;
+
+    // Step 4: Feature negotiation
+    // Read device features (page 0)
+    *((cfg + CFG_DEVICE_FEATURE_SELECT) as &mut u32) = 0;
+    let dev_features: u32 = *((cfg + CFG_DEVICE_FEATURE) as &u32);
+
+    // Accept all device features (basic mode)
+    *((cfg + CFG_DRIVER_FEATURE_SELECT) as &mut u32) = 0;
+    *((cfg + CFG_DRIVER_FEATURE) as &mut u32) = dev_features;
+
+    // Step 5: FEATURES_OK
+    status = *((cfg + CFG_DEVICE_STATUS) as &u8);
+    *((cfg + CFG_DEVICE_STATUS) as &mut u8) = status | STATUS_FEATURES_OK;
+
+    // Step 5b: Verify FEATURES_OK persisted
+    status = *((cfg + CFG_DEVICE_STATUS) as &u8);
+    if (status & STATUS_FEATURES_OK) == 0 {
+        // Feature negotiation failed — mark FAILED
+        *((cfg + CFG_DEVICE_STATUS) as &mut u8) = STATUS_FAILED;
+        return 1;
+    }
+
+    // Step 6: Queue setup — select TX queue (index 1)
+    *((cfg + CFG_QUEUE_SELECT) as &mut u16) = TX_QUEUE_INDEX;
+
+    // Set queue size
+    *((cfg + CFG_QUEUE_SIZE) as &mut u16) = tx_queue_size;
+
+    // Write physical addresses of the vring structures
+    *((cfg + CFG_QUEUE_DESC) as &mut u64) = tx_desc_addr;
+    *((cfg + CFG_QUEUE_AVAIL) as &mut u64) = tx_avail_addr;
+    *((cfg + CFG_QUEUE_USED) as &mut u64) = tx_used_addr;
+
+    // Enable the queue
+    *((cfg + CFG_QUEUE_ENABLE) as &mut u16) = 1;
+
+    // Step 7: DRIVER_OK — "Go live"
+    status = *((cfg + CFG_DEVICE_STATUS) as &u8);
+    *((cfg + CFG_DEVICE_STATUS) as &mut u8) = status | STATUS_DRIVER_OK;
+
+    return 0;
+}
+
+// ============================================================================
+// get_device_status — Read current device status byte
+// ============================================================================
+@inline
+pub fn get_device_status(cfg: u64) -> u8 {
+    return *((cfg + CFG_DEVICE_STATUS) as &u8);
+}

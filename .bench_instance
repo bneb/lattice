@@ -1,0 +1,4 @@
+INSTANCE_ID="i-0dee7a2087586e906"
+INSTANCE_IP="54.242.89.224"
+EC2_USER="ubuntu"
+EC2_KEY_PATH="$HOME/.ssh/lattice-bench.pem"

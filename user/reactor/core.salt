@@ -1,0 +1,120 @@
+// ============================================================================
+// user/reactor/core.salt
+// Sovereign Event Loop — Multi-Core Work-Stealing Multiplexer
+// ============================================================================
+//
+// The apex event loop with SMP work-stealing. Each core owns a WorkDeque.
+// When the local deque is empty and the CQE ring is unfulfilled, the core
+// hunts through sibling deques using atomic steal_top before sleeping.
+//
+// Execution priority (decreasing):
+//   1. pop_bottom()  — local work (no contention)
+//   2. poll CQE      — check if PENDING tasks resolved
+//   3. steal_top()   — take work from a sibling core
+//   4. WFE sleep     — hardware yield (NIC wakes CPU on DMA completion)
+//
+// ============================================================================
+
+package user.reactor.core
+
+use std.core.ptr.Ptr
+
+// Atomic intrinsics
+extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
+extern fn salt_atomic_cas_i64(ptr: Ptr<i64>, expected: i64, desired: i64) -> i64;
+
+// Task states
+const TASK_PENDING: u32 = 2;
+const TASK_RUNNING: u32 = 1;
+
+// Deque layout offsets (must match scheduler.salt)
+const DEQUE_TOP_OFFSET:   u64 = 0;
+const DEQUE_BOTTOM_OFFSET: u64 = 8;
+const DEQUE_ARRAY_OFFSET:  u64 = 16;
+const DEQUE_CAPACITY:      i64 = 256;
+
+const STEAL_EMPTY: i64 = -1;
+const STEAL_ABORT: i64 = -2;
+
+// ============================================================================
+// poll_cqe_for_token — Non-blocking single-shot CQE check
+// ============================================================================
+pub fn poll_cqe_for_token(cqe_ring_addr: u64, expected_token: u32) -> bool {
+    if cqe_ring_addr == 0 { return false; }
+    let slot_addr: u64 = cqe_ring_addr + ((expected_token as u64) * 8);
+    let slot_ptr: Ptr<i64> = slot_addr as Ptr<i64>;
+    let value: i64 = salt_atomic_load_i64(slot_ptr);
+    return value != 0;
+}
+
+// ============================================================================
+// step_scheduler — Execute one pass over pending task slots
+// ============================================================================
+pub fn step_scheduler(
+    slots_addr: u64,
+    num_tasks: u32,
+    cqe_ring_addr: u64
+) -> u32 {
+    let mut progress: u32 = 0;
+    let mut i: u32 = 0;
+    while i < num_tasks {
+        let slot_offset: u64 = (i as u64) * 24;
+        let slot_status_addr: u64 = slots_addr + slot_offset;
+        let status: u32 = *((slot_status_addr) as &u32);
+
+        if status == TASK_PENDING {
+            let token: u32 = *((slot_status_addr + 4) as &u32);
+            if poll_cqe_for_token(cqe_ring_addr, token) {
+                *((slot_status_addr) as &mut u32) = TASK_RUNNING;
+                *((slot_status_addr + 4) as &mut u32) = 0;
+                progress = progress + 1;
+            }
+        }
+
+        i = i + 1;
+    }
+    return progress;
+}
+
+// ============================================================================
+// steal_from_siblings — Hunt for work across sibling WorkDeques
+// ============================================================================
+// Iterates through all sibling deques (skipping self) and attempts
+// to steal a task from the top using atomic CAS.
+//
+// Returns: stolen task_id, or STEAL_EMPTY if all siblings are empty.
+// ============================================================================
+pub fn steal_from_siblings(
+    deques_addr: u64,
+    deque_stride: u64,
+    num_cores: u32,
+    self_core_id: u32
+) -> i64 {
+    let mut i: u32 = 0;
+    while i < num_cores {
+        if i != self_core_id {
+            let sibling_addr: u64 = deques_addr + ((i as u64) * deque_stride);
+
+            // Read sibling's top and bottom atomically
+            let top_ptr: Ptr<i64> = (sibling_addr + DEQUE_TOP_OFFSET) as Ptr<i64>;
+            let t: i64 = salt_atomic_load_i64(top_ptr);
+            let bottom_ptr: Ptr<i64> = (sibling_addr + DEQUE_BOTTOM_OFFSET) as Ptr<i64>;
+            let b: i64 = salt_atomic_load_i64(bottom_ptr);
+
+            if t < b {
+                // Sibling has work — attempt steal
+                let index: i64 = t % DEQUE_CAPACITY;
+                let slot_addr: u64 = sibling_addr + DEQUE_ARRAY_OFFSET + ((index as u64) * 8);
+                let task_id: i64 = *((slot_addr) as &i64);
+
+                let old_top: i64 = salt_atomic_cas_i64(top_ptr, t, t + 1);
+                if old_top == t {
+                    return task_id;  // Successfully stolen!
+                }
+                // CAS failed — another thief won. Try next sibling.
+            }
+        }
+        i = i + 1;
+    }
+    return STEAL_EMPTY;
+}

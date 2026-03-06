@@ -1,0 +1,87 @@
+// ============================================================================
+// user/basalt/fabric/topology_router.salt
+// Sovereign Topology Router — O(1) Expert-to-BAR Resolution
+// ============================================================================
+//
+// Maps logical Mixture-of-Experts identifiers to physical RDMA capabilities.
+// The routing table lives entirely in LOC_ARENA memory — no heap, no OS.
+//
+// At boot, calibrate_hardware() populates the table from the hardware
+// manifest. At runtime, get_expert_route() is a bounds-checked array
+// dereference — O(1), zero branching, SCCP-friendly.
+//
+// Memory Layout (per ExpertRoute, 24 bytes):
+//   [0..4)   capability_id  (u32) — maps to sys_cap_bind
+//   [4..8)   _padding       (u32)
+//   [8..16)  remote_bar_addr (u64) — physical PCIe BAR base
+//   [16..24) tensor_offset   (u64) — byte offset within the BAR
+//
+// ============================================================================
+
+package user.basalt.fabric.topology_router
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// Constants
+// ============================================================================
+pub const MAX_EXPERTS: u32 = 64;
+pub const EXPERT_ROUTE_SIZE: u64 = 24;  // sizeof(ExpertRoute)
+pub const ROUTING_TABLE_SIZE: u64 = 1536;  // 64 × 24
+
+// ============================================================================
+// Route Resolution — O(1) Array Lookup
+// ============================================================================
+// The routing table is a contiguous buffer of MAX_EXPERTS × 24 bytes.
+// The caller passes the table base address and the expert_id.
+//
+// Returns: (capability_id, remote_bar_addr, tensor_offset) packed in memory.
+// ============================================================================
+
+/// Read the capability_id for a given expert
+@inline
+pub fn get_expert_cap_id(table_addr: u64, expert_id: u32) -> u32 {
+    if expert_id >= MAX_EXPERTS { return 0; }
+    let offset: u64 = (expert_id as u64) * EXPERT_ROUTE_SIZE;
+    return *((table_addr + offset) as &u32);
+}
+
+/// Read the remote BAR address for a given expert
+@inline
+pub fn get_expert_bar_addr(table_addr: u64, expert_id: u32) -> u64 {
+    if expert_id >= MAX_EXPERTS { return 0; }
+    let offset: u64 = (expert_id as u64) * EXPERT_ROUTE_SIZE + 8;
+    return *((table_addr + offset) as &u64);
+}
+
+/// Read the tensor offset for a given expert
+@inline
+pub fn get_expert_tensor_offset(table_addr: u64, expert_id: u32) -> u64 {
+    if expert_id >= MAX_EXPERTS { return 0; }
+    let offset: u64 = (expert_id as u64) * EXPERT_ROUTE_SIZE + 16;
+    return *((table_addr + offset) as &u64);
+}
+
+/// Write a route entry into the table
+@inline
+pub fn set_expert_route(
+    table_addr: u64,
+    expert_id: u32,
+    cap_id: u32,
+    bar_addr: u64,
+    tensor_offset: u64
+) {
+    if expert_id >= MAX_EXPERTS { return; }
+    let base: u64 = table_addr + (expert_id as u64) * EXPERT_ROUTE_SIZE;
+    *((base) as &mut u32) = cap_id;
+    *((base + 8) as &mut u64) = bar_addr;
+    *((base + 16) as &mut u64) = tensor_offset;
+}
+
+/// Compute the full physical RDMA address for a remote expert's tensor
+@inline
+pub fn resolve_expert_addr(table_addr: u64, expert_id: u32) -> u64 {
+    let bar: u64 = get_expert_bar_addr(table_addr, expert_id);
+    let offset: u64 = get_expert_tensor_offset(table_addr, expert_id);
+    return bar + offset;
+}

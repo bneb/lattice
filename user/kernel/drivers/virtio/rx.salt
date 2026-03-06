@@ -1,0 +1,140 @@
+// ============================================================================
+// user/kernel/drivers/virtio/rx.salt
+// VirtIO RX Queue — Pre-Allocated Receive Buffers
+// ============================================================================
+//
+// The hypervisor CANNOT push network packets to us unless we give it
+// memory first. This module:
+//
+//   1. Carves RX rings out of the LOC_ARENA
+//   2. Pre-fills 256 VirtqDesc entries with 2048-byte buffer addresses
+//   3. Pushes all 256 indices into VirtqAvail → "hypervisor, you may write"
+//   4. Kicks Queue 0 (RX) via the Notify register
+//
+// LOC_ARENA RX Layout (added after TX structures):
+//   0x30000  RX VirtqDesc table   (256 × 16 = 4096 bytes)
+//   0x31000  RX VirtqAvail ring   (4 + 256×2 = 516 bytes)
+//   0x32000  RX VirtqUsed ring    (4 + 256×8 = 2052 bytes)
+//   0x40000  RX buffer pool       (256 × 2048 = 524288 bytes = 512KB)
+//
+// ============================================================================
+
+package user.kernel.drivers.virtio.rx
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// RX Arena Offsets (relative to LOC_ARENA base)
+// ============================================================================
+pub const RX_DESC_OFFSET:   u64 = 0x30000;
+pub const RX_AVAIL_OFFSET:  u64 = 0x31000;
+pub const RX_USED_OFFSET:   u64 = 0x32000;
+pub const RX_BUFPOOL_OFFSET: u64 = 0x40000;
+
+// ============================================================================
+// Buffer Configuration
+// ============================================================================
+pub const RX_BUF_SIZE:   u32 = 2048;    // Each RX buffer: 2KB
+pub const RX_QUEUE_SIZE: u16 = 256;     // Queue depth
+
+// Vring constants
+const DESC_SIZE:     u64 = 16;
+const AVAIL_IDX_OFF: u64 = 2;
+const AVAIL_RING_OFF: u64 = 4;
+
+// Descriptor flags
+const VRING_DESC_F_WRITE: u16 = 2;  // Device writes to this buffer
+
+// ============================================================================
+// RX State — tracks the last-seen used ring index
+// ============================================================================
+pub const RX_STATE_OFFSET: u64 = 0x33000;
+pub const RX_STATE_SIZE:   u64 = 16;
+pub const RX_LAST_USED_OFF: u64 = 0;
+pub const RX_PACKETS_OFF:   u64 = 8;
+
+// ============================================================================
+// init_rx_queue — Pre-allocate all RX buffers in the LOC_ARENA
+// ============================================================================
+// Parameters:
+//   arena_base:  base address of LOC_ARENA
+//
+// This creates 256 VirtqDesc entries, each pointing to a 2048-byte
+// buffer in the LOC_ARENA buffer pool, with WRITE flag set (device writes).
+// All 256 are pushed into VirtqAvail so the hypervisor can fill them.
+// ============================================================================
+pub fn init_rx_queue(arena_base: u64) {
+    let desc_table: u64 = arena_base + RX_DESC_OFFSET;
+    let avail_ring: u64 = arena_base + RX_AVAIL_OFFSET;
+    let buf_pool:   u64 = arena_base + RX_BUFPOOL_OFFSET;
+
+    // Zero the descriptor table and avail ring
+    let mut zi: u64 = 0;
+    while zi < 4096 { *((desc_table + zi) as &mut u8) = 0; zi = zi + 1; }
+    zi = 0;
+    while zi < 516 { *((avail_ring + zi) as &mut u8) = 0; zi = zi + 1; }
+
+    // Zero the RX state
+    let rx_state: u64 = arena_base + RX_STATE_OFFSET;
+    *((rx_state + RX_LAST_USED_OFF) as &mut u64) = 0;
+    *((rx_state + RX_PACKETS_OFF) as &mut u64) = 0;
+
+    // Populate all 256 descriptors
+    let mut i: u16 = 0;
+    while i < RX_QUEUE_SIZE {
+        let desc_base: u64 = desc_table + (i as u64) * DESC_SIZE;
+        let buf_addr: u64 = buf_pool + (i as u64) * (RX_BUF_SIZE as u64);
+
+        // VirtqDesc: addr=buf, len=2048, flags=WRITE, next=0
+        *((desc_base) as &mut u64) = buf_addr;
+        *((desc_base + 8) as &mut u32) = RX_BUF_SIZE;
+        *((desc_base + 12) as &mut u16) = VRING_DESC_F_WRITE;
+        *((desc_base + 14) as &mut u16) = 0;
+
+        // Push index into avail ring
+        *((avail_ring + AVAIL_RING_OFF + (i as u64) * 2) as &mut u16) = i;
+
+        i = i + 1;
+    }
+
+    // Set avail.idx = 256 (all buffers available)
+    *((avail_ring + AVAIL_IDX_OFF) as &mut u16) = RX_QUEUE_SIZE;
+
+    // avail.flags = 0 (no interrupt suppression)
+    *((avail_ring) as &mut u16) = 0;
+}
+
+// ============================================================================
+// rx_kick — Notify the hypervisor that RX buffers are available
+// ============================================================================
+@inline
+pub fn rx_kick(notify_addr: u64) {
+    *((notify_addr) as &mut u16) = 0;  // Queue 0 = RX
+}
+
+// ============================================================================
+// rx_get_used_idx — Read the current used ring index
+// ============================================================================
+@inline
+pub fn rx_get_used_idx(arena_base: u64) -> u16 {
+    let used: u64 = arena_base + RX_USED_OFFSET;
+    return *((used + 2) as &u16);
+}
+
+// ============================================================================
+// rx_get_last_seen — Read the last-seen used index from RX state
+// ============================================================================
+@inline
+pub fn rx_get_last_seen(arena_base: u64) -> u16 {
+    let rx_state: u64 = arena_base + RX_STATE_OFFSET;
+    return (*((rx_state + RX_LAST_USED_OFF) as &u64)) as u16;
+}
+
+// ============================================================================
+// rx_set_last_seen — Update the last-seen used index
+// ============================================================================
+@inline
+pub fn rx_set_last_seen(arena_base: u64, idx: u16) {
+    let rx_state: u64 = arena_base + RX_STATE_OFFSET;
+    *((rx_state + RX_LAST_USED_OFF) as &mut u64) = idx as u64;
+}

@@ -1,0 +1,118 @@
+// ============================================================================
+// user/basalt/tensor/core.salt
+// Tensor — The Universal Topologically-Aware Tensor
+// ============================================================================
+//
+// A generalized tensor struct backed by locality-aware memory access.
+// The shape is carried as struct fields (rows, cols for 2D). When
+// constructed with literal constants, the compiler's SCCP+DCE pipeline
+// constant-folds all locality branches and shape arithmetic.
+//
+// Locality Tiers:
+//   LOC_ARENA (0): Standard CPU load/store — direct memref access
+//   LOC_NVME  (1): NVMe DMA read/write (stubbed in v1.0)
+//   LOC_RDMA  (2): RDMA fabric READ/WRITE (stubbed in v1.0)
+//
+// Design:
+//   - get_2d() and set_2d() are @inline for SCCP visibility
+//   - Direct `as &f64` / `as &mut f64` casts (proven zero-segfault pattern)
+//   - No f64↔u64 reinterpretation — direct typed pointer access
+//   - Locality branching mirrors FabricPtr pattern for SCCP folding
+//
+// ============================================================================
+
+package user.basalt.tensor.core
+
+// Locality Constants
+pub const LOC_ARENA: u32 = 0;
+pub const LOC_NVME:  u32 = 1;
+pub const LOC_RDMA:  u32 = 2;
+
+// ============================================================================
+// Tensor — Row-Major 2D Tensor over Locality-Aware Memory
+// ============================================================================
+pub struct Tensor {
+    /// Base address of the tensor data in memory
+    pub data_addr: u64,
+
+    /// Locality tag (LOC_ARENA / LOC_NVME / LOC_RDMA)
+    /// When literal at call site, SCCP folds all branches
+    pub locality: u32,
+
+    /// 2D shape — rows and cols
+    pub rows: u32,
+    pub cols: u32,
+}
+
+impl Tensor {
+    // ========================================================================
+    // new — Construct a Tensor from raw address, locality, and shape
+    // ========================================================================
+    pub fn new(raw_addr: u64, locality: u32, rows: u32, cols: u32) -> Tensor {
+        return Tensor {
+            data_addr: raw_addr,
+            locality: locality,
+            rows: rows,
+            cols: cols,
+        };
+    }
+
+    // ========================================================================
+    // get_2d — Affine-Friendly 2D Read
+    // ========================================================================
+    // Z3 VERIFIED: offset = row * cols + col, byte_addr = base + offset * 8
+    //
+    // The @inline ensures the compiler sees through this method.
+    // When locality is a literal constant (e.g., LOC_ARENA = 0),
+    // SCCP eliminates all dead branches, producing a single load.
+    // ========================================================================
+    @inline
+    pub fn get_2d(&self, row: u32, col: u32) -> f64 {
+        let offset: u64 = ((row * self.cols) + col) as u64;
+        let target: u64 = self.data_addr + (offset * 8);
+
+        if self.locality == 0 {
+            // LOC_ARENA: Direct CPU load — SCCP folds to single memref.load
+            return *((target) as &f64);
+        }
+
+        if self.locality == 1 {
+            // LOC_NVME: NVMe DMA read (stub: same dereference in v1.0)
+            return *((target) as &f64);
+        }
+
+        if self.locality == 2 {
+            // LOC_RDMA: RDMA READ (stub: same dereference in v1.0)
+            return *((target) as &f64);
+        }
+
+        return 0.0;
+    }
+
+    // ========================================================================
+    // set_2d — Affine-Friendly 2D Write
+    // ========================================================================
+    @inline
+    pub fn set_2d(&mut self, row: u32, col: u32, val: f64) {
+        let offset: u64 = ((row * self.cols) + col) as u64;
+        let target: u64 = self.data_addr + (offset * 8);
+
+        if self.locality == 0 {
+            // LOC_ARENA: Direct CPU store
+            *((target) as &mut f64) = val;
+            return;
+        }
+
+        if self.locality == 1 {
+            // LOC_NVME: NVMe DMA write stub
+            *((target) as &mut f64) = val;
+            return;
+        }
+
+        if self.locality == 2 {
+            // LOC_RDMA: RDMA WRITE stub
+            *((target) as &mut f64) = val;
+            return;
+        }
+    }
+}

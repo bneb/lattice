@@ -1,0 +1,84 @@
+// ============================================================================
+// user/basalt/fabric/cqe.salt
+// CQE (Completion Queue Element) — 16-Byte NIC DMA Receipt
+// ============================================================================
+//
+// When the NIC finishes pulling remote tensor data across the datacenter
+// fabric, it writes a 16-byte CQE into a pinned ring buffer in local RAM.
+//
+// Layout (16 bytes = 2 × u64):
+//   Word 0 [byte_count_and_flags]:
+//     Bits 63-32: Flags/Reserved
+//     Bits 31-0:  Byte count of completed transfer
+//   Word 1 [status_and_token]:
+//     Bits 63-32: Status (0 = Success, nonzero = Error)
+//     Bits 31-0:  Reactor token (echoed from the originating WQE)
+//
+// The hardware guarantees that status_and_token is written LAST.
+// Polling this field is sufficient to detect completion.
+//
+// ============================================================================
+
+package user.basalt.fabric.cqe
+
+use std.core.ptr.Ptr
+
+// CQE status codes
+pub const CQE_STATUS_SUCCESS: u32 = 0;
+pub const CQE_STATUS_ERROR:   u32 = 1;
+
+// ============================================================================
+// CqeDescriptor — The Physical NIC Completion Receipt
+// ============================================================================
+pub struct CqeDescriptor {
+    /// Top 32: Flags, Bottom 32: Byte count of completed transfer
+    pub byte_count_and_flags: u64,
+    /// Top 32: Status (0=Success), Bottom 32: Reactor token
+    pub status_and_token: u64,
+}
+
+impl CqeDescriptor {
+    // ========================================================================
+    // is_complete — Poll for hardware completion
+    // ========================================================================
+    // The NIC writes status_and_token LAST. A non-zero token means
+    // the hardware has finalized the DMA transfer and the data is
+    // fully resident in local RAM.
+    // ========================================================================
+    @inline
+    pub fn is_complete(&self) -> bool {
+        return (self.status_and_token & 0xFFFFFFFF) != 0;
+    }
+
+    // ========================================================================
+    // get_status — Extract the completion status
+    // ========================================================================
+    @inline
+    pub fn get_status(&self) -> u32 {
+        return ((self.status_and_token >> 32) & 0xFFFFFFFF) as u32;
+    }
+
+    // ========================================================================
+    // get_token — Extract the reactor suspension token
+    // ========================================================================
+    @inline
+    pub fn get_token(&self) -> u32 {
+        return (self.status_and_token & 0xFFFFFFFF) as u32;
+    }
+
+    // ========================================================================
+    // get_byte_count — Extract bytes transferred
+    // ========================================================================
+    @inline
+    pub fn get_byte_count(&self) -> u32 {
+        return (self.byte_count_and_flags & 0xFFFFFFFF) as u32;
+    }
+
+    // ========================================================================
+    // as_array — Expose CQE as 128-bit contiguous array (for testing)
+    // ========================================================================
+    @inline
+    pub fn as_array(&self) -> [u64; 2] {
+        return [self.byte_count_and_flags, self.status_and_token];
+    }
+}

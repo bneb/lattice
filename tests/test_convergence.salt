@@ -1,0 +1,325 @@
+// =============================================================================
+// Test: The Convergence — End-to-End Distributed Inference (v6.2.0)
+// =============================================================================
+//
+// v6.2.0: RDTSC telemetry brackets in RouteToExpert/SaveOutput.
+//   T15: dispatch_tsc saved (10000), latency delta computed (4500)
+//
+// Exit codes: 0=pass, 1=alloc, 2=load, 3=route, 4=expert_load,
+//             5=compute, 6=matmul, 7=save, 8=done, 9=symmetry, 10=telemetry
+// =============================================================================
+
+package main
+
+use std.core.ptr.Ptr
+
+extern fn malloc(size: i64) -> u64;
+extern fn free(ptr: u64);
+
+const PHASE_LOAD_INPUT: u32 = 0;
+const PHASE_ROUTE_TO_EXPERT: u32 = 1;
+const PHASE_EXPERT_LOAD_WEIGHTS: u32 = 2;
+const PHASE_COMPUTE_AND_RETURN: u32 = 3;
+const PHASE_SAVE_OUTPUT: u32 = 4;
+const PHASE_DONE: u32 = 5;
+
+const POLL_PENDING: u32 = 0;
+const POLL_READY: u32 = 1;
+
+const S_PHASE: u64 = 0;
+const S_EXPERT: u64 = 4;
+const S_INPUT: u64 = 8;
+const S_WEIGHTS: u64 = 16;
+const S_OUTPUT: u64 = 24;
+const S_TOKEN: u64 = 32;
+const S_SECTOR: u64 = 36;
+const S_DISPATCH_TSC: u64 = 64;
+const S_SIZE: u64 = 72;
+
+// Mock telemetry state layout (heap-allocated):
+//   [0..8)   rdtsc_counter (u64)
+//   [8..16)  rdtsc_val_0   (u64) — first rdtsc return
+//   [16..24) rdtsc_val_1   (u64) — second rdtsc return
+//   [24..32) print_dec_value (u64)
+//   [32..40) print_dec_called (u64)
+const M_COUNTER: u64 = 0;
+const M_VAL0: u64 = 8;
+const M_VAL1: u64 = 16;
+const M_DEC_VAL: u64 = 24;
+const M_DEC_CALLED: u64 = 32;
+const M_SIZE: u64 = 40;
+
+fn mock_alloc() -> u64 {
+    let m: u64 = malloc(M_SIZE as i64);
+    let mut i: u64 = 0;
+    while i < M_SIZE { *((m + i) as &mut u8) = 0; i = i + 1; }
+    *((m + M_VAL0) as &mut u64) = 10000;
+    *((m + M_VAL1) as &mut u64) = 14500;
+    return m;
+}
+
+fn mock_rdtsc(m: u64) -> u64 {
+    let idx: u64 = *((m + M_COUNTER) as &u64);
+    *((m + M_COUNTER) as &mut u64) = idx + 1;
+    if idx == 0 { return *((m + M_VAL0) as &u64); }
+    return *((m + M_VAL1) as &u64);
+}
+
+fn mock_print_dec(m: u64, val: u64) {
+    *((m + M_DEC_VAL) as &mut u64) = val;
+    *((m + M_DEC_CALLED) as &mut u64) = *((m + M_DEC_CALLED) as &u64) + 1;
+}
+
+fn zero_init(addr: u64, size: u64) {
+    let mut i: u64 = 0;
+    while i < size { *((addr + i) as &mut u8) = 0; i = i + 1; }
+}
+
+fn init_state(s: u64, phase: u32, eid: u32, inp: u64, wgt: u64, out: u64, sector: u32) {
+    zero_init(s, S_SIZE);
+    *((s + S_PHASE) as &mut u32) = phase;
+    *((s + S_EXPERT) as &mut u32) = eid;
+    *((s + S_INPUT) as &mut u64) = inp;
+    *((s + S_WEIGHTS) as &mut u64) = wgt;
+    *((s + S_OUTPUT) as &mut u64) = out;
+    *((s + S_TOKEN) as &mut u32) = 0;
+    *((s + S_SECTOR) as &mut u32) = sector;
+}
+
+fn execute_moe_pipeline(state: u64, bar: u64, poll: u64, mock: u64) {
+    let phase: u32 = *((state + S_PHASE) as &u32);
+
+    if phase == PHASE_LOAD_INPUT {
+        let token: u32 = *((state + S_TOKEN) as &u32) + 1;
+        *((state + S_TOKEN) as &mut u32) = token;
+        let sb: u32 = *((state + S_SECTOR) as &u32);
+        let ip: u64 = *((state + S_INPUT) as &u64);
+        let ctrl: u64 = ((token as u64) << 32) | ((sb as u64) << 16) | 4;
+        *((bar) as &mut u64) = ctrl;
+        *((bar + 8) as &mut u64) = ip;
+        *((state + S_PHASE) as &mut u32) = PHASE_ROUTE_TO_EXPERT;
+        *((poll) as &mut u32) = POLL_PENDING;
+        *((poll + 4) as &mut u32) = token;
+        return;
+    }
+
+    if phase == PHASE_ROUTE_TO_EXPERT {
+        let token: u32 = *((state + S_TOKEN) as &u32) + 1;
+        *((state + S_TOKEN) as &mut u32) = token;
+        let ip: u64 = *((state + S_INPUT) as &u64);
+        let ctrl: u64 = ((token as u64) << 32) | 1;
+        let pay: u64 = ip;
+
+        // ── Dispatch Bracket Start ──
+        *((state + S_DISPATCH_TSC) as &mut u64) = mock_rdtsc(mock);
+
+        *((bar) as &mut u64) = ctrl;
+        *((bar + 8) as &mut u64) = pay;
+        *((state + S_PHASE) as &mut u32) = PHASE_SAVE_OUTPUT;
+        *((poll) as &mut u32) = POLL_PENDING;
+        *((poll + 4) as &mut u32) = token;
+        return;
+    }
+
+    if phase == PHASE_EXPERT_LOAD_WEIGHTS {
+        let token: u32 = *((state + S_TOKEN) as &u32) + 1;
+        *((state + S_TOKEN) as &mut u32) = token;
+        let sb: u32 = *((state + S_SECTOR) as &u32);
+        let wp: u64 = *((state + S_WEIGHTS) as &u64);
+        let ctrl: u64 = ((token as u64) << 32) | ((sb as u64) << 16) | 4;
+        *((bar) as &mut u64) = ctrl;
+        *((bar + 8) as &mut u64) = wp;
+        *((state + S_PHASE) as &mut u32) = PHASE_COMPUTE_AND_RETURN;
+        *((poll) as &mut u32) = POLL_PENDING;
+        *((poll + 4) as &mut u32) = token;
+        return;
+    }
+
+    if phase == PHASE_COMPUTE_AND_RETURN {
+        let ip: u64 = *((state + S_INPUT) as &u64);
+        let wp: u64 = *((state + S_WEIGHTS) as &u64);
+        let op: u64 = *((state + S_OUTPUT) as &u64);
+        let mut i: i32 = 0;
+        while i < 16 {
+            let mut j: i32 = 0;
+            while j < 16 {
+                let mut sum: f64 = 0.0;
+                let mut k: i32 = 0;
+                while k < 16 {
+                    let a: f64 = *((ip + ((i * 16 + k) as u64) * 8) as &f64);
+                    let b: f64 = *((wp + ((k * 16 + j) as u64) * 8) as &f64);
+                    sum = sum + a * b;
+                    k = k + 1;
+                }
+                *((op + ((i * 16 + j) as u64) * 8) as &mut f64) = sum;
+                j = j + 1;
+            }
+            i = i + 1;
+        }
+        let token: u32 = *((state + S_TOKEN) as &u32) + 1;
+        *((state + S_TOKEN) as &mut u32) = token;
+        *((bar) as &mut u64) = ((token as u64) << 32) | 1;
+        *((bar + 8) as &mut u64) = op;
+        *((state + S_PHASE) as &mut u32) = PHASE_DONE;
+        *((poll) as &mut u32) = POLL_READY;
+        *((poll + 4) as &mut u32) = 0;
+        return;
+    }
+
+    if phase == PHASE_SAVE_OUTPUT {
+        // ── Completion Bracket: first instruction upon CQE wakeup ──
+        let end_tsc: u64 = mock_rdtsc(mock);
+        let dispatch_tsc: u64 = *((state + S_DISPATCH_TSC) as &u64);
+        let latency_cycles: u64 = end_tsc - dispatch_tsc;
+
+        // Telemetry
+        mock_print_dec(mock, latency_cycles);
+
+        let token: u32 = *((state + S_TOKEN) as &u32) + 1;
+        *((state + S_TOKEN) as &mut u32) = token;
+        let op: u64 = *((state + S_OUTPUT) as &u64);
+        let sb: u32 = *((state + S_SECTOR) as &u32);
+        let ws: u32 = sb + 4;
+        let ctrl: u64 = ((token as u64) << 32) | ((ws as u64) << 16) | 4;
+        *((bar) as &mut u64) = ctrl;
+        *((bar + 8) as &mut u64) = op;
+        *((state + S_PHASE) as &mut u32) = PHASE_DONE;
+        *((poll) as &mut u32) = POLL_PENDING;
+        *((poll + 4) as &mut u32) = token;
+        return;
+    }
+
+    *((poll) as &mut u32) = POLL_READY;
+    *((poll + 4) as &mut u32) = 0;
+}
+
+fn cleanup8(a: u64, b: u64, c: u64, d: u64, e: u64, f: u64, g: u64, h: u64) {
+    free(a); free(b); free(c); free(d); free(e); free(f); free(g); free(h);
+}
+
+fn main() -> i32 {
+    let input: u64 = malloc(2048);
+    let weights: u64 = malloc(2048);
+    let output: u64 = malloc(2048);
+    let sa: u64 = malloc(S_SIZE as i64);
+    let sb: u64 = malloc(S_SIZE as i64);
+    let bar: u64 = malloc(16);
+    let poll: u64 = malloc(8);
+    let mock: u64 = mock_alloc();
+
+    if input == 0 || weights == 0 || output == 0 || sa == 0 ||
+       sb == 0 || bar == 0 || poll == 0 || mock == 0 { return 1; }
+
+    let mut fi: i32 = 0;
+    while fi < 256 {
+        *((input + (fi as u64) * 8) as &mut f64) = 2.0;
+        *((weights + (fi as u64) * 8) as &mut f64) = 3.0;
+        *((output + (fi as u64) * 8) as &mut f64) = 0.0;
+        fi = fi + 1;
+    }
+
+    // === NODE A: LoadInput ===
+    init_state(sa, PHASE_LOAD_INPUT, 1, input, weights, output, 0);
+    zero_init(bar, 16); zero_init(poll, 8);
+    execute_moe_pipeline(sa, bar, poll, mock);
+
+    // T1: Pending(1)
+    if *((poll) as &u32) != POLL_PENDING { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 2; }
+    if *((poll + 4) as &u32) != 1 { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 2; }
+
+    // T2: WQE — token=1, sector=0, count=4
+    let c1: u64 = *((bar) as &u64);
+    let t1: u32 = (c1 >> 32) as u32;
+    let s1: u32 = ((c1 >> 16) & 0xFFFF) as u32;
+    let n1: u32 = (c1 & 0xFFFF) as u32;
+    if t1 != 1 || s1 != 0 || n1 != 4 { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 2; }
+    if *((bar + 8) as &u64) != input { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 2; }
+    if *((sa + S_PHASE) as &u32) != PHASE_ROUTE_TO_EXPERT { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 2; }
+
+    // === NODE A: RouteToExpert (mock_rdtsc returns 10000) ===
+    zero_init(bar, 16); zero_init(poll, 8);
+    execute_moe_pipeline(sa, bar, poll, mock);
+
+    // T3: Pending(2)
+    if *((poll) as &u32) != POLL_PENDING { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 3; }
+    if *((poll + 4) as &u32) != 2 { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 3; }
+
+    // T4: NETWORK_WQE — opcode=1, payload=input
+    let c2: u64 = *((bar) as &u64);
+    if (c2 & 0xFFFF) != 1 { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 3; }
+    if *((bar + 8) as &u64) != input { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 3; }
+    if *((sa + S_PHASE) as &u32) != PHASE_SAVE_OUTPUT { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 3; }
+
+    // === NODE B: ExpertLoadWeights ===
+    init_state(sb, PHASE_EXPERT_LOAD_WEIGHTS, 1, input, weights, output, 16);
+    zero_init(bar, 16); zero_init(poll, 8);
+    execute_moe_pipeline(sb, bar, poll, mock);
+
+    // T5: Pending(1)
+    if *((poll) as &u32) != POLL_PENDING { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 4; }
+    if *((poll + 4) as &u32) != 1 { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 4; }
+
+    // T6: sector=16, count=4
+    let c3: u64 = *((bar) as &u64);
+    if ((c3 >> 16) & 0xFFFF) != 16 { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 4; }
+    if (c3 & 0xFFFF) != 4 { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 4; }
+    if *((bar + 8) as &u64) != weights { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 4; }
+
+    // === NODE B: ComputeAndReturn ===
+    zero_init(bar, 16); zero_init(poll, 8);
+    execute_moe_pipeline(sb, bar, poll, mock);
+
+    // T7: NETWORK_WQE written
+    if (*((bar) as &u64) & 0xFFFF) != 1 { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 5; }
+
+    // T8: matmul: C[0,0]=96.0, C[15,15]=96.0
+    if *((output) as &f64) != 96.0 { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 6; }
+    if *((output + 255 * 8) as &f64) != 96.0 { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 6; }
+
+    // T9: Expert DONE, poll=Ready
+    if *((sb + S_PHASE) as &u32) != PHASE_DONE { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 8; }
+    if *((poll) as &u32) != POLL_READY { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 8; }
+
+    // === NODE A: SaveOutput (mock_rdtsc returns 14500, delta=4500) ===
+    zero_init(bar, 16); zero_init(poll, 8);
+    execute_moe_pipeline(sa, bar, poll, mock);
+
+    // T10: Pending(3)
+    if *((poll) as &u32) != POLL_PENDING { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 7; }
+    if *((poll + 4) as &u32) != 3 { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 7; }
+
+    // T11: sector=4, count=4
+    let c5: u64 = *((bar) as &u64);
+    if ((c5 >> 16) & 0xFFFF) != 4 { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 7; }
+    if (c5 & 0xFFFF) != 4 { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 7; }
+
+    // T12: Router DONE
+    if *((sa + S_PHASE) as &u32) != PHASE_DONE { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 8; }
+
+    // T13: DONE → Ready(0)
+    zero_init(poll, 8);
+    execute_moe_pipeline(sa, bar, poll, mock);
+    if *((poll) as &u32) != POLL_READY { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 9; }
+    zero_init(poll, 8);
+    execute_moe_pipeline(sb, bar, poll, mock);
+    if *((poll) as &u32) != POLL_READY { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 9; }
+
+    // T14: Token monotonicity — Router:3, Expert:2
+    if *((sa + S_TOKEN) as &u32) != 3 { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 9; }
+    if *((sb + S_TOKEN) as &u32) != 2 { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 9; }
+
+    // =========================================================================
+    // T15: RDTSC telemetry — dispatch=10000, end=14500, delta=4500
+    // =========================================================================
+    let saved_tsc: u64 = *((sa + S_DISPATCH_TSC) as &u64);
+    if saved_tsc != 10000 { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 10; }
+
+    let dec_called: u64 = *((mock + M_DEC_CALLED) as &u64);
+    if dec_called != 1 { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 10; }
+
+    let dec_val: u64 = *((mock + M_DEC_VAL) as &u64);
+    if dec_val != 4500 { cleanup8(input, weights, output, sa, sb, bar, poll, mock); return 10; }
+
+    cleanup8(input, weights, output, sa, sb, bar, poll, mock);
+    return 0;
+}

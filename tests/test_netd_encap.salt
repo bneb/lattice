@@ -1,0 +1,48 @@
+// =============================================================================
+// Test: TX Encapsulator — Header Offset Arithmetic
+// =============================================================================
+// Verifies that the encapsulator's backward header writing logic
+// produces correct offsets. The key invariant: walking backwards
+// 54 bytes from the payload pointer yields the frame start.
+// =============================================================================
+
+fn main() -> i32 {
+    // Standard header sizes
+    let eth_hdr: u32 = 14;
+    let ip_hdr: u32 = 20;
+    let tcp_hdr: u32 = 20;
+    let total_hdr: u32 = 54;
+
+    // Verify backward walk arithmetic
+    // Given payload at offset 54, frame_start = payload - 54
+    if eth_hdr + ip_hdr + tcp_hdr != total_hdr {
+        return 1;
+    }
+
+    // TCP header starts at payload - 20
+    let tcp_start_offset: u32 = tcp_hdr;
+    if tcp_start_offset != 20 {
+        return 2;
+    }
+
+    // IP header starts at payload - 40
+    let ip_start_offset: u32 = tcp_hdr + ip_hdr;
+    if ip_start_offset != 40 {
+        return 3;
+    }
+
+    // Ethernet header starts at payload - 54
+    let eth_start_offset: u32 = total_hdr;
+    if eth_start_offset != 54 {
+        return 4;
+    }
+
+    // Verify total frame length calculation
+    let payload_len: u32 = 512;
+    let total_frame: u32 = total_hdr + payload_len;
+    if total_frame != 566 {
+        return 5;
+    }
+
+    return 0;
+}

@@ -1,0 +1,29 @@
+package main
+
+// Test: Array-ref indexing (read + write) through references
+// Regression test for "Numeric promotion not supported from Array to I32"
+
+fn array_get(arr: &[i32; 10], idx: i64) -> i32 {
+    return arr[idx];
+}
+
+fn array_set(arr: &mut [i32; 10], idx: i64, val: i32) {
+    arr[idx] = val;
+}
+
+fn main() -> i32 {
+    let mut data: [i32; 10] = [0; 10];
+
+    // Write via mutable ref
+    array_set(&mut data, 3, 42);
+
+    // Read via immutable ref
+    let val = array_get(&data, 3);
+
+    if val == 42 {
+        println("ok array ref indexing works");
+        return 0;
+    }
+    println("FAIL array ref indexing");
+    return 1;
+}

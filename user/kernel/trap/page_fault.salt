@@ -1,0 +1,180 @@
+// ============================================================================
+// user/kernel/trap/page_fault.salt
+// #PF Holographic Trap Handler — The Exokernel Illusion
+// ============================================================================
+//
+// When a Ring 3 coroutine writes to the Synthetic BAR (a page mapped as
+// not-present), the CPU raises Vector 14 (#PF). The hardware:
+//
+//   1. Pushes SS, RSP, RFLAGS, CS, RIP, Error Code onto the kernel stack
+//   2. Loads CR2 with the faulting virtual address
+//   3. Jumps to the IDT[14] handler
+//
+// Our assembly stub pushes the general-purpose registers to form a
+// complete TrapFrame, then calls handle_page_fault(frame_ptr).
+//
+// TrapFrame Layout (pushed by stub + CPU, 160 bytes):
+//   [0..8)     r15
+//   [8..16)    r14
+//   [16..24)   r13
+//   [24..32)   r12
+//   [32..40)   r11
+//   [40..48)   r10
+//   [48..56)   r9
+//   [56..64)   r8
+//   [64..72)   rdi     ← WQE word 0 (control: opcode | token)
+//   [72..80)   rsi     ← WQE word 1 (payload: remote address)
+//   [80..88)   rbp
+//   [88..96)   rdx
+//   [96..104)  rcx
+//   [104..112) rbx
+//   [112..120) rax
+//   [120..128) error_code  ← CPU-pushed
+//   [128..136) rip         ← faulting instruction address
+//   [136..144) cs
+//   [144..152) rflags
+//   [152..160) rsp         ← Ring 3 stack pointer
+//
+// The handler checks CR2 against the manifest BAR. If it matches:
+//   - Extract the 128-bit WQE from RDI (control) + RSI (payload)
+//   - Bridge to VirtIO via emulate_virtio_doorbell
+//   - Advance RIP past the faulting instruction (skip the trapped write)
+//   - Return → assembly stub pops registers → IRETQ → Ring 3 resumes
+//
+// ============================================================================
+
+package user.kernel.trap.page_fault
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// TrapFrame offsets
+// ============================================================================
+pub const FRAME_R15:        u64 = 0;
+pub const FRAME_R14:        u64 = 8;
+pub const FRAME_R13:        u64 = 16;
+pub const FRAME_R12:        u64 = 24;
+pub const FRAME_R11:        u64 = 32;
+pub const FRAME_R10:        u64 = 40;
+pub const FRAME_R9:         u64 = 48;
+pub const FRAME_R8:         u64 = 56;
+pub const FRAME_RDI:        u64 = 64;
+pub const FRAME_RSI:        u64 = 72;
+pub const FRAME_RBP:        u64 = 80;
+pub const FRAME_RDX:        u64 = 88;
+pub const FRAME_RCX:        u64 = 96;
+pub const FRAME_RBX:        u64 = 104;
+pub const FRAME_RAX:        u64 = 112;
+pub const FRAME_ERROR_CODE: u64 = 120;
+pub const FRAME_RIP:        u64 = 128;
+pub const FRAME_CS:         u64 = 136;
+pub const FRAME_RFLAGS:     u64 = 144;
+pub const FRAME_RSP:        u64 = 152;
+pub const FRAME_SIZE:       u64 = 160;
+
+// ============================================================================
+// Manifest offsets (from manifest.salt)
+// ============================================================================
+const MANIFEST_BAR:    u64 = 8;
+const MANIFEST_LOCKED: u64 = 20;
+
+// ============================================================================
+// Holographic BAR page size (4KB trap region)
+// ============================================================================
+pub const HOLOGRAPHIC_PAGE_SIZE: u64 = 4096;
+
+// ============================================================================
+// Instruction length for the faulting write
+// ============================================================================
+// The Ring 3 doorbell write is:
+//   Ptr<[u64; 2]>.write([control, payload])
+// Which compiles to two MOV instructions or a single MOVAPS.
+// For the Holographic Trap, we advance RIP by this fixed amount.
+// In production, the handler would decode the instruction stream.
+pub const FAULTING_INSTR_LEN: u64 = 16;  // Two 8-byte MOV instructions
+
+// ============================================================================
+// Trap result codes
+// ============================================================================
+pub const TRAP_EMULATED: u32 = 0;  // #PF was a holographic trap, emulated
+pub const TRAP_PANIC:    u32 = 1;  // Genuine page fault, kernel panic
+pub const TRAP_MANIFEST_UNLOCKED: u32 = 2;  // Manifest not locked yet
+
+// ============================================================================
+// handle_page_fault — The Core Trap Logic
+// ============================================================================
+// Parameters:
+//   frame_addr:     pointer to the TrapFrame on the kernel stack
+//   cr2:            faulting address (from CR2 register)
+//   manifest_addr:  pointer to the HardwareManifest
+//   desc_table:     VirtqDesc base
+//   avail_ring:     VirtqAvail base
+//   tx_state:       TX state tracking
+//   notify_addr:    Queue Notify MMIO
+//
+// Returns: TRAP_EMULATED or TRAP_PANIC
+// ============================================================================
+pub fn handle_page_fault(
+    frame_addr: u64,
+    cr2: u64,
+    manifest_addr: u64,
+    desc_table: u64,
+    avail_ring: u64,
+    tx_state: u64,
+    notify_addr: u64
+) -> u32 {
+    // 1. Verify manifest is locked
+    let locked: u32 = *((manifest_addr + MANIFEST_LOCKED) as &u32);
+    if locked != 1 { return TRAP_MANIFEST_UNLOCKED; }
+
+    // 2. Read the Holographic BAR
+    let fabric_bar: u64 = *((manifest_addr + MANIFEST_BAR) as &u64);
+
+    // 3. CR2 Verification — is this a Holographic Trap?
+    if cr2 >= fabric_bar && cr2 < (fabric_bar + HOLOGRAPHIC_PAGE_SIZE) {
+        // === HOLOGRAPHIC TRAP ===
+
+        // 4. Extract 128-bit WQE from saved registers
+        //    RDI = WQE control word (opcode << 32 | token)
+        //    RSI = WQE payload (remote address)
+        let wqe_control: u64 = *((frame_addr + FRAME_RDI) as &u64);
+        let wqe_payload: u64 = *((frame_addr + FRAME_RSI) as &u64);
+
+        // 5. Bridge to VirtIO — the Holographic Translation
+        //    Enqueue descriptor + kick hypervisor
+        // Inline the TX enqueue to avoid cross-module dependency
+        let desc_idx_ptr: u64 = tx_state;
+        let desc_idx: u64 = *((desc_idx_ptr) as &u64);
+        let slot: u16 = (desc_idx % 256) as u16;
+
+        // Write VirtqDesc
+        let desc_base: u64 = desc_table + (slot as u64) * 16;
+        *((desc_base) as &mut u64) = wqe_payload;          // addr = payload target
+        *((desc_base + 8) as &mut u32) = 16;               // len = 16 bytes (WQE)
+        *((desc_base + 12) as &mut u16) = 0;               // flags
+        *((desc_base + 14) as &mut u16) = 0;               // next
+
+        // Update avail ring
+        let avail_idx: u16 = *((avail_ring + 2) as &u16);
+        let ring_pos: u16 = avail_idx % 256;
+        *((avail_ring + 4 + (ring_pos as u64) * 2) as &mut u16) = slot;
+        *((avail_ring + 2) as &mut u16) = avail_idx + 1;
+
+        // Update TX state
+        *((desc_idx_ptr) as &mut u64) = desc_idx + 1;
+        let count: u64 = *((tx_state + 8) as &u64);
+        *((tx_state + 8) as &mut u64) = count + 1;
+
+        // Kick hypervisor
+        *((notify_addr) as &mut u16) = 1;
+
+        // 6. Advance RIP past the faulting instruction
+        let rip: u64 = *((frame_addr + FRAME_RIP) as &u64);
+        *((frame_addr + FRAME_RIP) as &mut u64) = rip + FAULTING_INSTR_LEN;
+
+        return TRAP_EMULATED;
+    }
+
+    // Not a Holographic Trap — genuine page fault
+    return TRAP_PANIC;
+}

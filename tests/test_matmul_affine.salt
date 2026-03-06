@@ -1,0 +1,164 @@
+// =============================================================================
+// Test: Generalized Affine MatMul — LOC_ARENA End-to-End (For Loops)
+// =============================================================================
+// Validates that for-loop matrix multiplication with literal constant
+// bounds produces correct results. The inner loop's reduction pattern
+// (sum = sum + a*b) triggers the compiler's iter_args optimization,
+// keeping the accumulator register-resident.
+//
+// Test matrix: 4×4 matmul
+//   A = all 1.0 (4×4)
+//   B = all 2.0 (4×4)
+//   C = A × B  → each element should be 4 * 1.0 * 2.0 = 8.0
+//
+// Exit codes:
+//   0 = all assertions passed
+//   1 = failed to allocate memory
+//   2 = C[0,0] incorrect
+//   3 = C[1,1] incorrect  
+//   4 = C[3,3] incorrect
+//   5 = C[0,3] incorrect (off-diagonal)
+//   6 = C[2,1] incorrect (off-diagonal)
+// =============================================================================
+
+package main
+
+extern fn malloc(size: i64) -> u64;
+extern fn free(ptr: u64);
+
+fn main() -> i32 {
+    // Allocate three 4×4 f64 matrices (128 bytes each)
+    let size: i64 = 128;
+    let a_addr: u64 = malloc(size);
+    let b_addr: u64 = malloc(size);
+    let c_addr: u64 = malloc(size);
+
+    if a_addr == 0 {
+        return 1;
+    }
+    if b_addr == 0 {
+        free(a_addr);
+        return 1;
+    }
+    if c_addr == 0 {
+        free(a_addr);
+        free(b_addr);
+        return 1;
+    }
+
+    // Fill A with 1.0, B with 2.0, C with 0.0
+    // Using for loops with literal bounds for structured control flow
+    for idx in 0..16 {
+        let off: u64 = (idx as u64) * 8;
+        *((a_addr + off) as &mut f64) = 1.0;
+        *((b_addr + off) as &mut f64) = 2.0;
+        *((c_addr + off) as &mut f64) = 0.0;
+    }
+
+    // Execute matmul: C = A × B
+    // Triple-nested for loop with literal constant bounds (0..4)
+    // Inner loop reduction: sum = sum + (a * b) → iter_args
+    for i in 0..4 {
+        for j in 0..4 {
+            let mut sum: f64 = 0.0;
+            for k in 0..4 {
+                // A[i,k] — offset = (i*4 + k) * 8
+                let a_off: u64 = ((i * 4 + k) as u64) * 8;
+                let a_val: f64 = *((a_addr + a_off) as &f64);
+
+                // B[k,j] — offset = (k*4 + j) * 8
+                let b_off: u64 = ((k * 4 + j) as u64) * 8;
+                let b_val: f64 = *((b_addr + b_off) as &f64);
+
+                sum = sum + (a_val * b_val);
+            }
+
+            // C[i,j] = sum — offset = (i*4 + j) * 8
+            let c_off: u64 = ((i * 4 + j) as u64) * 8;
+            *((c_addr + c_off) as &mut f64) = sum;
+        }
+    }
+
+    // Verify: each element of C should be 4 * 1.0 * 2.0 = 8.0
+
+    // Check C[0,0]
+    let c00: f64 = *((c_addr) as &f64);
+    if c00 > 8.1 {
+        free(a_addr);
+        free(b_addr);
+        free(c_addr);
+        return 2;
+    }
+    if c00 < 7.9 {
+        free(a_addr);
+        free(b_addr);
+        free(c_addr);
+        return 2;
+    }
+
+    // Check C[1,1] — offset = (1*4+1)*8 = 40
+    let c11: f64 = *((c_addr + 40) as &f64);
+    if c11 > 8.1 {
+        free(a_addr);
+        free(b_addr);
+        free(c_addr);
+        return 3;
+    }
+    if c11 < 7.9 {
+        free(a_addr);
+        free(b_addr);
+        free(c_addr);
+        return 3;
+    }
+
+    // Check C[3,3] — offset = (3*4+3)*8 = 120
+    let c33: f64 = *((c_addr + 120) as &f64);
+    if c33 > 8.1 {
+        free(a_addr);
+        free(b_addr);
+        free(c_addr);
+        return 4;
+    }
+    if c33 < 7.9 {
+        free(a_addr);
+        free(b_addr);
+        free(c_addr);
+        return 4;
+    }
+
+    // Check C[0,3] — offset = (0*4+3)*8 = 24
+    let c03: f64 = *((c_addr + 24) as &f64);
+    if c03 > 8.1 {
+        free(a_addr);
+        free(b_addr);
+        free(c_addr);
+        return 5;
+    }
+    if c03 < 7.9 {
+        free(a_addr);
+        free(b_addr);
+        free(c_addr);
+        return 5;
+    }
+
+    // Check C[2,1] — offset = (2*4+1)*8 = 72
+    let c21: f64 = *((c_addr + 72) as &f64);
+    if c21 > 8.1 {
+        free(a_addr);
+        free(b_addr);
+        free(c_addr);
+        return 6;
+    }
+    if c21 < 7.9 {
+        free(a_addr);
+        free(b_addr);
+        free(c_addr);
+        return 6;
+    }
+
+    // All assertions passed — clean up
+    free(a_addr);
+    free(b_addr);
+    free(c_addr);
+    return 0;
+}

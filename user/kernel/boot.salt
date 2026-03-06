@@ -1,0 +1,110 @@
+// ============================================================================
+// user/kernel/boot.salt
+// Multiboot2 Header — Sovereign Boot Announcement
+// ============================================================================
+//
+// The first bytes the bootloader reads from our ELF binary. Without this
+// mathematically precise header, GRUB/QEMU will refuse to load the kernel.
+//
+// Multiboot2 specification requires:
+//   - Magic:        0xE85250D6 (identifies this as Multiboot2)
+//   - Architecture: 0 (i386/x86_64 protected mode)
+//   - Header length: total size of the header in bytes
+//   - Checksum:     -(magic + arch + length) mod 2^32
+//   - End tag:      type=0, flags=0, size=8 (terminates the tag list)
+//
+// The header is placed in a .multiboot_header section. The linker script
+// ensures this section appears at the very beginning of the .text segment,
+// within the first 32KB as required by the Multiboot2 spec.
+//
+// Memory Layout (24 bytes):
+//   [0..4)   magic           0xE85250D6
+//   [4..8)   architecture    0x00000000
+//   [8..12)  header_length   0x00000018 (24)
+//   [12..16) checksum        0x17ADAF12
+//   [16..18) end_tag_type    0x0000
+//   [18..20) end_tag_flags   0x0000
+//   [20..24) end_tag_size    0x00000008
+//
+// ============================================================================
+
+package user.kernel.boot
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// Multiboot2 Constants
+// ============================================================================
+pub const MULTIBOOT2_MAGIC:       u32 = 0xE85250D6;
+pub const MULTIBOOT2_ARCH_X86:    u32 = 0;
+pub const MULTIBOOT2_HEADER_SIZE: u32 = 24;
+
+// Checksum: 0x100000000 - (0xE85250D6 + 0 + 24)
+// = 0x100000000 - 0xE85250EE = 0x17ADAF12
+pub const MULTIBOOT2_CHECKSUM:    u32 = 0x17ADAF12;
+
+// ============================================================================
+// Boot Header Memory Layout
+// ============================================================================
+// Must be emitted as a contiguous block at a known address.
+// The linker script will place it at the front of .text.
+//
+// For the hosted test environment, we provide verification functions.
+// For the freestanding build, the assembly stub includes the header.
+// ============================================================================
+
+pub const HEADER_OFFSET_MAGIC:       u64 = 0;
+pub const HEADER_OFFSET_ARCH:        u64 = 4;
+pub const HEADER_OFFSET_LENGTH:      u64 = 8;
+pub const HEADER_OFFSET_CHECKSUM:    u64 = 12;
+pub const HEADER_OFFSET_END_TYPE:    u64 = 16;
+pub const HEADER_OFFSET_END_FLAGS:   u64 = 18;
+pub const HEADER_OFFSET_END_SIZE:    u64 = 20;
+pub const HEADER_TOTAL_SIZE:         u64 = 24;
+
+// ============================================================================
+// write_multiboot_header — Emit the header to a memory buffer
+// ============================================================================
+// Used by the build system and tests to generate or verify the header.
+// In the freestanding binary, this is handled by the assembly stub.
+// ============================================================================
+pub fn write_multiboot_header(addr: u64) {
+    *((addr + HEADER_OFFSET_MAGIC) as &mut u32) = MULTIBOOT2_MAGIC;
+    *((addr + HEADER_OFFSET_ARCH) as &mut u32) = MULTIBOOT2_ARCH_X86;
+    *((addr + HEADER_OFFSET_LENGTH) as &mut u32) = MULTIBOOT2_HEADER_SIZE;
+    *((addr + HEADER_OFFSET_CHECKSUM) as &mut u32) = MULTIBOOT2_CHECKSUM;
+
+    // End tag: type=0, flags=0, size=8
+    *((addr + HEADER_OFFSET_END_TYPE) as &mut u16) = 0;
+    *((addr + HEADER_OFFSET_END_FLAGS) as &mut u16) = 0;
+    *((addr + HEADER_OFFSET_END_SIZE) as &mut u32) = 8;
+}
+
+// ============================================================================
+// verify_multiboot_header — Validate header integrity
+// ============================================================================
+// Returns 0 if valid, non-zero error code if corrupt.
+// ============================================================================
+pub fn verify_multiboot_header(addr: u64) -> u32 {
+    let magic: u32 = *((addr + HEADER_OFFSET_MAGIC) as &u32);
+    if magic != MULTIBOOT2_MAGIC { return 1; }
+
+    let arch: u32 = *((addr + HEADER_OFFSET_ARCH) as &u32);
+    if arch != MULTIBOOT2_ARCH_X86 { return 2; }
+
+    let length: u32 = *((addr + HEADER_OFFSET_LENGTH) as &u32);
+    if length != MULTIBOOT2_HEADER_SIZE { return 3; }
+
+    let checksum: u32 = *((addr + HEADER_OFFSET_CHECKSUM) as &u32);
+    // Verify: magic + arch + length + checksum == 0 (mod 2^32)
+    // We can't easily do modular arithmetic in Salt, so verify exact value
+    if checksum != MULTIBOOT2_CHECKSUM { return 4; }
+
+    let end_type: u16 = *((addr + HEADER_OFFSET_END_TYPE) as &u16);
+    if end_type != 0 { return 5; }
+
+    let end_size: u32 = *((addr + HEADER_OFFSET_END_SIZE) as &u32);
+    if end_size != 8 { return 6; }
+
+    return 0;
+}

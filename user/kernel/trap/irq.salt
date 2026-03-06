@@ -1,0 +1,159 @@
+// ============================================================================
+// user/kernel/trap/irq.salt
+// VirtIO IRQ Handler — The CQE Wakeup Strike
+// ============================================================================
+//
+// When QEMU completes writing a network packet into our RX buffers,
+// it raises an IRQ. The 8259 PIC routes this to CPU Vector 43
+// (IRQ 11 + PIC offset 32 = 43).
+//
+// The handler:
+//   1. Drains the RX VirtqUsed ring (find newly completed descriptors)
+//   2. Reads the packet header from the RX buffer to extract the token
+//   3. Writes the token to the CQE array → marks the coroutine as READY
+//   4. Pushes the task ID back onto the Chase-Lev deque
+//   5. Sends EOI (End-Of-Interrupt) to the PIC
+//   6. Returns → IRETQ → interrupted code resumes
+//
+// CRITICAL: This handler must be FAST. No allocation, no heavy parsing.
+// The scheduler does the real work when it pops the woken task.
+//
+// Packet Header (first 16 bytes of RX buffer):
+//   [0..8)   token         (u64) — the CQE completion token
+//   [8..12)  payload_len   (u32) — bytes of tensor data following header
+//   [12..16) flags         (u32) — reserved
+//
+// CQE Array (at LOC_ARENA + CQE_OFFSET):
+//   Array of u64 entries, indexed by token.
+//   0 = PENDING, 1 = READY
+//
+// ============================================================================
+
+package user.kernel.trap.irq
+
+use std.core.ptr.Ptr
+
+extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
+extern fn salt_atomic_cas_i64(ptr: Ptr<i64>, expected: i64, desired: i64) -> i64;
+
+// ============================================================================
+// LOC_ARENA IRQ-relevant offsets
+// ============================================================================
+pub const RX_USED_OFFSET:   u64 = 0x32000;
+pub const RX_STATE_OFFSET:  u64 = 0x33000;
+pub const RX_BUFPOOL_OFFSET: u64 = 0x40000;
+pub const CQE_ARRAY_OFFSET: u64 = 0x34000;
+pub const DEQUE_OFFSET:     u64 = 0x1000;
+
+// RX buffer layout
+pub const RX_BUF_SIZE:      u64 = 2048;
+pub const RX_QUEUE_SIZE:    u16 = 256;
+
+// Used ring layout
+const USED_IDX_OFF:     u64 = 2;
+const USED_RING_OFF:    u64 = 4;
+const USED_ELEM_SIZE:   u64 = 8;
+const USED_ELEM_ID_OFF: u64 = 0;
+const USED_ELEM_LEN_OFF: u64 = 4;
+
+// Packet header offsets
+const PKT_TOKEN_OFF:  u64 = 0;
+const PKT_LEN_OFF:    u64 = 8;
+
+// CQE status
+pub const CQE_PENDING: u64 = 0;
+pub const CQE_READY:   u64 = 1;
+pub const CQE_ARRAY_SIZE: u64 = 256;
+
+// Deque layout
+const DEQUE_BOTTOM_OFF: u64 = 512;
+const DEQUE_ARRAY_SIZE: i64 = 64;
+
+// ============================================================================
+// handle_virtio_irq — Drain RX used ring and strike CQE
+// ============================================================================
+// Parameters:
+//   arena_base:    LOC_ARENA base address
+//   irq_ack_addr:  address to write EOI (PIC1_COMMAND = 0x20, or mock)
+//
+// Returns: number of packets drained
+// ============================================================================
+pub fn handle_virtio_irq(arena_base: u64, irq_ack_addr: u64) -> u32 {
+    let used_ring: u64 = arena_base + RX_USED_OFFSET;
+    let rx_state:  u64 = arena_base + RX_STATE_OFFSET;
+    let buf_pool:  u64 = arena_base + RX_BUFPOOL_OFFSET;
+    let cqe_array: u64 = arena_base + CQE_ARRAY_OFFSET;
+    let deque:     u64 = arena_base + DEQUE_OFFSET;
+
+    // 1. Read current used.idx from hypervisor
+    let used_idx: u16 = *((used_ring + USED_IDX_OFF) as &u16);
+
+    // 2. Read our last-seen index
+    let last_seen: u16 = (*((rx_state) as &u64)) as u16;
+
+    // 3. Drain all new completions
+    let mut drained: u32 = 0;
+    let mut seen: u16 = last_seen;
+
+    while seen != used_idx {
+        let ring_pos: u16 = seen % RX_QUEUE_SIZE;
+        let elem_off: u64 = USED_RING_OFF + (ring_pos as u64) * USED_ELEM_SIZE;
+
+        // Read VirtqUsedElem: id (descriptor index) and len
+        let desc_id: u32 = *((used_ring + elem_off + USED_ELEM_ID_OFF) as &u32);
+
+        // 4. Find the RX buffer for this descriptor
+        let buf_addr: u64 = buf_pool + (desc_id as u64) * RX_BUF_SIZE;
+
+        // 5. Parse packet header: extract token
+        let token: u64 = *((buf_addr + PKT_TOKEN_OFF) as &u64);
+
+        // 6. THE CQE STRIKE — mark token as READY
+        if token < CQE_ARRAY_SIZE {
+            *((cqe_array + token * 8) as &mut u64) = CQE_READY;
+        }
+
+        // 7. Push the token (as task_id) back onto the Chase-Lev deque
+        let bp: Ptr<i64> = (deque + DEQUE_BOTTOM_OFF) as Ptr<i64>;
+        let b: i64 = salt_atomic_load_i64(bp);
+        let idx: i64 = b % DEQUE_ARRAY_SIZE;
+        let slot: u64 = deque + (idx as u64) * 8;
+        *((slot) as &mut i64) = token as i64;
+        let _: i64 = salt_atomic_cas_i64(bp, b, b + 1);
+
+        seen = seen + 1;
+        drained = drained + 1;
+    }
+
+    // 8. Update last-seen index
+    *((rx_state) as &mut u64) = seen as u64;
+
+    // 9. Increment packet counter
+    let pkt_count: u64 = *((rx_state + 8) as &u64);
+    *((rx_state + 8) as &mut u64) = pkt_count + (drained as u64);
+
+    // 10. ACK the interrupt — EOI to slave PIC then master PIC
+    // For IRQ 11 (slave): write 0x20 to both PIC2 (0xA0) and PIC1 (0x20)
+    // In mock mode, we write to irq_ack_addr
+    *((irq_ack_addr) as &mut u8) = 0x20;
+
+    return drained;
+}
+
+// ============================================================================
+// cqe_is_ready — Check if a CQE token has been marked READY
+// ============================================================================
+@inline
+pub fn cqe_is_ready(arena_base: u64, token: u64) -> bool {
+    let cqe: u64 = arena_base + CQE_ARRAY_OFFSET;
+    return *((cqe + token * 8) as &u64) == CQE_READY;
+}
+
+// ============================================================================
+// cqe_reset — Reset a CQE entry to PENDING
+// ============================================================================
+@inline
+pub fn cqe_reset(arena_base: u64, token: u64) {
+    let cqe: u64 = arena_base + CQE_ARRAY_OFFSET;
+    *((cqe + token * 8) as &mut u64) = CQE_PENDING;
+}

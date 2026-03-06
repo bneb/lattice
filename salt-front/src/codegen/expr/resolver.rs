@@ -150,6 +150,14 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                 };
             
             // STEP 4: Dispatch
+            // [LAZY HYDRATION FIX] If TraitRegistry doesn't have the method,
+            // try resolve_method which scans generic_impls and triggers lazy discovery.
+            // This fixes Ptr.write() and other methods not found in large files
+            // where impl blocks haven't been hydrated into the TraitRegistry yet.
+            let method_info = method_info.or_else(|| {
+                self.ctx.resolve_method(&receiver_ty, &method_name).ok()
+            });
+
             if let Some((func, self_ty, imports)) = method_info {
 
                 
@@ -919,6 +927,22 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                      self_ty: self_ty.clone(),
                      imports: imports.clone(),
                  }); 
+             }
+             
+             // [STANDALONE FIX] On-demand method discovery for static method calls.
+             // When TraitRegistry doesn't have the method (standalone compilation),
+             // try resolve_method which triggers lazy hydration of impl blocks.
+             // This handles f-string expansion calling std::string::InterpolatedStringHandler::new()
+             // where ensure_struct_exists loaded the struct but didn't hydrate impl methods.
+             let struct_ty = Type::Struct(base.clone());
+             if let Ok((func, self_ty, imports)) = self.ctx.resolve_method(&struct_ty, method) {
+                 return Some(ResolutionTarget {
+                     template: func,
+                     base_name: canonical_name.clone(),
+                     kind: TargetKind::Method,
+                     self_ty,
+                     imports,
+                 });
              }
         }
         

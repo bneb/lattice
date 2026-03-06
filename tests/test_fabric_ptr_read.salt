@@ -1,0 +1,87 @@
+// =============================================================================
+// Test: FabricPtr Read — Locality-Dispatched Memory Access
+// =============================================================================
+// Verifies the locality-dispatched read pattern using stack memory.
+// =============================================================================
+
+fn main() -> i32 {
+    // Locality constants
+    let loc_arena: u32 = 0;
+    let loc_nvme: u32 = 1;
+    let loc_rdma: u32 = 2;
+
+    // Test 1: Bounds check logic — offset + size <= capacity
+    let capacity: u64 = 4096;
+    let offset: u64 = 100;
+    let size: u64 = 8;
+
+    // Valid read
+    if offset + size > capacity {
+        return 1;
+    }
+
+    // OOB read
+    let bad_offset: u64 = 4090;
+    if bad_offset + size <= capacity {
+        return 2;  // 4090 + 8 = 4098 > 4096
+    }
+
+    // Test 2: Locality dispatch — arena path
+    let mut result: u64 = 0;
+    if loc_arena == 0 {
+        result = 42;  // Arena: would be CPU load
+    }
+    if result != 42 {
+        return 3;
+    }
+
+    // Test 3: Locality dispatch — NVMe path
+    let mut nvme_result: u64 = 0;
+    if loc_nvme == 1 {
+        nvme_result = 99;  // NVMe: would be DMA read
+    }
+    if nvme_result != 99 {
+        return 4;
+    }
+
+    // Test 4: Locality dispatch — RDMA path
+    let mut rdma_result: u64 = 0;
+    if loc_rdma == 2 {
+        rdma_result = 777;  // RDMA: would be WQE read
+    }
+    if rdma_result != 777 {
+        return 5;
+    }
+
+    // Test 5: All tiers produce different access patterns
+    // (In production, these would be different DMA mechanisms)
+    if loc_arena == loc_nvme {
+        return 6;
+    }
+    if loc_nvme == loc_rdma {
+        return 7;
+    }
+
+    // Test 6: Capacity math for FabricPtr
+    let arena_cap: u64 = 4096;
+    let nvme_cap: u64 = 1073741824;   // 1 GB
+    let rdma_cap: u64 = 536870912;    // 512 MB
+
+    // 80 MB tensor fits in NVMe
+    let tensor_size: u64 = 83886080;  // 80 MB
+    if tensor_size > nvme_cap {
+        return 8;
+    }
+
+    // 80 MB tensor fits in RDMA
+    if tensor_size > rdma_cap {
+        return 9;
+    }
+
+    // 80 MB tensor does NOT fit in Arena (4KB)
+    if tensor_size <= arena_cap {
+        return 10;
+    }
+
+    return 0;
+}

@@ -1,0 +1,136 @@
+// ============================================================================
+// user/kernel/drivers/virtio/vring.salt
+// VirtIO v1.0 Split VirtQueue — Physical Memory Topology
+// ============================================================================
+//
+// The Vring is the shared-memory contract between the guest CPU and the
+// QEMU hypervisor. Both sides read and write these structures concurrently.
+//
+// Three components per queue:
+//   1. Descriptor Table — array of VirtqDesc (16 bytes each)
+//   2. Available Ring   — guest→host: "these descriptors are ready"
+//   3. Used Ring        — host→guest: "these descriptors are consumed"
+//
+// All addresses are PHYSICAL. The LOC_ARENA provides pre-mapped memory
+// that both the CPU and QEMU's DMA engine can access without translation.
+//
+// Queue Size: 256 entries (standard for QEMU virtio-net)
+//
+// ============================================================================
+
+package user.kernel.drivers.virtio.vring
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// Descriptor Flags
+// ============================================================================
+pub const VRING_DESC_F_NEXT:     u16 = 1;  // Buffer continues via 'next' field
+pub const VRING_DESC_F_WRITE:    u16 = 2;  // Buffer is write-only (device→driver)
+pub const VRING_DESC_F_INDIRECT: u16 = 4;  // Buffer contains indirect descriptors
+
+// ============================================================================
+// Queue Size
+// ============================================================================
+pub const QUEUE_SIZE: u16 = 256;
+
+// ============================================================================
+// VirtqDesc — Scatter-Gather Descriptor (16 bytes)
+// ============================================================================
+// Layout:
+//   [0..8)   addr   (u64) — physical guest address of the buffer
+//   [8..12)  len    (u32) — length of the buffer in bytes
+//   [12..14) flags  (u16) — NEXT | WRITE | INDIRECT
+//   [14..16) next   (u16) — index of the next descriptor in chain
+// ============================================================================
+pub const DESC_SIZE: u64 = 16;
+pub const DESC_TABLE_SIZE: u64 = 4096;  // 256 × 16
+
+pub const DESC_ADDR_OFF:  u64 = 0;
+pub const DESC_LEN_OFF:   u64 = 8;
+pub const DESC_FLAGS_OFF: u64 = 12;
+pub const DESC_NEXT_OFF:  u64 = 14;
+
+// Write a descriptor entry
+@inline
+pub fn desc_write(table: u64, idx: u16, addr: u64, len: u32, flags: u16, next: u16) {
+    let base: u64 = table + (idx as u64) * DESC_SIZE;
+    *((base + DESC_ADDR_OFF) as &mut u64) = addr;
+    *((base + DESC_LEN_OFF) as &mut u32) = len;
+    *((base + DESC_FLAGS_OFF) as &mut u16) = flags;
+    *((base + DESC_NEXT_OFF) as &mut u16) = next;
+}
+
+// Read descriptor fields
+@inline
+pub fn desc_addr(table: u64, idx: u16) -> u64 {
+    return *((table + (idx as u64) * DESC_SIZE + DESC_ADDR_OFF) as &u64);
+}
+
+@inline
+pub fn desc_len(table: u64, idx: u16) -> u32 {
+    return *((table + (idx as u64) * DESC_SIZE + DESC_LEN_OFF) as &u32);
+}
+
+@inline
+pub fn desc_flags(table: u64, idx: u16) -> u16 {
+    return *((table + (idx as u64) * DESC_SIZE + DESC_FLAGS_OFF) as &u16);
+}
+
+// ============================================================================
+// VirtqAvail — Available Ring (guest → host)
+// ============================================================================
+// Layout:
+//   [0..2)     flags  (u16) — VRING_AVAIL_F_NO_INTERRUPT
+//   [2..4)     idx    (u16) — next entry the driver will write to
+//   [4..516)   ring   ([u16; 256]) — descriptor indices
+// ============================================================================
+pub const AVAIL_FLAGS_OFF: u64 = 0;
+pub const AVAIL_IDX_OFF:   u64 = 2;
+pub const AVAIL_RING_OFF:  u64 = 4;
+pub const AVAIL_SIZE:      u64 = 516;  // 4 + 256*2
+
+@inline
+pub fn avail_get_idx(avail: u64) -> u16 {
+    return *((avail + AVAIL_IDX_OFF) as &u16);
+}
+
+@inline
+pub fn avail_set_idx(avail: u64, idx: u16) {
+    *((avail + AVAIL_IDX_OFF) as &mut u16) = idx;
+}
+
+@inline
+pub fn avail_set_ring(avail: u64, pos: u16, desc_idx: u16) {
+    let off: u64 = AVAIL_RING_OFF + (pos as u64) * 2;
+    *((avail + off) as &mut u16) = desc_idx;
+}
+
+@inline
+pub fn avail_get_ring(avail: u64, pos: u16) -> u16 {
+    let off: u64 = AVAIL_RING_OFF + (pos as u64) * 2;
+    return *((avail + off) as &u16);
+}
+
+// ============================================================================
+// VirtqUsed — Used Ring (host → guest)
+// ============================================================================
+// Layout:
+//   [0..2)       flags (u16)
+//   [2..4)       idx   (u16) — next entry the device will write to
+//   [4..2052)    ring  ([VirtqUsedElem; 256])
+//
+// VirtqUsedElem (8 bytes):
+//   [0..4)  id  (u32) — descriptor chain head index
+//   [4..8)  len (u32) — total bytes written by the device
+// ============================================================================
+pub const USED_FLAGS_OFF: u64 = 0;
+pub const USED_IDX_OFF:   u64 = 2;
+pub const USED_RING_OFF:  u64 = 4;
+pub const USED_ELEM_SIZE: u64 = 8;
+pub const USED_SIZE:      u64 = 2052;  // 4 + 256*8
+
+@inline
+pub fn used_get_idx(used: u64) -> u16 {
+    return *((used + USED_IDX_OFF) as &u16);
+}

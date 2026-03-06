@@ -1,0 +1,40 @@
+// ============================================================================
+// user/basalt/telemetry/rdtsc.salt
+// True Cycle Counter — Architecture-Specific RDTSC Binding
+// ============================================================================
+//
+// On x86: llvm.intr.readcyclecounter lowers to RDTSC — a true CPU
+// cycle counter that increments every clock cycle.
+//
+// On ARM64: it lowers to CNTVCT_EL0 — a fixed-frequency timer
+// (typically 24MHz on Apple Silicon). Each tick ≈ 42ns, not a cycle.
+//
+// For warehouse-scale telemetry on z1d.metal (Intel Xeon), RDTSC
+// gives sub-nanosecond resolution: one tick = one CPU cycle.
+//
+// We use the unified `rdtsc()` extern which the compiler maps to
+// llvm.intr.readcyclecounter regardless of architecture.
+// ============================================================================
+
+package user.basalt.telemetry.rdtsc
+
+use std.core.ptr.Ptr
+
+extern fn rdtsc() -> i64;
+
+// ============================================================================
+// read_true_cycles — Read the hardware cycle counter
+// ============================================================================
+@inline
+pub fn read_true_cycles() -> i64 {
+    return rdtsc();
+}
+
+// ============================================================================
+// measure_delta — Bracket a measurement, return cycle delta
+// ============================================================================
+// Usage:
+//   let start = read_true_cycles();
+//   ... work ...
+//   let delta = read_true_cycles() - start;
+// ============================================================================

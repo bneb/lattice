@@ -108,10 +108,13 @@ def _save_cache(cache):
 BUILD_CACHE = _load_cache()
 
 def compile_salt(src_file):
-    base_name = os.path.basename(src_file).replace(".salt", "")
-    mlir_file = os.path.join(BUILD_DIR, f"{base_name}.mlir")
-    ll_file = os.path.join(BUILD_DIR, f"{base_name}.ll")
-    obj_file = os.path.join(BUILD_DIR, f"{base_name}.o")
+    # Path-encoded output: kernel/core/syscall.salt → kernel_core_syscall.{mlir,ll,o}
+    # Guarantees global uniqueness — no basename collisions in qemu_build/.
+    rel_path = os.path.relpath(src_file, WORKSPACE_ROOT)
+    safe_name = rel_path.replace(os.sep, "_").replace(".salt", "")
+    mlir_file = os.path.join(BUILD_DIR, f"{safe_name}.mlir")
+    ll_file = os.path.join(BUILD_DIR, f"{safe_name}.ll")
+    obj_file = os.path.join(BUILD_DIR, f"{safe_name}.o")
 
     # --- Build Cache Check ---
     src_hash = _compute_file_hash(src_file)
@@ -121,10 +124,9 @@ def compile_salt(src_file):
         print(f"  [CACHED] {src_file} (unchanged)")
         return obj_file
 
-    print(f"  [SALT] Compiling {src_file}...")
+    print(f"  [SALT] Compiling {src_file} → {safe_name}.o")
     
     # 1. Salt -> MLIR
-    # salt-front prints to stdout. We capture it and write to file.
     cmd = [SALT_FRONT, src_file, "--lib", "--disable-alias-scopes"]
     print(f"    Running: {' '.join(cmd)} > {mlir_file}")
     
@@ -148,14 +150,11 @@ def compile_salt(src_file):
         subprocess.check_call(cmd, stdin=f_in, stdout=f_out)
 
     # 2b. Defense-in-depth: Normalize LLVM IR for cross-compilation (ARM Mac -> x86_64)
-    # salt-front now emits correct target-cpu for lib_mode (x86-64), but salt-opt
-    # may still embed host features from MLIR lowering. Strip them as a safety belt.
     import re
     with open(ll_file, 'r') as f:
         ll_content = f.read()
     ll_content = re.sub(r'"target-cpu"="[^"]*"', '"target-cpu"="x86-64"', ll_content)
     ll_content = re.sub(r'"target-features"="[^"]*"', '"target-features"="+cx16"', ll_content)
-    # Strip 'nuw' flag from getelementptr — LLVM 19 syntax unsupported by older LLVM
     ll_content = ll_content.replace('getelementptr inbounds nuw', 'getelementptr inbounds')
     with open(ll_file, 'w') as f:
         f.write(ll_content)
@@ -172,8 +171,10 @@ def compile_salt(src_file):
     return obj_file
 
 def compile_asm(src_file):
-    base_name = os.path.basename(src_file).replace(".S", "")
-    obj_file = os.path.join(BUILD_DIR, f"{base_name}.o")
+    # Path-encoded output, matching compile_salt convention
+    rel_path = os.path.relpath(src_file, WORKSPACE_ROOT)
+    safe_name = rel_path.replace(os.sep, "_").replace(".S", "")
+    obj_file = os.path.join(BUILD_DIR, f"{safe_name}.o")
     
     # --- Build Cache Check ---
     src_hash = _compute_file_hash(src_file)
@@ -183,8 +184,7 @@ def compile_asm(src_file):
         print(f"  [CACHED] {src_file} (unchanged)")
         return obj_file
 
-    print(f"  [ASM]  Assembling {src_file}...")
-    # Use cross-compilation target for assembly
+    print(f"  [ASM]  Assembling {src_file} → {safe_name}.o")
     cmd = [TOOLCHAIN.clang, "-c", src_file, "-o", obj_file, "-target", TOOLCHAIN.target] 
     subprocess.check_call(cmd)
 
@@ -359,17 +359,28 @@ def build_kernel():
                  glob.glob(f"{KERNEL_ROOT}/net/*.salt") + \
                  glob.glob(f"{KERNEL_ROOT}/sys/*.salt") + \
                  glob.glob(f"{KERNEL_ROOT}/lib/*.salt") + \
-                 glob.glob(f"{KERNEL_ROOT}/arch/x86/*.salt")
-    # Exclude df_test_runner.salt — only used for test_df mode, contains
-    # bench_suite_run which conflicts with suite.o in normal bench mode
-    salt_files = [f for f in salt_files if "df_test_runner" not in os.path.basename(f)]
+                 glob.glob(f"{KERNEL_ROOT}/ipc/*.salt") + \
+                 glob.glob(f"{KERNEL_ROOT}/arch/x86/*.salt") + \
+                 glob.glob(f"{WORKSPACE_ROOT}/user/reactor/tasks/*.salt")
+    # Exclude files that don't compile yet (WIP / incomplete dependencies)
+    # Exclude files that don't compile yet (WIP / incomplete dependencies)
+    EXCLUDE_BASENAMES = {
+        "df_test_runner",  # test_df mode only, conflicts with suite.o
+        "teardown",        # WIP: parse error (expected identifier)
+        "bitmap_disp",     # WIP: missing kernel.arch.cpu module
+        "fastpath",        # WIP: deep dependency chain (bitmap_disp → cpu)
+    }
+    salt_files = [f for f in salt_files
+                  if os.path.basename(f).replace(".salt", "") not in EXCLUDE_BASENAMES]
                  
     for f in salt_files:
         try:
             objects.append(compile_salt(f))
         except subprocess.CalledProcessError:
-            base_name = os.path.basename(f).replace(".salt", "")
-            obj_file = os.path.join(BUILD_DIR, f"{base_name}.o")
+            # Path-encoded fallback name
+            rel_path = os.path.relpath(f, WORKSPACE_ROOT)
+            safe_name = rel_path.replace(os.sep, "_").replace(".salt", "")
+            obj_file = os.path.join(BUILD_DIR, f"{safe_name}.o")
             if os.path.exists(obj_file):
                 print(f"    {RED}⚠ Compilation failed, reusing pre-compiled {obj_file}{RESET}")
                 objects.append(obj_file)

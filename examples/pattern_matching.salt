@@ -1,68 +1,71 @@
 // =============================================================================
-// Pattern Matching — Enums, Result, and Match
+// Pattern Matching — Match Expressions and Result Handling
 // =============================================================================
-// Demonstrates: enum, match, Result<T,E>, Option, exhaustive matching
+// Demonstrates: match on integers, result-like error handling, tagged unions
 // =============================================================================
 
 package main
 
-// A simple shape enum (Algebraic Data Type)
-enum Shape {
-    Circle(f32),
-    Rect(f32, f32)
+// Simulate tagged union with integer tags
+const SHAPE_CIRCLE: i32 = 0;
+const SHAPE_RECT: i32 = 1;
+
+struct Shape {
+    tag: i32,
+    radius: f32,
+    width: f32,
+    height: f32,
 }
 
-fn area(s: Shape) -> f32 {
-    match s {
-        Shape::Circle(r) => return 3.14159f32 * r * r,
-        Shape::Rect(w, h) => return w * h
+fn circle(r: f32) -> Shape {
+    return Shape { tag: SHAPE_CIRCLE, radius: r, width: 0.0, height: 0.0 };
+}
+
+fn rect(w: f32, h: f32) -> Shape {
+    return Shape { tag: SHAPE_RECT, radius: 0.0, width: w, height: h };
+}
+
+fn area(s: &Shape) -> f32 {
+    match s.tag {
+        0 => return 3.14159 * s.radius * s.radius,
+        1 => return s.width * s.height,
+        _ => return 0.0
     }
 }
 
-// Using Result<T,E> for error handling
-enum MathError {
-    DivideByZero
-}
-
-fn safe_div(a: i32, b: i32) -> Result<i32, MathError> {
+// Safe division using integer error codes:
+//   returns result in *out, returns 0 on success, -1 on error
+fn safe_div(a: i32, b: i32, out: &mut i32) -> i32 {
     if b == 0 {
-        return Result::Err(MathError::DivideByZero);
+        return -1;
     }
-    return Result::Ok(a / b);
+    *out = a / b;
+    return 0;
 }
 
 fn main() -> i32 {
-    // Pattern matching on enums
-    let circle = Shape::Circle(5.0f32);
-    let rect = Shape::Rect(3.0f32, 4.0f32);
-    
-    let circle_area = area(circle);    // ~78.54
-    let rect_area = area(rect);        // 12.0
+    // Pattern matching via integer tags
+    let c = circle(5.0);
+    let r = rect(3.0, 4.0);
 
-    // Result<T,E> for safe operations
-    let good = safe_div(10, 3);
-    let bad = safe_div(10, 0);
+    let circle_area = area(&c);    // ~78.54
+    let rect_area = area(&r);      // 12.0
 
-    match good {
-        Result::Ok(val) if val == 3 => {
-            println("✓ safe_div(10, 3) = 3");
-        },
-        Result::Ok(_) => {},
-        Result::Err(_) => {
-            println("✗ unexpected error");
-            return 1;
-        }
+    // Safe division with error handling
+    let mut result: i32 = 0;
+    let good = safe_div(10, 3, &mut result);
+    let bad = safe_div(10, 0, &mut result);
+
+    if good != 0 {
+        println("✗ safe_div(10, 3) should succeed");
+        return 1;
     }
 
-    match bad {
-        Result::Ok(_) => {
-            println("✗ should have been an error");
-            return 1;
-        },
-        Result::Err(_) => {
-            println("✓ safe_div(10, 0) correctly returned Err");
-        }
+    if bad == 0 {
+        println("✗ safe_div(10, 0) should fail");
+        return 1;
     }
 
+    println("✓ pattern matching and error handling work");
     return 0;
 }

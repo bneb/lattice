@@ -1,0 +1,261 @@
+// ============================================================================
+// user/reactor/scheduler.salt
+// Sovereign SMP Scheduler — Chase-Lev Work-Stealing Deque
+// ============================================================================
+//
+// A lock-free, zero-allocation concurrent deque for Ring 3 SMP.
+// Bypasses POSIX threads and OS mutexes entirely — all cross-core
+// synchronization uses salt_atomic_cas_i64 (LLVM cmpxchg).
+//
+// Protocol (Chase-Lev, 2005):
+//   Local core:   push_bottom() / pop_bottom()  — fast path, no CAS
+//   Remote cores: steal_top()                    — CAS on top index
+//
+// Memory Layout:
+//   The deque stores task_id values (u32) packed into i64 slots.
+//   Task-specific state is stored in a separate arena indexed by task_id.
+//
+// Invariants:
+//   - top <= bottom
+//   - size = bottom - top
+//   - Empty when top == bottom
+//   - Full when bottom - top >= DEQUE_CAPACITY
+//
+// ============================================================================
+
+package user.reactor.scheduler
+
+use std.core.ptr.Ptr
+
+// Atomic intrinsics — zero OS overhead
+extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
+extern fn salt_atomic_cas_i64(ptr: Ptr<i64>, expected: i64, desired: i64) -> i64;
+
+// ============================================================================
+// Task State Constants
+// ============================================================================
+pub const TASK_IDLE:    u32 = 0;
+pub const TASK_RUNNING: u32 = 1;
+pub const TASK_PENDING: u32 = 2;
+pub const TASK_DONE:    u32 = 3;
+
+// ============================================================================
+// TaskSlot — A single coroutine in the system
+// ============================================================================
+pub struct TaskSlot {
+    pub status: u32,
+    pub pending_token: u32,
+    pub result: u32,
+    pub state_addr: u64,
+    pub task_id: u32,
+}
+
+impl TaskSlot {
+    @inline
+    pub fn new() -> TaskSlot {
+        return TaskSlot {
+            status: TASK_IDLE,
+            pending_token: 0,
+            result: 0,
+            state_addr: 0,
+            task_id: 0,
+        };
+    }
+
+    @inline
+    pub fn yield_on_token(&mut self, token: u32) {
+        self.status = TASK_PENDING;
+        self.pending_token = token;
+    }
+
+    @inline
+    pub fn mark_ready(&mut self) {
+        self.status = TASK_RUNNING;
+        self.pending_token = 0;
+    }
+
+    @inline
+    pub fn mark_done(&mut self, exit_code: u32) {
+        self.status = TASK_DONE;
+        self.result = exit_code;
+    }
+}
+
+// ============================================================================
+// WorkDeque Constants
+// ============================================================================
+pub const DEQUE_CAPACITY: i64 = 256;
+
+// Steal results
+pub const STEAL_EMPTY:   i64 = -1;
+pub const STEAL_ABORT:   i64 = -2;
+
+// ============================================================================
+// WorkDeque — Chase-Lev Lock-Free Deque
+// ============================================================================
+// Memory layout in a contiguous buffer:
+//   [0..8)    = top (i64, atomic)
+//   [8..16)   = bottom (i64, atomic)
+//   [16..16+256*8) = task_ids array (i64 slots)
+//
+// Total: 16 + 2048 = 2064 bytes
+// ============================================================================
+pub const DEQUE_TOP_OFFSET:    u64 = 0;
+pub const DEQUE_BOTTOM_OFFSET: u64 = 8;
+pub const DEQUE_ARRAY_OFFSET:  u64 = 16;
+pub const DEQUE_TOTAL_SIZE:    u64 = 2064;
+
+// ============================================================================
+// deque_init — Zero-initialize a WorkDeque buffer
+// ============================================================================
+pub fn deque_init(deque_addr: u64) {
+    let mut i: u64 = 0;
+    while i < DEQUE_TOTAL_SIZE {
+        *((deque_addr + i) as &mut u8) = 0;
+        i = i + 1;
+    }
+}
+
+// ============================================================================
+// push_bottom — Local core enqueues a task  [O(1), no CAS]
+// ============================================================================
+// Called only by the owning core. No synchronization needed on bottom
+// because only one core writes to it.
+// ============================================================================
+pub fn push_bottom(deque_addr: u64, task_id: i64) {
+    let bottom_ptr: Ptr<i64> = (deque_addr + DEQUE_BOTTOM_OFFSET) as Ptr<i64>;
+    let b: i64 = salt_atomic_load_i64(bottom_ptr);
+
+    let top_ptr: Ptr<i64> = (deque_addr + DEQUE_TOP_OFFSET) as Ptr<i64>;
+    let t: i64 = salt_atomic_load_i64(top_ptr);
+
+    // Check capacity
+    if (b - t) >= DEQUE_CAPACITY {
+        return;  // Full — drop silently (production: grow or panic)
+    }
+
+    // Write task_id to circular buffer
+    let index: i64 = b % DEQUE_CAPACITY;
+    let slot_addr: u64 = deque_addr + DEQUE_ARRAY_OFFSET + ((index as u64) * 8);
+    *((slot_addr) as &mut i64) = task_id;
+
+    // Increment bottom (store-release semantics via atomic store)
+    // The write to the array MUST be visible before bottom is updated.
+    bottom_ptr.write(b + 1);
+}
+
+// ============================================================================
+// pop_bottom — Local core dequeues a task  [O(1), CAS only on last element]
+// ============================================================================
+// Called only by the owning core. Contention with steal_top only
+// happens when 1 element remains — resolved via CAS.
+// ============================================================================
+pub fn pop_bottom(deque_addr: u64) -> i64 {
+    let bottom_ptr: Ptr<i64> = (deque_addr + DEQUE_BOTTOM_OFFSET) as Ptr<i64>;
+    let b: i64 = salt_atomic_load_i64(bottom_ptr);
+    let new_b: i64 = b - 1;
+    bottom_ptr.write(new_b);
+
+    let top_ptr: Ptr<i64> = (deque_addr + DEQUE_TOP_OFFSET) as Ptr<i64>;
+    let t: i64 = salt_atomic_load_i64(top_ptr);
+
+    if t > new_b {
+        // Deque was empty — restore bottom
+        bottom_ptr.write(t);
+        return STEAL_EMPTY;
+    }
+
+    // Read the task
+    let index: i64 = new_b % DEQUE_CAPACITY;
+    let slot_addr: u64 = deque_addr + DEQUE_ARRAY_OFFSET + ((index as u64) * 8);
+    let task_id: i64 = *((slot_addr) as &i64);
+
+    if t < new_b {
+        // More than 1 element — no contention possible
+        return task_id;
+    }
+
+    // Exactly 1 element — race with steal_top
+    // Try CAS(top, t, t+1) to claim it
+    let old_top: i64 = salt_atomic_cas_i64(top_ptr, t, t + 1);
+    bottom_ptr.write(t + 1);  // Reset to empty state
+
+    if old_top == t {
+        // Won the race — got the last task
+        return task_id;
+    }
+
+    // Lost the race — a thief already took it
+    return STEAL_EMPTY;
+}
+
+// ============================================================================
+// steal_top — Remote core steals a task  [O(1), CAS loop]
+// ============================================================================
+// Called by idle cores looking for work. Uses atomic CAS on the top
+// index to safely claim a task from the front of the deque.
+//
+// Returns: task_id on success, STEAL_EMPTY if deque is empty,
+//          STEAL_ABORT if CAS failed (another thief won).
+// ============================================================================
+pub fn steal_top(deque_addr: u64) -> i64 {
+    let top_ptr: Ptr<i64> = (deque_addr + DEQUE_TOP_OFFSET) as Ptr<i64>;
+    let t: i64 = salt_atomic_load_i64(top_ptr);
+
+    let bottom_ptr: Ptr<i64> = (deque_addr + DEQUE_BOTTOM_OFFSET) as Ptr<i64>;
+    let b: i64 = salt_atomic_load_i64(bottom_ptr);
+
+    if t >= b {
+        return STEAL_EMPTY;  // Deque is empty
+    }
+
+    // Read the task at the top
+    let index: i64 = t % DEQUE_CAPACITY;
+    let slot_addr: u64 = deque_addr + DEQUE_ARRAY_OFFSET + ((index as u64) * 8);
+    let task_id: i64 = *((slot_addr) as &i64);
+
+    // CAS(top, t, t+1) — claim this task atomically
+    let old_top: i64 = salt_atomic_cas_i64(top_ptr, t, t + 1);
+    if old_top != t {
+        return STEAL_ABORT;  // Another thief won the race
+    }
+
+    return task_id;
+}
+
+// ============================================================================
+// deque_size — Number of tasks in the deque
+// ============================================================================
+pub fn deque_size(deque_addr: u64) -> i64 {
+    let top_ptr: Ptr<i64> = (deque_addr + DEQUE_TOP_OFFSET) as Ptr<i64>;
+    let t: i64 = salt_atomic_load_i64(top_ptr);
+    let bottom_ptr: Ptr<i64> = (deque_addr + DEQUE_BOTTOM_OFFSET) as Ptr<i64>;
+    let b: i64 = salt_atomic_load_i64(bottom_ptr);
+    if b > t { return b - t; }
+    return 0;
+}
+
+// ============================================================================
+// RunQueue — Backward compatibility wrapper
+// ============================================================================
+pub const MAX_TASKS: u32 = 64;
+
+pub struct RunQueue {
+    pub active_count: u32,
+    pub completed_count: u32,
+}
+
+impl RunQueue {
+    @inline
+    pub fn new() -> RunQueue {
+        return RunQueue {
+            active_count: 0,
+            completed_count: 0,
+        };
+    }
+
+    @inline
+    pub fn all_complete(&self) -> bool {
+        return self.completed_count >= self.active_count;
+    }
+}

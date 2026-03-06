@@ -1,0 +1,201 @@
+// ============================================================================
+// user/netd/encap.salt
+// TX Header Encapsulator — Zero-Copy Headroom Write
+// ============================================================================
+//
+// Applications allocate memory via the Arena allocator with exactly
+// 54 bytes of "headroom" (14 Eth + 20 IPv4 + 20 TCP) reserved before
+// the payload. They pass the pointer starting at base_addr + 54.
+//
+// The encapsulator walks BACKWARDS from the payload pointer to write
+// headers directly into the reserved headroom. No memory copies.
+// No buffer allocation. The returned pointer is the Ethernet frame
+// start, ready to hand to the hardware DMA engine.
+//
+// Memory Layout:
+//   [Eth 14B][IPv4 20B][TCP 20B][Payload N bytes]
+//   ↑                           ↑
+//   frame_start                 payload_ptr (passed by app)
+//   (returned)
+//
+// ============================================================================
+
+package user.netd.encap
+
+// ============================================================================
+// Header Size Constants
+// ============================================================================
+pub const ETH_HEADER_SIZE:  u32 = 14;
+pub const IPV4_HEADER_SIZE: u32 = 20;
+pub const TCP_HEADER_SIZE:  u32 = 20;
+pub const TOTAL_HEADER_SIZE: u32 = 54;
+
+// ============================================================================
+// IPv4 Constants
+// ============================================================================
+pub const IPV4_VERSION_IHL: u8 = 0x45;  // Version 4, IHL = 5 (20 bytes)
+pub const IPV4_TTL: u8 = 64;           // Default TTL
+pub const IPV4_PROTO_TCP: u8 = 6;      // TCP protocol number
+
+// ============================================================================
+// EtherType
+// ============================================================================
+pub const ETHERTYPE_IPV4_HI: u8 = 0x08;
+pub const ETHERTYPE_IPV4_LO: u8 = 0x00;
+
+// ============================================================================
+// encapsulate_tcp_frame — Zero-Copy Header Encapsulation
+// ============================================================================
+// Writes Ethernet, IPv4, and TCP headers into the 54-byte headroom
+// preceding the payload pointer. Returns the frame start pointer,
+// ready for DMA submission.
+//
+// Z3 Contract:
+//   requires { payload_ptr - 54 is valid allocated memory }
+//   requires { payload_len < 65536 - 54 }
+//   ensures  { result == payload_ptr - 54 }
+//   ensures  { IPv4 checksum is correct }
+//
+// Arguments:
+//   payload_ptr:  Pointer to payload start (after 54 bytes of headroom)
+//   payload_len:  Length of payload in bytes
+//   local_port:   Source TCP port
+//   remote_port:  Destination TCP port
+//   seq_num:      TCP sequence number
+//   ack_num:      TCP acknowledgment number
+//   src_ip:       Source IPv4 address (network byte order)
+//   dst_ip:       Destination IPv4 address (network byte order)
+//   src_mac:      Source MAC as 6-byte array base address
+//   dst_mac:      Destination MAC as 6-byte array base address
+//
+// Returns:
+//   Base pointer to the complete Ethernet frame (payload_ptr - 54)
+// ============================================================================
+@no_mangle
+pub fn encapsulate_tcp_frame(
+    payload_ptr: u64,
+    payload_len: u32,
+    local_port: u16,
+    remote_port: u16,
+    seq_num: u32,
+    ack_num: u32,
+    src_ip: u32,
+    dst_ip: u32,
+    src_mac: u64,
+    dst_mac: u64
+) -> u64 {
+    // Calculate header start positions (walking backwards)
+    let tcp_start = payload_ptr - (TCP_HEADER_SIZE as u64);
+    let ip_start  = tcp_start - (IPV4_HEADER_SIZE as u64);
+    let eth_start = ip_start - (ETH_HEADER_SIZE as u64);
+
+    // =================================================================
+    // TCP HEADER (20 bytes) — Written at payload_ptr - 20
+    // =================================================================
+    // Byte 0-1: Source Port
+    *((tcp_start + 0) as &mut u8) = (local_port >> 8) as u8;
+    *((tcp_start + 1) as &mut u8) = (local_port & 0xFF) as u8;
+
+    // Byte 2-3: Destination Port
+    *((tcp_start + 2) as &mut u8) = (remote_port >> 8) as u8;
+    *((tcp_start + 3) as &mut u8) = (remote_port & 0xFF) as u8;
+
+    // Byte 4-7: Sequence Number (network byte order)
+    *((tcp_start + 4) as &mut u8) = (seq_num >> 24) as u8;
+    *((tcp_start + 5) as &mut u8) = ((seq_num >> 16) & 0xFF) as u8;
+    *((tcp_start + 6) as &mut u8) = ((seq_num >> 8) & 0xFF) as u8;
+    *((tcp_start + 7) as &mut u8) = (seq_num & 0xFF) as u8;
+
+    // Byte 8-11: Acknowledgment Number (network byte order)
+    *((tcp_start + 8) as &mut u8) = (ack_num >> 24) as u8;
+    *((tcp_start + 9) as &mut u8) = ((ack_num >> 16) & 0xFF) as u8;
+    *((tcp_start + 10) as &mut u8) = ((ack_num >> 8) & 0xFF) as u8;
+    *((tcp_start + 11) as &mut u8) = (ack_num & 0xFF) as u8;
+
+    // Byte 12: Data Offset (5 = 20 bytes, shifted to upper nibble) + Reserved
+    *((tcp_start + 12) as &mut u8) = 0x50;  // Data offset = 5 words
+
+    // Byte 13: Flags (PSH | ACK = 0x18)
+    *((tcp_start + 13) as &mut u8) = 0x18;
+
+    // Byte 14-15: Window Size (65535)
+    *((tcp_start + 14) as &mut u8) = 0xFF;
+    *((tcp_start + 15) as &mut u8) = 0xFF;
+
+    // Byte 16-17: Checksum (set to 0, will be computed below)
+    *((tcp_start + 16) as &mut u8) = 0;
+    *((tcp_start + 17) as &mut u8) = 0;
+
+    // Byte 18-19: Urgent Pointer (0)
+    *((tcp_start + 18) as &mut u8) = 0;
+    *((tcp_start + 19) as &mut u8) = 0;
+
+    // =================================================================
+    // IPv4 HEADER (20 bytes) — Written at tcp_start - 20
+    // =================================================================
+    let total_ip_len: u16 = (IPV4_HEADER_SIZE + TCP_HEADER_SIZE + payload_len) as u16;
+
+    // Byte 0: Version (4) + IHL (5) = 0x45
+    *((ip_start + 0) as &mut u8) = IPV4_VERSION_IHL;
+
+    // Byte 1: DSCP + ECN (0 = best effort)
+    *((ip_start + 1) as &mut u8) = 0;
+
+    // Byte 2-3: Total Length (IP header + TCP header + payload)
+    *((ip_start + 2) as &mut u8) = (total_ip_len >> 8) as u8;
+    *((ip_start + 3) as &mut u8) = (total_ip_len & 0xFF) as u8;
+
+    // Byte 4-5: Identification (0 for now)
+    *((ip_start + 4) as &mut u8) = 0;
+    *((ip_start + 5) as &mut u8) = 0;
+
+    // Byte 6-7: Flags + Fragment Offset (Don't Fragment = 0x40, offset = 0)
+    *((ip_start + 6) as &mut u8) = 0x40;
+    *((ip_start + 7) as &mut u8) = 0;
+
+    // Byte 8: TTL
+    *((ip_start + 8) as &mut u8) = IPV4_TTL;
+
+    // Byte 9: Protocol (TCP = 6)
+    *((ip_start + 9) as &mut u8) = IPV4_PROTO_TCP;
+
+    // Byte 10-11: Header Checksum (set to 0 for computation)
+    *((ip_start + 10) as &mut u8) = 0;
+    *((ip_start + 11) as &mut u8) = 0;
+
+    // Byte 12-15: Source IP (network byte order)
+    *((ip_start + 12) as &mut u8) = (src_ip >> 24) as u8;
+    *((ip_start + 13) as &mut u8) = ((src_ip >> 16) & 0xFF) as u8;
+    *((ip_start + 14) as &mut u8) = ((src_ip >> 8) & 0xFF) as u8;
+    *((ip_start + 15) as &mut u8) = (src_ip & 0xFF) as u8;
+
+    // Byte 16-19: Destination IP (network byte order)
+    *((ip_start + 16) as &mut u8) = (dst_ip >> 24) as u8;
+    *((ip_start + 17) as &mut u8) = ((dst_ip >> 16) & 0xFF) as u8;
+    *((ip_start + 18) as &mut u8) = ((dst_ip >> 8) & 0xFF) as u8;
+    *((ip_start + 19) as &mut u8) = (dst_ip & 0xFF) as u8;
+
+    // =================================================================
+    // ETHERNET HEADER (14 bytes) — Written at ip_start - 14
+    // =================================================================
+    // Byte 0-5: Destination MAC
+    let mut m: u64 = 0;
+    while m < 6 {
+        *((eth_start + m) as &mut u8) = *((dst_mac + m) as &u8);
+        m = m + 1;
+    }
+
+    // Byte 6-11: Source MAC
+    m = 0;
+    while m < 6 {
+        *((eth_start + 6 + m) as &mut u8) = *((src_mac + m) as &u8);
+        m = m + 1;
+    }
+
+    // Byte 12-13: EtherType (0x0800 = IPv4)
+    *((eth_start + 12) as &mut u8) = ETHERTYPE_IPV4_HI;
+    *((eth_start + 13) as &mut u8) = ETHERTYPE_IPV4_LO;
+
+    // Return the Ethernet frame start — ready for DMA
+    return eth_start;
+}

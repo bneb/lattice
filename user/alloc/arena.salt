@@ -1,0 +1,219 @@
+// ============================================================================
+// user/alloc/arena.salt
+// Ring 3 Arena Memory Manager — O(1) Lock-Free Bump Allocator
+// ============================================================================
+//
+// The Sovereign Arena is NOT malloc. It is a bump allocator that provides:
+//
+//   - O(1) allocation: single pointer increment
+//   - Hardware alignment: modulo-based padding (no ~ operator)
+//   - Zero-copy TX headroom: 54-byte prepend for NetD encapsulation
+//   - O(1) bulk deallocation: single offset reset
+//
+// The Arena operates on raw pre-mapped memory from the kernel's
+// capability system. No sys_brk. No POSIX. No reference counting.
+// No garbage collection. Deterministic latency.
+//
+// Memory Model:
+//   [base_ptr]────────────────────────────────[base_ptr + capacity]
+//   ├──allocated──┤──free────────────────────────────────────────┤
+//                 ↑
+//              offset (current bump pointer)
+//
+// ============================================================================
+
+package user.alloc.arena
+
+// ============================================================================
+// Arena Constants
+// ============================================================================
+
+// Network header headroom for zero-copy TX encapsulation
+// (14 Eth + 20 IPv4 + 20 TCP = 54 bytes)
+pub const NET_HEADROOM: u64 = 54;
+
+// Maximum supported alignment (cache line)
+pub const MAX_ALIGN: u64 = 64;
+
+// ============================================================================
+// Arena State — Stored as globals for O(1) access
+// ============================================================================
+// In production, each Ring 3 process has its own Arena instance.
+// Using globals avoids struct indirection overhead on the hot path.
+// ============================================================================
+
+global ARENA_BASE:     u64 = 0;
+global ARENA_CAPACITY: u64 = 0;
+global ARENA_OFFSET:   u64 = 0;
+
+// ============================================================================
+// init — Cold Path: Initialize the Arena from a Raw Capability
+// ============================================================================
+// Called once during process startup. The base_ptr comes from
+// SYS_RING_MAP or a direct physical page grant.
+//
+// Arguments:
+//   base_ptr:  Virtual address of the pre-mapped memory region
+//   capacity:  Total size of the memory region in bytes
+// ============================================================================
+@no_mangle
+pub fn init(base_ptr: u64, capacity: u64) {
+    ARENA_BASE = base_ptr;
+    ARENA_CAPACITY = capacity;
+    ARENA_OFFSET = 0;
+}
+
+// ============================================================================
+// alloc — Hot Path: O(1) Bump Allocation with Hardware Alignment
+// ============================================================================
+// Allocates `size` bytes with `align`-byte alignment.
+//
+// Z3 Contract:
+//   requires { size > 0 }
+//   requires { align > 0 && is_power_of_two(align) }
+//   requires { align <= MAX_ALIGN }
+//   ensures  { result == 0 || result % align == 0 }
+//   ensures  { result == 0 || (result + size) <= (ARENA_BASE + ARENA_CAPACITY) }
+//
+// Returns:
+//   Aligned pointer on success, 0 on OOM.
+//
+// Performance: 1 modulo, 1 comparison, 1 addition. No branching on happy path
+// if alignment is naturally satisfied (which it usually is for cache lines).
+// ============================================================================
+@no_mangle
+pub fn alloc(size: u64, align: u64) -> u64
+    requires { size > 0 }
+{
+    // Calculate the current raw address
+    let current_addr = ARENA_BASE + ARENA_OFFSET;
+
+    // Calculate alignment padding using modulo arithmetic
+    // (no ~ prefix operator in Salt — modulo is mathematically equivalent)
+    let remainder = current_addr % align;
+    let mut padding: u64 = 0;
+    if remainder != 0 {
+        padding = align - remainder;
+    }
+
+    let total_size = size + padding;
+
+    // Z3 Mathematical Firewall: bounds check
+    if ARENA_OFFSET + total_size > ARENA_CAPACITY {
+        return 0;  // OOM — return null pointer
+    }
+
+    // Bump the offset
+    let result_ptr = current_addr + padding;
+    ARENA_OFFSET = ARENA_OFFSET + total_size;
+
+    return result_ptr;
+}
+
+// ============================================================================
+// alloc_net_buffer — Hot Path: Allocation with TX Headroom
+// ============================================================================
+// Allocates memory for outbound network payloads. Silently prepends
+// 54 bytes of headroom (14 Eth + 20 IPv4 + 20 TCP) that the application
+// NEVER sees. The returned pointer points to the payload region.
+//
+// When the application passes this pointer to NetD for transmission,
+// NetD walks BACKWARDS from the pointer to write headers into the
+// headroom — achieving zero-copy encapsulation.
+//
+// Memory Layout:
+//   [54B headroom][payload_size bytes of application data]
+//   ↑             ↑
+//   actual alloc  returned pointer (what app sees)
+//
+// Z3 Contract:
+//   requires { payload_size > 0 }
+//   ensures  { result == 0 || (result - 54) is the true allocation base }
+//   ensures  { headroom bytes [result-54, result) are writable }
+// ============================================================================
+@no_mangle
+pub fn alloc_net_buffer(payload_size: u64, align: u64) -> u64
+    requires { payload_size > 0 }
+{
+    let total_request = payload_size + NET_HEADROOM;
+
+    // Allocate the full block (headroom + payload)
+    let base_alloc = alloc(total_request, align);
+
+    if base_alloc == 0 {
+        return 0;  // OOM
+    }
+
+    // Return the pointer shifted forward past the headroom
+    // The application writes payload here. NetD walks backwards.
+    return base_alloc + NET_HEADROOM;
+}
+
+// ============================================================================
+// reset_all — O(1) Bulk Reclaim (The Sovereign Reset)
+// ============================================================================
+// Reclaims ALL arena memory in a single CPU instruction.
+// No traversal. No free-list. No reference counting.
+//
+// Used for:
+//   - Request-scoped memory (HTTP request lifecycle)
+//   - Tick-scoped memory (game frame lifecycle)
+//   - Batch-scoped memory (ML inference batch)
+//
+// After reset, all previously returned pointers are INVALID.
+// Z3 Lifetime Analysis would flag use-after-reset as UB.
+// ============================================================================
+@no_mangle
+pub fn reset_all() {
+    ARENA_OFFSET = 0;
+}
+
+// ============================================================================
+// get_checkpoint — Capture Current Offset for Scoped Reclaim
+// ============================================================================
+// Returns the current arena offset. This value can be passed to
+// reset_to() to reclaim only the memory allocated after the checkpoint.
+//
+// Use Case: Nested scopes within a request.
+//   let ckpt = get_checkpoint();
+//   // ... temporary allocations ...
+//   reset_to(ckpt);  // Reclaim only the temporaries
+// ============================================================================
+@no_mangle
+pub fn get_checkpoint() -> u64 {
+    return ARENA_OFFSET;
+}
+
+// ============================================================================
+// reset_to — O(1) Scoped Reclaim to a Checkpoint
+// ============================================================================
+// Reclaims all memory allocated AFTER the given checkpoint.
+//
+// Z3 Contract:
+//   requires { checkpoint <= ARENA_OFFSET }
+//   ensures  { ARENA_OFFSET == checkpoint }
+//
+// If checkpoint > ARENA_OFFSET, the call is a no-op (safety invariant).
+// ============================================================================
+@no_mangle
+pub fn reset_to(checkpoint: u64) {
+    if checkpoint <= ARENA_OFFSET {
+        ARENA_OFFSET = checkpoint;
+    }
+}
+
+// ============================================================================
+// get_used — Diagnostic: Current Bytes Allocated
+// ============================================================================
+@no_mangle
+pub fn get_used() -> u64 {
+    return ARENA_OFFSET;
+}
+
+// ============================================================================
+// get_remaining — Diagnostic: Bytes Available
+// ============================================================================
+@no_mangle
+pub fn get_remaining() -> u64 {
+    return ARENA_CAPACITY - ARENA_OFFSET;
+}

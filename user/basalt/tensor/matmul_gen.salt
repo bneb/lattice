@@ -1,0 +1,103 @@
+// ============================================================================
+// user/basalt/tensor/matmul_gen.salt
+// matmul_affine_4x4 — For-Loop Matrix Multiplication
+// ============================================================================
+//
+// This matmul uses Salt's native `for` loops with literal constant bounds
+// to trigger the compiler's structured control flow optimizations:
+//
+//   for i in 0..4  →  scf.for (constant bounds, narrowed IV)
+//   for k in 0..4  →  scf.for with iter_args (reduction detected!)
+//
+// The inner loop's `sum = sum + (a * b)` pattern is automatically
+// detected as a reduction by the compiler's `detect_reduction_pattern()`,
+// producing register-resident accumulation via iter_args — eliminating
+// store-to-load forwarding bottlenecks.
+//
+// CRITICAL: No `if` or `while` in the loop bodies. This keeps them
+// single-block compatible for maximum MLIR optimization.
+//
+// ============================================================================
+
+package user.basalt.tensor.matmul_gen
+
+// ============================================================================
+// matmul_affine_4x4 — Fixed 4×4 For-Loop MatMul
+// ============================================================================
+// Computes: C = A × B for 4×4 f64 matrices
+//
+// Uses literal bounds (0..4) so the compiler knows the exact trip count.
+// The inner reduction loop gets iter_args optimization automatically.
+//
+// This function takes raw addresses and locality tags to avoid
+// struct-passing complexity across the MLIR pipeline.
+// ============================================================================
+pub fn matmul_affine_4x4(
+    a_addr: u64, a_loc: u32,
+    b_addr: u64, b_loc: u32,
+    c_addr: u64, c_loc: u32
+) {
+    // Triple-nested for loop with literal constant bounds
+    // The compiler emits scf.for for each level
+    for i in 0..4 {
+        for j in 0..4 {
+            let mut sum: f64 = 0.0;
+            // Inner loop: sum = sum + (a * b) → reduction detected!
+            // Compiler emits: scf.for with iter_args(%sum = %init) -> (f64)
+            for k in 0..4 {
+                // A[i,k] — row-major offset = i*4 + k
+                let a_off: u64 = ((i * 4 + k) as u64) * 8;
+                let a_val: f64 = *((a_addr + a_off) as &f64);
+
+                // B[k,j] — row-major offset = k*4 + j
+                let b_off: u64 = ((k * 4 + j) as u64) * 8;
+                let b_val: f64 = *((b_addr + b_off) as &f64);
+
+                sum = sum + (a_val * b_val);
+            }
+
+            // C[i,j] = sum
+            let c_off: u64 = ((i * 4 + j) as u64) * 8;
+            *((c_addr + c_off) as &mut f64) = sum;
+        }
+    }
+}
+
+// ============================================================================
+// matmul_affine_NxN — Parameterized For-Loop MatMul
+// ============================================================================
+// Generic matmul for any square matrix size. Takes dimension as argument.
+// Uses while loops (for i in 0..n where n is runtime requires scf.for
+// but reduction pattern is still detected).
+// ============================================================================
+pub fn matmul_affine(
+    a_addr: u64,
+    b_addr: u64,
+    c_addr: u64,
+    rows: u32, inner: u32, cols: u32
+) {
+    let mut i: u32 = 0;
+    while i < rows {
+        let mut j: u32 = 0;
+        while j < cols {
+            let mut sum: f64 = 0.0;
+            let mut k: u32 = 0;
+            while k < inner {
+                let a_off: u64 = ((i * inner + k) as u64) * 8;
+                let a_val: f64 = *((a_addr + a_off) as &f64);
+
+                let b_off: u64 = ((k * cols + j) as u64) * 8;
+                let b_val: f64 = *((b_addr + b_off) as &f64);
+
+                sum = sum + (a_val * b_val);
+                k = k + 1;
+            }
+
+            let c_off: u64 = ((i * cols + j) as u64) * 8;
+            *((c_addr + c_off) as &mut f64) = sum;
+
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+}

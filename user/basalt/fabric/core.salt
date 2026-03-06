@@ -1,0 +1,52 @@
+// ============================================================================
+// user/basalt/fabric/core.salt
+// FabricCapability — Zero-Cost Transport Abstraction
+// ============================================================================
+//
+// The compile-time contract for zero-copy network transmission.
+// Any hardware fabric that Lattice supports (TCP, RDMA, DPDK, etc.)
+// must implement this trait.
+//
+// The compiler monomorphizes all generic functions bounded by
+// FabricCapability, producing separate optimized binaries for each
+// fabric type. No vtables. No dynamic dispatch. No runtime branching.
+//
+// Key Design Rule:
+//   ALL state must be encapsulated in the implementing struct.
+//   Global variables are FORBIDDEN — Lattice must support multiple
+//   concurrent fabric instances for multiplexed connections.
+//
+// ============================================================================
+
+package user.basalt.fabric.core
+
+// ============================================================================
+// FabricCapability — The Zero-Copy Transport Trait
+// ============================================================================
+pub trait FabricCapability {
+    /// Returns the exact number of bytes the Arena must reserve
+    /// before the payload pointer for this fabric's headers.
+    ///
+    /// TCP: 54 (14 Eth + 20 IPv4 + 20 TCP)
+    /// RDMA: 0 (NIC handles all encapsulation in silicon)
+    fn headroom(&self) -> u32;
+
+    /// Push a buffer directly to the hardware for transmission.
+    ///
+    /// Z3 VERIFIED: The caller must prove that the memory region
+    /// [buffer - headroom(), buffer + payload_len) is valid.
+    fn push_zero_copy(&mut self, buffer: u64, payload_len: u32);
+}
+
+// ============================================================================
+// Headroom Constants — Compile-Time Known Values
+// ============================================================================
+
+/// TCP headroom: Ethernet(14) + IPv4(20) + TCP(20) = 54 bytes
+pub const TCP_HEADROOM: u32 = 54;
+
+/// RDMA headroom: zero — the NIC handles all encapsulation
+pub const RDMA_HEADROOM: u32 = 0;
+
+/// RDMA Work Queue Element size: 16 bytes
+pub const RDMA_WQE_SIZE: u32 = 16;

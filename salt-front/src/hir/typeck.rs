@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use crate::hir::ids::VarId;
 use crate::hir::expr::{Expr, ExprKind, Literal, BinOp, Block};
 use crate::hir::stmt::{Stmt, StmtKind, Local, Pattern};
@@ -10,6 +10,9 @@ use crate::hir::types::Type;
 pub struct FnSig {
     pub params: Vec<Type>,
     pub return_type: Type,
+    /// Marks which parameter positions are `consume` (linear) parameters.
+    /// A consumed argument becomes inaccessible after the call.
+    pub linear_params: Vec<bool>,
 }
 
 /// Struct definition for the type checker's struct registry.
@@ -50,6 +53,10 @@ pub struct TypeckContext {
 
     /// Accumulated type errors (non-fatal collection mode).
     pub errors: Vec<String>,
+
+    /// Linear type tracking: variables that have been consumed by a
+    /// `consume`-annotated parameter. Any subsequent use is an error.
+    consumed_vars: HashSet<VarId>,
 }
 
 impl Default for TypeckContext {
@@ -67,6 +74,7 @@ impl TypeckContext {
             structs: HashMap::new(),
             traits: HashMap::new(),
             errors: Vec::new(),
+            consumed_vars: HashSet::new(),
         }
     }
 
@@ -82,9 +90,11 @@ impl TypeckContext {
         for item in items {
             match &item.kind {
                 ItemKind::Fn(f) => {
+                    let param_count = f.inputs.len();
                     let sig = FnSig {
                         params: f.inputs.iter().map(|p| p.ty.clone()).collect(),
                         return_type: f.output.clone(),
+                        linear_params: vec![false; param_count],
                     };
                     functions.insert(item.name.clone(), sig);
                 }
@@ -107,9 +117,11 @@ impl TypeckContext {
                     let mut required_methods = HashMap::new();
                     for trait_item in &t.items {
                         if let crate::hir::items::TraitItem::Fn { name, func } = trait_item {
+                            let param_count = func.inputs.len();
                             let sig = FnSig {
                                 params: func.inputs.iter().map(|p| p.ty.clone()).collect(),
                                 return_type: func.output.clone(),
+                                linear_params: vec![false; param_count],
                             };
                             required_methods.insert(name.clone(), sig);
                         }
@@ -152,9 +164,11 @@ impl TypeckContext {
                     let mut provided: HashMap<String, FnSig> = HashMap::new();
                     for impl_item in &imp.items {
                         if let crate::hir::items::ImplItem::Fn { name, func } = impl_item {
+                            let param_count = func.inputs.len();
                             let sig = FnSig {
                                 params: func.inputs.iter().map(|p| p.ty.clone()).collect(),
                                 return_type: func.output.clone(),
+                                linear_params: vec![false; param_count],
                             };
                             provided.insert(name.clone(), sig);
                         }
@@ -209,9 +223,11 @@ impl TypeckContext {
                         if let Some(struct_def) = structs.get_mut(&struct_name) {
                             for impl_item in &imp.items {
                                 if let crate::hir::items::ImplItem::Fn { name, func } = impl_item {
+                                    let param_count = func.inputs.len();
                                     let sig = FnSig {
                                         params: func.inputs.iter().map(|p| p.ty.clone()).collect(),
                                         return_type: func.output.clone(),
+                                        linear_params: vec![false; param_count],
                                     };
                                     struct_def.methods.insert(name.clone(), sig);
                                 }
@@ -228,6 +244,7 @@ impl TypeckContext {
             structs,
             traits,
             errors: trait_errors,
+            consumed_vars: HashSet::new(),
         }
     }
 
@@ -241,7 +258,8 @@ impl TypeckContext {
 
     /// Manually register a function signature (useful for tests).
     pub fn register_fn(&mut self, name: impl Into<String>, params: Vec<Type>, return_type: Type) {
-        self.functions.insert(name.into(), FnSig { params, return_type });
+        let linear_params = vec![false; params.len()];
+        self.functions.insert(name.into(), FnSig { params, return_type, linear_params });
     }
 
     /// Manually register a non-generic struct definition (useful for tests).
@@ -266,7 +284,8 @@ impl TypeckContext {
         return_type: Type,
     ) {
         if let Some(struct_def) = self.structs.get_mut(struct_name) {
-            struct_def.methods.insert(method_name.into(), FnSig { params, return_type });
+            let linear_params = vec![false; params.len()];
+            struct_def.methods.insert(method_name.into(), FnSig { params, return_type, linear_params });
         }
     }
 
@@ -334,6 +353,7 @@ impl TypeckContext {
                 let mono_sig = FnSig {
                     params: sig.params.iter().map(|p| p.substitute(&mapping)).collect(),
                     return_type: sig.return_type.substitute(&mapping),
+                    linear_params: sig.linear_params.clone(),
                 };
                 (mname.clone(), mono_sig)
             })
@@ -379,6 +399,13 @@ impl TypeckContext {
 
             // ── Leaves: Variables ─────────────────────────────────────
             ExprKind::Var(var_id) => {
+                // Linear type enforcement: reject use of consumed variables
+                if self.consumed_vars.contains(var_id) {
+                    return Err(format!(
+                        "Use after consume: VarId({}) has been consumed by a linear parameter",
+                        var_id.0
+                    ));
+                }
                 self.local_env.get(var_id)
                     .cloned()
                     .ok_or_else(|| format!("Typeck: VarId({}) has no known type", var_id.0))?
@@ -543,7 +570,22 @@ impl TypeckContext {
                     }
                 }
 
-                // 5. The call expression's type IS the function's return type
+                // 5. Linear type consumption: mark consumed arguments
+                for (i, arg) in args.iter().enumerate() {
+                    if i < sig.linear_params.len() && sig.linear_params[i] {
+                        if let ExprKind::Var(var_id) = &arg.kind {
+                            if self.consumed_vars.contains(var_id) {
+                                return Err(format!(
+                                    "Double consume: VarId({}) already consumed",
+                                    var_id.0
+                                ));
+                            }
+                            self.consumed_vars.insert(*var_id);
+                        }
+                    }
+                }
+
+                // 6. The call expression's type IS the function's return type
                 sig.return_type
             }
 
@@ -1846,6 +1888,7 @@ mod tests {
             FnSig {
                 params: vec![Type::Struct("Container".into())],
                 return_type: Type::Generic("T".into()),
+                linear_params: vec![false],
             },
         );
 
@@ -2279,5 +2322,131 @@ mod tests {
         assert!(t.required_methods.contains_key("eq"));
         assert_eq!(t.required_methods["hash"].return_type, Type::U64);
         assert_eq!(t.required_methods["eq"].return_type, Type::Bool);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════
+    // Linear Type Consumption Tests (Sovereign ABI Phase 4)
+    // ═════════════════════════════════════════════════════════════════════
+
+    /// Helper: register a function where specific params are marked `consume`.
+    fn register_linear_fn(
+        ctx: &mut TypeckContext,
+        name: &str,
+        params: Vec<Type>,
+        linear_mask: Vec<bool>,
+        return_type: Type,
+    ) {
+        ctx.functions.insert(name.to_string(), FnSig {
+            params,
+            return_type,
+            linear_params: linear_mask,
+        });
+    }
+
+    #[test]
+    fn test_linear_consume_basic() {
+        // fn push(ring: I64, payload: consume I64) -> Unit
+        // Calling push(ring, payload) should succeed and consume payload.
+        let mut ctx = TypeckContext::new();
+        let ring_id = VarId(0);
+        let payload_id = VarId(1);
+        ctx.local_env.insert(ring_id, Type::I64);
+        ctx.local_env.insert(payload_id, Type::I64);
+
+        register_linear_fn(
+            &mut ctx,
+            "push",
+            vec![Type::I64, Type::I64],
+            vec![false, true],  // second param is consume
+            Type::Unit,
+        );
+
+        // Build: push(ring, payload)
+        let mut call_expr = mk_expr(ExprKind::Call {
+            callee: Box::new(mk_expr(ExprKind::UnresolvedIdent("push".into()))),
+            args: vec![mk_var(0), mk_var(1)],
+        });
+
+        let result = ctx.typeck_expr(&mut call_expr);
+        assert!(result.is_ok(), "Basic consume should succeed: {:?}", result);
+
+        // After the call, payload_id should be consumed
+        assert!(ctx.consumed_vars.contains(&payload_id),
+            "VarId(1) should be consumed after call");
+    }
+
+    #[test]
+    fn test_use_after_consume() {
+        // fn push(ring: I64, payload: consume I64) -> Unit
+        // Calling push(ring, payload) then using payload again should fail.
+        let mut ctx = TypeckContext::new();
+        let ring_id = VarId(0);
+        let payload_id = VarId(1);
+        ctx.local_env.insert(ring_id, Type::I64);
+        ctx.local_env.insert(payload_id, Type::I64);
+
+        register_linear_fn(
+            &mut ctx,
+            "push",
+            vec![Type::I64, Type::I64],
+            vec![false, true],
+            Type::Unit,
+        );
+
+        // Call 1: push(ring, payload) — consumes payload
+        let mut call_expr = mk_expr(ExprKind::Call {
+            callee: Box::new(mk_expr(ExprKind::UnresolvedIdent("push".into()))),
+            args: vec![mk_var(0), mk_var(1)],
+        });
+        let result = ctx.typeck_expr(&mut call_expr);
+        assert!(result.is_ok(), "First call should succeed");
+
+        // Now try to USE payload again (standalone var reference)
+        let mut use_expr = mk_var(1);
+        let result = ctx.typeck_expr(&mut use_expr);
+        assert!(result.is_err(), "Use after consume should fail");
+        let err = result.unwrap_err();
+        assert!(err.contains("Use after consume"),
+            "Error should mention 'Use after consume': {}", err);
+    }
+
+    #[test]
+    fn test_double_consume() {
+        // fn push(ring: I64, payload: consume I64) -> Unit
+        // Calling push(ring, payload) twice should fail on the second call.
+        let mut ctx = TypeckContext::new();
+        let ring_id = VarId(0);
+        let payload_id = VarId(1);
+        ctx.local_env.insert(ring_id, Type::I64);
+        ctx.local_env.insert(payload_id, Type::I64);
+
+        register_linear_fn(
+            &mut ctx,
+            "push",
+            vec![Type::I64, Type::I64],
+            vec![false, true],
+            Type::Unit,
+        );
+
+        // Call 1: push(ring, payload) — consumes payload
+        let mut call1 = mk_expr(ExprKind::Call {
+            callee: Box::new(mk_expr(ExprKind::UnresolvedIdent("push".into()))),
+            args: vec![mk_var(0), mk_var(1)],
+        });
+        let result = ctx.typeck_expr(&mut call1);
+        assert!(result.is_ok(), "First call should succeed");
+
+        // Call 2: push(ring, payload) — payload already consumed
+        let mut call2 = mk_expr(ExprKind::Call {
+            callee: Box::new(mk_expr(ExprKind::UnresolvedIdent("push".into()))),
+            args: vec![mk_var(0), mk_var(1)],
+        });
+        let result = ctx.typeck_expr(&mut call2);
+        assert!(result.is_err(), "Double consume should fail");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("Use after consume") || err.contains("Double consume"),
+            "Error should mention consumption: {}", err
+        );
     }
 }

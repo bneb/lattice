@@ -1,0 +1,175 @@
+// ============================================================================
+// user/kernel/net/ethernet.salt
+// Raw Ethernet Framing — OSI Layer 2 Only
+// ============================================================================
+//
+// NO TCP/IP. NO ARP. NO UDP. Pure Layer 2.
+//
+// Lattice nodes communicate using raw Ethernet frames with a custom
+// EtherType (0x88B5 — IEEE 802 Local Experimental). This eliminates
+// the entire IP stack overhead, giving us sub-microsecond framing.
+//
+// Ethernet Frame Layout:
+//   [0..6)    Destination MAC  (6 bytes)
+//   [6..12)   Source MAC       (6 bytes)
+//   [12..14)  EtherType        (2 bytes, big-endian: 0x88B5)
+//   [14..)    Payload          (MoE WQE: 16 bytes)
+//
+// Total minimum frame: 14 + 16 = 30 bytes
+// (QEMU pads to Ethernet minimum 60 bytes automatically)
+//
+// Node Identity (via MAC last byte):
+//   0xAA → Router (Node A) — dispatches MoE WQEs
+//   0xBB → Expert (Node B) — receives and computes matmul
+//
+// ============================================================================
+
+package user.kernel.net.ethernet
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// Constants
+// ============================================================================
+pub const ETHERTYPE_LATTICE: u16 = 0x88B5;
+pub const ETH_HEADER_SIZE:   u64 = 14;
+pub const WQE_PAYLOAD_SIZE:  u64 = 16;
+pub const ETH_FRAME_SIZE:    u64 = 30;  // 14 + 16
+
+// MAC address size
+pub const MAC_SIZE: u64 = 6;
+
+// Hardcoded MAC addresses for the 2-node fabric
+pub const MAC_ROUTER_LAST: u8 = 0xAA;
+pub const MAC_EXPERT_LAST: u8 = 0xBB;
+
+// Node roles
+pub const ROLE_ROUTER: u8 = 1;
+pub const ROLE_EXPERT: u8 = 2;
+pub const ROLE_UNKNOWN: u8 = 0;
+
+// ============================================================================
+// MAC Address Helpers
+// ============================================================================
+
+// Write the Router MAC (52:54:00:12:34:AA) to a buffer
+pub fn write_router_mac(buf: u64) {
+    *((buf) as &mut u8) = 0x52;
+    *((buf + 1) as &mut u8) = 0x54;
+    *((buf + 2) as &mut u8) = 0x00;
+    *((buf + 3) as &mut u8) = 0x12;
+    *((buf + 4) as &mut u8) = 0x34;
+    *((buf + 5) as &mut u8) = 0xAA;
+}
+
+// Write the Expert MAC (52:54:00:12:34:BB) to a buffer
+pub fn write_expert_mac(buf: u64) {
+    *((buf) as &mut u8) = 0x52;
+    *((buf + 1) as &mut u8) = 0x54;
+    *((buf + 2) as &mut u8) = 0x00;
+    *((buf + 3) as &mut u8) = 0x12;
+    *((buf + 4) as &mut u8) = 0x34;
+    *((buf + 5) as &mut u8) = 0xBB;
+}
+
+// Copy 6 bytes from src to dest
+pub fn copy_mac(dest: u64, src: u64) {
+    *((dest) as &mut u8) = *((src) as &u8);
+    *((dest + 1) as &mut u8) = *((src + 1) as &u8);
+    *((dest + 2) as &mut u8) = *((src + 2) as &u8);
+    *((dest + 3) as &mut u8) = *((src + 3) as &u8);
+    *((dest + 4) as &mut u8) = *((src + 4) as &u8);
+    *((dest + 5) as &mut u8) = *((src + 5) as &u8);
+}
+
+// ============================================================================
+// format_ethernet_header — Write the 14-byte header into a TX buffer
+// ============================================================================
+// Parameters:
+//   buffer:   start of the VirtIO TX buffer (zero-copy, in-place)
+//   dest_mac: pointer to 6-byte destination MAC
+//   src_mac:  pointer to 6-byte source MAC
+//
+// Writes: [dest_mac(6)] [src_mac(6)] [ethertype(2, big-endian)]
+// ============================================================================
+pub fn format_ethernet_header(buffer: u64, dest_mac: u64, src_mac: u64) {
+    // Destination MAC: bytes 0-5
+    copy_mac(buffer, dest_mac);
+    // Source MAC: bytes 6-11
+    copy_mac(buffer + 6, src_mac);
+    // EtherType: bytes 12-13 (big-endian: 0x88, 0xB5)
+    *((buffer + 12) as &mut u8) = 0x88;
+    *((buffer + 13) as &mut u8) = 0xB5;
+}
+
+// ============================================================================
+// write_wqe_payload — Write the 128-bit WQE after the Ethernet header
+// ============================================================================
+// Parameters:
+//   buffer:      start of the VirtIO TX buffer
+//   wqe_control: high 64 bits (opcode | token)
+//   wqe_payload: low 64 bits (remote address)
+// ============================================================================
+@inline
+pub fn write_wqe_payload(buffer: u64, wqe_control: u64, wqe_payload: u64) {
+    *((buffer + ETH_HEADER_SIZE) as &mut u64) = wqe_control;
+    *((buffer + ETH_HEADER_SIZE + 8) as &mut u64) = wqe_payload;
+}
+
+// ============================================================================
+// parse_ethernet_header — Read fields from an incoming frame
+// ============================================================================
+// Returns the EtherType (big-endian decoded to host u16)
+// ============================================================================
+@inline
+pub fn parse_ethertype(buffer: u64) -> u16 {
+    let hi: u16 = (*((buffer + 12) as &u8)) as u16;
+    let lo: u16 = (*((buffer + 13) as &u8)) as u16;
+    return (hi << 8) | lo;
+}
+
+// ============================================================================
+// read_wqe_control — Read the WQE control word from a received frame
+// ============================================================================
+@inline
+pub fn read_wqe_control(buffer: u64) -> u64 {
+    return *((buffer + ETH_HEADER_SIZE) as &u64);
+}
+
+// ============================================================================
+// read_wqe_payload — Read the WQE payload from a received frame
+// ============================================================================
+@inline
+pub fn read_wqe_payload(buffer: u64) -> u64 {
+    return *((buffer + ETH_HEADER_SIZE + 8) as &u64);
+}
+
+// ============================================================================
+// determine_role — Identify this node from its MAC address last byte
+// ============================================================================
+pub fn determine_role(local_mac: u64) -> u8 {
+    let last_byte: u8 = *((local_mac + 5) as &u8);
+    if last_byte == MAC_ROUTER_LAST { return ROLE_ROUTER; }
+    if last_byte == MAC_EXPERT_LAST { return ROLE_EXPERT; }
+    return ROLE_UNKNOWN;
+}
+
+// ============================================================================
+// get_peer_mac — Given our MAC, return the peer's MAC destination
+// ============================================================================
+// Router → sends to Expert; Expert → sends to Router
+// ============================================================================
+pub fn write_peer_mac(local_mac: u64, peer_buf: u64) {
+    let last_byte: u8 = *((local_mac + 5) as &u8);
+    // Copy common prefix
+    *((peer_buf) as &mut u8) = 0x52;
+    *((peer_buf + 1) as &mut u8) = 0x54;
+    *((peer_buf + 2) as &mut u8) = 0x00;
+    *((peer_buf + 3) as &mut u8) = 0x12;
+    *((peer_buf + 4) as &mut u8) = 0x34;
+    if last_byte == MAC_ROUTER_LAST {
+        *((peer_buf + 5) as &mut u8) = MAC_EXPERT_LAST;
+    } else {
+        *((peer_buf + 5) as &mut u8) = MAC_ROUTER_LAST;
+    }
+}

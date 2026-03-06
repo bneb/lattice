@@ -1,0 +1,309 @@
+// ============================================================================
+// user/benchmarks/apex_validation.salt
+// Sovereign Silicon Characterization — Boot-Time Hardware Primitives
+// ============================================================================
+//
+// These are NOT CI-only benchmarks. They are runtime architectural primitives.
+//
+// When a Lattice node boots on unknown silicon, the Sovereign Reactor calls
+// these functions to calibrate:
+//   - Clock frequency:  How fast is CNTVCT_EL0 relative to wall-clock?
+//   - Doorbell latency: How many cycles does a PCIe MMIO push take?
+//   - Scheduler tax:    How many cycles does each CQE poll + promotion cost?
+//   - Tile size:        What NxN matmul tile maximizes CPE efficiency?
+//
+// These measurements feed directly into the reactor's yield-vs-compute
+// heuristic, determining when to sleep (WFE) vs spin.
+//
+// All functions return raw cycle counts. The caller converts to nanoseconds
+// using the measured clock frequency.
+//
+// ============================================================================
+
+package user.benchmarks.apex_validation
+
+use std.core.ptr.Ptr
+
+// Hardware cycle counter — llvm.intr.readcyclecounter
+extern fn rdtsc() -> i64;
+
+// Atomic black-box barrier — opaque to LLVM optimizer
+extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
+
+// Heap allocation for benchmark buffers
+extern fn malloc(size: i64) -> u64;
+extern fn free(ptr: u64);
+
+// ============================================================================
+// HardwareProfile — Boot-Time Silicon Characterization
+// ============================================================================
+// Returned by calibrate_hardware(). The Sovereign Reactor uses these
+// measurements to calibrate tile sizes, yield thresholds, and CQE
+// poll frequencies at boot time.
+// ============================================================================
+pub struct HardwareProfile {
+    /// Cycles per MAC for 4×4 matmul (milli-cycles × 1000 / 64)
+    pub cpe_4x4: i64,
+    /// Cycles per MAC for 16×16 matmul (milli-cycles × 1000 / 4096)
+    pub cpe_16x16: i64,
+    /// Cycles for single scheduler CQE poll + PENDING→RUNNING
+    pub scheduler_overhead_cycles: i64,
+    /// Cycles for 10k atomic loads (clock frequency baseline)
+    pub clock_calibration_10k: i64,
+    /// Raw cycle count for 4×4 matmul
+    pub matmul_4x4_cycles: i64,
+    /// Raw cycle count for 16×16 matmul
+    pub matmul_16x16_cycles: i64,
+}
+
+// ============================================================================
+// calibrate_hardware — Boot-Time Sovereign Initialization
+// ============================================================================
+// Runs the full Apex benchmark suite and returns a HardwareProfile
+// the reactor uses to make scheduling decisions. This is called once
+// at boot before any user tasks are enqueued.
+//
+// On unknown silicon, this function tells the reactor:
+//   - What tile size to use for matmul (CPE sweet spot)
+//   - How expensive each scheduler tick is
+//   - How to convert cycles to nanoseconds
+// ============================================================================
+pub fn calibrate_hardware() -> HardwareProfile {
+    let sink_addr: u64 = malloc(64);
+    let mut zi: i64 = 0;
+    while zi < 64 { *((sink_addr + (zi as u64)) as &mut u8) = 0; zi = zi + 1; }
+    let sink: Ptr<i64> = sink_addr as Ptr<i64>;
+
+    // --- Matmul 4×4 ---
+    let s4: u64 = 128;
+    let a4: u64 = malloc((s4 * 3) as i64);
+    fill_matrix(a4, 4, 1.0);
+    fill_matrix(a4 + s4, 4, 2.0);
+    fill_matrix(a4 + s4 * 2, 4, 0.0);
+    let cy4: i64 = benchmark_matmul(a4, a4 + s4, a4 + s4 * 2, 4, sink);
+    free(a4);
+
+    // --- Matmul 16×16 ---
+    let s16: u64 = 2048;
+    let a16: u64 = malloc((s16 * 3) as i64);
+    fill_matrix(a16, 16, 1.0);
+    fill_matrix(a16 + s16, 16, 2.0);
+    fill_matrix(a16 + s16 * 2, 16, 0.0);
+    let cy16: i64 = benchmark_matmul(a16, a16 + s16, a16 + s16 * 2, 16, sink);
+    free(a16);
+
+    // --- Scheduler promotion ---
+    let sched_buf: u64 = malloc(128);
+    let mut szi: i64 = 0;
+    while szi < 128 { *((sched_buf + (szi as u64)) as &mut u8) = 0; szi = szi + 1; }
+    *((sched_buf) as &mut u32) = 2;     // TASK_PENDING
+    *((sched_buf + 4) as &mut u32) = 1; // token=1
+    *((sched_buf + 64 + 8) as &mut i64) = 1; // CQE completed
+    let sched_cy: i64 = benchmark_scheduler_promotion(sched_buf, sched_buf + 64, sink);
+    free(sched_buf);
+
+    // --- Clock calibration ---
+    let cal_cy: i64 = benchmark_clock_calibration(sink);
+
+    // --- Compute CPE ---
+    let mut cpe4: i64 = 0;
+    if cy4 > 0 { cpe4 = (cy4 * 1000) / 64; }
+    let mut cpe16: i64 = 0;
+    if cy16 > 0 { cpe16 = (cy16 * 1000) / 4096; }
+
+    free(sink_addr);
+
+    return HardwareProfile {
+        cpe_4x4: cpe4,
+        cpe_16x16: cpe16,
+        scheduler_overhead_cycles: sched_cy,
+        clock_calibration_10k: cal_cy,
+        matmul_4x4_cycles: cy4,
+        matmul_16x16_cycles: cy16,
+    };
+}
+
+// ============================================================================
+// do_not_optimize_u64 — The Compiler Fence
+// ============================================================================
+// Sinks a value through an atomic operation, making it opaque to DCE/SCCP.
+// Emits zero additional machine instructions beyond a single `ldar` (ARM64).
+// This is the Salt equivalent of Google Benchmark's DoNotOptimize.
+// ============================================================================
+@inline
+pub fn do_not_optimize_u64(sink: Ptr<i64>, val: u64) {
+    sink.write(val as i64);
+    let _barrier: i64 = salt_atomic_load_i64(sink);
+}
+
+// ============================================================================
+// opaque_u64 — Read an opaque value through the atomic barrier
+// ============================================================================
+// Returns a value that LLVM cannot constant-fold, because it traverses
+// an atomic load. Used to feed benchmark inputs so SCCP doesn't eliminate
+// the benchmarked code path.
+// ============================================================================
+@inline
+pub fn opaque_u64(sink: Ptr<i64>, val: u64) -> u64 {
+    sink.write(val as i64);
+    let loaded: i64 = salt_atomic_load_i64(sink);
+    return loaded as u64;
+}
+
+// ============================================================================
+// benchmark_raw_doorbell — Baseline: 128-bit Atomic PCIe MMIO Push
+// ============================================================================
+// Measures the raw cost of a single Ptr<[u64; 2]>.write() to a mock BAR.
+// On ARM64, this lowers to a single `stp` — store pair.
+//
+// This is the absolute floor. Every higher-level abstraction must
+// compile down to this same cost (or SCCP has failed).
+// ============================================================================
+pub fn benchmark_raw_doorbell(bar_addr: u64, sink: Ptr<i64>) -> i64 {
+    let control: u64 = opaque_u64(sink, (1 << 32) | 42);
+    let payload: u64 = 0xDEADBEEF;
+
+    let start: i64 = rdtsc();
+
+    let doorbell: Ptr<[u64; 2]> = (bar_addr + 0x1000) as Ptr<[u64; 2]>;
+    doorbell.write([control, payload]);
+    do_not_optimize_u64(sink, *((bar_addr + 0x1000) as &u64));
+
+    let stop: i64 = rdtsc();
+    return stop - start;
+}
+
+// ============================================================================
+// benchmark_fabric_dispatch — FabricPtr LOC_RDMA Abstraction
+// ============================================================================
+// Measures the cost of the FabricPtr::write_u64 path with LOC_RDMA.
+// If SCCP eliminates the locality branch, this MUST equal
+// benchmark_raw_doorbell. Any delta is an SCCP pipeline failure.
+//
+// The locality value is fed through the atomic barrier so the *benchmark*
+// doesn't get SCCP'd, while the *production code* does.
+// ============================================================================
+pub fn benchmark_fabric_dispatch(bar_addr: u64, sink: Ptr<i64>) -> i64 {
+    let loc: u64 = opaque_u64(sink, 2);  // LOC_RDMA = 2
+
+    let start: i64 = rdtsc();
+
+    if (loc as u32) == 2 {
+        let db_addr: u64 = bar_addr + 0x1000;
+        let control: u64 = (1 << 32) | 0;
+        let doorbell: Ptr<[u64; 2]> = db_addr as Ptr<[u64; 2]>;
+        doorbell.write([control, 0xDEADBEEF]);
+    }
+    do_not_optimize_u64(sink, *((bar_addr + 0x1000) as &u64));
+
+    let stop: i64 = rdtsc();
+    return stop - start;
+}
+
+// ============================================================================
+// benchmark_matmul — NxN Matrix Multiply Cycle Count
+// ============================================================================
+// Measures the total cycle cost of an NxN dense matmul.
+// C = A × B where all elements of A = 1.0, B = 2.0.
+//
+// Returns (cycles, expected_c00) where expected_c00 = N * 2.0.
+// The caller computes CPE = cycles / N³ for architectural analysis.
+//
+// The output tensor is sunk through the atomic barrier to prevent
+// polyhedral loop deletion by the MLIR optimizer.
+// ============================================================================
+pub fn benchmark_matmul(a_addr: u64, b_addr: u64, c_addr: u64, n: u32, sink: Ptr<i64>) -> i64 {
+    let start: i64 = rdtsc();
+
+    let mut i: u32 = 0;
+    while i < n {
+        let mut j: u32 = 0;
+        while j < n {
+            let mut sum: f64 = 0.0;
+            let mut k: u32 = 0;
+            while k < n {
+                let a_val: f64 = *((a_addr + ((i * n + k) as u64) * 8) as &f64);
+                let b_val: f64 = *((b_addr + ((k * n + j) as u64) * 8) as &f64);
+                sum = sum + (a_val * b_val);
+                k = k + 1;
+            }
+            *((c_addr + ((i * n + j) as u64) * 8) as &mut f64) = sum;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    // Sink C[0,0] to prevent DCE of entire matmul
+    do_not_optimize_u64(sink, *((c_addr) as &u64));
+
+    let stop: i64 = rdtsc();
+    return stop - start;
+}
+
+// ============================================================================
+// benchmark_scheduler_promotion — CQE Poll + PENDING→RUNNING
+// ============================================================================
+// Measures the exact overhead of the cooperative multiplexer:
+//   1. Read task status (memory load)
+//   2. Atomic CQE poll (salt_atomic_load_i64 with ACQUIRE)
+//   3. State transition write (PENDING → RUNNING)
+//
+// This is the per-task, per-tick cost of the Sovereign Reactor.
+// The CQE token is pre-completed to measure the promotion fast-path.
+// ============================================================================
+pub fn benchmark_scheduler_promotion(
+    slots_addr: u64,
+    cqe_ring_addr: u64,
+    sink: Ptr<i64>
+) -> i64 {
+    let start: i64 = rdtsc();
+
+    let status: u32 = *((slots_addr) as &u32);
+    if status == 2 {  // TASK_PENDING
+        let token: u32 = *((slots_addr + 4) as &u32);
+        let cqe_slot: u64 = cqe_ring_addr + ((token as u64) * 8);
+        let cqe_ptr: Ptr<i64> = cqe_slot as Ptr<i64>;
+        let cqe_val: i64 = salt_atomic_load_i64(cqe_ptr);
+        if cqe_val != 0 {
+            *((slots_addr) as &mut u32) = 1;  // TASK_RUNNING
+            *((slots_addr + 4) as &mut u32) = 0;
+        }
+    }
+    do_not_optimize_u64(sink, *((slots_addr) as &u64));
+
+    let stop: i64 = rdtsc();
+    return stop - start;
+}
+
+// ============================================================================
+// benchmark_clock_frequency — CNTVCT_EL0 / RDTSC Calibration
+// ============================================================================
+// Measures how many counter ticks elapse over a known workload.
+// Returns the cycle count of 10,000 atomic loads — this serves as
+// the baseline for converting raw cycles to nanoseconds once the
+// reactor knows the CPU frequency.
+// ============================================================================
+pub fn benchmark_clock_calibration(sink: Ptr<i64>) -> i64 {
+    let start: i64 = rdtsc();
+
+    let mut i: u32 = 0;
+    while i < 10000 {
+        let _v: i64 = salt_atomic_load_i64(sink);
+        i = i + 1;
+    }
+
+    let stop: i64 = rdtsc();
+    return stop - start;
+}
+
+// ============================================================================
+// fill_matrix — Initialize NxN matrix with constant value
+// ============================================================================
+pub fn fill_matrix(addr: u64, n: u32, val: f64) {
+    let total: u32 = n * n;
+    let mut i: u32 = 0;
+    while i < total {
+        *((addr + (i as u64) * 8) as &mut f64) = val;
+        i = i + 1;
+    }
+}

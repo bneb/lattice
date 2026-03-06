@@ -1,0 +1,37 @@
+// ============================================================================
+// kernel/arch/mod.salt
+// Hardware Abstraction Layer (HAL) Router
+// ============================================================================
+//
+// This module provides zero-cost compile-time routing to the correct
+// architecture-specific implementation based on the target triplet.
+//
+// The core kernel modules MUST import from `kernel.arch.[module]` and
+// NEVER directly from `kernel.arch.x86_64.[module]`.
+// ============================================================================
+
+package kernel.arch
+
+// ----------------------------------------------------------------------------
+// x86_64 (Intel / AMD Bare Metal)
+// ----------------------------------------------------------------------------
+#[cfg(target_arch = "x86_64")]
+pub export x86_64.cpu;
+
+#[cfg(target_arch = "x86_64")]
+pub export x86_64.mmu;
+
+#[cfg(target_arch = "x86_64")]
+pub export x86_64.timer;
+
+// ----------------------------------------------------------------------------
+// aarch64 (Apple Silicon / AWS Graviton)
+// ----------------------------------------------------------------------------
+#[cfg(target_arch = "aarch64")]
+pub export aarch64.cpu;
+
+#[cfg(target_arch = "aarch64")]
+pub export aarch64.mmu;
+
+#[cfg(target_arch = "aarch64")]
+pub export aarch64.timer;

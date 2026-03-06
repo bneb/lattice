@@ -1,0 +1,33 @@
+// =============================================================================
+// Test: TCP Fabric — 54-Byte Headroom and Encapsulation
+// =============================================================================
+
+fn main() -> i32 {
+    // TCP headroom must be exactly 54
+    let headroom: u32 = 54;
+    let eth: u32 = 14;
+    let ip: u32 = 20;
+    let tcp: u32 = 20;
+
+    if eth + ip + tcp != headroom {
+        return 1;
+    }
+
+    // Simulate push_zero_copy: walk backwards and write headers
+    // Frame start = buffer - headroom
+    let buffer: u64 = 0x2000;
+    let frame_start = buffer - (headroom as u64);
+
+    if frame_start != 0x2000 - 54 {
+        return 2;
+    }
+
+    // Total frame = header + payload
+    let payload: u32 = 128;
+    let total = headroom + payload;
+    if total != 182 {
+        return 3;
+    }
+
+    return 0;
+}

@@ -75,6 +75,27 @@ get_kernel_trampoline_addr:
     lea rax, [rip + kernel_trampoline]
     ret
 
+/* sys_write stub for Ring 3 pipeline */
+.global r3_sys_write
+r3_sys_write:
+    mov rax, 1
+    syscall
+    ret
+
+/* sys_shutdown stub for Ring 3 pipeline */
+.global r3_sys_shutdown
+r3_sys_shutdown:
+    mov rax, 99
+    syscall
+    ret
+
+/* sys_yield stub for Ring 3 pipeline */
+.global r3_sys_yield
+r3_sys_yield:
+    mov rax, 119
+    syscall
+    ret
+
 /* get_kernel_event_loop_addr() -> u64
  * Returns the address of kernel_event_loop (defined in dispatcher.salt).
  * Used to pass the entry function to spawn_kernel_thread.
@@ -82,6 +103,12 @@ get_kernel_trampoline_addr:
 .global get_kernel_event_loop_addr
 get_kernel_event_loop_addr:
     lea rax, [rip + kernel_event_loop]
+    ret
+
+/* get_moe_trampoline_addr() -> u64 */
+.global get_moe_trampoline_addr
+get_moe_trampoline_addr:
+    lea rax, [rip + moe_trampoline]
     ret
 
 /* get_user_elf_a_addr() -> u64 */

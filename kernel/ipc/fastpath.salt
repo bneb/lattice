@@ -1,0 +1,112 @@
+// ============================================================================
+// kernel/ipc/fastpath.salt
+// Fast-Path Register IPC — Sub-Microsecond Signaling
+// ============================================================================
+//
+// Ultra-low latency IPC for market tick notifications, AI tensor sync
+// triggers, and other payloads that fit in two register words.
+//
+// Bypasses memory entirely: the kernel writes directly into the
+// suspended receiver's CPU context via the HAL abstraction.
+// When the target is scheduled, it wakes with p1/p2 in its registers.
+// ============================================================================
+
+package kernel.ipc.fastpath
+
+// FFI bridges — bypass module mangling for modules with compilation issues
+extern fn validate_cap(cap_id: u64) -> bool;
+extern fn get_process_by_cap(cap_id: u64) -> u64;
+extern fn get_cpu_context(proc: u64) -> u64;
+extern fn inject_ipc_payload(ctx: u64, p1: u64, p2: u64);
+extern fn get_pid(proc: u64) -> u32;
+extern fn mark_runnable(task_id: u32);
+extern fn clear_runnable(task_id: u32);
+extern fn yield_to(target_id: u32);
+extern fn yield_to_next();
+extern fn current() -> u64;
+extern fn get_pid_u32(pid: u64) -> u32;
+extern fn set_state(pid: u64, state: u64);
+
+// ============================================================================
+// sys_ipc_reg_send — Register-Level IPC (2x u64 payload)
+// ============================================================================
+// ABI:
+//   arg0 (rdi/x0) = target_cap_id — capability handle for the target process
+//   arg1 (rsi/x1) = payload_word_1
+//   arg2 (rdx/x2) = payload_word_2
+//
+// Returns:
+//   0  = success
+//   -1 = invalid capability
+//   -2 = target not found
+// ============================================================================
+@no_mangle
+pub fn sys_ipc_reg_send(target_cap: u64, p1: u64, p2: u64) -> i64 {
+    // Validate the capability
+    let cap_valid = validate_cap(target_cap);
+    if !cap_valid {
+        return -1;
+    }
+    
+    // Resolve the target process from the capability handle
+    let target = get_process_by_cap(target_cap);
+    if target as u64 == 0 {
+        return -2;
+    }
+    
+    // Inject the payload directly into the target's saved CPU context
+    // Architecture-agnostic: writes to RSI/RDX on x86, X1/X2 on ARM
+    let target_ctx = get_cpu_context(target);
+    inject_ipc_payload(target_ctx, p1, p2);
+    
+    // Mark target as runnable in the O(1) bitmap
+    let target_id = get_pid(target);
+    mark_runnable(target_id);
+    
+    // Optional: Immediately yield to target (fast-path synchronous switch)
+    // This minimizes latency for producer-consumer pairs pinned to the same core
+    yield_to(target_id);
+    
+    return 0;
+}
+
+// ============================================================================
+// sys_ipc_await — Tickless IPC Blocking (Syscall Vector 14)
+// ============================================================================
+// ABI:
+//   No arguments.
+//
+// Behavior:
+//   1. Removes the calling process from the O(1) runnable bitmap.
+//   2. Yields the core immediately to the next runnable task.
+//   3. When woken by sys_ipc_reg_send or handle_hardware_irq,
+//      the process resumes here with IPC payload already in RSI/RDX.
+//
+// Returns:
+//   0 = success (woken by IPC)
+//
+// This is the tickless foundation: zero CPU overhead while parked.
+// The kernel IRQ handler or sys_ipc_reg_send will inject the payload
+// directly into this process's saved CPU context and mark it runnable.
+// ============================================================================
+@no_mangle
+pub fn sys_ipc_await() -> i64 {
+    // 1. Get the current process ID
+    let current_pid = current();
+    let task_id = get_pid_u32(current_pid);
+    
+    // 2. Remove from the O(1) runnable bitmap — zero CPU cost while parked
+    clear_runnable(task_id);
+    
+    // 3. Mark the process as BLOCKED in the process table
+    set_state(current_pid, 3);  // 3 = PROC_BLOCKED
+    
+    // 4. Yield the core immediately to the next runnable task
+    //    When eventually woken by sys_ipc_reg_send or handle_hardware_irq,
+    //    execution resumes at the line below. The IPC payload will already
+    //    be in the saved RSI and RDX registers of this process's context.
+    yield_to_next();
+    
+    // Resumed — IPC payload is now in registers
+    return 0;
+}

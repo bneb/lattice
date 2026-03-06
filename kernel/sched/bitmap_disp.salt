@@ -1,0 +1,83 @@
+// ============================================================================
+// kernel/sched/bitmap_disp.salt
+// O(1) Context Switcher — HAL-Backed (Architecture Agnostic)
+// ============================================================================
+//
+// Uses the HAL compile-time router to call the correct architecture's
+// `find_first_set` intrinsic:
+//   - x86_64: TZCNT / BSF
+//   - aarch64: RBIT + CLZ
+//
+// 2-level hierarchy supports 4096 processes in O(1) time.
+// ============================================================================
+
+package kernel.sched.bitmap_disp
+
+// Import the architecture-agnostic HAL module
+// Compile-time dispatch via kernel/arch/mod.salt
+import kernel.arch.cpu
+
+const IDLE_TASK_ID: u32 = 0xFFFFFFFF;
+const MAX_TASKS: u32 = 4096;
+
+// Hierarchical Two-Level Bitmaps
+global L1_BITMAP: u64 = 0;
+global L2_BITMAPS: [u64; 64] = [0; 64];
+
+// ============================================================================
+// get_next_runnable — O(1) dispatch via HAL intrinsic
+// ============================================================================
+pub fn get_next_runnable() -> u32 {
+    let l1_active = L1_BITMAP;
+    if l1_active == 0 {
+        return IDLE_TASK_ID;
+    }
+    
+    // Architecture-agnostic: TZCNT on x86, RBIT+CLZ on ARM
+    let l1_idx = cpu.find_first_set(l1_active);
+    
+    let l2_active = L2_BITMAPS[l1_idx];
+    if l2_active == 0 {
+        return IDLE_TASK_ID;
+    }
+    
+    let l2_idx = cpu.find_first_set(l2_active);
+    
+    return (l1_idx * 64) + l2_idx;
+}
+
+// ============================================================================
+// mark_runnable — Atomic bitwise OR
+// ============================================================================
+pub fn mark_runnable(task_id: u32) {
+    if task_id >= MAX_TASKS {
+        return;
+    }
+    
+    let l1_idx = task_id / 64;
+    let l2_idx = task_id % 64;
+    
+    atomic_or_u64(&L2_BITMAPS[l1_idx], 1 << l2_idx);
+    atomic_or_u64(&L1_BITMAP, 1 << l1_idx);
+}
+
+// ============================================================================
+// clear_runnable — Atomic bitwise AND NOT
+// ============================================================================
+pub fn clear_runnable(task_id: u32) {
+    if task_id >= MAX_TASKS {
+        return;
+    }
+    
+    let l1_idx = task_id / 64;
+    let l2_idx = task_id % 64;
+    
+    let l2_mask = 0xFFFFFFFFFFFFFFFF ^ (1 << l2_idx);
+    let old_l2 = atomic_and_u64(&L2_BITMAPS[l1_idx], l2_mask);
+    
+    // If the last bit in this L2 bitmap was just cleared, clear the L1 bit
+    if old_l2 == (1 << l2_idx) {
+        let l1_mask = 0xFFFFFFFFFFFFFFFF ^ (1 << l1_idx);
+        atomic_and_u64(&L1_BITMAP, l1_mask);
+    }
+}

@@ -1,0 +1,211 @@
+// ============================================================================
+// kernel/mem/pmm_sharded.salt
+// Sovereign Physical Memory Manager (PMM) — Per-Core Sharded, ISR-Safe
+// ============================================================================
+//
+// Lock-free Treiber Stack for physical page management:
+//
+// 1. CACHELINE PADDING: PmmShard is exactly 64 bytes (one cacheline).
+//    This eliminates MESI false-sharing between cores on the hot path.
+//
+// 2. ISR REENTRANCY: alloc() and free() disable interrupts on the local
+//    core during the linked-list mutation window. This prevents a timer
+//    ISR from re-entering the PMM while the head pointer is stale.
+//    CLI/STI is sufficient because the data is per-core sharded.
+//
+// 3. CROSS-CORE STEALING: When a core's local list is empty, it steals
+//    pages from a remote core using atomic CAS (lock cmpxchg).
+//
+// DOMAIN TYPES: Internal operations use raw u64 physical addresses.
+// ============================================================================
+
+package kernel.mem.pmm_sharded
+
+import kernel.core.memory
+
+// get_cpu_id is @no_mangle in percpu.salt — use extern to match unmangled symbol
+extern fn get_cpu_id() -> u64;
+
+// Architecture-agnostic external helpers (provided by the kernel HAL)
+extern fn disable_interrupts();
+extern fn enable_interrupts();
+
+const PAGE_SIZE: u64 = 4096;
+const MAX_CPUS: u64 = 16;
+
+// ============================================================================
+// PmmShard — Cacheline-padded per-core allocation state
+// ============================================================================
+// Exactly 64 bytes = 1 cacheline.
+struct PmmShard {
+    @align(64)
+    head_frame: u64,    // offset 0:  Treiber stack head (physical address)
+    free_count: u64,    // offset 8:  Number of free pages in this shard
+    _pad0: u64,         // offset 16: Padding
+    _pad1: u64,         // offset 24
+    _pad2: u64,         // offset 32
+    _pad3: u64,         // offset 40
+    _pad4: u64,         // offset 48
+    _pad5: u64,         // offset 56
+}
+
+global SHARDS: [PmmShard; 16] = [PmmShard {
+    head_frame: 0, free_count: 0,
+    _pad0: 0, _pad1: 0, _pad2: 0, _pad3: 0, _pad4: 0, _pad5: 0
+}; 16];
+
+global TOTAL_PAGES: u64 = 0;
+global NUM_CPUS: u64 = 1;
+
+const STEAL_THRESHOLD: u64 = 16;
+
+// Helper to read the next frame physical pointer from a given frame
+fn get_next_frame_ptr(phys_head: u64) -> u64 {
+    let vaddr = memory.phys_to_virt(memory.PhysAddr { val: phys_head }).val;
+    return *(vaddr as &u64);
+}
+
+// Helper to write the next frame physical pointer to a given frame
+fn set_next_frame_ptr(phys_head: u64, next_phys: u64) {
+    let vaddr = memory.phys_to_virt(memory.PhysAddr { val: phys_head }).val;
+    *(vaddr as &mut u64) = next_phys;
+}
+
+// ============================================================================
+// INIT: Build free page list from physical range
+// ============================================================================
+pub fn init(start: u64, end: u64) {
+    let mut current = (start + 4095) & (0xFFFFFFFFFFFFF000);
+    let mut core_idx: u64 = 0;
+
+    while (current + PAGE_SIZE) <= end {
+        let target = core_idx % NUM_CPUS;
+
+        set_next_frame_ptr(current, SHARDS[target].head_frame);
+        SHARDS[target].head_frame = current;
+        SHARDS[target].free_count = SHARDS[target].free_count + 1;
+        
+        TOTAL_PAGES += 1;
+        core_idx = core_idx + 1;
+        current += PAGE_SIZE;
+    }
+}
+
+pub fn init_cpu_count(n: u64) {
+    if n > 0 && n <= MAX_CPUS {
+        NUM_CPUS = n;
+    }
+}
+
+// ============================================================================
+// ALLOC: Pop a page from THIS core's free list
+// ============================================================================
+pub fn alloc_frame() -> u64 {
+    disable_interrupts();
+    let core_id = get_cpu_id();
+    
+    // Lock-free pop via intrinsic atomic CAS
+    let mut current_head = SHARDS[core_id].head_frame;
+    while current_head != 0 {
+        let next_head = get_next_frame_ptr(current_head);
+        
+        // intrinsic: atomic_cas_i64
+        let old_val = atomic_cas_i64(&SHARDS[core_id].head_frame, current_head as i64, next_head as i64);
+        if old_val == current_head as i64 {
+            // CAS success
+            atomic_add_i64(&SHARDS[core_id].free_count, -1 as i64);
+            enable_interrupts();
+            return current_head;
+        }
+        // CAS failed, retry
+        current_head = SHARDS[core_id].head_frame;
+    }
+    
+    enable_interrupts();
+    // Local list empty — try stealing from a remote core
+    return steal_from_remote(core_id);
+}
+
+// ============================================================================
+// FREE: Push a page back onto THIS core's free stack
+// ============================================================================
+pub fn free_frame(page: u64) {
+    if (page % PAGE_SIZE) != 0 {
+        return;
+    }
+    disable_interrupts();
+    let core_id = get_cpu_id();
+    
+    // Lock-free push via intrinsic atomic CAS
+    let mut current_head = SHARDS[core_id].head_frame;
+    let mut success = false;
+    
+    while !success {
+        set_next_frame_ptr(page, current_head);
+        let old_val = atomic_cas_i64(&SHARDS[core_id].head_frame, current_head as i64, page as i64);
+        if old_val == current_head as i64 {
+            success = true;
+        } else {
+            current_head = SHARDS[core_id].head_frame;
+        }
+    }
+    
+    atomic_add_i64(&SHARDS[core_id].free_count, 1 as i64);
+    enable_interrupts();
+}
+
+// ============================================================================
+// BULK FREE: Push an array of pages onto the free stack (Phase 4 support)
+// ============================================================================
+pub fn bulk_free(frames: Ptr<u64>, count: u64) {
+    let mut i: u64 = 0;
+    while i < count {
+        let page = frames[i];
+        if page != 0 {
+            free_frame(page);
+        }
+        i = i + 1;
+    }
+}
+
+// ============================================================================
+// steal_from_remote — Lock-free cross-core page stealing via atomic CAS
+// ============================================================================
+fn steal_from_remote(thief: u64) -> u64 {
+    let mut victim: u64 = 0;
+
+    while victim < NUM_CPUS {
+        if victim != thief && SHARDS[victim].free_count > STEAL_THRESHOLD {
+            let victim_head = SHARDS[victim].head_frame;
+            if victim_head != 0 {
+                let next = get_next_frame_ptr(victim_head);
+
+                let old_val = atomic_cas_i64(&SHARDS[victim].head_frame, victim_head as i64, next as i64);
+                if old_val == victim_head as i64 {
+                    atomic_add_i64(&SHARDS[victim].free_count, -1 as i64);
+                    return victim_head;
+                }
+            }
+        }
+        victim = victim + 1;
+    }
+    return 0; // True OOM
+}
+
+// ============================================================================
+// QUERY
+// ============================================================================
+pub fn available() -> u64 {
+    let core_id = get_cpu_id();
+    return SHARDS[core_id].free_count;
+}
+
+pub fn available_total() -> u64 {
+    let mut total: u64 = 0;
+    let mut i: u64 = 0;
+    while i < NUM_CPUS {
+        total = total + SHARDS[i].free_count;
+        i = i + 1;
+    }
+    return total;
+}

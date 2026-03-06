@@ -1,15 +1,16 @@
 // =============================================================================
 // std.io.LatticeReactor — Lattice kernel backend for the Reactor trait
 // =============================================================================
-// Stub implementation for the native Lattice kernel VirtIO stack.
-// All methods currently return -1 (not implemented).
+// DEPRECATED STUB: This VirtIO-based implementation is superseded by
+// std.io.sovereign_poller.SovereignPoller, which provides tickless
+// zero-CPU-overhead blocking via SYS_IPC_AWAIT (syscall vector 14)
+// and translates hardware MSI-X interrupts directly to Fast-Path IPCs.
 //
-// When the Kernel Worktree completes the VirtIO net driver, this file becomes
-// the production backend. The syscall numbers map to kernel/core/syscall.salt:
-//   128 → reactor_create
-//   129 → reactor_register
-//   130 → reactor_deregister
-//   131 → reactor_wait
+// This file is retained for API compatibility with the Reactor trait.
+// New code should use SovereignPoller::new() + run_forever() instead.
+//
+// When the Kernel Worktree completes the VirtIO net driver, this file
+// can implement the Reactor trait by delegating to SovereignPoller.
 
 package std.io.reactor_lattice
 

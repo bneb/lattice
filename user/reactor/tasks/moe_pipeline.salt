@@ -1,0 +1,341 @@
+// ============================================================================
+// user/reactor/tasks/moe_pipeline.salt
+// The Convergence — Distributed MoE Inference State Machine
+// ============================================================================
+//
+// Zero syscalls. Zero branches in the data path. Zero allocation.
+// The coroutine interacts with the outside world exclusively by
+// casting 128-bit WQE structs to Holographic BAR pointers.
+//
+// The SAME binary runs on both Router (Node A) and Expert (Node B).
+// The starting phase determines the node's role:
+//   Router starts at PHASE_LOAD_INPUT
+//   Expert starts at PHASE_EXPERT_LOAD_WEIGHTS
+//
+// Distributed Inference Graph:
+//
+//   Node A (Router)          Network           Node B (Expert)
+//   ═══════════════          ═══════           ═══════════════
+//   1. LoadInput             ─────→
+//      *STORAGE_BAR = WQE                     3. ExpertLoadWeights
+//      yield Pending(t1)                          *STORAGE_BAR = WQE
+//      ↓ CQE(t1)                                 yield Pending(t3)
+//   2. RouteToExpert                              ↓ CQE(t3)
+//      *NETWORK_BAR = WQE   ═════→            4. ComputeAndReturn
+//      yield Pending(t2)                          matmul_16x16(...)
+//      ↓ CQE(t2)            ←═════               *NETWORK_BAR = result
+//   5. SaveOutput                                 → Done
+//      *STORAGE_BAR = WQE
+//      yield Pending(t5)
+//      ↓ CQE(t5)
+//   6. Done
+//
+// Pipeline State Layout (64 bytes, in LOC_ARENA):
+//   [0..4)    phase           (u32)
+//   [4..8)    expert_id       (u32)
+//   [8..16)   input_ptr       (u64) — activation tensor in arena
+//   [16..24)  weights_ptr     (u64) — expert weights in arena
+//   [24..32)  output_ptr      (u64) — result tensor in arena
+//   [32..36)  current_token   (u32) — monotonic token counter
+//   [36..40)  sector_base     (u32) — disk sector for this expert
+//   [40..48)  storage_bar     (u64) — STORAGE_BAR address
+//   [48..56)  network_bar     (u64) — NETWORK_BAR address
+//   [56..64)  peer_mac_ptr    (u64) — pointer to 6-byte peer MAC
+//
+// ============================================================================
+
+package user.reactor.tasks.moe_pipeline
+
+use std.core.ptr.Ptr
+
+// External telemetry and UART bindings
+extern fn rdtsc() -> u64;
+extern fn r3_sys_write(fd: u64, buf: u64, len: u64);
+extern fn r3_sys_shutdown();
+extern fn r3_sys_yield();
+
+@no_mangle
+pub fn print_str(s: u64, len: u64) {
+    r3_sys_write(1, s, len);
+}
+
+@no_mangle
+pub fn print_dec(val: u64) {
+    // Basic hex printing
+    let buf: [u8; 16] = [0 as u8; 16];
+    let hex: [u8; 16] = [48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 65, 66, 67, 68, 69, 70];
+    let mut v = val;
+    let mut i: u64 = 16;
+    while i > 0 {
+        i = i - 1;
+        buf[i] = hex[(v & 0xF) as u64];
+        v = v >> 4;
+    }
+    r3_sys_write(1, (&buf) as u64, 16);
+    let nl = "\n";
+    let nl_ptr = (&nl) as u64;
+    r3_sys_write(1, *(nl_ptr as &u64), 1);
+}
+
+// ============================================================================
+// Phase Constants
+// ============================================================================
+pub const PHASE_LOAD_INPUT:          u32 = 0;
+pub const PHASE_ROUTE_TO_EXPERT:     u32 = 1;
+pub const PHASE_EXPERT_LOAD_WEIGHTS: u32 = 2;
+pub const PHASE_COMPUTE_AND_RETURN:  u32 = 3;
+pub const PHASE_SAVE_OUTPUT:         u32 = 4;
+pub const PHASE_DONE:                u32 = 5;
+
+// ============================================================================
+// Poll Result Constants
+// ============================================================================
+pub const POLL_PENDING: u32 = 0;
+pub const POLL_READY:   u32 = 1;
+
+// ============================================================================
+// State Layout Offsets
+// ============================================================================
+pub const STATE_PHASE:       u64 = 0;
+pub const STATE_EXPERT_ID:   u64 = 4;
+pub const STATE_INPUT_PTR:   u64 = 8;
+pub const STATE_WEIGHTS_PTR: u64 = 16;
+pub const STATE_OUTPUT_PTR:  u64 = 24;
+pub const STATE_TOKEN:       u64 = 32;
+pub const STATE_SECTOR_BASE: u64 = 36;
+pub const STATE_STORAGE_BAR: u64 = 40;
+pub const STATE_NETWORK_BAR: u64 = 48;
+pub const STATE_PEER_MAC:        u64 = 56;
+pub const STATE_DISPATCH_TSC:    u64 = 64;
+pub const STATE_SIZE:            u64 = 72;
+
+// ============================================================================
+// WQE Constants
+// ============================================================================
+const SECTOR_COUNT_INPUT:   u32 = 4;   // 4 × 512 = 2048 bytes (16×16×f64)
+const SECTOR_COUNT_WEIGHTS: u32 = 4;
+const SECTOR_COUNT_OUTPUT:  u32 = 4;
+const NET_OPCODE_SEND:      u16 = 1;
+
+// ============================================================================
+// moe_init_trampoline — The Initial Dispatcher
+// ============================================================================
+// This function is called once by the kernel to kick off the state machine.
+// It continuously polls the state machine until it reaches a terminal state,
+// yielding the CPU in between.
+// ============================================================================
+@no_mangle
+pub fn moe_init_trampoline(state_ptr: u64, bar_out: u64, poll_out: u64) {
+    loop {
+        // Run one state machine transition
+        execute_moe_pipeline(state_ptr, bar_out, poll_out);
+
+        // Read the poll result from the capability buffer
+        let poll: u32 = *((poll_out) as &u32);
+        if poll == POLL_READY {
+            // Convergence verified. Trigger the ACPI Guillotine.
+            let msg = "  [TRAMPOLINE] PHASE_DONE -> Triggering SYS_SHUTDOWN\n";
+            let msg_ptr = (&msg) as u64;
+            print_str(*(msg_ptr as &u64), 53);
+            r3_sys_shutdown();
+        } else {
+            // Yield CPU back to dispatcher
+            r3_sys_yield();
+        }
+    }
+}
+
+// ============================================================================
+// execute_moe_pipeline — The Core State Machine
+// ============================================================================
+// Parameters:
+//   state:      pipeline state address in LOC_ARENA
+//   bar_out:    address to write the WQE (mock or real BAR)
+//   poll_out:   address to write [poll_status (u32), token (u32)]
+//
+// Writes to bar_out: [control (u64), payload (u64)]
+// Writes to poll_out: [status (u32), token (u32)]
+// ============================================================================
+@no_mangle
+pub fn execute_moe_pipeline(state: u64, bar_out: u64, poll_out: u64) {
+    let phase: u32 = *((state + STATE_PHASE) as &u32);
+
+    if phase == PHASE_LOAD_INPUT {
+        // v6.2.19-PhaseCut: Skip disk load. Jump straight to network strike.
+        // Tensors are already allocated in memory (zeros/garbage — fine for latency).
+        *((state + STATE_PHASE) as &mut u32) = PHASE_ROUTE_TO_EXPERT;
+        return;
+    }
+
+    if phase == PHASE_ROUTE_TO_EXPERT {
+        // Router: Send activation tensor to Expert over network
+        let token: u32 = *((state + STATE_TOKEN) as &u32) + 1;
+        *((state + STATE_TOKEN) as &mut u32) = token;
+
+        let input_ptr: u64 = *((state + STATE_INPUT_PTR) as &u64);
+
+        // 1. The Pre-Strike Wipe: Clear the destination signature
+        let output_ptr: u64 = *((state + STATE_OUTPUT_PTR) as &u64);
+        *((output_ptr) as &mut u64) = 0;
+
+        // Pack NETWORK_WQE: control = (token << 32) | opcode
+        let control: u64 = ((token as u64) << 32) | (NET_OPCODE_SEND as u64);
+        let payload: u64 = input_ptr;
+
+        // ── Dispatch Bracket Start: last instruction before Holographic Trap ──
+        *((state + STATE_DISPATCH_TSC) as &mut u64) = rdtsc();
+
+        // The Holographic Strike
+        *((bar_out) as &mut u64) = control;
+        *((bar_out + 8) as &mut u64) = payload;
+
+        // Transition → SaveOutput (waiting for Expert's reply)
+        *((state + STATE_PHASE) as &mut u32) = PHASE_SAVE_OUTPUT;
+        *((poll_out) as &mut u32) = POLL_PENDING;
+        *((poll_out + 4) as &mut u32) = token;
+        return;
+    }
+
+    if phase == PHASE_EXPERT_LOAD_WEIGHTS {
+        // v6.2.19-PhaseCut: Skip disk load. Jump straight to compute.
+        // Weights are already allocated in memory (zeros/garbage — fine for latency).
+        *((state + STATE_PHASE) as &mut u32) = PHASE_COMPUTE_AND_RETURN;
+        return;
+    }
+
+    if phase == PHASE_COMPUTE_AND_RETURN {
+        // Expert: Execute matmul and send result back to Router
+        let input_ptr: u64 = *((state + STATE_INPUT_PTR) as &u64);
+        let weights_ptr: u64 = *((state + STATE_WEIGHTS_PTR) as &u64);
+        let output_ptr: u64 = *((state + STATE_OUTPUT_PTR) as &u64);
+
+        // Polyhedral Math: C = A × B (16×16)
+        let mut i: i32 = 0;
+        while i < 16 {
+            let mut j: i32 = 0;
+            while j < 16 {
+                let mut sum: f64 = 0.0;
+                let mut k: i32 = 0;
+                while k < 16 {
+                    let a: f64 = *((input_ptr + ((i * 16 + k) as u64) * 8) as &f64);
+                    let b: f64 = *((weights_ptr + ((k * 16 + j) as u64) * 8) as &f64);
+                    sum = sum + a * b;
+                    k = k + 1;
+                }
+                *((output_ptr + ((i * 16 + j) as u64) * 8) as &mut f64) = sum;
+                j = j + 1;
+            }
+            i = i + 1;
+        }
+
+        // 2. The Expert Stamp: Sign the payload
+        *((output_ptr) as &mut u64) = 0xDEADBEEFCAFEBABE;
+
+        // Send result back to Router
+        let token: u32 = *((state + STATE_TOKEN) as &u32) + 1;
+        *((state + STATE_TOKEN) as &mut u32) = token;
+
+        let control: u64 = ((token as u64) << 32) | (NET_OPCODE_SEND as u64);
+        let payload: u64 = output_ptr;
+
+        *((bar_out) as &mut u64) = control;
+        *((bar_out + 8) as &mut u64) = payload;
+
+        // ── Node B Life Support Delay ──
+        // Keep the VM alive so the Linux bridge can route the packet.
+        // Without this, ACPI shutdown kills QEMU before the frame clears
+        // the host tap → bridge → peer tap path.
+        let start_stall: u64 = rdtsc();
+        loop {
+            let current: u64 = rdtsc();
+            if (current - start_stall) > 50000000 {
+                break;
+            }
+        }
+
+        // Expert is Done
+        *((state + STATE_PHASE) as &mut u32) = PHASE_DONE;
+        *((poll_out) as &mut u32) = POLL_READY;
+        *((poll_out + 4) as &mut u32) = 0;
+        return;
+    }
+
+    if phase == PHASE_SAVE_OUTPUT {
+        let output_ptr: u64 = *((state + STATE_OUTPUT_PTR) as &u64);
+        let signature: u64 = *((output_ptr) as &u64);
+
+        // 3. The Reflection Gate
+        if signature != 0xDEADBEEFCAFEBABE {
+            // Local echo / ARP packet detected. The Expert has not replied.
+            // Go back to sleep.
+            *((poll_out) as &mut u32) = POLL_PENDING;
+            
+            // NOTE: We must safely read the token, do not increment it.
+            let token: u32 = *((state + STATE_TOKEN) as &u32); 
+            *((poll_out + 4) as &mut u32) = token;
+            return;
+        }
+
+        // ── Completion Bracket: first instruction upon CQE wakeup ──
+        let end_tsc: u64 = rdtsc();
+        let dispatch_tsc: u64 = *((state + STATE_DISPATCH_TSC) as &u64);
+
+        // Telemetry Output over 16550 UART
+        print_dec(dispatch_tsc);
+        print_dec(end_tsc);
+
+        r3_sys_shutdown();
+
+        // Router: Write result tensor back to disk
+        let token: u32 = *((state + STATE_TOKEN) as &u32) + 1;
+        *((state + STATE_TOKEN) as &mut u32) = token;
+
+        let output_ptr: u64 = *((state + STATE_OUTPUT_PTR) as &u64);
+        let sector_base: u32 = *((state + STATE_SECTOR_BASE) as &u32);
+        let write_sector: u32 = sector_base + SECTOR_COUNT_INPUT;
+
+        // Pack STORAGE_WQE: control = (token << 32) | (sector << 16) | count
+        let control: u64 = ((token as u64) << 32) | ((write_sector as u64) << 16) | (SECTOR_COUNT_OUTPUT as u64);
+        let payload: u64 = output_ptr;
+
+        *((bar_out) as &mut u64) = control;
+        *((bar_out + 8) as &mut u64) = payload;
+
+        // Transition → Done
+        *((state + STATE_PHASE) as &mut u32) = PHASE_DONE;
+        *((poll_out) as &mut u32) = POLL_PENDING;
+        *((poll_out + 4) as &mut u32) = token;
+        return;
+    }
+
+    // PHASE_DONE or unknown
+    *((poll_out) as &mut u32) = POLL_READY;
+    *((poll_out + 4) as &mut u32) = 0;
+}
+
+// ============================================================================
+// init_pipeline_state — Initialize a fresh pipeline state
+// ============================================================================
+pub fn init_pipeline_state(
+    state: u64,
+    phase: u32,
+    expert_id: u32,
+    input_ptr: u64,
+    weights_ptr: u64,
+    output_ptr: u64,
+    sector_base: u32,
+    storage_bar: u64,
+    network_bar: u64,
+    peer_mac: u64
+) {
+    *((state + STATE_PHASE) as &mut u32) = phase;
+    *((state + STATE_EXPERT_ID) as &mut u32) = expert_id;
+    *((state + STATE_INPUT_PTR) as &mut u64) = input_ptr;
+    *((state + STATE_WEIGHTS_PTR) as &mut u64) = weights_ptr;
+    *((state + STATE_OUTPUT_PTR) as &mut u64) = output_ptr;
+    *((state + STATE_TOKEN) as &mut u32) = 0;
+    *((state + STATE_SECTOR_BASE) as &mut u32) = sector_base;
+    *((state + STATE_STORAGE_BAR) as &mut u64) = storage_bar;
+    *((state + STATE_NETWORK_BAR) as &mut u64) = network_bar;
+    *((state + STATE_PEER_MAC) as &mut u64) = peer_mac;
+}

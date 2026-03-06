@@ -1,0 +1,335 @@
+// =============================================================================
+// Test: VirtIO Block — Zero-VFS Raw Sector Storage (v5.1.0)
+// =============================================================================
+//
+// Validates the 3-part chained descriptor sequence, storage trap emulation,
+// block IRQ/CQE wakeup, and end-to-end sector read simulation.
+//
+//   T1:  block_vring init — desc table zeroed, state = 0
+//   T2:  VirtioBlkReq header — type=IN(0), sector=8
+//   T3:  3-part chain — Desc0 flags = NEXT
+//   T4:  3-part chain — Desc1 flags = NEXT | WRITE
+//   T5:  3-part chain — Desc2 flags = WRITE (no NEXT)
+//   T6:  Chain linking — Desc0.next = d1, Desc1.next = d2
+//   T7:  Desc0.len = 16 (VirtioBlkReq), Desc2.len = 1 (status)
+//   T8:  Desc1.len = 2048 (4 sectors × 512)
+//   T9:  Avail ring — chain head inserted, avail.idx = 1
+//   T10: Notify register written (queue 0)
+//   T11: Block IRQ — status OK → CQE[42] = READY
+//   T12: Block IRQ — token pushed to deque
+//   T13: Block IRQ — drained = 1, EOI written
+//   T14: Two sequential requests — distinct chains, avail.idx = 2
+//
+// Exit codes: 0=pass, 1=alloc, 2=init, 3=header, 4=chain_flags,
+//             5=chain_link, 6=chain_len, 7=avail, 8=notify,
+//             9=irq, 10=pipeline
+// =============================================================================
+
+package main
+
+use std.core.ptr.Ptr
+
+extern fn malloc(size: i64) -> u64;
+extern fn free(ptr: u64);
+extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
+extern fn salt_atomic_cas_i64(ptr: Ptr<i64>, expected: i64, desired: i64) -> i64;
+
+// ============================================================================
+// Constants
+// ============================================================================
+const DESC_SIZE: u64 = 16;
+const BLK_QUEUE_SIZE: u16 = 256;
+const SECTOR_SIZE: u32 = 512;
+const VRING_DESC_F_NEXT: u16 = 1;
+const VRING_DESC_F_WRITE: u16 = 2;
+const VIRTIO_BLK_T_IN: u32 = 0;
+const BLK_REQ_SIZE: u64 = 16;
+const CQE_READY: u64 = 1;
+
+// Arena offsets
+const BLK_DESC_OFFSET: u64 = 0x50000;
+const BLK_AVAIL_OFFSET: u64 = 0x51000;
+const BLK_USED_OFFSET: u64 = 0x52000;
+const BLK_HEADERS_OFFSET: u64 = 0x53000;
+const BLK_STATUS_OFFSET: u64 = 0x54000;
+const BLK_STATE_OFFSET: u64 = 0x55000;
+const TOKEN_MAP_OFFSET: u64 = 0x56000;
+const TENSOR_DATA_OFFSET: u64 = 0x60000;
+const CQE_ARRAY_OFFSET: u64 = 0x34000;
+const DEQUE_OFFSET: u64 = 0x1000;
+
+const AVAIL_IDX_OFF: u64 = 2;
+const AVAIL_RING_OFF: u64 = 4;
+const USED_IDX_OFF: u64 = 2;
+const USED_RING_OFF: u64 = 4;
+const USED_ELEM_SIZE: u64 = 8;
+const BLK_LAST_USED_OFF: u64 = 16;
+const DEQUE_BOTTOM_OFF: u64 = 512;
+const DEQUE_ARRAY_SIZE: i64 = 64;
+
+const ARENA_SIZE: i64 = 0x70000;  // 448KB
+
+fn zero_init(addr: u64, size: u64) {
+    let mut i: u64 = 0;
+    while i < size { *((addr + i) as &mut u8) = 0; i = i + 1; }
+}
+
+fn init_block_vring(arena: u64) {
+    zero_init(arena + BLK_DESC_OFFSET, 4096);
+    zero_init(arena + BLK_AVAIL_OFFSET, 516);
+    zero_init(arena + BLK_USED_OFFSET, 2052);
+    *((arena + BLK_STATE_OFFSET) as &mut u64) = 0;
+    *((arena + BLK_STATE_OFFSET + 8) as &mut u64) = 0;
+    *((arena + BLK_STATE_OFFSET + BLK_LAST_USED_OFF) as &mut u64) = 0;
+}
+
+fn set_token_for_request(arena: u64, req_idx: u64, token: u32) {
+    *((arena + TOKEN_MAP_OFFSET + req_idx * 4) as &mut u32) = token;
+}
+
+fn get_token_for_desc(arena: u64, desc_id: u32) -> u32 {
+    let ri: u64 = (desc_id as u64) / 3;
+    return *((arena + TOKEN_MAP_OFFSET + ri * 4) as &u32);
+}
+
+fn emulate_block_doorbell(arena: u64, control: u64, payload: u64, notify: u64) {
+    let token: u32 = (control >> 32) as u32;
+    let sector_count: u32 = (control & 0xFFFFFFFF) as u32;
+    let sector_idx: u64 = payload >> 32;
+    let dest_offset: u32 = (payload & 0xFFFFFFFF) as u32;
+
+    let desc_table: u64 = arena + BLK_DESC_OFFSET;
+    let avail_ring: u64 = arena + BLK_AVAIL_OFFSET;
+    let state: u64 = arena + BLK_STATE_OFFSET;
+
+    let base_idx: u64 = *((state) as &u64);
+    let d0: u16 = ((base_idx * 3) % (BLK_QUEUE_SIZE as u64)) as u16;
+    let d1: u16 = ((base_idx * 3 + 1) % (BLK_QUEUE_SIZE as u64)) as u16;
+    let d2: u16 = ((base_idx * 3 + 2) % (BLK_QUEUE_SIZE as u64)) as u16;
+
+    let hdr_addr: u64 = arena + BLK_HEADERS_OFFSET + (d0 as u64) * BLK_REQ_SIZE;
+    *((hdr_addr) as &mut u32) = VIRTIO_BLK_T_IN;
+    *((hdr_addr + 4) as &mut u32) = 0;
+    *((hdr_addr + 8) as &mut u64) = sector_idx;
+
+    let status_addr: u64 = arena + BLK_STATUS_OFFSET + (d0 as u64);
+    *((status_addr) as &mut u8) = 0xFF;
+
+    let data_addr: u64 = arena + (dest_offset as u64);
+    let data_len: u32 = sector_count * SECTOR_SIZE;
+
+    let db0: u64 = desc_table + (d0 as u64) * DESC_SIZE;
+    *((db0) as &mut u64) = hdr_addr;
+    *((db0 + 8) as &mut u32) = BLK_REQ_SIZE as u32;
+    *((db0 + 12) as &mut u16) = VRING_DESC_F_NEXT;
+    *((db0 + 14) as &mut u16) = d1;
+
+    let db1: u64 = desc_table + (d1 as u64) * DESC_SIZE;
+    *((db1) as &mut u64) = data_addr;
+    *((db1 + 8) as &mut u32) = data_len;
+    *((db1 + 12) as &mut u16) = VRING_DESC_F_NEXT | VRING_DESC_F_WRITE;
+    *((db1 + 14) as &mut u16) = d2;
+
+    let db2: u64 = desc_table + (d2 as u64) * DESC_SIZE;
+    *((db2) as &mut u64) = status_addr;
+    *((db2 + 8) as &mut u32) = 1;
+    *((db2 + 12) as &mut u16) = VRING_DESC_F_WRITE;
+    *((db2 + 14) as &mut u16) = 0;
+
+    let avail_idx: u16 = *((avail_ring + AVAIL_IDX_OFF) as &u16);
+    let ring_pos: u16 = avail_idx % BLK_QUEUE_SIZE;
+    *((avail_ring + AVAIL_RING_OFF + (ring_pos as u64) * 2) as &mut u16) = d0;
+    *((avail_ring + AVAIL_IDX_OFF) as &mut u16) = avail_idx + 1;
+
+    // Store token in sidecar
+    set_token_for_request(arena, base_idx, token);
+
+    *((state) as &mut u64) = base_idx + 1;
+    let total: u64 = *((state + 8) as &u64);
+    *((state + 8) as &mut u64) = total + 1;
+
+    *((notify) as &mut u16) = 0;
+}
+
+fn handle_block_irq(arena: u64, ack: u64) -> u32 {
+    let used_ring: u64 = arena + BLK_USED_OFFSET;
+    let blk_state: u64 = arena + BLK_STATE_OFFSET;
+    let cqe: u64 = arena + CQE_ARRAY_OFFSET;
+    let deque: u64 = arena + DEQUE_OFFSET;
+
+    let used_idx: u16 = *((used_ring + USED_IDX_OFF) as &u16);
+    let last_seen: u16 = (*((blk_state + BLK_LAST_USED_OFF) as &u64)) as u16;
+
+    let mut drained: u32 = 0;
+    let mut seen: u16 = last_seen;
+
+    while seen != used_idx {
+        let rp: u16 = seen % 256;
+        let eo: u64 = USED_RING_OFF + (rp as u64) * USED_ELEM_SIZE;
+        let desc_id: u32 = *((used_ring + eo) as &u32);
+
+        let sa: u64 = arena + BLK_STATUS_OFFSET + (desc_id as u64);
+        let status: u8 = *((sa) as &u8);
+
+        if status == 0 {
+            let token: u32 = get_token_for_desc(arena, desc_id);
+            if (token as u64) < 256 {
+                *((cqe + (token as u64) * 8) as &mut u64) = CQE_READY;
+            }
+            let bp: Ptr<i64> = (deque + DEQUE_BOTTOM_OFF) as Ptr<i64>;
+            let b: i64 = salt_atomic_load_i64(bp);
+            let di: i64 = b % DEQUE_ARRAY_SIZE;
+            *((deque + (di as u64) * 8) as &mut i64) = token as i64;
+            let _: i64 = salt_atomic_cas_i64(bp, b, b + 1);
+        }
+
+        seen = seen + 1;
+        drained = drained + 1;
+    }
+
+    *((blk_state + BLK_LAST_USED_OFF) as &mut u64) = seen as u64;
+    *((ack) as &mut u8) = 0x20;
+    return drained;
+}
+
+fn cleanup(a: u64, b: u64, c: u64) { free(a); free(b); free(c); }
+
+fn main() -> i32 {
+    let arena: u64 = malloc(ARENA_SIZE);
+    let notify: u64 = malloc(8);
+    let ack: u64 = malloc(8);
+
+    if arena == 0 || notify == 0 || ack == 0 { return 1; }
+
+    zero_init(arena, ARENA_SIZE as u64);
+    zero_init(notify, 8);
+    zero_init(ack, 8);
+
+    // =========================================================================
+    // T1: block_vring init
+    // =========================================================================
+    init_block_vring(arena);
+    let state0: u64 = *((arena + BLK_STATE_OFFSET) as &u64);
+    if state0 != 0 { cleanup(arena, notify, ack); return 2; }
+
+    // =========================================================================
+    // T2-T10: emulate_block_doorbell — 4 sectors from sector 8, token=42
+    // =========================================================================
+    // WQE control: (token=42 << 32) | sector_count=4
+    let wqe_ctrl: u64 = (42 as u64) << 32 | 4;
+    // WQE payload: (sector_idx=8 << 32) | dest_arena_offset=TENSOR_DATA_OFFSET
+    let wqe_pay: u64 = (8 as u64) << 32 | TENSOR_DATA_OFFSET;
+
+    emulate_block_doorbell(arena, wqe_ctrl, wqe_pay, notify);
+
+    let desc_table: u64 = arena + BLK_DESC_OFFSET;
+
+    // T2: VirtioBlkReq header — check type and sector
+    let hdr_addr: u64 = *((desc_table) as &u64);  // Desc0.addr
+    let req_type: u32 = *((hdr_addr) as &u32);
+    if req_type != VIRTIO_BLK_T_IN { cleanup(arena, notify, ack); return 3; }
+    let req_sector: u64 = *((hdr_addr + 8) as &u64);
+    if req_sector != 8 { cleanup(arena, notify, ack); return 3; }
+
+    // T3: Desc0 flags = NEXT
+    let f0: u16 = *((desc_table + 12) as &u16);
+    if f0 != VRING_DESC_F_NEXT { cleanup(arena, notify, ack); return 4; }
+
+    // T4: Desc1 flags = NEXT | WRITE
+    let f1: u16 = *((desc_table + DESC_SIZE + 12) as &u16);
+    if f1 != (VRING_DESC_F_NEXT | VRING_DESC_F_WRITE) { cleanup(arena, notify, ack); return 4; }
+
+    // T5: Desc2 flags = WRITE (no NEXT)
+    let f2: u16 = *((desc_table + 2 * DESC_SIZE + 12) as &u16);
+    if f2 != VRING_DESC_F_WRITE { cleanup(arena, notify, ack); return 4; }
+
+    // T6: Chain linking — Desc0.next=1, Desc1.next=2
+    let n0: u16 = *((desc_table + 14) as &u16);
+    if n0 != 1 { cleanup(arena, notify, ack); return 5; }
+    let n1: u16 = *((desc_table + DESC_SIZE + 14) as &u16);
+    if n1 != 2 { cleanup(arena, notify, ack); return 5; }
+
+    // T7: Desc0.len=16, Desc2.len=1
+    let l0: u32 = *((desc_table + 8) as &u32);
+    if l0 != 16 { cleanup(arena, notify, ack); return 6; }
+    let l2: u32 = *((desc_table + 2 * DESC_SIZE + 8) as &u32);
+    if l2 != 1 { cleanup(arena, notify, ack); return 6; }
+
+    // T8: Desc1.len = 2048 (4 sectors × 512)
+    let l1: u32 = *((desc_table + DESC_SIZE + 8) as &u32);
+    if l1 != 2048 { cleanup(arena, notify, ack); return 6; }
+
+    // T9: Avail ring — chain head = 0, avail.idx = 1
+    let avail_ring: u64 = arena + BLK_AVAIL_OFFSET;
+    let ai: u16 = *((avail_ring + AVAIL_IDX_OFF) as &u16);
+    if ai != 1 { cleanup(arena, notify, ack); return 7; }
+    let head: u16 = *((avail_ring + AVAIL_RING_OFF) as &u16);
+    if head != 0 { cleanup(arena, notify, ack); return 7; }
+
+    // T10: Notify register written (queue 0)
+    let nv: u16 = *((notify) as &u16);
+    if nv != 0 { cleanup(arena, notify, ack); return 8; }
+
+    // =========================================================================
+    // T11-T13: Block IRQ — simulate hypervisor completion
+    // =========================================================================
+    // Simulate: hypervisor writes status=0 (OK) and updates used ring
+    let status_addr: u64 = *((desc_table + 2 * DESC_SIZE) as &u64);  // Desc2.addr
+    *((status_addr) as &mut u8) = 0;  // VIRTIO_BLK_S_OK
+
+    let used_ring: u64 = arena + BLK_USED_OFFSET;
+    *((used_ring + USED_RING_OFF) as &mut u32) = 0;    // desc_id = chain head
+    *((used_ring + USED_RING_OFF + 4) as &mut u32) = 0;
+    *((used_ring + USED_IDX_OFF) as &mut u16) = 1;
+
+    let drained: u32 = handle_block_irq(arena, ack);
+
+    // T11: CQE[42] = READY
+    let cqe42: u64 = *((arena + CQE_ARRAY_OFFSET + 42 * 8) as &u64);
+    if cqe42 != CQE_READY { cleanup(arena, notify, ack); return 9; }
+
+    // T12: token=42 on deque
+    let dv: i64 = *((arena + DEQUE_OFFSET) as &i64);
+    if dv != 42 { cleanup(arena, notify, ack); return 9; }
+
+    // T13: drained=1, EOI
+    if drained != 1 { cleanup(arena, notify, ack); return 9; }
+    let eoi: u8 = *((ack) as &u8);
+    if eoi != 0x20 { cleanup(arena, notify, ack); return 9; }
+
+    // =========================================================================
+    // T14: Second request — token=99, 2 sectors from sector 16
+    // =========================================================================
+    let wqe_ctrl2: u64 = (99 as u64) << 32 | 2;
+    let wqe_pay2: u64 = (16 as u64) << 32 | (TENSOR_DATA_OFFSET + 2048);
+
+    zero_init(notify, 8);
+    emulate_block_doorbell(arena, wqe_ctrl2, wqe_pay2, notify);
+
+    // Avail.idx should now be 2
+    let ai2: u16 = *((avail_ring + AVAIL_IDX_OFF) as &u16);
+    if ai2 != 2 { cleanup(arena, notify, ack); return 10; }
+
+    // Second chain: descs 3,4,5 — check Desc3 flags=NEXT
+    let f3: u16 = *((desc_table + 3 * DESC_SIZE + 12) as &u16);
+    if f3 != VRING_DESC_F_NEXT { cleanup(arena, notify, ack); return 10; }
+
+    // Desc4 flags=NEXT|WRITE
+    let f4: u16 = *((desc_table + 4 * DESC_SIZE + 12) as &u16);
+    if f4 != (VRING_DESC_F_NEXT | VRING_DESC_F_WRITE) { cleanup(arena, notify, ack); return 10; }
+
+    // Desc4.len = 1024 (2×512)
+    let l4: u32 = *((desc_table + 4 * DESC_SIZE + 8) as &u32);
+    if l4 != 1024 { cleanup(arena, notify, ack); return 10; }
+
+    // Chain head in avail.ring[1] = 3
+    let head2: u16 = *((avail_ring + AVAIL_RING_OFF + 2) as &u16);
+    if head2 != 3 { cleanup(arena, notify, ack); return 10; }
+
+    // Request count = 2
+    let rc: u64 = *((arena + BLK_STATE_OFFSET + 8) as &u64);
+    if rc != 2 { cleanup(arena, notify, ack); return 10; }
+
+    cleanup(arena, notify, ack);
+    return 0;
+}

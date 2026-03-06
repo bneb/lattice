@@ -1,0 +1,133 @@
+// =============================================================================
+// Test: PCIe ECAM — Mock Config Space Read
+// =============================================================================
+// Validates the ECAM offset formula by:
+//   1. Allocating a mock ECAM memory region
+//   2. Writing known Vendor/Device IDs at calculated offsets
+//   3. Using read_config_32() to read them back
+//   4. Asserting correct values
+//
+// ECAM offset formula: (bus << 20) | (dev << 15) | (func << 12) | reg
+//
+// Test cases:
+//   T1: Bus 0, Dev 0, Func 0, Reg 0x00 → NVIDIA Vendor ID 0x10DE
+//   T2: Bus 0, Dev 1, Func 0, Reg 0x00 → Mellanox Vendor ID 0x15B3
+//   T3: Bus 1, Dev 0, Func 0, Reg 0x08 → Class/Revision register
+//   T4: Empty slot → 0xFFFFFFFF (no device)
+//
+// Exit codes:
+//   0 = all passed
+//   1 = allocation failure
+//   2 = T1 failed (Bus 0 Dev 0 vendor ID)
+//   3 = T2 failed (Bus 0 Dev 1 vendor ID)
+//   4 = T3 failed (Bus 1 class/revision)
+//   5 = T4 failed (empty slot readback)
+// =============================================================================
+
+package main
+
+use std.core.ptr.Ptr
+
+extern fn malloc(size: i64) -> u64;
+extern fn free(ptr: u64);
+
+fn main() -> i32 {
+    // =========================================================================
+    // Allocate a mock ECAM region.
+    // ECAM for bus 0-1 with 32 devices each needs:
+    //   2 buses × 32 devices × 8 functions × 4096 bytes = 2MB
+    // We allocate 4MB to be safe (includes bus 0-3).
+    // =========================================================================
+    let ecam_size: i64 = 4 * 1024 * 1024;
+    let ecam_base: u64 = malloc(ecam_size);
+
+    if ecam_base == 0 {
+        return 1;
+    }
+
+    // Zero-fill the ECAM region (0xFFFFFFFF = no device present)
+    // Fill with 0xFF bytes so that reads of empty slots return 0xFFFFFFFF
+    let mut i: i64 = 0;
+    while i < ecam_size {
+        *((ecam_base + (i as u64)) as &mut u8) = 0xFF;
+        i = i + 1;
+    }
+
+    // =========================================================================
+    // Construct the PcieEcam (inline — self-contained test)
+    // =========================================================================
+    let base_ptr: Ptr<u32> = ecam_base as Ptr<u32>;
+
+    // =========================================================================
+    // T1: Plant NVIDIA GPU at Bus 0, Device 0, Function 0
+    // Register 0x00: Vendor ID (low 16) | Device ID (high 16)
+    // NVIDIA Vendor = 0x10DE, Device = 0x2204 (GA102)
+    // Combined: 0x220410DE
+    // =========================================================================
+    // byte_offset = (0 << 20) | (0 << 15) | (0 << 12) | 0x00 = 0
+    // word_offset = 0 / 4 = 0
+    base_ptr.offset(0).write(0x220410DE);
+
+    // Read back using ECAM formula
+    let t1_byte_off: u32 = (0 << 20) | (0 << 15) | (0 << 12) | 0;
+    let t1_word_off: i64 = (t1_byte_off / 4) as i64;
+    let t1_val: u32 = base_ptr.offset(t1_word_off).read();
+    let t1_vendor: u32 = t1_val & 0xFFFF;
+
+    if t1_vendor != 0x10DE {
+        free(ecam_base);
+        return 2;
+    }
+
+    // =========================================================================
+    // T2: Plant Mellanox NIC at Bus 0, Device 1, Function 0
+    // Mellanox Vendor = 0x15B3, Device = 0x1017 (ConnectX-5)
+    // Combined: 0x101715B3
+    // =========================================================================
+    // byte_offset = (0 << 20) | (1 << 15) | (0 << 12) | 0x00 = 0x8000
+    // word_offset = 0x8000 / 4 = 0x2000
+    let t2_byte_off: u32 = (0 << 20) | (1 << 15) | (0 << 12) | 0;
+    let t2_word_off: i64 = (t2_byte_off / 4) as i64;
+    base_ptr.offset(t2_word_off).write(0x101715B3);
+
+    let t2_val: u32 = base_ptr.offset(t2_word_off).read();
+    let t2_vendor: u32 = t2_val & 0xFFFF;
+
+    if t2_vendor != 0x15B3 {
+        free(ecam_base);
+        return 3;
+    }
+
+    // =========================================================================
+    // T3: Plant class/revision at Bus 1, Device 0, Function 0, Register 0x08
+    // Class Code = 0x03 (Display), Subclass = 0x00, ProgIF = 0x00, Rev = 0xA1
+    // Combined: 0x030000A1
+    // =========================================================================
+    // byte_offset = (1 << 20) | (0 << 15) | (0 << 12) | 0x08 = 0x100008
+    // word_offset = 0x100008 / 4 = 0x40002
+    let t3_byte_off: u32 = (1 << 20) | (0 << 15) | (0 << 12) | 0x08;
+    let t3_word_off: i64 = (t3_byte_off / 4) as i64;
+    base_ptr.offset(t3_word_off).write(0x030000A1);
+
+    let t3_val: u32 = base_ptr.offset(t3_word_off).read();
+    if t3_val != 0x030000A1 {
+        free(ecam_base);
+        return 4;
+    }
+
+    // =========================================================================
+    // T4: Empty slot — Bus 0, Device 31, Function 0 should be 0xFFFFFFFF
+    // (We filled with 0xFF above, so unwritten slots read as 0xFFFFFFFF)
+    // =========================================================================
+    let t4_byte_off: u32 = (0 << 20) | (31 << 15) | (0 << 12) | 0;
+    let t4_word_off: i64 = (t4_byte_off / 4) as i64;
+    let t4_val: u32 = base_ptr.offset(t4_word_off).read();
+
+    if t4_val != 0xFFFFFFFF {
+        free(ecam_base);
+        return 5;
+    }
+
+    free(ecam_base);
+    return 0;
+}

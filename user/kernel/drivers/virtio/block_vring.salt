@@ -1,0 +1,138 @@
+// ============================================================================
+// user/kernel/drivers/virtio/block_vring.salt
+// VirtIO Block Device — Raw Sector Topology
+// ============================================================================
+//
+// Zero-VFS: The disk is a flat, 1D array of 512-byte sectors. No inodes,
+// no directory tree, no superblocks. Ring 3 requests data by (sector, count).
+//
+// VirtIO-blk uses a 3-part chained descriptor sequence per I/O request:
+//
+//   Desc 0 (Header):  VirtioBlkReq  (16 bytes, read-only by device)
+//                      flags = VRING_DESC_F_NEXT
+//
+//   Desc 1 (Data):    Target buffer  (N×512 bytes, write-only for reads)
+//                      flags = VRING_DESC_F_NEXT | VRING_DESC_F_WRITE
+//
+//   Desc 2 (Status):  1-byte status  (write-only by device)
+//                      flags = VRING_DESC_F_WRITE
+//
+// LOC_ARENA Block Layout (separate from network queues):
+//   0x50000  Block VirtqDesc table  (256 × 16 = 4096 bytes)
+//   0x51000  Block VirtqAvail ring  (4 + 256×2 = 516 bytes)
+//   0x52000  Block VirtqUsed ring   (4 + 256×8 = 2052 bytes)
+//   0x53000  Block request headers  (256 × 16 = 4096 bytes)
+//   0x54000  Block status bytes     (256 × 1 = 256 bytes)
+//   0x55000  Block TX state         (16 bytes)
+//   0x60000  Tensor data area       (256KB for DMA landing)
+//
+// ============================================================================
+
+package user.kernel.drivers.virtio.block_vring
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// Request Types
+// ============================================================================
+pub const VIRTIO_BLK_T_IN:  u32 = 0;   // Read from disk → buffer
+pub const VIRTIO_BLK_T_OUT: u32 = 1;   // Write from buffer → disk
+
+// ============================================================================
+// Status Codes (written by hypervisor into Desc 2)
+// ============================================================================
+pub const VIRTIO_BLK_S_OK:     u8 = 0;
+pub const VIRTIO_BLK_S_IOERR:  u8 = 1;
+pub const VIRTIO_BLK_S_UNSUPP: u8 = 2;
+
+// ============================================================================
+// VirtioBlkReq Header (16 bytes)
+// ============================================================================
+// Layout:
+//   [0..4)   req_type  (u32) — VIRTIO_BLK_T_IN or _OUT
+//   [4..8)   reserved  (u32) — must be 0
+//   [8..16)  sector    (u64) — 512-byte sector offset
+// ============================================================================
+pub const BLK_REQ_SIZE:       u64 = 16;
+pub const BLK_REQ_TYPE_OFF:   u64 = 0;
+pub const BLK_REQ_RESV_OFF:   u64 = 4;
+pub const BLK_REQ_SECTOR_OFF: u64 = 8;
+
+// ============================================================================
+// LOC_ARENA Offsets for Block Device
+// ============================================================================
+pub const BLK_DESC_OFFSET:    u64 = 0x50000;
+pub const BLK_AVAIL_OFFSET:   u64 = 0x51000;
+pub const BLK_USED_OFFSET:    u64 = 0x52000;
+pub const BLK_HEADERS_OFFSET: u64 = 0x53000;
+pub const BLK_STATUS_OFFSET:  u64 = 0x54000;
+pub const BLK_STATE_OFFSET:   u64 = 0x55000;
+pub const TENSOR_DATA_OFFSET: u64 = 0x60000;
+
+// ============================================================================
+// Descriptor flags
+// ============================================================================
+pub const VRING_DESC_F_NEXT:  u16 = 1;
+pub const VRING_DESC_F_WRITE: u16 = 2;
+
+pub const DESC_SIZE:     u64 = 16;
+pub const BLK_QUEUE_SIZE: u16 = 256;
+
+// ============================================================================
+// Sector constants
+// ============================================================================
+pub const SECTOR_SIZE: u32 = 512;
+
+// ============================================================================
+// write_blk_header — Populate a VirtioBlkReq at a given header slot
+// ============================================================================
+pub fn write_blk_header(arena_base: u64, slot: u16, req_type: u32, sector: u64) {
+    let hdr: u64 = arena_base + BLK_HEADERS_OFFSET + (slot as u64) * BLK_REQ_SIZE;
+    *((hdr + BLK_REQ_TYPE_OFF) as &mut u32) = req_type;
+    *((hdr + BLK_REQ_RESV_OFF) as &mut u32) = 0;
+    *((hdr + BLK_REQ_SECTOR_OFF) as &mut u64) = sector;
+}
+
+// ============================================================================
+// get_header_addr — Physical address of header slot
+// ============================================================================
+@inline
+pub fn get_header_addr(arena_base: u64, slot: u16) -> u64 {
+    return arena_base + BLK_HEADERS_OFFSET + (slot as u64) * BLK_REQ_SIZE;
+}
+
+// ============================================================================
+// get_status_addr — Physical address of status byte slot
+// ============================================================================
+@inline
+pub fn get_status_addr(arena_base: u64, slot: u16) -> u64 {
+    return arena_base + BLK_STATUS_OFFSET + (slot as u64);
+}
+
+// ============================================================================
+// read_status — Read the status byte for a completed request
+// ============================================================================
+@inline
+pub fn read_status(arena_base: u64, slot: u16) -> u8 {
+    return *((arena_base + BLK_STATUS_OFFSET + (slot as u64)) as &u8);
+}
+
+// ============================================================================
+// init_block_vring — Zero-initialize the block device queues
+// ============================================================================
+pub fn init_block_vring(arena_base: u64) {
+    let desc: u64 = arena_base + BLK_DESC_OFFSET;
+    let avail: u64 = arena_base + BLK_AVAIL_OFFSET;
+    let used: u64 = arena_base + BLK_USED_OFFSET;
+    let state: u64 = arena_base + BLK_STATE_OFFSET;
+
+    let mut i: u64 = 0;
+    while i < 4096 { *((desc + i) as &mut u8) = 0; i = i + 1; }
+    i = 0;
+    while i < 516 { *((avail + i) as &mut u8) = 0; i = i + 1; }
+    i = 0;
+    while i < 2052 { *((used + i) as &mut u8) = 0; i = i + 1; }
+
+    *((state) as &mut u64) = 0;      // next_desc_idx
+    *((state + 8) as &mut u64) = 0;  // total_requests
+}

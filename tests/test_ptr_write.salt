@@ -1,0 +1,22 @@
+package main
+
+use std::core::ptr::*;
+
+// Test: Ptr.write() method resolution
+// This should compile and link correctly.
+// The Ptr<T>.write() method must be resolved from std::core::ptr.
+
+extern fn malloc(size: i64) -> Ptr<u8>;
+extern fn free(ptr: Ptr<u8>);
+
+fn main() -> i32 {
+    let mem = malloc(8);
+    let p = mem as Ptr<i32>;
+    p.write(42);
+    let val = p.read();
+    free(mem);
+    if val == 42 {
+        return 0;
+    }
+    return 1;
+}

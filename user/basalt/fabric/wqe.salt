@@ -1,0 +1,79 @@
+// ============================================================================
+// user/basalt/fabric/wqe.salt
+// WQE (Work Queue Element) — 16-Byte NIC DMA Descriptor
+// ============================================================================
+//
+// The physical memory layout that Ultra Ethernet / RoCEv2 NICs consume
+// when their doorbell register is rung. A WQE is the atomic unit of
+// work posted to the NIC's Send Queue.
+//
+// Layout (16 bytes = 2 × u64):
+//   Word 0 [control_and_offset]:
+//     Bits 63-32: Opcode/Flags (0x00000001 = RDMA WRITE)
+//     Bits 31-0:  Destination tensor element offset
+//   Word 1 [payload]:
+//     The raw 64-bit value being transmitted
+//
+// CRITICAL: This struct must be exactly 16 bytes with zero padding.
+// NIC DMA engines read this layout directly from PCIe MMIO space.
+//
+// ============================================================================
+
+package user.basalt.fabric.wqe
+
+// RDMA operation opcodes
+pub const WQE_OP_WRITE: u64 = 0x00000001;
+pub const WQE_OP_READ:  u64 = 0x00000002;
+
+// ============================================================================
+// WqeDescriptor — The Physical NIC Descriptor
+// ============================================================================
+pub struct WqeDescriptor {
+    /// Top 32 bits: Opcode, Bottom 32 bits: Tensor offset
+    pub control_and_offset: u64,
+    /// The raw u64 payload (reinterpreted as f64 by the receiver)
+    pub payload: u64,
+}
+
+impl WqeDescriptor {
+    // ========================================================================
+    // new — Construct an RDMA WRITE WQE
+    // ========================================================================
+    @inline
+    pub fn new(offset: u32, payload: u64) -> WqeDescriptor {
+        let control: u64 = (WQE_OP_WRITE << 32) | (offset as u64);
+        return WqeDescriptor {
+            control_and_offset: control,
+            payload: payload,
+        };
+    }
+
+    // ========================================================================
+    // get_opcode — Extract the operation code
+    // ========================================================================
+    @inline
+    pub fn get_opcode(&self) -> u64 {
+        return (self.control_and_offset >> 32) & 0xFFFFFFFF;
+    }
+
+    // ========================================================================
+    // get_offset — Extract the destination tensor offset
+    // ========================================================================
+    @inline
+    pub fn get_offset(&self) -> u32 {
+        return (self.control_and_offset & 0xFFFFFFFF) as u32;
+    }
+
+    // ========================================================================
+    // as_array — Expose WQE as 128-bit contiguous array
+    // ========================================================================
+    // Returns the WQE as a [u64; 2] for atomic LLVM lowering.
+    // The LLVM backend lowers a contiguous 16-byte write to an
+    // ARM64 stp (Store Pair) instruction — a single atomic PCIe
+    // transaction that eliminates doorbell race conditions.
+    // ========================================================================
+    @inline
+    pub fn as_array(&self) -> [u64; 2] {
+        return [self.control_and_offset, self.payload];
+    }
+}

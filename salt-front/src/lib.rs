@@ -1096,6 +1096,23 @@ fn extract_force_unwrap_expr(s: &str) -> String {
 
 
 pub fn compile_ast(file: &mut SaltFile, release_mode: bool, registry: Option<&crate::registry::Registry>, skip_scan: bool, vverify: bool, disable_alias_scopes: bool, no_verify: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> anyhow::Result<String> {
+    // [PRELUDE] Inject implicit stdlib imports for built-in types.
+    // Ptr<T> is a built-in type whose methods (write, read, offset) live in std/core/ptr.salt.
+    // Without this import, standalone files can use Ptr<T> but can't call its methods.
+    // This acts as Salt's implicit prelude, similar to Rust's std::prelude.
+    if registry.is_none() {
+        // Standalone mode only — multi-file builds handle imports via the registry.
+        let prelude_imports = vec![
+            "use std::core::ptr::*;",
+        ];
+        for import_str in prelude_imports {
+            let processed = preprocess(import_str);
+            if let Ok(parsed) = syn::parse_str::<SaltFile>(&processed) {
+                file.imports.extend(parsed.imports);
+            }
+        }
+    }
+
     // Run Comptime Evaluation Pass
     passes::comptime::run(file)
         .map_err(|e| anyhow::anyhow!("Comptime Error: {:?}", e))?;

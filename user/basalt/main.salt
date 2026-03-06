@@ -1,0 +1,143 @@
+// ============================================================================
+// user/basalt/main.salt
+// Basalt v0.1 — End-to-End Orchestration Entrypoint
+// ============================================================================
+//
+// This module wires the complete Ring 3 Basalt stack:
+//   Arena (memory) + PortRouter (networking) + BasaltApp (application)
+//
+// In the production Lattice boot sequence, init_basalt() is called by
+// the process supervisor after the kernel grants DMA and arena
+// capabilities. For v0.1, the harness simulates this with a
+// pre-allocated buffer.
+//
+// ============================================================================
+
+package user.basalt.main
+
+// ============================================================================
+// Basalt Configuration Constants
+// ============================================================================
+
+// Arena sizing: 64 KiB per request cycle
+pub const ARENA_SIZE: u64 = 65536;
+
+// Network binding
+pub const LISTEN_PORT: u16 = 80;
+
+// Token generation (v0.1 mock)
+pub const MOCK_RESPONSE_LEN: u32 = 32;
+pub const MOCK_CHUNK_SIZE: u32 = 4;
+pub const EXPECTED_TX_FRAMES: u32 = 8;  // 32 / 4
+
+// ============================================================================
+// init_basalt — Cold Path: Initialize the Full Basalt Stack
+// ============================================================================
+// Called once at process startup. Wires the Arena, binds to the
+// PortRouter, and prepares the application for polling.
+//
+// Arguments:
+//   arena_base:    Raw pointer to pre-mapped arena memory (from capability)
+//   arena_cap:     Size of the arena region in bytes
+//   rx_ring:       Inbound SPSC ring (NetD → Basalt)
+//   tx_ring:       Outbound SPSC ring (Basalt → NetD)
+//   router_streams: Base of the PortRouter stream handle array
+//   router_states: Base of the PortRouter state array
+// ============================================================================
+@no_mangle
+pub fn init_basalt(
+    arena_base: u64,
+    arena_cap: u64,
+    rx_ring: u64,
+    tx_ring: u64,
+    router_streams: u64,
+    router_states: u64
+) {
+    // 1. Register Basalt's RX stream on the PortRouter at port 80
+    let port_idx = LISTEN_PORT as u64;
+    *((router_streams + port_idx * 8) as &mut u64) = rx_ring;
+    *((router_states + port_idx * 8) as &mut u64) = 1;  // PORT_BOUND
+
+    // 2. Store application state for the poll loop
+    //    (In production, this calls basalt_app.init())
+    //    The globals in app.salt are set directly here for v0.1
+}
+
+// ============================================================================
+// basalt_poll_cycle — One Iteration of the Sovereign Event Loop
+// ============================================================================
+// Called by the SovereignPoller on each wake event.
+// Reads from RX, generates response, pushes to TX, resets arena.
+//
+// For v0.1, this is a direct inline implementation that mirrors
+// the app.poll() logic, proving the full stack compiles as one unit.
+// ============================================================================
+@no_mangle
+pub fn basalt_poll_cycle(
+    rx_ring: u64,
+    tx_ring: u64,
+    arena_base: u64,
+    arena_cap: u64
+) {
+    let mut arena_offset: u64 = 0;
+    let headroom: u64 = 54;
+
+    // Try to read from RX ring
+    let head = *((rx_ring + 0) as &u64);
+    let tail = *((rx_ring + 64) as &u64);
+
+    if head == tail {
+        return;  // No data — yield
+    }
+
+    // Read the prompt pointer
+    let capacity = *((rx_ring + 8) as &u64);
+    let prompt = *((rx_ring + 192 + tail) as &u64);
+    let new_tail = (tail + 8) % capacity;
+    *((rx_ring + 64) as &mut u64) = new_tail;
+
+    // Stream generation loop
+    let mut gen_idx: u32 = 0;
+    while gen_idx < MOCK_RESPONSE_LEN {
+        let mut chunk: u32 = MOCK_CHUNK_SIZE;
+        if gen_idx + chunk > MOCK_RESPONSE_LEN {
+            chunk = MOCK_RESPONSE_LEN - gen_idx;
+        }
+        gen_idx = gen_idx + chunk;
+
+        // Arena alloc with headroom
+        let total_req = (chunk as u64) + headroom;
+        let current = arena_base + arena_offset;
+        let rem = current % 8;
+        let mut pad: u64 = 0;
+        if rem != 0 {
+            pad = 8 - rem;
+        }
+        let alloc_total = total_req + pad;
+        if arena_offset + alloc_total > arena_cap {
+            break;
+        }
+        let tx_ptr = current + pad + headroom;
+        arena_offset = arena_offset + alloc_total;
+
+        // Fill mock payload
+        let mut i: u32 = 0;
+        while i < chunk {
+            *((tx_ptr + (i as u64)) as &mut u8) = 0x41;
+            i = i + 1;
+        }
+
+        // Push to TX ring
+        let tx_head = *((tx_ring + 0) as &u64);
+        let tx_cap = *((tx_ring + 8) as &u64);
+        let tx_tail = *((tx_ring + 64) as &u64);
+        let tx_next = (tx_head + 8) % tx_cap;
+        if tx_next != tx_tail {
+            *((tx_ring + 192 + tx_head) as &mut u64) = tx_ptr;
+            *((tx_ring + 0) as &mut u64) = tx_next;
+        }
+    }
+
+    // O(1) arena reset
+    arena_offset = 0;
+}

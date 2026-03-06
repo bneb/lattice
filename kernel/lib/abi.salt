@@ -1,0 +1,82 @@
+// =============================================================================
+// kernel/lib/abi.salt
+// Lattice Sovereign ABI — Level 0 Definitions
+// =============================================================================
+//
+// The Sovereign ABI separates kernel responsibilities into two planes:
+//
+//   Control Plane (syscalls 10-13):
+//     The kernel brokers capabilities, maps shared memory, and assigns
+//     CPU cores. These are infrequent operations measured in microseconds.
+//
+//   Data Plane (Ring 3, zero-copy):
+//     SPSC ring buffers operate entirely in userspace. Once a ring is
+//     mapped via SYS_RING_MAP, all push/pop operations bypass the kernel.
+//     Throughput is bounded only by cache-line transfer latency.
+//
+// ABI Level: 0 (Experimental)
+// =============================================================================
+
+package kernel.lib.abi
+
+import kernel.lib.ipc_ring
+
+// =============================================================================
+// Control Plane Syscall Vectors
+// =============================================================================
+// These numbers are allocated in the post-Linux range (10+) to avoid
+// collision with existing syscalls (0=noop, 1=write, 9=mmap, 12=brk,
+// 60=exit, 119=yield, 200-202=IPC).
+//
+// Changes require synchronized updates across:
+//   - kernel/core/syscall.salt    (slow-path dispatch)
+//   - kernel/core/capability.salt (handler implementations)
+//   - user/lib/syscall.salt       (userspace wrappers)
+// =============================================================================
+
+pub const SYS_CAP_BIND: u64     = 10;  // Allocate a capability handle
+pub const SYS_RING_MAP: u64     = 11;  // Map a physical SPSC ring to a capability
+pub const SYS_CORE_ACQUIRE: u64 = 12;  // Request spatial ownership of a CPU core
+pub const SYS_IPC_REG_SEND: u64 = 13;  // Fast-path register IPC (2x u64 payload)
+
+// =============================================================================
+// Capability Handle
+// =============================================================================
+// A Capability is a kernel-managed token that grants a Ring 3 process
+// access to a specific resource (currently: SPSC ring mappings).
+//
+// The capability ID is an index into the kernel's global capability table.
+// The owner_pid field prevents cross-process capability theft.
+// =============================================================================
+
+pub const MAX_CAPABILITIES: u64 = 64;
+
+pub const CAP_FLAG_NONE: u64     = 0;
+pub const CAP_FLAG_PRODUCER: u64 = 1;  // Ring producer (writes head)
+pub const CAP_FLAG_CONSUMER: u64 = 2;  // Ring consumer (writes tail)
+
+pub const CAP_STATE_FREE: u64   = 0;
+pub const CAP_STATE_BOUND: u64  = 1;
+pub const CAP_STATE_MAPPED: u64 = 2;
+
+struct Capability {
+    state: u64,        // CAP_STATE_FREE | CAP_STATE_BOUND | CAP_STATE_MAPPED
+    owner_pid: u64,    // Process that owns this capability
+    ring_phys: u64,    // Physical address of the SPSC ring page
+    ring_vaddr: u64,   // Virtual address in the owner's address space
+    flags: u64,        // CAP_FLAG_PRODUCER | CAP_FLAG_CONSUMER
+}
+
+// =============================================================================
+// SpscRing — Re-exported from ipc_ring.salt
+// =============================================================================
+// The canonical SPSC ring struct is defined in kernel/lib/ipc_ring.salt
+// with @align(64) cache-line isolation verified by Z3:
+//
+//   Cache Line 0 (bytes  0- 63): head (u64) + capacity (u64)
+//   Cache Line 1 (bytes 64-127): tail (u64)
+//   Cache Line 2 (bytes 128+):   consumer_waiting (u64)
+//   Data region:                  PAGE_SIZE - RING_HEADER_SIZE = 3904 bytes
+//
+// See ipc_ring.salt for the full struct definition and Z3 proof annotations.
+// =============================================================================

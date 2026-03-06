@@ -1,0 +1,120 @@
+// ============================================================================
+// user/benchmarks/harness.salt
+// High-Fidelity Percentile Harness — O(N log N) Quicksort CDF
+// ============================================================================
+//
+// A benchmark of 1 is a lie.
+//
+// Pipeline:
+//   1. WARMUP:   1,000 unmeasured iterations (I$, D$, TLB primed)
+//   2. MEASURE:  10,000 measured iterations, cycle deltas in sample buffer
+//   3. SORT:     O(N log N) iterative quicksort (no stack overflow on 10K)
+//   4. EXTRACT:  Full CDF: percentiles[0..100] at sorted[N×100]
+//                Deep tail: p99.9 at sorted[9990]
+//                Max tail:  p99.99 at sorted[9999]
+//
+// Memory: 10,000 × 8 bytes = 80KB for samples.
+// Stats:  103 × 8 = 824 bytes (101 percentiles + p99.9 + p99.99).
+//
+// ============================================================================
+
+package user.benchmarks.harness
+
+use std.core.ptr.Ptr
+
+extern fn malloc(size: i64) -> u64;
+extern fn free(ptr: u64);
+extern fn rdtsc() -> i64;
+
+// ============================================================================
+// Constants
+// ============================================================================
+pub const N_WARMUP:    i32 = 1000;
+pub const N_MEASURED:  i32 = 10000;
+pub const SAMPLE_SIZE: u64 = 80000;  // 10000 × 8 bytes
+
+// Stats memory layout (824 bytes):
+//   [0..808)     percentiles[101] (i64 × 101) — p0 through p100
+//   [808..816)   p99_9  (i64) — sorted[9990]
+//   [816..824)   p99_99 (i64) — sorted[9999]
+pub const STATS_SIZE:        u64 = 824;
+pub const STATS_PCTILE_BASE: u64 = 0;
+pub const STATS_P999:        u64 = 808;
+pub const STATS_P9999:       u64 = 816;
+
+// ============================================================================
+// alloc_stats — Allocate and zero a BenchmarkStats buffer
+// ============================================================================
+pub fn alloc_stats() -> u64 {
+    let addr: u64 = malloc(STATS_SIZE as i64);
+    if addr == 0 { return 0; }
+    let mut i: u64 = 0;
+    while i < STATS_SIZE { *((addr + i) as &mut u8) = 0; i = i + 1; }
+    return addr;
+}
+
+// ============================================================================
+// alloc_samples — Allocate the 10,000-entry sample buffer
+// ============================================================================
+pub fn alloc_samples() -> u64 {
+    let addr: u64 = malloc(SAMPLE_SIZE as i64);
+    if addr == 0 { return 0; }
+    let mut i: u64 = 0;
+    while i < SAMPLE_SIZE { *((addr + i) as &mut u8) = 0; i = i + 1; }
+    return addr;
+}
+
+// ============================================================================
+// extract_cdf — Full 0-100 percentile CDF + p99.9 + p99.99
+// ============================================================================
+// After sorting 10,000 samples:
+//   percentiles[N] = sorted[N * 100]      for N in 0..100
+//   percentiles[100] = sorted[9999]       (p100 = max)
+//   p99.9 = sorted[9990]                  (deep tail)
+//   p99.99 = sorted[9999]                 (max tail)
+// ============================================================================
+pub fn extract_cdf(sorted_samples: u64, stats: u64) {
+    let mut p: i32 = 0;
+    while p < 100 {
+        let idx: u64 = (p as u64) * 100;
+        let val: i64 = *((sorted_samples + idx * 8) as &i64);
+        *((stats + STATS_PCTILE_BASE + (p as u64) * 8) as &mut i64) = val;
+        p = p + 1;
+    }
+    // p100 = max = sorted[9999]
+    let p100: i64 = *((sorted_samples + 9999 * 8) as &i64);
+    *((stats + STATS_PCTILE_BASE + 100 * 8) as &mut i64) = p100;
+
+    // p99.9 = sorted[9990]
+    *((stats + STATS_P999) as &mut i64) = *((sorted_samples + 9990 * 8) as &i64);
+
+    // p99.99 = sorted[9999]
+    *((stats + STATS_P9999) as &mut i64) = *((sorted_samples + 9999 * 8) as &i64);
+}
+
+// ============================================================================
+// Percentile accessors
+// ============================================================================
+@inline
+pub fn get_percentile(stats: u64, p: i32) -> i64 {
+    return *((stats + STATS_PCTILE_BASE + (p as u64) * 8) as &i64);
+}
+
+@inline
+pub fn get_p999(stats: u64) -> i64 {
+    return *((stats + STATS_P999) as &i64);
+}
+
+@inline
+pub fn get_p9999(stats: u64) -> i64 {
+    return *((stats + STATS_P9999) as &i64);
+}
+
+@inline
+pub fn get_median(stats: u64) -> i64 { return get_percentile(stats, 50); }
+
+@inline
+pub fn get_min(stats: u64) -> i64 { return get_percentile(stats, 0); }
+
+@inline
+pub fn get_max(stats: u64) -> i64 { return get_percentile(stats, 100); }

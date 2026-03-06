@@ -1,0 +1,86 @@
+// ============================================================================
+// user/lib/codata.salt
+// The Codata Substrate — Reactive Streams over Zero-Copy SPSC Rings
+// ============================================================================
+//
+// This is the userspace data plane abstraction. It consumes the
+// kernel-provided SPSC rings and exposes a functional, composable
+// streaming API for Salt applications.
+//
+// The ReactiveStream provides:
+//   - Zero-copy reads and writes via direct pointer access
+//   - Fast-path IPC signaling when blocking on an empty ring
+//   - Functional composition via map_to<U>
+// ============================================================================
+
+package user.lib.codata
+
+import user.lib.ring
+import user.lib.syscall
+
+// ============================================================================
+// ReactiveStream<T> — A Typed View over an SPSC Ring
+// ============================================================================
+struct ReactiveStream {
+    ring_ref: &mut ring.SpscRing,
+    // Minimalist duck-typing metadata
+    type_hash: u64,       // FNV-1a hash of the element type name
+    element_size: u32,    // sizeof(T) in bytes
+    cap_id: u64,          // Capability handle for IPC signaling
+}
+
+// ============================================================================
+// create — Construct a ReactiveStream from a mapped SPSC ring
+// ============================================================================
+pub fn create(r: &mut ring.SpscRing, hash: u64, elem_size: u32, cap: u64) -> ReactiveStream {
+    return ReactiveStream {
+        ring_ref: r,
+        type_hash: hash,
+        element_size: elem_size,
+        cap_id: cap,
+    };
+}
+
+// ============================================================================
+// read_element — Pop a single element from the ring (blocking)
+// ============================================================================
+pub fn read_element(stream: &mut ReactiveStream) -> u64 {
+    // Spin-wait with IPC signaling fallback
+    let mut val: u64 = 0;
+    let mut ok = ring.pop(stream.ring_ref, &mut val);
+    
+    while !ok {
+        // Ring is empty — yield via fast-path IPC await
+        syscall.ipc_ring_await(stream.cap_id);
+        ok = ring.pop(stream.ring_ref, &mut val);
+    }
+    
+    return val;
+}
+
+// ============================================================================
+// write_element — Push a single element to the ring
+// ============================================================================
+pub fn write_element(stream: &mut ReactiveStream, val: u64) {
+    // Spin until space is available
+    let mut ok = ring.push(stream.ring_ref, val);
+    
+    while !ok {
+        // Ring is full — could yield or spin
+        ok = ring.push(stream.ring_ref, val);
+    }
+}
+
+// ============================================================================
+// map_to — Functional Stream Composition
+// ============================================================================
+// Continuously reads from `src`, applies `func`, and writes to `dst`.
+// This is the fundamental Codata operator: an infinite fold over the stream.
+// ============================================================================
+pub fn map_to(src: &mut ReactiveStream, dst: &mut ReactiveStream, func: fn(u64) -> u64) {
+    while true {
+        let val = read_element(src);
+        let mapped = func(val);
+        write_element(dst, mapped);
+    }
+}

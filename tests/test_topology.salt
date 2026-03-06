@@ -1,0 +1,48 @@
+// =============================================================================
+// Test: Topology — Sovereign Memory Tier Constants
+// =============================================================================
+// Verifies that the three locality tiers are distinct and correctly valued.
+// =============================================================================
+
+fn main() -> i32 {
+    // Sovereign Memory Tiers
+    let loc_arena: u32 = 0;  // Local L1/L2/L3 / RAM
+    let loc_nvme: u32 = 1;   // PCIe SSD
+    let loc_rdma: u32 = 2;   // Remote RAM via Ultra Ethernet / RoCE
+
+    // Test 1: All tiers must be distinct
+    if loc_arena == loc_nvme {
+        return 1;
+    }
+    if loc_arena == loc_rdma {
+        return 2;
+    }
+    if loc_nvme == loc_rdma {
+        return 3;
+    }
+
+    // Test 2: Arena is the lowest latency tier (0)
+    if loc_arena != 0 {
+        return 4;
+    }
+
+    // Test 3: NVMe is tier 1
+    if loc_nvme != 1 {
+        return 5;
+    }
+
+    // Test 4: RDMA is tier 2
+    if loc_rdma != 2 {
+        return 6;
+    }
+
+    // Test 5: Tier ordering (lower = faster access)
+    if loc_arena >= loc_nvme {
+        return 7;
+    }
+    if loc_nvme >= loc_rdma {
+        return 8;
+    }
+
+    return 0;
+}

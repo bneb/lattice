@@ -1,0 +1,17 @@
+package main
+
+use std::string::*;
+
+// Test: F-string standalone linking
+// Verifies that InterpolatedStringHandler::new resolves correctly
+// without the caller's package prefix being prepended.
+
+fn main() -> i32 {
+    let x = 42;
+    let msg = f"The answer is {x}";
+    // Verify the string was constructed (non-null pointer means success)
+    if msg.len() > 0 {
+        return 0;
+    }
+    return 1;
+}

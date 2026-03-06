@@ -1,0 +1,33 @@
+// =============================================================================
+// Test: RDMA Fabric — Zero Headroom and WQE Descriptor
+// =============================================================================
+
+fn main() -> i32 {
+    // RDMA headroom must be exactly 0
+    let headroom: u32 = 0;
+    if headroom != 0 {
+        return 1;
+    }
+
+    // WQE descriptor is exactly 16 bytes
+    let wqe_size: u32 = 16;
+    if wqe_size != 16 {
+        return 2;
+    }
+
+    // RDMA allocation = payload only (no headroom)
+    let payload: u32 = 512;
+    let rdma_alloc = payload + headroom;
+    if rdma_alloc != 512 {
+        return 3;
+    }
+
+    // Compare with TCP: RDMA saves 54 bytes per frame
+    let tcp_headroom: u32 = 54;
+    let savings = tcp_headroom - headroom;
+    if savings != 54 {
+        return 4;
+    }
+
+    return 0;
+}

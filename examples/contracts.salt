@@ -17,24 +17,27 @@ fn safe_div(a: i32, b: i32) -> i32
     return a / b;
 }
 
-// Verified bounds-checked access
-fn array_get(arr: &[i32; 10], idx: i32) -> i32
-    requires(idx >= 0 && idx < 10)
+// Verified postcondition — Z3 proves the return value is always non-negative.
+fn absolute_value(x: i32) -> i32
+    ensures(result >= 0)
 {
-    return arr[idx as i64];
+    if x < 0 {
+        return -x;
+    }
+    return x;
 }
 
 fn main() -> i32 {
     // These calls pass verification — Z3 can prove the preconditions:
     let result = safe_div(100, 7);      // 7 != 0 ✓
-    
-    let data: [i32; 10] = [0; 10];
-    let val = array_get(&data, 5);      // 5 >= 0 && 5 < 10 ✓
+    let abs_val = absolute_value(-42);  // ensures(result >= 0) ✓
 
     // This would be a COMPILE-TIME ERROR (uncomment to see):
     // let bad = safe_div(100, 0);       // error: violates requires(b != 0)
-    // let oob = array_get(&data, 15);   // error: violates requires(idx < 10)
-    
-    println("✓ all contracts verified at compile time");
-    return 0;
+
+    if result == 14 && abs_val == 42 {
+        println("✓ all contracts verified at compile time");
+        return 0;
+    }
+    return 1;
 }

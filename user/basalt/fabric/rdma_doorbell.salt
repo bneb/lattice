@@ -1,0 +1,79 @@
+// ============================================================================
+// user/basalt/fabric/rdma_doorbell.salt
+// RDMA TX Doorbell — Zero-Copy MMIO Push to NIC Silicon
+// ============================================================================
+//
+// When a FabricPtr with LOC_RDMA locality receives a write, the data
+// doesn't go to local RAM. Instead, a 16-byte WQE descriptor is
+// constructed and slammed directly into the NIC's PCIe BAR MMIO space.
+//
+// The NIC's DMA engine reads the WQE from its doorbell register and
+// initiates an RDMA WRITE to the remote tensor on the peer machine.
+//
+// This function executes in Ring 3 — zero kernel context switches.
+// The physical BAR was mapped via SYS_CAP_BIND in v1.4.0.
+//
+// ============================================================================
+
+package user.basalt.fabric.rdma_doorbell
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// NIC MMIO Constants
+// ============================================================================
+// The TX doorbell is at a fixed offset within the NIC's PCIe BAR.
+// This is hardware-specific (Mellanox ConnectX-5 documented layout).
+pub const DOORBELL_OFFSET_BYTES: u64 = 0x1000;
+
+// ============================================================================
+// ring_tx_doorbell — Push a WQE to the NIC Hardware
+// ============================================================================
+// Constructs a 16-byte WQE and writes it to the NIC's MMIO doorbell.
+//
+// Parameters:
+//   bar_base_addr:  Physical BAR address from SYS_CAP_BIND
+//   tensor_offset:  Element offset within the remote tensor
+//   val:            Raw u64 value to transmit
+//
+// MMIO Write Protocol:
+//   Word 0 → Doorbell + 0: Control (opcode | offset)
+//   Word 1 → Doorbell + 8: Payload (triggers NIC flush)
+//
+// CRITICAL: Writing Word 1 triggers the NIC DMA engine to read the
+// full WQE and initiate the RDMA WRITE. The order matters.
+// ============================================================================
+@inline
+pub fn ring_tx_doorbell(bar_base_addr: u64, tensor_offset: u32, val: u64) {
+    // Construct the WQE in registers (no memory allocation)
+    // Word 0: Opcode 0x1 (RDMA WRITE) in top 32 bits, offset in bottom 32
+    let control: u64 = (1 << 32) | (tensor_offset as u64);
+
+    // Calculate the physical doorbell pointer
+    let doorbell_addr: u64 = bar_base_addr + DOORBELL_OFFSET_BYTES;
+
+    // Cast to 128-bit array pointer for atomic PCIe write
+    // LLVM lowers [u64; 2] write → ARM64 stp (Store Pair) instruction
+    // This is a single atomic PCIe transaction — no bus race condition
+    let doorbell: Ptr<[u64; 2]> = doorbell_addr as Ptr<[u64; 2]>;
+
+    // Single unified 128-bit write — THE ATOMIC DOORBELL RING
+    // MLIR sees a standard memory operation, preserving polyhedral opts.
+    // LLVM sees a 16-byte write and emits the atomic hardware instruction.
+    doorbell.write([control, val]);
+}
+
+// ============================================================================
+// read_doorbell — Read back doorbell state (testing/diagnostics)
+// ============================================================================
+pub fn read_doorbell_control(bar_base_addr: u64) -> u64 {
+    let doorbell_addr: u64 = bar_base_addr + DOORBELL_OFFSET_BYTES;
+    let doorbell: Ptr<u64> = doorbell_addr as Ptr<u64>;
+    return doorbell.offset(0).read();
+}
+
+pub fn read_doorbell_payload(bar_base_addr: u64) -> u64 {
+    let doorbell_addr: u64 = bar_base_addr + DOORBELL_OFFSET_BYTES;
+    let doorbell: Ptr<u64> = doorbell_addr as Ptr<u64>;
+    return doorbell.offset(1).read();
+}

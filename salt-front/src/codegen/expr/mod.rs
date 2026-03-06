@@ -435,10 +435,18 @@ pub fn emit_expr(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, 
                     let _ = ctx.ensure_struct_exists("std__string__InterpolatedStringHandler", &[]);
                     // [V5.0] Also discover Formatter for structural formatting support
                     let _ = ctx.ensure_struct_exists("std__core__fmt__Formatter", &[]);
+                    // [STANDALONE FIX] Force discovery of InterpolatedStringHandler methods.
+                    // In standalone mode, ensure_struct_exists loads the struct template but
+                    // doesn't hydrate impl methods. Trigger method discovery for critical methods.
+                    let handler_ty = Type::Struct("std__string__InterpolatedStringHandler".to_string());
+                    let _ = ctx.resolve_method(&handler_ty, "new");
+                    let _ = ctx.resolve_method(&handler_ty, "append_literal");
+                    let _ = ctx.resolve_method(&handler_ty, "finalize");
                     
                     // Expand f-string to Salt code using Rust path notation (::)
                     let expanded = ctx.native_fstring_expand(&content);
-                    // Parse as Salt expression - path is std::string::InterpolatedStringHandler::new
+
+                    // Parse as Salt expression - path is already mangled, resolver won't re-mangle
                     let parsed: syn::Expr = syn::parse_str(&expanded)
                         .map_err(|e| format!("F-string parse error: {} (code: {})", e, 
                             expanded.chars().take(100).collect::<String>()))?;
@@ -676,6 +684,33 @@ pub fn emit_expr(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, 
                     let append_parsed: syn::Expr = syn::parse_str(&append_code)
                         .map_err(|e| format!("__fstring_append_expr! codegen parse error: {} (code: {})", e, append_code))?;
                     emit_expr(ctx, out, &append_parsed, local_vars, None)
+                }
+                "__builtin_hash" => {
+                    // [SOVEREIGN I/O FABRIC] Compile-time SipHash-2-4 evaluation.
+                    // __builtin_hash!("capability.name") emits a pure arith.constant i64.
+                    // Zero runtime cost — the hash is computed during compilation.
+                    use std::collections::hash_map::DefaultHasher;
+                    use std::hash::{Hash, Hasher};
+
+                    if content.is_empty() {
+                        return Err("__builtin_hash! requires a string literal argument".to_string());
+                    }
+
+                    // Compute SipHash-2-4 at compile time
+                    let mut hasher = DefaultHasher::new();
+                    content.hash(&mut hasher);
+                    let hash_val: u64 = hasher.finish();
+
+                    // Emit a pure MLIR constant — zero runtime cost
+                    let res_var = format!("%hash_const_{}", ctx.next_id());
+                    // Cast to i64 for MLIR compatibility (arith.constant uses signed)
+                    let hash_i64 = hash_val as i64;
+                    out.push_str(&format!(
+                        "    {} = arith.constant {} : i64\n",
+                        res_var, hash_i64
+                    ));
+
+                    Ok((res_var, Type::I64))
                 }
                 _ => Err(format!("Unknown macro in expression: {}", macro_name))
             }
@@ -980,6 +1015,16 @@ pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr
                      promote_numeric(ctx, out, &raw_idx_val, &raw_idx_ty, &Type::I64)?
                  };
 
+                 // [ARRAY-REF FIX] Handle Pointer(Array(T, N)) — &mut [T; N] write path
+                 // When element is Array, use [0, idx] GEP and return element type
+                 if let Type::Array(ref arr_elem, _, _) = **element {
+                     let arr_mlir = element.to_mlir_type(ctx)?;
+                     let elem_ptr = format!("%mut_arr_elem_ptr_{}", ctx.next_id());
+                     out.push_str(&format!("    {} = llvm.getelementptr {}[0, {}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n",
+                         elem_ptr, loaded_ptr, idx_final, arr_mlir));
+                     return Ok((elem_ptr, (**arr_elem).clone(), LValueKind::Ptr));
+                 }
+
                  let ptr = format!("%ptr_elem_{}", ctx.next_id());
                  let elem_mlir = element.to_mlir_storage_type(ctx)?;
                  ctx.emit_gep(out, &ptr, &loaded_ptr, &idx_final, &elem_mlir);
@@ -1045,26 +1090,55 @@ pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr
                       Ok((ptr, *elem_ty.clone(), kind))
                  },
                  Type::Reference(ref elem_ty, _) => {
-                      // Reference can point to Stack or Global/Heap.
-                      let loaded_ptr = if matches!(base_kind, LValueKind::SSA) {
-                          base_ptr
-                      } else {
-                          let res = format!("%ref_loaded_ptr_{}", ctx.next_id());
-                          let scopes = match base_kind {
-                              LValueKind::Local => Some(("#scope_local", "#scope_global")),
-                              LValueKind::Global(_) => Some(("#scope_global", "#scope_local")),
-                              _ => None,
-                          };
-                          ctx.emit_load_logical_with_scope(out, &res, &base_ptr, &base_ty, scopes)?;
-                          res
-                      };
+                       // [ARRAY-REF FIX V3] Check for Array FIRST, before loading pointer
+                       // For Reference(Array(T, N)), handle indexing directly using base_ptr
+                       if let Type::Array(ref arr_elem_ty, _, packed) = **elem_ty {
+                            // [V3.1 FIX] For Reference(Array), base_ptr IS the array address.
+                            // Whether SSA (function arg) or Ptr (local var alloca),
+                            // the pointer points to array data. Loading would SIGSEGV.
+                            let arr_base = base_ptr.clone();
 
-                      let ptr = format!("%elem_ptr_{}", ctx.next_id());
-                      let elem_mlir = elem_ty.to_mlir_type(ctx)?;
-                      ctx.emit_gep(out, &ptr, &loaded_ptr, &idx_prom, &elem_mlir);
-                      
-                      Ok((ptr, *elem_ty.clone(), LValueKind::Ptr))
-                 },
+                           if packed {
+                               let array_ty = elem_ty.to_mlir_type(ctx)?;
+                               let c64 = format!("%c64_{}", ctx.next_id());
+                               ctx.emit_const_int(out, &c64, 64, "i64");
+                               let word_idx = format!("%word_idx_{}", ctx.next_id());
+                               ctx.emit_binop(out, &word_idx, "arith.divui", &idx_prom, &c64, "i64");
+                               let bit_off = format!("%bit_off_{}", ctx.next_id());
+                               ctx.emit_binop(out, &bit_off, "arith.remui", &idx_prom, &c64, "i64");
+                               let ptr = format!("%word_ptr_{}", ctx.next_id());
+                               out.push_str(&format!("    {} = llvm.getelementptr {}[0, {}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n",
+                                   ptr, arr_base, word_idx, array_ty));
+                               return Ok((ptr, Type::Bool, LValueKind::Bit(bit_off)));
+                           }
+
+                           let array_ty = elem_ty.to_mlir_type(ctx)?;
+                           let ptr = format!("%ref_arr_elem_ptr_{}", ctx.next_id());
+                           out.push_str(&format!("    {} = llvm.getelementptr {}[0, {}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n",
+                               ptr, arr_base, idx_prom, array_ty));
+                           return Ok((ptr, *arr_elem_ty.clone(), LValueKind::Ptr));
+                       }
+
+                       // Non-array reference: load the pointer, then GEP
+                       let loaded_ptr = if matches!(base_kind, LValueKind::SSA) {
+                           base_ptr
+                       } else {
+                           let res = format!("%ref_loaded_ptr_{}", ctx.next_id());
+                           let scopes = match base_kind {
+                               LValueKind::Local => Some(("#scope_local", "#scope_global")),
+                               LValueKind::Global(_) => Some(("#scope_global", "#scope_local")),
+                               _ => None,
+                           };
+                           ctx.emit_load_logical_with_scope(out, &res, &base_ptr, &base_ty, scopes)?;
+                           res
+                       };
+
+                       let ptr = format!("%elem_ptr_{}", ctx.next_id());
+                       let elem_mlir = elem_ty.to_mlir_type(ctx)?;
+                       ctx.emit_gep(out, &ptr, &loaded_ptr, &idx_prom, &elem_mlir);
+
+                       Ok((ptr, *elem_ty.clone(), LValueKind::Ptr))
+                  },
                  // Note: Tensor and Pointer are handled above before the match, so won't reach here
                  
                  // [SOVEREIGN V9.0] Struct/Concrete indexing via `data: Ptr<T>` field

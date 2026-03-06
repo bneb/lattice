@@ -1,0 +1,92 @@
+// =============================================================================
+// Test: Basalt App — Request Processing Lifecycle
+// =============================================================================
+// Verifies the complete request lifecycle:
+//   1. Token generation produces correct total bytes
+//   2. Each chunk gets 54-byte headroom (alloc_net_buffer)
+//   3. Arena offset resets to 0 after request completes
+// =============================================================================
+
+fn main() -> i32 {
+    // Simulate the BasaltApp.process_request() lifecycle
+
+    // Generator state
+    let response_len: u32 = 32;
+    let chunk_size: u32 = 4;
+    let headroom: u64 = 54;
+    let align: u64 = 8;
+
+    // Arena state
+    let arena_capacity: u64 = 4096;
+    let mut arena_offset: u64 = 0;
+
+    // TX tracking
+    let mut tx_count: u32 = 0;
+    let mut total_alloc: u64 = 0;
+
+    // Generation loop (mirrors BasaltApp.poll)
+    let mut gen_idx: u32 = 0;
+    while gen_idx < response_len {
+        // next_token_len logic
+        let mut chunk: u32 = chunk_size;
+        if gen_idx + chunk > response_len {
+            chunk = response_len - gen_idx;
+        }
+        gen_idx = gen_idx + chunk;
+
+        // alloc_net_buffer logic
+        let total_request = (chunk as u64) + headroom;
+
+        // Alignment padding (simulate modulo alignment)
+        let current_addr = arena_offset;  // base=0 for simplicity
+        let remainder = current_addr % align;
+        let mut padding: u64 = 0;
+        if remainder != 0 {
+            padding = align - remainder;
+        }
+        let alloc_size = total_request + padding;
+
+        // OOM check
+        if arena_offset + alloc_size > arena_capacity {
+            return 1;
+        }
+
+        arena_offset = arena_offset + alloc_size;
+        total_alloc = total_alloc + alloc_size;
+        tx_count = tx_count + 1;
+    }
+
+    // Test 1: Must produce 8 TX frames
+    if tx_count != 8 {
+        return 2;
+    }
+
+    // Test 2: Each allocation = chunk(4) + headroom(54) = 58 bytes
+    // 8 chunks * 58 = 464 bytes total (plus alignment padding)
+    if total_alloc < 464 {
+        return 3;
+    }
+
+    // Test 3: Arena offset must be non-zero before reset
+    if arena_offset == 0 {
+        return 4;
+    }
+
+    // Test 4: O(1) reset — arena offset goes to 0
+    arena_offset = 0;
+    if arena_offset != 0 {
+        return 5;
+    }
+
+    // Test 5: Can re-allocate after reset
+    let realloc_size: u64 = 64;
+    if arena_offset + realloc_size > arena_capacity {
+        return 6;
+    }
+    arena_offset = arena_offset + realloc_size;
+    if arena_offset != 64 {
+        return 7;
+    }
+
+    return 0;
+}

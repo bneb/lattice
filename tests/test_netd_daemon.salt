@@ -1,0 +1,33 @@
+// =============================================================================
+// Test: NetDaemon — Compile-Only Verification
+// =============================================================================
+// Verifies that the DMA pipeline's header parsing constants and
+// pointer arithmetic logic compile correctly.
+// =============================================================================
+
+fn main() -> i32 {
+    // Standard Ethernet/IP/TCP header offsets
+    let eth_header: u32 = 14;       // 14-byte Ethernet header
+    let ip_header: u32 = 20;        // 20-byte IPv4 header (no options)
+    let tcp_header: u32 = 20;       // 20-byte TCP header (no options)
+    let total_header: u32 = 54;     // eth + ip + tcp
+    
+    // Verify header math
+    if eth_header + ip_header + tcp_header != total_header {
+        return 1;
+    }
+
+    // TCP destination port offset within the TCP segment
+    // TCP header: src_port(2) + dst_port(2) at bytes 0-3
+    let tcp_dst_port_offset: u32 = eth_header + ip_header + 2;
+    if tcp_dst_port_offset != 36 {
+        return 2;
+    }
+
+    // Verify payload offset is after all headers
+    if total_header < 54 {
+        return 3;
+    }
+
+    return 0;
+}

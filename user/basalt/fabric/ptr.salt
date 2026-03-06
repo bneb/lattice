@@ -1,0 +1,245 @@
+// ============================================================================
+// user/basalt/fabric/ptr.salt
+// FabricPtr — The Illusion of Infinite Local Memory
+// ============================================================================
+//
+// FabricPtr is a pointer whose memory access patterns are dictated
+// by its `locality` field. When the developer calls .read_u64(),
+// they don't care where the memory resides. The Salt compiler's
+// -O3 pipeline (SCCP + DCE) constant-folds the locality branches
+// when initialized with a literal, producing zero-cost dispatch.
+//
+// Locality Tiers:
+//   LOC_ARENA (0): Standard CPU load/store from local DRAM
+//   LOC_NVME  (1): NVMe DMA read from PCIe SSD
+//   LOC_RDMA  (2): RDMA read from remote DRAM via fabric
+//
+// Design Rules:
+//   - ALL state in the struct (no globals)
+//   - Multiple FabricPtr instances can coexist (full multiplexing)
+//   - The CPU never touches the actual tensor data for NVMe/RDMA —
+//     it only orchestrates the DMA descriptors
+//
+// ============================================================================
+
+package user.basalt.fabric.ptr
+
+// ============================================================================
+// Locality Constants (mirrors topology.salt)
+// ============================================================================
+pub const LOC_ARENA: u32 = 0;
+pub const LOC_NVME:  u32 = 1;
+pub const LOC_RDMA:  u32 = 2;
+
+// ============================================================================
+// FabricPtr — The Universal Memory Pointer
+// ============================================================================
+pub struct FabricPtr {
+    /// Physical or virtual address of the memory region
+    pub raw_address: u64,
+
+    /// Compile-time locality tag (LOC_ARENA / LOC_NVME / LOC_RDMA)
+    pub locality: u32,
+
+    /// Bounds of the mapped capability (bytes)
+    pub capacity: u64,
+}
+
+impl FabricPtr {
+    // ========================================================================
+    // Generic Constructor — Any Locality Tier
+    // ========================================================================
+
+    /// Construct a FabricPtr from a raw address and locality tag.
+    /// When `locality` is a literal constant at the call site, the compiler's
+    /// SCCP pass constant-folds all branches in read_u64/write_u64.
+    pub fn new(address: u64, locality: u32) -> FabricPtr {
+        return FabricPtr {
+            raw_address: address,
+            locality: locality,
+            capacity: 0xFFFFFFFFFFFFFFFF,
+        };
+    }
+
+    // ========================================================================
+    // Constructors — One Per Locality Tier
+    // ========================================================================
+
+    /// Arena pointer: local DRAM, standard CPU access
+    pub fn new_arena(address: u64, capacity: u64) -> FabricPtr {
+        return FabricPtr {
+            raw_address: address,
+            locality: LOC_ARENA,
+            capacity: capacity,
+        };
+    }
+
+    /// NVMe pointer: PCIe SSD, DMA command queue
+    pub fn new_nvme(address: u64, capacity: u64) -> FabricPtr {
+        return FabricPtr {
+            raw_address: address,
+            locality: LOC_NVME,
+            capacity: capacity,
+        };
+    }
+
+    /// RDMA pointer: remote DRAM via Ultra Ethernet / RoCE
+    pub fn new_rdma(address: u64, capacity: u64) -> FabricPtr {
+        return FabricPtr {
+            raw_address: address,
+            locality: LOC_RDMA,
+            capacity: capacity,
+        };
+    }
+
+    // ========================================================================
+    // bounds_check — Z3-Verified Access Validation
+    // ========================================================================
+    // Returns 1 if the access is within bounds, 0 otherwise.
+    //
+    // Z3 Contract:
+    //   ensures { result == 1 iff offset + size <= self.capacity }
+    // ========================================================================
+    pub fn bounds_check(&self, offset: u64, size: u64) -> u32 {
+        if offset + size <= self.capacity {
+            return 1;
+        }
+        return 0;
+    }
+
+    // ========================================================================
+    // read_u64 — The Transparent Read Intercept
+    // ========================================================================
+    // Reads a u64 value from the FabricPtr at the given byte offset.
+    //
+    // The compiler constant-folds the locality branches at -O3 when
+    // the FabricPtr was constructed with a literal locality constant:
+    //
+    //   LOC_ARENA → standard CPU load: *(addr as &u64)
+    //   LOC_NVME  → NVMe DMA read (stubbed: same dereference)
+    //   LOC_RDMA  → RDMA RDMA_READ (stubbed: same dereference)
+    //
+    // In production, the NVMe and RDMA paths would:
+    //   LOC_NVME: Write to NVMe Submission Queue doorbell, poll CQ
+    //   LOC_RDMA: Post RDMA_READ WQE, poll completion queue
+    //
+    // The developer sees: let val = ptr.read_u64(offset);
+    // The hardware sees: the exact DMA command for that locality.
+    // ========================================================================
+    pub fn read_u64(&self, offset: u64) -> u64 {
+        // Bounds check
+        if offset + 8 > self.capacity {
+            return 0;  // OOB — return zero sentinel
+        }
+
+        let target_addr = self.raw_address + offset;
+
+        if self.locality == LOC_ARENA {
+            // Local DRAM: standard CPU load instruction
+            return *((target_addr) as &u64);
+        }
+
+        if self.locality == LOC_NVME {
+            // PCIe Storage: NVMe DMA Read
+            // (Stub: in v1.0, reads from the same address space.
+            //  In production, this writes an NVMe SQ entry and
+            //  polls the completion queue for the DMA result.)
+            return *((target_addr) as &u64);
+        }
+
+        if self.locality == LOC_RDMA {
+            // Datacenter Fabric: RDMA READ
+            // (Stub: in v1.0, reads from the same address space.
+            //  In production, this posts an RDMA_READ WQE and
+            //  polls the CQ for the remote memory contents.)
+            return *((target_addr) as &u64);
+        }
+
+        // Unreachable for valid locality values
+        return 0;
+    }
+
+    // ========================================================================
+    // write_u64 — The Transparent Write Intercept
+    // ========================================================================
+    pub fn write_u64(&mut self, offset: u64, value: u64) {
+        if offset + 8 > self.capacity {
+            return;  // OOB — silent drop
+        }
+
+        let target_addr = self.raw_address + offset;
+
+        if self.locality == LOC_ARENA {
+            *((target_addr) as &mut u64) = value;
+            return;
+        }
+
+        if self.locality == LOC_NVME {
+            // NVMe DMA Write stub
+            *((target_addr) as &mut u64) = value;
+            return;
+        }
+
+        if self.locality == LOC_RDMA {
+            // Datacenter Fabric: The Illusion of Local Memory
+            // Instead of writing to RAM, we ring the hardware doorbell.
+            //
+            // v1.6.0 ATOMIC DOORBELL: Single 128-bit write eliminates
+            // PCIe bus race conditions. LLVM lowers [u64; 2] write to
+            // ARM64 stp (Store Pair) — one atomic PCIe transaction.
+            //
+            // WQE Layout (16 bytes):
+            //   Word 0: Opcode (0x1 = WRITE) << 32 | tensor_byte_offset
+            //   Word 1: Raw u64 payload
+            let doorbell_offset: u64 = 0x1000;
+            let doorbell_addr: u64 = self.raw_address + doorbell_offset;
+
+            // Word 0: Control — opcode in top 32 bits, byte offset in bottom 32
+            let control: u64 = (1 << 32) | (offset & 0xFFFFFFFF);
+
+            // ATOMIC 128-bit write — single PCIe transaction
+            let doorbell: Ptr<[u64; 2]> = doorbell_addr as Ptr<[u64; 2]>;
+            doorbell.write([control, value]);
+            return;
+        }
+    }
+
+    // ========================================================================
+    // get_raw — Extract the Raw Physical Address (for DMA handoff)
+    // ========================================================================
+    pub fn get_raw(&self) -> u64 {
+        return self.raw_address;
+    }
+
+    // ========================================================================
+    // get_locality — Inspect the Locality Tag
+    // ========================================================================
+    pub fn get_locality(&self) -> u32 {
+        return self.locality;
+    }
+
+    // ========================================================================
+    // read_offset — Element-Indexed Read (8-byte stride)
+    // ========================================================================
+    // Reads a u64 at element index `offset`. Internally computes:
+    //   byte_addr = raw_address + (offset * 8)
+    //
+    // When the FabricPtr was constructed with a literal locality constant,
+    // the compiler's SCCP pass folds the branches in read_u64, producing
+    // a direct memref.load for LOC_ARENA — preserving affine optimizations.
+    // ========================================================================
+    @inline
+    pub fn read_offset(&self, offset: u32) -> u64 {
+        let byte_offset: u64 = (offset as u64) * 8;
+        return self.read_u64(byte_offset);
+    }
+
+    // ========================================================================
+    // write_offset — Element-Indexed Write (8-byte stride)
+    // ========================================================================
+    @inline
+    pub fn write_offset(&mut self, offset: u32, val: u64) {
+        let byte_offset: u64 = (offset as u64) * 8;
+        self.write_u64(byte_offset, val);
+    }
+}

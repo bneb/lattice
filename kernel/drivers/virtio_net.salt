@@ -20,6 +20,9 @@ import kernel.drivers.virtio
 import kernel.drivers.serial
 import kernel.core.panic
 import kernel.core.pmm
+import kernel.core.process
+
+extern fn netcore_poll_all() -> u32;
 
 // Higher-half kernel base for CPU-side memory access
 const KERNEL_BASE: u64 = 0xFFFFFFFF80000000;
@@ -112,6 +115,9 @@ pub fn init() -> bool {
 
     virtio.virtq_init(&mut virtio.VQ_RX, 0, VQ_RX_PHYS);
     virtio.virtq_init(&mut virtio.VQ_TX, 1, VQ_TX_PHYS);
+    serial.print("[INIT] VQ_TX.num_free=");
+    serial.print_u64(virtio.VQ_TX.num_free as u64);
+    serial.print("\n");
 
     // 5. Pre-post RX buffers
     let mut i: i32 = 0;
@@ -142,6 +148,58 @@ pub fn init() -> bool {
     serial.print(" RX buffers posted\n");
 
     return true;
+}
+
+// @no_mangle wrapper for extern fn binding from main.salt
+@no_mangle
+pub fn moe_net_init() -> bool {
+    return init();
+}
+
+// Enable RX interrupts by clearing VIRTQ_AVAIL_F_NO_INTERRUPT on the RX queue
+@no_mangle
+pub fn moe_enable_rx_interrupts() {
+    let base_virt = virtio.VQ_RX.base + KERNEL_BASE;
+    let avail_base = base_virt + virtio.virtq_avail_offset(virtio.VQ_RX.size);
+    // Clear flags to 0 — enable device interrupts on RX used entries
+    *((avail_base) as &mut u16) = 0;
+    serial.print("[MOE] RX interrupts ENABLED\n");
+}
+
+// I/O Pump: Force a PCI PIO VMEXIT by notifying the RX queue.
+// This traps to KVM, runs QEMU's main loop, processes the tap fd,
+// and injects pending RX frames into the guest VirtIO ring.
+@no_mangle
+pub fn virtio_notify_rx() {
+    virtio.virtio_notify_queue(0);
+}
+
+// I/O Pump: Force a PCI PIO VMEXIT by notifying the TX queue.
+// This reminds QEMU to pull pending TX descriptors from the avail ring
+// and push them out through the tap backend to the Linux bridge.
+@no_mangle
+pub fn virtio_notify_tx() {
+    virtio.virtio_notify_queue(1);
+}
+
+// =============================================================================
+// Ring Diagnostics (v6.2.26-RingDiag)
+// =============================================================================
+// Read the device-written used_idx directly from VirtIO ring memory.
+// These bypass the driver's last_used_idx to show raw QEMU state.
+
+@no_mangle
+pub fn virtio_net_get_tx_used() -> u16 {
+    let base_virt = virtio.VQ_TX.base + KERNEL_BASE;
+    let used_base = base_virt + virtio.virtq_used_offset(virtio.VQ_TX.size);
+    return *((used_base + 2) as &u16);
+}
+
+@no_mangle
+pub fn virtio_net_get_rx_used() -> u16 {
+    let base_virt = virtio.VQ_RX.base + KERNEL_BASE;
+    let used_base = base_virt + virtio.virtq_used_offset(virtio.VQ_RX.size);
+    return *((used_base + 2) as &u16);
 }
 
 // =============================================================================
@@ -185,7 +243,25 @@ pub fn net_rx_repost(buf_virt: u64) {
 // Takes a pointer to a fully constructed packet (including Ethernet header)
 // and prepends a virtio-net header. Posts to the TX virtqueue.
 
+// Reclaim completed TX descriptors from the used ring
+fn tx_reclaim_used() -> u32 {
+    let mut used_id: u32 = 0;
+    let mut used_len: u32 = 0;
+    let mut reclaimed: u32 = 0;
+    while virtio.virtq_poll_used(&mut virtio.VQ_TX, &mut used_id, &mut used_len) {
+        reclaimed = reclaimed + 1;
+    }
+    return reclaimed;
+}
+
 pub fn net_tx_send(pkt: u64, pkt_len: u32) -> bool {
+    // Reclaim any completed TX descriptors first
+    let reclaimed = tx_reclaim_used();
+    serial.print("[TX] free=");
+    serial.print_u64(virtio.VQ_TX.num_free as u64);
+    serial.print(" reclaimed=");
+    serial.print_u64(reclaimed as u64);
+    serial.print("\n");
     // Use the next TX buffer slot (round-robin)
     let slot = (TX_COUNT % (MAX_BUFS as u64)) as u64;
     let buf_virt = TX_BUF_VIRT + slot * (BUF_SIZE as u64);
@@ -207,12 +283,19 @@ pub fn net_tx_send(pkt: u64, pkt_len: u32) -> bool {
     }
 
     let total_len = VIRTIO_NET_HDR_SIZE + pkt_len;
+
     // Pass PHYSICAL address to virtq_add_buf for DMA
     virtio.virtq_add_buf(&mut virtio.VQ_TX, buf_phys, total_len, false);
     virtio.virtio_notify_queue(1);
 
     TX_COUNT = TX_COUNT + 1;
     return true;
+}
+
+// @no_mangle wrapper for extern fn binding from syscall.salt
+@no_mangle
+pub fn moe_net_tx_send(pkt: u64, pkt_len: u32) -> bool {
+    return net_tx_send(pkt, pkt_len);
 }
 
 // =============================================================================
@@ -222,9 +305,26 @@ pub fn net_tx_send(pkt: u64, pkt_len: u32) -> bool {
 
 @no_mangle
 pub fn virtio_net_isr() {
+    // 1. Acknowledge and clear the hardware interrupt
     let isr = virtio.virtio_read_isr();
-    // ISR read clears the interrupt. Nothing else to do here;
-    // packet processing is poll-based via net_rx_poll.
+    serial.print("[ISR] VirtIO IRQ, isr=");
+    serial.print_u64(isr as u64);
+    serial.print("\n");
+    
+    // 2. Capture the current receive count
+    let rx_before = RX_COUNT;
+    
+    // 3. Reclaim completed TX descriptors
+    tx_reclaim_used();
+
+    // 4. Drain the RX ring and route the packets synchronously
+    netcore_poll_all();
+    
+    // 4. The RX Gate: Only wake the coroutine if new data actually arrived
+    if RX_COUNT > rx_before {
+        // Data is here and parsed. Wake the MoE Pipeline (Slot 1).
+        process.set_state(1, 1); // 1 = PROC_READY
+    }
 }
 
 // =============================================================================
@@ -252,4 +352,10 @@ pub fn get_rx_count() -> u64 {
 
 pub fn get_tx_count() -> u64 {
     return TX_COUNT;
+}
+
+@no_mangle
+pub fn virtio_net_get_mac_byte(idx: u64) -> u8 {
+    if idx >= 6 { return 0; }
+    return MAC_ADDR[idx];
 }

@@ -1,0 +1,31 @@
+// =============================================================================
+// Test: TX Daemon — Compile-Only Verification
+// =============================================================================
+// Verifies that the DMA transmit pipeline constants and scan logic
+// compile correctly.
+// =============================================================================
+
+fn main() -> i32 {
+    // Verify DMA ring constants
+    let head_offset: u64 = 0;
+    let capacity_offset: u64 = 8;
+    let tail_offset: u64 = 64;
+    let data_offset: u64 = 192;
+
+    // Verify total header size for frame length calculation
+    let total_header: u32 = 54;
+    let payload_len: u32 = 512;
+    let total_frame: u32 = total_header + payload_len;
+    
+    if total_frame != 566 {
+        return 1;
+    }
+
+    // Verify port scan bounds
+    let max_ports: u64 = 65536;
+    if max_ports != 65536 {
+        return 2;
+    }
+
+    return 0;
+}

@@ -12,9 +12,50 @@
 
 .intel_syntax noprefix
 
-// virtio_isr_wrapper — requires assembly for iretq (always .global)
+// virtio_isr_wrapper — real ISR that calls virtio_net_isr() and sends EOI
+// Handles SWAPGS for Ring 3 interrupts. No fiber preemption needed.
 .global virtio_isr_wrapper
+.extern apic_send_eoi
 virtio_isr_wrapper:
+    // SWAPGS check: CS is at [rsp+8]. If CPL=3, swap GS.
+    test qword ptr [rsp + 8], 3
+    jz .L_virtio_from_kernel
+    swapgs
+.L_virtio_from_kernel:
+
+    // Save caller-saved registers
+    push rax
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push r8
+    push r9
+    push r10
+    push r11
+
+    // Call the Salt-compiled ISR handler (drains RX, reclaims TX, wakes MoE)
+    call virtio_net_isr
+
+    // Send LAPIC EOI
+    call apic_send_eoi
+
+    // Restore registers
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rax
+
+    // SWAPGS return check
+    test qword ptr [rsp + 8], 3
+    jz .L_virtio_return_to_kernel
+    swapgs
+.L_virtio_return_to_kernel:
     iretq
 
 // handle_syscall(syscall_nr: u64, a1: u64, a2: u64, a3: u64) -> u64

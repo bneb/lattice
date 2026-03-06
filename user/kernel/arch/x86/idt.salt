@@ -1,0 +1,126 @@
+// ============================================================================
+// user/kernel/arch/x86/idt.salt
+// Interrupt Descriptor Table — Sovereign Exception Vectors
+// ============================================================================
+//
+// The IDT maps x86 interrupt/exception vectors (0-255) to handler addresses.
+// Each entry is a 16-byte Gate Descriptor in long mode (x86_64).
+//
+// IdtEntry Layout (16 bytes):
+//   [0..2)    offset_low    (u16) — handler addr bits [15:0]
+//   [2..4)    selector      (u16) — code segment selector (0x08 = kernel CS)
+//   [4..5)    ist           (u8)  — IST index (0 = use RSP0)
+//   [5..6)    type_attr     (u8)  — present | DPL | type
+//                                   0x8E = PRESENT=1, DPL=0, TYPE=INTERRUPT_GATE
+//                                   0x8F = PRESENT=1, DPL=0, TYPE=TRAP_GATE
+//   [6..8)    offset_mid    (u16) — handler addr bits [31:16]
+//   [8..12)   offset_high   (u32) — handler addr bits [63:32]
+//   [12..16)  reserved      (u32) — must be 0
+//
+// IDTR Layout (10 bytes, loaded by LIDT):
+//   [0..2)    limit         (u16) — sizeof(IDT) - 1
+//   [2..10)   base          (u64) — physical address of IDT
+//
+// Key vectors:
+//   0   — #DE  Division Error
+//   6   — #UD  Invalid Opcode
+//   8   — #DF  Double Fault
+//   13  — #GP  General Protection
+//   14  — #PF  Page Fault (THE HOLOGRAPHIC TRAP)
+//
+// ============================================================================
+
+package user.kernel.arch.x86.idt
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// Constants
+// ============================================================================
+pub const IDT_ENTRIES:       u32 = 256;
+pub const IDT_ENTRY_SIZE:    u64 = 16;
+pub const IDT_SIZE:          u64 = 4096;  // 256 × 16
+pub const IDTR_SIZE:         u64 = 10;
+
+pub const KERNEL_CS: u16 = 0x08;
+
+// Gate types
+pub const GATE_INTERRUPT: u8 = 0x8E;  // Present, DPL=0, Interrupt Gate
+pub const GATE_TRAP:      u8 = 0x8F;  // Present, DPL=0, Trap Gate
+
+// IdtEntry offsets
+pub const ENTRY_OFFSET_LOW:  u64 = 0;
+pub const ENTRY_SELECTOR:    u64 = 2;
+pub const ENTRY_IST:         u64 = 4;
+pub const ENTRY_TYPE_ATTR:   u64 = 5;
+pub const ENTRY_OFFSET_MID:  u64 = 6;
+pub const ENTRY_OFFSET_HIGH: u64 = 8;
+pub const ENTRY_RESERVED:    u64 = 12;
+
+// ============================================================================
+// init_idt — Zero-initialize the IDT table
+// ============================================================================
+pub fn init_idt(idt_addr: u64) {
+    let mut i: u64 = 0;
+    while i < IDT_SIZE { *((idt_addr + i) as &mut u8) = 0; i = i + 1; }
+}
+
+// ============================================================================
+// set_idt_gate — Program a single IDT entry
+// ============================================================================
+// vector:       interrupt/exception number (0-255)
+// handler_addr: physical address of the handler stub
+// selector:     code segment selector (typically 0x08)
+// type_attr:    gate type (GATE_INTERRUPT or GATE_TRAP)
+// ============================================================================
+pub fn set_idt_gate(idt_addr: u64, vector: u8, handler_addr: u64, selector: u16, type_attr: u8) {
+    let base: u64 = idt_addr + (vector as u64) * IDT_ENTRY_SIZE;
+
+    // offset_low: bits [15:0]
+    *((base + ENTRY_OFFSET_LOW) as &mut u16) = (handler_addr & 0xFFFF) as u16;
+
+    // selector
+    *((base + ENTRY_SELECTOR) as &mut u16) = selector;
+
+    // IST = 0 (use RSP0)
+    *((base + ENTRY_IST) as &mut u8) = 0;
+
+    // type_attr
+    *((base + ENTRY_TYPE_ATTR) as &mut u8) = type_attr;
+
+    // offset_mid: bits [31:16]
+    *((base + ENTRY_OFFSET_MID) as &mut u16) = ((handler_addr >> 16) & 0xFFFF) as u16;
+
+    // offset_high: bits [63:32]
+    *((base + ENTRY_OFFSET_HIGH) as &mut u32) = ((handler_addr >> 32) & 0xFFFFFFFF) as u32;
+
+    // reserved = 0
+    *((base + ENTRY_RESERVED) as &mut u32) = 0;
+}
+
+// ============================================================================
+// read_idt_gate — Read back an IDT entry's handler address
+// ============================================================================
+pub fn read_idt_handler(idt_addr: u64, vector: u8) -> u64 {
+    let base: u64 = idt_addr + (vector as u64) * IDT_ENTRY_SIZE;
+    let low:  u64 = (*((base + ENTRY_OFFSET_LOW) as &u16)) as u64;
+    let mid:  u64 = (*((base + ENTRY_OFFSET_MID) as &u16)) as u64;
+    let high: u64 = (*((base + ENTRY_OFFSET_HIGH) as &u32)) as u64;
+    return (high << 32) | (mid << 16) | low;
+}
+
+// ============================================================================
+// read_idt_type_attr — Read the type/attributes byte
+// ============================================================================
+pub fn read_idt_type_attr(idt_addr: u64, vector: u8) -> u8 {
+    let base: u64 = idt_addr + (vector as u64) * IDT_ENTRY_SIZE;
+    return *((base + ENTRY_TYPE_ATTR) as &u8);
+}
+
+// ============================================================================
+// write_idtr — Populate the IDTR structure (for LIDT)
+// ============================================================================
+pub fn write_idtr(idtr_addr: u64, idt_addr: u64) {
+    *((idtr_addr) as &mut u16) = (IDT_SIZE - 1) as u16;  // limit
+    *((idtr_addr + 2) as &mut u64) = idt_addr;            // base
+}

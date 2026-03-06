@@ -1,0 +1,95 @@
+// =============================================================================
+// Test: Immutable Hardware Manifest — Struct Instantiation
+// =============================================================================
+// Validates that HardwareNode structs can be instantiated with
+// compile-time constant values and their fields read back correctly.
+//
+// Test cases:
+//   T1: NVMe drive at Bus 0, Device 1 (Samsung 0x144D:0xA808)
+//   T2: RDMA NIC at Bus 1, Device 0 (Mellanox 0x15B3:0x1017)
+//   T3: Verify array of nodes via Ptr<> addressing
+//
+// Exit codes:
+//   0 = all passed
+//   1 = allocation failure
+//   2 = T1 NVMe vendor incorrect
+//   3 = T1 NVMe device incorrect
+//   4 = T2 RDMA vendor incorrect
+//   5 = T2 RDMA bus incorrect
+//   6 = T3 array addressing failed
+// =============================================================================
+
+package main
+
+extern fn malloc(size: i64) -> u64;
+extern fn free(ptr: u64);
+
+// Inline HardwareNode (same layout as manifest.salt)
+struct HardwareNode {
+    bus: u32,
+    device: u32,
+    expected_vendor: u32,
+    expected_device: u32,
+}
+
+fn main() -> i32 {
+    // T1: Construct NVMe node on the stack
+    let nvme = HardwareNode {
+        bus: 0,
+        device: 1,
+        expected_vendor: 0x144D,
+        expected_device: 0xA808,
+    };
+
+    if nvme.expected_vendor != 0x144D {
+        return 2;
+    }
+    if nvme.expected_device != 0xA808 {
+        return 3;
+    }
+
+    // T2: Construct RDMA NIC node
+    let rdma = HardwareNode {
+        bus: 1,
+        device: 0,
+        expected_vendor: 0x15B3,
+        expected_device: 0x1017,
+    };
+
+    if rdma.expected_vendor != 0x15B3 {
+        return 4;
+    }
+    if rdma.bus != 1 {
+        return 5;
+    }
+
+    // T3: Allocate manifest array (2 nodes × 16 bytes each = 32 bytes)
+    let manifest_size: i64 = 32;
+    let manifest_addr: u64 = malloc(manifest_size);
+    if manifest_addr == 0 {
+        return 1;
+    }
+
+    // Write NVMe node at index 0
+    // Layout: bus(4) | device(4) | vendor(4) | device_id(4)
+    *((manifest_addr + 0) as &mut u32) = 0;       // bus
+    *((manifest_addr + 4) as &mut u32) = 1;       // device
+    *((manifest_addr + 8) as &mut u32) = 0x144D;  // vendor
+    *((manifest_addr + 12) as &mut u32) = 0xA808; // device_id
+
+    // Write RDMA node at index 1 (offset 16)
+    *((manifest_addr + 16) as &mut u32) = 1;       // bus
+    *((manifest_addr + 20) as &mut u32) = 0;       // device
+    *((manifest_addr + 24) as &mut u32) = 0x15B3;  // vendor
+    *((manifest_addr + 28) as &mut u32) = 0x1017;  // device_id
+
+    // Read back RDMA vendor from array offset
+    let rdma_vendor: u32 = *((manifest_addr + 24) as &u32);
+    if rdma_vendor != 0x15B3 {
+        free(manifest_addr);
+        return 6;
+    }
+
+    free(manifest_addr);
+    return 0;
+}

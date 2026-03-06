@@ -1,0 +1,167 @@
+// =============================================================================
+// kernel/core/capability.salt
+// Sovereign ABI — Control Plane: Capability Table and Ring Mapping
+// =============================================================================
+//
+// The kernel acts as a resource broker. Processes request capabilities via
+// SYS_CAP_BIND, then map physical SPSC rings to those capabilities via
+// SYS_RING_MAP. Once mapped, all data plane operations (push/pop) happen
+// entirely in Ring 3 with zero kernel involvement.
+//
+// Security model:
+//   - Capabilities are process-scoped (owner_pid checked on every operation)
+//   - Physical pages are allocated by the kernel's PMM (no user control)
+//   - Ring headers are initialized by the kernel before returning to Ring 3
+//
+// =============================================================================
+
+package kernel.core.capability
+
+import kernel.core.pmm
+import kernel.core.process
+import kernel.core.memory
+import kernel.mem.user_paging
+import kernel.drivers.serial
+import kernel.lib.abi
+import kernel.lib.ipc_ring
+
+extern fn invlpg_addr(vaddr: u64);
+
+// =============================================================================
+// Capability Table — Fixed-Size Global Array
+// =============================================================================
+// Follows the MAX_PROCS=16 pattern from process.salt.
+// Each slot holds one Capability struct from abi.salt.
+// =============================================================================
+
+const MAX_CAPABILITIES: u64 = 64;
+const PAGE_SIZE: u64 = 4096;
+const USER_PAGE_FLAGS: u64 = 0x7;  // PRESENT | WRITE | USER
+
+global cap_table_state:    [u64; 64] = [0 as u64; 64];
+global cap_table_owner:    [u64; 64] = [0 as u64; 64];
+global cap_table_phys:     [u64; 64] = [0 as u64; 64];
+global cap_table_vaddr:    [u64; 64] = [0 as u64; 64];
+global cap_table_flags:    [u64; 64] = [0 as u64; 64];
+
+// =============================================================================
+// sys_cap_bind — Allocate a Capability Handle (Syscall 10)
+// =============================================================================
+// arg0 = flags (CAP_FLAG_PRODUCER or CAP_FLAG_CONSUMER)
+//
+// Scans the capability table for a free slot, assigns it to the calling
+// process, and returns the capability ID (slot index).
+//
+// Returns: capability ID on success, 0 on failure (table full)
+// =============================================================================
+@no_mangle
+pub fn sys_cap_bind(flags: u64) -> u64 {
+    let pid = process.current();
+
+    // Linear scan for a free slot
+    let mut i: u64 = 1;  // Slot 0 reserved (0 = error return)
+    while i < MAX_CAPABILITIES {
+        if cap_table_state[i] == abi.CAP_STATE_FREE {
+            cap_table_state[i] = abi.CAP_STATE_BOUND;
+            cap_table_owner[i] = pid;
+            cap_table_phys[i]  = 0;
+            cap_table_vaddr[i] = 0;
+            cap_table_flags[i] = flags;
+
+            serial.print("[cap_bind] pid=");
+            serial.print_u64(pid);
+            serial.print(" cap_id=");
+            serial.print_u64(i);
+            serial.print("\n");
+
+            return i;
+        }
+        i = i + 1;
+    }
+
+    serial.print("[cap_bind] REJECT: table full\n");
+    return 0;
+}
+
+// =============================================================================
+// sys_ring_map — Map a Physical SPSC Ring to a Capability (Syscall 11)
+// =============================================================================
+// arg0 = capability_id
+//
+// Validates that the capability belongs to the calling process, allocates
+// a zeroed physical page via PMM, maps it into the caller's virtual address
+// space, initializes the SPSC ring header, and binds the ring to the
+// capability.
+//
+// Returns: virtual address of the mapped ring on success, 0 on failure
+// =============================================================================
+@no_mangle
+pub fn sys_ring_map(capability_id: u64) -> u64 {
+    let pid = process.current();
+
+    // 1. Bounds check
+    if capability_id == 0 || capability_id >= MAX_CAPABILITIES {
+        serial.print("[ring_map] REJECT: invalid cap_id\n");
+        return 0;
+    }
+
+    // 2. Ownership check
+    if cap_table_owner[capability_id] != pid {
+        serial.print("[ring_map] REJECT: not owner\n");
+        return 0;
+    }
+
+    // 3. State check (must be BOUND, not already MAPPED)
+    if cap_table_state[capability_id] != abi.CAP_STATE_BOUND {
+        serial.print("[ring_map] REJECT: not in BOUND state\n");
+        return 0;
+    }
+
+    // 4. Allocate a zeroed physical frame for the ring
+    let phys_frame = pmm.alloc();
+    if phys_frame == 0 {
+        serial.print("[ring_map] OOM: PMM exhausted\n");
+        return 0;
+    }
+
+    // 5. Find a free page in the user's virtual address space
+    //    Uses the mmap bump allocator from process.salt
+    let vaddr = process.get_mmap_base(pid);
+    let pml4 = process.get_pml4(pid);
+
+    // 6. Map the physical frame to the virtual address
+    user_paging.map_user_page(pml4, vaddr, phys_frame, USER_PAGE_FLAGS);
+    invlpg_addr(vaddr);
+
+    // 7. Advance the mmap high-water mark
+    process.set_mmap_base(pid, vaddr + PAGE_SIZE);
+
+    // 8. Initialize the SPSC ring header via kernel direct map
+    let kern_ptr = memory.phys_to_virt_raw(phys_frame);
+    let head_ptr = kern_ptr as &mut u64;
+    *head_ptr = 0;  // head = 0
+
+    let capacity_ptr = (kern_ptr + 8) as &mut u64;
+    *capacity_ptr = ipc_ring.DATA_CAPACITY;  // capacity = 3904
+
+    let tail_ptr = (kern_ptr + 64) as &mut u64;
+    *tail_ptr = 0;  // tail = 0
+
+    let waiting_ptr = (kern_ptr + 128) as &mut u64;
+    *waiting_ptr = 0;  // consumer_waiting = 0
+
+    // 9. Bind ring to capability
+    cap_table_state[capability_id] = abi.CAP_STATE_MAPPED;
+    cap_table_phys[capability_id]  = phys_frame;
+    cap_table_vaddr[capability_id] = vaddr;
+
+    serial.print("[ring_map] pid=");
+    serial.print_u64(pid);
+    serial.print(" cap=");
+    serial.print_u64(capability_id);
+    serial.print(" vaddr=0x");
+    serial.print_u64(vaddr);
+    serial.print("\n");
+
+    return vaddr;
+}

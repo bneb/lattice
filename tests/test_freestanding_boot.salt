@@ -1,0 +1,207 @@
+// =============================================================================
+// Test: Freestanding Boot Infrastructure (v4.0.0)
+// =============================================================================
+//
+// Verifies the boot infrastructure in hosted mode:
+//
+//   T1:  Multiboot2 header — write and verify magic, arch, checksum
+//   T2:  Multiboot2 checksum — magic + arch + length + checksum == 0 mod 2^32
+//   T3:  End tag — type=0, size=8
+//   T4:  Arena init — zero-fills 64K region
+//   T5:  Boot sequence — initializes arena, deque, boot task
+//   T6:  Deque — boot task ID pushed to position 0
+//   T7:  Boot task state — phase=INIT, expert_id=0, pointers set
+//   T8:  Manifest lock — manifest at arena base accessible
+//
+// Exit codes:
+//   0 = all passed
+//   1 = alloc failure
+//   2 = multiboot2 header invalid
+//   3 = checksum invalid
+//   4 = end tag invalid
+//   5 = arena init failed
+//   6 = boot sequence failed
+//   7 = deque state invalid
+//   8 = task state invalid
+// =============================================================================
+
+package main
+
+use std.core.ptr.Ptr
+
+extern fn malloc(size: i64) -> u64;
+extern fn free(ptr: u64);
+extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
+extern fn salt_atomic_cas_i64(ptr: Ptr<i64>, expected: i64, desired: i64) -> i64;
+
+// ============================================================================
+// Multiboot2 constants (from boot.salt)
+// ============================================================================
+const MB2_MAGIC:     u32 = 0xE85250D6;
+const MB2_ARCH:      u32 = 0;
+const MB2_LENGTH:    u32 = 24;
+const MB2_CHECKSUM:  u32 = 0x17ADAF12;
+const MB2_HEADER_SIZE: u64 = 24;
+
+// Arena layout constants (from main.salt)
+const ARENA_MANIFEST_OFFSET: u64 = 0;
+const ARENA_DEQUE_OFFSET:    u64 = 4096;
+const ARENA_ROUTING_OFFSET:  u64 = 8192;
+const ARENA_TOKEN_CTR:       u64 = 12288;
+const ARENA_TASK_STATES:     u64 = 16384;
+const ARENA_TENSOR_POOL:     u64 = 65536;
+
+// Deque constants
+const DEQUE_BOTTOM_OFFSET: u64 = 512;
+const DEQUE_TOP_OFFSET:    u64 = 520;
+const DEQUE_TOTAL_SIZE:    u64 = 528;
+const DEQUE_ARRAY_SIZE:    u64 = 64;
+
+// MoE constants
+const PHASE_INIT: u32 = 0;
+const MOE_STATE_SIZE: u64 = 56;
+
+fn zero_init(addr: u64, size: u64) {
+    let mut i: u64 = 0;
+    while i < size { *((addr + i) as &mut u8) = 0; i = i + 1; }
+}
+
+fn write_header(addr: u64) {
+    *((addr) as &mut u32) = MB2_MAGIC;
+    *((addr + 4) as &mut u32) = MB2_ARCH;
+    *((addr + 8) as &mut u32) = MB2_LENGTH;
+    *((addr + 12) as &mut u32) = MB2_CHECKSUM;
+    *((addr + 16) as &mut u16) = 0;
+    *((addr + 18) as &mut u16) = 0;
+    *((addr + 20) as &mut u32) = 8;
+}
+
+fn init_deque(addr: u64) { zero_init(addr, DEQUE_TOTAL_SIZE); }
+
+fn push_deque(deque: u64, task_id: i64) {
+    let bp: Ptr<i64> = (deque + DEQUE_BOTTOM_OFFSET) as Ptr<i64>;
+    let b: i64 = salt_atomic_load_i64(bp);
+    let idx: i64 = b % (DEQUE_ARRAY_SIZE as i64);
+    let slot: u64 = deque + (idx as u64) * 8;
+    *((slot) as &mut i64) = task_id;
+    let _: i64 = salt_atomic_cas_i64(bp, b, b + 1);
+}
+
+fn create_boot_task(state: u64, arena: u64, expert: u32) {
+    zero_init(state, MOE_STATE_SIZE);
+    *((state) as &mut u32) = PHASE_INIT;
+    *((state + 4) as &mut u32) = expert;
+    *((state + 8) as &mut u64) = arena + ARENA_TENSOR_POOL;
+    *((state + 24) as &mut u64) = arena + ARENA_ROUTING_OFFSET;
+    *((state + 32) as &mut u64) = arena + ARENA_MANIFEST_OFFSET;
+    *((state + 40) as &mut u64) = arena + ARENA_TOKEN_CTR;
+}
+
+fn main() -> i32 {
+    // =========================================================================
+    // T1: Multiboot2 header — write and verify
+    // =========================================================================
+    let hdr: u64 = malloc(32);
+    if hdr == 0 { return 1; }
+    zero_init(hdr, 32);
+    write_header(hdr);
+
+    if *((hdr) as &u32) != MB2_MAGIC { free(hdr); return 2; }
+    if *((hdr + 4) as &u32) != MB2_ARCH { free(hdr); return 2; }
+    if *((hdr + 8) as &u32) != MB2_LENGTH { free(hdr); return 2; }
+
+    // =========================================================================
+    // T2: Checksum — magic + arch + length + checksum == 0 (mod 2^32)
+    // =========================================================================
+    let cksum: u32 = *((hdr + 12) as &u32);
+    if cksum != MB2_CHECKSUM { free(hdr); return 3; }
+    // Verify the sum wraps to 0
+    // 0xE85250D6 + 0 + 24 + 0x17ADAF12 = 0x100000000 → 0 mod 2^32
+    // We verify by checking the checksum value is correct
+    let sum_low: u64 = (MB2_MAGIC as u64) + (MB2_ARCH as u64) + (MB2_LENGTH as u64) + (cksum as u64);
+    let sum_mod: u64 = sum_low & 0xFFFFFFFF;
+    if sum_mod != 0 { free(hdr); return 3; }
+
+    // =========================================================================
+    // T3: End tag — type=0, flags=0, size=8
+    // =========================================================================
+    let end_type: u16 = *((hdr + 16) as &u16);
+    if end_type != 0 { free(hdr); return 4; }
+    let end_size: u32 = *((hdr + 20) as &u32);
+    if end_size != 8 { free(hdr); return 4; }
+    free(hdr);
+
+    // =========================================================================
+    // T4: Arena init — 64K region is zeroed
+    // =========================================================================
+    let arena_size: u64 = 131072;  // 128K for test (enough for all structures)
+    let arena: u64 = malloc(arena_size as i64);
+    if arena == 0 { return 1; }
+
+    // Write garbage first
+    let mut i: u64 = 0;
+    while i < 65536 { *((arena + i) as &mut u8) = 0xFF; i = i + 1; }
+
+    // Init arena (zeros first 64K)
+    zero_init(arena, 65536);
+
+    // Verify some bytes are zero
+    let byte0: u8 = *((arena) as &u8);
+    let byte1000: u8 = *((arena + 1000) as &u8);
+    let byte65535: u8 = *((arena + 65535) as &u8);
+    if byte0 != 0 || byte1000 != 0 || byte65535 != 0 { free(arena); return 5; }
+
+    // =========================================================================
+    // T5: Boot sequence — init arena, deque, task
+    // =========================================================================
+    // Re-init with garbage to verify full boot clears it
+    let mut j: u64 = 0;
+    while j < 65536 { *((arena + j) as &mut u8) = 0xAA; j = j + 1; }
+
+    // Run the boot sequence manually
+    zero_init(arena, 65536);
+    let deque_addr: u64 = arena + ARENA_DEQUE_OFFSET;
+    init_deque(deque_addr);
+    let task_addr: u64 = arena + ARENA_TASK_STATES;
+    create_boot_task(task_addr, arena, 0);
+    push_deque(deque_addr, 0);
+
+    // =========================================================================
+    // T6: Deque — bottom incremented, task_id=0 at slot 0
+    // =========================================================================
+    let bp: Ptr<i64> = (deque_addr + DEQUE_BOTTOM_OFFSET) as Ptr<i64>;
+    let bottom: i64 = salt_atomic_load_i64(bp);
+    if bottom != 1 { free(arena); return 7; }
+
+    let task0_id: i64 = *((deque_addr) as &i64);
+    if task0_id != 0 { free(arena); return 7; }
+
+    // =========================================================================
+    // T7: Boot task state — INIT phase, expert=0, pointers set
+    // =========================================================================
+    let phase: u32 = *((task_addr) as &u32);
+    if phase != PHASE_INIT { free(arena); return 8; }
+
+    let expert: u32 = *((task_addr + 4) as &u32);
+    if expert != 0 { free(arena); return 8; }
+
+    let local_dest: u64 = *((task_addr + 8) as &u64);
+    if local_dest != arena + ARENA_TENSOR_POOL { free(arena); return 8; }
+
+    let rt_ptr: u64 = *((task_addr + 24) as &u64);
+    if rt_ptr != arena + ARENA_ROUTING_OFFSET { free(arena); return 8; }
+
+    let manifest_ptr: u64 = *((task_addr + 32) as &u64);
+    if manifest_ptr != arena + ARENA_MANIFEST_OFFSET { free(arena); return 8; }
+
+    // =========================================================================
+    // T8: Manifest region — accessible at arena base
+    // =========================================================================
+    // Write a test substrate value and read it back
+    *((arena + ARENA_MANIFEST_OFFSET) as &mut u32) = 2;  // SYNTHETIC
+    let substrate: u32 = *((arena + ARENA_MANIFEST_OFFSET) as &u32);
+    if substrate != 2 { free(arena); return 8; }
+
+    free(arena);
+    return 0;
+}

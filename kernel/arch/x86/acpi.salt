@@ -156,10 +156,10 @@ pub fn parse_madt(rsdp_phys: u64) -> u64 {
     // RSDT header is 36 bytes. Remaining bytes are 32-bit pointers to SDTs.
     let entries_start = rsdt_virt + 36;
     let entries_end = rsdt_virt + rsdt_length;
-    let mut ptr = entries_start;
+    let mut cursor = entries_start;
 
-    while ptr < entries_end {
-        let sdt_phys = *(ptr as &u32) as u64;
+    while cursor < entries_end {
+        let sdt_phys = *(cursor as &u32) as u64;
 
         if sdt_phys != 0 {
             let sdt_virt = memory.phys_to_virt_raw(sdt_phys);
@@ -173,7 +173,7 @@ pub fn parse_madt(rsdp_phys: u64) -> u64 {
             }
         }
 
-        ptr = ptr + 4;  // 32-bit pointers in RSDT
+        cursor = cursor + 4;  // 32-bit pointers in RSDT
     }
 
     serial.print("[ACPI] ERROR: MADT not found in RSDT\n");

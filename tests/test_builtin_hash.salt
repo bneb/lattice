@@ -1,0 +1,30 @@
+// =============================================================================
+// Test: __builtin_hash — Compile-Time Capability Hashing
+// =============================================================================
+// Verifies that __builtin_hash!("...") produces a non-zero i64 constant
+// at compile time with zero runtime cost.
+// =============================================================================
+
+fn main() -> i32 {
+    // Compile-time SipHash-2-4 evaluation on a string literal
+    let hash1: i64 = __builtin_hash!("net.nic.rx");
+    let hash2: i64 = __builtin_hash!("gpu.compute.dispatch");
+    let hash3: i64 = __builtin_hash!("net.nic.rx");
+
+    // Hash must be non-zero
+    if hash1 == 0 {
+        return 1;
+    }
+
+    // Different strings must produce different hashes
+    if hash1 == hash2 {
+        return 2;
+    }
+
+    // Same string must produce identical hashes (deterministic)
+    if hash1 != hash3 {
+        return 3;
+    }
+
+    return 0;
+}

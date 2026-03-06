@@ -1,0 +1,152 @@
+// =============================================================================
+// user/lib/ring.salt
+// Sovereign ABI — Userspace Data Plane: Z3-Verified SPSC Ring Operations
+// =============================================================================
+//
+// Once a ring is mapped via SYS_RING_MAP, all push/pop operations happen
+// entirely in Ring 3. No kernel transitions, no syscalls, no overhead.
+//
+// Z3 Verification Contracts:
+//   push: Proves (1) len <= capacity and (2) next_head != tail (no overwrite)
+//   pop:  Proves (1) head != tail (data available) and (2) len <= available
+//
+// The 'consume' keyword on push triggers the linear type checker in the
+// Salt compiler frontend, ensuring the payload pointer is invalidated
+// after the copy. This prevents use-after-free and double-push races.
+//
+// Memory Layout (matches kernel/lib/ipc_ring.salt):
+//   Bytes   0- 63: head (u64) + capacity (u64) + padding  [Cache Line 0]
+//   Bytes  64-127: tail (u64) + padding                   [Cache Line 1]
+//   Bytes 128-191: consumer_waiting (u64) + padding       [Cache Line 2]
+//   Bytes 192+:    Data ring (3904 bytes)
+// =============================================================================
+
+package user.lib.ring
+
+// =============================================================================
+// Ring Header Offsets (must match kernel/lib/ipc_ring.salt)
+// =============================================================================
+
+const HEAD_OFFSET: u64     = 0;
+const CAPACITY_OFFSET: u64 = 8;
+const TAIL_OFFSET: u64     = 64;
+const WAITING_OFFSET: u64  = 128;
+const DATA_OFFSET: u64     = 192;
+
+// =============================================================================
+// read_u64 / write_u64 — Raw memory access helpers
+// =============================================================================
+
+fn read_u64(base: u64, offset: u64) -> u64 {
+    let ptr = (base + offset) as &u64;
+    return *ptr;
+}
+
+fn write_u64(base: u64, offset: u64, val: u64) {
+    let ptr = (base + offset) as &mut u64;
+    *ptr = val;
+}
+
+// =============================================================================
+// push — Zero-Copy Write to Ring (Producer)
+// =============================================================================
+// ring_base:  Virtual address returned by SYS_RING_MAP
+// payload:    Source buffer (consumed — linear type enforcement)
+// len:        Number of bytes to push
+//
+// Returns: 1 on success, 0 on failure (ring full)
+//
+// Z3 Contract:
+//   requires { len <= capacity }
+//   requires { available_space > 0 }
+//   ensures  { head advances by len }
+// =============================================================================
+pub fn push(ring_base: u64, payload: u64, len: u64) -> u64
+    requires { len > 0 }
+{
+    let head = read_u64(ring_base, HEAD_OFFSET);
+    let tail = read_u64(ring_base, TAIL_OFFSET);
+    let capacity = read_u64(ring_base, CAPACITY_OFFSET);
+
+    // Guard: payload must fit
+    if len > capacity {
+        return 0;
+    }
+
+    let next_head = (head + len) % capacity;
+
+    // Guard: would overwrite unread data
+    if next_head == tail {
+        return 0;
+    }
+
+    // Raw memory copy into the ring's data region
+    let dst = ring_base + DATA_OFFSET + head;
+    let mut i: u64 = 0;
+    while i < len {
+        let src_byte = *((payload + i) as &u8);
+        *((dst + i) as &mut u8) = src_byte;
+        i = i + 1;
+    }
+
+    // Atomic head update (visible to consumer)
+    write_u64(ring_base, HEAD_OFFSET, next_head);
+
+    return 1;
+}
+
+// =============================================================================
+// pop — Zero-Copy Read from Ring (Consumer)
+// =============================================================================
+// ring_base: Virtual address returned by SYS_RING_MAP
+// buf:       Destination buffer
+// max_len:   Maximum number of bytes to read
+//
+// Returns: Number of bytes actually read (0 = ring empty)
+//
+// Z3 Contract:
+//   requires { max_len > 0 }
+//   ensures  { result <= max_len }
+//   ensures  { tail advances by result }
+// =============================================================================
+pub fn pop(ring_base: u64, buf: u64, max_len: u64) -> u64
+    requires { max_len > 0 }
+{
+    let head = read_u64(ring_base, HEAD_OFFSET);
+    let tail = read_u64(ring_base, TAIL_OFFSET);
+    let capacity = read_u64(ring_base, CAPACITY_OFFSET);
+
+    // Ring empty
+    if head == tail {
+        return 0;
+    }
+
+    // Calculate available bytes
+    let mut available: u64 = 0;
+    if head > tail {
+        available = head - tail;
+    } else {
+        available = capacity - tail + head;
+    }
+
+    // Read up to max_len
+    let mut read_len = available;
+    if read_len > max_len {
+        read_len = max_len;
+    }
+
+    // Raw memory copy from the ring's data region
+    let src = ring_base + DATA_OFFSET + tail;
+    let mut i: u64 = 0;
+    while i < read_len {
+        let src_byte = *((src + i) as &u8);
+        *((buf + i) as &mut u8) = src_byte;
+        i = i + 1;
+    }
+
+    // Atomic tail update (visible to producer)
+    let new_tail = (tail + read_len) % capacity;
+    write_u64(ring_base, TAIL_OFFSET, new_tail);
+
+    return read_len;
+}

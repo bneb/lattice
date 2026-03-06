@@ -66,6 +66,27 @@ proc_trampoline:
     iretq
 
 /* =============================================================================
+ * moe_trampoline — Entry to Ring 3 with 3 Arguments for MoE Pipeline
+ *
+ * Stack has IRETQ frame + 3 arguments:
+ *   [rsp]      = arg1 (RDI) - state_ptr
+ *   [rsp+8]    = arg2 (RSI) - bar_out
+ *   [rsp+16]   = arg3 (RDX) - poll_out
+ *   [rsp+24..] = IRETQ frame (RIP, CS, RFLAGS, RSP, SS)
+ * ============================================================================= */
+.global moe_trampoline
+moe_trampoline:
+    pop rdi
+    pop rsi
+    pop rdx
+    mov ax, 0x23
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    swapgs
+    iretq
+
+/* =============================================================================
  * kernel_trampoline — First-time entry to a Ring 0 kernel thread (Task 0)
  *
  * Unlike proc_trampoline which IRETs to Ring 3, this stays in Ring 0.

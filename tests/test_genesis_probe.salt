@@ -1,0 +1,330 @@
+// =============================================================================
+// Test: Genesis Probe — Holographic Boundary & PCIe ECAM Discovery
+// =============================================================================
+//
+// End-to-end validation of the boot-time hardware discovery pipeline:
+//
+//   T1: ECAM address calculation — bus/dev/fn → config space offset
+//   T2: Probe Vendor ID — inject AWS Nitro (0x1D0F), read back
+//   T3: Probe BAR0 — inject 64-bit BAR, extract masked address
+//   T4: Kinetic substrate — AWS Nitro resolves to Substrate::Kinetic
+//   T5: Synthetic substrate — VirtIO resolves to Substrate::Synthetic
+//   T6: Manifest immutability — locked manifest rejects re-resolution
+//   T7: Holographic Principle — Ring 3 FabricPtr writes identical WQE
+//       to both Kinetic and Synthetic BARs with ZERO branching
+//   T8: Full pipeline — probe → manifest → hologram → doorbell → matmul
+//
+// Exit codes:
+//   0  = all passed
+//   1  = allocation failure
+//   2  = ECAM address calculation wrong
+//   3  = vendor ID probe failed
+//   4  = BAR0 extraction failed
+//   5  = Kinetic substrate resolution failed
+//   6  = Synthetic substrate resolution failed
+//   7  = manifest lock violation
+//   8  = holographic write failed
+//   9  = matmul result incorrect
+// =============================================================================
+
+package main
+
+use std.core.ptr.Ptr
+
+extern fn malloc(size: i64) -> u64;
+extern fn free(ptr: u64);
+extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
+
+// Vendor IDs
+const VENDOR_AWS_NITRO: u32 = 0x1D0F;
+const VENDOR_MELLANOX:  u32 = 0x15B3;
+const VENDOR_VIRTIO:    u32 = 0x1AF4;
+const VENDOR_INVALID:   u32 = 0xFFFF;
+
+// Substrate constants
+const SUBSTRATE_UNKNOWN:   u32 = 0;
+const SUBSTRATE_KINETIC:   u32 = 1;
+const SUBSTRATE_SYNTHETIC: u32 = 2;
+
+// Manifest layout
+const MANIFEST_SIZE:      u64 = 32;
+const MANIFEST_SUBSTRATE: u64 = 0;
+const MANIFEST_VENDOR:    u64 = 4;
+const MANIFEST_BAR:       u64 = 8;
+const MANIFEST_DEVICE_ID: u64 = 16;
+const MANIFEST_LOCKED:    u64 = 20;
+const MANIFEST_BUS:       u64 = 24;
+const MANIFEST_DEVICE:    u64 = 28;
+
+fn zero_init(addr: u64, size: u64) {
+    let mut i: u64 = 0;
+    while i < size { *((addr + i) as &mut u8) = 0; i = i + 1; }
+}
+
+// Inline resolve (matches manifest.salt)
+fn resolve(manifest: u64, ecam: u64) {
+    let locked: u32 = *((manifest + MANIFEST_LOCKED) as &u32);
+    if locked == 1 { return; }
+
+    let mut bus: u32 = 0;
+    while bus < 8 {
+        let mut dev: u32 = 0;
+        while dev < 32 {
+            let config: u64 = ecam + ((bus << 20) | (dev << 15)) as u64;
+            let word: u32 = *((config) as &u32);
+            let vid: u32 = word & 0xFFFF;
+            let did: u32 = (word >> 16) & 0xFFFF;
+
+            if vid != VENDOR_INVALID && vid != 0 {
+                let is_k: bool = vid == VENDOR_AWS_NITRO || vid == VENDOR_MELLANOX;
+                let is_s: bool = vid == VENDOR_VIRTIO;
+
+                if is_k || is_s {
+                    // Read BAR0
+                    let bar0_raw: u32 = *((config + 0x10) as &u32);
+                    let bar0_type: u32 = (bar0_raw >> 1) & 0x3;
+                    let bar0_low: u64 = (bar0_raw & 0xFFFFFFF0) as u64;
+                    let mut bar0: u64 = bar0_low;
+                    if bar0_type == 2 {
+                        let bar1: u32 = *((config + 0x14) as &u32);
+                        bar0 = ((bar1 as u64) << 32) | bar0_low;
+                    }
+
+                    *((manifest + MANIFEST_VENDOR) as &mut u32) = vid;
+                    *((manifest + MANIFEST_DEVICE_ID) as &mut u32) = did;
+                    *((manifest + MANIFEST_BAR) as &mut u64) = bar0;
+                    *((manifest + MANIFEST_BUS) as &mut u32) = bus;
+                    *((manifest + MANIFEST_DEVICE) as &mut u32) = dev;
+
+                    if is_k {
+                        *((manifest + MANIFEST_SUBSTRATE) as &mut u32) = SUBSTRATE_KINETIC;
+                    } else {
+                        *((manifest + MANIFEST_SUBSTRATE) as &mut u32) = SUBSTRATE_SYNTHETIC;
+                    }
+
+                    *((manifest + MANIFEST_LOCKED) as &mut u32) = 1;
+                    return;
+                }
+            }
+            dev = dev + 1;
+        }
+        bus = bus + 1;
+    }
+}
+
+fn main() -> i32 {
+    // =========================================================================
+    // Allocate mock ECAM region
+    // =========================================================================
+    // Bus 0..8 × Dev 0..32 × 4KB = 8 × 32 × 4096 = 1MB
+    // We only need bus 0, device 0 and bus 1, device 2 for our tests.
+    // Allocate enough for bus 0-1 (2 × 32 × 4KB = 256KB)
+    let ecam_size: u64 = 2 * 32 * 4096;
+    let ecam: u64 = malloc(ecam_size as i64);
+    if ecam == 0 { return 1; }
+
+    // Fill with 0xFF (VENDOR_INVALID for empty slots)
+    let mut fi: u64 = 0;
+    while fi < ecam_size {
+        *((ecam + fi) as &mut u8) = 0xFF;
+        fi = fi + 1;
+    }
+
+    // =========================================================================
+    // T1: ECAM Address Calculation
+    // =========================================================================
+    // Bus=1, Dev=2, Fn=0 → offset = (1 << 20) | (2 << 15) | (0 << 12)
+    //                             = 0x100000 | 0x10000 = 0x110000
+    let expected_offset: u64 = (1 << 20) | (2 << 15);
+    if expected_offset != 0x110000 { free(ecam); return 2; }
+
+    let config_addr: u64 = ecam + expected_offset;
+    // This should be within our allocation (max = 2 * 32 * 4096 = 262144)
+    // Bus 1: offset starts at 1<<20 = 1048576 > 262144, so we need a bigger buffer
+    // Let's use bus=0, dev=1 for Nitro test and bus=0, dev=2 for VirtIO test
+    let nitro_config: u64 = ecam + (0 << 20) | (1 << 15);  // Bus 0, Dev 1
+    let virtio_config: u64 = ecam + (0 << 20) | (2 << 15);  // Bus 0, Dev 2
+
+    // =========================================================================
+    // T2: Inject AWS Nitro at Bus=0, Dev=1
+    // =========================================================================
+    // Vendor/Device word: Device ID (16 high) | Vendor ID (16 low)
+    let nitro_word: u32 = (0x0065 << 16) | VENDOR_AWS_NITRO;  // Device 0x0065 = EFA
+    *((nitro_config) as &mut u32) = nitro_word;
+
+    // Verify probe
+    let probed_vid: u32 = *((nitro_config) as &u32) & 0xFFFF;
+    if probed_vid != VENDOR_AWS_NITRO { free(ecam); return 3; }
+
+    let probed_did: u32 = (*((nitro_config) as &u32) >> 16) & 0xFFFF;
+    if probed_did != 0x0065 { free(ecam); return 3; }
+
+    // =========================================================================
+    // T3: Inject 64-bit BAR0 at Dev 1
+    // =========================================================================
+    // BAR0 = 0x00000003E0000004 (type=2 for 64-bit, base=0x3E0000000)
+    // Low word: 0xE0000004  (bottom 4 bits: bit2:1=10 → 64-bit)
+    let bar0_low: u32 = 0xE0000004;
+    let bar0_high: u32 = 0x00000003;
+    *((nitro_config + 0x10) as &mut u32) = bar0_low;
+    *((nitro_config + 0x14) as &mut u32) = bar0_high;
+
+    // Read back BAR0
+    let raw_bar0: u32 = *((nitro_config + 0x10) as &u32);
+    let bar_type: u32 = (raw_bar0 >> 1) & 0x3;
+    if bar_type != 2 { free(ecam); return 4; }  // Must be 64-bit
+
+    let low: u64 = (raw_bar0 & 0xFFFFFFF0) as u64;
+    let high: u32 = *((nitro_config + 0x14) as &u32);
+    let full_bar: u64 = ((high as u64) << 32) | low;
+    if full_bar != 0x00000003E0000000 { free(ecam); return 4; }
+
+    // =========================================================================
+    // T4: Kinetic Substrate Resolution
+    // =========================================================================
+    let manifest_k: u64 = malloc(MANIFEST_SIZE as i64);
+    if manifest_k == 0 { free(ecam); return 1; }
+    zero_init(manifest_k, MANIFEST_SIZE);
+
+    resolve(manifest_k, ecam);
+
+    let sub_k: u32 = *((manifest_k + MANIFEST_SUBSTRATE) as &u32);
+    if sub_k != SUBSTRATE_KINETIC { free(manifest_k); free(ecam); return 5; }
+
+    let bar_k: u64 = *((manifest_k + MANIFEST_BAR) as &u64);
+    if bar_k != 0x00000003E0000000 { free(manifest_k); free(ecam); return 5; }
+
+    let vid_k: u32 = *((manifest_k + MANIFEST_VENDOR) as &u32);
+    if vid_k != VENDOR_AWS_NITRO { free(manifest_k); free(ecam); return 5; }
+
+    let locked_k: u32 = *((manifest_k + MANIFEST_LOCKED) as &u32);
+    if locked_k != 1 { free(manifest_k); free(ecam); return 5; }
+
+    // =========================================================================
+    // T5: Synthetic Substrate Resolution
+    // =========================================================================
+    // Clear the Nitro entry, inject VirtIO at Bus=0, Dev=1
+    let virtio_word: u32 = (0x1000 << 16) | VENDOR_VIRTIO;
+    *((nitro_config) as &mut u32) = virtio_word;  // Overwrite Nitro with VirtIO
+
+    // 32-bit BAR0 for VirtIO
+    let vbar: u32 = 0xFE000000;  // type=0, 32-bit
+    *((nitro_config + 0x10) as &mut u32) = vbar;
+    *((nitro_config + 0x14) as &mut u32) = 0;
+
+    let manifest_s: u64 = malloc(MANIFEST_SIZE as i64);
+    if manifest_s == 0 { free(manifest_k); free(ecam); return 1; }
+    zero_init(manifest_s, MANIFEST_SIZE);
+
+    resolve(manifest_s, ecam);
+
+    let sub_s: u32 = *((manifest_s + MANIFEST_SUBSTRATE) as &u32);
+    if sub_s != SUBSTRATE_SYNTHETIC { free(manifest_s); free(manifest_k); free(ecam); return 6; }
+
+    let bar_s: u64 = *((manifest_s + MANIFEST_BAR) as &u64);
+    if bar_s != 0xFE000000 { free(manifest_s); free(manifest_k); free(ecam); return 6; }
+
+    // =========================================================================
+    // T6: Manifest Immutability — locked rejects re-resolution
+    // =========================================================================
+    // manifest_k is already locked with Kinetic. Try to re-resolve with VirtIO.
+    resolve(manifest_k, ecam);
+
+    // Should still be Kinetic (VirtIO was in ECAM but lock prevented overwrite)
+    let sub_still: u32 = *((manifest_k + MANIFEST_SUBSTRATE) as &u32);
+    if sub_still != SUBSTRATE_KINETIC { free(manifest_s); free(manifest_k); free(ecam); return 7; }
+
+    free(manifest_s);
+
+    // =========================================================================
+    // T7: Holographic Principle — same WQE code on both substrates
+    // =========================================================================
+    // Allocate two mock BAR regions
+    let bar_kinetic: u64 = malloc(8192);
+    let bar_synthetic: u64 = malloc(8192);
+    if bar_kinetic == 0 || bar_synthetic == 0 {
+        free(manifest_k); free(ecam);
+        return 1;
+    }
+    zero_init(bar_kinetic, 8192);
+    zero_init(bar_synthetic, 8192);
+
+    // Write IDENTICAL WQE to both — the code path has zero branching
+    let control: u64 = (1 << 32) | 42;
+    let payload: u64 = 0xDEADBEEF;
+
+    // Kinetic doorbell
+    let db_k: Ptr<[u64; 2]> = (bar_kinetic + 0x1000) as Ptr<[u64; 2]>;
+    db_k.write([control, payload]);
+
+    // Synthetic doorbell (same code, different address)
+    let db_s: Ptr<[u64; 2]> = (bar_synthetic + 0x1000) as Ptr<[u64; 2]>;
+    db_s.write([control, payload]);
+
+    // Verify both received the identical WQE
+    let k_w0: u64 = *((bar_kinetic + 0x1000) as &u64);
+    let k_w1: u64 = *((bar_kinetic + 0x1008) as &u64);
+    let s_w0: u64 = *((bar_synthetic + 0x1000) as &u64);
+    let s_w1: u64 = *((bar_synthetic + 0x1008) as &u64);
+
+    if k_w0 != s_w0 { free(bar_kinetic); free(bar_synthetic); free(manifest_k); free(ecam); return 8; }
+    if k_w1 != s_w1 { free(bar_kinetic); free(bar_synthetic); free(manifest_k); free(ecam); return 8; }
+    if k_w1 != 0xDEADBEEF { free(bar_kinetic); free(bar_synthetic); free(manifest_k); free(ecam); return 8; }
+
+    free(bar_kinetic);
+    free(bar_synthetic);
+
+    // =========================================================================
+    // T8: Full pipeline — probe → manifest → hologram → doorbell → matmul
+    // =========================================================================
+    // Use the Kinetic manifest's BAR to allocate a mock NIC region
+    let nic_bar: u64 = malloc(8192);
+    if nic_bar == 0 { free(manifest_k); free(ecam); return 1; }
+    zero_init(nic_bar, 8192);
+
+    // Overwrite manifest BAR with our mock NIC
+    *((manifest_k + MANIFEST_BAR) as &mut u64) = nic_bar;
+
+    // Ring 3 code: read bar from manifest (hologram_get_bar equivalent)
+    let fabric_bar: u64 = *((manifest_k + MANIFEST_BAR) as &u64);
+
+    // Fire doorbell
+    let wqe_db: Ptr<[u64; 2]> = (fabric_bar + 0x1000) as Ptr<[u64; 2]>;
+    wqe_db.write([(2 << 32) | 1, 0xCAFEBABE]);
+
+    // Verify doorbell written
+    let wqe_opcode: u64 = *((fabric_bar + 0x1000) as &u64) >> 32;
+    if wqe_opcode != 2 { free(nic_bar); free(manifest_k); free(ecam); return 8; }
+
+    // "DMA complete" — execute matmul
+    let arena: u64 = malloc(384);
+    if arena == 0 { free(nic_bar); free(manifest_k); free(ecam); return 1; }
+    let mut mi: u32 = 0;
+    while mi < 16 {
+        *((arena + (mi as u64) * 8) as &mut f64) = 1.0;
+        *((arena + 128 + (mi as u64) * 8) as &mut f64) = 2.0;
+        *((arena + 256 + (mi as u64) * 8) as &mut f64) = 0.0;
+        mi = mi + 1;
+    }
+
+    for i in 0..4 {
+        for j in 0..4 {
+            let mut sum: f64 = 0.0;
+            for k in 0..4 {
+                let av: f64 = *((arena + ((i*4+k) as u64)*8) as &f64);
+                let bv: f64 = *((arena + 128 + ((k*4+j) as u64)*8) as &f64);
+                sum = sum + (av * bv);
+            }
+            *((arena + 256 + ((i*4+j) as u64)*8) as &mut f64) = sum;
+        }
+    }
+
+    let c00: f64 = *((arena + 256) as &f64);
+    if c00 > 8.1 || c00 < 7.9 { free(arena); free(nic_bar); free(manifest_k); free(ecam); return 9; }
+
+    free(arena);
+    free(nic_bar);
+    free(manifest_k);
+    free(ecam);
+    return 0;
+}

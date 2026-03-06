@@ -1,0 +1,419 @@
+// =============================================================================
+// Test: Warehouse-Scale MoE Router (v3.0.0 Convergence)
+// =============================================================================
+//
+// Full pipeline validation wiring:
+//   - Genesis Probe → Holographic Manifest (Synthetic substrate)
+//   - Topology Router → O(1) expert-to-BAR resolution
+//   - MoE Dispatch → 128-bit atomic doorbell to manifest-resolved BAR
+//   - MoE Coroutine → INIT (doorbell + yield) → MATH (16×16 matmul)
+//   - Chase-Lev Deque → cross-core work stealing
+//
+// Assertions (12 total):
+//   T1:  Routing table — set/get cap_id, bar_addr, tensor_offset
+//   T2:  Routing table — expert 1 lookup
+//   T3:  Doorbell — 128-bit WQE written to mock BAR
+//   T4:  Coroutine INIT — fires doorbell, returns PENDING token
+//   T5:  Coroutine INIT — phase transitions to MATH
+//   T6:  Coroutine INIT — doorbell written to BAR+0x1000
+//   T7:  Coroutine MATH — 16x16 matmul C[0,0] = 48.0
+//   T8:  Coroutine MATH — 16x16 matmul C[15,15] = 48.0
+//   T9:  Two-expert pipeline — both complete, unique tokens
+//   T10: Two-expert pipeline — A: C[0,0]=8.0 (4 MACs × 1×2)
+//   T11: Two-expert pipeline — B: C[0,0]=48.0 (16 MACs × 1×3)
+//   T12: WorkDeque — push/steal task IDs across cores
+//
+// Exit codes: 0=pass, 1=alloc, 2=routing, 3=doorbell, 4=init,
+//             5=math, 6=pipeline, 7=deque
+// =============================================================================
+
+package main
+
+use std.core.ptr.Ptr
+
+extern fn malloc(size: i64) -> u64;
+extern fn free(ptr: u64);
+extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
+extern fn salt_atomic_cas_i64(ptr: Ptr<i64>, expected: i64, desired: i64) -> i64;
+
+// Constants
+const PHASE_INIT: u32 = 0;
+const PHASE_MATH: u32 = 1;
+const PHASE_DONE: u32 = 2;
+const MOE_STATE_SIZE: u64 = 56;
+const WQE_OPCODE_READ: u64 = 2;
+const EXPERT_ROUTE_SIZE: u64 = 24;
+
+// Manifest layout
+const MANIFEST_SUBSTRATE: u64 = 0;
+const MANIFEST_BAR:       u64 = 8;
+const MANIFEST_VENDOR:    u64 = 16;
+const MANIFEST_LOCKED:    u64 = 20;
+const MANIFEST_SIZE:      u64 = 32;
+const SUBSTRATE_SYNTHETIC: u32 = 2;
+
+// Deque constants
+const DEQUE_ARRAY_SIZE: u64 = 64;
+const DEQUE_BOTTOM_OFFSET: u64 = 512;
+const DEQUE_TOP_OFFSET:    u64 = 520;
+const DEQUE_TOTAL_SIZE:    u64 = 528;
+const STEAL_EMPTY: i64 = -1;
+
+fn zero_init(addr: u64, size: u64) {
+    let mut i: u64 = 0;
+    while i < size { *((addr + i) as &mut u8) = 0; i = i + 1; }
+}
+
+fn set_route(table: u64, id: u32, cap: u32, bar: u64, off: u64) {
+    let base: u64 = table + (id as u64) * EXPERT_ROUTE_SIZE;
+    *((base) as &mut u32) = cap;
+    *((base + 8) as &mut u64) = bar;
+    *((base + 16) as &mut u64) = off;
+}
+
+// ============================================================================
+// Mock Genesis Probe → Holographic Manifest
+// ============================================================================
+fn mock_manifest(addr: u64, substrate: u32, bar: u64, vendor: u32) {
+    *((addr + MANIFEST_SUBSTRATE) as &mut u32) = substrate;
+    *((addr + MANIFEST_BAR) as &mut u64) = bar;
+    *((addr + MANIFEST_VENDOR) as &mut u32) = vendor;
+    *((addr + MANIFEST_LOCKED) as &mut u32) = 1;  // Locked at boot
+}
+
+// ============================================================================
+// MoE state machine (mirrors moe_task.salt)
+// ============================================================================
+fn step_moe(state: u64) -> u32 {
+    let phase: u32 = *((state) as &u32);
+
+    if phase == PHASE_INIT {
+        let expert_id: u32 = *((state + 4) as &u32);
+        let routing_table: u64 = *((state + 24) as &u64);
+        let manifest_addr: u64 = *((state + 32) as &u64);
+        let bar_addr: u64 = *((manifest_addr + MANIFEST_BAR) as &u64);
+        let token_ctr_addr: u64 = *((state + 40) as &u64);
+
+        let route_offset: u64 = (expert_id as u64) * 24;
+        let remote_bar: u64 = *((routing_table + route_offset + 8) as &u64);
+        let tensor_off: u64 = *((routing_table + route_offset + 16) as &u64);
+        let remote_addr: u64 = remote_bar + tensor_off;
+
+        let token: u32 = *((token_ctr_addr) as &u32);
+        *((token_ctr_addr) as &mut u32) = token + 1;
+
+        let control: u64 = (WQE_OPCODE_READ << 32) | (token as u64);
+        let db_addr: u64 = bar_addr + 0x1000;
+        let db: Ptr<[u64; 2]> = db_addr as Ptr<[u64; 2]>;
+        db.write([control, remote_addr]);
+
+        *((state + 16) as &mut u32) = token;
+        *((state) as &mut u32) = PHASE_MATH;
+        return token;
+    }
+
+    if phase == PHASE_MATH {
+        let local_dest: u64 = *((state + 8) as &u64);
+        let a: u64 = local_dest;
+        let b: u64 = local_dest + 2048;
+        let c: u64 = local_dest + 4096;
+
+        for i in 0..16 {
+            for j in 0..16 {
+                let mut acc: f64 = 0.0;
+                for k in 0..16 {
+                    let av: f64 = *((a + ((i*16+k) as u64)*8) as &f64);
+                    let bv: f64 = *((b + ((k*16+j) as u64)*8) as &f64);
+                    acc = acc + (av * bv);
+                }
+                *((c + ((i*16+j) as u64)*8) as &mut f64) = acc;
+            }
+        }
+
+        *((state) as &mut u32) = PHASE_DONE;
+        *((state + 20) as &mut u32) = 0;
+        return 0;
+    }
+
+    return 0;
+}
+
+// ============================================================================
+// Deque operations (from scheduler.salt)
+// ============================================================================
+fn deque_init(addr: u64) { zero_init(addr, DEQUE_TOTAL_SIZE); }
+
+fn push_bottom(addr: u64, task_id: i64) {
+    let bp: Ptr<i64> = (addr + DEQUE_BOTTOM_OFFSET) as Ptr<i64>;
+    let b: i64 = salt_atomic_load_i64(bp);
+    let idx: i64 = b % (DEQUE_ARRAY_SIZE as i64);
+    let slot: u64 = addr + (idx as u64) * 8;
+    *((slot) as &mut i64) = task_id;
+    let old: i64 = salt_atomic_cas_i64(bp, b, b + 1);
+}
+
+fn steal_top(addr: u64) -> i64 {
+    let tp: Ptr<i64> = (addr + DEQUE_TOP_OFFSET) as Ptr<i64>;
+    let bp: Ptr<i64> = (addr + DEQUE_BOTTOM_OFFSET) as Ptr<i64>;
+    let t: i64 = salt_atomic_load_i64(tp);
+    let b: i64 = salt_atomic_load_i64(bp);
+    if t >= b { return STEAL_EMPTY; }
+    let idx: i64 = t % (DEQUE_ARRAY_SIZE as i64);
+    let slot: u64 = addr + (idx as u64) * 8;
+    let tid: i64 = *((slot) as &i64);
+    let old: i64 = salt_atomic_cas_i64(tp, t, t + 1);
+    if old != t { return STEAL_EMPTY; }
+    return tid;
+}
+
+fn fill_f64(addr: u64, count: u32, val: f64) {
+    let mut i: u32 = 0;
+    while i < count { *((addr + (i as u64)*8) as &mut f64) = val; i = i + 1; }
+}
+
+fn main() -> i32 {
+    // =========================================================================
+    // Allocate shared resources
+    // =========================================================================
+    let rt_addr: u64 = malloc(1536);    // Routing table: 64 × 24
+    let bar_buf: u64 = malloc(8192);    // Mock PCIe BAR (sufficient for doorbell)
+    let token_ctr: u64 = malloc(8);     // Token counter
+    let manifest: u64 = malloc(MANIFEST_SIZE as i64);
+    if rt_addr == 0 || bar_buf == 0 || token_ctr == 0 || manifest == 0 { return 1; }
+    zero_init(rt_addr, 1536);
+    zero_init(bar_buf, 8192);
+    zero_init(token_ctr, 8);
+
+    // =========================================================================
+    // Mock Genesis Probe → Synthetic Substrate
+    // =========================================================================
+    mock_manifest(manifest, SUBSTRATE_SYNTHETIC, bar_buf, 0x1AF4);
+
+    // Verify manifest is locked and substrate is Synthetic
+    if *((manifest + MANIFEST_LOCKED) as &u32) != 1 { return 2; }
+    if *((manifest + MANIFEST_SUBSTRATE) as &u32) != SUBSTRATE_SYNTHETIC { return 2; }
+
+    // =========================================================================
+    // T1: Routing table — Expert 0
+    // =========================================================================
+    set_route(rt_addr, 0, 10, 0x00000003E0000000, 0x2000);
+    set_route(rt_addr, 1, 20, 0x00000005C0000000, 0x4000);
+
+    let cap0: u32 = *((rt_addr) as &u32);
+    if cap0 != 10 { free(rt_addr); free(bar_buf); free(token_ctr); free(manifest); return 2; }
+    let bar0: u64 = *((rt_addr + 8) as &u64);
+    if bar0 != 0x00000003E0000000 { free(rt_addr); free(bar_buf); free(token_ctr); free(manifest); return 2; }
+
+    // =========================================================================
+    // T2: Routing table — Expert 1
+    // =========================================================================
+    let cap1: u32 = *((rt_addr + 24) as &u32);
+    if cap1 != 20 { free(rt_addr); free(bar_buf); free(token_ctr); free(manifest); return 2; }
+
+    // =========================================================================
+    // T3: Doorbell — direct 128-bit write to manifest-resolved BAR
+    // =========================================================================
+    let bar_from_manifest: u64 = *((manifest + MANIFEST_BAR) as &u64);
+    let remote_addr0: u64 = 0x00000003E0000000 + 0x2000;
+    let control0: u64 = (WQE_OPCODE_READ << 32) | 42;
+    let db: Ptr<[u64; 2]> = (bar_from_manifest + 0x1000) as Ptr<[u64; 2]>;
+    db.write([control0, remote_addr0]);
+
+    let db_w0: u64 = *((bar_buf + 0x1000) as &u64);
+    let opcode: u64 = db_w0 >> 32;
+    if opcode != WQE_OPCODE_READ { free(rt_addr); free(bar_buf); free(token_ctr); free(manifest); return 3; }
+
+    // =========================================================================
+    // T4-T6: Coroutine — INIT fires doorbell, yields PENDING
+    // =========================================================================
+    // Allocate arena for 16×16 tensors: A+B+C = 3 × 256 × 8 = 6144 bytes
+    let arena0: u64 = malloc(6144);
+    let state0: u64 = malloc(MOE_STATE_SIZE as i64);
+    if arena0 == 0 || state0 == 0 { free(rt_addr); free(bar_buf); free(token_ctr); free(manifest); return 1; }
+    zero_init(state0, MOE_STATE_SIZE);
+
+    // Populate task state — Holographic: reads BAR from manifest
+    *((state0) as &mut u32) = PHASE_INIT;
+    *((state0 + 4) as &mut u32) = 0;          // expert_id = 0
+    *((state0 + 8) as &mut u64) = arena0;     // local_dest
+    *((state0 + 24) as &mut u64) = rt_addr;   // routing_table
+    *((state0 + 32) as &mut u64) = manifest;  // manifest_addr (Holographic!)
+    *((state0 + 40) as &mut u64) = token_ctr; // token_counter
+
+    // Step INIT → PENDING
+    let pending_token: u32 = step_moe(state0);
+
+    // T4: Token returned
+    let stored_token: u32 = *((state0 + 16) as &u32);
+    if stored_token != pending_token {
+        free(arena0); free(state0); free(rt_addr); free(bar_buf); free(token_ctr); free(manifest);
+        return 4;
+    }
+
+    // T5: Phase advanced to MATH
+    let phase_after: u32 = *((state0) as &u32);
+    if phase_after != PHASE_MATH {
+        free(arena0); free(state0); free(rt_addr); free(bar_buf); free(token_ctr); free(manifest);
+        return 4;
+    }
+
+    // T6: Doorbell was written to manifest-resolved BAR
+    let db_check: u64 = *((bar_buf + 0x1000) as &u64);
+    if (db_check >> 32) != WQE_OPCODE_READ {
+        free(arena0); free(state0); free(rt_addr); free(bar_buf); free(token_ctr); free(manifest);
+        return 4;
+    }
+
+    // =========================================================================
+    // T7-T8: Coroutine MATH — 16×16 matmul on "DMA-arrived" tensor data
+    // =========================================================================
+    // Simulate CQE: DMA deposited tensor data at arena0
+    // A = all 1.0, B = all 3.0, C zeroed → C[i,j] = 16 × 1 × 3 = 48.0
+    fill_f64(arena0, 256, 1.0);           // A: 16×16 = 256 elements
+    fill_f64(arena0 + 2048, 256, 3.0);    // B: 16×16
+    fill_f64(arena0 + 4096, 256, 0.0);    // C: zeroed
+
+    // Step MATH → DONE
+    step_moe(state0);
+
+    let final_phase: u32 = *((state0) as &u32);
+    if final_phase != PHASE_DONE {
+        free(arena0); free(state0); free(rt_addr); free(bar_buf); free(token_ctr); free(manifest);
+        return 5;
+    }
+
+    // T7: C[0,0] = 48.0
+    let c00: f64 = *((arena0 + 4096) as &f64);
+    if c00 > 48.1 || c00 < 47.9 {
+        free(arena0); free(state0); free(rt_addr); free(bar_buf); free(token_ctr); free(manifest);
+        return 5;
+    }
+
+    // T8: C[15,15] = 48.0
+    let c1515: f64 = *((arena0 + 4096 + (15*16+15) as u64 * 8) as &f64);
+    if c1515 > 48.1 || c1515 < 47.9 {
+        free(arena0); free(state0); free(rt_addr); free(bar_buf); free(token_ctr); free(manifest);
+        return 5;
+    }
+
+    free(arena0);
+    free(state0);
+
+    // =========================================================================
+    // T9-T11: Two-expert pipeline — concurrent coroutines
+    // =========================================================================
+    let state_a: u64 = malloc(MOE_STATE_SIZE as i64);
+    let state_b: u64 = malloc(MOE_STATE_SIZE as i64);
+    let arena_a: u64 = malloc(6144);  // Expert A: 16×16
+    let arena_b: u64 = malloc(6144);  // Expert B: 16×16
+    if state_a == 0 || state_b == 0 || arena_a == 0 || arena_b == 0 { return 1; }
+    zero_init(state_a, MOE_STATE_SIZE);
+    zero_init(state_b, MOE_STATE_SIZE);
+
+    // Expert A: id=0
+    *((state_a) as &mut u32) = PHASE_INIT;
+    *((state_a + 4) as &mut u32) = 0;
+    *((state_a + 8) as &mut u64) = arena_a;
+    *((state_a + 24) as &mut u64) = rt_addr;
+    *((state_a + 32) as &mut u64) = manifest;
+    *((state_a + 40) as &mut u64) = token_ctr;
+
+    // Expert B: id=1
+    *((state_b) as &mut u32) = PHASE_INIT;
+    *((state_b + 4) as &mut u32) = 1;
+    *((state_b + 8) as &mut u64) = arena_b;
+    *((state_b + 24) as &mut u64) = rt_addr;
+    *((state_b + 32) as &mut u64) = manifest;
+    *((state_b + 40) as &mut u64) = token_ctr;
+
+    // INIT both — fire doorbells, both yield PENDING
+    let tok_a: u32 = step_moe(state_a);
+    let tok_b: u32 = step_moe(state_b);
+
+    // T9: Tokens must be unique (monotonic counter)
+    if tok_a == tok_b {
+        free(arena_a); free(arena_b); free(state_a); free(state_b);
+        free(rt_addr); free(bar_buf); free(token_ctr); free(manifest);
+        return 6;
+    }
+
+    // Simulate CQE: fill tensor data
+    // Expert A: A=1, B=2 → C[i,j] = 16 × 1 × 2 = 32.0
+    fill_f64(arena_a, 256, 1.0);
+    fill_f64(arena_a + 2048, 256, 2.0);
+    fill_f64(arena_a + 4096, 256, 0.0);
+
+    // Expert B: A=1, B=3 → C[i,j] = 16 × 1 × 3 = 48.0
+    fill_f64(arena_b, 256, 1.0);
+    fill_f64(arena_b + 2048, 256, 3.0);
+    fill_f64(arena_b + 4096, 256, 0.0);
+
+    // MATH both
+    step_moe(state_a);
+    step_moe(state_b);
+
+    // T9 continued: Both DONE
+    let pa: u32 = *((state_a) as &u32);
+    let pb: u32 = *((state_b) as &u32);
+    if pa != PHASE_DONE || pb != PHASE_DONE {
+        free(arena_a); free(arena_b); free(state_a); free(state_b);
+        free(rt_addr); free(bar_buf); free(token_ctr); free(manifest);
+        return 6;
+    }
+
+    // T10: Expert A C[0,0] = 32.0
+    let ca00: f64 = *((arena_a + 4096) as &f64);
+    if ca00 > 32.1 || ca00 < 31.9 {
+        free(arena_a); free(arena_b); free(state_a); free(state_b);
+        free(rt_addr); free(bar_buf); free(token_ctr); free(manifest);
+        return 6;
+    }
+
+    // T11: Expert B C[0,0] = 48.0
+    let cb00: f64 = *((arena_b + 4096) as &f64);
+    if cb00 > 48.1 || cb00 < 47.9 {
+        free(arena_a); free(arena_b); free(state_a); free(state_b);
+        free(rt_addr); free(bar_buf); free(token_ctr); free(manifest);
+        return 6;
+    }
+
+    free(arena_a);
+    free(arena_b);
+    free(state_a);
+    free(state_b);
+
+    // =========================================================================
+    // T12: WorkDeque — push MoE task IDs, steal across cores
+    // =========================================================================
+    let deque0: u64 = malloc(DEQUE_TOTAL_SIZE as i64);
+    let deque1: u64 = malloc(DEQUE_TOTAL_SIZE as i64);
+    if deque0 == 0 || deque1 == 0 { free(rt_addr); free(bar_buf); free(token_ctr); free(manifest); return 1; }
+    deque_init(deque0);
+    deque_init(deque1);
+
+    // Core 0 pushes task IDs 100, 101, 102
+    push_bottom(deque0, 100);
+    push_bottom(deque0, 101);
+    push_bottom(deque0, 102);
+
+    // Core 1 steals from Core 0
+    let stolen: i64 = steal_top(deque0);
+    if stolen != 100 {
+        free(deque0); free(deque1); free(rt_addr); free(bar_buf); free(token_ctr); free(manifest);
+        return 7;
+    }
+
+    let stolen2: i64 = steal_top(deque0);
+    if stolen2 != 101 {
+        free(deque0); free(deque1); free(rt_addr); free(bar_buf); free(token_ctr); free(manifest);
+        return 7;
+    }
+
+    free(deque0);
+    free(deque1);
+    free(rt_addr);
+    free(bar_buf);
+    free(token_ctr);
+    free(manifest);
+    return 0;
+}

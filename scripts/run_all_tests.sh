@@ -33,17 +33,16 @@ LIB_FAILURES=()
 # Known compiler deficiencies — tracked but not blocking.
 # These remain in the active suite to drive compiler fixes.
 KNOWN_FAILING=(
-    "test_traits"                # Codegen emits i8 instead of i32 for clone
-    "test_ptr_empty_inference"   # Missing make_leaf resolution across modules
-    "test_sync"                  # Missing salt_atomic_cas_i64 intrinsic link
-    "test_file_io"               # Undefined global O_WRONLY in addressof
-    "test_channel"               # Numeric promotion Unit → Result<i32>
-    # Kernel-only tests — import kernel.core.* modules that require
-    # the bare-metal build pipeline. Verified through QEMU integration.
-    "test_elf_loader"            # Imports kernel.core.pmm, kernel.core.memory
-    "test_process_heap_boundary" # Imports kernel.core.process
-    "test_pulse_queue"           # Imports kernel.core.pulse
-    "test_task0_spawn"           # Imports kernel.core.process
+    # All previously known-failing tests have been fixed:
+    # - test_traits: compiler healed (i8→i32 clone)
+    # - test_ptr_empty_inference: compiler healed (make_leaf resolution)
+    # - test_sync: compiler healed (salt_atomic_cas_i64 intrinsic link)
+    # - test_channel: compiler healed (numeric promotion)
+    # - test_elf_loader: compiler healed (kernel imports)
+    # - test_file_io: rewrote with local i32 constants
+    # - test_process_heap_boundary: rewrote with mocked process table
+    # - test_pulse_queue: rewrote with mocked ring buffer
+    # - test_task0_spawn: rewrote with mocked process table
 )
 
 is_known_failing() {

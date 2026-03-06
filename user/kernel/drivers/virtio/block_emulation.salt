@@ -1,0 +1,149 @@
+// ============================================================================
+// user/kernel/drivers/virtio/block_emulation.salt
+// Holographic Storage Trap — 3-Part Chained Descriptor Emulation
+// ============================================================================
+//
+// When Ring 3 writes to STORAGE_BAR (fabric_bar + 0x2000), the #PF handler
+// routes here. We construct a 3-part VirtIO-blk descriptor chain:
+//
+//   Desc[n]   → VirtioBlkReq header (16B, read-only)
+//                flags = VRING_DESC_F_NEXT, next = n+1
+//
+//   Desc[n+1] → Data buffer in LOC_ARENA (N×512B, write-only for reads)
+//                flags = VRING_DESC_F_NEXT | VRING_DESC_F_WRITE, next = n+2
+//
+//   Desc[n+2] → Status byte (1B, write-only)
+//                flags = VRING_DESC_F_WRITE
+//
+// The chain head (n) goes into VirtqAvail, then we kick the hypervisor.
+//
+// Storage WQE Layout (128 bits from Ring 3):
+//   [high 64] control: (token << 32) | sector_count
+//   [low  64] payload: (sector_idx << 32) | dest_arena_offset
+//
+// ============================================================================
+
+package user.kernel.drivers.virtio.block_emulation
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// Constants
+// ============================================================================
+const DESC_SIZE:          u64 = 16;
+const VRING_DESC_F_NEXT:  u16 = 1;
+const VRING_DESC_F_WRITE: u16 = 2;
+const BLK_QUEUE_SIZE:     u16 = 256;
+const SECTOR_SIZE:        u32 = 512;
+
+// Arena offsets
+const BLK_DESC_OFFSET:    u64 = 0x50000;
+const BLK_AVAIL_OFFSET:   u64 = 0x51000;
+const BLK_HEADERS_OFFSET: u64 = 0x53000;
+const BLK_STATUS_OFFSET:  u64 = 0x54000;
+const BLK_STATE_OFFSET:   u64 = 0x55000;
+const BLK_REQ_SIZE:       u64 = 16;
+
+// Avail ring layout
+const AVAIL_IDX_OFF:  u64 = 2;
+const AVAIL_RING_OFF: u64 = 4;
+
+// VirtioBlkReq type
+const VIRTIO_BLK_T_IN: u32 = 0;
+
+// ============================================================================
+// emulate_block_doorbell — The Storage Holographic Bridge
+// ============================================================================
+// Called by the #PF trap when CR2 hits STORAGE_BAR.
+//
+// Parameters:
+//   arena_base:   LOC_ARENA base
+//   wqe_control:  high 64 bits: (token << 32) | sector_count
+//   wqe_payload:  low 64 bits:  (sector_idx << 32) | dest_arena_offset
+//   notify_addr:  block device Queue Notify MMIO address
+//
+// This function:
+//   1. Populates a VirtioBlkReq header
+//   2. Chains 3 descriptors (header → data → status)
+//   3. Inserts chain head into VirtqAvail
+//   4. Kicks the hypervisor
+// ============================================================================
+pub fn emulate_block_doorbell(
+    arena_base: u64,
+    wqe_control: u64,
+    wqe_payload: u64,
+    notify_addr: u64
+) {
+    // Decode the WQE
+    let token: u32 = (wqe_control >> 32) as u32;
+    let sector_count: u32 = (wqe_control & 0xFFFFFFFF) as u32;
+    let sector_idx: u64 = wqe_payload >> 32;
+    let dest_offset: u32 = (wqe_payload & 0xFFFFFFFF) as u32;
+
+    let desc_table: u64 = arena_base + BLK_DESC_OFFSET;
+    let avail_ring: u64 = arena_base + BLK_AVAIL_OFFSET;
+    let state: u64 = arena_base + BLK_STATE_OFFSET;
+
+    // Grab 3 contiguous descriptor slots
+    let base_idx: u64 = *((state) as &u64);
+    let d0: u16 = ((base_idx * 3) % (BLK_QUEUE_SIZE as u64)) as u16;
+    let d1: u16 = ((base_idx * 3 + 1) % (BLK_QUEUE_SIZE as u64)) as u16;
+    let d2: u16 = ((base_idx * 3 + 2) % (BLK_QUEUE_SIZE as u64)) as u16;
+
+    // 1. Write VirtioBlkReq header at slot
+    let hdr_addr: u64 = arena_base + BLK_HEADERS_OFFSET + (d0 as u64) * BLK_REQ_SIZE;
+    *((hdr_addr) as &mut u32) = VIRTIO_BLK_T_IN;   // type = read
+    *((hdr_addr + 4) as &mut u32) = 0;              // reserved
+    *((hdr_addr + 8) as &mut u64) = sector_idx;     // sector
+
+    // 2. Status byte address
+    let status_addr: u64 = arena_base + BLK_STATUS_OFFSET + (d0 as u64);
+    *((status_addr) as &mut u8) = 0xFF;  // sentinel (overwritten by device)
+
+    // Data destination in arena
+    let data_addr: u64 = arena_base + (dest_offset as u64);
+    let data_len: u32 = sector_count * SECTOR_SIZE;
+
+    // === Desc 0: Header (read-only by device) ===
+    let db0: u64 = desc_table + (d0 as u64) * DESC_SIZE;
+    *((db0) as &mut u64) = hdr_addr;                       // addr
+    *((db0 + 8) as &mut u32) = BLK_REQ_SIZE as u32;        // len = 16
+    *((db0 + 12) as &mut u16) = VRING_DESC_F_NEXT;         // flags = NEXT
+    *((db0 + 14) as &mut u16) = d1;                        // next
+
+    // === Desc 1: Data buffer (write-only by device) ===
+    let db1: u64 = desc_table + (d1 as u64) * DESC_SIZE;
+    *((db1) as &mut u64) = data_addr;                      // addr = dest
+    *((db1 + 8) as &mut u32) = data_len;                   // len = N×512
+    *((db1 + 12) as &mut u16) = VRING_DESC_F_NEXT | VRING_DESC_F_WRITE;
+    *((db1 + 14) as &mut u16) = d2;                        // next
+
+    // === Desc 2: Status byte (write-only by device) ===
+    let db2: u64 = desc_table + (d2 as u64) * DESC_SIZE;
+    *((db2) as &mut u64) = status_addr;                    // addr
+    *((db2 + 8) as &mut u32) = 1;                          // len = 1
+    *((db2 + 12) as &mut u16) = VRING_DESC_F_WRITE;        // flags = WRITE only
+    *((db2 + 14) as &mut u16) = 0;                         // no next
+
+    // Insert chain HEAD (d0) into VirtqAvail
+    let avail_idx: u16 = *((avail_ring + AVAIL_IDX_OFF) as &u16);
+    let ring_pos: u16 = avail_idx % BLK_QUEUE_SIZE;
+    *((avail_ring + AVAIL_RING_OFF + (ring_pos as u64) * 2) as &mut u16) = d0;
+    *((avail_ring + AVAIL_IDX_OFF) as &mut u16) = avail_idx + 1;
+
+    // Update state
+    *((state) as &mut u64) = base_idx + 1;
+    let total: u64 = *((state + 8) as &u64);
+    *((state + 8) as &mut u64) = total + 1;
+
+    // Kick the hypervisor (queue 0 for block device)
+    *((notify_addr) as &mut u16) = 0;
+}
+
+// ============================================================================
+// get_block_request_count — Read total block requests
+// ============================================================================
+@inline
+pub fn get_block_request_count(arena_base: u64) -> u64 {
+    return *((arena_base + BLK_STATE_OFFSET + 8) as &u64);
+}

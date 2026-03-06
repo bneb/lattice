@@ -1,0 +1,150 @@
+// ============================================================================
+// user/reactor/tasks/moe_task.salt
+// Cross-Node MoE Coroutine — Distributed State Machine
+// ============================================================================
+//
+// A two-phase state machine that fits into the Chase-Lev WorkDeque:
+//
+//   PHASE_INIT (0):
+//     Read the fabric BAR from the Holographic Manifest (Genesis Probe).
+//     Fire the RDMA READ doorbell to fetch remote expert weights.
+//     Store the CQE token. Transition to PHASE_MATH.
+//     Return: PENDING (yield to deque, CPU does other work)
+//
+//   PHASE_MATH (1):
+//     CQE confirmed — data is in LOC_ARENA.
+//     Execute matmul_static_16x16 over the now-local tensor.
+//     Return: DONE (task complete, result in arena)
+//
+// Convergence of:
+//   - v1.6.0 Atomic Doorbell (128-bit stp)
+//   - v1.7.0 Async DMA (WQE → CQE)
+//   - v2.2.0 Chase-Lev Deque (work-stealing)
+//   - v3.0.0 Topology Router (expert → BAR)
+//   - v3.1.0 Genesis Probe (Holographic Manifest)
+//   - v3.2.0 Static Matmul (MLIR Affine Catalyst)
+//
+// ============================================================================
+
+package user.reactor.tasks.moe_task
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// MoE Task Phases
+// ============================================================================
+pub const PHASE_INIT: u32 = 0;
+pub const PHASE_MATH: u32 = 1;
+pub const PHASE_DONE: u32 = 2;
+
+// ============================================================================
+// MoETaskState — Lives in LOC_ARENA, referenced by WorkDeque task_id
+// ============================================================================
+// Memory layout (56 bytes):
+//   [0..4)    phase           (u32)
+//   [4..8)    expert_id       (u32)
+//   [8..16)   local_dest_addr (u64) — where DMA deposits the tensor
+//   [16..20)  pending_token   (u32) — CQE tracking token
+//   [20..24)  result          (u32) — exit code when DONE
+//   [24..32)  routing_table   (u64) — pointer to ExpertRoute array
+//   [32..40)  manifest_addr   (u64) — Holographic Manifest (BAR source)
+//   [40..48)  token_counter   (u64) — pointer to monotonic counter
+//   [48..56)  _reserved       (u64)
+// ============================================================================
+pub const MOE_STATE_SIZE: u64 = 56;
+
+pub const MOE_PHASE_OFFSET:         u64 = 0;
+pub const MOE_EXPERT_OFFSET:        u64 = 4;
+pub const MOE_LOCAL_DEST_OFFSET:    u64 = 8;
+pub const MOE_TOKEN_OFFSET:         u64 = 16;
+pub const MOE_RESULT_OFFSET:        u64 = 20;
+pub const MOE_ROUTING_TABLE_OFFSET: u64 = 24;
+pub const MOE_MANIFEST_OFFSET:      u64 = 32;
+pub const MOE_TOKEN_CTR_OFFSET:     u64 = 40;
+
+// WQE opcode
+const WQE_OPCODE_READ: u64 = 2;
+
+// Manifest layout (from manifest.salt / hologram.salt)
+const MANIFEST_BAR: u64 = 8;
+
+// ============================================================================
+// step_moe_task — Execute one state machine transition
+// ============================================================================
+// Returns:
+//   On INIT → token value (task is now PENDING on this token)
+//   On MATH → 0 (task is DONE)
+// ============================================================================
+pub fn step_moe_task(state_addr: u64) -> u32 {
+    let phase: u32 = *((state_addr + MOE_PHASE_OFFSET) as &u32);
+
+    if phase == PHASE_INIT {
+        // --- INIT: Fire the Holographic Doorbell ---
+
+        // 1. Read expert routing info
+        let expert_id: u32 = *((state_addr + MOE_EXPERT_OFFSET) as &u32);
+        let routing_table: u64 = *((state_addr + MOE_ROUTING_TABLE_OFFSET) as &u64);
+
+        // 2. Read BAR from Holographic Manifest (NOT hardcoded)
+        let manifest_addr: u64 = *((state_addr + MOE_MANIFEST_OFFSET) as &u64);
+        let bar_addr: u64 = *((manifest_addr + MANIFEST_BAR) as &u64);
+
+        // 3. Read token counter
+        let token_ctr_addr: u64 = *((state_addr + MOE_TOKEN_CTR_OFFSET) as &u64);
+
+        // 4. Resolve expert route → physical RDMA address
+        let route_offset: u64 = (expert_id as u64) * 24;
+        let remote_bar: u64 = *((routing_table + route_offset + 8) as &u64);
+        let tensor_off: u64 = *((routing_table + route_offset + 16) as &u64);
+        let remote_addr: u64 = remote_bar + tensor_off;
+
+        // 5. Generate unique token (monotonic increment)
+        let token: u32 = *((token_ctr_addr) as &u32);
+        *((token_ctr_addr) as &mut u32) = token + 1;
+
+        // 6. Construct READ WQE + push doorbell
+        let control: u64 = (WQE_OPCODE_READ << 32) | (token as u64);
+        let doorbell_addr: u64 = bar_addr + 0x1000;
+        let doorbell: Ptr<[u64; 2]> = doorbell_addr as Ptr<[u64; 2]>;
+        doorbell.write([control, remote_addr]);
+
+        // 7. Store token, advance phase
+        *((state_addr + MOE_TOKEN_OFFSET) as &mut u32) = token;
+        *((state_addr + MOE_PHASE_OFFSET) as &mut u32) = PHASE_MATH;
+
+        return token;  // Caller: task is now PENDING
+    }
+
+    if phase == PHASE_MATH {
+        // --- MATH: CQE confirmed, tensor data is in LOC_ARENA ---
+        let local_dest: u64 = *((state_addr + MOE_LOCAL_DEST_OFFSET) as &u64);
+
+        // 16×16 matmul: A (input) × B (fetched expert) = C (output)
+        // A at local_dest + 0,     B at local_dest + 2048,
+        // C at local_dest + 4096
+        let a_addr: u64 = local_dest;
+        let b_addr: u64 = local_dest + 2048;
+        let c_addr: u64 = local_dest + 4096;
+
+        // Static for loops → MLIR Affine Polyhedral Optimization
+        for i in 0..16 {
+            for j in 0..16 {
+                let mut acc: f64 = 0.0;
+                for k in 0..16 {
+                    let av: f64 = *((a_addr + ((i*16+k) as u64)*8) as &f64);
+                    let bv: f64 = *((b_addr + ((k*16+j) as u64)*8) as &f64);
+                    acc = acc + (av * bv);
+                }
+                *((c_addr + ((i*16+j) as u64)*8) as &mut f64) = acc;
+            }
+        }
+
+        // Mark complete
+        *((state_addr + MOE_PHASE_OFFSET) as &mut u32) = PHASE_DONE;
+        *((state_addr + MOE_RESULT_OFFSET) as &mut u32) = 0;
+        return 0;  // Ready — exit code 0
+    }
+
+    // Already DONE or invalid — no-op
+    return 0;
+}

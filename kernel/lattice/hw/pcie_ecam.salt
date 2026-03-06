@@ -1,0 +1,74 @@
+// ============================================================================
+// kernel/lattice/hw/pcie_ecam.salt
+// PCIe Enhanced Configuration Access Mechanism (ECAM) — ARM64
+// ============================================================================
+//
+// ECAM maps the entire PCIe configuration space into physical memory.
+// Each device's 4KB config space is addressable via the formula:
+//
+//   byte_offset = (bus << 20) | (device << 15) | (function << 12) | register
+//
+// This module provides a safe abstraction over the raw ECAM memory region
+// using Ptr<u32> for 32-bit register reads.
+//
+// ============================================================================
+
+package kernel.lattice.hw.pcie_ecam
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// PcieEcam — Memory-Mapped PCIe Configuration Space
+// ============================================================================
+pub struct PcieEcam {
+    /// Base pointer into the ECAM physical memory region.
+    /// Each u32 element covers 4 bytes of config space.
+    pub base_ptr: Ptr<u32>,
+}
+
+impl PcieEcam {
+    // ========================================================================
+    // new — Construct from a physical base address
+    // ========================================================================
+    pub fn new(physical_base: u64) -> PcieEcam {
+        return PcieEcam {
+            base_ptr: physical_base as Ptr<u32>,
+        };
+    }
+
+    // ========================================================================
+    // read_config_32 — Read a 32-bit register from PCIe config space
+    // ========================================================================
+    // Standard ECAM offset calculation:
+    //   byte_offset = (bus << 20) | (device << 15) | (function << 12) | register_offset
+    //   word_offset = byte_offset / 4  (for Ptr<u32> stride)
+    //
+    // Parameters:
+    //   bus:             PCIe bus number (0-255)
+    //   device:          Device on bus (0-31)
+    //   function:        Function within device (0-7)
+    //   register_offset: Byte offset of the register (must be 4-byte aligned)
+    //
+    // Returns: 32-bit register value
+    // ========================================================================
+    @inline
+    pub fn read_config_32(&self, bus: u32, device: u32, function: u32, register_offset: u32) -> u32 {
+        // Standard ECAM formula → byte offset
+        let byte_offset: u32 = (bus << 20) | (device << 15) | (function << 12) | register_offset;
+
+        // Ptr<u32>.offset() advances by sizeof(u32) = 4 bytes per step
+        let word_offset: i64 = (byte_offset / 4) as i64;
+
+        return self.base_ptr.offset(word_offset).read();
+    }
+
+    // ========================================================================
+    // write_config_32 — Write a 32-bit register to PCIe config space
+    // ========================================================================
+    @inline
+    pub fn write_config_32(&self, bus: u32, device: u32, function: u32, register_offset: u32, value: u32) {
+        let byte_offset: u32 = (bus << 20) | (device << 15) | (function << 12) | register_offset;
+        let word_offset: i64 = (byte_offset / 4) as i64;
+        self.base_ptr.offset(word_offset).write(value);
+    }
+}

@@ -1,0 +1,127 @@
+// ============================================================================
+// user/basalt/tensor/fabric_tensor.salt
+// Tensor2D — The Topologically Aware 2D Tensor
+// ============================================================================
+//
+// A 2D matrix backed by a FabricPtr. The locality of the underlying
+// memory is determined at construction time:
+//
+//   LOC_ARENA (0): Standard CPU load/store — affine-optimizable
+//   LOC_NVME  (1): NVMe DMA read/write (stubbed in v1.0)
+//   LOC_RDMA  (2): RDMA fabric READ/WRITE (stubbed in v1.0)
+//
+// When constructed with a literal locality constant (e.g., LOC_ARENA),
+// the compiler's SCCP+DCE pipeline constant-folds all locality branches
+// in the FabricPtr methods, producing direct memref.load/store
+// instructions — preserving the affine optimization pathway.
+//
+// Design:
+//   - get() and set() are @inline for full SCCP visibility
+//   - Element offset = row * cols + col (row-major layout)
+//   - f64 ↔ u64 reinterpretation via cast for bit-exact transport
+//
+// ============================================================================
+
+package user.basalt.tensor.fabric_tensor
+
+// Locality Constants (re-exported for ergonomics)
+pub const LOC_ARENA: u32 = 0;
+pub const LOC_NVME:  u32 = 1;
+pub const LOC_RDMA:  u32 = 2;
+
+// ============================================================================
+// Tensor2D — Row-Major 2D Matrix over FabricPtr
+// ============================================================================
+pub struct Tensor2D {
+    /// The underlying fabric-aware memory pointer.
+    /// Carries locality tag for compile-time dispatch.
+    pub data_addr: u64,
+
+    /// Locality tag (LOC_ARENA / LOC_NVME / LOC_RDMA)
+    pub locality: u32,
+
+    /// Matrix dimensions
+    pub rows: u32,
+    pub cols: u32,
+}
+
+impl Tensor2D {
+    // ========================================================================
+    // new — Construct a Tensor2D from a raw address and locality
+    // ========================================================================
+    pub fn new(raw_addr: u64, locality: u32, rows: u32, cols: u32) -> Tensor2D {
+        return Tensor2D {
+            data_addr: raw_addr,
+            locality: locality,
+            rows: rows,
+            cols: cols,
+        };
+    }
+
+    // ========================================================================
+    // get — Read f64 at (row, col)
+    // ========================================================================
+    // Z3 VERIFIED: Assumes bounds checking is handled or proven prior.
+    //
+    // The @inline ensures SCCP sees through this method into the
+    // FabricPtr locality dispatch, enabling branch elimination for
+    // literal-constant locality values.
+    // ========================================================================
+    @inline
+    pub fn get(&self, row: u32, col: u32) -> f64 {
+        let offset: u64 = ((row * self.cols) + col) as u64;
+        let byte_offset: u64 = offset * 8;
+        let target_addr: u64 = self.data_addr + byte_offset;
+
+        if self.locality == 0 {
+            // LOC_ARENA: Direct CPU load — SCCP folds to memref.load
+            let raw: u64 = *((target_addr) as &u64);
+            return *(((&raw) as u64) as &f64);
+        }
+
+        if self.locality == 1 {
+            // LOC_NVME: NVMe DMA read (stub: same dereference in v1.0)
+            let raw: u64 = *((target_addr) as &u64);
+            return *(((&raw) as u64) as &f64);
+        }
+
+        if self.locality == 2 {
+            // LOC_RDMA: RDMA READ (stub: same dereference in v1.0)
+            let raw: u64 = *((target_addr) as &u64);
+            return *(((&raw) as u64) as &f64);
+        }
+
+        return 0.0;
+    }
+
+    // ========================================================================
+    // set — Write f64 at (row, col)
+    // ========================================================================
+    @inline
+    pub fn set(&mut self, row: u32, col: u32, val: f64) {
+        let offset: u64 = ((row * self.cols) + col) as u64;
+        let byte_offset: u64 = offset * 8;
+        let target_addr: u64 = self.data_addr + byte_offset;
+
+        // Reinterpret f64 as u64 for bit-exact storage
+        let val_as_u64: u64 = *(((& val) as u64) as &u64);
+
+        if self.locality == 0 {
+            // LOC_ARENA: Direct CPU store
+            *((target_addr) as &mut u64) = val_as_u64;
+            return;
+        }
+
+        if self.locality == 1 {
+            // LOC_NVME: NVMe DMA write stub
+            *((target_addr) as &mut u64) = val_as_u64;
+            return;
+        }
+
+        if self.locality == 2 {
+            // LOC_RDMA: RDMA WRITE stub
+            *((target_addr) as &mut u64) = val_as_u64;
+            return;
+        }
+    }
+}

@@ -60,6 +60,29 @@ All three test processes completed successfully:
 | slab_reclaim_bench | Fiber memory limit on KVM |
 | net_echo_bench | Requires external packet injection |
 
+### Distributed MoE Pipeline (March 6, 2026)
+
+> [!IMPORTANT]
+> First confirmed cross-hypervisor convergence. Two QEMU KVM instances on a single `z1d.metal` host, each running the same unified `kernel.elf` with MAC-based identity detection. Transport: VirtIO-net over QEMU UDP multicast sockets (`-netdev socket,mcast=230.0.0.1:1234`). EtherType `0x1A77` (Lattice MoE Protocol).
+
+| Metric | Value |
+|:-------|------:|
+| **Round-trip latency** | **30,898,944 cycles (7.7 ms @ 4.0 GHz)** |
+| `dispatch_tsc` | 827,032,848 |
+| `end_tsc` | 857,931,792 |
+| VirtIO TX `used_idx` | 1 (single frame consumed) |
+| VirtIO RX `used_idx` | 1 (single frame deposited) |
+| Ethernet frame size | 60 bytes (minimum, padded) |
+| Convergence sentinel | `0xDEADBEEFCAFEBABE` |
+
+**What happens in 7.7 ms:**
+Router Ring 3 → SYSCALL → VirtIO TX pack → PIO doorbell → KVM VMEXIT → QEMU TX → UDP multicast → Expert QEMU RX → VirtIO RX deposit → post-VMEXIT poll → EtherType dispatch → 16×16 matmul → VirtIO TX reply → UDP multicast → Router QEMU RX → VirtIO RX deposit → post-VMEXIT poll → MAC bypass → sentinel write → preemptive schedule → Ring 3 wake → read `0xDEADBEEFCAFEBABE`.
+
+Two hypervisor boundaries. Two VirtIO ring traversals. Two KVM VMEXITs. Two UDP socket hops. One matmul. One full distributed RPC round-trip.
+
+> [!NOTE]
+> The 7.7ms includes QEMU software-emulated VirtIO (PIO MMIO, not vhost-net) and UDP socket transport (not tap/bridge — tap was starved by PIO VMEXIT BQL contention). On bare-metal InfiniBand or SR-IOV with hardware RDMA, this latency would collapse into microseconds. See [virtio-moe-convergence.md](deep-dives/virtio-moe-convergence.md) for the full 9-layer debugging narrative.
+
 ---
 
 ## KVM Results (February 27, 2026)

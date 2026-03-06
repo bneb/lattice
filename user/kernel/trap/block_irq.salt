@@ -1,0 +1,135 @@
+// ============================================================================
+// user/kernel/trap/block_irq.salt
+// VirtIO Block IRQ Handler — Storage CQE Wakeup
+// ============================================================================
+//
+// When the hypervisor completes a block DMA transfer, it raises an IRQ.
+// The block device uses IRQ 10 (Vector 42 after PIC remap to base 32).
+//
+// The handler:
+//   1. Drains the block VirtqUsed ring
+//   2. Reads the 1-byte status field from the completed chain
+//   3. If VIRTIO_BLK_S_OK: extracts the token from the request header
+//   4. Writes CQE[token] = READY → coroutine wakes up
+//   5. Sends EOI to PIC
+//
+// The token is embedded in the VirtioBlkReq header's sector field
+// for simplicity (in production, a sidecar metadata structure would
+// track the token→descriptor mapping). Here we store token in the
+// WQE control word's upper 32 bits, which gets written to the
+// header slot indexed by the chain head descriptor.
+//
+// ============================================================================
+
+package user.kernel.trap.block_irq
+
+use std.core.ptr.Ptr
+
+extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
+extern fn salt_atomic_cas_i64(ptr: Ptr<i64>, expected: i64, desired: i64) -> i64;
+
+// ============================================================================
+// Arena offsets for block device
+// ============================================================================
+const BLK_DESC_OFFSET:    u64 = 0x50000;
+const BLK_USED_OFFSET:    u64 = 0x52000;
+const BLK_HEADERS_OFFSET: u64 = 0x53000;
+const BLK_STATUS_OFFSET:  u64 = 0x54000;
+const BLK_STATE_OFFSET:   u64 = 0x55000;
+const CQE_ARRAY_OFFSET:   u64 = 0x34000;
+const DEQUE_OFFSET:        u64 = 0x1000;
+
+const BLK_REQ_SIZE: u64 = 16;
+const DESC_SIZE:    u64 = 16;
+
+// Used ring layout
+const USED_IDX_OFF:     u64 = 2;
+const USED_RING_OFF:    u64 = 4;
+const USED_ELEM_SIZE:   u64 = 8;
+
+// Block last-seen state (reuse BLK_STATE offset + 16)
+pub const BLK_LAST_USED_OFF: u64 = 16;
+
+// CQE
+const CQE_READY: u64 = 1;
+
+// Deque
+const DEQUE_BOTTOM_OFF: u64 = 512;
+const DEQUE_ARRAY_SIZE: i64 = 64;
+
+// ============================================================================
+// Token Sidecar — tracks which token belongs to which chain head
+// ============================================================================
+// We store the token at arena + BLK_STATE_OFFSET + 24 + (slot * 4)
+// This is a simple u32 array indexed by the chain head descriptor index / 3.
+pub const TOKEN_MAP_OFFSET: u64 = 0x56000;
+
+pub fn set_token_for_request(arena_base: u64, request_idx: u64, token: u32) {
+    *((arena_base + TOKEN_MAP_OFFSET + request_idx * 4) as &mut u32) = token;
+}
+
+pub fn get_token_for_desc(arena_base: u64, desc_id: u32) -> u32 {
+    // desc_id is the chain head. It maps to request_idx = desc_id / 3.
+    let req_idx: u64 = (desc_id as u64) / 3;
+    return *((arena_base + TOKEN_MAP_OFFSET + req_idx * 4) as &u32);
+}
+
+// ============================================================================
+// handle_block_irq — Drain block used ring, check status, strike CQE
+// ============================================================================
+// Parameters:
+//   arena_base:  LOC_ARENA base
+//   ack_addr:    address to write EOI byte
+//
+// Returns: number of completions drained
+// ============================================================================
+pub fn handle_block_irq(arena_base: u64, ack_addr: u64) -> u32 {
+    let used_ring: u64 = arena_base + BLK_USED_OFFSET;
+    let blk_state: u64 = arena_base + BLK_STATE_OFFSET;
+    let cqe: u64 = arena_base + CQE_ARRAY_OFFSET;
+    let deque: u64 = arena_base + DEQUE_OFFSET;
+
+    let used_idx: u16 = *((used_ring + USED_IDX_OFF) as &u16);
+    let last_seen: u16 = (*((blk_state + BLK_LAST_USED_OFF) as &u64)) as u16;
+
+    let mut drained: u32 = 0;
+    let mut seen: u16 = last_seen;
+
+    while seen != used_idx {
+        let rp: u16 = seen % 256;
+        let elem_off: u64 = USED_RING_OFF + (rp as u64) * USED_ELEM_SIZE;
+        let desc_id: u32 = *((used_ring + elem_off) as &u32);
+
+        // Read status byte: the chain head is desc_id, status is at slot desc_id
+        let status_addr: u64 = arena_base + BLK_STATUS_OFFSET + (desc_id as u64);
+        let status: u8 = *((status_addr) as &u8);
+
+        if status == 0 {
+            // VIRTIO_BLK_S_OK — find the token
+            let token: u32 = get_token_for_desc(arena_base, desc_id);
+
+            // CQE Strike
+            if (token as u64) < 256 {
+                *((cqe + (token as u64) * 8) as &mut u64) = CQE_READY;
+            }
+
+            // Push token onto deque
+            let bp: Ptr<i64> = (deque + DEQUE_BOTTOM_OFF) as Ptr<i64>;
+            let b: i64 = salt_atomic_load_i64(bp);
+            let di: i64 = b % DEQUE_ARRAY_SIZE;
+            *((deque + (di as u64) * 8) as &mut i64) = token as i64;
+            let _: i64 = salt_atomic_cas_i64(bp, b, b + 1);
+        }
+
+        seen = seen + 1;
+        drained = drained + 1;
+    }
+
+    // Update last-seen
+    *((blk_state + BLK_LAST_USED_OFF) as &mut u64) = seen as u64;
+
+    // EOI
+    *((ack_addr) as &mut u8) = 0x20;
+
+    return drained;
+}

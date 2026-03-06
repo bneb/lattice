@@ -1,0 +1,57 @@
+// =============================================================================
+// Test: FabricPtr Init — Three Locality Tiers Instantiate
+// =============================================================================
+
+fn main() -> i32 {
+    // Locality constants
+    let loc_arena: u32 = 0;
+    let loc_nvme: u32 = 1;
+    let loc_rdma: u32 = 2;
+
+    // Simulate FabricPtr struct fields: (raw_address, locality, capacity)
+
+    // Arena pointer — local DRAM
+    let arena_addr: u64 = 0x1000;
+    let arena_loc: u32 = loc_arena;
+    let arena_cap: u64 = 4096;
+
+    if arena_loc != 0 {
+        return 1;
+    }
+
+    // NVMe pointer — PCIe storage
+    let nvme_addr: u64 = 0x10000000;
+    let nvme_loc: u32 = loc_nvme;
+    let nvme_cap: u64 = 1073741824;  // 1 GB
+
+    if nvme_loc != 1 {
+        return 2;
+    }
+
+    // RDMA pointer — remote DRAM
+    let rdma_addr: u64 = 0x20000000;
+    let rdma_loc: u32 = loc_rdma;
+    let rdma_cap: u64 = 536870912;  // 512 MB
+
+    if rdma_loc != 2 {
+        return 3;
+    }
+
+    // All three are distinct localities
+    if arena_loc == nvme_loc {
+        return 4;
+    }
+    if nvme_loc == rdma_loc {
+        return 5;
+    }
+
+    // Capacity ordering: Arena < RDMA < NVMe
+    if arena_cap >= rdma_cap {
+        return 6;
+    }
+    if rdma_cap >= nvme_cap {
+        return 7;
+    }
+
+    return 0;
+}

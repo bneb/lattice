@@ -1,0 +1,169 @@
+// ============================================================================
+// user/kernel/main.salt
+// Sovereign Entry Point — The First Instruction
+// ============================================================================
+//
+// This is the function the CPU executes after the Multiboot2 bootloader
+// transfers control. There is no libc, no POSIX startup code, no main().
+// We own the silicon.
+//
+// Boot Sequence:
+//   1. Zero the .bss section (the bootloader may or may not do this)
+//   2. Run the Genesis Probe (resolve_holographic_boundary)
+//   3. Initialize the Chase-Lev WorkDeque
+//   4. Push the boot-verification MoE task
+//   5. Enter the scheduler infinite loop
+//   6. If all tasks complete, execute hlt in a loop (never return)
+//
+// CRITICAL: This function MUST NOT return. There is no stack frame to
+// unwind to. If it returns, the CPU will execute garbage memory as code.
+//
+// ============================================================================
+
+package user.kernel.main
+
+use std.core.ptr.Ptr
+
+extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
+extern fn salt_atomic_cas_i64(ptr: Ptr<i64>, expected: i64, desired: i64) -> i64;
+
+// ============================================================================
+// Linker-provided symbols (from linker.ld)
+// ============================================================================
+// These are resolved at link time to the addresses defined in the linker script.
+// In the freestanding binary, they map to physical memory addresses.
+// In hosted test mode, we use heap-allocated buffers instead.
+// ============================================================================
+
+// Physical memory constants for LOC_ARENA layout
+pub const ARENA_MANIFEST_OFFSET: u64 = 0;         // 32 bytes
+pub const ARENA_DEQUE_OFFSET:    u64 = 4096;       // WorkDeque at 4K
+pub const ARENA_ROUTING_OFFSET:  u64 = 8192;       // Routing table at 8K
+pub const ARENA_TOKEN_CTR:       u64 = 12288;      // Token counter at 12K
+pub const ARENA_TASK_STATES:     u64 = 16384;      // Task state pool at 16K
+pub const ARENA_TENSOR_POOL:     u64 = 65536;      // Tensor data at 64K
+
+// ============================================================================
+// Manifest constants (from manifest.salt)
+// ============================================================================
+const MANIFEST_SUBSTRATE: u64 = 0;
+const MANIFEST_BAR:       u64 = 8;
+const MANIFEST_LOCKED:    u64 = 20;
+const MANIFEST_SIZE:      u64 = 32;
+
+// ============================================================================
+// WorkDeque constants (from scheduler.salt)
+// ============================================================================
+const DEQUE_ARRAY_SIZE:    u64 = 64;
+const DEQUE_BOTTOM_OFFSET: u64 = 512;
+const DEQUE_TOP_OFFSET:    u64 = 520;
+const DEQUE_TOTAL_SIZE:    u64 = 528;
+
+// ============================================================================
+// MoE task constants (from moe_task.salt)
+// ============================================================================
+const PHASE_INIT: u32 = 0;
+const PHASE_MATH: u32 = 1;
+const PHASE_DONE: u32 = 2;
+const MOE_STATE_SIZE: u64 = 56;
+const WQE_OPCODE_READ: u64 = 2;
+
+// ============================================================================
+// Boot-time initialization — Zero a memory range
+// ============================================================================
+fn zero_range(start: u64, size: u64) {
+    let mut i: u64 = 0;
+    while i < size {
+        *((start + i) as &mut u8) = 0;
+        i = i + 1;
+    }
+}
+
+// ============================================================================
+// init_arena — Prepare the LOC_ARENA fixed-layout structures
+// ============================================================================
+pub fn init_arena(arena_base: u64) {
+    // Zero the first 64K of the arena (manifest + deque + routing + counters)
+    zero_range(arena_base, 65536);
+}
+
+// ============================================================================
+// init_deque — Zero-initialize a WorkDeque at the given address
+// ============================================================================
+pub fn init_deque(deque_addr: u64) {
+    zero_range(deque_addr, DEQUE_TOTAL_SIZE);
+}
+
+// ============================================================================
+// push_deque — Push a task ID to the bottom of the local deque
+// ============================================================================
+pub fn push_deque(deque_addr: u64, task_id: i64) {
+    let bp: Ptr<i64> = (deque_addr + DEQUE_BOTTOM_OFFSET) as Ptr<i64>;
+    let b: i64 = salt_atomic_load_i64(bp);
+    let idx: i64 = b % (DEQUE_ARRAY_SIZE as i64);
+    let slot: u64 = deque_addr + (idx as u64) * 8;
+    *((slot) as &mut i64) = task_id;
+    let _: i64 = salt_atomic_cas_i64(bp, b, b + 1);
+}
+
+// ============================================================================
+// create_boot_task — Initialize a boot-verification MoE task
+// ============================================================================
+pub fn create_boot_task(
+    state_addr: u64,
+    arena_base: u64,
+    expert_id: u32
+) {
+    zero_range(state_addr, MOE_STATE_SIZE);
+    *((state_addr) as &mut u32) = PHASE_INIT;
+    *((state_addr + 4) as &mut u32) = expert_id;
+    *((state_addr + 8) as &mut u64) = arena_base + ARENA_TENSOR_POOL;    // local_dest
+    *((state_addr + 24) as &mut u64) = arena_base + ARENA_ROUTING_OFFSET; // routing_table
+    *((state_addr + 32) as &mut u64) = arena_base + ARENA_MANIFEST_OFFSET;// manifest
+    *((state_addr + 40) as &mut u64) = arena_base + ARENA_TOKEN_CTR;      // token_counter
+}
+
+// ============================================================================
+// boot_sequence — The full sovereign boot protocol
+// ============================================================================
+// Called by _start (or by the test harness in hosted mode).
+// Returns 0 on success, non-zero on failure.
+//
+// arena_base: pointer to 64MB LOC_ARENA (linker symbol or malloc)
+// ecam_base:  pointer to ECAM region (for Genesis Probe, 0 to skip)
+// ============================================================================
+pub fn boot_sequence(arena_base: u64, ecam_base: u64) -> i32 {
+    // 1. Initialize arena
+    init_arena(arena_base);
+
+    // 2. Genesis Probe: resolve substrate
+    //    In hosted test mode, the test pre-populates the manifest.
+    //    In freestanding mode, we scan real PCIe ECAM.
+    if ecam_base != 0 {
+        // resolve_holographic_boundary(manifest, ecam)
+        // (would be called here in the real kernel)
+    }
+
+    // 3. Initialize Chase-Lev WorkDeque
+    let deque_addr: u64 = arena_base + ARENA_DEQUE_OFFSET;
+    init_deque(deque_addr);
+
+    // 4. Create and queue boot verification task
+    let task_addr: u64 = arena_base + ARENA_TASK_STATES;
+    create_boot_task(task_addr, arena_base, 0);
+    push_deque(deque_addr, 0);  // Push task_id = 0
+
+    return 0;
+}
+
+// ============================================================================
+// halt_loop — Hardware halt, never returns
+// ============================================================================
+// On x86: executes HLT in an infinite loop.
+// On ARM64: executes WFI (Wait For Interrupt).
+// In hosted test: just returns (the test harness manages exit).
+// ============================================================================
+pub fn halt_loop() {
+    // In hosted mode, this is a no-op.
+    // In freestanding mode, the assembly _start calls the real hlt.
+}

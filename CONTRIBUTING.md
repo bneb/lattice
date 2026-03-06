@@ -45,6 +45,13 @@ Lattice is built as a cohesive, sovereign platform. We use a **Unified Versionin
 - **Internal Component Versions** — Individual sub-systems (Kernel, standard library, Basalt) track their own internal maturity versions in `manifest.salt` at the repository root. Build tools use this manifest to verify component synchronization.
 - **Kernel Version Identification** — The kernel binary maintains its own version constant for the boot screen (e.g., `LATTICE BOOT [OK] v0.9.0`), decoupled from the compiler version.
 
+## The HAL Mandate
+
+> [!CAUTION]
+> `kernel/core/`, `kernel/mem/`, and `kernel/sched/` are **strictly forbidden** from importing `kernel::arch::x86_64` or any architecture-specific module. All hardware operations must go through the compile-time HAL router (`kernel/arch/mod.salt`) or compiler intrinsics (e.g., `ctz_u64()`).
+
+This ensures the Sovereign ABI remains portable across x86_64, aarch64 (Apple Silicon / AWS Graviton), and future RISC-V targets.
+
 ## Project Status
 
 Lattice is an experimental sovereign systems language. **APIs and ABIs are subject to change without deprecation notices, but we will try to be as polite as possible.**

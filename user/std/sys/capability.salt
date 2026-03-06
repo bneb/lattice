@@ -1,0 +1,60 @@
+// ============================================================================
+// user/std/sys/capability.salt
+// Ring 3 Capability Syscall Wrapper — ARM64
+// ============================================================================
+//
+// Provides the userspace API for requesting hardware capabilities from
+// the Lattice kernel. Ring 3 applications call request_hardware_capability()
+// with a CapabilityID, and the kernel returns the physical BAR address.
+//
+// Architecture:
+//   - ARM64: svc #0 trap with x8=syscall_num, x0=cap_id, return in x0
+//   - Test: Mock handler returns pre-configured BAR addresses
+//
+// The mock handler is used for CI execution on macOS/Linux hosts.
+// The actual svc path would only execute on bare-metal Lattice.
+//
+// ============================================================================
+
+package user.std.sys.capability
+
+// System call number for SYS_CAP_BIND
+pub const SYSCALL_CAP_BIND: u64 = 101;
+
+// ============================================================================
+// Mock BAR addresses for CI testing
+// These match the v1.3.0-StaticCap manifest values
+// ============================================================================
+const MOCK_BAR_NVME: u64  = 0x00000003E0000000;  // Cap 0: NVMe
+const MOCK_BAR_RDMA: u64  = 0x00000005C0000000;  // Cap 1: RDMA NIC
+const MOCK_BAR_ARENA: u64 = 0x0000000100000000;  // Cap 2: Local RAM
+
+// ============================================================================
+// request_hardware_capability — Trap into Ring 0
+// ============================================================================
+// In the test environment, this returns mock BAR addresses.
+// On bare-metal Lattice, this would execute: svc #0
+//
+// Returns: physical BAR address, or 0 if capability invalid
+// ============================================================================
+pub fn request_hardware_capability(cap_id: u32) -> u64 {
+    // Mock syscall handler for host-side CI execution
+    // On bare-metal, this would be replaced with ARM64 svc inline asm
+    return mock_syscall_handler(SYSCALL_CAP_BIND, cap_id as u64);
+}
+
+// ============================================================================
+// mock_syscall_handler — CI Test Stub
+// ============================================================================
+// Simulates the kernel's O(1) capability lookup.
+// Returns the physical BAR address for known capabilities,
+// or 0 for unknown/out-of-bounds requests.
+// ============================================================================
+fn mock_syscall_handler(syscall_num: u64, arg0: u64) -> u64 {
+    if syscall_num == SYSCALL_CAP_BIND {
+        if arg0 == 0 { return MOCK_BAR_NVME; }
+        if arg0 == 1 { return MOCK_BAR_RDMA; }
+        if arg0 == 2 { return MOCK_BAR_ARENA; }
+    }
+    return 0;
+}

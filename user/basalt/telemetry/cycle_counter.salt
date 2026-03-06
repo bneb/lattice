@@ -1,0 +1,67 @@
+// ============================================================================
+// user/basalt/telemetry/cycle_counter.salt
+// Zero-Overhead Hardware Cycle Counter
+// ============================================================================
+//
+// A pure, stack-allocated telemetry primitive that compiles down to a
+// single hardware register read. Completely bypasses the OS kernel,
+// virtual filesystem, and POSIX time libraries.
+//
+// Architecture Lowering:
+//   ARM64: CNTVCT_EL0 (counter-timer virtual count)
+//   x86:   RDTSC (read time-stamp counter)
+//
+// The compiler emits llvm.intr.readcyclecounter, which LLVM lowers
+// to the architecture-specific cycle counter instruction.
+//
+// CRITICAL: Using this around matmul_affine does NOT cause register
+// spill because the timer values live in separate SSA values that
+// the register allocator handles independently of iter_args.
+//
+// ============================================================================
+
+package user.basalt.telemetry.cycle_counter
+
+// ============================================================================
+// rdtsc — Hardware cycle counter via compiler intrinsic
+// ============================================================================
+// The compiler recognizes this extern fn and emits:
+//   llvm.intr.readcyclecounter → ARM64 CNTVCT_EL0 / x86 RDTSC
+// ============================================================================
+extern fn rdtsc() -> i64;
+
+// ============================================================================
+// CycleTimer — Sub-Nanosecond Hardware Timer
+// ============================================================================
+pub struct CycleTimer {
+    pub start_cycle: i64,
+    pub stop_cycle: i64,
+}
+
+impl CycleTimer {
+    @inline
+    pub fn new() -> CycleTimer {
+        return CycleTimer { start_cycle: 0, stop_cycle: 0 };
+    }
+
+    // Lowers to CNTVCT_EL0 (ARM64) or RDTSC (x86)
+    @inline
+    pub fn mark_start(&mut self) {
+        self.start_cycle = rdtsc();
+    }
+
+    @inline
+    pub fn mark_stop(&mut self) {
+        self.stop_cycle = rdtsc();
+    }
+
+    // Returns elapsed cycles. Prevents underflow if compiler
+    // aggressively reorders (returns 0 instead of wrapping).
+    @inline
+    pub fn elapsed(&self) -> i64 {
+        if self.stop_cycle > self.start_cycle {
+            return self.stop_cycle - self.start_cycle;
+        }
+        return 0;
+    }
+}

@@ -1,0 +1,112 @@
+// ============================================================================
+// user/kernel/pci/ecam.salt
+// PCIe Extended Configuration Access Mechanism (ECAM) Scanner
+// ============================================================================
+//
+// The Genesis Probe. Reads raw silicon to determine what hardware
+// exists on the PCIe bus. Uses the standard ECAM address formula:
+//
+//   Config Address = ECAM_BASE + (Bus << 20) | (Dev << 15) | (Fn << 12)
+//
+// Standard PCIe Configuration Space Offsets:
+//   0x00: Vendor ID (16-bit) | Device ID (16-bit)
+//   0x08: Class Code (24-bit) | Revision (8-bit)
+//   0x10: BAR0 (32/64-bit MMIO base address)
+//   0x14: BAR1
+//
+// ============================================================================
+
+package user.kernel.pci.ecam
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// PCIe Vendor IDs
+// ============================================================================
+pub const VENDOR_AWS_NITRO: u32 = 0x1D0F;
+pub const VENDOR_MELLANOX:  u32 = 0x15B3;
+pub const VENDOR_VIRTIO:    u32 = 0x1AF4;
+pub const VENDOR_INVALID:   u32 = 0xFFFF;
+
+// ============================================================================
+// PCIe Config Space Offsets
+// ============================================================================
+pub const PCI_VENDOR_OFFSET: u64 = 0x00;
+pub const PCI_DEVICE_OFFSET: u64 = 0x02;
+pub const PCI_CLASS_OFFSET:  u64 = 0x08;
+pub const PCI_BAR0_OFFSET:   u64 = 0x10;
+pub const PCI_BAR1_OFFSET:   u64 = 0x14;
+
+// ============================================================================
+// ECAM Address Calculation
+// ============================================================================
+// Standard PCIe ECAM: each device gets 4KB of config space.
+//   Address = base + (bus << 20) | (device << 15) | (function << 12)
+//
+// The ecam_base is passed explicitly (not hardcoded) so the probe
+// works with mock memory during testing and real ECAM in production.
+// ============================================================================
+@inline
+pub fn get_config_addr(ecam_base: u64, bus: u32, device: u32, function: u32) -> u64 {
+    return ecam_base + ((bus << 20) | (device << 15) | (function << 12)) as u64;
+}
+
+// ============================================================================
+// probe_vendor_id — Read Vendor ID from PCIe config space
+// ============================================================================
+// Vendor ID is the lower 16 bits of the first 32-bit word at offset 0x00.
+// Returns VENDOR_INVALID (0xFFFF) if no device is present.
+// ============================================================================
+@inline
+pub fn probe_vendor_id(ecam_base: u64, bus: u32, device: u32, function: u32) -> u32 {
+    let config: u64 = get_config_addr(ecam_base, bus, device, function);
+    let word: u32 = *((config + PCI_VENDOR_OFFSET) as &u32);
+    return word & 0xFFFF;
+}
+
+// ============================================================================
+// probe_device_id — Read Device ID from PCIe config space
+// ============================================================================
+@inline
+pub fn probe_device_id(ecam_base: u64, bus: u32, device: u32, function: u32) -> u32 {
+    let config: u64 = get_config_addr(ecam_base, bus, device, function);
+    let word: u32 = *((config + PCI_VENDOR_OFFSET) as &u32);
+    return (word >> 16) & 0xFFFF;
+}
+
+// ============================================================================
+// probe_bar0 — Read BAR0 Memory-Mapped Base Address
+// ============================================================================
+// BAR0 at offset 0x10. Mask the bottom 4 bits (type/prefetch flags).
+// For 64-bit BARs, combine BAR0 and BAR1.
+// ============================================================================
+@inline
+pub fn probe_bar0(ecam_base: u64, bus: u32, device: u32, function: u32) -> u64 {
+    let config: u64 = get_config_addr(ecam_base, bus, device, function);
+    let bar0_raw: u32 = *((config + PCI_BAR0_OFFSET) as &u32);
+
+    // Check if 64-bit BAR (bit 2:1 = 10)
+    let bar_type: u32 = (bar0_raw >> 1) & 0x3;
+    let base_low: u64 = (bar0_raw & 0xFFFFFFF0) as u64;
+
+    if bar_type == 2 {
+        // 64-bit BAR: read BAR1 for upper 32 bits
+        let bar1_raw: u32 = *((config + PCI_BAR1_OFFSET) as &u32);
+        return ((bar1_raw as u64) << 32) | base_low;
+    }
+
+    return base_low;
+}
+
+// ============================================================================
+// is_network_device — Check if vendor is a known NIC
+// ============================================================================
+@inline
+pub fn is_kinetic_vendor(vendor_id: u32) -> bool {
+    return vendor_id == VENDOR_AWS_NITRO || vendor_id == VENDOR_MELLANOX;
+}
+
+@inline
+pub fn is_synthetic_vendor(vendor_id: u32) -> bool {
+    return vendor_id == VENDOR_VIRTIO;
+}

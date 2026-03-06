@@ -404,13 +404,16 @@ lattice/
 ├── salt-front/           # Compiler: parser → typechecker → Z3 verifier → MLIR emitter
 │   └── std/              # Standard library (70+ modules, written in Salt)
 ├── kernel/               # Lattice Sovereign Microkernel
-│   ├── core/             #   Scheduler (16-SMP, Chase-Lev work-stealing), syscalls, process mgmt
-│   ├── sched/            #   Chase-Lev lock-free deque, fiber migration
+│   ├── core/             #   Scheduler, syscalls, process mgmt, teardown (100% arch-agnostic)
+│   ├── sched/            #   O(1) bitmap dispatcher, Chase-Lev deque, fiber migration
+│   ├── ipc/              #   Fast-path register IPC (sub-μs signaling)
+│   ├── mem/              #   Per-core sharded PMM (lock-free Treiber stack), VMO, slab, paging
+│   ├── arch/             #   HAL: compile-time dispatch (mod.salt → x86_64/ | aarch64/)
 │   ├── net/              #   NetD bridge, TX bridge, ARP, TCP + SYN cookies (Ring 3 daemons)
-│   ├── lib/              #   IPC rings, arbiter, shared memory primitives, EBR
-│   ├── mem/              #   PMM, VMO, slab allocator, user paging
-│   ├── arch/             #   x86_64: GDT, IDT, TSS, SMP trampoline, APIC
+│   ├── lib/              #   IPC rings, arbiter, shared memory primitives, EBR, ABI defs
 │   └── drivers/          #   VirtIO (net, block), serial, PCI
+├── user/                 # Userspace libraries and programs
+│   └── lib/              #   syscall wrappers, SPSC ring, Codata ReactiveStream
 ├── basalt/               # Llama 2 inference engine (~600 lines)
 ├── benchmarks/           # 28 benchmarks with C & Rust baselines
 ├── examples/             # 7 progressively complex Salt programs
@@ -429,6 +432,7 @@ lattice/
 |----------|--|
 | [Language Spec](docs/SPEC.md) | Complete language specification |
 | [Architecture](docs/ARCH.md) | Compiler pipeline & MLIR design |
+| [**Sovereign ABI**](docs/abi/SOVEREIGN_ABI.md) | **Definitive ABI specification for targeting Lattice** |
 | [Lattice Benchmarks](docs/LATTICE_BENCHMARKS.md) | Kernel performance (syscall, SPSC, SHM) |
 | [Benchmarks](benchmarks/BENCHMARKS.md) | Full Salt vs C/Rust results & methodology |
 | [Arena Safety](docs/deep-dives/arena-safety.md) | Compile-time escape analysis |
@@ -509,6 +513,7 @@ Lattice is at **v0.9.2 "Postcondition Pivot"**, with Z3-backed `ensures` verific
 |--------|-----------|-----|
 | **v0.9.1** ✅ | Sovereign Foundation — Cache-line isolation, Proof-Carrying IPC, SipHash-2-4 Hardening, Sovereign Reclaim | Salt ≤ C 18/22, Reclamation < 1ms |
 | **v0.9.2** ✅ | Postcondition Pivot — Z3-backed `ensures` for pure functions (Weakest Precondition generation, path-sensitive verification) | 6/6 postcondition tests GREEN |
+| **v0.3.0-brutalism** ✅ | Universal ABI Redesign — HAL (x86_64 + aarch64), O(1) bitmap scheduler, lock-free per-core PMM, fast-path register IPC, Sovereign Reclaim, Codata substrate | 0 regressions, HAL portability |
 | **v0.9.3** | Phase 1 Sandbox — LLVM 21 toolchain, Docker build, userspace verification onboarding, Ring 3 test suite | CI green, frictionless contributor build |
 | **v1.0.0** | Sovereign Architecture — Loop invariants, full SMP scale-out, stable ABI | No unbounded loops in kernel |
 

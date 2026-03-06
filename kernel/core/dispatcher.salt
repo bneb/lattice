@@ -22,6 +22,7 @@ import kernel.core.pulse
 import kernel.drivers.serial
 
 extern fn idle_halt();
+extern fn sched_yield();
 
 // =============================================================================
 // kernel_event_loop — Immortal event drain loop (Task 0 entry point)
@@ -36,8 +37,16 @@ pub fn kernel_event_loop() {
 
     let mut data: u64 = 0;
     let mut timestamp: u64 = 0;
+    let mut loop_count: u64 = 0;
 
     loop {
+        loop_count = loop_count + 1;
+        if (loop_count % 1000000) == 0 {
+            serial.print("[Task 0] Heartbeat #");
+            serial.print_u64(loop_count / 1000000);
+            serial.print(" ... yielding back to Ring 3\n");
+        }
+
         // Drain the queue completely
         let mut event_type = pulse.pop(&data, &timestamp);
 
@@ -54,10 +63,11 @@ pub fn kernel_event_loop() {
             event_type = pulse.pop(&data, &timestamp);
         }
 
-        // Queue is empty — pause CPU until next hardware interrupt.
-        // Timer interrupts will automatically preempt this thread
-        // to run user processes via schedule_next().
-        idle_halt();
+        // Queue is empty — yield the CPU to Ring 3 user processes.
+        // Without a timer interrupt (bench suite bypassed), idle_halt()
+        // would sleep forever. sched_yield() cooperatively hands the
+        // baton to the MoE coroutine so its yield-poll loop can spin.
+        sched_yield();
 
         // When rescheduled, we resume right here and drain again.
     }

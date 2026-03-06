@@ -719,11 +719,11 @@ fn main() -> i32 {
     while frames < 3000 { // Long running
         if facet_window_poll_events(handle) == 1 { break; }
         
-        let mut mx: i32 = 0; let mut my: i32 = 0; let mut btn: i32 = 0;
-        facet_window_get_mouse_state(handle, &mut mx, &mut my, &mut btn);
-        let down = (btn == 1);
-        let clicked = (btn == 1) && (prev_btn == 0);
-        prev_btn = btn;
+        let mut mx: i32 = 0; let mut my: i32 = 0; let mut mouse_btn: i32 = 0;
+        facet_window_get_mouse_state(handle, &mut mx, &mut my, &mut mouse_btn);
+        let down = (mouse_btn == 1);
+        let clicked = (mouse_btn == 1) && (prev_btn == 0);
+        prev_btn = mouse_btn;
         
         // Pass event to widget tree
         // Transform mouse to local space of root (offset 50,50)

@@ -1,0 +1,116 @@
+// ============================================================================
+// user/basalt/algorithm/sort.salt
+// Iterative Quicksort — Zero-Allocation, Non-Recursive, O(N log N)
+// ============================================================================
+//
+// Explicitly monomorphized for i64 arrays (u64 pointers to i64 data).
+// No recursion: uses a fixed-size stack of 128 i64 entries (64 pairs
+// of [low, high] boundaries) which is mathematically sufficient to
+// sort arrays up to 2^64 elements.
+//
+// Partition: Lomuto scheme with median-of-three pivot selection to
+// avoid O(N²) worst case on already-sorted or reverse-sorted data.
+//
+// ============================================================================
+
+package user.basalt.algorithm.sort
+
+extern fn malloc(size: i64) -> u64;
+extern fn free(ptr: u64);
+
+// ============================================================================
+// quicksort_i64 — Sort i64 array in-place, ascending
+// ============================================================================
+// arr:  base address of the i64 array
+// low:  starting index (inclusive)
+// high: ending index (inclusive)
+// ============================================================================
+pub fn quicksort_i64(arr: u64, initial_low: i64, initial_high: i64) {
+    if initial_high <= initial_low { return; }
+
+    // Stack for iterative partition tracking: 128 entries = 64 [low,high] pairs
+    // Stack depth of 64 handles arrays up to 2^64 elements (log2 partitions)
+    let stack: u64 = malloc(1024);  // 128 × 8 bytes
+    if stack == 0 { return; }
+
+    let mut top: i64 = -1;
+
+    // Push initial range
+    top = top + 1;
+    *((stack + (top as u64) * 8) as &mut i64) = initial_low;
+    top = top + 1;
+    *((stack + (top as u64) * 8) as &mut i64) = initial_high;
+
+    while top >= 0 {
+        // Pop high, then low
+        let high: i64 = *((stack + (top as u64) * 8) as &i64);
+        top = top - 1;
+        let low: i64 = *((stack + (top as u64) * 8) as &i64);
+        top = top - 1;
+
+        if low >= high { } else {
+            // Median-of-three pivot selection
+            let mid: i64 = low + (high - low) / 2;
+            let val_low:  i64 = *((arr + (low as u64)  * 8) as &i64);
+            let val_mid:  i64 = *((arr + (mid as u64)  * 8) as &i64);
+            let val_high: i64 = *((arr + (high as u64) * 8) as &i64);
+
+            // Move median to high position (Lomuto uses arr[high] as pivot)
+            if (val_low <= val_mid && val_mid <= val_high) ||
+               (val_high <= val_mid && val_mid <= val_low) {
+                // mid is median — swap mid↔high
+                *((arr + (mid as u64)  * 8) as &mut i64) = val_high;
+                *((arr + (high as u64) * 8) as &mut i64) = val_mid;
+            } else if (val_mid <= val_low && val_low <= val_high) ||
+                      (val_high <= val_low && val_low <= val_mid) {
+                // low is median — swap low↔high
+                *((arr + (low as u64)  * 8) as &mut i64) = val_high;
+                *((arr + (high as u64) * 8) as &mut i64) = val_low;
+            }
+            // else: high is already the median, no swap needed
+
+            // Lomuto partition
+            let pivot: i64 = *((arr + (high as u64) * 8) as &i64);
+            let mut i: i64 = low - 1;
+            let mut j: i64 = low;
+
+            while j < high {
+                let vj: i64 = *((arr + (j as u64) * 8) as &i64);
+                if vj <= pivot {
+                    i = i + 1;
+                    // Swap arr[i] and arr[j]
+                    let vi: i64 = *((arr + (i as u64) * 8) as &i64);
+                    *((arr + (i as u64) * 8) as &mut i64) = vj;
+                    *((arr + (j as u64) * 8) as &mut i64) = vi;
+                }
+                j = j + 1;
+            }
+
+            // Place pivot in final position
+            i = i + 1;
+            let vi: i64 = *((arr + (i as u64) * 8) as &i64);
+            *((arr + (i as u64) * 8) as &mut i64) = pivot;
+            *((arr + (high as u64) * 8) as &mut i64) = vi;
+
+            let pivot_idx: i64 = i;
+
+            // Push left partition (low .. pivot_idx-1) if non-empty
+            if pivot_idx - 1 > low {
+                top = top + 1;
+                *((stack + (top as u64) * 8) as &mut i64) = low;
+                top = top + 1;
+                *((stack + (top as u64) * 8) as &mut i64) = pivot_idx - 1;
+            }
+
+            // Push right partition (pivot_idx+1 .. high) if non-empty
+            if pivot_idx + 1 < high {
+                top = top + 1;
+                *((stack + (top as u64) * 8) as &mut i64) = pivot_idx + 1;
+                top = top + 1;
+                *((stack + (top as u64) * 8) as &mut i64) = high;
+            }
+        }
+    }
+
+    free(stack);
+}

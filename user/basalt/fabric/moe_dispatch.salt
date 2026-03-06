@@ -1,0 +1,75 @@
+// ============================================================================
+// user/basalt/fabric/moe_dispatch.salt
+// Distributed Expert Fetch — Zero-Copy RDMA READ via Atomic Doorbell
+// ============================================================================
+//
+// Fuses the topology router (v3.0.0) with the async DMA pipeline (v1.7.0):
+//
+//   1. Resolve expert_id → physical RDMA address (O(1) table lookup)
+//   2. Construct a READ WQE targeting the remote tensor
+//   3. Push the 128-bit atomic doorbell to the local PCIe bus
+//   4. Return the unique tracking token for CQE completion
+//
+// The caller immediately yields to the scheduler with this token.
+// When the NIC completes the DMA, it writes to the CQE ring,
+// and the scheduler promotes the task back to RUNNING.
+//
+// ============================================================================
+
+package user.basalt.fabric.moe_dispatch
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// WQE Opcodes
+// ============================================================================
+const WQE_OPCODE_READ: u64 = 2;  // RDMA READ (vs WRITE=1)
+
+// ============================================================================
+// dispatch_expert_fetch — Fire-and-Forget Remote Tensor Fetch
+// ============================================================================
+// Constructs a READ WQE and pushes it to the NIC doorbell.
+// Returns a unique token for CQE tracking.
+//
+// Parameters:
+//   routing_table: base address of the ExpertRoute array
+//   expert_id:     logical expert index (0..63)
+//   local_dest:    LOC_ARENA address where DMA will deposit the tensor
+//   size:          number of bytes to fetch
+//   bar_addr:      local NIC BAR address (from sys_cap_bind)
+//   token_counter: pointer to monotonic token counter
+//
+// Returns: CQE tracking token (u32 packed as i64)
+// ============================================================================
+pub fn dispatch_expert_fetch(
+    routing_table: u64,
+    expert_id: u32,
+    local_dest: u64,
+    size: u64,
+    bar_addr: u64,
+    token_counter_addr: u64
+) -> u32 {
+    // 1. Resolve the remote physical address
+    // Inline topology_router logic for zero call overhead
+    let route_offset: u64 = (expert_id as u64) * 24;
+    let remote_bar: u64 = *((routing_table + route_offset + 8) as &u64);
+    let tensor_off: u64 = *((routing_table + route_offset + 16) as &u64);
+    let remote_addr: u64 = remote_bar + tensor_off;
+
+    // 2. Generate unique token (monotonic increment)
+    let token: u32 = *((token_counter_addr) as &u32);
+    *((token_counter_addr) as &mut u32) = token + 1;
+
+    // 3. Construct READ WQE
+    //    Word 0: opcode(READ=2) << 32 | token
+    //    Word 1: remote source address (for NIC DMA engine)
+    let control: u64 = (WQE_OPCODE_READ << 32) | (token as u64);
+    let payload: u64 = remote_addr;
+
+    // 4. Push 128-bit atomic doorbell
+    let doorbell_addr: u64 = bar_addr + 0x1000;
+    let doorbell: Ptr<[u64; 2]> = doorbell_addr as Ptr<[u64; 2]>;
+    doorbell.write([control, payload]);
+
+    return token;
+}

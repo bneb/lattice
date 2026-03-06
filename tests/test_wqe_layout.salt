@@ -1,0 +1,117 @@
+// =============================================================================
+// Test: WQE Layout — Bitwise Packing Verification
+// =============================================================================
+// Validates that the WqeDescriptor struct:
+//   1. Packs opcode in top 32 bits of control_and_offset
+//   2. Packs tensor offset in bottom 32 bits
+//   3. Stores payload as raw u64 in second word
+//   4. Total size = 16 bytes (2 × u64) with zero padding
+//
+// Exit codes:
+//   0 = all passed
+//   1 = allocation failure
+//   2 = opcode extraction failed
+//   3 = offset extraction failed
+//   4 = payload incorrect
+//   5 = memory layout not 16 bytes
+//   6 = high offset test failed
+// =============================================================================
+
+package main
+
+use std.core.ptr.Ptr
+
+extern fn malloc(size: i64) -> u64;
+extern fn free(ptr: u64);
+
+fn main() -> i32 {
+    // =========================================================================
+    // T1: Construct WQE and verify field extraction
+    // =========================================================================
+    // WQE: offset=42, payload=0xDEADBEEFCAFEBABE
+    let offset: u32 = 42;
+    let payload: u64 = 0xDEADBEEFCAFEBABE;
+
+    // Construct control word: opcode (0x1) << 32 | offset
+    let control: u64 = (1 << 32) | (offset as u64);
+
+    // Extract opcode from top 32 bits
+    let opcode: u64 = (control >> 32) & 0xFFFFFFFF;
+    if opcode != 1 {
+        return 2;
+    }
+
+    // Extract offset from bottom 32 bits
+    let extracted_offset: u32 = (control & 0xFFFFFFFF) as u32;
+    if extracted_offset != 42 {
+        return 3;
+    }
+
+    // =========================================================================
+    // T2: Verify memory layout — write to malloc'd buffer as two u64s
+    // =========================================================================
+    let buf_addr: u64 = malloc(16);
+    if buf_addr == 0 { return 1; }
+
+    let buf: Ptr<u64> = buf_addr as Ptr<u64>;
+
+    // Write WQE to buffer (simulating MMIO push)
+    buf.offset(0).write(control);
+    buf.offset(1).write(payload);
+
+    // Read back and verify
+    let read_control: u64 = buf.offset(0).read();
+    let read_payload: u64 = buf.offset(1).read();
+
+    if read_payload != 0xDEADBEEFCAFEBABE {
+        free(buf_addr);
+        return 4;
+    }
+
+    // Verify opcode from readback
+    let read_opcode: u64 = (read_control >> 32) & 0xFFFFFFFF;
+    if read_opcode != 1 {
+        free(buf_addr);
+        return 2;
+    }
+
+    // =========================================================================
+    // T3: Verify layout size — write WQE at offset 0, read byte at offset 16
+    //     should NOT overlap (proving exactly 16 bytes)
+    // =========================================================================
+    let big_buf: u64 = malloc(32);
+    if big_buf == 0 { free(buf_addr); return 1; }
+
+    let big: Ptr<u64> = big_buf as Ptr<u64>;
+
+    // Write sentinel at word 2 (byte 16)
+    big.offset(2).write(0x1234567890ABCDEF);
+
+    // Write WQE to words 0-1
+    big.offset(0).write(control);
+    big.offset(1).write(payload);
+
+    // Sentinel at word 2 should be untouched
+    let sentinel: u64 = big.offset(2).read();
+    if sentinel != 0x1234567890ABCDEF {
+        free(buf_addr);
+        free(big_buf);
+        return 5;
+    }
+
+    // =========================================================================
+    // T4: High offset value (stress the 32-bit packing)
+    // =========================================================================
+    let high_offset: u32 = 0xFFFFFFF0;
+    let high_control: u64 = (1 << 32) | (high_offset as u64);
+    let extracted_high: u32 = (high_control & 0xFFFFFFFF) as u32;
+    if extracted_high != 0xFFFFFFF0 {
+        free(buf_addr);
+        free(big_buf);
+        return 6;
+    }
+
+    free(buf_addr);
+    free(big_buf);
+    return 0;
+}

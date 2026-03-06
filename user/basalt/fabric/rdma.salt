@@ -1,0 +1,90 @@
+// ============================================================================
+// user/basalt/fabric/rdma.salt
+// RdmaFabric — FabricCapability Implementation for RDMA (RoCE / UEC)
+// ============================================================================
+//
+// All hardware state is encapsulated in the RdmaFabric struct.
+// NO GLOBALS. Each RDMA queue pair gets its own instance.
+//
+// Headroom: 0 bytes — zero header overhead
+// Push: Write 16-byte WQE descriptor + ring doorbell
+//
+// ============================================================================
+
+package user.basalt.fabric.rdma
+
+// ============================================================================
+// RdmaFabric — Per-QueuePair Struct (NO GLOBALS)
+// ============================================================================
+pub struct RdmaFabric {
+    // MMIO doorbell register address
+    pub doorbell: u64,
+
+    // Hardware-registered memory region key
+    pub memory_key: u32,
+
+    // Queue Pair state
+    pub qp_base: u64,
+    pub qp_cap: u64,
+    pub qp_head: u64,
+}
+
+// ============================================================================
+// Constants
+// ============================================================================
+pub const RDMA_HEADROOM: u32 = 0;
+pub const WQE_SIZE: u32 = 16;
+
+// ============================================================================
+// RdmaFabric Methods — FabricCapability Implementation
+// ============================================================================
+impl RdmaFabric {
+    // ========================================================================
+    // new — Construct an RdmaFabric for a Specific Queue Pair
+    // ========================================================================
+    pub fn new(doorbell: u64, memory_key: u32, qp_base: u64, qp_cap: u64) -> RdmaFabric {
+        return RdmaFabric {
+            doorbell: doorbell,
+            memory_key: memory_key,
+            qp_base: qp_base,
+            qp_cap: qp_cap,
+            qp_head: 0,
+        };
+    }
+
+    // ========================================================================
+    // headroom — Returns RDMA headroom (0 bytes)
+    // ========================================================================
+    pub fn headroom(&self) -> u32 {
+        return RDMA_HEADROOM;
+    }
+
+    // ========================================================================
+    // push_zero_copy — Write WQE and Ring Doorbell
+    // ========================================================================
+    // All state from `self` — no globals.
+    // Writes a 16-byte WQE:
+    //   Bytes 0-7:   Buffer address
+    //   Bytes 8-11:  Payload length
+    //   Bytes 12-15: Memory region key
+    // ========================================================================
+    pub fn push_zero_copy(&mut self, buffer: u64, payload_len: u32) {
+        if self.qp_base == 0 {
+            return;
+        }
+
+        // Write the 16-byte WQE
+        let wqe_addr = self.qp_base + self.qp_head;
+        *((wqe_addr + 0) as &mut u64) = buffer;
+        *((wqe_addr + 8) as &mut u32) = payload_len;
+        *((wqe_addr + 12) as &mut u32) = self.memory_key;
+
+        // Advance QP head (mutates self, not a global)
+        self.qp_head = (self.qp_head + (WQE_SIZE as u64)) % self.qp_cap;
+
+        // Ring the hardware doorbell
+        if self.doorbell != 0 {
+            *((self.doorbell) as &mut u64) = self.qp_head;
+        }
+    }
+}

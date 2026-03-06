@@ -1,0 +1,196 @@
+// =============================================================================
+// Test: CQE Layout + Async DMA Prefetch E2E
+// =============================================================================
+// Validates the entire async DMA pipeline:
+//
+//   Phase 1 — CQE Memory Layout:
+//     T1: CQE field packing correct
+//     T2: Status/token extraction
+//     T3: is_complete() detection
+//
+//   Phase 2 — Async DMA Prefetch:
+//     T4: READ WQE pushed to doorbell with correct opcode (0x2)
+//     T5: Token echoed in WQE control word
+//
+//   Phase 3 — Full Convergence:
+//     T6: prefetch → "NIC writes data" → await → matmul → verify
+//     Assert: C[i,j] = 8.0
+//
+// Exit codes:
+//   0  = all passed
+//   1  = allocation failure
+//   3  = CQE status extraction failed
+//   4  = CQE token extraction failed
+//   5  = CQE is_complete detection wrong
+//   7  = READ WQE opcode incorrect
+//   8  = READ WQE token incorrect
+//   9  = Matmul output C[0,0] incorrect
+//   10 = Matmul output C[3,3] incorrect
+// =============================================================================
+
+package main
+
+use std.core.ptr.Ptr
+
+extern fn malloc(size: i64) -> u64;
+extern fn free(ptr: u64);
+
+// Doorbell offset
+const DOORBELL_OFFSET: u64 = 0x1000;
+
+fn main() -> i32 {
+    // =========================================================================
+    // Phase 1: CQE Layout Tests
+    // =========================================================================
+
+    let cqe_addr: u64 = malloc(32);
+    if cqe_addr == 0 { return 1; }
+
+    // Zero fill
+    let mut zi: i64 = 0;
+    while zi < 32 {
+        *((cqe_addr + (zi as u64)) as &mut u8) = 0;
+        zi = zi + 1;
+    }
+
+    // T1: Pack CQE — byte_count=128, status=0 (success), token=42
+    let byte_count_and_flags: u64 = 128;
+    let status_and_token: u64 = (0 << 32) | 42;
+
+    let cqe: Ptr<u64> = cqe_addr as Ptr<u64>;
+    cqe.offset(0).write(byte_count_and_flags);
+    cqe.offset(1).write(status_and_token);
+
+    // T2: Extract status
+    let read_st: u64 = cqe.offset(1).read();
+    let status: u32 = ((read_st >> 32) & 0xFFFFFFFF) as u32;
+    if status != 0 {
+        free(cqe_addr);
+        return 3;
+    }
+
+    // Extract token
+    let token: u32 = (read_st & 0xFFFFFFFF) as u32;
+    if token != 42 {
+        free(cqe_addr);
+        return 4;
+    }
+
+    // T3: is_complete — token != 0 means complete
+    let is_complete: bool = (read_st & 0xFFFFFFFF) != 0;
+    if !is_complete {
+        free(cqe_addr);
+        return 5;
+    }
+
+    // Check incomplete CQE (token = 0)
+    cqe.offset(1).write(0);
+    let read_zero: u64 = cqe.offset(1).read();
+    let is_incomplete: bool = (read_zero & 0xFFFFFFFF) != 0;
+    if is_incomplete {
+        free(cqe_addr);
+        return 5;
+    }
+
+    free(cqe_addr);
+
+    // =========================================================================
+    // Phase 2: Async DMA Prefetch — READ WQE to Doorbell
+    // =========================================================================
+
+    let bar_size: i64 = 8192;
+    let bar_addr: u64 = malloc(bar_size);
+    if bar_addr == 0 { return 1; }
+
+    // Zero the BAR
+    let mut j: i64 = 0;
+    while j < bar_size {
+        *((bar_addr + (j as u64)) as &mut u8) = 0;
+        j = j + 1;
+    }
+
+    // T4-5: Simulate prefetch_tile_async
+    let prefetch_token: u32 = 7;
+    let local_arena: u64 = 0xAAAABBBB00000000;
+
+    // Word 0: OP_READ (0x2) << 32 | token
+    let control: u64 = (2 << 32) | (prefetch_token as u64);
+    // Word 1: local arena addr (DMA destination)
+    let payload: u64 = local_arena;
+
+    // Atomic 128-bit doorbell push
+    let doorbell_addr: u64 = bar_addr + DOORBELL_OFFSET;
+    let doorbell: Ptr<[u64; 2]> = doorbell_addr as Ptr<[u64; 2]>;
+    doorbell.write([control, payload]);
+
+    // T4: Verify opcode
+    let read_ctrl: u64 = *((doorbell_addr) as &u64);
+    let opcode: u64 = (read_ctrl >> 32) & 0xFFFFFFFF;
+    if opcode != 2 {
+        free(bar_addr);
+        return 7;
+    }
+
+    // T5: Verify echoed token
+    let echoed: u32 = (read_ctrl & 0xFFFFFFFF) as u32;
+    if echoed != 7 {
+        free(bar_addr);
+        return 8;
+    }
+
+    free(bar_addr);
+
+    // =========================================================================
+    // Phase 3: Full Async Convergence
+    //   prefetch → "NIC DMA completes" → await (no-op) → matmul → verify
+    // =========================================================================
+
+    // Allocate: A tile (128B) + B tile (128B) + C output (128B)
+    let arena_addr: u64 = malloc(384);
+    if arena_addr == 0 { return 1; }
+
+    let a_addr: u64 = arena_addr;
+    let b_addr: u64 = arena_addr + 128;
+    let c_addr: u64 = arena_addr + 256;
+
+    // "NIC has completed DMA" — fill A = 1.0, B = 2.0, C = 0.0
+    let mut idx: u32 = 0;
+    while idx < 16 {
+        let off: u64 = (idx as u64) * 8;
+        *((a_addr + off) as &mut f64) = 1.0;
+        *((b_addr + off) as &mut f64) = 2.0;
+        *((c_addr + off) as &mut f64) = 0.0;
+        idx = idx + 1;
+    }
+
+    // Synchronous MLIR affine matmul — NO async inside the math loop
+    for i in 0..4 {
+        for j in 0..4 {
+            let mut sum: f64 = 0.0;
+            for k in 0..4 {
+                let a_off: u64 = ((i * 4 + k) as u64) * 8;
+                let a_val: f64 = *((a_addr + a_off) as &f64);
+
+                let b_off: u64 = ((k * 4 + j) as u64) * 8;
+                let b_val: f64 = *((b_addr + b_off) as &f64);
+
+                sum = sum + (a_val * b_val);
+            }
+            let c_off: u64 = ((i * 4 + j) as u64) * 8;
+            *((c_addr + c_off) as &mut f64) = sum;
+        }
+    }
+
+    // T6: Verify C[0,0] = 8.0
+    let c00: f64 = *((c_addr) as &f64);
+    if c00 > 8.1 { free(arena_addr); return 9; }
+    if c00 < 7.9 { free(arena_addr); return 9; }
+
+    // T7: Verify C[3,3] = 8.0
+    let c33: f64 = *((c_addr + 120) as &f64);
+    if c33 > 8.1 { free(arena_addr); return 10; }
+    if c33 < 7.9 { free(arena_addr); return 10; }
+
+    free(arena_addr);
+    return 0;
+}

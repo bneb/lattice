@@ -1,0 +1,99 @@
+// ============================================================================
+// user/kernel/net/node.salt
+// Node Identity & MAC Discovery
+// ============================================================================
+//
+// Determines this node's role in the fabric by reading the VirtIO
+// device configuration space during boot. The MAC address is stored
+// at device_cfg + 0 (6 bytes) in VirtIO net devices.
+//
+// Identity is persisted in the LOC_ARENA at a fixed offset so that
+// the trap handlers, scheduler, and TX pipeline can all access it
+// without function calls or globals.
+//
+// LOC_ARENA Node Identity Layout (at NODE_ID_OFFSET):
+//   [0..6)   local_mac   (6 bytes)
+//   [6..12)  peer_mac    (6 bytes)
+//   [12..13) role        (u8: ROUTER=1, EXPERT=2)
+//   [13..14) pad         (u8)
+//   [14..16) pad         (u16)
+//
+// ============================================================================
+
+package user.kernel.net.node
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// LOC_ARENA offset for node identity
+// ============================================================================
+pub const NODE_ID_OFFSET:  u64 = 0x35000;
+pub const NODE_ID_SIZE:    u64 = 16;
+
+pub const LOCAL_MAC_OFF:   u64 = 0;
+pub const PEER_MAC_OFF:    u64 = 6;
+pub const ROLE_OFF:        u64 = 12;
+
+// Roles
+pub const ROLE_ROUTER:  u8 = 1;
+pub const ROLE_EXPERT:  u8 = 2;
+pub const ROLE_UNKNOWN: u8 = 0;
+
+// MAC identity bytes
+pub const MAC_ROUTER_LAST: u8 = 0xAA;
+pub const MAC_EXPERT_LAST: u8 = 0xBB;
+
+// ============================================================================
+// init_node_identity — Discover MAC, determine role, compute peer
+// ============================================================================
+// Parameters:
+//   arena_base:  LOC_ARENA base
+//   device_cfg:  VirtIO device config base (MAC at offset 0)
+// ============================================================================
+pub fn init_node_identity(arena_base: u64, device_cfg: u64) {
+    let nid: u64 = arena_base + NODE_ID_OFFSET;
+
+    // Read 6-byte MAC from VirtIO device config
+    let mut i: u64 = 0;
+    while i < 6 {
+        *((nid + LOCAL_MAC_OFF + i) as &mut u8) = *((device_cfg + i) as &u8);
+        i = i + 1;
+    }
+
+    // Determine role from last MAC byte
+    let last: u8 = *((nid + LOCAL_MAC_OFF + 5) as &u8);
+    let role: u8 = if last == MAC_ROUTER_LAST { ROLE_ROUTER }
+                   else if last == MAC_EXPERT_LAST { ROLE_EXPERT }
+                   else { ROLE_UNKNOWN };
+    *((nid + ROLE_OFF) as &mut u8) = role;
+
+    // Compute peer MAC
+    *((nid + PEER_MAC_OFF) as &mut u8) = 0x52;
+    *((nid + PEER_MAC_OFF + 1) as &mut u8) = 0x54;
+    *((nid + PEER_MAC_OFF + 2) as &mut u8) = 0x00;
+    *((nid + PEER_MAC_OFF + 3) as &mut u8) = 0x12;
+    *((nid + PEER_MAC_OFF + 4) as &mut u8) = 0x34;
+    if last == MAC_ROUTER_LAST {
+        *((nid + PEER_MAC_OFF + 5) as &mut u8) = MAC_EXPERT_LAST;
+    } else {
+        *((nid + PEER_MAC_OFF + 5) as &mut u8) = MAC_ROUTER_LAST;
+    }
+}
+
+// ============================================================================
+// Accessors
+// ============================================================================
+@inline
+pub fn get_role(arena_base: u64) -> u8 {
+    return *((arena_base + NODE_ID_OFFSET + ROLE_OFF) as &u8);
+}
+
+@inline
+pub fn get_local_mac(arena_base: u64) -> u64 {
+    return arena_base + NODE_ID_OFFSET + LOCAL_MAC_OFF;
+}
+
+@inline
+pub fn get_peer_mac(arena_base: u64) -> u64 {
+    return arena_base + NODE_ID_OFFSET + PEER_MAC_OFF;
+}

@@ -101,3 +101,52 @@ extern fn sys_shm_grant(target_pid: u64, src_vaddr: u64, dst_vaddr: u64, flags: 
 pub fn shm_grant(target: u64, src: u64, dst: u64, flags: u64) -> u64 {
     return sys_shm_grant(target, src, dst, flags);
 }
+
+// =============================================================================
+// Sovereign ABI — Control Plane Syscalls
+// =============================================================================
+// These syscalls broker capabilities and resources. Once a ring is mapped,
+// all data plane operations (push/pop) happen in Ring 3 via user/lib/ring.salt.
+// =============================================================================
+
+extern fn sys_cap_bind(flags: u64) -> u64;
+extern fn sys_ring_map(capability_id: u64) -> u64;
+extern fn sys_core_acquire(core_id: u64) -> u64;
+
+/// Allocate a capability handle for SPSC ring operations.
+/// flags: CAP_FLAG_PRODUCER (1) or CAP_FLAG_CONSUMER (2)
+/// Returns: capability ID on success, 0 on failure.
+pub fn cap_bind(flags: u64) -> u64 {
+    return sys_cap_bind(flags);
+}
+
+/// Map a physical SPSC ring to a bound capability.
+/// The kernel allocates a zeroed page and initializes the ring header.
+/// Returns: virtual address of the ring on success, 0 on failure.
+pub fn ring_map(cap_id: u64) -> u64 {
+    return sys_ring_map(cap_id);
+}
+
+/// Request spatial ownership of a CPU core.
+/// Disables preemption and timer interrupts on the target core.
+/// The calling process must already be running on the target core.
+/// Returns: 1 on success, 0 on failure.
+pub fn core_acquire(core_id: u64) -> u64 {
+    return sys_core_acquire(core_id);
+}
+
+extern fn sys_ipc_reg_send(target_cap: u64, p1: u64, p2: u64) -> i64;
+extern fn sys_ipc_ring_await(cap_id: u64) -> i64;
+
+/// Fast-path register IPC: send two u64 payload words directly into the
+/// target process's saved CPU context. The target wakes with p1/p2 in registers.
+/// Returns: 0 on success, -1 invalid cap, -2 target not found.
+pub fn ipc_reg_send(target_cap: u64, p1: u64, p2: u64) -> i64 {
+    return sys_ipc_reg_send(target_cap, p1, p2);
+}
+
+/// Block until data is available on the SPSC ring associated with the given
+/// capability. Used by the Codata substrate for ReactiveStream blocking reads.
+pub fn ipc_ring_await(cap_id: u64) -> i64 {
+    return sys_ipc_ring_await(cap_id);
+}

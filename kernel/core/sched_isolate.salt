@@ -1,0 +1,117 @@
+// =============================================================================
+// kernel/core/sched_isolate.salt
+// Sovereign ABI — Spatial Scheduling: Core Pinning for Real-Time Workloads
+// =============================================================================
+//
+// When a Ring 3 process acquires a CPU core via SYS_CORE_ACQUIRE, the kernel:
+//   1. Validates the core ID against the hardware topology
+//   2. Marks the core as "isolated" in a global bitmap
+//   3. Evicts all other fibers from that core's run queue
+//   4. Disables the local APIC preemption timer
+//
+// After acquisition, the core belongs entirely to the Ring 3 process.
+// No timer interrupts, no scheduler preemption, no kernel interference.
+// The process runs until it voluntarily yields or issues a syscall.
+//
+// Use cases: HFT order matching, real-time agent loops, latency-critical
+// SPSC ring consumers.
+//
+// =============================================================================
+
+package kernel.core.sched_isolate
+
+import kernel.drivers.serial
+import kernel.core.process
+import kernel.core.scheduler
+
+extern fn apic_mask_timer();
+extern fn apic_ioapic_mask_irq0();
+extern fn get_cpu_id() -> u64;
+
+// =============================================================================
+// Core Isolation Bitmap
+// =============================================================================
+// One bit per core. Bit N = 1 means core N is isolated (owned by a process).
+// Checked by the scheduler to skip isolated cores during round-robin.
+// =============================================================================
+
+const MAX_CPUS: u64 = 16;
+
+global isolated_cores: u64 = 0;
+global isolated_owner: [u64; 16] = [0 as u64; 16];
+
+// =============================================================================
+// sys_core_acquire — Request Spatial Ownership of a CPU Core (Syscall 13)
+// =============================================================================
+// arg0 = target_core_id (u32, cast to u64 by syscall ABI)
+//
+// The calling process must already be running on the target core.
+// This prevents a process on Core 0 from isolating Core 3, which would
+// require cross-core IPI coordination beyond our current scope.
+//
+// Returns: 1 on success, 0 on failure
+// =============================================================================
+@no_mangle
+pub fn sys_core_acquire(target_core_id: u64) -> u64
+    requires { target_core_id < MAX_CPUS }
+{
+    let pid = process.current();
+    let current_cpu = get_cpu_id();
+
+    // 1. Bounds check (runtime fallback for Z3 — belt and suspenders)
+    if target_core_id >= MAX_CPUS {
+        serial.print("[core_acquire] REJECT: core_id out of range\n");
+        return 0;
+    }
+
+    // 2. Locality check: process must be ON the target core
+    if current_cpu != target_core_id {
+        serial.print("[core_acquire] REJECT: not on target core (current=");
+        serial.print_u64(current_cpu);
+        serial.print(" target=");
+        serial.print_u64(target_core_id);
+        serial.print(")\n");
+        return 0;
+    }
+
+    // 3. Check if core is already isolated
+    let core_bit: u64 = (1 as u64) << target_core_id;
+    if (isolated_cores & core_bit) != 0 {
+        // Already isolated. Check if same owner (idempotent success).
+        if isolated_owner[target_core_id] == pid {
+            return 1;
+        }
+        serial.print("[core_acquire] REJECT: core already owned by pid=");
+        serial.print_u64(isolated_owner[target_core_id]);
+        serial.print("\n");
+        return 0;
+    }
+
+    // 4. Mark core as isolated
+    isolated_cores = isolated_cores | core_bit;
+    isolated_owner[target_core_id] = pid;
+
+    // 5. Disable the local APIC preemption timer on this core
+    //    This stops the PIT-driven timer_preempt() from firing.
+    apic_mask_timer();
+    apic_ioapic_mask_irq0();
+
+    serial.print("[core_acquire] pid=");
+    serial.print_u64(pid);
+    serial.print(" acquired core ");
+    serial.print_u64(target_core_id);
+    serial.print(" — preemption disabled\n");
+
+    return 1;
+}
+
+// =============================================================================
+// is_core_isolated — Query for scheduler integration
+// =============================================================================
+pub fn is_core_isolated(core_id: u64) -> bool {
+    if core_id >= MAX_CPUS {
+        return false;
+    }
+    let core_bit: u64 = (1 as u64) << core_id;
+    return (isolated_cores & core_bit) != 0;
+}

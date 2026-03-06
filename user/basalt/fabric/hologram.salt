@@ -1,0 +1,52 @@
+// ============================================================================
+// user/basalt/fabric/hologram.salt
+// Holographic Bridge — Substrate-Agnostic Fabric Accessor
+// ============================================================================
+//
+// The Holographic Principle: Ring 3 code never contains `if` statements
+// checking the hardware environment. This module provides a read-only
+// bridge to the boot-resolved manifest. Whether the fabric_bar_addr
+// points to a Mellanox ConnectX doorbell register or a VirtIO trapped
+// memory page, the FabricPtr writes identically.
+//
+// Usage:
+//   let bar = hologram_get_bar(manifest_addr);
+//   let ptr = FabricPtr { raw_address: bar, locality: LOC_RDMA, ... };
+//   ptr.write_u64(0, 0, 0xDEADBEEF);  // Same code path, any substrate
+//
+// ============================================================================
+
+package user.basalt.fabric.hologram
+
+use std.core.ptr.Ptr
+
+// Manifest layout offsets (mirrored from manifest.salt)
+const MANIFEST_SUBSTRATE: u64 = 0;
+const MANIFEST_BAR:       u64 = 8;
+const MANIFEST_LOCKED:    u64 = 20;
+
+// ============================================================================
+// hologram_get_bar — Read-Only Fabric BAR Accessor
+// ============================================================================
+// Returns the physical BAR address resolved at boot. This is the ONLY
+// function Ring 3 code uses to obtain the fabric address.
+//
+// The returned address is substrate-agnostic:
+//   Kinetic:   Points to NIC MMIO doorbell register
+//   Synthetic: Points to trapped memory page (VirtIO/hypervisor)
+//   Mock:      Points to heap-allocated test buffer
+//
+// The caller writes 128-bit WQEs to bar + 0x1000 regardless.
+// ============================================================================
+@inline
+pub fn hologram_get_bar(manifest_addr: u64) -> u64 {
+    return *((manifest_addr + MANIFEST_BAR) as &u64);
+}
+
+// ============================================================================
+// hologram_is_ready — Check if the manifest has been resolved
+// ============================================================================
+@inline
+pub fn hologram_is_ready(manifest_addr: u64) -> bool {
+    return *((manifest_addr + MANIFEST_LOCKED) as &u32) == 1;
+}

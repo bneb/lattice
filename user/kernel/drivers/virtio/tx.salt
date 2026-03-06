@@ -1,0 +1,151 @@
+// ============================================================================
+// user/kernel/drivers/virtio/tx.salt
+// VirtIO TX Pipeline — Holographic WQE → VirtqDesc → Notify
+// ============================================================================
+//
+// This module is the Holographic Bridge. It translates a 128-bit MoE WQE
+// (intercepted by the #PF trap handler) into a VirtIO Split VirtQueue
+// descriptor and kicks the QEMU hypervisor.
+//
+// The Ring 3 coroutine never knows this exists. It writes to the
+// Synthetic BAR, the CPU traps, we steal the payload, translate it
+// into VirtIO, and IRET back. The math loop resumes as if the write
+// hit real silicon.
+//
+// TX State:
+//   next_desc_idx — monotonically incrementing, wraps at QUEUE_SIZE
+//   Tracked at a known LOC_ARENA offset (not on the heap)
+//
+// ============================================================================
+
+package user.kernel.drivers.virtio.tx
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// Vring constants (from vring.salt)
+// ============================================================================
+const DESC_SIZE:     u64 = 16;
+const QUEUE_SIZE:    u16 = 256;
+const AVAIL_IDX_OFF: u64 = 2;
+const AVAIL_RING_OFF: u64 = 4;
+
+// ============================================================================
+// TX State — lives at a fixed LOC_ARENA offset
+// ============================================================================
+// Layout (16 bytes):
+//   [0..8)    next_desc_idx (u64) — next free descriptor slot
+//   [8..16)   tx_count      (u64) — total packets transmitted
+// ============================================================================
+pub const TX_STATE_SIZE:         u64 = 16;
+pub const TX_STATE_DESC_IDX_OFF: u64 = 0;
+pub const TX_STATE_COUNT_OFF:    u64 = 8;
+
+// ============================================================================
+// init_tx_state — Reset TX tracking
+// ============================================================================
+pub fn init_tx_state(tx_state: u64) {
+    *((tx_state + TX_STATE_DESC_IDX_OFF) as &mut u64) = 0;
+    *((tx_state + TX_STATE_COUNT_OFF) as &mut u64) = 0;
+}
+
+// ============================================================================
+// virtio_tx_enqueue — Write a descriptor and update the avail ring
+// ============================================================================
+// Parameters:
+//   desc_table:   base address of VirtqDesc array
+//   avail_ring:   base address of VirtqAvail
+//   tx_state:     base address of TX state tracking
+//   packet_addr:  physical address of the packet buffer
+//   packet_len:   length in bytes
+// ============================================================================
+pub fn virtio_tx_enqueue(
+    desc_table: u64,
+    avail_ring: u64,
+    tx_state: u64,
+    packet_addr: u64,
+    packet_len: u32
+) {
+    // 1. Grab the next descriptor index
+    let desc_idx: u64 = *((tx_state + TX_STATE_DESC_IDX_OFF) as &u64);
+    let slot: u16 = (desc_idx % (QUEUE_SIZE as u64)) as u16;
+
+    // 2. Write the descriptor
+    let desc_base: u64 = desc_table + (slot as u64) * DESC_SIZE;
+    *((desc_base) as &mut u64) = packet_addr;       // addr
+    *((desc_base + 8) as &mut u32) = packet_len;    // len
+    *((desc_base + 12) as &mut u16) = 0;            // flags (no chaining)
+    *((desc_base + 14) as &mut u16) = 0;            // next (unused)
+
+    // 3. Insert into avail ring
+    let avail_idx: u16 = *((avail_ring + AVAIL_IDX_OFF) as &u16);
+    let ring_pos: u16 = avail_idx % QUEUE_SIZE;
+    let ring_off: u64 = AVAIL_RING_OFF + (ring_pos as u64) * 2;
+    *((avail_ring + ring_off) as &mut u16) = slot;
+
+    // 4. Memory barrier (in freestanding: mfence; in hosted: no-op)
+    // __builtin_memory_barrier();
+
+    // 5. Increment avail index
+    *((avail_ring + AVAIL_IDX_OFF) as &mut u16) = avail_idx + 1;
+
+    // 6. Update TX state
+    *((tx_state + TX_STATE_DESC_IDX_OFF) as &mut u64) = desc_idx + 1;
+    let count: u64 = *((tx_state + TX_STATE_COUNT_OFF) as &u64);
+    *((tx_state + TX_STATE_COUNT_OFF) as &mut u64) = count + 1;
+}
+
+// ============================================================================
+// virtio_tx_notify — Write queue index to the Notify register
+// ============================================================================
+// The Notify register is MMIO — writing the queue index kicks the
+// hypervisor to process the avail ring.
+// ============================================================================
+@inline
+pub fn virtio_tx_notify(notify_addr: u64, queue_idx: u16) {
+    *((notify_addr) as &mut u16) = queue_idx;
+}
+
+// ============================================================================
+// emulate_virtio_doorbell — The Holographic Bridge
+// ============================================================================
+// Called by the #PF trap handler when the Ring 3 coroutine writes to
+// the Synthetic BAR doorbell address.
+//
+// Parameters:
+//   wqe_control:  high 64 bits of the 128-bit WQE (opcode | token)
+//   wqe_payload:  low 64 bits (remote address)
+//   desc_table:   VirtqDesc base
+//   avail_ring:   VirtqAvail base
+//   tx_state:     TX state tracking
+//   notify_addr:  Queue Notify MMIO address
+//
+// The WQE is wrapped as a VirtIO descriptor. The opcode and token
+// become the packet payload at the wqe_payload address.
+// ============================================================================
+pub fn emulate_virtio_doorbell(
+    wqe_control: u64,
+    wqe_payload: u64,
+    desc_table: u64,
+    avail_ring: u64,
+    tx_state: u64,
+    notify_addr: u64
+) {
+    // Store the WQE as a 16-byte packet at the payload address
+    // (In production, this would construct a proper RDMA frame)
+    // For the Holographic Bridge, we transmit the raw WQE control word.
+
+    // Enqueue the descriptor pointing to the WQE payload location
+    virtio_tx_enqueue(desc_table, avail_ring, tx_state, wqe_payload, 16);
+
+    // Kick the hypervisor
+    virtio_tx_notify(notify_addr, 1);  // Queue 1 = TX
+}
+
+// ============================================================================
+// get_tx_count — Read the total packet count
+// ============================================================================
+@inline
+pub fn get_tx_count(tx_state: u64) -> u64 {
+    return *((tx_state + TX_STATE_COUNT_OFF) as &u64);
+}

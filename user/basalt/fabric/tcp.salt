@@ -1,0 +1,168 @@
+// ============================================================================
+// user/basalt/fabric/tcp.salt
+// TcpFabric — FabricCapability Implementation for TCP/IP
+// ============================================================================
+//
+// All connection state is encapsulated in the TcpFabric struct.
+// NO GLOBALS. Each connection gets its own TcpFabric instance,
+// enabling full multiplexing across concurrent connections.
+//
+// Headroom: 54 bytes (14 Eth + 20 IPv4 + 20 TCP)
+// Push: Encapsulates headers backwards, pushes to DMA TX ring
+//
+// ============================================================================
+
+package user.basalt.fabric.tcp
+
+// ============================================================================
+// TcpFabric — Per-Connection Struct (NO GLOBALS)
+// ============================================================================
+// Every field that was previously a global is now an instance field.
+// Multiple TcpFabric instances can coexist for multiplexed connections.
+// ============================================================================
+pub struct TcpFabric {
+    // Hardware DMA TX ring
+    pub tx_ring: u64,
+
+    // Connection identity (4-tuple)
+    pub local_port: u16,
+    pub remote_port: u16,
+
+    // TCP sequence tracking
+    pub seq_num: u32,
+    pub ack_num: u32,
+
+    // IP addresses (network byte order)
+    pub src_ip: u32,
+    pub dst_ip: u32,
+
+    // MAC addresses (pointer to 6-byte arrays)
+    pub src_mac: u64,
+    pub dst_mac: u64,
+}
+
+// ============================================================================
+// Constants
+// ============================================================================
+pub const TCP_HEADROOM: u32 = 54;
+
+// DMA ring layout
+const HEAD_OFFSET:     u64 = 0;
+const CAPACITY_OFFSET: u64 = 8;
+const TAIL_OFFSET:     u64 = 64;
+const DATA_OFFSET:     u64 = 192;
+const TX_DESC_SIZE:    u64 = 16;
+
+// ============================================================================
+// TcpFabric Methods — FabricCapability Implementation
+// ============================================================================
+impl TcpFabric {
+    // ========================================================================
+    // new — Construct a TcpFabric for a Specific Connection
+    // ========================================================================
+    pub fn new(
+        tx_ring: u64,
+        local_port: u16, remote_port: u16,
+        seq_num: u32, ack_num: u32,
+        src_ip: u32, dst_ip: u32,
+        src_mac: u64, dst_mac: u64
+    ) -> TcpFabric {
+        return TcpFabric {
+            tx_ring: tx_ring,
+            local_port: local_port,
+            remote_port: remote_port,
+            seq_num: seq_num,
+            ack_num: ack_num,
+            src_ip: src_ip,
+            dst_ip: dst_ip,
+            src_mac: src_mac,
+            dst_mac: dst_mac,
+        };
+    }
+
+    // ========================================================================
+    // headroom — Returns TCP headroom (54 bytes)
+    // ========================================================================
+    pub fn headroom(&self) -> u32 {
+        return TCP_HEADROOM;
+    }
+
+    // ========================================================================
+    // push_zero_copy — Encapsulate and Push to DMA TX Ring
+    // ========================================================================
+    // All state comes from `self` — no globals touched.
+    // Writes TCP/IPv4/Ethernet headers backwards into the 54-byte headroom,
+    // then pushes the frame descriptor to the hardware DMA ring.
+    // ========================================================================
+    pub fn push_zero_copy(&mut self, buffer: u64, payload_len: u32) {
+        let tcp_start = buffer - 20;
+        let ip_start = tcp_start - 20;
+        let eth_start = ip_start - 14;
+
+        // --- TCP HEADER (20 bytes) ---
+        *((tcp_start + 0) as &mut u8) = (self.local_port >> 8) as u8;
+        *((tcp_start + 1) as &mut u8) = (self.local_port & 0xFF) as u8;
+        *((tcp_start + 2) as &mut u8) = (self.remote_port >> 8) as u8;
+        *((tcp_start + 3) as &mut u8) = (self.remote_port & 0xFF) as u8;
+        *((tcp_start + 4) as &mut u8) = (self.seq_num >> 24) as u8;
+        *((tcp_start + 5) as &mut u8) = ((self.seq_num >> 16) & 0xFF) as u8;
+        *((tcp_start + 6) as &mut u8) = ((self.seq_num >> 8) & 0xFF) as u8;
+        *((tcp_start + 7) as &mut u8) = (self.seq_num & 0xFF) as u8;
+        *((tcp_start + 8) as &mut u8) = (self.ack_num >> 24) as u8;
+        *((tcp_start + 9) as &mut u8) = ((self.ack_num >> 16) & 0xFF) as u8;
+        *((tcp_start + 10) as &mut u8) = ((self.ack_num >> 8) & 0xFF) as u8;
+        *((tcp_start + 11) as &mut u8) = (self.ack_num & 0xFF) as u8;
+        *((tcp_start + 12) as &mut u8) = 0x50;  // Data offset = 5 words
+        *((tcp_start + 13) as &mut u8) = 0x18;  // PSH | ACK
+        *((tcp_start + 14) as &mut u8) = 0xFF;  // Window high
+        *((tcp_start + 15) as &mut u8) = 0xFF;  // Window low
+        *((tcp_start + 16) as &mut u8) = 0;     // Checksum (placeholder)
+        *((tcp_start + 17) as &mut u8) = 0;
+        *((tcp_start + 18) as &mut u8) = 0;     // Urgent
+        *((tcp_start + 19) as &mut u8) = 0;
+
+        // --- IPv4 HEADER (20 bytes) ---
+        let total_ip_len: u16 = (20 + 20 + payload_len) as u16;
+        *((ip_start + 0) as &mut u8) = 0x45;    // Version 4, IHL 5
+        *((ip_start + 1) as &mut u8) = 0;        // DSCP/ECN
+        *((ip_start + 2) as &mut u8) = (total_ip_len >> 8) as u8;
+        *((ip_start + 3) as &mut u8) = (total_ip_len & 0xFF) as u8;
+        *((ip_start + 4) as &mut u8) = 0;        // Identification
+        *((ip_start + 5) as &mut u8) = 0;
+        *((ip_start + 6) as &mut u8) = 0x40;     // Don't Fragment
+        *((ip_start + 7) as &mut u8) = 0;
+        *((ip_start + 8) as &mut u8) = 64;       // TTL
+        *((ip_start + 9) as &mut u8) = 6;        // Protocol = TCP
+        *((ip_start + 10) as &mut u8) = 0;       // Checksum (placeholder)
+        *((ip_start + 11) as &mut u8) = 0;
+        *((ip_start + 12) as &mut u8) = (self.src_ip >> 24) as u8;
+        *((ip_start + 13) as &mut u8) = ((self.src_ip >> 16) & 0xFF) as u8;
+        *((ip_start + 14) as &mut u8) = ((self.src_ip >> 8) & 0xFF) as u8;
+        *((ip_start + 15) as &mut u8) = (self.src_ip & 0xFF) as u8;
+        *((ip_start + 16) as &mut u8) = (self.dst_ip >> 24) as u8;
+        *((ip_start + 17) as &mut u8) = ((self.dst_ip >> 16) & 0xFF) as u8;
+        *((ip_start + 18) as &mut u8) = ((self.dst_ip >> 8) & 0xFF) as u8;
+        *((ip_start + 19) as &mut u8) = (self.dst_ip & 0xFF) as u8;
+
+        // --- ETHERNET HEADER (14 bytes) ---
+        *((eth_start + 12) as &mut u8) = 0x08;   // EtherType IPv4
+        *((eth_start + 13) as &mut u8) = 0x00;
+
+        // Advance sequence number (mutates self, not a global)
+        self.seq_num = self.seq_num + payload_len;
+
+        // Push TX descriptor to DMA ring
+        if self.tx_ring != 0 {
+            let head = *((self.tx_ring + HEAD_OFFSET) as &u64);
+            let capacity = *((self.tx_ring + CAPACITY_OFFSET) as &u64);
+            let tail = *((self.tx_ring + TAIL_OFFSET) as &u64);
+            let next_head = (head + TX_DESC_SIZE) % capacity;
+            if next_head != tail {
+                let desc = self.tx_ring + DATA_OFFSET + head;
+                *((desc + 0) as &mut u64) = eth_start;
+                *((desc + 8) as &mut u64) = (TCP_HEADROOM + payload_len) as u64;
+                *((self.tx_ring + HEAD_OFFSET) as &mut u64) = next_head;
+            }
+        }
+    }
+}

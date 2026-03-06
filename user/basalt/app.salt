@@ -1,0 +1,177 @@
+// ============================================================================
+// user/basalt/app.salt
+// Basalt v0.1 — Ring 3 Streaming LLM Application
+// ============================================================================
+//
+// The first Ring 3 application on the Lattice Sovereign I/O Fabric.
+// Basalt sits between NetD's RX and TX Codata streams, consuming
+// incoming prompt pointers and producing zero-copy response frames.
+//
+// Request Lifecycle:
+//   1. NetD RX pushes a prompt pointer into the inbound SPSC ring
+//   2. Basalt reads the prompt pointer (zero-copy — no memcpy)
+//   3. TokenGenerator produces 4-byte chunks (streaming profile)
+//   4. Each chunk: Arena.alloc_net_buffer → write payload → push TX
+//   5. After final chunk: Arena.reset_all() in O(1)
+//
+// Memory Model:
+//   - ALL allocations come from the Arena (no malloc/free)
+//   - alloc_net_buffer silently prepends 54-byte TX headroom
+//   - reset_all() wipes the entire request footprint in 1 cycle
+//   - Between reset_all() and the next request, memory usage is ZERO
+//
+// ============================================================================
+
+package user.basalt.app
+
+// ============================================================================
+// Application Constants
+// ============================================================================
+
+// Port Basalt listens on
+pub const BASALT_PORT: u16 = 80;
+
+// Token generation parameters (v0.1 mock)
+pub const RESPONSE_LEN: u32 = 32;
+pub const CHUNK_SIZE: u32 = 4;
+
+// Network headroom (must match encap.salt)
+pub const NET_HEADROOM: u64 = 54;
+
+// ============================================================================
+// Application State — Globals for Hot-Path Speed
+// ============================================================================
+
+global APP_RX_RING:   u64 = 0;  // Inbound SPSC ring (from NetD RX)
+global APP_TX_RING:   u64 = 0;  // Outbound SPSC ring (to NetD TX)
+global APP_ARENA_BASE: u64 = 0;
+global APP_ARENA_CAP:  u64 = 0;
+global APP_ARENA_OFF:  u64 = 0;
+
+// Ring constants (match SPSC layout)
+const HEAD_OFFSET:     u64 = 0;
+const CAPACITY_OFFSET: u64 = 8;
+const TAIL_OFFSET:     u64 = 64;
+const DATA_OFFSET:     u64 = 192;
+
+// ============================================================================
+// init — Cold Path: Wire the Application to NetD
+// ============================================================================
+@no_mangle
+pub fn init(rx_ring: u64, tx_ring: u64, arena_base: u64, arena_cap: u64) {
+    APP_RX_RING = rx_ring;
+    APP_TX_RING = tx_ring;
+    APP_ARENA_BASE = arena_base;
+    APP_ARENA_CAP = arena_cap;
+    APP_ARENA_OFF = 0;
+}
+
+// ============================================================================
+// poll — Hot Path: Process One Inbound Request
+// ============================================================================
+// Called by the SovereignPoller on each wake event. Checks for an
+// incoming prompt, streams the mock response, and resets the arena.
+//
+// This function is the beating heart of Basalt v0.1.
+// ============================================================================
+@no_mangle
+pub fn poll() {
+    // 1. Try to read a prompt pointer from the RX ring
+    let prompt_ptr = try_read_rx();
+    if prompt_ptr == 0 {
+        return;  // No incoming request — yield back to poller
+    }
+
+    // 2. Initialize token generator
+    let mut gen_idx: u32 = 0;
+
+    // 3. Streaming generation loop
+    while gen_idx < RESPONSE_LEN {
+        // Calculate next chunk size
+        let mut chunk: u32 = CHUNK_SIZE;
+        if gen_idx + chunk > RESPONSE_LEN {
+            chunk = RESPONSE_LEN - gen_idx;
+        }
+        gen_idx = gen_idx + chunk;
+
+        // 4. Allocate zero-copy TX buffer with headroom
+        let tx_ptr = arena_alloc_net(chunk as u64, 8);
+        if tx_ptr == 0 {
+            break;  // OOM — stop generating (should not happen with proper arena sizing)
+        }
+
+        // 5. Write mock token data into the payload region
+        //    (In production, transformer inference writes actual tokens here)
+        let mut i: u32 = 0;
+        while i < chunk {
+            *((tx_ptr + (i as u64)) as &mut u8) = 0x41;  // 'A' — mock payload
+            i = i + 1;
+        }
+
+        // 6. Push the TX pointer to the outbound ring for NetD
+        push_tx(tx_ptr);
+    }
+
+    // 7. O(1) Bulk Reclaim — wipe entire request memory footprint
+    APP_ARENA_OFF = 0;
+}
+
+// ============================================================================
+// try_read_rx — Non-Blocking Read from Inbound RX Ring
+// ============================================================================
+fn try_read_rx() -> u64 {
+    if APP_RX_RING == 0 {
+        return 0;
+    }
+    let head = *((APP_RX_RING + HEAD_OFFSET) as &u64);
+    let tail = *((APP_RX_RING + TAIL_OFFSET) as &u64);
+    if head == tail {
+        return 0;  // Empty
+    }
+    let capacity = *((APP_RX_RING + CAPACITY_OFFSET) as &u64);
+    let data_ptr = APP_RX_RING + DATA_OFFSET + tail;
+    let payload = *((data_ptr) as &u64);
+    let new_tail = (tail + 8) % capacity;
+    *((APP_RX_RING + TAIL_OFFSET) as &mut u64) = new_tail;
+    return payload;
+}
+
+// ============================================================================
+// push_tx — Push Payload Pointer to Outbound TX Ring
+// ============================================================================
+fn push_tx(payload_ptr: u64) {
+    if APP_TX_RING == 0 {
+        return;
+    }
+    let head = *((APP_TX_RING + HEAD_OFFSET) as &u64);
+    let capacity = *((APP_TX_RING + CAPACITY_OFFSET) as &u64);
+    let tail = *((APP_TX_RING + TAIL_OFFSET) as &u64);
+    let next_head = (head + 8) % capacity;
+    if next_head == tail {
+        return;  // TX ring full — drop
+    }
+    let dst = APP_TX_RING + DATA_OFFSET + head;
+    *((dst) as &mut u64) = payload_ptr;
+    *((APP_TX_RING + HEAD_OFFSET) as &mut u64) = next_head;
+}
+
+// ============================================================================
+// arena_alloc_net — Allocate with TX Headroom from App Arena
+// ============================================================================
+fn arena_alloc_net(payload_size: u64, align: u64) -> u64 {
+    let total_request = payload_size + NET_HEADROOM;
+    let current_addr = APP_ARENA_BASE + APP_ARENA_OFF;
+    let remainder = current_addr % align;
+    let mut padding: u64 = 0;
+    if remainder != 0 {
+        padding = align - remainder;
+    }
+    let total_size = total_request + padding;
+    if APP_ARENA_OFF + total_size > APP_ARENA_CAP {
+        return 0;  // OOM
+    }
+    let result_ptr = current_addr + padding;
+    APP_ARENA_OFF = APP_ARENA_OFF + total_size;
+    // Return pointer shifted past headroom
+    return result_ptr + NET_HEADROOM;
+}

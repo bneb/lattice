@@ -1849,6 +1849,14 @@ pub fn emit_method_call(ctx: &mut LoweringContext, out: &mut String, m: &syn::Ex
         _ => method_lookup_ty.mangle_suffix(),
     };
 
+    // [LAZY HYDRATION FIX] Auto-hydrate Ptr<T> impl methods before method lookup.
+    // Ptr is a built-in type — its methods (write, read, offset, etc.) should always
+    // be available without explicit `use std::core::ptr::*` imports.
+    // ensure_struct_exists triggers template discovery which loads the impl block.
+    if matches!(&method_lookup_ty, Type::Pointer { .. }) {
+        let _ = ctx.ensure_struct_exists("std__core__ptr__Ptr", &[]);
+    }
+
     // Helper closure for lookup
     let lookup_recursive = |ty: &Type| -> Option<((crate::grammar::SaltFn, Option<Type>, Vec<crate::grammar::ImportDecl>), Type)> {
         let mut current_ty = ty.clone();

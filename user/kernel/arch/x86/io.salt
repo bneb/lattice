@@ -1,0 +1,46 @@
+// ============================================================================
+// user/kernel/arch/x86/io.salt
+// x86 Port I/O Primitives — IN/OUT Byte Instructions
+// ============================================================================
+//
+// x86 has a SEPARATE I/O address space from memory. Legacy peripherals
+// (UART, PIC, PIT, PS/2) live here, NOT in the MMIO address space.
+//
+// The CPU uses the IN (read) and OUT (write) instructions to access
+// ports. These are privileged instructions — they only execute in
+// Ring 0 (or via IOPL in RFLAGS).
+//
+// In the freestanding kernel, these map to real x86 IN/OUT.
+// In hosted tests, we mock them with interceptable extern functions.
+//
+// ============================================================================
+
+package user.kernel.arch.x86.io
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// Port I/O via extern functions
+// ============================================================================
+// In the freestanding kernel, these are provided by assembly stubs.
+// In hosted tests, we link mock implementations.
+// ============================================================================
+
+extern fn kernel_outb(port: u16, data: u8);
+extern fn kernel_inb(port: u16) -> u8;
+
+// ============================================================================
+// outb — Write one byte to an I/O port
+// ============================================================================
+@inline
+pub fn outb(port: u16, data: u8) {
+    kernel_outb(port, data);
+}
+
+// ============================================================================
+// inb — Read one byte from an I/O port
+// ============================================================================
+@inline
+pub fn inb(port: u16) -> u8 {
+    return kernel_inb(port);
+}

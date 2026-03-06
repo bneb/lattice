@@ -1,0 +1,261 @@
+// =============================================================================
+// Test: Holographic Trap & VirtIO Emulation (v4.2.0)
+// =============================================================================
+//
+// Validates the full #PF → VirtIO pipeline in hosted mode.
+//
+// Exit codes: 0=pass, 1=alloc, 2=idt, 3=trap_emu, 4=rip,
+//             5=wqe, 6=desc, 7=avail, 8=notify, 9=panic, 10=pipeline
+// =============================================================================
+
+package main
+
+use std.core.ptr.Ptr
+
+extern fn malloc(size: i64) -> u64;
+extern fn free(ptr: u64);
+
+const IDT_ENTRY_SIZE: u64 = 16;
+const GATE_INTERRUPT: u8 = 0x8E;
+const FRAME_RDI: u64 = 64;
+const FRAME_RSI: u64 = 72;
+const FRAME_RIP: u64 = 128;
+const FRAME_SIZE: u64 = 160;
+const FAULTING_INSTR_LEN: u64 = 16;
+const HOLO_PAGE_SIZE: u64 = 8192;
+const TRAP_EMULATED: u32 = 0;
+const TRAP_PANIC: u32 = 1;
+const TRAP_MANIFEST_UNLOCKED: u32 = 2;
+const MANIFEST_SUBSTRATE: u64 = 0;
+const MANIFEST_BAR: u64 = 8;
+const MANIFEST_LOCKED: u64 = 20;
+const MANIFEST_SIZE: u64 = 32;
+const DESC_SIZE: u64 = 16;
+const AVAIL_IDX_OFF: u64 = 2;
+const AVAIL_RING_OFF: u64 = 4;
+const AVAIL_SIZE: u64 = 516;
+const DESC_TABLE_SIZE: u64 = 4096;
+const TX_STATE_SIZE: u64 = 16;
+const CFG_DEVICE_STATUS: u64 = 20;
+const CFG_QUEUE_SELECT: u64 = 22;
+const CFG_QUEUE_SIZE: u64 = 24;
+const CFG_QUEUE_ENABLE: u64 = 28;
+const CFG_QUEUE_DESC: u64 = 32;
+const CFG_QUEUE_AVAIL: u64 = 40;
+const CFG_QUEUE_USED: u64 = 48;
+const CFG_SIZE: u64 = 56;
+const TEST_BAR: u64 = 0x00000003E0000000;
+
+fn zero_init(addr: u64, size: u64) {
+    let mut i: u64 = 0;
+    while i < size { *((addr + i) as &mut u8) = 0; i = i + 1; }
+}
+
+fn mock_manifest(addr: u64, bar: u64, locked: u32) {
+    zero_init(addr, MANIFEST_SIZE);
+    *((addr + MANIFEST_SUBSTRATE) as &mut u32) = 2;
+    *((addr + MANIFEST_BAR) as &mut u64) = bar;
+    *((addr + MANIFEST_LOCKED) as &mut u32) = locked;
+}
+
+fn set_idt_gate(idt: u64, vector: u8, handler: u64, selector: u16, type_attr: u8) {
+    let base: u64 = idt + (vector as u64) * IDT_ENTRY_SIZE;
+    *((base) as &mut u16) = (handler & 0xFFFF) as u16;
+    *((base + 2) as &mut u16) = selector;
+    *((base + 4) as &mut u8) = 0;
+    *((base + 5) as &mut u8) = type_attr;
+    *((base + 6) as &mut u16) = ((handler >> 16) & 0xFFFF) as u16;
+    *((base + 8) as &mut u32) = ((handler >> 32) & 0xFFFFFFFF) as u32;
+    *((base + 12) as &mut u32) = 0;
+}
+
+fn read_idt_handler(idt: u64, vector: u8) -> u64 {
+    let base: u64 = idt + (vector as u64) * IDT_ENTRY_SIZE;
+    let lo:  u64 = (*((base) as &u16)) as u64;
+    let mid: u64 = (*((base + 6) as &u16)) as u64;
+    let hi:  u64 = (*((base + 8) as &u32)) as u64;
+    return (hi << 32) | (mid << 16) | lo;
+}
+
+fn handle_page_fault(
+    frame: u64, cr2: u64, manifest: u64,
+    desc_table: u64, avail_ring: u64, tx_state: u64, notify: u64
+) -> u32 {
+    let locked: u32 = *((manifest + MANIFEST_LOCKED) as &u32);
+    if locked != 1 { return TRAP_MANIFEST_UNLOCKED; }
+
+    let fabric_bar: u64 = *((manifest + MANIFEST_BAR) as &u64);
+
+    if cr2 >= fabric_bar && cr2 < (fabric_bar + HOLO_PAGE_SIZE) {
+        let wqe_payload: u64 = *((frame + FRAME_RSI) as &u64);
+
+        let desc_idx: u64 = *((tx_state) as &u64);
+        let slot: u16 = (desc_idx % 256) as u16;
+
+        let desc_base: u64 = desc_table + (slot as u64) * DESC_SIZE;
+        *((desc_base) as &mut u64) = wqe_payload;
+        *((desc_base + 8) as &mut u32) = 16;
+        *((desc_base + 12) as &mut u16) = 0;
+        *((desc_base + 14) as &mut u16) = 0;
+
+        let avail_idx: u16 = *((avail_ring + AVAIL_IDX_OFF) as &u16);
+        let ring_pos: u16 = avail_idx % 256;
+        *((avail_ring + AVAIL_RING_OFF + (ring_pos as u64) * 2) as &mut u16) = slot;
+        *((avail_ring + AVAIL_IDX_OFF) as &mut u16) = avail_idx + 1;
+
+        *((tx_state) as &mut u64) = desc_idx + 1;
+        let count: u64 = *((tx_state + 8) as &u64);
+        *((tx_state + 8) as &mut u64) = count + 1;
+
+        *((notify) as &mut u16) = 1;
+
+        let rip: u64 = *((frame + FRAME_RIP) as &u64);
+        *((frame + FRAME_RIP) as &mut u64) = rip + FAULTING_INSTR_LEN;
+
+        return TRAP_EMULATED;
+    }
+
+    return TRAP_PANIC;
+}
+
+fn init_virtio_net(cfg: u64, desc: u64, avail: u64, used: u64, qsize: u16) -> i32 {
+    *((cfg + CFG_DEVICE_STATUS) as &mut u8) = 0;
+    *((cfg + CFG_DEVICE_STATUS) as &mut u8) = 1;
+    let mut s: u8 = *((cfg + CFG_DEVICE_STATUS) as &u8);
+    *((cfg + CFG_DEVICE_STATUS) as &mut u8) = s | 2;
+    s = *((cfg + CFG_DEVICE_STATUS) as &u8);
+    *((cfg + CFG_DEVICE_STATUS) as &mut u8) = s | 8;
+    s = *((cfg + CFG_DEVICE_STATUS) as &u8);
+    if (s & 8) == 0 { *((cfg + CFG_DEVICE_STATUS) as &mut u8) = 128; return 1; }
+    *((cfg + CFG_QUEUE_SELECT) as &mut u16) = 1;
+    *((cfg + CFG_QUEUE_SIZE) as &mut u16) = qsize;
+    *((cfg + CFG_QUEUE_DESC) as &mut u64) = desc;
+    *((cfg + CFG_QUEUE_AVAIL) as &mut u64) = avail;
+    *((cfg + CFG_QUEUE_USED) as &mut u64) = used;
+    *((cfg + CFG_QUEUE_ENABLE) as &mut u16) = 1;
+    s = *((cfg + CFG_DEVICE_STATUS) as &u8);
+    *((cfg + CFG_DEVICE_STATUS) as &mut u8) = s | 4;
+    return 0;
+}
+
+fn cleanup(a: u64, b: u64, c: u64, d: u64, e: u64, f: u64, g: u64, h: u64) {
+    free(a); free(b); free(c); free(d); free(e); free(f); free(g); free(h);
+}
+
+fn main() -> i32 {
+    let idt: u64 = malloc(4096);
+    let manifest: u64 = malloc(32);
+    let frame: u64 = malloc(FRAME_SIZE as i64);
+    let desc_table: u64 = malloc(DESC_TABLE_SIZE as i64);
+    let avail_ring: u64 = malloc(AVAIL_SIZE as i64);
+    let tx_state: u64 = malloc(TX_STATE_SIZE as i64);
+    let notify: u64 = malloc(8);
+    let cfg: u64 = malloc(CFG_SIZE as i64);
+
+    if idt == 0 || manifest == 0 || frame == 0 || desc_table == 0 ||
+       avail_ring == 0 || tx_state == 0 || notify == 0 || cfg == 0 { return 1; }
+
+    zero_init(idt, 4096);
+    zero_init(frame, FRAME_SIZE);
+    zero_init(desc_table, DESC_TABLE_SIZE);
+    zero_init(avail_ring, AVAIL_SIZE);
+    zero_init(tx_state, TX_STATE_SIZE);
+    zero_init(notify, 8);
+    zero_init(cfg, CFG_SIZE);
+
+    // T1-T3: IDT Vector 14
+    let handler_addr: u64 = 0x0000FFFF00001234;
+    set_idt_gate(idt, 14, handler_addr, 0x08, GATE_INTERRUPT);
+
+    let read_addr: u64 = read_idt_handler(idt, 14);
+    if read_addr != handler_addr { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 2; }
+
+    let entry_base: u64 = idt + 14 * IDT_ENTRY_SIZE;
+    let sel: u16 = *((entry_base + 2) as &u16);
+    if sel != 0x08 { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 2; }
+
+    let ta: u8 = *((entry_base + 5) as &u8);
+    if ta != GATE_INTERRUPT { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 2; }
+
+    // T4-T10: Holographic Trap — CR2 within BAR page
+    mock_manifest(manifest, TEST_BAR, 1);
+
+    let wqe_ctrl: u64 = 0x0000000200000000 | 42;
+    let wqe_pay: u64 = 0x00000003E0002000;
+    let orig_rip: u64 = 0x0000000000405000;
+
+    *((frame + FRAME_RDI) as &mut u64) = wqe_ctrl;
+    *((frame + FRAME_RSI) as &mut u64) = wqe_pay;
+    *((frame + FRAME_RIP) as &mut u64) = orig_rip;
+
+    let cr2: u64 = TEST_BAR + 0x100;
+
+    let result: u32 = handle_page_fault(frame, cr2, manifest, desc_table, avail_ring, tx_state, notify);
+    if result != TRAP_EMULATED { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 3; }
+
+    // T5: RIP advanced
+    let new_rip: u64 = *((frame + FRAME_RIP) as &u64);
+    if new_rip != orig_rip + FAULTING_INSTR_LEN { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 4; }
+
+    // T6-T7: VirtqDesc[0]
+    let d0_addr: u64 = *((desc_table) as &u64);
+    if d0_addr != wqe_pay { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 6; }
+    let d0_len: u32 = *((desc_table + 8) as &u32);
+    if d0_len != 16 { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 6; }
+
+    // T8: VirtqAvail
+    let avail_idx: u16 = *((avail_ring + AVAIL_IDX_OFF) as &u16);
+    if avail_idx != 1 { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 7; }
+    let ring0: u16 = *((avail_ring + AVAIL_RING_OFF) as &u16);
+    if ring0 != 0 { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 7; }
+
+    // T9: Notify
+    let nv: u16 = *((notify) as &u16);
+    if nv != 1 { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 8; }
+
+    // T10: TX count
+    let tc: u64 = *((tx_state + 8) as &u64);
+    if tc != 1 { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 8; }
+
+    // T11: Panic — CR2 outside BAR
+    let bad_cr2: u64 = 0x0000DEAD00000000;
+    let panic_result: u32 = handle_page_fault(frame, bad_cr2, manifest, desc_table, avail_ring, tx_state, notify);
+    if panic_result != TRAP_PANIC { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 9; }
+
+    // T12: Manifest unlocked
+    let um: u64 = malloc(32);
+    if um == 0 { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 1; }
+    mock_manifest(um, TEST_BAR, 0);
+    let ur: u32 = handle_page_fault(frame, cr2, um, desc_table, avail_ring, tx_state, notify);
+    free(um);
+    if ur != TRAP_MANIFEST_UNLOCKED { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 9; }
+
+    // T13: VirtIO net init state machine
+    zero_init(cfg, CFG_SIZE);
+    let ir: i32 = init_virtio_net(cfg, 0xA000, 0xB000, 0xC000, 256);
+    if ir != 0 { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 10; }
+    let fs: u8 = *((cfg + CFG_DEVICE_STATUS) as &u8);
+    if fs != 15 { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 10; }
+    let qs: u16 = *((cfg + CFG_QUEUE_SELECT) as &u16);
+    if qs != 1 { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 10; }
+    let qe: u16 = *((cfg + CFG_QUEUE_ENABLE) as &u16);
+    if qe != 1 { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 10; }
+    let qd: u64 = *((cfg + CFG_QUEUE_DESC) as &u64);
+    if qd != 0xA000 { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 10; }
+
+    // T14: Two consecutive traps — desc[1] and avail.idx=2
+    let wqe_pay2: u64 = 0x00000005C0004000;
+    *((frame + FRAME_RSI) as &mut u64) = wqe_pay2;
+    *((frame + FRAME_RIP) as &mut u64) = orig_rip;
+    let r2: u32 = handle_page_fault(frame, cr2, manifest, desc_table, avail_ring, tx_state, notify);
+    if r2 != TRAP_EMULATED { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 10; }
+    let d1_addr: u64 = *((desc_table + DESC_SIZE) as &u64);
+    if d1_addr != wqe_pay2 { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 10; }
+    let ai2: u16 = *((avail_ring + AVAIL_IDX_OFF) as &u16);
+    if ai2 != 2 { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 10; }
+    let tc2: u64 = *((tx_state + 8) as &u64);
+    if tc2 != 2 { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 10; }
+
+    cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg);
+    return 0;
+}

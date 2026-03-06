@@ -1,0 +1,38 @@
+// ============================================================================
+// user/basalt/tensor/topology.salt
+// Sovereign Memory Topology — Compile-Time Locality Tags
+// ============================================================================
+//
+// These constants define where in the physical universe a block of
+// memory resides. They are injected into the FabricPtr struct to
+// dictate how .read() and .write() are lowered by the compiler.
+//
+// Tier 0 (LOC_ARENA): Local DRAM / CPU cache. Standard load/store.
+// Tier 1 (LOC_NVME):  Local PCIe SSD. NVMe DMA command queue.
+// Tier 2 (LOC_RDMA):  Remote DRAM via Ultra Ethernet / RoCE fabric.
+//
+// The compiler's -O3 pipeline (SCCP + dead-code elimination) will
+// constant-fold locality branches when the field is initialized
+// with a literal constant, achieving zero-cost dispatch.
+//
+// ============================================================================
+
+package user.basalt.tensor.topology
+
+// ============================================================================
+// Sovereign Memory Tiers
+// ============================================================================
+
+/// Local L1/L2/L3 cache or DRAM — standard CPU load/store
+pub const LOC_ARENA: u32 = 0;
+
+/// Local PCIe SSD — NVMe Submission Queue DMA
+pub const LOC_NVME: u32 = 1;
+
+/// Remote DRAM — Ultra Ethernet / RoCE RDMA Read
+pub const LOC_RDMA: u32 = 2;
+
+// ============================================================================
+// Tier Count (for validation)
+// ============================================================================
+pub const TIER_COUNT: u32 = 3;

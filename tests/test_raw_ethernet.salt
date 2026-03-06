@@ -1,0 +1,276 @@
+// =============================================================================
+// Test: Multi-Node Fabric & Raw Ethernet (v5.0.0)
+// =============================================================================
+//
+// Validates Layer 2 Ethernet framing, zero-copy encapsulation, MAC discovery,
+// node identity, and cross-node WQE transport.
+//
+//   T1:  Ethernet header — dest MAC at bytes [0..6)
+//   T2:  Ethernet header — src MAC at bytes [6..12)
+//   T3:  Ethernet header — EtherType 0x88B5 at bytes [12..14)
+//   T4:  WQE payload at offset 14 — control word
+//   T5:  WQE payload at offset 22 — payload word
+//   T6:  Parse EtherType from received frame
+//   T7:  Read WQE control from received frame
+//   T8:  Node identity — Router (last byte 0xAA → role=1)
+//   T9:  Node identity — Expert (last byte 0xBB → role=2)
+//   T10: Peer MAC — Router's peer is Expert
+//   T11: Peer MAC — Expert's peer is Router
+//   T12: Full encap+decap round-trip — format, parse, verify WQE
+//   T13: Two-frame pipeline — distinct WQEs in distinct buffers
+//   T14: VirtIO TX desclen — 30 bytes (14 header + 16 payload)
+//
+// Exit codes: 0=pass, 1=alloc, 2=header, 3=payload, 4=parse,
+//             5=node, 6=peer, 7=roundtrip, 8=pipeline
+// =============================================================================
+
+package main
+
+use std.core.ptr.Ptr
+
+extern fn malloc(size: i64) -> u64;
+extern fn free(ptr: u64);
+
+const ETH_HEADER_SIZE: u64 = 14;
+const WQE_SIZE: u64 = 16;
+const FRAME_SIZE: u64 = 30;
+const MAC_SIZE: u64 = 6;
+
+const ROLE_ROUTER: u8 = 1;
+const ROLE_EXPERT: u8 = 2;
+const ROLE_UNKNOWN: u8 = 0;
+
+const NODE_ID_OFFSET: u64 = 0x35000;
+const LOCAL_MAC_OFF: u64 = 0;
+const PEER_MAC_OFF: u64 = 6;
+const ROLE_OFF: u64 = 12;
+
+fn zero_init(addr: u64, size: u64) {
+    let mut i: u64 = 0;
+    while i < size { *((addr + i) as &mut u8) = 0; i = i + 1; }
+}
+
+fn write_router_mac(buf: u64) {
+    *((buf) as &mut u8) = 0x52;
+    *((buf + 1) as &mut u8) = 0x54;
+    *((buf + 2) as &mut u8) = 0x00;
+    *((buf + 3) as &mut u8) = 0x12;
+    *((buf + 4) as &mut u8) = 0x34;
+    *((buf + 5) as &mut u8) = 0xAA;
+}
+
+fn write_expert_mac(buf: u64) {
+    *((buf) as &mut u8) = 0x52;
+    *((buf + 1) as &mut u8) = 0x54;
+    *((buf + 2) as &mut u8) = 0x00;
+    *((buf + 3) as &mut u8) = 0x12;
+    *((buf + 4) as &mut u8) = 0x34;
+    *((buf + 5) as &mut u8) = 0xBB;
+}
+
+fn copy_mac(dest: u64, src: u64) {
+    let mut i: u64 = 0;
+    while i < 6 { *((dest + i) as &mut u8) = *((src + i) as &u8); i = i + 1; }
+}
+
+fn format_ethernet_header(buffer: u64, dest_mac: u64, src_mac: u64) {
+    copy_mac(buffer, dest_mac);
+    copy_mac(buffer + 6, src_mac);
+    *((buffer + 12) as &mut u8) = 0x88;
+    *((buffer + 13) as &mut u8) = 0xB5;
+}
+
+fn write_wqe_payload(buffer: u64, control: u64, payload: u64) {
+    *((buffer + ETH_HEADER_SIZE) as &mut u64) = control;
+    *((buffer + ETH_HEADER_SIZE + 8) as &mut u64) = payload;
+}
+
+fn parse_ethertype(buffer: u64) -> u16 {
+    let hi: u16 = (*((buffer + 12) as &u8)) as u16;
+    let lo: u16 = (*((buffer + 13) as &u8)) as u16;
+    return (hi << 8) | lo;
+}
+
+fn read_wqe_control(buffer: u64) -> u64 {
+    return *((buffer + ETH_HEADER_SIZE) as &u64);
+}
+
+fn read_wqe_payload(buffer: u64) -> u64 {
+    return *((buffer + ETH_HEADER_SIZE + 8) as &u64);
+}
+
+fn init_node_identity(arena: u64, device_cfg: u64) {
+    let nid: u64 = arena + NODE_ID_OFFSET;
+    let mut i: u64 = 0;
+    while i < 6 { *((nid + LOCAL_MAC_OFF + i) as &mut u8) = *((device_cfg + i) as &u8); i = i + 1; }
+
+    let last: u8 = *((nid + LOCAL_MAC_OFF + 5) as &u8);
+    if last == 0xAA { *((nid + ROLE_OFF) as &mut u8) = ROLE_ROUTER; }
+    else if last == 0xBB { *((nid + ROLE_OFF) as &mut u8) = ROLE_EXPERT; }
+    else { *((nid + ROLE_OFF) as &mut u8) = ROLE_UNKNOWN; }
+
+    *((nid + PEER_MAC_OFF) as &mut u8) = 0x52;
+    *((nid + PEER_MAC_OFF + 1) as &mut u8) = 0x54;
+    *((nid + PEER_MAC_OFF + 2) as &mut u8) = 0x00;
+    *((nid + PEER_MAC_OFF + 3) as &mut u8) = 0x12;
+    *((nid + PEER_MAC_OFF + 4) as &mut u8) = 0x34;
+    if last == 0xAA { *((nid + PEER_MAC_OFF + 5) as &mut u8) = 0xBB; }
+    else { *((nid + PEER_MAC_OFF + 5) as &mut u8) = 0xAA; }
+}
+
+fn main() -> i32 {
+    // Allocate test resources
+    let frame1: u64 = malloc(64);
+    let frame2: u64 = malloc(64);
+    let src: u64 = malloc(8);
+    let dest: u64 = malloc(8);
+    let dev_cfg: u64 = malloc(8);
+    // Arena large enough for NODE_ID area
+    let arena: u64 = malloc(0x36000);
+
+    if frame1 == 0 || frame2 == 0 || src == 0 || dest == 0 ||
+       dev_cfg == 0 || arena == 0 { return 1; }
+
+    zero_init(frame1, 64);
+    zero_init(frame2, 64);
+    zero_init(arena, 0x36000);
+
+    // =========================================================================
+    // T1-T3: Ethernet Header
+    // =========================================================================
+    write_expert_mac(dest);   // dest = BB
+    write_router_mac(src);    // src = AA
+
+    format_ethernet_header(frame1, dest, src);
+
+    // T1: dest MAC at [0..6) = 52:54:00:12:34:BB
+    if *((frame1) as &u8) != 0x52 { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 2; }
+    if *((frame1 + 5) as &u8) != 0xBB { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 2; }
+
+    // T2: src MAC at [6..12) = 52:54:00:12:34:AA
+    if *((frame1 + 6) as &u8) != 0x52 { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 2; }
+    if *((frame1 + 11) as &u8) != 0xAA { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 2; }
+
+    // T3: EtherType at [12..14) = 0x88, 0xB5
+    if *((frame1 + 12) as &u8) != 0x88 { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 2; }
+    if *((frame1 + 13) as &u8) != 0xB5 { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 2; }
+
+    // =========================================================================
+    // T4-T5: WQE Payload at offset 14
+    // =========================================================================
+    let wqe_ctrl: u64 = 0x0000000200000000 | 42;
+    let wqe_pay: u64 = 0x00000003E0002000;
+    write_wqe_payload(frame1, wqe_ctrl, wqe_pay);
+
+    // T4: control word at offset 14
+    let rd_ctrl: u64 = *((frame1 + ETH_HEADER_SIZE) as &u64);
+    if rd_ctrl != wqe_ctrl { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 3; }
+
+    // T5: payload word at offset 22
+    let rd_pay: u64 = *((frame1 + ETH_HEADER_SIZE + 8) as &u64);
+    if rd_pay != wqe_pay { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 3; }
+
+    // =========================================================================
+    // T6-T7: Parse from received frame
+    // =========================================================================
+    // T6: parse EtherType
+    let etype: u16 = parse_ethertype(frame1);
+    if etype != 0x88B5 { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 4; }
+
+    // T7: read WQE control
+    let parsed_ctrl: u64 = read_wqe_control(frame1);
+    if parsed_ctrl != wqe_ctrl { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 4; }
+
+    // =========================================================================
+    // T8-T9: Node Identity
+    // =========================================================================
+    // T8: Router
+    write_router_mac(dev_cfg);
+    init_node_identity(arena, dev_cfg);
+    let role_r: u8 = *((arena + NODE_ID_OFFSET + ROLE_OFF) as &u8);
+    if role_r != ROLE_ROUTER { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 5; }
+
+    // T9: Expert
+    zero_init(arena + NODE_ID_OFFSET, 16);
+    write_expert_mac(dev_cfg);
+    init_node_identity(arena, dev_cfg);
+    let role_e: u8 = *((arena + NODE_ID_OFFSET + ROLE_OFF) as &u8);
+    if role_e != ROLE_EXPERT { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 5; }
+
+    // =========================================================================
+    // T10-T11: Peer MAC
+    // =========================================================================
+    // T10: Expert's peer is Router (last byte = 0xAA)
+    let peer_last: u8 = *((arena + NODE_ID_OFFSET + PEER_MAC_OFF + 5) as &u8);
+    if peer_last != 0xAA { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 6; }
+
+    // T11: Router's peer is Expert
+    zero_init(arena + NODE_ID_OFFSET, 16);
+    write_router_mac(dev_cfg);
+    init_node_identity(arena, dev_cfg);
+    let peer_last2: u8 = *((arena + NODE_ID_OFFSET + PEER_MAC_OFF + 5) as &u8);
+    if peer_last2 != 0xBB { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 6; }
+
+    // =========================================================================
+    // T12: Full encap/decap round-trip
+    // =========================================================================
+    let local_mac: u64 = arena + NODE_ID_OFFSET + LOCAL_MAC_OFF;
+    let peer_mac: u64 = arena + NODE_ID_OFFSET + PEER_MAC_OFF;
+
+    zero_init(frame2, 64);
+    format_ethernet_header(frame2, peer_mac, local_mac);
+    write_wqe_payload(frame2, 0xCAFE000000000007, 0xBEEF000000000099);
+
+    // Verify round-trip: parse ethertype
+    let rt_etype: u16 = parse_ethertype(frame2);
+    if rt_etype != 0x88B5 { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 7; }
+
+    // Verify round-trip: read back WQE
+    let rt_ctrl: u64 = read_wqe_control(frame2);
+    if rt_ctrl != 0xCAFE000000000007 { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 7; }
+    let rt_pay: u64 = read_wqe_payload(frame2);
+    if rt_pay != 0xBEEF000000000099 { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 7; }
+
+    // Verify dest = peer (Expert: 0xBB)
+    let rt_dest_last: u8 = *((frame2 + 5) as &u8);
+    if rt_dest_last != 0xBB { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 7; }
+
+    // Verify src = local (Router: 0xAA)
+    let rt_src_last: u8 = *((frame2 + 11) as &u8);
+    if rt_src_last != 0xAA { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 7; }
+
+    // =========================================================================
+    // T13: Two distinct WQEs in distinct buffers
+    // =========================================================================
+    zero_init(frame1, 64);
+    zero_init(frame2, 64);
+
+    // Frame 1: token=42
+    format_ethernet_header(frame1, peer_mac, local_mac);
+    write_wqe_payload(frame1, 0x0000000200000000 | 42, 0xAAAA);
+
+    // Frame 2: token=99
+    format_ethernet_header(frame2, peer_mac, local_mac);
+    write_wqe_payload(frame2, 0x0000000200000000 | 99, 0xBBBB);
+
+    let f1_ctrl: u64 = read_wqe_control(frame1);
+    let f2_ctrl: u64 = read_wqe_control(frame2);
+    if f1_ctrl == f2_ctrl { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 8; }
+    let f1_pay: u64 = read_wqe_payload(frame1);
+    let f2_pay: u64 = read_wqe_payload(frame2);
+    if f1_pay != 0xAAAA || f2_pay != 0xBBBB { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 8; }
+
+    // =========================================================================
+    // T14: VirtIO TX descriptor length should be 30
+    // =========================================================================
+    let desc_len: u32 = (ETH_HEADER_SIZE + WQE_SIZE) as u32;
+    if desc_len != 30 { free(frame1); free(frame2); free(src); free(dest); free(dev_cfg); free(arena); return 8; }
+
+    free(frame1);
+    free(frame2);
+    free(src);
+    free(dest);
+    free(dev_cfg);
+    free(arena);
+    return 0;
+}

@@ -8,6 +8,11 @@ import kernel.arch.x86.tss
 import kernel.core.memory
 import kernel.core.vma
 import kernel.core.pulse
+// FFI bridges — bypass module mangling, link against @no_mangle symbols
+extern fn sys_cap_bind(flags: u64) -> u64;
+extern fn sys_ring_map(capability_id: u64) -> u64;
+extern fn sys_core_acquire(target_core_id: u64) -> u64;
+extern fn outw(port: u64, val: u64);
 
 
 extern fn proc_context_switch(old_rsp_ptr: u64, new_rsp: u64, new_cr3: u64, new_rsp0: u64);
@@ -69,8 +74,62 @@ pub fn handle_syscall(num: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
         return sys_mmap(arg0, arg1);
     } else if num == 12 {
         return sys_brk(arg0);
+    } else if num == 10 {
+        // SYS_CAP_BIND: arg0=flags
+        return sys_cap_bind(arg0);
+    } else if num == 11 {
+        // SYS_RING_MAP: arg0=capability_id
+        return sys_ring_map(arg0);
+    } else if num == 12 {
+        // SYS_CORE_ACQUIRE: arg0=target_core_id
+        return sys_core_acquire(arg0);
+    } else if num == 13 {
+        // SYS_IPC_REG_SEND: ENOSYS — fastpath module not yet linkable
+        return 0 - 1;
+    } else if num == 14 {
+        // SYS_IPC_AWAIT: ENOSYS — fastpath module not yet linkable
+        return 0 - 1;
     } else if num == 119 {
-        sched_yield();
+        moe_drain_bar();             // TX bridge: flush pending WQE before yielding
+        netcore_poll_all();          // RX bridge: poll for incoming packets
+        // I/O Pump: Safe VMEXIT via VirtIO Queue Notify (PCI PIO).
+        // This traps to KVM without enabling interrupts — no #DF risk.
+        virtio_notify_rx();          // Queue 0: remind QEMU to inject RX frames
+        virtio_notify_tx();          // Queue 1: remind QEMU to drain TX descriptors
+
+        // --- v6.2.26 Ring Diagnostics ---
+        let current_tx = virtio_net_get_tx_used();
+        if current_tx != LAST_TX_USED {
+            serial.print("[DIAG] TX frame consumed by QEMU! (used_idx=");
+            serial.print_u64(current_tx as u64);
+            serial.print(")\n");
+            LAST_TX_USED = current_tx;
+        }
+
+        let current_rx = virtio_net_get_rx_used();
+        if current_rx != LAST_RX_USED {
+            serial.print("[DIAG] RX packet deposited by QEMU! (used_idx=");
+            serial.print_u64(current_rx as u64);
+            serial.print(")\n");
+            LAST_RX_USED = current_rx;
+        }
+        // --------------------------------
+
+        // NO sched_yield() here — we are inside invoke_preemptive_thread's
+        // IRETQ context. Calling sched_yield() would corrupt ctx_ptr via
+        // stale IRETQ re-entry. SYSRET returns to Ring 3 naturally.
+
+        // Second RX poll — drain any frames QEMU deposited during the VMEXITs above.
+        // The first poll (line 94) runs BEFORE QEMU processes anything.
+        // The VMEXITs at lines 97-98 trigger QEMU's main loop which may
+        // inject new RX frames. This second poll catches those.
+        let rx2 = netcore_poll_all();
+        if rx2 > 0 {
+            serial.print("[DIAG] Post-VMEXIT RX poll caught ");
+            serial.print_u64(rx2 as u64);
+            serial.print(" frames\n");
+        }
+
         return 0;
     } else if num == 200 {
         // SYS_IPC_SEND: arg0=target_pid, arg1=msg0, arg2=msg1
@@ -84,6 +143,11 @@ pub fn handle_syscall(num: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
         // SYS_SHM_GRANT: arg0=target_pid, arg1=src_vaddr, arg2=dst_vaddr
         // Slow path doesn't receive R10 (num_pages), default to 1 page.
         return sys_shm_grant(arg0, arg1, arg2, 1);
+    } else if num == 99 {
+        // SYS_SHUTDOWN: Drain any pending WQE, then ACPI exit
+        moe_drain_bar();
+        outw(0x604, 0x2000);
+        return 0;
     }
     return 0;
 }
@@ -226,6 +290,125 @@ global KERNEL_PML4: u64 = 0;
 
 pub fn set_kernel_pml4(pml4: u64) {
     KERNEL_PML4 = pml4;
+}
+
+// =============================================================================
+// MoE TX Bridge — Zero-Copy WQE Dispatch
+// =============================================================================
+// These globals are wired by main.salt at boot time.
+global MOE_BAR_PTR: u64 = 0;
+global MOE_PEER_MAC: [u8; 6] = [0 as u8; 6];
+
+// v6.2.26 Ring Diagnostics — track device-written used_idx across yields
+global LAST_TX_USED: u16 = 0;
+global LAST_RX_USED: u16 = 0;
+
+const LATTICE_ETHERTYPE: u16 = 0x1A77;
+const MOE_PAYLOAD_SIZE: u32 = 2048;  // 16x16 f64 tensor = 2048 bytes
+
+// Scratch buffer for building outgoing Ethernet frames
+// Must not collide with netcore's scratch at 0xFFFFFFFF80470000
+const MOE_TX_SCRATCH: u64 = 0xFFFFFFFF80480000;
+
+@no_mangle
+pub fn syscall_set_moe_bar_ptr(ptr: u64) {
+    MOE_BAR_PTR = ptr;
+}
+
+@no_mangle
+pub fn syscall_set_moe_peer_mac(b0: u8, b1: u8, b2: u8, b3: u8, b4: u8, b5: u8) {
+    MOE_PEER_MAC[0] = b0;
+    MOE_PEER_MAC[1] = b1;
+    MOE_PEER_MAC[2] = b2;
+    MOE_PEER_MAC[3] = b3;
+    MOE_PEER_MAC[4] = b4;
+    MOE_PEER_MAC[5] = b5;
+}
+
+// =============================================================================
+// moe_drain_bar — Flush a pending WQE into a raw Ethernet frame
+// =============================================================================
+// Called from syscall 119 (sched_yield) before the coroutine sleeps.
+// Reads the WQE from the shared bar_ptr mailbox. If control != 0,
+// wraps the payload in a raw Ethernet frame with EtherType 0x1A77
+// and pushes it to VirtIO TX. Zeros the mailbox to prevent double-fire.
+// =============================================================================
+
+// Extern bindings — avoid importing virtio_net/eth (transitive import collision)
+extern fn virtio_net_get_mac_byte(idx: u64) -> u8;
+extern fn moe_net_tx_send(pkt: u64, pkt_len: u32) -> bool;
+extern fn netcore_poll_all() -> u32;
+extern fn virtio_notify_rx();
+extern fn virtio_notify_tx();
+extern fn virtio_net_get_tx_used() -> u16;
+extern fn virtio_net_get_rx_used() -> u16;
+extern fn idle_halt();
+
+fn moe_drain_bar() -> bool {
+    if MOE_BAR_PTR == 0 {
+        return false;
+    }
+
+    let control: u64 = *((MOE_BAR_PTR) as &u64);
+    if control == 0 {
+        return false;  // No pending WQE
+    }
+
+    serial.print("[MOE_TX] Draining bar, control=");
+    serial.print_u64(control);
+    serial.print("\n");
+
+    let payload_ptr: u64 = *((MOE_BAR_PTR + 8) as &u64);
+
+    // Build raw Ethernet frame at scratch buffer.
+    // NOTE: Do NOT prepend virtio_net_hdr here — net_tx_send() in
+    // virtio_net.salt already prepends a 10-byte zeroed header before
+    // copying this buffer into the TX DMA ring.
+    // Layout: [6 dst MAC] [6 src MAC] [2 EtherType] [16B WQE] [30B pad] = 60B
+
+    // 1. Destination MAC (peer)
+    let mut i: u32 = 0;
+    while i < 6 {
+        *((MOE_TX_SCRATCH + i as u64) as &mut u8) = MOE_PEER_MAC[i];
+        i = i + 1;
+    }
+
+    // 2. Source MAC (our MAC from virtio_net)
+    let mut j: u32 = 0;
+    while j < 6 {
+        *((MOE_TX_SCRATCH + 6 + j as u64) as &mut u8) = virtio_net_get_mac_byte(j as u64);
+        j = j + 1;
+    }
+
+    // 3. EtherType 0x1A77 (big-endian)
+    *((MOE_TX_SCRATCH + 12) as &mut u8) = 0x1A as u8;
+    *((MOE_TX_SCRATCH + 13) as &mut u8) = 0x77 as u8;
+
+    // 4. Pack the payload data into the frame body (offset 14)
+    // The WQE's payload_ptr points to actual data in VM memory.
+    // Dereference it and copy the first 8 bytes (the sentinel stamp)
+    // followed by the control word for diagnostic traceability.
+    // This ensures the RX handler receives actual data, not raw pointers.
+    let data_val: u64 = *((payload_ptr) as &u64);   // e.g. 0xDEADBEEFCAFEBABE
+    *((MOE_TX_SCRATCH + 14) as &mut u64) = data_val; // payload byte 0-7: actual data
+    *((MOE_TX_SCRATCH + 22) as &mut u64) = control;  // payload byte 8-15: control word
+
+    // 5. IEEE 802.3: Pad to minimum 60-byte Ethernet frame
+    let mut p: u32 = 30;
+    while p < 60 {
+        *((MOE_TX_SCRATCH + p as u64) as &mut u8) = 0;
+        p = p + 1;
+    }
+
+    serial.print("[MOE_TX] Sending 60B Eth (net_tx_send adds vnet_hdr)\n");
+
+    moe_net_tx_send(MOE_TX_SCRATCH, 60);
+
+    // Zero the mailbox — prevent double-fire
+    *((MOE_BAR_PTR) as &mut u64) = 0;
+    *((MOE_BAR_PTR + 8) as &mut u64) = 0;
+
+    return true;
 }
 
 // =============================================================================

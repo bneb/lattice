@@ -135,6 +135,22 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
     
     registry.register(crate::registry::ModuleInfo::new(&main_pkg));
 
+    // [PRELUDE] Inject implicit stdlib imports for built-in types.
+    // Ptr<T> is a built-in type whose methods (write, read, offset) live in std/core/ptr.salt.
+    // Without this import, standalone files can use Ptr<T> but can't call its methods.
+    // This acts as Salt's implicit prelude, similar to Rust's std::prelude.
+    {
+        let prelude_imports = [
+            "use std::core::ptr::*;",
+        ];
+        for import_str in &prelude_imports {
+            let processed = crate::preprocess(import_str);
+            if let Ok(parsed) = syn::parse_str::<crate::grammar::SaltFile>(&processed) {
+                file.imports.extend(parsed.imports);
+            }
+        }
+    }
+
     load_imports(&file, &mut registry);
 
     match crate::compile_ast(&mut file, release_mode, Some(&registry), skip_scan, vverify, disable_alias_scopes, no_verify, lib_mode, sip_mode, debug_info, &path) {

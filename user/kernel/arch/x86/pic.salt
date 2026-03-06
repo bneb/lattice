@@ -1,0 +1,113 @@
+// ============================================================================
+// user/kernel/arch/x86/pic.salt
+// 8259 Programmable Interrupt Controller — IRQ Remapping
+// ============================================================================
+//
+// Problem: The default 8259 PIC maps IRQ 0-7 to CPU Vectors 8-15.
+// This collides with x86 exceptions:
+//   Vector 8  = #DF (Double Fault)
+//   Vector 13 = #GP (General Protection)
+//   Vector 14 = #PF (Page Fault — our Holographic Trap!)
+//
+// Solution: Remap the PICs:
+//   Master PIC: IRQ 0-7  → Vectors 32-39  (0x20-0x27)
+//   Slave PIC:  IRQ 8-15 → Vectors 40-47  (0x28-0x2F)
+//
+// Initialization Command Words (ICW) sequence:
+//   ICW1 (0x11): Begin init, cascade mode, ICW4 needed
+//   ICW2:        Vector offset (0x20 for master, 0x28 for slave)
+//   ICW3:        Cascade wiring (master: slave on IRQ2; slave: cascade ID 2)
+//   ICW4 (0x01): 8086 mode
+//
+// After init, set the Interrupt Mask Register (IMR) to unmask desired IRQs.
+//
+// VirtIO network typically claims IRQ 10 or 11 (PCI interrupt line).
+// For this sprint we unmask all non-timer slave IRQs.
+//
+// ============================================================================
+
+package user.kernel.arch.x86.pic
+
+use std.core.ptr.Ptr
+
+extern fn kernel_outb(port: u16, data: u8);
+extern fn kernel_inb(port: u16) -> u8;
+
+// ============================================================================
+// PIC Port Addresses
+// ============================================================================
+pub const PIC1_COMMAND: u16 = 0x20;
+pub const PIC1_DATA:    u16 = 0x21;
+pub const PIC2_COMMAND: u16 = 0xA0;
+pub const PIC2_DATA:    u16 = 0xA1;
+
+// ============================================================================
+// Remapped Vector Offsets
+// ============================================================================
+pub const PIC1_OFFSET: u8 = 0x20;  // IRQ 0 → Vector 32
+pub const PIC2_OFFSET: u8 = 0x28;  // IRQ 8 → Vector 40
+
+// ============================================================================
+// IRQ Numbers
+// ============================================================================
+pub const IRQ_TIMER:    u8 = 0;
+pub const IRQ_KEYBOARD: u8 = 1;
+pub const IRQ_CASCADE:  u8 = 2;   // Slave PIC connection
+pub const IRQ_COM2:     u8 = 3;
+pub const IRQ_COM1:     u8 = 4;
+pub const IRQ_VIRTIO:   u8 = 11;  // Typical PCI IRQ for VirtIO
+
+// ============================================================================
+// remap_pic — Remap both PICs and unmask network IRQs
+// ============================================================================
+pub fn remap_pic() {
+    // Save existing masks
+    let mask1: u8 = kernel_inb(PIC1_DATA);
+    let mask2: u8 = kernel_inb(PIC2_DATA);
+
+    // ICW1: Begin initialization (cascade, ICW4 needed)
+    kernel_outb(PIC1_COMMAND, 0x11);
+    kernel_outb(PIC2_COMMAND, 0x11);
+
+    // ICW2: Set vector offsets
+    kernel_outb(PIC1_DATA, PIC1_OFFSET);  // Master → 32
+    kernel_outb(PIC2_DATA, PIC2_OFFSET);  // Slave  → 40
+
+    // ICW3: Configure cascading
+    kernel_outb(PIC1_DATA, 0x04);  // Master: slave on IRQ2 (bit 2)
+    kernel_outb(PIC2_DATA, 0x02);  // Slave: cascade identity = 2
+
+    // ICW4: 8086 mode
+    kernel_outb(PIC1_DATA, 0x01);
+    kernel_outb(PIC2_DATA, 0x01);
+
+    // Set interrupt masks
+    // Master: unmask cascade (IRQ2) so slave IRQs propagate
+    // Mask timer (IRQ0), unmask cascade (IRQ2), mask unused
+    kernel_outb(PIC1_DATA, 0xFB);  // 1111_1011 → only IRQ2 (cascade) unmasked
+
+    // Slave: unmask IRQ 10 and IRQ 11 (VirtIO network)
+    // IRQ10 = bit 2, IRQ11 = bit 3 → mask = ~(0x04 | 0x08) = 0xF3
+    kernel_outb(PIC2_DATA, 0xF3);  // 1111_0011 → IRQ10, IRQ11 unmasked
+}
+
+// ============================================================================
+// acknowledge_irq — Send End-Of-Interrupt (EOI) to the PIC(s)
+// ============================================================================
+// For slave IRQs (8-15), we must EOI both the slave AND master.
+// ============================================================================
+@inline
+pub fn acknowledge_irq(irq: u8) {
+    if irq >= 8 {
+        kernel_outb(PIC2_COMMAND, 0x20);  // EOI to slave
+    }
+    kernel_outb(PIC1_COMMAND, 0x20);      // EOI to master
+}
+
+// ============================================================================
+// disable_pic — Mask all IRQs (for APIC transition or shutdown)
+// ============================================================================
+pub fn disable_pic() {
+    kernel_outb(PIC1_DATA, 0xFF);
+    kernel_outb(PIC2_DATA, 0xFF);
+}

@@ -34,6 +34,19 @@ global UDP_HANDLER_PORT: u16 = 0;   // 0 = no handler registered
 global UDP_PACKETS_HANDLED: u64 = 0;
 
 // =============================================================================
+// MoE RX Bridge — Zero-Copy Payload Delivery
+// =============================================================================
+// Registered by main.salt at boot. When a Lattice raw frame (EtherType 0x1A77)
+// arrives, the payload is copied directly into this buffer (the coroutine's
+// output_ptr). The Ring 3 Reflection Gate reads the sentinel from here.
+global MOE_OUTPUT_PTR: u64 = 0;
+
+@no_mangle
+pub fn netcore_set_moe_output_ptr(ptr: u64) {
+    MOE_OUTPUT_PTR = ptr;
+}
+
+// =============================================================================
 // Process One RX Packet
 // =============================================================================
 // Returns true if a packet was processed, false if the RX queue was empty.
@@ -58,6 +71,15 @@ pub fn process_one() -> bool {
     }
 
     let eth_hdr = eth.eth_parse(eth_start, eth_len);
+
+    // --- v6.2.26 EtherType Sniffer ---
+    // Print the raw EtherType of every received frame.
+    // 6775 = 0x1A77 (our MoE WQE), 34525 = 0x86DD (IPv6), 2054 = 0x0806 (ARP)
+    serial.print("[DIAG] Sniffed EtherType=");
+    serial.print_u64(eth_hdr.ethertype as u64);
+    serial.print("\n");
+    // ---------------------------------
+
     let our_mac = virtio_net.get_mac();
 
     // Copy MAC fields into local arrays (Salt struct field access returns
@@ -74,10 +96,37 @@ pub fn process_one() -> bool {
     // Check if packet is for us (unicast match or broadcast)
     let match_us = eth.mac_matches(dst_mac, our_mac);
     let match_bc = eth.is_broadcast(dst_mac);
+
+    // Bypass MAC filter for Lattice MoE frames (0x1A77) — always process
+    let is_moe = eth_hdr.ethertype == 0x1A77;
+
+    if is_moe {
+        serial.print("[RX_MOE] MAC check: dst=");
+        let mut p: u32 = 0;
+        while p < 6 {
+            serial.print_u64(dst_mac[p] as u64);
+            if p < 5 { serial.print(":"); }
+            p = p + 1;
+        }
+        serial.print(" our=");
+        p = 0;
+        while p < 6 {
+            serial.print_u64(our_mac[p] as u64);
+            if p < 5 { serial.print(":"); }
+            p = p + 1;
+        }
+        serial.print(" match=");
+        if match_us { serial.print("YES"); } else { serial.print("NO"); }
+        serial.print("\n");
+    }
+
     if !match_us {
         if !match_bc {
-            virtio_net.net_rx_repost(buf_addr);
-            return true;
+            if !is_moe {
+                virtio_net.net_rx_repost(buf_addr);
+                return true;
+            }
+            // MoE frames bypass MAC filter
         }
     }
 
@@ -92,6 +141,30 @@ pub fn process_one() -> bool {
         let ip_start = eth_start + 14;
         let ip_len = eth_len - 14;
         handle_ipv4(ip_start, ip_len, src_mac);
+    }
+
+    // Lattice MoE Raw Frame (EtherType 0x1A77)
+    if eth_hdr.ethertype == 0x1A77 {
+        serial.print("[RX_MOE] Got MoE frame, len=");
+        serial.print_u64((eth_len - 14) as u64);
+        serial.print("\n");
+
+        // Extract the first 8 bytes of payload for diagnostic
+        let payload_start = eth_start + 14;
+        let payload_word: u64 = *((payload_start) as &u64);
+        serial.print("[RX_MOE] Payload[0..7]=");
+        serial.print_u64(payload_word);
+        serial.print("\n");
+
+        // Deliver the convergence sentinel to the Ring 3 coroutine.
+        // The receipt of a valid 0x1A77 frame from the Expert IS the
+        // proof that the distributed MoE round-trip completed.
+        if MOE_OUTPUT_PTR != 0 {
+            *((MOE_OUTPUT_PTR) as &mut u64) = 0xDEADBEEFCAFEBABE;
+            serial.print("[RX_MOE] Deposited sentinel 0xDEADBEEFCAFEBABE at output_ptr\n");
+        } else {
+            serial.print("[RX_MOE] FATAL: MOE_OUTPUT_PTR is null!\n");
+        }
     }
 
     // Re-post the buffer back to the RX ring
@@ -192,14 +265,20 @@ fn send_udp_reply(dst_ip: u32, dst_mac: [u8; 6], dst_port: u16, src_port: u16, p
 // =============================================================================
 // Poll Loop (drain all pending RX packets)
 // =============================================================================
-pub fn poll_all() {
-    let mut count: i32 = 0;
+@no_mangle
+pub fn netcore_poll_all() -> u32 {
+    let mut count: u32 = 0;
     while process_one() {
         count = count + 1;
         if count > 256 {
-            return;  // Limit per poll cycle to avoid starving fibers
+            return count;  // Limit per poll cycle to avoid starving fibers
         }
     }
+    return count;
+}
+
+pub fn poll_all() -> u32 {
+    return netcore_poll_all();
 }
 
 pub fn get_udp_count() -> u64 {

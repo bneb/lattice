@@ -356,6 +356,7 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
              // [SOVEREIGN V2.0]: Native Pointer Indexing
              // This replaces the legacy "NativePtr" string-matching logic.
              Type::Pointer { ref element, .. } | Type::Reference(ref element, _) => {
+                 // [DEBUG] Trace array-ref indexing path
                  // [ZERO-TRUST INDEX EVALUATION] Pass None to sever Context Contamination
                  let idx_expr = &*i.index;
                  let (raw_idx_val, raw_idx_ty) = emit_expr(ctx, out, idx_expr, local_vars, None)?;
@@ -389,6 +390,18 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
                       }
                   };
                  
+                  // [ARRAY-REF FIX] Handle Reference(Array(T, N)) - read index into array element
+                  // When element is Array(I32, 10, false), use [0, idx] GEP and return element type
+                  if let Type::Array(ref arr_elem, _, _) = **element {
+                      let arr_mlir = element.to_mlir_type(ctx)?;
+                      let elem_ptr = format!("%ref_arr_elem_ptr_{}", ctx.next_id());
+                      out.push_str(&format!("    {} = llvm.getelementptr {}[0, {}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n",
+                          elem_ptr, ptr_for_gep, idx_final, arr_mlir));
+                      let load_res = format!("%ref_arr_val_{}", ctx.next_id());
+                      ctx.emit_load_logical(out, &load_res, &elem_ptr, arr_elem.as_ref())?;
+                      return Ok((load_res, (**arr_elem).clone()));
+                  }
+
                  let res = format!("%ptr_idx_{}", ctx.next_id());
                  let elem_mlir = element.to_mlir_storage_type(ctx)?;
 
@@ -665,6 +678,7 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
     }
 
     // Fallback R-Value (Handles basic pointers and arrays)
+    eprintln!("EMIT_INDEX_FALLBACK_RVALUE");
     let (base_val, base_ty) = emit_expr(ctx, out, &i.expr, local_vars, None)?;
     let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I64))?;
     let idx_prom = promote_numeric(ctx, out, &idx_val, &idx_ty, &Type::I64)?;

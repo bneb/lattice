@@ -1,0 +1,113 @@
+// ============================================================================
+// kernel/lattice/hw/pcie_enum.salt
+// PCIe Bus Enumerator — Device Discovery & BAR Extraction
+// ============================================================================
+//
+// Scans the PCIe bus via ECAM for a specific Vendor/Device ID.
+// When found, extracts the 64-bit BAR0 physical address where the
+// device's MMIO registers live.
+//
+// 64-bit BAR Layout (Type 2):
+//   BAR0 (0x10): [31:4] = Address Low | [3] = Prefetchable | [2:1] = Type | [0] = 0 (Memory)
+//   BAR1 (0x14): [31:0] = Address High
+//   Physical Address = (BAR1 << 32) | (BAR0 & 0xFFFFFFF0)
+//
+// ============================================================================
+
+package kernel.lattice.hw.pcie_enum
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// HardwareResource — Discovered PCIe Device Info
+// ============================================================================
+pub struct HardwareResource {
+    /// 64-bit physical address of BAR0 MMIO region
+    pub physical_address: u64,
+    /// PCI Vendor ID (e.g., 0x10DE = NVIDIA, 0x15B3 = Mellanox)
+    pub vendor_id: u32,
+    /// PCI Device ID (e.g., 0x2204 = GA102, 0x1017 = ConnectX-5)
+    pub device_id: u32,
+    /// Bus/Device/Function where the device was found
+    pub bus: u32,
+    pub device: u32,
+}
+
+// ============================================================================
+// discover_device_bar — Scan PCIe Bus for a Target Device
+// ============================================================================
+// Scans bus 0..max_bus, device 0..32 for a matching vendor/device ID.
+// Returns a HardwareResource with the BAR0 address, or a sentinel
+// with physical_address = 0 if not found.
+//
+// Parameters:
+//   ecam_base: Ptr<u32> pointing to the ECAM memory region
+//   target_vendor: PCI Vendor ID to search for
+//   target_device: PCI Device ID to search for
+//   max_bus: Maximum bus number to scan (typically 255)
+//
+// Returns: HardwareResource (physical_address = 0 means not found)
+// ============================================================================
+pub fn discover_device_bar(
+    ecam_base: Ptr<u32>,
+    target_vendor: u32,
+    target_device: u32,
+    max_bus: u32
+) -> HardwareResource {
+    let mut bus: u32 = 0;
+    while bus < max_bus {
+        let mut dev: u32 = 0;
+        while dev < 32 {
+            // Read Vendor/Device ID register (offset 0x00)
+            let byte_off: u32 = (bus << 20) | (dev << 15) | (0 << 12) | 0;
+            let word_off: i64 = (byte_off / 4) as i64;
+            let id_reg: u32 = ecam_base.offset(word_off).read();
+
+            let vendor: u32 = id_reg & 0xFFFF;
+            let dev_id: u32 = (id_reg >> 16) & 0xFFFF;
+
+            // 0xFFFF = no device present
+            if vendor != 0xFFFF {
+                if vendor == target_vendor {
+                    if dev_id == target_device {
+                        // Device found — extract 64-bit BAR0
+                        // BAR0 Low: register 0x10
+                        let bar0_byte_off: u32 = (bus << 20) | (dev << 15) | (0 << 12) | 0x10;
+                        let bar0_word_off: i64 = (bar0_byte_off / 4) as i64;
+                        let bar0_low: u32 = ecam_base.offset(bar0_word_off).read();
+
+                        // BAR0 High: register 0x14
+                        let bar1_byte_off: u32 = (bus << 20) | (dev << 15) | (0 << 12) | 0x14;
+                        let bar1_word_off: i64 = (bar1_byte_off / 4) as i64;
+                        let bar0_high: u32 = ecam_base.offset(bar1_word_off).read();
+
+                        // Mask lower 4 bits of BAR0 Low (type/prefetch flags)
+                        let phys_low: u64 = (bar0_low & 0xFFFFFFF0) as u64;
+                        let phys_high: u64 = (bar0_high as u64) << 32;
+                        let physical_addr: u64 = phys_high | phys_low;
+
+                        return HardwareResource {
+                            physical_address: physical_addr,
+                            vendor_id: vendor,
+                            device_id: dev_id,
+                            bus: bus,
+                            device: dev,
+                        };
+                    }
+                }
+            }
+
+            dev = dev + 1;
+        }
+        bus = bus + 1;
+    }
+
+    // Not found — return sentinel
+    return HardwareResource {
+        physical_address: 0,
+        vendor_id: 0,
+        device_id: 0,
+        bus: 0,
+        device: 0,
+    };
+}

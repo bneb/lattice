@@ -1,0 +1,83 @@
+// ============================================================================
+// user/kernel/drivers/uart.salt
+// 16550 UART Driver — COM1 Serial Port (115200 8N1)
+// ============================================================================
+//
+// The 16550 UART is the universal serial interface on x86. COM1 lives
+// at I/O port 0x3F8. QEMU's -nographic flag routes this to the host
+// terminal's stdin/stdout.
+//
+// Register Map (COM1 base = 0x3F8):
+//   +0  THR/RBR    Transmit/Receive Buffer (DLAB=0)
+//   +0  DLL        Divisor Latch Low       (DLAB=1)
+//   +1  IER        Interrupt Enable         (DLAB=0)
+//   +1  DLH        Divisor Latch High       (DLAB=1)
+//   +2  IIR/FCR    Interrupt ID / FIFO Control
+//   +3  LCR        Line Control Register
+//   +4  MCR        Modem Control Register
+//   +5  LSR        Line Status Register
+//   +6  MSR        Modem Status Register
+//   +7  SR         Scratch Register
+//
+// Initialization (8N1, 115200 baud):
+//   1. Disable interrupts (IER = 0x00)
+//   2. Set DLAB (LCR bit 7 = 1) to access divisor
+//   3. Set divisor = 1 (115200 = 1843200 / (16 × 1))
+//   4. Lock LCR to 8N1 (0x03: 8 data bits, no parity, 1 stop)
+//   5. Enable FIFO with 14-byte threshold (FCR = 0xC7)
+//   6. Set RTS/DSR + OUT2 for IRQ routing (MCR = 0x0B)
+//
+// ============================================================================
+
+package user.kernel.drivers.uart
+
+use std.core.ptr.Ptr
+
+// ============================================================================
+// Port I/O — mockable extern functions
+// ============================================================================
+extern fn kernel_outb(port: u16, data: u8);
+extern fn kernel_inb(port: u16) -> u8;
+
+// ============================================================================
+// COM1 Constants
+// ============================================================================
+pub const COM1: u16 = 0x3F8;
+
+pub const COM1_THR: u16 = 0x3F8;  // Transmit Holding Register
+pub const COM1_IER: u16 = 0x3F9;  // Interrupt Enable
+pub const COM1_FCR: u16 = 0x3FA;  // FIFO Control
+pub const COM1_LCR: u16 = 0x3FB;  // Line Control
+pub const COM1_MCR: u16 = 0x3FC;  // Modem Control
+pub const COM1_LSR: u16 = 0x3FD;  // Line Status
+
+// LSR bit masks
+pub const LSR_THRE: u8 = 0x20;  // Transmit Holding Register Empty (bit 5)
+
+// ============================================================================
+// init_serial — Configure COM1 to 115200 baud, 8N1
+// ============================================================================
+pub fn init_serial() {
+    kernel_outb(COM1_IER, 0x00);  // Disable all interrupts
+    kernel_outb(COM1_LCR, 0x80);  // Enable DLAB (set baud rate divisor)
+    kernel_outb(COM1_THR, 0x01);  // Set divisor to 1 (lo byte) = 115200 baud
+    kernel_outb(COM1_IER, 0x00);  // Divisor hi byte = 0
+    kernel_outb(COM1_LCR, 0x03);  // 8 bits, no parity, 1 stop bit (DLAB off)
+    kernel_outb(COM1_FCR, 0xC7);  // Enable FIFO, clear, 14-byte threshold
+    kernel_outb(COM1_MCR, 0x0B);  // IRQs enabled, RTS/DSR set
+}
+
+// ============================================================================
+// serial_write_byte — Block until UART ready, then transmit
+// ============================================================================
+// Spin-waits on LSR bit 5 (THRE) to avoid dropping bytes when the
+// CPU outpaces the 115200 baud wire rate.
+// ============================================================================
+@inline
+pub fn serial_write_byte(b: u8) {
+    // Wait for Transmit Holding Register to empty
+    while (kernel_inb(COM1_LSR) & LSR_THRE) == 0 {
+        // Spin — the UART is still transmitting
+    }
+    kernel_outb(COM1_THR, b);
+}
