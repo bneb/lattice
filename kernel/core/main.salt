@@ -111,7 +111,8 @@ extern fn syscall_set_moe_bar_ptr(ptr: u64);
 extern fn syscall_set_moe_peer_mac(b0: u8, b1: u8, b2: u8, b3: u8, b4: u8, b5: u8);
 
 // kernel/net/netcore.salt
-extern fn netcore_set_moe_output_ptr(ptr: u64);
+extern fn netcore_set_rx_notify(ptr: u64);
+extern fn map_user_page_extern(pml4_phys: u64, vaddr: u64, paddr: u64, flags: u64);
 
 // kernel/drivers/virtio_net.salt
 extern fn moe_net_init() -> bool;
@@ -140,19 +141,19 @@ pub fn salt_yield_check() {
 @no_mangle
 pub fn kmain(magic: u32, mb_info: &u8) {
     serial.init();
-    serial.print("LATTICE BOOT: Serial OK\n");
+    serial.print("KEUOS BOOT: Serial OK\n");
 
-    serial.print("LATTICE BOOT: GDT...\n");
+    serial.print("KEUOS BOOT: GDT...\n");
     gdt_init();
-    serial.print("LATTICE BOOT: IDT...\n");
+    serial.print("KEUOS BOOT: IDT...\n");
     idt.init();
-    serial.print("LATTICE BOOT: PIT...\n");
+    serial.print("KEUOS BOOT: PIT...\n");
     pit_init();
 
     // SMP Bring-up: ACPI → APIC → AP Boot (with TDD assertions)
-    serial.print("LATTICE BOOT: SMP...\n");
+    serial.print("KEUOS BOOT: SMP...\n");
     let cpu_count = run_smp_tests();
-    serial.print("LATTICE BOOT: CPUs online: ");
+    serial.print("KEUOS BOOT: CPUs online: ");
     serial.print_u64(cpu_count);
     serial.print("\n");
 
@@ -165,15 +166,15 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     pmm_init_cpu_count(cpu_count);
     init_cores(cpu_count);
 
-    serial.print("LATTICE BOOT: Scheduler...\n");
+    serial.print("KEUOS BOOT: Scheduler...\n");
     sched_init();
 
     // PMM: 32MB-64MB physical (per mm_layout.salt)
-    serial.print("LATTICE BOOT: PMM...\n");
+    serial.print("KEUOS BOOT: PMM...\n");
     pmm_init(0x2000000, 0x4000000);
-    serial.print("LATTICE BOOT: Slab Cache...\n");
+    serial.print("KEUOS BOOT: Slab Cache...\n");
     slab_cache_init();
-    serial.print("LATTICE BOOT: VMA...\n");
+    serial.print("KEUOS BOOT: VMA...\n");
     vma_init();
 
     // =========================================================================
@@ -185,13 +186,13 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     // PMM returns page-aligned (4096) physical addresses, so
     // virt_base + 4096 is naturally 4096-byte aligned (thus 16-byte aligned).
     // =========================================================================
-    serial.print("LATTICE BOOT: IST Stacks...\n");
+    serial.print("KEUOS BOOT: IST Stacks...\n");
     let nmi_stack_phys = pmm_alloc();
     let df_stack_phys = pmm_alloc();
 
     // DIAGNOSTIC: Print raw physical addresses to verify they fall within
     // boot.S direct map coverage (first 1GB = 0x00000000..0x3FFFFFFF)
-    serial.print("LATTICE BOOT: IST NMI_PHYS=");
+    serial.print("KEUOS BOOT: IST NMI_PHYS=");
     serial.print_u64(nmi_stack_phys);
     serial.print(" DF_PHYS=");
     serial.print_u64(df_stack_phys);
@@ -204,39 +205,39 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     percpu_set_nmi_stack(0, nmi_stack_top);
     percpu_set_df_stack(0, df_stack_top);
 
-    serial.print("LATTICE BOOT: IST NMI_VIRT=");
+    serial.print("KEUOS BOOT: IST NMI_VIRT=");
     serial.print_u64(nmi_stack_top);
     serial.print(" DF_VIRT=");
     serial.print_u64(df_stack_top);
     serial.print("\n");
 
     // Run per-core sharding TDD tests
-    serial.print("LATTICE BOOT: Per-Core Tests...\n");
+    serial.print("KEUOS BOOT: Per-Core Tests...\n");
     run_percpu_tests();
 
-    serial.print("LATTICE BOOT: Async Fiber Tests...\n");
+    serial.print("KEUOS BOOT: Async Fiber Tests...\n");
     run_async_tests();
 
-    serial.print("LATTICE BOOT: Preemptive Unification Tests...\n");
+    serial.print("KEUOS BOOT: Preemptive Unification Tests...\n");
     run_preempt_tests();
 
-    serial.print("LATTICE KERNEL BOOT [OK] v6.2.28-TRACER\n");
+    serial.print("KEUOS KERNEL BOOT [OK] v6.2.28-TRACER\n");
 
     vga.clear();
-    vga.print_colored(" LATTICE OS v0.6.28-TRACER ", 0x1F);
+    vga.print_colored(" KEUOS OS v0.6.28-TRACER ", 0x1F);
     vga.print("\n");
 
     smp_release_aps();
     sched_start();
-    serial.print("[Lattice] PREEMPTIVE MODE\n");
+    serial.print("[KeuOS] PREEMPTIVE MODE\n");
 
     // =========================================================================
     // MODE B SIP — Ring 0 Software-Isolated Process (compiler-verified)
     // =========================================================================
-    serial.print("[Lattice] Loading Mode B SIP...\n");
+    serial.print("[KeuOS] Loading Mode B SIP...\n");
     let sip_elf = get_sip_elf_addr();
     let sip_fiber = elf_load_sip(sip_elf);
-    serial.print("[Lattice] SIP fiber spawned: ");
+    serial.print("[KeuOS] SIP fiber spawned: ");
     serial.print_u64(sip_fiber);
     serial.print("\n");
 
@@ -258,23 +259,23 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     let tss_addr = tss_get_tss_addr();
     gdt_init_ring3(tss_addr);
     gdt_load_ring3();
-    serial.print("[Lattice] GDT/TSS Ring 3 ready (IST1=NMI, IST2=DF)\n");
+    serial.print("[KeuOS] GDT/TSS Ring 3 ready (IST1=NMI, IST2=DF)\n");
 
     // Register NMI and #DF handlers with IST indices in the IDT
     // (Phase 2 — LIDT already called, updates live IDT in-place)
     idt_init_ist_gates();
-    serial.print("[Lattice] IST gates wired: NMI=0x02/IST1, DF=0x08/IST2\n");
+    serial.print("[KeuOS] IST gates wired: NMI=0x02/IST1, DF=0x08/IST2\n");
 
     // Enable PCID (CR4.PCIDE) — must happen AFTER GDT/TSS and BEFORE benchmarks.
     // Intel SDM: CR3[11:0] must be 0 when setting PCIDE (guaranteed at boot).
     enable_pcid();
-    serial.print("[Lattice] PCID enabled (CR4.PCIDE=1)\n");
+    serial.print("[KeuOS] PCID enabled (CR4.PCIDE=1)\n");
 
     // SYSCALL/SYSRET MSR programming (EFER.SCE, STAR, LSTAR, FMASK)
     // MUST be before bench_suite_run() — the E2E test does SYSCALL from Ring 3
     init_syscall_msrs();
     set_syscall_kernel_rsp0(kernel_rsp0);
-    serial.print("[Lattice] SYSCALL MSRs configured\n");
+    serial.print("[KeuOS] SYSCALL MSRs configured\n");
 
     // BENCHMARK SUITE — IST tests run first (test_ist_isolation), then Ring 3 TDD
     // v6.2.23-BenchBypass: Skip bench suite to isolate the network fabric.
@@ -289,12 +290,12 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     let task0_entry = get_kernel_event_loop_addr();
     let slot_task0 = exec_spawn_kernel_thread(task0_entry, kernel_pml4);
     process_set_state(slot_task0, PROC_READY);
-    serial.print("[Lattice] Task 0 (dispatcher) spawned\n");
+    serial.print("[KeuOS] Task 0 (dispatcher) spawned\n");
 
     // =========================================================================
     // SPAWN MOE PIPELINE
     // =========================================================================
-    serial.print("[Lattice] SPAWNING MOE PIPELINE\n");
+    serial.print("[KeuOS] SPAWNING MOE PIPELINE\n");
 
     // =========================================================================
     // Initialize VirtIO network driver FIRST — we need the MAC to determine identity
@@ -303,7 +304,7 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     moe_enable_rx_interrupts();
 
     let mac_byte5 = virtio_net_get_mac_byte(5);
-    serial.print("[Lattice] MAC byte 5 = 0x");
+    serial.print("[KeuOS] MAC byte 5 = 0x");
     serial.print_u64(mac_byte5 as u64);
     serial.print("\n");
 
@@ -324,12 +325,12 @@ pub fn kmain(magic: u32, mb_info: &u8) {
 
     if mac_byte5 == 0xBB {
         // I am the Expert (Node B)
-        serial.print("[Lattice] Booting Node B (Expert)...\n");
+        serial.print("[KeuOS] Booting Node B (Expert)...\n");
         phase = 2;  // PHASE_EXPERT_LOAD_WEIGHTS
         syscall_set_moe_peer_mac(0x52 as u8, 0x54 as u8, 0x00 as u8, 0x12 as u8, 0x34 as u8, 0xAA as u8);
     } else {
         // I am the Router (Node A)
-        serial.print("[Lattice] Booting Node A (Router)...\n");
+        serial.print("[KeuOS] Booting Node A (Router)...\n");
         phase = 0;  // PHASE_LOAD_INPUT
         syscall_set_moe_peer_mac(0x52 as u8, 0x54 as u8, 0x00 as u8, 0x12 as u8, 0x34 as u8, 0xBB as u8);
     }
@@ -346,8 +347,38 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     // TX Bridge: Tell syscall.salt where the WQE mailbox is
     syscall_set_moe_bar_ptr(bar_ptr);
 
-    // RX Bridge: Tell netcore.salt where to deposit incoming payloads
-    netcore_set_moe_output_ptr(output_ptr);
+    // RX Notification Mailbox: Allocate from the shared page
+    // Layout: [buf_addr: u64 (8), pkt_len: u32 (4), frame_ready: u32 (4)] = 16B
+    let rx_notify_ptr = pb_virt + 640;
+    *((rx_notify_ptr) as &mut u64) = 0;      // buf_addr = 0 (no frame)
+    *((rx_notify_ptr + 8) as &mut u32) = 0;  // pkt_len = 0
+    *((rx_notify_ptr + 12) as &mut u32) = 0; // frame_ready = 0
+    netcore_set_rx_notify(rx_notify_ptr);
+
+    // =========================================================================
+    // Zero-Copy DMA: Map VirtIO RX buffer pool into Ring 3 address space
+    // =========================================================================
+    // RX_POOL_PHYS = 0x420000 (defined in virtio_net.salt)
+    // 64 buffers × 1524 bytes = 97,536 bytes = 24 pages (at 4KB)
+    let rx_pool_phys: u64 = 0x420000;
+    let rx_pool_vaddr: u64 = 0x40000000;  // 1GB mark in Ring 3 space
+    let rx_pool_pages: u64 = 24;
+    let mut pg: u64 = 0;
+    while pg < rx_pool_pages {
+        map_user_page_extern(
+            kernel_pml4,
+            rx_pool_vaddr + pg * 4096,
+            rx_pool_phys + pg * 4096,
+            0x7  // PRESENT | RW | USER
+        );
+        pg = pg + 1;
+    }
+    serial.print("[KeuOS] Mapped VirtIO RX pool at 0x40000000 (24 pages)\n");
+
+    // Store rx_notify_ptr and rx_pool_vaddr in the state struct
+    // STATE_RX_NOTIFY_PTR = Offset 72, STATE_RX_POOL_VADDR = Offset 80
+    *((state_ptr + 72) as &mut u64) = rx_notify_ptr;
+    *((state_ptr + 80) as &mut u64) = rx_pool_vaddr;
 
     let slot_a = exec_spawn_ring3_coroutine(
             (&moe_init_trampoline) as u64,
@@ -356,7 +387,7 @@ pub fn kmain(magic: u32, mb_info: &u8) {
             poll_ptr,
             kernel_pml4
         );
-    serial.print("[Lattice] MoE Pipeline spawned\n");
+    serial.print("[KeuOS] MoE Pipeline spawned\n");
 
     // Start first user process
     // NOTE: Guard removed — salt-opt SIGSEGV on cf.cond_br lowering.
@@ -375,7 +406,7 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     set_syscall_kernel_rsp0(new_rsp0);
 
     let dummy: u64 = 0;
-    serial.print("[Lattice] Switching to first process...\n");
+    serial.print("[KeuOS] Switching to first process...\n");
     proc_context_switch((&dummy) as u64, new_rsp, new_cr3, new_rsp0);
 
     // proc_context_switch never returns — execution continues in user process.

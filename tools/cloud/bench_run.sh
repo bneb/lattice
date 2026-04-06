@@ -8,6 +8,21 @@
 #   ./tools/cloud/bench_run.sh --fabric     # Multi-node fabric (Router + Expert)
 #
 # Takes ~2 seconds per iteration.
+#
+# Expected Serial Output (v6.3.0-ExokernelPurity):
+#   [KeuOS] Mapped VirtIO RX pool at 0x40000000 (24 pages)
+#   [KeuOS] MoE Pipeline spawned
+#   [DIAG] EtherType=<decimal>               # Kernel logs EtherType, nothing else
+#   [RX] Notified Ring 3: buf=0x... len=...  # Kernel hands off raw buffer
+#   [Ring 3] Distributed Convergence via Zero-Copy DMA   # Ring 3 parsed the frame
+#   <16-char hex dispatch_tsc>               # e.g. 00000000314B8510
+#   <16-char hex end_tsc>                    # e.g. 0000000033230010
+#   ACPI shutdown
+#
+# Failure indicators:
+#   - "[RX_MOE]" in output means kernel is still parsing (stale binary)
+#   - No "Ring 3" line means frame never reached userspace
+#   - No TSC lines means convergence was not detected
 # =============================================================================
 set -euo pipefail
 
@@ -107,8 +122,8 @@ set -e
 
 # 1. Ruthless cleanup of previous iteration state
 sudo pkill -9 qemu-system-x86_64 || true
-sudo ip link set br_lattice down 2>/dev/null || true
-sudo ip link delete br_lattice type bridge 2>/dev/null || true
+sudo ip link set br_keuos down 2>/dev/null || true
+sudo ip link delete br_keuos type bridge 2>/dev/null || true
 sudo ip link delete tap_a 2>/dev/null || true
 sudo ip link delete tap_b 2>/dev/null || true
 rm -f /tmp/qemu_node_a.pid /tmp/qemu_node_b.pid

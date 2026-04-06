@@ -3,7 +3,7 @@
 // NetD Daemon — Network Daemon IPC Dispatcher Stub
 // =============================================================================
 //
-// NetD is the Lattice network daemon, running as process slot 5.
+// NetD is the KeuOS network daemon, running as process slot 5.
 // It owns the VirtIO NIC and multiplexes packet I/O to application sockets
 // via shared-memory SPSC rings.
 //

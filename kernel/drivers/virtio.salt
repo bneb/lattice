@@ -5,7 +5,7 @@
 //
 // Implements the VirtIO "legacy" PCI interface used by QEMU's default
 // virtio-net-pci device. Legacy mode uses PCI I/O space (port-mapped BAR0)
-// rather than MMIO, which aligns with Lattice's existing port I/O primitives.
+// rather than MMIO, which aligns with KeuOS's existing port I/O primitives.
 //
 // VirtIO Legacy PCI Register Map (BAR0 offsets):
 //   0x00 - Device Features (R)

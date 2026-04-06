@@ -1,7 +1,7 @@
 // =============================================================================
 // Minimal freestanding Salt program — zero runtime dependencies.
 // =============================================================================
-// This is the simplest possible userspace program for the Lattice kernel.
+// This is the simplest possible userspace program for the KeuOS kernel.
 // It uses no println(), no exit(), no I/O — just pure computation.
 // The kernel's ELF loader will call main() and read the return code.
 

@@ -1,8 +1,8 @@
 #!/bin/bash
 # ============================================================================
-# Lattice Cloud Benchmark Runner
+# KeuOS Cloud Benchmark Runner
 # ============================================================================
-# Launches an AWS c5.metal spot instance, runs the Lattice kernel benchmark
+# Launches an AWS c5.metal spot instance, runs the KeuOS kernel benchmark
 # suite with KVM acceleration, captures results, and terminates the instance.
 #
 # Usage:
@@ -79,7 +79,7 @@ ssh_cmd() {
 
 echo ""
 echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}Lattice Kernel Benchmarks${NC} — AWS c5.metal / KVM        ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}KeuOS Kernel Benchmarks${NC} — AWS c5.metal / KVM        ${CYAN}║${NC}"
 echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -116,7 +116,7 @@ if [ -z "$SG_ID" ] || [ "$SG_ID" = "None" ]; then
     echo -e "${YELLOW}  Creating security group '${EC2_SECURITY_GROUP}'...${NC}"
     SG_ID=$(aws ec2 create-security-group \
         --group-name "$EC2_SECURITY_GROUP" \
-        --description "Lattice benchmark SSH access" \
+        --description "KeuOS benchmark SSH access" \
         --region "$AWS_REGION" \
         --query 'GroupId' \
         --output text)
@@ -151,7 +151,7 @@ else
         --region "$AWS_REGION" \
         --instance-market-options '{"MarketType":"spot","SpotOptions":{"MaxPrice":"'"$EC2_MAX_SPOT_PRICE"'","SpotInstanceType":"one-time"}}' \
         --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":30,"VolumeType":"gp3"}}]' \
-        --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=lattice-benchmark}]' \
+        --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=keuos-benchmark}]' \
         --query 'Instances[0].InstanceId' \
         --output text 2>/dev/null || echo "SPOT_FAILED")
 
@@ -164,7 +164,7 @@ else
             --security-group-ids "$SG_ID" \
             --region "$AWS_REGION" \
             --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":30,"VolumeType":"gp3"}}]' \
-            --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=lattice-benchmark}]' \
+            --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=keuos-benchmark}]' \
             --query 'Instances[0].InstanceId' \
             --output text)
         echo -e "${GREEN}  ✓ On-demand instance launched: ${INSTANCE_ID} (\$4.08/hr)${NC}"
@@ -206,7 +206,7 @@ fi
 echo -e "${YELLOW}[4/7]${NC} Syncing repository..."
 
 if $DRY_RUN; then
-    echo -e "${CYAN}[DRY RUN]${NC} Would rsync ${ROOT}/ to ${EC2_USER}@1.2.3.4:lattice/"
+    echo -e "${CYAN}[DRY RUN]${NC} Would rsync ${ROOT}/ to ${EC2_USER}@1.2.3.4:keuos/"
 else
     rsync -az --delete \
         --exclude '.git' \
@@ -221,7 +221,7 @@ else
         --exclude '.bench_basalt' \
         -e "ssh -i $EC2_KEY_PATH -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR" \
         "$ROOT/" \
-        "${EC2_USER}@${INSTANCE_IP}:lattice/"
+        "${EC2_USER}@${INSTANCE_IP}:keuos/"
 
     echo -e "${GREEN}  ✓ Repository synced${NC}"
 fi
@@ -233,7 +233,7 @@ if ! $SKIP_SETUP; then
     if $DRY_RUN; then
         echo -e "${CYAN}[DRY RUN]${NC} Would run setup_instance.sh on remote"
     else
-        ssh_cmd "bash lattice/tools/cloud/setup_instance.sh" 2>&1 | \
+        ssh_cmd "bash keuos/tools/cloud/setup_instance.sh" 2>&1 | \
             while IFS= read -r line; do
                 echo "  $line"
             done
@@ -253,7 +253,7 @@ if $DRY_RUN; then
     echo -e "${CYAN}[DRY RUN]${NC} Would run: python3 tools/runner_qemu.py run"
     BENCH_OUTPUT="[dry run — no output]"
 else
-    BENCH_OUTPUT=$(ssh_cmd "cd lattice && python3 tools/runner_qemu.py bench" 2>&1 || true)
+    BENCH_OUTPUT=$(ssh_cmd "cd keuos && python3 tools/runner_qemu.py bench" 2>&1 || true)
     echo "$BENCH_OUTPUT"
 fi
 

@@ -1,5 +1,5 @@
 // ============================================================================
-// kernel/lattice/hw/pcie_ecam.salt
+// kernel/keuos/hw/pcie_ecam.salt
 // PCIe Enhanced Configuration Access Mechanism (ECAM) — ARM64
 // ============================================================================
 //
@@ -13,7 +13,7 @@
 //
 // ============================================================================
 
-package kernel.lattice.hw.pcie_ecam
+package kernel.keuos.hw.pcie_ecam
 
 use std.core.ptr.Ptr
 

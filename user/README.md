@@ -1,9 +1,9 @@
 # User Space
 
-**The Mission:** The "Ring 3" applications that give Lattice its personality.
+**The Mission:** The "Ring 3" applications that give KeuOS its personality.
 
 ## Overview
-Lattice user space is unique: it is built using the same language and primitives (`Region`, `Channel`) as the kernel, but runs with restricted privileges.
+KeuOS user space is unique: it is built using the same language and primitives (`Region`, `Channel`) as the kernel, but runs with restricted privileges.
 
 ## Components
 

@@ -29,7 +29,7 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
             println!("  --release    Enable optimizations");
             println!("  --binary     Produce native Mach-O/ELF binary via Iron Driver");
             println!("  -c           Produce .o object file (like clang -c)");
-            println!("  --target T   Target: macos, linux-arm64, lattice, lattice-x86_64");
+            println!("  --target T   Target: macos, linux-arm64, keuos, keuos-x86_64");
             println!("  --verify     Run Z3 verification passes");
             println!("  --skip-scan  Skip import scanning");
             println!("  --lib        Library mode (no main entry point required)");
@@ -60,7 +60,7 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
                 target_name = Some(args[i+1].clone());
                 i += 1;
             } else {
-                anyhow::bail!("--target requires an argument (e.g. lattice, macos, linux-arm64)");
+                anyhow::bail!("--target requires an argument (e.g. keuos, macos, linux-arm64)");
             }
         } else if arg == "--disable-alias-scopes" {
             disable_alias_scopes = true;
@@ -197,21 +197,21 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
                 if let Some(ref t) = target_name {
                     driver = driver.with_target(
                         crate::driver::DriverTarget::from_str(t)
-                            .ok_or_else(|| anyhow::anyhow!("Unknown target: '{}'. Valid: macos, linux-arm64, lattice, lattice-x86_64", t))?
+                            .ok_or_else(|| anyhow::anyhow!("Unknown target: '{}'. Valid: macos, linux-arm64, keuos, keuos-x86_64", t))?
                     );
                 }
                 
                 eprintln!("🏛️  [Sovereign] Driving MLIR → native binary...");
                 eprintln!("    Target: {:?}", driver.target);
                 
-                let is_lattice = matches!(driver.target,
-                    crate::driver::DriverTarget::LatticeArm64 |
-                    crate::driver::DriverTarget::LatticeX86_64
+                let is_keuos = matches!(driver.target,
+                    crate::driver::DriverTarget::KeuOSArm64 |
+                    crate::driver::DriverTarget::KeuOSX86_64
                 );
 
-                let compile_result = if is_lattice {
+                let compile_result = if is_keuos {
                     eprintln!("    Linker: ld.lld (freestanding ELF)");
-                    driver.compile_lattice_binary(&mlir, basename)
+                    driver.compile_keuos_binary(&mlir, basename)
                 } else {
                     eprintln!("    Runtime: {:?}", driver.runtime_obj);
                     driver.compile(&mlir, basename)
@@ -259,7 +259,7 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
                 if let Some(ref t) = target_name {
                     driver = driver.with_target(
                         crate::driver::DriverTarget::from_str(t)
-                            .ok_or_else(|| anyhow::anyhow!("Unknown target: '{}'. Valid: macos, linux-arm64, lattice, lattice-x86_64", t))?
+                            .ok_or_else(|| anyhow::anyhow!("Unknown target: '{}'. Valid: macos, linux-arm64, keuos, keuos-x86_64", t))?
                     );
                 }
 

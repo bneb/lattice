@@ -4,7 +4,7 @@
 // ============================================================================
 //
 // The compile-time contract for zero-copy network transmission.
-// Any hardware fabric that Lattice supports (TCP, RDMA, DPDK, etc.)
+// Any hardware fabric that KeuOS supports (TCP, RDMA, DPDK, etc.)
 // must implement this trait.
 //
 // The compiler monomorphizes all generic functions bounded by
@@ -13,7 +13,7 @@
 //
 // Key Design Rule:
 //   ALL state must be encapsulated in the implementing struct.
-//   Global variables are FORBIDDEN — Lattice must support multiple
+//   Global variables are FORBIDDEN — KeuOS must support multiple
 //   concurrent fabric instances for multiplexed connections.
 //
 // ============================================================================

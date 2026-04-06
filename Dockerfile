@@ -1,5 +1,5 @@
 # =============================================================================
-# Lattice Microkernel + Salt Compiler — Linux Build Environment
+# KeuOS Microkernel + Salt Compiler — Linux Build Environment
 # =============================================================================
 # Ubuntu 24.04 (Noble) + LLVM 21 + Z3 + Rust
 #
@@ -12,8 +12,8 @@
 
 FROM ubuntu:24.04
 
-LABEL maintainer="Lattice Project"
-LABEL description="Reproducible Linux build environment for Salt + Lattice"
+LABEL maintainer="KeuOS Project"
+LABEL description="Reproducible Linux build environment for Salt + KeuOS"
 
 ENV DEBIAN_FRONTEND=noninteractive
 

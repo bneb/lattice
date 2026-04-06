@@ -1,6 +1,6 @@
 # Salt Dialect Definition
 
-**The Mission:** The "High-Level Assembly" of the Lattice ecosystem.
+**The Mission:** The "High-Level Assembly" of the KeuOS ecosystem.
 
 ## Overview
 This directory defines the `!salt` MLIR dialect. It acts as the bridge between the rich semantics of the Salt AST and the raw LLVM IR.

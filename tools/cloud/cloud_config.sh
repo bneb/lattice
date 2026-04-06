@@ -9,14 +9,14 @@
 AWS_REGION="us-east-1"
 
 # EC2 Key Pair — name of your SSH key pair (created via AWS Console or CLI)
-# Create one:  aws ec2 create-key-pair --key-name lattice-bench --query 'KeyMaterial' --output text > ~/.ssh/lattice-bench.pem && chmod 400 ~/.ssh/lattice-bench.pem
-EC2_KEY_NAME="lattice-bench"
-EC2_KEY_PATH="$HOME/.ssh/lattice-bench.pem"
+# Create one:  aws ec2 create-key-pair --key-name keuos-bench --query 'KeyMaterial' --output text > ~/.ssh/keuos-bench.pem && chmod 400 ~/.ssh/keuos-bench.pem
+EC2_KEY_NAME="keuos-bench"
+EC2_KEY_PATH="$HOME/.ssh/keuos-bench.pem"
 
 # Security Group — must allow SSH (port 22) from your IP
-# Create one:  aws ec2 create-security-group --group-name lattice-bench-sg --description "Lattice benchmark SSH access"
-#              aws ec2 authorize-security-group-ingress --group-name lattice-bench-sg --protocol tcp --port 22 --cidr $(curl -s ifconfig.me)/32
-EC2_SECURITY_GROUP="lattice-bench-sg"
+# Create one:  aws ec2 create-security-group --group-name keuos-bench-sg --description "KeuOS benchmark SSH access"
+#              aws ec2 authorize-security-group-ingress --group-name keuos-bench-sg --protocol tcp --port 22 --cidr $(curl -s ifconfig.me)/32
+EC2_SECURITY_GROUP="keuos-bench-sg"
 
 # Instance type — z1d.metal for bare-metal x86_64 with KVM (48 vCPUs, fits default quota)
 # c5.metal (96 vCPUs) requires a quota increase; z1d.metal works out of the box

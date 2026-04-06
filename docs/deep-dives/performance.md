@@ -1,4 +1,4 @@
-# Deep Dive: Performance & The Lattice Tax
+# Deep Dive: Performance & The KeuOS Tax
 
 Salt targets **C-parity or better** across all 22 tracked benchmarks (February 2026). This document explains the architectural decisions that make this possible.
 

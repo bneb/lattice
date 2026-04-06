@@ -886,7 +886,7 @@ pub fn run_netd_bench() {
     // Executive Summary
     // ═════════════════════════════════════════════════════════════════
     serial.print("══════════════════════════════════════════════════\n");
-    serial.print("  LATTICE NetD C10M BENCHMARK SUMMARY\n");
+    serial.print("  KEUOS NetD C10M BENCHMARK SUMMARY\n");
     serial.print("  Clock: ");
     serial.print_u64(tsc_mhz);
     serial.print(" MHz (CPUID leaf 0x16)\n");

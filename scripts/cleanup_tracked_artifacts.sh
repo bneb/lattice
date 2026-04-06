@@ -82,7 +82,7 @@ echo "=== Phase 7: Loose scratch files ==="
 git rm --cached -f --ignore-unmatch \
   mini_driver.c mini_test.c sieve_check.c test_utils.c \
   test.salt test_ptr.salt test_raw_vec_fix.salt test_tensor_ops.salt \
-  ipc_ping_pong.salt lattice_status.h pipeline.sh \
+  ipc_ping_pong.salt keuos_status.h pipeline.sh \
   fail_semantic_2.salt fail_semantic_4.salt fail_semantic_6.salt \
   fail_semantic_8.salt fail_semantic_472.salt fail_semantic_474.salt \
   fail_semantic_476.salt fail_semantic_478.salt fail_semantic_480.salt

@@ -11,13 +11,13 @@
     <meta property="og:description"
         content="A language where safety contracts are checked by Z3 at compile time. Arena memory, MLIR codegen, and performance that matches or outperforms C.">
     <meta property="og:type" content="website">
-    <meta property="og:url" content="https://bneb.github.io/lattice">
-    <meta property="og:image" content="https://bneb.github.io/lattice/og_image.png">
+    <meta property="og:url" content="https://bneb.github.io/keuos">
+    <meta property="og:image" content="https://bneb.github.io/keuos/og_image.png">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Salt: Systems programming, mathematically verified">
     <meta name="twitter:description"
         content="Preconditions and postconditions checked at compile time by Z3. Arena memory. MLIR codegen. Matches or beats clang -O3 on 18 of 22 benchmarks.">
-    <meta name="twitter:image" content="https://bneb.github.io/lattice/og_image.png">
+    <meta name="twitter:image" content="https://bneb.github.io/keuos/og_image.png">
     <meta name="twitter:title" content="Salt: Systems programming, mathematically verified">
     <meta name="twitter:description"
         content="Preconditions and postconditions checked at compile time by Z3. Arena memory. MLIR codegen. Matches or beats clang -O3 on 18 of 22 benchmarks.">
@@ -800,7 +800,7 @@
                 grid-template-columns: 1fr 1fr;
             }
 
-            /* Inline stat grids (Lattice kernel benchmarks) */
+            /* Inline stat grids (KeuOS kernel benchmarks) */
             [style*="grid-template-columns: repeat(3"] {
                 grid-template-columns: 1fr !important;
                 gap: 12px !important;
@@ -1368,7 +1368,7 @@
                 <a href="#tooling">Tooling</a>
                 <a href="./playground/" id="nav-playground">Playground</a>
                 <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">☀️</button>
-                <a href="https://github.com/bneb/lattice" class="nav-cta">⭐ GitHub</a>
+                <a href="https://github.com/bneb/keuos" class="nav-cta">⭐ GitHub</a>
             </div>
         </div>
     </nav>
@@ -1391,7 +1391,7 @@
                 Mathematical certainty.
             </p>
             <div class="hero-actions">
-                <a href="https://github.com/bneb/lattice" class="btn btn-primary">
+                <a href="https://github.com/bneb/keuos" class="btn btn-primary">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                         <path
                             d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
@@ -1474,7 +1474,7 @@
                                 <div class="stat-label">verified kernels</div>
                             </div>
                         </div>
-                        <a href="https://github.com/bneb/lattice/tree/main/basalt" class="project-link" target="_blank"
+                        <a href="https://github.com/bneb/keuos/tree/main/basalt" class="project-link" target="_blank"
                             rel="noopener">View source →</a>
                     </div>
                     <div class="code-window">
@@ -1505,7 +1505,7 @@
                 </div>
             </div>
 
-            <!-- LATTICE -->
+            <!-- KEUOS -->
             <div class="lettuce-section project-card">
                 <div class="lettuce-grid">
                     <div class="code-window">
@@ -1515,7 +1515,7 @@
                             <div class="code-dot g"></div>
                             <span class="code-filename">kmain.salt</span>
                         </div>
-                        <pre><span class="cmt">// Lattice kernel entry point</span>
+                        <pre><span class="cmt">// KeuOS kernel entry point</span>
 <span class="kw">@no_mangle</span>
 <span class="kw">pub fn</span> <span class="fn">kmain</span>(magic: <span class="ty">u32</span>, mb: &amp;<span class="ty">u8</span>) {
     serial.<span class="fn">init</span>();
@@ -1526,14 +1526,14 @@
     <span class="fn">percpu_init_bsp</span>();
     scheduler.<span class="fn">init</span>();
 
-    serial.<span class="fn">print</span>(<span class="str">"LATTICE BOOT [OK]\n"</span>);
+    serial.<span class="fn">print</span>(<span class="str">"KEUOS BOOT [OK]\n"</span>);
     scheduler.<span class="fn">start</span>();
     <span class="cmt">// Preemptive scheduling is live</span>
     <span class="fn">bench_suite_run</span>();
 }</pre>
                     </div>
                     <div>
-                        <h2>Lattice</h2>
+                        <h2>KeuOS</h2>
                         <p style="color: var(--text-muted); margin-top: 12px; line-height: 1.7;">
                             A sovereign microkernel that boots on real x86 hardware, written from scratch in Salt.
                             16-core SMP with Chase-Lev work-stealing, ACPI/APIC,
@@ -1562,13 +1562,13 @@
                                 <div class="stat-label">bare metal</div>
                             </div>
                         </div>
-                        <a href="https://github.com/bneb/lattice/tree/main/kernel" class="project-link" target="_blank"
+                        <a href="https://github.com/bneb/keuos/tree/main/kernel" class="project-link" target="_blank"
                             rel="noopener">View source →</a>
                     </div>
                 </div>
             </div>
 
-            <!-- LATTICE KERNEL BENCHMARKS -->
+            <!-- KEUOS KERNEL BENCHMARKS -->
             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 24px 0;">
                 <div class="stat-card"
                     style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; text-align: center;">
@@ -1626,7 +1626,7 @@
             <p style="font-size: 0.8rem; color: #545480; text-align: center; margin-bottom: 32px;">
                 Intel Xeon Platinum 8151 (Skylake, 4.0 GHz), AWS z1d.metal, QEMU/KVM.
                 <code>-enable-kvm -cpu host</code>.
-                <a href="https://github.com/bneb/lattice/blob/main/docs/LATTICE_BENCHMARKS.md"
+                <a href="https://github.com/bneb/keuos/blob/main/docs/KEUOS_BENCHMARKS.md"
                     style="color: var(--accent);">Full methodology →</a>
             </p>
 
@@ -1659,7 +1659,7 @@
                                 <div class="stat-label">bounds verified</div>
                             </div>
                         </div>
-                        <a href="https://github.com/bneb/lattice/blob/main/benchmarks/ml/sovereign_train.salt"
+                        <a href="https://github.com/bneb/keuos/blob/main/benchmarks/ml/sovereign_train.salt"
                             class="project-link" target="_blank" rel="noopener">View source →</a>
                     </div>
                     <div class="code-window">
@@ -1717,7 +1717,7 @@
                                 <div class="stat-label">external deps</div>
                             </div>
                         </div>
-                        <a href="https://github.com/bneb/lattice/tree/main/lettuce" class="project-link" target="_blank"
+                        <a href="https://github.com/bneb/keuos/tree/main/lettuce" class="project-link" target="_blank"
                             rel="noopener">View source →</a>
                     </div>
                     <div class="code-window">
@@ -1778,7 +1778,7 @@
                                 <div class="stat-label">GPU backend</div>
                             </div>
                         </div>
-                        <a href="https://github.com/bneb/lattice/tree/main/user/facet" class="project-link"
+                        <a href="https://github.com/bneb/keuos/tree/main/user/facet" class="project-link"
                             target="_blank" rel="noopener">View source →</a>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 16px;">
@@ -1850,7 +1850,7 @@
                                 <div class="stat-label">languages tested</div>
                             </div>
                         </div>
-                        <a href="https://github.com/bneb/lattice/tree/main/benchmarks/c10m" class="project-link"
+                        <a href="https://github.com/bneb/keuos/tree/main/benchmarks/c10m" class="project-link"
                             target="_blank" rel="noopener">View source →</a>
                     </div>
                     <div class="code-window">
@@ -1897,7 +1897,7 @@
             <p style="margin-top: 24px; font-size: 0.85rem; color: var(--text-muted);">
                 Platform: Apple M4, macOS ARM64. Baselines: C (<code>clang -O3</code>), Rust (<code>--release</code>).
                 Salt compiled with default flags. We publish everything.
-                <a href="https://github.com/bneb/lattice/blob/main/benchmarks/BENCHMARKS.md"
+                <a href="https://github.com/bneb/keuos/blob/main/benchmarks/BENCHMARKS.md"
                     style="color: var(--accent);">Full methodology and raw data →</a>
             </p>
         </div>
@@ -2174,105 +2174,105 @@ process(&amp;buf);     <span class="cmt">// ✗ compile error: use of moved valu
             </p>
 
             <div class="stdlib-grid">
-                <a class="stdlib-item-link" href="https://github.com/bneb/lattice/tree/main/salt-front/std/collections"
+                <a class="stdlib-item-link" href="https://github.com/bneb/keuos/tree/main/salt-front/std/collections"
                     target="_blank" rel="noopener">
                     <div class="stdlib-item">
                         <div class="name">std.collections</div>
                         <div class="desc">Vec, HashMap, Slab</div>
                     </div>
                 </a>
-                <a class="stdlib-item-link" href="https://github.com/bneb/lattice/blob/main/salt-front/std/string.salt"
+                <a class="stdlib-item-link" href="https://github.com/bneb/keuos/blob/main/salt-front/std/string.salt"
                     target="_blank" rel="noopener">
                     <div class="stdlib-item">
                         <div class="name">std.string</div>
                         <div class="desc">String, StringView, f-strings</div>
                     </div>
                 </a>
-                <a class="stdlib-item-link" href="https://github.com/bneb/lattice/tree/main/salt-front/std/net"
+                <a class="stdlib-item-link" href="https://github.com/bneb/keuos/tree/main/salt-front/std/net"
                     target="_blank" rel="noopener">
                     <div class="stdlib-item">
                         <div class="name">std.net</div>
                         <div class="desc">TCP, kqueue poller</div>
                     </div>
                 </a>
-                <a class="stdlib-item-link" href="https://github.com/bneb/lattice/tree/main/salt-front/std/http"
+                <a class="stdlib-item-link" href="https://github.com/bneb/keuos/tree/main/salt-front/std/http"
                     target="_blank" rel="noopener">
                     <div class="stdlib-item">
                         <div class="name">std.http</div>
                         <div class="desc">Client &amp; server</div>
                     </div>
                 </a>
-                <a class="stdlib-item-link" href="https://github.com/bneb/lattice/tree/main/salt-front/std/json"
+                <a class="stdlib-item-link" href="https://github.com/bneb/keuos/tree/main/salt-front/std/json"
                     target="_blank" rel="noopener">
                     <div class="stdlib-item">
                         <div class="name">std.json</div>
                         <div class="desc">JSON parse &amp; access</div>
                     </div>
                 </a>
-                <a class="stdlib-item-link" href="https://github.com/bneb/lattice/tree/main/salt-front/std/thread"
+                <a class="stdlib-item-link" href="https://github.com/bneb/keuos/tree/main/salt-front/std/thread"
                     target="_blank" rel="noopener">
                     <div class="stdlib-item">
                         <div class="name">std.thread</div>
                         <div class="desc">spawn, join</div>
                     </div>
                 </a>
-                <a class="stdlib-item-link" href="https://github.com/bneb/lattice/tree/main/salt-front/std/sync"
+                <a class="stdlib-item-link" href="https://github.com/bneb/keuos/tree/main/salt-front/std/sync"
                     target="_blank" rel="noopener">
                     <div class="stdlib-item">
                         <div class="name">std.sync</div>
                         <div class="desc">Mutex, AtomicI64</div>
                     </div>
                 </a>
-                <a class="stdlib-item-link" href="https://github.com/bneb/lattice/tree/main/salt-front/std/io"
+                <a class="stdlib-item-link" href="https://github.com/bneb/keuos/tree/main/salt-front/std/io"
                     target="_blank" rel="noopener">
                     <div class="stdlib-item">
                         <div class="name">std.io</div>
                         <div class="desc">File, BufferedWriter</div>
                     </div>
                 </a>
-                <a class="stdlib-item-link" href="https://github.com/bneb/lattice/tree/main/salt-front/std/math"
+                <a class="stdlib-item-link" href="https://github.com/bneb/keuos/tree/main/salt-front/std/math"
                     target="_blank" rel="noopener">
                     <div class="stdlib-item">
                         <div class="name">std.math</div>
                         <div class="desc">SIMD, transcendentals</div>
                     </div>
                 </a>
-                <a class="stdlib-item-link" href="https://github.com/bneb/lattice/tree/main/salt-front/std/nn"
+                <a class="stdlib-item-link" href="https://github.com/bneb/keuos/tree/main/salt-front/std/nn"
                     target="_blank" rel="noopener">
                     <div class="stdlib-item">
                         <div class="name">std.nn</div>
                         <div class="desc">relu, softmax, cross_entropy</div>
                     </div>
                 </a>
-                <a class="stdlib-item-link" href="https://github.com/bneb/lattice/tree/main/salt-front/std/crypto"
+                <a class="stdlib-item-link" href="https://github.com/bneb/keuos/tree/main/salt-front/std/crypto"
                     target="_blank" rel="noopener">
                     <div class="stdlib-item">
                         <div class="name">std.crypto</div>
                         <div class="desc">TLS bridge</div>
                     </div>
                 </a>
-                <a class="stdlib-item-link" href="https://github.com/bneb/lattice/tree/main/salt-front/std/fs"
+                <a class="stdlib-item-link" href="https://github.com/bneb/keuos/tree/main/salt-front/std/fs"
                     target="_blank" rel="noopener">
                     <div class="stdlib-item">
                         <div class="name">std.fs</div>
                         <div class="desc">exists, remove, rename</div>
                     </div>
                 </a>
-                <a class="stdlib-item-link" href="https://github.com/bneb/lattice/tree/main/salt-front/std/process"
+                <a class="stdlib-item-link" href="https://github.com/bneb/keuos/tree/main/salt-front/std/process"
                     target="_blank" rel="noopener">
                     <div class="stdlib-item">
                         <div class="name">std.process</div>
                         <div class="desc">Command builder</div>
                     </div>
                 </a>
-                <a class="stdlib-item-link" href="https://github.com/bneb/lattice/tree/main/salt-front/std/regex"
+                <a class="stdlib-item-link" href="https://github.com/bneb/keuos/tree/main/salt-front/std/regex"
                     target="_blank" rel="noopener">
                     <div class="stdlib-item">
                         <div class="name">std.regex</div>
                         <div class="desc">Pattern matching</div>
                     </div>
                 </a>
-                <a class="stdlib-item-link" href="https://github.com/bneb/lattice/tree/main/salt-front/std/encoding"
+                <a class="stdlib-item-link" href="https://github.com/bneb/keuos/tree/main/salt-front/std/encoding"
                     target="_blank" rel="noopener">
                     <div class="stdlib-item">
                         <div class="name">std.encoding</div>
@@ -2355,14 +2355,14 @@ process(&amp;buf);     <span class="cmt">// ✗ compile error: use of moved valu
 <span class="str">🧂 Hello from hello!</span></pre>
             </div>
             <div class="hero-actions">
-                <a href="https://github.com/bneb/lattice" class="btn btn-primary">
+                <a href="https://github.com/bneb/keuos" class="btn btn-primary">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                         <path
                             d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
                     </svg>
                     Star on GitHub
                 </a>
-                <a href="https://github.com/bneb/lattice/tree/main/examples" class="btn btn-secondary">Browse Examples
+                <a href="https://github.com/bneb/keuos/tree/main/examples" class="btn btn-secondary">Browse Examples
                     →</a>
             </div>
         </div>
@@ -2372,7 +2372,7 @@ process(&amp;buf);     <span class="cmt">// ✗ compile error: use of moved valu
     <footer>
         <div class="container">
             <p>Salt is open-source under the MIT License. Built in the open by the <a
-                    href="https://github.com/bneb/lattice">Salt</a> project.
+                    href="https://github.com/bneb/keuos">Salt</a> project.
             </p>
         </div>
     </footer>
@@ -2411,7 +2411,7 @@ process(&amp;buf);     <span class="cmt">// ✗ compile error: use of moved valu
 
     <script>
         // ─── Benchmark data ──────────────────────────────────────────
-        const REPO = 'https://github.com/bneb/lattice';
+        const REPO = 'https://github.com/bneb/keuos';
         const benchmarks = [
             { name: 'matmul', salt: 127, c: 867, rust: 897, speedup: '6.8×', file: 'matmul.salt' },
             { name: 'fstring_perf', salt: 197, c: 1100, rust: 707, speedup: '5.6×', file: 'fstring_perf.salt' },

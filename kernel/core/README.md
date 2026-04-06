@@ -1,6 +1,6 @@
 # Kernel Core
 
-**The Mission:** The platform-independent nucleus of Lattice, orchestrating threads (fibers), memory, and system integrity.
+**The Mission:** The platform-independent nucleus of KeuOS, orchestrating threads (fibers), memory, and system integrity.
 
 ## Invariants
 

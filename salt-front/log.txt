@@ -1,4 +1,4 @@
-   Compiling salt-front v0.1.0 (/Users/kevin/projects/lattice/salt-front)
+   Compiling salt-front v0.1.0 (/Users/kevin/projects/keuos/salt-front)
 warning: unused import: `std::collections::HashMap`
   --> src/codegen/tests_pointer_truthiness.rs:10:9
    |

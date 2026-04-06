@@ -1,5 +1,5 @@
 // kernel/core/context_switch.salt
-// Architectural Context Switch actuation for Lattice OS.
+// Architectural Context Switch actuation for KeuOS OS.
 
 package kernel.core.context_switch
 

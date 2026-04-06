@@ -1,16 +1,16 @@
-# Salt + Lattice
+# Salt + KeuOS
 
 **A Sovereign Microkernel for High-Performance Distributed Workloads,**
 **built in a systems language with embedded formal verification.**
 
-Salt is an ahead-of-time compiled systems language that combines the performance of C with compile-time safety through an embedded Z3 theorem prover. Lattice is a microkernel operating system written entirely in Salt, achieving unikernel-level latency while maintaining hardware-enforced Ring 0 / Ring 3 isolation.
+Salt is an ahead-of-time compiled systems language that combines the performance of C with compile-time safety through an embedded Z3 theorem prover. KeuOS is a microkernel operating system written entirely in Salt, achieving unikernel-level latency while maintaining hardware-enforced Ring 0 / Ring 3 isolation.
 
 Together, they form a single system where the language's core capabilities (formal verification and MLIR-based lowering) become the operating system's capabilities: zero-trap IPC, proof-carrying descriptors, and cache-line-deterministic data planes.
 
 [![Benchmarks](https://img.shields.io/badge/vs_C-18%2F22_Won_or_Parity-brightgreen?style=flat-square)](benchmarks/BENCHMARKS.md)
 [![Z3 Verified](https://img.shields.io/badge/Safety-Z3_Verified-blue?style=flat-square)](docs/ARCH.md)
 [![70+ Stdlib Modules](https://img.shields.io/badge/Stdlib-70%2B_Modules-orange?style=flat-square)](salt-front/std/README.md)
-[![Lattice Kernel](https://img.shields.io/badge/Kernel-Sovereign_Microkernel-purple?style=flat-square)](kernel/)
+[![KeuOS Kernel](https://img.shields.io/badge/Kernel-Sovereign_Microkernel-purple?style=flat-square)](kernel/)
 
 ```salt
 package main
@@ -32,9 +32,9 @@ fn main() {
 
 ---
 
-## Why Salt + Lattice?
+## Why Salt + KeuOS?
 
-Most operating systems are written in C (Linux, Xv6) or C++ (Fuchsia, seL4). They rely on extensive runtime checks, POSIX syscall conventions, and manual memory management. Salt replaces all three with **compile-time proofs**, **zero-trap shared memory**, and **arena-based allocation**, giving Lattice the performance of a unikernel with the isolation guarantees of a microkernel.
+Most operating systems are written in C (Linux, Xv6) or C++ (Fuchsia, seL4). They rely on extensive runtime checks, POSIX syscall conventions, and manual memory management. Salt replaces all three with **compile-time proofs**, **zero-trap shared memory**, and **arena-based allocation**, giving KeuOS the performance of a unikernel with the isolation guarantees of a microkernel.
 
 ### The Three Pillars
 
@@ -42,11 +42,11 @@ Most operating systems are written in C (Linux, Xv6) or C++ (Fuchsia, seL4). The
 
 **Salt:** High-performance, low-level memory control with MLIR-optimized lowering.
 
-**Lattice:** Instead of legacy POSIX syscalls (`read`/`write`) that trap into the kernel on every packet, Lattice uses Shared Memory SPSC (Single-Producer, Single-Consumer) Rings. The networking stack (NetD) and storage stack (LatticeStore) run as Ring 3 "System Daemons" that communicate with the kernel through lock-free ring buffers in shared pages.
+**KeuOS:** Instead of legacy POSIX syscalls (`read`/`write`) that trap into the kernel on every packet, KeuOS uses Shared Memory SPSC (Single-Producer, Single-Consumer) Rings. The networking stack (NetD) and storage stack (KeuOSStore) run as Ring 3 "System Daemons" that communicate with the kernel through lock-free ring buffers in shared pages.
 
 ```
 Traditional OS:  App → syscall → trap → kernel copy → return    (~1000 cycles)
-Lattice:         App → SPSC write → shared memory → NetD reads  (~150 cycles)
+KeuOS:         App → SPSC write → shared memory → NetD reads  (~150 cycles)
 ```
 
 The kernel's **only** role in the data plane is pushing raw Ethernet frames into the SPSC ring and firing a wake notification. All protocol parsing (ARP, TCP, IP) happens in Ring 3, isolating the kernel from packet-parsing RCE vulnerabilities.
@@ -55,7 +55,7 @@ The kernel's **only** role in the data plane is pushing raw Ethernet frames into
 
 **Salt:** A built-in Z3 verification gate that proves memory safety and alignment at compile time.
 
-**Lattice:** Proof-Carrying IPC. The compiler "seals" a Z3 proof into a 64-bit `proof_hint` embedded in every SPSC descriptor. The NetD arbiter verifies this hint in *O(1)* time (two CPU instructions: alignment mask + bitwise compare).
+**KeuOS:** Proof-Carrying IPC. The compiler "seals" a Z3 proof into a 64-bit `proof_hint` embedded in every SPSC descriptor. The NetD arbiter verifies this hint in *O(1)* time (two CPU instructions: alignment mask + bitwise compare).
 
 ```salt
 // At compile time, Z3 proves @align(64) fields are on separate cache lines.
@@ -76,7 +76,7 @@ This eliminates the "Security Tax." We don't need expensive runtime bounds check
 
 **Salt:** First-class support for physical memory layout via the `@align(N)` attribute with Z3-verified struct padding.
 
-**Lattice:** False-sharing elimination. Lattice SPSC rings are formally proven to isolate Producer and Consumer indexes on separate L3 cache lines:
+**KeuOS:** False-sharing elimination. KeuOS SPSC rings are formally proven to isolate Producer and Consumer indexes on separate L3 cache lines:
 
 ```salt
 struct SpscRing {
@@ -219,15 +219,15 @@ fn process_request(request: &Request) -> Response {
 
 The `ArenaVerifier` checks at compile time that no reference escapes its arena. This provides the performance of `malloc`/`free` while ensuring safety through static analysis rather than runtime checks.
 
-## Lattice Kernel Architecture
+## KeuOS Kernel Architecture
 
-Lattice is a **Sovereign Microkernel**: the kernel provides only memory management (PMM, VMO), scheduling (16-core SMP, preemptive, Chase-Lev work-stealing), and IPC (SPSC rings via `sys_shm_grant`). Everything else — networking, storage, device drivers — runs in Ring 3 as isolated System Daemons.
+KeuOS is a **Sovereign Microkernel**: the kernel provides only memory management (PMM, VMO), scheduling (16-core SMP, preemptive, Chase-Lev work-stealing), and IPC (SPSC rings via `sys_shm_grant`). Everything else — networking, storage, device drivers — runs in Ring 3 as isolated System Daemons.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                       Ring 3 (User)                     │
 │   ┌──────────┐   ┌───────────┐   ┌──────────────────┐   │
-│   │   NetD   │   │ LatticeFS │   │  User Programs   │   │
+│   │   NetD   │   │ KeuOSFS │   │  User Programs   │   │
 │   │ (TCP/IP) │   │ (Storage) │   │                  │   │
 │   └────┬─────┘   └─────┬─────┘   └────────┬─────────┘   │
 │        │               │                  │             │
@@ -247,7 +247,7 @@ Lattice is a **Sovereign Microkernel**: the kernel provides only memory manageme
 
 ### Why Ring 3 Without the Speed Penalty?
 
-Linux pays ~1000 cycles per syscall for context switching and kernel-to-user copies. Lattice pays ~150 cycles because:
+Linux pays ~1000 cycles per syscall for context switching and kernel-to-user copies. KeuOS pays ~150 cycles because:
 
 1. **No trap:** The SPSC ring lives in shared memory (`sys_shm_grant`). Producers and consumers read/write directly — no kernel transition needed for data transfer.
 2. **No copy:** The DMA buffer writes directly into the SPSC ring page. NetD reads from the same physical page mapped into its address space.
@@ -400,10 +400,10 @@ DYLD_LIBRARY_PATH=/opt/homebrew/lib ./hello
 ## Project Structure
 
 ```
-lattice/
+keuos/
 ├── salt-front/           # Compiler: parser → typechecker → Z3 verifier → MLIR emitter
 │   └── std/              # Standard library (70+ modules, written in Salt)
-├── kernel/               # Lattice Sovereign Microkernel
+├── kernel/               # KeuOS Sovereign Microkernel
 │   ├── core/             #   Scheduler, syscalls, process mgmt, teardown (100% arch-agnostic)
 │   ├── sched/            #   O(1) bitmap dispatcher, Chase-Lev deque, fiber migration
 │   ├── ipc/              #   Fast-path register IPC (sub-μs signaling)
@@ -432,8 +432,8 @@ lattice/
 |----------|--|
 | [Language Spec](docs/SPEC.md) | Complete language specification |
 | [Architecture](docs/ARCH.md) | Compiler pipeline & MLIR design |
-| [**Sovereign ABI**](docs/abi/SOVEREIGN_ABI.md) | **Definitive ABI specification for targeting Lattice** |
-| [Lattice Benchmarks](docs/LATTICE_BENCHMARKS.md) | Kernel performance (syscall, SPSC, SHM) |
+| [**Sovereign ABI**](docs/abi/SOVEREIGN_ABI.md) | **Definitive ABI specification for targeting KeuOS** |
+| [KeuOS Benchmarks](docs/KEUOS_BENCHMARKS.md) | Kernel performance (syscall, SPSC, SHM) |
 | [Benchmarks](benchmarks/BENCHMARKS.md) | Full Salt vs C/Rust results & methodology |
 | [Arena Safety](docs/deep-dives/arena-safety.md) | Compile-time escape analysis |
 | [Performance](docs/deep-dives/performance.md) | Why Salt beats C |
@@ -495,13 +495,13 @@ lattice/
 
 ## Status
 
-Lattice is at **v0.9.2 "Postcondition Pivot"**, with Z3-backed `ensures` verification, 16-core SMP scheduling, adversarial network hardening, and a zero-I/O developer toolchain.
+KeuOS is at **v0.9.2 "Postcondition Pivot"**, with Z3-backed `ensures` verification, 16-core SMP scheduling, adversarial network hardening, and a zero-I/O developer toolchain.
 
 | Component | Version | Milestone |
 | :--- | :--- | :--- |
 | **Salt Compiler / Stdlib** | `v0.8.0` | Z3 Verification (requires + ensures), Multi-Dialect Codegen, Path-Sensitive WP |
-| **Lattice Platform** (OS) | `v0.9.2` | Postcondition Pivot — Cache-Line IPC, SipHash-2-4 Proof Hints, EBR |
-| **Lattice Kernel** | `v0.9.2` | 16-Core SMP, Chase-Lev Work-Stealing, Preemptive Scheduler, Ring 3 Isolation |
+| **KeuOS Platform** (OS) | `v0.9.2` | Postcondition Pivot — Cache-Line IPC, SipHash-2-4 Proof Hints, EBR |
+| **KeuOS Kernel** | `v0.9.2` | 16-Core SMP, Chase-Lev Work-Stealing, Preemptive Scheduler, Ring 3 Isolation |
 | **Basalt** (LLM Inference) | `v0.3.0` | Proof-of-Concept (C-parity inference speed) |
 | **Facet** (2D Compositor) | `v0.3.0` | Proof-of-Concept (Metal compute & verified rasterizer) |
 | **Lettuce** (KV Store) | `v0.1.0` | Proof-of-Concept (234K ops/sec — 2x Redis throughput) |

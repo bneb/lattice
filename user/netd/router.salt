@@ -3,7 +3,7 @@
 // Codata Stream Router — Lock-Free Port-to-Stream Routing Table
 // ============================================================================
 //
-// Applications on Lattice do not use bind() or accept(). They subscribe
+// Applications on KeuOS do not use bind() or accept(). They subscribe
 // to a port via a Codata ReactiveStream. NetD maintains this routing
 // table mapping ports directly to reactive streams.
 //

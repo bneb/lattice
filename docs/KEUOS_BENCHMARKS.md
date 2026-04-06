@@ -1,6 +1,6 @@
-# Lattice OS Kernel Benchmarks
+# KeuOS OS Kernel Benchmarks
 
-Self-hosted benchmarks measuring Lattice unikernel primitives on real x86 hardware. Salt compiles directly to kernel code via MLIR → LLVM IR → ELF. No OS abstraction layer, no libc, no runtime.
+Self-hosted benchmarks measuring KeuOS unikernel primitives on real x86 hardware. Salt compiles directly to kernel code via MLIR → LLVM IR → ELF. No OS abstraction layer, no libc, no runtime.
 
 ## Platforms
 
@@ -63,7 +63,7 @@ All three test processes completed successfully:
 ### Distributed MoE Pipeline (March 6, 2026)
 
 > [!IMPORTANT]
-> First confirmed cross-hypervisor convergence. Two QEMU KVM instances on a single `z1d.metal` host, each running the same unified `kernel.elf` with MAC-based identity detection. Transport: VirtIO-net over QEMU UDP multicast sockets (`-netdev socket,mcast=230.0.0.1:1234`). EtherType `0x1A77` (Lattice MoE Protocol).
+> First confirmed cross-hypervisor convergence. Two QEMU KVM instances on a single `z1d.metal` host, each running the same unified `kernel.elf` with MAC-based identity detection. Transport: VirtIO-net over QEMU UDP multicast sockets (`-netdev socket,mcast=230.0.0.1:1234`). EtherType `0x1A77` (KeuOS MoE Protocol).
 
 | Metric | Value |
 |:-------|------:|
@@ -112,7 +112,7 @@ Two hypervisor boundaries. Two VirtIO ring traversals. Two KVM VMEXITs. Two UDP 
 
 All comparison numbers are from published benchmarks on x86-64 Skylake-class hardware at comparable clock speeds. Cycle counts at 4.0 GHz where only nanosecond figures were available.
 
-| Operation | Lattice | Linux 6.x | seL4 | Notes |
+| Operation | KeuOS | Linux 6.x | seL4 | Notes |
 |:----------|--------:|----------:|-----:|:------|
 | **Null syscall** | **102 cy** | ~760 cy | — | Linux `getpid()` on Skylake-X: 191ns. KPTI + Spectre mitigations add ~100ns. |
 | **Slab alloc+free** | **103 cy** | ~1,200 cy | — | Linux glibc `malloc`/`free` pair: ~300ns. `tcmalloc` hot path: ~200cy. |
@@ -121,22 +121,22 @@ All comparison numbers are from published benchmarks on x86-64 Skylake-class har
 | **UTP spawn** | **99 cy** | — | — | Async fiber creation. Go `go func(){}`: ~300-500cy. Linux `clone()`: ~10,000+cy. |
 | **UTP preempt dispatch** | **430 cy** | ~5,200 cy | ~600 cy | Full IRETQ chain with GPR save/restore. Linux context switch: ~1.3µs. seL4 IPC: <1,000cy. |
 | **Context switch** | **494 cy** | ~5,200 cy | ~600 cy | Linux pipe-based: ~1.3µs with CPU pinning. seL4 full IPC: <1,000cy on x86-64. |
-| **IPC round-trip** | **284 cy** | ~12,000 cy | ~400 cy | Linux pipe IPC: ~3µs. seL4 `ReplyRecv`: <1,000cy. Lattice: shared address space, no TLB flush. |
-| **Bump alloc** | **60 cy** | ~80 cy | — | `tcmalloc` small-object fast path: ~20-30ns. Lattice is a raw pointer bump. |
+| **IPC round-trip** | **284 cy** | ~12,000 cy | ~400 cy | Linux pipe IPC: ~3µs. seL4 `ReplyRecv`: <1,000cy. KeuOS: shared address space, no TLB flush. |
+| **Bump alloc** | **60 cy** | ~80 cy | — | `tcmalloc` small-object fast path: ~20-30ns. KeuOS is a raw pointer bump. |
 
 > [!NOTE]
 > **These comparisons are as fair as possible at the moment.** The Linux numbers are from published benchmarks on comparable Skylake-class hardware, not the same z1d.metal instance. A true apples-to-apples comparison would run `lmbench` on the same box. Some caveats:
 >
-> - **Unikernel vs general-purpose OS**: Lattice is a single-address-space unikernel. Linux pays for process isolation (separate page tables, TLB flushes, KPTI). The speedups measure the *cost of that isolation*, not that Lattice is a "better kernel."
-> - **No security mitigations**: Lattice has no KPTI, no Spectre/Meltdown mitigations. A pre-KPTI Linux kernel would be closer to ~400cy for `getpid`, cutting the gap roughly in half.
-> - **Single-core benchmarks, multi-core boot**: Lattice now boots all APs via INIT-SIPI-SIPI (SMP bring-up verified). Current benchmarks run on the BSP only. Multi-core parallel benchmarks require AP scheduler integration (Phase 3).
+> - **Unikernel vs general-purpose OS**: KeuOS is a single-address-space unikernel. Linux pays for process isolation (separate page tables, TLB flushes, KPTI). The speedups measure the *cost of that isolation*, not that KeuOS is a "better kernel."
+> - **No security mitigations**: KeuOS has no KPTI, no Spectre/Meltdown mitigations. A pre-KPTI Linux kernel would be closer to ~400cy for `getpid`, cutting the gap roughly in half.
+> - **Single-core benchmarks, multi-core boot**: KeuOS now boots all APs via INIT-SIPI-SIPI (SMP bring-up verified). Current benchmarks run on the BSP only. Multi-core parallel benchmarks require AP scheduler integration (Phase 3).
 > - **Microbenchmarks, not workloads**: These measure minimum primitive cost with warm caches. Real workloads add cache pollution, working set pressure, and contention that change the picture.
 >
 > That said, the architectural advantages are real: no TLB flush on IPC (shared address space), lock-free CAS allocation (no arena locks), O(1) bitmap scheduler (no red-black tree walk). These are legitimate properties of the unikernel model.
 
 ### What the Numbers Mean
 
-**Null syscall (102 cy / ~26 ns)**: A Ring 3 → Ring 0 → Ring 3 round-trip using SYSCALL/SYSRET. The benchmark runs entirely in Ring 3 assembly: RDTSC → SYSCALL (noop handler) → RDTSC. At 102 cycles, Lattice is **7.4× faster** than Linux's `getpid()` (191ns/764cy on Skylake-X), because there is no KPTI page table switch or Spectre mitigation overhead.
+**Null syscall (102 cy / ~26 ns)**: A Ring 3 → Ring 0 → Ring 3 round-trip using SYSCALL/SYSRET. The benchmark runs entirely in Ring 3 assembly: RDTSC → SYSCALL (noop handler) → RDTSC. At 102 cycles, KeuOS is **7.4× faster** than Linux's `getpid()` (191ns/764cy on Skylake-X), because there is no KPTI page table switch or Spectre mitigation overhead.
 
 **Slab pop/push (103 cy / ~26 ns)**: A `lock cmpxchgq` CAS pop from the Treiber stack followed by a CAS push back. This is the fundamental allocation primitive for fiber stacks. At 103 cycles, it is **11.7× faster** than glibc `malloc`/`free` (300ns/1,200cy) and **2× faster** than `tcmalloc`'s hot path (~200cy).
 

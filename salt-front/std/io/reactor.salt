@@ -4,7 +4,7 @@
 // The abstraction boundary between Salt's networking layer and the OS.
 // Implementations:
 //   - KqueueReactor  (macOS, via http_bridge.c)
-//   - LatticeReactor (Lattice kernel, via VirtIO — stub)
+//   - KeuOSReactor (KeuOS kernel, via VirtIO — stub)
 //   - EpollReactor   (Linux — stub)
 
 package std.io.reactor
@@ -25,7 +25,7 @@ pub struct IoEvent {
 }
 
 /// Trait that all I/O reactor backends must implement.
-/// This is the seam where the Lattice kernel can replace macOS kqueue.
+/// This is the seam where the KeuOS kernel can replace macOS kqueue.
 pub trait Reactor {
     /// Register a file descriptor for the given event filter.
     /// Returns 0 on success, -1 on error.

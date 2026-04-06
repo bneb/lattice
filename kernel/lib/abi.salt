@@ -1,6 +1,6 @@
 // =============================================================================
 // kernel/lib/abi.salt
-// Lattice Sovereign ABI — Level 0 Definitions
+// KeuOS Sovereign ABI — Level 0 Definitions
 // =============================================================================
 //
 // The Sovereign ABI separates kernel responsibilities into two planes:

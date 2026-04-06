@@ -3,7 +3,7 @@
 // =============================================================================
 // Validates the Reactor trait contract and both backends:
 //   - KqueueReactor: creation, register, wait, deregister (live kqueue)
-//   - LatticeReactor: graceful failure (stub returns proper Status)
+//   - KeuOSReactor: graceful failure (stub returns proper Status)
 //
 // Run: ./scripts/run_test.sh tests/test_reactor.salt --bridge std/net/http_bridge.c
 // =============================================================================
@@ -14,7 +14,7 @@ use std.core.ptr.Ptr
 use std.core.result.Result
 use std.io.reactor.{Reactor, Filter}
 use std.io.reactor_kqueue.KqueueReactor
-use std.io.reactor_lattice.LatticeReactor
+use std.io.reactor_keuos.KeuOSReactor
 
 extern fn exit(code: i32);
 extern fn pipe(fds: Ptr<i32>) -> i32;
@@ -201,16 +201,16 @@ fn test_kqueue_reactor_write_filter() {
 }
 
 // ============================================================================
-// Test 6: LatticeReactor::new() fails gracefully
+// Test 6: KeuOSReactor::new() fails gracefully
 // The stub must return Err(Status), not panic or crash.
 // This validates Salt's core pillar: Result<T> with Status.
 // ============================================================================
 
-fn test_lattice_reactor_fails_gracefully() {
-    let result = LatticeReactor::new();
+fn test_keuos_reactor_fails_gracefully() {
+    let result = KeuOSReactor::new();
     assert_true(result.is_err(), 6);
 
-    println("PASS test_lattice_reactor_fails_gracefully");
+    println("PASS test_keuos_reactor_fails_gracefully");
 }
 
 // ============================================================================
@@ -271,7 +271,7 @@ fn main() -> i32 {
     test_kqueue_reactor_deregister();
     test_kqueue_reactor_wait_timeout();
     test_kqueue_reactor_write_filter();
-    test_lattice_reactor_fails_gracefully();
+    test_keuos_reactor_fails_gracefully();
     test_kqueue_reactor_multiple_fds();
 
     println("=== All 7 reactor tests passed ===");

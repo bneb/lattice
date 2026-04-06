@@ -1,8 +1,8 @@
 // =============================================================================
-// std.io.SovereignPoller — Tickless Reactor for the Lattice Kernel
+// std.io.SovereignPoller — Tickless Reactor for the KeuOS Kernel
 // =============================================================================
 //
-// The Sovereign Poller replaces epoll, select, and kqueue for Lattice.
+// The Sovereign Poller replaces epoll, select, and kqueue for KeuOS.
 // It achieves zero-CPU-overhead blocking via SYS_IPC_AWAIT (vector 14):
 //
 //   1. Cold Path: Binds a capability and maps a zero-copy SPSC ring

@@ -180,10 +180,10 @@ fn find_build_script(project_dir: &Path) -> Result<PathBuf, String> {
         }
     }
 
-    // Fallback: lattice project structure
-    let lattice_script = PathBuf::from("/Users/kevin/projects/lattice/scripts/run_test.sh");
-    if lattice_script.exists() {
-        return Ok(lattice_script);
+    // Fallback: keuos project structure
+    let keuos_script = PathBuf::from("/Users/kevin/projects/keuos/scripts/run_test.sh");
+    if keuos_script.exists() {
+        return Ok(keuos_script);
     }
 
     Err("could not find scripts/run_test.sh — are you in a Salt project?".to_string())

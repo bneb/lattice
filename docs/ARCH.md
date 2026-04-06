@@ -1,6 +1,6 @@
-# Lattice Architecture Reference
+# KeuOS Architecture Reference
 
-> **Audience**: Engineers working on the Salt compiler, Lattice kernel, or standard library.
+> **Audience**: Engineers working on the Salt compiler, KeuOS kernel, or standard library.
 > For the 2 AM reader: every acronym is defined, every command is copy-pasteable, every data flow has a diagram.
 >
 > **Prerequisites**: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 21+ (`brew install llvm@21`), QEMU (`brew install qemu`)
@@ -12,7 +12,7 @@
 1. [System Overview](#1-system-overview)
 2. [The Salt Compiler Pipeline](#2-the-salt-compiler-pipeline)
 3. [Z3 Proof-or-Panic: Formal Verification](#3-z3-proof-or-panic-formal-verification)
-4. [The Lattice Unikernel](#4-the-lattice-unikernel)
+4. [The KeuOS Unikernel](#4-the-keuos-unikernel)
 5. [Kernel Boot Sequence](#5-kernel-boot-sequence)
 6. [Memory Architecture](#6-memory-architecture)
 7. [Scheduler & Fibers](#7-scheduler--fibers)
@@ -25,7 +25,7 @@
 
 ## 1. System Overview
 
-Lattice is a vertically integrated systems platform. The Salt language compiles to native code through MLIR/LLVM, and the Lattice unikernel executes it on bare metal (or QEMU). Every layer, from syntax to syscall, is designed for formal verification.
+KeuOS is a vertically integrated systems platform. The Salt language compiles to native code through MLIR/LLVM, and the KeuOS unikernel executes it on bare metal (or QEMU). Every layer, from syntax to syscall, is designed for formal verification.
 
 ```mermaid
 graph TD
@@ -47,7 +47,7 @@ graph TD
         I["clang -O3<br/>(native codegen)"]
     end
     
-    subgraph "Lattice Kernel (bare metal)"
+    subgraph "KeuOS Kernel (bare metal)"
         J["boot.S<br/>(Multiboot → Long Mode)"]
         K["kmain<br/>(GDT → IDT → PIT → SMP → Task 0 → Ring 3)"]
         L["Drivers<br/>(Serial, VirtIO-Net, PIT, APIC)"]
@@ -65,7 +65,7 @@ graph TD
 |-------|----------|------|
 | **salt-front** | Rust | Compiler: parse, typecheck, verify, emit MLIR |
 | **salt (legacy)** | C++ | Dialect definitions (`SaltOps.td`). Z3 pass superseded. |
-| **Lattice kernel** | Salt + x86 Assembly | Unikernel: boot, scheduling, memory, drivers |
+| **KeuOS kernel** | Salt + x86 Assembly | Unikernel: boot, scheduling, memory, drivers |
 | **Standard library** | Salt | `String`, `Vec`, `HashMap`, `File`, `TcpListener`, `JSON`, `nn`, SIMD |
 | **Runtime** | C | `runtime.c`: arena allocator, clock, threading, panic hooks |
 
@@ -237,13 +237,13 @@ flowchart LR
 
 ---
 
-## 4. The Lattice Unikernel
+## 4. The KeuOS Unikernel
 
-Lattice is a **hybrid unikernel** with Ring 0/3 isolation. The kernel runs in Ring 0, user processes run in Ring 3 with separate page tables. Safety is reinforced by the **compiler** (Z3 proofs) in addition to hardware protection mechanisms.
+KeuOS is a **hybrid unikernel** with Ring 0/3 isolation. The kernel runs in Ring 0, user processes run in Ring 3 with separate page tables. Safety is reinforced by the **compiler** (Z3 proofs) in addition to hardware protection mechanisms.
 
 ### Why This Matters
 
-| Traditional OS | Lattice |
+| Traditional OS | KeuOS |
 |---------------|---------|
 | Safety via MMU + Ring 0/3 isolation | Safety via Z3 compile-time proofs + hardware rings |
 | Driver crashes kernel | Driver is compiler-verified |
@@ -496,7 +496,7 @@ For userspace Salt programs, `runtime.c` provides:
 
 ## 7. Scheduler & Fibers
 
-Lattice uses an **O(1) multi-level bitmap scheduler**, per-core sharded across all online CPUs. Each core owns an independent `SchedulerState` with 256 fiber slots, indexed by `cpu_id` via GS segment. This eliminates all cross-core contention on spawn/yield/exit paths.
+KeuOS uses an **O(1) multi-level bitmap scheduler**, per-core sharded across all online CPUs. Each core owns an independent `SchedulerState` with 256 fiber slots, indexed by `cpu_id` via GS segment. This eliminates all cross-core contention on spawn/yield/exit paths.
 
 ### The Universal Task Pointer
 
@@ -660,7 +660,7 @@ Z3 proves at every call site that no null function pointer or zero-byte frame ca
 
 ### Performance (KVM — Intel Xeon 8151, Feb 2026)
 
-| Metric | Lattice | Linux 6.x | Speedup |
+| Metric | KeuOS | Linux 6.x | Speedup |
 |--------|---------|-----------|--------:|
 | Null syscall (Ring 3→0→3, SWAPGS) | **102 cy** | ~760 cy | 7.4× |
 | Slab alloc+free (128-bit CAS) | **103 cy** | ~1,200 cy | 11.7× |
@@ -673,7 +673,7 @@ Z3 proves at every call site that no null function pointer or zero-byte frame ca
 | SIP IPC ring (4-SPSC) | **188 cy** | ~400 cy (seL4) | 2.1× |
 | Online CPUs | 4 (1 BSP + 3 APs) | — | — |
 
-Linux numbers: `getpid()` on Skylake-X (191ns), `malloc`/`free` pair via glibc (300ns), pipe IPC (~3µs), context switch with CPU pinning (~1.3µs). Full methodology and comparison notes in [LATTICE_BENCHMARKS.md](LATTICE_BENCHMARKS.md).
+Linux numbers: `getpid()` on Skylake-X (191ns), `malloc`/`free` pair via glibc (300ns), pipe IPC (~3µs), context switch with CPU pinning (~1.3µs). Full methodology and comparison notes in [KEUOS_BENCHMARKS.md](KEUOS_BENCHMARKS.md).
 
 ---
 
@@ -733,11 +733,11 @@ export DYLD_LIBRARY_PATH="/opt/homebrew/lib"
 # Produces: hello_world binary in current directory
 ```
 
-### Lattice Kernel
+### KeuOS Kernel
 
 ```bash
 # One-command build + boot
-./scripts/demo_lattice.sh
+./scripts/demo_keuos.sh
 
 # Or step-by-step:
 python3 tools/runner_qemu.py build   # Compile kernel → kernel.elf
@@ -831,4 +831,4 @@ cd benchmarks/ml && ./benchmark.sh --salt
 
 ---
 
-*Lattice: compiler-verified, zero-overhead, bare-metal systems programming.*
+*KeuOS: compiler-verified, zero-overhead, bare-metal systems programming.*

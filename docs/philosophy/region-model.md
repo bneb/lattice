@@ -31,7 +31,7 @@ fn example() {
 Global data and long-lived structures reside in the `RAM` region. Access to `RAM` is mediated through the **Linear Resolution Principle**, ensuring that module-resident symbols resolve to fixed global addresses at compile time.
 
 ### 3. The I/O Region (`IO`)
-Memory-mapped I/O is treated as a first-class region. Accessing peripherals like the `DEBUG_PORT` in the Lattice kernel is done through zero-cost address flattening.
+Memory-mapped I/O is treated as a first-class region. Accessing peripherals like the `DEBUG_PORT` in the KeuOS kernel is done through zero-cost address flattening.
 
 ## Why Regions?
 

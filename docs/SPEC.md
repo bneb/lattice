@@ -110,7 +110,7 @@ graph LR
 ## 3. Directory Structure
 
 ```text
-lattice/
+keuos/
 ├── SYNTAX.md                    # Canonical syntax reference
 ├── docs/SPEC.md                 # This file (architecture & dialect spec)
 ├── docs/ARCH.md                 # Compiler pipeline & component reference

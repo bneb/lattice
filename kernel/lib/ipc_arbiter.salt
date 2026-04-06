@@ -35,7 +35,7 @@ package kernel.lib.ipc_arbiter
 // =============================================================================
 // These MUST match the values in:
 //   salt-front/src/codegen/verification/proof_hint.rs
-//   SIPHASH_K0 = 0x4c61747469636521  ("Lattice!")
+//   SIPHASH_K0 = 0x4c61747469636521  ("KeuOS!")
 //   SIPHASH_K1 = 0x536f76657265696e  ("Soverein")
 // =============================================================================
 

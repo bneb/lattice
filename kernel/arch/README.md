@@ -7,7 +7,7 @@
 | Architecture | Role | Status |
 |--------------|------|--------|
 | [`x86/`](./x86) | **Boot & Initialization.** The 32-bit trampoline code that sets up Long Mode. | **Stable** |
-| [`x86_64/`](./x86_64) | **64-bit Runtime.** The actual runtime architecture for the Lattice microkernel. | **Stable** |
+| [`x86_64/`](./x86_64) | **64-bit Runtime.** The actual runtime architecture for the KeuOS microkernel. | **Stable** |
 
 ## Invariants
 

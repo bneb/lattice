@@ -1,8 +1,8 @@
 // manifest.salt
-// Defines the cohesive "Sovereign Distribution" state of the Lattice Platform.
+// Defines the cohesive "Sovereign Distribution" state of the KeuOS Platform.
 // Used by tooling to verify cross-component compatibility.
 
-struct LatticeManifest {
+struct KeuOSManifest {
     platform_version: String,
     compiler: ComponentDef,
     kernel: ComponentDef,
@@ -16,7 +16,7 @@ struct ComponentDef {
     milestone: String,
 }
 
-pub let CURRENT_MANIFEST = LatticeManifest {
+pub let CURRENT_MANIFEST = KeuOSManifest {
     platform_version: "0.9.2",
     
     compiler: ComponentDef {
@@ -26,7 +26,7 @@ pub let CURRENT_MANIFEST = LatticeManifest {
     },
     
     kernel: ComponentDef {
-        name: "lattice-core",
+        name: "keuos-core",
         version: "0.9.2",
         milestone: "16-Core SMP, Chase-Lev Work-Stealing, Preemptive Scheduler, Ring 3 Isolation",
     },

@@ -74,7 +74,7 @@ pub fn prefetch_tile_async(
 // ============================================================================
 // await_completion — Cache-Coherent Completion Wait
 // ============================================================================
-// In production (bare-metal Lattice), this calls await_cqe_hardware()
+// In production (bare-metal KeuOS), this calls await_cqe_hardware()
 // which uses salt_atomic_load_i64 (ACQUIRE semantics) to read the CQE
 // status field, and a hardware yield hint (WFE on ARM64) to drop the
 // CPU into a zero-power cache-monitor state.

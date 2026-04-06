@@ -65,7 +65,7 @@ Salt is a systems programming language with Z3-verified safety, arena-based memo
 
 | Doc | Description |
 |-----|-------------|
-| [Zero to Kernel](tutorial/zero-to-kernel.md) | Boot a Lattice kernel in QEMU |
+| [Zero to Kernel](tutorial/zero-to-kernel.md) | Boot a KeuOS kernel in QEMU |
 
 ## Quick Start
 

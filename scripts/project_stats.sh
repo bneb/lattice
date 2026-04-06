@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# project_stats.sh — Idempotent project meta-analysis for the Lattice repo.
+# project_stats.sh — Idempotent project meta-analysis for the KeuOS repo.
 # Outputs stats tied to the current HEAD commit.
 # Usage:
 #   ./scripts/project_stats.sh          # human-readable
@@ -244,7 +244,7 @@ fi
 cat <<EOF
 
 ╔══════════════════════════════════════════════════════════════════╗
-║                    LATTICE PROJECT STATS                        ║
+║                    KEUOS PROJECT STATS                        ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║  Commit:  $COMMIT_SHORT ($COMMIT_DATE)
 ║  Message: $COMMIT_MSG

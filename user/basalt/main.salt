@@ -6,7 +6,7 @@
 // This module wires the complete Ring 3 Basalt stack:
 //   Arena (memory) + PortRouter (networking) + BasaltApp (application)
 //
-// In the production Lattice boot sequence, init_basalt() is called by
+// In the production KeuOS boot sequence, init_basalt() is called by
 // the process supervisor after the kernel grants DMA and arena
 // capabilities. For v0.1, the harness simulates this with a
 // pre-allocated buffer.

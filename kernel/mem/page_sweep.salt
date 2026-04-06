@@ -4,7 +4,7 @@
 // =============================================================================
 //
 // Standard kernels use recursive page-table walks for teardown: O(N) depth,
-// stack-hungry, and slow. Lattice uses a Bitmap-backed Sweep that frees
+// stack-hungry, and slow. KeuOS uses a Bitmap-backed Sweep that frees
 // physical pages in bulk via bitwise AND-NOT operations.
 //
 // The sweep processes the top-level PML4 entries (512 entries), identifies

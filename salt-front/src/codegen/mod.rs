@@ -1703,7 +1703,7 @@ pub fn pre_scan_workspace(ctx: &CodegenContext) -> Result<(), String> {
     let current_dir = std::env::current_dir().map_err(|e| e.to_string())?;
     let mut root = current_dir.clone();
     
-    // Find Lattice project root
+    // Find KeuOS project root
     for _ in 0..5 {
         if root.join("kernel").exists() || root.join("salt-front").exists() {
             break;

@@ -89,4 +89,4 @@ echo "Exit code: $?"
 
 ## Next Steps
 
-Explore the [**Region Memory Model**](../philosophy/region-model.md) to understand how Salt ensures safety for the Lattice kernel.
+Explore the [**Region Memory Model**](../philosophy/region-model.md) to understand how Salt ensures safety for the KeuOS kernel.

@@ -5,7 +5,7 @@
 # =============================================================================
 #
 # Creates a 16MB raw disk image for tensor storage and boots
-# the Lattice exokernel with both VirtIO-net and VirtIO-blk.
+# the KeuOS exokernel with both VirtIO-net and VirtIO-blk.
 #
 # Usage:
 #   ./scripts/run_storage.sh [kernel_path]
@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-KERNEL="${1:-build/lattice.bin}"
+KERNEL="${1:-build/keuos.bin}"
 DISK="build/tensors.img"
 DISK_SIZE="16M"
 
@@ -32,7 +32,7 @@ if [ ! -f "$KERNEL" ]; then
     exit 1
 fi
 
-echo "=== Booting Lattice with VirtIO-blk ==="
+echo "=== Booting KeuOS with VirtIO-blk ==="
 echo "  Kernel: $KERNEL"
 echo "  Disk:   $DISK"
 

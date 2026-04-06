@@ -107,7 +107,9 @@ pub const STATE_STORAGE_BAR: u64 = 40;
 pub const STATE_NETWORK_BAR: u64 = 48;
 pub const STATE_PEER_MAC:        u64 = 56;
 pub const STATE_DISPATCH_TSC:    u64 = 64;
-pub const STATE_SIZE:            u64 = 72;
+pub const STATE_RX_NOTIFY_PTR:   u64 = 72;
+pub const STATE_RX_POOL_VADDR:   u64 = 80;
+pub const STATE_SIZE:            u64 = 88;
 
 // ============================================================================
 // WQE Constants
@@ -261,45 +263,66 @@ pub fn execute_moe_pipeline(state: u64, bar_out: u64, poll_out: u64) {
     }
 
     if phase == PHASE_SAVE_OUTPUT {
-        let output_ptr: u64 = *((state + STATE_OUTPUT_PTR) as &u64);
-        let signature: u64 = *((output_ptr) as &u64);
+        // =====================================================================
+        // Zero-Copy Ring 3 Ethernet Parsing
+        // =====================================================================
+        // Read the RX notification mailbox (set by kernel's netcore.salt)
+        let rx_notify_ptr: u64 = *((state + STATE_RX_NOTIFY_PTR) as &u64);
+        let rx_pool_vaddr: u64 = *((state + STATE_RX_POOL_VADDR) as &u64);
 
-        // 3. The Reflection Gate
-        if signature != 0xDEADBEEFCAFEBABE {
-            // Local echo / ARP packet detected. The Expert has not replied.
-            // Go back to sleep.
+        // Check if kernel has deposited a frame notification
+        let frame_ready: u32 = *((rx_notify_ptr + 12) as &u32);
+        if frame_ready == 0 {
+            // No frame yet. Yield and come back.
             *((poll_out) as &mut u32) = POLL_PENDING;
-            
-            // NOTE: We must safely read the token, do not increment it.
-            let token: u32 = *((state + STATE_TOKEN) as &u32); 
+            let token: u32 = *((state + STATE_TOKEN) as &u32);
             *((poll_out + 4) as &mut u32) = token;
             return;
         }
 
-        // ── Completion Bracket: first instruction upon CQE wakeup ──
-        let end_tsc: u64 = rdtsc();
-        let dispatch_tsc: u64 = *((state + STATE_DISPATCH_TSC) as &u64);
+        // Read the kernel buffer address and length from the mailbox
+        let kernel_buf_addr: u64 = *((rx_notify_ptr) as &u64);
+        let pkt_len: u32 = *((rx_notify_ptr + 8) as &u32);
 
-        // Telemetry Output over 16550 UART
-        print_dec(dispatch_tsc);
-        print_dec(end_tsc);
+        // Clear the mailbox (acknowledge receipt)
+        *((rx_notify_ptr + 12) as &mut u32) = 0;
 
-        r3_sys_shutdown();
+        // Translate: kernel vaddr → offset in RX pool → Ring 3 mapped address
+        // kernel_buf_addr = 0xFFFFFFFF80420000 + (desc_id * BUF_SIZE)
+        // RX_BUF_KERNEL_BASE = 0xFFFFFFFF80000000 + 0x420000
+        let RX_BUF_KERNEL_BASE: u64 = 0xFFFFFFFF80420000;
+        let offset: u64 = kernel_buf_addr - RX_BUF_KERNEL_BASE;
+        let user_buf: u64 = rx_pool_vaddr + offset;
 
-        // Router: Write result tensor back to disk
-        let token: u32 = *((state + STATE_TOKEN) as &u32) + 1;
-        *((state + STATE_TOKEN) as &mut u32) = token;
+        // Parse Ethernet frame in Ring 3 (zero-copy DMA read)
+        let eth_start: u64 = user_buf + 10;  // Skip 10-byte virtio_net_hdr
+        let ethertype: u16 = ((*((eth_start + 12) as &u8) as u16) << 8)
+                           | (*((eth_start + 13) as &u8) as u16);
 
-        let output_ptr: u64 = *((state + STATE_OUTPUT_PTR) as &u64);
-        let sector_base: u32 = *((state + STATE_SECTOR_BASE) as &u32);
-        let write_sector: u32 = sector_base + SECTOR_COUNT_INPUT;
+        if ethertype == 0x1A77 {
+            // Ring 3 owns the convergence semantic
+            let output_ptr: u64 = *((state + STATE_OUTPUT_PTR) as &u64);
+            *((output_ptr) as &mut u64) = 0xDEADBEEFCAFEBABE;
 
-        // Pack STORAGE_WQE: control = (token << 32) | (sector << 16) | count
-        let control: u64 = ((token as u64) << 32) | ((write_sector as u64) << 16) | (SECTOR_COUNT_OUTPUT as u64);
-        let payload: u64 = output_ptr;
+            // ── Completion Bracket: first instruction upon CQE wakeup ──
+            let end_tsc: u64 = rdtsc();
+            let dispatch_tsc: u64 = *((state + STATE_DISPATCH_TSC) as &u64);
 
-        *((bar_out) as &mut u64) = control;
-        *((bar_out + 8) as &mut u64) = payload;
+            // Ring 3 convergence telemetry
+            let msg = "[Ring 3] Distributed Convergence via Zero-Copy DMA\n";
+            let msg_ptr = (&msg) as u64;
+            print_str(*(msg_ptr as &u64), 51);
+
+            print_dec(dispatch_tsc);
+            print_dec(end_tsc);
+
+            r3_sys_shutdown();
+        }
+
+        // Non-MoE frame (ARP, IPv6 multicast, etc.) — ignore and continue polling
+        *((poll_out) as &mut u32) = POLL_PENDING;
+        let token: u32 = *((state + STATE_TOKEN) as &u32);
+        *((poll_out + 4) as &mut u32) = token;
 
         // Transition → Done
         *((state + STATE_PHASE) as &mut u32) = PHASE_DONE;

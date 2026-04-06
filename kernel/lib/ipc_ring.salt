@@ -104,5 +104,5 @@ struct SpscDescriptor {
 // Directive 2.3: Upgraded from FNV-1a for stronger collision resistance.
 // =============================================================================
 
-pub const SIPHASH_K0: u64 = 0x4c61747469636521;  // "Lattice!"
+pub const SIPHASH_K0: u64 = 0x4c61747469636521;  // "KeuOS!"
 pub const SIPHASH_K1: u64 = 0x536f76657265696e;  // "Soverein"

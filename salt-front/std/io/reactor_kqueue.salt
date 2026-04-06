@@ -2,7 +2,7 @@
 // std.io.KqueueReactor — macOS kqueue backend for the Reactor trait
 // =============================================================================
 // Production backend for macOS. Delegates to http_bridge.c via std.os.syscall.
-// This is the reference implementation against which LatticeReactor must
+// This is the reference implementation against which KeuOSReactor must
 // achieve behavioral parity.
 
 package std.io.reactor_kqueue

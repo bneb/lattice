@@ -150,7 +150,7 @@ Salt is a new language — **no LLM has it in its training data**. For any AI co
 | [SYNTAX.md](../../SYNTAX.md) | Full syntax reference — types, control flow, traits, verification, sugar |
 | [SKILL.md](../../.agent/skills/salt-language/SKILL.md) | Agent-ready cheat sheet — conventions, abolished patterns, build commands |
 | [std/ README](../../std/README.md) | Standard library module map (79 modules) |
-| [Salt repo](https://github.com/salt-lang/lattice) | Source, examples, benchmarks |
+| [Salt repo](https://github.com/salt-lang/keuos) | Source, examples, benchmarks |
 
 ### Per-Platform Instruction Files
 

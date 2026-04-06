@@ -1,6 +1,6 @@
 ---
 name: salt-language
-description: Salt programming language conventions, syntax rules, and development patterns for the Lattice project
+description: Salt programming language conventions, syntax rules, and development patterns for the KeuOS project
 ---
 
 # Salt Language Skill

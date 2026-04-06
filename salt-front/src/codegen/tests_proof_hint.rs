@@ -206,7 +206,7 @@ mod tests {
     // =========================================================================
     // LAYER 7: SipHash-2-4 — Reference Vectors [RED → GREEN]
     // =========================================================================
-    // Verify that SipHash-2-4 with the Lattice sovereign keys produces
+    // Verify that SipHash-2-4 with the KeuOS sovereign keys produces
     // consistent, non-degenerate output.
 
     #[test]

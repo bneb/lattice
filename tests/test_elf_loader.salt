@@ -2,7 +2,7 @@
 // TDD: ELF Loader Validation
 // =============================================================================
 // Tests validate_elf() and parse_elf() with real ELF header field values
-// extracted from /tmp/hello_lattice (compiled by salt-front --target lattice-x86_64).
+// extracted from /tmp/hello_keuos (compiled by salt-front --target keuos-x86_64).
 //
 // Self-contained test — defines structs inline to match elf_loader.salt exactly.
 // run_test.sh does not support multi-file imports, so we mirror the structs
@@ -126,7 +126,7 @@ fn assert_eq_u64(got: u64, expected: u64, test_name: &str, test_id: i32) {
 }
 
 // =============================================================================
-// Build a valid ELF64 header matching /tmp/hello_lattice
+// Build a valid ELF64 header matching /tmp/hello_keuos
 // =============================================================================
 fn make_valid_header() -> Elf64Header {
     let mut h = Elf64Header(

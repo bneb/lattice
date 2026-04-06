@@ -116,7 +116,7 @@ fn find_build_script(project_dir: &Path) -> Result<PathBuf, String> {
             return Ok(candidate);
         }
 
-        // Also check for the script relative to the lattice root
+        // Also check for the script relative to the keuos root
         let candidate2 = dir.join("run_test.sh");
         if candidate2.exists() {
             return Ok(candidate2);
@@ -127,10 +127,10 @@ fn find_build_script(project_dir: &Path) -> Result<PathBuf, String> {
         }
     }
 
-    // Fallback: assume lattice project structure
-    let lattice_script = PathBuf::from("/Users/kevin/projects/lattice/scripts/run_test.sh");
-    if lattice_script.exists() {
-        return Ok(lattice_script);
+    // Fallback: assume keuos project structure
+    let keuos_script = PathBuf::from("/Users/kevin/projects/keuos/scripts/run_test.sh");
+    if keuos_script.exists() {
+        return Ok(keuos_script);
     }
 
     Err("Could not find scripts/run_test.sh. Are you in a Salt project?".to_string())

@@ -4328,7 +4328,7 @@ mod sovereign_intrinsic_tests {
         assert!(
             sentinel != 0 && sentinel != 1 && sentinel != 9 &&
             sentinel != 12 && sentinel != 60 && sentinel != 119,
-            "Sentinel must not collide with any Lattice kernel syscall"
+            "Sentinel must not collide with any KeuOS kernel syscall"
         );
     }
 }

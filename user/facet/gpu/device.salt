@@ -2,7 +2,7 @@
 //
 // Defines the OS-agnostic interface for GPU compute and rendering.
 // Backends implement this trait to target specific hardware APIs
-// (Metal on macOS, Vulkan on Lattice kernel, etc.).
+// (Metal on macOS, Vulkan on KeuOS kernel, etc.).
 //
 // All handles are opaque i64 values. The backend is responsible
 // for mapping them to native GPU objects.

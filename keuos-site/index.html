@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KeuOS | The Sovereign Microkernel</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    
+    <nav class="glass-nav">
+        <div class="logo">KeuOS</div>
+        <div class="nav-links">
+            <a href="#features">Features</a>
+            <a href="#tech">Technology</a>
+            <a href="https://salt-lang.dev" target="_blank" class="badge-link">Built with Salt</a>
+        </div>
+    </nav>
+
+    <header class="hero">
+        <div class="glass-card hero-content">
+            <div class="badge">v1.0 Sovereign Architecture</div>
+            <h1>The Deterministic<br><span class="gradient-text">Microkernel</span></h1>
+            <p>KeuOS delivers unikernel-level latency (~150 cycles per packet) with hardware-enforced Ring 3 isolation. Zero-trap data planes and proof-carrying IPC.</p>
+            <div class="actions">
+                <a href="#github" class="btn btn-primary">View Source</a>
+                <a href="#docs" class="btn btn-secondary">Read the Spec</a>
+            </div>
+        </div>
+    </header>
+
+    <section id="features" class="features">
+        <div class="glass-card feature">
+            <div class="icon">⚡</div>
+            <h3>Zero-Trap IPC</h3>
+            <p>Traditional OS syscalls cost ~1000 cycles. KeuOS utilizes SPSC shared memory rings, dropping latency to ~150 cycles with zero kernel copies.</p>
+        </div>
+        <div class="glass-card feature">
+            <div class="icon">🛡️</div>
+            <h3>Formally Verified</h3>
+            <p>Memory safety and cache-line isolation are proven at compile-time via Z3. The kernel validates proof hints in O(1) cycles.</p>
+        </div>
+        <div class="glass-card feature">
+            <div class="icon">⚙️</div>
+            <h3>Mechanical Sympathy</h3>
+            <p>Built exclusively in Salt. The kernel features an O(1) bitmap dispatcher and lock-free Treiber stack memory management.</p>
+        </div>
+    </section>
+
+    <footer>
+        <p>&copy; 2026 KeuOS Project. A Sovereign Architecture.</p>
+        <p>Powered by the <a href="https://salt-lang.dev">Salt Programming Language</a>.</p>
+    </footer>
+</body>
+</html>

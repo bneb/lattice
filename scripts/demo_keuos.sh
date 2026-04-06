@@ -1,8 +1,8 @@
 #!/bin/bash
 # ============================================================================
-# Lattice OS v0.5 Demo — One Command Boot
+# KeuOS OS v0.5 Demo — One Command Boot
 # ============================================================================
-# Usage:   ./scripts/demo_lattice.sh
+# Usage:   ./scripts/demo_keuos.sh
 # Result:  Builds the Salt compiler + kernel, boots in QEMU, runs Ring of Fire
 #
 # Prerequisites:
@@ -28,7 +28,7 @@ cd "$ROOT"
 
 echo ""
 echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}LATTICE OS v0.5${NC} — Salt-Powered • Z3-Verified         ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}KEUOS OS v0.5${NC} — Salt-Powered • Z3-Verified         ${CYAN}║${NC}"
 echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -96,7 +96,7 @@ fi
 # ──────────────────────────────────────────────────────────
 # Step 2: Build the kernel + benchmark
 # ──────────────────────────────────────────────────────────
-echo -e "${YELLOW}[2/4]${NC} Compiling Lattice kernel..."
+echo -e "${YELLOW}[2/4]${NC} Compiling KeuOS kernel..."
 python3 tools/runner_qemu.py build 2>&1 | tail -3
 echo -e "${GREEN}       Kernel compiled ✓${NC}"
 
@@ -135,7 +135,7 @@ if echo "$OUTPUT" | grep -q "ROF Result"; then
     echo ""
     echo -e "  The kernel booted, spawned fibers, measured context switch gaps,"
     echo -e "  and halted cleanly."
-elif echo "$OUTPUT" | grep -q "LATTICE BOOT"; then
+elif echo "$OUTPUT" | grep -q "KEUOS BOOT"; then
     echo -e "${YELLOW}${BOLD}⚠ Partial boot.${NC} Kernel started but benchmark did not complete."
     echo -e "  Check qemu.log for interrupt traces."
 else

@@ -1,10 +1,10 @@
 # Distributed MoE Convergence over VirtIO: A Debugging Case Study
 
-**Lattice OS Technical Report — March 6, 2026**
+**KeuOS OS Technical Report — March 6, 2026**
 
 ## Abstract
 
-I describe the systematic debugging of a distributed Mixture-of-Experts (MoE) inference pipeline running across two QEMU/KVM virtual machines on AWS `z1d.metal` hardware. The pipeline uses a custom bare-metal exokernel (Lattice OS), written in Salt and compiled via MLIR, communicating over raw Ethernet frames with a proprietary EtherType (`0x1A77`) through VirtIO-net. Starting from a state of zero successful packet delivery, I identified and resolved nine distinct failure modes spanning the deployment pipeline, host networking, VirtIO descriptor formatting, process identity, hypervisor scheduling, Layer 2 filtering, and payload serialization. The final system achieves a **30.9 million cycle (7.7 ms) full round-trip latency** for a bidirectional, cross-hypervisor remote procedure call including a 16×16 matrix multiplication — measured end-to-end from Ring 3 dispatch to Ring 3 sentinel receipt.
+I describe the systematic debugging of a distributed Mixture-of-Experts (MoE) inference pipeline running across two QEMU/KVM virtual machines on AWS `z1d.metal` hardware. The pipeline uses a custom bare-metal exokernel (KeuOS OS), written in Salt and compiled via MLIR, communicating over raw Ethernet frames with a proprietary EtherType (`0x1A77`) through VirtIO-net. Starting from a state of zero successful packet delivery, I identified and resolved nine distinct failure modes spanning the deployment pipeline, host networking, VirtIO descriptor formatting, process identity, hypervisor scheduling, Layer 2 filtering, and payload serialization. The final system achieves a **30.9 million cycle (7.7 ms) full round-trip latency** for a bidirectional, cross-hypervisor remote procedure call including a 16×16 matrix multiplication — measured end-to-end from Ring 3 dispatch to Ring 3 sentinel receipt.
 
 ## 1. System Architecture
 
@@ -56,14 +56,14 @@ I encountered nine distinct failure modes, each of which was necessary to resolv
 
 **Observation:** Host-side `tcpdump` on `tap_b` showed zero frames with EtherType `0x1A77`, despite Node A's VirtIO TX ring showing `used_idx` advancement.
 
-**Root Cause:** The Linux bridge (`br_lattice`) was configured with default Spanning Tree Protocol (STP) parameters, imposing a 30-second forwarding delay on newly attached ports.
+**Root Cause:** The Linux bridge (`br_keuos`) was configured with default Spanning Tree Protocol (STP) parameters, imposing a 30-second forwarding delay on newly attached ports.
 
 **Resolution:** Disabled STP and set forwarding delay to zero:
 ```
 stp_state=0, forward_delay=0, ageing=0
 ```
 
-**Verification:** Frames with EtherType `0x1A77` became visible on `tap_a`, `br_lattice`, and `tap_b` simultaneously.
+**Verification:** Frames with EtherType `0x1A77` became visible on `tap_a`, `br_keuos`, and `tap_b` simultaneously.
 
 ### 2.3 VirtIO TX Descriptor Header
 

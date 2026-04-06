@@ -1,5 +1,5 @@
 // std.io - Deterministic I/O Package
-// Designed for the Lattice Kernel Handshake
+// Designed for the KeuOS Kernel Handshake
 
 pub struct Packet {
     id: u64,

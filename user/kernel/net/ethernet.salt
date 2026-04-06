@@ -5,7 +5,7 @@
 //
 // NO TCP/IP. NO ARP. NO UDP. Pure Layer 2.
 //
-// Lattice nodes communicate using raw Ethernet frames with a custom
+// KeuOS nodes communicate using raw Ethernet frames with a custom
 // EtherType (0x88B5 — IEEE 802 Local Experimental). This eliminates
 // the entire IP stack overhead, giving us sub-microsecond framing.
 //
@@ -31,7 +31,7 @@ use std.core.ptr.Ptr
 // ============================================================================
 // Constants
 // ============================================================================
-pub const ETHERTYPE_LATTICE: u16 = 0x88B5;
+pub const ETHERTYPE_KEUOS: u16 = 0x88B5;
 pub const ETH_HEADER_SIZE:   u64 = 14;
 pub const WQE_PAYLOAD_SIZE:  u64 = 16;
 pub const ETH_FRAME_SIZE:    u64 = 30;  // 14 + 16

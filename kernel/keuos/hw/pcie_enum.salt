@@ -1,5 +1,5 @@
 // ============================================================================
-// kernel/lattice/hw/pcie_enum.salt
+// kernel/keuos/hw/pcie_enum.salt
 // PCIe Bus Enumerator — Device Discovery & BAR Extraction
 // ============================================================================
 //
@@ -14,7 +14,7 @@
 //
 // ============================================================================
 
-package kernel.lattice.hw.pcie_enum
+package kernel.keuos.hw.pcie_enum
 
 use std.core.ptr.Ptr
 

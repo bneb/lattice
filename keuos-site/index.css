@@ -1,0 +1,291 @@
+:root {
+    --bg-dark: #0a0a0f;
+    --text-main: #f8f8f8;
+    --text-muted: #a0a0b0;
+    --accent-1: #6366f1;
+    --accent-2: #a855f7;
+    --accent-3: #ec4899;
+    --glass-bg: rgba(255, 255, 255, 0.03);
+    --glass-border: rgba(255, 255, 255, 0.08);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background-color: var(--bg-dark);
+    color: var(--text-main);
+    font-family: 'Outfit', sans-serif;
+    overflow-x: hidden;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Background effects */
+.blob {
+    position: absolute;
+    filter: blur(100px);
+    z-index: -1;
+    border-radius: 50%;
+    animation: float 20s infinite alternate ease-in-out;
+}
+
+.blob-1 {
+    top: -10%;
+    left: -10%;
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(circle, rgba(99,102,241,0.2) 0%, rgba(0,0,0,0) 70%);
+}
+
+.blob-2 {
+    bottom: -20%;
+    right: -10%;
+    width: 800px;
+    height: 800px;
+    background: radial-gradient(circle, rgba(236,72,153,0.15) 0%, rgba(0,0,0,0) 70%);
+    animation-delay: -5s;
+}
+
+@keyframes float {
+    0% { transform: translate(0, 0) scale(1); }
+    100% { transform: translate(50px, 50px) scale(1.1); }
+}
+
+/* Glassmorphism Utilities */
+.glass-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem 4rem;
+    background: rgba(10, 10, 15, 0.6);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--glass-border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.glass-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    border-radius: 24px;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+}
+
+/* Typography & Nav */
+.logo {
+    font-size: 1.8rem;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    background: linear-gradient(to right, #fff, #a0a0b0);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.nav-links {
+    display: flex;
+    gap: 2rem;
+    align-items: center;
+}
+
+.nav-links a {
+    color: var(--text-muted);
+    text-decoration: none;
+    font-weight: 600;
+    transition: color 0.3s ease;
+}
+
+.nav-links a:hover {
+    color: var(--text-main);
+}
+
+.badge-link {
+    background: rgba(99, 102, 241, 0.1);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    padding: 0.5rem 1rem;
+    border-radius: 50px;
+    font-size: 0.9rem;
+    color: #818cf8 !important;
+}
+.badge-link:hover {
+    background: rgba(99, 102, 241, 0.2);
+}
+
+/* Hero Section */
+.hero {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex: 1;
+    padding: 6rem 2rem;
+}
+
+.hero-content {
+    max-width: 800px;
+    padding: 4rem;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Add a subtle highlight to card edge */
+.hero-content::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+}
+
+.badge {
+    display: inline-block;
+    padding: 0.4rem 1rem;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 50px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 2rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.hero h1 {
+    font-size: 4.5rem;
+    line-height: 1.1;
+    font-weight: 800;
+    margin-bottom: 1.5rem;
+    letter-spacing: -2px;
+}
+
+.gradient-text {
+    background: linear-gradient(135deg, var(--accent-1), var(--accent-3));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.hero p {
+    font-size: 1.25rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+    margin-bottom: 3rem;
+    max-width: 600px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* Buttons */
+.actions {
+    display: flex;
+    justify-content: center;
+    gap: 1.5rem;
+}
+
+.btn {
+    padding: 1rem 2.5rem;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 1.1rem;
+    text-decoration: none;
+    transition: all 0.3s ease;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+    color: white;
+    box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(99, 102, 241, 0.5);
+}
+
+.btn-secondary {
+    background: rgba(255,255,255,0.05);
+    color: var(--text-main);
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+.btn-secondary:hover {
+    background: rgba(255,255,255,0.1);
+}
+
+/* Features */
+.features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2rem;
+    padding: 4rem 6rem;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.feature {
+    padding: 2.5rem;
+    transition: transform 0.3s ease, background 0.3s ease;
+}
+
+.feature:hover {
+    transform: translateY(-5px);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.feature .icon {
+    font-size: 2.5rem;
+    margin-bottom: 1.5rem;
+    display: inline-block;
+    padding: 1rem;
+    background: rgba(255,255,255,0.03);
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.05);
+}
+
+.feature h3 {
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+    font-weight: 600;
+}
+
+.feature p {
+    color: var(--text-muted);
+    line-height: 1.6;
+}
+
+/* Footer */
+footer {
+    padding: 3rem;
+    text-align: center;
+    border-top: 1px solid var(--glass-border);
+    margin-top: auto;
+}
+
+footer p {
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+}
+
+footer a {
+    color: var(--accent-1);
+    text-decoration: none;
+}
+
+footer a:hover {
+    text-decoration: underline;
+}
+
+@media (max-width: 768px) {
+    .hero h1 { font-size: 3rem; }
+    .glass-nav { padding: 1rem 2rem; }
+    .features { padding: 2rem; }
+    .hero-content { padding: 2rem; }
+    .actions { flex-direction: column; }
+}

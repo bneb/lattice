@@ -43,7 +43,7 @@ ssh_cmd() {
 }
 
 echo -e "${CYAN}╔════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║  Lattice KVM Benchmarks — Lightweight Deploy (ELF only) ║${NC}"
+echo -e "${CYAN}║  KeuOS KVM Benchmarks — Lightweight Deploy (ELF only) ║${NC}"
 echo -e "${CYAN}╚════════════════════════════════════════════════════════╝${NC}"
 echo ""
 

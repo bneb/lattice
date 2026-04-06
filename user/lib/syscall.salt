@@ -3,7 +3,7 @@
 // User-Space Syscall Abstraction Layer
 // =============================================================================
 //
-// Provides typed, safe interfaces to Lattice OS kernel syscalls.
+// Provides typed, safe interfaces to KeuOS OS kernel syscalls.
 // All functions use the SYSCALL instruction via assembly stubs
 // (user/syscall_stubs.S) and return results in RAX.
 //

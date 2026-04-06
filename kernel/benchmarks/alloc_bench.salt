@@ -8,7 +8,7 @@
 // What this validates:
 //   - The lib-mode atomic interception fix produces correct, fast atomicrmw
 //   - Slab allocator performance under contention-free conditions
-//   - Baseline allocation cost for the Lattice memory subsystem
+//   - Baseline allocation cost for the KeuOS memory subsystem
 //
 // Expected: 100–500 cycles/alloc (QEMU), 50–200 cycles/alloc (bare metal)
 

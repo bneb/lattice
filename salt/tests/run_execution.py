@@ -23,8 +23,8 @@ def main():
     
     # Locate Binaries relative to this script
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    # Script is in lattice/salt/tests
-    # Root is lattice
+    # Script is in keuos/salt/tests
+    # Root is keuos
     project_root = os.path.abspath(os.path.join(script_dir, "../../"))
     
     salt_front_bin = os.path.join(project_root, "salt-front", "target", "release", "salt-front")

@@ -245,6 +245,12 @@ pub fn map_user_page(pml4_phys: u64, vaddr: u64, paddr: u64, flags: u64) {
     *(pt_entry_addr as &mut u64) = paddr | flags;
 }
 
+// @no_mangle wrapper for extern fn access from main.salt
+@no_mangle
+pub fn map_user_page_extern(pml4_phys: u64, vaddr: u64, paddr: u64, flags: u64) {
+    map_user_page(pml4_phys, vaddr, paddr, flags);
+}
+
 // =============================================================================
 // translate_user_addr -- Walk page tables (read-only) to get physical address
 // =============================================================================

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# Lattice Cloud Instance Setup
+# KeuOS Cloud Instance Setup
 # ============================================================================
 # Installs the complete toolchain on a fresh Ubuntu 24.04 instance.
 # Idempotent — safe to re-run.
@@ -16,7 +16,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}  Lattice Benchmark — Instance Setup${NC}"
+echo -e "${GREEN}  KeuOS Benchmark — Instance Setup${NC}"
 echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
 
 # ─── System packages ──────────────────────────────────────────────
@@ -67,10 +67,10 @@ source "$HOME/.cargo/env" 2>/dev/null || true
 
 # ─── Build salt-front ──────────────────────────────────────────────
 echo -e "${YELLOW}[3/5]${NC} Building salt-front compiler..."
-REPO_DIR="$HOME/lattice"
+REPO_DIR="$HOME/keuos"
 if [ ! -d "$REPO_DIR" ]; then
     echo -e "${RED}  Error: repo not synced to $REPO_DIR${NC}"
-    echo "  Run: rsync -az --exclude target --exclude .git <local-repo>/ ubuntu@<ip>:lattice/"
+    echo "  Run: rsync -az --exclude target --exclude .git <local-repo>/ ubuntu@<ip>:keuos/"
     exit 1
 fi
 
@@ -174,4 +174,4 @@ echo -e "${GREEN}═════════════════════
 echo -e "${GREEN}  Setup complete. Ready to benchmark.${NC}"
 echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
 echo ""
-echo "Run:  cd ~/lattice && python3 tools/runner_qemu.py run"
+echo "Run:  cd ~/keuos && python3 tools/runner_qemu.py run"

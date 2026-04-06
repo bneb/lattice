@@ -1,10 +1,10 @@
-# Lattice: Sovereign Microkernel Architecture
+# KeuOS: Sovereign Microkernel Architecture
 
 ## Overview
 
-Lattice is a microkernel operating system written entirely in [Salt](salt-front/), a systems language with an embedded Z3 theorem prover. The architecture achieves unikernel-level latency (~150 cycles per packet) while maintaining hardware-enforced Ring 0 / Ring 3 isolation.
+KeuOS is a microkernel operating system written entirely in [Salt](salt-front/), a systems language with an embedded Z3 theorem prover. The architecture achieves unikernel-level latency (~150 cycles per packet) while maintaining hardware-enforced Ring 0 / Ring 3 isolation.
 
-The key insight is that Salt's compile-time formal verification eliminates the need for runtime safety checks. This means Lattice can move performance-critical subsystems (networking, storage) into Ring 3 user space without the "Security Tax" that normally makes microkernels slower than monolithic kernels.
+The key insight is that Salt's compile-time formal verification eliminates the need for runtime safety checks. This means KeuOS can move performance-critical subsystems (networking, storage) into Ring 3 user space without the "Security Tax" that normally makes microkernels slower than monolithic kernels.
 
 ## The Sovereignty Model
 
@@ -25,10 +25,10 @@ The key insight is that Salt's compile-time formal verification eliminates the n
                     └──────────────┬──────────────────────┘
                                    │ Binary with embedded proofs
                     ┌──────────────▼──────────────────────┐
-                    │       Runtime (Lattice Kernel)       │
+                    │       Runtime (KeuOS Kernel)       │
                     │                                      │
                     │  Ring 0: PMM, Scheduler, IPC, VirtIO │
-                    │  Ring 3: NetD, LatticeStore, Apps    │
+                    │  Ring 3: NetD, KeuOSStore, Apps    │
                     │                                      │
                     │  Arbiter validates proof_hint in O(1) │
                     └─────────────────────────────────────┘
@@ -61,7 +61,7 @@ The key insight is that Salt's compile-time formal verification eliminates the n
 | Daemon | Role | Communication |
 |--------|------|---------------|
 | **NetD** | Full TCP/IP stack: ARP, IP, TCP (SYN cookie–hardened) | SPSC ring from kernel bridge |
-| **LatticeStore** | Block storage via VMO | SPSC ring (planned v0.9.2) |
+| **KeuOSStore** | Block storage via VMO | SPSC ring (planned v0.9.2) |
 | **User Apps** | Application processes | Socket API via NetD |
 
 ## Data Plane: Zero-Trap SPSC
@@ -74,7 +74,7 @@ App calls write() → trap to Ring 0 → kernel copies data → schedules receiv
 Total: ~2000 cycles, 2 context switches, 2 copies
 ```
 
-### Lattice SPSC IPC
+### KeuOS SPSC IPC
 
 ```
 Producer writes to SPSC ring (shared memory) → Consumer reads from same page
@@ -141,7 +141,7 @@ pub fn validate_descriptor_fast(ptr: u64, hint: u64, authorized: u64) -> u64 {
 cd kernel && make
 
 # Boot in QEMU (4-core SMP, VirtIO networking)
-python3 tools/runner_qemu.py kernel/build/lattice.elf
+python3 tools/runner_qemu.py kernel/build/keuos.elf
 
 # Run benchmarks
 ./benchmarks/benchmark.sh -a

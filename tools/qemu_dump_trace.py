@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-qemu_dump_trace.py — Lattice Flight Recorder Memory Dump Parser
+qemu_dump_trace.py — KeuOS Flight Recorder Memory Dump Parser
 
 Reads the TRACE_BUFFERS and TRACE_INDICES symbols from a QEMU core dump
 or from a live QEMU monitor session and prints a chronological timeline
@@ -137,7 +137,7 @@ def read_trace_from_dump(dump_path, buffers_addr, indices_addr):
 def print_timeline(events_by_core, indices, last_n=None):
     """Print a chronological timeline of trace events."""
     print("=" * 72)
-    print("  Lattice Flight Recorder — Context Switch Timeline")
+    print("  KeuOS Flight Recorder — Context Switch Timeline")
     print("=" * 72)
 
     for cpu in sorted(events_by_core.keys()):
@@ -170,7 +170,7 @@ def print_timeline(events_by_core, indices, last_n=None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Lattice Flight Recorder Dump Parser'
+        description='KeuOS Flight Recorder Dump Parser'
     )
     parser.add_argument('--elf', required=True,
                        help='Path to kernel.elf')

@@ -43,7 +43,7 @@ try:
         lines.append(line)
         elapsed = int(time.time() - start)
         # Print every line that matters
-        if any(k in line for k in ["TEST:", "BENCH:", "SUITE", "socket", "VERDICT", "Lattice", "[TEST]"]):
+        if any(k in line for k in ["TEST:", "BENCH:", "SUITE", "socket", "VERDICT", "KeuOS", "[TEST]"]):
             print(f"[{elapsed}s] {line}", flush=True)
         # Heartbeat every 50 lines
         elif len(lines) % 50 == 0:

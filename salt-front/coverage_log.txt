@@ -1,4 +1,4 @@
-/Users/kevin/projects/lattice/salt-front/src/cli.rs:
+/Users/kevin/projects/keuos/salt-front/src/cli.rs:
     1|       |use std::fs;
     2|       |use crate::compile;
     3|       |
@@ -37,7 +37,7 @@
    36|      0|    Ok(())
    37|      0|}
 
-/Users/kevin/projects/lattice/salt-front/src/codegen.rs:
+/Users/kevin/projects/keuos/salt-front/src/codegen.rs:
     1|       |use crate::grammar::{SaltFile, SaltFn, Item, StructDef, Stmt, SaltBlock, SaltWhile, SaltFor, SaltImpl, attr::PulseSpec};
     2|       |use quote::quote;
     3|       |use syn::{Expr, Type as SynType, spanned::Spanned};
@@ -4015,7 +4015,7 @@
  3530|       |    }
  3531|  1.49k|}
 
-/Users/kevin/projects/lattice/salt-front/src/evaluator.rs:
+/Users/kevin/projects/keuos/salt-front/src/evaluator.rs:
     1|       |use syn::{Expr, BinOp, UnOp, Lit};
     2|       |use std::collections::HashMap;
     3|       |
@@ -4180,7 +4180,7 @@
   153|     17|    }
   154|       |}
 
-/Users/kevin/projects/lattice/salt-front/src/fuzz_ast.rs:
+/Users/kevin/projects/keuos/salt-front/src/fuzz_ast.rs:
     1|       |use arbitrary::Arbitrary;
     2|       |use crate::grammar::*;
     3|       |use syn::{parse_quote, Ident};
@@ -4414,7 +4414,7 @@
   223|     34|    }
   224|       |}
 
-/Users/kevin/projects/lattice/salt-front/src/grammar.rs:
+/Users/kevin/projects/keuos/salt-front/src/grammar.rs:
     1|       |use syn::{
     2|       |    parse::{Parse, ParseStream},
     3|       |    Ident, Token, Type, Expr, parenthesized,
@@ -5204,7 +5204,7 @@
   670|    183|    }
   671|       |}
 
-/Users/kevin/projects/lattice/salt-front/src/grammar/attr.rs:
+/Users/kevin/projects/keuos/salt-front/src/grammar/attr.rs:
     1|       |use syn::{
     2|       |    parse::{Parse, ParseStream},
     3|       |    Ident, Token, parenthesized,
@@ -5309,7 +5309,7 @@
    94|      2|    None
    95|      4|}
 
-/Users/kevin/projects/lattice/salt-front/src/lib.rs:
+/Users/kevin/projects/keuos/salt-front/src/lib.rs:
     1|       |// Internal Compiler Error Macro
     2|       |#[macro_export]
     3|       |macro_rules! ice {
@@ -5381,7 +5381,7 @@
    63|    136|}
    64|       |
 
-/Users/kevin/projects/lattice/salt-front/src/main.rs:
+/Users/kevin/projects/keuos/salt-front/src/main.rs:
     1|       |use std::env;
     2|       |
     3|      0|fn main() -> anyhow::Result<()> {
@@ -5389,7 +5389,7 @@
     5|      0|    salt_front::cli::run_cli(args)
     6|      0|}
 
-/Users/kevin/projects/lattice/salt-front/src/passes/comptime.rs:
+/Users/kevin/projects/keuos/salt-front/src/passes/comptime.rs:
     1|       |use crate::grammar::{SaltFile, Item, SaltBlock, Stmt};
     2|       |use crate::evaluator::{Evaluator, ConstValue, EvalError};
     3|       |use syn::{Expr, Lit, LitInt, LitBool, LitFloat};

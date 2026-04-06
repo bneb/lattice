@@ -1,5 +1,5 @@
 // ============================================================================
-// kernel/lattice/syscall/cap_bind.salt
+// kernel/keuos/syscall/cap_bind.salt
 // SYS_CAP_BIND — Sovereign Capability Binder
 // ============================================================================
 //
@@ -17,7 +17,7 @@
 //
 // ============================================================================
 
-package kernel.lattice.syscall.cap_bind
+package kernel.keuos.syscall.cap_bind
 
 use std.core.ptr.Ptr
 

@@ -1,4 +1,4 @@
-    Checking salt-front v0.1.0 (/Users/kevin/projects/lattice/salt-front)
+    Checking salt-front v0.1.0 (/Users/kevin/projects/keuos/salt-front)
 warning: variant `void` should have an upper camel case name
   --> src/codegen/abi.rs:46:5
    |

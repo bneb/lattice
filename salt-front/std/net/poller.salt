@@ -5,8 +5,8 @@
 // Wraps an I/O Reactor backend into a safe, ergonomic event poller.
 //
 // The Reactor trait (std.io.reactor) defines the OS-agnostic interface.
-// On macOS, this uses KqueueReactor. On the Lattice kernel, it will use
-// LatticeReactor once VirtIO lands. Applications use Poller and never
+// On macOS, this uses KqueueReactor. On the KeuOS kernel, it will use
+// KeuOSReactor once VirtIO lands. Applications use Poller and never
 // interact with backends directly.
 
 package std.net.poller

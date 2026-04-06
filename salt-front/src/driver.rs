@@ -60,10 +60,10 @@ impl PipelineStep {
 pub enum DriverTarget {
     DarwinArm64,
     LinuxArm64,
-    /// Bare-metal ARM64 ELF for Lattice OS kernel/userspace
-    LatticeArm64,
-    /// Bare-metal x86_64 ELF for Lattice OS kernel/userspace
-    LatticeX86_64,
+    /// Bare-metal ARM64 ELF for KeuOS OS kernel/userspace
+    KeuOSArm64,
+    /// Bare-metal x86_64 ELF for KeuOS OS kernel/userspace
+    KeuOSX86_64,
 }
 
 impl Default for DriverTarget {
@@ -82,8 +82,8 @@ impl DriverTarget {
         match self {
             DriverTarget::DarwinArm64 => "arm64-apple-macosx14.0.0",
             DriverTarget::LinuxArm64 => "aarch64-unknown-linux-gnu",
-            DriverTarget::LatticeArm64 => "aarch64-unknown-none-elf",
-            DriverTarget::LatticeX86_64 => "x86_64-unknown-none-elf",
+            DriverTarget::KeuOSArm64 => "aarch64-unknown-none-elf",
+            DriverTarget::KeuOSX86_64 => "x86_64-unknown-none-elf",
         }
     }
 
@@ -92,8 +92,8 @@ impl DriverTarget {
         match s {
             "darwin-arm64" | "macos" => Some(DriverTarget::DarwinArm64),
             "linux-arm64" => Some(DriverTarget::LinuxArm64),
-            "lattice" | "lattice-arm64" => Some(DriverTarget::LatticeArm64),
-            "lattice-x86" | "lattice-x86_64" => Some(DriverTarget::LatticeX86_64),
+            "keuos" | "keuos-arm64" => Some(DriverTarget::KeuOSArm64),
+            "keuos-x86" | "keuos-x86_64" => Some(DriverTarget::KeuOSX86_64),
             _ => None,
         }
     }
@@ -207,11 +207,11 @@ impl SaltDriver {
                             llc_args.push("-mcpu=apple-m4".into());
                             llc_args.push("-mattr=+lse".into());
                         }
-                        DriverTarget::LatticeArm64 => {
+                        DriverTarget::KeuOSArm64 => {
                             llc_args.push("-mcpu=cortex-a76".into());
                             llc_args.push("-mattr=+lse".into());
                         }
-                        DriverTarget::LatticeX86_64 => {
+                        DriverTarget::KeuOSX86_64 => {
                             // Generic x86_64 — no special CPU flags needed
                         }
                     }
@@ -252,10 +252,10 @@ impl SaltDriver {
         full.into_iter().take(3).collect()
     }
 
-    /// Build the Lattice OS binary pipeline: MLIR → LLVM IR → .o → linked ELF.
+    /// Build the KeuOS OS binary pipeline: MLIR → LLVM IR → .o → linked ELF.
     /// Uses ld.lld (not clang) for freestanding bare-metal linking.
     /// Produces a fully linked ELF executable at a fixed user-space base address.
-    pub fn build_lattice_binary_pipeline(&self, output_name: &str) -> Vec<PipelineStep> {
+    pub fn build_keuos_binary_pipeline(&self, output_name: &str) -> Vec<PipelineStep> {
         let mut steps = self.build_object_pipeline(output_name);
         let obj_file = self.build_dir.join(format!("{}.o", output_name));
         let elf_file = self.build_dir.join(output_name);
@@ -308,8 +308,8 @@ impl SaltDriver {
         Ok(output)
     }
 
-    /// Execute the Lattice OS binary pipeline: write MLIR → run 4 steps → produce linked ELF.
-    pub fn compile_lattice_binary(&self, mlir_source: &str, output_name: &str) -> Result<PathBuf, String> {
+    /// Execute the KeuOS OS binary pipeline: write MLIR → run 4 steps → produce linked ELF.
+    pub fn compile_keuos_binary(&self, mlir_source: &str, output_name: &str) -> Result<PathBuf, String> {
         let mlir_path = self.build_dir.join(format!("{}.mlir", output_name));
 
         std::fs::create_dir_all(&self.build_dir)
@@ -318,7 +318,7 @@ impl SaltDriver {
         std::fs::write(&mlir_path, mlir_source)
             .map_err(|e| format!("Failed to write MLIR: {}", e))?;
 
-        let steps = self.build_lattice_binary_pipeline(output_name);
+        let steps = self.build_keuos_binary_pipeline(output_name);
 
         for step in &steps {
             let mut cmd = std::process::Command::new(&step.tool);
@@ -569,39 +569,39 @@ mod tests {
     }
 
     // =================================================================
-    // Lattice ELF target TDD tests
+    // KeuOS ELF target TDD tests
     // =================================================================
 
     #[test]
-    fn test_lattice_target_produces_elf_triple() {
-        assert_eq!(DriverTarget::LatticeArm64.triple(), "aarch64-unknown-none-elf",
-            "LatticeArm64 must use bare-metal ELF triple for kernel loader");
+    fn test_keuos_target_produces_elf_triple() {
+        assert_eq!(DriverTarget::KeuOSArm64.triple(), "aarch64-unknown-none-elf",
+            "KeuOSArm64 must use bare-metal ELF triple for kernel loader");
     }
 
     #[test]
-    fn test_lattice_x86_target_produces_elf_triple() {
-        assert_eq!(DriverTarget::LatticeX86_64.triple(), "x86_64-unknown-none-elf",
-            "LatticeX86_64 must use bare-metal ELF triple for kernel loader");
+    fn test_keuos_x86_target_produces_elf_triple() {
+        assert_eq!(DriverTarget::KeuOSX86_64.triple(), "x86_64-unknown-none-elf",
+            "KeuOSX86_64 must use bare-metal ELF triple for kernel loader");
     }
 
     #[test]
-    fn test_lattice_target_in_pipeline() {
+    fn test_keuos_target_in_pipeline() {
         let driver = SaltDriver::new(PathBuf::from("/tmp/salt-build"))
-            .with_target(DriverTarget::LatticeArm64);
+            .with_target(DriverTarget::KeuOSArm64);
         let steps = driver.build_object_pipeline("kernel_main");
         let llc = &steps[2];
 
         assert!(llc.has_flag("aarch64-unknown-none-elf"),
-            "llc step must pass bare-metal ELF triple when targeting Lattice");
+            "llc step must pass bare-metal ELF triple when targeting KeuOS");
         assert!(!llc.has_flag("apple"),
-            "Lattice target must NOT reference Apple/macOS");
+            "KeuOS target must NOT reference Apple/macOS");
     }
 
     #[test]
     fn test_target_from_str() {
-        assert_eq!(DriverTarget::from_str("lattice"), Some(DriverTarget::LatticeArm64));
-        assert_eq!(DriverTarget::from_str("lattice-arm64"), Some(DriverTarget::LatticeArm64));
-        assert_eq!(DriverTarget::from_str("lattice-x86_64"), Some(DriverTarget::LatticeX86_64));
+        assert_eq!(DriverTarget::from_str("keuos"), Some(DriverTarget::KeuOSArm64));
+        assert_eq!(DriverTarget::from_str("keuos-arm64"), Some(DriverTarget::KeuOSArm64));
+        assert_eq!(DriverTarget::from_str("keuos-x86_64"), Some(DriverTarget::KeuOSX86_64));
         assert_eq!(DriverTarget::from_str("macos"), Some(DriverTarget::DarwinArm64));
         assert_eq!(DriverTarget::from_str("bogus"), None);
     }
@@ -613,19 +613,19 @@ mod tests {
     }
 
     // =================================================================
-    // Step 1: Lattice binary pipeline TDD tests
+    // Step 1: KeuOS binary pipeline TDD tests
     // =================================================================
     // These tests define expected behavior BEFORE implementation.
-    // The build_lattice_binary_pipeline() method does not exist yet.
+    // The build_keuos_binary_pipeline() method does not exist yet.
 
     #[test]
-    fn test_lattice_x86_binary_pipeline_has_4_steps() {
+    fn test_keuos_x86_binary_pipeline_has_4_steps() {
         let driver = SaltDriver::new(PathBuf::from("/tmp/salt-build"))
-            .with_target(DriverTarget::LatticeX86_64);
-        let steps = driver.build_lattice_binary_pipeline("hello_user");
+            .with_target(DriverTarget::KeuOSX86_64);
+        let steps = driver.build_keuos_binary_pipeline("hello_user");
 
         assert_eq!(steps.len(), 4,
-            "Lattice binary pipeline must have 4 steps: mlir-opt → mlir-translate → llc → lld");
+            "KeuOS binary pipeline must have 4 steps: mlir-opt → mlir-translate → llc → lld");
         assert_eq!(steps[0].name, "mlir-opt");
         assert_eq!(steps[1].name, "mlir-translate");
         assert_eq!(steps[2].name, "llc");
@@ -633,54 +633,54 @@ mod tests {
     }
 
     #[test]
-    fn test_lattice_x86_link_uses_lld() {
+    fn test_keuos_x86_link_uses_lld() {
         let driver = SaltDriver::new(PathBuf::from("/tmp/salt-build"))
-            .with_target(DriverTarget::LatticeX86_64);
-        let steps = driver.build_lattice_binary_pipeline("hello_user");
+            .with_target(DriverTarget::KeuOSX86_64);
+        let steps = driver.build_keuos_binary_pipeline("hello_user");
         let link_step = &steps[3];
 
         assert!(link_step.tool.to_str().unwrap().contains("ld.lld"),
-            "Lattice link step must use ld.lld, not clang");
+            "KeuOS link step must use ld.lld, not clang");
     }
 
     #[test]
-    fn test_lattice_x86_link_has_nostdlib_and_entry() {
+    fn test_keuos_x86_link_has_nostdlib_and_entry() {
         let driver = SaltDriver::new(PathBuf::from("/tmp/salt-build"))
-            .with_target(DriverTarget::LatticeX86_64);
-        let steps = driver.build_lattice_binary_pipeline("hello_user");
+            .with_target(DriverTarget::KeuOSX86_64);
+        let steps = driver.build_keuos_binary_pipeline("hello_user");
         let link_step = &steps[3];
 
         assert!(link_step.has_flag("-nostdlib"),
-            "Lattice link must be freestanding (-nostdlib)");
+            "KeuOS link must be freestanding (-nostdlib)");
         assert!(link_step.has_flag("-e"),
-            "Lattice link must specify entry point (-e)");
+            "KeuOS link must specify entry point (-e)");
         assert!(link_step.has_flag("--image-base"),
-            "Lattice link must set user-space image base");
+            "KeuOS link must set user-space image base");
     }
 
     #[test]
-    fn test_lattice_x86_link_produces_elf_executable() {
+    fn test_keuos_x86_link_produces_elf_executable() {
         let driver = SaltDriver::new(PathBuf::from("/tmp/salt-build"))
-            .with_target(DriverTarget::LatticeX86_64);
-        let steps = driver.build_lattice_binary_pipeline("hello_user");
+            .with_target(DriverTarget::KeuOSX86_64);
+        let steps = driver.build_keuos_binary_pipeline("hello_user");
         let link_step = &steps[3];
 
         // Output should be an ELF executable (no extension, not .o)
         let output = link_step.output.to_str().unwrap();
         assert!(!output.ends_with(".o"),
-            "Lattice binary output must not be .o (it's a linked executable)");
+            "KeuOS binary output must not be .o (it's a linked executable)");
         assert!(output.ends_with("hello_user"),
-            "Lattice binary output should be the bare name");
+            "KeuOS binary output should be the bare name");
     }
 
     #[test]
-    fn test_lattice_x86_llc_uses_x86_triple() {
+    fn test_keuos_x86_llc_uses_x86_triple() {
         let driver = SaltDriver::new(PathBuf::from("/tmp/salt-build"))
-            .with_target(DriverTarget::LatticeX86_64);
-        let steps = driver.build_lattice_binary_pipeline("hello_user");
+            .with_target(DriverTarget::KeuOSX86_64);
+        let steps = driver.build_keuos_binary_pipeline("hello_user");
         let llc = &steps[2];
 
         assert!(llc.has_flag("x86_64-unknown-none-elf"),
-            "Lattice x86_64 pipeline must use bare-metal x86_64 ELF triple");
+            "KeuOS x86_64 pipeline must use bare-metal x86_64 ELF triple");
     }
 }

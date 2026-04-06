@@ -1,6 +1,6 @@
 //! Z3 Ownership State Machine - The Coroner's Ledger
 //!
-//! Tracks the "Soul" of every pointer as it moves through the Lattice.
+//! Tracks the "Soul" of every pointer as it moves through the KeuOS.
 //! This provides formal verification that all resources are properly released or moved.
 //!
 //! ## The Persistent Z3 Ledger Model

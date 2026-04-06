@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Lattice Docker Build Runner — Reproducible Linux builds via Docker.
+KeuOS Docker Build Runner — Reproducible Linux builds via Docker.
 
 Usage:
     python3 tools/docker_build.py build       # Build salt-front + salt-opt in Docker
@@ -20,7 +20,7 @@ import time
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
-IMAGE_NAME = "lattice-dev"
+IMAGE_NAME = "keuos-dev"
 WORKSPACE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # MLIR/LLVM paths inside the Docker container (Debian Trixie, LLVM 19)
@@ -54,7 +54,7 @@ def _run(cmd, check=True, capture=False, **kwargs):
 
 
 def _docker_run(script, interactive=False):
-    """Run a bash script inside the lattice-dev Docker container.
+    """Run a bash script inside the keuos-dev Docker container.
 
     Mounts the workspace at /workspace. Uses --rm for automatic cleanup.
     """
@@ -70,7 +70,7 @@ def _docker_run(script, interactive=False):
 
 
 def _image_exists():
-    """Check if the lattice-dev Docker image exists."""
+    """Check if the keuos-dev Docker image exists."""
     result = subprocess.run(
         ["docker", "image", "inspect", IMAGE_NAME],
         capture_output=True
@@ -181,7 +181,7 @@ def cmd_shell():
         print(f"{YELLOW}Docker image '{IMAGE_NAME}' not found — building...{RESET}")
         cmd_image()
 
-    print(f"{CYAN}Entering Docker shell (lattice-dev)...{RESET}")
+    print(f"{CYAN}Entering Docker shell (keuos-dev)...{RESET}")
     _docker_run("bash", interactive=True)
 
 

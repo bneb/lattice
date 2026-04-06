@@ -303,7 +303,7 @@ global MOE_PEER_MAC: [u8; 6] = [0 as u8; 6];
 global LAST_TX_USED: u16 = 0;
 global LAST_RX_USED: u16 = 0;
 
-const LATTICE_ETHERTYPE: u16 = 0x1A77;
+const KEUOS_ETHERTYPE: u16 = 0x1A77;
 const MOE_PAYLOAD_SIZE: u32 = 2048;  // 16x16 f64 tensor = 2048 bytes
 
 // Scratch buffer for building outgoing Ethernet frames
@@ -389,7 +389,7 @@ fn moe_drain_bar() -> bool {
     // Dereference it and copy the first 8 bytes (the sentinel stamp)
     // followed by the control word for diagnostic traceability.
     // This ensures the RX handler receives actual data, not raw pointers.
-    let data_val: u64 = *((payload_ptr) as &u64);   // e.g. 0xDEADBEEFCAFEBABE
+    let data_val: u64 = *((payload_ptr) as &u64);   // First 8 bytes of payload data
     *((MOE_TX_SCRATCH + 14) as &mut u64) = data_val; // payload byte 0-7: actual data
     *((MOE_TX_SCRATCH + 22) as &mut u64) = control;  // payload byte 8-15: control word
 

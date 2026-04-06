@@ -176,7 +176,7 @@ packet are processed sequentially with a single response flush.
 **Prerequisites**: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 21+ (`brew install llvm@21`).
 
 ```bash
-# From the lattice/ project root:
+# From the keuos/ project root:
 
 # 1. Build the Salt compiler (one-time)
 cd salt-front && cargo build && cd ..
@@ -250,5 +250,5 @@ RESP serialize → TCP send cycle.
 
 ## License
 
-Part of the [Lattice](https://github.com/nicebyte/salt) project. See root
+Part of the [KeuOS](https://github.com/nicebyte/salt) project. See root
 `LICENSE` for details.

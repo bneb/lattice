@@ -1,15 +1,15 @@
-# Lattice Sovereign ABI Specification (v0.3.0)
+# KeuOS Sovereign ABI Specification (v0.3.0)
 
 > **Status: Level 0, Experimental**
-> This document defines the Application Binary Interface (ABI) for the Lattice Sovereign Microkernel. It is the definitive reference for any language runtime (Rust, C, Zig, Go) targeting Lattice as a compilation target.
+> This document defines the Application Binary Interface (ABI) for the KeuOS Sovereign Microkernel. It is the definitive reference for any language runtime (Rust, C, Zig, Go) targeting KeuOS as a compilation target.
 
-Lattice strictly diverges from the POSIX standard. The kernel acts exclusively as a **Control Plane** for resource multiplexing and spatial scheduling. All data movement occurs in the **Data Plane** via zero-copy shared memory or fast-path register injection. There are no generic `read` or `write` file descriptor operations.
+KeuOS strictly diverges from the POSIX standard. The kernel acts exclusively as a **Control Plane** for resource multiplexing and spatial scheduling. All data movement occurs in the **Data Plane** via zero-copy shared memory or fast-path register injection. There are no generic `read` or `write` file descriptor operations.
 
 ---
 
 ## 1. The Calling Convention
 
-Lattice utilizes a hardware-optimized calling convention. System calls are executed via native hardware trap instructions. To support heterogeneous architectures without runtime overhead, the ABI defines strict register mappings for both invocation and fast-path return injection.
+KeuOS utilizes a hardware-optimized calling convention. System calls are executed via native hardware trap instructions. To support heterogeneous architectures without runtime overhead, the ABI defines strict register mappings for both invocation and fast-path return injection.
 
 ### x86_64 Architecture
 
@@ -38,7 +38,7 @@ Lattice utilizes a hardware-optimized calling convention. System calls are execu
 
 ## 2. The Control Plane Vectors
 
-The Lattice kernel exposes exactly **five** core system call vectors. The ABI explicitly forbids generic read/write vectors.
+The KeuOS kernel exposes exactly **five** core system call vectors. The ABI explicitly forbids generic read/write vectors.
 
 ### `SYS_EXIT` — Vector 0
 
@@ -110,23 +110,23 @@ Executes the **fast-path register IPC**. The kernel reads the payload words and 
 
 ## 3. The Data Plane Memory Layout
 
-Bulk data transfer operates over zero-copy **Single-Producer, Single-Consumer (SPSC)** rings. Any language targeting Lattice **must exactly replicate this memory layout** in its standard library.
+Bulk data transfer operates over zero-copy **Single-Producer, Single-Consumer (SPSC)** rings. Any language targeting KeuOS **must exactly replicate this memory layout** in its standard library.
 
 The ABI strictly enforces **64-byte cache line alignment** for the `head` and `tail` pointers to prevent MESI false-sharing between CPU cores.
 
-### Canonical C Definition (`lattice_abi.h`)
+### Canonical C Definition (`keuos_abi.h`)
 
 ```c
 #include <stdint.h>
 
-#define LATTICE_CACHE_LINE 64
+#define KEUOS_CACHE_LINE 64
 
 typedef struct {
-    _Atomic uint32_t head __attribute__((aligned(LATTICE_CACHE_LINE)));
+    _Atomic uint32_t head __attribute__((aligned(KEUOS_CACHE_LINE)));
     uint32_t capacity;
-    _Atomic uint32_t tail __attribute__((aligned(LATTICE_CACHE_LINE)));
+    _Atomic uint32_t tail __attribute__((aligned(KEUOS_CACHE_LINE)));
     uint8_t* data_ptr;
-} lattice_spsc_ring_t;
+} keuos_spsc_ring_t;
 ```
 
 ### Canonical Salt Definition
@@ -162,7 +162,7 @@ Offset   Size   Field         Owner        Cache Line
 
 ## 4. The Formal Verification Contract
 
-Lattice operates on a **proof-carrying architecture**. While standard C or Rust binaries can target this ABI and manage their own memory safety, binaries compiled via the Salt toolchain are bound by a Z3 formal verification contract.
+KeuOS operates on a **proof-carrying architecture**. While standard C or Rust binaries can target this ABI and manage their own memory safety, binaries compiled via the Salt toolchain are bound by a Z3 formal verification contract.
 
 When interacting with the `SpscRing` via the Salt standard library, the compiler proves the following obligations at compile time:
 
@@ -173,7 +173,7 @@ When interacting with the `SpscRing` via the Salt standard library, the compiler
 | **Linearity** | Pointers injected into the ring are marked `consume` and immediately invalidated in the caller's scope (prevents use-after-free) |
 
 > [!TIP]
-> If a developer writes a C or Rust program targeting Lattice, they are responsible for their own memory bounds. If they write a Salt program, the ABI **guarantees** that no pointer will ever exceed capacity and the head will never overwrite an unread tail.
+> If a developer writes a C or Rust program targeting KeuOS, they are responsible for their own memory bounds. If they write a Salt program, the ABI **guarantees** that no pointer will ever exceed capacity and the head will never overwrite an unread tail.
 
 ---
 
@@ -189,4 +189,4 @@ When interacting with the `SpscRing` via the Salt standard library, the compiler
 
 ---
 
-*Lattice Sovereign ABI v0.3.0 — March 2026*
+*KeuOS Sovereign ABI v0.3.0 — March 2026*

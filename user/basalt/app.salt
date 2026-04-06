@@ -3,7 +3,7 @@
 // Basalt v0.1 — Ring 3 Streaming LLM Application
 // ============================================================================
 //
-// The first Ring 3 application on the Lattice Sovereign I/O Fabric.
+// The first Ring 3 application on the KeuOS Sovereign I/O Fabric.
 // Basalt sits between NetD's RX and TX Codata streams, consuming
 // incoming prompt pointers and producing zero-copy response frames.
 //

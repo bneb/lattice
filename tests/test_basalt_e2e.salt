@@ -10,7 +10,7 @@
 //   5. Verify: each C[i,j] = 4 × 1.0 × 2.0 = 8.0
 //
 // This test uses malloc'd memory to simulate the physical BARs.
-// On bare-metal Lattice, these would be actual MMIO regions.
+// On bare-metal KeuOS, these would be actual MMIO regions.
 //
 // Exit codes:
 //   0 = all passed (Convergence achieved)

@@ -1,5 +1,5 @@
 // =============================================================================
-// std.io.LatticeReactor — Lattice kernel backend for the Reactor trait
+// std.io.KeuOSReactor — KeuOS kernel backend for the Reactor trait
 // =============================================================================
 // DEPRECATED STUB: This VirtIO-based implementation is superseded by
 // std.io.sovereign_poller.SovereignPoller, which provides tickless
@@ -12,29 +12,29 @@
 // When the Kernel Worktree completes the VirtIO net driver, this file
 // can implement the Reactor trait by delegating to SovereignPoller.
 
-package std.io.reactor_lattice
+package std.io.reactor_keuos
 
 use std.core.ptr.Ptr
 use std.core.result.Result
 use std.status.Status
 use std.io.reactor.{Reactor, Filter}
 
-/// Lattice kernel VirtIO-backed I/O reactor.
+/// KeuOS kernel VirtIO-backed I/O reactor.
 /// Stub: returns errors until the kernel VirtIO stack is ready.
-pub struct LatticeReactor {
+pub struct KeuOSReactor {
     reactor_fd: i32
 }
 
-impl LatticeReactor {
-    /// Create a new LatticeReactor.
+impl KeuOSReactor {
+    /// Create a new KeuOSReactor.
     /// Currently fails unconditionally — VirtIO not yet available.
-    pub fn new() -> Result<LatticeReactor> {
+    pub fn new() -> Result<KeuOSReactor> {
         // TODO: syscall 128 (reactor_create) when kernel is ready
-        return Result::Err(Status::internal("LatticeReactor: VirtIO backend not yet implemented"));
+        return Result::Err(Status::internal("KeuOSReactor: VirtIO backend not yet implemented"));
     }
 }
 
-impl Reactor for LatticeReactor {
+impl Reactor for KeuOSReactor {
     pub fn register(&self, fd: i32, filter: Filter) -> i32 {
         // TODO: syscall 129 (reactor_register)
         return -1;

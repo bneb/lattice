@@ -17,7 +17,7 @@
 // Expected results:
 //   - pmm alloc/free: ~50-200 cycles/pair (identical to global, zero contention)
 //   - slab pop/push: ~80-300 cycles/pair (identical to global, zero contention)
-//   - AP boot count: matches LATTICE_SMP environment variable
+//   - AP boot count: matches KEUOS_SMP environment variable
 // =============================================================================
 
 package benchmarks.smp_bench

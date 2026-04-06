@@ -1,12 +1,12 @@
-# Lattice OS Driver Model specification
+# KeuOS OS Driver Model specification
 
 > [!NOTE]
-> This document describes a **design target**, not the current implementation. The `Window<T>` and `map_window` primitives have not been implemented yet. Current Lattice drivers use raw port I/O (`io.outb`/`io.inb`) via assembly FFI and direct memory-mapped addresses. See [`kernel/drivers/`](../kernel/drivers/) for the current driver code.
+> This document describes a **design target**, not the current implementation. The `Window<T>` and `map_window` primitives have not been implemented yet. Current KeuOS drivers use raw port I/O (`io.outb`/`io.inb`) via assembly FFI and direct memory-mapped addresses. See [`kernel/drivers/`](../kernel/drivers/) for the current driver code.
 
-Lattice replaces the traditional kernel-mode driver model (Linux/Windows) with a compiler-verified, zero-overhead Safety Model.
+KeuOS replaces the traditional kernel-mode driver model (Linux/Windows) with a compiler-verified, zero-overhead Safety Model.
 
 ## 1. The Core Thesis: "Compiler IS the OS"
-In traditional systems, the kernel protects hardware via MMU page tables and privilege rings (Ring 0 vs Ring 3). Lattice eliminates this runtime overhead by statically verifying memory safety and hardware access policies at compile time.
+In traditional systems, the kernel protects hardware via MMU page tables and privilege rings (Ring 0 vs Ring 3). KeuOS eliminates this runtime overhead by statically verifying memory safety and hardware access policies at compile time.
 
 ### The "Zero-Context-Switch" Driver
 Because drivers are proven safe, they run in the same address space as the kernel *without* protection boundaries.
@@ -46,7 +46,7 @@ fn send_packet(nic: &mut Window<NetworkCard>) {
 ```
 
 ## 4. Comparison with Linux
-| Feature | Linux Kernel Module | Lattice Driver |
+| Feature | Linux Kernel Module | KeuOS Driver |
 |---|---|---|
 | **Language** | C (Manual Safety) | Salt (Verified Safety) |
 | **Isolation** | Runtime (MMU/Ring) | Compile-time (Type System) |
@@ -54,6 +54,6 @@ fn send_packet(nic: &mut Window<NetworkCard>) {
 | **Performance** | Context Switch Overhead | Native Function Call |
 
 ## 5. Verification Strategy
-The Lattice Compiler (`salt-front`) and Verifier (`salt-opt`) work together:
+The KeuOS Compiler (`salt-front`) and Verifier (`salt-opt`) work together:
 1.  **Frontend**: Ensures distinct ownership of Windows (`map_window` checks).
 2.  **Backend (Z3)**: Proves that indices into MMIO windows are within bounds, even for variable-length descriptors.

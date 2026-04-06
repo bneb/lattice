@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Lattice / Salt — Stochastic Financial Exit Model
+KeuOS / Salt — Stochastic Financial Exit Model
 =================================================
 
 Monte Carlo simulation of possible financial exit scenarios for the
-Lattice unikernel + Salt language project, informed by real-world
+KeuOS unikernel + Salt language project, informed by real-world
 comparable transactions in the Hard Tech / systems infrastructure space.
 
 Comparable Transactions (2016–2026):
@@ -69,7 +69,7 @@ def sample_acquihire_small() -> float:
 def sample_acquihire_large() -> float:
     """Major acqui-hire by Tier-1 cloud (AWS, GCP, Azure, Cloudflare).
     Comparable: Inflection→MSFT ($650M), Adept→Amazon (~$400M).
-    We use a lower median because Lattice is pre-revenue."""
+    We use a lower median because KeuOS is pre-revenue."""
     return lognormal_draw(median_m=80.0, sigma=0.7)
 
 
@@ -82,7 +82,7 @@ def sample_ip_license() -> float:
 
 def sample_full_acquisition() -> float:
     """Full strategic acquisition by a hyperscaler building edge/unikernel
-    products.  Comparable: HashiCorp→IBM ($6.4B at maturity). Lattice is
+    products.  Comparable: HashiCorp→IBM ($6.4B at maturity). KeuOS is
     far earlier stage, so median is dramatically lower."""
     return lognormal_draw(median_m=200.0, sigma=0.8)
 
@@ -199,7 +199,7 @@ def print_report(results, scenario_counts, buyer_counts):
     nonzero    = [v for v in all_values if v > 0]
 
     print("=" * 72)
-    print("  LATTICE / SALT — STOCHASTIC FINANCIAL EXIT MODEL")
+    print("  KEUOS / SALT — STOCHASTIC FINANCIAL EXIT MODEL")
     print(f"  {N_SIMULATIONS:,} Monte Carlo simulations")
     print("=" * 72)
 

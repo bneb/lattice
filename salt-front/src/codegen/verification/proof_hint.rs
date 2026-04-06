@@ -17,10 +17,10 @@
 // collision resistance and resistance to hash-flooding attacks.
 // =============================================================================
 
-/// SipHash-2-4 key derived from the Lattice sovereign identity.
+/// SipHash-2-4 key derived from the KeuOS sovereign identity.
 /// These keys are compile-time constants shared between the compiler and
 /// the Salt runtime. Changing them invalidates all existing proof_hints.
-const SIPHASH_K0: u64 = 0x4c61747469636521; // "Lattice!" in ASCII
+const SIPHASH_K0: u64 = 0x4c61747469636521; // "KeuOS!" in ASCII
 const SIPHASH_K1: u64 = 0x536f76657265696e; // "Soverein" in ASCII
 
 /// SipHash-2-4 core round function (ARX: Add-Rotate-Xor).
@@ -128,7 +128,7 @@ pub fn validate_descriptor(ptr: u64, proof_hint: u64, authorized_hint: u64) -> b
 // =============================================================================
 // The Salt runtime (ipc_arbiter.salt) must use these same key values.
 
-/// SipHash key component 0 ("Lattice!" in ASCII)
+/// SipHash key component 0 ("KeuOS!" in ASCII)
 pub const K0: u64 = SIPHASH_K0;
 /// SipHash key component 1 ("Soverein" in ASCII)
 pub const K1: u64 = SIPHASH_K1;

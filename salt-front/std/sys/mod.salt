@@ -6,7 +6,7 @@ use std.core.ptr.Ptr
 // Type alias for clarity
 pub type FileDescriptor = i32
 
-// The raw entry point for Lattice OS syscalls (64-bit)
+// The raw entry point for KeuOS OS syscalls (64-bit)
 // Convention: syscall_num, arg1, arg2, arg3, arg4, arg5, arg6
 @no_mangle
 extern fn syscall6(num: i64, a1: i64, a2: i64, a3: i64, a4: i64, a5: i64, a6: i64) -> i64;

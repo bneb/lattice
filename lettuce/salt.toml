@@ -1,5 +1,5 @@
 [package]
 name = "lettuce"
 version = "0.1.0"
-description = "LETTUCE — Lattice Engine for Threadless Transactions & Ultra-fast Cache Execution"
+description = "LETTUCE — KeuOS Engine for Threadless Transactions & Ultra-fast Cache Execution"
 entry = "src/main.salt"

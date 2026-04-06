@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # =============================================================================
 # tools/host_udp_blast.py
-# Lattice C10M Live Traffic Smoke Test — Host-Side UDP Blaster
+# KeuOS C10M Live Traffic Smoke Test — Host-Side UDP Blaster
 # =============================================================================
 #
 # Sends exactly 1,000 UDP datagrams to the guest VM via QEMU's SLIRP port
@@ -25,13 +25,13 @@ import sys
 HOST = "127.0.0.1"
 PORT = 5555
 TOTAL_FRAMES = 1000
-PAYLOAD = b"LATTICE_C10M_TEST"
+PAYLOAD = b"KEUOS_C10M_TEST"
 
 def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     print("=" * 60)
-    print("  LATTICE C10M LIVE TRAFFIC SMOKE TEST")
+    print("  KEUOS C10M LIVE TRAFFIC SMOKE TEST")
     print(f"  Target: {HOST}:{PORT}")
     print(f"  Frames: {TOTAL_FRAMES}")
     print(f"  Payload: {PAYLOAD.decode()} ({len(PAYLOAD)} bytes)")

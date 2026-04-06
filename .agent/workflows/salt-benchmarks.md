@@ -9,13 +9,13 @@ description: Run Salt language benchmarks comparing Salt, C, and Rust performanc
 // turbo
 1. Run all benchmarks:
 ```bash
-cd /Users/kevin/projects/lattice/benchmarks && ./benchmark.sh -a
+cd /Users/kevin/projects/keuos/benchmarks && ./benchmark.sh -a
 ```
 
 // turbo
 2. Run specific benchmark(s):
 ```bash
-cd /Users/kevin/projects/lattice/benchmarks && ./benchmark.sh <name1> [name2] ...
+cd /Users/kevin/projects/keuos/benchmarks && ./benchmark.sh <name1> [name2] ...
 ```
 
 Examples:
@@ -50,14 +50,14 @@ Examples:
 // turbo
 3. If changing compiler code, rebuild first:
 ```bash
-cd /Users/kevin/projects/lattice/salt-front && Z3_SYS_Z3_HEADER=/opt/homebrew/include/z3.h LIBRARY_PATH=/opt/homebrew/lib cargo build --release
+cd /Users/kevin/projects/keuos/salt-front && Z3_SYS_Z3_HEADER=/opt/homebrew/include/z3.h LIBRARY_PATH=/opt/homebrew/lib cargo build --release
 ```
 
 ## View MLIR Output
 
 4. Check generated MLIR for a Salt file:
 ```bash
-cd /Users/kevin/projects/lattice/salt-front && DYLD_LIBRARY_PATH=/opt/homebrew/lib ./target/release/salt-front "../benchmarks/<name>.salt" -o /tmp/<name>.mlir
+cd /Users/kevin/projects/keuos/salt-front && DYLD_LIBRARY_PATH=/opt/homebrew/lib ./target/release/salt-front "../benchmarks/<name>.salt" -o /tmp/<name>.mlir
 ```
 
 ## Benchmark Script Internals
@@ -72,4 +72,4 @@ Each benchmark runs 3 times with 0.1s thermal pause between runs.
 ## Update Benchmark Documentation
 
 Results are stored in:
-- `/Users/kevin/projects/lattice/benchmarks/BENCHMARKS.md`
+- `/Users/kevin/projects/keuos/benchmarks/BENCHMARKS.md`

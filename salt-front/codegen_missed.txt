@@ -1,4 +1,4 @@
-/Users/kevin/projects/lattice/salt-front/src/codegen.rs:
+/Users/kevin/projects/keuos/salt-front/src/codegen.rs:
     1|       |use crate::grammar::{SaltFile, SaltFn, Item, StructDef, Stmt, SaltBlock, SaltWhile, SaltFor, SaltImpl, attr::PulseSpec};
     2|       |use quote::quote;
     3|       |use syn::{Expr, Type as SynType, spanned::Spanned};

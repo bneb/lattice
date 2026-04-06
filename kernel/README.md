@@ -1,12 +1,12 @@
-# Lattice Kernel
+# KeuOS Kernel
 
-**The bare-metal heart of the Lattice operating system.** Written entirely in [Salt](../README.md), verified by Z3, running on x86_64 QEMU.
+**The bare-metal heart of the KeuOS operating system.** Written entirely in [Salt](../README.md), verified by Z3, running on x86_64 QEMU.
 
 ## Quick Start
 
 ```bash
 # One command — builds compiler, compiles kernel, boots in QEMU
-./scripts/demo_lattice.sh
+./scripts/demo_keuos.sh
 ```
 
 **Prerequisites:** LLVM (`llc`, `clang`), Rust toolchain, QEMU (`qemu-system-x86_64`)
@@ -22,11 +22,11 @@ export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
 
 ```
 Y12Z789!X
-LATTICE BOOT: Serial OK
-LATTICE BOOT: GDT...
-LATTICE BOOT: IDT...
-LATTICE BOOT: PIT...
-LATTICE BOOT: SMP...
+KEUOS BOOT: Serial OK
+KEUOS BOOT: GDT...
+KEUOS BOOT: IDT...
+KEUOS BOOT: PIT...
+KEUOS BOOT: SMP...
  SMP BRING-UP TEST SUITE
 [SMP] Booting 3 Application Processors
 [SMP] AP 1 ALIVE! GS_BASE loaded.
@@ -36,20 +36,20 @@ LATTICE BOOT: SMP...
 [SMP] AP 3 ALIVE! GS_BASE loaded.
 [SMP] AP 3 entering scheduler...
 [SMP] All 3 APs online
-LATTICE BOOT: CPUs online: 4
-LATTICE BOOT: Scheduler...
-LATTICE BOOT: PMM...
-LATTICE BOOT: Slab Cache...
-LATTICE BOOT: VMA...
-LATTICE BOOT: Per-Core Tests...
-LATTICE BOOT: Async Fiber Tests...
+KEUOS BOOT: CPUs online: 4
+KEUOS BOOT: Scheduler...
+KEUOS BOOT: PMM...
+KEUOS BOOT: Slab Cache...
+KEUOS BOOT: VMA...
+KEUOS BOOT: Per-Core Tests...
+KEUOS BOOT: Async Fiber Tests...
  ASYNC FIBER TEST SUITE
 TEST:async:poll_pending_is_zero:PASS
 TEST:async:spawn_slot_valid:PASS
 TEST:async:step_ready_immediate:PASS
 TEST:async:step_pending_count:PASS
  ASYNC FIBER TESTS COMPLETE
-LATTICE BOOT: Preemptive Unification Tests...
+KEUOS BOOT: Preemptive Unification Tests...
  PREEMPTIVE UNIFICATION TEST SUITE
 TEST:preempt:ipt_resolves:PASS
 TEST:preempt:rip_correct:PASS
@@ -59,9 +59,9 @@ TEST:preempt:task_poll_ready:PASS
 TEST:preempt:fiber_executed:PASS
  PREEMPTIVE UNIFICATION TESTS COMPLETE
 
-LATTICE KERNEL BOOT [OK]
+KEUOS KERNEL BOOT [OK]
 [SMP] APs released
-[Lattice] PREEMPTIVE MODE
+[KeuOS] PREEMPTIVE MODE
 RING3 IRETQ FRAME TEST SUITE
 TEST:ring3:iretq_frame:ALL_PASS
 RING3 KPTI TEST SUITE
@@ -173,7 +173,7 @@ The `@pulse` verifier extends this to async functions: every path through a stat
 | **Socket Data Plane** | 136 cycles (~45 ns) | 64-byte push+pop round-trip, zero kernel traps |
 | **Socket Throughput** | 22M ops/sec | Data plane read+write at 3.0 GHz |
 
-See [LATTICE_BENCHMARKS.md](../docs/LATTICE_BENCHMARKS.md) for full methodology.
+See [KEUOS_BENCHMARKS.md](../docs/KEUOS_BENCHMARKS.md) for full methodology.
 
 ## Build System
 

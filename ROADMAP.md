@@ -1,6 +1,6 @@
-# Lattice Roadmap
+# KeuOS Roadmap
 
-This roadmap outlines the progression of Lattice from a research kernel to a secure infrastructure for edge AI agents.
+This roadmap outlines the progression of KeuOS from a research kernel to a secure infrastructure for edge AI agents.
 
 ---
 

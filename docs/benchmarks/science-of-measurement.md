@@ -42,7 +42,7 @@ The 22 tracked Salt-vs-C comparison benchmarks are collected on:
 - **Compiler flags**: Salt (default), C (`clang -O3`), Rust (`-O` / `--release`)
 
 > [!NOTE]
-> Lattice kernel benchmarks (syscall latency, IPC, scheduler) run separately on **x86_64 KVM** (AWS z1d.metal). See [LATTICE_BENCHMARKS.md](LATTICE_BENCHMARKS.md) for those results.
+> KeuOS kernel benchmarks (syscall latency, IPC, scheduler) run separately on **x86_64 KVM** (AWS z1d.metal). See [KEUOS_BENCHMARKS.md](KEUOS_BENCHMARKS.md) for those results.
 
 ## Reproducibility
 

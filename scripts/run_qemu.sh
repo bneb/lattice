@@ -1,6 +1,6 @@
 #!/usr/bin/env zsh
 # =============================================================================
-# run_qemu.sh — Build and Boot the Lattice Exokernel on QEMU
+# run_qemu.sh — Build and Boot the KeuOS Exokernel on QEMU
 # =============================================================================
 #
 # Compiles the freestanding kernel through the Salt MLIR pipeline,
@@ -35,7 +35,7 @@ BUILD_DIR="$PROJECT_ROOT/build"
 TMP_DIR="/tmp/salt_build"
 mkdir -p "$BUILD_DIR" "$TMP_DIR"
 
-KERNEL_BIN="$BUILD_DIR/lattice.bin"
+KERNEL_BIN="$BUILD_DIR/keuos.bin"
 LINKER_SCRIPT="$PROJECT_ROOT/user/kernel/linker.ld"
 
 # Parse args
@@ -49,7 +49,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo "🔨 Building Lattice Exokernel (freestanding x86_64)"
+echo "🔨 Building KeuOS Exokernel (freestanding x86_64)"
 echo "============================================="
 
 # =============================================================================
@@ -162,7 +162,7 @@ fi
 # =============================================================================
 # Step 6: Boot on QEMU (Multiboot2 protocol)
 # =============================================================================
-echo "🚀 Booting Lattice on QEMU (Synthetic Substrate)"
+echo "🚀 Booting KeuOS on QEMU (Synthetic Substrate)"
 echo "============================================="
 echo "  Memory:  1GB"
 echo "  CPU:     x86_64"

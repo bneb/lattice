@@ -5,7 +5,7 @@
 //
 // These are NOT CI-only benchmarks. They are runtime architectural primitives.
 //
-// When a Lattice node boots on unknown silicon, the Sovereign Reactor calls
+// When a KeuOS node boots on unknown silicon, the Sovereign Reactor calls
 // these functions to calibrate:
 //   - Clock frequency:  How fast is CNTVCT_EL0 relative to wall-clock?
 //   - Doorbell latency: How many cycles does a PCIe MMIO push take?

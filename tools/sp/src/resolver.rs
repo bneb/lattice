@@ -177,8 +177,8 @@ fn find_stdlib(project_dir: &Path) -> Option<PathBuf> {
         }
     }
 
-    // Fallback: hardcoded lattice path
-    let fallback = PathBuf::from("/Users/kevin/projects/lattice/salt-front/std");
+    // Fallback: hardcoded keuos path
+    let fallback = PathBuf::from("/Users/kevin/projects/keuos/salt-front/std");
     if fallback.exists() {
         return Some(fallback);
     }

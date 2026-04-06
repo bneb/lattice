@@ -4,7 +4,7 @@
 // ============================================================================
 //
 // Provides the userspace API for requesting hardware capabilities from
-// the Lattice kernel. Ring 3 applications call request_hardware_capability()
+// the KeuOS kernel. Ring 3 applications call request_hardware_capability()
 // with a CapabilityID, and the kernel returns the physical BAR address.
 //
 // Architecture:
@@ -12,7 +12,7 @@
 //   - Test: Mock handler returns pre-configured BAR addresses
 //
 // The mock handler is used for CI execution on macOS/Linux hosts.
-// The actual svc path would only execute on bare-metal Lattice.
+// The actual svc path would only execute on bare-metal KeuOS.
 //
 // ============================================================================
 
@@ -33,7 +33,7 @@ const MOCK_BAR_ARENA: u64 = 0x0000000100000000;  // Cap 2: Local RAM
 // request_hardware_capability — Trap into Ring 0
 // ============================================================================
 // In the test environment, this returns mock BAR addresses.
-// On bare-metal Lattice, this would execute: svc #0
+// On bare-metal KeuOS, this would execute: svc #0
 //
 // Returns: physical BAR address, or 0 if capability invalid
 // ============================================================================

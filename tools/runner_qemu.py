@@ -21,7 +21,7 @@ if not os.path.exists(SALT_FRONT):
 SALT_OPT = os.path.join(WORKSPACE_ROOT, "salt/build/salt-opt")
 
 class ToolchainProvider:
-    """Hermetic Toolchain Provider for Lattice x86_64 target."""
+    """Hermetic Toolchain Provider for KeuOS x86_64 target."""
     def __init__(self, target="x86_64-none-elf"):
         self.target = target
         # Dynamic detection for reproducibility across environments
@@ -507,7 +507,7 @@ def run_qemu_test(kernel_path, timeout=600, termination_string="BENCHMARK SUITE 
         '-nographic',
         '-m', '1G',
         '-cpu', cpu_flag,
-        '-smp', os.environ.get('LATTICE_SMP', '1'),
+        '-smp', os.environ.get('KEUOS_SMP', '1'),
         '-d', qemu_debug,
         '-D', log_path,
         '-no-reboot',
@@ -885,7 +885,7 @@ if __name__ == "__main__":
             #   Linux:   syscall ~150 cy, ctx switch ~2000 cy, IPC pipe ~3500 cy
             #   macOS:   syscall ~1200 cy, ctx switch ~10000 cy, IPC mach ~5000 cy
             #   Windows: syscall ~1800 cy, ctx switch ~12000 cy, IPC ~8000 cy
-            # Note: Lattice runs on QEMU-TCG (emulated), references are bare-metal.
+            # Note: KeuOS runs on QEMU-TCG (emulated), references are bare-metal.
 
             CYAN = "\033[96m"
             BOLD = "\033[1m"
@@ -893,51 +893,51 @@ if __name__ == "__main__":
             YELLOW = "\033[93m"
 
             print(f"\n{CYAN}{'═'*72}{RESET}")
-            print(f"{BOLD}  Lattice OS Kernel Benchmarks — QEMU-TCG  {RESET}")
+            print(f"{BOLD}  KeuOS OS Kernel Benchmarks — QEMU-TCG  {RESET}")
             print(f"{CYAN}{'═'*72}{RESET}")
 
             print(f"\n{BOLD}  Latency Benchmarks (cycles, lower is better){RESET}")
             print(f"  {'─'*68}")
-            print(f"  {'Benchmark':<24} {'Lattice':>10} {'Linux':>10} {'macOS':>10} {'Windows':>10}")
+            print(f"  {'Benchmark':<24} {'KeuOS':>10} {'Linux':>10} {'macOS':>10} {'Windows':>10}")
             print(f"  {'─'*68}")
 
             def fmt(v):
                 return f"{v:,}" if v else "-"
 
             # Syscall
-            lattice_val = results.get('syscall_avg')
-            print(f"  {'Null syscall (avg)':<24} {fmt(lattice_val):>10} {'~150':>10} {'~1,200':>10} {'~1,800':>10}")
-            if lattice_val and results.get('syscall_min'):
+            keuos_val = results.get('syscall_avg')
+            print(f"  {'Null syscall (avg)':<24} {fmt(keuos_val):>10} {'~150':>10} {'~1,200':>10} {'~1,800':>10}")
+            if keuos_val and results.get('syscall_min'):
                 print(f"  {'  min / max':<24} {fmt(results['syscall_min']):>10}{'':>10}{'':>10}{'':>10}")
                 print(f"  {'':<24} {fmt(results['syscall_max']):>10}{'':>10}{'':>10}{'':>10}")
 
             # Context switch (4 fibers)
-            lattice_val = results.get('ctx_switch_4')
-            print(f"  {'Ctx switch (4 FPU)':<24} {fmt(lattice_val):>10} {'~2,000':>10} {'~10,000':>10} {'~12,000':>10}")
+            keuos_val = results.get('ctx_switch_4')
+            print(f"  {'Ctx switch (4 FPU)':<24} {fmt(keuos_val):>10} {'~2,000':>10} {'~10,000':>10} {'~12,000':>10}")
 
             # Context switch (lite, integer-only)
-            lattice_val = results.get('ctx_switch_lite')
-            print(f"  {'Ctx switch (4 int)':<24} {fmt(lattice_val):>10} {'~2,000':>10} {'~10,000':>10} {'~12,000':>10}")
+            keuos_val = results.get('ctx_switch_lite')
+            print(f"  {'Ctx switch (4 int)':<24} {fmt(keuos_val):>10} {'~2,000':>10} {'~10,000':>10} {'~12,000':>10}")
 
             # IPC
-            lattice_val = results.get('ipc_avg')
-            print(f"  {'IPC round-trip (avg)':<24} {fmt(lattice_val):>10} {'~3,500':>10} {'~5,000':>10} {'~8,000':>10}")
+            keuos_val = results.get('ipc_avg')
+            print(f"  {'IPC round-trip (avg)':<24} {fmt(keuos_val):>10} {'~3,500':>10} {'~5,000':>10} {'~8,000':>10}")
 
             # Alloc
-            lattice_val = results.get('alloc_avg')
-            print(f"  {'Slab alloc (avg)':<24} {fmt(lattice_val):>10} {'~200':>10} {'~300':>10} {'~400':>10}")
+            keuos_val = results.get('alloc_avg')
+            print(f"  {'Slab alloc (avg)':<24} {fmt(keuos_val):>10} {'~200':>10} {'~300':>10} {'~400':>10}")
 
             # IRQ latency
-            lattice_val = results.get('irq_avg')
-            print(f"  {'IRQ latency (avg)':<24} {fmt(lattice_val):>10} {'~500':>10} {'~800':>10} {'~1,500':>10}")
+            keuos_val = results.get('irq_avg')
+            print(f"  {'IRQ latency (avg)':<24} {fmt(keuos_val):>10} {'~500':>10} {'~800':>10} {'~1,500':>10}")
 
             # PMM alloc/free pair
-            lattice_val = results.get('pmm_avg')
-            print(f"  {'PMM alloc/free (avg)':<24} {fmt(lattice_val):>10} {'~300':>10} {'~400':>10} {'~500':>10}")
+            keuos_val = results.get('pmm_avg')
+            print(f"  {'PMM alloc/free (avg)':<24} {fmt(keuos_val):>10} {'~300':>10} {'~400':>10} {'~500':>10}")
 
             # Slab stress
-            lattice_val = results.get('slab_stress_avg')
-            print(f"  {'Slab stress (avg)':<24} {fmt(lattice_val):>10} {'~400':>10} {'~600':>10} {'~800':>10}")
+            keuos_val = results.get('slab_stress_avg')
+            print(f"  {'Slab stress (avg)':<24} {fmt(keuos_val):>10} {'~400':>10} {'~600':>10} {'~800':>10}")
 
             print(f"  {'─'*68}")
 
@@ -955,7 +955,7 @@ if __name__ == "__main__":
             print(f"  {'Net echo (VirtIO)':<24} {net_color}{net_status}{RESET}")
             print(f"  {'─'*68}")
 
-            print(f"\n{DIM}  * Lattice: QEMU-TCG (emulated). Linux/macOS/Windows: bare-metal lmbench.{RESET}")
+            print(f"\n{DIM}  * KeuOS: QEMU-TCG (emulated). Linux/macOS/Windows: bare-metal lmbench.{RESET}")
             print(f"{DIM}  * Comparison is architectural overhead, not raw speed.{RESET}")
             print(f"{CYAN}{'═'*72}{RESET}\n")
 

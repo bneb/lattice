@@ -4,14 +4,14 @@
 # Multi-Node Fabric — TAP Substrate Orchestration
 # =============================================================================
 #
-# Launches two freestanding Lattice instances on a shared TAP bridge:
+# Launches two freestanding KeuOS instances on a shared TAP bridge:
 #   Node A (Router): MAC 52:54:00:12:34:AA
 #   Node B (Expert): MAC 52:54:00:12:34:BB
 #
 # Prerequisites:
 #   - Linux host with tun/tap support
 #   - sudo privileges for TAP creation
-#   - lattice.bin built in build/ directory
+#   - keuos.bin built in build/ directory
 #
 # Usage:
 #   sudo ./scripts/run_fabric.sh
@@ -20,7 +20,7 @@
 
 set -euo pipefail
 
-KERNEL="${1:-build/lattice.bin}"
+KERNEL="${1:-build/keuos.bin}"
 TAP_A="ltap0"
 TAP_B="ltap1"
 BRIDGE="lbr0"

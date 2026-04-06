@@ -1,6 +1,6 @@
 // Facet GPU — Vulkan Backend (Stub)
 //
-// Placeholder for the Vulkan rendering backend. When the Lattice kernel
+// Placeholder for the Vulkan rendering backend. When the KeuOS kernel
 // supports VirtIO-GPU or a native graphics driver, this file will map
 // to raw Vulkan command buffers. No macOS dependencies.
 

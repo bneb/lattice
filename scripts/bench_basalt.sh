@@ -14,7 +14,7 @@ LLVM_VERSION="${LLVM_VERSION:-21}"
 export PATH="/opt/homebrew/opt/llvm@${LLVM_VERSION}/bin:$PATH"
 
 # Defaults
-PROJECT=${1:-/Users/kevin/projects/lattice}
+PROJECT=${1:-/Users/kevin/projects/keuos}
 BUILD_ONLY=false
 RUNS=40
 
