@@ -1,0 +1,228 @@
+package user.terminal.console
+
+import user.terminal.font
+
+// Uses 4KB pages allocated by the Ring 0 launcher.
+global CELL_PAGES: [u64; 16] = [0; 16];
+global MAX_COLS: u32 = 0;
+global MAX_ROWS: u32 = 0;
+global CUR_X: u32 = 0;
+global CUR_Y: u32 = 0;
+global CUR_FG: u32 = 0x00FFFFFF;
+global CUR_BG: u32 = 0x00000000;
+global CUR_STYLE: u8 = 0; // 0=REGULAR, 1=BOLD, 2=ITALIC
+
+global FB_VIRT_PTR: u64 = 0;
+
+// ANSI State Machine
+global ANSI_STATE: u32 = 0;
+global ANSI_ARG: u32 = 0;
+
+pub fn init(fb_virt: u64, w: u32, h: u32, pitch: u32, bpp: u32, cell_page_base: u64) {
+    FB_VIRT_PTR = fb_virt;
+    font.init(fb_virt, pitch, bpp);
+    
+    MAX_COLS = w / 8;
+    MAX_ROWS = h / 16;
+    
+    if MAX_COLS > 160 { MAX_COLS = 160; }
+    if MAX_ROWS > 51 { MAX_ROWS = 51; }
+    
+    let mut i: u32 = 0;
+    while i < 16 {
+        CELL_PAGES[(i as u64)] = cell_page_base + ((i as u64) * 4096);
+        i = i + 1;
+    }
+}
+
+fn get_cell_ptr(x: u32, y: u32) -> u64 {
+    let cell_idx = (y * MAX_COLS) + x;
+    let page_idx = cell_idx / 512;
+    let offset_idx = cell_idx % 512;
+    let page_virt = CELL_PAGES[(page_idx as u64)];
+    return page_virt + ((offset_idx as u64) * 8);
+}
+
+fn set_cell(x: u32, y: u32, c: u8, fg: u32, bg: u32, style: u8) {
+    if x >= MAX_COLS || y >= MAX_ROWS { return; }
+    let ptr = get_cell_ptr(x, y);
+    // bits 0-7: char, 8-31: BG, 32-55: FG, 56-63: STYLE
+    let packed = (c as u64) | ((bg as u64) << 8) | ((fg as u64) << 32) | ((style as u64) << 56);
+    *((ptr as u64) as &mut u64) = packed;
+}
+
+fn redraw_cell(x: u32, y: u32) {
+    let ptr = get_cell_ptr(x, y);
+    let packed = *((ptr as u64) as &u64);
+    let c = (packed & 0xFF) as u8;
+    let bg = ((packed >> 8) & 0xFFFFFF) as u32;
+    let fg = ((packed >> 32) & 0xFFFFFF) as u32;
+    let style = ((packed >> 56) & 0xFF) as u8;
+    font.draw_char(c, x * 8, y * 16, fg, bg, style);
+}
+
+pub fn fb_clear(color_rgb: u32) {
+    let w = MAX_COLS * 8;
+    let h = MAX_ROWS * 16;
+    let mut y: u32 = 0;
+    while y < h {
+        let mut x: u32 = 0;
+        while x < w {
+            font.plot_pixel(x, y, color_rgb);
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+}
+
+pub fn clear() {
+    fb_clear(CUR_BG);
+    let mut y: u32 = 0;
+    while y < MAX_ROWS {
+        let mut x: u32 = 0;
+        while x < MAX_COLS {
+            set_cell(x, y, 0, CUR_FG, CUR_BG, CUR_STYLE);
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+    CUR_X = 0;
+    CUR_Y = 0;
+}
+
+fn scroll() {
+    let mut y: u32 = 1;
+    while y < MAX_ROWS {
+        let mut x: u32 = 0;
+        while x < MAX_COLS {
+            let src_ptr = get_cell_ptr(x, y);
+            let dst_ptr = get_cell_ptr(x, y - 1);
+            let val = *((src_ptr as u64) as &u64);
+            *((dst_ptr as u64) as &mut u64) = val;
+            redraw_cell(x, y - 1);
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+    
+    // Clear bottom row
+    let mut cx: u32 = 0;
+    while cx < MAX_COLS {
+        set_cell(cx, MAX_ROWS - 1, 0, CUR_FG, CUR_BG, CUR_STYLE);
+        redraw_cell(cx, MAX_ROWS - 1);
+        cx = cx + 1;
+    }
+    CUR_Y = MAX_ROWS - 1;
+}
+
+pub fn backspace() {
+    if CUR_X > 0 {
+        CUR_X = CUR_X - 1;
+        set_cell(CUR_X, CUR_Y, 0, CUR_FG, CUR_BG, CUR_STYLE);
+        redraw_cell(CUR_X, CUR_Y);
+    } else if CUR_Y > 0 {
+        CUR_Y = CUR_Y - 1;
+        CUR_X = MAX_COLS - 1;
+        // Don't erase the previous line's character initially, just move cursor.
+    }
+}
+
+pub fn move_cursor(dx: i32) {
+    if dx == -1 && CUR_X > 0 {
+        CUR_X = CUR_X - 1;
+    } else if dx == 1 && CUR_X < MAX_COLS - 1 {
+        CUR_X = CUR_X + 1;
+    }
+}
+
+@no_mangle
+pub fn invert_cursor() {
+    let ptr = get_cell_ptr(CUR_X, CUR_Y);
+    let packed = *((ptr as u64) as &u64);
+    let c = (packed & 0xFF) as u8;
+    let bg = ((packed >> 8) & 0xFFFFFF) as u32;
+    let fg = ((packed >> 32) & 0xFFFFFF) as u32;
+    let style = ((packed >> 56) & 0xFF) as u8;
+    
+    // Output colors flipped locally natively
+    font.draw_char(c, CUR_X * 8, CUR_Y * 16, bg, fg, style);
+}
+
+pub fn putc_raw(c: u8) {
+    if c == 10 { // '\n'
+        CUR_X = 0;
+        CUR_Y = CUR_Y + 1;
+    } else if c == 13 { // '\r'
+        CUR_X = 0;
+    } else if c == 8 { // '\b'
+        backspace();
+    } else {
+        set_cell(CUR_X, CUR_Y, c, CUR_FG, CUR_BG, CUR_STYLE);
+        redraw_cell(CUR_X, CUR_Y);
+        CUR_X = CUR_X + 1;
+        if CUR_X >= MAX_COLS {
+            CUR_X = 0;
+            CUR_Y = CUR_Y + 1;
+        }
+    }
+    
+    while CUR_Y >= MAX_ROWS {
+        scroll();
+    }
+}
+
+// ANSI Escape Parser
+pub fn putc(c: u8) {
+    if ANSI_STATE == 0 {
+        if c == 0x1B { // Escape
+            ANSI_STATE = 1;
+        } else {
+            putc_raw(c);
+        }
+    } else if ANSI_STATE == 1 {
+        if c == 91 { // '['
+            ANSI_STATE = 2;
+            ANSI_ARG = 0;
+        } else {
+            ANSI_STATE = 0;
+            putc_raw(0x1B);
+            putc_raw(c);
+        }
+    } else if ANSI_STATE == 2 {
+        if c >= 48 && c <= 57 { // '0'-'9'
+            ANSI_ARG = (ANSI_ARG * 10) + ((c - 48) as u32);
+        } else if c == 109 { // 'm' Handle color change
+            if ANSI_ARG == 0 { // Reset
+                CUR_FG = 0x00FFFFFF;
+                CUR_BG = 0x00000000;
+                CUR_STYLE = 0;
+            } else if ANSI_ARG == 1 { // Bold
+                CUR_STYLE = 1;
+            } else if ANSI_ARG == 3 { // Italic
+                CUR_STYLE = 2;
+            } else if ANSI_ARG == 22 || ANSI_ARG == 23 { // Regular
+                CUR_STYLE = 0;
+            } else if ANSI_ARG == 31 { // Red
+                CUR_FG = 0x00FF3333;
+            } else if ANSI_ARG == 32 { // Green
+                CUR_FG = 0x0033FF33;
+            } else if ANSI_ARG == 36 { // Cyan
+                CUR_FG = 0x0033FFFF;
+            } else if ANSI_ARG == 33 { // Yellow
+                CUR_FG = 0x00FFFF33;
+            }
+            ANSI_STATE = 0;
+        } else {
+            ANSI_STATE = 0; // Abort
+        }
+    }
+}
+
+pub fn print(s_ptr: u64, len: u32) {
+    let mut i: u32 = 0;
+    while i < len {
+        let ch = *((s_ptr + (i as u64)) as &u8);
+        putc(ch);
+        i = i + 1;
+    }
+}

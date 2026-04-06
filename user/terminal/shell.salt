@@ -1,0 +1,92 @@
+package user.terminal.shell
+
+import user.terminal.console
+
+const TX_RING: u64 = 0x40003000;
+
+global LINE_BUFFER: [u8; 256] = [0; 256];
+global LINE_LEN: u32 = 0;
+
+pub fn prompt() {
+    let msg = "keuos> ";
+    console.print((&msg) as u64, 7);
+}
+
+fn strcmp(s1_ptr: u64, len1: u32, s2_ptr: u64, len2: u32) -> bool {
+    if len1 != len2 { return false; }
+    let mut i: u32 = 0;
+    while i < len1 {
+        let c1 = *((s1_ptr + (i as u64)) as &u8);
+        let c2 = *((s2_ptr + (i as u64)) as &u8);
+        if c1 != c2 { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+pub fn parse_command() {
+    console.putc(10); // newline
+    
+    let help_cmd = "help";
+    let clear_cmd = "clear";
+    
+    if LINE_LEN == 0 {
+        // Do nothing
+    } else if strcmp((&LINE_BUFFER) as u64, LINE_LEN, (&help_cmd) as u64, 4) {
+        let msg = "\x1B[36mKeuOS Terminal Help\x1B[0m\n  clear : Clear the screen\n  help  : Show this help\n";
+        console.print((&msg) as u64, 74);
+    } else if strcmp((&LINE_BUFFER) as u64, LINE_LEN, (&clear_cmd) as u64, 5) {
+        console.clear();
+    } else {
+        // Pipe command natively to Kernel Queue (C2 Ring 0 Trigger)
+        let capacity = *((TX_RING + 8) as &u64);
+        let mut head = *((TX_RING + 0) as &u64);
+        let tail = *((TX_RING + 64) as &u64);
+        
+        let mut i: u32 = 0;
+        while i < LINE_LEN {
+            let next_head = (head + 1) % capacity;
+            if next_head != tail {
+                *((TX_RING + 192 + head) as &mut u8) = LINE_BUFFER[(i as u64)];
+                head = next_head;
+            }
+            i = i + 1;
+        }
+        
+        // Push trailing newline terminator
+        let next_head = (head + 1) % capacity;
+        if next_head != tail {
+            *((TX_RING + 192 + head) as &mut u8) = 10;
+            head = next_head;
+        }
+        
+        // Commit Ring Sequence
+        *((TX_RING + 0) as &mut u64) = head;
+    }
+    
+    LINE_LEN = 0;
+    prompt();
+}
+
+pub fn handle_key(c: u8) {
+    if c == 128 { // Left Arrow mapped from translated E0 vector
+        console.move_cursor(-1);
+    } else if c == 129 { // Right Arrow
+        console.move_cursor(1);
+    } else if c == 10 || c == 13 {
+        // Enter key
+        parse_command();
+    } else if c == 8 {
+        // Backspace
+        if LINE_LEN > 0 {
+            LINE_LEN = LINE_LEN - 1;
+            console.putc(8); // Backspace removes char visually
+        }
+    } else {
+        if LINE_LEN < 255 {
+            LINE_BUFFER[(LINE_LEN as u64)] = c;
+            LINE_LEN = LINE_LEN + 1;
+            console.putc(c); // Echo locally
+        }
+    }
+}

@@ -74,12 +74,9 @@ global NUM_CPUS: u64 = 1;
 const STEAL_THRESHOLD: u64 = 16;
 
 // ============================================================================
-// INIT: Build free page list from physical range
+// ADD REGION: Build free page list from physical memory region
 // ============================================================================
-// Distributes pages round-robin across `num_cpus` per-core free lists.
-// On single-core (num_cpus=1), all pages go to core 0 — identical to before.
-// ============================================================================
-pub fn init(start: u64, end: u64) {
+pub fn add_region(start: u64, end: u64) {
     let mut current = (start + 4095) & (0xFFFFFFFFFFFFF000);
     let mut core_idx: u64 = 0;
 
@@ -235,7 +232,7 @@ pub fn pmm_available() -> u64 {
 }
 
 @no_mangle
-pub fn pmm_init(start: u64, end: u64) { init(start, end); }
+pub fn pmm_add_region(start: u64, end: u64) { add_region(start, end); }
 
 @no_mangle
 pub fn pmm_init_cpu_count(count: u64) { init_cpu_count(count); }

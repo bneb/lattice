@@ -1,0 +1,52 @@
+package user.terminal.main
+
+import user.terminal.console
+import user.terminal.shell
+
+const FB_VIRT: u64 = 0x40002000;
+const RX_RING: u64 = 0x40001000;
+const CONSOLE_MEM: u64 = 0x40402000;
+
+@no_mangle
+pub fn terminal_main(w: u64, h: u64, pitch: u64) {
+    console.init(FB_VIRT, w as u32, h as u32, pitch as u32, 32, CONSOLE_MEM);
+    console.clear();
+    
+    // Test ANSI color codes immediately
+    let msg = "\x1B[32mKeuOS Terminal Ready!\x1B[0m\n\n";
+    console.print((&msg) as u64, 33);
+    
+    shell.prompt();
+    
+    let mut TICK_COUNTER: u32 = 0;
+
+    loop {
+        // Fast-path polling the SPSC Ring Buffer from Ring 3
+        let head = *((RX_RING + 0) as &u64);
+        let tail = *((RX_RING + 64) as &u64);
+        
+        if head != tail {
+            // Data is available!
+            let capacity = *((RX_RING + 8) as &u64);
+            let raw_byte = *((RX_RING + 192 + tail) as &u8);
+            
+            let new_tail = (tail + 1) % capacity;
+            *((RX_RING + 64) as &mut u64) = new_tail;
+            
+            shell.handle_key(raw_byte);
+            TICK_COUNTER = 0; // immediate redraw ensures crisp keystroke
+        } else {
+            // Hot yield or just spin for bare metal latency MVP
+            let mut x: u32 = 0;
+            while x < 100 { x = x + 1; }
+            
+            TICK_COUNTER = TICK_COUNTER + 1;
+            if TICK_COUNTER == 25000 {
+                console.invert_cursor();
+            } else if TICK_COUNTER >= 50000 {
+                console.invert_cursor();
+                TICK_COUNTER = 0;
+            }
+        }
+    }
+}

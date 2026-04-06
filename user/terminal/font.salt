@@ -1,0 +1,63 @@
+package user.terminal.font
+
+import user.terminal.font_data
+
+global FB_VIRT: u64 = 0;
+global FB_PITCH: u32 = 0;
+global FB_BPP: u32 = 0;
+
+pub fn init(fb_ptr: u64, pitch: u32, bpp: u32) {
+    FB_VIRT = fb_ptr;
+    FB_PITCH = pitch;
+    FB_BPP = bpp;
+}
+
+pub fn plot_pixel(x: u32, y: u32, color_rgb: u32) {
+    if FB_VIRT == 0 { return; }
+    
+    let bytes_per_pixel = FB_BPP / 8;
+    let offset = (y * FB_PITCH) + (x * bytes_per_pixel);
+    let pixel_ptr = FB_VIRT + (offset as u64);
+    
+    if FB_BPP == 32 {
+        *(pixel_ptr as &mut u32) = color_rgb;
+    } else if FB_BPP == 24 {
+        *(pixel_ptr as &mut u8) = (color_rgb & 0xFF) as u8;
+        *((pixel_ptr + 1) as &mut u8) = ((color_rgb >> 8) & 0xFF) as u8;
+        *((pixel_ptr + 2) as &mut u8) = ((color_rgb >> 16) & 0xFF) as u8;
+    }
+}
+
+pub fn draw_char(c: u8, px: u32, py: u32, fg_color: u32, bg_color: u32, style: u8) {
+    if c >= 128 { return; }
+    let base_idx = (c as u32) * 16;
+    
+    let mut row: u32 = 0;
+    while row < 16 {
+        let mut bitmap: u8 = 0;
+        
+        // 0=Regular, 1=Bold, 2=Italic
+        if style == 1 {
+            bitmap = font_data.FONT_BOLD_8X16[(base_idx + row) as u64];
+        } else if style == 2 {
+            bitmap = font_data.FONT_ITALIC_8X16[(base_idx + row) as u64];
+        } else {
+            bitmap = font_data.FONT_REGULAR_8X16[(base_idx + row) as u64];
+        }
+        
+        let mut col: u32 = 0;
+        while col < 8 {
+            let shift = 7 - (col as u8);
+            let bit = (bitmap >> shift) & 1;
+            if bit == 1 {
+                plot_pixel(px + col, py + row, fg_color);
+            } else {
+                if bg_color != 0 {
+                    plot_pixel(px + col, py + row, bg_color);
+                }
+            }
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}

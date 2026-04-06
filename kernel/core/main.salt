@@ -6,7 +6,6 @@ package kernel.core.main
 // This prevents salt-opt from crashing on combined MLIR constant materializers.
 // =============================================================================
 import kernel.drivers.serial
-import kernel.drivers.vga
 import kernel.arch.x86.idt
 
 // =============================================================================
@@ -56,7 +55,7 @@ extern fn sched_init();
 extern fn sched_start();
 
 // kernel/core/pmm.salt
-extern fn pmm_init(start: u64, end: u64);
+extern fn pmm_add_region(start: u64, end: u64);
 extern fn pmm_init_cpu_count(count: u64);
 
 // kernel/mem/slab_cache.salt
@@ -134,6 +133,68 @@ const MAX_PROCS: u64   = 16;
 const PROC_RUNNING: u64 = 2;
 const PROC_READY: u64  = 1;
 
+// NEW BARE METAL MODULES
+extern fn multiboot_parse(mb_info: u64);
+extern fn fb_clear(color: u32);
+extern fn fb_get_width() -> u32;
+extern fn fb_get_height() -> u32;
+extern fn fb_get_pitch() -> u32;
+extern fn fb_get_phys() -> u64;
+extern fn ps2_kbd_irq_handler();
+extern fn ps2_set_rx_ring(ptr: u64);
+
+extern fn terminal_main(w: u64, h: u64, pitch: u64);
+
+global KERNEL_TX_RING_VIRT: u64 = 0;
+global KERNEL_LINE_BUFFER: [u8; 64] = [0; 64];
+global KERNEL_LINE_LEN: u32 = 0;
+
+fn strcmp(s1_ptr: u64, len1: u32, s2_ptr: u64, len2: u32) -> bool {
+    if len1 != len2 { return false; }
+    let mut i: u32 = 0;
+    while i < len1 {
+        let c1 = *((s1_ptr + (i as u64)) as &u8);
+        let c2 = *((s2_ptr + (i as u64)) as &u8);
+        if c1 != c2 { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+@no_mangle
+pub fn terminal_tx_poll_thread() {
+    loop {
+        if KERNEL_TX_RING_VIRT != 0 {
+            let head = *((KERNEL_TX_RING_VIRT + 0) as &u64);
+            let tail = *((KERNEL_TX_RING_VIRT + 64) as &u64);
+            if head != tail {
+                let capacity = *((KERNEL_TX_RING_VIRT + 8) as &u64);
+                let c = *((KERNEL_TX_RING_VIRT + 192 + tail) as &u8);
+                
+                let new_tail = (tail + 1) % capacity;
+                *((KERNEL_TX_RING_VIRT + 64) as &mut u64) = new_tail;
+                
+                if c == 10 { // newline
+                    let panic_cmd = "panic";
+                    if strcmp((&KERNEL_LINE_BUFFER) as u64, KERNEL_LINE_LEN, (&panic_cmd) as u64, 5) {
+                        serial.print("!!! KERNEL PANIC TRIGGERED VIA C2 !!!\n");
+                        let red = 0x00FF0000;
+                        fb_clear(red);
+                        loop {} // Kernel Native Halt
+                    }
+                    KERNEL_LINE_LEN = 0;
+                } else {
+                    if KERNEL_LINE_LEN < 64 {
+                        KERNEL_LINE_BUFFER[(KERNEL_LINE_LEN as u64)] = c;
+                        KERNEL_LINE_LEN = KERNEL_LINE_LEN + 1;
+                    }
+                }
+            }
+        }
+        salt_yield_check();
+    }
+}
+
 @no_mangle
 pub fn salt_yield_check() {
 }
@@ -149,6 +210,15 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     idt.init();
     serial.print("KEUOS BOOT: PIT...\n");
     pit_init();
+
+    // ===================================
+    // KEUOS BARE METAL: Framebuffer & Multiboot
+    // ===================================
+    serial.print("KEUOS BOOT: Parsing Multiboot2...\n");
+    multiboot_parse(mb_info as u64);
+
+    // Clear Screen
+    fb_clear(0);
 
     // SMP Bring-up: ACPI → APIC → AP Boot (with TDD assertions)
     serial.print("KEUOS BOOT: SMP...\n");
@@ -169,9 +239,8 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     serial.print("KEUOS BOOT: Scheduler...\n");
     sched_init();
 
-    // PMM: 32MB-64MB physical (per mm_layout.salt)
-    serial.print("KEUOS BOOT: PMM...\n");
-    pmm_init(0x2000000, 0x4000000);
+    // PMM initialization is now strictly driven by Multiboot E820 Map
+    // (pmm_add_region is called internally by multiboot_parse).
     serial.print("KEUOS BOOT: Slab Cache...\n");
     slab_cache_init();
     serial.print("KEUOS BOOT: VMA...\n");
@@ -222,10 +291,6 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     run_preempt_tests();
 
     serial.print("KEUOS KERNEL BOOT [OK] v6.2.28-TRACER\n");
-
-    vga.clear();
-    vga.print_colored(" KEUOS OS v0.6.28-TRACER ", 0x1F);
-    vga.print("\n");
 
     smp_release_aps();
     sched_start();
@@ -291,6 +356,68 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     let slot_task0 = exec_spawn_kernel_thread(task0_entry, kernel_pml4);
     process_set_state(slot_task0, PROC_READY);
     serial.print("[KeuOS] Task 0 (dispatcher) spawned\n");
+
+    serial.print("[KeuOS] Bootstrapping Sovereign Ring 3 Terminal SIP...\n");
+    let fb_w = fb_get_width() as u64;
+    let fb_h = fb_get_height() as u64;
+    let fb_pitch = fb_get_pitch() as u64;
+    let fb_phys = fb_get_phys();
+
+    // Map 1024 pages of Framebuffer (1024 * 4KB = 4MB) to 0x40002000
+    let mut fb_idx: u64 = 0;
+    while fb_idx < 1024 {
+        map_user_page_extern(kernel_pml4, 0x40002000 + (fb_idx * 4096), fb_phys + (fb_idx * 4096), 0x7);
+        fb_idx = fb_idx + 1;
+    }
+
+    // Allocate 1 page for SPSC Ring Buffer at 0x40001000
+    // This establishes the secure IPC boundary between Kernel (Producer) and SIP (Consumer)
+    let rx_ring_phys = pmm_alloc();
+    map_user_page_extern(kernel_pml4, 0x40001000, rx_ring_phys, 0x7);
+    
+    // Wire the physical SPSC Ring to the PS/2 Kernel Module
+    let rx_ring_kern = rx_ring_phys + KERNEL_BASE;
+    ps2_set_rx_ring(rx_ring_kern);
+
+    *((rx_ring_kern + 0) as &mut u64) = 0;           // head
+    *((rx_ring_kern + 8) as &mut u64) = 3904;        // capacity
+    *((rx_ring_kern + 64) as &mut u64) = 0;          // tail
+    *((rx_ring_kern + 128) as &mut u64) = 0;         // consumer_waiting
+
+    // ------------------------------------------------------------------------
+    // Allocate 1 page for TX_RING at 0x40003000
+    // ------------------------------------------------------------------------
+    let tx_ring_phys = pmm_alloc();
+    map_user_page_extern(kernel_pml4, 0x40003000, tx_ring_phys, 0x7);
+    
+    let tx_ring_kern = tx_ring_phys + KERNEL_BASE;
+    *((tx_ring_kern + 0) as &mut u64) = 0;           // head
+    *((tx_ring_kern + 8) as &mut u64) = 3904;        // capacity
+    *((tx_ring_kern + 64) as &mut u64) = 0;          // tail
+    *((tx_ring_kern + 128) as &mut u64) = 0;         // consumer_waiting
+
+    KERNEL_TX_RING_VIRT = tx_ring_kern;
+
+    // Allocate 16 pages for Console Virtual Grid state
+    let mut cp_idx: u64 = 0;
+    while cp_idx < 16 {
+        let cp_phys = pmm_alloc();
+        map_user_page_extern(kernel_pml4, 0x40402000 + (cp_idx * 4096), cp_phys, 0x7);
+        cp_idx = cp_idx + 1;
+    }
+
+    let slot_terminal = exec_spawn_ring3_coroutine(
+            (&terminal_main) as u64,
+            fb_w, fb_h, fb_pitch,
+            kernel_pml4
+        );
+    process_set_state(slot_terminal, PROC_READY);
+    serial.print("[KeuOS] Terminal SIP coroutine spawned\n");
+
+    let tx_poll_entry = (&terminal_tx_poll_thread) as u64;
+    let slot_tx = exec_spawn_kernel_thread(tx_poll_entry, kernel_pml4);
+    process_set_state(slot_tx, PROC_READY);
+    serial.print("[KeuOS] TX_RING Supervisor C2 Thread spawned\n");
 
     // =========================================================================
     // SPAWN MOE PIPELINE

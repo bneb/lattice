@@ -1,0 +1,79 @@
+package kernel.drivers.framebuffer
+
+import kernel.core.memory
+import kernel.drivers.serial
+
+global FB_PHYS: u64 = 0;
+global FB_VIRT: u64 = 0;
+global FB_WIDTH: u32 = 0;
+global FB_HEIGHT: u32 = 0;
+global FB_PITCH: u32 = 0;
+global FB_BPP: u8 = 0;
+global FB_TYPE: u8 = 0;
+
+pub fn init(phys_addr: u64, width: u32, height: u32, pitch: u32, bpp: u8, fb_type: u8) {
+    FB_PHYS = phys_addr;
+    // Base 4GB mapping via High-Half
+    FB_VIRT = memory.phys_to_virt_raw(phys_addr);
+    FB_WIDTH = width;
+    FB_HEIGHT = height;
+    FB_PITCH = pitch;
+    FB_BPP = bpp;
+    FB_TYPE = fb_type;
+    
+    serial.print("[framebuffer] Driver online at VIRT=");
+    serial.print_u64(FB_VIRT);
+    serial.print("\n");
+}
+
+pub fn plot_pixel(x: u32, y: u32, color_rgb: u32) {
+    if x >= FB_WIDTH || y >= FB_HEIGHT { return; }
+    
+    if FB_VIRT == 0 { return; }
+    
+    let bytes_per_pixel = (FB_BPP as u32) / 8;
+    let offset = (y * FB_PITCH) + (x * bytes_per_pixel);
+    let pixel_ptr = FB_VIRT + (offset as u64);
+    
+    if FB_BPP == 32 {
+        *(pixel_ptr as &mut u32) = color_rgb;
+    } else if FB_BPP == 24 {
+        // Unaligned 24-bit write
+        *(pixel_ptr as &mut u8) = (color_rgb & 0xFF) as u8;
+        *((pixel_ptr + 1) as &mut u8) = ((color_rgb >> 8) & 0xFF) as u8;
+        *((pixel_ptr + 2) as &mut u8) = ((color_rgb >> 16) & 0xFF) as u8;
+    }
+}
+
+pub fn clear(color_rgb: u32) {
+    if FB_VIRT == 0 { return; }
+    
+    let mut y: u32 = 0;
+    while y < FB_HEIGHT {
+        let mut x: u32 = 0;
+        while x < FB_WIDTH {
+            plot_pixel(x, y, color_rgb);
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+}
+
+@no_mangle
+pub fn fb_clear(color_rgb: u32) {
+    clear(color_rgb);
+}
+
+@no_mangle
+pub fn fb_get_width() -> u32 {
+    return FB_WIDTH;
+}
+
+@no_mangle
+pub fn fb_get_height() -> u32 { return FB_HEIGHT; }
+
+@no_mangle
+pub fn fb_get_pitch() -> u32 { return FB_PITCH; }
+
+@no_mangle
+pub fn fb_get_phys() -> u64 { return FB_PHYS; }

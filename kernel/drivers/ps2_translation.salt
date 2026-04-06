@@ -1,0 +1,75 @@
+package kernel.drivers.ps2_translation
+
+// Basic Set 1 Scancode parser.
+global SHIFT_DOWN: bool = false;
+global E0_STATE: bool = false;
+
+// ASCII map for scancodes 0x01 to 0x39
+global SCANCODE_MAP_LOWER: [u8; 58] = [
+    0, 27, 49, 50, 51, 52, 53, 54, 55, 56, 57, 48, 45, 61, 8,
+    9, 113, 119, 101, 114, 116, 121, 117, 105, 111, 112, 91, 93, 10,
+    0, 97, 115, 100, 102, 103, 104, 106, 107, 108, 59, 39, 96, 0, 92,
+    122, 120, 99, 118, 98, 110, 109, 44, 46, 47, 0, 42, 0, 32
+];
+
+global SCANCODE_MAP_UPPER: [u8; 58] = [
+    0, 27, 33, 64, 35, 36, 37, 94, 38, 42, 40, 41, 95, 43, 8,
+    9, 81, 87, 69, 82, 84, 89, 85, 73, 79, 80, 123, 125, 10,
+    0, 65, 83, 68, 70, 71, 72, 74, 75, 76, 58, 34, 126, 0, 124,
+    90, 88, 67, 86, 66, 78, 77, 60, 62, 63, 0, 42, 0, 32
+];
+
+pub fn translate(code: u8) -> u8 {
+    if code == 0xE0 {
+        E0_STATE = true;
+        return 0;
+    }
+    
+    if E0_STATE {
+        if code >= 0x80 {
+            E0_STATE = false;
+            return 0;
+        }
+        
+        let mut mapped: u8 = 0;
+        if code == 0x4B { mapped = 128; } // Left
+        else if code == 0x4D { mapped = 129; } // Right
+        else if code == 0x48 { mapped = 130; } // Up
+        else if code == 0x50 { mapped = 131; } // Down
+        
+        E0_STATE = false;
+        return mapped;
+    }
+
+    // Break codes
+    if code == 0xAA || code == 0xB6 {
+        SHIFT_DOWN = false;
+        return 0;
+    }
+    
+    // Make codes
+    if code == 0x2A || code == 0x36 {
+        SHIFT_DOWN = true;
+        return 0;
+    }
+    
+    // Ignore other break codes
+    if code >= 0x80 {
+        return 0;
+    }
+    
+    if code >= 58 {
+        return 0;
+    }
+    
+    if SHIFT_DOWN {
+        return SCANCODE_MAP_UPPER[(code as u64)];
+    } else {
+        return SCANCODE_MAP_LOWER[(code as u64)];
+    }
+}
+
+@no_mangle
+pub fn ps2_translate(code: u8) -> u8 {
+    return translate(code);
+}
