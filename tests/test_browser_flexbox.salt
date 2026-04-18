@@ -1,0 +1,50 @@
+// =============================================================================
+// Test: Prisimi Flexbox Logic Capability Iteration Check
+// =============================================================================
+
+import user.browser.dom
+import user.browser.layout
+
+fn main() -> i32 {
+    let root = dom.create_node(dom.TAG_BODY);
+    let flex_container = dom.create_node(dom.TAG_DIV);
+    let child_one = dom.create_node(dom.TAG_DIV);
+    let child_two = dom.create_node(dom.TAG_DIV);
+    
+    dom.append_child(root, flex_container);
+    dom.append_child(flex_container, child_one);
+    dom.append_child(flex_container, child_two);
+    
+    // Setup Explicit Capabilities natively triggering Flex Mode rendering matrices securely
+    layout.BOX_DISPLAY_MODE[flex_container] = layout.DISPLAY_FLEX_ROW;
+    layout.BOX_MARGIN_ALL[flex_container] = 5;
+    layout.BOX_PADDING_ALL[flex_container] = 10;
+    
+    // Child specific bounds geometries 
+    layout.BOX_MARGIN_ALL[child_one] = 2; // Offset geometry math 
+    layout.BOX_MARGIN_ALL[child_two] = 2;
+    
+    // Execute mathematical geometry pass checking execution layout offset capabilities safely without dynamic allocations
+    layout.compute_flex_geometries(root, 0, 0, 1000);
+    
+    // Mathematical Geometry Truth Sequence constraints evaluation bounds safely verifying compilation structures logically:
+    // Root bounds = (0,0) (ignores structural height natively evaluating execution)
+    // FlexContainer bounds = (0+5, 0+5) -> (5, 5) -> PADDING forces internal container capabilities to (15) natively!
+    // Child One base X bounds = Container (5) + Padding (10) + ChildOneMargin (2) = 17
+    
+    if layout.BOX_COORD_X[child_one] != 17 {
+        return 1; // Explicit padding/margin mathematical unrolling mapping failure inside first pass horizontally!
+    }
+    
+    // Child One Width bound geometry is (Max Width - Margins)... wait, child one just gets the remaining max width 
+    // Child Two's calculated offset bounds must natively check if it evaluates to explicitly horizontally sequentially bounded parameters:
+    // Child Two X = Child One X (17) + Width (ChildOne) + ChildOneMarginRight (2) + ChildTwoMarginLeft (2)... Wait, unified Margins limits apply symmetrically!
+    
+    let expected_child_two_x = layout.BOX_COORD_X[child_one] + layout.BOX_COORD_W[child_one] + (layout.BOX_MARGIN_ALL[child_one] * 2) + layout.BOX_MARGIN_ALL[child_two];
+    
+    if layout.BOX_COORD_X[child_two] != expected_child_two_x {
+        return 2; // Flex Row iterative sequential geometric mapping mathematical execution failure structurally mapped natively!
+    }
+    
+    return 0; // Compilation executes securely proving native mathematical arrays render horizontally explicitly.
+}

@@ -1,0 +1,60 @@
+package user.browser.font
+
+// ============================================================================
+// Prisimi Typography Matrix Geometry  
+// ============================================================================
+// Bypasses Skia natively. Evaluates geometric matrix boundaries assigning 
+// abstract layout text mappings precisely limiting rendering execution bounds.
+// ============================================================================
+
+// Hardware Mock Geometry for character bounds natively rendering explicit bounds matrix
+// Characters execute uniformly checking mathematically safe geometries statically mapped
+// 1024x1024 raw 8-bit baked offline or at boot
+pub global SDF_ATLAS: [u8; 1048576] = [0; 1048576]; 
+
+pub struct GlyphMetrics {
+    pub atlas_x: f32,
+    pub atlas_y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub advance: f32,
+    pub bearing_x: f32,
+    pub bearing_y: f32,
+    pub ascent: f32,
+    pub descent: f32,
+    pub line_gap: f32,
+}
+
+// Store metrics for 256 ASCII characters
+pub global GLYPH_METRICS: [GlyphMetrics; 256] = [GlyphMetrics { atlas_x: 0.0, atlas_y: 0.0, width: 0.0, height: 0.0, advance: 0.0, bearing_x: 0.0, bearing_y: 0.0, ascent: 0.0, descent: 0.0, line_gap: 0.0 }; 256];
+
+extern fn bake_sdf_atlas();
+extern fn _get_kerning_offset_c(char1: u32, char2: u32) -> f32;
+
+pub fn get_kerning_offset(char1: u32, char2: u32) -> f32 {
+    return _get_kerning_offset_c(char1, char2);
+}
+
+pub fn init_glyphs() {
+    // Initialize font atlas with baked SDF data via stb_truetype
+    bake_sdf_atlas();
+    // Prevent DCE by the MLIR optimizer
+    let mut dce_guard = SDF_ATLAS[0];
+    let mut dce_guard2 = GLYPH_METRICS[0].width;
+}
+
+pub fn is_nbsp(ptr: u64, i: u32, len: u32) -> bool {
+    if i + 5 < len {
+        let b0 = *((ptr + (i as u64)) as &u8);
+        let b1 = *((ptr + ((i + 1) as u64)) as &u8);
+        let b2 = *((ptr + ((i + 2) as u64)) as &u8);
+        let b3 = *((ptr + ((i + 3) as u64)) as &u8);
+        let b4 = *((ptr + ((i + 4) as u64)) as &u8);
+        let b5 = *((ptr + ((i + 5) as u64)) as &u8);
+        // '&', 'n', 'b', 's', 'p', ';' -> 38, 110, 98, 115, 112, 59
+        if b0 == 38 && b1 == 110 && b2 == 98 && b3 == 115 && b4 == 112 && b5 == 59 {
+            return true;
+        }
+    }
+    return false;
+}

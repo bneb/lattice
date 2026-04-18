@@ -1,0 +1,152 @@
+package tests.test_golden_render
+
+import user.browser.dom
+import user.browser.paint
+import user.browser.compositor
+import user.browser.layout
+import user.browser.alloc.airlock
+
+// This function will render primitives to a CPU-readable buffer instead of a swapchain drawable
+pub extern fn facet_gpu_render_to_buffer(output: u64, rects: u64, width: i32, height: i32, rect_count: i32, scroll_y: f32);
+
+global OUTPUT_BUF: [u8; 160000] = [0; 160000]; // 200*200*4 BGRA
+
+@no_mangle
+pub fn main() -> i32 {
+    println("--- Golden Render: Structural Pixel Verification ---");
+    
+    airlock.init_arena();
+    dom.init_arrays();
+    
+    // Load the font atlas (required for pipeline init)
+    let atlas_ptr = (&compositor.GPU_RECT_BUF) as u64; // dummy atlas, we only test rects
+    compositor.load_font_atlas(atlas_ptr, 8, 8);
+    
+    // =========================================================================
+    // Build a minimal DOM:
+    //   Node 0: Root container - 200x200 at (0,0), RED background (255,0,0)
+    //   Node 1: Child box - 50x50 at (25,25), BLUE background (0,0,255)
+    // =========================================================================
+    dom.set_dom_node_count(2);
+    
+    dom.LAYOUT_X[0] = 0;
+    dom.LAYOUT_Y[0] = 0;
+    dom.LAYOUT_W[0] = 200;
+    dom.LAYOUT_H[0] = 200;
+    dom.STYLE_BG_R[0] = 255;
+    dom.STYLE_BG_G[0] = 0;
+    dom.STYLE_BG_B[0] = 0;
+    dom.STYLE_Z_INDEX[0] = 0;
+    
+    dom.LAYOUT_X[1] = 25;
+    dom.LAYOUT_Y[1] = 25;
+    dom.LAYOUT_W[1] = 50;
+    dom.LAYOUT_H[1] = 50;
+    dom.STYLE_BG_R[1] = 0;
+    dom.STYLE_BG_G[1] = 0;
+    dom.STYLE_BG_B[1] = 255;
+    dom.STYLE_Z_INDEX[1] = 1;
+    
+    // Generate the display list
+    paint.generate_display_list(0 as u32);
+    let count = paint.get_z_sort_count();
+    println(f"Display list generated: {count} primitives");
+    
+    if count != 2 {
+        println("FAIL: Expected 2 primitives");
+        return -1;
+    }
+    
+    // Pack primitives into GPU_RECT_BUF (reusing compositor packing logic)
+    let mut i: u32 = 0;
+    while i < count {
+        let node_id = paint.Z_SORT_BUF[i as usize] as usize;
+        let offset = i * 48;
+        let buf_ptr = (&compositor.GPU_RECT_BUF) as u64;
+        
+        *((buf_ptr + (offset as u64)) as &mut f32) = (paint.CMD_X[node_id] as f32);
+        *((buf_ptr + (offset as u64) + 4) as &mut f32) = (paint.CMD_Y[node_id] as f32);
+        *((buf_ptr + (offset as u64) + 8) as &mut f32) = (paint.CMD_W[node_id] as f32);
+        *((buf_ptr + (offset as u64) + 12) as &mut f32) = (paint.CMD_H[node_id] as f32);
+        *((buf_ptr + (offset as u64) + 16) as &mut f32) = paint.CMD_UV_X[node_id];
+        *((buf_ptr + (offset as u64) + 20) as &mut f32) = paint.CMD_UV_Y[node_id];
+        *((buf_ptr + (offset as u64) + 24) as &mut f32) = paint.CMD_UV_W[node_id];
+        *((buf_ptr + (offset as u64) + 28) as &mut f32) = paint.CMD_UV_H[node_id];
+
+        let r = paint.CMD_R[node_id];
+        let g = paint.CMD_G[node_id];
+        let b = paint.CMD_B[node_id];
+        let a: u32 = 255;
+        let color_u32 = ((r as u32) << 24) | ((g as u32) << 16) | ((b as u32) << 8) | a;
+        *((buf_ptr + (offset as u64) + 32) as &mut u32) = color_u32;
+        *((buf_ptr + (offset as u64) + 36) as &mut u32) = (paint.CMD_TYPE[node_id] as u32);
+        *((buf_ptr + (offset as u64) + 40) as &mut u32) = 0;
+        *((buf_ptr + (offset as u64) + 44) as &mut u32) = 0;
+        
+        i = i + 1;
+    }
+    
+    // Render to a CPU-readable output buffer (BGRA, 200x200)
+    // 200 * 200 * 4 = 160000 bytes
+    let width: i32 = 200;
+    let height: i32 = 200;
+    
+    let output_ptr = (&OUTPUT_BUF) as u64;
+    let rects_ptr = (&compositor.GPU_RECT_BUF) as u64;
+    
+    println("Dispatching offscreen render...");
+    facet_gpu_render_to_buffer(output_ptr, rects_ptr, width, height, count as i32, 0.0);
+    println("Offscreen render complete.");
+    
+    // =========================================================================
+    // Pixel Verification
+    // =========================================================================
+    // Pixel (100, 100) should be RED (inside root, outside blue child)
+    // BGRA format: [B, G, R, A]
+    let px_red_offset: u32 = ((100 * 200) + 100) * 4;
+    let red_b = OUTPUT_BUF[px_red_offset as usize];
+    let red_g = OUTPUT_BUF[(px_red_offset + 1) as usize];
+    let red_r = OUTPUT_BUF[(px_red_offset + 2) as usize];
+    println(f"Pixel (100,100): R={red_r} G={red_g} B={red_b}");
+    
+    if red_r < 200 {
+        println(f"FAIL: Expected red channel > 200 at (100,100), got {red_r}");
+        return -2;
+    }
+    if red_g > 50 {
+        println(f"FAIL: Expected green channel < 50 at (100,100), got {red_g}");
+        return -3;
+    }
+    println("PASS: Pixel (100,100) is RED");
+    
+    // Pixel (50, 50) should be BLUE (inside blue child)
+    let px_blue_offset: u32 = ((50 * 200) + 50) * 4;
+    let blue_b = OUTPUT_BUF[px_blue_offset as usize];
+    let blue_g = OUTPUT_BUF[(px_blue_offset + 1) as usize];
+    let blue_r = OUTPUT_BUF[(px_blue_offset + 2) as usize];
+    println(f"Pixel (50,50): R={blue_r} G={blue_g} B={blue_b}");
+    
+    if blue_b < 200 {
+        println(f"FAIL: Expected blue channel > 200 at (50,50), got {blue_b}");
+        return -4;
+    }
+    if blue_r > 50 {
+        println(f"FAIL: Expected red channel < 50 at (50,50), got {blue_r}");
+        return -5;
+    }
+    println("PASS: Pixel (50,50) is BLUE");
+    
+    // Pixel (5, 5) - corner, should be dark background (rendered clear color #191919)
+    // or RED (inside root rect). Root is 200x200 at (0,0) so (5,5) IS inside.
+    let px_corner_offset: u32 = ((5 * 200) + 5) * 4;
+    let corner_r = OUTPUT_BUF[(px_corner_offset + 2) as usize];
+    println(f"Pixel (5,5): R={corner_r}");
+    if corner_r < 200 {
+        println(f"FAIL: Expected corner pixel to be red (inside root rect), got R={corner_r}");
+        return -6;
+    }
+    println("PASS: Pixel (5,5) is RED (inside root)");
+    
+    println("ALL GOLDEN RENDER TESTS PASSED.");
+    return 0;
+}

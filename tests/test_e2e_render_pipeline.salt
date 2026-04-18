@@ -1,0 +1,23 @@
+package tests.test_e2e_render_pipeline
+
+// ═══════════════════════════════════════════════════════════════
+// Epic 99: Render Pipeline Integration Test
+// Validates: HTML → DOM → Layout → Paint → GPU Rect Buffer Pack
+// Covers: IPC send fix, flush_frame routing, Metal buffer alignment
+// ═══════════════════════════════════════════════════════════════
+
+import user.browser.transpiler
+import user.browser.css_lexer
+
+extern fn render_pipeline_e2e_test() -> i32;
+
+pub fn main() -> i32 {
+    println("--- Render Pipeline E2E Test ---");
+    let result = render_pipeline_e2e_test();
+    if result == 0 {
+        println("--- Render Pipeline: ALL CHECKS PASSED ---");
+    } else {
+        println("--- Render Pipeline: FAILED ---");
+    }
+    return result;
+}

@@ -1,0 +1,71 @@
+// =============================================================================
+// tests/lib/test_xmod_global.salt
+// Cross-module global regression test
+// =============================================================================
+// REGRESSION TEST for: Cross-module global duplication bug
+//
+// When module B imports module A's pub global, the Salt compiler emits a 
+// duplicate `llvm.mlir.global external` definition in B's compilation unit.
+// The linker may resolve these to different addresses, causing:
+//   - Module A's setter writes to copy #1
+//   - Module B's direct read sees copy #2 (always 0)
+//
+// This test catches the bug by:
+//   1. Setting the global via module A's setter function
+//   2. Reading it via module A's getter function (same compilation unit → correct)
+//   3. Reading it directly via import (may be different compilation unit → BUG)
+//   4. Comparing the pointer addresses from both paths
+//
+// Exit codes:
+//   0 = PASS (same address, same value)
+//   1 = FAIL: different addresses (global duplication confirmed)
+//   2 = FAIL: same address but different value (unexpected)
+
+package tests.lib.test_xmod_global
+
+import tests.lib.test_xmod_global_lib
+
+extern fn xmod_set_flag(val: u32);
+extern fn xmod_get_flag() -> u32;
+extern fn xmod_get_flag_ptr() -> u64;
+extern fn sys_print_float(f: f64);
+
+@no_mangle
+pub fn test_xmod_global_run() -> i32 {
+    // Step 1: Set the flag via module A's setter
+    xmod_set_flag(42);
+    
+    // Step 2: Read via module A's getter (should be 42)
+    let via_getter = xmod_get_flag();
+    
+    // Step 3: Read directly via import (may be 0 if global is duplicated!)
+    let via_import = test_xmod_global_lib.SHARED_FLAG;
+    
+    // Step 4: Compare pointer addresses
+    let ptr_via_fn = xmod_get_flag_ptr();
+    let ptr_via_import = (&test_xmod_global_lib.SHARED_FLAG) as u64;
+    
+    // Diagnostic output
+    sys_print_float(via_getter as f64);   // Should be 42
+    sys_print_float(via_import as f64);   // Should be 42, will be 0 if bug
+    sys_print_float(ptr_via_fn as f64);   // Address from module A
+    sys_print_float(ptr_via_import as f64); // Address from module B's copy
+    
+    // Verdict
+    if ptr_via_fn != ptr_via_import {
+        // FAIL: Two different addresses = global duplication bug!
+        return 1;
+    }
+    
+    if via_getter != via_import {
+        // FAIL: Same address but different values (shouldn't happen)
+        return 2;
+    }
+    
+    // PASS: Single address, correct value
+    return 0;
+}
+
+fn main() -> i32 {
+    return test_xmod_global_run();
+}

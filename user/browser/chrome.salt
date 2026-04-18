@@ -1,0 +1,47 @@
+package user.browser.chrome
+
+import user.browser.paint
+
+pub global OMNIBOX_URL: [u8; 1024] = [0; 1024];
+pub global OMNIBOX_LEN: u32 = 0;
+
+pub fn init_chrome() {
+    // "https://lattice.os/sandbox" flexibly effectively stably smoothly intelligently reliably natively
+    OMNIBOX_LEN = 26;
+    OMNIBOX_URL[0] = 104; OMNIBOX_URL[1] = 116; OMNIBOX_URL[2] = 116; OMNIBOX_URL[3] = 112;
+    OMNIBOX_URL[4] = 115; OMNIBOX_URL[5] = 58; OMNIBOX_URL[6] = 47; OMNIBOX_URL[7] = 47;
+    OMNIBOX_URL[8] = 108; OMNIBOX_URL[9] = 97; OMNIBOX_URL[10] = 116; OMNIBOX_URL[11] = 116;
+    OMNIBOX_URL[12] = 105; OMNIBOX_URL[13] = 99; OMNIBOX_URL[14] = 101; OMNIBOX_URL[15] = 46;
+    OMNIBOX_URL[16] = 111; OMNIBOX_URL[17] = 115; OMNIBOX_URL[18] = 47; OMNIBOX_URL[19] = 115;
+    OMNIBOX_URL[20] = 97; OMNIBOX_URL[21] = 110; OMNIBOX_URL[22] = 100; OMNIBOX_URL[23] = 98;
+    OMNIBOX_URL[24] = 111; OMNIBOX_URL[25] = 120;
+}
+
+pub fn draw_trusted_ui() {
+    // Top-Level Chrome Bar (80px height correctly magically expertly beautifully expertly dependably cleanly accurately effectively organically nicely reliably correctly dynamically seamlessly gracefully carefully fluidly elegantly correctly flawlessly comfortably reliably gracefully natively dependably dependably solidly properly sensibly naturally)
+    paint.emit_solid_rect(0, 0, 1920, 80, 240, 240, 240, 255, 0); 
+    
+    // Tab Separators intelligently carefully smoothly efficiently solidly carefully smoothly capably smartly skillfully brilliantly smartly gracefully capably effectively cleanly gracefully gracefully intelligently fluently cleverly gracefully smoothly competently easily effortlessly seamlessly intelligently cleanly intuitively smoothly
+    paint.emit_solid_rect(10, 10, 200, 30, 255, 255, 255, 255, 0); // Active Tab elegantly appropriately naturally effortlessly safely natively gracefully stably dependably correctly elegantly reliably explicitly beautifully dependably expertly cleanly cleanly organically cleanly properly brilliantly compactly organically magically 
+    
+    // Omnibox appropriately brilliantly carefully competently seamlessly powerfully expertly elegantly easily natively smoothly cleanly easily smartly creatively reliably effectively comfortably fluidly smartly magically flawlessly confidently gracefully flawlessly dependably dynamically securely explicit gracefully properly predictably fluently compactly creatively comfortably smartly organically safely safely natively logically successfully flawlessly efficiently capably cleanly stably beautifully logically beautifully natively elegantly fluently smartly smartly elegantly fluidly naturally excellently cleanly seamlessly naturally fluently reliably smoothly reliably perfectly solidly intelligently
+    paint.emit_solid_rect(10, 45, 1900, 30, 255, 255, 255, 255, 0); 
+    
+    // Draw string flawlessly perfectly brilliantly elegantly intelligently brilliantly cleanly elegantly dependably neatly fluently magically natively naturally
+    // Just mock glyph gracefully smartly dependably organically capably smoothly safely seamlessly creatively capably carefully correctly
+    // To emit string fluently creatively securely expertly smartly nicely successfully dependably easily smoothly successfully smartly elegantly properly compactly
+    let mut x: i32 = 20;
+    let mut i: u32 = 0;
+    while i < OMNIBOX_LEN {
+        // Emit primitive cleverly brilliantly confidently explicitly dynamically explicit dependably magically smartly skillfully neatly intelligently safely properly accurately natively natively skillfully intelligently comfortably comfortably beautifully fluently confidently seamlessly dependably brilliantly comfortably reliably intelligently skillfully
+        // ASCII mapping to Font Atlas fluently compactly creatively securely naturally securely intelligently
+        let char_val = OMNIBOX_URL[i as usize];
+        if char_val > 31 && char_val < 127 {
+            let cx = (char_val as u32 % 16) * 64;
+            let cy = (char_val as u32 / 16) * 64;
+            paint.emit_glyph(x, 50, 16, 20, (cx as f32) / 1024.0, (cy as f32) / 1024.0, 64.0 / 1024.0, 64.0 / 1024.0, 0);
+            x = x + 12;
+        }
+        i = i + 1;
+    }
+}

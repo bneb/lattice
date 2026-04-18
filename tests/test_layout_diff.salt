@@ -1,0 +1,62 @@
+// tests/test_layout_diff.salt
+extern fn sys_log_info(ptr: u64, len: u32);
+extern fn sys_print_u32(u: u32);
+
+import user.browser.layout.layout_inject_dom_pointers
+import user.browser.layout.compute_layout
+import user.browser.dom
+
+fn emit_str(ptr: u64, len: u32) {
+    sys_log_info(ptr, len);
+}
+
+fn emit_node_layout(id: u32) {
+    let x = LAYOUT_X[id];
+    let y = LAYOUT_Y[id];
+    let w = LAYOUT_W[id];
+    let h = LAYOUT_H[id];
+    
+    let m_n: [u8; 5] = [78, 79, 68, 69, 32]; // "NODE "
+    emit_str((&m_n) as u64, 5);
+    sys_print_u32(id);
+    let m_x: [u8; 3] = [32, 88, 61]; // " X="
+    emit_str((&m_x) as u64, 3);
+    sys_print_u32(x as u32);
+    let m_y: [u8; 3] = [32, 89, 61]; // " Y="
+    emit_str((&m_y) as u64, 3);
+    sys_print_u32(y as u32);
+    let m_w: [u8; 3] = [32, 87, 61]; // " W="
+    emit_str((&m_w) as u64, 3);
+    sys_print_u32(w as u32);
+    let m_h: [u8; 3] = [32, 72, 61]; // " H="
+    emit_str((&m_h) as u64, 3);
+    sys_print_u32(h as u32);
+    let nl: [u8; 1] = [10];
+    emit_str((&nl) as u64, 1);
+}
+
+fn main() {
+    init_arrays();
+    airlock_init_allocator();
+    layout_inject_dom_pointers();
+    
+    // Node 1: Container (DIV/FLEX)
+    DOM_NODE_TAG[1] = 4; // TAG_DIV
+    dom_set_style_width(1, 400);
+    dom_set_style_height(1, 100);
+    dom_set_style_display(1, 2); // FLEX
+    
+    // Node 2: Child
+    DOM_NODE_TAG[2] = 4; // TAG_DIV
+    dom_set_style_flex_grow(2, 1);
+    dom_set_style_display(2, 1); // BLOCK
+    js_dom_append_child(1, 2);
+    
+    let hdr: [u8; 16] = [61, 61, 32, 76, 65, 89, 79, 85, 84, 32, 73, 82, 32, 61, 61, 10];
+    emit_str((&hdr) as u64, 16);
+    
+    compute_layout(1, 0, 0, 400);
+    
+    emit_node_layout(1);
+    emit_node_layout(2);
+}

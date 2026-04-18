@@ -18,7 +18,6 @@
 
 extern fn scheduler_yield_now();
 
-@no_mangle
 pub fn _start() -> u64 {
     // 1. Perform a verifiable computation
     let a: u64 = 0xDEADC0DE;

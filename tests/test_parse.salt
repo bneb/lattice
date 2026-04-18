@@ -1,0 +1,5 @@
+package test_parse
+pub fn my_fn() {}
+pub fn main() {
+    let a = (&my_fn) as i64;
+}

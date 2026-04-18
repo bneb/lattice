@@ -1,0 +1,95 @@
+// tests/test_http_lexer_diff.salt — HTTP Lexer Differential Test Driver
+extern fn sys_print_u32(u: u32);
+extern fn sys_print_i32(i: i32);
+extern fn sys_log_info(msg_ptr: u64, msg_len: u32);
+extern fn http_reset_state();
+extern fn http_process_ingress(buf_ptr: u64, buf_len: u32);
+extern fn http_get_state() -> u32;
+extern fn http_get_eof_reached() -> u8;
+extern fn http_get_body_capture_len() -> u32;
+extern fn http_get_body_capture_byte(idx: u32) -> u8;
+extern fn http_get_content_length() -> u64;
+extern fn ext_get_mock_http_ptr() -> u64;
+extern fn ext_get_mock_http_len() -> u32;
+
+fn emit_str(ptr: u64, len: u32) {
+    sys_log_info(ptr, len);
+}
+
+fn print_hex_byte(b: u8) {
+    let hi = (b >> 4) & 0x0F;
+    let lo = b & 0x0F;
+    let hex_chars: [u8; 16] = [48,49,50,51,52,53,54,55,56,57,97,98,99,100,101,102];
+    let buf: [u8; 2] = [hex_chars[hi as usize], hex_chars[lo as usize]];
+    emit_str((&buf) as u64, 2);
+}
+
+fn main() {
+    http_reset_state();
+    
+    let http_ptr = ext_get_mock_http_ptr();
+    let http_len = ext_get_mock_http_len();
+    
+    if http_ptr == 0 || http_len == 0 {
+        let m: [u8; 20] = [70,65,84,65,76,58,32,78,111,32,72,84,84,80,32,100,97,116,97,10];
+        emit_str((&m) as u64, 20);
+        return;
+    }
+    
+    // Feed the entire buffer in one call
+    http_process_ingress(http_ptr, http_len);
+    
+    let state = http_get_state();
+    let eof = http_get_eof_reached();
+    let body_len = http_get_body_capture_len();
+    
+    // "== HTTP LEXER IR ==\n"
+    let m_hdr: [u8; 20] = [61,61,32,72,84,84,80,32,76,69,88,69,82,32,73,82,32,61,61,10];
+    emit_str((&m_hdr) as u64, 20);
+    
+    // "IS_CHUNKED="
+    let m_ch: [u8; 11] = [73,83,95,67,72,85,78,75,69,68,61];
+    emit_str((&m_ch) as u64, 11);
+    // We need to detect chunked — state 3/4/5 indicates chunked path was taken
+    // Or state DONE from chunk path. We use the final state to infer:
+    // STATE_BODY_IDENTITY=2 -> not chunked, STATE_BODY_CHUNK_*=3/4/5 -> chunked
+    // STATE_DONE=6 -> was chunked if we got here from chunk path
+    // Simple: check if state >= 3 (chunk states) or state == 6 with eof
+    if state >= 3 {
+        let one: [u8; 2] = [49, 10]; // "1\n"
+        emit_str((&one) as u64, 2);
+    } else {
+        let zero: [u8; 2] = [48, 10]; // "0\n"
+        emit_str((&zero) as u64, 2);
+    }
+
+    // "CONTENT_LENGTH="
+    let cl_val = http_get_content_length();
+    if cl_val > 0 {
+        let m_cl: [u8; 15] = [67,79,78,84,69,78,84,95,76,69,78,71,84,72,61];
+        emit_str((&m_cl) as u64, 15);
+        sys_print_u32(cl_val as u32);
+        let nl: [u8; 1] = [10];
+        emit_str((&nl) as u64, 1);
+    }
+    
+    // "BODY_LEN="
+    let m_bl: [u8; 9] = [66,79,68,89,95,76,69,78,61];
+    emit_str((&m_bl) as u64, 9);
+    sys_print_u32(body_len);
+    let nl: [u8; 1] = [10];
+    emit_str((&nl) as u64, 1);
+    
+    // "BODY_HEAD="
+    let m_bh: [u8; 10] = [66,79,68,89,95,72,69,65,68,61];
+    emit_str((&m_bh) as u64, 10);
+    let show = body_len;
+    if show > 256 { let show: u32 = 256; }
+    let mut i: u32 = 0;
+    while i < show && i < 256 {
+        let b = http_get_body_capture_byte(i);
+        print_hex_byte(b);
+        i = i + 1;
+    }
+    emit_str((&nl) as u64, 1);
+}

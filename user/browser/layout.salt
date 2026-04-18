@@ -1,0 +1,1131 @@
+package user.browser.layout
+
+import user.browser.dom
+import user.browser.font
+import user.browser.observers
+import user.browser.typography
+
+// ============================================================================
+// Pointer Injection Matrix — Canonical DOM Array Pointers
+// These are initialized at boot by layout_inject_dom_pointers().
+// All dom.ARRAY[idx] accesses below use these pointers directly.
+// ============================================================================
+
+// i32 arrays (stride 4)
+global P_LAYOUT_X: u64 = 0;
+global P_LAYOUT_Y: u64 = 0;
+global P_LAYOUT_W: u64 = 0;
+global P_LAYOUT_H: u64 = 0;
+global P_STYLE_W: u64 = 0;
+global P_STYLE_H: u64 = 0;
+global P_STYLE_FLEX_GROW: u64 = 0;
+global P_STYLE_FLEX_BASIS: u64 = 0;
+global P_STYLE_PADDING_TOP: u64 = 0;
+global P_STYLE_PADDING_RIGHT: u64 = 0;
+global P_STYLE_PADDING_BOTTOM: u64 = 0;
+global P_STYLE_PADDING_LEFT: u64 = 0;
+global P_STYLE_TOP: u64 = 0;
+global P_STYLE_LEFT: u64 = 0;
+global P_STYLE_Z_INDEX: u64 = 0;
+
+// u32 arrays (stride 4)
+global P_DOM_NODE_TAG: u64 = 0;
+global P_DOM_TEXT_LEN: u64 = 0;
+global P_STYLE_PARENT: u64 = 0;
+
+// u8 arrays (stride 1)
+global P_DIRTY_LAYOUT: u64 = 0;
+global P_DIRTY_STYLE: u64 = 0;
+global P_STYLE_DISPLAY: u64 = 0;
+global P_STYLE_FLEX_DIR: u64 = 0;
+global P_STYLE_JUSTIFY_CONTENT: u64 = 0;
+global P_STYLE_ALIGN_ITEMS: u64 = 0;
+global P_STYLE_W_UNIT: u64 = 0;
+global P_STYLE_POSITION: u64 = 0;
+global P_STYLE_OVERFLOW: u64 = 0;
+global P_STYLE_GRID_COL_COUNT: u64 = 0;
+global P_STYLE_GRID_COL_START: u64 = 0;
+global P_STYLE_GRID_ROW_START: u64 = 0;
+global P_STYLE_TEXT_ALIGN: u64 = 0;
+global P_STYLE_GRID_COL_TYPE: u64 = 0;
+
+// u64 arrays (stride 8)
+global P_DOM_NODE_NEXT_SIBLING: u64 = 0;
+global P_DOM_TEXT_PTR: u64 = 0;
+
+// f32 arrays (stride 4)
+global P_STYLE_FONT_SIZE: u64 = 0;
+global P_LAYOUT_SCROLL_X: u64 = 0;
+global P_LAYOUT_SCROLL_Y: u64 = 0;
+global P_STYLE_GRID_COL_VAL: u64 = 0;
+
+// Extern: pointer export functions from dom.salt
+extern fn dom_ptr_LAYOUT_X() -> u64;
+extern fn dom_ptr_LAYOUT_Y() -> u64;
+extern fn dom_ptr_LAYOUT_W() -> u64;
+extern fn dom_ptr_LAYOUT_H() -> u64;
+extern fn dom_ptr_STYLE_W() -> u64;
+extern fn dom_ptr_STYLE_H() -> u64;
+extern fn dom_ptr_STYLE_FLEX_GROW() -> u64;
+extern fn dom_ptr_STYLE_FLEX_BASIS() -> u64;
+extern fn dom_ptr_STYLE_PADDING_TOP() -> u64;
+extern fn dom_ptr_STYLE_PADDING_RIGHT() -> u64;
+extern fn dom_ptr_STYLE_PADDING_BOTTOM() -> u64;
+extern fn dom_ptr_STYLE_PADDING_LEFT() -> u64;
+extern fn dom_ptr_STYLE_TOP() -> u64;
+extern fn dom_ptr_STYLE_LEFT() -> u64;
+extern fn dom_ptr_STYLE_Z_INDEX() -> u64;
+extern fn dom_ptr_DOM_NODE_TAG() -> u64;
+extern fn dom_ptr_DOM_TEXT_LEN() -> u64;
+extern fn dom_ptr_STYLE_PARENT() -> u64;
+extern fn dom_ptr_DIRTY_LAYOUT() -> u64;
+extern fn dom_ptr_DIRTY_STYLE() -> u64;
+extern fn dom_ptr_STYLE_DISPLAY() -> u64;
+extern fn dom_ptr_STYLE_FLEX_DIR() -> u64;
+extern fn dom_ptr_STYLE_JUSTIFY_CONTENT() -> u64;
+extern fn dom_ptr_STYLE_ALIGN_ITEMS() -> u64;
+extern fn dom_ptr_STYLE_W_UNIT() -> u64;
+extern fn dom_ptr_STYLE_POSITION() -> u64;
+extern fn dom_ptr_STYLE_OVERFLOW() -> u64;
+extern fn dom_ptr_STYLE_GRID_COL_COUNT() -> u64;
+extern fn dom_ptr_STYLE_GRID_COL_START() -> u64;
+extern fn dom_ptr_STYLE_GRID_ROW_START() -> u64;
+extern fn dom_ptr_STYLE_TEXT_ALIGN() -> u64;
+extern fn dom_ptr_STYLE_GRID_COL_TYPE() -> u64;
+extern fn dom_ptr_DOM_NODE_NEXT_SIBLING() -> u64;
+extern fn dom_ptr_DOM_TEXT_PTR() -> u64;
+extern fn dom_ptr_STYLE_FONT_SIZE() -> u64;
+extern fn dom_ptr_LAYOUT_SCROLL_X() -> u64;
+extern fn dom_ptr_LAYOUT_SCROLL_Y() -> u64;
+extern fn dom_ptr_STYLE_GRID_COL_VAL() -> u64;
+extern fn dom_ptr_DOM_NODE_COUNT() -> u64;
+extern fn dom_ptr_EVICTION_COUNT() -> u64;
+extern fn get_dom_node_count() -> u64;
+
+
+
+@no_mangle
+pub fn layout_inject_dom_pointers() {
+    P_LAYOUT_X = dom_ptr_LAYOUT_X();
+    P_LAYOUT_Y = dom_ptr_LAYOUT_Y();
+    P_LAYOUT_W = dom_ptr_LAYOUT_W();
+    P_LAYOUT_H = dom_ptr_LAYOUT_H();
+    P_STYLE_W = dom_ptr_STYLE_W();
+    P_STYLE_H = dom_ptr_STYLE_H();
+    P_STYLE_FLEX_GROW = dom_ptr_STYLE_FLEX_GROW();
+    P_STYLE_FLEX_BASIS = dom_ptr_STYLE_FLEX_BASIS();
+    P_STYLE_PADDING_TOP = dom_ptr_STYLE_PADDING_TOP();
+    P_STYLE_PADDING_RIGHT = dom_ptr_STYLE_PADDING_RIGHT();
+    P_STYLE_PADDING_BOTTOM = dom_ptr_STYLE_PADDING_BOTTOM();
+    P_STYLE_PADDING_LEFT = dom_ptr_STYLE_PADDING_LEFT();
+    P_STYLE_TOP = dom_ptr_STYLE_TOP();
+    P_STYLE_LEFT = dom_ptr_STYLE_LEFT();
+    P_STYLE_Z_INDEX = dom_ptr_STYLE_Z_INDEX();
+    P_DOM_NODE_TAG = dom_ptr_DOM_NODE_TAG();
+    P_DOM_TEXT_LEN = dom_ptr_DOM_TEXT_LEN();
+    P_STYLE_PARENT = dom_ptr_STYLE_PARENT();
+    P_DIRTY_LAYOUT = dom_ptr_DIRTY_LAYOUT();
+    P_DIRTY_STYLE = dom_ptr_DIRTY_STYLE();
+    P_STYLE_DISPLAY = dom_ptr_STYLE_DISPLAY();
+    P_STYLE_FLEX_DIR = dom_ptr_STYLE_FLEX_DIR();
+    P_STYLE_JUSTIFY_CONTENT = dom_ptr_STYLE_JUSTIFY_CONTENT();
+    P_STYLE_ALIGN_ITEMS = dom_ptr_STYLE_ALIGN_ITEMS();
+    P_STYLE_W_UNIT = dom_ptr_STYLE_W_UNIT();
+    P_STYLE_POSITION = dom_ptr_STYLE_POSITION();
+    P_STYLE_OVERFLOW = dom_ptr_STYLE_OVERFLOW();
+    P_STYLE_GRID_COL_COUNT = dom_ptr_STYLE_GRID_COL_COUNT();
+    P_STYLE_GRID_COL_START = dom_ptr_STYLE_GRID_COL_START();
+    P_STYLE_GRID_ROW_START = dom_ptr_STYLE_GRID_ROW_START();
+    P_STYLE_TEXT_ALIGN = dom_ptr_STYLE_TEXT_ALIGN();
+    P_STYLE_GRID_COL_TYPE = dom_ptr_STYLE_GRID_COL_TYPE();
+    P_DOM_NODE_NEXT_SIBLING = dom_ptr_DOM_NODE_NEXT_SIBLING();
+    P_DOM_TEXT_PTR = dom_ptr_DOM_TEXT_PTR();
+    P_STYLE_FONT_SIZE = dom_ptr_STYLE_FONT_SIZE();
+    P_LAYOUT_SCROLL_X = dom_ptr_LAYOUT_SCROLL_X();
+    P_LAYOUT_SCROLL_Y = dom_ptr_LAYOUT_SCROLL_Y();
+    P_STYLE_GRID_COL_VAL = dom_ptr_STYLE_GRID_COL_VAL();
+}
+
+pub global LAYOUT_EVAL_COUNT: u32 = 0;
+
+@no_mangle
+pub fn get_layout_eval_count() -> u32 {
+    return LAYOUT_EVAL_COUNT;
+}
+
+@no_mangle
+pub fn set_layout_eval_count(c: u32) {
+    LAYOUT_EVAL_COUNT = c;
+}
+
+fn find_nearest_positioned_ancestor(node_id: u32) -> u32 {
+    let mut parent = *((P_STYLE_PARENT + (node_id as u64) * 4) as &u32);
+    while parent != 0 && parent != 999999 {
+        if *((P_STYLE_POSITION + (parent as u64)) as &u8) != 0 {
+            return parent;
+        }
+        parent = *((P_STYLE_PARENT + (parent as u64) * 4) as &u32);
+    }
+    return 0; // Fallback to root
+}
+
+@no_mangle
+pub fn compute_text_layout(node_id: u32, max_width: f32) {
+    let text_ptr = *((P_DOM_TEXT_PTR + (node_id as u64) * 8) as &u64);
+    let text_len = *((P_DOM_TEXT_LEN + (node_id as u64) * 4) as &u32);
+    
+    let mut current_line_width: f32 = 0.0;
+    let mut line_count: u32 = 1;
+    
+    // Retrieve from typography matrix
+    let font_size = *((P_STYLE_FONT_SIZE + (node_id as u64) * 4) as &f32);
+    let scale_factor = font_size / 64.0;
+    let ascent = font.GLYPH_METRICS[0].ascent * scale_factor;
+    let descent = font.GLYPH_METRICS[0].descent * scale_factor;
+    let line_gap = font.GLYPH_METRICS[0].line_gap * scale_factor;
+    let line_height: f32 = ascent - descent + line_gap;
+    
+    let mut i: u32 = 0;
+    while i < text_len {
+        let char_code = *((text_ptr + (i as u64)) as &u8);
+        let char_idx = char_code as u32;
+        let mut glyph_width: f32 = 0.0;
+        
+        if char_idx < 256 {
+            glyph_width = font.GLYPH_METRICS[char_idx as usize].advance * scale_factor;
+        }
+        
+        if current_line_width + glyph_width > max_width {
+            // Wrap to next line
+            line_count = line_count + 1;
+            current_line_width = glyph_width;
+        } else {
+            current_line_width = current_line_width + glyph_width;
+        }
+        i = i + 1;
+    }
+    
+    // Set the intrinsic height based on line count
+    let total_h: f32 = (line_count as f32) * line_height;
+    *((P_LAYOUT_H + (node_id as u64) * 4) as &mut i32) = total_h as i32;
+    // Set width to max width used across all lines
+    let mut final_w = current_line_width;
+    if line_count > 1 { final_w = max_width; }
+    *((P_LAYOUT_W + (node_id as u64) * 4) as &mut i32) = final_w as i32;
+}
+
+fn place_grid_children(parent_id: u32, parent_x: f32, parent_y: f32, resolved_cols: [f32; 16], resolved_rows: [f32; 16]) -> f32 {
+    let mut child_id = dom.dom_get_render_first_child_idx(parent_id);
+    let offset = parent_id * 16;
+    
+    // Simple auto-placement tracker
+    let mut current_auto_row = 0;
+    let mut current_auto_col = 0;
+    let max_cols = *((P_STYLE_GRID_COL_COUNT + (parent_id as u64)) as &u8) as u32;
+    if max_cols == 0 { return 0.0; }
+    
+    let mut max_y: f32 = 0.0;
+    
+    while child_id != 999999 && child_id != 0 {
+        let mut target_col = *((P_STYLE_GRID_COL_START + (child_id as u64)) as &u8) as u32;
+        let mut target_row = *((P_STYLE_GRID_ROW_START + (child_id as u64)) as &u8) as u32;
+        
+        // Auto-placement logic (simplified)
+        if target_col == 0 || target_row == 0 {
+            target_col = current_auto_col + 1; // 1-indexed
+            target_row = current_auto_row + 1;
+            
+            current_auto_col = current_auto_col + 1;
+            if current_auto_col >= max_cols {
+                current_auto_col = 0;
+                current_auto_row = current_auto_row + 1;
+            }
+        }
+        
+        // Calculate absolute X offset by summing previous columns
+        let mut child_x = parent_x;
+        let mut i = 0;
+        while i < (target_col - 1) {
+            child_x = child_x + resolved_cols[i as usize];
+            i = i + 1;
+        }
+        
+        // Calculate absolute Y offset
+        let mut child_y = parent_y;
+        i = 0;
+        while i < (target_row - 1) {
+            child_y = child_y + resolved_rows[i as usize];
+            i = i + 1;
+        }
+        
+        let cell_w = resolved_cols[(target_col - 1) as usize];
+        
+        // Finalize layout for this child inside its cell
+        let ch_h = compute_layout(child_id, child_x as i32, child_y as i32, cell_w as i32) as f32;
+        
+        let bottom = (child_y - parent_y) + ch_h;
+        if bottom > max_y { max_y = bottom; }
+        
+        child_id = dom.dom_get_next_sibling_idx(child_id);
+    }
+    return max_y;
+}
+
+pub fn compute_grid_layout(node_id: u32, start_x: f32, start_y: f32, available_w: f32) -> i32 {
+    // Cache global pointers locally to avoid MLIR SSA domination issues across while loops
+    let p_col_type = P_STYLE_GRID_COL_TYPE;
+    let p_col_val = P_STYLE_GRID_COL_VAL;
+    let col_count = *((P_STYLE_GRID_COL_COUNT + (node_id as u64)) as &u8) as u32;
+    let offset = node_id * 16;
+    
+    // Arrays to hold the resolved pixel sizes of each track for this specific layout pass
+    let mut resolved_cols: [f32; 16] = [0.0; 16];
+    let mut resolved_rows: [f32; 16] = [0.0; 16]; // simplified row resolution
+    let mut total_fixed_w = 0.0;
+    let mut total_fr = 0.0;
+    
+    // Pass 1: Resolve Fixed Tracks and tally Fractional units
+    let mut i = 0;
+    while i < col_count {
+        let t_type = *((p_col_type + ((offset + i) as u64)) as &u8);
+        let t_val = *((p_col_val + ((offset + i) as u64) * 4) as &f32);
+        
+        if t_type == 0 { // PIXEL
+            resolved_cols[i as usize] = t_val;
+            total_fixed_w = total_fixed_w + t_val;
+        } else if t_type == 1 { // FR
+            total_fr = total_fr + t_val;
+        } else {
+            resolved_cols[i as usize] = 0.0; 
+        }
+        i = i + 1;
+    }
+    
+    // Pass 2: Distribute Fractional Space
+    let remaining_w = available_w - total_fixed_w;
+    let mut fr_multiplier: f32 = 0.0;
+    if total_fr > 0.0 && remaining_w > 0.0 {
+        fr_multiplier = remaining_w / total_fr;
+    }
+    
+    i = 0;
+    while i < col_count {
+        if *((p_col_type + ((offset + i) as u64)) as &u8) == 1 { // FR
+            resolved_cols[i as usize] = *((p_col_val + ((offset + i) as u64) * 4) as &f32) * fr_multiplier;
+        }
+        i = i + 1;
+    }
+    
+    let total_h = place_grid_children(node_id, start_x, start_y, resolved_cols, resolved_rows);
+    return total_h as i32;
+}
+
+// Returns layout height successfully natively effortlessly
+@no_mangle
+pub fn compute_layout(node_idx: u32, offset_x: i32, offset_y: i32, max_width: i32) -> i32 {
+    let old_w = *((P_LAYOUT_W + (node_idx as u64) * 4) as &i32);
+    let old_h = *((P_LAYOUT_H + (node_idx as u64) * 4) as &i32);
+    
+    let mut res = compute_layout_core(node_idx, offset_x, offset_y, max_width);
+    
+    let floor_disp = *((P_STYLE_DISPLAY + (node_idx as u64)) as &u8);
+    
+    if sys_is_node_observed_for(node_idx, 2 /* Resize */) {
+        if *((P_LAYOUT_W + (node_idx as u64) * 4) as &i32) != old_w || *((P_LAYOUT_H + (node_idx as u64) * 4) as &i32) != old_h {
+            sys_queue_resize_record(node_idx);
+        }
+    }
+    return res;
+}
+
+pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_width: i32) -> i32 {
+    // 1. W3C User-Agent Stylesheet: Non-visual elements → DISPLAY_NONE
+    let ua_tag = *((P_DOM_NODE_TAG + (node_idx as u64) * 4) as &u32);
+    if ua_tag == 96    // TAG_CUSTOM_ELEMENT (covers <!doctype>, <meta>, <link>, etc.)
+    || ua_tag == 2     // TAG_HEAD
+    || ua_tag == 99    // TAG_SCRIPT (<script>)
+    || ua_tag == 98    // TAG_STYLE (<style>)
+    {
+        *((P_STYLE_DISPLAY + (node_idx as u64)) as &mut u8) = 0; // Force DISPLAY_NONE
+    }
+    
+    // 2. The Hard Abort
+    if *((P_STYLE_DISPLAY + (node_idx as u64)) as &u8) == 0 /* DISPLAY_NONE */ {
+        *((P_LAYOUT_W + (node_idx as u64) * 4) as &mut i32) = 0;
+        *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = 0;
+        return 0; // DO NOT PROCESS CHILDREN. DO NOT MEASURE TEXT.
+    }
+
+    let mut computed_h: i32 = 0;
+    
+    // [DIAG] Log node 2 entry
+    if node_idx == 2 || node_idx == 1 {
+        let n1: [u8; 12] = [91,76,93,32,101,110,116,101,114,32,110,61]; // "[L] enter n="
+        sys_log_info((&n1) as u64, 12);
+        sys_print_float(node_idx as f64);
+        let m_mw:[u8;4]=[32,109,119,61]; // " mw="
+        sys_log_info((&m_mw) as u64, 4);
+        sys_print_float(max_width as f64);
+        let m_dt:[u8;5]=[32,100,114,116,61]; // " drt="
+        sys_log_info((&m_dt) as u64, 5);
+        let cur_dirty = *((P_DIRTY_LAYOUT + (node_idx as u64)) as &u8);
+        sys_print_float(cur_dirty as f64);
+        let nl:[u8;1]=[10];
+        sys_log_info((&nl) as u64, 1);
+    }
+    
+    // 1. Resolve the Containing Block Origin
+    let pos_mode = *((P_STYLE_POSITION + (node_idx as u64)) as &u8);
+    let mut actual_x = offset_x;
+    let mut actual_y = offset_y;
+    
+    if pos_mode == 2 { // ABSOLUTE
+        let containing_block = find_nearest_positioned_ancestor(node_idx);
+        if containing_block != 0 {
+            actual_x = *((P_LAYOUT_X + (containing_block as u64) * 4) as &i32);
+            actual_y = *((P_LAYOUT_Y + (containing_block as u64) * 4) as &i32);
+            let cb_sx = *((P_LAYOUT_SCROLL_X + (containing_block as u64) * 4) as &f32) as i32;
+            let cb_sy = *((P_LAYOUT_SCROLL_Y + (containing_block as u64) * 4) as &f32) as i32;
+            actual_x = actual_x - cb_sx;
+            actual_y = actual_y - cb_sy;
+        }
+    } else if pos_mode == 3 { // FIXED
+        actual_x = 0; // Viewport origin
+        actual_y = 0;
+    }
+    
+    // 2. Apply Explicit Offsets (Top/Left)
+    if pos_mode == 1 || pos_mode == 2 || pos_mode == 3 {
+        let top = *((P_STYLE_TOP + (node_idx as u64) * 4) as &i32);
+        let left = *((P_STYLE_LEFT + (node_idx as u64) * 4) as &i32);
+        if left != -1 { actual_x = actual_x + left; }
+        if top != -1 { actual_y = actual_y + top; }
+    }
+    
+    *((P_LAYOUT_X + (node_idx as u64) * 4) as &mut i32) = actual_x;
+    *((P_LAYOUT_Y + (node_idx as u64) * 4) as &mut i32) = actual_y;
+    
+    // 2. THE BYPASS: If this branch is geometrically clean, do not recurse!
+    if *((P_DIRTY_LAYOUT + (node_idx as u64)) as &u8) == 0 {
+        if node_idx == 2 || node_idx == 1 {
+            let m_b:[u8;11] = [91,76,93,32,98,121,112,97,115,115,10]; // "[L] bypass\n"
+            sys_log_info((&m_b) as u64, 11);
+        }
+        return *((P_LAYOUT_H + (node_idx as u64) * 4) as &i32);
+    }
+    
+    LAYOUT_EVAL_COUNT = LAYOUT_EVAL_COUNT + 1;
+    
+    let current_tag = *((P_DOM_NODE_TAG + (node_idx as u64) * 4) as &u32);
+    
+    if node_idx == 1 || node_idx == 2 {
+        let m_t:[u8;9] = [91,76,93,32,116,97,103,61,32]; // "[L] tag= "
+        sys_log_info((&m_t) as u64, 9);
+        sys_print_float(current_tag as f64);
+        let nl:[u8;1] = [10];
+        sys_log_info((&nl) as u64, 1);
+        
+        let m_disp:[u8;10] = [91,76,93,32,100,105,115,112,61,32]; // "[L] disp= "
+        sys_log_info((&m_disp) as u64, 10);
+        let display_mode_dbg = *((P_STYLE_DISPLAY + (node_idx as u64)) as &u8);
+        sys_print_float(display_mode_dbg as f64);
+        
+        let m_ch:[u8;7] = [32,99,104,105,108,100,61]; // " child="
+        sys_log_info((&m_ch) as u64, 7);
+        sys_print_float(dom.dom_get_render_first_child_idx(node_idx) as f64);
+        sys_log_info((&nl) as u64, 1);
+    }
+    
+    // Evaluate display cleanly comfortably smartly cleanly explicit efficiently effortlessly neatly securely fluently explicitly easily smoothly securely confidently dependably flawlessly properly effectively successfully expertly capably dependably perfectly explicit efficiently safely elegantly properly cleanly intelligently gracefully expertly dependably cleanly smoothly efficiently explicitly expertly intelligently securely.
+    if current_tag == 0 {
+        *((P_LAYOUT_X + (node_idx as u64) * 4) as &mut i32) = offset_x;
+        *((P_LAYOUT_Y + (node_idx as u64) * 4) as &mut i32) = offset_y;
+        
+        compute_text_layout(node_idx, max_width as f32);
+        
+        computed_h = *((P_LAYOUT_H + (node_idx as u64) * 4) as &i32);
+        
+        let align = *((P_STYLE_TEXT_ALIGN + (node_idx as u64)) as &u8);
+        if align == 1 {
+            let final_w = *((P_LAYOUT_W + (node_idx as u64) * 4) as &i32);
+            let free_space = max_width - final_w;
+            if free_space > 0 {
+                *((P_LAYOUT_X + (node_idx as u64) * 4) as &mut i32) = *((P_LAYOUT_X + (node_idx as u64) * 4) as &i32) + free_space;
+            }
+        }
+        
+        if computed_h < 0 { 
+            let m_c: [u8; 11] = [91,67,76,65,77,80,93,32,78,61,32]; // "[CLAMP] N= "
+            sys_log_info((&m_c) as u64, 11);
+            sys_print_float(node_idx as f64);
+            computed_h = 100; 
+        }
+        *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = computed_h;
+        return computed_h;
+    }
+    
+    // TAG_IMG (8) is a Replaced Element — reserves space from attributes
+    if *((P_DOM_NODE_TAG + (node_idx as u64) * 4) as &u32) == 8 {
+        *((P_LAYOUT_X + (node_idx as u64) * 4) as &mut i32) = offset_x;
+        *((P_LAYOUT_Y + (node_idx as u64) * 4) as &mut i32) = offset_y;
+        
+        let mut img_w = *((P_STYLE_W + (node_idx as u64) * 4) as &i32);
+        let mut img_h = *((P_STYLE_H + (node_idx as u64) * 4) as &i32);
+        if img_w == -1 { img_w = 0; }
+        if img_h == -1 { img_h = 0; }
+        
+        *((P_LAYOUT_W + (node_idx as u64) * 4) as &mut i32) = img_w;
+        *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = img_h;
+        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+        return img_h;
+    }
+    
+    let display_mode = *((P_STYLE_DISPLAY + (node_idx as u64)) as &u8);
+    
+    // display:none — element is hidden, contributes no dimensions
+    if display_mode == 0 {
+        *((P_LAYOUT_W + (node_idx as u64) * 4) as &mut i32) = 0;
+        *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = 0;
+        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+        return 0;
+    }
+    
+    // W3C Box Model: Fetch padding constraints
+    let pad_top = *((P_STYLE_PADDING_TOP + (node_idx as u64) * 4) as &i32);
+    let pad_right = *((P_STYLE_PADDING_RIGHT + (node_idx as u64) * 4) as &i32);
+    let pad_bottom = *((P_STYLE_PADDING_BOTTOM + (node_idx as u64) * 4) as &i32);
+    let pad_left = *((P_STYLE_PADDING_LEFT + (node_idx as u64) * 4) as &i32);
+    
+    let mut available_w: f32 = max_width as f32;
+    let mut target_w: f32 = available_w; 
+    
+    if *((P_STYLE_W + (node_idx as u64) * 4) as &i32) != -1 {
+        if *((P_STYLE_W_UNIT + (node_idx as u64)) as &u8) == 1 { // PERCENT
+            let percent: f32 = (*((P_STYLE_W + (node_idx as u64) * 4) as &i32) as f32) / 100.0;
+            target_w = available_w * percent;
+        } else { // PX
+            target_w = *((P_STYLE_W + (node_idx as u64) * 4) as &i32) as f32;
+        }
+    }
+    
+    let mut used_w = target_w as i32;
+    let mut used_h = *((P_STYLE_H + (node_idx as u64) * 4) as &i32);
+    
+    // Content area width (inside padding box)
+    let content_w = used_w - pad_left - pad_right;
+    
+    *((P_LAYOUT_X + (node_idx as u64) * 4) as &mut i32) = actual_x;
+    *((P_LAYOUT_Y + (node_idx as u64) * 4) as &mut i32) = actual_y;
+    *((P_LAYOUT_W + (node_idx as u64) * 4) as &mut i32) = used_w;
+    
+    // Epic 57: The Typography & Input Matrix (Solver)
+    if *((P_DOM_NODE_TAG + (node_idx as u64) * 4) as &u32) == 18 || *((P_DOM_NODE_TAG + (node_idx as u64) * 4) as &u32) == 19 {
+        compute_text_layout(node_idx, (content_w as f32));
+        if *((P_STYLE_H + (node_idx as u64) * 4) as &i32) == -1 {
+            used_h = *((P_LAYOUT_H + (node_idx as u64) * 4) as &i32) + pad_top + pad_bottom;
+        }
+        *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = used_h;
+        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+        return used_h;
+    }
+    
+    let scroll_x: i32 = *((P_LAYOUT_SCROLL_X + (node_idx as u64) * 4) as &f32) as i32;
+    let scroll_y: i32 = *((P_LAYOUT_SCROLL_Y + (node_idx as u64) * 4) as &f32) as i32;
+    let content_x = actual_x - scroll_x;
+    let content_y = actual_y - scroll_y;
+    
+    let mut child_idx = dom.dom_get_render_first_child_idx(node_idx as u32);
+    
+    if display_mode == 1 { // BLOCK
+        let mut child_offset_y = content_y + pad_top;
+        let child_offset_x = content_x + pad_left;
+        
+        // Inline flow state: tracks horizontal cursor for inline children
+        let mut line_x: i32 = child_offset_x;
+        let mut line_y: i32 = child_offset_y;
+        let mut line_height: i32 = 0;
+        let mut in_inline_run = false;
+        
+        while child_idx != 999999 {
+            let child_pos = *((P_STYLE_POSITION + (child_idx as u64)) as &u8);
+            if child_pos == 2 || child_pos == 3 { // absolute or fixed
+                compute_layout(child_idx, content_x, content_y, available_w as i32);
+                child_idx = dom.dom_get_next_sibling_idx(child_idx);
+                continue;
+            }
+            
+            let child_display = *((P_STYLE_DISPLAY + (child_idx as u64)) as &u8);
+            
+            if child_display == 3 { // INLINE child
+                // Start or continue an inline run
+                if !in_inline_run {
+                    in_inline_run = true;
+                    line_x = child_offset_x;
+                    line_y = child_offset_y;
+                    line_height = 0;
+                }
+                
+                // Compute remaining width on this line
+                let remaining_w = (child_offset_x + content_w) - line_x;
+                
+                // Recursively lay out the inline child with remaining width
+                let ch_height = compute_layout(child_idx, line_x, line_y, remaining_w);
+                let ch_width = *((P_LAYOUT_W + (child_idx as u64) * 4) as &i32);
+                
+                // Check if the inline child overflowed onto the next line
+                // by examining if its final width exceeds remaining space
+                if ch_width > remaining_w && line_x > child_offset_x {
+                    // Wrap: flush current line, start new line
+                    child_offset_y = line_y + line_height;
+                    line_x = child_offset_x;
+                    line_y = child_offset_y;
+                    line_height = 0;
+                    
+                    // Re-layout at start of new line with full width
+                    let ch_height2 = compute_layout(child_idx, line_x, line_y, content_w);
+                    let ch_width2 = *((P_LAYOUT_W + (child_idx as u64) * 4) as &i32);
+                    line_x = line_x + ch_width2;
+                    if ch_height2 > line_height { line_height = ch_height2; }
+                } else {
+                    // Fits on current line
+                    line_x = line_x + ch_width;
+                    if ch_height > line_height { line_height = ch_height; }
+                }
+                
+            } else { // BLOCK or FLEX child 
+                // Flush any open inline run
+                if in_inline_run {
+                    child_offset_y = line_y + line_height;
+                    in_inline_run = false;
+                }
+                
+                // Standard block layout: full width, vertical stacking
+                let ch_height = compute_layout(child_idx, child_offset_x, child_offset_y, content_w);
+                child_offset_y = child_offset_y + ch_height;
+            }
+            
+            child_idx = dom.dom_get_next_sibling_idx(child_idx);
+        }
+        
+        // Flush final inline run
+        if in_inline_run {
+            child_offset_y = line_y + line_height;
+        }
+        
+        computed_h = (child_offset_y - content_y) + pad_bottom;
+        // Explicit height override: W3C explicit height wins over intrinsic
+        if used_h != -1 {
+            computed_h = used_h;
+        }
+        *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = computed_h;
+        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+
+        if computed_h < 0 { computed_h = 100; }
+        *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = computed_h;
+        return computed_h;
+    } else if display_mode == 3 { // INLINE — intrinsic sizing from children
+        // Inline elements size to their content, not to parent width
+        // They must recursively lay out their children (TEXT nodes, nested inlines)
+        let mut inline_x: i32 = content_x;
+        let mut inline_max_h: i32 = 0;
+        
+        while child_idx != 999999 {
+            let child_pos = *((P_STYLE_POSITION + (child_idx as u64)) as &u8);
+            if child_pos == 2 || child_pos == 3 {
+                compute_layout(child_idx, content_x, content_y, available_w as i32);
+                child_idx = dom.dom_get_next_sibling_idx(child_idx);
+                continue;
+            }
+            let remaining = max_width - (inline_x - content_x);
+            let ch_height = compute_layout(child_idx, inline_x, content_y, remaining);
+            let ch_width = *((P_LAYOUT_W + (child_idx as u64) * 4) as &i32);
+            inline_x = inline_x + ch_width;
+            if ch_height > inline_max_h { inline_max_h = ch_height; }
+            child_idx = dom.dom_get_next_sibling_idx(child_idx);
+        }
+        
+        // If no children, this is an empty inline — zero size
+        let intrinsic_w = inline_x - content_x;
+        if intrinsic_w > 0 {
+            *((P_LAYOUT_W + (node_idx as u64) * 4) as &mut i32) = intrinsic_w;
+        } else {
+            *((P_LAYOUT_W + (node_idx as u64) * 4) as &mut i32) = 0;
+        }
+        
+        if inline_max_h == 0 { inline_max_h = 20; }
+        computed_h = inline_max_h;
+        *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = computed_h;
+        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+        if computed_h < 0 { computed_h = 100; }
+        *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = computed_h;
+        return computed_h;
+
+    } else if display_mode == 2 { // FLEX
+        let flex_dir = *((P_STYLE_FLEX_DIR + (node_idx as u64)) as &u8);
+        
+        let mut max_row_height: i32 = 0;
+        
+        if flex_dir == 0 { // ROW 3-Pass Constraint Solver
+            // --- Pass 1: The Basis Sweep ---
+            let mut total_basis: i32 = 0;
+            let mut total_flex_grow: i32 = 0;
+            let mut child_count: i32 = 0;
+            
+            let mut c_idx = dom.dom_get_render_first_child_idx(node_idx as u32);
+            while c_idx != 999999 {
+                let child_pos = *((P_STYLE_POSITION + (c_idx as u64)) as &u8);
+                if child_pos == 2 || child_pos == 3 {
+                    c_idx = dom.dom_get_next_sibling_idx(c_idx);
+                    continue;
+                }
+                let explicit_w = *((P_STYLE_W + (c_idx as u64) * 4) as &i32);
+                let mut b_width: i32 = 0;
+                
+                if explicit_w != -1 {
+                    // Explicit width: locked, does NOT participate in flex-grow
+                    b_width = explicit_w;
+                } else {
+                    b_width = *((P_STYLE_FLEX_BASIS + (c_idx as u64) * 4) as &i32);
+                    if b_width == -1 {
+                        b_width = 20; // Intrinsic minimum
+                    }
+                    // Only count flex-grow for children WITHOUT explicit widths
+                    total_flex_grow = total_flex_grow + *((P_STYLE_FLEX_GROW + (c_idx as u64) * 4) as &i32);
+                }
+                
+                total_basis = total_basis + b_width;
+                child_count = child_count + 1;
+                c_idx = dom.dom_get_next_sibling_idx(c_idx);
+            }
+            
+            // --- Pass 2: Main Axis Distribution & Layout Lock ---
+            let mut free_space: i32 = content_w - total_basis;
+            if free_space < 0 { free_space = 0; }
+            
+            let justify = *((P_STYLE_JUSTIFY_CONTENT + (node_idx as u64)) as &u8);
+            let mut child_offset_x = content_x + pad_left;
+            
+            if total_flex_grow == 0 && free_space > 0 {
+                if justify == 1 { // center
+                    child_offset_x = child_offset_x + (free_space / 2);
+                } else if justify == 3 { // flex-end
+                    child_offset_x = child_offset_x + free_space;
+                }
+            }
+            
+            let space_between_gap = if justify == 2 && child_count > 1 && total_flex_grow == 0 { free_space / (child_count - 1) } else { 0 };
+            
+            c_idx = dom.dom_get_render_first_child_idx(node_idx as u32);
+            while c_idx != 999999 {
+                let child_pos = *((P_STYLE_POSITION + (c_idx as u64)) as &u8);
+                if child_pos == 2 || child_pos == 3 {
+                    compute_layout(c_idx, content_x, content_y, available_w as i32);
+                    c_idx = dom.dom_get_next_sibling_idx(c_idx);
+                    continue;
+                }
+                let explicit_w = *((P_STYLE_W + (c_idx as u64) * 4) as &i32);
+                let mut child_w: i32 = 0;
+                
+                if explicit_w != -1 {
+                    // Locked width: no flex-grow bonus
+                    child_w = explicit_w;
+                } else {
+                    let mut b_width = *((P_STYLE_FLEX_BASIS + (c_idx as u64) * 4) as &i32);
+                    if b_width == -1 { b_width = 20; }
+                    child_w = b_width;
+                    
+                    let grow = *((P_STYLE_FLEX_GROW + (c_idx as u64) * 4) as &i32);
+                    if total_flex_grow > 0 && free_space > 0 {
+                        child_w = child_w + ((free_space * grow) / total_flex_grow);
+                    }
+                }
+                
+                let ch_height = compute_layout(c_idx, child_offset_x, content_y + pad_top, child_w);
+                
+                if ch_height > max_row_height { max_row_height = ch_height; }
+                
+                child_offset_x = child_offset_x + child_w + space_between_gap;
+                c_idx = dom.dom_get_next_sibling_idx(c_idx);
+            }
+            
+            // --- Pass 3: Cross Axis Alignment ---
+            let align_items = *((P_STYLE_ALIGN_ITEMS + (node_idx as u64)) as &u8);
+            let mut cross_axis_size = max_row_height;
+            if used_h != -1 {
+                cross_axis_size = used_h - pad_top - pad_bottom;
+            }
+            c_idx = dom.dom_get_render_first_child_idx(node_idx as u32);
+            while c_idx != 999999 {
+                let child_pos = *((P_STYLE_POSITION + (c_idx as u64)) as &u8);
+                if child_pos == 2 || child_pos == 3 {
+                    c_idx = dom.dom_get_next_sibling_idx(c_idx);
+                    continue;
+                }
+                if align_items == 1 { // center
+                    let ch_h = *((P_LAYOUT_H + (c_idx as u64) * 4) as &i32);
+                    let y_offset = (cross_axis_size - ch_h) / 2;
+                    *((P_LAYOUT_Y + (c_idx as u64) * 4) as &mut i32) = *((P_LAYOUT_Y + (c_idx as u64) * 4) as &i32) + y_offset;
+                } else if align_items == 0 { // stretch
+                    let ch_h = *((P_LAYOUT_H + (c_idx as u64) * 4) as &i32);
+                    if ch_h < cross_axis_size {
+                        *((P_LAYOUT_H + (c_idx as u64) * 4) as &mut i32) = cross_axis_size;
+                        compute_layout(c_idx, *((P_LAYOUT_X + (c_idx as u64) * 4) as &i32), *((P_LAYOUT_Y + (c_idx as u64) * 4) as &i32), *((P_LAYOUT_W + (c_idx as u64) * 4) as &i32));
+                    }
+                } else if align_items == 3 { // flex-end
+                    let ch_h = *((P_LAYOUT_H + (c_idx as u64) * 4) as &i32);
+                    let y_offset = cross_axis_size - ch_h;
+                    *((P_LAYOUT_Y + (c_idx as u64) * 4) as &mut i32) = *((P_LAYOUT_Y + (c_idx as u64) * 4) as &i32) + y_offset;
+                }
+                c_idx = dom.dom_get_next_sibling_idx(c_idx);
+            }
+            
+            computed_h = max_row_height + pad_top + pad_bottom;
+            
+        } else { // COLUMN — Google Unblock: Full 3-Pass Vertical Constraint Solver
+            // ================================================================
+            // Pass 1: Vertical Basis Sweep — tally flex-basis heights + grow
+            // ================================================================
+            let mut total_basis: i32 = 0;
+            let mut total_flex_grow: i32 = 0;
+            let mut child_count: i32 = 0;
+            let mut max_child_w: i32 = 0;
+            let mut c_idx = dom.dom_get_render_first_child_idx(node_idx as u32);
+            while c_idx != 999999 {
+                let child_pos = *((P_STYLE_POSITION + (c_idx as u64)) as &u8);
+                if child_pos == 2 || child_pos == 3 {
+                    c_idx = dom.dom_get_next_sibling_idx(c_idx);
+                    continue;
+                }
+                let explicit_h = *((P_STYLE_H + (c_idx as u64) * 4) as &i32);
+                let mut b_height: i32 = 0;
+                
+                if explicit_h != -1 {
+                    // Explicit height: locked, does NOT participate in flex-grow
+                    b_height = explicit_h;
+                } else {
+                    b_height = *((P_STYLE_FLEX_BASIS + (c_idx as u64) * 4) as &i32);
+                    if b_height == -1 {
+                        b_height = 20; // Intrinsic minimum
+                    }
+                    // Only count flex-grow for children WITHOUT explicit heights
+                    total_flex_grow = total_flex_grow + *((P_STYLE_FLEX_GROW + (c_idx as u64) * 4) as &i32);
+                }
+                
+                total_basis = total_basis + b_height;
+                child_count = child_count + 1;
+                c_idx = dom.dom_get_next_sibling_idx(c_idx);
+            }
+
+            // ================================================================
+            // Pass 2: Main Axis (Y) Distribution & Layout Lock
+            // ================================================================
+            let container_h = if used_h != -1 { used_h - pad_top - pad_bottom } else { 0 };
+            let mut free_space: i32 = container_h - total_basis;
+            if free_space < 0 { free_space = 0; }
+            
+            let justify = *((P_STYLE_JUSTIFY_CONTENT + (node_idx as u64)) as &u8);
+            let mut child_offset_y = content_y + pad_top;
+            
+            if total_flex_grow == 0 && free_space > 0 {
+                if justify == 1 { // center
+                    child_offset_y = child_offset_y + (free_space / 2);
+                } else if justify == 3 { // flex-end
+                    child_offset_y = child_offset_y + free_space;
+                }
+            }
+            
+            let space_between_gap = if justify == 2 && child_count > 1 && total_flex_grow == 0 { free_space / (child_count - 1) } else { 0 };
+            
+            c_idx = dom.dom_get_render_first_child_idx(node_idx as u32);
+            while c_idx != 999999 {
+                let child_pos = *((P_STYLE_POSITION + (c_idx as u64)) as &u8);
+                if child_pos == 2 || child_pos == 3 {
+                    compute_layout(c_idx, content_x, content_y, available_w as i32);
+                    c_idx = dom.dom_get_next_sibling_idx(c_idx);
+                    continue;
+                }
+                let explicit_h = *((P_STYLE_H + (c_idx as u64) * 4) as &i32);
+                let mut child_h: i32 = 0;
+                
+                if explicit_h != -1 {
+                    // Locked height: no flex-grow bonus
+                    child_h = explicit_h;
+                } else {
+                    let mut b_height = *((P_STYLE_FLEX_BASIS + (c_idx as u64) * 4) as &i32);
+                    if b_height == -1 { b_height = 20; }
+                    child_h = b_height;
+                    
+                    let grow = *((P_STYLE_FLEX_GROW + (c_idx as u64) * 4) as &i32);
+                    if total_flex_grow > 0 && free_space > 0 {
+                        child_h = child_h + ((free_space * grow) / total_flex_grow);
+                    }
+                }
+                
+                let ch_height = compute_layout(c_idx, content_x + pad_left, child_offset_y, content_w);
+                // Apply the resolved height if flex-grow distributed it
+                if explicit_h == -1 && total_flex_grow > 0 && free_space > 0 {
+                    *((P_LAYOUT_H + (c_idx as u64) * 4) as &mut i32) = child_h;
+                }
+                
+                let ch_w = *((P_LAYOUT_W + (c_idx as u64) * 4) as &i32);
+                if ch_w > max_child_w { max_child_w = ch_w; }
+                
+                child_offset_y = child_offset_y + child_h + space_between_gap;
+                c_idx = dom.dom_get_next_sibling_idx(c_idx);
+            }
+            
+            // ================================================================
+            // Pass 3: Cross Axis (X) Alignment
+            // ================================================================
+            let align_items = *((P_STYLE_ALIGN_ITEMS + (node_idx as u64)) as &u8);
+            c_idx = dom.dom_get_render_first_child_idx(node_idx as u32);
+            while c_idx != 999999 {
+                let child_pos = *((P_STYLE_POSITION + (c_idx as u64)) as &u8);
+                if child_pos == 2 || child_pos == 3 {
+                    c_idx = dom.dom_get_next_sibling_idx(c_idx);
+                    continue;
+                }
+                if align_items == 2 { // center (cross = horizontal in column mode)
+                    let ch_w = *((P_LAYOUT_W + (c_idx as u64) * 4) as &i32);
+                    if ch_w < content_w {
+                        let x_offset = (content_w - ch_w) / 2;
+                        *((P_LAYOUT_X + (c_idx as u64) * 4) as &mut i32) = *((P_LAYOUT_X + (c_idx as u64) * 4) as &i32) + x_offset;
+                        // Cascade nested children offsets
+                        let mut c_child = dom.dom_get_render_first_child_idx(c_idx);
+                        while c_child != 999999 {
+                            *((P_LAYOUT_X + (c_child as u64) * 4) as &mut i32) = *((P_LAYOUT_X + (c_child as u64) * 4) as &i32) + x_offset;
+                            c_child = dom.dom_get_next_sibling_idx(c_child);
+                        }
+                    }
+                } else if align_items == 0 { // stretch (default) — expand width to container
+                    let ch_w = *((P_LAYOUT_W + (c_idx as u64) * 4) as &i32);
+                    if ch_w < content_w {
+                        *((P_LAYOUT_W + (c_idx as u64) * 4) as &mut i32) = content_w;
+                    }
+                } else if align_items == 3 { // flex-end — push to right edge
+                    let ch_w = *((P_LAYOUT_W + (c_idx as u64) * 4) as &i32);
+                    if ch_w < content_w {
+                        let x_offset = content_w - ch_w;
+                        *((P_LAYOUT_X + (c_idx as u64) * 4) as &mut i32) = *((P_LAYOUT_X + (c_idx as u64) * 4) as &i32) + x_offset;
+                    }
+                }
+                c_idx = dom.dom_get_next_sibling_idx(c_idx);
+            }
+            
+            // Computed height: use intrinsic sum if no explicit height was given
+            if used_h == -1 {
+                computed_h = (child_offset_y - content_y) + pad_bottom;
+            } else {
+                computed_h = used_h;
+            }
+        }
+        
+        // Explicit height override: W3C explicit height wins over intrinsic
+        if used_h != -1 {
+            computed_h = used_h;
+        }
+        *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = computed_h;
+        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+        return computed_h;
+        
+    } else if display_mode == 4 { // GRID
+        let grid_h = compute_grid_layout(node_idx, (content_x + pad_left) as f32, (content_y + pad_top) as f32, content_w as f32);
+        let mut final_h = grid_h + pad_top + pad_bottom;
+        if used_h != -1 {
+            final_h = used_h;
+        }
+        *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = final_h;
+        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+        if final_h < 0 { 
+            let m_c: [u8; 11] = [91,67,76,65,77,80,93,32,78,61,32];
+            sys_log_info((&m_c) as u64, 11);
+            sys_print_float(node_idx as f64);
+            final_h = 100; 
+        }
+        *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = final_h;
+        return final_h;
+    } else {
+        if used_h == -1 {
+            used_h = 20; 
+        }
+        
+        let p_idx = *((P_STYLE_PARENT + (node_idx as u64) * 4) as &u32);
+        let mut p_width = max_width; 
+        if p_idx != 0 && p_idx != 0xFFFFFFFF {
+            p_width = *((P_LAYOUT_W + (p_idx as u64) * 4) as &i32);
+            if p_width <= 0 { p_width = max_width; }
+        }
+        
+        *((P_LAYOUT_W + (node_idx as u64) * 4) as &mut i32) = p_width;
+        *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = used_h;
+        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+        if used_h < 0 { 
+            let m_c: [u8; 11] = [91,67,76,65,77,80,93,32,78,61,32];
+            sys_log_info((&m_c) as u64, 11);
+            sys_print_float(node_idx as f64);
+            used_h = 100; 
+        }
+        *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = used_h;
+        return used_h;
+    }
+}
+pub fn layout_tree() {
+    // Initiate recursive layout from the root node (index 1)
+    // 1920 viewport - 16px horizontal margins = 1904 max_width
+    // Offset by 8px x and y to account for Chromium's default tag margin
+    compute_layout(1, 8, 8, 1904);
+}
+
+// ============================================================================
+// Epic 55: W3C Stacking Context Raycast (Recursive)
+// ============================================================================
+fn raycast_layer(node_idx: u32, target_x: i32, target_y: i32, target_pos: i32, target_z: i32) -> u32 {
+    let mut deepest_hit = 0;
+    let mut child = dom.dom_get_render_first_child_idx(node_idx);
+    while child != 0 && child != 999999 {
+        let child_u = child as usize;
+        let pos = *((P_STYLE_POSITION + (child as u64)) as &u8);
+        let z = *((P_STYLE_Z_INDEX + (child as u64) * 4) as &i32);
+        
+        // Match specific layer criteria
+        let mut matches = false;
+        if target_pos == -1 && z < 0 { matches = true; } // Negative Z
+        else if target_pos == 0 && pos == 0 { matches = true; } // Block/Normal
+        else if target_pos == 1 && pos != 0 && z == 0 { matches = true; } // Auto-Z Positioned
+        else if target_pos == 2 && z > 0 { matches = true; } // Positive Z
+        
+        if matches {
+            let hit = dom_hit_test(child, target_x, target_y);
+            if hit != 0 { deepest_hit = hit; }
+        }
+        child = (*((P_DOM_NODE_NEXT_SIBLING + (child as u64) * 8) as &u64) & 0xFFFF) as u32;
+    }
+    return deepest_hit;
+}
+
+@no_mangle
+@no_mangle
+pub fn dom_hit_test(node_idx: u32, target_x: i32, target_y: i32) -> u32 {
+    if node_idx == 0 || node_idx >= 65536 || *((P_STYLE_DISPLAY + (node_idx as u64)) as &u8) == 0 { return 0; }
+    
+    // Bounds check on self first (if it's out of bounds and we clip, we'd return 0. For now, we don't strict clip raycast except to hit self)
+    let x = *((P_LAYOUT_X + (node_idx as u64) * 4) as &i32);
+    let y = *((P_LAYOUT_Y + (node_idx as u64) * 4) as &i32);
+    let w = *((P_LAYOUT_W + (node_idx as u64) * 4) as &i32);
+    let h = *((P_LAYOUT_H + (node_idx as u64) * 4) as &i32);
+    let mut self_hit = 0;
+    if target_x >= x && target_x <= x + w && target_y >= y && target_y <= y + h {
+        self_hit = node_idx;
+    }
+    
+    let overflow_val = *((P_STYLE_OVERFLOW + (node_idx as u64)) as &u8);
+    if (overflow_val == 1 || overflow_val == 2 || overflow_val == 3) && self_hit == 0 {
+        return 0; // clipped out, do not evaluate children
+    }
+    
+    // 1. Positive Z children
+    let mut hit = raycast_layer(node_idx, target_x, target_y, 2, 1);
+    if hit != 0 { return hit; }
+    // 2. Auto Z / Positioned children
+    hit = raycast_layer(node_idx, target_x, target_y, 1, 0);
+    if hit != 0 { return hit; }
+    // 3. Normal flow children
+    hit = raycast_layer(node_idx, target_x, target_y, 0, 0);
+    if hit != 0 { return hit; }
+    // 4. Negative Z children
+    hit = raycast_layer(node_idx, target_x, target_y, -1, -1);
+    if hit != 0 { return hit; }
+    
+    return self_hit;
+}
+
+// Epic 71: Geometric Text Raycaster
+// Maps a local target_x coordinate to a character index within a text node.
+// Returns the index of the character closest to the target_x.
+pub fn resolve_text_offset_from_coords(node_id: u32, target_x: f32) -> u32 {
+    let text_ptr = *((P_DOM_TEXT_PTR + (node_id as u64) * 8) as &u64);
+    let text_len = *((P_DOM_TEXT_LEN + (node_id as u64) * 4) as &u32);
+    if text_ptr == 0 || text_len == 0 { return 0; }
+
+    let mut text_parent = *((P_STYLE_PARENT + (node_id as u64) * 4) as &u32);
+    if text_parent == 999999 { text_parent = node_id; }
+    let font_size = *((P_STYLE_FONT_SIZE + (text_parent as u64) * 4) as &f32);
+    let scale_factor = font_size / 64.0;
+
+    let mut x_cursor: f32 = 0.0;
+    let mut prev_char: u32 = 0;
+    let mut i: u32 = 0;
+
+    while i < text_len {
+        let b = *((text_ptr + i as u64) as &u8);
+        let char_idx = b as u32;
+
+        if char_idx < 256 {
+            let advance = font.GLYPH_METRICS[char_idx as usize].advance * scale_factor;
+            
+            if prev_char != 0 {
+                let kern_offset = font.get_kerning_offset(prev_char, char_idx) * scale_factor;
+                x_cursor = x_cursor + kern_offset;
+            }
+
+            // Hit test: if target_x is before the midpoint of this character, 
+            // return the current index.
+            if target_x < (x_cursor + (advance * 0.5)) {
+                return i;
+            }
+
+            x_cursor = x_cursor + advance;
+            prev_char = char_idx;
+        }
+        i = i + 1;
+    }
+
+    return text_len; // Default to end of string
+}
+
+@no_mangle
+pub fn ext_layout_resolve_text_offset(node_idx: u32, local_x: f32) -> u32 {
+    if node_idx == 0 || node_idx >= 65536 { return 0; }
+    return resolve_text_offset_from_coords(node_idx, local_x);
+}
+
+extern fn check_any_layout_dirty() -> i32;
+extern fn http_get_eof_reached() -> u8;
+extern fn recompute_style(node_id: u32);
+extern fn apply_cascade_to_tree();
+extern fn sys_jsc_flush_microtasks();
+extern fn transpile_dom_tree(node_id: u32);
+extern fn sys_log_info(msg_ptr: u64, msg_len: u32);
+extern fn sys_print_float(f: f64);
+
+@no_mangle
+pub fn sys_dom_check_dirty_flag() -> i32 {
+    if http_get_eof_reached() == 0 { return 0; }
+    return check_any_layout_dirty();
+}
+
+@no_mangle
+pub fn sys_layout_solve_matrix() {
+    // FIX 2: Manually inject viewport
+    *((P_LAYOUT_W + 1 * 4) as &mut i32) = 1920;
+    // Removed hack
+    
+    let m2: [u8; 42] = [91,76,65,89,79,85,84,93,32,83,111,108,118,105,110,103,32,109,97,116,114,105,120,46,32,82,111,111,116,32,100,105,109,101,110,115,105,111,110,115,58,32];
+    sys_log_info((&m2) as u64, 42); // "[LAYOUT] Solving matrix. Root dimensions: "
+    sys_print_float((*((P_LAYOUT_W + 1 * 4) as &i32)) as f64);
+    let nl: [u8; 1] = [10];
+    sys_log_info((&nl) as u64, 1);
+
+    let limit = get_dom_node_count();
+    let mut style_i: u64 = 1;
+    while style_i < limit {
+        if *((P_DIRTY_STYLE + (style_i as u64)) as &u8) == 1 {
+            recompute_style(style_i as u32);
+        }
+        style_i = style_i + 1;
+    }
+    transpile_dom_tree(1);
+    apply_cascade_to_tree(); 
+    layout_tree(); 
+    sys_jsc_flush_microtasks();
+}

@@ -21,7 +21,6 @@ import user.lib.syscall
 
 extern fn sys_str_data(sv: &u64) -> u64;
 
-@no_mangle
 pub fn main() {
     // ─── Phase 1: Announce ──────────────────────────────────────────────
     let hello_msg = "[C] Hello from Process C!\n";

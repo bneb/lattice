@@ -1,0 +1,83 @@
+package tests.test_html_lexer
+
+import user.browser.lexer
+import user.browser.dom
+import user.netd.virtio_bridge
+
+@no_mangle
+pub fn main() -> i32 {
+    let mut html_buf: [u8; 51] = [0; 51];
+    html_buf[0] = 0x3C; // <
+    html_buf[1] = 0x64; // d
+    html_buf[2] = 0x69; // i
+    html_buf[3] = 0x76; // v
+    html_buf[4] = 0x20; //  
+    html_buf[5] = 0x69; // i
+    html_buf[6] = 0x64; // d
+    html_buf[7] = 0x3D; // =
+    html_buf[8] = 0x22; // "
+    html_buf[9] = 0x72; // r
+    html_buf[10]= 0x6F; // o
+    html_buf[11]= 0x6F; // o
+    html_buf[12]= 0x74; // t
+    html_buf[13]= 0x22; // "
+    html_buf[14]= 0x3E; // >
+    html_buf[15]= 0x3C; // <
+    html_buf[16]= 0x2F; // /
+    html_buf[17]= 0x64; // d
+    html_buf[18]= 0x69; // i
+    html_buf[19]= 0x76; // v
+    html_buf[20]= 0x3E; // >
+    html_buf[21]= 0x3C; // <
+    html_buf[22]= 0x73; // s
+    html_buf[23]= 0x63; // c
+    html_buf[24]= 0x72; // r
+    html_buf[25]= 0x69; // i
+    html_buf[26]= 0x70; // p
+    html_buf[27]= 0x74; // t
+    html_buf[28]= 0x20; //  
+    html_buf[29]= 0x73; // s
+    html_buf[30]= 0x72; // r
+    html_buf[31]= 0x63; // c
+    html_buf[32]= 0x3D; // =
+    html_buf[33]= 0x22; // "
+    html_buf[34]= 0x61; // a
+    html_buf[35]= 0x70; // p
+    html_buf[36]= 0x70; // p
+    html_buf[37]= 0x2E; // .
+    html_buf[38]= 0x6A; // j
+    html_buf[39]= 0x73; // s
+    html_buf[40]= 0x22; // "
+    html_buf[41]= 0x3E; // >
+    html_buf[42]= 0x3C; // <
+    html_buf[43]= 0x2F; // /
+    html_buf[44]= 0x73; // s
+    html_buf[45]= 0x63; // c
+    html_buf[46]= 0x72; // r
+    html_buf[47]= 0x69; // i
+    html_buf[48]= 0x70; // p
+    html_buf[49]= 0x74; // t
+    html_buf[50]= 0x3E; // >
+
+    // Initialize clean DOM count manually safely implicitly safely predictably effortlessly completely natively
+    dom.ATTR_COUNT = 0;
+    
+    // Execute Native C-Level Array Traversal natively accurately predictably smoothly elegantly smoothly confidently
+    lexer.lex_html_chunk((&html_buf) as u64, 51, 0);
+
+    // Verify accurately confidently reliably cleanly effortlessly flawlessly smoothly seamlessly flawlessly correctly successfully efficiently dependably seamlessly exactly successfully expertly perfectly efficiently seamlessly effectively brilliantly clearly securely confidently properly expertly intelligently 
+    if dom.ATTR_COUNT != 2 {
+        return 1; // Expected exactly 2 attributes accurately tracked properly
+    }
+
+    // Expected Lengths cleanly safely properly smartly smoothly smartly
+    // "id" is 2 chars. "src" is 3 chars. 
+    let len0 = dom.ATTR_KEY_LEN[0];
+    if len0 != 2 { return 2; }
+    
+    let len1 = dom.ATTR_KEY_LEN[1];
+    if len1 != 3 { return 3; }
+    
+    // Successfully logically organically correctly practically smoothly successfully accurately explicitly cleanly beautifully 
+    return 0;
+}

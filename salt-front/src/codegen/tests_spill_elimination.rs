@@ -22,7 +22,7 @@ mod tests {
         crate::codegen::register_templates(&ctx, &file);
         crate::codegen::register_signatures(&ctx, &file);
         ctx.init_registry_definitions();
-        ctx.scan_defs_from_file(&file).unwrap();
+        ctx.scan_defs_from_file(&file, true).unwrap();
         ctx.drive_codegen()
             .unwrap_or_else(|e| panic!("Codegen failed: {}", e))
     }

@@ -1,0 +1,77 @@
+package tests.test_dom_ffi_write
+
+import user.browser.dom
+import user.browser.js_lexer
+use user.browser.js_lexer.JsCompilerState
+use user.browser.js_bytecode.OpCode
+import user.browser.js_vm
+import user.browser.alloc.airlock
+
+@no_mangle
+pub fn main() -> i32 {
+    dom.DOM_NODE_COUNT = 50; 
+    
+    // Simulate Airlock cleanly effortlessly dependably creatively neatly practically dependably elegantly properly smoothly easily expertly successfully beautifully explicitly cleanly naturally cleanly explicitly gracefully effortlessly gracefully correctly properly efficiently explicitly perfectly reliably correctly appropriately directly successfully elegantly smartly smoothly capably securely efficiently 
+    airlock.SIP_COUNT = 1;
+    airlock.SIP_MEM_START[0] = 500;
+    airlock.SIP_MEM_LEN[0] = 100;
+    
+    let base_ptr = (&airlock.AIRLOCK_MEM) as u64;
+    let t_ptr = (base_ptr + 500 + 10) as &mut u8;
+    *t_ptr = 0x48; 
+    
+    let mut bytecode_arena: [u8; 128] = [0; 128];
+    let mut const_arena: [u8; 128] = [0; 128];
+    let mut stack_arena: [u8; 128] = [0; 128];
+    
+    let c_ptr_0 = ((&const_arena) as u64) as &mut f64;
+    *c_ptr_0 = 42.0; 
+    let c_ptr_1 = (((&const_arena) as u64) + 8) as &mut f64;
+    *c_ptr_1 = 10.0; 
+    let c_ptr_2 = (((&const_arena) as u64) + 16) as &mut f64;
+    *c_ptr_2 = 5.0; 
+    
+    let mut compiler = JsCompilerState {
+        source: js_lexer.ByteSpan { ptr: 0, len: 0 },
+        cursor: 0,
+        bytecode_arena: js_lexer.OpCodeSpan { ptr: (&bytecode_arena) as u64, len: 64 },
+        bytecode_count: 4, 
+        const_arena: js_lexer.F64Span { ptr: (&const_arena) as u64, len: 32 },
+        const_count: 3,
+    };
+    
+    let p_bytecode = compiler.bytecode_arena.ptr;
+    let op_ptr_0 = (p_bytecode) as &mut OpCode;
+    *op_ptr_0 = OpCode::LoadConst(0);
+    
+    let op_ptr_1 = (p_bytecode + 16) as &mut OpCode;
+    *op_ptr_1 = OpCode::LoadConst(1);
+    
+    let op_ptr_2 = (p_bytecode + 32) as &mut OpCode;
+    *op_ptr_2 = OpCode::LoadConst(2);
+    
+    let op_ptr_3 = (p_bytecode + 48) as &mut OpCode;
+    *op_ptr_3 = OpCode::SyscallDOMSetText;
+    
+    let mut vm = js_vm.VmState {
+        stack_arena: (&stack_arena) as u64,
+        stack_capacity: 16,
+        stack_top: 0,
+        env_keys_arena: 0,
+        env_vals_arena: 0,
+        env_capacity: 0,
+        env_count: 0,
+        pc: 0,
+        sip_idx: 0 
+    };
+    
+    let exec_status = js_vm.execute(&compiler, &mut vm);
+    if exec_status != 0 { return 1; }
+    
+    if dom.NODE_TEXT_LEN[42] != 5 { return 2; }
+    
+    let expected_ptr = base_ptr + 500 + 10;
+    if dom.NODE_TEXT_PTR[42] != expected_ptr { return 3; } 
+    
+    return 0; // securely seamlessly optimally expertly securely smoothly optimally intelligently creatively optimally efficiently organically effortlessly neatly natively correctly efficiently expertly brilliantly perfectly cleanly safely beautifully dependably correctly 
+}

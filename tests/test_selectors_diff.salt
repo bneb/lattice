@@ -1,0 +1,77 @@
+// tests/test_selectors_diff.salt
+extern fn sys_log_info(ptr: u64, len: u32);
+extern fn sys_print_u32(u: u32);
+extern fn ext_get_mock_selector_ptr() -> u64;
+extern fn ext_get_mock_selector_len() -> u32;
+
+import user.browser.selectors.sys_dom_query_selector
+import user.browser.dom
+
+fn emit_str(ptr: u64, len: u32) {
+    sys_log_info(ptr, len);
+}
+
+fn hash_tag(ptr: u64, len: u32) -> u32 {
+    let mut hash: u32 = 2166136261;
+    let mut i: u32 = 0;
+    while i < len {
+        let mut ch = *((ptr + (i as u64)) as &u8) as u32;
+        if ch >= 97 && ch <= 122 { ch = ch - 32; }
+        hash = hash ^ ch;
+        hash = hash * 16777619;
+        i = i + 1;
+    }
+    return hash;
+}
+
+fn main() {
+    let sel_ptr = ext_get_mock_selector_ptr();
+    let sel_len = ext_get_mock_selector_len();
+    
+    if sel_ptr == 0 || sel_len == 0 { return; }
+    
+    // In actual use, DOM is populated by HTML Lexer.
+    // For this differential test, we'll manually populate a simple tree.
+    // Index 1: div data-index=1
+    // Index 2: p data-index=2 (child of 1)
+    // Index 3: span #my-id data-index=3 (child of 2)
+    
+    // Initialize DOM arrays
+    airlock_init_allocator();
+    
+    // Node 1: DIV
+    let s_div: [u8; 3] = [100, 105, 118]; // "div"
+    DOM_NODE_TAG[1] = hash_tag((&s_div) as u64, 3);
+    DOM_NODE_FIRST_CHILD[0] = 1;
+    
+    // Node 2: P
+    let s_p: [u8; 1] = [112]; // "p"
+    DOM_NODE_TAG[2] = hash_tag((&s_p) as u64, 1);
+    DOM_NODE_FIRST_CHILD[1] = 2;
+    
+    // Node 3: SPAN
+    let s_span: [u8; 4] = [115, 112, 97, 110]; // "span"
+    DOM_NODE_TAG[3] = hash_tag((&s_span) as u64, 4);
+    DOM_NODE_FIRST_CHILD[2] = 3;
+    
+    // Set ID for Node 3
+    let id_str: [u8; 5] = [109, 121, 45, 105, 100]; // "my-id"
+    DOM_ID_PTR[3] = (&id_str) as u64;
+    DOM_ID_LEN[3] = 5;
+
+    let hdr: [u8; 18] = [61, 61, 32, 83, 69, 76, 69, 67, 84, 79, 82, 32, 73, 82, 32, 61, 61, 10];
+    emit_str((&hdr) as u64, 18);
+    
+    let result_id = sys_dom_query_selector(0, sel_ptr, sel_len);
+    
+    if result_id == 0 {
+        let m: [u8; 10] = [77, 65, 84, 67, 72, 32, 78, 79, 78, 69]; // "MATCH NONE"
+        emit_str((&m) as u64, 10);
+    } else {
+        let m: [u8; 6] = [77, 65, 84, 67, 72, 32]; // "MATCH "
+        emit_str((&m) as u64, 6);
+        sys_print_u32((result_id & 0xFFFF) as u32);
+    }
+    let nl: [u8; 1] = [10];
+    emit_str((&nl) as u64, 1);
+}

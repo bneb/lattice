@@ -1,0 +1,17 @@
+pub fn parse_hex_char(c: u8) -> u32 {
+    if c >= 48 && c <= 57 { return (c - 48) as u32; } // 0-9
+    if c >= 65 && c <= 70 { return (c - 55) as u32; } // A-F
+    if c >= 97 && c <= 102 { return (c - 87) as u32; } // a-f
+    return 0;
+}
+
+@no_mangle
+pub fn parse_hex_to_rgb(hex_ptr: u64, out_r: *mut u8, out_g: *mut u8, out_b: *mut u8) {
+    let r_int = (parse_hex_char(*((hex_ptr) as &u8)) * 16) + parse_hex_char(*((hex_ptr + 1) as &u8));
+    let g_int = (parse_hex_char(*((hex_ptr + 2) as &u8)) * 16) + parse_hex_char(*((hex_ptr + 3) as &u8));
+    let b_int = (parse_hex_char(*((hex_ptr + 4) as &u8)) * 16) + parse_hex_char(*((hex_ptr + 5) as &u8));
+    
+    *out_r = r_int as u8;
+    *out_g = g_int as u8;
+    *out_b = b_int as u8;
+}

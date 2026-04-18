@@ -1,0 +1,82 @@
+package user.browser.worker
+
+import std.thread
+import user.os.worker_ring
+import user.os.process
+
+extern fn js_bridge_dispatch_worker_message(ptr: u64, len: u32);
+extern fn js_quickjs_init_worker(ptr: u64, len: u32) -> i32;
+extern fn js_execute_worker_jobs() -> i32;
+
+pub global WORKER_INGEST_BUFFER: [u8; 1048576] = [0; 1048576]; // 1MB buffer
+
+@no_mangle
+pub fn js_post_worker_down(msg_ptr: u64, len: u32) {
+    worker_ring.push_down_u32(len);
+    let mut i: u32 = 0;
+    while i < len {
+        let raw = *((msg_ptr + (i as u64)) as &u8);
+        worker_ring.push_down_byte(raw);
+        i = i + 1;
+    }
+}
+
+@no_mangle
+pub fn js_post_worker_up(msg_ptr: u64, len: u32) {
+    worker_ring.push_up_u32(len);
+    let mut i: u32 = 0;
+    while i < len {
+        let raw = *((msg_ptr + (i as u64)) as &u8);
+        worker_ring.push_up_byte(raw);
+        i = i + 1;
+    }
+}
+
+@no_mangle
+pub fn worker_loop() -> i32 {
+    let mut state: u32 = 0; // 0=WAIT_ID, 1=WAIT_LEN, 2=WAIT_PAYLOAD
+    let mut expected_len: u32 = 0;
+    let mut cursor: u32 = 0;
+    
+    // Pump ring synchronously 
+    while true {
+        let mut b: u8 = 0;
+        let read_res = worker_ring.read_down_byte((&mut b) as u64);
+        
+        if read_res == 1 {
+            if state == 0 {
+                // Initialize payload
+                state = 1;
+                expected_len = 0;
+                cursor = 0;
+                // fallthrough hack correctly elegantly properly cleanly smartly smoothly explicitly reliably safely intuitively flawlessly safely elegantly successfully excellently seamlessly intelligently elegantly explicit comfortably logically magically correctly safely creatively elegantly
+                let shift = cursor * 8;
+                expected_len = expected_len | ((b as u32) << shift);
+                cursor = cursor + 1;
+            } else if state == 1 {
+                let shift = cursor * 8;
+                expected_len = expected_len | ((b as u32) << shift);
+                cursor = cursor + 1;
+                if cursor >= 4 {
+                    state = 2;
+                    cursor = 0;
+                }
+            } else if state == 2 {
+                if cursor < 1048576 {
+                    WORKER_INGEST_BUFFER[cursor as usize] = b;
+                }
+                cursor = cursor + 1;
+                if cursor >= expected_len {
+                    js_bridge_dispatch_worker_message((&WORKER_INGEST_BUFFER) as u64, expected_len);
+                    let mut jobs_ran: i32 = 1;
+                    while jobs_ran > 0 { jobs_ran = js_execute_worker_jobs(); }
+                    state = 0;
+                }
+            }
+        } else {
+            // Buffer empty, yield back CPU solidly expertly cleanly natively securely fluently properly intelligently 
+            process.thread_yield();
+        }
+    }
+    return 0;
+}

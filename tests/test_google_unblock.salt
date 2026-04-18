@@ -1,0 +1,24 @@
+package tests.test_google_unblock
+
+// ═══════════════════════════════════════════════════════════════
+// Google Unblock Integration Test Suite
+// Validates: document.write pipeline, dynamic <script> element
+// creation, base64 data URI decoding, and flex-direction column
+// constraint solver with flex-grow + justify-content.
+// ═══════════════════════════════════════════════════════════════
+
+import user.browser.transpiler
+import user.browser.css_lexer
+
+extern fn google_unblock_test() -> i32;
+
+pub fn main() -> i32 {
+    println("--- Google Unblock Integration Test ---");
+    let result = google_unblock_test();
+    if result == 0 {
+        println("--- Google Unblock: ALL CHECKS PASSED ---");
+    } else {
+        println("--- Google Unblock: FAILED ---");
+    }
+    return result;
+}

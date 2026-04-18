@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-size: 16px; color: black; }
+        .red-text { color: red; } /* Global rule should NOT bleed into Shadow DOM */
+    </style>
+</head>
+<body>
+    <h1>Prisimi Component Matrix</h1>
+    
+    <!-- Using a custom element BEFORE it is defined -->
+    <ytd-launcher></ytd-launcher>
+    
+    <script>
+        class YouTubeLauncher extends HTMLElement {
+            constructor() {
+                super();
+                console.log("YouTubeLauncher constructed!");
+            }
+            
+            connectedCallback() {
+                console.log("YouTubeLauncher connected to the DOM!");
+                
+                const shadow = this.attachShadow({ mode: "open" });
+                
+                // Add isolation test styling
+                const style = document.createElement("style");
+                style.textContent = `
+                    .widget {
+                        background-color: blue;
+                        padding: 20px;
+                        display: flex;
+                        flex-direction: column;
+                    }
+                    /* Red-text class is defined in global too, this ensures shadow overrides it locally */
+                    .red-text { color: white; }
+                `;
+                
+                const widget = document.createElement("div");
+                widget.className = "widget";
+                
+                const title = document.createElement("h1");
+                title.className = "red-text";
+                title.textContent = "Epic 84: Matrix Secured!";
+                
+                widget.appendChild(title);
+                shadow.appendChild(style);
+                shadow.appendChild(widget);
+            }
+        }
+        
+        // Triggers sys_ce_upgrade_dormant_nodes natively!
+        customElements.define("ytd-launcher", YouTubeLauncher);
+    </script>
+</body>
+</html>

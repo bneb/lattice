@@ -73,8 +73,12 @@ const ICR_STARTUP: u32    = 0x00000600;  // Startup IPI (SIPI)
 const ICR_LEVEL_ASSERT: u32   = 0x00004000;  // Level = Assert
 const ICR_LEVEL_DEASSERT: u32 = 0x00000000;  // Level = Deassert
 
-const ICR_NMI_DELIVERY: u32   = 0x00000400;  // Delivery Mode = NMI (100b)
-const ICR_DEST_SELF: u32      = 0x00040000;  // Destination Shorthand = Self (01b)
+const ICR_NMI_DELIVERY: u32         = 0x00000400;  // Delivery Mode = NMI (100b)
+const ICR_DEST_SELF: u32            = 0x00040000;  // Destination Shorthand = Self (01b)
+const ICR_DEST_ALL_EXCLUDING: u32   = 0x000C0000;  // Destination Shorthand = All Excluding Self (11b)
+const ICR_FIXED_DELIVERY: u32       = 0x00000000;  // Delivery Mode = Fixed (000b)
+
+const VECTOR_TLB_SHOOTDOWN: u32     = 0xFD;        // 253 - Standard Linux TLB IPI vector
 
 // =============================================================================
 // Timer Constants
@@ -202,6 +206,15 @@ pub fn send_self_nmi() {
     wait_for_icr_idle();
 }
 
+// =============================================================================
+// broadcast_tlb_shootdown — SMP Broadcast IPI for Zero-Copy Synchronicity
+// =============================================================================
+pub fn broadcast_tlb_shootdown() {
+    // Mode = Fixed, Destination = All Excluding Self, Vector = 0xFD
+    write_reg(APIC_ICR_LO, ICR_FIXED_DELIVERY | ICR_DEST_ALL_EXCLUDING | VECTOR_TLB_SHOOTDOWN);
+    wait_for_icr_idle();
+}
+
 fn wait_for_icr_idle() {
     // Poll ICR low bit 12 (Delivery Status): 0 = idle, 1 = pending
     let mut attempts: u64 = 0;
@@ -294,6 +307,9 @@ pub fn apic_init_timer(vector: u8, initial_count: u32) { init_timer(vector, init
 
 @no_mangle
 pub fn apic_send_self_nmi() { send_self_nmi(); }
+
+@no_mangle
+pub fn apic_broadcast_tlb_shootdown() { broadcast_tlb_shootdown(); }
 
 @no_mangle
 pub fn apic_init_nmi_timer(count: u32) { init_nmi_timer(count); }

@@ -1,0 +1,13 @@
+package tests.test_e2e_webcomponents
+
+import std.libc
+import user.browser.chrome
+import user.browser.dom
+
+extern fn webcomp_execute_test() -> i32;
+
+@no_mangle
+pub fn main() -> i32 {
+    let r = webcomp_execute_test();
+    return r;
+}

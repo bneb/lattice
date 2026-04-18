@@ -1,0 +1,20 @@
+package tests.bridges.sw_stubs
+
+@no_mangle
+pub global _user__browser__media__MEDIA_HEAD: u32 = 0;
+
+@no_mangle
+pub global _user__browser__media__MEDIA_TAIL: u32 = 0;
+
+@no_mangle
+pub global _user__browser__paint__Z_SORT_BUF: [u8; 65536] = [0; 65536];
+
+@no_mangle
+pub fn _user__browser__dom__invalidate_layout(node_id: u32) {
+}
+
+@no_mangle
+pub fn _user__browser__ipc_shared__sys_ipc_send_r2m_command_with_payload(cmd_type: u32, arg1: u64, payload_ptr: u64, payload_len: u32) {
+    extern fn sys_ipc_send_r2m_command_with_payload(cmd_type: u32, arg1: u64, payload_ptr: u64, payload_len: u32);
+    sys_ipc_send_r2m_command_with_payload(cmd_type, arg1, payload_ptr, payload_len);
+}

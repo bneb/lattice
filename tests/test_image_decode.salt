@@ -1,0 +1,76 @@
+package tests.test_image_decode
+
+extern fn facet_test_decode_baked_png() -> i32;
+extern fn facet_test_get_decoded_width() -> i32;
+extern fn facet_test_get_decoded_height() -> i32;
+extern fn facet_test_get_pixel(x: i32, y: i32, channel: i32) -> i32;
+extern fn facet_test_free_decoded();
+
+@no_mangle
+pub fn main() -> i32 {
+    println("--- Epic 16: Image Decode Pipeline Test ---");
+    
+    // =========================================================================
+    // TEST 1: Decode the baked 4x4 PNG
+    // =========================================================================
+    let result = facet_test_decode_baked_png();
+    if result != 0 {
+        println("FAIL: stb_image decode returned error");
+        return -1;
+    }
+    println("PASS: Test 1 - PNG decoded successfully");
+    
+    // =========================================================================
+    // TEST 2: Verify dimensions
+    // =========================================================================
+    let w = facet_test_get_decoded_width();
+    let h = facet_test_get_decoded_height();
+    if w != 4 || h != 4 {
+        println(f"FAIL: Expected 4x4, got {w}x{h}");
+        return -2;
+    }
+    println("PASS: Test 2 - Dimensions are 4x4");
+    
+    // =========================================================================
+    // TEST 3: Top-left pixel (0,0) should be RED (255,0,0,255)
+    // =========================================================================
+    let r0 = facet_test_get_pixel(0, 0, 0);  // R
+    let g0 = facet_test_get_pixel(0, 0, 1);  // G
+    let b0 = facet_test_get_pixel(0, 0, 2);  // B
+    let a0 = facet_test_get_pixel(0, 0, 3);  // A
+    println(f"Pixel (0,0): R={r0} G={g0} B={b0} A={a0}");
+    if r0 != 255 || g0 != 0 || b0 != 0 {
+        println("FAIL: Expected (255,0,0) at (0,0)");
+        return -3;
+    }
+    println("PASS: Test 3 - Pixel (0,0) is RED");
+    
+    // =========================================================================
+    // TEST 4: Bottom-left pixel (0,3) should be BLUE (0,0,255,255)
+    // =========================================================================
+    let r3 = facet_test_get_pixel(0, 3, 0);  // R
+    let g3 = facet_test_get_pixel(0, 3, 1);  // G
+    let b3 = facet_test_get_pixel(0, 3, 2);  // B
+    println(f"Pixel (0,3): R={r3} G={g3} B={b3}");
+    if r3 != 0 || g3 != 0 || b3 != 255 {
+        println("FAIL: Expected (0,0,255) at (0,3)");
+        return -4;
+    }
+    println("PASS: Test 4 - Pixel (0,3) is BLUE");
+    
+    // =========================================================================
+    // TEST 5: Boundary pixel (3,1) should still be RED (row 1)
+    // =========================================================================
+    let r_bound = facet_test_get_pixel(3, 1, 0);
+    println(f"Pixel (3,1): R={r_bound}");
+    if r_bound != 255 {
+        println("FAIL: Expected R=255 at (3,1)");
+        return -5;
+    }
+    println("PASS: Test 5 - Pixel (3,1) is RED (boundary check)");
+    
+    facet_test_free_decoded();
+    
+    println("ALL IMAGE DECODE TESTS PASSED.");
+    return 0;
+}

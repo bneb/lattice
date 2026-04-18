@@ -1,0 +1,695 @@
+package tests.test_e2e_bridge_port
+
+// observer_e2e_test (bridge marker — reuse observer stubs for headless linking)
+
+import std.core.str
+
+// JSC bridge externs
+extern fn sys_jsc_init();
+extern fn sys_jsc_evaluate_script(ptr: u64, len: u32, filename: u64);
+
+// ============================================================================
+// Epic 80A: Bridge Migration — TDD Test Suite
+// Tests DOM API surface that must be available through the JSC path.
+// Each test is RED until the corresponding JSC binding is ported.
+// ============================================================================
+
+pub fn main() {
+    println("=== Epic 80A: Bridge Migration — TDD Test Suite ===");
+    println("");
+
+    sys_jsc_init();
+
+    test_add_event_listener();
+    test_set_get_attribute();
+    test_style_property();
+    test_append_child();
+    test_inner_html();
+    test_class_list();
+
+    // Wave 2
+    test_sibling_traversal();
+    test_id_property();
+    test_className_property();
+    test_remove_event_listener();
+    test_style_position();
+    test_create_text_node();
+
+    // Wave 3: Deep integration (JSC → Salt DOM round-trip)
+    test_id_deep_integration();
+    test_childNodes_array();
+    test_removeChild();
+
+    // Wave 4: Remaining 37 APIs — exhaustive coverage
+    test_insertBefore();
+    test_replaceChild();
+    test_removeAttribute();
+    test_click();
+    test_attachShadow();
+    test_nodeValue();
+    test_scrollTop();
+    test_setInterval_clearInterval();
+    test_clearTimeout();
+    test_cancelAnimationFrame();
+    test_style_transform();
+    test_style_flexGrow();
+    test_customElements_define();
+    test_fetch_exists();
+    test_websocket_constructor();
+    test_worker_constructor();
+    test_mediasource_constructor();
+    test_audiocontext_constructor();
+    test_getSelection();
+    test_history_pushState();
+    test_url_createObjectURL();
+    test_indexedDB();
+    test_sw_register();
+    test_window_self_ref();
+    test_window_addEventListener();
+    test_document_addEventListener();
+    test_document_body();
+    test_postMessage();
+    test_getContext();
+
+    println("");
+    println("=== Epic 80A Tests Complete ===");
+}
+
+// ---------------------------------------------------------------------------
+// 1. addEventListener + dispatchEvent
+//    RED: JSC path has no addEventListener on Node objects.
+// ---------------------------------------------------------------------------
+fn test_add_event_listener() {
+    println("[TEST] addEventListener / dispatchEvent...");
+    let js = "
+        var clickCount = 0;
+        var div = document.createElement('div');
+        div.addEventListener('click', function(e) {
+            clickCount++;
+        });
+        // Synthesize a click event
+        var event = new Event('click');
+        div.dispatchEvent(event);
+        if (clickCount === 1) {
+            print('  PASS ✓');
+        } else {
+            print('  FAIL: clickCount = ' + clickCount);
+        }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+// ---------------------------------------------------------------------------
+// 2. setAttribute / getAttribute
+//    RED: JSC path has no attribute manipulation.
+// ---------------------------------------------------------------------------
+fn test_set_get_attribute() {
+    println("[TEST] setAttribute / getAttribute...");
+    let js = "
+        var div = document.createElement('div');
+        div.setAttribute('data-id', '42');
+        var val = div.getAttribute('data-id');
+        if (val === '42') {
+            print('  PASS ✓');
+        } else {
+            print('  FAIL: getAttribute returned ' + val);
+        }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+// ---------------------------------------------------------------------------
+// 3. element.style.* property access
+//    RED: JSC path has no style object.
+// ---------------------------------------------------------------------------
+fn test_style_property() {
+    println("[TEST] element.style property...");
+    let js = "
+        var div = document.createElement('div');
+        div.style.backgroundColor = 'red';
+        div.style.width = '100px';
+        // Just verify it doesn't crash and the object exists
+        if (typeof div.style === 'object') {
+            print('  PASS ✓');
+        } else {
+            print('  FAIL: style is ' + typeof div.style);
+        }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+// ---------------------------------------------------------------------------
+// 4. appendChild + parentNode + children
+//    Tests tree manipulation through the JSC path.
+//    Note: parentNode returns a NEW wrapper object, so we compare node_index
+//    rather than object identity (===).
+// ---------------------------------------------------------------------------
+fn test_append_child() {
+    println("[TEST] appendChild / parentNode / children...");
+    let js = "
+        var parent = document.createElement('div');
+        var child = document.createElement('span');
+        parent.appendChild(child);
+        var pn = child.parentNode;
+        if (pn && pn.node_index === parent.node_index) {
+            print('  PASS ✓');
+        } else {
+            print('  FAIL: parentNode node_index=' + (pn ? pn.node_index : 'null') + ', expected=' + parent.node_index);
+        }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+// ---------------------------------------------------------------------------
+// 5. innerHTML (simplified: sets textContent, full HTML parse is Phase 2)
+// ---------------------------------------------------------------------------
+fn test_inner_html() {
+    println("[TEST] innerHTML...");
+    let js = "
+        var div = document.createElement('div');
+        div.innerHTML = '<span>hello</span>';
+        // Phase 1: innerHTML delegates to textContent (no HTML parsing yet)
+        // So we verify the raw string was stored and is retrievable
+        var content = div.textContent;
+        if (content && content.length > 0) {
+            print('  PASS ✓');
+        } else {
+            print('  FAIL: innerHTML/textContent was empty');
+        }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+// ---------------------------------------------------------------------------
+// 6. classList (add / remove / contains / toggle)
+//    RED: JSC path has no classList.
+// ---------------------------------------------------------------------------
+fn test_class_list() {
+    println("[TEST] classList...");
+    let js = "
+        var div = document.createElement('div');
+        div.classList.add('foo');
+        div.classList.add('bar');
+        if (div.classList.contains('foo') && div.classList.contains('bar')) {
+            div.classList.remove('foo');
+            if (!div.classList.contains('foo') && div.classList.contains('bar')) {
+                print('  PASS ✓');
+            } else {
+                print('  FAIL: remove did not work');
+            }
+        } else {
+            print('  FAIL: add did not work');
+        }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+// =========================================================================
+// Wave 2: DOM Traversal Properties + document.addEventListener
+// =========================================================================
+
+// ---------------------------------------------------------------------------
+// 7. firstChild / nextSibling
+// ---------------------------------------------------------------------------
+fn test_sibling_traversal() {
+    println("[TEST] firstChild / nextSibling...");
+    let js = "
+        var parent = document.createElement('div');
+        var a = document.createElement('span');
+        var b = document.createElement('span');
+        parent.appendChild(a);
+        parent.appendChild(b);
+        var fc = parent.firstChild;
+        if (fc && fc.node_index === a.node_index) {
+            var ns = fc.nextSibling;
+            if (ns && ns.node_index === b.node_index) {
+                print('  PASS ✓');
+            } else {
+                print('  FAIL: nextSibling mismatch');
+            }
+        } else {
+            print('  FAIL: firstChild mismatch, got ' + (fc ? fc.node_index : 'null'));
+        }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+// ---------------------------------------------------------------------------
+// 8. id property (get/set)
+// ---------------------------------------------------------------------------
+fn test_id_property() {
+    println("[TEST] id property get/set...");
+    let js = "
+        var div = document.createElement('div');
+        div.id = 'test-node';
+        if (div.id === 'test-node') {
+            print('  PASS ✓');
+        } else {
+            print('  FAIL: id=' + div.id);
+        }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+// ---------------------------------------------------------------------------
+// 9. className property (get/set)
+// ---------------------------------------------------------------------------
+fn test_className_property() {
+    println("[TEST] className property get/set...");
+    let js = "
+        var div = document.createElement('div');
+        div.className = 'alpha beta';
+        if (div.className === 'alpha beta') {
+            print('  PASS ✓');
+        } else {
+            print('  FAIL: className=' + div.className);
+        }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+// ---------------------------------------------------------------------------
+// 10. removeEventListener
+// ---------------------------------------------------------------------------
+fn test_remove_event_listener() {
+    println("[TEST] removeEventListener...");
+    let js = "
+        var count = 0;
+        var div = document.createElement('div');
+        var handler = function() { count++; };
+        div.addEventListener('click', handler);
+        div.dispatchEvent(new Event('click'));
+        div.removeEventListener('click', handler);
+        div.dispatchEvent(new Event('click'));
+        if (count === 1) {
+            print('  PASS ✓');
+        } else {
+            print('  FAIL: count=' + count);
+        }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+// ---------------------------------------------------------------------------
+// 11. style.position / style.top / style.left
+// ---------------------------------------------------------------------------
+fn test_style_position() {
+    println("[TEST] style.position / top / left...");
+    let js = "
+        var div = document.createElement('div');
+        div.style.position = 'absolute';
+        div.style.top = '10px';
+        div.style.left = '20px';
+        // Verify no crash and style object exists
+        if (typeof div.style === 'object') {
+            print('  PASS ✓');
+        } else {
+            print('  FAIL');
+        }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+// ---------------------------------------------------------------------------
+// 12. createTextNode
+// ---------------------------------------------------------------------------
+fn test_create_text_node() {
+    println("[TEST] createTextNode...");
+    let js = "
+        var text = document.createTextNode('hello world');
+        if (text.textContent === 'hello world') {
+            print('  PASS ✓');
+        } else {
+            print('  FAIL: textContent=' + text.textContent);
+        }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+// =========================================================================
+// Wave 3: Deep Integration (JSC → Salt DOM round-trip)
+// =========================================================================
+
+// ---------------------------------------------------------------------------
+// 13. id deep integration: set id, then getElementById should find the node
+// ---------------------------------------------------------------------------
+fn test_id_deep_integration() {
+    println("[TEST] id → getElementById round-trip...");
+    let js = "
+        var div = document.createElement('div');
+        div.id = 'deep-test-99';
+        // getElementById should find this node in the Salt DOM
+        var found = document.getElementById('deep-test-99');
+        if (found && found.node_index === div.node_index) {
+            print('  PASS ✓');
+        } else {
+            print('  FAIL: getElementById returned ' + (found ? found.node_index : 'null') + ', expected ' + div.node_index);
+        }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+// ---------------------------------------------------------------------------
+// 14. childNodes array has correct length
+// ---------------------------------------------------------------------------
+fn test_childNodes_array() {
+    println("[TEST] childNodes length...");
+    let js = "
+        var parent = document.createElement('div');
+        parent.appendChild(document.createElement('span'));
+        parent.appendChild(document.createElement('span'));
+        parent.appendChild(document.createElement('span'));
+        var cn = parent.childNodes;
+        if (cn && cn.length === 3) {
+            print('  PASS ✓');
+        } else {
+            print('  FAIL: childNodes.length=' + (cn ? cn.length : 'null'));
+        }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+// ---------------------------------------------------------------------------
+// 15. removeChild actually detaches from tree
+// ---------------------------------------------------------------------------
+fn test_removeChild() {
+    println("[TEST] removeChild detaches from tree...");
+    let js = "
+        var parent = document.createElement('div');
+        var a = document.createElement('span');
+        var b = document.createElement('span');
+        parent.appendChild(a);
+        parent.appendChild(b);
+        parent.removeChild(a);
+        var cn = parent.childNodes;
+        if (cn && cn.length === 1 && cn[0].node_index === b.node_index) {
+            print('  PASS ✓');
+        } else {
+            print('  FAIL: childNodes.length=' + (cn ? cn.length : 'null'));
+        }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+// =========================================================================
+// Wave 4: Exhaustive remaining API coverage
+// =========================================================================
+
+fn test_insertBefore() {
+    println("[TEST] insertBefore...");
+    let js = "
+        var p = document.createElement('div');
+        var a = document.createElement('span');
+        var b = document.createElement('span');
+        p.appendChild(b);
+        p.insertBefore(a, b);
+        if (p.firstChild && p.firstChild.node_index === a.node_index) { print('  PASS ✓'); }
+        else { print('  FAIL: insertBefore order wrong'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_replaceChild() {
+    println("[TEST] replaceChild...");
+    let js = "
+        var p = document.createElement('div');
+        var old = document.createElement('span');
+        var nw = document.createElement('span');
+        p.appendChild(old);
+        var ret = p.replaceChild(nw, old);
+        var fc = p.firstChild;
+        if (fc && fc.node_index === nw.node_index) { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_removeAttribute() {
+    println("[TEST] removeAttribute...");
+    let js = "
+        var div = document.createElement('div');
+        div.id = 'rem-test';
+        div.removeAttribute('id');
+        if (div.id === '') { print('  PASS ✓'); }
+        else { print('  FAIL: id=' + div.id); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_click() {
+    println("[TEST] click()...");
+    let js = "
+        var count = 0;
+        var div = document.createElement('div');
+        div.addEventListener('click', function() { count++; });
+        div.click();
+        if (count === 1) { print('  PASS ✓'); }
+        else { print('  FAIL: count=' + count); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_attachShadow() {
+    println("[TEST] attachShadow...");
+    let js = "
+        var div = document.createElement('div');
+        var sr = div.attachShadow({mode:'open'});
+        if (sr && typeof sr === 'object' && sr.node_index !== undefined) { print('  PASS ✓'); }
+        else { print('  FAIL: shadow root invalid'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_nodeValue() {
+    println("[TEST] nodeValue get/set...");
+    let js = "
+        var t = document.createTextNode('hello');
+        if (t.nodeValue === 'hello') { print('  PASS ✓'); }
+        else { print('  FAIL: ' + t.nodeValue); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_scrollTop() {
+    println("[TEST] scrollTop setter...");
+    let js = "
+        var div = document.createElement('div');
+        div.scrollTop = 100;
+        if (typeof div.scrollTop === 'number') { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_setInterval_clearInterval() {
+    println("[TEST] setInterval / clearInterval exist...");
+    let js = "
+        if (typeof setInterval === 'function' && typeof clearInterval === 'function') { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_clearTimeout() {
+    println("[TEST] clearTimeout exists...");
+    let js = "
+        if (typeof clearTimeout === 'function') { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_cancelAnimationFrame() {
+    println("[TEST] cancelAnimationFrame exists...");
+    let js = "
+        if (typeof cancelAnimationFrame === 'function') { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_style_transform() {
+    println("[TEST] style.transform setter...");
+    let js = "
+        var div = document.createElement('div');
+        div.style.transform = 'rotate(45deg)';
+        if (typeof div.style === 'object') { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_style_flexGrow() {
+    println("[TEST] style.flexGrow / gridTemplateColumns...");
+    let js = "
+        var div = document.createElement('div');
+        div.style.flexGrow = '1';
+        div.style.gridTemplateColumns = '1fr 1fr';
+        div.style.gridColumnStart = '2';
+        if (typeof div.style === 'object') { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_customElements_define() {
+    println("[TEST] customElements.define...");
+    let js = "
+        class MyEl extends HTMLElement { constructor() { super(); } }
+        customElements.define('my-element', MyEl);
+        print('  PASS ✓');
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_fetch_exists() {
+    println("[TEST] fetch() exists...");
+    let js = "
+        if (typeof fetch === 'function') { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_websocket_constructor() {
+    println("[TEST] WebSocket constructor...");
+    let js = "
+        if (typeof WebSocket !== 'undefined') { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_worker_constructor() {
+    println("[TEST] Worker constructor...");
+    let js = "
+        if (typeof Worker !== 'undefined') { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_mediasource_constructor() {
+    println("[TEST] MediaSource constructor...");
+    let js = "
+        if (typeof MediaSource !== 'undefined') { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_audiocontext_constructor() {
+    println("[TEST] AudioContext constructor...");
+    let js = "
+        if (typeof AudioContext !== 'undefined') { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_getSelection() {
+    println("[TEST] getSelection()...");
+    let js = "
+        var sel = getSelection();
+        if (sel && typeof sel === 'object') { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_history_pushState() {
+    println("[TEST] history.pushState...");
+    let js = "
+        if (typeof history === 'object' && typeof history.pushState === 'function') { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_url_createObjectURL() {
+    println("[TEST] URL.createObjectURL...");
+    let js = "
+        if (typeof URL === 'object' && typeof URL.createObjectURL === 'function') {
+            var url = URL.createObjectURL({});
+            if (url && url.indexOf('blob:') === 0) { print('  PASS ✓'); }
+            else { print('  FAIL: url=' + url); }
+        } else { print('  FAIL: URL missing'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_indexedDB() {
+    println("[TEST] indexedDB.put / get...");
+    let js = "
+        if (typeof indexedDB === 'object' && typeof indexedDB.put === 'function' && typeof indexedDB.get === 'function') { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_sw_register() {
+    println("[TEST] navigator.serviceWorker.register...");
+    let js = "
+        if (typeof navigator === 'object' && typeof navigator.serviceWorker === 'object' && typeof navigator.serviceWorker.register === 'function') { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_window_self_ref() {
+    println("[TEST] window === globalThis...");
+    let js = "
+        if (typeof window === 'object' && window === globalThis && window === self) { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_window_addEventListener() {
+    println("[TEST] window.addEventListener...");
+    let js = "
+        var fired = false;
+        addEventListener('test', function() { fired = true; });
+        if (typeof addEventListener === 'function') { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_document_addEventListener() {
+    println("[TEST] document.addEventListener...");
+    let js = "
+        if (typeof document.addEventListener === 'function') { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_document_body() {
+    println("[TEST] document.body / document.head...");
+    let js = "
+        if (document.body && typeof document.body === 'object' && document.head && typeof document.head === 'object') { print('  PASS ✓'); }
+        else { print('  FAIL: body=' + typeof document.body + ', head=' + typeof document.head); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_postMessage() {
+    println("[TEST] postMessage exists...");
+    let js = "
+        if (typeof postMessage === 'function') { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}
+
+fn test_getContext() {
+    println("[TEST] canvas.getContext('2d')...");
+    let js = "
+        var canvas = document.createElement('canvas');
+        var ctx = canvas.getContext('2d');
+        if (ctx && typeof ctx === 'object') { print('  PASS ✓'); }
+        else { print('  FAIL'); }
+    ";
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+}

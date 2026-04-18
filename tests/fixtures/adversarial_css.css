@@ -1,0 +1,62 @@
+/* Adversarial CSS Fixture — Tests all properties Salt recognizes */
+
+/* Comment stripping test */
+body {
+    display: block;
+    width: 100px;
+    height: 200px;
+    flex-grow: 0;
+}
+
+/* Positional properties */
+.overlay {
+    position: absolute;
+    top: 10px;
+    right: 20px;
+    bottom: 30px;
+    left: 40px;
+    z-index: 99;
+}
+
+/* Flex layout */
+#container {
+    display: flex;
+    flex-direction: column;
+    width: 800px;
+    height: 600px;
+}
+
+/* Background color */
+.alert {
+    background-color: #ff0000;
+    display: none;
+}
+
+/* Multiple properties edge cases */
+.compact {
+    display: inline;
+    width: 50px;
+    height: 25px;
+    flex-grow: 2;
+}
+
+/* Negative values */
+.negative {
+    top: -10px;
+    left: -20px;
+    z-index: -5;
+    position: fixed;
+}
+
+/* Sticky position */
+.sticky-nav {
+    position: sticky;
+    top: 0px;
+}
+
+/* Relative position */
+.offset {
+    position: relative;
+    top: 5px;
+    left: 10px;
+}

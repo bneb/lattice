@@ -3166,9 +3166,27 @@ fn collect_mutations_in_stmt(visitor: &mut MutationVisitor, stmt: &Stmt) {
                 }
             }
         }
+        // [MUT PARAM FIX] Handle bare expression statements (e.g., `x = x + 1;`)
+        // Without this, assignments at function body level are not detected by
+        // collect_mutations, so mutated parameters aren't promoted to alloca.
+        Stmt::Expr(e, _) => visitor.visit_expr(e),
+        Stmt::For(f) => {
+            visitor.visit_expr(&f.iter);
+            for s in &f.body.stmts { collect_mutations_in_stmt(visitor, s); }
+        }
+        Stmt::Loop(b) | Stmt::Unsafe(b) => {
+            for s in &b.stmts { collect_mutations_in_stmt(visitor, s); }
+        }
+        Stmt::Match(m) => {
+            visitor.visit_expr(&m.scrutinee);
+            for arm in &m.arms {
+                for s in &arm.body.stmts { collect_mutations_in_stmt(visitor, s); }
+            }
+        }
         _ => {}
     }
 }
+
 
 // ============================================================================
 // ARENA ESCAPE ANALYSIS — Helper Functions (Scope Ladder)

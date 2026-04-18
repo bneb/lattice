@@ -7,7 +7,6 @@ const FB_VIRT: u64 = 0x40002000;
 const RX_RING: u64 = 0x40001000;
 const CONSOLE_MEM: u64 = 0x40402000;
 
-@no_mangle
 pub fn terminal_main(w: u64, h: u64, pitch: u64) {
     console.init(FB_VIRT, w as u32, h as u32, pitch as u32, 32, CONSOLE_MEM);
     console.clear();

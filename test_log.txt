@@ -1,0 +1,216 @@
+🔧 [LLVM] Compiling std/core/str.salt...
+🔧 [LLVM] Compiling std/time.salt...
+🔧 [LLVM] Compiling std/thread/thread.salt...
+🔧 [LLVM] Compiling user/os/process.salt...
+🔧 [LLVM] Compiling user/os/ipc_ring.salt...
+🔧 [LLVM] Compiling user/os/worker_ring.salt...
+🔧 [LLVM] Compiling user/netd/virtio_bridge.salt...
+🔧 [LLVM] Compiling user/browser/alloc/airlock.salt...
+🔧 [LLVM] Compiling user/browser/font.salt...
+🔧 [LLVM] Compiling user/browser/css_utils.salt...
+🔧 [LLVM] Compiling user/browser/css.salt...
+🔧 [LLVM] Compiling user/browser/css_lexer.salt...
+🔧 [LLVM] Compiling user/browser/http_lexer.salt...
+🔧 [LLVM] Compiling user/browser/dom.salt...
+🔧 [LLVM] Compiling user/browser/ipc_shared.salt...
+🔧 [LLVM] Compiling user/browser/lexer.salt...
+🔧 [LLVM] Compiling user/browser/html_serializer.salt...
+🔧 [LLVM] Compiling user/browser/paint.salt...
+🔧 [LLVM] Compiling user/browser/events.salt...
+🔧 [LLVM] Compiling user/browser/layout.salt...
+🔧 [LLVM] Compiling user/browser/timers.salt...
+🔧 [LLVM] Compiling user/browser/history.salt...
+🔧 [LLVM] Compiling user/browser/js_quickjs.salt...
+🔧 [LLVM] Compiling user/browser/websocket.salt...
+🔧 [LLVM] Compiling user/browser/worker.salt...
+🔧 [LLVM] Compiling user/browser/compositor.salt...
+🔧 [LLVM] Compiling user/browser/chrome.salt...
+🔧 [LLVM] Compiling user/browser/media.salt...
+🔧 [LLVM] Compiling user/browser/main.salt...
+🔧 [LLVM] Compiling user/browser/transpiler.salt...
+🔧 [LLVM] Compiling user/browser/net.salt...
+🔧 [LLVM] Compiling user/browser/storage.salt...
+  ✓ MLIR generated
+  ✓ MLIR optimized
+  ✓ LLVM IR generated
+warning: overriding the module target triple with arm64-apple-macosx15.0.0 [-Woverride-module]
+'x86-64' is not a recognized processor for this target (ignoring processor)
+'x86-64' is not a recognized processor for this target (ignoring processor)
+'x86-64' is not a recognized processor for this target (ignoring processor)
+'x86-64' is not a recognized processor for this target (ignoring processor)
+1 warning generated.
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[176](b_tgamma.c.o)' has malformed LC_DYSYMTAB, expected 8 undefined symbols to start at index 4, found 7 undefined symbols starting at index 4
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[45](e_sqrt.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 4, found 1 undefined symbols starting at index 4
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[43](e_sinh.c.o)' has malformed LC_DYSYMTAB, expected 6 undefined symbols to start at index 3, found 5 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[39](e_remainder.c.o)' has malformed LC_DYSYMTAB, expected 4 undefined symbols to start at index 3, found 3 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[171](s_clog.c.o)' has malformed LC_DYSYMTAB, expected 7 undefined symbols to start at index 3, found 6 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[37](e_pow.c.o)' has malformed LC_DYSYMTAB, expected 5 undefined symbols to start at index 7, found 4 undefined symbols starting at index 7
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[169](s_catanh.c.o)' has malformed LC_DYSYMTAB, expected 4 undefined symbols to start at index 3, found 3 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[34](e_log2.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[167](s_catan.c.o)' has malformed LC_DYSYMTAB, expected 6 undefined symbols to start at index 3, found 5 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[32](e_log10.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[165](s_casinh.c.o)' has malformed LC_DYSYMTAB, expected 4 undefined symbols to start at index 3, found 3 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[31](e_log.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[163](s_casin.c.o)' has malformed LC_DYSYMTAB, expected 9 undefined symbols to start at index 5, found 8 undefined symbols starting at index 5
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[161](s_cacosh.c.o)' has malformed LC_DYSYMTAB, expected 4 undefined symbols to start at index 3, found 3 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[159](s_cacos.c.o)' has malformed LC_DYSYMTAB, expected 5 undefined symbols to start at index 3, found 4 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[19](e_hypot.c.o)' has malformed LC_DYSYMTAB, expected 4 undefined symbols to start at index 3, found 3 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[15](e_exp.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 9, found 1 undefined symbols starting at index 9
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[142](s_nan.c.o)' has malformed LC_DYSYMTAB, expected 5 undefined symbols to start at index 5, found 4 undefined symbols starting at index 5
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[13](e_cosh.c.o)' has malformed LC_DYSYMTAB, expected 6 undefined symbols to start at index 3, found 5 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[11](e_atanh.c.o)' has malformed LC_DYSYMTAB, expected 3 undefined symbols to start at index 3, found 2 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[9](e_atan2.c.o)' has malformed LC_DYSYMTAB, expected 4 undefined symbols to start at index 5, found 3 undefined symbols starting at index 5
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[131](s_fma.c.o)' has malformed LC_DYSYMTAB, expected 9 undefined symbols to start at index 4, found 8 undefined symbols starting at index 4
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[7](e_asin.c.o)' has malformed LC_DYSYMTAB, expected 4 undefined symbols to start at index 3, found 3 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[5](e_acosh.c.o)' has malformed LC_DYSYMTAB, expected 5 undefined symbols to start at index 3, found 4 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[3](e_acos.c.o)' has malformed LC_DYSYMTAB, expected 3 undefined symbols to start at index 5, found 2 undefined symbols starting at index 5
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[129](w_cabs.c.o)' has malformed LC_DYSYMTAB, expected 5 undefined symbols to start at index 3, found 4 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[127](s_cpow.c.o)' has malformed LC_DYSYMTAB, expected 11 undefined symbols to start at index 3, found 10 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[125](s_trunc.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[122](s_tanh.c.o)' has malformed LC_DYSYMTAB, expected 4 undefined symbols to start at index 3, found 3 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[120](s_tan.c.o)' has malformed LC_DYSYMTAB, expected 6 undefined symbols to start at index 3, found 5 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[117](s_sincos.c.o)' has malformed LC_DYSYMTAB, expected 5 undefined symbols to start at index 3, found 4 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[116](s_sin.c.o)' has malformed LC_DYSYMTAB, expected 7 undefined symbols to start at index 3, found 6 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[113](s_scalbnf.c.o)' has malformed LC_DYSYMTAB, expected 3 undefined symbols to start at index 3, found 2 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[112](s_scalbn.c.o)' has malformed LC_DYSYMTAB, expected 5 undefined symbols to start at index 3, found 2 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[107](s_rint.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 5, found 1 undefined symbols starting at index 5
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[105](s_remquo.c.o)' has malformed LC_DYSYMTAB, expected 3 undefined symbols to start at index 5, found 2 undefined symbols starting at index 5
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[102](s_nextafter.c.o)' has malformed LC_DYSYMTAB, expected 4 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[98](s_logb.c.o)' has malformed LC_DYSYMTAB, expected 3 undefined symbols to start at index 3, found 2 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[96](s_log1p.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[95](s_isnan.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 5, found 1 undefined symbols starting at index 5
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[92](s_isinf.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 5, found 1 undefined symbols starting at index 5
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[88](s_frexp.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[81](s_floor.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[76](s_expm1.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[74](s_exp2.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 7, found 1 undefined symbols starting at index 7
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[72](s_erf.c.o)' has malformed LC_DYSYMTAB, expected 6 undefined symbols to start at index 35, found 4 undefined symbols starting at index 35
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[70](s_csqrt.c.o)' has malformed LC_DYSYMTAB, expected 11 undefined symbols to start at index 3, found 10 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[68](s_cos.c.o)' has malformed LC_DYSYMTAB, expected 7 undefined symbols to start at index 3, found 6 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[64](s_ceil.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[58](s_atan.c.o)' has malformed LC_DYSYMTAB, expected 3 undefined symbols to start at index 6, found 2 undefined symbols starting at index 6
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[56](s_asinh.c.o)' has malformed LC_DYSYMTAB, expected 6 undefined symbols to start at index 3, found 5 undefined symbols starting at index 3
+Undefined symbols for architecture arm64:
+  "_IOSurfaceCreate", referenced from:
+      _sys_canvas_create_backing_store in canvas_mac-94d014.o
+  "_IOSurfaceGetBaseAddress", referenced from:
+      _sys_canvas_create_backing_store in canvas_mac-94d014.o
+  "_IOSurfaceGetBytesPerRow", referenced from:
+      _sys_canvas_create_backing_store in canvas_mac-94d014.o
+  "_IOSurfaceGetHeight", referenced from:
+      _facet_gpu_rasterize_primitives in facet_gpu-a605f3.o
+  "_IOSurfaceGetID", referenced from:
+      _sys_canvas_create_backing_store in canvas_mac-94d014.o
+  "_IOSurfaceGetWidth", referenced from:
+      _facet_gpu_rasterize_primitives in facet_gpu-a605f3.o
+  "_IOSurfaceLock", referenced from:
+      _sys_canvas_create_backing_store in canvas_mac-94d014.o
+  "_IOSurfaceLookup", referenced from:
+      _facet_gpu_rasterize_primitives in facet_gpu-a605f3.o
+  "_IOSurfaceUnlock", referenced from:
+      _sys_canvas_create_backing_store in canvas_mac-94d014.o
+  "_dom_get_canvas_surface_id", referenced from:
+      _js_prisimi_node_getContext in js_dom_bridge-3ce6a5.o
+  "_ext_get_ipc_fd", referenced from:
+      _user__browser__main__app_main in test_e2e_canvas_merged-4ed8a8.o
+  "_ext_get_media_head", referenced from:
+      _ext_media_push_chunk in test_e2e_canvas_merged-4ed8a8.o
+  "_ext_get_media_tail", referenced from:
+      _ext_media_push_chunk in test_e2e_canvas_merged-4ed8a8.o
+  "_ext_ipc_init_shared_memory", referenced from:
+      _sys_ipc_init_shared_memory in test_e2e_canvas_merged-4ed8a8.o
+  "_ext_mac_update_omnibox", referenced from:
+      _ext_history_push in test_e2e_canvas_merged-4ed8a8.o
+      _native_go_back in test_e2e_canvas_merged-4ed8a8.o
+      _run_loop in test_e2e_canvas_merged-4ed8a8.o
+      _run_loop in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__main__app_main in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__main__app_main in test_e2e_canvas_merged-4ed8a8.o
+  "_ext_set_media_head", referenced from:
+      _ext_media_push_chunk in test_e2e_canvas_merged-4ed8a8.o
+  "_ext_set_media_tail", referenced from:
+      _ext_media_push_chunk in test_e2e_canvas_merged-4ed8a8.o
+      _ext_media_push_chunk in test_e2e_canvas_merged-4ed8a8.o
+  "_init_arrays", referenced from:
+      _sys_browser_navigate in test_e2e_canvas_merged-4ed8a8.o
+      _inject_test_key in test_e2e_canvas_merged-4ed8a8.o
+      _run_loop in test_e2e_canvas_merged-4ed8a8.o
+      _run_loop in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__main__app_main in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__main__app_main in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__main__app_main in test_e2e_canvas_merged-4ed8a8.o
+      ...
+  "_kIOSurfaceBytesPerElement", referenced from:
+      _sys_canvas_create_backing_store in canvas_mac-94d014.o
+  "_kIOSurfaceHeight", referenced from:
+      _sys_canvas_create_backing_store in canvas_mac-94d014.o
+  "_kIOSurfacePixelFormat", referenced from:
+      _sys_canvas_create_backing_store in canvas_mac-94d014.o
+  "_kIOSurfaceWidth", referenced from:
+      _sys_canvas_create_backing_store in canvas_mac-94d014.o
+  "_sys_gpu_commit_iosurface", referenced from:
+      _user__browser__compositor__flush_frame in test_e2e_canvas_merged-4ed8a8.o
+  "_sys_gpu_init_iosurface", referenced from:
+      _user__browser__main__app_main in test_e2e_canvas_merged-4ed8a8.o
+  "_sys_gpu_is_iosurface_mode", referenced from:
+      _user__browser__compositor__flush_frame in test_e2e_canvas_merged-4ed8a8.o
+  "_sys_gpu_rasterize_iosurface", referenced from:
+      _user__browser__compositor__flush_frame in test_e2e_canvas_merged-4ed8a8.o
+  "_sys_hw_audio_init", referenced from:
+      _user__browser__main__app_main in test_e2e_canvas_merged-4ed8a8.o
+  "_sys_invalidate_paint", referenced from:
+      _sys_canvas_fill_rect in canvas_mac-94d014.o
+  "_sys_ipc_read_m2r_command", referenced from:
+      _run_loop in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__main__app_main in test_e2e_canvas_merged-4ed8a8.o
+  "_sys_ipc_send_r2m_command_with_payload", referenced from:
+      _user__browser__lexer__lex_html in test_e2e_canvas_merged-4ed8a8.o
+      _sys_ipc_send_post_message in test_e2e_canvas_merged-4ed8a8.o
+      _js_window_postMessage in js_dom_bridge-3ce6a5.o
+      _js_iframe_postMessage in js_dom_bridge-3ce6a5.o
+  "_user__browser__alloc__airlock__airlock_init_allocator", referenced from:
+      _main in test_e2e_canvas_merged-4ed8a8.o
+  "_user__browser__dom__EVICTION_QUEUE", referenced from:
+      _user__browser__paint__paint_node in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__compositor__drain_eviction_queue in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__main__app_main in test_e2e_canvas_merged-4ed8a8.o
+  "_user__browser__dom__LAYOUT_SCROLL_X", referenced from:
+      _compute_layout in test_e2e_canvas_merged-4ed8a8.o
+      _compute_layout in test_e2e_canvas_merged-4ed8a8.o
+  "_user__browser__dom__compare_document_position", referenced from:
+      _user__browser__paint__paint_node in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__paint__paint_node in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__paint__paint_node in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__paint__paint_node in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__paint__paint_node in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__paint__is_node_between_selection in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__paint__is_node_between_selection in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__paint__is_node_between_selection in test_e2e_canvas_merged-4ed8a8.o
+      ...
+  "_user__browser__dom__dom_find_iframe_slot", referenced from:
+      _user__browser__paint__paint_node in test_e2e_canvas_merged-4ed8a8.o
+  "_user__browser__dom__dom_get_selection_anchor_node", referenced from:
+      _user__browser__paint__paint_node in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__paint__paint_node in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__paint__is_node_between_selection in test_e2e_canvas_merged-4ed8a8.o
+  "_user__browser__dom__dom_get_selection_anchor_offset", referenced from:
+      _user__browser__paint__paint_node in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__paint__paint_node in test_e2e_canvas_merged-4ed8a8.o
+  "_user__browser__dom__dom_get_selection_focus_node", referenced from:
+      _user__browser__paint__paint_node in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__paint__paint_node in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__paint__is_node_between_selection in test_e2e_canvas_merged-4ed8a8.o
+  "_user__browser__dom__dom_get_selection_focus_offset", referenced from:
+      _user__browser__paint__paint_node in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__paint__paint_node in test_e2e_canvas_merged-4ed8a8.o
+  "_user__browser__dom__invalidate_layout", referenced from:
+      _run_loop in test_e2e_canvas_merged-4ed8a8.o
+      _user__browser__main__app_main in test_e2e_canvas_merged-4ed8a8.o
+  "_user__browser__media__MEDIA_HEAD", referenced from:
+      _sys_hw_decoder_signal_data_ready in media_decoder-ccc426.o
+  "_user__browser__media__MEDIA_TAIL", referenced from:
+      _sys_hw_decoder_signal_data_ready in media_decoder-ccc426.o
+  "_user__browser__paint__Z_SORT_BUF", referenced from:
+      _user__browser__events__dispatch_click in test_e2e_canvas_merged-4ed8a8.o
+ld: symbol(s) not found for architecture arm64
+clang: error: linker command failed with exit code 1 (use -v to see invocation)

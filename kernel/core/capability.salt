@@ -26,6 +26,7 @@ import kernel.lib.abi
 import kernel.lib.ipc_ring
 
 extern fn invlpg_addr(vaddr: u64);
+extern fn apic_broadcast_tlb_shootdown();
 
 // =============================================================================
 // Capability Table — Fixed-Size Global Array
@@ -164,4 +165,58 @@ pub fn sys_ring_map(capability_id: u64) -> u64 {
     serial.print("\n");
 
     return vaddr;
+}
+
+// =============================================================================
+// sys_cap_unmap — Execute Zero-Copy PML4 Extraction (Syscall 12 Fastpath)
+// =============================================================================
+// Plucks the physical page behind the capability completely out of the caller's 
+// virtual execution tree. Fires a mandatory INVPLG memory barrier to blow 
+// away CPU cache prediction boundaries.
+//
+// Returns: the underlying physical pointer boundary for kernel DMA, or 0
+// =============================================================================
+@no_mangle
+pub fn sys_cap_unmap(capability_id: u64) -> u64 {
+    let pid = process.current();
+    
+    if capability_id == 0 || capability_id >= MAX_CAPABILITIES {
+        return 0;
+    }
+    if cap_table_owner[capability_id] != pid {
+        return 0;
+    }
+    if cap_table_state[capability_id] != abi.CAP_STATE_MAPPED {
+        return 0;
+    }
+    
+    let phys = cap_table_phys[capability_id];
+    let vaddr = cap_table_vaddr[capability_id];
+    let pml4 = process.get_pml4(pid);
+    
+    // 1. Unmap dynamically mapped Virtual Address!
+    user_paging.unmap_user_page(pml4, vaddr);
+    
+    // 2. Eradicate hardware cache line targeting the capability's shadow location locally
+    invlpg_addr(vaddr);
+    
+    // RED TEAM MITIGATION: TLB SHOOTDOWN IPI
+    // Broadcast fixed interrupt `0xFD` natively via APIC across the execution matrix,
+    // pausing all remote logical cores to synchronize the shadow hardware structures
+    // against maliciously overlapping cache geometries.
+    apic_broadcast_tlb_shootdown();
+    
+    // 3. Demolish capability ownership state securely
+    cap_table_state[capability_id] = abi.CAP_STATE_FREE;
+    cap_table_owner[capability_id] = 0;
+    cap_table_phys[capability_id] = 0;
+    cap_table_vaddr[capability_id] = 0;
+    
+    serial.print("[fastpath] Capability 0x");
+    serial.print_u64(capability_id);
+    serial.print(" brutally unmapped from PID 0x");
+    serial.print_u64(pid);
+    serial.print("\n");
+    
+    return phys;
 }

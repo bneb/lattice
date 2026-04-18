@@ -1,0 +1,824 @@
+package user.browser.css_lexer
+
+import user.browser.css
+
+// ============================================================================
+// Epic 32: The CSSOM Matrix Lexer (The HackerNews Standard)
+// ============================================================================
+// A zero-allocation CSS tokenizer that parses raw stylesheet text into a
+// fixed-size SoA hash table keyed by FNV1a selector hashes.
+// Collisions: hybrid linear probing (same-selector overwrites, different probes).
+// ============================================================================
+
+// FNV-1a Hash Function (native Salt, no FFI needed)
+@no_mangle
+pub fn css_fnv1a(ptr: u64, len: u32) -> u32 {
+    let mut hash: u32 = 2166136261;
+    let mut i: u32 = 0;
+    while i < len {
+        let byte = *((ptr + i as u64) as &u8);
+        hash = hash ^ (byte as u32);
+        hash = hash * 16777619;
+        i = i + 1;
+    }
+    return hash;
+}
+
+// ============================================================================
+// Rule Store — SoA Hash Table (4096 slots, linear probing)
+// ============================================================================
+
+pub const MAX_RULES: u32 = 4096;
+
+pub global RULE_HASH:          [u32; 4096] = [0; 4096];
+pub global RULE_SPECIFICITY:   [u16; 4096] = [0; 4096];
+pub global RULE_SELECTOR_TYPE: [u8; 4096]  = [0; 4096]; // 0=unused, 1=tag, 2=class, 3=id
+pub global RULE_SCOPE:         [u32; 4096] = [0; 4096]; // 0 = global, otherwise index of nearest ShadowRoot
+
+// Per-rule style properties (255 / -1 = unset sentinel)
+pub global RULE_DISPLAY:       [u8; 4096]  = [255; 4096];
+pub global RULE_FLEX_DIR:      [u8; 4096]  = [255; 4096];
+pub global RULE_FLEX_GROW:     [i32; 4096] = [-1; 4096];
+pub global RULE_WIDTH:         [i32; 4096] = [-1; 4096];
+pub global RULE_HEIGHT:        [i32; 4096] = [-1; 4096];
+pub global RULE_BG_R:          [u8; 4096]  = [0; 4096];
+pub global RULE_BG_G:          [u8; 4096]  = [0; 4096];
+pub global RULE_BG_B:          [u8; 4096]  = [0; 4096];
+pub global RULE_BG_SET:        [u8; 4096]  = [0; 4096];
+
+// Epic 54: Positional Matrices
+pub global RULE_POSITION:      [u8;  4096] = [255; 4096]; // 255 = unset
+pub global RULE_TOP:           [i32; 4096] = [-1; 4096];
+pub global RULE_RIGHT:         [i32; 4096] = [-1; 4096];
+pub global RULE_BOTTOM:        [i32; 4096] = [-1; 4096];
+pub global RULE_LEFT:          [i32; 4096] = [-1; 4096];
+pub global RULE_Z_INDEX:       [i32; 4096] = [0;  4096]; // 0 is default, wait, -1 isn't great because z-index can be negative. But let's use -2147483648 for unset.
+pub global RULE_Z_INDEX_SET:   [u8;  4096] = [0;  4096]; // bool since z-index can be any value
+
+
+pub global RULE_COUNT: u32 = 0;
+
+// ============================================================================
+// Hash Table Operations
+// ============================================================================
+
+@no_mangle
+pub fn init_css_lexer_arrays() {
+    let mut i: u32 = 0;
+    while i < 4096 {
+        RULE_DISPLAY[i as usize] = 255;
+        RULE_FLEX_DIR[i as usize] = 255;
+        RULE_FLEX_GROW[i as usize] = -1;
+        RULE_WIDTH[i as usize] = -1;
+        RULE_HEIGHT[i as usize] = -1;
+        RULE_BG_SET[i as usize] = 0;
+        
+        RULE_POSITION[i as usize] = 255;
+        RULE_TOP[i as usize] = -1;
+        RULE_RIGHT[i as usize] = -1;
+        RULE_BOTTOM[i as usize] = -1;
+        RULE_LEFT[i as usize] = -1;
+        RULE_Z_INDEX_SET[i as usize] = 0;
+        
+        i = i + 1;
+    }
+}
+
+// Find existing slot or insert new one (hybrid linear probing)
+fn find_or_insert_slot(hash: u32, scope_id: u32) -> u32 {
+    let mut slot = hash % 4096;
+    let mut probes: u32 = 0;
+    while probes < 4096 {
+        let s = slot as usize;
+        if RULE_HASH[s] == 0 {
+            // Empty slot — claim it
+            RULE_HASH[s] = hash;
+            RULE_COUNT = RULE_COUNT + 1;
+            return slot;
+        }
+        if RULE_HASH[s] == hash && RULE_SCOPE[s] == scope_id {
+            // Same selector — overwrite (CSS last-rule-wins)
+            return slot;
+        }
+        // Different selector collision — linear probe
+        slot = (slot + 1) % 4096;
+        probes = probes + 1;
+    }
+    return 0; // Table full
+}
+
+// Look up an existing slot by hash (for cascade matching)
+@no_mangle
+pub fn css_find_slot(hash: u32, scope_id: u32) -> u32 {
+    let mut slot = hash % 4096;
+    let mut probes: u32 = 0;
+    while probes < 4096 {
+        let s = slot as usize;
+        if RULE_HASH[s] == 0 { return 0xFFFFFFFF; } // Empty = miss
+        if RULE_HASH[s] == hash && RULE_SCOPE[s] == scope_id { return slot; }
+        slot = (slot + 1) % 4096;
+        probes = probes + 1;
+    }
+    return 0xFFFFFFFF;
+}
+
+// ============================================================================
+// Getters (for test harness cross-module access)
+// ============================================================================
+
+@no_mangle
+pub fn css_get_rule_hash(slot: u32) -> u32 {
+    if slot >= 4096 { return 0; }
+    return RULE_HASH[slot as usize];
+}
+
+@no_mangle
+pub fn css_get_rule_display(slot: u32) -> u8 {
+    if slot >= 4096 { return 255; }
+    return RULE_DISPLAY[slot as usize];
+}
+
+@no_mangle
+pub fn css_get_rule_flex_grow(slot: u32) -> i32 {
+    if slot >= 4096 { return -1; }
+    return RULE_FLEX_GROW[slot as usize];
+}
+
+@no_mangle
+pub fn css_get_rule_specificity(slot: u32) -> u16 {
+    if slot >= 4096 { return 0; }
+    return RULE_SPECIFICITY[slot as usize];
+}
+
+@no_mangle
+pub fn css_get_rule_width(slot: u32) -> i32 {
+    if slot >= 4096 { return -1; }
+    return RULE_WIDTH[slot as usize];
+}
+
+@no_mangle
+pub fn css_get_rule_height(slot: u32) -> i32 {
+    if slot >= 4096 { return -1; }
+    return RULE_HEIGHT[slot as usize];
+}
+
+@no_mangle
+pub fn css_get_rule_flex_dir(slot: u32) -> u8 {
+    if slot >= 4096 { return 255; }
+    return RULE_FLEX_DIR[slot as usize];
+}
+
+@no_mangle
+pub fn css_get_rule_position(slot: u32) -> u8 {
+    if slot >= 4096 { return 255; }
+    return RULE_POSITION[slot as usize];
+}
+
+@no_mangle
+pub fn css_get_rule_top(slot: u32) -> i32 {
+    if slot >= 4096 { return -1; }
+    return RULE_TOP[slot as usize];
+}
+
+@no_mangle
+pub fn css_get_rule_right(slot: u32) -> i32 {
+    if slot >= 4096 { return -1; }
+    return RULE_RIGHT[slot as usize];
+}
+
+@no_mangle
+pub fn css_get_rule_bottom(slot: u32) -> i32 {
+    if slot >= 4096 { return -1; }
+    return RULE_BOTTOM[slot as usize];
+}
+
+@no_mangle
+pub fn css_get_rule_left(slot: u32) -> i32 {
+    if slot >= 4096 { return -1; }
+    return RULE_LEFT[slot as usize];
+}
+
+@no_mangle
+pub fn css_get_rule_z_index(slot: u32) -> i32 {
+    if slot >= 4096 { return 0; }
+    return RULE_Z_INDEX[slot as usize];
+}
+
+@no_mangle
+pub fn css_get_rule_z_index_set(slot: u32) -> u8 {
+    if slot >= 4096 { return 0; }
+    return RULE_Z_INDEX_SET[slot as usize];
+}
+
+@no_mangle
+pub fn css_get_rule_bg_r(slot: u32) -> u8 {
+    if slot >= 4096 { return 0; }
+    return RULE_BG_R[slot as usize];
+}
+
+@no_mangle
+pub fn css_get_rule_bg_g(slot: u32) -> u8 {
+    if slot >= 4096 { return 0; }
+    return RULE_BG_G[slot as usize];
+}
+
+@no_mangle
+pub fn css_get_rule_bg_b(slot: u32) -> u8 {
+    if slot >= 4096 { return 0; }
+    return RULE_BG_B[slot as usize];
+}
+
+@no_mangle
+pub fn css_get_rule_bg_set(slot: u32) -> u8 {
+    if slot >= 4096 { return 0; }
+    return RULE_BG_SET[slot as usize];
+}
+
+// ============================================================================
+// CSS Tokenizer State Machine
+// ============================================================================
+// States:
+//   0 = IDLE       — scanning for selector start
+//   1 = SELECTOR   — accumulating selector bytes
+//   2 = BLOCK_WAIT — after selector, waiting for '{'
+//   3 = PROP_NAME  — accumulating property name
+//   4 = PROP_COLON — saw ':', scanning for value start
+//   5 = PROP_VALUE — accumulating property value
+//   6 = COMMENT_S  — saw '/', waiting for '*'
+//   7 = COMMENT    — inside /* ... */
+//   8 = COMMENT_E  — inside comment, saw '*', waiting for '/'
+
+@no_mangle
+pub fn css_lex_stylesheet(ptr: u64, len: u32, scope_node_id: u32) {
+    let mut i: u32 = 0;
+    let mut state: u32 = 0;
+
+    // Selector tracking
+    let mut sel_start: u32 = 0;
+    let mut sel_len: u32 = 0;
+
+    // Current rule slot
+    let mut current_slot: u32 = 0;
+    let mut current_specificity: u16 = 0;
+
+    // Property name tracking
+    let mut prop_start: u32 = 0;
+    let mut prop_len: u32 = 0;
+
+    // Property value tracking
+    let mut val_start: u32 = 0;
+    let mut val_len: u32 = 0;
+
+    while i < len {
+        let b = *((ptr + i as u64) as &u8);
+
+        if state == 0 { // IDLE
+            if b == 47 { // '/' — possible comment
+                state = 6;
+            } else if b != 32 && b != 10 && b != 13 && b != 9 { // non-whitespace
+                sel_start = i;
+                sel_len = 1;
+                state = 1;
+            }
+        } else if state == 1 { // SELECTOR
+            if b == 123 { // '{'
+                // Trim trailing whitespace from selector
+                while sel_len > 0 {
+                    let tail = *((ptr + (sel_start + sel_len - 1) as u64) as &u8);
+                    if tail == 32 || tail == 10 || tail == 13 || tail == 9 {
+                        sel_len = sel_len - 1;
+                    } else {
+                        break;
+                    }
+                }
+                // Process selector
+                if sel_len > 0 {
+                    let first = *((ptr + sel_start as u64) as &u8);
+                    if first == 46 { // '.' class selector
+                        let hash = css_fnv1a(ptr + (sel_start + 1) as u64, sel_len - 1);
+                        current_slot = find_or_insert_slot(hash, scope_node_id);
+                        current_specificity = 10;
+                        RULE_SELECTOR_TYPE[current_slot as usize] = 2;
+                    } else if first == 35 { // '#' id selector
+                        let hash = css_fnv1a(ptr + (sel_start + 1) as u64, sel_len - 1);
+                        current_slot = find_or_insert_slot(hash, scope_node_id);
+                        current_specificity = 100;
+                        RULE_SELECTOR_TYPE[current_slot as usize] = 3;
+                    } else { // tag selector
+                        let hash = css_fnv1a(ptr + sel_start as u64, sel_len);
+                        current_slot = find_or_insert_slot(hash, scope_node_id);
+                        current_specificity = 1;
+                        RULE_SELECTOR_TYPE[current_slot as usize] = 1;
+                    }
+                    RULE_SPECIFICITY[current_slot as usize] = current_specificity;
+                    RULE_SCOPE[current_slot as usize] = scope_node_id;
+                }
+                state = 3; // Jump to PROP_NAME
+                prop_len = 0;
+            } else {
+                sel_len = sel_len + 1;
+            }
+        } else if state == 3 { // PROP_NAME
+            if b == 125 { // '}' — end of rule block
+                state = 0;
+            } else if b == 58 { // ':' — transition to value
+                // Trim prop name
+                while prop_len > 0 {
+                    let tail = *((ptr + (prop_start + prop_len - 1) as u64) as &u8);
+                    if tail == 32 || tail == 9 { prop_len = prop_len - 1; }
+                    else { break; }
+                }
+                state = 4;
+                val_len = 0;
+            } else if b != 32 && b != 10 && b != 13 && b != 9 && b != 59 {
+                if prop_len == 0 { prop_start = i; }
+                prop_len = prop_len + 1;
+            } else if b == 59 {
+                // Semicolon without colon — skip
+                prop_len = 0;
+            }
+        } else if state == 4 { // PROP_COLON — skip leading whitespace before value
+            if b != 32 && b != 9 && b != 10 && b != 13 {
+                val_start = i;
+                val_len = 1;
+                state = 5;
+            }
+        } else if state == 5 { // PROP_VALUE
+            if b == 59 || b == 125 { // ';' or '}'
+                // Trim trailing whitespace from value
+                while val_len > 0 {
+                    let tail = *((ptr + (val_start + val_len - 1) as u64) as &u8);
+                    if tail == 32 || tail == 9 || tail == 13 || tail == 10 {
+                        val_len = val_len - 1;
+                    } else {
+                        break;
+                    }
+                }
+                // Apply property:value to RULE_*[current_slot]
+                if prop_len > 0 && val_len > 0 {
+                    apply_rule_property(current_slot, ptr, prop_start, prop_len, val_start, val_len);
+                }
+                prop_len = 0;
+                val_len = 0;
+                if b == 125 { // '}'
+                    state = 0;
+                } else {
+                    state = 3;
+                }
+            } else {
+                val_len = val_len + 1;
+            }
+        } else if state == 6 { // COMMENT_S — saw '/'
+            if b == 42 { // '*'
+                state = 7;
+            } else {
+                state = 0; // Not a comment, go back
+            }
+        } else if state == 7 { // COMMENT
+            if b == 42 { // '*' — possible end
+                state = 8;
+            }
+        } else if state == 8 { // COMMENT_E — saw '*' in comment
+            if b == 47 { // '/' — end comment
+                state = 0;
+            } else if b != 42 {
+                state = 7; // Back to comment body
+            }
+        }
+
+        i = i + 1;
+    }
+}
+
+// ============================================================================
+// Property:Value Parser — Maps property name + value to RULE_* arrays
+// ============================================================================
+
+fn apply_rule_property(slot: u32, ptr: u64, prop_start: u32, prop_len: u32, val_start: u32, val_len: u32) {
+    let s = slot as usize;
+    let pp = ptr + prop_start as u64;
+    let vp = ptr + val_start as u64;
+
+    // Match property name by first byte + length
+    let p0 = *((pp) as &u8) | 32; // lowercase
+
+    // "display" (7 chars, starts with 'd')
+    if p0 == 100 && prop_len == 7 {
+        let v0 = *((vp) as &u8) | 32;
+        if v0 == 102 && val_len == 4 { // "flex"
+            RULE_DISPLAY[s] = 2;
+        } else if v0 == 98 && val_len == 5 { // "block"
+            RULE_DISPLAY[s] = 1;
+        } else if v0 == 110 && val_len == 4 { // "none"
+            RULE_DISPLAY[s] = 0;
+        } else if v0 == 105 && val_len == 6 { // "inline"
+            RULE_DISPLAY[s] = 3;
+        }
+        return;
+    }
+
+    // "flex-grow" (9 chars, starts with 'f')
+    if p0 == 102 && prop_len == 9 {
+        let p5 = *((pp + 5) as &u8) | 32;
+        if p5 == 103 { // 'g' in "flex-grow"
+            RULE_FLEX_GROW[s] = parse_int(vp, val_len);
+        }
+        return;
+    }
+
+    // "flex-direction" (14 chars, starts with 'f')
+    if p0 == 102 && prop_len == 14 {
+        let v0 = *((vp) as &u8) | 32;
+        if v0 == 114 { // 'r' = "row"
+            RULE_FLEX_DIR[s] = 0;
+        } else if v0 == 99 { // 'c' = "column"
+            RULE_FLEX_DIR[s] = 1;
+        }
+        return;
+    }
+
+    // "width" (5 chars, starts with 'w')
+    if p0 == 119 && prop_len == 5 {
+        RULE_WIDTH[s] = parse_int(vp, val_len);
+        return;
+    }
+
+    // "height" (6 chars, starts with 'h')
+    if p0 == 104 && prop_len == 6 {
+        RULE_HEIGHT[s] = parse_int(vp, val_len);
+        return;
+    }
+    
+    // Epic 54: Positional Geometry parsing
+    
+    // "position" (8 chars, starts with 'p')
+    if p0 == 112 && prop_len == 8 {
+        let v0 = *((vp) as &u8) | 32;
+        if v0 == 115 && val_len == 6 { // 's' + 6 chars: "static" or "sticky"
+            let v4 = *((vp + 4) as &u8) | 32;
+            if v4 == 105 { // 'i' -> "static"
+                RULE_POSITION[s] = 0;
+            } else if v4 == 107 { // 'k' -> "sticky"
+                RULE_POSITION[s] = 4;
+            }
+        } else if v0 == 114 && val_len == 8 { // "relative"
+            RULE_POSITION[s] = 1;
+        } else if v0 == 97 && val_len == 8 { // "absolute"
+            RULE_POSITION[s] = 2;
+        } else if v0 == 102 && val_len == 5 { // "fixed"
+            RULE_POSITION[s] = 3;
+        }
+        return;
+    }
+    
+    // "top" (3 chars, starts with 't')
+    if p0 == 116 && prop_len == 3 {
+        RULE_TOP[s] = parse_int(vp, val_len);
+        return;
+    }
+    // "right" (5 chars, starts with 'r')
+    if p0 == 114 && prop_len == 5 {
+        RULE_RIGHT[s] = parse_int(vp, val_len);
+        return;
+    }
+    // "bottom" (6 chars, starts with 'b' - distinguish from background)
+    if p0 == 98 && prop_len == 6 {
+        RULE_BOTTOM[s] = parse_int(vp, val_len);
+        return;
+    }
+    // "left" (4 chars, starts with 'l')
+    if p0 == 108 && prop_len == 4 {
+        RULE_LEFT[s] = parse_int(vp, val_len);
+        return;
+    }
+    // "z-index" (7 chars, starts with 'z')
+    if p0 == 122 && prop_len == 7 {
+        RULE_Z_INDEX[s] = parse_int(vp, val_len);
+        RULE_Z_INDEX_SET[s] = 1;
+        return;
+    }
+
+
+    // "background-color" or "background" (starts with 'b')
+    if p0 == 98 && prop_len >= 10 {
+        // Parse #RRGGBB hex color
+        if val_len >= 7 {
+            let hash_char = *((vp) as &u8);
+            if hash_char == 35 { // '#'
+                let r = parse_hex_byte(vp + 1);
+                let g = parse_hex_byte(vp + 3);
+                let b = parse_hex_byte(vp + 5);
+                RULE_BG_R[s] = r;
+                RULE_BG_G[s] = g;
+                RULE_BG_B[s] = b;
+                RULE_BG_SET[s] = 1;
+            }
+        }
+        return;
+    }
+}
+
+// Parse a simple unsigned integer from bytes (stops at non-digit or 'p' for px)
+fn parse_int(ptr: u64, len: u32) -> i32 {
+    let mut result: i32 = 0;
+    let mut i: u32 = 0;
+    let mut neg: i32 = 1;
+    if len > 0 {
+        let first = *((ptr) as &u8);
+        if first == 45 { // '-'
+            neg = -1;
+            i = 1;
+        }
+    }
+    while i < len {
+        let c = *((ptr + i as u64) as &u8);
+        if c >= 48 && c <= 57 { // '0'-'9'
+            result = result * 10 + (c - 48) as i32;
+        } else {
+            break; // Stop at 'px', '%', etc.
+        }
+        i = i + 1;
+    }
+    return result * neg;
+}
+
+// Parse a 2-character hex byte (e.g., "FF" -> 255)
+fn parse_hex_byte(ptr: u64) -> u8 {
+    let hi = hex_digit(*((ptr) as &u8));
+    let lo = hex_digit(*((ptr + 1) as &u8));
+    return ((hi << 4) | lo) as u8;
+}
+
+fn hex_digit(c: u8) -> u8 {
+    if c >= 48 && c <= 57 { return c - 48; }        // '0'-'9'
+    if c >= 65 && c <= 70 { return c - 65 + 10; }   // 'A'-'F'
+    if c >= 97 && c <= 102 { return c - 97 + 10; }  // 'a'-'f'
+    return 0;
+}
+
+// ============================================================================
+// Cascade Matcher — The 3-Probe Strike
+// ============================================================================
+// For each DOM node, execute exactly three O(1) probes against RULE_HASH[]:
+//   1. fnv1a(TAG_NAME)   — specificity 1
+//   2. fnv1a(CLASS_NAME) — specificity 10
+//   3. fnv1a(ID_NAME)    — specificity 100
+// Properties overwrite only when incoming specificity >= current.
+// ============================================================================
+
+extern fn dom_get_node_count() -> u64;
+extern fn dom_get_tag(idx: u32) -> u32;
+extern fn dom_get_class_ptr(idx: u32) -> u64;
+extern fn dom_get_class_len(idx: u32) -> u32;
+extern fn dom_get_id_ptr(idx: u32) -> u64;
+extern fn dom_get_id_len(idx: u32) -> u32;
+
+// DOM style write externs
+extern fn dom_set_style_display(idx: u32, val: u8);
+extern fn dom_set_style_flex_dir(idx: u32, val: u8);
+extern fn dom_set_style_flex_grow(idx: u32, val: i32);
+extern fn dom_set_style_width(idx: u32, val: i32);
+extern fn dom_set_style_height(idx: u32, val: i32);
+extern fn dom_set_style_bg(idx: u32, r: u8, g: u8, b: u8);
+// Epic 54 positional externs
+extern fn dom_set_style_position(idx: u32, val: u8);
+extern fn dom_set_style_top(idx: u32, val: i32);
+extern fn dom_set_style_right(idx: u32, val: i32);
+extern fn dom_set_style_bottom(idx: u32, val: i32);
+extern fn dom_set_style_left(idx: u32, val: i32);
+extern fn dom_set_style_z_index(idx: u32, val: i32);
+
+
+// Specificity read/write externs
+extern fn dom_get_spec_display(idx: u32) -> u16;
+extern fn dom_get_spec_flex_dir(idx: u32) -> u16;
+extern fn dom_get_spec_flex_grow(idx: u32) -> u16;
+extern fn dom_get_spec_width(idx: u32) -> u16;
+extern fn dom_get_spec_height(idx: u32) -> u16;
+extern fn dom_get_spec_bg(idx: u32) -> u16;
+extern fn dom_set_spec_display(idx: u32, val: u16);
+extern fn dom_set_spec_flex_dir(idx: u32, val: u16);
+extern fn dom_set_spec_flex_grow(idx: u32, val: u16);
+extern fn dom_set_spec_width(idx: u32, val: u16);
+extern fn dom_set_spec_height(idx: u32, val: u16);
+extern fn dom_set_spec_bg(idx: u32, val: u16);
+// Epic 54 positional spec externs
+extern fn dom_get_spec_position(idx: u32) -> u16;
+extern fn dom_set_spec_position(idx: u32, val: u16);
+extern fn dom_get_spec_top(idx: u32) -> u16;
+extern fn dom_set_spec_top(idx: u32, val: u16);
+extern fn dom_get_spec_right(idx: u32) -> u16;
+extern fn dom_set_spec_right(idx: u32, val: u16);
+extern fn dom_get_spec_bottom(idx: u32) -> u16;
+extern fn dom_set_spec_bottom(idx: u32, val: u16);
+extern fn dom_get_spec_left(idx: u32) -> u16;
+extern fn dom_set_spec_left(idx: u32, val: u16);
+extern fn dom_get_spec_z_index(idx: u32) -> u16;
+extern fn dom_set_spec_z_index(idx: u32, val: u16);
+
+
+// Tag name to hash mapping (precomputed FNV1a for known tags)
+fn tag_to_hash(tag: u32) -> u32 {
+    // Compute FNV1a of the lowercase tag name string
+    if tag == 4 { // "div"
+        return css_fnv1a_literal(100, 105, 118, 0, 0, 0, 3);
+    }
+    if tag == 5 { // "span"
+        return css_fnv1a_literal(115, 112, 97, 110, 0, 0, 4);
+    }
+    if tag == 6 { // "p"
+        return css_fnv1a_literal(112, 0, 0, 0, 0, 0, 1);
+    }
+    if tag == 7 { // "a"
+        return css_fnv1a_literal(97, 0, 0, 0, 0, 0, 1);
+    }
+    if tag == 9 { // "h1"
+        return css_fnv1a_literal(104, 49, 0, 0, 0, 0, 2);
+    }
+    if tag == 3 { // "body"
+        return css_fnv1a_literal(98, 111, 100, 121, 0, 0, 4);
+    }
+    return 0;
+}
+
+// Inline FNV1a for up to 6 literal bytes
+fn css_fnv1a_literal(b0: u8, b1: u8, b2: u8, b3: u8, b4: u8, b5: u8, len: u32) -> u32 {
+    let mut hash: u32 = 2166136261;
+    let bytes: [u8; 6] = [b0, b1, b2, b3, b4, b5];
+    let mut i: u32 = 0;
+    while i < len {
+        hash = hash ^ (bytes[i as usize] as u32);
+        hash = hash * 16777619;
+        i = i + 1;
+    }
+    return hash;
+}
+
+// Walk the entire DOM tree and apply CSS rules
+@no_mangle
+pub fn apply_cascade_to_tree() {
+    // TIER 0: Inline HTML Attributes (e.g., bgcolor) 
+    css.apply_inline_legacy_attributes();
+    
+    let count = dom_get_node_count();
+    let mut i: u32 = 1; // Skip sentinel node 0
+    while (i as u64) < count {
+        let tag = dom_get_tag(i);
+        if tag == 2 {
+            dom_set_style_display(i, 0); // HEAD = display:none
+        }
+        apply_rules_to_node(i);
+        i = i + 1;
+    }
+}
+
+extern fn dom_get_scope_idx(idx: u32) -> u32;
+
+// The 3-Probe Strike for a single node
+@no_mangle
+pub fn apply_rules_to_node(idx: u32) {
+    let tag = dom_get_tag(idx);
+    if tag == 0 { return; } // TEXT node — no CSS
+
+    let scope_id = dom_get_scope_idx(idx);
+
+    // Probe 1: Tag selector (specificity 1)
+    let tag_hash = tag_to_hash(tag);
+    if tag_hash != 0 {
+        let slot = css_find_slot(tag_hash, scope_id);
+        if slot != 0xFFFFFFFF {
+            apply_matching_rule(idx, slot, 1);
+        }
+    }
+
+    // Probe 2: Class selector (specificity 10)
+    let class_ptr = dom_get_class_ptr(idx);
+    let class_len = dom_get_class_len(idx);
+    if class_len > 0 {
+        let mut i: u32 = 0;
+        let mut start: u32 = 0;
+        while i <= class_len {
+            let mut is_delimiter = false;
+            if i == class_len {
+                is_delimiter = true;
+            } else {
+                let b = *((class_ptr + i as u64) as &u8);
+                if b == 32 { is_delimiter = true; } // space
+            }
+            if is_delimiter {
+                if i > start {
+                    let len = i - start;
+                    let class_hash = css_fnv1a(class_ptr + start as u64, len);
+                    let slot = css_find_slot(class_hash, scope_id);
+                    if slot != 0xFFFFFFFF {
+                        apply_matching_rule(idx, slot, 10);
+                    }
+                }
+                start = i + 1;
+            }
+            i = i + 1;
+        }
+    }
+
+    // Probe 3: ID selector (specificity 100)
+    let id_ptr = dom_get_id_ptr(idx);
+    let id_len = dom_get_id_len(idx);
+    if id_len > 0 {
+        let id_hash = css_fnv1a(id_ptr, id_len);
+        let slot = css_find_slot(id_hash, scope_id);
+        if slot != 0xFFFFFFFF {
+            apply_matching_rule(idx, slot, 100);
+        }
+    }
+}
+
+// Apply a matching rule's properties to the node, respecting specificity
+fn apply_matching_rule(idx: u32, slot: u32, specificity: u16) {
+    let s = slot as usize;
+
+    // display
+    if RULE_DISPLAY[s] != 255 {
+        if specificity >= dom_get_spec_display(idx) {
+            dom_set_style_display(idx, RULE_DISPLAY[s]);
+            dom_set_spec_display(idx, specificity);
+        }
+    }
+
+    // flex-direction
+    if RULE_FLEX_DIR[s] != 255 {
+        if specificity >= dom_get_spec_flex_dir(idx) {
+            dom_set_style_flex_dir(idx, RULE_FLEX_DIR[s]);
+            dom_set_spec_flex_dir(idx, specificity);
+        }
+    }
+
+    // flex-grow
+    if RULE_FLEX_GROW[s] != -1 {
+        if specificity >= dom_get_spec_flex_grow(idx) {
+            dom_set_style_flex_grow(idx, RULE_FLEX_GROW[s]);
+            dom_set_spec_flex_grow(idx, specificity);
+        }
+    }
+
+    // width
+    if RULE_WIDTH[s] != -1 {
+        if specificity >= dom_get_spec_width(idx) {
+            dom_set_style_width(idx, RULE_WIDTH[s]);
+            dom_set_spec_width(idx, specificity);
+        }
+    }
+
+    // height
+    if RULE_HEIGHT[s] != -1 {
+        if specificity >= dom_get_spec_height(idx) {
+            dom_set_style_height(idx, RULE_HEIGHT[s]);
+            dom_set_spec_height(idx, specificity);
+        }
+    }
+
+    // background color
+    if RULE_BG_SET[s] == 1 {
+        if specificity >= dom_get_spec_bg(idx) {
+            dom_set_style_bg(idx, RULE_BG_R[s], RULE_BG_G[s], RULE_BG_B[s]);
+            dom_set_spec_bg(idx, specificity);
+        }
+    }
+    
+    // Epic 54: Position properties
+    if RULE_POSITION[s] != 255 {
+        if specificity >= dom_get_spec_position(idx) {
+            dom_set_style_position(idx, RULE_POSITION[s]);
+            dom_set_spec_position(idx, specificity);
+        }
+    }
+    if RULE_TOP[s] != -1 {
+        if specificity >= dom_get_spec_top(idx) {
+            dom_set_style_top(idx, RULE_TOP[s]);
+            dom_set_spec_top(idx, specificity);
+        }
+    }
+    if RULE_RIGHT[s] != -1 {
+        if specificity >= dom_get_spec_right(idx) {
+            dom_set_style_right(idx, RULE_RIGHT[s]);
+            dom_set_spec_right(idx, specificity);
+        }
+    }
+    if RULE_BOTTOM[s] != -1 {
+        if specificity >= dom_get_spec_bottom(idx) {
+            dom_set_style_bottom(idx, RULE_BOTTOM[s]);
+            dom_set_spec_bottom(idx, specificity);
+        }
+    }
+    if RULE_LEFT[s] != -1 {
+        if specificity >= dom_get_spec_left(idx) {
+            dom_set_style_left(idx, RULE_LEFT[s]);
+            dom_set_spec_left(idx, specificity);
+        }
+    }
+    if RULE_Z_INDEX_SET[s] != 0 {
+        if specificity >= dom_get_spec_z_index(idx) {
+            dom_set_style_z_index(idx, RULE_Z_INDEX[s]);
+            dom_set_spec_z_index(idx, specificity);
+        }
+    }
+}

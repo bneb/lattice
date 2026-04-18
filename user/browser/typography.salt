@@ -1,0 +1,74 @@
+package user.browser.typography
+
+extern fn ext_c_shape_and_measure(node_id: u32, text_ptr: u64, text_len: u32) -> f32;
+extern fn sys_atomic_write_u8(ptr: u64, val: u8);
+extern fn sys_sleep_ms(ms: u32);
+extern fn invalidate_layout(node_id: u32);
+
+// Layout Thread pushes strings here; Worker Thread shapes them
+pub global SHAPE_QUEUE_NODE_ID: [u32; 1024] = [0; 1024];
+pub global SHAPE_QUEUE_PTR: [u64; 1024] = [0; 1024];
+pub global SHAPE_QUEUE_LEN: [u32; 1024] = [0; 1024];
+pub global SHAPE_HEAD: u32 = 0;
+pub global SHAPE_TAIL: u32 = 0;
+
+// Worker Thread pushes ShapedGlyph results back here
+pub global SHAPE_RESULT_READY: [u8; 65536] = [0; 65536]; // Indexed by DOM node_id
+pub global SHAPE_RESULT_WIDTH: [f32; 65536] = [0.0; 65536];
+// (Additional SoA arrays for the physical glyph IDs mapped to node_id)
+
+pub fn sys_push_to_shape_queue(node_id: u32, text_ptr: u64, text_len: u32) {
+    let idx = SHAPE_TAIL % 1024;
+    SHAPE_QUEUE_NODE_ID[idx as usize] = node_id;
+    SHAPE_QUEUE_PTR[idx as usize] = text_ptr;
+    SHAPE_QUEUE_LEN[idx as usize] = text_len;
+    SHAPE_TAIL = SHAPE_TAIL + 1;
+}
+
+@no_mangle
+pub fn typography_worker_loop() {
+    while true {
+        if SHAPE_HEAD != SHAPE_TAIL {
+            let idx = SHAPE_HEAD % 1024;
+            let node_id = SHAPE_QUEUE_NODE_ID[idx as usize];
+            let text_ptr = SHAPE_QUEUE_PTR[idx as usize];
+            let text_len = SHAPE_QUEUE_LEN[idx as usize];
+            
+            // FFI call to C
+            let total_width = ext_c_shape_and_measure(node_id, text_ptr, text_len);
+            
+            // Atomically flag the layout solver that this node's dimensions are ready
+            SHAPE_RESULT_WIDTH[node_id as usize] = total_width;
+            
+            let ready_ptr: u64 = (&SHAPE_RESULT_READY as u64) + (node_id as u64);
+            sys_atomic_write_u8(ready_ptr, 1);
+            
+            invalidate_layout(node_id);
+            
+            SHAPE_HEAD = SHAPE_HEAD + 1;
+        } else {
+            sys_sleep_ms(1); // Yield OS thread if queue is empty
+        }
+    }
+}
+
+@no_mangle
+pub fn sys_typography_pump_results() {
+    while SHAPE_HEAD != SHAPE_TAIL {
+        let idx = SHAPE_HEAD % 1024;
+        let node_id = SHAPE_QUEUE_NODE_ID[idx as usize];
+        let text_ptr = SHAPE_QUEUE_PTR[idx as usize];
+        let text_len = SHAPE_QUEUE_LEN[idx as usize];
+        
+        let total_width = ext_c_shape_and_measure(node_id, text_ptr, text_len);
+        
+        SHAPE_RESULT_WIDTH[node_id as usize] = total_width;
+        
+        let ready_ptr: u64 = (&SHAPE_RESULT_READY as u64) + (node_id as u64);
+        sys_atomic_write_u8(ready_ptr, 1);
+        
+        invalidate_layout(node_id);
+        
+        SHAPE_HEAD = SHAPE_HEAD + 1;
+    }
+}

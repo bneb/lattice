@@ -84,7 +84,6 @@ pub struct PacketInfo {
 // Returns:
 //   PacketInfo with extracted fields and payload pointer offset
 // ============================================================================
-@no_mangle
 pub fn parse_headers(frame_base: u64, frame_len: u32) -> PacketInfo {
     // 1. Bounds check: frame must contain at minimum Eth + IPv4 + TCP headers
     if frame_len < MIN_TOTAL_HEADER {
@@ -192,7 +191,6 @@ pub fn parse_headers(frame_base: u64, frame_len: u32) -> PacketInfo {
 // This function NEVER allocates memory. It NEVER copies packet data.
 // The application receives a raw pointer into the NIC's DMA buffer.
 // ============================================================================
-@no_mangle
 pub fn process_frame(frame_base: u64, frame_len: u32, streams: u64, tcbs: u64) {
     // 1. Parse headers in-place
     let info = parse_headers(frame_base, frame_len);

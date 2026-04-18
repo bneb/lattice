@@ -1,0 +1,173 @@
+package user.browser.storage
+
+extern fn sys_mmap_file(filename_ptr: u64, size: u32) -> u64;
+
+pub global DB_MAP_PTR: u64 = 0;
+pub global DB_CURRENT_OFFSET: u32 = 0;
+pub global DB_MAX_SIZE: u32 = 104857600; // 100MB limit
+
+// 0 = EMPTY, 1 = PENDING_READ, 2 = PENDING_WRITE, 3 = DONE
+pub global IDB_QUEUE_STATE: [u8; 256] = [0; 256];
+pub global IDB_PROMISE_ID: [u32; 256] = [0; 256];
+pub global IDB_KEY_PTR: [u64; 256] = [0; 256];
+pub global IDB_KEY_LEN: [u32; 256] = [0; 256];
+pub global IDB_VAL_PTR: [u64; 256] = [0; 256];
+pub global IDB_VAL_LEN: [u32; 256] = [0; 256];
+pub global IDB_RESULT_PTR: [u64; 256] = [0; 256];
+pub global IDB_RESULT_LEN: [u32; 256] = [0; 256];
+
+@no_mangle
+pub fn ext_storage_init(filename_ptr: u64) -> i32 {
+    DB_MAP_PTR = sys_mmap_file(filename_ptr, DB_MAX_SIZE);
+    if DB_MAP_PTR == 0 { return -1; }
+    
+    // Scan append-only log to rebuild RAM index...
+    // Format: [key_len: u32][key bytes][val_len: u32][val bytes]
+    let mut offset: u32 = 0;
+    while offset < DB_MAX_SIZE {
+        let key_len = *((DB_MAP_PTR + (offset as u64)) as &u32);
+        if key_len == 0 { break; } // End of valid data
+        
+        offset = offset + 4 + key_len;
+        let val_len = *((DB_MAP_PTR + (offset as u64)) as &u32);
+        offset = offset + 4 + val_len;
+    }
+    
+    DB_CURRENT_OFFSET = offset;
+    return 0;
+}
+
+@no_mangle
+pub fn ext_storage_queue_put(promise_id: u32, key_ptr: u64, key_len: u32, val_ptr: u64, val_len: u32) -> i32 {
+    let mut i = 0;
+    while i < 256 {
+        if IDB_QUEUE_STATE[i] == 0 {
+            IDB_PROMISE_ID[i] = promise_id;
+            IDB_KEY_PTR[i] = key_ptr;
+            IDB_KEY_LEN[i] = key_len;
+            IDB_VAL_PTR[i] = val_ptr;
+            IDB_VAL_LEN[i] = val_len;
+            IDB_QUEUE_STATE[i] = 2; // PENDING_WRITE
+            return i as i32;
+        }
+        i = i + 1;
+    }
+    return -1; // Queue Full
+}
+
+@no_mangle
+pub fn ext_storage_queue_get(promise_id: u32, key_ptr: u64, key_len: u32) -> i32 {
+    let mut i = 0;
+    while i < 256 {
+        if IDB_QUEUE_STATE[i] == 0 {
+            IDB_PROMISE_ID[i] = promise_id;
+            IDB_KEY_PTR[i] = key_ptr;
+            IDB_KEY_LEN[i] = key_len;
+            IDB_QUEUE_STATE[i] = 1; // PENDING_READ
+            return i as i32;
+        }
+        i = i + 1;
+    }
+    return -1; // Queue Full
+}
+
+// Memory comparison native
+fn memcmp_native(ptr1: u64, ptr2: u64, len: u32) -> u8 {
+    let mut i: u32 = 0;
+    while i < len {
+        let b1 = *((ptr1 + (i as u64)) as &u8);
+        let b2 = *((ptr2 + (i as u64)) as &u8);
+        if b1 != b2 { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn memcpy_native(dst: u64, src: u64, len: u32) {
+    let mut i: u32 = 0;
+    while i < len {
+        let b = *((src + (i as u64)) as &u8);
+        *((dst + (i as u64)) as &mut u8) = b;
+        i = i + 1;
+    }
+}
+
+extern fn js_bridge_resolve_idb_promise(promise_id: u32, val_ptr: u64, val_len: u32);
+
+@no_mangle
+pub fn pump_storage_queue() {
+    if DB_MAP_PTR == 0 { return; }
+    
+    let mut i = 0;
+    while i < 256 {
+        let state = IDB_QUEUE_STATE[i];
+        if state == 1 { // PENDING_READ
+            // Scan log backwards (simplification: scan forwards and keep the latest)
+            let mut offset: u32 = 0;
+            let mut found_val_ptr: u64 = 0;
+            let mut found_val_len: u32 = 0;
+            let target_key_ptr = IDB_KEY_PTR[i];
+            let target_key_len = IDB_KEY_LEN[i];
+            
+            while offset < DB_CURRENT_OFFSET {
+                let key_len = *((DB_MAP_PTR + (offset as u64)) as &u32);
+                if key_len == 0 { break; }
+                
+                let key_ptr = DB_MAP_PTR + (offset as u64) + 4;
+                offset = offset + 4 + key_len;
+                let val_len = *((DB_MAP_PTR + (offset as u64)) as &u32);
+                let val_ptr = DB_MAP_PTR + (offset as u64) + 4;
+                
+                if key_len == target_key_len {
+                    if memcmp_native(key_ptr, target_key_ptr, key_len) == 1 {
+                        found_val_ptr = val_ptr;
+                        found_val_len = val_len;
+                    }
+                }
+                
+                offset = offset + 4 + val_len;
+            }
+            
+            IDB_RESULT_PTR[i] = found_val_ptr;
+            IDB_RESULT_LEN[i] = found_val_len;
+            IDB_QUEUE_STATE[i] = 3; // DONE
+            
+            // FFI resolve
+            js_bridge_resolve_idb_promise(IDB_PROMISE_ID[i], IDB_RESULT_PTR[i], IDB_RESULT_LEN[i]);
+            IDB_QUEUE_STATE[i] = 0; // Release slot
+            
+        } else if state == 2 { // PENDING_WRITE
+            let key_len = IDB_KEY_LEN[i];
+            let val_len = IDB_VAL_LEN[i];
+            let req_size = 4 + key_len + 4 + val_len;
+            
+            if DB_CURRENT_OFFSET + req_size < DB_MAX_SIZE {
+                let mut p = DB_MAP_PTR + (DB_CURRENT_OFFSET as u64);
+                
+                // Write Key Len
+                *(p as &mut u32) = key_len;
+                p = p + 4;
+                
+                // Write Key Bytes
+                memcpy_native(p, IDB_KEY_PTR[i], key_len);
+                p = p + (key_len as u64);
+                
+                // Write Val Len
+                *(p as &mut u32) = val_len;
+                p = p + 4;
+                
+                // Write Val Bytes
+                memcpy_native(p, IDB_VAL_PTR[i], val_len);
+                
+                DB_CURRENT_OFFSET = DB_CURRENT_OFFSET + req_size;
+            }
+            
+            IDB_QUEUE_STATE[i] = 3; // DONE
+            // FFI resolve
+            js_bridge_resolve_idb_promise(IDB_PROMISE_ID[i], 0, 0); // null means success for write
+            IDB_QUEUE_STATE[i] = 0;
+            
+        }
+        i = i + 1;
+    }
+}

@@ -1,0 +1,167 @@
+package user.browser.observers
+
+
+// Max 1024 active observed nodes to maintain strict memory bounds
+pub global OBSERVED_NODE_IDS: [u32; 1024] = [0; 1024];
+pub global OBSERVED_CALLBACK_PTRS: [u64; 1024] = [0; 1024]; // JSC JSObjectRef (Function)
+pub global OBSERVER_TYPES: [u8; 1024] = [0; 1024]; // 1: Mutation, 2: Resize, 3: Intersection
+
+// Pending frame queues (flushed every 16ms)
+pub global PENDING_RESIZE_NODES: [u32; 256] = [0; 256];
+pub global PENDING_RESIZE_COUNT: u32 = 0;
+
+pub global PENDING_MUTATION_NODES: [u32; 256] = [0; 256];
+pub global PENDING_MUTATION_TYPES: [u8; 256] = [0; 256]; // 1: addition, 2: removal, 3: text
+pub global PENDING_MUTATION_COUNT: u32 = 0;
+
+pub global PENDING_INTERSECTION_NODES: [u32; 256] = [0; 256];
+pub global PENDING_INTERSECTION_RATIOS: [f32; 256] = [0.0; 256];
+pub global PENDING_INTERSECTION_COUNT: u32 = 0;
+
+@no_mangle
+pub fn ext_observers_register(node_id: u32, callback_ptr: u64, obs_type: u8) -> u8 {
+    let mut i = 0;
+    let mut free_slot: i32 = -1;
+    
+    // First, check if already registered
+    while i < 1024 {
+        if OBSERVED_NODE_IDS[i] == node_id && OBSERVER_TYPES[i] == obs_type {
+            return 0; // Already registered
+        }
+        if free_slot == -1 && OBSERVED_NODE_IDS[i] == 0 {
+            free_slot = i as i32;
+        }
+        i = i + 1;
+    }
+    
+    if free_slot != -1 {
+        OBSERVED_NODE_IDS[free_slot as usize] = node_id;
+        OBSERVED_CALLBACK_PTRS[free_slot as usize] = callback_ptr;
+        OBSERVER_TYPES[free_slot as usize] = obs_type;
+        return 1;
+    }
+    
+    return 0; // Registry full
+}
+
+@no_mangle
+pub fn ext_observers_get_and_clear_callbacks(node_id: u32, out_buf_ptr: u64) -> u32 {
+    let mut count: u32 = 0;
+    let mut i = 0;
+    while i < 1024 {
+        if OBSERVED_NODE_IDS[i] == node_id {
+            let cb = OBSERVED_CALLBACK_PTRS[i];
+            if cb != 0 {
+                // Write to out buffer
+                *((out_buf_ptr + ((count as u64) * 8)) as &mut u64) = cb;
+                count = count + 1;
+            }
+            // Clear the slot (fixes Use-After-Free Aliasing)
+            OBSERVED_NODE_IDS[i] = 0;
+            OBSERVED_CALLBACK_PTRS[i] = 0;
+            OBSERVER_TYPES[i] = 0;
+        }
+        i = i + 1;
+    }
+    return count;
+}
+
+@no_mangle
+pub fn ext_observers_unregister(node_id: u32, callback_ptr: u64, obs_type: u8) {
+    let mut i = 0;
+    while i < 1024 {
+        if OBSERVED_NODE_IDS[i] == node_id && OBSERVED_CALLBACK_PTRS[i] == callback_ptr && OBSERVER_TYPES[i] == obs_type {
+            OBSERVED_NODE_IDS[i] = 0;
+            OBSERVED_CALLBACK_PTRS[i] = 0;
+            OBSERVER_TYPES[i] = 0;
+            return;
+        }
+        i = i + 1;
+    }
+}
+
+pub fn sys_is_node_observed_for(node_id: u32, obs_type: u8) -> bool {
+    let mut i = 0;
+    while i < 1024 {
+        if OBSERVED_NODE_IDS[i] == node_id && OBSERVER_TYPES[i] == obs_type {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+@no_mangle
+pub fn sys_get_callback_for_node(node_id: u32, obs_type: u8) -> u64 {
+    let mut i = 0;
+    while i < 1024 {
+        if OBSERVED_NODE_IDS[i] == node_id && OBSERVER_TYPES[i] == obs_type {
+            return OBSERVED_CALLBACK_PTRS[i];
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+pub global DEBUG_RESIZE_QUEUED_COUNT: u32 = 0;
+
+pub fn sys_get_debug_resize_queued_count() -> u32 {
+    return DEBUG_RESIZE_QUEUED_COUNT;
+}
+
+pub fn sys_get_pending_resize_count() -> u32 {
+    return PENDING_RESIZE_COUNT;
+}
+
+pub fn sys_queue_resize_record(node_id: u32) {
+    DEBUG_RESIZE_QUEUED_COUNT = DEBUG_RESIZE_QUEUED_COUNT + 1;
+    // Coalesce: Check if already in queue
+    let mut i = 0;
+    while i < PENDING_RESIZE_COUNT {
+        if PENDING_RESIZE_NODES[i as usize] == node_id { return; }
+        i = i + 1;
+    }
+    
+    if PENDING_RESIZE_COUNT < 256 {
+        PENDING_RESIZE_NODES[PENDING_RESIZE_COUNT as usize] = node_id;
+        PENDING_RESIZE_COUNT = PENDING_RESIZE_COUNT + 1;
+    }
+}
+
+pub fn sys_queue_mutation_record(node_id: u32, mut_type: u8) {
+    // Mutations might need to be ordered, but for the same node/type we might coalesce?
+    // W3C says MutationRecords are queued. Coalescing might be tricky if they are different types.
+    // Let's at least coalesce same node + same type in the same frame if possible, 
+    // though usually mutations are distinct events.
+    
+    if PENDING_MUTATION_COUNT < 256 {
+        PENDING_MUTATION_NODES[PENDING_MUTATION_COUNT as usize] = node_id;
+        PENDING_MUTATION_TYPES[PENDING_MUTATION_COUNT as usize] = mut_type;
+        PENDING_MUTATION_COUNT = PENDING_MUTATION_COUNT + 1;
+    }
+}
+
+pub fn sys_queue_intersection_record(node_id: u32, ratio: f32) {
+    // Coalesce: Only the latest ratio for this frame
+    let mut i = 0;
+    while i < PENDING_INTERSECTION_COUNT {
+        if PENDING_INTERSECTION_NODES[i as usize] == node_id {
+            PENDING_INTERSECTION_RATIOS[i as usize] = ratio;
+            return;
+        }
+        i = i + 1;
+    }
+
+    if PENDING_INTERSECTION_COUNT < 256 {
+        PENDING_INTERSECTION_NODES[PENDING_INTERSECTION_COUNT as usize] = node_id;
+        PENDING_INTERSECTION_RATIOS[PENDING_INTERSECTION_COUNT as usize] = ratio;
+        PENDING_INTERSECTION_COUNT = PENDING_INTERSECTION_COUNT + 1;
+    }
+}
+
+@no_mangle
+pub fn sys_observers_clear_queues() {
+    PENDING_RESIZE_COUNT = 0;
+    PENDING_MUTATION_COUNT = 0;
+    PENDING_INTERSECTION_COUNT = 0;
+}

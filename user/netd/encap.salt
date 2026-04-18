@@ -22,6 +22,10 @@
 
 package user.netd.encap
 
+extern fn sys_cap_bind(flags: u64) -> u64;
+extern fn sys_ring_map(cap_id: u64) -> u64;
+extern fn fastpath_handoff_syscall(cap_id: u64, payload_offset: u32, payload_len: u32);
+
 // ============================================================================
 // Header Size Constants
 // ============================================================================
@@ -71,7 +75,6 @@ pub const ETHERTYPE_IPV4_LO: u8 = 0x00;
 // Returns:
 //   Base pointer to the complete Ethernet frame (payload_ptr - 54)
 // ============================================================================
-@no_mangle
 pub fn encapsulate_tcp_frame(
     payload_ptr: u64,
     payload_len: u32,
@@ -198,4 +201,45 @@ pub fn encapsulate_tcp_frame(
 
     // Return the Ethernet frame start — ready for DMA
     return eth_start;
+}
+
+pub fn execute_fastpath_test() {
+    // 1. Allocate natively via capability bound architecture (no malloc/free)
+    let cap_id = sys_cap_bind(1); 
+    if cap_id == 0 { return; }
+    
+    let ring_virt = sys_ring_map(cap_id);
+    if ring_virt == 0 { return; }
+    
+    // 2. We have a 4KB chunk. We leave 54 bytes of headroom and write data.
+    let payload_len = 120;
+    let headroom = 54;
+    let payload_ptr = ring_virt + (headroom as u64);
+    
+    let mut i: u32 = 0;
+    while i < payload_len {
+        *((payload_ptr + (i as u64)) as &mut u8) = 0xAA;
+        i = i + 1;
+    }
+    
+    let src_mac: [u8; 6] = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66];
+    let dst_mac: [u8; 6] = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF];
+    
+    // 3. Inject standard 802.3 Header algorithmically BACKWARDS into the headroom! No struct copy!
+    let eth_start = encapsulate_tcp_frame(
+        payload_ptr, payload_len,
+        80, 443, 1000, 2000, 
+        0x0A000001, 0x0A000002, 
+        (&src_mac) as u64, (&dst_mac) as u64
+    );
+    
+    let payload_offset = (eth_start - ring_virt) as u32;
+    let total_frame_len = 54 + payload_len;
+    
+    // 4. Trigger Ring 3 -> Ring 0 Hardware Transfer without Memcpy!
+    // EXPLOT VERIFICATION (Red Team Pass): Intentional Malicious Overflow Geometry
+    fastpath_handoff_syscall(cap_id, 5000, total_frame_len);
+    
+    // CAPABILITY IS DESTROYED OVER THE IPC BOUNDARY
+    // Accessing ring_virt exactly here would induce an unrecoverable SEGFAULT natively.
 }

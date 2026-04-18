@@ -1,0 +1,83 @@
+package user.browser.ipc_shared
+
+// Ring Buffer for Main -> Renderer (Inputs, Navigations)
+// Strict POSIX shared memory boundary mappings
+
+pub global IPC_MAIN_TO_RENDER_BUFFER: [u8; 65536] = [0; 65536];
+pub global IPC_M2R_HEAD: u32 = 0; // Atomic
+pub global IPC_M2R_TAIL: u32 = 0; // Atomic
+
+// Ring Buffer for Renderer -> Main (IOSurface IDs, Titles, Crash states)
+pub global IPC_RENDER_TO_MAIN_BUFFER: [u8; 65536] = [0; 65536];
+pub global IPC_R2M_HEAD: u32 = 0; // Atomic
+pub global IPC_R2M_TAIL: u32 = 0; // Atomic
+
+// Epic 76: Service Worker IPC Command IDs
+pub const CMD_WORKER_REGISTERED:  u32 = 7;
+pub const CMD_FETCH_INTERCEPT:   u32 = 8;
+pub const CMD_FETCH_RESPONSE:    u32 = 9;
+
+// Epic 75: EME & CDM Sandbox IPC Command IDs
+pub const CMD_CDM_REGISTERED:     u32 = 10;
+pub const CMD_CDM_INIT:           u32 = 11;
+pub const CMD_CDM_LICENSE_REQUEST:u32 = 12;
+pub const CMD_CDM_LICENSE_UPDATE: u32 = 13;
+pub const CMD_CDM_DECRYPT:        u32 = 14;
+
+@no_mangle
+pub extern fn ext_ipc_init_shared_memory(fd: i32) -> i32;
+
+@no_mangle
+pub extern fn sys_ipc_read_m2r_command() -> u64; // Pointer to SaltIPCCommand equivalent
+
+// Epic 69: Payload-capable R2M send for iframe src URLs and postMessage data
+@no_mangle
+pub extern fn ext_ipc_send_r2m_command_with_payload(cmd_type: u32, arg1: u64, payload_ptr: u64, payload_len: u32);
+
+@no_mangle
+pub fn sys_ipc_init_shared_memory(fd: i32) -> i32 {
+    return ext_ipc_init_shared_memory(fd);
+}
+
+// Memory mapping matches the SaltIPCCommand struct in ipc_bridge.c
+// type (4 bytes), arg1 (8 bytes), arg2 (4 bytes), payload_ptr (8 bytes), payload_len (4 bytes)
+// Total 28 bytes but aligned is 32 bytes
+
+// Define a struct/getter system in Salt since it doesn't have native C structs mapped perfectly
+@no_mangle
+pub fn read_ipc_command_type(ptr: u64) -> u32 {
+    if ptr == 0 { return 0; }
+    return *(ptr as &u32);
+}
+
+@no_mangle
+pub fn read_ipc_command_arg1(ptr: u64) -> u64 {
+    if ptr == 0 { return 0; }
+    return *((ptr + 8) as &u64);
+}
+
+@no_mangle
+pub fn read_ipc_command_arg2(ptr: u64) -> u32 {
+    if ptr == 0 { return 0; }
+    return *((ptr + 16) as &u32);
+}
+
+@no_mangle
+pub fn read_ipc_command_payload_ptr(ptr: u64) -> u64 {
+    if ptr == 0 { return 0; }
+    return *((ptr + 24) as &u64);
+}
+
+@no_mangle
+pub fn read_ipc_command_payload_len(ptr: u64) -> u32 {
+    if ptr == 0 { return 0; }
+    return *((ptr + 32) as &u32);
+}
+
+// Epic 99: Bulk Shared Memory Ingress (2MB Arena)
+@no_mangle
+extern fn ext_ipc_get_bulk_ingress_ptr() -> u64;
+
+pub fn sys_ipc_get_bulk_ingress_ptr() -> u64 {
+    return ext_ipc_get_bulk_ingress_ptr();
+}

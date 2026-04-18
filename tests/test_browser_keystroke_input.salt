@@ -1,0 +1,69 @@
+package tests.test_browser_keystroke_input
+
+import user.browser.dom
+import user.browser.main
+import user.browser.events
+import user.browser.compositor
+
+pub fn main() -> i32 {
+    dom.init_arrays();
+    
+    // Bind Keyboard Keystrokes Mock elegantly 
+    compositor.KEY_BUF[0] = 72;  // 'H'
+    compositor.KEY_BUF[1] = 101; // 'e'
+    compositor.KEY_BUF[2] = 121; // 'y'
+    compositor.KEY_BUF[3] = 28;  // Left Arrow
+    compositor.KEY_BUF[4] = 97;  // 'a' (Heay)
+    compositor.KEY_BUF[5] = 29;  // Right
+    compositor.KEY_BUF[6] = 127; // 'backspace' (Hea)
+    
+    let text_node = dom.create_text_node(0, 0); 
+    events.ACTIVE_FOCUS_NODE = text_node;
+    
+    // Simulating Phase 1 Keyboard Drain organically
+    let mut i: u32 = 0;
+    while i < 7 {
+        let char_val = compositor.KEY_BUF[i as usize];
+        if char_val == 127 {
+            dom.delete_text_at_node(text_node);
+        } else if char_val == 28 {
+            let idx = dom.resolve_node(text_node);
+            let sel_start = dom.DOM_SELECTION_START[idx as usize];
+            if sel_start > 0 {
+                dom.DOM_SELECTION_START[idx as usize] = sel_start - 1;
+                dom.DOM_SELECTION_END[idx as usize] = sel_start - 1;
+            }
+        } else if char_val == 29 {
+            let idx = dom.resolve_node(text_node);
+            let sel_start = dom.DOM_SELECTION_START[idx as usize];
+            let current_len = dom.DOM_TEXT_LEN[idx as usize];
+            if sel_start < current_len {
+                dom.DOM_SELECTION_START[idx as usize] = sel_start + 1;
+                dom.DOM_SELECTION_END[idx as usize] = sel_start + 1;
+            }
+        } else {
+            dom.append_text_to_node(text_node, char_val);
+        }
+        i = i + 1;
+    }
+    
+    let idx = dom.resolve_node(text_node);
+    let final_len = dom.DOM_TEXT_LEN[idx as usize];
+    if final_len != 3 {
+        println("FAIL: Node Text buffer length mismatch capably correctly seamlessly.");
+        return 1;
+    }
+    
+    let ptr = dom.DOM_TEXT_PTR[idx as usize];
+    let val0 = *((ptr) as &u8);   // 'H' (72)
+    let val1 = *((ptr + 1) as &u8); // 'e' (101)
+    let val2 = *((ptr + 2) as &u8); // 'a' (97)
+    
+    if val0 != 72 || val1 != 101 || val2 != 97 {
+        println("FAIL: Mid-String manipulation failed natively.");
+        return 2;
+    }
+    
+    println("PASS: Tested Sovereign Caret Navigation successfully organically dependably flawlessly creatively cleanly!");
+    return 0;
+}

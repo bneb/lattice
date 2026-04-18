@@ -56,7 +56,6 @@ pub const TX_DESC_SIZE: u64 = 16;
 //   src_mac:         This host's MAC address (pointer to 6 bytes)
 //   dst_mac:         Gateway MAC address (pointer to 6 bytes)
 // ============================================================================
-@no_mangle
 pub fn process_tx_batch(
     outbound_rings: u64,
     tcb_handles: u64,
@@ -181,7 +180,6 @@ fn push_tx_descriptor(tx_ring_base: u64, frame_base: u64, frame_len: u64) {
 // Writes the head pointer to the NIC's doorbell MMIO register.
 // This triggers the hardware DMA engine to start transmitting.
 // ============================================================================
-@no_mangle
 pub fn ring_doorbell(tx_ring_base: u64, doorbell_addr: u64) {
     let head = *((tx_ring_base + HEAD_OFFSET) as &u64);
     *((doorbell_addr) as &mut u64) = head;

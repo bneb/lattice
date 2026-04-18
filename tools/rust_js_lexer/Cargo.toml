@@ -1,0 +1,10 @@
+[package]
+name = "rust_js_lexer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ratel = "0.1"
+
+[profile.release]
+opt-level = 2

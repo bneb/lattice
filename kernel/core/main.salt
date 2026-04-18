@@ -144,6 +144,7 @@ extern fn ps2_kbd_irq_handler();
 extern fn ps2_set_rx_ring(ptr: u64);
 
 extern fn terminal_main(w: u64, h: u64, pitch: u64);
+extern fn netd_main(arg1: u64, arg2: u64, arg3: u64);
 
 global KERNEL_TX_RING_VIRT: u64 = 0;
 global KERNEL_LINE_BUFFER: [u8; 64] = [0; 64];
@@ -418,6 +419,14 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     let slot_tx = exec_spawn_kernel_thread(tx_poll_entry, kernel_pml4);
     process_set_state(slot_tx, PROC_READY);
     serial.print("[KeuOS] TX_RING Supervisor C2 Thread spawned\n");
+
+    let slot_netd = exec_spawn_ring3_coroutine(
+            (&netd_main) as u64,
+            0, 0, 0,
+            kernel_pml4
+        );
+    process_set_state(slot_netd, PROC_READY);
+    serial.print("[KeuOS] NetD Ring 3 SIP spawned (Fastpath Handoff Target)\n");
 
     // =========================================================================
     // SPAWN MOE PIPELINE

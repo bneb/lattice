@@ -1,0 +1,139 @@
+package user.browser.animations
+
+import user.browser.paint
+
+pub global ANIM_ACTIVE: [u8; 4096] = [0; 4096];
+pub global ANIM_NODE_ID: [u32; 4096] = [0; 4096];
+pub global ANIM_START_TIME: [f64; 4096] = [0.0; 4096];
+pub global ANIM_DURATION: [f64; 4096] = [0.0; 4096];
+pub global ANIM_START_TX: [f32; 4096] = [0.0; 4096];
+pub global ANIM_END_TX: [f32; 4096] = [0.0; 4096];
+pub global ANIM_START_OP: [f32; 4096] = [1.0; 4096];
+pub global ANIM_END_OP: [f32; 4096] = [1.0; 4096];
+
+// The output matrices read exclusively by the GPU shader (actually used by compositor.salt packing)
+pub global COMPOSITOR_TRANSFORM_X: [f32; 65536] = [0.0; 65536]; 
+pub global COMPOSITOR_OPACITY: [f32; 65536] = [1.0; 65536];
+
+// Pending queue for cross-thread handoff (JS Thread -> Compositor Thread)
+pub global PENDING_NODE_ID: [u32; 256] = [0; 256];
+pub global PENDING_START_TX: [f32; 256] = [0.0; 256];
+pub global PENDING_END_TX: [f32; 256] = [0.0; 256];
+pub global PENDING_START_OP: [f32; 256] = [1.0; 256];
+pub global PENDING_END_OP: [f32; 256] = [1.0; 256];
+pub global PENDING_DURATION: [f64; 256] = [0.0; 256];
+pub global PENDING_COUNT: u32 = 0;
+
+@no_mangle
+pub fn ext_anim_queue_push(node_id: u32, start_tx: f32, end_tx: f32, start_op: f32, end_op: f32, duration_ms: f64) {
+    let mut idx = PENDING_COUNT;
+    if idx < 256 {
+        PENDING_NODE_ID[idx as usize] = node_id;
+        PENDING_START_TX[idx as usize] = start_tx;
+        PENDING_END_TX[idx as usize] = end_tx;
+        PENDING_START_OP[idx as usize] = start_op;
+        PENDING_END_OP[idx as usize] = end_op;
+        PENDING_DURATION[idx as usize] = duration_ms;
+        PENDING_COUNT = idx + 1;
+    }
+}
+
+@no_mangle
+pub fn ext_anim_drain_queue(current_time_ms: f64) {
+    let count = PENDING_COUNT;
+    if count == 0 { return; }
+    
+    let mut i: u32 = 0;
+    while i < count {
+        // Find free slot in active registry
+        let mut j: u32 = 0;
+        let mut found = 0xFFFFFFFF;
+        while j < 4096 {
+            if ANIM_ACTIVE[j as usize] == 0 {
+                found = j;
+                break;
+            }
+            j = j + 1;
+        }
+        
+        if found != 0xFFFFFFFF {
+            ANIM_ACTIVE[found as usize] = 1;
+            ANIM_NODE_ID[found as usize] = PENDING_NODE_ID[i as usize];
+            ANIM_START_TIME[found as usize] = current_time_ms;
+            ANIM_DURATION[found as usize] = PENDING_DURATION[i as usize];
+            ANIM_START_TX[found as usize] = PENDING_START_TX[i as usize];
+            ANIM_END_TX[found as usize] = PENDING_END_TX[i as usize];
+            ANIM_START_OP[found as usize] = PENDING_START_OP[i as usize];
+            ANIM_END_OP[found as usize] = PENDING_END_OP[i as usize];
+        }
+        i = i + 1;
+    }
+    PENDING_COUNT = 0;
+}
+
+pub fn sys_anim_solve_cubic_bezier(t: f32, x1: f32, y1: f32, x2: f32, y2: f32) -> f32 {
+    if t <= 0.0 { return 0.0; }
+    if t >= 1.0 { return 1.0; }
+    
+    // Newton-Raphson approximation
+    let mut t_curr = t;
+    let mut i = 0;
+    while i < 8 {
+        // x(t) = 3*t*(1-t)^2*x1 + 3*t^2*(1-t)*x2 + t^3
+        let t2 = t_curr * t_curr;
+        let t3 = t2 * t_curr;
+        let mt = 1.0 - t_curr;
+        let mt2 = mt * mt;
+        
+        let x = (3.0 * t_curr * mt2 * x1) + (3.0 * t2 * mt * x2) + t3;
+        
+        // dx/dt = 3*(1-t)^2*x1 - 6*t*(1-t)*x1 + 6*t*(1-t)*x2 - 3*t^2*x2 + 3*t^2
+        let dx = (3.0 * mt2 * x1) - (6.0 * t_curr * mt * x1) + (6.0 * t_curr * mt * x2) - (3.0 * t2 * x2) + (3.0 * t2);
+        
+        if dx < 0.0001 && dx > -0.0001 { break; }
+        t_curr = t_curr - ((x - t) / dx);
+        if t_curr < 0.0 { t_curr = 0.0; }
+        if t_curr > 1.0 { t_curr = 1.0; }
+        i = i + 1;
+    }
+    
+    // y(t') = 3*t'*(1-t')^2*y1 + 3*t'^2*(1-t')*y2 + t'^3
+    let t2 = t_curr * t_curr;
+    let t3 = t2 * t_curr;
+    let mt = 1.0 - t_curr;
+    let mt2 = mt * mt;
+    return (3.0 * t_curr * mt2 * y1) + (3.0 * t2 * mt * y2) + t3;
+}
+
+extern fn sys_flag_gpu_redraw();
+
+@no_mangle
+pub fn ext_compositor_tick(current_time_ms: f64) {
+    let mut i: u32 = 0;
+    let mut needs_redraw = 0;
+    while i < 4096 {
+        if ANIM_ACTIVE[i as usize] == 1 {
+            let elapsed = current_time_ms - ANIM_START_TIME[i as usize];
+            let mut t = (elapsed / ANIM_DURATION[i as usize]) as f32;
+            
+            if t >= 1.0 {
+                t = 1.0;
+                ANIM_ACTIVE[i as usize] = 0; // Animation finished
+            }
+            
+            // W3C "ease-in-out": x1=0.42, y1=0.0, x2=0.58, y2=1.0
+            let eased_t = sys_anim_solve_cubic_bezier(t, 0.42, 0.0, 0.58, 1.0);
+            
+            let node_id = ANIM_NODE_ID[i as usize];
+            COMPOSITOR_TRANSFORM_X[node_id as usize] = ANIM_START_TX[i as usize] + ((ANIM_END_TX[i as usize] - ANIM_START_TX[i as usize]) * eased_t);
+            COMPOSITOR_OPACITY[node_id as usize] = ANIM_START_OP[i as usize] + ((ANIM_END_OP[i as usize] - ANIM_START_OP[i as usize]) * eased_t);
+            
+            needs_redraw = 1;
+        }
+        i = i + 1;
+    }
+    
+    if needs_redraw == 1 {
+        sys_flag_gpu_redraw();
+    }
+}

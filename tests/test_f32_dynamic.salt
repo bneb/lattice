@@ -1,0 +1,15 @@
+package tests.test_f32_dynamic
+pub fn main() -> i32 {
+    let mut available_w: f32 = 1904.0;
+    
+    // Create opaque variables so LLVM can't fold
+    let mut sW: i32 = 85;
+    let mut sW_f32: f32 = sW as f32;
+    let percent: f32 = sW_f32 / 100.0;
+    
+    let target_w: f32 = available_w * percent;
+    let used_w = target_w as i32;
+    
+    println("f32 dynamic check: used_w = {}", used_w);
+    return 0;
+}

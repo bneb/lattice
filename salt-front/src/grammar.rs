@@ -560,6 +560,7 @@ pub struct Generics {
 pub struct Arg {
     pub name: Ident,
     pub ty: Option<SynType>, // None for 'self'
+    pub is_mut: bool,
 }
 
 
@@ -1414,9 +1415,10 @@ impl Parse for SaltIf {
 
 impl Parse for Arg {
     fn parse(input: ParseStream) -> syn::Result<Self> {
+        let mut is_mut = false;
+
         if input.peek(Token![&]) || input.peek(Token![self]) || input.peek(Token![mut]) {
             let mut is_ref = false;
-            let mut is_mut = false;
             
             if input.peek(Token![&]) {
                 input.parse::<Token![&]>()?;
@@ -1443,16 +1445,16 @@ impl Parse for Arg {
                 if input.peek(Token![:]) {
                     input.parse::<Token![:]>()?;
                     let explicit_ty: SynType = input.parse()?;
-                    return Ok(Arg { name, ty: Some(explicit_ty) });
+                    return Ok(Arg { name, ty: Some(explicit_ty), is_mut });
                 }
-                return Ok(Arg { name, ty: Some(ty) });
+                return Ok(Arg { name, ty: Some(ty), is_mut });
             }
         }
         
         let name: Ident = parse_user_ident(input)?;
         input.parse::<Token![:]>()?;
         let ty: SynType = input.parse()?;
-        Ok(Arg { name, ty: Some(ty) })
+        Ok(Arg { name, ty: Some(ty), is_mut })
     }
 }
 

@@ -1,0 +1,35 @@
+{
+    "id": 1,
+    "style": {
+        "display": "flex",
+        "flex_direction": "row",
+        "width": 400.0,
+        "height": 100.0,
+        "flex_grow": 0.0,
+        "padding": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+        ]
+    },
+    "children": [
+        {
+            "id": 2,
+            "style": {
+                "display": "flex",
+                "flex_direction": "row",
+                "width": null,
+                "height": null,
+                "flex_grow": 1.0,
+                "padding": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "children": []
+        }
+    ]
+}

@@ -135,7 +135,6 @@ pub fn move_cursor(dx: i32) {
     }
 }
 
-@no_mangle
 pub fn invert_cursor() {
     let ptr = get_cell_ptr(CUR_X, CUR_Y);
     let packed = *((ptr as u64) as &u64);

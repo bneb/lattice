@@ -1,0 +1,117 @@
+// =============================================================================
+// Test: FFI Typography Pipeline Regression
+// =============================================================================
+// Validates the HarfBuzz typography bridge returns real pixel measurements
+// AND that font metrics produce non-zero line heights.
+//
+// ROOT CAUSE THIS PREVENTS:
+//   1. ext_c_shape_and_measure was a void stub → width always 0
+//   2. Font metrics not initialized → height always 0
+//
+// Detection keyword for run_test.sh auto-linking:
+// typography_e2e_test
+// =============================================================================
+
+// C FFI + @no_mangle Salt functions
+extern fn sys_log_info(msg_ptr: u64, msg_len: u32);
+extern fn sys_print_float(f: f64);
+extern fn sys_typography_init();
+extern fn ext_c_shape_and_measure(node_id: u32, text_ptr: u64, text_len: u32) -> f32;
+extern fn init_arrays();
+extern fn layout_inject_dom_pointers();
+extern fn paint_inject_dom_pointers();
+extern fn bake_sdf_atlas();
+extern fn get_font_line_height(font_size: f32) -> f32;
+
+// GlyphMetrics struct layout offsets (10 f32 fields, 40 bytes per entry):
+// ascent = offset 28, descent = offset 32, line_gap = offset 36
+// Access GLYPH_METRICS[0].ascent via pointer math on the global
+extern fn dom_ptr_GLYPH_METRICS() -> u64;
+
+fn main() -> i32 {
+    let nl: [u8; 1] = [10];
+
+    // === BOOT ===
+    init_arrays();
+    layout_inject_dom_pointers();
+    paint_inject_dom_pointers();
+    bake_sdf_atlas();
+    sys_typography_init();
+
+    let mut failures: i32 = 0;
+
+    // === TEST 1: ext_c_shape_and_measure returns non-zero for ASCII text ===
+    let hello: [u8; 5] = [72, 101, 108, 108, 111]; // "Hello"
+    let width = ext_c_shape_and_measure(1, (&hello) as u64, 5);
+
+    if width > 0.0 {
+        let m1: [u8; 25] = [80,65,83,83,58,32,115,104,97,112,101,95,119,105,100,116,104,32,62,32,48,46,48,102,10];
+        sys_log_info((&m1) as u64, 25);
+    } else {
+        let m1: [u8; 25] = [70,65,73,76,58,32,115,104,97,112,101,95,119,105,100,116,104,32,62,32,48,46,48,102,10];
+        sys_log_info((&m1) as u64, 25);
+        failures = failures + 1;
+    }
+
+    let wm: [u8; 9] = [32,32,119,105,100,116,104,61,32]; // "  width= "
+    sys_log_info((&wm) as u64, 9);
+    sys_print_float(width as f64);
+    sys_log_info((&nl) as u64, 1);
+
+    // === TEST 2: Longer string yields larger width ===
+    let prisimi: [u8; 7] = [80, 114, 105, 115, 105, 109, 105]; // "Prisimi"
+    let width2 = ext_c_shape_and_measure(2, (&prisimi) as u64, 7);
+
+    if width2 > width {
+        let m2: [u8; 28] = [80,65,83,83,58,32,108,111,110,103,101,114,95,115,116,114,105,110,103,32,62,32,115,104,111,114,116,10];
+        sys_log_info((&m2) as u64, 28);
+    } else {
+        let m2: [u8; 28] = [70,65,73,76,58,32,108,111,110,103,101,114,95,115,116,114,105,110,103,32,62,32,115,104,111,114,116,10];
+        sys_log_info((&m2) as u64, 28);
+        failures = failures + 1;
+    }
+
+    // === TEST 3: Empty text returns 0 (guard path) ===
+    let width3 = ext_c_shape_and_measure(3, 0, 0);
+    if width3 == 0.0 {
+        let m3: [u8; 22] = [80,65,83,83,58,32,101,109,112,116,121,95,116,101,120,116,32,61,61,32,48,10];
+        sys_log_info((&m3) as u64, 22);
+    } else {
+        let m3: [u8; 22] = [70,65,73,76,58,32,101,109,112,116,121,95,116,101,120,116,32,61,61,32,48,10];
+        sys_log_info((&m3) as u64, 22);
+        failures = failures + 1;
+    }
+
+    // === TEST 4: Font metrics produce non-zero line height ===
+    // layout.salt computes: line_height = (ascent - descent + line_gap) * (font_size / 64.0)
+    // get_font_line_height() uses the same formula, reading GLYPH_METRICS[0]
+    let line_h = get_font_line_height(16.0);
+
+    if line_h > 0.0 {
+        let m4: [u8; 24] = [80,65,83,83,58,32,108,105,110,101,95,104,101,105,103,104,116,32,62,32,48,46,48,10];
+        // "PASS: line_height > 0.0\n"
+        sys_log_info((&m4) as u64, 24);
+    } else {
+        let m4: [u8; 24] = [70,65,73,76,58,32,108,105,110,101,95,104,101,105,103,104,116,32,62,32,48,46,48,10];
+        // "FAIL: line_height > 0.0\n"
+        sys_log_info((&m4) as u64, 24);
+        failures = failures + 1;
+    }
+
+    // Log the line height
+    let lm: [u8; 14] = [32,32,108,105,110,101,95,104,101,105,103,104,116,61]; // "  line_height="
+    sys_log_info((&lm) as u64, 14);
+    sys_print_float(line_h as f64);
+    sys_log_info((&nl) as u64, 1);
+
+    // === SUMMARY ===
+    if failures == 0 {
+        let ok: [u8; 26] = [10,61,61,61,32,65,76,76,32,84,69,83,84,83,32,80,65,83,83,69,68,32,61,61,61,10];
+        sys_log_info((&ok) as u64, 26);
+    } else {
+        let nok: [u8; 16] = [10,61,61,61,32,70,65,73,76,69,68,32,61,61,61,10];
+        sys_log_info((&nok) as u64, 16);
+    }
+
+    return failures;
+}

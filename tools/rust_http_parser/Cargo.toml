@@ -1,0 +1,10 @@
+[package]
+name = "rust_http_parser"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+httparse = "1.9"
+
+[profile.release]
+opt-level = 2

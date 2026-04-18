@@ -1,0 +1,639 @@
+package user.browser.net
+
+import user.browser.dom
+import user.browser.compositor
+import user.os.ipc_ring
+import user.os.worker_ring
+
+// ============================================================================
+// Epic 51: Zero-Allocation Async Fetch Queue (SoA)
+// ============================================================================
+// Provides Salt-native visibility into pending fetch operations.
+// State machine: 0=EMPTY, 1=PENDING, 2=DOWNLOADING, 3=DONE, 4=ERROR
+
+extern fn sys_log_net(msg_ptr: u64, msg_len: u32);
+
+pub const FETCH_EMPTY:       u8 = 0;
+pub const FETCH_PENDING:     u8 = 1;
+pub const FETCH_DOWNLOADING: u8 = 2;
+pub const FETCH_DONE:        u8 = 3;
+pub const FETCH_ERROR:       u8 = 4;
+pub const FETCH_PENDING_SW:  u8 = 5;
+
+// ============================================================================
+// Epic 77: HTTP/2 Multiplex Matrix & Advanced TLS
+// ============================================================================
+
+pub global H2_INGRESS_RING: [u8; 65536] = [0; 65536];
+pub global H2_READ_HEAD: u32 = 0;
+pub global H2_WRITE_HEAD: u32 = 0;
+
+pub global FETCH_STREAM_IDS: [u32; 256] = [0; 256];
+pub global NEXT_STREAM_ID: u32 = 1; // Client streams must be odd
+
+pub global HAS_ACTIVE_SERVICE_WORKER: u32 = 0;
+
+pub const MAX_FETCH_SLOTS: u32 = 256;
+
+pub global FETCH_QUEUE_STATE:      [u8;  256] = [0; 256];
+pub global FETCH_QUEUE_FETCH_ID:   [u64; 256] = [0; 256];
+pub global FETCH_QUEUE_BUFFER_PTR: [u64; 256] = [0; 256];
+pub global FETCH_QUEUE_BUFFER_LEN: [u32; 256] = [0; 256];
+pub global FETCH_QUEUE_URL_PTR:    [u64; 256] = [0; 256];
+pub global FETCH_QUEUE_URL_LEN:    [u32; 256] = [0; 256];
+pub global FETCH_QUEUE_COUNT:      u32 = 0;
+
+// Allocate a queue slot for a new fetch request.
+// Returns slot index on success, -1 if queue is full.
+@no_mangle
+pub fn ext_net_queue_fetch(fetch_id: u64, url_ptr: u64, url_len: u32) -> i32 {
+    let mut i: u32 = 0;
+    while i < 256 {
+        if FETCH_QUEUE_STATE[i as usize] == FETCH_EMPTY {
+            FETCH_QUEUE_FETCH_ID[i as usize] = fetch_id;
+            FETCH_QUEUE_STATE[i as usize] = FETCH_PENDING;
+            FETCH_QUEUE_BUFFER_PTR[i as usize] = 0;
+            FETCH_QUEUE_BUFFER_LEN[i as usize] = 0;
+            FETCH_QUEUE_URL_PTR[i as usize] = url_ptr;
+            FETCH_QUEUE_URL_LEN[i as usize] = url_len;
+            FETCH_QUEUE_COUNT = FETCH_QUEUE_COUNT + 1;
+            return i as i32;
+        }
+        i = i + 1;
+    }
+    return -1; // Queue full
+}
+
+pub fn queue_fetch(fetch_id: u64, url_ptr: u64, url_len: u32) -> i32 {
+    return ext_net_queue_fetch(fetch_id, url_ptr, url_len);
+}
+
+// Mark a fetch slot as complete with its payload.
+// Called by the IPC ingestion path when a response arrives.
+@no_mangle
+pub fn ext_net_complete_fetch(fetch_id: u64, buf_ptr: u64, buf_len: u32) -> i32 {
+    let mut i: u32 = 0;
+    while i < 256 {
+        if FETCH_QUEUE_STATE[i as usize] != FETCH_EMPTY && FETCH_QUEUE_FETCH_ID[i as usize] == fetch_id {
+            FETCH_QUEUE_STATE[i as usize] = FETCH_DONE;
+            FETCH_QUEUE_BUFFER_PTR[i as usize] = buf_ptr;
+            FETCH_QUEUE_BUFFER_LEN[i as usize] = buf_len;
+            return i as i32;
+        }
+        i = i + 1;
+    }
+    return -1; // ID not found
+}
+
+pub fn complete_fetch(fetch_id: u64, buf_ptr: u64, buf_len: u32) -> i32 {
+    return ext_net_complete_fetch(fetch_id, buf_ptr, buf_len);
+}
+
+// Reclaim a fetch slot after its promise has been resolved.
+@no_mangle
+pub fn ext_net_reclaim_slot(slot: u32) {
+    if slot >= 256 { return; }
+    FETCH_QUEUE_STATE[slot as usize] = FETCH_EMPTY;
+    FETCH_QUEUE_FETCH_ID[slot as usize] = 0;
+    FETCH_QUEUE_BUFFER_PTR[slot as usize] = 0;
+    FETCH_QUEUE_BUFFER_LEN[slot as usize] = 0;
+    if FETCH_QUEUE_COUNT > 0 {
+        FETCH_QUEUE_COUNT = FETCH_QUEUE_COUNT - 1;
+    }
+}
+
+// Getters for C-bridge access
+@no_mangle
+pub fn net_get_fetch_state(slot: u32) -> u8 {
+    if slot >= 256 { return 0; }
+    return FETCH_QUEUE_STATE[slot as usize];
+}
+
+@no_mangle
+pub fn net_get_fetch_id(slot: u32) -> u64 {
+    if slot >= 256 { return 0; }
+    return FETCH_QUEUE_FETCH_ID[slot as usize];
+}
+
+@no_mangle
+pub fn net_get_fetch_buf_ptr(slot: u32) -> u64 {
+    if slot >= 256 { return 0; }
+    return FETCH_QUEUE_BUFFER_PTR[slot as usize];
+}
+
+@no_mangle
+pub fn net_get_fetch_buf_len(slot: u32) -> u32 {
+    if slot >= 256 { return 0; }
+    return FETCH_QUEUE_BUFFER_LEN[slot as usize];
+}
+
+@no_mangle
+pub fn net_get_fetch_count() -> u32 {
+    return FETCH_QUEUE_COUNT;
+}
+
+// ============================================================================
+// Epic 58: The Ring Buffer Streamer (WebSockets)
+// ============================================================================
+
+pub global WS_STATE: [u8; 16] = [0; 16]; // 0=CLOSED, 1=CONNECTING, 2=OPEN
+pub global WS_RING_BUFFER: [u8; 1048576] = [0; 1048576]; // 1MB shared pool (64KB per socket)
+pub global WS_HEAD: [u32; 16] = [0; 16];
+pub global WS_TAIL: [u32; 16] = [0; 16];
+
+// FFI to allow the OS VirtIO layer to push raw TCP bytes into the buffer
+@no_mangle
+pub fn sys_net_push_ws_bytes(socket_id: u32, data_ptr: u64, data_len: u32) {
+    if socket_id >= 16 { return; }
+    let mut i: u32 = 0;
+    let offset = socket_id * 65536; // 64KB chunk per socket
+    let mut tail = WS_TAIL[socket_id as usize];
+    
+    while i < data_len {
+        let byte = *((data_ptr + (i as u64)) as &mut u8);
+        let write_idx = offset + (tail % 65536);
+        WS_RING_BUFFER[write_idx as usize] = byte;
+        tail = tail + 1;
+        i = i + 1;
+    }
+    WS_TAIL[socket_id as usize] = tail;
+}
+
+@no_mangle
+pub fn ext_net_open_websocket(url_ptr: u64, url_len: u32) -> u32 {
+    let mut i: u32 = 0;
+    while i < 16 {
+        if WS_STATE[i as usize] == 0 {
+            WS_STATE[i as usize] = 2; // Directly to OPEN for testing sync workflow
+            WS_HEAD[i as usize] = 0;
+            WS_TAIL[i as usize] = 0;
+            return i;
+        }
+        i = i + 1;
+    }
+    return 999; // Error
+}
+
+// C-bridge access to state
+@no_mangle
+pub fn get_ws_state(socket_id: u32) -> u8 {
+    if socket_id >= 16 { return 0; }
+    return WS_STATE[socket_id as usize];
+}
+
+@no_mangle
+pub fn set_ws_state(socket_id: u32, state: u8) {
+    if socket_id >= 16 { return; }
+    WS_STATE[socket_id as usize] = state;
+}
+
+// Epic 76: Network Interceptor Bridge
+extern fn sys_ipc_send_r2m_command_with_payload(cmd_type: u32, arg1: u64, payload_ptr: u64, payload_len: u32);
+extern fn ext_tls_write_bytes(data_ptr: u64, len: u32);
+extern fn ext_hpack_encode_headers(method_ptr: u64, path_ptr: u64, stream_id: u32) -> u32;
+extern fn ext_hpack_get_buffer_len() -> u32;
+extern fn ext_hpack_get_buffer_ptr() -> u64;
+extern fn decode_hpack_block(payload_ptr: u64, payload_len: u32, stream_id: u32);
+
+// ============================================================================
+// H2 Framing Layer
+// ============================================================================
+
+@no_mangle
+pub fn sys_pack_h2_header(header_ptr: u64, len: u32, h2_type: u8, flags: u8, stream_id: u32) {
+    let buf = header_ptr as &mut u8;
+    // Length (24 bits)
+    *((header_ptr + 0) as &mut u8) = ((len >> 16) & 0xFF) as u8;
+    *((header_ptr + 1) as &mut u8) = ((len >> 8) & 0xFF) as u8;
+    *((header_ptr + 2) as &mut u8) = (len & 0xFF) as u8;
+    // Type (8 bits)
+    *((header_ptr + 3) as &mut u8) = h2_type;
+    // Flags (8 bits)
+    *((header_ptr + 4) as &mut u8) = flags;
+    // Stream ID (31 bits)
+    *((header_ptr + 5) as &mut u8) = ((stream_id >> 24) & 0x7F) as u8;
+    *((header_ptr + 6) as &mut u8) = ((stream_id >> 16) & 0xFF) as u8;
+    *((header_ptr + 7) as &mut u8) = ((stream_id >> 8) & 0xFF) as u8;
+    *((header_ptr + 8) as &mut u8) = (stream_id & 0xFF) as u8;
+}
+
+@no_mangle
+pub fn sys_net_send_h2_preface() {
+    // PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n
+    let mut preface: [u8; 24] = [
+        80, 82, 73, 32, 42, 32, 72, 84, 84, 80, 47, 50, 46, 48, 13, 10, 13, 10, 83, 77, 13, 10, 13, 10
+    ];
+    ext_tls_write_bytes((&preface) as u64, 24);
+    
+    // Send initial SETTINGS frame (Type 0x04, Length 0, Flags 0, Stream 0)
+    let mut settings_header: [u8; 9] = [0; 9];
+    sys_pack_h2_header((&settings_header) as u64, 0, 0x04, 0x00, 0);
+    ext_tls_write_bytes((&settings_header) as u64, 9);
+}
+
+@no_mangle
+pub fn sys_net_push_h2_request(fetch_id: u32, method_ptr: u64, path_ptr: u64) {
+    let stream_id = NEXT_STREAM_ID;
+    NEXT_STREAM_ID = NEXT_STREAM_ID + 2;
+    FETCH_STREAM_IDS[fetch_id as usize] = stream_id;
+    
+    // Compress headers using HPACK
+    let hpack_len = ext_hpack_encode_headers(method_ptr, path_ptr, stream_id);
+    
+    // Construct 9-byte HTTP/2 Frame Header
+    // 0x01 for HEADERS | 0x05 for END_HEADERS + END_STREAM
+    let mut frame_header: [u8; 9] = [0; 9];
+    sys_pack_h2_header((&frame_header) as u64, hpack_len, 0x01, 0x05, stream_id);
+    
+    // Write frame to the secure socket FFI
+    ext_tls_write_bytes((&frame_header) as u64, 9);
+    ext_tls_write_bytes(ext_hpack_get_buffer_ptr(), hpack_len);
+    
+    FETCH_QUEUE_STATE[fetch_id as usize] = 2; // DOWNLOADING (Routing H2 to FETCHING)
+}
+
+@no_mangle
+@no_mangle
+pub fn sys_net_push_h2_bytes(data_ptr: u64, data_len: u32) {
+    let mut i: u32 = 0;
+    while i < data_len {
+        let byte = *((data_ptr + (i as u64)) as &u8);
+        let write_idx = H2_WRITE_HEAD % 65536;
+        H2_INGRESS_RING[write_idx as usize] = byte;
+        H2_WRITE_HEAD = H2_WRITE_HEAD + 1;
+        i = i + 1;
+    }
+}
+
+@no_mangle
+pub fn pump_net_fetch_queue() {
+    let mut i: u32 = 0;
+    while i < 256 {
+        let state = FETCH_QUEUE_STATE[i as usize];
+        if state == FETCH_PENDING {
+            let fetch_id = FETCH_QUEUE_FETCH_ID[i as usize];
+            let url_ptr = FETCH_QUEUE_URL_PTR[i as usize];
+            let url_len = FETCH_QUEUE_URL_LEN[i as usize];
+            
+            if HAS_ACTIVE_SERVICE_WORKER == 1 {
+                FETCH_QUEUE_STATE[i as usize] = FETCH_PENDING_SW;
+                sys_ipc_send_r2m_command_with_payload(8, fetch_id, url_ptr, url_len);
+            } else {
+                // Phase 2: Route via Native Proxy
+                FETCH_QUEUE_STATE[i as usize] = 2; // DOWNLOADING
+                sys_ipc_send_r2m_command_with_payload(12 /* CMD_FETCH_REQUEST */, fetch_id, url_ptr, url_len);
+            }
+        }
+        i = i + 1;
+    }
+    
+    // H2 Frame Parser Loop
+    sys_net_pump_h2_frames();
+}
+
+fn sys_net_pump_h2_frames() {
+    while (H2_WRITE_HEAD - H2_READ_HEAD) >= 9 {
+        // Read 9-byte header
+        let mut header: [u8; 9] = [0; 9];
+        let mut i: u32 = 0;
+        while i < 9 {
+            header[i as usize] = H2_INGRESS_RING[((H2_READ_HEAD + i) % 65536) as usize];
+            i = i + 1;
+        }
+        
+        let length = ((header[0] as u32) << 16) | ((header[1] as u32) << 8) | (header[2] as u32);
+        let h2_type = header[3];
+        let flags = header[4];
+        let stream_id = ((header[5] as u32 & 0x7F) << 24) | ((header[6] as u32) << 16) | ((header[7] as u32) << 8) | (header[8] as u32);
+        
+        if (H2_WRITE_HEAD - H2_READ_HEAD) < (9 + length) {
+            return; // Wait for full payload
+        }
+        
+        H2_READ_HEAD = H2_READ_HEAD + 9;
+        
+        // Payload routing
+        let payload_ptr = (&H2_INGRESS_RING[0] as u64) + (H2_READ_HEAD % 65536) as u64;
+        
+        if h2_type == 0x01 { // HEADERS
+            decode_hpack_block(payload_ptr, length, stream_id);
+        } else if h2_type == 0x00 { // DATA
+            sys_net_route_data_to_stream(stream_id, payload_ptr, length, flags);
+        }
+        
+        H2_READ_HEAD = H2_READ_HEAD + length;
+    }
+}
+
+extern fn js_resolve_fetch_chunk(fetch_id: u32, buf_ptr: u64, buf_len: u32, is_end: u8);
+
+fn sys_net_route_data_to_stream(stream_id: u32, payload_ptr: u64, length: u32, flags: u8) {
+    let mut i: u32 = 0;
+    while i < 256 {
+        if FETCH_STREAM_IDS[i as usize] == stream_id {
+            let fetch_id = FETCH_QUEUE_FETCH_ID[i as usize];
+            let is_end = (flags & 0x01) == 0x01;
+            js_resolve_fetch_chunk(i, payload_ptr, length, is_end as u8);
+            return;
+        }
+        i = i + 1;
+    }
+}
+
+pub global NETWORK_INGEST_BUFFER: [u8; 1048576] = [0; 1048576];
+pub global NETWORK_INGEST_STATE: u32 = 0; 
+pub global NETWORK_INGEST_CURSOR: u32 = 0;
+pub global NETWORK_INGEST_NODE_ID: u64 = 0;
+pub global NETWORK_INGEST_EXPECTED_LEN: u32 = 0;
+pub global WS_TEMP_DECODE: [u8; 8192] = [0; 8192];
+
+extern fn sys_ipc_read_m2r_command() -> u64;
+extern fn sys_ipc_get_bulk_ingress_ptr() -> u64;
+extern fn read_ipc_command_type(ptr: u64) -> u32;
+extern fn read_ipc_command_arg1(ptr: u64) -> u64;
+extern fn read_ipc_command_arg2(ptr: u64) -> u32;
+extern fn read_ipc_command_payload_ptr(ptr: u64) -> u64;
+extern fn read_ipc_command_payload_len(ptr: u64) -> u32;
+
+extern fn sys_browser_navigate(url_ptr: u64, url_len: u32);
+extern fn http_reset_state();
+extern fn invalidate_layout(idx: u32);
+extern fn invalidate_all_layout();
+extern fn paint_mark_compositor_dirty(node_idx: u32);
+extern fn resolve_node(id: u64) -> u32;
+extern fn ext_get_dom_node_count() -> u64;
+extern fn sys_log_info(ptr: u64, len: u32);
+extern fn sys_print_float(f: f64);
+extern fn native_go_back();
+extern fn js_bridge_dispatch_message_event(payload_ptr: u64, payload_len: u32);
+extern fn js_resolve_fetch(fetch_id: u64, ptr: u64, len: u32);
+extern fn http_set_root_node(node_id: u64);
+extern fn http_process_ingress(buf_ptr: u64, buf_len: u32);
+extern fn sys_js_pump_script_queue();
+extern fn sys_jsc_flush_microtasks();
+extern fn js_lex_html_chunk(root_id: u64, ptr: u64, len: u32, can_exec: u8);
+extern fn http_set_eof();
+extern fn dom_alloc_text(len: u32) -> u64;
+extern fn complete_script_fetch(fetch_id: u64, buf_ptr: u64, buf_len: u32) -> i32;
+extern fn sys_js_evaluate_script(code_ptr: u64, code_len: u32, filename_ptr: u64, filename_len: u32);
+extern fn resolve_node(id: u64) -> u32;
+extern fn js_bridge_dispatch_websocket_message(ws_id: u32, ptr: u64, len: u32);
+extern fn js_bridge_dispatch_main_message(ptr: u64, len: u32);
+extern fn pump_websocket_frames();
+extern fn pump_storage_queue();
+
+@no_mangle
+pub fn sys_net_pump_ingress() {
+    let mut idx = 0;
+    while idx < 10 {
+        let cmd_ptr = sys_ipc_read_m2r_command();
+        if cmd_ptr == 0 { break; }
+        
+        let cmd_type = read_ipc_command_type(cmd_ptr);
+        let arg1 = read_ipc_command_arg1(cmd_ptr);
+        let arg2 = read_ipc_command_arg2(cmd_ptr);
+        let payload_ptr = read_ipc_command_payload_ptr(cmd_ptr);
+        let payload_len = read_ipc_command_payload_len(cmd_ptr);
+        
+        // TELEMETRY: Log every IPC command received
+        let m_cmd: [u8; 15] = [91,73,80,67,93,32,67,77,68,32,116,121,112,101,61]; // "[IPC] CMD type="
+        sys_log_info((&m_cmd) as u64, 15);
+        sys_print_float(cmd_type as f64);
+        let m_a1: [u8; 4] = [32,97,49,61]; // " a1="
+        sys_log_info((&m_a1) as u64, 4);
+        sys_print_float(arg1 as f64);
+        let m_a2: [u8; 4] = [32,97,50,61]; // " a2="
+        sys_log_info((&m_a2) as u64, 4);
+        sys_print_float(arg2 as f64);
+        let nl: [u8; 1] = [10];
+        sys_log_info((&nl) as u64, 1);
+        
+        if cmd_type == 1 { // EVENT_NAVIGATE
+            sys_browser_navigate(payload_ptr, payload_len);
+        } else if cmd_type == 3 { // EVENT_GO_BACK
+            native_go_back();
+        } else if cmd_type == 5 { // EVENT_POST_MESSAGE
+            js_bridge_dispatch_message_event(payload_ptr, payload_len);
+        } else if cmd_type == 6 { // EVENT_IFRAME_SURFACE
+            let iframe_slot = arg1 as u32;
+            let surface_id = arg2;
+            if iframe_slot < 256 {
+                dom.DOM_IFRAME_SURFACE_ID[iframe_slot as usize] = surface_id;
+                invalidate_layout(dom.DOM_IFRAME_NODE_ID[iframe_slot as usize]);
+            }
+        } else if cmd_type == 7 { // CMD_WORKER_REGISTERED
+            HAS_ACTIVE_SERVICE_WORKER = 1;
+        } else if cmd_type == 9 { // CMD_FETCH_RESPONSE
+            // FIX: Re-read arg2 from cmd_ptr directly — Salt register-clobber workaround
+            let fetch_len = read_ipc_command_arg2(cmd_ptr);
+            let bulk_ptr = sys_ipc_get_bulk_ingress_ptr();
+            
+            // TELEMETRY: Log fetch response details
+            let m_fr: [u8; 21] = [91,70,69,84,67,72,93,32,82,101,115,112,111,110,115,101,32,108,101,110,61]; // "[FETCH] Response len="
+            sys_log_info((&m_fr) as u64, 21);
+            sys_print_float(fetch_len as f64);
+            let m_bp: [u8; 6] = [32,98,117,108,107,61]; // " bulk="
+            sys_log_info((&m_bp) as u64, 6);
+            sys_print_float(bulk_ptr as f64);
+            sys_log_info((&nl) as u64, 1);
+            
+            let mut nav_bit: u64 = 1;
+            nav_bit = nav_bit << 62;
+            let is_nav = (arg1 & nav_bit) != 0;
+            
+            // TELEMETRY: Log nav check
+            let m_nav: [u8; 12] = [91,70,69,84,67,72,93,32,110,97,118,61]; // "[FETCH] nav="
+            sys_log_info((&m_nav) as u64, 12);
+            if is_nav {
+                let m_y: [u8; 4] = [89,69,83,10]; // "YES\n"
+                sys_log_info((&m_y) as u64, 4);
+            } else {
+                let m_n: [u8; 3] = [78,79,10]; // "NO\n"
+                sys_log_info((&m_n) as u64, 3);
+            }
+            
+            if is_nav && bulk_ptr != 0 {
+                let root_id = arg1 - nav_bit;
+                
+                // TELEMETRY: Log root_id
+                let m_root: [u8; 16] = [91,70,69,84,67,72,93,32,114,111,111,116,95,105,100,61]; // "[FETCH] root_id="
+                sys_log_info((&m_root) as u64, 16);
+                sys_print_float(root_id as f64);
+                sys_log_info((&nl) as u64, 1);
+                
+                http_reset_state(); // Reset lexer state machine
+                http_set_root_node(root_id);
+                
+                // TELEMETRY: Log first 16 bytes of body for verification
+                let m_body: [u8; 16] = [91,70,69,84,67,72,93,32,66,111,100,121,91,48,93,61]; // "[FETCH] Body[0]="
+                sys_log_info((&m_body) as u64, 16);
+                if fetch_len > 0 {
+                    let first_byte = *(bulk_ptr as &u8);
+                    sys_print_float(first_byte as f64);
+                }
+                sys_log_info((&nl) as u64, 1);
+                
+                // NSURLSession returns PURE BODY (no HTTP headers).
+                // Bypass http_process_ingress (which expects HTTP/1.1 status line)
+                // and pipe the raw body directly to the DOM lexer.
+                js_lex_html_chunk(root_id, bulk_ptr, fetch_len, 1);
+                
+                // Signal EOF so the layout solver fires
+                http_set_eof();
+                
+                // TRAP 1 FIX: explicitly flag DIRTY_LAYOUT for the matrix
+                let u_idx = resolve_node(root_id);
+                
+                // TELEMETRY: Log resolve result
+                let m_res: [u8; 14] = [91,70,69,84,67,72,93,32,117,95,105,100,120,61]; // "[FETCH] u_idx="
+                sys_log_info((&m_res) as u64, 14);
+                sys_print_float(u_idx as f64);
+                sys_log_info((&nl) as u64, 1);
+                
+                let m1: [u8; 35] = [91,68,79,77,93,32,76,101,120,101,114,32,102,105,110,105,115,104,101,100,46,32,84,111,116,97,108,32,78,111,100,101,115,58,32]; 
+                sys_log_info((&m1) as u64, 35);
+                sys_print_float(ext_get_dom_node_count() as f64);
+                sys_log_info((&nl) as u64, 1);
+                
+                // Mark ALL nodes dirty after batch DOM creation
+                // (The layout solver's 'geometrically clean bypass' skips nodes with DIRTY_LAYOUT=0)
+                invalidate_all_layout();
+                
+                sys_js_pump_script_queue();
+                sys_jsc_flush_microtasks();
+            } else {
+                // Non-nav fetch response: complete the fetch promise
+                let m_nn: [u8; 25] = [91,70,69,84,67,72,93,32,78,111,110,45,110,97,118,32,99,111,109,112,108,101,116,101,10]; // "[FETCH] Non-nav complete\n"
+                sys_log_info((&m_nn) as u64, 25);
+                
+                if bulk_ptr != 0 {
+                    complete_fetch(arg1, bulk_ptr, fetch_len);
+                }
+            }
+        }
+        idx = idx + 1;
+    }
+    
+    pump_net_fetch_queue();
+    
+    let mut pumped_bytes = 0;
+    let mut active = 1;
+    while active == 1 && pumped_bytes < 4096 {
+        let mut byte_val: u8 = 0;
+        let b_ptr = (&mut byte_val) as u64;
+        let res = ipc_ring.ipc_read_byte(b_ptr);
+        if res == 0 {
+            active = 0;
+        } else {
+            pumped_bytes = pumped_bytes + 1;
+            if NETWORK_INGEST_STATE == 0 {
+                let shift = NETWORK_INGEST_CURSOR * 8;
+                let v64 = (byte_val as u64) << shift;
+                NETWORK_INGEST_NODE_ID = NETWORK_INGEST_NODE_ID | v64;
+                NETWORK_INGEST_CURSOR = NETWORK_INGEST_CURSOR + 1;
+                if NETWORK_INGEST_CURSOR == 8 {
+                    NETWORK_INGEST_STATE = 1;
+                    NETWORK_INGEST_CURSOR = 0;
+                }
+            } else if NETWORK_INGEST_STATE == 1 {
+                let shift = NETWORK_INGEST_CURSOR * 8;
+                let v32 = (byte_val as u32) << shift;
+                NETWORK_INGEST_EXPECTED_LEN = NETWORK_INGEST_EXPECTED_LEN | v32;
+                NETWORK_INGEST_CURSOR = NETWORK_INGEST_CURSOR + 1;
+                if NETWORK_INGEST_CURSOR == 4 {
+                    NETWORK_INGEST_STATE = 2;
+                    NETWORK_INGEST_CURSOR = 0;
+                }
+            } else if NETWORK_INGEST_STATE == 2 {
+                if NETWORK_INGEST_CURSOR < 1048576 {
+                    NETWORK_INGEST_BUFFER[NETWORK_INGEST_CURSOR as usize] = byte_val;
+                }
+                NETWORK_INGEST_CURSOR = NETWORK_INGEST_CURSOR + 1;
+                if NETWORK_INGEST_CURSOR >= NETWORK_INGEST_EXPECTED_LEN {
+                    let mut high_bit: u64 = 1;
+                    high_bit = high_bit << 63;
+                    let is_fetch = (NETWORK_INGEST_NODE_ID & high_bit) != 0;
+                    
+                    let mut nav_bit: u64 = 1;
+                    nav_bit = nav_bit << 62;
+                    let is_nav = (NETWORK_INGEST_NODE_ID & nav_bit) != 0;
+                    
+                    let mut ws_bit: u64 = 1;
+                    ws_bit = ws_bit << 61;
+                    let is_ws = (NETWORK_INGEST_NODE_ID & ws_bit) != 0;
+                    
+                    let mut script_bit: u64 = 1;
+                    script_bit = script_bit << 60;
+                    let is_script_fetch = (NETWORK_INGEST_NODE_ID & script_bit) != 0;
+                    
+                    if is_fetch {
+                        let fetch_id = NETWORK_INGEST_NODE_ID - high_bit;
+                        js_resolve_fetch(fetch_id, (&NETWORK_INGEST_BUFFER) as u64, NETWORK_INGEST_EXPECTED_LEN);
+                        sys_jsc_flush_microtasks();
+                    } else if is_nav {
+                        let root_id = NETWORK_INGEST_NODE_ID - nav_bit;
+                        http_set_root_node(root_id);
+                        http_process_ingress((&NETWORK_INGEST_BUFFER) as u64, NETWORK_INGEST_EXPECTED_LEN);
+                        sys_js_pump_script_queue();
+                        sys_jsc_flush_microtasks();
+                    } else if is_ws {
+                        let ws_id = (NETWORK_INGEST_NODE_ID - ws_bit) as u32;
+                        js_bridge_dispatch_websocket_message(ws_id, (&NETWORK_INGEST_BUFFER) as u64, NETWORK_INGEST_EXPECTED_LEN);
+                        sys_jsc_flush_microtasks();
+                    } else if is_script_fetch {
+                        let script_fetch_id = NETWORK_INGEST_NODE_ID - script_bit;
+                        let payload_len = NETWORK_INGEST_EXPECTED_LEN;
+                        let perm_ptr = dom_alloc_text(payload_len);
+                        if perm_ptr != 0 {
+                            sys_jsc_flush_microtasks();
+                            let mut cp_i: u32 = 0;
+                            while cp_i < payload_len {
+                                let byte = *((&NETWORK_INGEST_BUFFER as u64 + cp_i as u64) as &u8);
+                                *((perm_ptr + cp_i as u64) as &mut u8) = byte;
+                                cp_i = cp_i + 1;
+                            }
+                            let slot = complete_script_fetch(script_fetch_id, perm_ptr, payload_len);
+                            if slot >= 0 {
+                                let src_ptr = dom.SCRIPT_FETCH_SRC_PTR[slot as usize];
+                                let src_len = dom.SCRIPT_FETCH_SRC_LEN[slot as usize];
+                                sys_js_evaluate_script(perm_ptr, payload_len, src_ptr, src_len);
+                                dom.SCRIPT_FETCH_STATE[slot as usize] = 0;
+                                if dom.PENDING_SCRIPT_COUNT > 0 { dom.PENDING_SCRIPT_COUNT = dom.PENDING_SCRIPT_COUNT - 1; }
+                            }
+                        }
+                    } else {
+                        let n_idx = resolve_node(NETWORK_INGEST_NODE_ID);
+                        if n_idx != 0xFFFFFFFF && n_idx != 0 {
+                            compositor.decode_and_upload_image((&NETWORK_INGEST_BUFFER) as u64, NETWORK_INGEST_EXPECTED_LEN);
+                        }
+                    }
+                    NETWORK_INGEST_STATE = 0;
+                    NETWORK_INGEST_CURSOR = 0;
+                    NETWORK_INGEST_NODE_ID = 0;
+                    NETWORK_INGEST_EXPECTED_LEN = 0;
+                }
+            }
+        }
+    }
+    
+    // Web Worker Drains
+    let mut expected_up_len: u32 = 0;
+    let up_res = worker_ring.read_up_u32((&mut expected_up_len) as u64);
+    if up_res == 1 {
+        let mut w_i: u32 = 0;
+        while w_i < expected_up_len {
+           let mut b: u8 = 0;
+           worker_ring.read_up_byte((&mut b) as u64);
+           if w_i < 1048576 {
+               NETWORK_INGEST_BUFFER[w_i as usize] = b; 
+           }
+           w_i = w_i + 1;
+        }
+        js_bridge_dispatch_main_message((&NETWORK_INGEST_BUFFER) as u64, expected_up_len);
+        sys_jsc_flush_microtasks();
+    }
+    
+    pump_net_fetch_queue();
+    pump_websocket_frames();
+    pump_storage_queue();
+}

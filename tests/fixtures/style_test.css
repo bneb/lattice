@@ -1,0 +1,13 @@
+/* CSS Parser Test Fixture */
+body {
+    display: flex;
+    flex-grow: 1;
+}
+
+.header {
+    display: block;
+}
+
+#main {
+    display: inline;
+}

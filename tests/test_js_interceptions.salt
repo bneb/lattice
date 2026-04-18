@@ -1,0 +1,65 @@
+package tests.test_js_interceptions
+
+import user.browser.dom
+import user.browser.alloc.airlock
+import user.browser.js_quickjs
+
+@no_mangle extern fn js_get_test_script_inter(buf: u64);
+@no_mangle extern fn js_get_test_script_inter_len() -> u32;
+
+@no_mangle
+pub fn main() -> i32 {
+    dom.init_arrays();
+    airlock.init_allocator();
+    
+    // Setup initial node 3 safely
+    dom.ATTR_NODE_ID[0] = 3;
+    let key_offset = airlock.allocate(2);
+    let key_ptr = airlock.get_airlock_ptr() + (key_offset as u64);
+    *((key_ptr+0) as &mut u8) = 105; // "i"
+    *((key_ptr+1) as &mut u8) = 100; // "d"
+    dom.ATTR_KEY_PTR[0] = key_ptr;
+    dom.ATTR_KEY_LEN[0] = 2;
+    
+    let val_offset = airlock.allocate(4);
+    let val_ptr = airlock.get_airlock_ptr() + (val_offset as u64);
+    *((val_ptr+0) as &mut u8) = 104; // "h"
+    *((val_ptr+1) as &mut u8) = 101; // "e"
+    *((val_ptr+2) as &mut u8) = 114; // "r"
+    *((val_ptr+3) as &mut u8) = 111; // "o"
+    dom.ATTR_VAL_PTR[0] = val_ptr;
+    dom.ATTR_VAL_LEN[0] = 4;
+    
+    dom.ATTR_COUNT = 1;
+    
+    if js_quickjs.init() < 0 {
+        return 1;
+    }
+    
+    let code_len = js_get_test_script_inter_len();
+    let code_offset = airlock.allocate(256);
+    let code_ptr = airlock.get_airlock_ptr() + (code_offset as u64);
+    js_get_test_script_inter(code_ptr);
+    
+    if js_quickjs.eval_string(code_ptr, code_len) < 0 {
+        return 2;
+    }
+    
+    js_quickjs.pump_microtasks();
+    
+    // Verify style interception nicely
+    if dom.STYLE_BG_R[3] != 255 {
+        return 3;
+    }
+    if dom.STYLE_DISPLAY[3] != 2 { // flex
+        return 4;
+    }
+    
+    // Verify innerHTML interception gracefully
+    // hero (3) should now have a child (div)
+    if dom.DOM_NODE_FIRST_CHILD[3] == 0 {
+        return 5;
+    }
+    
+    return 0;
+}

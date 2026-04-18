@@ -1,0 +1,13 @@
+package user.netd.main
+
+import user.netd.encap
+extern fn salt_yield_check();
+
+pub fn netd_main(arg1: u64, arg2: u64, arg3: u64) {
+    // Fire the Zero-Copy IPC Fabric architecture explicitly once on boot
+    encap.execute_fastpath_test();
+    
+    loop {
+        salt_yield_check();
+    }
+}

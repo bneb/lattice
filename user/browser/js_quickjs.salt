@@ -1,0 +1,35 @@
+package user.browser.js_quickjs
+
+extern fn js_init_quickjs() -> i32;
+@no_mangle extern fn js_eval_buffer(code_ptr: u64, len: u32) -> i32;
+@no_mangle extern fn js_execute_pending_jobs() -> i32;
+
+@no_mangle extern fn js_resolve_fetch_impl(fetch_id: u64, ptr: u64, len: u32);
+@no_mangle extern fn js_quickjs_teardown() -> i32;
+
+@no_mangle
+pub fn js_resolve_fetch(fetch_id: u64, ptr: u64, len: u32) {
+    js_resolve_fetch_impl(fetch_id, ptr, len);
+}
+
+@no_mangle
+pub fn js_teardown() -> i32 {
+    return js_quickjs_teardown();
+}
+
+@no_mangle
+pub fn js_quickjs_init() -> i32 {
+    return js_init_quickjs();
+}
+
+@no_mangle
+pub fn js_quickjs_eval_string(code_ptr: u64, len: u32) -> i32 {
+    return js_eval_buffer(code_ptr, len);
+}
+
+pub fn pump_microtasks() {
+    let mut jobs_ran: i32 = 1;
+    while jobs_ran > 0 {
+        jobs_ran = js_execute_pending_jobs();
+    }
+}

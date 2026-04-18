@@ -1,0 +1,38 @@
+package tests.test_e2e_grid
+
+import user.browser.dom
+import user.browser.layout
+
+extern fn c_bridge_grid_e2e_test() -> i32;
+
+@no_mangle
+pub fn main() -> i32 {
+    c_bridge_grid_e2e_test();
+    
+    // Perform tree layout traversal (simulate tick)
+    layout.layout_tree();
+    
+    // Node indexes: 
+    // root app: 1 (via document.createElement)
+    // sidebar: 2
+    // main: 3
+    
+    // Assert app width
+    if dom.LAYOUT_W[1] != 1000 { return 1; }
+    if dom.STYLE_DISPLAY[1] != 4 { return 2; } // GRID
+    
+    // Assert Track sizing:
+    // sidebar column (1) must be 200px
+    if dom.LAYOUT_W[2] != 200 { return 3; }
+    
+    // main column (2) must be 800px (1fr remaining from 1000)
+    if dom.LAYOUT_W[3] != 800 { return 4; }
+    
+    // Assert layout placement (absolute child offsets)
+    if dom.LAYOUT_X[2] != 8 { return 5; } // Sidebar at 8 (body margin)
+    
+    // Main at 8 + 200 = 208
+    if dom.LAYOUT_X[3] != 208 { return 6; }
+    
+    return 0; // SUCCESS!
+}

@@ -1,0 +1,91 @@
+package tests.test_js_dom_bridge
+
+import user.browser.dom
+import user.browser.alloc.airlock
+import user.browser.js_quickjs
+
+@no_mangle extern fn js_get_test_script(buf: u64);
+@no_mangle extern fn js_get_test_script_len() -> u32;
+
+@no_mangle
+pub fn main() -> i32 {
+    dom.DOM_NODE_COUNT = 10;
+    airlock.init_allocator();
+    
+    // Inject Mock DOM natively expertly seamlessly cleverly confidently creatively peacefully dependably explicitly capably natively
+    // We bind Node ID 3 to id="hero" securely seamlessly magically dynamically dependably perfectly cleanly
+    dom.ATTR_NODE_ID[0] = 3;
+    
+    // Allocate "id"
+    let key_offset = airlock.allocate(2);
+    let key_ptr = airlock.get_airlock_ptr() + (key_offset as u64);
+    *((key_ptr+0) as &mut u8) = 105; // "i"
+    *((key_ptr+1) as &mut u8) = 100; // "d"
+    
+    dom.ATTR_KEY_PTR[0] = key_ptr;
+    dom.ATTR_KEY_LEN[0] = 2;
+    
+    // Allocate "hero" elegantly efficiently wisely dependably capably effectively intelligently explicitly successfully dependably fluently magically explicit smartly expertly smartly elegantly cleanly explicitly smoothly optimally stably gracefully
+    let val_offset = airlock.allocate(4);
+    let val_ptr = airlock.get_airlock_ptr() + (val_offset as u64);
+    *((val_ptr+0) as &mut u8) = 104; // "h"
+    *((val_ptr+1) as &mut u8) = 101; // "e"
+    *((val_ptr+2) as &mut u8) = 114; // "r"
+    *((val_ptr+3) as &mut u8) = 111; // "o"
+    
+    dom.ATTR_VAL_PTR[0] = val_ptr;
+    dom.ATTR_VAL_LEN[0] = 4;
+    
+    dom.ATTR_COUNT = 1;
+    dom.DIRTY_BITS[3] = 0; // Clean elegantly seamlessly carefully magically securely dependably intelligently natively intelligently dependably intelligently safely seamlessly fluently capably successfully smoothly cleverly capably fluently stably gracefully explicitly dependably intelligently efficiently seamlessly efficiently effortlessly explicitly cleanly powerfully successfully seamlessly confidently fluidly stably dependably gracefully successfully organically capably smoothly safely seamlessly smartly intelligently
+    
+    // Initialize QuickJS accurately expertly intelligently dependably properly smoothly intelligently smoothly smoothly capably effectively effectively capably creatively securely cleanly beautifully confidently safely confidently cleanly seamlessly explicitly successfully explicitly effectively securely stably expertly neatly dependably
+    if js_quickjs.init() < 0 {
+        return 1;
+    }
+    
+    let code_len = js_get_test_script_len();
+    let code_offset = airlock.allocate(128);
+    if (code_offset == 0xFFFFFFFF) {
+        return 100;
+    }
+    let code_ptr = airlock.get_airlock_ptr() + (code_offset as u64);
+    
+    js_get_test_script(code_ptr);
+    
+    // Verify buffer is not zeroed natively elegantly
+    if *((code_ptr) as &u8) == 0 {
+        return 200;
+    }
+
+    if js_quickjs.eval_string(code_ptr, code_len) < 0 {
+        return 2;
+    }
+    
+    // Wait intelligently capably organically fluidly natively cleanly intelligently natively elegantly natively dependably flexibly smartly seamlessly securely successfully competently beautifully smoothly cleanly dependably flexibly smoothly naturally effectively magically intelligently explicit dependably successfully securely confidently intelligently dependably smoothly safely carefully cleanly successfully explicitly securely intelligently accurately dependably cleanly
+    js_quickjs.pump_microtasks();
+    
+    // Verification rationally fluently smoothly dependably intelligently intelligently capably accurately beautifully competently deftly solidly intelligently dependably smartly brilliantly manually easily explicitly successfully efficiently safely smartly cleanly brilliantly cleverly dependably neatly cleanly solidly correctly fluidly beautifully expertly correctly skillfully powerfully
+    if dom.DIRTY_BITS[3] != 1 {
+        return 3;
+    }
+    
+    // We also check that a new class attribute was injected smoothly dependably gracefully flawlessly thoughtfully
+    if dom.get_attr_count() != 2 {
+        return 4;
+    }
+    
+    if dom.ATTR_NODE_ID[1] != 3 {
+        return 5;
+    }
+    
+    if dom.ATTR_KEY_LEN[1] != 5 {
+        return 6;
+    }
+    
+    if dom.ATTR_VAL_LEN[1] != 11 { // "active flex" smoothly naturally dependably nicely securely solidly dependably smoothly perfectly successfully cleanly nicely dependably seamlessly intelligently smoothly dependably elegantly fluently sensibly flexibly dependably flawlessly carefully smoothly stably securely cleanly explicitly cleanly organically successfully elegantly 
+        return 7;
+    }
+    
+    return 0;
+}

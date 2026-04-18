@@ -1,0 +1,106 @@
+package tests.test_css_hierarchy
+
+import user.browser.dom
+import user.browser.css
+
+global S_CLASS: [u8; 5] = [0; 5];
+global S_GRANDPARENT: [u8; 11] = [0; 11];
+global S_PARENT: [u8; 6] = [0; 6];
+global S_CHILD: [u8; 5] = [0; 5];
+global CSS_1: [u8; 35] = [0; 35];
+global CSS_2: [u8; 23] = [0; 23];
+
+fn init_test_strings() {
+    S_CLASS[0] = 99; S_CLASS[1] = 108; S_CLASS[2] = 97; S_CLASS[3] = 115; S_CLASS[4] = 115;
+    
+    // "grandparent"
+    S_GRANDPARENT[0] = 103; S_GRANDPARENT[1] = 114; S_GRANDPARENT[2] = 97; S_GRANDPARENT[3] = 110; S_GRANDPARENT[4] = 100;
+    S_GRANDPARENT[5] = 112; S_GRANDPARENT[6] = 97; S_GRANDPARENT[7] = 114; S_GRANDPARENT[8] = 101; S_GRANDPARENT[9] = 110; S_GRANDPARENT[10] = 116;
+    
+    // "parent"
+    S_PARENT[0] = 112; S_PARENT[1] = 97; S_PARENT[2] = 114; S_PARENT[3] = 101; S_PARENT[4] = 110; S_PARENT[5] = 116;
+    
+    // "child"
+    S_CHILD[0] = 99; S_CHILD[1] = 104; S_CHILD[2] = 105; S_CHILD[3] = 108; S_CHILD[4] = 100;
+    
+    // ".grandparent .child { width: 400; }"
+    CSS_1[0] = 46; CSS_1[1] = 103; CSS_1[2] = 114; CSS_1[3] = 97; CSS_1[4] = 110; CSS_1[5] = 100; CSS_1[6] = 112; CSS_1[7] = 97;
+    CSS_1[8] = 114; CSS_1[9] = 101; CSS_1[10] = 110; CSS_1[11] = 116; CSS_1[12] = 32; CSS_1[13] = 46; CSS_1[14] = 99; CSS_1[15] = 104;
+    CSS_1[16] = 105; CSS_1[17] = 108; CSS_1[18] = 100; CSS_1[19] = 32; CSS_1[20] = 123; CSS_1[21] = 32; CSS_1[22] = 119; CSS_1[23] = 105;
+    CSS_1[24] = 100; CSS_1[25] = 116; CSS_1[26] = 104; CSS_1[27] = 58; CSS_1[28] = 32; CSS_1[29] = 52; CSS_1[30] = 48; CSS_1[31] = 48;
+    CSS_1[32] = 59; CSS_1[33] = 32; CSS_1[34] = 125;
+    
+    // ".parent { color: 123; }"
+    CSS_2[0] = 46; CSS_2[1] = 112; CSS_2[2] = 97; CSS_2[3] = 114; CSS_2[4] = 101; CSS_2[5] = 110; CSS_2[6] = 116; CSS_2[7] = 32;
+    CSS_2[8] = 123; CSS_2[9] = 32; CSS_2[10] = 99; CSS_2[11] = 111; CSS_2[12] = 108; CSS_2[13] = 111; CSS_2[14] = 114; CSS_2[15] = 58;
+    CSS_2[16] = 32; CSS_2[17] = 49; CSS_2[18] = 50; CSS_2[19] = 51; CSS_2[20] = 59; CSS_2[21] = 32; CSS_2[22] = 125;
+}
+
+
+@no_mangle
+pub fn main() -> i32 {
+    println("--- Epic 17: Hierarchical CSS & The True Cascade ---");
+    
+    init_test_strings();
+    dom.init_arrays();
+    
+    // Create the DOM nodes
+    // root (0)
+    
+    // grandparent (1)
+    let gp_id = dom.create_node(dom.TAG_DIV);
+    dom.append_child(0, gp_id);
+    dom.bind_attribute(gp_id, (&S_CLASS) as u64, 5, (&S_GRANDPARENT) as u64, 11);
+    
+    // parent (2)
+    let p_id = dom.create_node(dom.TAG_DIV);
+    dom.append_child(gp_id, p_id);
+    dom.bind_attribute(p_id, (&S_CLASS) as u64, 5, (&S_PARENT) as u64, 6);
+    
+    // child (3)
+    let c_id = dom.create_node(dom.TAG_SPAN);
+    dom.append_child(p_id, c_id);
+    dom.bind_attribute(c_id, (&S_CLASS) as u64, 5, (&S_CHILD) as u64, 5);
+    
+    // Parse CSS
+    css.parse_css_payload((&CSS_1) as u64, 35);
+    css.parse_css_payload((&CSS_2) as u64, 23);
+    
+    // Apply cascade
+    css.apply_cascade();
+    
+    // Apply inheritance pass
+    css.apply_inheritance();
+    
+    // Verify R2L Selector Matching (.grandparent .child { width: 400 })
+    let child_w = dom.STYLE_W[c_id as usize];
+    if child_w != 400 {
+        println(f"FAIL: Expected child width to be 400 (from right-to-left resolution), got {child_w}");
+        return -1;
+    }
+    println("PASS: Child matched descendant selector (.grandparent .child) and applied width 400");
+    
+    let parent_w = dom.STYLE_W[p_id as usize];
+    if parent_w == 400 {
+        println("FAIL: Parent should not match .grandparent .child");
+        return -2;
+    }
+    println("PASS: Parent did not erroneously inherit properties meant for child");
+    
+    // Verify Top-Down Inheritance (.parent { color: 123 })
+    let parent_color = dom.STYLE_COLOR[p_id as usize];
+    if parent_color != 123 {
+        println(f"FAIL: Expected parent to directly match and get color=123, got {parent_color}");
+        return -3;
+    }
+    println("PASS: Parent successfully applied flat direct color rule 123");
+    
+    let child_color = dom.STYLE_COLOR[c_id as usize];
+    if child_color != 123 {
+        println(f"FAIL: Expected child to inherit color=123 from parent, got {child_color}");
+        return -4;
+    }
+    println("PASS: Child successfully inherited font color 123 from parent via DOM tree");
+    
+    return 0;
+}

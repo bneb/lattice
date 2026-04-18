@@ -1,0 +1,43 @@
+import user.browser.dom
+
+@no_mangle
+pub fn sys_hit_test(x: f32, y: f32, root_node: u32) -> u32 {
+    let mut deepest_match = 0;
+    
+    // Reverse iterative DFS (to respect default DOM painting order)
+    let mut stack: [u32; 128] = [0; 128];
+    let mut stack_ptr: i32 = 0;
+    stack[stack_ptr as usize] = root_node;
+    
+    while stack_ptr >= 0 {
+        let current = stack[stack_ptr as usize];
+        stack_ptr = stack_ptr - 1;
+        
+        if current == 0 { continue; }
+        
+        // Skip nodes with pointer-events: none or display: none
+        if user::browser::dom::STYLE_POINTER_EVENTS[current as usize] == 0 || user::browser::dom::STYLE_DISPLAY[current as usize] == 0 {
+            continue;
+        }
+        
+        let node_x = user::browser::dom::LAYOUT_X[current as usize] as f32;
+        let node_y = user::browser::dom::LAYOUT_Y[current as usize] as f32;
+        let node_w = user::browser::dom::LAYOUT_W[current as usize] as f32;
+        let node_h = user::browser::dom::LAYOUT_H[current as usize] as f32;
+        
+        // Check intersection
+        if x >= node_x && x <= (node_x + node_w) && y >= node_y && y <= (node_y + node_h) {
+            deepest_match = current;
+            
+            // Push children onto the stack to find a deeper, more specific match
+            let mut child = user::browser::dom::DOM_NODE_FIRST_CHILD[current as usize];
+            while child != 0 {
+                stack_ptr = stack_ptr + 1;
+                stack[stack_ptr as usize] = (child & 0xFFFF) as u32;
+                child = user::browser::dom::DOM_NODE_NEXT_SIBLING[(child & 0xFFFF) as usize];
+            }
+        }
+    }
+    
+    return deepest_match;
+}

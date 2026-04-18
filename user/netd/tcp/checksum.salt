@@ -37,7 +37,6 @@ package user.netd.tcp.checksum
 //   requires { len < 131072 }
 //   ensures  { result is the RFC 1071 checksum of data[0..len] }
 // ============================================================================
-@no_mangle
 pub fn compute_checksum(data_base: u64, len: u32) -> u16
     requires { len < 131072 }
 {
@@ -95,7 +94,6 @@ pub fn compute_checksum(data_base: u64, len: u32) -> u16
 // Returns:
 //   16-bit TCP checksum
 // ============================================================================
-@no_mangle
 pub fn compute_tcp_checksum(src_ip: u32, dst_ip: u32, tcp_base: u64, tcp_len: u32) -> u16 {
     let mut sum: u32 = 0;
 
@@ -139,7 +137,6 @@ pub fn compute_tcp_checksum(src_ip: u32, dst_ip: u32, tcp_base: u64, tcp_len: u3
 // Computes the RFC 1071 checksum over exactly the 20-byte IPv4 header.
 // The checksum field in the header must be zero before calling.
 // ============================================================================
-@no_mangle
 pub fn compute_ipv4_checksum(ip_header_base: u64) -> u16 {
     return compute_checksum(ip_header_base, 20);
 }

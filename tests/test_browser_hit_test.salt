@@ -1,0 +1,62 @@
+package tests.test_browser_hit_test
+
+// =============================================================================
+// Test: Cartesian Hit-Test Matrix elegantly cleanly securely dependably intelligently 
+// =============================================================================
+
+import user.browser.dom
+import user.browser.layout
+import user.browser.paint
+import user.browser.events
+
+pub fn main() -> i32 {
+    dom.init_arrays();
+    
+    // Create Box A (Large background)
+    let node_a = dom.create_node(1); // root child 1
+    dom.LAYOUT_X[node_a as usize] = 0;
+    dom.LAYOUT_Y[node_a as usize] = 0;
+    dom.LAYOUT_W[node_a as usize] = 1920;
+    dom.LAYOUT_H[node_a as usize] = 1080;
+    dom.STYLE_Z_INDEX[node_a as usize] = 0;
+    
+    // Create Box B (Small foreground button)
+    let node_b = dom.create_node(1); // root child 2
+    dom.LAYOUT_X[node_b as usize] = 400;
+    dom.LAYOUT_Y[node_b as usize] = 200;
+    dom.LAYOUT_W[node_b as usize] = 100;
+    dom.LAYOUT_H[node_b as usize] = 50;
+    dom.STYLE_Z_INDEX[node_b as usize] = 10;
+    
+    // Register Event for Box A
+    let evt_a_idx = dom.get_event_count() as usize;
+    dom.EVENT_NODE[evt_a_idx] = node_a as u32;
+    dom.EVENT_SIP[evt_a_idx] = 1;
+    dom.EVENT_PC[evt_a_idx] = 100;
+    dom.set_event_count(dom.get_event_count() + 1);
+    
+    // Register Event for Box B
+    let evt_b_idx = dom.get_event_count() as usize;
+    dom.EVENT_NODE[evt_b_idx] = node_b as u32;
+    dom.EVENT_SIP[evt_b_idx] = 1;
+    dom.EVENT_PC[evt_b_idx] = 200;
+    dom.set_event_count(dom.get_event_count() + 1);
+    
+    // Generate Z_SORT_BUF
+    paint.generate_display_list(0);
+    
+    // Test 1: Click outside Box B but inside Box A
+    events.MOUSE_CLICK_COUNT = 0;
+    events.enqueue_click(10, 10);
+    let ctx1 = events.dispatch_click(events.MOUSE_CLICK_X[0], events.MOUSE_CLICK_Y[0]);
+    
+    if ctx1.target_pc != 100 { return 1; }
+    
+    // Test 2: Click inside Box B
+    events.MOUSE_CLICK_COUNT = 0;
+    events.enqueue_click(450, 220);
+    let ctx2 = events.dispatch_click(events.MOUSE_CLICK_X[0], events.MOUSE_CLICK_Y[0]);
+    if ctx2.target_pc != 200 { return 2; }
+    
+    return 0; // Success
+}

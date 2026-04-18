@@ -1,0 +1,119 @@
+package user.browser.cdm_main
+
+import user.browser.ipc_shared
+import user.browser.constants
+
+pub global CDM_SHM_PTR: u64 = 0;
+pub global CDM_DECRYPTION_ARENA: u64 = 0;
+
+extern fn sys_mmap(addr: u64, len: u64, prot: i64, flags: i64, fd: i64, offset: i64) -> u64;
+
+extern fn sys_atomic_load_u32(ptr: u64) -> u32;
+extern fn sys_atomic_store_u32(ptr: u64, val: u32);
+extern fn sys_memcpy(dst: u64, src: u64, len: u32);
+extern fn facet_os_shm_open(name_ptr: u64) -> i32;
+
+
+@no_mangle
+pub fn main(argc: i32, argv: &u64) {
+    println("[cdm_main] Booting isolated CDM context...");
+    let mut ipc_fd: i32 = -1;
+
+    // Parse --ipc-fd (Removed due to C-ABI pointer parsing segfault in MVP)
+    // We will rely purely on the fallback named SHM
+    
+    if ipc_fd == -1 { 
+        let shm_name: [u8; 15] = [47, 112, 114, 105, 115, 105, 109, 105, 95, 99, 100, 109, 95, 49, 0]; // "/prisimi_cdm_1"
+        ipc_fd = facet_os_shm_open((&shm_name) as u64);
+    }
+
+    
+    if ipc_fd == -1 { 
+        println("[cdm_main] FAILURE: No --ipc-fd and fallback shm_open failed.");
+        return; 
+    }
+    
+    println("[cdm_main] SUCCESS: Connected to DECRYPTION ARENA FD.");
+    
+    // Map 16MB Shared Region
+
+    CDM_SHM_PTR = sys_mmap(0, 16777216, 3, 1, ipc_fd as i64, 0); // PROT_READ|PROT_WRITE, MAP_SHARED
+
+    CDM_DECRYPTION_ARENA = CDM_SHM_PTR + 131072; // DECRYPTION_ARENA starts after IPC rings
+    
+    let m2r_header = CDM_SHM_PTR; // Main to CDM ring
+    let r2m_header = CDM_SHM_PTR + 65536; // CDM to Main ring
+    
+    while true {
+        let head = sys_atomic_load_u32(m2r_header);
+        let mut tail = sys_atomic_load_u32(m2r_header + 4);
+        
+        while tail != head {
+            let cmd_base = m2r_header + 8 + (tail as u64 * 1024); // ChildIPCCmd is large
+            let cmd_type = *((cmd_base as &u32));
+            let promise_id = *((cmd_base + 8) as &u64);
+            
+            if cmd_type == ipc_shared.CMD_CDM_INIT {
+                println("[cdm_main] Received CMD_CDM_INIT. Sending ClearKey support.");
+                // ClearKey always supported
+
+                send_response(r2m_header, ipc_shared.CMD_CDM_INIT, promise_id, 1);
+            } else if cmd_type == ipc_shared.CMD_CDM_LICENSE_REQUEST {
+                // Mock ClearKey Challenge
+                let challenge: [u8; 16] = [0xde, 0xad, 0xbe, 0xef, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+                send_response_with_payload(r2m_header, ipc_shared.CMD_CDM_LICENSE_REQUEST, promise_id, (&challenge) as u64, 16);
+            } else if cmd_type == ipc_shared.CMD_CDM_DECRYPT {
+                println("[cdm_main] Received CMD_CDM_DECRYPT! Initiating zero-copy decrypt...");
+                let session_id = *((cmd_base + 16) as &u32);
+
+                let offset = promise_id; 
+                let data_ptr = CDM_SHM_PTR + offset; // Reconstruct the pointer locally!
+                let data_len = *((cmd_base + 24) as &u32);
+
+                
+                // ClearKey AES-128 Invert (XOR 0xFF for simulation if not real AES)
+                // For Epic 75, we simulate decryption by bitwise NOT
+                let mut bit: u32 = 0;
+                while bit < data_len {
+                    let b = *((data_ptr + bit as u64) as &u8);
+                    *((data_ptr + bit as u64) as &mut u8) = b ^ 0xFF; 
+                    bit = bit + 1;
+                }
+                
+                // Signal completion via Atomic Sync at the chunk's prefix header
+                sys_atomic_store_u32(data_ptr - 4, 1); 
+            }
+            
+            tail = (tail + 1) % 64;
+            sys_atomic_store_u32(m2r_header + 4, tail);
+        }
+        
+        // Yield cpu
+        // sys_yield(); 
+    }
+}
+
+fn send_response(header: u64, cmd_type: u32, arg1: u64, arg2: u32) {
+    let head = sys_atomic_load_u32(header);
+    let tail = sys_atomic_load_u32(header + 4);
+    if ((head + 1) % 64) != tail {
+        let cmd_base = header + 8 + (head as u64 * 1024);
+        *((cmd_base as &mut u32)) = cmd_type;
+        *((cmd_base + 8) as &mut u64) = arg1;
+        *((cmd_base + 16) as &mut u32) = arg2;
+        sys_atomic_store_u32(header, (head + 1) % 64);
+    }
+}
+
+fn send_response_with_payload(header: u64, cmd_type: u32, arg1: u64, payload: u64, len: u32) {
+    let head = sys_atomic_load_u32(header);
+    let tail = sys_atomic_load_u32(header + 4);
+    if ((head + 1) % 64) != tail {
+        let cmd_base = header + 8 + (head as u64 * 1024);
+        *((cmd_base as &mut u32)) = cmd_type;
+        *((cmd_base + 8) as &mut u64) = arg1;
+        *((cmd_base + 20) as &mut u32) = len;
+        sys_memcpy(cmd_base + 24, payload, len);
+        sys_atomic_store_u32(header, (head + 1) % 64);
+    }
+}

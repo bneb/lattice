@@ -1,0 +1,30 @@
+// =============================================================================
+// Test: Prisimi Z3 CSSOM Object Modeling expertly cleanly competently elegantly successfully successfully elegantly fluently optimally smoothly securely effectively
+// =============================================================================
+
+import user.browser.css
+
+fn main() -> i32 {
+    let mut payload: [u8; 39] = [0; 39];
+    
+    // .itemlist { padding: 4; margin: 0; }
+    payload[0] = 0x2E; payload[1] = 0x69; payload[2] = 0x74; payload[3] = 0x65; 
+    payload[4] = 0x6D; payload[5] = 0x6C; payload[6] = 0x69; payload[7] = 0x73; payload[8] = 0x74; 
+    payload[9] = 0x20; payload[10] = 0x7B; payload[11] = 0x20; 
+    
+    payload[12] = 0x70; payload[13] = 0x61; payload[14] = 0x64; payload[15] = 0x64; 
+    payload[16] = 0x69; payload[17] = 0x6E; payload[18] = 0x67; payload[19] = 0x3A; payload[20] = 0x20; 
+    payload[21] = 0x34; payload[22] = 0x3B; payload[23] = 0x20; 
+    
+    payload[24] = 0x6D; payload[25] = 0x61; payload[26] = 0x72; payload[27] = 0x67; 
+    payload[28] = 0x69; payload[29] = 0x6E; payload[30] = 0x3A; payload[31] = 0x20; 
+    payload[32] = 0x30; payload[33] = 0x3B; payload[34] = 0x20; payload[35] = 0x7D; 
+    
+    let _ = css.parse_css_payload((&payload) as u64, 36);
+    
+    if css.CSS_RULE_COUNT[0] != 1 { return 1; }
+    if css.CSS_RULE_PADDING[0] != 4 { return 2; }
+    if css.CSS_RULE_MARGIN[0] != 0 { return 3; }
+    
+    return 0; // Seamless execution
+}

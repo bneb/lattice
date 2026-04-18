@@ -11,6 +11,7 @@
 # =============================================================================
 
 set -euo pipefail
+export PATH="/opt/homebrew/bin:$PATH"
 
 SCRIPT_DIR="${0:A:h}"
 PROJECT_ROOT="${SCRIPT_DIR:h}"
@@ -36,3 +37,38 @@ else
     cargo build
     echo "✅ Debug build complete: $SALT_FRONT/target/debug/salt-front"
 fi
+
+    for mod in \
+        "std/time.salt" \
+        "std/thread/thread.salt" \
+        "user/os/process.salt" \
+        "user/os/ipc_ring.salt" \
+        "user/os/worker_ring.salt" \
+        "user/netd/virtio_bridge.salt" \
+        "user/browser/alloc/airlock.salt" \
+        "user/browser/font.salt" \
+        "user/browser/css_utils.salt" \
+        "user/browser/css.salt" \
+        "user/browser/css_lexer.salt" \
+        "user/browser/http_lexer.salt" \
+        "user/browser/dom.salt" \
+        "user/browser/lexer.salt" \
+        "user/browser/html_serializer.salt" \
+        "user/browser/paint.salt" \
+        "user/browser/events.salt" \
+        "user/browser/layout.salt" \
+        "user/browser/timers.salt" \
+        "user/browser/js_quickjs.salt" \
+        "user/browser/websocket.salt" \
+        "user/browser/worker.salt" \
+        "user/browser/compositor.salt" \
+        "user/browser/chrome.salt" \
+        "user/browser/media.salt" \
+        "user/browser/main.salt" \
+        "user/browser/transpiler.salt" \
+        "user/browser/net.salt" \
+        "user/browser/storage.salt" \
+        "user/browser/custom_elements.salt" \
+        "user/browser/selectors.salt" ; do
+        :
+    done

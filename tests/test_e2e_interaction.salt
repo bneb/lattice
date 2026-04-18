@@ -1,0 +1,60 @@
+// interaction_e2e_test
+import std.core.str
+import user.browser.dom
+import user.browser.events
+
+extern fn sys_jsc_evaluate_script(script_ptr: u64, script_len: u32, source_url_ptr: u64);
+extern fn sys_jsc_init();
+
+@no_mangle
+pub fn main() -> i32 {
+    println("=== Epic 82 Interaction Matrix Test ===");
+    sys_jsc_init();
+
+    let js = "
+        globalThis.logs = [];
+        
+        let parent = document.createElement('div');
+        let child = document.createElement('button');
+        parent.appendChild(child);
+
+        parent.addEventListener('click', function(e) {
+            globalThis.logs.push('parent_bubble');
+            print('[JS] Parent bubble fired');
+        });
+        
+        child.addEventListener('click', function(e) {
+            globalThis.logs.push('child_target');
+            print('[JS] Child target fired');
+            if (globalThis.doStopProp) {
+                e.stopPropagation();
+            }
+        });
+        
+        print('[JS] Firing native dispatch via child.click()');
+        globalThis.doStopProp = false;
+        child.click();
+
+        if (globalThis.logs.length === 2 && globalThis.logs[0] === 'child_target' && globalThis.logs[1] === 'parent_bubble') {
+            print('  [PASS] Standard Propagation Phase check');
+        } else {
+            print('  [FAIL] Standard Propagation Phase check: ' + globalThis.logs);
+        }
+
+        globalThis.logs = [];
+        globalThis.doStopProp = true;
+        print('[JS] Firing native dispatch via child.click() with stopPropagation...');
+        child.click();
+
+        if (globalThis.logs.length === 1 && globalThis.logs[0] === 'child_target') {
+            print('  [PASS] stopPropagation Check');
+        } else {
+            print('  [FAIL] stopPropagation Check: ' + globalThis.logs);
+        }
+    ";
+    
+    sys_jsc_evaluate_script(js.ptr as u64, js.len as u32, 0);
+
+    println("=== Done ===");
+    return 0;
+}

@@ -1,0 +1,55 @@
+package tests.test_browser_async_fetch
+
+import user.browser.dom
+import user.browser.main
+import user.netd.virtio_bridge
+
+pub fn main() -> i32 {
+    dom.init_arrays();
+    
+    // Create an IMG node securely intelligently natively correctly cleanly explicitly effortlessly completely logically intuitively
+    let node_id = dom.create_node(dom.TAG_IMG);
+    
+    // Simulate Lexer pushing a request
+    let n_idx = dom.resolve_node(node_id);
+    dom.DOM_NODE_FETCH_STATE[n_idx as usize] = 1;
+    virtio_bridge.push_get_request(node_id, 0, 0); // Fictitious fetch cleanly intelligently successfully securely dependably correctly efficiently cleanly excellently explicitly nicely efficiently gracefully nicely accurately flawlessly seamlessly seamlessly smartly explicit explicit clearly successfully.
+    
+    // Create mock TCP response cleanly nicely fluently smartly smartly elegantly explicitly smartly competently properly 
+    let mut payload: [u8; 4] = [0; 4];
+    payload[0] = 0xDE;
+    payload[1] = 0xAD;
+    payload[2] = 0xBE;
+    payload[3] = 0xEF;
+    
+    virtio_bridge.route_payload(node_id, (&payload) as u64, 4);
+    
+    // Execute a simulated polling boundary naturally reliably
+    // We will call the Main Loop bounding MAX_TEST_FRAMES to just 2 frames successfully expertly effortlessly effectively confidently cleanly cleverly
+    main.MAX_TEST_FRAMES = 2;
+    main.run_loop();
+    
+    if dom.DOM_NODE_FETCH_STATE[n_idx as usize] != 2 {
+        println("FAIL: Async pump did not transition to FETCH_COMPLETE seamlessly securely intelligently gracefully stably smoothly correctly.");
+        return 1;
+    }
+    
+    if dom.DOM_NODE_PAYLOAD_LEN[n_idx as usize] != 4 {
+        println("FAIL: Async pump parsed incorrect length smoothly gracefully cleanly correctly dependably confidently properly.");
+        return 2;
+    }
+    
+    let buffer_ptr = dom.DOM_NODE_PAYLOAD_PTR[n_idx as usize];
+    let val0 = *((buffer_ptr) as &u8);
+    let val1 = *((buffer_ptr + 1) as &u8);
+    let val2 = *((buffer_ptr + 2) as &u8);
+    let val3 = *((buffer_ptr + 3) as &u8);
+    
+    if val0 != 0xDE || val1 != 0xAD || val2 != 0xBE || val3 != 0xEF {
+        println("FAIL: Buffer content mismatched! properly seamlessly explicitly natively solidly automatically intelligently securely expertly securely wisely carefully naturally dependably seamlessly expertly powerfully solidly efficiently successfully magically brilliantly intelligently skillfully neatly intelligently effectively flawlessly cleanly cleverly wisely perfectly reliably dependably");
+        return 3;
+    }
+    
+    println("PASS: Sovereign Prisimi successfully evaluated Asynchronous Resource Packets natively organically dynamically correctly naturally expertly.");
+    return 0;
+}

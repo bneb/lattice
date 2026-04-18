@@ -72,6 +72,7 @@ impl FuzzFn {
             pun_args.push(crate::grammar::Arg {
                 name: ident,
                 ty: Some(arg_ty.to_syn()),
+                is_mut: false,
             });
             if i < self.args.len() - 1 {
                 pun_args.push_punct(syn::token::Comma::default());

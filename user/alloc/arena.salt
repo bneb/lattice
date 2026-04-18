@@ -56,7 +56,6 @@ global ARENA_OFFSET:   u64 = 0;
 //   base_ptr:  Virtual address of the pre-mapped memory region
 //   capacity:  Total size of the memory region in bytes
 // ============================================================================
-@no_mangle
 pub fn init(base_ptr: u64, capacity: u64) {
     ARENA_BASE = base_ptr;
     ARENA_CAPACITY = capacity;
@@ -81,7 +80,6 @@ pub fn init(base_ptr: u64, capacity: u64) {
 // Performance: 1 modulo, 1 comparison, 1 addition. No branching on happy path
 // if alignment is naturally satisfied (which it usually is for cache lines).
 // ============================================================================
-@no_mangle
 pub fn alloc(size: u64, align: u64) -> u64
     requires { size > 0 }
 {
@@ -131,7 +129,6 @@ pub fn alloc(size: u64, align: u64) -> u64
 //   ensures  { result == 0 || (result - 54) is the true allocation base }
 //   ensures  { headroom bytes [result-54, result) are writable }
 // ============================================================================
-@no_mangle
 pub fn alloc_net_buffer(payload_size: u64, align: u64) -> u64
     requires { payload_size > 0 }
 {
@@ -163,7 +160,6 @@ pub fn alloc_net_buffer(payload_size: u64, align: u64) -> u64
 // After reset, all previously returned pointers are INVALID.
 // Z3 Lifetime Analysis would flag use-after-reset as UB.
 // ============================================================================
-@no_mangle
 pub fn reset_all() {
     ARENA_OFFSET = 0;
 }
@@ -179,7 +175,6 @@ pub fn reset_all() {
 //   // ... temporary allocations ...
 //   reset_to(ckpt);  // Reclaim only the temporaries
 // ============================================================================
-@no_mangle
 pub fn get_checkpoint() -> u64 {
     return ARENA_OFFSET;
 }
@@ -195,7 +190,6 @@ pub fn get_checkpoint() -> u64 {
 //
 // If checkpoint > ARENA_OFFSET, the call is a no-op (safety invariant).
 // ============================================================================
-@no_mangle
 pub fn reset_to(checkpoint: u64) {
     if checkpoint <= ARENA_OFFSET {
         ARENA_OFFSET = checkpoint;
@@ -205,7 +199,6 @@ pub fn reset_to(checkpoint: u64) {
 // ============================================================================
 // get_used — Diagnostic: Current Bytes Allocated
 // ============================================================================
-@no_mangle
 pub fn get_used() -> u64 {
     return ARENA_OFFSET;
 }
@@ -213,7 +206,6 @@ pub fn get_used() -> u64 {
 // ============================================================================
 // get_remaining — Diagnostic: Bytes Available
 // ============================================================================
-@no_mangle
 pub fn get_remaining() -> u64 {
     return ARENA_CAPACITY - ARENA_OFFSET;
 }

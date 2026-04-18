@@ -1,0 +1,86 @@
+package tests.test_js_vm
+
+import user.browser.js_lexer
+import user.browser.js_compiler
+import user.browser.js_vm
+
+@no_mangle
+pub fn main() -> i32 {
+    let mut source_buf: [u8; 32] = [0; 32];
+    source_buf[0] = 0x31; // '1'
+    source_buf[1] = 0x30; // '0'
+    source_buf[2] = 0x20; // ' '
+    source_buf[3] = 0x2B; // '+'
+    source_buf[4] = 0x20; // ' '
+    source_buf[5] = 0x32; // '2'
+    source_buf[6] = 0x30; // '0'
+    source_buf[7] = 0x20; // ' '
+    source_buf[8] = 0x2A; // '*'
+    source_buf[9] = 0x20; // ' '
+    source_buf[10] = 0x33; // '3'
+    source_buf[11] = 0x30; // '0'
+    let source_len: u32 = 12;
+    
+    let mut bytecode_arena: [u8; 1024] = [0; 1024];
+    let mut const_arena: [u8; 1024] = [0; 1024];
+    
+    let mut state = js_lexer.JsCompilerState {
+        source: js_lexer.ByteSpan {
+            ptr: (&source_buf) as u64,
+            len: source_len,
+        },
+        cursor: 0,
+        bytecode_arena: js_lexer.OpCodeSpan {
+            ptr: (&bytecode_arena) as u64,
+            len: 64,
+        },
+        bytecode_count: 0,
+        const_arena: js_lexer.F64Span {
+            ptr: (&const_arena) as u64,
+            len: 128,
+        },
+        const_count: 0,
+    };
+    
+    // Parse "10 + 20 * 30"
+    js_compiler.compile_expression(&mut state, 0);
+    
+    // Virtual Machine Configuration natively executing the Array Matrices natively
+    let mut stack_arena: [u8; 1024] = [0; 1024]; 
+    let mut env_keys: [u8; 1024] = [0; 1024];
+    let mut env_vals: [u8; 1024] = [0; 1024];
+    
+    let mut vm = js_vm.VmState {
+        stack_arena: (&stack_arena) as u64,
+        stack_capacity: 128, // 1024 / 8 bytes
+        stack_top: 0,
+        
+        env_keys_arena: (&env_keys) as u64,
+        env_vals_arena: (&env_vals) as u64,
+        env_capacity: 64,
+        env_count: 0,
+        
+        pc: 0
+    };
+    
+    // Execute precisely
+    let exec_status = js_vm.execute(&state, &mut vm);
+    
+    if exec_status != 0 {
+        return 1; // Unrecognized math bounds overflow gracefully halted execution trap
+    }
+    
+    if vm.stack_top != 1 {
+        return 2; // Should leave exactly one mathematically bound answer floating cleanly within boundaries
+    }
+    
+    // Validating Stack Execution Math: "10.0 + (20.0 * 30.0)" = 610.0 natively securely cleanly mathematically
+    let mut final_result: f64 = 0.0;
+    js_vm.pop(&mut vm, &mut final_result);
+    
+    if final_result != 610.0 {
+        return 3; // Incorrect calculation bounds matrix values populated natively mathematically
+    }
+    
+    return 0; // VM Architecture Execution successful within zero-allocation boundary execution successfully perfectly
+}

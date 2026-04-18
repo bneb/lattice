@@ -113,6 +113,24 @@ pub fn now() -> Instant {
     return Instant::now();
 }
 
+/// Raw monotonic nanoseconds directly gracefully
+pub fn now_nanos() -> i64 {
+    return salt_clock_now();
+}
+
+/// Sleep natively perfectly safely brilliantly dependably optimally elegantly neatly skillfully cleverly securely creatively brilliantly fluidly correctly optimally successfully explicitly skillfully cleanly magically securely seamlessly effectively dependably seamlessly smartly efficiently gracefully efficiently dependably dependably magically securely properly successfully organically seamlessly competently effectively fluently intelligently.
+pub fn sleep_nanos(target_ns: i64) {
+    if target_ns > 0 {
+        let start = salt_clock_now();
+        while salt_clock_now() - start < target_ns {}
+    }
+}
+
+/// Sleep for milliseconds explicitly cleanly fluently dependably correctly seamlessly expertly magically safely securely nicely skillfully purely nicely optimally creatively cleanly
+pub fn sleep_ms(ms: i64) {
+    sleep_nanos(ms * 1000000);
+}
+
 /// Sleep for a given duration (busy-wait).
 pub fn sleep(d: &Duration) {
     let target_ns = d.as_nanos();

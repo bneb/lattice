@@ -1,0 +1,65 @@
+package tests.test_e2e_range_mutator
+
+import user.browser.dom
+
+pub fn main() -> i32 {
+    dom.init_arrays();
+    
+    // 1. Setup Root and Parent
+    let body = dom.create_node(dom.TAG_BODY);
+    
+    // 2. Setup initial text node: "The Sovereign Engine" (Total 20 chars)
+    let arena_ptr = dom.dom_alloc_text(20);
+    let text_node_id = dom.create_text_node(arena_ptr, 20);
+    let text_node_idx = (text_node_id & 0xFFFF) as u32;
+    dom.append_child(body, text_node_id);
+    
+    // 3. Execute Mutation: ext_dom_wrap_text_range(node_id, 4, 13, TAG_B)
+    // Split logic: 
+    // "The " (chars 0-3, len 4) -> Prefix (Original Node)
+    // "Sovereign" (chars 4-12, len 9) -> Target (Nested in Bold Wrapper)
+    // " Engine" (chars 13-19, len 7) -> Suffix
+    
+    let wrapper_idx_res = dom.ext_dom_wrap_text_range(text_node_idx, 4, 13, dom.TAG_B as u8);
+    if wrapper_idx_res < 0 { return 1; }
+    
+    let wrapper_idx = wrapper_idx_res as u32;
+    let wrapper_id = (wrapper_idx as u64) | ((dom.DOM_NODE_GENERATION[wrapper_idx as usize] as u64) << 16);
+    
+    // 4. Assert Prefix (Original Node)
+    if dom.DOM_TEXT_LEN[text_node_idx as usize] != 4 { return 2; }
+    if dom.DOM_TEXT_PTR[text_node_idx as usize] != arena_ptr { return 3; }
+    
+    // 5. Assert Wrapper
+    if dom.DOM_NODE_TAG[wrapper_idx as usize] != dom.TAG_B { return 4; }
+    if dom.DOM_NODE_PREV_SIBLING[wrapper_idx as usize] != text_node_id { return 5; }
+    
+    let target_id = dom.DOM_NODE_FIRST_CHILD[wrapper_idx as usize];
+    let target_idx = (target_id & 0xFFFF) as u32;
+    if dom.DOM_TEXT_LEN[target_idx as usize] != 9 { return 6; }
+    if dom.DOM_TEXT_PTR[target_idx as usize] != (arena_ptr + 4) { return 7; }
+    
+    // 6. Assert Suffix
+    let suffix_id = dom.DOM_NODE_NEXT_SIBLING[wrapper_idx as usize];
+    let suffix_idx = (suffix_id & 0xFFFF) as u32;
+    if dom.DOM_TEXT_LEN[suffix_idx as usize] != 7 { return 8; }
+    if dom.DOM_TEXT_PTR[suffix_idx as usize] != (arena_ptr + 13) { return 9; }
+    
+    // 7. Assert Forward Linkage Prefix -> Wrapper -> Suffix -> null
+    if dom.DOM_NODE_NEXT_SIBLING[text_node_idx as usize] != wrapper_id { return 10; }
+    if dom.DOM_NODE_NEXT_SIBLING[wrapper_idx as usize] != suffix_id { return 11; }
+    if dom.DOM_NODE_NEXT_SIBLING[suffix_idx as usize] != 0 { return 12; }
+    
+    // 8. Assert Backward Linkage null <- Prefix <- Wrapper <- Suffix
+    if dom.DOM_NODE_PREV_SIBLING[suffix_idx as usize] != wrapper_id { return 13; }
+    if dom.DOM_NODE_PREV_SIBLING[wrapper_idx as usize] != text_node_id { return 14; }
+    if dom.DOM_NODE_PREV_SIBLING[text_node_idx as usize] != 0 { return 15; }
+
+    // 9. Assert Parent pointers
+    if dom.DOM_NODE_PARENT[text_node_idx as usize] != body { return 16; }
+    if dom.DOM_NODE_PARENT[wrapper_idx as usize] != body { return 17; }
+    if dom.DOM_NODE_PARENT[suffix_idx as usize] != body { return 18; }
+    if dom.DOM_NODE_PARENT[target_idx as usize] != wrapper_id { return 19; }
+
+    return 0; // Success
+}

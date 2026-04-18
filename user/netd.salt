@@ -184,7 +184,6 @@ fn handle_close(sender: u64, fd: u64, bindings: u64) {
 // This is the event loop that NetD runs forever.
 // It blocks on ipc_recv, dispatches commands, and replies.
 
-@no_mangle
 pub fn netd_main() {
     // Allocate binding table on stack (16 × 24 = 384 bytes)
     // Each binding is 3 u64s: port, fd, state

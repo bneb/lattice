@@ -54,12 +54,10 @@ extern fn r3_sys_write(fd: u64, buf: u64, len: u64);
 extern fn r3_sys_shutdown();
 extern fn r3_sys_yield();
 
-@no_mangle
 pub fn print_str(s: u64, len: u64) {
     r3_sys_write(1, s, len);
 }
 
-@no_mangle
 pub fn print_dec(val: u64) {
     // Basic hex printing
     let buf: [u8; 16] = [0 as u8; 16];
@@ -126,7 +124,6 @@ const NET_OPCODE_SEND:      u16 = 1;
 // It continuously polls the state machine until it reaches a terminal state,
 // yielding the CPU in between.
 // ============================================================================
-@no_mangle
 pub fn moe_init_trampoline(state_ptr: u64, bar_out: u64, poll_out: u64) {
     loop {
         // Run one state machine transition
@@ -158,7 +155,6 @@ pub fn moe_init_trampoline(state_ptr: u64, bar_out: u64, poll_out: u64) {
 // Writes to bar_out: [control (u64), payload (u64)]
 // Writes to poll_out: [status (u32), token (u32)]
 // ============================================================================
-@no_mangle
 pub fn execute_moe_pipeline(state: u64, bar_out: u64, poll_out: u64) {
     let phase: u32 = *((state + STATE_PHASE) as &u32);
 

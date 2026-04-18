@@ -1,0 +1,146 @@
+package tests.test_e2e_multiprocess
+
+import user.browser.ipc_shared
+import std.time
+
+@unmangled
+extern fn sys_log_net(msg_ptr: u64, msg_len: u32);
+@unmangled
+extern fn sys_ipc_read_r2m_command(target_cmd: u32) -> u32;
+@unmangled
+extern fn sys_ipc_push_command(cmd_type: u32, arg1: u64, arg2: u32);
+extern fn fork() -> i32;
+extern fn execl(path: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64);
+extern fn kill(pid: i32, sig: i32);
+extern fn waitpid(pid: i32, status_ptr: u64, options: i32) -> i32;
+extern fn ext_WIFSIGNALED(status: i32) -> i32;
+extern fn shm_open(name: u64, oflag: i32, mode: i32) -> i32;
+extern fn ftruncate(fd: i32, length: u64) -> i32;
+extern fn mmap(addr: u64, len: u64, prot: i32, flags: i32, fd: i32, offset: u64) -> u64;
+extern fn ext_ipc_init_shm(fd: i32) -> i32;
+
+// Explicit externs for unmangled Salt functions
+extern fn sys_net_pump_ingress();
+extern fn sys_ipc_get_bulk_ingress_ptr() -> u64;
+extern fn sys_ipc_send_r2m_command(cmd_type: u32, arg1: u64);
+extern fn sys_dom_check_dirty_flag() -> i32;
+extern fn sys_layout_solve_matrix();
+extern fn http_get_eof_reached() -> u8;
+extern fn sys_gpu_check_dirty_flag() -> i32;
+extern fn sys_metal_render_frame();
+extern fn sys_gpu_init_iosurface(w: i32, h: i32);
+
+pub fn tests_e2e_multiprocess_run() -> i32 {
+    let name_str: [u8; 11] = [47, 107, 101, 117, 111, 115, 95, 116, 97, 98, 0]; // "/keuos_tab"
+    
+    // shm_open equivalent
+    let O_CREAT = 512;
+    let O_RDWR = 2;
+    let shm_fd = shm_open((&name_str) as u64, O_CREAT | O_RDWR, 438); // 0666
+    if shm_fd < 0 { return 1; }
+    
+    ftruncate(shm_fd, 2097152);
+    let ptr = mmap(0, 2097152, 1 | 2 /* PROT_READ|PROT_WRITE */, 1 /* MAP_SHARED */, shm_fd, 0);
+    
+    // Zero out ring management headers (M2R at 0, R2M at 64KB)
+    if ptr != 0xFFFFFFFFFFFFFFFF {
+        // M2R: head(0), tail(4)
+        *(ptr as &mut u32) = 0;
+        *((ptr + 4) as &mut u32) = 0;
+        // R2M: head(64K), tail(64K+4)
+        *((ptr + 65536) as &mut u32) = 0;
+        *((ptr + 65540) as &mut u32) = 0;
+    }
+    
+    ext_ipc_init_shm(shm_fd);
+    
+    let pid = fork();
+    if pid == 0 {
+        // Child: simulating the renderer loop
+        ext_ipc_init_shm(shm_fd);
+        sys_gpu_init_iosurface(1920, 1080);
+        
+        let mut frames = 0;
+        while frames < 30 {
+            let msg: [u8; 12] = [91,67,72,73,76,68,93,32,84,105,99,10]; // "[CHILD] Tic\n"
+            sys_log_net((&msg) as u64, 12);
+            sys_net_pump_ingress();
+            
+            if sys_dom_check_dirty_flag() == 1 {
+                let m_dirty: [u8; 18] = [91,68,73,82,84,89,93,32,76,97,121,111,117,116,32,79,78,10]; // "[DIRTY] Layout ON\n"
+                sys_log_net((&m_dirty) as u64, 18);
+                sys_layout_solve_matrix();
+            }
+            
+            if sys_gpu_check_dirty_flag() == 1 {
+                let m_paint: [u8; 15] = [91,71,80,85,93,32,80,97,105,110,116,32,79,78,10]; // "[GPU] Paint ON\n"
+                sys_log_net((&m_paint) as u64, 15);
+                sys_metal_render_frame();
+            }
+            
+            std.time.sleep_ms(20);
+            frames = frames + 1;
+        }
+        return 0; 
+    } 
+    
+    // Parent
+    sys_ipc_push_command(2, 100, 100); // MOUSE_CLICK
+    
+    // Epic 99: Push a synthetic FETCH_RESPONSE (9) to trigger the renderer's lexer/layout
+    let bulk_ptr = sys_ipc_get_bulk_ingress_ptr();
+    if bulk_ptr != 0 {
+        // Pure HTML body — no HTTP headers needed (NSURLSession strips them)
+        // <html><body>Hello Lattice</body></html> (39 bytes)
+        let payload: [u8; 39] = [60,104,116,109,108,62,60,98,111,100,121,62,72,101,108,108,111,32,76,97,116,116,105,99,101,60,47,98,111,100,121,62,60,47,104,116,109,108,62];
+        let mut p: u32 = 0;
+        while p < 39 {
+            *((bulk_ptr + (p as u64)) as &mut u8) = payload[p as usize];
+            p = p + 1;
+        }
+        
+        // Wait for the initial IOSurface creation frame to clear
+        std.time.sleep_ms(200);
+        // Drain any stale R2M commands (e.g. initial IOSurface frame)
+        let mut drain = 0;
+        while drain < 5 {
+            sys_ipc_read_r2m_command(1 /* CMD_NEW_FRAME */);
+            drain = drain + 1;
+        }
+        
+        let mut nav_bit: u64 = 1;
+        nav_bit = nav_bit << 62;
+        let root_id: u64 = 1; 
+        sys_ipc_push_command(9 /* CMD_FETCH_RESPONSE */, nav_bit | root_id, 39);
+        
+        let mut wait_frames = 0;
+        let mut frame_received = 0;
+        while wait_frames < 40 {
+            let surface_id = sys_ipc_read_r2m_command(1 /* CMD_NEW_FRAME */);
+            if surface_id != 0 {
+                let m_frame: [u8; 25] = [91,77,65,73,78,93,32,70,114,97,109,101,32,82,101,99,101,105,118,101,100,33,32,73,68];
+                sys_log_net((&m_frame) as u64, 25);
+                frame_received = 1;
+                break;
+            }
+            std.time.sleep_ms(50);
+            wait_frames = wait_frames + 1;
+        }
+        
+        if frame_received == 0 {
+            return 3; // Timeout waiting for paint
+        }
+    }
+
+    // Wait for the child to spawn and render
+    std.time.sleep_ms(500);
+    
+    let mut status: i32 = 0;
+    let w_res = waitpid(pid, (&mut status) as u64, 1); // WNOHANG
+    
+    if w_res <= 0 { return 4; }
+    
+    if ext_WIFSIGNALED(status) == 0 { return 5; }
+    
+    return 0; // Success! Parent survives child SIGKILL perfectly
+}

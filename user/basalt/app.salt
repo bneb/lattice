@@ -57,7 +57,6 @@ const DATA_OFFSET:     u64 = 192;
 // ============================================================================
 // init — Cold Path: Wire the Application to NetD
 // ============================================================================
-@no_mangle
 pub fn init(rx_ring: u64, tx_ring: u64, arena_base: u64, arena_cap: u64) {
     APP_RX_RING = rx_ring;
     APP_TX_RING = tx_ring;
@@ -74,7 +73,6 @@ pub fn init(rx_ring: u64, tx_ring: u64, arena_base: u64, arena_cap: u64) {
 //
 // This function is the beating heart of Basalt v0.1.
 // ============================================================================
-@no_mangle
 pub fn poll() {
     // 1. Try to read a prompt pointer from the RX ring
     let prompt_ptr = try_read_rx();

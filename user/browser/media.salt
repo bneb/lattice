@@ -1,0 +1,133 @@
+package user.browser.media
+
+
+
+extern fn sys_hw_decoder_signal_data_ready();
+extern fn sys_memcpy(dst: u64, src: u64, len: u32);
+extern fn sys_ipc_send_r2m_command_with_payload(cmd_type: u32, arg1: u64, payload_ptr: u64, payload_len: u32);
+extern fn sys_sleep_ms(ms: u32);
+extern fn sys_atomic_load_u32(ptr: u64) -> u32;
+extern fn sys_atomic_store_u32(ptr: u64, val: u32);
+
+// Pointer to the 16MB POSIX shared DECRYPTION_ARENA mapped during init
+
+pub global CDM_DECRYPTION_ARENA_PTR: u64 = 0;
+
+@no_mangle
+pub fn ext_media_set_arena_ptr(ptr: u64) {
+    CDM_DECRYPTION_ARENA_PTR = ptr;
+}
+
+// 32MB Lock-Free Ring Buffer for encoded video chunks
+
+pub global MEDIA_RING_BUFFER: [u8; 33554432] = [0; 33554432]; 
+
+pub global MEDIA_HEAD: u32 = 0;
+pub global MEDIA_TAIL: u32 = 0;
+
+// Epic 73: The Audio Matrix — 4MB Ring Buffer for Float32 PCM Audio 
+// (Approx 23 seconds of mono 44.1kHz or 11.5s stereo)
+pub global AUDIO_RING_BUFFER: [f32; 1048576] = [0.0; 1048576];
+pub global AUDIO_HEAD: u32 = 0; // Read by CoreAudio hardware thread
+pub global AUDIO_TAIL: u32 = 0; // Written by QuickJS JS-FFI
+pub global AUDIO_SAMPLES_PLAYED: u64 = 0; // Total frames consumed for Master Clock
+
+@no_mangle
+pub fn ext_media_push_audio_pcm(data_ptr: u64, sample_count: u32) {
+    let mut i: u32 = 0;
+    let mut tail = AUDIO_TAIL;
+    while i < sample_count {
+        // Zero-copy ingestion from QuickJS ArrayBuffer memory
+        let sample = *((data_ptr + (i as u64 * 4)) as &f32);
+        AUDIO_RING_BUFFER[(tail % 1048576) as usize] = sample;
+        tail = tail + 1;
+        i = i + 1;
+    }
+    // Atomic advancement of the producer index
+    AUDIO_TAIL = tail;
+}
+
+@no_mangle
+pub fn ext_media_get_master_pts() -> f64 {
+    // Media Source Extensions (MSE) Slave Clock logic:
+    // Sync video frames to the total hardware samples consumed / sample rate.
+    // 44100.0 is the target hardware sample rate for the Prisimi Sovereign Browser.
+    return (AUDIO_SAMPLES_PLAYED as f64) / 44100.0;
+}
+
+@no_mangle
+pub fn ext_media_push_chunk(data_ptr: u64, data_len: u32) {
+    let mut i: u32 = 0;
+    let mut tail = MEDIA_TAIL;
+    let head = MEDIA_HEAD;
+    if head == 99999999 { return; }
+    while i < data_len {
+        let byte = *((data_ptr + (i as u64)) as &u8);
+        MEDIA_RING_BUFFER[(tail % 33554432) as usize] = byte;
+        tail = tail + 1;
+        i = i + 1;
+    }
+    MEDIA_TAIL = tail;
+    if data_len == 99999999 { MEDIA_HEAD = head; }
+    
+    // Signal the VideoToolbox background thread that new bytes are available
+    sys_hw_decoder_signal_data_ready();  
+}
+
+@no_mangle
+pub fn ext_media_push_encrypted_chunk(data_ptr: u64, data_len: u32, session_id: u32) {
+    if CDM_DECRYPTION_ARENA_PTR == 0 { return; }
+    
+    // 1. Copy encrypted chunk from JS memory into the shared DECRYPTION_ARENA
+    // The arena is immediately after the IPC rings (128KB offset)
+    let arena_ptr = CDM_DECRYPTION_ARENA_PTR + 131072;
+    sys_memcpy(arena_ptr, data_ptr, data_len);
+    
+    // 2. Command the CDM Process to decrypt it in-place
+    // This utilizes a synchronous IPC barrier
+    ext_ipc_send_cdm_decrypt_sync(session_id, arena_ptr, data_len);
+    
+    // 3. The memory at arena_ptr now contains CLEAR bytes.
+    // 4. Push the clear bytes to the standard MEDIA_RING_BUFFER for VideoToolbox
+    ext_media_push_chunk(arena_ptr, data_len);
+}
+
+fn ext_ipc_send_cdm_decrypt_sync(session_id: u32, arena_ptr: u64, data_len: u32) {
+    // Note: session_id is ignored in the MVP but used to select keys in CDM
+    let status_ptr = arena_ptr - 4; // status word before the chunk
+    *((status_ptr) as &mut u32) = 0; // Reset readiness before dispatch
+
+    // We send CMD_CDM_DECRYPT (14) directly into the CDM_DECRYPTION_ARENA_PTR (M2R ring)
+    let header = CDM_DECRYPTION_ARENA_PTR;
+    let head = sys_atomic_load_u32(header);
+    let tail = sys_atomic_load_u32(header + 4);
+    if ((head + 1) % 64) != tail {
+        let cmd_base = header + 8 + (head as u64 * 1024);
+        *((cmd_base as &mut u32)) = 14; 
+        
+        // Ensure ASLR safety across process boundaries
+        let offset = arena_ptr - CDM_DECRYPTION_ARENA_PTR;
+        *((cmd_base + 8) as &mut u64) = offset; // promise_id used for relative offset
+        
+        *((cmd_base + 16) as &mut u32) = session_id;
+        *((cmd_base + 24) as &mut u32) = data_len;
+        sys_atomic_store_u32(header, (head + 1) % 64);
+    }
+
+    
+    // Barrier: Wait for CDM to signal completion in the chunk prefix header
+
+    let mut spin_count: u32 = 0;
+    while true {
+        let status = *((status_ptr) as &u32);
+        if status == 1 { break; }
+        
+        spin_count = spin_count + 1;
+        if spin_count > 10000 {
+            sys_sleep_ms(1); // Yield OS thread to prevent thermal runaway
+            spin_count = 0;
+        }
+    }
+    // Reset status for next chunk
+    *((status_ptr) as &mut u32) = 0;
+}

@@ -1,0 +1,43 @@
+// Phase 1: The Custom Element Registry
+
+pub global CE_TAG_HASHES: [u32; 256] = [0; 256];
+pub global CE_CONSTRUCTOR_PTRS: [u64; 256] = [0; 256]; // JSObjectRef for the Class
+pub global CE_COUNT: u32 = 0;
+
+extern fn dom_get_tag(idx: u32) -> u32;
+extern fn dom_get_custom_tag_hash(idx: u32) -> u32;
+extern fn dom_get_node_upgraded(idx: u32) -> u8;
+extern fn dom_set_node_upgraded(idx: u32, upgraded: u8);
+extern fn dom_get_generation(idx: u32) -> u32;
+extern fn ext_jsc_invoke_ce_constructor(node_id: u64, constructor_ptr: u64);
+
+@no_mangle
+pub fn ext_ce_register(tag_hash: u32, constructor_ptr: u64) {
+    if CE_COUNT < 256 {
+        CE_TAG_HASHES[CE_COUNT] = tag_hash;
+        CE_CONSTRUCTOR_PTRS[CE_COUNT] = constructor_ptr;
+        CE_COUNT = CE_COUNT + 1;
+        
+        // TODO: Trigger DOM traversal to upgrade existing un-upgraded nodes
+        sys_ce_upgrade_dormant_nodes(tag_hash, constructor_ptr);
+    }
+}
+
+pub fn sys_ce_upgrade_dormant_nodes(tag_hash: u32, constructor_ptr: u64) {
+    let mut i: u32 = 0;
+    while i < 65536 {
+        let tag = dom_get_tag(i);
+        if tag == 96 { // TAG_CUSTOM_ELEMENT
+            let hash = dom_get_custom_tag_hash(i);
+            let upgraded = dom_get_node_upgraded(i);
+            if hash == tag_hash && upgraded == 0 {
+                // Upgrade it!
+                dom_set_node_upgraded(i, 1);
+                let gen = dom_get_generation(i);
+                let node_id = (i as u64) | ((gen as u64) << 16);
+                ext_jsc_invoke_ce_constructor(node_id, constructor_ptr);
+            }
+        }
+        i = i + 1;
+    }
+}

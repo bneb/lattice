@@ -1,0 +1,86 @@
+package tests.test_e2e_reconciliation
+
+import user.browser.dom
+
+extern fn c_bridge_reconciliation_e2e_test() -> i32;
+
+fn check_id(idx: u32, expected: u8) -> i32 {
+    let ptr = dom.DOM_ID_PTR[idx as usize];
+    let len = dom.DOM_ID_LEN[idx as usize];
+    if len != 1 { return 0; }
+    let val = *((ptr) as &u8);
+    if val == expected { return 1; }
+    return 0;
+}
+
+pub fn main() -> i32 {
+    let bridge_res = c_bridge_reconciliation_e2e_test();
+    if bridge_res != 0 { return 1; }
+    
+    // Find the 'list' ID node
+    let mut list_idx: u32 = 0;
+    let mut i: u32 = 1;
+    let limit: u32 = 1000;
+    while i < limit {
+        let ptr = dom.DOM_ID_PTR[i as usize];
+        let len = dom.DOM_ID_LEN[i as usize];
+        if len == 4 {
+            let b0 = *((ptr) as &u8);
+            let b1 = *((ptr + 1) as &u8);
+            let b2 = *((ptr + 2) as &u8);
+            let b3 = *((ptr + 3) as &u8);
+            // 'l' = 108, 'i' = 105, 's' = 115, 't' = 116
+            if b0 == 108 && b1 == 105 && b2 == 115 && b3 == 116 {
+                list_idx = i;
+                break;
+            }
+        }
+        i = i + 1;
+    }
+    
+    if list_idx == 0 { return 2; }
+    
+    // Check DIRTY_LAYOUT isolation
+    let dirty = dom.DIRTY_LAYOUT[list_idx as usize];
+    if dirty == 0 { return 3; }
+    
+    // Evaluate the list items!
+    // Expected order: B -> C
+    // 'B' = 98, 'C' = 99
+    let head_packed = dom.DOM_NODE_FIRST_CHILD[list_idx as usize];
+    let mut child1_idx = (head_packed & 0xFFFF) as u32;
+    
+    if check_id(child1_idx, 98) == 0 { return 4; }
+    
+    let child1_next = dom.DOM_NODE_NEXT_SIBLING[child1_idx as usize];
+    let mut child2_idx = (child1_next & 0xFFFF) as u32;
+    
+    if check_id(child2_idx, 99) == 0 { return 5; }
+    
+    let child2_next = dom.DOM_NODE_NEXT_SIBLING[child2_idx as usize];
+    if child2_next != 0 { return 6; } // Should be end
+    
+    // Find isolated node A
+    // 'A' = 97
+    let mut a_idx: u32 = 0;
+    i = 1;
+    while i < limit {
+        if check_id(i, 97) == 1 {
+            a_idx = i;
+            break;
+        }
+        i = i + 1;
+    }
+    
+    if a_idx == 0 { return 7; } // Node A must exist (not GC'd yet)
+    
+    let a_prev = dom.DOM_NODE_PREV_SIBLING[a_idx as usize];
+    let a_next = dom.DOM_NODE_NEXT_SIBLING[a_idx as usize];
+    let a_parent = dom.STYLE_PARENT[a_idx as usize];
+    
+    if a_prev != 0 { return 8; }
+    if a_next != 0 { return 9; }
+    if a_parent != 0 { return 10; }
+    
+    return 0; // PASS!
+}

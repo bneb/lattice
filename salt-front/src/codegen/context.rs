@@ -991,9 +991,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         }
         self.emission.initialized_globals.insert(name.to_string());
         let mlir_ty = ty.to_mlir_type_simple();
-        self.emission.decl_out.push_str(&format!("  llvm.mlir.global external @{}() : {} {{\n", name, mlir_ty));
-        self.emission.decl_out.push_str(&format!("    %0 = llvm.mlir.zero : {}\n", mlir_ty));
-        self.emission.decl_out.push_str(&format!("    llvm.return %0 : {}\n  }}\n", mlir_ty));
+        self.emission.decl_out.push_str(&format!("  llvm.mlir.global external @{}() : {}\n", name, mlir_ty));
         Ok(())
     }
 
@@ -4076,7 +4074,7 @@ impl<'a> CodegenContext<'a> {
         self.imports_mut().extend(file.imports.clone());
     }
 
-    pub fn scan_defs_from_file(&self, file: &SaltFile) -> Result<(), String> {
+    pub fn scan_defs_from_file(&self, file: &SaltFile, is_main_file: bool) -> Result<(), String> {
         // Fix: Update current_package to match the file being scanned.
         // This ensures mangle_fn_name (used by emit_global_def) uses the correct prefix.
         let saved_pkg = self.current_package.replace(file.package.clone());
@@ -4132,11 +4130,13 @@ impl<'a> CodegenContext<'a> {
                  self.globals_mut().insert(name, ty);
                  
                  // FIX: Emit global definition immediately
-                 let mut out = String::new();
-                 if let Err(e) = self.bridge_emit_global_def(&mut out, g) {
-                     return Err(format!("Error emitting global {}: {}", g.name, e));
-                 } else {
-                     self.decl_out_mut().push_str(&out);
+                 if is_main_file {
+                     let mut out = String::new();
+                     if let Err(e) = self.bridge_emit_global_def(&mut out, g) {
+                         return Err(format!("Error emitting global {}: {}", g.name, e));
+                     } else {
+                         self.decl_out_mut().push_str(&out);
+                     }
                  }
             } else if let Item::Fn(f) = item {
                 // ... (Fn logic mostly unchanged, except we don't register methods here)

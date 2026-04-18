@@ -1,112 +1,65 @@
-// ============================================================================
-// kernel/ipc/fastpath.salt
-// Fast-Path Register IPC — Sub-Microsecond Signaling
-// ============================================================================
-//
-// Ultra-low latency IPC for market tick notifications, AI tensor sync
-// triggers, and other payloads that fit in two register words.
-//
-// Bypasses memory entirely: the kernel writes directly into the
-// suspended receiver's CPU context via the HAL abstraction.
-// When the target is scheduled, it wakes with p1/p2 in its registers.
-// ============================================================================
-
 package kernel.ipc.fastpath
 
-// FFI bridges — bypass module mangling for modules with compilation issues
-extern fn validate_cap(cap_id: u64) -> bool;
-extern fn get_process_by_cap(cap_id: u64) -> u64;
-extern fn get_cpu_context(proc: u64) -> u64;
-extern fn inject_ipc_payload(ctx: u64, p1: u64, p2: u64);
-extern fn get_pid(proc: u64) -> u32;
-extern fn mark_runnable(task_id: u32);
-extern fn clear_runnable(task_id: u32);
-extern fn yield_to(target_id: u32);
-extern fn yield_to_next();
-extern fn current() -> u64;
-extern fn get_pid_u32(pid: u64) -> u32;
-extern fn set_state(pid: u64, state: u64);
+import kernel.core.capability
+import kernel.core.memory
+import kernel.core.pmm
+import kernel.drivers.serial
 
-// ============================================================================
-// sys_ipc_reg_send — Register-Level IPC (2x u64 payload)
-// ============================================================================
-// ABI:
-//   arg0 (rdi/x0) = target_cap_id — capability handle for the target process
-//   arg1 (rsi/x1) = payload_word_1
-//   arg2 (rdx/x2) = payload_word_2
-//
-// Returns:
-//   0  = success
-//   -1 = invalid capability
-//   -2 = target not found
-// ============================================================================
+pub const BORROW_STATE_IDLE: u8 = 0;
+pub const BORROW_STATE_KERNEL: u8 = 1;
+pub const BORROW_STATE_RETURNED: u8 = 2;
+
+// FastpathDescriptor flattened mapping model
+global FASTPATH_PHYS_PTR: [u64; 64]  = [0; 64];
+global FASTPATH_LEN: [u32; 64]       = [0; 64];
+global FASTPATH_OWNER: [u32; 64]     = [0; 64];
+global FASTPATH_STATE: [u8; 64]      = [0; 64];
+
 @no_mangle
-pub fn sys_ipc_reg_send(target_cap: u64, p1: u64, p2: u64) -> i64 {
-    // Validate the capability
-    let cap_valid = validate_cap(target_cap);
-    if !cap_valid {
-        return -1;
+pub fn fastpath_handoff_syscall(cap_id: u64, payload_offset: u32, payload_len: u32) {
+    // 1. Intercept native Ring 3 structure
+    let phys_addr = capability.sys_cap_unmap(cap_id);
+    if phys_addr == 0 {
+        serial.print("[Fastpath] FATAL: Invalid capability mapping vector.\n");
+        return;
     }
     
-    // Resolve the target process from the capability handle
-    let target = get_process_by_cap(target_cap);
-    if target as u64 == 0 {
-        return -2;
+    // 2. Lock structural boundary
+    FASTPATH_PHYS_PTR[(cap_id as u64)] = phys_addr;
+    FASTPATH_LEN[(cap_id as u64)] = payload_len;
+    FASTPATH_STATE[(cap_id as u64)] = BORROW_STATE_KERNEL;
+    
+    // RED TEAM MITIGATION: BOUNDS CHECK
+    // Prevent malicious NetD structs from supplying DMA overlays outside the 4KB boundaries!
+    if payload_offset + payload_len > 4096 {
+        serial.print("=================================================================\n");
+        serial.print("[Fastpath] SECURITY FAULT: Malicious Zero-Copy Memory Trapped!\n");
+        serial.print("[Fastpath] FATAL: Requested DMA topology exceeds bounded page table limit.\n");
+        serial.print("[Fastpath] Triggering native hardware garbage collection...\n");
+        serial.print("=================================================================\n");
+        pmm.free(phys_addr);
+        FASTPATH_STATE[(cap_id as u64)] = BORROW_STATE_IDLE;
+        return;
     }
     
-    // Inject the payload directly into the target's saved CPU context
-    // Architecture-agnostic: writes to RSI/RDX on x86, X1/X2 on ARM
-    let target_ctx = get_cpu_context(target);
-    inject_ipc_payload(target_ctx, p1, p2);
+    let kern_ptr = memory.phys_to_virt_raw(phys_addr) + (payload_offset as u64);
     
-    // Mark target as runnable in the O(1) bitmap
-    let target_id = get_pid(target);
-    mark_runnable(target_id);
+    // 3. Validation via Struct Intercept (proving Zero-Copy)
+    // Check Ethernet Header -> EtherType (Offset + 12)
+    let eth_type_hi = *((kern_ptr + 12) as &u8);
+    let eth_type_lo = *((kern_ptr + 13) as &u8);
     
-    // Optional: Immediately yield to target (fast-path synchronous switch)
-    // This minimizes latency for producer-consumer pairs pinned to the same core
-    yield_to(target_id);
+    if eth_type_hi == 0x08 && eth_type_lo == 0x00 {
+        serial.print("=================================================================\n");
+        serial.print("[Fastpath] SUCCESS! Captured ZERO-COPY IPv4 Ethernet Frame from Userland!\n");
+        serial.print("[Fastpath] EtherType: 0x0800 detected gracefully.\n");
+        serial.print("[Fastpath] Executing Fire-and-Forget PMM dump...\n");
+        serial.print("=================================================================\n");
+    } else {
+        serial.print("[Fastpath] WARNING: Malformed Ethernet topology detected during Fastpath dump.\n");
+    }
     
-    return 0;
-}
-
-// ============================================================================
-// sys_ipc_await — Tickless IPC Blocking (Syscall Vector 14)
-// ============================================================================
-// ABI:
-//   No arguments.
-//
-// Behavior:
-//   1. Removes the calling process from the O(1) runnable bitmap.
-//   2. Yields the core immediately to the next runnable task.
-//   3. When woken by sys_ipc_reg_send or handle_hardware_irq,
-//      the process resumes here with IPC payload already in RSI/RDX.
-//
-// Returns:
-//   0 = success (woken by IPC)
-//
-// This is the tickless foundation: zero CPU overhead while parked.
-// The kernel IRQ handler or sys_ipc_reg_send will inject the payload
-// directly into this process's saved CPU context and mark it runnable.
-// ============================================================================
-@no_mangle
-pub fn sys_ipc_await() -> i64 {
-    // 1. Get the current process ID
-    let current_pid = current();
-    let task_id = get_pid_u32(current_pid);
-    
-    // 2. Remove from the O(1) runnable bitmap — zero CPU cost while parked
-    clear_runnable(task_id);
-    
-    // 3. Mark the process as BLOCKED in the process table
-    set_state(current_pid, 3);  // 3 = PROC_BLOCKED
-    
-    // 4. Yield the core immediately to the next runnable task
-    //    When eventually woken by sys_ipc_reg_send or handle_hardware_irq,
-    //    execution resumes at the line below. The IPC payload will already
-    //    be in the saved RSI and RDX registers of this process's context.
-    yield_to_next();
-    
-    // Resumed — IPC payload is now in registers
-    return 0;
+    // 4. Return physical struct constraint immediately
+    pmm.free(phys_addr);
+    FASTPATH_STATE[(cap_id as u64)] = BORROW_STATE_IDLE;
 }

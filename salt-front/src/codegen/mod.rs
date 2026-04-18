@@ -172,10 +172,10 @@ use crate::z3_shim as z3;
     ctx.init_registry_definitions();
     for ns in &dep_order {
         if let Some(f) = loader.loaded_files.get(ns) {
-             ctx.scan_defs_from_file(f)?;
+             ctx.scan_defs_from_file(f, false)?;
         }
     }
-    ctx.scan_defs_from_file(file)?;
+    ctx.scan_defs_from_file(file, true)?;
     
     // =========================================================================
     // [SOVEREIGN V2.0] Call Graph Analysis Phase
@@ -1468,7 +1468,30 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
     ctx.alloca_out_mut().clear();
     let mut body_out = String::new();
     
-    // Parameters are now SSA by default, managed by LocalKind
+    // [MUT PARAM FIX] Promote mutated function parameters from SSA to alloca.
+    // When a parameter is declared `mut` or is assigned in the function body,
+    // it must be stored in memory (alloca) so that reads after assignment
+    // see the updated value. Without this, the SSA register holds the original
+    // argument value forever, causing while-loop conditions to never change.
+    {
+        let mutated = ctx.mutated_vars().clone();
+        let mut promotions = Vec::new();
+        for arg in &func.args {
+            let arg_name = arg.name.to_string();
+            if arg.is_mut || mutated.contains(&arg_name) {
+                if let Some((ty, LocalKind::SSA(ssa_name))) = local_vars.get(&arg_name).cloned() {
+                    promotions.push((arg_name, ty, ssa_name));
+                }
+            }
+        }
+        for (arg_name, ty, ssa_name) in promotions {
+            let mlir_ty = ctx.resolve_mlir_type(&ty)?;
+            let alloca_name = format!("%mut_arg_{}", arg_name);
+            ctx.emit_alloca(&mut body_out, &alloca_name, &mlir_ty);
+            body_out.push_str(&format!("    llvm.store {}, {} : {}, !llvm.ptr\n", ssa_name, alloca_name, mlir_ty));
+            local_vars.insert(arg_name, (ty, LocalKind::Ptr(alloca_name)));
+        }
+    }
 
     // [SOVEREIGN V5.0] Save ownership and malloc tracker state for parent function.
     // When emit_fn is called recursively (via hydrate_specialization), the child

@@ -1,0 +1,152 @@
+package tests.test_image_render
+
+import user.browser.dom
+import user.browser.paint
+import user.browser.compositor
+import user.browser.alloc.airlock
+
+extern fn facet_gpu_render_to_buffer(output: u64, rects: u64, width: i32, height: i32, rect_count: i32, scroll_y: f32);
+extern fn facet_gpu_upload_image(rgba: u64, width: i32, height: i32) -> i32;
+
+global TEST_IMAGE_RGBA: [u8; 64] = [0; 64];
+global OUTPUT_BUF: [u8; 160000] = [0; 160000];
+
+fn init_test_image() {
+    // 4x4 RGBA: rows 0-1 = red(255,0,0,255), rows 2-3 = green(0,255,0,255)
+    let mut i: u32 = 0;
+    while i < 32 {  // 2 rows * 4 pixels * 4 channels = 32 bytes
+        TEST_IMAGE_RGBA[(i) as usize] = 255;     // R
+        TEST_IMAGE_RGBA[(i + 1) as usize] = 0;   // G
+        TEST_IMAGE_RGBA[(i + 2) as usize] = 0;   // B
+        TEST_IMAGE_RGBA[(i + 3) as usize] = 255;  // A
+        i = i + 4;
+    }
+    while i < 64 {  // rows 2-3: green
+        TEST_IMAGE_RGBA[(i) as usize] = 0;       // R
+        TEST_IMAGE_RGBA[(i + 1) as usize] = 255;  // G
+        TEST_IMAGE_RGBA[(i + 2) as usize] = 0;   // B
+        TEST_IMAGE_RGBA[(i + 3) as usize] = 255;  // A
+        i = i + 4;
+    }
+}
+
+@no_mangle
+pub fn main() -> i32 {
+    println("--- Epic 16: Image Render Pipeline Test ---");
+    
+    airlock.init_arena();
+    dom.init_arrays();
+    init_test_image();
+    
+    // Init GPU pipeline with a dummy font atlas
+    let dummy_atlas_ptr = (&compositor.GPU_RECT_BUF) as u64;
+    compositor.load_font_atlas(dummy_atlas_ptr, 8, 8);
+    
+    // =========================================================================
+    // TEST 1: Upload raw RGBA pixels to GPU texture
+    // =========================================================================
+    let rgba_ptr = (&TEST_IMAGE_RGBA) as u64;
+    let slot = facet_gpu_upload_image(rgba_ptr, 4, 4);
+    if slot < 0 {
+        println(f"FAIL: upload_image returned {slot}");
+        return -1;
+    }
+    println(f"PASS: Test 1 - Image uploaded to GPU slot {slot}");
+    
+    // =========================================================================
+    // TEST 2: Render a type=2 bitmap primitive covering 100x100 at (50,50)
+    // =========================================================================
+    // Manually pack a single type=2 primitive into GPU_RECT_BUF
+    let buf_ptr = (&compositor.GPU_RECT_BUF) as u64;
+    // Primitive 0: background rect (dark gray)
+    *((buf_ptr) as &mut f32) = 0.0;        // x
+    *((buf_ptr + 4) as &mut f32) = 0.0;    // y
+    *((buf_ptr + 8) as &mut f32) = 200.0;  // w
+    *((buf_ptr + 12) as &mut f32) = 200.0; // h
+    *((buf_ptr + 16) as &mut f32) = 0.0;   // uv_x
+    *((buf_ptr + 20) as &mut f32) = 0.0;   // uv_y
+    *((buf_ptr + 24) as &mut f32) = 0.0;   // uv_w
+    *((buf_ptr + 28) as &mut f32) = 0.0;   // uv_h
+    let bg_color: u32 = (50 << 24) | (50 << 16) | (50 << 8) | 255;
+    *((buf_ptr + 32) as &mut u32) = bg_color;
+    *((buf_ptr + 36) as &mut u32) = 0;     // type=0 (rect)
+    *((buf_ptr + 40) as &mut u32) = 0;
+    *((buf_ptr + 44) as &mut u32) = 0;
+    
+    // Primitive 1: image rect at (50,50) 100x100
+    let p1 = buf_ptr + 48;
+    *((p1) as &mut f32) = 50.0;       // x
+    *((p1 + 4) as &mut f32) = 50.0;   // y
+    *((p1 + 8) as &mut f32) = 100.0;  // w
+    *((p1 + 12) as &mut f32) = 100.0; // h
+    *((p1 + 16) as &mut f32) = 0.0;   // uv_x
+    *((p1 + 20) as &mut f32) = 0.0;   // uv_y
+    *((p1 + 24) as &mut f32) = 1.0;   // uv_w (full texture)
+    *((p1 + 28) as &mut f32) = 1.0;   // uv_h (full texture)
+    let white_color: u32 = (255 << 24) | (255 << 16) | (255 << 8) | 255;
+    *((p1 + 32) as &mut u32) = white_color;
+    *((p1 + 36) as &mut u32) = 2;     // type=2 (BITMAP)
+    *((p1 + 40) as &mut u32) = 0;
+    *((p1 + 44) as &mut u32) = 0;
+    
+    let output_ptr = (&OUTPUT_BUF) as u64;
+    let rects_ptr = (&compositor.GPU_RECT_BUF) as u64;
+    
+    println("Dispatching offscreen bitmap render...");
+    facet_gpu_render_to_buffer(output_ptr, rects_ptr, 200, 200, 2, 0.0);
+    println("Offscreen render complete.");
+    
+    // =========================================================================
+    // Pixel Verification
+    // =========================================================================
+    // The 4x4 image is stretched to 100x100 at position (50,50).
+    // Top half of image (rows 0-1) = red, bottom half (rows 2-3) = green
+    // So pixel (75, 75) should be in the top half of the stretched image → RED
+    // BGRA format: bytes are [B, G, R, A]
+    let px_top_offset: u32 = ((75 * 200) + 75) * 4;
+    let top_b = OUTPUT_BUF[px_top_offset as usize];
+    let top_g = OUTPUT_BUF[(px_top_offset + 1) as usize];
+    let top_r = OUTPUT_BUF[(px_top_offset + 2) as usize];
+    println(f"Pixel (75,75) in image top: R={top_r} G={top_g} B={top_b}");
+    
+    if top_r < 200 {
+        println(f"FAIL: Expected red channel > 200 at (75,75), got {top_r}");
+        return -2;
+    }
+    if top_g > 50 {
+        println(f"FAIL: Expected green channel < 50 at (75,75), got {top_g}");
+        return -3;
+    }
+    println("PASS: Test 2 - Top half of bitmap is RED");
+    
+    // Pixel (75, 125) should be in the bottom half → GREEN
+    let px_bot_offset: u32 = ((125 * 200) + 75) * 4;
+    let bot_b = OUTPUT_BUF[px_bot_offset as usize];
+    let bot_g = OUTPUT_BUF[(px_bot_offset + 1) as usize];
+    let bot_r = OUTPUT_BUF[(px_bot_offset + 2) as usize];
+    println(f"Pixel (75,125) in image bottom: R={bot_r} G={bot_g} B={bot_b}");
+    
+    if bot_g < 200 {
+        println(f"FAIL: Expected green channel > 200 at (75,125), got {bot_g}");
+        return -4;
+    }
+    if bot_r > 50 {
+        println(f"FAIL: Expected red channel < 50 at (75,125), got {bot_r}");
+        return -5;
+    }
+    println("PASS: Test 3 - Bottom half of bitmap is GREEN");
+    
+    // Pixel (25, 25) is outside image rect → should be background gray
+    let px_bg_offset: u32 = ((25 * 200) + 25) * 4;
+    let bg_r = OUTPUT_BUF[(px_bg_offset + 2) as usize];
+    let bg_g = OUTPUT_BUF[(px_bg_offset + 1) as usize];
+    println(f"Pixel (25,25) background: R={bg_r} G={bg_g}");
+    if bg_r > 80 || bg_g > 80 {
+        println("FAIL: Background pixel should be dark gray");
+        return -6;
+    }
+    println("PASS: Test 4 - Background is dark gray");
+    
+    println("ALL IMAGE RENDER TESTS PASSED.");
+    return 0;
+}

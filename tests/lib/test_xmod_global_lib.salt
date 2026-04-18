@@ -1,0 +1,30 @@
+// =============================================================================
+// tests/lib/test_xmod_global_lib.salt
+// Library module that exports a pub global and accessor functions
+// =============================================================================
+// This is the "library" side of the cross-module global regression test.
+// It defines SHARED_FLAG as a pub global and provides getter/setter/ptr functions.
+//
+// BUG UNDER TEST: When module B imports this module, the Salt compiler re-emits
+// SHARED_FLAG as a separate `llvm.mlir.global external` in B's compilation unit.
+// The linker may not merge these, causing module A and module B to operate on
+// DIFFERENT copies of the same logical global variable.
+
+package tests.lib.test_xmod_global_lib
+
+pub global SHARED_FLAG: u32 = 0;
+
+@no_mangle
+pub fn xmod_set_flag(val: u32) {
+    SHARED_FLAG = val;
+}
+
+@no_mangle
+pub fn xmod_get_flag() -> u32 {
+    return SHARED_FLAG;
+}
+
+@no_mangle
+pub fn xmod_get_flag_ptr() -> u64 {
+    return (&SHARED_FLAG) as u64;
+}

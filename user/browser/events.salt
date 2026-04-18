@@ -1,0 +1,142 @@
+package user.browser.events
+
+import user.browser.dom
+import user.browser.paint
+import user.browser.compositor
+import user.browser.chrome
+import user.browser.net
+
+pub struct EventDispatchContext {
+    pub count: u32,
+    pub status: i32
+}
+
+pub global MOUSE_CLICK_X: [i32; 16] = [0; 16];
+pub global MOUSE_CLICK_Y: [i32; 16] = [0; 16];
+pub global MOUSE_CLICK_COUNT: u32 = 0;
+
+pub fn get_mouse_click_count() -> u32 { return MOUSE_CLICK_COUNT; }
+pub fn get_mouse_click_x(idx: u32) -> i32 {
+    if idx < 16 { return MOUSE_CLICK_X[idx as usize]; }
+    return 0;
+}
+pub fn get_mouse_click_y(idx: u32) -> i32 {
+    if idx < 16 { return MOUSE_CLICK_Y[idx as usize]; }
+    return 0;
+}
+pub fn clear_mouse_clicks() { MOUSE_CLICK_COUNT = 0; }
+
+pub global ACTIVE_FOCUS_NODE: u64 = 0;
+
+// Epic 82: The Interaction Matrix
+pub global EVT_NODE_IDS: [u32; 4096] = [0; 4096];
+pub global EVT_TYPE_HASHES: [u32; 4096] = [0; 4096];
+pub global EVT_CALLBACKS: [u64; 4096] = [0; 4096];
+pub global EVT_USE_CAPTURE: [u8; 4096] = [0; 4096];
+pub global EVT_COUNT: u32 = 0;
+
+@no_mangle
+pub fn ext_events_register(node_id: u32, type_hash: u32, callback_ptr: u64, use_capture: u8) {
+    if EVT_COUNT < 4096 {
+        EVT_NODE_IDS[EVT_COUNT as usize] = node_id;
+        EVT_TYPE_HASHES[EVT_COUNT as usize] = type_hash;
+        EVT_CALLBACKS[EVT_COUNT as usize] = callback_ptr;
+        EVT_USE_CAPTURE[EVT_COUNT as usize] = use_capture;
+        EVT_COUNT = EVT_COUNT + 1;
+    }
+}
+
+@no_mangle
+pub fn ext_events_remove(node_id: u32, type_hash: u32, callback_ptr: u64, use_capture: u8) {
+    let mut i: u32 = 0;
+    while i < EVT_COUNT {
+        if EVT_NODE_IDS[i as usize] == node_id && 
+           EVT_TYPE_HASHES[i as usize] == type_hash && 
+           EVT_CALLBACKS[i as usize] == callback_ptr && 
+           EVT_USE_CAPTURE[i as usize] == use_capture {
+            
+            // Mark as removed
+            EVT_NODE_IDS[i as usize] = 0xFFFFFFFF;
+        }
+        i = i + 1;
+    }
+}
+
+extern fn ext_jsc_call_event_callback(callback_ptr: u64, js_event: u64);
+extern fn ext_jsc_unprotect_callback(callback_ptr: u64);
+
+@no_mangle
+pub fn ext_events_free_node_callbacks(node_idx: u32) {
+    let mut i: u32 = 0;
+    while i < EVT_COUNT {
+        if EVT_NODE_IDS[i as usize] == node_idx {
+            ext_jsc_unprotect_callback(EVT_CALLBACKS[i as usize]);
+            EVT_NODE_IDS[i as usize] = 0xFFFFFFFF; // Mark removed
+        }
+        i = i + 1;
+    }
+}
+
+@no_mangle
+pub fn ext_events_invoke(node_idx: u32, type_hash: u32, js_event: u64, is_capture: u8) {
+    let mut i: u32 = 0;
+    while i < EVT_COUNT {
+        if EVT_NODE_IDS[i as usize] == node_idx && 
+           EVT_TYPE_HASHES[i as usize] == type_hash && 
+           EVT_USE_CAPTURE[i as usize] == is_capture {
+            
+            ext_jsc_call_event_callback(EVT_CALLBACKS[i as usize], js_event);
+        }
+        i = i + 1;
+    }
+}
+
+// Epic 50: Unified focus source (legacy integration)
+extern fn dom_get_active_focus() -> u32;
+
+@no_mangle
+pub fn get_active_focus_node() -> u64 {
+    return dom_get_active_focus() as u64;
+}
+
+@no_mangle
+pub fn enqueue_click(x: i32, y: i32) {
+    if MOUSE_CLICK_COUNT < 16 {
+        let idx = MOUSE_CLICK_COUNT as usize;
+        MOUSE_CLICK_X[idx] = x;
+        MOUSE_CLICK_Y[idx] = y;
+        MOUSE_CLICK_COUNT = MOUSE_CLICK_COUNT + 1;
+    }
+}
+
+extern fn drain_scroll_input() -> i32;
+extern fn js_engine_teardown();
+extern fn init_arrays();
+extern fn airlock_init_allocator();
+extern fn sys_jsc_init();
+extern fn create_node(tag: i32) -> u64;
+
+extern fn sys_on_mouse_click(x: i32, y: i32);
+extern fn sys_ipc_send_r2m_command_with_payload(cmd: u32, arg1: u64, ptr: u64, len: u32);
+
+@no_mangle
+pub fn sys_events_pump_os_queue() {
+    let current_scroll_y = drain_scroll_input();
+    let keyboard_count = compositor.drain_keyboard_input();
+
+    if keyboard_count > 0 {
+        // Obsolete UI text field polling ripped out per architecture.
+        // Hitting Enter natively dispatches EVENT_NAVIGATE into M2R queue perfectly.
+    }
+    
+    let m_count = get_mouse_click_count();
+    let mut i: u32 = 0;
+    while i < m_count {
+        let m_x = get_mouse_click_x(i);
+        let m_y = get_mouse_click_y(i);
+        let adjusted_y = m_y + current_scroll_y;
+        sys_on_mouse_click(m_x, adjusted_y);
+        i = i + 1;
+    }
+    clear_mouse_clicks();
+}

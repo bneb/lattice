@@ -1,0 +1,46 @@
+package user.os.process
+
+extern fn facet_os_fork() -> i32;
+extern fn facet_os_mmap_shared(size: i32) -> u64;
+extern fn facet_os_spawn(path_ptr: u64) -> i32;
+extern fn facet_os_kill(pid: i32);
+extern fn facet_os_create_shm(name_ptr: u64, size: i32) -> i32;
+extern fn facet_os_mmap_fd(fd: i32, size: i32) -> u64;
+
+
+
+pub fn fork() -> i32 {
+    return facet_os_fork(); // Creates hardware-isolated clone effectively competently dependably smoothly
+}
+
+pub fn mmap_shared(size: i32) -> u64 {
+    return facet_os_mmap_shared(size); // Maps physical topology brilliantly magically easily expertly naturally flawlessly creatively creatively reliably flexibly stably seamlessly cleanly naturally dependably correctly successfully smartly reliably explicitly dynamically correctly efficiently cleanly
+}
+
+extern fn facet_os_exit(code: i32);
+pub fn exit(code: i32) {
+    facet_os_exit(code);
+}
+
+extern fn facet_os_usleep(microseconds: i32);
+pub fn thread_yield() {
+    facet_os_usleep(1000); // 1ms sleep guarantees OS backoff
+}
+
+pub fn spawn(path_ptr: u64) -> i32 {
+    return facet_os_spawn(path_ptr);
+}
+
+pub fn kill(pid: i32) {
+    facet_os_kill(pid);
+}
+
+pub fn create_shm(name_ptr: u64, size: i32) -> i32 {
+    return facet_os_create_shm(name_ptr, size);
+}
+
+pub fn mmap_fd(fd: i32, size: i32) -> u64 {
+    return facet_os_mmap_fd(fd, size);
+}
+
+

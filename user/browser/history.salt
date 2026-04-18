@@ -1,0 +1,83 @@
+package user.browser.history
+
+// import user.browser.alloc.airlock removed
+
+extern fn ext_mac_update_omnibox(ptr: u64, len: u32);
+extern fn sys_js_dispatch_popstate(state_ptr: u64, state_len: u32);
+extern fn airlock_allocate(size: u32) -> u32;
+extern fn airlock_get_ptr() -> u64;
+
+pub global HIST_URL_PTR: [u64; 256] = [0; 256];
+pub global HIST_URL_LEN: [u32; 256] = [0; 256];
+pub global HIST_STATE_PTR: [u64; 256] = [0; 256];
+pub global HIST_STATE_LEN: [u32; 256] = [0; 256];
+pub global HIST_INDEX: u32 = 0;
+pub global HIST_COUNT: u32 = 0;
+
+@no_mangle
+pub fn ext_history_push(url_ptr: u64, url_len: u32, state_ptr: u64, state_len: u32) {
+    // If not first push, increment index
+    if HIST_COUNT > 0 {
+        HIST_INDEX = (HIST_INDEX + 1) % 256;
+    }
+    
+    let base_ptr = airlock_get_ptr();
+    
+    let perm_url_offset = airlock_allocate(url_len);
+    let perm_url_ptr = base_ptr + (perm_url_offset as u64);
+    let mut i: u32 = 0;
+    while i < url_len {
+        let b = *((url_ptr + (i as u64)) as &u8);
+        *((perm_url_ptr + (i as u64)) as &mut u8) = b;
+        i = i + 1;
+    }
+    
+    HIST_URL_PTR[HIST_INDEX as usize] = perm_url_ptr;
+    HIST_URL_LEN[HIST_INDEX as usize] = url_len;
+    
+    // Handle state
+    if state_len > 0 {
+        let perm_state_offset = airlock_allocate(state_len);
+        let perm_state_ptr = base_ptr + (perm_state_offset as u64);
+        let mut j: u32 = 0;
+        while j < state_len {
+            let b = *((state_ptr + (j as u64)) as &u8);
+            *((perm_state_ptr + (j as u64)) as &mut u8) = b;
+            j = j + 1;
+        }
+        HIST_STATE_PTR[HIST_INDEX as usize] = perm_state_ptr;
+        HIST_STATE_LEN[HIST_INDEX as usize] = state_len;
+    } else {
+        HIST_STATE_PTR[HIST_INDEX as usize] = 0;
+        HIST_STATE_LEN[HIST_INDEX as usize] = 0;
+    }
+    
+    if HIST_COUNT < 256 {
+        HIST_COUNT = HIST_COUNT + 1;
+    }
+    
+    // Update native Mac UI
+    ext_mac_update_omnibox(HIST_URL_PTR[HIST_INDEX as usize], HIST_URL_LEN[HIST_INDEX as usize]);
+}
+
+@no_mangle
+pub fn native_go_back() {
+    if HIST_COUNT == 0 { return; }
+    if HIST_INDEX == 0 { return; }
+    
+    // Decrement pointer natively
+    HIST_INDEX = HIST_INDEX - 1;
+    
+    // Update Native Mac UI
+    ext_mac_update_omnibox(HIST_URL_PTR[HIST_INDEX as usize], HIST_URL_LEN[HIST_INDEX as usize]);
+    
+    // Fire popstate event
+    let state_ptr = HIST_STATE_PTR[HIST_INDEX as usize];
+    let state_len = HIST_STATE_LEN[HIST_INDEX as usize];
+    
+    if state_len > 0 {
+        sys_js_dispatch_popstate(state_ptr, state_len);
+    } else {
+        sys_js_dispatch_popstate(0, 0);
+    }
+}

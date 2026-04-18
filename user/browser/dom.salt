@@ -1,0 +1,2637 @@
+package user.browser.dom
+
+import user.browser.alloc.airlock
+import user.browser.constants as c
+import user.browser.observers
+
+extern fn ext_jsc_trigger_connected_callback(node_id: u64);
+extern fn ext_jsc_trigger_disconnected_callback(node_id: u64);
+extern fn ext_events_free_node_callbacks(node_idx: u32);
+
+// ============================================================================
+// Data-Oriented DOM Representation
+// ============================================================================
+pub const MAX_NODES: u64 = 65536;
+
+pub const TAG_TEXT:  u32 = 0;
+pub const TAG_HTML:  u32 = 1;
+pub const TAG_HEAD:  u32 = 2;
+pub const TAG_BODY:  u32 = 3;
+pub const TAG_DIV:   u32 = 4;
+pub const TAG_SPAN:  u32 = 5;
+pub const TAG_P:     u32 = 6;
+pub const TAG_A:     u32 = 7;
+pub const TAG_IMG:   u32 = 8;
+pub const TAG_H1:    u32 = 9;
+pub const TAG_B:     u32 = 15;
+pub const TAG_I:     u32 = 16;
+pub const TAG_STRONG: u32 = 17;
+pub const TAG_INPUT: u32 = 18;
+pub const TAG_TEXTAREA: u32 = 19;
+pub const TAG_BUTTON: u32 = 20;
+pub const TAG_SHADOW_ROOT: u32 = 21;
+pub const TAG_VIDEO: u32 = 25;
+pub const TAG_IFRAME: u32 = 26;
+pub const TAG_CANVAS: u32 = 27;
+pub const TAG_CUSTOM_ELEMENT: u32 = 96;
+
+// Struct-of-Arrays (SoA) Layout
+pub global DOM_NODE_TAG:           [u32; 65536] = [0; 65536];
+pub global DOM_NODE_PARENT:        [u64; 65536] = [0; 65536];
+pub global DOM_NODE_FIRST_CHILD:   [u64; 65536] = [0; 65536];
+pub global DOM_SHADOW_ROOT:        [u64; 65536] = [0; 65536];
+pub global DOM_NODE_NEXT_SIBLING:  [u64; 65536] = [0; 65536];
+// Epic 54: The Reconciliation FFI (Doubly-Linked)
+pub global DOM_NODE_PREV_SIBLING:  [u64; 65536] = [0; 65536];
+pub global DOM_LAST_CHILD:         [u32; 65536] = [0; 65536];
+
+pub global DOM_TEXT_PTR:           [u64; 65536] = [0; 65536];
+pub global DOM_TEXT_LEN:           [u32; 65536] = [0; 65536];
+
+// Epic 37: The Contiguous Monolith (10MB String Memory Arena)
+pub global DOM_TEXT_ARENA:         [u8; 10485760] = [0; 10485760];
+pub global DOM_TEXT_CURSOR:        u32 = 0;
+pub global ACTIVE_CURSOR_INDEX:    u32 = 0;
+
+@no_mangle
+pub fn dom_alloc_text(len: u32) -> u64 {
+    let current = DOM_TEXT_CURSOR;
+    if current + len > 10485760 {
+        return 0; // Arena exhausted
+    }
+    DOM_TEXT_CURSOR = DOM_TEXT_CURSOR + len;
+    return (&DOM_TEXT_ARENA) as u64 + (current as u64);
+}
+
+pub const MAX_ATTRIBUTES: u32 = 262144;
+pub global ATTR_NODE_ID: [u64; 262144] = [0; 262144];
+pub global ATTR_KEY_PTR: [u64; 262144] = [0; 262144];
+pub global ATTR_KEY_LEN: [u32; 262144] = [0; 262144];
+pub global ATTR_VAL_PTR: [u64; 262144] = [0; 262144];
+pub global ATTR_VAL_LEN: [u32; 262144] = [0; 262144];
+
+// Epic 84: Custom Elements
+pub global DOM_CUSTOM_TAG_HASH: [u32; 65536] = [0; 65536];
+pub global DOM_CUSTOM_TAG_PTR: [u64; 65536] = [0; 65536];
+pub global DOM_CUSTOM_TAG_LEN: [u32; 65536] = [0; 65536];
+pub global DOM_NODE_UPGRADED: [u8; 65536] = [0; 65536];
+
+pub global ATTR_COUNT: u32 = 0;
+pub global DOM_NODE_COUNT: u64 = 1; 
+pub global DOM_FREE_LIST: [u64; 65536] = [0; 65536];
+pub global DOM_FREE_LIST_COUNT: u32 = 0;
+pub global DOM_NODE_GENERATION: [u32; 65536] = [0; 65536];
+
+// W3C Selection Matrix (Global Singleton)
+pub global SELECTION_ANCHOR_NODE:  u32 = 0;
+pub global SELECTION_ANCHOR_OFFSET: u32 = 0;
+pub global SELECTION_FOCUS_NODE:   u32 = 0;
+pub global SELECTION_FOCUS_OFFSET: u32 = 0;
+
+pub global DOM_NODE_CAN_EXECUTE: [u8; 65536] = [1; 65536]; 
+
+// Styling Matrix (SoA)
+pub global DIRTY_LAYOUT: [u8; 65536] = [1; 65536]; 
+pub global DIRTY_PAINT: [u8; 65536] = [1; 65536]; 
+pub global DIRTY_STYLE: [u8; 65536] = [0; 65536]; 
+pub global COMPOSITOR_DIRTY: [u8; 65536] = [0; 65536];
+
+@no_mangle
+pub fn dom_clear_dirty_flags() {
+    let mut i: u32 = 0;
+    while i < 65536 {
+        DIRTY_LAYOUT[i as usize] = 0;
+        DIRTY_PAINT[i as usize] = 0;
+        i = i + 1;
+    }
+}
+
+// Epic 48: Upward Propagation — bubbles DIRTY_LAYOUT from mutated node to root.
+
+@no_mangle
+pub fn invalidate_layout(mut node_id: u32) {
+    while node_id != 999999 {
+        let parent = STYLE_PARENT[node_id as usize];
+        
+        if DIRTY_LAYOUT[node_id as usize] == 1 { return; } 
+        DIRTY_LAYOUT[node_id as usize] = 1;
+        DIRTY_PAINT[node_id as usize] = 1; 
+        COMPOSITOR_DIRTY[node_id as usize] = 1;
+        
+        if parent == node_id { break; }
+        node_id = parent;
+    }
+}
+
+// Mark ALL nodes dirty — used after batch DOM creation (HTML lexer)
+@no_mangle
+pub fn invalidate_all_layout() {
+    let limit = get_dom_node_count();
+    let mut i: u64 = 1;
+    while i < limit {
+        DIRTY_LAYOUT[i as usize] = 1;
+        DIRTY_PAINT[i as usize] = 1;
+        COMPOSITOR_DIRTY[i as usize] = 1;
+        i = i + 1;
+    }
+}
+
+@no_mangle
+pub fn invalidate_paint(node_id: u32) {
+    if node_id != 0 {
+        DIRTY_PAINT[node_id as usize] = 1;
+    }
+}
+
+pub global STYLE_DISPLAY: [u8; 65536] = [1; 65536]; // Default BLOCK, 4 = GRID
+pub global STYLE_POINTER_EVENTS: [u8; 65536] = [1; 65536]; // Default 1 = auto, 0 = none
+pub global STYLE_FLEX_DIR: [u8; 65536] = [0; 65536];
+pub global STYLE_JUSTIFY_CONTENT: [u8; 65536] = [0; 65536];
+pub global STYLE_ALIGN_ITEMS: [u8; 65536] = [0; 65536];
+
+pub global STYLE_W: [i32; 65536] = [-1; 65536]; 
+pub global STYLE_H: [i32; 65536] = [-1; 65536];
+
+pub const UNIT_PX: u8 = 0;
+pub const UNIT_PERCENT: u8 = 1;
+
+pub global STYLE_W_UNIT: [u8; 65536] = [0; 65536];
+pub global STYLE_H_UNIT: [u8; 65536] = [0; 65536];
+pub global STYLE_FLEX_GROW: [i32; 65536] = [0; 65536];
+pub global STYLE_FLEX_BASIS: [i32; 65536] = [-1; 65536];
+
+// == Epic 59: The CSSOM Grid Matrix ==
+// 0 = PIXEL, 1 = FR, 2 = AUTO
+pub global STYLE_GRID_COL_TYPE: [u8; 1048576] = [0; 1048576]; // 65536 * 16
+pub global STYLE_GRID_COL_VAL: [f32; 1048576] = [0.0; 1048576];
+
+pub global STYLE_GRID_ROW_TYPE: [u8; 1048576] = [0; 1048576];
+pub global STYLE_GRID_ROW_VAL: [f32; 1048576] = [0.0; 1048576];
+
+pub global STYLE_GRID_COL_COUNT: [u8; 65536] = [0; 65536];
+pub global STYLE_GRID_ROW_COUNT: [u8; 65536] = [0; 65536];
+
+pub global STYLE_GRID_COL_START: [u8; 65536] = [0; 65536];
+pub global STYLE_GRID_ROW_START: [u8; 65536] = [0; 65536];
+
+pub global STYLE_BG_R: [u8; 65536] = [255; 65536];
+pub global STYLE_BG_G: [u8; 65536] = [255; 65536];
+pub global STYLE_BG_B: [u8; 65536] = [255; 65536];
+pub global STYLE_BG_A: [u8; 65536] = [0; 65536];
+
+pub global STYLE_COLOR_R: [u8; 65536] = [0; 65536];
+pub global STYLE_COLOR_G: [u8; 65536] = [0; 65536];
+pub global STYLE_COLOR_B: [u8; 65536] = [0; 65536];
+pub global STYLE_COLOR_A: [u8; 65536] = [255; 65536];
+
+pub global STYLE_FONT_SIZE: [f32; 65536] = [16.0; 65536];
+
+pub global STYLE_BORDER_RADIUS: [f32; 65536] = [0.0; 65536];
+pub global STYLE_BOX_SHADOW_R: [u8; 65536] = [0; 65536];
+pub global STYLE_BOX_SHADOW_G: [u8; 65536] = [0; 65536];
+pub global STYLE_BOX_SHADOW_B: [u8; 65536] = [0; 65536];
+pub global STYLE_BOX_SHADOW_A: [u8; 65536] = [0; 65536];
+pub global STYLE_BOX_SHADOW_OFFSET_X: [f32; 65536] = [0.0; 65536];
+pub global STYLE_BOX_SHADOW_OFFSET_Y: [f32; 65536] = [0.0; 65536];
+pub global STYLE_BOX_SHADOW_BLUR: [f32; 65536] = [0.0; 65536];
+pub global STYLE_BOX_SHADOW_SPREAD: [f32; 65536] = [0.0; 65536];
+
+
+pub global STYLE_Z_INDEX: [i32; 65536] = [0; 65536];
+
+// Epic 54: Positional Geometry
+// 0 = static, 1 = relative, 2 = absolute, 3 = fixed, 4 = sticky
+pub global STYLE_POSITION: [u8; 65536] = [0; 65536];
+// Coordinates (-1 means unset)
+pub global STYLE_TOP:      [i32; 65536] = [-1; 65536];
+pub global STYLE_RIGHT:    [i32; 65536] = [-1; 65536];
+pub global STYLE_BOTTOM:   [i32; 65536] = [-1; 65536];
+pub global STYLE_LEFT:     [i32; 65536] = [-1; 65536];
+
+// W3C Box Model: Padding (i32, pixels)
+pub global STYLE_PADDING_TOP:    [i32; 65536] = [0; 65536];
+pub global STYLE_PADDING_RIGHT:  [i32; 65536] = [0; 65536];
+pub global STYLE_PADDING_BOTTOM: [i32; 65536] = [0; 65536];
+pub global STYLE_PADDING_LEFT:   [i32; 65536] = [0; 65536];
+
+// Epic 56: The Overflow Matrix
+// 0 = VISIBLE, 1 = HIDDEN, 2 = SCROLL, 3 = AUTO
+pub global STYLE_OVERFLOW: [u8; 65536] = [0; 65536];
+pub global LAYOUT_SCROLL_X: [f32; 65536] = [0.0; 65536];
+pub global LAYOUT_SCROLL_Y: [f32; 65536] = [0.0; 65536];
+
+// Line-height override (f32, -1.0 = use font default)
+pub global STYLE_LINE_HEIGHT: [f32; 65536] = [-1.0; 65536];
+// Cascade Specificity Matrix — u16 per node per property (128KB each)
+// W3C weight: Tag=1, Class=10, ID=100, Inline=1000, !important=10000
+pub global STYLE_SPEC_DISPLAY:    [u16; 65536] = [0; 65536];
+pub global STYLE_SPEC_FLEX_DIR:   [u16; 65536] = [0; 65536];
+pub global STYLE_SPEC_FLEX_GROW:  [u16; 65536] = [0; 65536];
+pub global STYLE_SPEC_WIDTH:      [u16; 65536] = [0; 65536];
+pub global STYLE_SPEC_HEIGHT:     [u16; 65536] = [0; 65536];
+pub global STYLE_SPEC_BG:         [u16; 65536] = [0; 65536];
+pub global STYLE_SPEC_COLOR:      [u16; 65536] = [0; 65536];
+pub global STYLE_SPEC_TEXT_ALIGN: [u16; 65536] = [0; 65536];
+
+// Epic 54: Positional Geometry Specificity
+pub global STYLE_SPEC_POSITION:   [u16; 65536] = [0; 65536];
+pub global STYLE_SPEC_TOP:        [u16; 65536] = [0; 65536];
+pub global STYLE_SPEC_RIGHT:      [u16; 65536] = [0; 65536];
+pub global STYLE_SPEC_BOTTOM:     [u16; 65536] = [0; 65536];
+pub global STYLE_SPEC_LEFT:       [u16; 65536] = [0; 65536];
+pub global STYLE_SPEC_Z_INDEX:    [u16; 65536] = [0; 65536];
+
+
+// Compositor-only properties (bypass layout engine)
+pub global STYLE_TRANSFORM_X: [f32; 65536] = [0.0; 65536];
+pub global STYLE_TRANSFORM_Y: [f32; 65536] = [0.0; 65536];
+pub global STYLE_OPACITY:     [f32; 65536] = [1.0; 65536];
+pub global STYLE_TEXT_ALIGN: [u8; 65536] = [0; 65536]; // 0 = Left, 1 = Right, 2 = Center
+pub global STYLE_SPECIFICITY_TEXT_ALIGN: [u16; 65536] = [0; 65536];
+
+
+pub global STYLE_PARENT: [u32; 65536] = [999999; 65536];
+
+pub global STYLE_FIRST_CHILD: [u32; 65536] = [999999; 65536];
+pub global STYLE_NEXT_SIBLING: [u32; 65536] = [999999; 65536];
+
+// Layout Outputs
+pub global LAYOUT_X: [i32; 65536] = [0; 65536];
+pub global LAYOUT_Y: [i32; 65536] = [0; 65536];
+pub global LAYOUT_W: [i32; 65536] = [0; 65536];
+pub global LAYOUT_H: [i32; 65536] = [0; 65536];
+
+// Event Handling Matrix
+pub global EVENT_NODE: [u32; 1024] = [0; 1024];
+pub global EVENT_SIP:  [u32; 1024] = [0; 1024];
+pub global EVENT_PC:   [u32; 1024] = [0; 1024];
+pub global EVENT_COUNT: u32 = 0;
+
+@no_mangle
+pub fn bind_event_listener(node_idx: u32, sip_idx: u32, target_pc: u32) -> i32 {
+    let count = EVENT_COUNT;
+    if count >= 1024 { return -1; }
+    EVENT_NODE[count as usize] = node_idx;
+    EVENT_SIP[count as usize] = sip_idx;
+    EVENT_PC[count as usize] = target_pc;
+    EVENT_COUNT = count + 1;
+    return 0;
+}
+
+pub global DOM_NODE_FETCH_STATE: [u8; 65536] = [0; 65536];
+pub global DOM_NODE_TEXTURE_ID: [u32; 65536] = [0; 65536];
+pub global DOM_CANVAS_WIDTH: [u32; 65536] = [0; 65536];
+pub global DOM_CANVAS_HEIGHT: [u32; 65536] = [0; 65536];
+pub global CANVAS_SURFACE_IDS: [u32; 65536] = [0; 65536];
+pub global DOM_SELECTION_START: [u32; 65536] = [0; 65536];
+pub global DOM_SELECTION_END:   [u32; 65536] = [0; 65536];
+
+pub global EVICTION_QUEUE: [u32; 1024] = [0; 1024];
+pub global EVICTION_COUNT: u32 = 0;
+
+// Per-node string attributes (id, className)
+pub global DOM_ID_PTR:    [u64; 65536] = [0; 65536];
+pub global DOM_ID_LEN:    [u32; 65536] = [0; 65536];
+pub global DOM_CLASS_PTR: [u64; 65536] = [0; 65536];
+pub global DOM_CLASS_LEN: [u32; 65536] = [0; 65536];
+
+// Epic 61: Per-node external script src tracking
+pub global SCRIPT_SRC_PTR: [u64; 65536] = [0; 65536];
+pub global SCRIPT_SRC_LEN: [u32; 65536] = [0; 65536];
+
+// Epic 61: Script Fetch Queue — pairs fetch_ids with script execution intent
+// State: 0=EMPTY, 1=PENDING, 2=DONE
+pub global SCRIPT_FETCH_STATE:    [u8;  64] = [0; 64];
+pub global SCRIPT_FETCH_ID:       [u64; 64] = [0; 64];
+pub global SCRIPT_FETCH_SRC_PTR:  [u64; 64] = [0; 64]; // Pointer to the src URL (for filename in stack traces)
+pub global SCRIPT_FETCH_SRC_LEN:  [u32; 64] = [0; 64];
+pub global SCRIPT_FETCH_BUF_PTR:  [u64; 64] = [0; 64]; // Filled on completion
+pub global SCRIPT_FETCH_BUF_LEN:  [u32; 64] = [0; 64];
+pub global NEXT_SCRIPT_FETCH_ID:  u64 = 1;
+pub global PENDING_SCRIPT_COUNT:  u32 = 0; // Number of external scripts awaiting download
+
+// Epic 69: OOPIF Iframe Tracking (256 slots)
+pub global DOM_IFRAME_SRC_PTR:    [u64; 256] = [0; 256];
+pub global DOM_IFRAME_SRC_LEN:    [u32; 256] = [0; 256];
+pub global DOM_IFRAME_SURFACE_ID: [u32; 256] = [0; 256];
+pub global DOM_IFRAME_PID:        [i32; 256] = [0; 256];
+pub global DOM_IFRAME_NODE_ID:    [u32; 256] = [0; 256];
+pub global IFRAME_COUNT:          u32 = 0;
+
+// ============================================================================
+// Pointer Injection Matrix — Canonical Array Address Exports
+// These @no_mangle functions return the base pointer of each canonical SoA
+// array. Consumer modules (layout.salt, paint.salt) call these ONCE at boot
+// to store local pointer globals, bypassing Salt's module global duplication.
+// ============================================================================
+
+// Layout outputs (i32, stride 4)
+@no_mangle pub fn dom_ptr_LAYOUT_X() -> u64 { return (&LAYOUT_X) as u64; }
+@no_mangle pub fn dom_ptr_LAYOUT_Y() -> u64 { return (&LAYOUT_Y) as u64; }
+@no_mangle pub fn dom_ptr_LAYOUT_W() -> u64 { return (&LAYOUT_W) as u64; }
+@no_mangle pub fn dom_ptr_LAYOUT_H() -> u64 { return (&LAYOUT_H) as u64; }
+
+// Layout scroll (f32, stride 4)
+@no_mangle pub fn dom_ptr_LAYOUT_SCROLL_X() -> u64 { return (&LAYOUT_SCROLL_X) as u64; }
+@no_mangle pub fn dom_ptr_LAYOUT_SCROLL_Y() -> u64 { return (&LAYOUT_SCROLL_Y) as u64; }
+
+// DOM tree linkage (u64, stride 8)
+@no_mangle pub fn dom_ptr_DOM_NODE_NEXT_SIBLING() -> u64 { return (&DOM_NODE_NEXT_SIBLING) as u64; }
+@no_mangle pub fn dom_ptr_DOM_NODE_FIRST_CHILD() -> u64 { return (&DOM_NODE_FIRST_CHILD) as u64; }
+@no_mangle pub fn dom_ptr_DOM_NODE_PARENT() -> u64 { return (&DOM_NODE_PARENT) as u64; }
+@no_mangle pub fn dom_ptr_DOM_TEXT_PTR() -> u64 { return (&DOM_TEXT_PTR) as u64; }
+
+// DOM tree data (u32, stride 4)
+@no_mangle pub fn dom_ptr_DOM_NODE_TAG() -> u64 { return (&DOM_NODE_TAG) as u64; }
+@no_mangle pub fn dom_ptr_DOM_TEXT_LEN() -> u64 { return (&DOM_TEXT_LEN) as u64; }
+@no_mangle pub fn dom_ptr_DOM_NODE_GENERATION() -> u64 { return (&DOM_NODE_GENERATION) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_PARENT() -> u64 { return (&STYLE_PARENT) as u64; }
+
+// Style properties (u8, stride 1)
+@no_mangle pub fn dom_ptr_DIRTY_LAYOUT() -> u64 { return (&DIRTY_LAYOUT) as u64; }
+@no_mangle pub fn dom_ptr_DIRTY_STYLE() -> u64 { return (&DIRTY_STYLE) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_DISPLAY() -> u64 { return (&STYLE_DISPLAY) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_FLEX_DIR() -> u64 { return (&STYLE_FLEX_DIR) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_JUSTIFY_CONTENT() -> u64 { return (&STYLE_JUSTIFY_CONTENT) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_ALIGN_ITEMS() -> u64 { return (&STYLE_ALIGN_ITEMS) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_W_UNIT() -> u64 { return (&STYLE_W_UNIT) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_POSITION() -> u64 { return (&STYLE_POSITION) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_OVERFLOW() -> u64 { return (&STYLE_OVERFLOW) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_GRID_COL_COUNT() -> u64 { return (&STYLE_GRID_COL_COUNT) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_GRID_COL_START() -> u64 { return (&STYLE_GRID_COL_START) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_GRID_ROW_START() -> u64 { return (&STYLE_GRID_ROW_START) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_TEXT_ALIGN() -> u64 { return (&STYLE_TEXT_ALIGN) as u64; }
+
+// Style properties (i32, stride 4)
+@no_mangle pub fn dom_ptr_STYLE_W() -> u64 { return (&STYLE_W) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_H() -> u64 { return (&STYLE_H) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_FLEX_GROW() -> u64 { return (&STYLE_FLEX_GROW) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_FLEX_BASIS() -> u64 { return (&STYLE_FLEX_BASIS) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_PADDING_TOP() -> u64 { return (&STYLE_PADDING_TOP) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_PADDING_RIGHT() -> u64 { return (&STYLE_PADDING_RIGHT) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_PADDING_BOTTOM() -> u64 { return (&STYLE_PADDING_BOTTOM) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_PADDING_LEFT() -> u64 { return (&STYLE_PADDING_LEFT) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_TOP() -> u64 { return (&STYLE_TOP) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_LEFT() -> u64 { return (&STYLE_LEFT) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_Z_INDEX() -> u64 { return (&STYLE_Z_INDEX) as u64; }
+
+// Style properties (f32, stride 4)
+@no_mangle pub fn dom_ptr_STYLE_FONT_SIZE() -> u64 { return (&STYLE_FONT_SIZE) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_GRID_COL_VAL() -> u64 { return (&STYLE_GRID_COL_VAL) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_GRID_COL_TYPE() -> u64 { return (&STYLE_GRID_COL_TYPE) as u64; }
+
+// Paint-only arrays
+@no_mangle pub fn dom_ptr_STYLE_BG_R() -> u64 { return (&STYLE_BG_R) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BG_G() -> u64 { return (&STYLE_BG_G) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BG_B() -> u64 { return (&STYLE_BG_B) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BG_A() -> u64 { return (&STYLE_BG_A) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_COLOR_R() -> u64 { return (&STYLE_COLOR_R) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_COLOR_G() -> u64 { return (&STYLE_COLOR_G) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_COLOR_B() -> u64 { return (&STYLE_COLOR_B) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BORDER_RADIUS() -> u64 { return (&STYLE_BORDER_RADIUS) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_OPACITY() -> u64 { return (&STYLE_OPACITY) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_TRANSFORM_X() -> u64 { return (&STYLE_TRANSFORM_X) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_TRANSFORM_Y() -> u64 { return (&STYLE_TRANSFORM_Y) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_R() -> u64 { return (&STYLE_BOX_SHADOW_R) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_G() -> u64 { return (&STYLE_BOX_SHADOW_G) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_B() -> u64 { return (&STYLE_BOX_SHADOW_B) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_A() -> u64 { return (&STYLE_BOX_SHADOW_A) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_OFFSET_X() -> u64 { return (&STYLE_BOX_SHADOW_OFFSET_X) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_OFFSET_Y() -> u64 { return (&STYLE_BOX_SHADOW_OFFSET_Y) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_BLUR() -> u64 { return (&STYLE_BOX_SHADOW_BLUR) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_SPREAD() -> u64 { return (&STYLE_BOX_SHADOW_SPREAD) as u64; }
+@no_mangle pub fn dom_ptr_COMPOSITOR_DIRTY() -> u64 { return (&COMPOSITOR_DIRTY) as u64; }
+@no_mangle pub fn dom_ptr_DOM_NODE_FETCH_STATE() -> u64 { return (&DOM_NODE_FETCH_STATE) as u64; }
+@no_mangle pub fn dom_ptr_DOM_NODE_TEXTURE_ID() -> u64 { return (&DOM_NODE_TEXTURE_ID) as u64; }
+@no_mangle pub fn dom_ptr_DOM_IFRAME_SURFACE_ID() -> u64 { return (&DOM_IFRAME_SURFACE_ID) as u64; }
+@no_mangle pub fn dom_ptr_DOM_SELECTION_START() -> u64 { return (&DOM_SELECTION_START) as u64; }
+@no_mangle pub fn dom_ptr_DOM_SELECTION_END() -> u64 { return (&DOM_SELECTION_END) as u64; }
+@no_mangle pub fn dom_ptr_EVICTION_QUEUE() -> u64 { return (&EVICTION_QUEUE) as u64; }
+@no_mangle pub fn dom_ptr_CANVAS_SURFACE_IDS() -> u64 { return (&CANVAS_SURFACE_IDS) as u64; }
+@no_mangle pub fn dom_ptr_EVICTION_COUNT() -> u64 { return (&EVICTION_COUNT) as u64; }
+@no_mangle pub fn dom_ptr_DOM_NODE_COUNT() -> u64 { return (&DOM_NODE_COUNT) as u64; }
+
+@no_mangle
+pub fn invalidate_style_subtree(node_id: u32) {
+    if node_id == 0 { return; }
+    DIRTY_STYLE[node_id as usize] = 1;
+    
+    let mut child = DOM_NODE_FIRST_CHILD[node_id as usize];
+    while child != 0 {
+        invalidate_style_subtree(child as u32);
+        child = DOM_NODE_NEXT_SIBLING[child as usize];
+    }
+}
+
+@no_mangle
+pub fn ext_dom_set_class_name(node_id: u32, str_ptr: u64, str_len: u32) {
+    if node_id >= 65536 { return; }
+    
+    DOM_CLASS_PTR[node_id as usize] = str_ptr;
+    DOM_CLASS_LEN[node_id as usize] = str_len;
+    
+    // Mark this node and its entire subtree as dirty for style recalculation
+    invalidate_style_subtree(node_id);
+}
+
+@no_mangle
+pub fn js_set_grid_template_columns(node_id: u64, str_ptr: u64, str_len: u32) {
+    let u_idx = resolve_node(node_id);
+    if u_idx == 0xFFFFFFFF { return; }
+    
+    let u_id = u_idx;
+    let mut i: u32 = 0;
+    let mut col_idx: u32 = 0;
+    
+    while i < str_len && col_idx < 16 {
+        while i < str_len {
+            let ch = *((str_ptr + i as u64) as &u8);
+            if ch != 32 { break; }
+            i = i + 1;
+        }
+        if i >= str_len { break; }
+        
+        let mut is_fr = false;
+        let mut is_px = false;
+        let mut is_auto = false;
+        
+        // Very basic string scan for tests
+        let head_char = *((str_ptr + i as u64) as &u8);
+        if head_char == 97 { // 'a' (auto)
+            is_auto = true;
+            while i < str_len {
+                let ch = *((str_ptr + i as u64) as &u8);
+                if ch == 32 { break; }
+                i = i + 1;
+            }
+        } else {
+            let mut num = 0;
+            while i < str_len {
+                let ch = *((str_ptr + i as u64) as &u8);
+                if ch >= 48 && ch <= 57 {
+                    num = num * 10 + (ch - 48) as u32;
+                    i = i + 1;
+                } else {
+                    break;
+                }
+            }
+            
+            while i < str_len {
+                let ch = *((str_ptr + i as u64) as &u8);
+                if ch == 32 { break; } // Next space
+                if ch == 112 { is_px = true; } // 'p'
+                if ch == 102 { is_fr = true; } // 'f'
+                i = i + 1;
+            }
+            
+            let offset = u_id * 16 + col_idx;
+            if is_px {
+                STYLE_GRID_COL_TYPE[offset as usize] = 0;
+                STYLE_GRID_COL_VAL[offset as usize] = num as f32;
+                col_idx = col_idx + 1;
+            } else if is_fr {
+                STYLE_GRID_COL_TYPE[offset as usize] = 1;
+                STYLE_GRID_COL_VAL[offset as usize] = num as f32;
+                col_idx = col_idx + 1;
+            }
+        }
+    }
+    STYLE_GRID_COL_COUNT[u_id as usize] = col_idx as u8;
+    invalidate_layout(u_id);
+}
+
+@no_mangle
+pub fn js_set_grid_column_start(node_id: u64, start: u32) {
+    let u_id = resolve_node(node_id);
+    if u_id == 0xFFFFFFFF { return; }
+    STYLE_GRID_COL_START[u_id as usize] = start as u8;
+    
+    let p = STYLE_PARENT[u_id as usize];
+    if p != 0 && p != 999999 {
+        invalidate_layout(p);
+    }
+}
+
+// Script Execution Queue
+pub global SCRIPT_QUEUE_PTR: [u64; 1024] = [0; 1024];
+pub global SCRIPT_QUEUE_LEN: [u32; 1024] = [0; 1024];
+pub global SCRIPT_QUEUE_TAIL: u32 = 0;
+pub global SCRIPT_QUEUE_HEAD: u32 = 0;
+
+@no_mangle
+pub fn js_queue_script(ptr: u64, len: u32) {
+    let next_head = (SCRIPT_QUEUE_HEAD + 1) % 1024;
+    if next_head != SCRIPT_QUEUE_TAIL {
+        SCRIPT_QUEUE_PTR[SCRIPT_QUEUE_HEAD as usize] = ptr;
+        SCRIPT_QUEUE_LEN[SCRIPT_QUEUE_HEAD as usize] = len;
+        SCRIPT_QUEUE_HEAD = next_head;
+    }
+}
+
+@no_mangle
+pub fn js_dequeue_script_ptr() -> u64 {
+    if SCRIPT_QUEUE_HEAD == SCRIPT_QUEUE_TAIL { return 0; }
+    return SCRIPT_QUEUE_PTR[SCRIPT_QUEUE_TAIL as usize];
+}
+
+@no_mangle
+pub fn js_dequeue_script_len() -> u32 {
+    if SCRIPT_QUEUE_HEAD == SCRIPT_QUEUE_TAIL { return 0; }
+    let len = SCRIPT_QUEUE_LEN[SCRIPT_QUEUE_TAIL as usize];
+    SCRIPT_QUEUE_TAIL = (SCRIPT_QUEUE_TAIL + 1) % 1024;
+    return len;
+}
+
+// Epic 61: Script src setters/getters
+@no_mangle
+pub fn dom_set_script_src(node_idx: u32, src_ptr: u64, src_len: u32) {
+    if node_idx >= 65536 { return; }
+    SCRIPT_SRC_PTR[node_idx as usize] = src_ptr;
+    SCRIPT_SRC_LEN[node_idx as usize] = src_len;
+}
+
+@no_mangle
+pub fn dom_get_script_src_ptr(idx: u32) -> u64 {
+    if idx >= 65536 { return 0; }
+    return SCRIPT_SRC_PTR[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_script_src_len(idx: u32) -> u32 {
+    if idx >= 65536 { return 0; }
+    return SCRIPT_SRC_LEN[idx as usize];
+}
+
+@no_mangle
+pub fn dom_set_custom_tag(node_idx: u32, hash: u32, ptr: u64, len: u32) {
+    if node_idx >= 65536 { return; }
+    DOM_CUSTOM_TAG_HASH[node_idx as usize] = hash;
+    DOM_CUSTOM_TAG_PTR[node_idx as usize] = ptr;
+    DOM_CUSTOM_TAG_LEN[node_idx as usize] = len;
+}
+
+@no_mangle
+pub fn dom_get_custom_tag_ptr(idx: u32) -> u64 {
+    if idx >= 65536 { return 0; }
+    return DOM_CUSTOM_TAG_PTR[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_custom_tag_len(idx: u32) -> u32 {
+    if idx >= 65536 { return 0; }
+    return DOM_CUSTOM_TAG_LEN[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_custom_tag_hash(idx: u32) -> u32 {
+    if idx >= 65536 { return 0; }
+    return DOM_CUSTOM_TAG_HASH[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_node_upgraded(idx: u32) -> u8 {
+    if idx >= 65536 { return 0; }
+    return DOM_NODE_UPGRADED[idx as usize];
+}
+
+@no_mangle
+pub fn dom_set_node_upgraded(idx: u32, upgraded: u8) {
+    if idx >= 65536 { return; }
+    DOM_NODE_UPGRADED[idx as usize] = upgraded;
+}
+
+// Epic 69: OOPIF Iframe SoA Management
+// Registers a DOM node as an iframe, returns slot index (or 0xFFFFFFFF if full)
+@no_mangle
+pub fn dom_register_iframe(node_idx: u32) -> u32 {
+    let count = IFRAME_COUNT;
+    if count >= 256 { return 0xFFFFFFFF; }
+    DOM_IFRAME_NODE_ID[count as usize] = node_idx;
+    DOM_IFRAME_SRC_PTR[count as usize] = 0;
+    DOM_IFRAME_SRC_LEN[count as usize] = 0;
+    DOM_IFRAME_SURFACE_ID[count as usize] = 0;
+    DOM_IFRAME_PID[count as usize] = 0;
+    IFRAME_COUNT = count + 1;
+    return count;
+}
+
+@no_mangle
+pub fn dom_set_iframe_src(iframe_slot: u32, src_ptr: u64, src_len: u32) {
+    if iframe_slot >= 256 { return; }
+    DOM_IFRAME_SRC_PTR[iframe_slot as usize] = src_ptr;
+    DOM_IFRAME_SRC_LEN[iframe_slot as usize] = src_len;
+}
+
+@no_mangle
+pub fn dom_get_iframe_src_ptr(iframe_slot: u32) -> u64 {
+    if iframe_slot >= 256 { return 0; }
+    return DOM_IFRAME_SRC_PTR[iframe_slot as usize];
+}
+
+@no_mangle
+pub fn dom_get_iframe_src_len(iframe_slot: u32) -> u32 {
+    if iframe_slot >= 256 { return 0; }
+    return DOM_IFRAME_SRC_LEN[iframe_slot as usize];
+}
+
+// Lookup iframe slot by DOM node index
+@no_mangle
+pub fn dom_find_iframe_slot(node_idx: u32) -> u32 {
+    let mut i: u32 = 0;
+    while i < IFRAME_COUNT {
+        if DOM_IFRAME_NODE_ID[i as usize] == node_idx {
+            return i;
+        }
+        i = i + 1;
+    }
+    return 0xFFFFFFFF;
+}
+
+// Epic 61: Queue a network fetch for an external <script src="...">
+// Registers in the SoA queue and returns the fetch_id for the caller to dispatch.
+// Returns 0 if queue is full.
+@no_mangle
+pub fn queue_script_fetch(src_ptr: u64, src_len: u32) -> u64 {
+    let mut i: u32 = 0;
+    while i < 64 {
+        if SCRIPT_FETCH_STATE[i as usize] == 0 {
+            let fetch_id = NEXT_SCRIPT_FETCH_ID;
+            NEXT_SCRIPT_FETCH_ID = NEXT_SCRIPT_FETCH_ID + 1;
+            
+            SCRIPT_FETCH_STATE[i as usize] = 1; // PENDING
+            SCRIPT_FETCH_ID[i as usize] = fetch_id;
+            SCRIPT_FETCH_SRC_PTR[i as usize] = src_ptr;
+            SCRIPT_FETCH_SRC_LEN[i as usize] = src_len;
+            SCRIPT_FETCH_BUF_PTR[i as usize] = 0;
+            SCRIPT_FETCH_BUF_LEN[i as usize] = 0;
+            PENDING_SCRIPT_COUNT = PENDING_SCRIPT_COUNT + 1;
+            
+            return fetch_id;
+        }
+        i = i + 1;
+    }
+    return 0; // Queue full
+}
+
+// Epic 61: Called when a script fetch response arrives
+@no_mangle
+pub fn complete_script_fetch(fetch_id: u64, buf_ptr: u64, buf_len: u32) -> i32 {
+    let mut i: u32 = 0;
+    while i < 64 {
+        if SCRIPT_FETCH_STATE[i as usize] == 1 && SCRIPT_FETCH_ID[i as usize] == fetch_id {
+            SCRIPT_FETCH_STATE[i as usize] = 2; // DONE
+            SCRIPT_FETCH_BUF_PTR[i as usize] = buf_ptr;
+            SCRIPT_FETCH_BUF_LEN[i as usize] = buf_len;
+            return i as i32;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+// Epic 61: Get the count of scripts still waiting for download
+@no_mangle
+pub fn get_pending_script_count() -> u32 {
+    return PENDING_SCRIPT_COUNT;
+}
+
+@no_mangle
+pub fn init_arrays() {
+    DOM_NODE_COUNT = 1;
+    DOM_FREE_LIST_COUNT = 0;
+    ATTR_COUNT = 0;
+    EVICTION_COUNT = 0;
+    EVENT_COUNT = 0;
+    PENDING_SCRIPT_COUNT = 0;
+    NEXT_SCRIPT_FETCH_ID = 1;
+    IFRAME_COUNT = 0;
+    
+    // Reset iframe tracking
+    let mut ifr: u32 = 0;
+    while ifr < 256 {
+        DOM_IFRAME_SRC_PTR[ifr as usize] = 0;
+        DOM_IFRAME_SRC_LEN[ifr as usize] = 0;
+        DOM_IFRAME_SURFACE_ID[ifr as usize] = 0;
+        DOM_IFRAME_PID[ifr as usize] = 0;
+        DOM_IFRAME_NODE_ID[ifr as usize] = 0;
+        ifr = ifr + 1;
+    }
+    
+    // Reset script fetch queue
+    let mut sf: u32 = 0;
+    while sf < 64 {
+        SCRIPT_FETCH_STATE[sf as usize] = 0;
+        SCRIPT_FETCH_ID[sf as usize] = 0;
+        SCRIPT_FETCH_SRC_PTR[sf as usize] = 0;
+        SCRIPT_FETCH_SRC_LEN[sf as usize] = 0;
+        SCRIPT_FETCH_BUF_PTR[sf as usize] = 0;
+        SCRIPT_FETCH_BUF_LEN[sf as usize] = 0;
+        sf = sf + 1;
+    }
+    
+    let mut i: u32 = 0;
+    while i < 65536 {
+        let u_i = i as usize;
+        DOM_CUSTOM_TAG_HASH[u_i] = 0;
+        DOM_CUSTOM_TAG_PTR[u_i] = 0;
+        DOM_CUSTOM_TAG_LEN[u_i] = 0;
+        DOM_NODE_UPGRADED[u_i] = 0;
+        STYLE_W[u_i] = -1;
+        STYLE_H[u_i] = -1;
+        STYLE_FLEX_BASIS[u_i] = -1;
+        STYLE_GRID_COL_COUNT[u_i] = 0;
+        STYLE_GRID_ROW_COUNT[u_i] = 0;
+        STYLE_GRID_COL_START[u_i] = 0;
+        STYLE_GRID_ROW_START[u_i] = 0;
+        STYLE_FIRST_CHILD[u_i] = 999999;
+        STYLE_NEXT_SIBLING[u_i] = 999999;
+        STYLE_PARENT[u_i] = 999999;
+        invalidate_layout(u_i);
+        COMPOSITOR_DIRTY[u_i] = 0;
+        STYLE_BG_A[u_i] = 0;
+        STYLE_COLOR_R[u_i] = 0;
+        STYLE_COLOR_G[u_i] = 0;
+        STYLE_COLOR_B[u_i] = 0;
+        STYLE_COLOR_A[u_i] = 255;
+        STYLE_FONT_SIZE[u_i] = 16.0;
+        STYLE_BORDER_RADIUS[u_i] = 0.0;
+        STYLE_BOX_SHADOW_R[u_i] = 0;
+        STYLE_BOX_SHADOW_G[u_i] = 0;
+        STYLE_BOX_SHADOW_B[u_i] = 0;
+        STYLE_BOX_SHADOW_A[u_i] = 0;
+        STYLE_BOX_SHADOW_OFFSET_X[u_i] = 0.0;
+        STYLE_BOX_SHADOW_OFFSET_Y[u_i] = 0.0;
+        STYLE_BOX_SHADOW_BLUR[u_i] = 0.0;
+        STYLE_BOX_SHADOW_SPREAD[u_i] = 0.0;
+        STYLE_TRANSFORM_X[u_i] = 0.0;
+        STYLE_TRANSFORM_Y[u_i] = 0.0;
+        STYLE_OPACITY[u_i] = 1.0;
+        DOM_CANVAS_WIDTH[u_i] = 0;
+        DOM_CANVAS_HEIGHT[u_i] = 0;
+        i = i + 1;
+    }
+}
+
+@no_mangle
+pub fn resolve_node(id: u64) -> u32 {
+    if id == 0 { return 0; }
+    let idx = (id & 0xFFFF) as u32;
+    if idx >= 65536 { return 0xFFFFFFFF; }
+    let expected_gen = (id >> 16) as u32;
+    if DOM_NODE_GENERATION[idx as usize] != expected_gen { return 0xFFFFFFFF; }
+    return idx;
+}
+
+// ============================================================================
+// Epic 49: Data Sanitization — zeroes ALL style/layout/DOM data for a slot
+// ============================================================================
+pub fn sanitize_node_slot(u_idx: usize) {
+    // DOM Tree Linkage
+    DOM_NODE_TAG[u_idx] = 0;
+    DOM_NODE_PARENT[u_idx] = 0;
+    DOM_NODE_FIRST_CHILD[u_idx] = 0;
+    DOM_SHADOW_ROOT[u_idx] = 0;
+    DOM_NODE_NEXT_SIBLING[u_idx] = 0;
+    DOM_LAST_CHILD[u_idx] = 0;
+    DOM_TEXT_PTR[u_idx] = 0;
+    DOM_TEXT_LEN[u_idx] = 0;
+    DOM_NODE_CAN_EXECUTE[u_idx] = 1;
+    
+    // Style Tree Linkage
+    STYLE_PARENT[u_idx] = 999999;
+    STYLE_FIRST_CHILD[u_idx] = 999999;
+    STYLE_NEXT_SIBLING[u_idx] = 999999;
+    
+    // Display & Flex
+    STYLE_DISPLAY[u_idx] = 1;
+    STYLE_FLEX_DIR[u_idx] = 0;
+    STYLE_JUSTIFY_CONTENT[u_idx] = 0;
+    STYLE_ALIGN_ITEMS[u_idx] = 0;
+    STYLE_FLEX_GROW[u_idx] = 0;
+    STYLE_FLEX_BASIS[u_idx] = -1;
+    STYLE_GRID_COL_COUNT[u_idx] = 0;
+    STYLE_GRID_ROW_COUNT[u_idx] = 0;
+    STYLE_GRID_COL_START[u_idx] = 0;
+    STYLE_GRID_ROW_START[u_idx] = 0;
+    
+    // Box Model
+    STYLE_W[u_idx] = -1;
+    STYLE_H[u_idx] = -1;
+    STYLE_W_UNIT[u_idx] = 0;
+    STYLE_H_UNIT[u_idx] = 0;
+    STYLE_PADDING_TOP[u_idx] = 0;
+    STYLE_PADDING_RIGHT[u_idx] = 0;
+    STYLE_PADDING_BOTTOM[u_idx] = 0;
+    STYLE_PADDING_LEFT[u_idx] = 0;
+    
+    // Background & Color
+    STYLE_BG_R[u_idx] = 255;
+    STYLE_BG_G[u_idx] = 255;
+    STYLE_BG_B[u_idx] = 255;
+    STYLE_BG_A[u_idx] = 0;
+    STYLE_COLOR_R[u_idx] = 0;
+    STYLE_COLOR_G[u_idx] = 0;
+    STYLE_COLOR_B[u_idx] = 0;
+    STYLE_COLOR_A[u_idx] = 255;
+    
+    // Typography
+    STYLE_FONT_SIZE[u_idx] = 16.0;
+    STYLE_LINE_HEIGHT[u_idx] = -1.0;
+    STYLE_TEXT_ALIGN[u_idx] = 0;
+    STYLE_SPECIFICITY_TEXT_ALIGN[u_idx] = 0;
+    
+    // Visual Effects
+    STYLE_BORDER_RADIUS[u_idx] = 0.0;
+    STYLE_BOX_SHADOW_R[u_idx] = 0;
+    STYLE_BOX_SHADOW_G[u_idx] = 0;
+    STYLE_BOX_SHADOW_B[u_idx] = 0;
+    STYLE_BOX_SHADOW_A[u_idx] = 0;
+    STYLE_BOX_SHADOW_OFFSET_X[u_idx] = 0.0;
+    STYLE_BOX_SHADOW_OFFSET_Y[u_idx] = 0.0;
+    STYLE_BOX_SHADOW_BLUR[u_idx] = 0.0;
+    STYLE_BOX_SHADOW_SPREAD[u_idx] = 0.0;
+    STYLE_TRANSFORM_X[u_idx] = 0.0;
+    STYLE_TRANSFORM_Y[u_idx] = 0.0;
+    STYLE_OPACITY[u_idx] = 1.0;
+    STYLE_Z_INDEX[u_idx] = 0;
+    STYLE_POSITION[u_idx] = 0;
+    STYLE_TOP[u_idx] = -1;
+    STYLE_RIGHT[u_idx] = -1;
+    STYLE_BOTTOM[u_idx] = -1;
+    STYLE_LEFT[u_idx] = -1;
+    
+    // Specificity
+    STYLE_SPEC_DISPLAY[u_idx] = 0;
+    STYLE_SPEC_FLEX_DIR[u_idx] = 0;
+    STYLE_SPEC_FLEX_GROW[u_idx] = 0;
+    STYLE_SPEC_WIDTH[u_idx] = 0;
+    STYLE_SPEC_HEIGHT[u_idx] = 0;
+    STYLE_SPEC_BG[u_idx] = 0;
+    STYLE_SPEC_COLOR[u_idx] = 0;
+    STYLE_SPEC_POSITION[u_idx] = 0;
+    STYLE_SPEC_TOP[u_idx] = 0;
+    STYLE_SPEC_RIGHT[u_idx] = 0;
+    STYLE_SPEC_BOTTOM[u_idx] = 0;
+    STYLE_SPEC_LEFT[u_idx] = 0;
+    STYLE_SPEC_Z_INDEX[u_idx] = 0;
+    
+    // Layout Outputs
+    LAYOUT_X[u_idx] = 0;
+    LAYOUT_Y[u_idx] = 0;
+    LAYOUT_W[u_idx] = 0;
+    LAYOUT_H[u_idx] = 0;
+    
+    // Dirty Bits
+    DIRTY_LAYOUT[u_idx] = 1;
+    DIRTY_PAINT[u_idx] = 1;
+    COMPOSITOR_DIRTY[u_idx] = 0;
+    
+    // Fetch / Canvas
+    DOM_NODE_FETCH_STATE[u_idx] = 0;
+    DOM_NODE_TEXTURE_ID[u_idx] = 0;
+    DOM_CANVAS_WIDTH[u_idx] = 0;
+    DOM_CANVAS_HEIGHT[u_idx] = 0;
+    
+    // Selection
+    DOM_SELECTION_START[u_idx] = 0;
+    DOM_SELECTION_END[u_idx] = 0;
+    
+    // String Attributes
+    DOM_ID_PTR[u_idx] = 0;
+    DOM_ID_LEN[u_idx] = 0;
+    DOM_CLASS_PTR[u_idx] = 0;
+    DOM_CLASS_LEN[u_idx] = 0;
+    SCRIPT_SRC_PTR[u_idx] = 0;
+    SCRIPT_SRC_LEN[u_idx] = 0;
+    
+    DOM_CUSTOM_TAG_HASH[u_idx] = 0;
+    DOM_CUSTOM_TAG_PTR[u_idx] = 0;
+    DOM_CUSTOM_TAG_LEN[u_idx] = 0;
+    DOM_NODE_UPGRADED[u_idx] = 0;
+}
+
+@no_mangle
+pub fn create_node(tag: u32) -> u64 {
+    let mut idx: u64 = 0;
+    if DOM_FREE_LIST_COUNT > 0 {
+        DOM_FREE_LIST_COUNT = DOM_FREE_LIST_COUNT - 1;
+        idx = DOM_FREE_LIST[DOM_FREE_LIST_COUNT as usize];
+        // CRITICAL: Sanitize all legacy data from previous occupant
+        sanitize_node_slot(idx as usize);
+    } else {
+        idx = DOM_NODE_COUNT;
+        if idx >= 65535 { return 0; } // OOM Guard
+        DOM_NODE_COUNT = DOM_NODE_COUNT + 1;
+    }
+    
+    let u_idx = idx as usize;
+    DOM_NODE_TAG[u_idx] = tag;
+    DOM_NODE_PARENT[u_idx] = 0;
+    DOM_NODE_FIRST_CHILD[u_idx] = 0;
+    DOM_SHADOW_ROOT[u_idx] = 0;
+    DOM_NODE_NEXT_SIBLING[u_idx] = 0;
+    DOM_LAST_CHILD[u_idx] = 0;
+    DOM_NODE_GENERATION[u_idx] = DOM_NODE_GENERATION[u_idx] + 1;
+    DOM_NODE_CAN_EXECUTE[u_idx] = 1;
+    
+    if tag == 0 {
+        STYLE_DISPLAY[u_idx] = 3; // INLINE (TEXT)
+    } else if tag == 5 || tag == 7 || tag == 15 || tag == 16 || tag == 17 {
+        // SPAN=5, A=7, B=15, I=16, FONT=17 → INLINE
+        STYLE_DISPLAY[u_idx] = 3;
+    } else if tag == 11 {
+        STYLE_DISPLAY[u_idx] = 2; // FLEX (CENTER)
+        STYLE_JUSTIFY_CONTENT[u_idx] = 1; // CENTER
+        STYLE_FLEX_DIR[u_idx] = 0; // ROW
+    } else if tag == 13 {
+        STYLE_DISPLAY[u_idx] = 2; // FLEX
+        STYLE_FLEX_DIR[u_idx] = 0; // ROW for TR
+    } else if tag == 14 {
+        STYLE_DISPLAY[u_idx] = 1; // BLOCK
+        STYLE_FLEX_GROW[u_idx] = 1; // TD flex stretches to fill TR
+    } else if tag == 26 {
+        // TAG_IFRAME: BLOCK with default 300x150 per W3C
+        STYLE_DISPLAY[u_idx] = 1; // BLOCK
+        STYLE_W[u_idx] = 300;
+        STYLE_H[u_idx] = 150;
+    } else if tag == 27 {
+        // TAG_CANVAS: BLOCK with default 300x150 per W3C
+        STYLE_DISPLAY[u_idx] = 1; // BLOCK
+        STYLE_W[u_idx] = 300;
+        STYLE_H[u_idx] = 150;
+        DOM_CANVAS_WIDTH[u_idx] = 300;
+        DOM_CANVAS_HEIGHT[u_idx] = 150;
+    } else {
+        STYLE_DISPLAY[u_idx] = 1; // BLOCK
+    }
+    
+    invalidate_layout(u_idx);
+    
+    if observers.sys_is_node_observed_for(idx as u32, 1 /* Mutation */) {
+        observers.sys_queue_mutation_record(idx as u32, 1 /* addition */);
+    }
+    
+    return idx | ((DOM_NODE_GENERATION[u_idx] as u64) << 16);
+}
+
+@no_mangle
+pub fn create_text_node(text_ptr: u64, len: u32) -> u64 {
+    let id = create_node(TAG_TEXT);
+    let idx = resolve_node(id);
+    if idx != 0xFFFFFFFF {
+        DOM_TEXT_PTR[idx as usize] = text_ptr;
+        DOM_TEXT_LEN[idx as usize] = len;
+    }
+    return id;
+}
+
+@no_mangle
+pub fn append_child(parent_id: u64, child_id: u64) {
+    let p_idx = resolve_node(parent_id);
+    let c_idx = resolve_node(child_id);
+    if p_idx == 0xFFFFFFFF || c_idx == 0xFFFFFFFF { return; }
+    
+    DOM_NODE_PARENT[c_idx as usize] = parent_id;
+    STYLE_PARENT[c_idx as usize] = p_idx;
+    DOM_NODE_NEXT_SIBLING[c_idx as usize] = 0;
+    
+    let first = DOM_NODE_FIRST_CHILD[p_idx as usize];
+    if first == 0 {
+        DOM_NODE_FIRST_CHILD[p_idx as usize] = child_id;
+        DOM_NODE_PREV_SIBLING[c_idx as usize] = 0;
+    } else {
+        // O(1) tail insertion via DOM_LAST_CHILD
+        let tail_idx = DOM_LAST_CHILD[p_idx as usize];
+        if tail_idx != 0 {
+            DOM_NODE_NEXT_SIBLING[tail_idx as usize] = child_id;
+            let tail_gen = DOM_NODE_GENERATION[tail_idx as usize] as u64;
+            DOM_NODE_PREV_SIBLING[c_idx as usize] = (tail_idx as u64) | (tail_gen << 16);
+        } else {
+            DOM_NODE_PREV_SIBLING[c_idx as usize] = 0;
+        }
+    }
+    DOM_LAST_CHILD[p_idx as usize] = c_idx;
+    invalidate_layout(p_idx as usize);
+}
+
+// ============================================================================
+// O(1) DOM Mutation API — The React Foundation (Epic 31)
+// ============================================================================
+
+@no_mangle
+pub fn ext_dom_set_shadow_root(host_idx: u32, shadow_idx: u32) {
+    if host_idx >= 65536 || shadow_idx >= 65536 { return; }
+    
+    let host_gen = DOM_NODE_GENERATION[host_idx as usize] as u64;
+    let shadow_gen = DOM_NODE_GENERATION[shadow_idx as usize] as u64;
+    
+    let shadow_id = (shadow_idx as u64) | (shadow_gen << 16);
+    let host_id = (host_idx as u64) | (host_gen << 16);
+    
+    DOM_SHADOW_ROOT[host_idx as usize] = shadow_id;
+    DOM_NODE_PARENT[shadow_idx as usize] = host_id;
+    STYLE_PARENT[shadow_idx as usize] = host_idx;
+    
+    // Trigger layout propagation
+    invalidate_layout(host_idx);
+}
+
+// O(1) appendChild using raw u32 indices (called from QuickJS C bridge)
+@no_mangle
+pub fn js_dom_append_child(parent_idx: u32, child_idx: u32) {
+    if parent_idx >= 65536 || child_idx >= 65536 { return; }
+    let p = parent_idx as usize;
+    let c = child_idx as usize;
+    
+    // Set parent linkage
+    let parent_gen = DOM_NODE_GENERATION[p] as u64;
+    DOM_NODE_PARENT[c] = (parent_idx as u64) | (parent_gen << 16);
+    STYLE_PARENT[c] = parent_idx;
+    DOM_NODE_NEXT_SIBLING[c] = 0;
+    
+    let child_gen = DOM_NODE_GENERATION[c] as u64;
+    let child_node_id = (child_idx as u64) | (child_gen << 16);
+    
+    let first = DOM_NODE_FIRST_CHILD[p];
+    if first == 0 {
+        DOM_NODE_FIRST_CHILD[p] = child_node_id;
+        DOM_NODE_PREV_SIBLING[c] = 0;
+    } else {
+        // O(1) tail insertion
+        let tail = DOM_LAST_CHILD[p] as usize;
+        DOM_NODE_NEXT_SIBLING[tail] = child_node_id;
+        let tail_gen = DOM_NODE_GENERATION[tail] as u64;
+        DOM_NODE_PREV_SIBLING[c] = (tail as u64) | (tail_gen << 16);
+    }
+    DOM_LAST_CHILD[p] = child_idx;
+    invalidate_layout(p);
+    
+    if observers.sys_is_node_observed_for(parent_idx, 1 /* Mutation */) {
+        observers.sys_queue_mutation_record(child_idx, 1 /* addition */);
+    }
+    
+    // Epic 80B: Component Matrix - trigger lifecycle hooks
+    ext_jsc_trigger_connected_callback(child_node_id);
+}
+
+@no_mangle
+pub fn remove_child(parent_id: u64, child_id: u64) {
+    let p_idx = resolve_node(parent_id);
+    let c_idx = resolve_node(child_id);
+    if p_idx == 0xFFFFFFFF || c_idx == 0xFFFFFFFF { return; }
+    ext_dom_remove_child(p_idx, c_idx);
+}
+
+@no_mangle
+pub fn ext_dom_remove_child(parent_idx: u32, child_idx: u32) {
+    if parent_idx == 0 || child_idx == 0 || parent_idx >= 65536 || child_idx >= 65536 { return; }
+    if STYLE_PARENT[child_idx as usize] != parent_idx { return; }
+
+    let prev = DOM_NODE_PREV_SIBLING[child_idx as usize];
+    let next = DOM_NODE_NEXT_SIBLING[child_idx as usize];
+
+    if prev != 0 {
+        let prev_idx = (prev & 0xFFFF) as usize;
+        DOM_NODE_NEXT_SIBLING[prev_idx] = next;
+    } else {
+        DOM_NODE_FIRST_CHILD[parent_idx as usize] = next;
+    }
+
+    if next != 0 {
+        let next_idx = (next & 0xFFFF) as usize;
+        DOM_NODE_PREV_SIBLING[next_idx] = prev;
+    } else {
+        // Child was the last child
+        if prev != 0 {
+            DOM_LAST_CHILD[parent_idx as usize] = (prev & 0xFFFF) as u32;
+        } else {
+            DOM_LAST_CHILD[parent_idx as usize] = 0;
+        }
+    }
+
+    // Isolate the detached node (No GC here)
+    DOM_NODE_PREV_SIBLING[child_idx as usize] = 0;
+    DOM_NODE_NEXT_SIBLING[child_idx as usize] = 0;
+    STYLE_PARENT[child_idx as usize] = 0;
+    DOM_NODE_PARENT[child_idx as usize] = 0;
+
+    invalidate_layout(parent_idx as usize);
+
+    if observers.sys_is_node_observed_for(parent_idx, 1 /* Mutation */) {
+        observers.sys_queue_mutation_record(child_idx, 2 /* removal */);
+    }
+    
+    let child_gen = DOM_NODE_GENERATION[child_idx as usize] as u64;
+    let child_node_id = (child_idx as u64) | (child_gen << 16);
+    ext_jsc_trigger_disconnected_callback(child_node_id);
+}
+
+@no_mangle
+pub fn ext_dom_insert_before(parent_idx: u32, new_idx: u32, ref_idx: u32) {
+    if parent_idx == 0 || new_idx == 0 || parent_idx >= 65536 || new_idx >= 65536 { return; }
+    if parent_idx == new_idx { return; } 
+
+    let p = STYLE_PARENT[new_idx as usize];
+    if p != 0 && p != 999999 {
+        ext_dom_remove_child(p, new_idx);
+    }
+
+    if ref_idx == 0 {
+        js_dom_append_child(parent_idx, new_idx);
+    } else {
+        if ref_idx >= 65536 { return; }
+        STYLE_PARENT[new_idx as usize] = parent_idx;
+        let parent_gen = DOM_NODE_GENERATION[parent_idx as usize] as u64;
+        DOM_NODE_PARENT[new_idx as usize] = (parent_idx as u64) | (parent_gen << 16);
+        
+        let new_gen = DOM_NODE_GENERATION[new_idx as usize] as u64;
+        let new_packed = (new_idx as u64) | (new_gen << 16);
+        
+        let prev_sibling = DOM_NODE_PREV_SIBLING[ref_idx as usize];
+        
+        DOM_NODE_NEXT_SIBLING[new_idx as usize] = (ref_idx as u64) | ((DOM_NODE_GENERATION[ref_idx as usize] as u64) << 16);
+        DOM_NODE_PREV_SIBLING[new_idx as usize] = prev_sibling;
+        DOM_NODE_PREV_SIBLING[ref_idx as usize] = new_packed;
+
+        if prev_sibling != 0 {
+            let prev_idx = (prev_sibling & 0xFFFF) as usize;
+            DOM_NODE_NEXT_SIBLING[prev_idx] = new_packed;
+        } else {
+            DOM_NODE_FIRST_CHILD[parent_idx as usize] = new_packed;
+        }
+        invalidate_layout(parent_idx as usize);
+        
+        // Epic 80B: Component Matrix - trigger lifecycle hooks
+        ext_jsc_trigger_connected_callback(new_packed);
+    }
+}
+
+// Epic 54 Text Content Mutation
+@no_mangle
+pub fn dom_set_text(node_id: u64, str_ptr: u64, str_len: u32) -> i32 {
+    let u_idx = resolve_node(node_id);
+    if u_idx == 0xFFFFFFFF { return -1; }
+    ext_dom_set_text_content(u_idx, str_ptr, str_len);
+    return 0;
+}
+pub fn sys_node_set_width(node_idx: u32, width: i32) {
+    STYLE_W[node_idx as usize] = width;
+    invalidate_layout(node_idx as usize);
+}
+
+@no_mangle
+pub fn ext_dom_set_text_content(node_idx: u32, str_ptr: u64, str_len: u32) {
+    if node_idx >= 65536 { return; }
+    
+    // Push to the monotonic text bump arena
+    let safe_ptr = dom_alloc_text(str_len);
+    if safe_ptr == 0 { return; } // OOM
+    
+    // memcpy to safe bounds (assuming sys memory is accessible)
+    let mut i: u32 = 0;
+    while i < str_len {
+        let b = *((str_ptr + i as u64) as &u8);
+        *((safe_ptr + i as u64) as &mut u8) = b;
+        i = i + 1;
+    }
+    
+    DOM_TEXT_PTR[node_idx as usize] = safe_ptr;
+    DOM_TEXT_LEN[node_idx as usize] = str_len;
+    
+    let pid = STYLE_PARENT[node_idx as usize];
+    if pid != 0 && pid != 999999 {
+        invalidate_layout(pid as usize);
+    }
+
+    if observers.sys_is_node_observed_for(node_idx, 1 /* Mutation */) {
+        observers.sys_queue_mutation_record(node_idx, 3 /* text */);
+    }
+}
+
+// Topological Deletion — removes child from parent's linked list,
+// then recursively pushes the child subtree onto the free list.
+@no_mangle
+pub fn js_dom_remove_child(parent_idx: u32, child_idx: u32) {
+    ext_dom_remove_child(parent_idx, child_idx);
+    
+    // Recursively reclaim the subtree onto the free list
+    reclaim_subtree(child_idx);
+}
+
+// Push a node and all its descendants onto the free list
+fn reclaim_subtree(idx: u32) {
+    if idx == 0 || idx >= 65536 { return; }
+    
+    // Recurse into children first
+    let mut child_id = DOM_NODE_FIRST_CHILD[idx as usize];
+    while child_id != 0 {
+        let c_idx = (child_id & 0xFFFF) as u32;
+        if c_idx >= 65536 { child_id = 0; }
+        else {
+            let next = DOM_NODE_NEXT_SIBLING[c_idx as usize];
+            reclaim_subtree(c_idx);
+            child_id = next;
+        }
+    }
+    
+    // Free callbacks registered to this node
+    ext_events_free_node_callbacks(idx);
+
+    // Sanitize all data so ghost properties don't bleed on reuse
+    sanitize_node_slot(idx as usize);
+    
+    // Push onto free list
+    if DOM_FREE_LIST_COUNT < 65536 {
+        DOM_FREE_LIST[DOM_FREE_LIST_COUNT as usize] = idx as u64;
+        DOM_FREE_LIST_COUNT = DOM_FREE_LIST_COUNT + 1;
+    }
+}
+
+// ============================================================================
+// Epic 49: ext_dom_free_node — QuickJS Finalizer Entry Point
+// ============================================================================
+// Epic 72: The DOM Range Mutator — Surgical Text Splitting
+@no_mangle
+pub fn ext_dom_wrap_text_range(text_node_id: u32, start_idx: u32, end_idx: u32, wrapper_tag: u8) -> i32 {
+    if text_node_id >= 65536 { return -1; }
+    let original_len = DOM_TEXT_LEN[text_node_id as usize];
+    let original_ptr = DOM_TEXT_PTR[text_node_id as usize];
+    
+    // Boundary Validation
+    if start_idx > end_idx || end_idx > original_len { return -1; }
+    
+    // 1. Allocate from Free-List
+    let wrapper_id = create_node(wrapper_tag as u32);
+    if wrapper_id == 0 { return -1; }
+    
+    let target_text_id = create_node(TAG_TEXT);
+    if target_text_id == 0 {
+        ext_dom_free_node((wrapper_id & 0xFFFF) as u32);
+        return -1;
+    }
+    
+    let suffix_id = create_node(TAG_TEXT);
+    if suffix_id == 0 {
+        ext_dom_free_node((wrapper_id & 0xFFFF) as u32);
+        ext_dom_free_node((target_text_id & 0xFFFF) as u32);
+        return -1;
+    }
+    
+    let wrapper_idx = (wrapper_id & 0xFFFF) as u32;
+    let target_text_idx = (target_text_id & 0xFFFF) as u32;
+    let suffix_idx = (suffix_id & 0xFFFF) as u32;
+    
+    // 2. Configure Wrapper Element
+    // create_node already set tag and initial styles.
+    DOM_NODE_PARENT[wrapper_idx as usize] = DOM_NODE_PARENT[text_node_id as usize];
+    STYLE_PARENT[wrapper_idx as usize] = STYLE_PARENT[text_node_id as usize];
+    
+    // 3. Configure Target Text Node (The highlighted text)
+    DOM_NODE_PARENT[target_text_idx as usize] = wrapper_id;
+    STYLE_PARENT[target_text_idx as usize] = wrapper_idx;
+    DOM_TEXT_PTR[target_text_idx as usize] = original_ptr + (start_idx as u64);
+    DOM_TEXT_LEN[target_text_idx as usize] = end_idx - start_idx;
+    
+    // 4. Configure Suffix Text Node
+    DOM_NODE_PARENT[suffix_idx as usize] = DOM_NODE_PARENT[text_node_id as usize];
+    STYLE_PARENT[suffix_idx as usize] = STYLE_PARENT[text_node_id as usize];
+    DOM_TEXT_PTR[suffix_idx as usize] = original_ptr + (end_idx as u64);
+    DOM_TEXT_LEN[suffix_idx as usize] = original_len - end_idx;
+    
+    // 5. Mutate Original Node into Prefix
+    DOM_TEXT_LEN[text_node_id as usize] = start_idx; 
+    
+    // 6. Execute Sibling Stitcher
+    dom_stitch_siblings_after_split(text_node_id, wrapper_id, target_text_id, suffix_id);
+    
+    // 7. Flag Layout Recalculation
+    let parent_idx = STYLE_PARENT[text_node_id as usize];
+    if parent_idx != 999999 {
+        invalidate_layout(parent_idx);
+    }
+    
+    return wrapper_idx as i32;
+}
+
+fn dom_stitch_siblings_after_split(prefix_idx: u32, wrapper_id: u64, target_id: u64, suffix_id: u64) {
+    let wrapper_idx = (wrapper_id & 0xFFFF) as u32;
+    let target_idx = (target_id & 0xFFFF) as u32;
+    let suffix_idx = (suffix_id & 0xFFFF) as u32;
+    
+    let original_next = DOM_NODE_NEXT_SIBLING[prefix_idx as usize];
+    let parent_id = DOM_NODE_PARENT[prefix_idx as usize];
+    let parent_idx = STYLE_PARENT[prefix_idx as usize];
+    
+    // Nest the target inside the wrapper
+    DOM_NODE_FIRST_CHILD[wrapper_idx as usize] = target_id;
+    DOM_LAST_CHILD[wrapper_idx as usize] = target_idx;
+    // target info already set in ext_dom_wrap_text_range
+    
+    // Link Prefix -> Wrapper
+    DOM_NODE_NEXT_SIBLING[prefix_idx as usize] = wrapper_id;
+    let prefix_gen = DOM_NODE_GENERATION[prefix_idx as usize] as u64;
+    DOM_NODE_PREV_SIBLING[wrapper_idx as usize] = (prefix_idx as u64) | (prefix_gen << 16);
+    
+    // Link Wrapper -> Suffix
+    DOM_NODE_NEXT_SIBLING[wrapper_idx as usize] = suffix_id;
+    DOM_NODE_PREV_SIBLING[suffix_idx as usize] = wrapper_id;
+    
+    // Link Suffix -> Original Next Sibling
+    DOM_NODE_NEXT_SIBLING[suffix_idx as usize] = original_next;
+    if original_next != 0 {
+        let next_idx = (original_next & 0xFFFF) as u32;
+        DOM_NODE_PREV_SIBLING[next_idx as usize] = suffix_id;
+    } else {
+        // We were the last child, now suffix is the last child
+        if parent_idx != 999999 {
+            DOM_LAST_CHILD[parent_idx as usize] = suffix_idx;
+        }
+    }
+}
+
+// Called by the C-bridge when QuickJS GC collects a PrisimiNode JSValue.
+// Performs: tree detach → recursive child reclaim → sanitize → push to free-list.
+@no_mangle
+pub fn ext_dom_free_node(node_idx: u32) {
+    if node_idx == 0 || node_idx >= 65536 { return; }
+    let c = node_idx as usize;
+    
+    // Epic 51: JS wrapper GC should NOT destroy native nodes that are still attached to the DOM
+    if DOM_NODE_PARENT[c] != 0 || node_idx == 1 { return; }
+    
+    // 1. Tree Healing: detach from parent's sibling chain
+    let parent = STYLE_PARENT[c];
+    if parent != 999999 && parent < 65536 {
+        let p = parent as usize;
+        let first = DOM_NODE_FIRST_CHILD[p];
+        if first != 0 {
+            let first_idx = (first & 0xFFFF) as u32;
+            if first_idx == node_idx {
+                // Removing the first child — advance parent's first-child pointer
+                DOM_NODE_FIRST_CHILD[p] = DOM_NODE_NEXT_SIBLING[c];
+                if DOM_LAST_CHILD[p] == node_idx {
+                    DOM_LAST_CHILD[p] = 0;
+                }
+            } else {
+                // Walk to find the previous sibling
+                let mut prev_id = first;
+                let mut found: u32 = 0;
+                while prev_id != 0 && found == 0 {
+                    let prev_idx = (prev_id & 0xFFFF) as u32;
+                    if prev_idx >= 65536 { prev_id = 0; }
+                    else {
+                        let next = DOM_NODE_NEXT_SIBLING[prev_idx as usize];
+                        let next_idx = (next & 0xFFFF) as u32;
+                        if next_idx == node_idx {
+                            // Patch: prev.next = child.next
+                            DOM_NODE_NEXT_SIBLING[prev_idx as usize] = DOM_NODE_NEXT_SIBLING[c];
+                            if DOM_LAST_CHILD[p] == node_idx {
+                                DOM_LAST_CHILD[p] = prev_idx;
+                            }
+                            found = 1;
+                        } else {
+                            prev_id = next;
+                        }
+                    }
+                }
+            }
+        }
+        invalidate_layout(p);
+        
+        if observers.sys_is_node_observed_for(parent, 1 /* Mutation */) {
+            observers.sys_queue_mutation_record(node_idx, 2 /* removal */);
+        }
+    }
+    
+    // 2. Clear our own parent/sibling linkage before recursing
+    DOM_NODE_PARENT[c] = 0;
+    DOM_NODE_NEXT_SIBLING[c] = 0;
+    STYLE_PARENT[c] = 999999;
+    
+    // 3. Recursively reclaim the entire subtree (children first, then self)
+    reclaim_subtree(node_idx);
+}
+
+@no_mangle
+pub fn bind_attribute(node_id: u64, key_ptr: u64, key_len: u32, val_ptr: u64, val_len: u32) -> u32 {
+    let idx = ATTR_COUNT;
+    if idx >= 262144 { return 0; }
+    let u_idx = idx as usize;
+    ATTR_NODE_ID[u_idx] = node_id;
+    ATTR_KEY_PTR[u_idx] = key_ptr;
+    ATTR_KEY_LEN[u_idx] = key_len;
+    ATTR_VAL_PTR[u_idx] = val_ptr;
+    ATTR_VAL_LEN[u_idx] = val_len;
+    ATTR_COUNT = ATTR_COUNT + 1;
+    return idx;
+}
+
+@no_mangle
+pub fn get_attr_count() -> u32 {
+    return ATTR_COUNT;
+}
+
+pub fn dom_get_attr_count() -> u32 {
+    return ATTR_COUNT;
+}
+
+@no_mangle
+pub fn get_dom_node_count() -> u64 {
+    return DOM_NODE_COUNT;
+}
+
+@no_mangle
+pub fn dom_get_node_count() -> u64 {
+    return DOM_NODE_COUNT;
+}
+
+pub fn get_event_count() -> u32 {
+    return EVENT_COUNT;
+}
+
+@no_mangle
+pub fn js_get_attr_node_id(idx: u32) -> u64 {
+    if idx >= 262144 { return 0; }
+    return ATTR_NODE_ID[idx as usize];
+}
+
+@no_mangle
+pub fn js_get_attr_key_ptr(idx: u32) -> u64 {
+    if idx >= 262144 { return 0; }
+    return ATTR_KEY_PTR[idx as usize];
+}
+
+@no_mangle
+pub fn js_get_attr_key_len(idx: u32) -> u32 {
+    if idx >= 262144 { return 0; }
+    return ATTR_KEY_LEN[idx as usize];
+}
+
+@no_mangle
+pub fn js_get_attr_val_ptr(idx: u32) -> u64 {
+    if idx >= 262144 { return 0; }
+    return ATTR_VAL_PTR[idx as usize];
+}
+
+@no_mangle
+pub fn js_get_attr_val_len(idx: u32) -> u32 {
+    if idx >= 262144 { return 0; }
+    return ATTR_VAL_LEN[idx as usize];
+}
+
+@no_mangle
+pub fn js_set_style_u8(node_id: u64, prop_id: u32, val: u8) {
+    let idx = resolve_node(node_id);
+    if idx == 0xFFFFFFFF { return; }
+    let u_idx = idx as usize;
+    if prop_id == 0 { STYLE_DISPLAY[u_idx] = val; }
+    else if prop_id == 1 { STYLE_FLEX_DIR[u_idx] = val; }
+    else if prop_id == 2 { STYLE_JUSTIFY_CONTENT[u_idx] = val; }
+    else if prop_id == 3 { STYLE_ALIGN_ITEMS[u_idx] = val; }
+    else if prop_id == 4 { STYLE_W_UNIT[u_idx] = val; }
+    else if prop_id == 5 { STYLE_H_UNIT[u_idx] = val; }
+    invalidate_layout(u_idx);
+}
+
+@no_mangle
+pub fn js_get_style_w(node_id: u64) -> i32 {
+    let idx = resolve_node(node_id);
+    if idx == 0xFFFFFFFF { return -1; }
+    return STYLE_W[idx as usize];
+}
+
+@no_mangle
+pub fn js_get_style_h(node_id: u64) -> i32 {
+    let idx = resolve_node(node_id);
+    if idx == 0xFFFFFFFF { return -1; }
+    return STYLE_H[idx as usize];
+}
+
+@no_mangle
+pub fn js_get_style_flex_grow(node_id: u64) -> i32 {
+    let idx = resolve_node(node_id);
+    if idx == 0xFFFFFFFF { return -1; }
+    return STYLE_FLEX_GROW[idx as usize];
+}
+
+@no_mangle
+pub fn js_set_style_i32(node_id: u64, prop_id: u32, val: i32) {
+    let idx = resolve_node(node_id);
+    if idx == 0xFFFFFFFF { return; }
+    let u_idx = idx as usize;
+    if prop_id == 0 { STYLE_W[u_idx] = val; }
+    else if prop_id == 1 { STYLE_H[u_idx] = val; }
+    else if prop_id == 2 { STYLE_FLEX_GROW[u_idx] = val; }
+    else if prop_id == 3 { STYLE_FLEX_BASIS[u_idx] = val; }
+    else if prop_id == 4 { STYLE_Z_INDEX[u_idx] = val; }
+    invalidate_layout(u_idx);
+}
+
+@no_mangle
+pub fn js_set_style_bg_color(node_id: u64, r: u8, g: u8, b: u8) {
+    let idx = resolve_node(node_id);
+    if idx != 0xFFFFFFFF {
+        STYLE_BG_R[idx as usize] = r;
+        STYLE_BG_G[idx as usize] = g;
+        STYLE_BG_B[idx as usize] = b;
+        STYLE_BG_A[idx as usize] = 255;
+        invalidate_layout(idx as usize);
+    }
+}
+
+@no_mangle
+pub fn js_set_style_border_radius(node_id: u64, val: f32) {
+    let idx = resolve_node(node_id);
+    if idx != 0xFFFFFFFF {
+        STYLE_BORDER_RADIUS[idx as usize] = val;
+        invalidate_layout(idx as usize);
+    }
+}
+
+@no_mangle
+pub fn dom_get_DIRTY_LAYOUT(idx: u32) -> u32 {
+    return DIRTY_LAYOUT[idx as usize] as u32;
+}
+
+@no_mangle
+pub fn dom_get_LAYOUT_H(idx: u32) -> i32 {
+    return LAYOUT_H[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_layout_w(idx: u32) -> f32 {
+    return LAYOUT_W[idx as usize] as f32;
+}
+
+@no_mangle
+pub fn dom_get_layout_h(idx: u32) -> f32 {
+    return LAYOUT_H[idx as usize] as f32;
+}
+
+@no_mangle
+pub fn dom_get_STYLE_PARENT(idx: u32) -> u32 {
+    return STYLE_PARENT[idx as usize];
+}
+
+@no_mangle
+pub fn js_set_style_box_shadow(node_id: u64, r: u8, g: u8, b: u8, a: u8, x: f32, y: f32, blur: f32, spread: f32) {
+    let idx = resolve_node(node_id);
+    if idx != 0xFFFFFFFF {
+        let u_idx = idx as usize;
+        STYLE_BOX_SHADOW_R[u_idx] = r;
+        STYLE_BOX_SHADOW_G[u_idx] = g;
+        STYLE_BOX_SHADOW_B[u_idx] = b;
+        STYLE_BOX_SHADOW_A[u_idx] = a;
+        STYLE_BOX_SHADOW_OFFSET_X[u_idx] = x;
+        STYLE_BOX_SHADOW_OFFSET_Y[u_idx] = y;
+        STYLE_BOX_SHADOW_BLUR[u_idx] = blur;
+        STYLE_BOX_SHADOW_SPREAD[u_idx] = spread;
+        invalidate_layout(u_idx);
+    }
+}
+
+@no_mangle
+pub fn js_set_style_padding(node_id: u64, top: i32, right: i32, bottom: i32, left: i32) {
+    let idx = resolve_node(node_id);
+    if idx != 0xFFFFFFFF {
+        let u_idx = idx as usize;
+        STYLE_PADDING_TOP[u_idx] = top;
+        STYLE_PADDING_RIGHT[u_idx] = right;
+        STYLE_PADDING_BOTTOM[u_idx] = bottom;
+        STYLE_PADDING_LEFT[u_idx] = left;
+        invalidate_layout(u_idx);
+    }
+}
+
+@no_mangle
+pub fn js_set_style_line_height(node_id: u64, val: f32) {
+    let idx = resolve_node(node_id);
+    if idx != 0xFFFFFFFF {
+        STYLE_LINE_HEIGHT[idx as usize] = val;
+        invalidate_layout(idx as usize);
+    }
+}
+
+@no_mangle
+pub fn dom_set_style_text_align(idx: u32, align: u8) {
+    if idx != 0xFFFFFFFF {
+        STYLE_TEXT_ALIGN[idx as usize] = align;
+        invalidate_layout(idx as usize);
+    }
+}
+
+@no_mangle
+pub fn dom_set_spec_text_align(idx: u32, spec: u16) {
+    if idx != 0xFFFFFFFF {
+        STYLE_SPECIFICITY_TEXT_ALIGN[idx as usize] = spec;
+    }
+}
+
+@no_mangle
+pub fn dom_set_style_w_unit(idx: u32, unit: u8) {
+    if idx != 0xFFFFFFFF {
+        STYLE_W_UNIT[idx as usize] = unit;
+        invalidate_layout(idx as usize);
+    }
+}
+
+@no_mangle
+pub fn dom_set_style_h_unit(idx: u32, unit: u8) {
+    if idx != 0xFFFFFFFF {
+        STYLE_H_UNIT[idx as usize] = unit;
+        invalidate_layout(idx as usize);
+    }
+}
+
+@no_mangle
+pub fn set_class(node_id: i32, class_ptr: u64, class_len: u32) {
+    if node_id < 0 || (node_id as u32) >= 65536 { return; }
+    let u_idx = node_id as usize;
+    DOM_CLASS_PTR[u_idx] = class_ptr;
+    DOM_CLASS_LEN[u_idx] = class_len;
+}
+
+@no_mangle
+pub fn js_set_id(node_id: u64, id_ptr: u64, id_len: u32) {
+    let idx = resolve_node(node_id);
+    if idx == 0xFFFFFFFF { return; }
+    let u_idx = idx as usize;
+    DOM_ID_PTR[u_idx] = id_ptr;
+    DOM_ID_LEN[u_idx] = id_len;
+}
+
+// Raw-index ID setter for test/C-bridge usage
+@no_mangle
+pub fn dom_set_id(idx: u32, id_ptr: u64, id_len: u32) {
+    if idx >= 65536 { return; }
+    DOM_ID_PTR[idx as usize] = id_ptr;
+    DOM_ID_LEN[idx as usize] = id_len;
+}
+
+@no_mangle
+pub fn js_set_class(node_id: u64, class_ptr: u64, class_len: u32) {
+    let idx = resolve_node(node_id);
+    if idx == 0xFFFFFFFF { return; }
+    let u_idx = idx as usize;
+    DOM_CLASS_PTR[u_idx] = class_ptr;
+    DOM_CLASS_LEN[u_idx] = class_len;
+}
+
+@no_mangle
+pub fn hash_attribute_val(ptr: u64, len: u32) -> u64 {
+    let mut hash: u64 = 5381;
+    let mut i: u32 = 0;
+    while i < len {
+        let ch = *((ptr + (i as u64)) as &u8);
+        hash = ((hash << 5) + hash) + (ch as u64); // hash * 33 + c
+        i = i + 1;
+    }
+    return hash;
+}
+
+@no_mangle
+pub fn get_element_by_id_hash(target_hash: u64) -> u32 {
+    let mut i: u32 = 1;
+    let limit = DOM_NODE_COUNT as u32;
+    while i < limit {
+        let u_i = i as usize;
+        let id_len = DOM_ID_LEN[u_i];
+        if id_len > 0 {
+            let id_ptr = DOM_ID_PTR[u_i];
+            if id_ptr != 0 {
+                let current_hash = hash_attribute_val(id_ptr, id_len);
+                if current_hash == target_hash {
+                    return i;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return 0; // Not found
+}
+
+@no_mangle
+@unmangled
+pub fn resolve_node_by_id(id_ptr: u64, id_len: u32) -> u64 {
+    let mut i: u32 = 1;
+    let limit = DOM_NODE_COUNT as u32;
+    while i < limit {
+        let u_i = i as usize;
+        if DOM_ID_LEN[u_i] == id_len && DOM_ID_PTR[u_i] != 0 {
+            // Byte-compare the id strings
+            let mut j: u32 = 0;
+            let mut match_ok: u32 = 1;
+            while j < id_len {
+                let a = *((DOM_ID_PTR[u_i] + (j as u64)) as &u8);
+                let b = *((id_ptr + (j as u64)) as &u8);
+                if a != b { match_ok = 0; j = id_len; }
+                j = j + 1;
+            }
+            if match_ok == 1 { 
+                let gen = DOM_NODE_GENERATION[u_i] as u64;
+                return (i as u64) | (gen << 16); 
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+@no_mangle
+pub fn js_get_node_executable(node_id: u64) -> u8 {
+    let idx = resolve_node(node_id);
+    if idx == 0xFFFFFFFF { return 0; }
+    return DOM_NODE_CAN_EXECUTE[idx as usize];
+}
+
+@no_mangle
+pub fn js_set_node_executable(node_id: u64, can_exec: u8) {
+    let idx = resolve_node(node_id);
+    if idx == 0xFFFFFFFF { return; }
+    DOM_NODE_CAN_EXECUTE[idx as usize] = can_exec;
+}
+
+@no_mangle
+pub fn js_get_class_ptr(node_id: i32) -> u64 {
+    if node_id < 0 || (node_id as u32) >= 65536 { return 0; }
+    return DOM_CLASS_PTR[node_id as usize];
+}
+
+@no_mangle
+pub fn js_get_class_len(node_id: i32) -> u32 {
+    if node_id < 0 || (node_id as u32) >= 65536 { return 0; }
+    return DOM_CLASS_LEN[node_id as usize];
+}
+
+@no_mangle
+pub fn js_clear_children(node_id: u64) {
+    let idx = resolve_node(node_id);
+    if idx == 0xFFFFFFFF { return; }
+    let u_idx = idx as usize;
+    // Walk children and push to freelist
+    let mut child_id = DOM_NODE_FIRST_CHILD[u_idx];
+    while child_id != 0 {
+        let c_idx = resolve_node(child_id);
+        if c_idx == 0xFFFFFFFF { child_id = 0; }
+        else {
+            let next = DOM_NODE_NEXT_SIBLING[c_idx as usize];
+            // Push to freelist
+            if DOM_FREE_LIST_COUNT < 65536 {
+                DOM_FREE_LIST[DOM_FREE_LIST_COUNT as usize] = c_idx as u64;
+                DOM_FREE_LIST_COUNT = DOM_FREE_LIST_COUNT + 1;
+            }
+            child_id = next;
+        }
+    }
+    DOM_NODE_FIRST_CHILD[u_idx] = 0;
+    DOM_LAST_CHILD[u_idx] = 0;
+    invalidate_layout(u_idx);
+}
+
+@no_mangle
+pub fn js_dom_get_parent(node_id: u64) -> u64 {
+    let idx = resolve_node(node_id);
+    if idx == 0xFFFFFFFF { return 0; }
+    return DOM_NODE_PARENT[idx as usize];
+}
+
+// Epic 62: Raw parent index accessor for C bridge parentNode getter
+@no_mangle
+pub fn ext_dom_get_parent_idx(idx: u32) -> u32 {
+    if idx >= 65536 { return 999999; }
+    return STYLE_PARENT[idx as usize];
+}
+
+@no_mangle
+pub fn js_set_style_display(node_id: u64, display_type: u8) {
+    let idx = resolve_node(node_id);
+    if idx == 0xFFFFFFFF { return; }
+    STYLE_DISPLAY[idx as usize] = display_type;
+    invalidate_layout(idx as usize);
+}
+
+// ============================================================================
+// SoA Getters — Serializer FFI Surface
+// ============================================================================
+// These are needed because Salt's import system creates duplicate internal
+// copies of globals when crossing module boundaries. The serializer must
+// access the canonical globals through these @no_mangle function calls.
+
+@no_mangle
+pub fn dom_get_tag(idx: u32) -> u32 {
+    if idx >= 65536 { return 0; }
+    return DOM_NODE_TAG[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_generation(idx: u32) -> u32 {
+    if idx >= 65536 { return 0; }
+    return DOM_NODE_GENERATION[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_first_child(idx: u32) -> u64 {
+    if idx >= 65536 { return 0; }
+    return DOM_NODE_FIRST_CHILD[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_next_sibling(idx: u32) -> u64 {
+    if idx >= 65536 { return 0; }
+    return DOM_NODE_NEXT_SIBLING[idx as usize];
+}
+
+pub fn dom_get_first_child_idx(idx: u32) -> u32 {
+    let child_id = DOM_NODE_FIRST_CHILD[idx as usize];
+    if child_id == 0 { return 999999; }
+    let c = resolve_node(child_id);
+    if c == 0xFFFFFFFF { return 999999; }
+    return c;
+}
+
+// Epic 64: Shadow DOM Matrix
+pub fn dom_get_render_first_child_idx(idx: u32) -> u32 {
+    let shadow_id = DOM_SHADOW_ROOT[idx as usize];
+    let mut target_id = DOM_NODE_FIRST_CHILD[idx as usize];
+    
+    if shadow_id != 0 {
+        let s_idx = resolve_node(shadow_id);
+        if s_idx != 0xFFFFFFFF {
+            target_id = DOM_NODE_FIRST_CHILD[s_idx as usize];
+        }
+    }
+    
+    if target_id == 0 { return 999999; }
+    let c = resolve_node(target_id);
+    if c == 0xFFFFFFFF { return 999999; }
+    return c;
+}
+
+pub fn dom_get_next_sibling_idx(idx: u32) -> u32 {
+    let sib_id = DOM_NODE_NEXT_SIBLING[idx as usize];
+    if sib_id == 0 { return 999999; }
+    let c = resolve_node(sib_id);
+    if c == 0xFFFFFFFF { return 999999; }
+    return c;
+}
+
+// Pointer Injection Matrix: @no_mangle wrappers for cross-module tree traversal
+@no_mangle
+pub fn ext_dom_get_render_first_child_idx(idx: u32) -> u32 {
+    return dom_get_render_first_child_idx(idx);
+}
+
+@no_mangle
+pub fn ext_dom_get_next_sibling_idx(idx: u32) -> u32 {
+    return dom_get_next_sibling_idx(idx);
+}
+
+@no_mangle
+pub fn ext_get_dom_node_count() -> u64 {
+    return DOM_NODE_COUNT;
+}
+
+@no_mangle
+pub fn ext_get_dom_node_tag(idx: u32) -> u32 {
+    if idx >= 65536 { return 0; }
+    return DOM_NODE_TAG[idx as usize];
+}
+
+@no_mangle
+pub fn ext_get_dom_node_parent(idx: u32) -> u64 {
+    if idx >= 65536 { return 0; }
+    return DOM_NODE_PARENT[idx as usize];
+}
+
+@no_mangle
+pub fn ext_get_dom_text_len(idx: u32) -> u32 {
+    if idx >= 65536 { return 0; }
+    return DOM_TEXT_LEN[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_scope_idx(mut idx: u32) -> u32 {
+    while idx != 0 && idx != 999999 {
+        if DOM_NODE_TAG[idx as usize] == TAG_SHADOW_ROOT {
+            return idx;
+        }
+        let p_id = DOM_NODE_PARENT[idx as usize];
+        if p_id == 0 { break; }
+        
+        let p_idx = resolve_node(p_id);
+        if p_idx == 0xFFFFFFFF { break; }
+        idx = p_idx;
+    }
+    return 0;
+}
+
+@no_mangle
+pub fn dom_get_bg_r(idx: u32) -> u8 {
+    return STYLE_BG_R[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_text_ptr(idx: u32) -> u64 {
+    if idx >= 65536 { return 0; }
+    return DOM_TEXT_PTR[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_text_len(idx: u32) -> u32 {
+    if idx >= 65536 { return 0; }
+    return DOM_TEXT_LEN[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_id_ptr(idx: u32) -> u64 {
+    if idx >= 65536 { return 0; }
+    return DOM_ID_PTR[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_id_len(idx: u32) -> u32 {
+    if idx >= 65536 { return 0; }
+    return DOM_ID_LEN[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_class_ptr(idx: u32) -> u64 {
+    if idx >= 65536 { return 0; }
+    return DOM_CLASS_PTR[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_class_len(idx: u32) -> u32 {
+    if idx >= 65536 { return 0; }
+    return DOM_CLASS_LEN[idx as usize];
+}
+
+// Google Unblock: Per-node <script src="..."> tracking for dynamic fetch
+@no_mangle
+pub fn dom_set_script_src(node_idx: u32, src_ptr: u64, src_len: u32) {
+    if node_idx >= 65536 { return; }
+    SCRIPT_SRC_PTR[node_idx as usize] = src_ptr;
+    SCRIPT_SRC_LEN[node_idx as usize] = src_len;
+}
+
+@no_mangle
+pub fn dom_get_script_src_ptr(idx: u32) -> u64 {
+    if idx >= 65536 { return 0; }
+    return SCRIPT_SRC_PTR[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_script_src_len(idx: u32) -> u32 {
+    if idx >= 65536 { return 0; }
+    return SCRIPT_SRC_LEN[idx as usize];
+}
+
+@no_mangle
+pub fn js_set_canvas_texture(node_id: u64, tex_id: u32, w: u32, h: u32) {
+    let idx = resolve_node(node_id);
+    if idx == 0xFFFFFFFF { return; }
+    let u_idx = idx as usize;
+    DOM_NODE_TEXTURE_ID[u_idx] = tex_id;
+    DOM_CANVAS_WIDTH[u_idx] = w;
+    DOM_CANVAS_HEIGHT[u_idx] = h;
+    invalidate_layout(idx);
+}
+
+// Epic 71: Geometric Tree Order
+// Returns -1 if node1 is before node2, 1 if node1 is after node2, 0 if equal.
+pub fn compare_document_position(node1: u32, node2: u32) -> i32 {
+    if node1 == node2 { return 0; }
+    if node1 == 0 || node2 == 0 { return 0; }
+
+    // 1. Compute depths and paths to root
+    let mut d1: u32 = 0;
+    let mut curr1 = node1;
+    while curr1 != 0 && curr1 != 1 && d1 < 1000 {
+        curr1 = STYLE_PARENT[curr1 as usize];
+        d1 = d1 + 1;
+    }
+
+    let mut d2: u32 = 0;
+    let mut curr2 = node2;
+    while curr2 != 0 && curr2 != 1 && d2 < 1000 {
+        curr2 = STYLE_PARENT[curr2 as usize];
+        d2 = d2 + 1;
+    }
+
+    // 2. Align depths
+    let mut n1 = node1;
+    let mut n2 = node2;
+    if d1 > d2 {
+        let diff = d1 - d2;
+        let mut i: u32 = 0;
+        while i < diff {
+            n1 = STYLE_PARENT[n1 as usize];
+            i = i + 1;
+        }
+        if n1 == n2 { return 1; } // node2 is ancestor of node1
+    } else if d2 > d1 {
+        let diff = d2 - d1;
+        let mut i: u32 = 0;
+        while i < diff {
+            n2 = STYLE_PARENT[n2 as usize];
+            i = i + 1;
+        }
+        if n1 == n2 { return -1; } // node1 is ancestor of node2
+    }
+
+    // 3. Walk up in sync to find common parent
+    while n1 != 0 && n2 != 0 {
+        let p1 = STYLE_PARENT[n1 as usize];
+        let p2 = STYLE_PARENT[n2 as usize];
+        if p1 == p2 {
+            // Compare siblings under shared parent
+            let mut child = DOM_NODE_FIRST_CHILD[p1 as usize];
+            while child != 0 {
+                let c_idx = (child & 0xFFFF) as u32;
+                if c_idx == n1 { return -1; }
+                if c_idx == n2 { return 1; }
+                child = DOM_NODE_NEXT_SIBLING[c_idx as usize];
+            }
+            return 0; // Should not reach
+        }
+        n1 = p1;
+        n2 = p2;
+    }
+
+    return 0;
+}
+
+@no_mangle
+pub fn ext_dom_set_selection(anchor_node: u32, anchor_offset: u32, focus_node: u32, focus_offset: u32) {
+    SELECTION_ANCHOR_NODE = anchor_node;
+    SELECTION_ANCHOR_OFFSET = anchor_offset;
+    SELECTION_FOCUS_NODE = focus_node;
+    SELECTION_FOCUS_OFFSET = focus_offset;
+    
+    // Invalidate everything for now (conservative)
+    invalidate_paint(1); 
+}
+
+pub fn dom_get_selection_anchor_node() -> u32 { return SELECTION_ANCHOR_NODE; }
+pub fn dom_get_selection_anchor_offset() -> u32 { return SELECTION_ANCHOR_OFFSET; }
+pub fn dom_get_selection_focus_node() -> u32 { return SELECTION_FOCUS_NODE; }
+pub fn dom_get_selection_focus_offset() -> u32 { return SELECTION_FOCUS_OFFSET; }
+
+@no_mangle
+pub fn dom_get_canvas_texture(idx: u32) -> u32 {
+    if idx >= 65536 { return 0; }
+    return DOM_NODE_TEXTURE_ID[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_canvas_width(idx: u32) -> u32 {
+    if idx >= 65536 { return 0; }
+    return DOM_CANVAS_WIDTH[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_canvas_height(idx: u32) -> u32 {
+    if idx >= 65536 { return 0; }
+    return DOM_CANVAS_HEIGHT[idx as usize];
+}
+
+// ============================================================================
+// Compositor-Only Property Setters (bypass layout engine)
+// ============================================================================
+
+@no_mangle
+pub fn js_set_style_transform(node_id: u64, tx: f32, ty: f32) {
+    let idx = resolve_node(node_id);
+    if idx == 0xFFFFFFFF { return; }
+    let u_idx = idx as usize;
+    STYLE_TRANSFORM_X[u_idx] = tx;
+    STYLE_TRANSFORM_Y[u_idx] = ty;
+    COMPOSITOR_DIRTY[u_idx] = 1;
+    // Critically: NO DIRTY_LAYOUT set — layout is not affected
+}
+
+@no_mangle
+pub fn js_set_style_opacity(node_id: u64, opacity: f32) {
+    let idx = resolve_node(node_id);
+    if idx == 0xFFFFFFFF { return; }
+    STYLE_OPACITY[idx as usize] = opacity;
+    COMPOSITOR_DIRTY[idx as usize] = 1;
+    // Critically: NO DIRTY_LAYOUT set — layout is not affected
+}
+
+// SoA Getters for cross-module access
+@no_mangle
+pub fn dom_get_transform_x(idx: u32) -> f32 {
+    if idx >= 65536 { return 0.0; }
+    return STYLE_TRANSFORM_X[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_transform_y(idx: u32) -> f32 {
+    if idx >= 65536 { return 0.0; }
+    return STYLE_TRANSFORM_Y[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_opacity(idx: u32) -> f32 {
+    if idx >= 65536 { return 1.0; }
+    return STYLE_OPACITY[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_last_child(idx: u32) -> u32 {
+    if idx >= 65536 { return 0; }
+    return DOM_LAST_CHILD[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_free_list_count() -> u32 {
+    return DOM_FREE_LIST_COUNT;
+}
+
+@no_mangle
+pub fn dom_get_style_display(idx: u32) -> u8 {
+    if idx >= 65536 { return 0; }
+    return STYLE_DISPLAY[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_style_display_spec(idx: u32) -> u16 {
+    if idx >= 65536 { return 0; }
+    return STYLE_SPEC_DISPLAY[idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_node_count() -> u64 {
+    return DOM_NODE_COUNT;
+}
+
+// ============================================================================
+// Cascade Interface — Style setters and specificity accessors
+// ============================================================================
+
+@no_mangle
+pub fn dom_set_style_display(idx: u32, val: u8) {
+    if idx >= 65536 { return; }
+    STYLE_DISPLAY[idx as usize] = val;
+    invalidate_layout(idx as usize);
+}
+
+@no_mangle
+pub fn dom_set_style_flex_dir(idx: u32, val: u8) {
+    if idx >= 65536 { return; }
+    STYLE_FLEX_DIR[idx as usize] = val;
+    invalidate_layout(idx as usize);
+}
+
+@no_mangle
+pub fn dom_set_style_flex_grow(idx: u32, val: i32) {
+    if idx >= 65536 { return; }
+    STYLE_FLEX_GROW[idx as usize] = val;
+    invalidate_layout(idx as usize);
+}
+
+@no_mangle
+pub fn dom_set_style_width(idx: u32, val: i32) {
+    if idx >= 65536 { return; }
+    STYLE_W[idx as usize] = val;
+    invalidate_layout(idx as usize);
+}
+
+@no_mangle
+pub fn dom_set_style_height(idx: u32, val: i32) {
+    if idx >= 65536 { return; }
+    STYLE_H[idx as usize] = val;
+    invalidate_layout(idx as usize);
+}
+
+@no_mangle
+pub fn dom_set_style_bg(idx: u32, r: u8, g: u8, b: u8) {
+    if idx >= 65536 { return; }
+    STYLE_BG_R[idx as usize] = r;
+    STYLE_BG_G[idx as usize] = g;
+    STYLE_BG_B[idx as usize] = b;
+    STYLE_BG_A[idx as usize] = 255;
+    invalidate_paint(idx);
+}
+
+@no_mangle
+pub fn dom_set_style_color(idx: u32, r: u8, g: u8, b: u8) {
+    if idx >= 65536 { return; }
+    STYLE_COLOR_R[idx as usize] = r;
+    STYLE_COLOR_G[idx as usize] = g;
+    STYLE_COLOR_B[idx as usize] = b;
+    STYLE_COLOR_A[idx as usize] = 255;
+    invalidate_paint(idx);
+}
+
+// Specificity getters
+@no_mangle
+pub fn dom_get_spec_display(idx: u32) -> u16 {
+    if idx >= 65536 { return 0; }
+    return STYLE_SPEC_DISPLAY[idx as usize];
+}
+@no_mangle
+pub fn dom_get_spec_flex_dir(idx: u32) -> u16 {
+    if idx >= 65536 { return 0; }
+    return STYLE_SPEC_FLEX_DIR[idx as usize];
+}
+@no_mangle
+pub fn dom_get_spec_flex_grow(idx: u32) -> u16 {
+    if idx >= 65536 { return 0; }
+    return STYLE_SPEC_FLEX_GROW[idx as usize];
+}
+@no_mangle
+pub fn dom_get_spec_width(idx: u32) -> u16 {
+    if idx >= 65536 { return 0; }
+    return STYLE_SPEC_WIDTH[idx as usize];
+}
+@no_mangle
+pub fn dom_get_spec_height(idx: u32) -> u16 {
+    if idx >= 65536 { return 0; }
+    return STYLE_SPEC_HEIGHT[idx as usize];
+}
+@no_mangle
+pub fn dom_get_spec_bg(idx: u32) -> u16 {
+    if idx >= 65536 { return 0; }
+    return STYLE_SPEC_BG[idx as usize];
+}
+
+// Specificity setters
+@no_mangle
+pub fn dom_set_spec_display(idx: u32, val: u16) {
+    if idx >= 65536 { return; }
+    STYLE_SPEC_DISPLAY[idx as usize] = val;
+}
+@no_mangle
+pub fn dom_set_spec_flex_dir(idx: u32, val: u16) {
+    if idx >= 65536 { return; }
+    STYLE_SPEC_FLEX_DIR[idx as usize] = val;
+}
+@no_mangle
+pub fn dom_set_spec_flex_grow(idx: u32, val: u16) {
+    if idx >= 65536 { return; }
+    STYLE_SPEC_FLEX_GROW[idx as usize] = val;
+}
+@no_mangle
+pub fn dom_set_spec_width(idx: u32, val: u16) {
+    if idx >= 65536 { return; }
+    STYLE_SPEC_WIDTH[idx as usize] = val;
+}
+@no_mangle
+pub fn dom_set_spec_height(idx: u32, val: u16) {
+    if idx >= 65536 { return; }
+    STYLE_SPEC_HEIGHT[idx as usize] = val;
+}
+@no_mangle
+pub fn dom_set_spec_bg(idx: u32, val: u16) {
+    if idx >= 65536 { return; }
+    STYLE_SPEC_BG[idx as usize] = val;
+}
+@no_mangle
+pub fn dom_set_spec_color(idx: u32, val: u16) {
+    if idx >= 65536 { return; }
+    STYLE_SPEC_COLOR[idx as usize] = val;
+}
+
+// Epic 54 Position Specificity Setters
+@no_mangle
+pub fn dom_set_spec_position(idx: u32, val: u16) {
+    if idx >= 65536 { return; }
+    STYLE_SPEC_POSITION[idx as usize] = val;
+}
+@no_mangle
+pub fn dom_set_spec_top(idx: u32, val: u16) {
+    if idx >= 65536 { return; }
+    STYLE_SPEC_TOP[idx as usize] = val;
+}
+@no_mangle
+pub fn dom_set_spec_right(idx: u32, val: u16) {
+    if idx >= 65536 { return; }
+    STYLE_SPEC_RIGHT[idx as usize] = val;
+}
+@no_mangle
+pub fn dom_set_spec_bottom(idx: u32, val: u16) {
+    if idx >= 65536 { return; }
+    STYLE_SPEC_BOTTOM[idx as usize] = val;
+}
+@no_mangle
+pub fn dom_set_spec_left(idx: u32, val: u16) {
+    if idx >= 65536 { return; }
+    STYLE_SPEC_LEFT[idx as usize] = val;
+}
+@no_mangle
+pub fn dom_set_spec_z_index(idx: u32, val: u16) {
+    if idx >= 65536 { return; }
+    STYLE_SPEC_Z_INDEX[idx as usize] = val;
+}
+
+// Epic 54 Position Specificity Getters
+@no_mangle
+pub fn dom_get_spec_position(idx: u32) -> u16 {
+    if idx >= 65536 { return 0; }
+    return STYLE_SPEC_POSITION[idx as usize];
+}
+@no_mangle
+pub fn dom_get_spec_top(idx: u32) -> u16 {
+    if idx >= 65536 { return 0; }
+    return STYLE_SPEC_TOP[idx as usize];
+}
+@no_mangle
+pub fn dom_get_spec_right(idx: u32) -> u16 {
+    if idx >= 65536 { return 0; }
+    return STYLE_SPEC_RIGHT[idx as usize];
+}
+@no_mangle
+pub fn dom_get_spec_bottom(idx: u32) -> u16 {
+    if idx >= 65536 { return 0; }
+    return STYLE_SPEC_BOTTOM[idx as usize];
+}
+@no_mangle
+pub fn dom_get_spec_left(idx: u32) -> u16 {
+    if idx >= 65536 { return 0; }
+    return STYLE_SPEC_LEFT[idx as usize];
+}
+@no_mangle
+pub fn dom_get_spec_z_index(idx: u32) -> u16 {
+    if idx >= 65536 { return 0; }
+    return STYLE_SPEC_Z_INDEX[idx as usize];
+}
+
+// Epic 54 Position Setters
+@no_mangle
+pub fn dom_set_style_position(idx: u32, val: u8) {
+    if idx != 0xFFFFFFFF {
+        STYLE_POSITION[idx as usize] = val;
+        invalidate_layout(idx as usize);
+    }
+}
+@no_mangle
+pub fn dom_set_style_top(idx: u32, val: i32) {
+    if idx != 0xFFFFFFFF {
+        STYLE_TOP[idx as usize] = val;
+        invalidate_layout(idx as usize);
+    }
+}
+@no_mangle
+pub fn dom_set_style_right(idx: u32, val: i32) {
+    if idx != 0xFFFFFFFF {
+        STYLE_RIGHT[idx as usize] = val;
+        invalidate_layout(idx as usize);
+    }
+}
+@no_mangle
+pub fn dom_set_style_bottom(idx: u32, val: i32) {
+    if idx != 0xFFFFFFFF {
+        STYLE_BOTTOM[idx as usize] = val;
+        invalidate_layout(idx as usize);
+    }
+}
+@no_mangle
+pub fn dom_set_style_left(idx: u32, val: i32) {
+    if idx != 0xFFFFFFFF {
+        STYLE_LEFT[idx as usize] = val;
+        invalidate_layout(idx as usize);
+    }
+}
+@no_mangle
+pub fn dom_set_style_z_index(idx: u32, val: i32) {
+    if idx != 0xFFFFFFFF {
+        STYLE_Z_INDEX[idx as usize] = val;
+        invalidate_layout(idx as usize);
+    }
+}
+
+// ============================================================================
+// Epic 53: The Dynamic Cascade
+// ============================================================================
+extern fn apply_rules_to_node(idx: u32);
+
+@no_mangle
+pub fn recompute_style(node_id: u32) {
+    let u_i = node_id as usize;
+    if DIRTY_STYLE[u_i] == 0 { return; }
+    
+    // 1. Snapshot previous geometric boundaries
+    let old_display = STYLE_DISPLAY[u_i];
+    let old_width = STYLE_W[u_i];
+    let old_height = STYLE_H[u_i];
+    let old_flex_dir = STYLE_FLEX_DIR[u_i];
+    let old_flex_grow = STYLE_FLEX_GROW[u_i];
+    let old_position = STYLE_POSITION[u_i];
+    let old_top = STYLE_TOP[u_i];
+    let old_right = STYLE_RIGHT[u_i];
+    let old_bottom = STYLE_BOTTOM[u_i];
+    let old_left = STYLE_LEFT[u_i];
+    
+    // 2. Clear current non-inline styles and re-evaluate global CSS rules
+    STYLE_SPEC_DISPLAY[u_i] = 0;
+    STYLE_SPEC_WIDTH[u_i] = 0;
+    STYLE_SPEC_HEIGHT[u_i] = 0;
+    STYLE_SPEC_FLEX_DIR[u_i] = 0;
+    STYLE_SPEC_FLEX_GROW[u_i] = 0;
+    STYLE_SPEC_BG[u_i] = 0;
+    STYLE_SPEC_COLOR[u_i] = 0;
+    STYLE_SPEC_POSITION[u_i] = 0;
+    STYLE_SPEC_TOP[u_i] = 0;
+    STYLE_SPEC_RIGHT[u_i] = 0;
+    STYLE_SPEC_BOTTOM[u_i] = 0;
+    STYLE_SPEC_LEFT[u_i] = 0;
+    STYLE_SPEC_Z_INDEX[u_i] = 0;
+    
+    // Reset defaults before re-cascade
+    STYLE_DISPLAY[u_i] = 1;
+    STYLE_W[u_i] = -1;
+    STYLE_H[u_i] = -1;
+    STYLE_FLEX_DIR[u_i] = 0;
+    STYLE_FLEX_GROW[u_i] = 0;
+    STYLE_POSITION[u_i] = 0; // static
+    STYLE_TOP[u_i] = -1;
+    STYLE_RIGHT[u_i] = -1;
+    STYLE_BOTTOM[u_i] = -1;
+    STYLE_LEFT[u_i] = -1;
+    STYLE_Z_INDEX[u_i] = 0;
+    
+    apply_rules_to_node(node_id);
+    
+    // 3. Diff the geometry
+    let mut geometry_changed = 0;
+    if STYLE_DISPLAY[u_i] != old_display { geometry_changed = 1; }
+    if STYLE_W[u_i] != old_width { geometry_changed = 1; }
+    if STYLE_H[u_i] != old_height { geometry_changed = 1; }
+    if STYLE_FLEX_DIR[u_i] != old_flex_dir { geometry_changed = 1; }
+    if STYLE_FLEX_GROW[u_i] != old_flex_grow { geometry_changed = 1; }
+    if STYLE_POSITION[u_i] != old_position { geometry_changed = 1; }
+    if STYLE_TOP[u_i] != old_top { geometry_changed = 1; }
+    if STYLE_RIGHT[u_i] != old_right { geometry_changed = 1; }
+    if STYLE_BOTTOM[u_i] != old_bottom { geometry_changed = 1; }
+    if STYLE_LEFT[u_i] != old_left { geometry_changed = 1; }
+    
+    if geometry_changed == 1 {
+        invalidate_layout(node_id); 
+    } else {
+        invalidate_paint(node_id);
+    }
+    
+    DIRTY_STYLE[u_i] = 0;
+}
+
+// ============================================================================
+// Epic 50: Focus Matrix
+// ============================================================================
+pub global ACTIVE_FOCUS_NODE: u32 = 0;
+
+@no_mangle
+pub fn dom_get_active_focus() -> u32 {
+    return ACTIVE_FOCUS_NODE;
+}
+
+@no_mangle
+pub fn dom_get_active_cursor() -> u32 {
+    return ACTIVE_CURSOR_INDEX;
+}
+
+@no_mangle
+pub fn dom_handle_click_focus(node_idx: u32) {
+    if node_idx == 0 || node_idx >= 65536 {
+        ACTIVE_FOCUS_NODE = 0;
+        return;
+    }
+    
+    let tag = DOM_NODE_TAG[node_idx as usize];
+    
+    // Interactive elements that can receive focus
+    if tag == TAG_INPUT || tag == TAG_TEXTAREA || tag == TAG_BUTTON {
+        ACTIVE_FOCUS_NODE = node_idx;
+        ACTIVE_CURSOR_INDEX = DOM_TEXT_LEN[node_idx as usize]; // Set cursor to end
+    } else {
+        ACTIVE_FOCUS_NODE = 0; // Blur
+        ACTIVE_CURSOR_INDEX = 0;
+    }
+}
+
+// ============================================================================
+// Epic 57: The Typography & Input Matrix (Buffer Mutator)
+// ============================================================================
+
+@no_mangle
+pub fn ext_dom_mutate_text(node_id: u32, insert_char: u8, is_backspace: u8) {
+    if node_id == 0 || node_id != ACTIVE_FOCUS_NODE { return; }
+    
+    let u_idx = node_id as usize;
+    let old_ptr = DOM_TEXT_PTR[u_idx];
+    let old_len = DOM_TEXT_LEN[u_idx];
+    
+    // 1. Handle Backspace
+    if is_backspace == 1 {
+        if ACTIVE_CURSOR_INDEX > 0 {
+            // Allocate new string length (old_len - 1)
+            let new_ptr = dom_alloc_text(old_len - 1);
+            if new_ptr == 0 { return; } // Arena exhausted
+            
+            // Loop 1: Copy before cursor
+            let mut i: u32 = 0;
+            while i < ACTIVE_CURSOR_INDEX - 1 {
+                let b = *((old_ptr + (i as u64)) as &u8);
+                *((new_ptr + (i as u64)) as &mut u8) = b;
+                i = i + 1;
+            }
+            
+            // Loop 2: Copy after cursor
+            let mut j: u32 = ACTIVE_CURSOR_INDEX;
+            let mut w: u32 = ACTIVE_CURSOR_INDEX - 1;
+            while j < old_len {
+                let b = *((old_ptr + (j as u64)) as &u8);
+                *((new_ptr + (w as u64)) as &mut u8) = b;
+                j = j + 1;
+                w = w + 1;
+            }
+            
+            DOM_TEXT_PTR[u_idx] = new_ptr;
+            DOM_TEXT_LEN[u_idx] = old_len - 1;
+            ACTIVE_CURSOR_INDEX = ACTIVE_CURSOR_INDEX - 1;
+            
+            invalidate_layout(node_id);
+        }
+        return;
+    }
+    
+    // 2. Handle Insertion
+    if insert_char != 0 {
+        let new_ptr = dom_alloc_text(old_len + 1);
+        if new_ptr == 0 { return; } // Arena exhausted
+        
+        // Loop 1: Copy before cursor
+        let mut i: u32 = 0;
+        while i < ACTIVE_CURSOR_INDEX {
+            let b = *((old_ptr + (i as u64)) as &u8);
+            *((new_ptr + (i as u64)) as &mut u8) = b;
+            i = i + 1;
+        }
+        
+        // Write the new char
+        *((new_ptr + (ACTIVE_CURSOR_INDEX as u64)) as &mut u8) = insert_char;
+        
+        // Loop 2: Copy after cursor
+        let mut j: u32 = ACTIVE_CURSOR_INDEX;
+        let mut w: u32 = ACTIVE_CURSOR_INDEX + 1;
+        while j < old_len {
+            let b = *((old_ptr + (j as u64)) as &u8);
+            *((new_ptr + (w as u64)) as &mut u8) = b;
+            j = j + 1;
+            w = w + 1;
+        }
+        
+        DOM_TEXT_PTR[u_idx] = new_ptr;
+        DOM_TEXT_LEN[u_idx] = old_len + 1;
+        ACTIVE_CURSOR_INDEX = ACTIVE_CURSOR_INDEX + 1;
+        
+        invalidate_layout(node_id);
+    }
+}
+
+// ============================================================================
+// Epic 56: Overflow & Scrolling Bridges
+// ============================================================================
+@no_mangle
+pub fn dom_set_style_overflow(idx: u32, val: u8) {
+    if idx != 0xFFFFFFFF {
+        STYLE_OVERFLOW[idx as usize] = val;
+        invalidate_paint(idx); // Just clipping change, no geometry reflow
+    }
+}
+
+pub fn propagate_scroll_dirty(node_idx: u32) {
+    // Only dirties layout coordinates of descendants, bypassing W/H solver
+    let mut child = (DOM_NODE_FIRST_CHILD[node_idx as usize] & 0xFFFF) as u32;
+    while child != 0 && child != 999999 {
+        // Here we just invalidate layout of children physically if we desired,
+        // but wait! If we just call invalidate_layout, it crawls UP to root.
+        // We only want to trigger child coordinate recalculation downstream.
+        // For Prisimi's bypass, since children check DIRTY_LAYOUT, 
+        // we must mark children DIRTY_LAYOUT. Actually, marking parent DIRTY layout 
+        // fulfills the immediate translation. To satisfy the prompt strictly:
+        DIRTY_LAYOUT[child as usize] = 1;
+        DIRTY_PAINT[child as usize] = 1;
+        propagate_scroll_dirty(child);
+        child = (DOM_NODE_NEXT_SIBLING[child as usize] & 0xFFFF) as u32;
+    }
+}
+
+@no_mangle
+pub fn dom_set_layout_scroll_y(node_id: u32, val: f32) {
+    if node_id != 0xFFFFFFFF {
+        LAYOUT_SCROLL_Y[node_id as usize] = val;
+        propagate_scroll_dirty(node_id);
+        invalidate_layout(node_id);
+    }
+}
+extern fn sys_canvas_create_backing_store(node_id: u32, width: u32, height: u32) -> u32;
+
+@no_mangle
+pub fn dom_init_canvas(node_id: u32, width: u32, height: u32) {
+    let surface_id = sys_canvas_create_backing_store(node_id, width, height);
+    CANVAS_SURFACE_IDS[node_id as usize] = surface_id;
+    DOM_CANVAS_WIDTH[node_id as usize] = width;
+    DOM_CANVAS_HEIGHT[node_id as usize] = height;
+}

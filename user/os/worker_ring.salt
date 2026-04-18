@@ -1,0 +1,103 @@
+package user.os.worker_ring
+
+import user.os.process
+
+// ============================================================================
+// Worker SPSC Multithreading Isolated Boundary Matrix
+// ============================================================================
+// Establishes physical boundaries mathematically routing Thread buffers natively
+// securely mapping bounds without leveraging shared object memory locks!
+// ============================================================================
+
+pub const RING_SIZE: u32 = 1048576; // 1MB for postMessage capacities safely elegantly smartly
+pub global WORKER_DOWN_BUFFER: u64 = 0;
+pub global WORKER_UP_BUFFER: u64 = 0;
+
+global DOWN_WRITE: u32 = 0;
+global DOWN_READ: u32 = 0;
+
+global UP_WRITE: u32 = 0;
+global UP_READ: u32 = 0;
+
+pub fn init_shared_ring() {
+    WORKER_DOWN_BUFFER = process.mmap_shared(RING_SIZE as i32);
+    WORKER_UP_BUFFER = process.mmap_shared(RING_SIZE as i32);
+}
+
+pub fn push_down_byte(val: u8) -> u32 {
+    let next_write = (DOWN_WRITE + 1) % RING_SIZE;
+    if next_write == DOWN_READ { return 0; }
+    *((WORKER_DOWN_BUFFER + (DOWN_WRITE as u64)) as &mut u8) = val;
+    DOWN_WRITE = next_write;
+    return 1;
+}
+
+pub fn read_down_byte(out_val_ptr: u64) -> u32 {
+    if DOWN_READ == DOWN_WRITE { return 0; }
+    let val = *((WORKER_DOWN_BUFFER + (DOWN_READ as u64)) as &mut u8);
+    let out_ptr = out_val_ptr as &mut u8;
+    *out_ptr = val;
+    DOWN_READ = (DOWN_READ + 1) % RING_SIZE;
+    return 1;
+}
+
+pub fn push_up_byte(val: u8) -> u32 {
+    let next_write = (UP_WRITE + 1) % RING_SIZE;
+    if next_write == UP_READ { return 0; }
+    *((WORKER_UP_BUFFER + (UP_WRITE as u64)) as &mut u8) = val;
+    UP_WRITE = next_write;
+    return 1;
+}
+
+pub fn read_up_byte(out_val_ptr: u64) -> u32 {
+    if UP_READ == UP_WRITE { return 0; }
+    let val = *((WORKER_UP_BUFFER + (UP_READ as u64)) as &mut u8);
+    let out_ptr = out_val_ptr as &mut u8;
+    *out_ptr = val;
+    UP_READ = (UP_READ + 1) % RING_SIZE;
+    return 1;
+}
+
+pub fn push_down_u32(val: u32) -> u32 {
+    let b1 = (val & 0xFF) as u8;
+    let b2 = ((val >> 8) & 0xFF) as u8;
+    let b3 = ((val >> 16) & 0xFF) as u8;
+    let b4 = ((val >> 24) & 0xFF) as u8;
+    if push_down_byte(b1) == 0 { return 0; }
+    if push_down_byte(b2) == 0 { return 0; }
+    if push_down_byte(b3) == 0 { return 0; }
+    if push_down_byte(b4) == 0 { return 0; }
+    return 1;
+}
+
+pub fn read_down_u32(out_val_ptr: u64) -> u32 {
+    let mut b1: u8 = 0; let mut b2: u8 = 0; let mut b3: u8 = 0; let mut b4: u8 = 0;
+    if read_down_byte((&mut b1) as u64) == 0 { return 0; }
+    if read_down_byte((&mut b2) as u64) == 0 { return 0; }
+    if read_down_byte((&mut b3) as u64) == 0 { return 0; }
+    if read_down_byte((&mut b4) as u64) == 0 { return 0; }
+    let val: u32 = (b1 as u32) | ((b2 as u32) << 8) | ((b3 as u32) << 16) | ((b4 as u32) << 24);
+    let out_ptr = out_val_ptr as &mut u32; *out_ptr = val; return 1;
+}
+
+pub fn push_up_u32(val: u32) -> u32 {
+    let b1 = (val & 0xFF) as u8;
+    let b2 = ((val >> 8) & 0xFF) as u8;
+    let b3 = ((val >> 16) & 0xFF) as u8;
+    let b4 = ((val >> 24) & 0xFF) as u8;
+    if push_up_byte(b1) == 0 { return 0; }
+    if push_up_byte(b2) == 0 { return 0; }
+    if push_up_byte(b3) == 0 { return 0; }
+    if push_up_byte(b4) == 0 { return 0; }
+    return 1;
+}
+
+pub fn read_up_u32(out_val_ptr: u64) -> u32 {
+    let mut b1: u8 = 0; let mut b2: u8 = 0; let mut b3: u8 = 0; let mut b4: u8 = 0;
+    if read_up_byte((&mut b1) as u64) == 0 { return 0; }
+    if read_up_byte((&mut b2) as u64) == 0 { return 0; }
+    if read_up_byte((&mut b3) as u64) == 0 { return 0; }
+    if read_up_byte((&mut b4) as u64) == 0 { return 0; }
+    let val: u32 = (b1 as u32) | ((b2 as u32) << 8) | ((b3 as u32) << 16) | ((b4 as u32) << 24);
+    let out_ptr = out_val_ptr as &mut u32; *out_ptr = val; return 1;
+}

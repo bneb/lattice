@@ -44,7 +44,6 @@ pub const EXPECTED_TX_FRAMES: u32 = 8;  // 32 / 4
 //   router_streams: Base of the PortRouter stream handle array
 //   router_states: Base of the PortRouter state array
 // ============================================================================
-@no_mangle
 pub fn init_basalt(
     arena_base: u64,
     arena_cap: u64,
@@ -72,7 +71,6 @@ pub fn init_basalt(
 // For v0.1, this is a direct inline implementation that mirrors
 // the app.poll() logic, proving the full stack compiles as one unit.
 // ============================================================================
-@no_mangle
 pub fn basalt_poll_cycle(
     rx_ring: u64,
     tx_ring: u64,

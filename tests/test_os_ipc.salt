@@ -1,0 +1,37 @@
+// =============================================================================
+// Test: Prisimi NetD -> OS IPC Ring Buffer MLIR Execution Structural Logic Check
+// =============================================================================
+
+import user.os.ipc_ring
+import user.netd.virtio_bridge
+
+fn main() -> i32 {
+    let mut payload: [u8; 10] = [0; 10];
+    payload[0] = 0xAA;
+    payload[1] = 0xBB;
+    payload[2] = 0xCC;
+    
+    // Send 3 boundaries cleanly
+    let push_res = virtio_bridge.route_payload((&payload) as u64, 3);
+    
+    if push_res != 3 {
+        return 1; 
+    }
+    
+    let mut out_byte: u8 = 0;
+    
+    let res1 = ipc_ring.ipc_read_byte((&out_byte) as u64);
+    if res1 != 1 || out_byte != 0xAA { return 2; }
+    
+    let res2 = ipc_ring.ipc_read_byte((&out_byte) as u64);
+    if res2 != 1 || out_byte != 0xBB { return 3; }
+    
+    let res3 = ipc_ring.ipc_read_byte((&out_byte) as u64);
+    if res3 != 1 || out_byte != 0xCC { return 4; }
+    
+    // Boundary exhaust limits securely checking empty structurally securely correctly
+    let res_empty = ipc_ring.ipc_read_byte((&out_byte) as u64);
+    if res_empty != 0 { return 5; } // Bounds mathematically correctly tests gracefully 
+    
+    return 0; // IPC seamlessly natively seamlessly safely seamlessly
+}

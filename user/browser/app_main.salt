@@ -1,0 +1,81 @@
+package user.browser.app_main
+
+
+// Subsystem Pump Interfaces 
+extern fn sys_net_pump_ingress();
+extern fn sys_events_pump_os_queue();
+extern fn sys_media_pump_decrypt_queue();
+extern fn js_engine_pump_tasks();
+extern fn js_engine_pump_microtasks();
+extern fn sys_typography_pump_results();
+extern fn sys_dom_check_dirty_flag() -> i32;
+extern fn sys_layout_solve_matrix();
+extern fn ext_compositor_tick(frame_start: f64);
+extern fn sys_gpu_check_dirty_flag() -> i32;
+extern fn sys_metal_render_frame();
+
+extern fn sys_time_now_ms() -> f64;
+extern fn sys_time_now_ms_int() -> u64;
+extern fn sys_sleep_ms(ms: u32);
+extern fn get_frame_count() -> u64;
+extern fn set_frame_count(v: u64);
+extern fn get_max_test_frames() -> u64;
+extern fn sys_log_violation(subsystem_ptr: u64, subsystem_len: u32, duration_ms: f64);
+
+@no_mangle
+pub fn app_run_loop() {
+    let vi_str: [u8; 3] = [74, 73, 84]; 
+    let fr_str: [u8; 5] = [70, 82, 65, 77, 69]; 
+    
+    while get_max_test_frames() == 0 || get_frame_count() < get_max_test_frames() {
+        let frame_start = sys_time_now_ms_int();
+        
+        // 1. Network Ingress (HTTP/2, WebSockets)
+        sys_net_pump_ingress();
+        
+        // 2. Physical Interaction (macOS NSEvents to DOM W3C Events)
+        sys_events_pump_os_queue();
+        
+        // 3. EME / Media Hardware Callbacks
+        sys_media_pump_decrypt_queue();
+        
+        // 4. JavaScript Execution & Reactivity
+        let jit_start = sys_time_now_ms_int();
+        js_engine_pump_tasks();      
+        js_engine_pump_microtasks(); 
+        let jit_duration = sys_time_now_ms_int() - jit_start;
+        if jit_duration > 10 { 
+            sys_log_violation((&vi_str) as u64, 3, jit_duration as f64); 
+        }
+        
+        // 5. HarfBuzz Typography Sync
+        sys_typography_pump_results();
+        
+        // 6. CSS / DOM Layout Matrix
+        let layout_start = sys_time_now_ms_int();
+        if sys_dom_check_dirty_flag() == 1 {
+            sys_layout_solve_matrix();
+        }
+        
+        // 7. WAAPI GPU Compositor Tick (Interpolation)
+        ext_compositor_tick(frame_start as f64);
+        
+        // 8. Apple Metal Paint
+        let gpu_dirty = sys_gpu_check_dirty_flag();
+        if gpu_dirty == 1 {
+            sys_metal_render_frame();
+        }
+        
+        // Frame pacing enforcement
+        let frame_duration = sys_time_now_ms_int() - frame_start;
+        if frame_duration < 16 {
+            let sleep_time = 16 - frame_duration;
+            sys_sleep_ms(sleep_time as u32);
+        } else {
+            // Uncomment to log violations locally, omitting for noise usually.
+            // telemetry.sys_log_violation((&fr_str) as u64, 5, frame_duration as f64);
+        }
+        
+        set_frame_count(get_frame_count() + 1);
+    }
+}

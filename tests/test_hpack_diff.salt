@@ -1,0 +1,35 @@
+// tests/test_hpack_diff.salt
+extern fn sys_log_info(msg_ptr: u64, msg_len: u32);
+extern fn sys_print_u32(u: u32);
+extern fn decode_hpack_block(payload_ptr: u64, payload_len: u32, stream_id: u32);
+extern fn ext_get_mock_hpack_ptr() -> u64;
+extern fn ext_get_mock_hpack_len() -> u32;
+
+fn emit_str(ptr: u64, len: u32) {
+    sys_log_info(ptr, len);
+}
+
+// This will be called by decode_hpack_block
+@no_mangle
+pub fn ext_net_route_header_to_stream(stream_id: u32, key_ptr: u64, key_len: u32, val_ptr: u64, val_len: u32) {
+    let hdr: [u8; 4] = [72, 68, 82, 32]; // "HDR "
+    emit_str((&hdr) as u64, 4);
+    emit_str(key_ptr, key_len);
+    let sep: [u8; 1] = [61]; // "="
+    emit_str((&sep) as u64, 1);
+    emit_str(val_ptr, val_len);
+    let nl: [u8; 1] = [10];
+    emit_str((&nl) as u64, 1);
+}
+
+fn main() {
+    let ptr = ext_get_mock_hpack_ptr();
+    let len = ext_get_mock_hpack_len();
+    
+    if ptr == 0 || len == 0 { return; }
+    
+    let hdr: [u8; 15] = [61,61,32,72,80,65,67,75,32,73,82,32,61,61,10]; // "== HPACK IR ==\n"
+    emit_str((&hdr) as u64, 15);
+    
+    decode_hpack_block(ptr, len, 1);
+}

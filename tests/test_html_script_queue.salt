@@ -1,0 +1,61 @@
+package tests.test_html_script_queue
+
+import user.os.ipc_ring
+
+extern fn init_arrays();
+extern fn create_node(tag: i32) -> u64;
+extern fn airlock_init_allocator();
+extern fn js_quickjs_init() -> i32;
+extern fn js_quickjs_eval_string(ptr: u64, len: u32) -> i32;
+extern fn js_execute_pending_jobs() -> i32;
+extern fn js_lex_html_chunk(root_node: u64, html_str: u64, html_len: u32, can_exec: u8);
+extern fn js_dequeue_script_ptr() -> u64;
+extern fn js_dequeue_script_len() -> u32;
+extern fn dom_get_transform_x(idx: u32) -> f32;
+extern fn resolve_node_by_id(ptr: u64, len: u32) -> u64;
+extern fn sys_js_pump_script_queue();
+extern fn js_set_id(node_id: u64, id_ptr: u64, id_len: u32);
+extern fn append_child(parent: u64, child: u64);
+
+pub fn main() -> i32 {
+    println("--- Epic 30: HTML5 Script Execution Pipeline Test ---");
+
+    airlock_init_allocator();
+    init_arrays();
+    ipc_ring.init_shared_ring();
+    js_quickjs_init();
+
+    let root_id = create_node(3); // BODY
+
+    // ============================================================
+    // Full Integration: HTML with div + inline script mutating DOM
+    // ============================================================
+    // HTML: <div id="hero"></div><script>let t = document.getElementById("hero"); t.style.transform="translateX(100px)";</script>
+    let mut html: [u8; 117] = [60,100,105,118,32,105,100,61,34,104,101,114,111,34,62,60,47,100,105,118,62,60,115,99,114,105,112,116,62,108,101,116,32,116,32,61,32,100,111,99,117,109,101,110,116,46,103,101,116,69,108,101,109,101,110,116,66,121,73,100,40,34,104,101,114,111,34,41,59,32,116,46,115,116,121,108,101,46,116,114,97,110,115,102,111,114,109,61,34,116,114,97,110,115,108,97,116,101,88,40,49,48,48,112,120,41,34,59,60,47,115,99,114,105,112,116,62];
+    js_lex_html_chunk(root_id, (&html) as u64, 117, 1);
+
+    // Pump the script queue (simulates what main.salt run_loop does)
+    sys_js_pump_script_queue();
+    js_execute_pending_jobs();
+
+    // Resolve the "hero" node and check its transform
+    let mut id_str: [u8; 4] = [104, 101, 114, 111]; // "hero"
+    let found_node = resolve_node_by_id((&id_str) as u64, 4);
+    if found_node == 0 {
+        println("[FAIL] Hero node not found in DOM tree");
+        return 1;
+    }
+
+    let hero_idx = (found_node & 0xFFFF) as u32;
+    let tx = dom_get_transform_x(hero_idx);
+
+    if tx > 99.0 && tx < 101.0 {
+        println("[OK] STYLE_TRANSFORM_X = 100.0 confirmed via inline <script>");
+    } else {
+        println("[FAIL] STYLE_TRANSFORM_X was not set to 100.0");
+        return 1;
+    }
+
+    println("[Test] SUCCESS: HTML5 Script Execution Pipeline — inline scripts execute and mutate the DOM!");
+    return 0;
+}

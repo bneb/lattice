@@ -1,0 +1,124 @@
+package tests.test_browser_spa_mutations
+
+import user.browser.dom
+import user.browser.js_vm
+import user.browser.js_bytecode.OpCode
+import user.browser.js_lexer.JsCompilerState
+import user.browser.alloc.airlock
+
+pub fn main() -> i32 {
+    dom.init_arrays();
+    
+    // We expect dom_node_count = 1 initially (0 is NULL)
+    
+    // ----------------------------------------------------
+    // Scenario 1: Fill up the DOM linearly to exhaust it and verify Max Out
+    // We will simulate the JS VM allocating tags heavily
+    // ----------------------------------------------------
+    let mut i = 0;
+    while i < 100 {
+        dom.create_node(dom.TAG_DIV);
+        i = i + 1;
+    }
+    
+    // Total nodes = 101 => ROOT (1) + 100
+    if dom.get_dom_node_count() != 101 {
+        println(f"FAIL: Expected DOM_NODE_COUNT 101, got {dom.get_dom_node_count()}");
+        return 1;
+    }
+    
+    // ----------------------------------------------------
+    // Scenario 2: Validate child linkages
+    // ----------------------------------------------------
+    let parent_id = dom.create_node(dom.TAG_DIV); // 101
+    
+    let c1 = dom.create_node(dom.TAG_P); // 102
+    let c2 = dom.create_node(dom.TAG_SPAN); // 103
+    let c3 = dom.create_node(dom.TAG_IMG); // 104
+    
+    dom.append_child(parent_id, c1);
+    dom.append_child(parent_id, c2);
+    dom.append_child(parent_id, c3);
+    
+    let parent_idx = dom.resolve_node(parent_id) as usize;
+    let c1_idx = dom.resolve_node(c1) as usize;
+    let c2_idx = dom.resolve_node(c2) as usize;
+    let c3_idx = dom.resolve_node(c3) as usize;
+    
+    if dom.DOM_NODE_FIRST_CHILD[parent_idx] != c1 { return 2; }
+    if dom.DOM_NODE_NEXT_SIBLING[c1_idx] != c2 { return 3; }
+    if dom.DOM_NODE_NEXT_SIBLING[c2_idx] != c3 { return 4; }
+    if dom.DOM_NODE_NEXT_SIBLING[c3_idx] != 0 { return 5; }
+    
+    // Also build a nested child under c2
+    let nested = dom.create_node(dom.TAG_H1); // 105
+    dom.append_child(c2, nested);
+    
+    // Current Node Count is 106. Freelist empty.
+    
+    // ----------------------------------------------------
+    // Scenario 3: Remove child (c2) and ensure nested child is pushed to freellist
+    // ----------------------------------------------------
+    dom.remove_child(parent_id, c2);
+    
+    if dom.DOM_NODE_NEXT_SIBLING[c1_idx] != c3 { 
+        println("FAIL: Sibling unlinking failed!");
+        return 6; 
+    }
+    
+    // Both c2 and nested should have been recycled. We expect free list length = 2
+    if dom.get_dom_free_list_count() != 2 {
+        println(f"FAIL: Expected DOM_FREE_LIST_COUNT = 2, got {dom.get_dom_free_list_count()}");
+        return 7;
+    }
+    
+    // ----------------------------------------------------
+    // Scenario 4: Create Node pops from Free List!
+    // ----------------------------------------------------
+    let refilled_1 = dom.create_node(dom.TAG_DIV);
+    let refilled_2 = dom.create_node(dom.TAG_HTML);
+    
+    if dom.get_dom_free_list_count() != 0 {
+        println("FAIL: Did not consume freelist!");
+        return 8;
+    }
+    
+    // They should reuse the IDs of nested and c2, but with Generation 1!
+    // gen << 16 | idx -> 1 << 16 | 103 = 65639
+    // gen << 16 | idx -> 1 << 16 | 105 = 65641
+    if refilled_1 != 65639 {
+        println(f"FAIL: Expected generation-secured ID 65639, got {refilled_1}");
+        return 9;
+    }
+    
+    if refilled_2 != 65641 {
+        println(f"FAIL: Expected generation-secured ID 65641, got {refilled_2}");
+        return 10;
+    }
+    
+    // Node count should STILL BE 106, meaning we saved memory!
+    if dom.get_dom_node_count() != 106 {
+        println(f"FAIL: Expected DOM_NODE_COUNT to remain 106, got {dom.get_dom_node_count()}");
+        return 11;
+    }
+    
+    // ----------------------------------------------------
+    // Scenario 5: Stale Reference UAF Attack
+    // ----------------------------------------------------
+    let old_stale_id = 103; // Using the old ID directly representing malicious JS Cache
+    let malicious_child = dom.create_node(dom.TAG_DIV); // ID 106 (Gen 0)
+    
+    // Attempt to append to the STALE ID
+    dom.append_child(old_stale_id, malicious_child);
+    
+    // Resolve should reject it. The node actually at array[103] is the recycled refilled_1!
+    // Its FIRST_CHILD should still be 0, not malicious_child
+    let newly_recycled_idx = dom.resolve_node(refilled_1) as usize;
+    if dom.DOM_NODE_FIRST_CHILD[newly_recycled_idx] == malicious_child {
+        println("FAIL: Security Seal Breach! Stale UAF reference mutated the recycled node.");
+        return 12;
+    }
+    
+    println("PASS: Sovereign DOM API dynamically mutates and isolates Generation Indices perfectly.");
+    return 0;
+}

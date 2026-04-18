@@ -234,3 +234,24 @@ pub fn initiate_close(tcb: &mut TransmissionControlBlock) -> u8 {
     }
     return tcb.state;
 }
+
+// ============================================================================
+// trigger_tcp_window — Sliding Window Enforcement
+// ============================================================================
+// Slides the internal transmission control variables synchronously, 
+// guaranteeing mathematically bounded geometries per execution state.
+// ============================================================================
+pub fn trigger_tcp_window(tcb: &mut TransmissionControlBlock, incoming_ack: u32, incoming_win: u16) -> bool {
+    let diff = incoming_ack - tcb.initial_seq;
+    let sent = tcb.seq_num - tcb.initial_seq;
+    
+    // Bounds Check: Don't advance the window off the end of our unacknowledged block
+    if diff > sent {
+        return false;
+    }
+    
+    tcb.ack_num = incoming_ack;
+    tcb.snd_window = incoming_win;
+    
+    return true;
+}

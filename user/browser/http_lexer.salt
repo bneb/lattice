@@ -1,0 +1,381 @@
+package user.browser.http_lexer
+
+// ============================================================================
+// Epic 35: HTTP/1.1 Ingress Lexer — Streaming State Machine
+// ============================================================================
+// Sits between the VirtIO ipc_ring (TLS cleartext) and the DOM Lexer.
+// Strips the HTTP status line and headers, detects Transfer-Encoding: chunked,
+// and pipes purely contiguous HTML body slices to js_lex_html_chunk().
+//
+// CRITICAL: This state machine survives buffer fragmentation.
+// The \r\n\r\n boundary and chunk size fields may be split across multiple
+// http_process_ingress() calls. All state persists via globals.
+// ============================================================================
+
+// Extern to the existing DOM parser
+extern fn js_lex_html_chunk(root_node: u64, html_str: u64, html_len: u32, can_exec: u8);
+
+extern fn sys_log_net(msg_ptr: u64, msg_len: u32);
+
+// ============================================================================
+// HTTP Parsing States
+// ============================================================================
+pub const STATE_STATUS_LINE:     u32 = 0;
+pub const STATE_HEADERS:         u32 = 1;
+pub const STATE_BODY_IDENTITY:   u32 = 2;
+pub const STATE_BODY_CHUNK_SIZE: u32 = 3;
+pub const STATE_BODY_CHUNK_DATA: u32 = 4;
+pub const STATE_BODY_CHUNK_CRLF: u32 = 5;
+pub const STATE_DONE:            u32 = 6;
+
+// ============================================================================
+// Persistent State Matrix — Survives buffer fragmentation
+// ============================================================================
+pub global HTTP_STATE:           u32 = 0; // STATE_STATUS_LINE
+pub global HTTP_IS_CHUNKED:      u32 = 0;
+pub global HTTP_CONTENT_LENGTH:  u64 = 0;
+pub global HTTP_CHUNK_REMAINING: u64 = 0;
+pub global HTTP_MATCH_INDEX:     u32 = 0; // Tracks \r\n\r\n boundary spanning
+pub global HTTP_ROOT_NODE:       u64 = 0; // DOM root for js_lex_html_chunk
+
+// Terminal state flag for single-pass Render Matrix
+pub global HTTP_EOF_REACHED:     u8 = 0;
+
+// "chunked" matcher state (7 chars: c=99 h=104 u=117 n=110 k=107 e=101 d=100)
+pub global HTTP_CHUNKED_MATCH:   u32 = 0;
+
+// "Content-Length" matcher state (14 chars)
+pub global HTTP_CL_MATCH:        u32 = 0;
+pub global HTTP_CL_PARSING:      u8 = 0;
+
+// Body capture buffer for test verification
+pub global HTTP_BODY_CAPTURE:     [u8; 65536] = [0; 65536];
+pub global HTTP_BODY_CAPTURE_LEN: u32 = 0;
+
+// ============================================================================
+// Public Interface
+// ============================================================================
+
+@no_mangle
+pub fn http_set_root_node(node_id: u64) {
+    HTTP_ROOT_NODE = node_id;
+}
+
+@no_mangle
+pub fn http_reset_state() {
+    HTTP_STATE = STATE_STATUS_LINE;
+    HTTP_IS_CHUNKED = 0;
+    HTTP_CONTENT_LENGTH = 0;
+    HTTP_CHUNK_REMAINING = 0;
+    HTTP_MATCH_INDEX = 0;
+    HTTP_CHUNKED_MATCH = 0;
+    HTTP_CL_MATCH = 0;
+    HTTP_CL_PARSING = 0;
+    HTTP_BODY_CAPTURE_LEN = 0;
+    HTTP_EOF_REACHED = 0;
+}
+
+@no_mangle
+pub fn http_get_state() -> u32 {
+    return HTTP_STATE;
+}
+
+@no_mangle
+pub fn http_get_eof_reached() -> u8 {
+    return HTTP_EOF_REACHED;
+}
+
+@no_mangle
+pub fn http_get_content_length() -> u64 {
+    return HTTP_CONTENT_LENGTH;
+}
+
+@no_mangle
+pub fn http_set_eof() {
+    HTTP_EOF_REACHED = 1;
+}
+
+@no_mangle
+pub fn http_get_body_capture_len() -> u32 {
+    return HTTP_BODY_CAPTURE_LEN;
+}
+
+@no_mangle
+pub fn http_get_body_capture_byte(idx: u32) -> u8 {
+    if idx >= HTTP_BODY_CAPTURE_LEN { return 0; }
+    return HTTP_BODY_CAPTURE[idx as usize];
+}
+
+// Extern for DOM Bump Allocator
+extern fn dom_alloc_text(len: u32) -> u64;
+
+// ============================================================================
+// Emit body slice — captures AND forwards to DOM lexer
+// ============================================================================
+fn emit_body_slice(ptr: u64, len: u32) {
+    if len == 0 { return; }
+
+    // Capture for test verification
+    let mut i: u32 = 0;
+    while i < len {
+        if HTTP_BODY_CAPTURE_LEN < 65536 {
+            HTTP_BODY_CAPTURE[HTTP_BODY_CAPTURE_LEN as usize] = *((ptr + (i as u64)) as &u8);
+            HTTP_BODY_CAPTURE_LEN = HTTP_BODY_CAPTURE_LEN + 1;
+        }
+        i = i + 1;
+    }
+
+    // Forward to DOM lexer via Monolithic Arena allocated slice
+    if HTTP_ROOT_NODE != 0 {
+        let perm_ptr = dom_alloc_text(len);
+        if perm_ptr != 0 {
+            let mut j: u32 = 0;
+            while j < len {
+                *((perm_ptr + (j as u64)) as &mut u8) = *((ptr + (j as u64)) as &u8);
+                j = j + 1;
+            }
+            js_lex_html_chunk(HTTP_ROOT_NODE, perm_ptr, len, 1);
+        } else {
+            println("[ERROR] DOM_TEXT_ARENA Exhausted!");
+        }
+    }
+}
+
+// ============================================================================
+// "chunked" sliding window matcher
+// ============================================================================
+// Matches case-insensitive 'c','h','u','n','k','e','d' (7 bytes)
+// Sets HTTP_IS_CHUNKED = 1 when all 7 match consecutively.
+fn check_chunked_byte(b: u8) {
+    let lower = b | 32; // ASCII lowercase
+    let m = HTTP_CHUNKED_MATCH;
+
+    // Match: c(99) h(104) u(117) n(110) k(107) e(101) d(100)
+    if m == 0 {
+        if lower == 99 { HTTP_CHUNKED_MATCH = 1; return; }
+    }
+    if m == 1 {
+        if lower == 104 { HTTP_CHUNKED_MATCH = 2; return; }
+    }
+    if m == 2 {
+        if lower == 117 { HTTP_CHUNKED_MATCH = 3; return; }
+    }
+    if m == 3 {
+        if lower == 110 { HTTP_CHUNKED_MATCH = 4; return; }
+    }
+    if m == 4 {
+        if lower == 107 { HTTP_CHUNKED_MATCH = 5; return; }
+    }
+    if m == 5 {
+        if lower == 101 { HTTP_CHUNKED_MATCH = 6; return; }
+    }
+    if m == 6 {
+        if lower == 100 {
+            HTTP_IS_CHUNKED = 1;
+            HTTP_CHUNKED_MATCH = 0;
+            return;
+        }
+    }
+    
+    // Mismatch: reset, but restart if 'c'
+    if lower == 99 {
+        HTTP_CHUNKED_MATCH = 1;
+    } else {
+        HTTP_CHUNKED_MATCH = 0;
+    }
+}
+
+// Matches "Content-Length" (case-insensitive)
+fn check_content_length_byte(b: u8) {
+    if HTTP_CL_PARSING == 1 {
+        if b >= 48 && b <= 57 { // '0'-'9'
+            HTTP_CONTENT_LENGTH = (HTTP_CONTENT_LENGTH * 10) + ((b - 48) as u64);
+        } else if b == 10 || b == 13 {
+            HTTP_CL_PARSING = 0;
+        }
+        return;
+    }
+
+    let lower = b | 32;
+    let m = HTTP_CL_MATCH;
+    // C(99) o(111) n(110) t(116) e(101) n(110) t(116) -(45) L(108) e(101) n(110) g(103) t(116) h(104)
+    let cl_bytes: [u8; 14] = [99, 111, 110, 116, 101, 110, 116, 45, 108, 101, 110, 103, 116, 104];
+    
+    if lower == cl_bytes[m as usize] {
+        HTTP_CL_MATCH = m + 1;
+        if HTTP_CL_MATCH == 14 {
+            HTTP_CL_PARSING = 1;
+            HTTP_CONTENT_LENGTH = 0;
+            HTTP_CL_MATCH = 0;
+        }
+    } else if b == 10 || b == 13 {
+        HTTP_CL_MATCH = 0;
+    } else if b != 32 && b != 58 { // ignore space and colon
+        HTTP_CL_MATCH = 0;
+    }
+}
+
+// ============================================================================
+// Hex character parser (for chunk sizes)
+// ============================================================================
+fn parse_hex_char(c: u8) -> u64 {
+    if c >= 48 && c <= 57 { return (c - 48) as u64; }        // '0'-'9'
+    if c >= 65 && c <= 70 { return (c - 65 + 10) as u64; }   // 'A'-'F'
+    if c >= 97 && c <= 102 { return (c - 97 + 10) as u64; }  // 'a'-'f'
+    return 0;
+}
+
+// ============================================================================
+// Main Entry Point — Streaming HTTP/1.1 Parser
+// ============================================================================
+// Called each time a buffer of cleartext bytes arrives from the ipc_ring.
+// The state machine persists across calls via globals.
+// ============================================================================
+
+@no_mangle
+pub fn http_process_ingress(buf_ptr: u64, buf_len: u32) {
+    let msg2: [u8; 23] = [76,101,120,101,114,32,112,97,114,115,105,110,103,32,98,121,116,101,115,46,46,46,10];
+    sys_log_net((&msg2) as u64, 23);
+    let mut i: u32 = 0;
+
+    while i < buf_len {
+        let b = *((buf_ptr + (i as u64)) as &u8);
+
+        if HTTP_STATE == STATE_STATUS_LINE {
+            // State 0: Status Line — skip until first \n
+            if b == 10 {
+                HTTP_STATE = STATE_HEADERS;
+                // The status line's \r\n counts as the first \r\n of the
+                // potential \r\n\r\n boundary (handles no-header responses)
+                HTTP_MATCH_INDEX = 2;
+            }
+            i = i + 1;
+        } else if HTTP_STATE == STATE_HEADERS {
+            // State 1: Headers — parse until \r\n\r\n boundary
+            let mi = HTTP_MATCH_INDEX;
+
+            if b == 13 {
+                // \r at position 0 or 2 advances boundary match
+                if mi == 0 {
+                    HTTP_MATCH_INDEX = 1;
+                } else if mi == 2 {
+                    HTTP_MATCH_INDEX = 3;
+                } else {
+                    HTTP_MATCH_INDEX = 0;
+                }
+            } else if b == 10 {
+                // \n at position 1 or 3 advances boundary match
+                if mi == 1 {
+                    HTTP_MATCH_INDEX = 2;
+                } else if mi == 3 {
+                    // \r\n\r\n boundary found!
+                    HTTP_MATCH_INDEX = 0;
+                    HTTP_CHUNK_REMAINING = 0;
+                    if HTTP_IS_CHUNKED == 1 {
+                        HTTP_STATE = STATE_BODY_CHUNK_SIZE;
+                    } else {
+                        HTTP_STATE = STATE_BODY_IDENTITY;
+                    }
+
+                    // Process remaining bytes as body
+                    i = i + 1;
+                    if i < buf_len {
+                        http_process_body(buf_ptr, buf_len, i);
+                    }
+                    return;
+                } else {
+                    HTTP_MATCH_INDEX = 0;
+                }
+            } else {
+                HTTP_MATCH_INDEX = 0;
+                check_chunked_byte(b);
+                check_content_length_byte(b);
+            }
+            i = i + 1;
+        } else {
+            // States 2-5: Body processing
+            http_process_body(buf_ptr, buf_len, i);
+            return;
+        }
+    }
+}
+
+// ============================================================================
+// Body Processor — Handles identity and chunked transfer encodings
+// ============================================================================
+// Processes bytes from current_idx to end of buffer.
+// For identity: pipes the entire remaining buffer as a single slice.
+// For chunked: parses hex sizes and pipes exact data slices.
+// ============================================================================
+
+fn http_process_body(base_ptr: u64, buf_len: u32, start_idx: u32) {
+    let mut i: u32 = start_idx;
+
+    while i < buf_len {
+        let b = *((base_ptr + (i as u64)) as &u8);
+
+        if HTTP_STATE == STATE_BODY_IDENTITY {
+            // ============================================================
+            // Identity: Pipe the rest of the buffer as one zero-copy slice
+            // ============================================================
+            let remaining = buf_len - i;
+            emit_body_slice(base_ptr + (i as u64), remaining);
+            HTTP_EOF_REACHED = 1; // Correct the "Silent Void" by signaling EOF
+            return; // Consumed all remaining
+        } else if HTTP_STATE == STATE_BODY_CHUNK_SIZE {
+            // ============================================================
+            // Chunk size: Parse hex digits until \r\n
+            // ============================================================
+            if b == 13 {
+                // \r — ignore (expect \n next)
+                i = i + 1;
+            } else if b == 10 {
+                // \n — chunk size complete
+                if HTTP_CHUNK_REMAINING == 0 {
+                    // Terminal chunk (0\r\n) — wait for final \r\n
+                    HTTP_STATE = STATE_DONE;
+                    HTTP_EOF_REACHED = 1;
+                    return;
+                }
+                HTTP_STATE = STATE_BODY_CHUNK_DATA;
+                i = i + 1;
+            } else {
+                // Hex digit
+                HTTP_CHUNK_REMAINING = (HTTP_CHUNK_REMAINING * 16) + parse_hex_char(b);
+                i = i + 1;
+            }
+        } else if HTTP_STATE == STATE_BODY_CHUNK_DATA {
+            // ============================================================
+            // Chunk data: Pipe exactly HTTP_CHUNK_REMAINING bytes
+            // ============================================================
+            let available = (buf_len - i) as u64;
+            let mut consume: u32 = 0;
+
+            if available >= HTTP_CHUNK_REMAINING {
+                consume = HTTP_CHUNK_REMAINING as u32;
+                // After consuming this chunk's data, expect CRLF
+                HTTP_STATE = STATE_BODY_CHUNK_CRLF;
+            } else {
+                consume = available as u32;
+            }
+
+            // Zero-copy pipe to DOM Lexer
+            emit_body_slice(base_ptr + (i as u64), consume);
+            HTTP_CHUNK_REMAINING = HTTP_CHUNK_REMAINING - (consume as u64);
+            i = i + consume;
+        } else if HTTP_STATE == STATE_BODY_CHUNK_CRLF {
+            // ============================================================
+            // Chunk CRLF: Skip \r\n after chunk data
+            // ============================================================
+            if b == 10 { // '\n'
+                HTTP_STATE = STATE_BODY_CHUNK_SIZE;
+                HTTP_CHUNK_REMAINING = 0;
+            }
+            // Skip \r silently
+            i = i + 1;
+        } else {
+            // STATE_DONE or unknown — stop processing
+            return;
+        }
+    }
+}

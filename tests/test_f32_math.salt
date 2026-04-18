@@ -1,0 +1,9 @@
+package tests.test_f32_math
+pub fn main() -> i32 {
+    let a: f32 = 1904.0;
+    let b: f32 = 85.0 / 100.0;
+    let c: f32 = a * b;
+    let c_i32: i32 = c as i32;
+    println("f32 mutliplication test: 1904.0 * 0.85 (as i32) = {}", c_i32);
+    return 0;
+}

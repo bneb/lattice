@@ -1,0 +1,141 @@
+package user.browser.alloc.airlock
+
+pub const MAX_AIRLOCK_CAPACITY: u32 = 1048576 * 16; // 16 MB Dedicated QuickJS HEAP
+pub global AIRLOCK_MEM: [u8; MAX_AIRLOCK_CAPACITY] = [0; MAX_AIRLOCK_CAPACITY];
+
+// Freelist SoA Matrix
+pub const MAX_BLOCKS: u32 = 16384;
+pub global BLOCK_SIZES: [u32; MAX_BLOCKS] = [0; MAX_BLOCKS];
+pub global BLOCK_OFFSETS: [u32; MAX_BLOCKS] = [0; MAX_BLOCKS];
+pub global BLOCK_IS_FREE: [bool; MAX_BLOCKS] = [true; MAX_BLOCKS];
+pub global BLOCK_COUNT: u32 = 1;
+
+pub global SIP_MEM_START: [u32; 1024] = [0; 1024];
+
+@no_mangle
+pub fn airlock_init_allocator() {
+    BLOCK_SIZES[0] = MAX_AIRLOCK_CAPACITY;
+    BLOCK_OFFSETS[0] = 0;
+    BLOCK_IS_FREE[0] = true;
+    BLOCK_COUNT = 1;
+}
+
+@no_mangle
+pub fn airlock_allocate(size: u32) -> u32 {
+    let mut i: u32 = 0;
+    let mut aligned_size = size;
+    if size % 16 != 0 {
+        aligned_size = size + (16 - (size % 16));
+    }
+
+    while i < BLOCK_COUNT {
+        if BLOCK_IS_FREE[i] && BLOCK_SIZES[i] >= aligned_size {
+            if BLOCK_SIZES[i] > aligned_size + 16 && BLOCK_COUNT < MAX_BLOCKS {
+                let old_size = BLOCK_SIZES[i];
+                BLOCK_SIZES[i] = aligned_size;
+                BLOCK_IS_FREE[i] = false;
+                
+                let next_idx = BLOCK_COUNT;
+                BLOCK_SIZES[next_idx] = old_size - aligned_size;
+                BLOCK_OFFSETS[next_idx] = BLOCK_OFFSETS[i] + aligned_size;
+                BLOCK_IS_FREE[next_idx] = true;
+                BLOCK_COUNT = BLOCK_COUNT + 1;
+                return BLOCK_OFFSETS[i];
+            } else {
+                BLOCK_IS_FREE[i] = false;
+                return BLOCK_OFFSETS[i];
+            }
+        }
+        i = i + 1;
+    }
+    return 0xFFFFFFFF;
+}
+
+fn remove_block(idx: u32) {
+    if BLOCK_COUNT <= 1 { return; }
+    if idx < BLOCK_COUNT - 1 {
+        BLOCK_OFFSETS[idx] = BLOCK_OFFSETS[BLOCK_COUNT - 1];
+        BLOCK_SIZES[idx] = BLOCK_SIZES[BLOCK_COUNT - 1];
+        BLOCK_IS_FREE[idx] = BLOCK_IS_FREE[BLOCK_COUNT - 1];
+    }
+    BLOCK_COUNT = BLOCK_COUNT - 1;
+}
+
+@no_mangle
+pub fn airlock_deallocate(offset: u32) {
+    let mut target_idx: i32 = -1;
+    let mut i: u32 = 0;
+    while i < BLOCK_COUNT {
+        if BLOCK_OFFSETS[i] == offset {
+            BLOCK_IS_FREE[i] = true;
+            target_idx = i as i32;
+            break;
+        }
+        i = i + 1;
+    }
+    
+    if target_idx == -1 { return; }
+    
+    let mut changed: bool = true;
+    let mut iterations: u32 = 0;
+    while changed && iterations < 16384 {
+        iterations = iterations + 1;
+        changed = false;
+        let mut t_idx = target_idx as u32;
+        let mut j: u32 = 0;
+        while j < BLOCK_COUNT {
+            if j != t_idx && BLOCK_IS_FREE[j] {
+                let j_offset = BLOCK_OFFSETS[j];
+                let j_size = BLOCK_SIZES[j];
+                let t_offset = BLOCK_OFFSETS[t_idx];
+                let t_size = BLOCK_SIZES[t_idx];
+                
+                if j_offset + j_size == t_offset {
+                    BLOCK_SIZES[j] = j_size + t_size;
+                    remove_block(t_idx);
+                    target_idx = j as i32;
+                    changed = true;
+                    break;
+                }
+                if t_offset + t_size == j_offset {
+                    BLOCK_SIZES[t_idx] = t_size + j_size;
+                    remove_block(j);
+                    changed = true;
+                    break;
+                }
+            }
+            j = j + 1;
+        }
+    }
+}
+
+@no_mangle
+pub fn airlock_get_ptr() -> u64 {
+    return (&AIRLOCK_MEM) as u64;
+}
+
+@no_mangle
+pub fn airlock_get_block_size(offset: u32) -> u32 {
+    let mut i: u32 = 0;
+    while i < BLOCK_COUNT {
+        if BLOCK_OFFSETS[i] == offset {
+            return BLOCK_SIZES[i];
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// ============================================================================
+// JS Eval Scratchpad — Zero-Allocation QuickJS Dispatch Buffer
+// ============================================================================
+// A static 1MB buffer used exclusively by js_eval_buffer() in the C bridge.
+// The C side memcpy's the script payload here, slaps a \0 at the end, passes
+// the pointer to JS_Eval, then resets. No malloc. No free. No OS calls.
+pub const JS_EVAL_SCRATCHPAD_CAP: u32 = 1048576;
+pub global JS_EVAL_SCRATCHPAD: [u8; 1048576] = [0; 1048576];
+
+@no_mangle
+pub fn js_eval_scratchpad_ptr() -> u64 {
+    return (&JS_EVAL_SCRATCHPAD) as u64;
+}

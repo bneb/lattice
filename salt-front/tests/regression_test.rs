@@ -53,3 +53,6 @@ mod result_monomorphization_test;
 
 #[path = "codegen/struct_generic_inference_test.rs"]
 mod struct_generic_inference_test;
+
+#[path = "codegen/mut_param_loop_test.rs"]
+mod mut_param_loop_test;

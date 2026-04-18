@@ -3147,12 +3147,12 @@ pub fn emit_global_def(ctx: &mut LoweringContext, _out: &mut String, g: &crate::
         };
         
         // Use region-based zero initialization which works for all types (scalars, pointers, aggregates)
-        ctx.decl_out_mut().push_str(&format!("  llvm.mlir.global internal @{}() {{alignment = {}}} : {} {{\n", name, alignment, mlir_ty));
+        ctx.decl_out_mut().push_str(&format!("  llvm.mlir.global external @{}() {{alignment = {}}} : {} {{\n", name, alignment, mlir_ty));
         ctx.decl_out_mut().push_str(&format!("    %0 = llvm.mlir.zero : {}\n", mlir_ty));
         ctx.decl_out_mut().push_str(&format!("    llvm.return %0 : {}\n", mlir_ty));
         ctx.decl_out_mut().push_str("  }\n");
     } else {
-        ctx.decl_out_mut().push_str(&format!("  llvm.mlir.global internal @{}({}) : {}\n", name, init_val, mlir_ty));
+        ctx.decl_out_mut().push_str(&format!("  llvm.mlir.global external @{}({}) : {}\n", name, init_val, mlir_ty));
     }
     Ok(())
 }

@@ -1,0 +1,9 @@
+import user.browser.font
+import user.os.process
+
+pub fn main_salt() {
+    font.init_glyphs();
+    let offset = font.get_kerning_offset(32, 65); // space to A
+    let av = font.get_kerning_offset(65, 86); // A to V
+    process.exit(av as i32);
+}

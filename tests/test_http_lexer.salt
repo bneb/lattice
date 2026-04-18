@@ -1,0 +1,151 @@
+package tests.test_http_lexer
+
+import user.os.ipc_ring
+
+extern fn airlock_init_allocator();
+extern fn init_arrays();
+extern fn js_quickjs_init() -> i32;
+extern fn create_node(tag: i32) -> u64;
+
+// HTTP Lexer externs
+extern fn http_process_ingress(buf_ptr: u64, buf_len: u32);
+extern fn http_get_body_capture_len() -> u32;
+extern fn http_get_body_capture_byte(idx: u32) -> u8;
+extern fn http_reset_state();
+extern fn http_get_state() -> u32;
+extern fn http_set_root_node(node_id: u64);
+
+pub fn main() -> i32 {
+    println("--- Epic 35: HTTP/1.1 Ingress Lexer Test ---");
+
+    airlock_init_allocator();
+    init_arrays();
+    ipc_ring.init_shared_ring();
+    js_quickjs_init();
+
+    let root_id = create_node(3); // BODY
+    http_set_root_node(root_id);
+
+    // ============================================================
+    // Phase 1: Identity Body — HTTP/1.1 200 OK\r\n\r\n<html>
+    // ============================================================
+    println("[Phase 1] Identity body parsing");
+    http_reset_state();
+
+    let mut http1: [u8; 25] = [72,84,84,80,47,49,46,49,32,50,48,48,32,79,75,13,10,13,10,60,104,116,109,108,62];
+    http_process_ingress((&http1) as u64, 25);
+
+    let len1 = http_get_body_capture_len();
+    if len1 == 6 {
+        println("[OK] Identity body length = 6");
+    } else {
+        println("[FAIL] Identity body length wrong");
+        return 1;
+    }
+
+    // Verify body is '<html>' = [60,104,116,109,108,62]
+    let b0 = http_get_body_capture_byte(0);
+    let b5 = http_get_body_capture_byte(5);
+    if b0 == 60 && b5 == 62 {
+        println("[OK] Identity body = '<html>'");
+    } else {
+        println("[FAIL] Identity body content mismatch");
+        return 1;
+    }
+
+    // Verify state transitioned to BODY_IDENTITY (2)
+    let st1 = http_get_state();
+    if st1 == 2 {
+        println("[OK] State = BODY_IDENTITY (2) after identity parse");
+    } else {
+        println("[FAIL] State not BODY_IDENTITY");
+        return 1;
+    }
+
+    // ============================================================
+    // Phase 2: Chunked Body
+    // HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n
+    // 4\r\n<htm\r\n2\r\nl>\r\n0\r\n\r\n
+    // ============================================================
+    println("[Phase 2] Chunked body parsing");
+    http_reset_state();
+
+    let mut http2: [u8; 68] = [72,84,84,80,47,49,46,49,32,50,48,48,32,79,75,13,10,84,114,97,110,115,102,101,114,45,69,110,99,111,100,105,110,103,58,32,99,104,117,110,107,101,100,13,10,13,10,52,13,10,60,104,116,109,13,10,50,13,10,108,62,13,10,48,13,10,13,10];
+    http_process_ingress((&http2) as u64, 68);
+
+    let len2 = http_get_body_capture_len();
+    if len2 == 6 {
+        println("[OK] Chunked body length = 6");
+    } else {
+        println("[FAIL] Chunked body length wrong");
+        return 1;
+    }
+
+    // Verify reconstructed body is '<html>' = <htm + l>
+    let c0 = http_get_body_capture_byte(0);
+    let c1 = http_get_body_capture_byte(1);
+    let c2 = http_get_body_capture_byte(2);
+    let c3 = http_get_body_capture_byte(3);
+    let c4 = http_get_body_capture_byte(4);
+    let c5 = http_get_body_capture_byte(5);
+    if c0 == 60 && c1 == 104 && c2 == 116 && c3 == 109 && c4 == 108 && c5 == 62 {
+        println("[OK] Chunked body = '<html>' reconstructed from 2 chunks");
+    } else {
+        println("[FAIL] Chunked body content mismatch");
+        return 1;
+    }
+
+    // ============================================================
+    // Phase 3: Split-Byte Boundary Test
+    // \r\n\r\n boundary split across two http_process_ingress calls
+    // Part 1: HTTP/1.1 200 OK\r\n\r  (ends mid-boundary)
+    // Part 2: \n<div>                  (finishes boundary + body)
+    // ============================================================
+    println("[Phase 3] Split-byte boundary test");
+    http_reset_state();
+
+    let mut http3a: [u8; 18] = [72,84,84,80,47,49,46,49,32,50,48,48,32,79,75,13,10,13];
+    http_process_ingress((&http3a) as u64, 18);
+
+    // State should be in HEADERS (1), still counting boundary chars
+    let st3a = http_get_state();
+    if st3a == 1 {
+        println("[OK] After part 1: state = HEADERS (1) — boundary incomplete");
+    } else {
+        println("[FAIL] State wrong after partial boundary");
+        return 1;
+    }
+
+    // Body capture should be empty
+    let len3a = http_get_body_capture_len();
+    if len3a == 0 {
+        println("[OK] No body captured yet (boundary not crossed)");
+    } else {
+        println("[FAIL] Body captured before boundary crossed");
+        return 1;
+    }
+
+    let mut http3b: [u8; 6] = [10,60,100,105,118,62];
+    http_process_ingress((&http3b) as u64, 6);
+
+    // Now body should be '<div>' = 5 bytes
+    let len3b = http_get_body_capture_len();
+    if len3b == 5 {
+        println("[OK] Split body length = 5 after boundary crossed");
+    } else {
+        println("[FAIL] Split body length wrong");
+        return 1;
+    }
+
+    let d0 = http_get_body_capture_byte(0);
+    let d4 = http_get_body_capture_byte(4);
+    if d0 == 60 && d4 == 62 {
+        println("[OK] Split body = '<div>'");
+    } else {
+        println("[FAIL] Split body content mismatch");
+        return 1;
+    }
+
+    println("[Test] SUCCESS: HTTP/1.1 Ingress Lexer — identity, chunked, and split-byte verified!");
+    return 0;
+}

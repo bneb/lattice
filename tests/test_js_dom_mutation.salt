@@ -1,0 +1,104 @@
+package tests.test_js_dom_mutation
+
+import user.os.ipc_ring
+
+extern fn init_arrays();
+extern fn create_node(tag: i32) -> u64;
+extern fn airlock_init_allocator();
+extern fn js_quickjs_init() -> i32;
+extern fn js_quickjs_eval_string(ptr: u64, len: u32) -> i32;
+extern fn js_execute_pending_jobs() -> i32;
+extern fn dom_get_node_count() -> u64;
+extern fn dom_get_first_child(idx: u32) -> u64;
+extern fn dom_get_last_child(idx: u32) -> u32;
+extern fn dom_get_next_sibling(idx: u32) -> u64;
+extern fn dom_get_free_list_count() -> u32;
+
+pub fn main() -> i32 {
+    println("--- Epic 31: Full DOM Mutation API Test ---");
+
+    airlock_init_allocator();
+    init_arrays();
+    ipc_ring.init_shared_ring();
+    js_quickjs_init();
+
+    // Create root body node (idx 1)
+    let root_id = create_node(3); // BODY
+
+    // ============================================================
+    // Phase 1: createElement + appendChild
+    // ============================================================
+    println("[Phase 1] createElement + appendChild");
+    let mut script1: [u8; 106] = [118,97,114,32,100,105,118,32,61,32,100,111,99,117,109,101,110,116,46,99,114,101,97,116,101,69,108,101,109,101,110,116,40,34,100,105,118,34,41,59,32,118,97,114,32,115,112,97,110,32,61,32,100,111,99,117,109,101,110,116,46,99,114,101,97,116,101,69,108,101,109,101,110,116,40,34,115,112,97,110,34,41,59,32,100,105,118,46,97,112,112,101,110,100,67,104,105,108,100,40,115,112,97,110,41,59];
+    let rc1 = js_quickjs_eval_string((&script1) as u64, 106);
+    if rc1 != 0 {
+        println("[FAIL] Phase 1 JS execution failed");
+        return 1;
+    }
+    js_execute_pending_jobs();
+
+    // After Phase 1, DOM should have: root(1), div(2), span(3)
+    // div(2) should have span(3) as first AND last child
+    let node_count = dom_get_node_count();
+    if node_count < 4 {
+        println("[FAIL] Expected at least 4 nodes (sentinel + root + div + span)");
+        return 1;
+    }
+    println("[OK] Node count is correct");
+
+    // div is idx 2, span is idx 3
+    let div_idx: u32 = 2;
+    let span_idx: u32 = 3;
+
+    let first = dom_get_first_child(div_idx);
+    let first_idx = (first & 0xFFFF) as u32;
+    if first_idx == span_idx {
+        println("[OK] FIRST_CHILD[div] == span confirmed");
+    } else {
+        println("[FAIL] FIRST_CHILD[div] != span");
+        return 1;
+    }
+
+    let last = dom_get_last_child(div_idx);
+    if last == span_idx {
+        println("[OK] LAST_CHILD[div] == span confirmed");
+    } else {
+        println("[FAIL] LAST_CHILD[div] != span");
+        return 1;
+    }
+
+    // ============================================================
+    // Phase 2: removeChild
+    // ============================================================
+    println("[Phase 2] removeChild");
+    let free_before = dom_get_free_list_count();
+
+    let mut script2: [u8; 22] = [100,105,118,46,114,101,109,111,118,101,67,104,105,108,100,40,115,112,97,110,41,59];
+    let rc2 = js_quickjs_eval_string((&script2) as u64, 22);
+    if rc2 != 0 {
+        println("[FAIL] Phase 2 JS execution failed");
+        return 1;
+    }
+    js_execute_pending_jobs();
+
+    // After removal: div should have no children
+    let first_after = dom_get_first_child(div_idx);
+    if first_after == 0 {
+        println("[OK] FIRST_CHILD[div] == 0 after removal");
+    } else {
+        println("[FAIL] FIRST_CHILD[div] still has children after removal");
+        return 1;
+    }
+
+    // Free list should have reclaimed span
+    let free_after = dom_get_free_list_count();
+    if free_after > free_before {
+        println("[OK] Free list reclaimed removed node");
+    } else {
+        println("[FAIL] Free list did not grow after removal");
+        return 1;
+    }
+
+    println("[Test] SUCCESS: Full DOM Mutation API — createElement, appendChild, removeChild verified!");
+    return 0;
+}

@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+
+<head></head>
+
+<body>
+    <!-- Test 1: Script with < inside (RAW_TEXT mode) -->
+    <script>if (x < 10 && y > 5) { console.log("<ok>"); }</script>
+
+    <!-- Test 2: Style block with nested content -->
+    <style>
+        .test>.child {
+            display: flex;
+        }
+
+        p {
+            color: blue;
+        }
+    </style>
+
+    <!-- Test 3: Multiple nested divs -->
+    <div>
+        <div>
+            <div>
+                <p>Deep nesting</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Test 4: Self-closing variants -->
+    <br>
+    <br />
+    <hr>
+    <img src="a.png">
+    <input type="text">
+    <meta name="viewport" content="width=device-width">
+    <link rel="icon" href="fav.ico">
+
+    <!-- Test 5: Boolean and unquoted attributes -->
+    <input disabled>
+    <input type=text name=field>
+    <div id=main class=container>Content</div>
+
+    <!-- Test 6: Single-quoted attributes -->
+    <div class='single-quoted'>Text</div>
+
+    <!-- Test 7: Empty elements -->
+    <div></div>
+    <span></span>
+    <p></p>
+
+    <!-- Test 8: Adjacent text with no whitespace -->
+    <b>bold</b><i>italic</i><span>inline</span>
+
+    <!-- Test 9: Mixed content -->
+    <p>Text <b>bold <i>bolditalic</i> bold</b> text</p>
+</body>
+
+</html>

@@ -1,0 +1,79 @@
+package user.browser.telemetry
+
+extern fn sys_print_ansi(prefix_ptr: u64, prefix_len: u32, msg_ptr: u64, msg_len: u32);
+extern fn sys_time_now_ms() -> f64;
+extern fn sys_print_str(ptr: u64, len: u32);
+extern fn sys_print_float(f: f64);
+
+pub global LOG_LEVEL_NET: u8 = 1;
+pub global LOG_LEVEL_JIT: u8 = 1;
+pub global LOG_LEVEL_DOM: u8 = 1;
+pub global LOG_LEVEL_GPU: u8 = 1;
+
+@no_mangle
+pub fn sys_log_net(msg_ptr: u64, msg_len: u32) {
+    if LOG_LEVEL_NET == 1 {
+        // ANSI Blue: \x1b[34m[NET] \x1b[0m
+        let prefix: [u8; 11] = [27, 91, 51, 52, 109, 91, 78, 69, 84, 93, 32];
+        let suffix: [u8; 4] = [27, 91, 48, 109];
+        // For simplicity, assuming a real sys_print_ansi or similar. 
+        // We'll just define a simpler one if not available, or assume it's C printed.
+        // Actually, we can just print prefix, msg, suffix, newline.
+        sys_print_str((&prefix) as u64, 11);
+        sys_print_str(msg_ptr, msg_len);
+        sys_print_str((&suffix) as u64, 4);
+        let nl: [u8; 1] = [10];
+        sys_print_str((&nl) as u64, 1);
+    }
+}
+
+@no_mangle
+pub fn sys_log_jit(msg_ptr: u64, msg_len: u32) {
+    if LOG_LEVEL_JIT == 1 {
+        // ANSI Yellow: \x1b[33m
+        let prefix: [u8; 11] = [27, 91, 51, 51, 109, 91, 74, 73, 84, 93, 32];
+        let suffix: [u8; 4] = [27, 91, 48, 109];
+        sys_print_str((&prefix) as u64, 11);
+        sys_print_str(msg_ptr, msg_len);
+        sys_print_str((&suffix) as u64, 4);
+        let nl: [u8; 1] = [10];
+        sys_print_str((&nl) as u64, 1);
+    }
+}
+
+@no_mangle
+pub fn sys_log_info(msg_ptr: u64, msg_len: u32) {
+    let prefix: [u8; 12] = [27, 91, 51, 54, 109, 91, 73, 78, 70, 79, 93, 32]; // Cyan
+    let suffix: [u8; 4] = [27, 91, 48, 109];
+    sys_print_str((&prefix) as u64, 12);
+    sys_print_str(msg_ptr, msg_len);
+    sys_print_str((&suffix) as u64, 4);
+    let nl: [u8; 1] = [10];
+    sys_print_str((&nl) as u64, 1);
+}
+
+@no_mangle
+pub fn sys_log_error(msg_ptr: u64, msg_len: u32) {
+    let prefix: [u8; 11] = [27, 91, 51, 49, 109, 91, 69, 82, 82, 93, 32]; // Red
+    let suffix: [u8; 4] = [27, 91, 48, 109];
+    sys_print_str((&prefix) as u64, 11);
+    sys_print_str(msg_ptr, msg_len);
+    sys_print_str((&suffix) as u64, 4);
+    let nl: [u8; 1] = [10];
+    sys_print_str((&nl) as u64, 1);
+}
+
+@no_mangle
+pub fn sys_log_violation(subsystem_ptr: u64, subsystem_len: u32, duration_ms: f64) {
+    // ANSI Red: \x1b[31m[VIOLATION] \x1b[0m
+    let prefix: [u8; 17] = [27, 91, 51, 49, 109, 91, 86, 73, 79, 76, 65, 84, 73, 79, 78, 93, 32];
+    
+    // Log frame drops or CPU hogs
+    sys_print_str((&prefix) as u64, 17);
+    sys_print_str(subsystem_ptr, subsystem_len);
+    let sep: [u8; 10] = [32, 101, 120, 99, 101, 101, 100, 101, 100, 32]; // " exceeded "
+    sys_print_str((&sep) as u64, 10);
+    sys_print_float(duration_ms);
+    let suffix: [u8; 7] = [109, 115, 27, 91, 48, 109, 10]; // "ms\x1b[0m\n"
+    sys_print_str((&suffix) as u64, 7);
+}

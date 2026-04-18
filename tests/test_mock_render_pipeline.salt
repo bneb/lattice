@@ -1,0 +1,204 @@
+package tests.test_mock_render_pipeline
+
+// =============================================================================
+// Epic 99: Headless Mock Render Pipeline E2E Test
+// Validates: Mock HTTP → DOM Tree → CSS Cascade → Layout → Paint Commands
+// Uses @no_mangle getter functions to avoid Salt module-boundary global duplication
+// =============================================================================
+
+import user.browser.dom
+import user.browser.layout
+import user.browser.paint
+import user.browser.css
+import user.browser.alloc.airlock
+import user.os.ipc_ring
+import user.browser.http_lexer
+import user.browser.chrome
+import user.browser.compositor
+
+extern fn airlock_init_allocator();
+extern fn init_arrays();
+extern fn create_node(tag: i32) -> u64;
+extern fn http_set_root_node(node_id: u64);
+extern fn http_process_ingress(buf_ptr: u64, buf_len: u32);
+extern fn apply_cascade_to_tree();
+extern fn sys_jsc_init();
+extern fn ext_get_mock_http_ptr() -> u64;
+extern fn ext_get_mock_http_len() -> u32;
+extern fn sys_log_int(v: i32);
+extern fn layout_inject_dom_pointers();
+extern fn paint_inject_dom_pointers();
+
+// Cross-module getters (read canonical globals via @no_mangle fns)
+extern fn dom_get_node_count() -> u64;
+extern fn dom_get_tag(idx: u32) -> u32;
+extern fn dom_get_layout_w(idx: u32) -> f32;
+extern fn dom_get_layout_h(idx: u32) -> f32;
+extern fn dom_get_style_display(idx: u32) -> u8;
+extern fn dom_get_DIRTY_LAYOUT(idx: u32) -> u32;
+extern fn get_layout_eval_count() -> u32;
+extern fn dom_get_first_child(idx: u32) -> u64;
+extern fn dom_get_generation(idx: u32) -> u32;
+
+// Stubs for symbols pulled in by dependency chain
+@no_mangle
+pub fn check_any_layout_dirty() -> i32 { return 0; }
+@no_mangle
+pub fn get_dom_content_loaded_fired() -> u8 { return 0; }
+@no_mangle
+pub fn set_dom_content_loaded_fired(v: u8) {}
+@no_mangle
+pub fn get_frame_count() -> u64 { return 0; }
+@no_mangle
+pub fn set_frame_count(v: u64) {}
+@no_mangle
+pub fn get_max_test_frames() -> u64 { return 1; }
+@no_mangle
+pub fn pump_websocket_frames() {}
+@no_mangle
+pub fn sys_browser_navigate(url_ptr: u64, url_len: u32) {}
+@no_mangle
+pub fn sys_js_pump_script_queue() {}
+
+pub fn main() -> i32 {
+    println("=== Epic 99: Headless Mock Render Pipeline E2E ===");
+    
+    // Phase 1: Boot
+    println("[Phase 1] Engine boot...");
+    airlock_init_allocator();
+    init_arrays();
+    layout_inject_dom_pointers();
+    paint_inject_dom_pointers();
+    ipc_ring.init_shared_ring();
+    sys_jsc_init();
+    css.init_css_defaults();
+    chrome.init_chrome();
+    compositor.window_init(1920, 1080);
+    println("[OK] Engine boot complete");
+    
+    // Phase 2: Inject mock HTML
+    println("[Phase 2] Injecting mock HTML payload...");
+    let root = create_node(0);
+    http_set_root_node(root);
+    
+    let mock_ptr = ext_get_mock_http_ptr();
+    let mock_len = ext_get_mock_http_len();
+    http_process_ingress(mock_ptr, mock_len);
+    println("[OK] Mock HTML ingested");
+    
+    // Phase 3: Verify DOM
+    println("[Phase 3] Verifying DOM tree...");
+    let node_count = dom_get_node_count();
+    print("[INFO] Total DOM nodes: ");
+    sys_log_int(node_count as i32);
+    println("");
+    
+    if node_count <= 1 {
+        println("[FAIL] DOM is empty!");
+        return 1;
+    }
+    
+    let dump_limit: u32 = if node_count < 20 { node_count as u32 } else { 20 as u32 };
+    let mut d: u32 = 0;
+    while d < dump_limit {
+        print("  N");
+        sys_log_int(d as i32);
+        print(": tag=");
+        sys_log_int(dom_get_tag(d) as i32);
+        print(" disp=");
+        sys_log_int(dom_get_style_display(d) as i32);
+        println("");
+        d = d + 1;
+    }
+    println("[OK] DOM tree created");
+    
+    // Debug: check resolve_node for node 1's children
+    let fc = dom_get_first_child(1);
+    print("[DEBUG] Node 1 first_child raw=");
+    sys_log_int(fc as i32);
+    print(" idx=");
+    sys_log_int((fc & 0xFFFF) as i32);
+    print(" gen=");
+    sys_log_int((fc >> 16) as i32);
+    println("");
+    let child_idx = (fc & 0xFFFF) as u32;
+    let child_gen = dom_get_generation(child_idx);
+    print("[DEBUG] Node ");
+    sys_log_int(child_idx as i32);
+    print(" actual generation=");
+    sys_log_int(child_gen as i32);
+    println("");
+    
+    // Phase 4: CSS cascade
+    println("[Phase 4] Running CSS cascade...");
+    apply_cascade_to_tree();
+    
+    d = 0;
+    while d < dump_limit {
+        let disp = dom_get_style_display(d);
+        if disp > 0 {
+            print("  N");
+            sys_log_int(d as i32);
+            print(": display=");
+            sys_log_int(disp as i32);
+            println("");
+        }
+        d = d + 1;
+    }
+    println("[OK] CSS cascade complete");
+    
+    // Phase 5: Layout
+    println("[Phase 5] Running layout...");
+    layout.layout_tree();
+    
+    let eval_count = get_layout_eval_count();
+    print("[INFO] Layout evaluated ");
+    sys_log_int(eval_count as i32);
+    println(" nodes");
+    
+    // Read via canonical getters
+    d = 0;
+    let mut laid_out: u32 = 0;
+    while d < dump_limit {
+        let w = dom_get_layout_w(d);
+        let h = dom_get_layout_h(d);
+        if w > 0.0 || h > 0.0 {
+            print("  N");
+            sys_log_int(d as i32);
+            print(": W=");
+            sys_log_int(w as i32);
+            print(" H=");
+            sys_log_int(h as i32);
+            println("");
+            laid_out = laid_out + 1;
+        }
+        d = d + 1;
+    }
+    
+    print("[INFO] Nodes with dimensions: ");
+    sys_log_int(laid_out as i32);
+    println("");
+    
+    // Phase 6: Paint
+    println("[Phase 6] Generating paint display list...");
+    paint.begin_frame();
+    paint.paint_tree();
+    
+    let cmd_count = paint.get_cmd_count();
+    print("[INFO] Paint commands: ");
+    sys_log_int(cmd_count as i32);
+    println("");
+    
+    if laid_out == 0 {
+        println("[RESULT] Layout produced no dimensions — inline styles need CSSOM");
+        return 2;
+    }
+    
+    if cmd_count == 0 {
+        println("[RESULT] No paint commands despite layout succeeding");
+        return 3;
+    }
+    
+    println("=== PIPELINE VERIFIED ===");
+    return 0;
+}

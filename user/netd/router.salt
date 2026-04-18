@@ -80,7 +80,6 @@ global PORT_OWNERS:   [u64; 65536] = [0 as u64; 65536];
 //   0 = success
 //   1 = port already bound
 // ============================================================================
-@no_mangle
 pub fn bind_stream(port: u16, stream_handle: u64, tcb_handle: u64, owner_pid: u64) -> u64 {
     let idx = port as u64;
     
@@ -101,7 +100,6 @@ pub fn bind_stream(port: u16, stream_handle: u64, tcb_handle: u64, owner_pid: u6
 // ============================================================================
 // unbind_stream — Cold Path: Release a Port Binding
 // ============================================================================
-@no_mangle
 pub fn unbind_stream(port: u16, caller_pid: u64) -> u64 {
     let idx = port as u64;
     
@@ -128,7 +126,6 @@ pub fn unbind_stream(port: u16, caller_pid: u64) -> u64 {
 // Returns the stream handle for the given port, or 0 if unbound.
 // This is the hot path — called for every incoming packet.
 // ============================================================================
-@no_mangle
 pub fn lookup_stream(port: u16) -> u64 {
     let idx = port as u64;
     if PORT_STATES[idx] == PORT_BOUND {
@@ -140,7 +137,6 @@ pub fn lookup_stream(port: u16) -> u64 {
 // ============================================================================
 // lookup_tcb — Hot Path: O(1) TCB Lookup by Port
 // ============================================================================
-@no_mangle
 pub fn lookup_tcb(port: u16) -> u64 {
     let idx = port as u64;
     if PORT_STATES[idx] == PORT_BOUND {

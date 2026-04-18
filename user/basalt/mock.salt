@@ -45,7 +45,6 @@ global GEN_CURRENT_IDX:  u32 = 0;
 // ============================================================================
 // init — Reset the Generator for a New Request
 // ============================================================================
-@no_mangle
 pub fn init(response_len: u32) {
     GEN_RESPONSE_LEN = response_len;
     GEN_CURRENT_IDX = 0;
@@ -54,7 +53,6 @@ pub fn init(response_len: u32) {
 // ============================================================================
 // init_default — Reset with the Default 32-byte Response
 // ============================================================================
-@no_mangle
 pub fn init_default() {
     GEN_RESPONSE_LEN = DEFAULT_RESPONSE_LEN;
     GEN_CURRENT_IDX = 0;
@@ -75,7 +73,6 @@ pub fn init_default() {
 //   ensures { result == 0 iff GEN_CURRENT_IDX >= GEN_RESPONSE_LEN }
 //   ensures { GEN_CURRENT_IDX advances by result }
 // ============================================================================
-@no_mangle
 pub fn next_token_len() -> u32 {
     if GEN_CURRENT_IDX >= GEN_RESPONSE_LEN {
         return TOKEN_DONE;
@@ -95,7 +92,6 @@ pub fn next_token_len() -> u32 {
 // ============================================================================
 // get_progress — Diagnostic: Bytes Generated So Far
 // ============================================================================
-@no_mangle
 pub fn get_progress() -> u32 {
     return GEN_CURRENT_IDX;
 }
@@ -103,7 +99,6 @@ pub fn get_progress() -> u32 {
 // ============================================================================
 // is_complete — Check if Generation is Finished
 // ============================================================================
-@no_mangle
 pub fn is_complete() -> bool {
     return GEN_CURRENT_IDX >= GEN_RESPONSE_LEN;
 }

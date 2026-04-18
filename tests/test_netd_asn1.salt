@@ -1,0 +1,75 @@
+// =============================================================================
+// Test: Prisimi TLS ASN.1 Logical State Math Evaluation Sequences
+// =============================================================================
+
+import user.netd.tls.asn1
+
+fn main() -> i32 {
+    let mut buffer: [u8; 50] = [0; 50];
+    
+    // Forging mock explicit array ASN.1 sequence structurally:
+    // [0] = 0x30 (SEQUENCE) | [1] = 0x82 (Long Form tracking exactly 2 trailing bytes) 
+    // [2] = 0x01 | [3] = 0x05 (Payload length = 261)
+    
+    buffer[0] = asn1.TAG_SEQUENCE;
+    buffer[1] = 0x82; 
+    buffer[2] = 0x01; 
+    buffer[3] = 0x05; 
+    buffer[4] = asn1.TAG_NULL; // Payload starts theoretically
+    
+    let mut out_struct_buffer: [u64; 4] = [0; 4]; // TlvNode sizing structurally 
+    let node_ptr = (&out_struct_buffer) as u64;
+    
+    // Bounds Execution Mapping Limit (passing array capacity bounds as 50 natively restricts extraction!)
+    let abstract_bounds_result = asn1.parse_tlv_node((&buffer) as u64, 50, 0, node_ptr);
+    
+    // The parser natively evaluates the layout and recognizes 261 + 4 > 50 OS matrices! 
+    // It must trap bounds logically trapping exploits and returning 0!
+    if abstract_bounds_result != 0 {
+        return 1; // ASN.1 Smashing limits failed explicitly mathematically structurally bypassing OOB check constraints!
+    }
+    
+    // Verify Short form structure mapping correctly explicitly
+    buffer[1] = 0x05; // Normal Length boundary 5
+    buffer[2] = asn1.TAG_INTEGER;
+    buffer[3] = 0x03; // Len = 3
+    buffer[4] = 0x01;
+    buffer[5] = 0x02;
+    buffer[6] = 0x03;
+    
+    let secure_extract = asn1.parse_tlv_node((&buffer) as u64, 50, 0, node_ptr);
+    // Outer Sequence evaluates to TAG 0x30 structurally with length 5, Offset starts at Index 2
+    // Secure extraction mathematical offset cursor = 2 + 5 = 7
+    
+    if secure_extract != 7 {
+        return 2; // Offset tracking geometric capability mapped dynamically incorrect bounds 
+    }
+    
+    let node_tag = *(node_ptr as &u8);
+    let node_len = *((node_ptr + 4) as &u32);
+    let node_payload = *((node_ptr + 8) as &u32);
+    
+    if node_tag != asn1.TAG_SEQUENCE {
+        return 3; 
+    }
+    
+    if node_len != 5 {
+        return 4;
+    }
+    
+    // Parse nested boundaries explicitly natively!
+    let nested_extract = asn1.parse_tlv_node((&buffer) as u64, 50, node_payload, node_ptr);
+    
+    let nested_tag = *(node_ptr as &u8);
+    let nested_len = *((node_ptr + 4) as &u32);
+    
+    if nested_tag != asn1.TAG_INTEGER {
+        return 5;
+    }
+    
+    if nested_len != 3 {
+        return 6;
+    }
+    
+    return 0; // Cryptography parser boundaries execute seamlessly tracking X.509 structures mapped logic.
+}

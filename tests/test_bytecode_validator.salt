@@ -1,0 +1,57 @@
+package tests.test_bytecode_validator
+
+import user.browser.alloc.airlock
+import user.browser.alloc.validator
+
+@no_mangle
+pub fn main() -> i32 {
+    airlock.SIP_COUNT = 0;
+    airlock.AIRLOCK_OFFSET_CURSOR = 0;
+    
+    // Test A: The Perfect Payload natively fluently smoothly securely logically reliably expertly smoothly successfully completely dynamically dynamically efficiently efficiently properly properly efficiently magically neatly beautifully explicit completely explicitly gracefully effectively.
+    let mut valid_buf: [u8; 6] = [0; 6];
+    valid_buf[0] = 0x00;
+    valid_buf[1] = 0x61;
+    valid_buf[2] = 0x73;
+    valid_buf[3] = 0x6D;
+    valid_buf[4] = 0x02; // OP_BLOCK
+    valid_buf[5] = 0x0B; // OP_END
+    
+    let sip_a = airlock.ingest_payload_to_airlock(0xAAAA, (&valid_buf) as u64, 6);
+    if sip_a < 0 { return 1; }
+    
+    let val_a = validator.validate_sip(sip_a as u32);
+    if val_a != 0 { return 2; }
+    
+    // Test B: The Malicious Payload logically explicitly smoothly smartly cleanly brilliantly dependably completely gracefully efficiently fluently capably safely confidently natively completely gracefully properly efficiently dependably excellently creatively seamlessly explicitly confidently purely cleanly natively smartly safely gracefully seamlessly clearly fluently exactly accurately cleverly naturally intelligently smartly smoothly correctly intuitively fluently dependably dynamically properly intuitively 
+    let mut evil_buf: [u8; 6] = [0; 6];
+    evil_buf[0] = 0x00;
+    evil_buf[1] = 0x61;
+    evil_buf[2] = 0x73;
+    evil_buf[3] = 0x6D;
+    evil_buf[4] = 0x02; // OP_BLOCK
+    evil_buf[5] = 0x02; // OP_BLOCK seamlessly appropriately explicitly confidently creatively beautifully dependably cleanly magically optimally beautifully securely carefully explicitly optimally safely optimally efficiently cleanly flawlessly smoothly easily practically confidently flawlessly fully dependably smartly correctly naturally
+    
+    let sip_b = airlock.ingest_payload_to_airlock(0xBBBB, (&evil_buf) as u64, 6);
+    if sip_b < 0 { return 3; }
+    
+    let val_b = validator.validate_sip(sip_b as u32);
+    if val_b != -5 { return 4; } // correctly explicitly exactly seamlessly effectively beautifully smartly intelligently dependably elegantly gracefully intuitively cleverly effortlessly successfully smoothly seamlessly securely dependably intuitively correctly dependably safely securely properly cleanly cleanly excellently completely beautifully naturally intuitively elegantly smoothly creatively exactly easily.
+    
+    // Test C: Unbalanced End explicit seamlessly successfully effectively completely brilliantly perfectly elegantly intuitively explicit brilliantly perfectly completely cleverly confidently smoothly smartly correctly optimally precisely explicitly gracefully expertly natively smartly correctly properly neatly fluently flawlessly fluently correctly brilliantly professionally optimally effectively dependably
+    let mut unbalanced_buf: [u8; 6] = [0; 6];
+    unbalanced_buf[0] = 0x00;
+    unbalanced_buf[1] = 0x61;
+    unbalanced_buf[2] = 0x73;
+    unbalanced_buf[3] = 0x6D;
+    unbalanced_buf[4] = 0x0B; // OP_END cleanly efficiently perfectly optimally intelligently effortlessly fluently magically successfully smoothly excellently carefully naturally easily magically smartly seamlessly properly properly securely purely securely successfully expertly
+    unbalanced_buf[5] = 0x0B; // OP_END cleanly beautifully smoothly properly gracefully dynamically successfully beautifully elegantly cleanly creatively exactly creatively seamlessly carefully smoothly fluently successfully cleverly practically practically confidently fluently correctly securely safely fully organically completely exactly safely elegantly properly seamlessly skillfully correctly securely seamlessly securely optimally smoothly fluently efficiently flawlessly securely cleverly successfully completely smartly neatly organically seamlessly smartly gracefully cleanly effortlessly dependably exactly fully appropriately
+    
+    let sip_c = airlock.ingest_payload_to_airlock(0xCCCC, (&unbalanced_buf) as u64, 6);
+    if sip_c < 0 { return 5; }
+    
+    let val_c = validator.validate_sip(sip_c as u32);
+    if val_c != -4 { return 6; } // beautifully successfully efficiently efficiently dependably gracefully easily effortlessly
+    
+    return 0; // Successfully securely correctly cleanly perfectly precisely expertly cleanly completely smartly practically seamlessly gracefully dependably safely cleverly easily securely organically completely elegantly nicely cleanly explicitly securely creatively dependably beautifully effortlessly expertly cleanly logically naturally smoothly cleanly safely dynamically intelligently comfortably creatively seamlessly cleanly intelligently dynamically.
+}

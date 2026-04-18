@@ -1,0 +1,85 @@
+package tests.test_components
+
+// DOM initialization (from dom.salt, @no_mangle-able)  
+extern fn js_engine_init();
+extern fn js_engine_eval_string(ptr: u64, len: u32);
+extern fn apply_cascade_to_tree();
+extern fn init_css_lexer_arrays();
+extern fn js_lex_html_chunk(root_id: u64, ptr: u64, len: u32, can_execute: u8);
+
+// SoA accesses (all @no_mangle in dom.salt)
+extern fn create_node(tag: i32) -> u64;
+extern fn resolve_node_by_id(ptr: u64, len: u32) -> u64;
+extern fn resolve_node(id: u64) -> u32;
+extern fn dom_get_node_upgraded(idx: u32) -> u8;
+extern fn dom_get_tag(idx: u32) -> u32;
+extern fn dom_get_custom_tag_hash(idx: u32) -> u32;
+
+// Allocator
+extern fn airlock_init_allocator();
+extern fn init_arrays();
+
+pub fn main() -> i32 {
+    println("--- Epic 84: Component Matrix Testing ---");
+    airlock_init_allocator();
+    
+    // Initialize DOM arrays
+    init_arrays();
+    
+    init_css_lexer_arrays();
+    js_engine_init();
+    
+    let root_node = create_node(3); // BODY
+    
+    // ===== TEST 1: Lexer recognizes custom elements =====
+    println("[Test 1] Verifying lexer parses <ytd-launcher> as TAG_CUSTOM_ELEMENT (96)...");
+    
+    // <ytd-launcher id="test-launcher"></ytd-launcher>
+    let mut html: [u8; 48] = [60, 121, 116, 100, 45, 108, 97, 117, 110, 99, 104, 101, 114, 32, 105, 100, 61, 34, 116, 101, 115, 116, 45, 108, 97, 117, 110, 99, 104, 101, 114, 34, 62, 60, 47, 121, 116, 100, 45, 108, 97, 117, 110, 99, 104, 101, 114, 62];
+    let html_len = 48;
+    
+    js_lex_html_chunk(root_node, (&html) as u64, html_len, 1);
+    
+    // Resolve the node by ID
+    let mut target_id: [u8; 13] = [116, 101, 115, 116, 45, 108, 97, 117, 110, 99, 104, 101, 114]; // "test-launcher"
+    let c_id = resolve_node_by_id((&target_id) as u64, 13);
+    
+    if c_id == 0xFFFFFFFFFFFFFFFF {
+        println("[Test 1] FAILURE: Lexer did not create a node with id='test-launcher'.");
+        return 1;
+    }
+    
+    let idx = resolve_node(c_id);
+    let tag = dom_get_tag(idx);
+    
+    if tag != 96 {
+        println("[Test 1] FAILURE: Expected TAG_CUSTOM_ELEMENT (96), got Tag={}", tag);
+        return 1;
+    }
+    
+    let hash = dom_get_custom_tag_hash(idx);
+    if hash == 0 {
+        println("[Test 1] FAILURE: FNV-1a hash was not computed (hash=0).");
+        return 1;
+    }
+    println("[Test 1] SUCCESS: <ytd-launcher> parsed as TAG_CUSTOM_ELEMENT with FNV hash={}", hash);
+    
+    // ===== TEST 2: customElements.define triggers upgrade =====
+    println("[Test 2] Verifying customElements.define('ytd-launcher', YT) upgrades dormant node...");
+    
+    // JS: class YT extends HTMLElement { constructor() { super(); } connectedCallback() { console.log('CONNECTED'); } }; customElements.define('ytd-launcher', YT);
+    let mut js: [u8; 153] = [99, 108, 97, 115, 115, 32, 89, 84, 32, 101, 120, 116, 101, 110, 100, 115, 32, 72, 84, 77, 76, 69, 108, 101, 109, 101, 110, 116, 32, 123, 32, 99, 111, 110, 115, 116, 114, 117, 99, 116, 111, 114, 40, 41, 32, 123, 32, 115, 117, 112, 101, 114, 40, 41, 59, 32, 125, 32, 99, 111, 110, 110, 101, 99, 116, 101, 100, 67, 97, 108, 108, 98, 97, 99, 107, 40, 41, 32, 123, 32, 99, 111, 110, 115, 111, 108, 101, 46, 108, 111, 103, 40, 39, 67, 79, 78, 78, 69, 67, 84, 69, 68, 39, 41, 59, 32, 125, 32, 125, 59, 32, 99, 117, 115, 116, 111, 109, 69, 108, 101, 109, 101, 110, 116, 115, 46, 100, 101, 102, 105, 110, 101, 40, 39, 121, 116, 100, 45, 108, 97, 117, 110, 99, 104, 101, 114, 39, 44, 32, 89, 84, 41, 59];
+    let js_len = 153;
+    
+    js_engine_eval_string((&js) as u64, js_len);
+    
+    let upgraded = dom_get_node_upgraded(idx);
+    if upgraded != 1 {
+        println("[Test 2] FAILURE: DOM_NODE_UPGRADED[{}] = {} (expected 1)", idx, upgraded);
+        return 1;
+    }
+    println("[Test 2] SUCCESS: Dormant <ytd-launcher> upgraded via connectedCallback lifecycle.");
+    
+    println("--- Epic 84: ALL TESTS PASSED ---");
+    return 0;
+}

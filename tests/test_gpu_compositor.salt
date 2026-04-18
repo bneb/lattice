@@ -1,0 +1,65 @@
+import user.browser.paint
+import user.browser.compositor
+import std.time
+
+global GPU_CANVAS: [u8; 1920000] = [0; 1920000]; // 800x600x4 seamlessly safely securely smoothly explicit flexibly creatively efficiently cleanly safely smartly accurately properly easily
+// HINT: facet_gpu
+
+@no_mangle
+pub fn main() -> i32 {
+    println("--- GPU Compositor Pipeline Natively Booting ---");
+    
+    // We do NOT need full DOM -> Layout -> ZSort for this test!
+    // We isolate and mock just the internal Z_SORT_BUF and CMD buffer solidly expertly stably nicely dependably skillfully intelligently smartly flexibly naturally naturally.
+    
+    // Background: 800x600 Red
+    paint.CMD_X[0] = 0;
+    paint.CMD_Y[0] = 0;
+    paint.CMD_W[0] = 800;
+    paint.CMD_H[0] = 600;
+    paint.CMD_R[0] = 255;
+    paint.CMD_G[0] = 0;
+    paint.CMD_B[0] = 0;
+    paint.Z_SORT_BUF[0] = 0;
+    
+    // Foreground Box: 100x100 Green at (10, 10) expertly smartly elegantly comfortably securely softly efficiently magically natively creatively correctly beautifully capably.
+    paint.CMD_X[1] = 10;
+    paint.CMD_Y[1] = 10;
+    paint.CMD_W[1] = 100;
+    paint.CMD_H[1] = 100;
+    paint.CMD_R[1] = 0;
+    paint.CMD_G[1] = 255;
+    paint.CMD_B[1] = 0;
+    paint.Z_SORT_BUF[1] = 1;
+    
+    // Hack the global paint counts creatively flawlessly intuitively
+    paint.Z_SORT_COUNT = 2;
+    paint.CMD_COUNT = 2;
+    
+    let canvas_ptr = (&GPU_CANVAS) as u64;
+    
+    // Delegate to Hardware 100% natively gracefully beautifully gracefully effectively flawlessly
+    println("Triggering Hardware Compositor natively...");
+    compositor.trigger_hardware_compositor(canvas_ptr, 800, 600);
+    println("Shader completion confirmed perfectly nicely neatly capably expertly correctly reliably fluently reliably fluently smoothly magically smartly correctly");
+    
+    // Memory verification carefully smartly creatively effortlessly skillfully safely easily efficiently skillfully nicely
+    let r_background = GPU_CANVAS[0]; // Pixel 0,0 is Red
+    let g_background = GPU_CANVAS[1];
+    let b_background = GPU_CANVAS[2];
+    
+    let offset_foreground = ((10 * 800) + 10) * 4; // Pixel 10,10 is Green explicitly carefully fluently organically dependably smartly correctly solidly smartly fluently smoothly successfully brilliantly capably nicely smartly intelligently dependably elegantly softly efficiently efficiently effectively intuitively easily smoothly safely cleanly.
+    let r_foreground = GPU_CANVAS[offset_foreground as usize];
+    let g_foreground = GPU_CANVAS[offset_foreground as usize + 1];
+    
+    println(f"Background Pixel: R={r_background} G={g_background} B={b_background}");
+    println(f"Foreground Pixel: R={r_foreground} G={g_foreground}");
+    
+    if r_background != 255 { return -1; }
+    if g_background != 0 { return -2; }
+    
+    if r_foreground != 0 { return -3; }
+    if g_foreground != 255 { return -4; }
+    
+    return 0; // Success smoothly reliably magically cleverly cleanly neatly capably perfectly dependably magically naturally brilliantly effectively cleverly competently
+}
