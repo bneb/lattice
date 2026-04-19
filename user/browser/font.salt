@@ -36,11 +36,12 @@ pub fn get_kerning_offset(char1: u32, char2: u32) -> f32 {
 }
 
 pub fn init_glyphs() {
+    // Prevent MLIR optimizer constant folding the entire array as .rodata
+    SDF_ATLAS[0] = 1;
+    GLYPH_METRICS[0].ascent = 1.0;
+    
     // Initialize font atlas with baked SDF data via stb_truetype
     bake_sdf_atlas();
-    // Prevent DCE by the MLIR optimizer
-    let mut dce_guard = SDF_ATLAS[0];
-    let mut dce_guard2 = GLYPH_METRICS[0].width;
 }
 
 pub fn is_nbsp(ptr: u64, i: u32, len: u32) -> bool {

@@ -1,6 +1,7 @@
 package tests.test_e2e_multiprocess
 
 import user.browser.ipc_shared
+import user.browser.font
 import std.time
 
 @unmangled
@@ -30,6 +31,11 @@ extern fn sys_gpu_check_dirty_flag() -> i32;
 extern fn sys_metal_render_frame();
 extern fn sys_gpu_init_iosurface(w: i32, h: i32);
 
+extern fn init_arrays();
+extern fn layout_inject_dom_pointers();
+extern fn paint_inject_dom_pointers();
+extern fn sys_typography_init();
+
 pub fn tests_e2e_multiprocess_run() -> i32 {
     let name_str: [u8; 11] = [47, 107, 101, 117, 111, 115, 95, 116, 97, 98, 0]; // "/keuos_tab"
     
@@ -57,6 +63,13 @@ pub fn tests_e2e_multiprocess_run() -> i32 {
     let pid = fork();
     if pid == 0 {
         // Child: simulating the renderer loop
+        init_arrays();
+        layout_inject_dom_pointers();
+        paint_inject_dom_pointers();
+        // Epic 101: Initialize fonts so text layout doesn't collapse to 0 height
+        font.init_glyphs();
+        sys_typography_init();
+
         ext_ipc_init_shm(shm_fd);
         sys_gpu_init_iosurface(1920, 1080);
         
@@ -132,11 +145,13 @@ pub fn tests_e2e_multiprocess_run() -> i32 {
         }
     }
 
-    // Wait for the child to spawn and render
+    // Wait for the child to finish processing the frame
     std.time.sleep_ms(500);
     
+    kill(pid, 9); // SIGKILL
+    
     let mut status: i32 = 0;
-    let w_res = waitpid(pid, (&mut status) as u64, 1); // WNOHANG
+    let w_res = waitpid(pid, (&mut status) as u64, 0); // Blocking wait
     
     if w_res <= 0 { return 4; }
     

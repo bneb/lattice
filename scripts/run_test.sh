@@ -229,6 +229,30 @@ if grep -q 'google_unblock_test' "$SALT_FILE" 2>/dev/null; then
     BRIDGES+=("$PROJECT_ROOT/user/browser/base64_decode.c")
 fi
 
+if grep -q 'sprint1_js_apis_test' "$SALT_FILE" 2>/dev/null; then
+    BRIDGES+=("$PROJECT_ROOT/tests/bridges/sprint1_js_apis_bridge.c")
+fi
+
+if grep -q 'sprint5_keyboard_test' "$SALT_FILE" 2>/dev/null; then
+    BRIDGES+=("$PROJECT_ROOT/tests/bridges/sprint5_keyboard_bridge.c")
+fi
+
+if grep -q 'sprint6_form_test' "$SALT_FILE" 2>/dev/null; then
+    BRIDGES+=("$PROJECT_ROOT/tests/bridges/sprint6_form_bridge.c")
+fi
+
+if [[ "$BASENAME" == "test_lexer_tree" ]]; then
+    BRIDGES+=("$PROJECT_ROOT/tests/bridges/lexer_tree_bridge.c")
+    BRIDGES+=("$PROJECT_ROOT/tests/bridges/integration_bridge.c")
+    BRIDGES+=("$PROJECT_ROOT/tests/bridges/mac_stubs.c")
+fi
+
+if [[ "$BASENAME" == "test_html_lexer" ]]; then
+    BRIDGES+=("$PROJECT_ROOT/tests/bridges/lexer_tree_bridge.c")
+    BRIDGES+=("$PROJECT_ROOT/tests/bridges/integration_bridge.c")
+    BRIDGES+=("$PROJECT_ROOT/tests/bridges/mac_stubs.c")
+fi
+
 # Add explicit bridges
 BRIDGES+=("${EXTRA_BRIDGES[@]}")
 

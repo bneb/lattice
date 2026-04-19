@@ -23,6 +23,10 @@ global P_STYLE_BOX_SHADOW_G: u64 = 0;
 global P_STYLE_BOX_SHADOW_B: u64 = 0;
 global P_STYLE_BOX_SHADOW_A: u64 = 0;
 global P_COMPOSITOR_DIRTY: u64 = 0;
+global P_DIRTY_PAINT: u64 = 0;
+global P_STYLE_BORDER_COLOR_R: u64 = 0;
+global P_STYLE_BORDER_COLOR_G: u64 = 0;
+global P_STYLE_BORDER_COLOR_B: u64 = 0;
 global P_DOM_NODE_FETCH_STATE: u64 = 0;
 global P_STYLE_DISPLAY: u64 = 0;
 global P_STYLE_OVERFLOW: u64 = 0;
@@ -45,6 +49,10 @@ global P_LAYOUT_Y: u64 = 0;
 global P_LAYOUT_W: u64 = 0;
 global P_LAYOUT_H: u64 = 0;
 global P_STYLE_Z_INDEX: u64 = 0;
+global P_STYLE_BORDER_WIDTH_TOP: u64 = 0;
+global P_STYLE_BORDER_WIDTH_RIGHT: u64 = 0;
+global P_STYLE_BORDER_WIDTH_BOTTOM: u64 = 0;
+global P_STYLE_BORDER_WIDTH_LEFT: u64 = 0;
 
 // f32 arrays (stride 4)
 global P_STYLE_BORDER_RADIUS: u64 = 0;
@@ -86,6 +94,16 @@ extern fn dom_ptr_STYLE_TRANSFORM_X() -> u64;
 extern fn dom_ptr_STYLE_TRANSFORM_Y() -> u64;
 extern fn dom_ptr_STYLE_OPACITY() -> u64;
 extern fn dom_ptr_COMPOSITOR_DIRTY() -> u64;
+extern fn dom_ptr_DIRTY_PAINT() -> u64;
+extern fn dom_ptr_STYLE_BORDER_WIDTH_TOP() -> u64;
+extern fn dom_ptr_STYLE_BORDER_WIDTH_RIGHT() -> u64;
+extern fn dom_ptr_STYLE_BORDER_WIDTH_BOTTOM() -> u64;
+extern fn dom_ptr_STYLE_BORDER_WIDTH_LEFT() -> u64;
+extern fn dom_ptr_STYLE_BORDER_COLOR_R() -> u64;
+extern fn dom_ptr_STYLE_BORDER_COLOR_G() -> u64;
+extern fn dom_ptr_STYLE_BORDER_COLOR_B() -> u64;
+extern fn dom_get_hovered_node() -> u32;
+extern fn dom_get_focused_node() -> u32;
 extern fn dom_ptr_LAYOUT_X() -> u64;
 extern fn dom_ptr_LAYOUT_Y() -> u64;
 extern fn dom_ptr_LAYOUT_W() -> u64;
@@ -134,6 +152,14 @@ pub fn paint_inject_dom_pointers() {
     P_STYLE_TRANSFORM_Y = dom_ptr_STYLE_TRANSFORM_Y();
     P_STYLE_OPACITY = dom_ptr_STYLE_OPACITY();
     P_COMPOSITOR_DIRTY = dom_ptr_COMPOSITOR_DIRTY();
+    P_DIRTY_PAINT = dom_ptr_DIRTY_PAINT();
+    P_STYLE_BORDER_COLOR_R = dom_ptr_STYLE_BORDER_COLOR_R();
+    P_STYLE_BORDER_COLOR_G = dom_ptr_STYLE_BORDER_COLOR_G();
+    P_STYLE_BORDER_COLOR_B = dom_ptr_STYLE_BORDER_COLOR_B();
+    P_STYLE_BORDER_WIDTH_TOP = dom_ptr_STYLE_BORDER_WIDTH_TOP();
+    P_STYLE_BORDER_WIDTH_RIGHT = dom_ptr_STYLE_BORDER_WIDTH_RIGHT();
+    P_STYLE_BORDER_WIDTH_BOTTOM = dom_ptr_STYLE_BORDER_WIDTH_BOTTOM();
+    P_STYLE_BORDER_WIDTH_LEFT = dom_ptr_STYLE_BORDER_WIDTH_LEFT();
     P_LAYOUT_X = dom_ptr_LAYOUT_X();
     P_LAYOUT_Y = dom_ptr_LAYOUT_Y();
     P_LAYOUT_W = dom_ptr_LAYOUT_W();
@@ -206,15 +232,23 @@ pub global PAINT_CURR_G: u8 = 0;
 pub global PAINT_CURR_B: u8 = 0;
 
 pub global CMD_COUNT: u32 = 0;
+pub global PAINT_VISIT_COUNT: u32 = 0;
 
 pub fn emit_rect(x: i32, y: i32, w: i32, h: i32, n: u32) -> i32 {
     if CMD_COUNT >= 8192 { return -1; }
     
     let u_n = n as usize;
-    let r = *((P_STYLE_BG_R + (u_n as u64)) as &u8);
-    let g = *((P_STYLE_BG_G + (u_n as u64)) as &u8);
-    let b = *((P_STYLE_BG_B + (u_n as u64)) as &u8);
+    let mut r = *((P_STYLE_BG_R + (u_n as u64)) as &u8);
+    let mut g = *((P_STYLE_BG_G + (u_n as u64)) as &u8);
+    let mut b = *((P_STYLE_BG_B + (u_n as u64)) as &u8);
     let a = *((P_STYLE_BG_A + (u_n as u64)) as &u8);
+    
+    let tag = *((P_DOM_NODE_TAG + (n as u64) * 4) as &u32);
+    if n == dom_get_hovered_node() && (tag == 20 || tag == 7) {
+        if r >= 25 { r = r - 25; } else { r = 0; }
+        if g >= 25 { g = g - 25; } else { g = 0; }
+        if b >= 25 { b = b - 25; } else { b = 0; }
+    }
     
     let idx = CMD_COUNT;
     CMD_TYPE[idx as usize] = 0; // 0 = RECT
@@ -360,6 +394,7 @@ pub fn get_cmd_count() -> u32 {
 
 pub fn begin_frame() {
     CMD_COUNT = 0;
+    PAINT_VISIT_COUNT = 0;
     Z_SORT_COUNT = 0;
     CLIP_STACK_PTR = 0;
     
@@ -466,6 +501,8 @@ pub fn paint_node(n: u32, focus_node: u64, frame_count: u64, scroll_y: i32, view
     let h = *((P_LAYOUT_H + (n as u64) * 4) as &i32);
     
     if w <= 0 || h <= 0 { return; }
+    let dirty_paint = *((P_DIRTY_PAINT + (n as u64)) as &u8);
+    if dirty_paint == 0 { return; }
     
     // Epic 79: Intersection Observer Calculation
     if observers.sys_is_node_observed_for(n, 3 /* Intersection */) {
@@ -528,6 +565,13 @@ pub fn paint_node(n: u32, focus_node: u64, frame_count: u64, scroll_y: i32, view
             return;
         }
         emit_rect(x, y, w, h, n); // Fallback to placeholder rect if no surface
+    } else if *((P_DOM_NODE_TAG + (n as u64) * 4) as &u32) == 8 { // TAG_IMG
+        let tex_id = *((P_DOM_NODE_TEXTURE_ID + (n as u64) * 4) as &u32);
+        if tex_id != 0 {
+            emit_image(x, y, w, h, tex_id as u8, n);
+        } else {
+            emit_rect(x, y, w, h, n); // Draw placeholder background if not loaded
+        }
     } else if fetch_st == 2 || fetch_st == 3 {
         let tex_id = *((P_DOM_NODE_TEXTURE_ID + (n as u64) * 4) as &u32);
         emit_image(x, y, w, h, tex_id as u8, n);
@@ -724,6 +768,36 @@ pub fn paint_node(n: u32, focus_node: u64, frame_count: u64, scroll_y: i32, view
             // Legacy caret blink block removed
         }
     }
+    
+    // Border Painting
+    let bw_t = *((P_STYLE_BORDER_WIDTH_TOP + (n as u64) * 4) as &i32);
+    let bw_r = *((P_STYLE_BORDER_WIDTH_RIGHT + (n as u64) * 4) as &i32);
+    let bw_b = *((P_STYLE_BORDER_WIDTH_BOTTOM + (n as u64) * 4) as &i32);
+    let bw_l = *((P_STYLE_BORDER_WIDTH_LEFT + (n as u64) * 4) as &i32);
+    
+    if bw_t > 0 || bw_r > 0 || bw_b > 0 || bw_l > 0 {
+        let bc_r = *((P_STYLE_BORDER_COLOR_R + (n as u64)) as &u8);
+        let bc_g = *((P_STYLE_BORDER_COLOR_G + (n as u64)) as &u8);
+        let bc_b = *((P_STYLE_BORDER_COLOR_B + (n as u64)) as &u8);
+        
+        if bw_t > 0 { emit_solid_rect(x, y, w, bw_t, bc_r, bc_g, bc_b, 255, n); }
+        if bw_b > 0 { emit_solid_rect(x, y + h - bw_b, w, bw_b, bc_r, bc_g, bc_b, 255, n); }
+        if bw_l > 0 { emit_solid_rect(x, y, bw_l, h, bc_r, bc_g, bc_b, 255, n); }
+        if bw_r > 0 { emit_solid_rect(x + w - bw_r, y, bw_r, h, bc_r, bc_g, bc_b, 255, n); }
+    }
+    
+    // Focus Ring
+    if n == dom_get_focused_node() {
+        let fx = x - 2;
+        let fy = y - 2;
+        let fw = w + 4;
+        let fh = h + 4;
+        
+        emit_solid_rect(fx, fy, fw, 2, 56, 189, 248, 255, n); // top
+        emit_solid_rect(fx, fy + fh - 2, fw, 2, 56, 189, 248, 255, n); // bottom
+        emit_solid_rect(fx, fy, 2, fh, 56, 189, 248, 255, n); // left
+        emit_solid_rect(fx + fw - 2, fy, 2, fh, 56, 189, 248, 255, n); // right
+    }
 }
 
 fn intersect_clip(cur_x: i32, cur_y: i32, cur_w: i32, cur_h: i32, new_x: i32, new_y: i32, new_w: i32, new_h: i32, out_x: &i32, out_y: &i32, out_w: &i32, out_h: &i32) {
@@ -755,6 +829,7 @@ fn intersect_clip(cur_x: i32, cur_y: i32, cur_w: i32, cur_h: i32, new_x: i32, ne
 
 @no_mangle
 pub fn paint_layer(node_id: u32, pass_type: i32, focus: u64, scroll: i32, vh: i32) {
+    PAINT_VISIT_COUNT = PAINT_VISIT_COUNT + 1;
     if node_id == 0 || *((P_STYLE_DISPLAY + (node_id as u64)) as &u8) == 0 { return; }
     
     let overflow = *((P_STYLE_OVERFLOW + (node_id as u64)) as &u8);
@@ -879,6 +954,18 @@ pub fn paint_mark_compositor_dirty(node_idx: u32) {
     }
 }
 
+@no_mangle
+pub fn ext_mark_all_compositor_dirty() {
+    if P_COMPOSITOR_DIRTY == 0 { return; }
+    let limit = get_dom_node_count() as u32;
+    let mut i: u32 = 1;
+    while i < limit {
+        *((P_COMPOSITOR_DIRTY + (i as u64)) as &mut u8) = 1;
+        *((P_DIRTY_PAINT + (i as u64)) as &mut u8) = 1;
+        i = i + 1;
+    }
+}
+
 extern fn sys_gpu_commit();
 extern fn ext_flush_frame(width: i32, height: i32);
 
@@ -931,12 +1018,71 @@ pub fn sys_metal_render_frame() {
         sys_log_info((&nl) as u64, 1);
     }
     
+    // [DIAG] Census: count nodes by layout state before painting
+    let limit = get_dom_node_count() as u32;
+    let mut cnt_sized: u32 = 0;    // w>0 && h>0
+    let mut cnt_zero: u32 = 0;     // w<=0 || h<=0
+    let mut cnt_dnone: u32 = 0;    // display==0
+    let mut cnt_dirty: u32 = 0;    // dirty_paint==1
+    let mut di: u32 = 1;
+    while di < limit {
+        let dw = *((P_LAYOUT_W + (di as u64) * 4) as &i32);
+        let dh = *((P_LAYOUT_H + (di as u64) * 4) as &i32);
+        let dd = *((P_STYLE_DISPLAY + (di as u64)) as &u8);
+        let dp = *((P_DIRTY_PAINT + (di as u64)) as &u8);
+        if dd == 0 { cnt_dnone = cnt_dnone + 1; }
+        if dp == 1 { cnt_dirty = cnt_dirty + 1; }
+        if dw > 0 && dh > 0 { cnt_sized = cnt_sized + 1; }
+        else { cnt_zero = cnt_zero + 1; }
+        di = di + 1;
+    }
+    // "[DIAG] sized= "
+    let m_s: [u8; 15] = [91,68,73,65,71,93,32,115,105,122,101,100,61,32,10];
+    sys_log_info((&m_s) as u64, 14);
+    sys_print_float(cnt_sized as f64);
+    // " zero= "
+    let m_z: [u8; 7] = [32,122,101,114,111,61,32];
+    sys_log_info((&m_z) as u64, 7);
+    sys_print_float(cnt_zero as f64);
+    // " dnone= "
+    let m_d: [u8; 8] = [32,100,110,111,110,101,61,32];
+    sys_log_info((&m_d) as u64, 8);
+    sys_print_float(cnt_dnone as f64);
+    // " dirty= "
+    let m_dp: [u8; 8] = [32,100,105,114,116,121,61,32];
+    sys_log_info((&m_dp) as u64, 8);
+    sys_print_float(cnt_dirty as f64);
+    sys_log_info((&nl) as u64, 1);
+
     paint_tree();
     
     let m3: [u8; 39] = [91,71,80,85,93,32,67,111,109,109,105,116,116,105,110,103,32,102,114,97,109,101,46,32,80,97,105,110,116,101,100,32,82,101,99,116,115,58,32]; 
     sys_log_info((&m3) as u64, 39);
     sys_print_float(get_cmd_count() as f64);
+    // " visited= "
+    let m_vis: [u8; 10] = [32,118,105,115,105,116,101,100,61,32];
+    sys_log_info((&m_vis) as u64, 10);
+    sys_print_float(PAINT_VISIT_COUNT as f64);
     sys_log_info((&nl) as u64, 1);
     
     ext_flush_frame(1920, 1080);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// @no_mangle wrappers for C bridge access (avoids weak_odr split)
+// ═══════════════════════════════════════════════════════════════
+
+@no_mangle
+pub fn ext_paint_begin_frame() {
+    begin_frame();
+}
+
+@no_mangle
+pub fn ext_paint_tree() {
+    paint_tree();
+}
+
+@no_mangle
+pub fn ext_paint_get_cmd_count() -> u32 {
+    return get_cmd_count();
 }

@@ -53,16 +53,18 @@ pub fn app_run_loop() {
         
         // 6. CSS / DOM Layout Matrix
         let layout_start = sys_time_now_ms_int();
+        let mut did_layout = 0;
         if sys_dom_check_dirty_flag() == 1 {
             sys_layout_solve_matrix();
+            did_layout = 1;
         }
         
         // 7. WAAPI GPU Compositor Tick (Interpolation)
         ext_compositor_tick(frame_start as f64);
         
         // 8. Apple Metal Paint
-        let gpu_dirty = sys_gpu_check_dirty_flag();
-        if gpu_dirty == 1 {
+        // Always repaint after layout, or when compositor dirty flags are set
+        if did_layout == 1 || sys_gpu_check_dirty_flag() == 1 {
             sys_metal_render_frame();
         }
         

@@ -87,6 +87,7 @@ clang -O3 \
     user/browser/media_decoder.m \
     tests/bridges/spsc_bridge.c \
     tests/bridges/main_bridge.c \
+    user/browser/base64_decode.c \
     user/facet/window/facet_window.m \
     user/browser/metal.m \
     user/browser/tls_mac.m \
@@ -104,7 +105,7 @@ echo "🔧 [Clang] Assembling Cocoa Main Process Sandbox..."
 clang -O3 \
     tests/bridges/ipc_bridge.c \
     user/browser/mac_app.m \
-    -framework Cocoa -framework Metal -framework MetalKit -framework IOSurface -fobjc-arc \
+    -framework Cocoa -framework Metal -framework MetalKit -framework IOSurface -framework QuartzCore -fobjc-arc \
     -o /tmp/salt_build/mac_app
 
 echo "  ✓ Main Process Built Natively: /tmp/salt_build/mac_app"

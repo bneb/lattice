@@ -58,14 +58,14 @@ pub fn drain_keyboard_input() -> u32 {
     return facet_window_drain_keyboard((&KEY_BUF) as u64);
 }
 
-pub fn decode_and_upload_image(bytes_ptr: u64, len: u32) -> i32 {
-    let mut out_w: i32 = 0;
-    let mut out_h: i32 = 0;
-    let pixels = facet_image_decode(bytes_ptr, len as i32, (&mut out_w) as u64, (&mut out_h) as u64);
+pub fn decode_and_upload_image(bytes_ptr: u64, len: u32, out_w: u64, out_h: u64) -> i32 {
+    let pixels = facet_image_decode(bytes_ptr, len as i32, out_w, out_h);
     if pixels == 0 {
         return -1;
     }
-    let tex_id = facet_gpu_upload_image(pixels, out_w, out_h);
+    let mut tex_w = *((out_w) as &i32);
+    let mut tex_h = *((out_h) as &i32);
+    let tex_id = facet_gpu_upload_image(pixels, tex_w, tex_h);
     facet_image_free(pixels);
     return tex_id;
 }

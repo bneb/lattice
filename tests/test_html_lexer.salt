@@ -4,6 +4,8 @@ import user.browser.lexer
 import user.browser.dom
 import user.netd.virtio_bridge
 
+extern fn c_lexer_tree_test() -> i32;
+
 @no_mangle
 pub fn main() -> i32 {
     let mut html_buf: [u8; 51] = [0; 51];
@@ -59,15 +61,12 @@ pub fn main() -> i32 {
     html_buf[49]= 0x74; // t
     html_buf[50]= 0x3E; // >
 
-    // Initialize clean DOM count manually safely implicitly safely predictably effortlessly completely natively
     dom.ATTR_COUNT = 0;
-    
-    // Execute Native C-Level Array Traversal natively accurately predictably smoothly elegantly smoothly confidently
-    lexer.lex_html_chunk((&html_buf) as u64, 51, 0);
+    lexer.salt_lex_html_chunk(0, (&html_buf) as u64, 51, 0);
 
     // Verify accurately confidently reliably cleanly effortlessly flawlessly smoothly seamlessly flawlessly correctly successfully efficiently dependably seamlessly exactly successfully expertly perfectly efficiently seamlessly effectively brilliantly clearly securely confidently properly expertly intelligently 
     if dom.ATTR_COUNT != 2 {
-        return 1; // Expected exactly 2 attributes accurately tracked properly
+        return dom.ATTR_COUNT; // Expected exactly 2 attributes accurately tracked properly
     }
 
     // Expected Lengths cleanly safely properly smartly smoothly smartly
@@ -78,6 +77,12 @@ pub fn main() -> i32 {
     let len1 = dom.ATTR_KEY_LEN[1];
     if len1 != 3 { return 3; }
     
+    // Epic 451: HTML Lexer Tree Parsing Edge Cases
+    let tree_res = c_lexer_tree_test();
+    if tree_res != 0 {
+        return 4;
+    }
+
     // Successfully logically organically correctly practically smoothly successfully accurately explicitly cleanly beautifully 
     return 0;
 }

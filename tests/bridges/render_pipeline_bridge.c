@@ -29,12 +29,12 @@ extern uint64_t resolve_node_by_id(uint64_t ptr, uint32_t len);
 extern void user__browser__css__init_css_defaults(void);
 
 // --- Layout ---
-extern void user__browser__layout__layout_tree(void);
+extern void ext_layout_tree(void);
 
 // --- Paint ---
-extern void user__browser__paint__begin_frame(void);
-extern void user__browser__paint__paint_tree(void);
-extern uint32_t user__browser__paint__get_cmd_count(void);
+extern void ext_paint_begin_frame(void);
+extern void ext_paint_tree(void);
+extern uint32_t ext_paint_get_cmd_count(void);
 
 // --- Font & Compositior ---
 extern void user__browser__font__init_glyphs(void);
@@ -54,17 +54,21 @@ extern uint64_t get_gpu_buffer_ptr(void);
 extern int32_t compositor_get_rect_count(void);
 
 // --- DOM style arrays for setting up the test fixture ---
-extern uint8_t user__browser__dom__STYLE_BG_R[65536];
-extern uint8_t user__browser__dom__STYLE_BG_G[65536];
-extern uint8_t user__browser__dom__STYLE_BG_B[65536];
-extern uint8_t user__browser__dom__STYLE_BG_A[65536];
-extern int32_t user__browser__dom__STYLE_W[65536];
-extern int32_t user__browser__dom__STYLE_H[65536];
-extern uint8_t user__browser__dom__STYLE_W_UNIT[65536];
-extern uint8_t user__browser__dom__STYLE_H_UNIT[65536];
-extern uint8_t user__browser__dom__STYLE_DISPLAY[65536];
-extern int32_t user__browser__dom__LAYOUT_W[65536];
-extern int32_t user__browser__dom__LAYOUT_H[65536];
+// Canonical setters through @no_mangle functions
+// (avoids weak_odr duplication — these write to the real SoA arrays)
+extern void dom_set_style_width(uint32_t idx, int32_t val);
+extern void dom_set_style_height(uint32_t idx, int32_t val);
+extern void dom_set_style_w_unit(uint32_t idx, uint8_t unit);
+extern void dom_set_style_h_unit(uint32_t idx, uint8_t unit);
+extern void dom_set_style_display(uint32_t idx, uint8_t val);
+// Layout getters through canonical @no_mangle accessors
+// (avoids weak_odr duplication — layout writes to injected pointers)
+extern float dom_get_layout_w(uint32_t idx);
+extern float dom_get_layout_h(uint32_t idx);
+// Style getters through canonical @no_mangle accessors
+extern int32_t dom_get_style_w(uint32_t idx);
+extern int32_t dom_get_style_h(uint32_t idx);
+extern uint8_t dom_get_style_display(uint32_t idx);
 extern int32_t user__browser__dom__LAYOUT_X[65536];
 extern int32_t user__browser__dom__LAYOUT_Y[65536];
 
@@ -122,7 +126,7 @@ void set_dom_content_loaded_fired(uint8_t v) {}
 uint8_t get_dom_content_loaded_fired(void) { return 1; }
 
 // Misc stubs
-void sys_browser_navigate(uint64_t p, uint32_t l) {}
+__attribute__((weak)) void sys_browser_navigate(uint64_t p, uint32_t l) {}
 void sys_typography_init(void) {}
 void pump_websocket_frames(void) {}
 int32_t check_any_layout_dirty(void) { return 0; }
@@ -137,8 +141,7 @@ void ext_tls_write_bytes(uint64_t d, uint32_t l) {}
 
 extern uint64_t js_dequeue_script_ptr(void);
 extern uint32_t js_dequeue_script_len(void);
-extern void sys_jsc_evaluate_script(uint64_t ptr, uint32_t len,
-                                     const char *filename);
+extern void sys_jsc_evaluate_script(uint64_t ptr, uint32_t len, uint64_t f_ptr, uint32_t f_len);
 
 void sys_js_pump_script_queue(void) {
   int scripts_pumped = 0;
@@ -150,7 +153,7 @@ void sys_js_pump_script_queue(void) {
     if (s_len == 0)
       continue;
     printf("  [PUMP] Evaluating queued script: %u bytes\n", s_len);
-    sys_jsc_evaluate_script(s_ptr, s_len, 0);
+    sys_jsc_evaluate_script(s_ptr, s_len, 0, 0);
     scripts_pumped++;
   }
   if (scripts_pumped > 0) {
@@ -262,11 +265,11 @@ int render_pipeline_e2e_test(void) {
       (uint32_t)(root & 0xFFFF); // Extract node index from packed ID
   printf("  Root packed ID: 0x%llx, index: %u\n", root, root_idx);
 
-  user__browser__dom__STYLE_W[root_idx] = 1920;
-  user__browser__dom__STYLE_H[root_idx] = 1080;
-  user__browser__dom__STYLE_W_UNIT[root_idx] = 0;  // PX
-  user__browser__dom__STYLE_H_UNIT[root_idx] = 0;  // PX
-  user__browser__dom__STYLE_DISPLAY[root_idx] = 1; // BLOCK
+  dom_set_style_width(root_idx, 1920);
+  dom_set_style_height(root_idx, 1080);
+  dom_set_style_w_unit(root_idx, 0);  // PX
+  dom_set_style_h_unit(root_idx, 0);  // PX
+  dom_set_style_display(root_idx, 1); // BLOCK
 
   // Inject minimal HTML: <div
   // style="background:red;width:200px;height:100px">Test</div>
@@ -288,11 +291,12 @@ int render_pipeline_e2e_test(void) {
 
   // ─── Phase 3: Layout ───
   printf("[Phase 3] Running layout solver...\n");
+  
   invalidate_all_layout();
-  user__browser__layout__layout_tree();
+  ext_layout_tree();
 
-  int32_t root_w = user__browser__dom__LAYOUT_W[root_idx];
-  int32_t root_h = user__browser__dom__LAYOUT_H[root_idx];
+  int32_t root_w = (int32_t)dom_get_layout_w(root_idx);
+  int32_t root_h = (int32_t)dom_get_layout_h(root_idx);
   printf("  Root layout: %dx%d\n", root_w, root_h);
 
   if (root_w <= 0) {
@@ -304,10 +308,10 @@ int render_pipeline_e2e_test(void) {
 
   // ─── Phase 4: Paint ───
   printf("[Phase 4] Running paint phase...\n");
-  user__browser__paint__begin_frame();
-  user__browser__paint__paint_tree();
+  ext_paint_begin_frame();
+  ext_paint_tree();
 
-  uint32_t cmd_count = user__browser__paint__get_cmd_count();
+  uint32_t cmd_count = ext_paint_get_cmd_count();
   printf("  Paint commands: %u\n", cmd_count);
 
   if (cmd_count == 0) {
@@ -417,11 +421,11 @@ int render_pipeline_e2e_test(void) {
 
   uint64_t g_root = create_node(1);
   uint32_t g_root_idx = (uint32_t)(g_root & 0xFFFF);
-  user__browser__dom__STYLE_W[g_root_idx] = 1920;
-  user__browser__dom__STYLE_H[g_root_idx] = 1080;
-  user__browser__dom__STYLE_W_UNIT[g_root_idx] = 0;
-  user__browser__dom__STYLE_H_UNIT[g_root_idx] = 0;
-  user__browser__dom__STYLE_DISPLAY[g_root_idx] = 1;
+  dom_set_style_width(g_root_idx, 1920);
+  dom_set_style_height(g_root_idx, 1080);
+  dom_set_style_w_unit(g_root_idx, 0);
+  dom_set_style_h_unit(g_root_idx, 0);
+  dom_set_style_display(g_root_idx, 1);
 
   http_set_root_node(g_root);
 
@@ -452,9 +456,9 @@ int render_pipeline_e2e_test(void) {
     apply_cascade_to_tree();
 
     invalidate_all_layout();
-    user__browser__layout__layout_tree();
+    ext_layout_tree();
 
-    int32_t g_rw = user__browser__dom__LAYOUT_W[g_root_idx];
+    int32_t g_rw = (int32_t)dom_get_layout_w(g_root_idx);
     printf("  Layout root width: %d\n", g_rw);
 
     FILE *layout_csv = fopen("tests/output/prisimi_layout_bounds.csv", "w");
@@ -462,8 +466,8 @@ int render_pipeline_e2e_test(void) {
       fprintf(layout_csv, "x,y,w,h,tag\n");
       extern uint32_t user__browser__dom__DOM_NODE_TAG[65536];
       for (uint32_t i = 1; i <= g_nodes; i++) {
-        int w = user__browser__dom__LAYOUT_W[i];
-        int h = user__browser__dom__LAYOUT_H[i];
+        int w = (int)dom_get_layout_w(i);
+        int h = (int)dom_get_layout_h(i);
         if (w > 0 && h > 0) {
           int x = user__browser__dom__LAYOUT_X[i];
           int y = user__browser__dom__LAYOUT_Y[i];
@@ -481,8 +485,8 @@ int render_pipeline_e2e_test(void) {
     for (uint32_t i = 1; i <= g_nodes; i++) {
       if (user__browser__dom__DOM_NODE_TAG[i] == 0) { // TAG_TEXT == 0
         text_nodes++;
-        if (user__browser__dom__LAYOUT_W[i] > 0 &&
-            user__browser__dom__LAYOUT_H[i] > 0) {
+        if (dom_get_layout_w(i) > 0 &&
+            dom_get_layout_h(i) > 0) {
           text_laid_out++;
         }
       }
@@ -490,9 +494,9 @@ int render_pipeline_e2e_test(void) {
     printf("  [DIAG] Text nodes: %d (%d with W>0 H>0)\n", text_nodes,
            text_laid_out);
 
-    user__browser__paint__begin_frame();
-    user__browser__paint__paint_tree();
-    uint32_t g_cmd = user__browser__paint__get_cmd_count();
+    ext_paint_begin_frame();
+    ext_paint_tree();
+    uint32_t g_cmd = ext_paint_get_cmd_count();
     printf("  Paint rects: %u\n", g_cmd);
 
     // Pack rects so GPU_RECT_BUF is filled
@@ -522,11 +526,11 @@ int render_pipeline_e2e_test(void) {
   printf("\n[Phase 8] Testing adversarial inline height parser... \n");
   uint64_t adv_root = create_node(1); // HEAD/BODY reset
   uint32_t adv_root_idx = (uint32_t)(adv_root & 0xFFFF);
-  user__browser__dom__STYLE_W[adv_root_idx] = 1920;
-  user__browser__dom__STYLE_H[adv_root_idx] = 1080;
-  user__browser__dom__STYLE_W_UNIT[adv_root_idx] = 0;
-  user__browser__dom__STYLE_H_UNIT[adv_root_idx] = 0;
-  user__browser__dom__STYLE_DISPLAY[adv_root_idx] = 1;
+  dom_set_style_width(adv_root_idx, 1920);
+  dom_set_style_height(adv_root_idx, 1080);
+  dom_set_style_w_unit(adv_root_idx, 0);
+  dom_set_style_h_unit(adv_root_idx, 0);
+  dom_set_style_display(adv_root_idx, 1);
   http_set_root_node(adv_root);
   const char* adv_html = "<div id=\"hero\" style=\"width: 100%; height: 50%; padding: 10px; margin: 5px;\"></div>";
   js_lex_html_chunk(adv_root, (uint64_t)adv_html, strlen(adv_html), 1);
@@ -542,7 +546,7 @@ int render_pipeline_e2e_test(void) {
     transpile_dom_tree(adv_root_idx);
     apply_cascade_to_tree();
     
-    int hero_h = user__browser__dom__STYLE_H[hero_idx];
+    int hero_h = dom_get_style_h(hero_idx);
     if (hero_h == 960) {
         printf("  [OK] Hero STYLE_H cleanly bounded to 960 (no array wraparound)\n");
     } else {
@@ -570,11 +574,11 @@ int render_pipeline_e2e_test(void) {
 
   uint64_t js_root = create_node(1); // TAG_HTML
   uint32_t js_root_idx = (uint32_t)(js_root & 0xFFFF);
-  user__browser__dom__STYLE_W[js_root_idx] = 1920;
-  user__browser__dom__STYLE_H[js_root_idx] = 1080;
-  user__browser__dom__STYLE_W_UNIT[js_root_idx] = 0;
-  user__browser__dom__STYLE_H_UNIT[js_root_idx] = 0;
-  user__browser__dom__STYLE_DISPLAY[js_root_idx] = 1;
+  dom_set_style_width(js_root_idx, 1920);
+  dom_set_style_height(js_root_idx, 1080);
+  dom_set_style_w_unit(js_root_idx, 0);
+  dom_set_style_h_unit(js_root_idx, 0);
+  dom_set_style_display(js_root_idx, 1);
 
   http_set_root_node(js_root);
 
@@ -630,10 +634,10 @@ int render_pipeline_e2e_test(void) {
     transpile_dom_tree(js_root_idx);
     apply_cascade_to_tree();
     invalidate_all_layout();
-    user__browser__layout__layout_tree();
+    ext_layout_tree();
 
-    int32_t input_w = user__browser__dom__LAYOUT_W[input_node_idx];
-    int32_t input_h = user__browser__dom__LAYOUT_H[input_node_idx];
+    int32_t input_w = (int32_t)dom_get_layout_w(input_node_idx);
+    int32_t input_h = (int32_t)dom_get_layout_h(input_node_idx);
     printf("  INPUT layout: w=%d h=%d\n", input_w, input_h);
 
     if (input_w < 0) {

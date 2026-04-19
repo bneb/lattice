@@ -8,9 +8,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-// Weak globals to satisfy linker if Salt MLIR DCE drops them
-__attribute__((
-    weak)) uint8_t user__browser__font__SDF_ATLAS[1048576]; // 1024x1024
+extern uint8_t user__browser__font__SDF_ATLAS[1048576]; // 1024x1024
 extern void init_glyphs();
 
 typedef struct {
@@ -26,8 +24,7 @@ typedef struct {
   float line_gap;
 } GlyphMetrics;
 
-// Weak globals to satisfy linker if Salt MLIR DCE drops them
-__attribute__((weak)) GlyphMetrics user__browser__font__GLYPH_METRICS[128];
+extern GlyphMetrics user__browser__font__GLYPH_METRICS[256];
 
 float KERN_TABLE_LOCAL[65536] = {0.0f};
 
@@ -70,6 +67,12 @@ void bake_sdf_atlas() {
   user__browser__font__GLYPH_METRICS[0].ascent = (float)ascent * scale;
   user__browser__font__GLYPH_METRICS[0].descent = (float)descent * scale;
   user__browser__font__GLYPH_METRICS[0].line_gap = (float)lineGap * scale;
+  
+  printf("[FONT BRIDGE] Computed ascent: %f, descent: %f, line_gap: %f\n", 
+         user__browser__font__GLYPH_METRICS[0].ascent, 
+         user__browser__font__GLYPH_METRICS[0].descent, 
+         user__browser__font__GLYPH_METRICS[0].line_gap);
+  printf("[FONT BRIDGE] PTR: %p, sizeof(GlyphMetrics)=%lu\n", (void*)&user__browser__font__GLYPH_METRICS[0], sizeof(GlyphMetrics));
 
   init_kerning_atlas(&font, scale);
 
@@ -122,4 +125,20 @@ void bake_sdf_atlas() {
     if (h > max_row_height)
       max_row_height = h;
   }
+}
+
+void* font_bridge_get_metrics_ptr() {
+    return &user__browser__font__GLYPH_METRICS[0];
+}
+
+void font_bridge_sync_metrics(uint64_t ptr) {
+    uint32_t *arr = (uint32_t *)ptr;
+    float asc = user__browser__font__GLYPH_METRICS[0].ascent;
+    float dsc = user__browser__font__GLYPH_METRICS[0].descent;
+    float lg = user__browser__font__GLYPH_METRICS[0].line_gap;
+    
+    // Copy the IEEE 754 bits directly
+    memcpy(&arr[0], &asc, 4);
+    memcpy(&arr[1], &dsc, 4);
+    memcpy(&arr[2], &lg, 4);
 }

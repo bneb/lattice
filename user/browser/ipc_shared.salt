@@ -23,6 +23,7 @@ pub const CMD_CDM_INIT:           u32 = 11;
 pub const CMD_CDM_LICENSE_REQUEST:u32 = 12;
 pub const CMD_CDM_LICENSE_UPDATE: u32 = 13;
 pub const CMD_CDM_DECRYPT:        u32 = 14;
+pub const CMD_HOVER:              u32 = 15;
 
 @no_mangle
 pub extern fn ext_ipc_init_shared_memory(fd: i32) -> i32;

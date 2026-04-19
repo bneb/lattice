@@ -82,6 +82,7 @@ clang -O3 \
     user/browser/jsc_websocket.m \
     user/browser/jsc_animations.m \
     user/browser/metal.m \
+    user/browser/base64_decode.c \
     user/os/facet_os.c \
     user/facet/gpu/facet_window.m \
     user/facet/gpu/facet_gpu.m \

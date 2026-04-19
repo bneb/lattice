@@ -140,6 +140,49 @@ void sys_on_mouse_click(int32_t x, int32_t y) {
     uint32_t target_node_idx = sys_hit_test((float)x, (float)y, 1); // 1 = BODY
     if (target_node_idx == 0) return;
     
+    // 1. Dispatch JS Event
     uint32_t type_hash = fnv1a_hash_str("click");
     sys_jsc_dispatch_event(target_node_idx, type_hash, (float)x, (float)y);
+    
+    // 2. Sprint 8: Native Anchor Navigation
+    extern uint32_t dom_get_tag(uint32_t idx);
+    extern uint32_t ext_dom_get_parent_idx(uint32_t idx);
+    extern uint32_t user__browser__dom__ATTR_COUNT;
+    extern uint64_t user__browser__dom__ATTR_NODE_ID[];
+    extern uint64_t user__browser__dom__ATTR_KEY_PTR[];
+    extern uint32_t user__browser__dom__ATTR_KEY_LEN[];
+    extern uint64_t user__browser__dom__ATTR_VAL_PTR[];
+    extern uint32_t user__browser__dom__ATTR_VAL_LEN[];
+    extern void sys_browser_navigate(uint64_t ptr, uint32_t len);
+
+    uint32_t curr = target_node_idx;
+    while (curr != 0 && curr != 999999) {
+      if (dom_get_tag(curr) == 7) { // TAG_A
+         // Look for href attribute natively
+         for (uint32_t i = 0; i < user__browser__dom__ATTR_COUNT; i++) {
+           if (user__browser__dom__ATTR_NODE_ID[i] == (uint64_t)curr &&
+               user__browser__dom__ATTR_KEY_LEN[i] == 4) {
+               char *key = (char*)(uintptr_t)user__browser__dom__ATTR_KEY_PTR[i];
+               if (key && memcmp(key, "href", 4) == 0) {
+                   uint64_t href_ptr = (uint64_t)user__browser__dom__ATTR_VAL_PTR[i];
+                   uint32_t href_len = user__browser__dom__ATTR_VAL_LEN[i];
+                   if (href_len > 0) {
+                       sys_browser_navigate(href_ptr, href_len);
+                       return;
+                   }
+               }
+           }
+         }
+      }
+      curr = ext_dom_get_parent_idx(curr);
+    }
+}
+
+extern void ext_dom_set_hovered_node(uint32_t node_idx);
+extern void sys_ipc_send_r2m_command_with_payload(uint32_t cmd_type, uint64_t arg1, uint64_t payload_ptr, uint32_t payload_len);
+
+void sys_on_mouse_move(int32_t x, int32_t y) {
+    uint32_t target_node_idx = sys_hit_test((float)x, (float)y, 1);
+    ext_dom_set_hovered_node(target_node_idx);
+    sys_ipc_send_r2m_command_with_payload(15 /* CMD_HOVER */, target_node_idx, 0, 0);
 }

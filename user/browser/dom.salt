@@ -96,6 +96,47 @@ pub global DIRTY_PAINT: [u8; 65536] = [1; 65536];
 pub global DIRTY_STYLE: [u8; 65536] = [0; 65536]; 
 pub global COMPOSITOR_DIRTY: [u8; 65536] = [0; 65536];
 
+pub global DOM_HOVERED_NODE: u32 = 0;
+pub global DOM_FOCUSED_NODE: u32 = 0;
+
+@no_mangle
+pub fn dom_get_hovered_node() -> u32 { return DOM_HOVERED_NODE; }
+
+@no_mangle
+pub fn dom_get_focused_node() -> u32 { return DOM_FOCUSED_NODE; }
+
+@no_mangle
+pub fn ext_dom_set_hovered_node(node_idx: u32) {
+    if node_idx != DOM_HOVERED_NODE {
+        let old = DOM_HOVERED_NODE;
+        DOM_HOVERED_NODE = node_idx;
+        if old != 0 {
+            DIRTY_PAINT[old as usize] = 1;
+            COMPOSITOR_DIRTY[old as usize] = 1;
+        }
+        if node_idx != 0 {
+            DIRTY_PAINT[node_idx as usize] = 1;
+            COMPOSITOR_DIRTY[node_idx as usize] = 1;
+        }
+    }
+}
+
+@no_mangle
+pub fn ext_dom_set_focused_node(node_idx: u32) {
+    if node_idx != DOM_FOCUSED_NODE {
+        let old = DOM_FOCUSED_NODE;
+        DOM_FOCUSED_NODE = node_idx;
+        if old != 0 {
+            DIRTY_PAINT[old as usize] = 1;
+            COMPOSITOR_DIRTY[old as usize] = 1;
+        }
+        if node_idx != 0 {
+            DIRTY_PAINT[node_idx as usize] = 1;
+            COMPOSITOR_DIRTY[node_idx as usize] = 1;
+        }
+    }
+}
+
 @no_mangle
 pub fn dom_clear_dirty_flags() {
     let mut i: u32 = 0;
@@ -142,6 +183,12 @@ pub fn invalidate_paint(node_id: u32) {
         DIRTY_PAINT[node_id as usize] = 1;
     }
 }
+
+// Epic 80: Image Texture Slots & Decoding Fetch Queue
+pub global IMG_FETCH_STATE: [u8; 64] = [0; 64];
+pub global IMG_FETCH_ID: [u64; 64] = [0; 64];
+pub global IMG_FETCH_NODE_IDX: [u32; 64] = [0; 64];
+pub global NEXT_IMG_FETCH_ID: u64 = 1;
 
 pub global STYLE_DISPLAY: [u8; 65536] = [1; 65536]; // Default BLOCK, 4 = GRID
 pub global STYLE_POINTER_EVENTS: [u8; 65536] = [1; 65536]; // Default 1 = auto, 0 = none
@@ -213,6 +260,38 @@ pub global STYLE_PADDING_TOP:    [i32; 65536] = [0; 65536];
 pub global STYLE_PADDING_RIGHT:  [i32; 65536] = [0; 65536];
 pub global STYLE_PADDING_BOTTOM: [i32; 65536] = [0; 65536];
 pub global STYLE_PADDING_LEFT:   [i32; 65536] = [0; 65536];
+
+// Margin Box (i32, px, -1 = unset, -2 = auto)
+pub global STYLE_MARGIN_TOP:    [i32; 65536] = [-1; 65536];
+pub global STYLE_MARGIN_RIGHT:  [i32; 65536] = [-1; 65536];
+pub global STYLE_MARGIN_BOTTOM: [i32; 65536] = [-1; 65536];
+pub global STYLE_MARGIN_LEFT:   [i32; 65536] = [-1; 65536];
+
+// Border Width (i32, px, 0 = no border)
+pub global STYLE_BORDER_WIDTH_TOP:    [i32; 65536] = [0; 65536];
+pub global STYLE_BORDER_WIDTH_RIGHT:  [i32; 65536] = [0; 65536];
+pub global STYLE_BORDER_WIDTH_BOTTOM: [i32; 65536] = [0; 65536];
+pub global STYLE_BORDER_WIDTH_LEFT:   [i32; 65536] = [0; 65536];
+
+// Border Color
+pub global STYLE_BORDER_COLOR_R: [u8; 65536] = [0; 65536];
+pub global STYLE_BORDER_COLOR_G: [u8; 65536] = [0; 65536];
+pub global STYLE_BORDER_COLOR_B: [u8; 65536] = [0; 65536];
+
+// Box-Sizing: 0=content-box, 1=border-box
+pub global STYLE_BOX_SIZING: [u8; 65536] = [0; 65536];
+
+// Min/Max Constraints (i32, px, -1 = unset)
+pub global STYLE_MIN_WIDTH:  [i32; 65536] = [-1; 65536];
+pub global STYLE_MAX_WIDTH:  [i32; 65536] = [-1; 65536];
+pub global STYLE_MIN_HEIGHT: [i32; 65536] = [-1; 65536];
+pub global STYLE_MAX_HEIGHT: [i32; 65536] = [-1; 65536];
+
+// Visibility: 0=visible, 1=hidden
+pub global STYLE_VISIBILITY: [u8; 65536] = [0; 65536];
+
+// Flex Wrap: 0=nowrap, 1=wrap
+pub global STYLE_FLEX_WRAP:  [u8; 65536] = [0; 65536];
 
 // Epic 56: The Overflow Matrix
 // 0 = VISIBLE, 1 = HIDDEN, 2 = SCROLL, 3 = AUTO
@@ -349,6 +428,7 @@ pub global IFRAME_COUNT:          u32 = 0;
 
 // Style properties (u8, stride 1)
 @no_mangle pub fn dom_ptr_DIRTY_LAYOUT() -> u64 { return (&DIRTY_LAYOUT) as u64; }
+@no_mangle pub fn dom_ptr_DIRTY_PAINT() -> u64 { return (&DIRTY_PAINT) as u64; }
 @no_mangle pub fn dom_ptr_DIRTY_STYLE() -> u64 { return (&DIRTY_STYLE) as u64; }
 @no_mangle pub fn dom_ptr_STYLE_DISPLAY() -> u64 { return (&STYLE_DISPLAY) as u64; }
 @no_mangle pub fn dom_ptr_STYLE_FLEX_DIR() -> u64 { return (&STYLE_FLEX_DIR) as u64; }
@@ -361,10 +441,16 @@ pub global IFRAME_COUNT:          u32 = 0;
 @no_mangle pub fn dom_ptr_STYLE_GRID_COL_START() -> u64 { return (&STYLE_GRID_COL_START) as u64; }
 @no_mangle pub fn dom_ptr_STYLE_GRID_ROW_START() -> u64 { return (&STYLE_GRID_ROW_START) as u64; }
 @no_mangle pub fn dom_ptr_STYLE_TEXT_ALIGN() -> u64 { return (&STYLE_TEXT_ALIGN) as u64; }
-
+@no_mangle pub fn dom_ptr_STYLE_BORDER_COLOR_R() -> u64 { return (&STYLE_BORDER_COLOR_R) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BORDER_COLOR_G() -> u64 { return (&STYLE_BORDER_COLOR_G) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BORDER_COLOR_B() -> u64 { return (&STYLE_BORDER_COLOR_B) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BOX_SIZING() -> u64 { return (&STYLE_BOX_SIZING) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_VISIBILITY() -> u64 { return (&STYLE_VISIBILITY) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_FLEX_WRAP() -> u64 { return (&STYLE_FLEX_WRAP) as u64; }
 // Style properties (i32, stride 4)
 @no_mangle pub fn dom_ptr_STYLE_W() -> u64 { return (&STYLE_W) as u64; }
 @no_mangle pub fn dom_ptr_STYLE_H() -> u64 { return (&STYLE_H) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_H_UNIT() -> u64 { return (&STYLE_H_UNIT) as u64; }
 @no_mangle pub fn dom_ptr_STYLE_FLEX_GROW() -> u64 { return (&STYLE_FLEX_GROW) as u64; }
 @no_mangle pub fn dom_ptr_STYLE_FLEX_BASIS() -> u64 { return (&STYLE_FLEX_BASIS) as u64; }
 @no_mangle pub fn dom_ptr_STYLE_PADDING_TOP() -> u64 { return (&STYLE_PADDING_TOP) as u64; }
@@ -373,6 +459,18 @@ pub global IFRAME_COUNT:          u32 = 0;
 @no_mangle pub fn dom_ptr_STYLE_PADDING_LEFT() -> u64 { return (&STYLE_PADDING_LEFT) as u64; }
 @no_mangle pub fn dom_ptr_STYLE_TOP() -> u64 { return (&STYLE_TOP) as u64; }
 @no_mangle pub fn dom_ptr_STYLE_LEFT() -> u64 { return (&STYLE_LEFT) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_MARGIN_TOP() -> u64 { return (&STYLE_MARGIN_TOP) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_MARGIN_RIGHT() -> u64 { return (&STYLE_MARGIN_RIGHT) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_MARGIN_BOTTOM() -> u64 { return (&STYLE_MARGIN_BOTTOM) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_MARGIN_LEFT() -> u64 { return (&STYLE_MARGIN_LEFT) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BORDER_WIDTH_TOP() -> u64 { return (&STYLE_BORDER_WIDTH_TOP) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BORDER_WIDTH_RIGHT() -> u64 { return (&STYLE_BORDER_WIDTH_RIGHT) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BORDER_WIDTH_BOTTOM() -> u64 { return (&STYLE_BORDER_WIDTH_BOTTOM) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BORDER_WIDTH_LEFT() -> u64 { return (&STYLE_BORDER_WIDTH_LEFT) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_MIN_WIDTH() -> u64 { return (&STYLE_MIN_WIDTH) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_MAX_WIDTH() -> u64 { return (&STYLE_MAX_WIDTH) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_MIN_HEIGHT() -> u64 { return (&STYLE_MIN_HEIGHT) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_MAX_HEIGHT() -> u64 { return (&STYLE_MAX_HEIGHT) as u64; }
 @no_mangle pub fn dom_ptr_STYLE_Z_INDEX() -> u64 { return (&STYLE_Z_INDEX) as u64; }
 
 // Style properties (f32, stride 4)
@@ -673,6 +771,26 @@ pub fn queue_script_fetch(src_ptr: u64, src_len: u32) -> u64 {
     return 0; // Queue full
 }
 
+// Epic 80: Queue a network fetch for an external <img src="...">
+@no_mangle
+pub fn queue_image_fetch(node_idx: u32) -> u64 {
+    let mut i: u32 = 0;
+    while i < 64 {
+        if IMG_FETCH_STATE[i as usize] == 0 {
+            let fetch_id = NEXT_IMG_FETCH_ID;
+            NEXT_IMG_FETCH_ID = NEXT_IMG_FETCH_ID + 1;
+            
+            IMG_FETCH_STATE[i as usize] = 1; // PENDING
+            IMG_FETCH_ID[i as usize] = fetch_id;
+            IMG_FETCH_NODE_IDX[i as usize] = node_idx;
+            
+            return fetch_id;
+        }
+        i = i + 1;
+    }
+    return 0; // Queue full
+}
+
 // Epic 61: Called when a script fetch response arrives
 @no_mangle
 pub fn complete_script_fetch(fetch_id: u64, buf_ptr: u64, buf_len: u32) -> i32 {
@@ -738,6 +856,10 @@ pub fn init_arrays() {
         DOM_NODE_UPGRADED[u_i] = 0;
         STYLE_W[u_i] = -1;
         STYLE_H[u_i] = -1;
+        STYLE_MIN_WIDTH[u_i] = -1;
+        STYLE_MAX_WIDTH[u_i] = -1;
+        STYLE_MIN_HEIGHT[u_i] = -1;
+        STYLE_MAX_HEIGHT[u_i] = -1;
         STYLE_FLEX_BASIS[u_i] = -1;
         STYLE_GRID_COL_COUNT[u_i] = 0;
         STYLE_GRID_ROW_COUNT[u_i] = 0;
@@ -823,6 +945,24 @@ pub fn sanitize_node_slot(u_idx: usize) {
     STYLE_PADDING_RIGHT[u_idx] = 0;
     STYLE_PADDING_BOTTOM[u_idx] = 0;
     STYLE_PADDING_LEFT[u_idx] = 0;
+    STYLE_MARGIN_TOP[u_idx] = -1;
+    STYLE_MARGIN_RIGHT[u_idx] = -1;
+    STYLE_MARGIN_BOTTOM[u_idx] = -1;
+    STYLE_MARGIN_LEFT[u_idx] = -1;
+    STYLE_BORDER_WIDTH_TOP[u_idx] = 0;
+    STYLE_BORDER_WIDTH_RIGHT[u_idx] = 0;
+    STYLE_BORDER_WIDTH_BOTTOM[u_idx] = 0;
+    STYLE_BORDER_WIDTH_LEFT[u_idx] = 0;
+    STYLE_BORDER_COLOR_R[u_idx] = 0;
+    STYLE_BORDER_COLOR_G[u_idx] = 0;
+    STYLE_BORDER_COLOR_B[u_idx] = 0;
+    STYLE_BOX_SIZING[u_idx] = 0;
+    STYLE_MIN_WIDTH[u_idx] = -1;
+    STYLE_MAX_WIDTH[u_idx] = -1;
+    STYLE_MIN_HEIGHT[u_idx] = -1;
+    STYLE_MAX_HEIGHT[u_idx] = -1;
+    STYLE_VISIBILITY[u_idx] = 0;
+    STYLE_FLEX_WRAP[u_idx] = 0;
     
     // Background & Color
     STYLE_BG_R[u_idx] = 255;
@@ -1994,6 +2134,11 @@ pub fn js_set_canvas_texture(node_id: u64, tex_id: u32, w: u32, h: u32) {
     DOM_NODE_TEXTURE_ID[u_idx] = tex_id;
     DOM_CANVAS_WIDTH[u_idx] = w;
     DOM_CANVAS_HEIGHT[u_idx] = h;
+    
+    // Epic 80: Apply intrinsic dimensions if unset in CSS matrix
+    if STYLE_W[u_idx] == -1 { STYLE_W[u_idx] = w as i32; }
+    if STYLE_H[u_idx] == -1 { STYLE_H[u_idx] = h as i32; }
+    
     invalidate_layout(idx);
 }
 
@@ -2199,10 +2344,22 @@ pub fn dom_set_style_width(idx: u32, val: i32) {
 }
 
 @no_mangle
+pub fn dom_get_style_w(idx: u32) -> i32 {
+    if idx >= 65536 { return 0; }
+    return STYLE_W[idx as usize];
+}
+
+@no_mangle
 pub fn dom_set_style_height(idx: u32, val: i32) {
     if idx >= 65536 { return; }
     STYLE_H[idx as usize] = val;
     invalidate_layout(idx as usize);
+}
+
+@no_mangle
+pub fn dom_get_style_h(idx: u32) -> i32 {
+    if idx >= 65536 { return 0; }
+    return STYLE_H[idx as usize];
 }
 
 @no_mangle
@@ -2511,6 +2668,25 @@ pub fn dom_handle_click_focus(node_idx: u32) {
 }
 
 // ============================================================================
+// Sprint 6: Form Ancestor Discovery
+// ============================================================================
+// Walks STYLE_PARENT upward from a node to find an enclosing <form>.
+// Returns the form's node_idx, or 0 if no form ancestor exists.
+
+@no_mangle
+pub fn find_form_ancestor(node_idx: u32) -> u32 {
+    if node_idx == 0 || node_idx >= 65536 { return 0; }
+    let mut parent = STYLE_PARENT[node_idx as usize];
+    while parent != 0 && parent != 999999 && parent < 65536 {
+        if DOM_NODE_TAG[parent as usize] == 21 { // TAG_FORM
+            return parent;
+        }
+        parent = STYLE_PARENT[parent as usize];
+    }
+    return 0;
+}
+
+// ============================================================================
 // Epic 57: The Typography & Input Matrix (Buffer Mutator)
 // ============================================================================
 
@@ -2626,6 +2802,26 @@ pub fn dom_set_layout_scroll_y(node_id: u32, val: f32) {
         invalidate_layout(node_id);
     }
 }
+
+@no_mangle
+pub fn dom_get_layout_scroll_y(node_id: u32) -> f32 {
+    if node_id < 65536 {
+        return LAYOUT_SCROLL_Y[node_id as usize];
+    }
+    return 0.0;
+}
+
+@no_mangle
+pub fn dom_add_scroll_y(delta_y: i32) {
+    // Usually root (1) and body (2) scroll
+    let current = LAYOUT_SCROLL_Y[1 as usize];
+    LAYOUT_SCROLL_Y[1 as usize] = current + (delta_y as f32);
+    DIRTY_PAINT[1 as usize] = 1;
+    
+    // Invalidate everything visually
+    invalidate_layout(1);
+}
+
 extern fn sys_canvas_create_backing_store(node_id: u32, width: u32, height: u32) -> u32;
 
 @no_mangle
@@ -2634,4 +2830,81 @@ pub fn dom_init_canvas(node_id: u32, width: u32, height: u32) {
     CANVAS_SURFACE_IDS[node_id as usize] = surface_id;
     DOM_CANVAS_WIDTH[node_id as usize] = width;
     DOM_CANVAS_HEIGHT[node_id as usize] = height;
+}
+
+// ============================================================================
+// Sprint 6: Form Submission URL Construction
+// ============================================================================
+
+fn hex_nibble(v: u8) -> u8 {
+    if v < 10 {
+        return 48 + v; // '0' + v
+    }
+    return 65 + v - 10; // 'A' + (v - 10)
+}
+
+extern fn sys_browser_navigate(ptr: u64, len: u32);
+
+// Shared output buffer for constructed URLs
+pub global FORM_URL_BUF: [u8; 4096] = [0; 4096];
+pub global FORM_URL_LEN: u32 = 0;
+
+@no_mangle
+pub fn construct_search_url_and_navigate(
+    action_ptr: u64, action_len: u32,
+    name_ptr: u64, name_len: u32,
+    value_ptr: u64, value_len: u32
+) {
+    let mut pos: u32 = 0;
+
+    // Copy action URL
+    let mut i: u32 = 0;
+    while i < action_len && pos < 4090 {
+        FORM_URL_BUF[pos as usize] = *((action_ptr + i as u64) as &u8);
+        pos = pos + 1;
+        i = i + 1;
+    }
+
+    // '?'
+    FORM_URL_BUF[pos as usize] = 63;
+    pos = pos + 1;
+
+    // Copy name
+    i = 0;
+    while i < name_len && pos < 4090 {
+        FORM_URL_BUF[pos as usize] = *((name_ptr + i as u64) as &u8);
+        pos = pos + 1;
+        i = i + 1;
+    }
+
+    // '='
+    FORM_URL_BUF[pos as usize] = 61;
+    pos = pos + 1;
+
+    // URL-encode value
+    i = 0;
+    while i < value_len && pos < 4090 {
+        let c = *((value_ptr + i as u64) as &u8);
+        if c == 32 {
+            // space → '+'
+            FORM_URL_BUF[pos as usize] = 43;
+            pos = pos + 1;
+        } else if (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 45 || c == 95 || c == 46 {
+            // Alphanumeric + - _ .
+            FORM_URL_BUF[pos as usize] = c;
+            pos = pos + 1;
+        } else {
+            // %XX encoding
+            FORM_URL_BUF[pos as usize] = 37; // '%'
+            FORM_URL_BUF[(pos + 1) as usize] = hex_nibble((c >> 4) & 15);
+            FORM_URL_BUF[(pos + 2) as usize] = hex_nibble(c & 15);
+            pos = pos + 3;
+        }
+        i = i + 1;
+    }
+
+    FORM_URL_LEN = pos;
+
+    // Trigger navigation
+    sys_browser_navigate((&FORM_URL_BUF) as u64, pos);
 }

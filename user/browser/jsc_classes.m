@@ -60,6 +60,11 @@ extern bool set_node_src(JSContextRef ctx, JSObjectRef object, JSStringRef pn, J
 extern bool set_node_scrollTop(JSContextRef ctx, JSObjectRef object, JSStringRef pn, JSValueRef value, JSValueRef* ex);
 extern JSValueRef get_node_scrollTop(JSContextRef ctx, JSObjectRef object, JSStringRef pn, JSValueRef* ex);
 extern JSObjectRef jsc_HTMLElement_constructor(JSContextRef ctx, JSObjectRef constructor, size_t argc, const JSValueRef argv[], JSValueRef* exception);
+extern JSValueRef get_node_offsetWidth(JSContextRef ctx, JSObjectRef object, JSStringRef pn, JSValueRef* ex);
+extern JSValueRef get_node_offsetHeight(JSContextRef ctx, JSObjectRef object, JSStringRef pn, JSValueRef* ex);
+extern JSValueRef jsc_node_getBoundingClientRect(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef* exception);
+extern JSValueRef jsc_node_hasAttribute(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef* exception);
+extern JSValueRef jsc_node_cloneNode(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef* exception);
 
 JSClassRef dom_node_class = NULL;
 
@@ -86,6 +91,17 @@ JSValueRef get_node_index(JSContextRef ctx, JSObjectRef object, JSStringRef prop
     return JSValueMakeNumber(ctx, (double)node_idx);
 }
 
+JSValueRef get_node_dataset(JSContextRef ctx, JSObjectRef object, JSStringRef propertyName, JSValueRef* exception) {
+    JSStringRef dsKey = JSStringCreateWithUTF8CString("__dataset");
+    if (!JSObjectHasProperty(ctx, object, dsKey)) {
+        JSObjectRef ds = JSObjectMake(ctx, NULL, NULL);
+        JSObjectSetProperty(ctx, object, dsKey, ds, kJSPropertyAttributeDontEnum, NULL);
+    }
+    JSValueRef ds = JSObjectGetProperty(ctx, object, dsKey, NULL);
+    JSStringRelease(dsKey);
+    return ds;
+}
+
 void init_dom_classes(JSGlobalContextRef ctx) {
     printf("[Prisimi JIT] Initializing Object Class Matrix...\n");
     
@@ -108,10 +124,15 @@ void init_dom_classes(JSGlobalContextRef ctx) {
         { "nextSibling", get_node_nextSibling, NULL, kJSPropertyAttributeReadOnly },
         { "id", get_node_id, set_node_id, kJSPropertyAttributeNone },
         { "className", get_node_className, set_node_className, kJSPropertyAttributeNone },
+        { "dataset", get_node_dataset, NULL, kJSPropertyAttributeReadOnly },
         { "nodeValue", get_node_nodeValue, set_node_nodeValue, kJSPropertyAttributeNone },
         { "value", get_node_value, set_node_value, kJSPropertyAttributeNone },
         { "scrollTop", get_node_scrollTop, set_node_scrollTop, kJSPropertyAttributeNone },
         { "src", get_node_src, set_node_src, kJSPropertyAttributeNone },
+        { "offsetWidth", get_node_offsetWidth, NULL, kJSPropertyAttributeReadOnly },
+        { "offsetHeight", get_node_offsetHeight, NULL, kJSPropertyAttributeReadOnly },
+        { "clientWidth", get_node_offsetWidth, NULL, kJSPropertyAttributeReadOnly },
+        { "clientHeight", get_node_offsetHeight, NULL, kJSPropertyAttributeReadOnly },
         { 0, 0, 0, 0 }
     };
     nodeDef.staticValues = nodeValues;
@@ -132,6 +153,9 @@ void init_dom_classes(JSGlobalContextRef ctx) {
         { "attachShadow", jsc_node_attachShadow, kJSPropertyAttributeNone },
         { "getContext", jsc_node_getContext, kJSPropertyAttributeNone },
         { "animate", jsc_Element_animate, kJSPropertyAttributeNone },
+        { "getBoundingClientRect", jsc_node_getBoundingClientRect, kJSPropertyAttributeNone },
+        { "hasAttribute", jsc_node_hasAttribute, kJSPropertyAttributeNone },
+        { "cloneNode", jsc_node_cloneNode, kJSPropertyAttributeNone },
         { 0, 0, 0 }
     };
     nodeDef.staticFunctions = nodeFuncs;

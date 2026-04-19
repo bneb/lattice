@@ -170,12 +170,21 @@ extern fn js_dequeue_script_len() -> u32;
 
 @no_mangle
 pub fn sys_js_pump_script_queue() {
+    let mut count: u32 = 0;
     while true {
         let s_ptr = js_dequeue_script_ptr();
         if s_ptr == 0 { break; }
         let s_len = js_dequeue_script_len();
         sys_jsc_evaluate_script(s_ptr, s_len, 0);
+        count = count + 1;
     }
+    
+    let msg: [u8; 33] = [91,74,83,67,93,32,80,117,109,112,101,100,32,115,99,114,105,112,116,115,58,32,0,0,0,0,0,0,0,0,0,0,0];
+    sys_log_info((&msg) as u64, 22);
+    sys_print_float(count as f64);
+    
+    let nl: [u8; 1] = [10];
+    sys_log_info((&nl) as u64, 1);
 }
 
 
@@ -391,6 +400,7 @@ pub fn salt_browser_main(argc: u32, argv: u64) -> u32 {
     // sys_memory_arena_init(); // handled by airlock/init_arrays
     sys_jsc_init();
     font.init_glyphs();
+    compositor.load_font_atlas((&font.SDF_ATLAS) as u64, 1024, 1024);
     sys_typography_init();
     sys_hw_audio_init();
     sys_init_vsync();

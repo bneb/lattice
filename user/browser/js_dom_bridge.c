@@ -896,11 +896,10 @@ extern void dom_handle_click_focus(uint32_t node_idx);
 extern uint32_t dom_get_generation(uint32_t idx);
 
 void sys_on_mouse_click(int32_t x, int32_t y) {
-  if (!ctx)
-    return;
-
   // 1. Geometric hit-test from root (node index 1)
   uint32_t target_idx = dom_hit_test(1, x, y);
+  printf("sys_on_mouse_click called! target_idx = %u\n", target_idx);
+  fflush(stdout);
   if (target_idx == 0)
     return;
 
@@ -912,7 +911,48 @@ void sys_on_mouse_click(int32_t x, int32_t y) {
   uint64_t target_node_id = (uint64_t)target_idx | ((uint64_t)gen << 16);
 
   // 4. Dispatch 'click' event with bubble-up through parent chain
-  js_bridge_dispatch_event(target_node_id, "click", 5);
+  if (ctx) {
+      js_bridge_dispatch_event(target_node_id, "click", 5);
+  }
+
+  // 5. Sprint 8: Native Anchor Navigation
+  extern uint32_t dom_get_tag(uint32_t idx);
+  extern uint32_t ext_dom_get_parent_idx(uint32_t idx);
+  extern uint32_t user__browser__dom__ATTR_COUNT;
+  extern uint64_t user__browser__dom__ATTR_NODE_ID[];
+  extern uint64_t user__browser__dom__ATTR_KEY_PTR[];
+  extern uint32_t user__browser__dom__ATTR_KEY_LEN[];
+  extern uint64_t user__browser__dom__ATTR_VAL_PTR[];
+  extern uint32_t user__browser__dom__ATTR_VAL_LEN[];
+  extern void sys_browser_navigate(uint64_t ptr, uint32_t len);
+
+  uint32_t curr = target_idx;
+  printf("Target idx = %u\n", curr);
+  while (curr != 0 && curr != 999999) {
+    if (dom_get_tag(curr) == 7) { // TAG_A
+       printf("Found TAG_A, attr count = %u\n", user__browser__dom__ATTR_COUNT);
+       // Look for href attribute natively
+       for (uint32_t i = 0; i < user__browser__dom__ATTR_COUNT; i++) {
+         printf("Checking attribute %u: node_id = %llu, len = %u\n", i, user__browser__dom__ATTR_NODE_ID[i], user__browser__dom__ATTR_KEY_LEN[i]);
+         if (user__browser__dom__ATTR_NODE_ID[i] == (uint64_t)curr &&
+             user__browser__dom__ATTR_KEY_LEN[i] == 4) {
+             char *key = (char*)(uintptr_t)user__browser__dom__ATTR_KEY_PTR[i];
+             printf("Key ptr is %p. Key looks like: %c%c%c%c\n", key, key[0], key[1], key[2], key[3]);
+             if (key && memcmp(key, "href", 4) == 0) {
+                 uint64_t href_ptr = (uint64_t)user__browser__dom__ATTR_VAL_PTR[i];
+                 uint32_t href_len = user__browser__dom__ATTR_VAL_LEN[i];
+                 printf("HREF found: len = %u\n", href_len);
+                 fflush(stdout);
+                 if (href_len > 0) {
+                     sys_browser_navigate(href_ptr, href_len);
+                     return;
+                 }
+             }
+         }
+       }
+    }
+    curr = ext_dom_get_parent_idx(curr);
+  }
 }
 
 // Epic 56, 60: Native Stubs for Tests

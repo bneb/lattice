@@ -13,6 +13,7 @@ extern fn js_dom_get_parent(node_id: u64) -> u64;
 extern fn dom_get_first_child(idx: u32) -> u64;
 extern fn resolve_node(id: u64) -> u32;
 extern fn dom_get_text_ptr(idx: u32) -> u64;
+extern fn dom_get_tag(idx: u32) -> u32;
 extern fn dom_get_text_len(idx: u32) -> u32;
 extern fn js_queue_script(ptr: u64, len: u32);
 extern fn css_lex_stylesheet(ptr: u64, len: u32, scope_node_id: u32);
@@ -20,6 +21,7 @@ extern fn queue_script_fetch(src_ptr: u64, src_len: u32) -> u64;
 extern fn dom_get_script_src_ptr(idx: u32) -> u64;
 extern fn dom_get_script_src_len(idx: u32) -> u32;
 extern fn dom_set_script_src(node_idx: u32, src_ptr: u64, src_len: u32);
+extern fn queue_image_fetch(node_idx: u32) -> u64;
 
 extern fn dom_get_scope_idx(idx: u32) -> u32;
 
@@ -526,6 +528,23 @@ pub fn lex_html(html_ptr: u64, max_len: u32, root_id: u64, can_execute: u8) {
                             }
                         }
                     }
+                    // Epic 80: Image Resource Fetch Pipeline
+                    if current_tag == 8 { // TAG_IMG
+                        let img_node_idx = resolve_node(current_node);
+                        if img_node_idx != 0xFFFFFFFF {
+                            let img_fetch_id = queue_image_fetch(img_node_idx);
+                            if img_fetch_id != 0 {
+                                let mut img_bit: u64 = 1;
+                                img_bit = img_bit << 59;
+                                let multiplexed_id = img_bit | img_fetch_id;
+                                sys_ipc_send_r2m_command_with_payload(
+                                    12 /* CMD_FETCH_REQUEST */,
+                                    multiplexed_id,
+                                    html_ptr + attr_val_start as u64,
+                                    attr_val_len);
+                            }
+                        }
+                    }
                 }
                 
                 // Legacy HTML Attributes mapping at Specificity 0
@@ -674,9 +693,27 @@ pub fn lex_html(html_ptr: u64, max_len: u32, root_id: u64, can_execute: u8) {
                     }
                 }
                 
-                // Pop parent: go back up the tree
-                current_parent = js_dom_get_parent(current_parent);
-                if current_parent == 0 { current_parent = root_id; }
+                // Pop parent: unwinding stack for implicit close
+                let mut target_parent = current_parent;
+                let mut found = false;
+                while target_parent != 0 && target_parent != root_id {
+                    let tp_idx = resolve_node(target_parent);
+                    if tp_idx == 0xFFFFFFFF { break; }
+                    let tp_tag = dom_get_tag(tp_idx);
+                    let target_tag: u32 = tag as u32;
+                    if tp_tag == target_tag {
+                        found = true;
+                        break;
+                    }
+                    target_parent = js_dom_get_parent(target_parent);
+                }
+                
+                if found {
+                    // Match found! Unwind.
+                    current_parent = js_dom_get_parent(target_parent);
+                    if current_parent == 0 { current_parent = root_id; }
+                }
+                
                 // CRITICAL: Reset current_tag to exit RAW_TEXT mode.
                 // Without this, closing </script> leaves current_tag=99,
                 // causing all subsequent '<' chars to be treated as raw text.
@@ -700,5 +737,9 @@ pub fn lex_html(html_ptr: u64, max_len: u32, root_id: u64, can_execute: u8) {
 
 @no_mangle
 pub fn js_lex_html_chunk(root_id: u64, ptr: u64, len: u32, can_execute: u8) {
+    lex_html(ptr, len, root_id, can_execute);
+}
+
+pub fn salt_lex_html_chunk(root_id: u64, ptr: u64, len: u32, can_execute: u8) {
     lex_html(ptr, len, root_id, can_execute);
 }

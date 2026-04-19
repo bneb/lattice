@@ -1,0 +1,22 @@
+package tests.test_sprint1_js_apis
+
+// Sprint 1: JS API Surface Test
+// Verifies that all APIs required for Google's inline scripts are present
+// and function correctly. Uses render_pipeline_e2e_test sentinel to
+// auto-include the render pipeline bridge.
+//
+// Red → Green TDD: 
+//   1. Run this test → see failures for missing APIs
+//   2. Implement APIs in jsc_bindings.m / jsc_classes.m 
+//   3. Re-run → all green
+
+@no_mangle
+pub extern fn sprint1_js_apis_test() -> i32;
+
+@no_mangle
+pub fn main() -> i32 {
+    return sprint1_js_apis_test();
+}
+
+// Sentinel for bridge auto-detection
+pub fn render_pipeline_e2e_test() {}

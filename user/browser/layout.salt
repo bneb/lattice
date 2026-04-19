@@ -27,6 +27,18 @@ global P_STYLE_PADDING_LEFT: u64 = 0;
 global P_STYLE_TOP: u64 = 0;
 global P_STYLE_LEFT: u64 = 0;
 global P_STYLE_Z_INDEX: u64 = 0;
+global P_STYLE_MARGIN_TOP: u64 = 0;
+global P_STYLE_MARGIN_RIGHT: u64 = 0;
+global P_STYLE_MARGIN_BOTTOM: u64 = 0;
+global P_STYLE_MARGIN_LEFT: u64 = 0;
+global P_STYLE_BORDER_W_TOP: u64 = 0;
+global P_STYLE_BORDER_W_RIGHT: u64 = 0;
+global P_STYLE_BORDER_W_BOTTOM: u64 = 0;
+global P_STYLE_BORDER_W_LEFT: u64 = 0;
+global P_STYLE_MIN_WIDTH: u64 = 0;
+global P_STYLE_MAX_WIDTH: u64 = 0;
+global P_STYLE_MIN_HEIGHT: u64 = 0;
+global P_STYLE_MAX_HEIGHT: u64 = 0;
 
 // u32 arrays (stride 4)
 global P_DOM_NODE_TAG: u64 = 0;
@@ -43,11 +55,15 @@ global P_STYLE_ALIGN_ITEMS: u64 = 0;
 global P_STYLE_W_UNIT: u64 = 0;
 global P_STYLE_POSITION: u64 = 0;
 global P_STYLE_OVERFLOW: u64 = 0;
+global P_STYLE_H_UNIT: u64 = 0;
 global P_STYLE_GRID_COL_COUNT: u64 = 0;
 global P_STYLE_GRID_COL_START: u64 = 0;
 global P_STYLE_GRID_ROW_START: u64 = 0;
 global P_STYLE_TEXT_ALIGN: u64 = 0;
 global P_STYLE_GRID_COL_TYPE: u64 = 0;
+global P_STYLE_BOX_SIZING: u64 = 0;
+global P_STYLE_VISIBILITY: u64 = 0;
+global P_STYLE_FLEX_WRAP: u64 = 0;
 
 // u64 arrays (stride 8)
 global P_DOM_NODE_NEXT_SIBLING: u64 = 0;
@@ -75,6 +91,18 @@ extern fn dom_ptr_STYLE_PADDING_LEFT() -> u64;
 extern fn dom_ptr_STYLE_TOP() -> u64;
 extern fn dom_ptr_STYLE_LEFT() -> u64;
 extern fn dom_ptr_STYLE_Z_INDEX() -> u64;
+extern fn dom_ptr_STYLE_MARGIN_TOP() -> u64;
+extern fn dom_ptr_STYLE_MARGIN_RIGHT() -> u64;
+extern fn dom_ptr_STYLE_MARGIN_BOTTOM() -> u64;
+extern fn dom_ptr_STYLE_MARGIN_LEFT() -> u64;
+extern fn dom_ptr_STYLE_BORDER_WIDTH_TOP() -> u64;
+extern fn dom_ptr_STYLE_BORDER_WIDTH_RIGHT() -> u64;
+extern fn dom_ptr_STYLE_BORDER_WIDTH_BOTTOM() -> u64;
+extern fn dom_ptr_STYLE_BORDER_WIDTH_LEFT() -> u64;
+extern fn dom_ptr_STYLE_MIN_WIDTH() -> u64;
+extern fn dom_ptr_STYLE_MAX_WIDTH() -> u64;
+extern fn dom_ptr_STYLE_MIN_HEIGHT() -> u64;
+extern fn dom_ptr_STYLE_MAX_HEIGHT() -> u64;
 extern fn dom_ptr_DOM_NODE_TAG() -> u64;
 extern fn dom_ptr_DOM_TEXT_LEN() -> u64;
 extern fn dom_ptr_STYLE_PARENT() -> u64;
@@ -85,6 +113,7 @@ extern fn dom_ptr_STYLE_FLEX_DIR() -> u64;
 extern fn dom_ptr_STYLE_JUSTIFY_CONTENT() -> u64;
 extern fn dom_ptr_STYLE_ALIGN_ITEMS() -> u64;
 extern fn dom_ptr_STYLE_W_UNIT() -> u64;
+extern fn dom_ptr_STYLE_H_UNIT() -> u64;
 extern fn dom_ptr_STYLE_POSITION() -> u64;
 extern fn dom_ptr_STYLE_OVERFLOW() -> u64;
 extern fn dom_ptr_STYLE_GRID_COL_COUNT() -> u64;
@@ -95,6 +124,9 @@ extern fn dom_ptr_STYLE_GRID_COL_TYPE() -> u64;
 extern fn dom_ptr_DOM_NODE_NEXT_SIBLING() -> u64;
 extern fn dom_ptr_DOM_TEXT_PTR() -> u64;
 extern fn dom_ptr_STYLE_FONT_SIZE() -> u64;
+extern fn dom_ptr_STYLE_BOX_SIZING() -> u64;
+extern fn dom_ptr_STYLE_VISIBILITY() -> u64;
+extern fn dom_ptr_STYLE_FLEX_WRAP() -> u64;
 extern fn dom_ptr_LAYOUT_SCROLL_X() -> u64;
 extern fn dom_ptr_LAYOUT_SCROLL_Y() -> u64;
 extern fn dom_ptr_STYLE_GRID_COL_VAL() -> u64;
@@ -131,6 +163,7 @@ pub fn layout_inject_dom_pointers() {
     P_STYLE_JUSTIFY_CONTENT = dom_ptr_STYLE_JUSTIFY_CONTENT();
     P_STYLE_ALIGN_ITEMS = dom_ptr_STYLE_ALIGN_ITEMS();
     P_STYLE_W_UNIT = dom_ptr_STYLE_W_UNIT();
+    P_STYLE_H_UNIT = dom_ptr_STYLE_H_UNIT();
     P_STYLE_POSITION = dom_ptr_STYLE_POSITION();
     P_STYLE_OVERFLOW = dom_ptr_STYLE_OVERFLOW();
     P_STYLE_GRID_COL_COUNT = dom_ptr_STYLE_GRID_COL_COUNT();
@@ -139,6 +172,21 @@ pub fn layout_inject_dom_pointers() {
     P_STYLE_TEXT_ALIGN = dom_ptr_STYLE_TEXT_ALIGN();
     P_STYLE_GRID_COL_TYPE = dom_ptr_STYLE_GRID_COL_TYPE();
     P_DOM_NODE_NEXT_SIBLING = dom_ptr_DOM_NODE_NEXT_SIBLING();
+    P_STYLE_MARGIN_TOP = dom_ptr_STYLE_MARGIN_TOP();
+    P_STYLE_MARGIN_RIGHT = dom_ptr_STYLE_MARGIN_RIGHT();
+    P_STYLE_MARGIN_BOTTOM = dom_ptr_STYLE_MARGIN_BOTTOM();
+    P_STYLE_MARGIN_LEFT = dom_ptr_STYLE_MARGIN_LEFT();
+    P_STYLE_BORDER_W_TOP = dom_ptr_STYLE_BORDER_WIDTH_TOP();
+    P_STYLE_BORDER_W_RIGHT = dom_ptr_STYLE_BORDER_WIDTH_RIGHT();
+    P_STYLE_BORDER_W_BOTTOM = dom_ptr_STYLE_BORDER_WIDTH_BOTTOM();
+    P_STYLE_BORDER_W_LEFT = dom_ptr_STYLE_BORDER_WIDTH_LEFT();
+    P_STYLE_MIN_WIDTH = dom_ptr_STYLE_MIN_WIDTH();
+    P_STYLE_MAX_WIDTH = dom_ptr_STYLE_MAX_WIDTH();
+    P_STYLE_MIN_HEIGHT = dom_ptr_STYLE_MIN_HEIGHT();
+    P_STYLE_MAX_HEIGHT = dom_ptr_STYLE_MAX_HEIGHT();
+    P_STYLE_BOX_SIZING = dom_ptr_STYLE_BOX_SIZING();
+    P_STYLE_VISIBILITY = dom_ptr_STYLE_VISIBILITY();
+    P_STYLE_FLEX_WRAP = dom_ptr_STYLE_FLEX_WRAP();
     P_DOM_TEXT_PTR = dom_ptr_DOM_TEXT_PTR();
     P_STYLE_FONT_SIZE = dom_ptr_STYLE_FONT_SIZE();
     P_LAYOUT_SCROLL_X = dom_ptr_LAYOUT_SCROLL_X();
@@ -169,6 +217,10 @@ fn find_nearest_positioned_ancestor(node_id: u32) -> u32 {
     return 0; // Fallback to root
 }
 
+extern fn font_bridge_sync_metrics(ptr: u64);
+
+pub global FFI_SYNC_ARR: [u32; 8] = [0; 8];
+
 @no_mangle
 pub fn compute_text_layout(node_id: u32, max_width: f32) {
     let text_ptr = *((P_DOM_TEXT_PTR + (node_id as u64) * 8) as &u64);
@@ -178,12 +230,24 @@ pub fn compute_text_layout(node_id: u32, max_width: f32) {
     let mut line_count: u32 = 1;
     
     // Retrieve from typography matrix
-    let font_size = *((P_STYLE_FONT_SIZE + (node_id as u64) * 4) as &f32);
-    let scale_factor = font_size / 64.0;
-    let ascent = font.GLYPH_METRICS[0].ascent * scale_factor;
-    let descent = font.GLYPH_METRICS[0].descent * scale_factor;
-    let line_gap = font.GLYPH_METRICS[0].line_gap * scale_factor;
+    let mut font_size: f32 = 16.0;
+    let scale_factor: f32 = 0.25;
+    
+    font_bridge_sync_metrics((&FFI_SYNC_ARR[0]) as u64);
+    
+    let addr0 = (&FFI_SYNC_ARR[0]) as u64;
+    let addr1 = (&FFI_SYNC_ARR[1]) as u64;
+    let addr2 = (&FFI_SYNC_ARR[2]) as u64;
+    
+    let met_ascent: f32 = *((addr0) as &f32);
+    let met_descent: f32 = *((addr1) as &f32);
+    let met_linegap: f32 = *((addr2) as &f32);
+    
+    let ascent = met_ascent * scale_factor;
+    let descent = met_descent * scale_factor;
+    let line_gap = met_linegap * scale_factor;
     let line_height: f32 = ascent - descent + line_gap;
+    
     
     let mut i: u32 = 0;
     while i < text_len {
@@ -358,22 +422,7 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
 
     let mut computed_h: i32 = 0;
     
-    // [DIAG] Log node 2 entry
-    if node_idx == 2 || node_idx == 1 {
-        let n1: [u8; 12] = [91,76,93,32,101,110,116,101,114,32,110,61]; // "[L] enter n="
-        sys_log_info((&n1) as u64, 12);
-        sys_print_float(node_idx as f64);
-        let m_mw:[u8;4]=[32,109,119,61]; // " mw="
-        sys_log_info((&m_mw) as u64, 4);
-        sys_print_float(max_width as f64);
-        let m_dt:[u8;5]=[32,100,114,116,61]; // " drt="
-        sys_log_info((&m_dt) as u64, 5);
-        let cur_dirty = *((P_DIRTY_LAYOUT + (node_idx as u64)) as &u8);
-        sys_print_float(cur_dirty as f64);
-        let nl:[u8;1]=[10];
-        sys_log_info((&nl) as u64, 1);
-    }
-    
+
     // 1. Resolve the Containing Block Origin
     let pos_mode = *((P_STYLE_POSITION + (node_idx as u64)) as &u8);
     let mut actual_x = offset_x;
@@ -401,7 +450,6 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
         if left != -1 { actual_x = actual_x + left; }
         if top != -1 { actual_y = actual_y + top; }
     }
-    
     *((P_LAYOUT_X + (node_idx as u64) * 4) as &mut i32) = actual_x;
     *((P_LAYOUT_Y + (node_idx as u64) * 4) as &mut i32) = actual_y;
     
@@ -417,24 +465,6 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
     LAYOUT_EVAL_COUNT = LAYOUT_EVAL_COUNT + 1;
     
     let current_tag = *((P_DOM_NODE_TAG + (node_idx as u64) * 4) as &u32);
-    
-    if node_idx == 1 || node_idx == 2 {
-        let m_t:[u8;9] = [91,76,93,32,116,97,103,61,32]; // "[L] tag= "
-        sys_log_info((&m_t) as u64, 9);
-        sys_print_float(current_tag as f64);
-        let nl:[u8;1] = [10];
-        sys_log_info((&nl) as u64, 1);
-        
-        let m_disp:[u8;10] = [91,76,93,32,100,105,115,112,61,32]; // "[L] disp= "
-        sys_log_info((&m_disp) as u64, 10);
-        let display_mode_dbg = *((P_STYLE_DISPLAY + (node_idx as u64)) as &u8);
-        sys_print_float(display_mode_dbg as f64);
-        
-        let m_ch:[u8;7] = [32,99,104,105,108,100,61]; // " child="
-        sys_log_info((&m_ch) as u64, 7);
-        sys_print_float(dom.dom_get_render_first_child_idx(node_idx) as f64);
-        sys_log_info((&nl) as u64, 1);
-    }
     
     // Evaluate display cleanly comfortably smartly cleanly explicit efficiently effortlessly neatly securely fluently explicitly easily smoothly securely confidently dependably flawlessly properly effectively successfully expertly capably dependably perfectly explicit efficiently safely elegantly properly cleanly intelligently gracefully expertly dependably cleanly smoothly efficiently explicitly expertly intelligently securely.
     if current_tag == 0 {
@@ -458,6 +488,9 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
             let m_c: [u8; 11] = [91,67,76,65,77,80,93,32,78,61,32]; // "[CLAMP] N= "
             sys_log_info((&m_c) as u64, 11);
             sys_print_float(node_idx as f64);
+            let m_v: [u8; 5] = [32,118,97,108,61]; // " val="
+            sys_log_info((&m_v) as u64, 5);
+            sys_print_float(computed_h as f64);
             computed_h = 100; 
         }
         *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = computed_h;
@@ -480,6 +513,38 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
         return img_h;
     }
     
+    // ── Form Control Intrinsic Dimensions ──
+    // W3C: <input> has a default width of ~173px and height based on font-size + padding.
+    // <button> has intrinsic width from text content + padding.
+    let current_tag = *((P_DOM_NODE_TAG + (node_idx as u64) * 4) as &u32);
+    
+    if current_tag == 18 { // TAG_INPUT
+        if *((P_STYLE_W + (node_idx as u64) * 4) as &i32) == -1 {
+            *((P_STYLE_W + (node_idx as u64) * 4) as &mut i32) = 173; // Chrome default
+        }
+        if *((P_STYLE_H + (node_idx as u64) * 4) as &i32) == -1 {
+            let fs = *((P_STYLE_FONT_SIZE + (node_idx as u64) * 4) as &f32);
+            let intrinsic_h = (fs as i32) + 8; // font-size + internal padding
+            if intrinsic_h > 0 {
+                *((P_STYLE_H + (node_idx as u64) * 4) as &mut i32) = intrinsic_h;
+            }
+        }
+    }
+    
+    if current_tag == 20 { // TAG_BUTTON
+        if *((P_STYLE_W + (node_idx as u64) * 4) as &i32) == -1 {
+            // Measure text content width + 16px padding
+            compute_text_layout(node_idx, max_width as f32);
+            let text_w = *((P_LAYOUT_W + (node_idx as u64) * 4) as &i32);
+            *((P_STYLE_W + (node_idx as u64) * 4) as &mut i32) = text_w + 16;
+        }
+        if *((P_STYLE_H + (node_idx as u64) * 4) as &i32) == -1 {
+            let fs = *((P_STYLE_FONT_SIZE + (node_idx as u64) * 4) as &f32);
+            // font-size + 10px vertical bounds
+            *((P_STYLE_H + (node_idx as u64) * 4) as &mut i32) = (fs as i32) + 10;
+        }
+    }
+
     let display_mode = *((P_STYLE_DISPLAY + (node_idx as u64)) as &u8);
     
     // display:none — element is hidden, contributes no dimensions
@@ -508,11 +573,37 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
         }
     }
     
+    // Apply min-width / max-width constraints
+    let min_w = *((P_STYLE_MIN_WIDTH + (node_idx as u64) * 4) as &i32);
+    let max_w = *((P_STYLE_MAX_WIDTH + (node_idx as u64) * 4) as &i32);
+    if min_w != -1 && (target_w as i32) < min_w { target_w = (min_w as f32); }
+    if max_w != -1 && (target_w as i32) > max_w { target_w = (max_w as f32); }
+    
     let mut used_w = target_w as i32;
     let mut used_h = *((P_STYLE_H + (node_idx as u64) * 4) as &i32);
+    if used_h != -1 {
+        if *((P_STYLE_H_UNIT + (node_idx as u64)) as &u8) == 1 { // PERCENT
+            // Fallback to intrinsic size since we don't pass parent available height yet
+            used_h = -1;
+        }
+    }
     
-    // Content area width (inside padding box)
-    let content_w = used_w - pad_left - pad_right;
+    // Border Box resolution
+    let border_left = *((P_STYLE_BORDER_W_LEFT + (node_idx as u64) * 4) as &i32);
+    let border_right = *((P_STYLE_BORDER_W_RIGHT + (node_idx as u64) * 4) as &i32);
+    
+    let box_sizing = *((P_STYLE_BOX_SIZING + (node_idx as u64)) as &u8);
+    let mut content_w = used_w;
+    if box_sizing == 1 { // border-box
+        // Width already includes padding + border, don't subtract again for layout logic size
+        content_w = used_w - pad_left - pad_right - border_left - border_right;
+    } else { // content-box (default)
+        // Width is content only, total box = width + padding + border
+        content_w = used_w;
+        used_w = used_w + pad_left + pad_right + border_left + border_right;
+    }
+    
+    if content_w < 0 { content_w = 0; }
     
     *((P_LAYOUT_X + (node_idx as u64) * 4) as &mut i32) = actual_x;
     *((P_LAYOUT_Y + (node_idx as u64) * 4) as &mut i32) = actual_y;
@@ -521,9 +612,19 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
     // Epic 57: The Typography & Input Matrix (Solver)
     if *((P_DOM_NODE_TAG + (node_idx as u64) * 4) as &u32) == 18 || *((P_DOM_NODE_TAG + (node_idx as u64) * 4) as &u32) == 19 {
         compute_text_layout(node_idx, (content_w as f32));
+        
+        // Forms have explicit boundaries that contain text, they don't shrink to fit. Restore used_w.
+        *((P_LAYOUT_W + (node_idx as u64) * 4) as &mut i32) = used_w;
+        
         if *((P_STYLE_H + (node_idx as u64) * 4) as &i32) == -1 {
             used_h = *((P_LAYOUT_H + (node_idx as u64) * 4) as &i32) + pad_top + pad_bottom;
         }
+        
+        let min_h = *((P_STYLE_MIN_HEIGHT + (node_idx as u64) * 4) as &i32);
+        let max_h = *((P_STYLE_MAX_HEIGHT + (node_idx as u64) * 4) as &i32);
+        if min_h != -1 && used_h < min_h { used_h = min_h; }
+        if max_h != -1 && used_h > max_h { used_h = max_h; }
+        
         *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = used_h;
         *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
         return used_h;
@@ -536,7 +637,7 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
     
     let mut child_idx = dom.dom_get_render_first_child_idx(node_idx as u32);
     
-    if display_mode == 1 { // BLOCK
+    if display_mode == 1 || display_mode == 5 { // BLOCK or INLINE_BLOCK
         let mut child_offset_y = content_y + pad_top;
         let child_offset_x = content_x + pad_left;
         
@@ -556,7 +657,7 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
             
             let child_display = *((P_STYLE_DISPLAY + (child_idx as u64)) as &u8);
             
-            if child_display == 3 { // INLINE child
+            if child_display == 3 || child_display == 5 { // INLINE or INLINE-BLOCK child
                 // Start or continue an inline run
                 if !in_inline_run {
                     in_inline_run = true;
@@ -568,8 +669,12 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
                 // Compute remaining width on this line
                 let remaining_w = (child_offset_x + content_w) - line_x;
                 
+                let child_explicit_w = *((P_STYLE_W + (child_idx as u64) * 4) as &i32);
+                let mut child_max_w = remaining_w;
+                if child_display == 5 && child_explicit_w != -1 { child_max_w = child_explicit_w; }
+                
                 // Recursively lay out the inline child with remaining width
-                let ch_height = compute_layout(child_idx, line_x, line_y, remaining_w);
+                let ch_height = compute_layout(child_idx, line_x, line_y, child_max_w);
                 let ch_width = *((P_LAYOUT_W + (child_idx as u64) * 4) as &i32);
                 
                 // Check if the inline child overflowed onto the next line
@@ -582,7 +687,9 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
                     line_height = 0;
                     
                     // Re-layout at start of new line with full width
-                    let ch_height2 = compute_layout(child_idx, line_x, line_y, content_w);
+                    let mut max_cw: i32 = content_w;
+                    if child_display == 5 && child_explicit_w != -1 { max_cw = child_explicit_w; }
+                    let ch_height2 = compute_layout(child_idx, line_x, line_y, max_cw);
                     let ch_width2 = *((P_LAYOUT_W + (child_idx as u64) * 4) as &i32);
                     line_x = line_x + ch_width2;
                     if ch_height2 > line_height { line_height = ch_height2; }
@@ -600,8 +707,39 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
                 }
                 
                 // Standard block layout: full width, vertical stacking
-                let ch_height = compute_layout(child_idx, child_offset_x, child_offset_y, content_w);
+                let margin_top = *((P_STYLE_MARGIN_TOP + (child_idx as u64) * 4) as &i32);
+                let margin_bottom = *((P_STYLE_MARGIN_BOTTOM + (child_idx as u64) * 4) as &i32);
+                let margin_left = *((P_STYLE_MARGIN_LEFT + (child_idx as u64) * 4) as &i32);
+                let margin_right = *((P_STYLE_MARGIN_RIGHT + (child_idx as u64) * 4) as &i32);
+                let child_explicit_w = *((P_STYLE_W + (child_idx as u64) * 4) as &i32);
+                
+                
+                if child_idx == 1 {
+                    // I will remove debug printing
+                }
+                
+                if margin_top > 0 {
+                    child_offset_y = child_offset_y + margin_top;
+                }
+                
+                let mut effective_left = margin_left;
+                if effective_left < 0 { effective_left = 0; }
+                let mut effective_right = margin_right;
+                if effective_right < 0 { effective_right = 0; }
+                
+                if margin_left == -2 && margin_right == -2 && child_explicit_w > 0 {
+                    let free = content_w - child_explicit_w;
+                    if free > 0 {
+                        effective_left = free / 2;
+                    }
+                }
+                
+                let ch_height = compute_layout(child_idx, child_offset_x + effective_left, child_offset_y, content_w - effective_left - effective_right);
                 child_offset_y = child_offset_y + ch_height;
+                
+                if margin_bottom > 0 {
+                    child_offset_y = child_offset_y + margin_bottom;
+                }
             }
             
             child_idx = dom.dom_get_next_sibling_idx(child_idx);
@@ -942,8 +1080,117 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
             sys_print_float(node_idx as f64);
             final_h = 100; 
         }
+        let min_h = *((P_STYLE_MIN_HEIGHT + (node_idx as u64) * 4) as &i32);
+        let max_h = *((P_STYLE_MAX_HEIGHT + (node_idx as u64) * 4) as &i32);
+        if min_h != -1 && final_h < min_h { final_h = min_h; }
+        if max_h != -1 && final_h > max_h { final_h = max_h; }
+        
         *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = final_h;
-        return final_h;
+    } else if display_mode == 6 { // TABLE
+        // ════════════════════════════════════════════════════════════
+        // Sprint 7: Table Layout Engine (Two-Pass)
+        // ════════════════════════════════════════════════════════════
+        // Pass 1: Measure column max-widths and row max-heights
+        let mut col_widths: [i32; 64] = [0; 64];
+        let mut row_heights: [i32; 64] = [0; 64];
+        let mut num_rows: u32 = 0;
+        let mut max_cols: u32 = 0;
+
+        // Iterate <tr> children
+        let mut tr_ch = dom.dom_get_render_first_child_idx(node_idx);
+        while tr_ch != 0 && tr_ch != 999999 {
+            let tr_display = *((P_STYLE_DISPLAY + (tr_ch as u64)) as &u8);
+            if tr_display == 7 { // DISPLAY_TABLE_ROW
+                let mut col: u32 = 0;
+                let mut td_ch = dom.dom_get_render_first_child_idx(tr_ch);
+                while td_ch != 0 && td_ch != 999999 {
+                    let td_display = *((P_STYLE_DISPLAY + (td_ch as u64)) as &u8);
+                    if td_display == 8 && col < 64 { // DISPLAY_TABLE_CELL
+                        let cell_w = *((P_STYLE_W + (td_ch as u64) * 4) as &i32);
+                        let cell_h = *((P_STYLE_H + (td_ch as u64) * 4) as &i32);
+                        let eff_w = if cell_w > 0 { cell_w } else { 50 }; // default cell width
+                        let eff_h = if cell_h > 0 { cell_h } else { 20 }; // default cell height
+                        if eff_w > col_widths[col as usize] {
+                            col_widths[col as usize] = eff_w;
+                        }
+                        if eff_h > row_heights[num_rows as usize] {
+                            row_heights[num_rows as usize] = eff_h;
+                        }
+                        col = col + 1;
+                        if col > max_cols { max_cols = col; }
+                    }
+                    td_ch = dom.dom_get_next_sibling_idx(td_ch);
+                }
+                num_rows = num_rows + 1;
+            }
+            tr_ch = dom.dom_get_next_sibling_idx(tr_ch);
+        }
+
+        // Pass 2: Position cells using cumulative column/row offsets
+        let mut row_y: i32 = content_y + pad_top;
+        let mut row_idx: u32 = 0;
+        tr_ch = dom.dom_get_render_first_child_idx(node_idx);
+        while tr_ch != 0 && tr_ch != 999999 {
+            let tr_display = *((P_STYLE_DISPLAY + (tr_ch as u64)) as &u8);
+            if tr_display == 7 { // TABLE_ROW
+                // Position the <tr> itself
+                *((P_LAYOUT_X + (tr_ch as u64) * 4) as &mut i32) = content_x;
+                *((P_LAYOUT_Y + (tr_ch as u64) * 4) as &mut i32) = row_y;
+                let rh = if row_idx < 64 { row_heights[row_idx as usize] } else { 20 };
+                
+                // Compute total row width from columns
+                let mut total_row_w: i32 = 0;
+                let mut ci: u32 = 0;
+                while ci < max_cols {
+                    total_row_w = total_row_w + col_widths[ci as usize];
+                    ci = ci + 1;
+                }
+                *((P_LAYOUT_W + (tr_ch as u64) * 4) as &mut i32) = total_row_w;
+                *((P_LAYOUT_H + (tr_ch as u64) * 4) as &mut i32) = rh;
+                *((P_DIRTY_LAYOUT + (tr_ch as u64)) as &mut u8) = 0;
+
+                // Position <td> cells
+                let mut col: u32 = 0;
+                let mut cell_x: i32 = content_x;
+                let mut td_ch = dom.dom_get_render_first_child_idx(tr_ch);
+                while td_ch != 0 && td_ch != 999999 {
+                    let td_display = *((P_STYLE_DISPLAY + (td_ch as u64)) as &u8);
+                    if td_display == 8 && col < 64 { // TABLE_CELL
+                        let cw = col_widths[col as usize];
+                        *((P_LAYOUT_X + (td_ch as u64) * 4) as &mut i32) = cell_x;
+                        *((P_LAYOUT_Y + (td_ch as u64) * 4) as &mut i32) = row_y;
+                        *((P_LAYOUT_W + (td_ch as u64) * 4) as &mut i32) = cw;
+                        *((P_LAYOUT_H + (td_ch as u64) * 4) as &mut i32) = rh;
+                        *((P_DIRTY_LAYOUT + (td_ch as u64)) as &mut u8) = 0;
+                        cell_x = cell_x + cw;
+                        col = col + 1;
+                    }
+                    td_ch = dom.dom_get_next_sibling_idx(td_ch);
+                }
+                row_y = row_y + rh;
+                row_idx = row_idx + 1;
+            }
+            tr_ch = dom.dom_get_next_sibling_idx(tr_ch);
+        }
+
+        // Table total dimensions
+        let mut table_w: i32 = 0;
+        let mut ci: u32 = 0;
+        while ci < max_cols {
+            table_w = table_w + col_widths[ci as usize];
+            ci = ci + 1;
+        }
+        let table_h = row_y - (content_y + pad_top) + pad_top + pad_bottom;
+        *((P_LAYOUT_W + (node_idx as u64) * 4) as &mut i32) = table_w;
+        *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = table_h;
+        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+        return table_h;
+
+    } else if display_mode == 7 || display_mode == 8 {
+        // TABLE_ROW / TABLE_CELL: handled by parent table layout, skip
+        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+        return used_h;
+
     } else {
         if used_h == -1 {
             used_h = 20; 
@@ -965,6 +1212,11 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
             sys_print_float(node_idx as f64);
             used_h = 100; 
         }
+        let min_h = *((P_STYLE_MIN_HEIGHT + (node_idx as u64) * 4) as &i32);
+        let max_h = *((P_STYLE_MAX_HEIGHT + (node_idx as u64) * 4) as &i32);
+        if min_h != -1 && used_h < min_h { used_h = min_h; }
+        if max_h != -1 && used_h > max_h { used_h = max_h; }
+
         *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = used_h;
         return used_h;
     }
@@ -974,6 +1226,11 @@ pub fn layout_tree() {
     // 1920 viewport - 16px horizontal margins = 1904 max_width
     // Offset by 8px x and y to account for Chromium's default tag margin
     compute_layout(1, 8, 8, 1904);
+}
+
+@no_mangle
+pub fn ext_layout_tree() {
+    layout_tree();
 }
 
 // ============================================================================
@@ -1097,6 +1354,8 @@ extern fn sys_jsc_flush_microtasks();
 extern fn transpile_dom_tree(node_id: u32);
 extern fn sys_log_info(msg_ptr: u64, msg_len: u32);
 extern fn sys_print_float(f: f64);
+extern fn sys_log_int(val: i32);
+extern fn ext_mark_all_compositor_dirty();
 
 @no_mangle
 pub fn sys_dom_check_dirty_flag() -> i32 {
@@ -1127,5 +1386,17 @@ pub fn sys_layout_solve_matrix() {
     transpile_dom_tree(1);
     apply_cascade_to_tree(); 
     layout_tree(); 
+    
+    // TRAP FIX: Forcefully zero all DIRTY_LAYOUT markers so that nodes skipped by [L] bypass don't deadlock the matrix!
+    // FIX: After layout, mark all laid-out nodes as compositor-dirty so the GPU repaint check fires.
+    let mut clear_i: u64 = 1;
+    while clear_i < limit {
+        *((P_DIRTY_LAYOUT + clear_i) as &mut u8) = 0;
+        clear_i = clear_i + 1;
+    }
+    
+    // Signal the compositor that a repaint is needed after layout
+    ext_mark_all_compositor_dirty();
+    
     sys_jsc_flush_microtasks();
 }

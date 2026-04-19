@@ -7,6 +7,7 @@
 #import <string.h>
 #import <sys/mman.h>
 #import <unistd.h>
+#import <QuartzCore/QuartzCore.h>
 
 extern void sys_ipc_push_command(uint32_t cmd, uint64_t arg1, uint32_t arg2);
 extern void sys_ipc_send_r2m_command_with_payload(uint32_t cmd_type,
@@ -63,6 +64,17 @@ static uint8_t *cdm_shm_ptrs[MAX_OOPIF_CHILDREN] = {NULL};
 static pid_t cdm_pids[MAX_OOPIF_CHILDREN] = {0};
 static int cdm_count = 0;
 
+@interface FlippedView : NSView
+@end
+@implementation FlippedView
+- (BOOL)isFlipped { return YES; }
+- (BOOL)wantsUpdateLayer { return YES; }
+- (void)updateLayer {
+  // Purposefully left blank. AppKit will only call this instead of drawRect:,
+  // which leaves layer.contents safely persistent without AppKit stomping it.
+}
+@end
+
 @interface BrowserChrome : NSWindowController <NSTextFieldDelegate>
 @property(nonatomic, strong) NSTextField *omnibox;
 @property(nonatomic, strong) NSButton *backButton;
@@ -99,12 +111,14 @@ static BrowserChrome *globalChrome = NULL;
     [contentView addSubview:self.backButton];
 
     // Setup Tab Content View (CoreAnimation Layer container)
-    self.tabContentView = [[NSView alloc]
+    self.tabContentView = [[FlippedView alloc]
         initWithFrame:NSMakeRect(0, 0, contentView.frame.size.width,
                                  contentView.frame.size.height - 40)];
     self.tabContentView.autoresizingMask =
         NSViewWidthSizable | NSViewHeightSizable;
     [self.tabContentView setWantsLayer:YES];
+    self.tabContentView.layer.contentsGravity = kCAGravityTopLeft;
+    self.tabContentView.layer.masksToBounds = YES;
     [contentView addSubview:self.tabContentView];
 
     globalChrome = self;
@@ -358,11 +372,13 @@ static BrowserChrome *globalChrome = NULL;
       NSURL *url = [NSURL URLWithString:urlString];
       if (url) {
         if (!url.scheme) {
-          url = [NSURL
-              URLWithString:[@"https://" stringByAppendingString:urlString]];
+          NSURL *baseURL = [NSURL URLWithString:@"https://google.com"];
+          url = [NSURL URLWithString:urlString relativeToURL:baseURL];
         }
+        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+        [request setValue:@"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" forHTTPHeaderField:@"User-Agent"];
         NSURLSessionDataTask *task = [[NSURLSession sharedSession]
-              dataTaskWithURL:url
+              dataTaskWithRequest:request
             completionHandler:^(NSData *data, NSURLResponse *response,
                                 NSError *error) {
               if (data && !error) {
@@ -376,7 +392,9 @@ static BrowserChrome *globalChrome = NULL;
                     uint32_t fetch_len = data.length < (2097152 - 131072)
                                              ? (uint32_t)data.length
                                              : (2097152 - 131072);
-                    memcpy((void *)bulk_ptr, data.bytes, fetch_len);
+                    if (fetch_len > 0 && data.bytes) {
+                      memcpy((void *)bulk_ptr, data.bytes, fetch_len);
+                    }
 
                     NSLog(@"[Network] Pushing CMD_FETCH_RESPONSE: "
                           @"fetch_id=0x%llx len=%u bulk_ptr=0x%llx",
@@ -625,6 +643,11 @@ static BrowserChrome *globalChrome = NULL;
 
 - (void)onBackButtonClicked {
   sys_ipc_push_command(3 /* GO_BACK */, 0, 0);
+}
+
+- (void)scrollWheel:(NSEvent *)event {
+  int32_t dy = (int32_t)([event scrollingDeltaY] * -3.0);
+  sys_ipc_push_command(6 /* CMD_SCROLL */, (uint64_t)(uint32_t)dy, 0);
 }
 
 @end

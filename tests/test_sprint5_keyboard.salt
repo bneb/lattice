@@ -1,0 +1,163 @@
+package tests.test_sprint5_keyboard
+
+import user.browser.dom
+
+extern fn layout_inject_dom_pointers();
+extern fn compute_layout(node_idx: u32, offset_x: i32, offset_y: i32, max_width: i32) -> i32;
+extern fn sys_print_float(v: f64);
+extern fn sys_log_info(ptr: u64, len: u32);
+
+// C bridge externs — these call the dom functions from C to avoid
+// Salt cross-module global resolution issues
+extern fn test_click_focus(node_idx: u32);
+extern fn test_get_focus() -> u32;
+extern fn test_mutate_text(node_idx: u32, ch: u8, is_backspace: u8);
+extern fn test_get_cursor() -> u32;
+extern fn test_find_form_ancestor(node_idx: u32) -> u32;
+
+// Sprint 5+6: Keyboard Input, Text Editing, Form Ancestry
+@no_mangle
+pub fn main() -> i32 {
+    // ── Setup DOM ──
+    dom.sanitize_node_slot(0);
+    dom.sanitize_node_slot(1);
+    dom.sanitize_node_slot(2);
+    dom.sanitize_node_slot(3);
+    dom.sanitize_node_slot(4);
+
+    dom.DOM_NODE_COUNT = 5;
+    layout_inject_dom_pointers();
+
+    // Node 0: Root container
+    dom.DOM_NODE_TAG[0] = 4; // TAG_DIV
+    dom.STYLE_DISPLAY[0] = 1;
+    dom.STYLE_W[0] = 800;
+    dom.DOM_NODE_PARENT[0] = 999999;
+    dom.STYLE_PARENT[0] = 999999;
+    dom.DOM_NODE_FIRST_CHILD[0] = 1;
+    dom.DOM_NODE_NEXT_SIBLING[0] = 999999;
+
+    // Node 1: <form>
+    dom.DOM_NODE_TAG[1] = 21; // TAG_FORM
+    dom.STYLE_DISPLAY[1] = 1;
+    dom.DOM_NODE_PARENT[1] = 0;
+    dom.STYLE_PARENT[1] = 0;
+    dom.DOM_NODE_FIRST_CHILD[1] = 2;
+    dom.DOM_NODE_NEXT_SIBLING[1] = 999999;
+
+    // Node 2: <input> (search bar)
+    dom.DOM_NODE_TAG[2] = 18; // TAG_INPUT
+    dom.STYLE_DISPLAY[2] = 1;
+    dom.STYLE_W[2] = 500;
+    dom.STYLE_H[2] = 34;
+    dom.DOM_NODE_PARENT[2] = 1;
+    dom.STYLE_PARENT[2] = 1;
+    dom.DOM_NODE_FIRST_CHILD[2] = 999999;
+    dom.DOM_NODE_NEXT_SIBLING[2] = 3;
+
+    // Node 3: <button>
+    dom.DOM_NODE_TAG[3] = 20; // TAG_BUTTON
+    dom.STYLE_DISPLAY[3] = 1;
+    dom.STYLE_W[3] = 120;
+    dom.STYLE_H[3] = 34;
+    dom.DOM_NODE_PARENT[3] = 1;
+    dom.STYLE_PARENT[3] = 1;
+    dom.DOM_NODE_FIRST_CHILD[3] = 999999;
+    dom.DOM_NODE_NEXT_SIBLING[3] = 4;
+
+    // Node 4: <div> (non-focusable)
+    dom.DOM_NODE_TAG[4] = 4;
+    dom.STYLE_DISPLAY[4] = 1;
+    dom.DOM_NODE_PARENT[4] = 1;
+    dom.STYLE_PARENT[4] = 1;
+    dom.DOM_NODE_FIRST_CHILD[4] = 999999;
+    dom.DOM_NODE_NEXT_SIBLING[4] = 999999;
+
+    // ═══════════════════════════════════════════════════
+    // Phase 1: Focus Management
+    // ═══════════════════════════════════════════════════
+    if test_get_focus() != 0 { return 1; }
+
+    test_click_focus(2); // click <input>
+    if test_get_focus() != 2 { return 2; }
+
+    test_click_focus(4); // click <div> → blur
+    if test_get_focus() != 0 { return 3; }
+
+    test_click_focus(3); // click <button>
+    if test_get_focus() != 3 { return 4; }
+
+    test_click_focus(2); // click <input> again
+    if test_get_focus() != 2 { return 5; }
+
+    // ═══════════════════════════════════════════════════
+    // Phase 2: Text Insertion
+    // ═══════════════════════════════════════════════════
+    if dom.DOM_TEXT_LEN[2] != 0 { return 10; }
+
+    test_mutate_text(2, 104, 0); // 'h'
+    if dom.DOM_TEXT_LEN[2] != 1 { return 11; }
+    if test_get_cursor() != 1 { return 12; }
+
+    let ptr = dom.DOM_TEXT_PTR[2];
+    if ptr == 0 { return 13; }
+    if *((ptr) as &u8) != 104 { return 14; }
+
+    test_mutate_text(2, 101, 0); // 'e'
+    test_mutate_text(2, 108, 0); // 'l'
+    test_mutate_text(2, 108, 0); // 'l'
+    test_mutate_text(2, 111, 0); // 'o'
+
+    if dom.DOM_TEXT_LEN[2] != 5 { return 17; }
+    if test_get_cursor() != 5 { return 18; }
+
+    let p2 = dom.DOM_TEXT_PTR[2];
+    if *((p2 + 0) as &u8) != 104 { return 19; }
+    if *((p2 + 1) as &u8) != 101 { return 20; }
+    if *((p2 + 2) as &u8) != 108 { return 21; }
+    if *((p2 + 3) as &u8) != 108 { return 22; }
+    if *((p2 + 4) as &u8) != 111 { return 23; }
+
+    // ═══════════════════════════════════════════════════
+    // Phase 3: Backspace
+    // ═══════════════════════════════════════════════════
+    test_mutate_text(2, 0, 1); // delete 'o' → "hell"
+    if dom.DOM_TEXT_LEN[2] != 4 { return 30; }
+    if test_get_cursor() != 4 { return 31; }
+
+    test_mutate_text(2, 0, 1); // delete 'l' → "hel"
+    if dom.DOM_TEXT_LEN[2] != 3 { return 32; }
+
+    let p3 = dom.DOM_TEXT_PTR[2];
+    if *((p3 + 0) as &u8) != 104 { return 33; }
+    if *((p3 + 1) as &u8) != 101 { return 34; }
+    if *((p3 + 2) as &u8) != 108 { return 35; }
+
+    // ═══════════════════════════════════════════════════
+    // Phase 4: Focus Guard
+    // ═══════════════════════════════════════════════════
+    test_click_focus(4); // blur
+    if test_get_focus() != 0 { return 40; }
+
+    let len_before = dom.DOM_TEXT_LEN[2];
+    test_mutate_text(2, 120, 0); // try insert 'x' while unfocused
+    if dom.DOM_TEXT_LEN[2] != len_before { return 41; }
+
+    // ═══════════════════════════════════════════════════
+    // Phase 5: Form Ancestor Walking
+    // ═══════════════════════════════════════════════════
+    let form_1 = test_find_form_ancestor(2); // input → form
+    if form_1 != 1 { return 50; }
+
+    let form_2 = test_find_form_ancestor(4); // div → form
+    if form_2 != 1 { return 51; }
+
+    let form_3 = test_find_form_ancestor(0); // root → no form
+    if form_3 != 0 { return 52; }
+
+    return 0;
+}
+
+// Sentinel for bridge auto-detection
+pub fn sprint5_keyboard_test() {}
+pub fn render_pipeline_e2e_test() {}
