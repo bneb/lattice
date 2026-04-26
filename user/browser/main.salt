@@ -8,6 +8,7 @@ import user.browser.events
 import user.browser.layout
 import user.browser.paint
 import user.browser.compositor
+
 import user.browser.chrome
 import user.browser.font
 import user.browser.dom
@@ -20,15 +21,18 @@ import user.browser.net
 import user.browser.storage
 import user.browser.ipc_shared
 import user.browser.hit_test
+import user.browser.app_main
 // import user.browser.history removed
-
 extern fn sys_log_info(msg_ptr: u64, msg_len: u32);
+extern fn http_set_eof();
+extern fn ext_mark_all_compositor_dirty();
 extern fn sys_log_error(msg_ptr: u64, msg_len: u32);
 extern fn sys_log_net(msg_ptr: u64, msg_len: u32);
 extern fn app_run_loop();
 
 extern fn sys_js_execute_timer(timer_id: u32, is_interval: u8);
 extern fn invalidate_layout(idx: u32);
+extern fn invalidate_all_layout();
 
 extern fn sys_js_execute_raf(r_id: u32, timestamp: f64);
 extern fn pump_storage_queue();
@@ -38,6 +42,9 @@ extern fn http_get_eof_reached() -> u8;
 extern fn init_arrays();
 extern fn layout_inject_dom_pointers();
 extern fn paint_inject_dom_pointers();
+extern fn compositor_inject_paint_pointers();
+extern fn hit_test_inject_paint_pointers();
+extern fn load_font_atlas(pixels: u64, width: i32, height: i32);
 extern fn create_node(tag: i32) -> u64;
 extern fn resolve_node(id: u64) -> u32;
 extern fn dom_alloc_text(len: u32) -> u64;
@@ -49,7 +56,6 @@ extern fn append_text_to_node(node: u64, char: u8);
 extern fn sys_jsc_init();
 extern fn sys_jsc_evaluate_script(ptr: u64, len: u32, filename: u64);
 extern fn js_bridge_dispatch_event(node_id: u64, type_ptr: u64, type_len: u32);
-extern fn airlock_init_allocator();
 extern fn drain_scroll_input() -> i32;
 extern fn sys_on_mouse_click(x: i32, y: i32);
 extern fn js_resolve_fetch(fetch_id: u64, ptr: u64, len: u32);
@@ -138,7 +144,9 @@ pub fn sys_browser_navigate(url_ptr: u64, url_len: u32) {
     init_arrays();
     layout_inject_dom_pointers();
     paint_inject_dom_pointers();
-    airlock_init_allocator();
+    compositor_inject_paint_pointers();
+    hit_test_inject_paint_pointers();
+    airlock.airlock_init_allocator();
     
     let new_root = create_node(1); // TAG_HTML
     dom.STYLE_W[new_root as usize] = 1920;
@@ -288,7 +296,7 @@ pub fn check_any_layout_dirty() -> i32 {
     let limit = ext_get_dom_node_count() as u32;
     let mut i: u32 = 1;
     while i < limit {
-        if dom.DIRTY_LAYOUT[i as usize] == 1 { return 1; }
+        if dom.FLAG_LAYOUT_DIRTY[i as usize] == 1 { return 1; }
         i = i + 1;
     }
     return 0;
@@ -388,19 +396,13 @@ pub fn salt_browser_main(argc: u32, argv: u64) -> u32 {
         MAX_TEST_FRAMES = 0; // Run forever in multiprocess mode
     }
     
-    // Boot all sub-matrices
-    airlock_init_allocator();
-    init_arrays();
-    layout_inject_dom_pointers();
-    paint_inject_dom_pointers();
-    ipc_ring.init_shared_ring();
-    worker_ring.init_shared_ring();
+    app_main.sys_boot_engine_matrix();
     
     // Epic 90 requires mimicking exactly this init seq:
     // sys_memory_arena_init(); // handled by airlock/init_arrays
     sys_jsc_init();
     font.init_glyphs();
-    compositor.load_font_atlas((&font.SDF_ATLAS) as u64, 1024, 1024);
+    load_font_atlas((&font.SDF_ATLAS) as u64, 1024, 1024);
     sys_typography_init();
     sys_hw_audio_init();
     sys_init_vsync();
@@ -409,6 +411,9 @@ pub fn salt_browser_main(argc: u32, argv: u64) -> u32 {
     let ipc_fd = ext_get_ipc_fd();
     if ipc_fd >= 0 || ipc_fd_from_cli >= 0 {
         sys_gpu_init_iosurface(1920, 1080);
+    } else {
+        compositor.window_init(1920, 1080);
+        MAX_TEST_FRAMES = 0; // Run infinite loop
     }
     
     css.init_css_defaults();
@@ -427,19 +432,41 @@ pub fn salt_browser_main(argc: u32, argv: u64) -> u32 {
     let net_msg: [u8; 50] = [73, 110, 105, 116, 105, 97, 108, 105, 122, 105, 110, 103, 32, 72, 84, 84, 80, 47, 50, 32, 104, 97, 110, 100, 115, 104, 97, 107, 101, 32, 119, 105, 116, 104, 32, 112, 97, 121, 108, 111, 97, 100, 32, 116, 97, 114, 103, 101, 116, 46];
     sys_log_net((&net_msg) as u64, 50);
     
-    let root = create_node(1); // TAG_HTML (was 0 = TAG_TEXT, causing layout abort!)
-    dom.STYLE_W[root as usize] = 1920;
-    dom.STYLE_H[root as usize] = 1080;
-    dom.STYLE_W_UNIT[root as usize] = 0; // PX
-    dom.STYLE_H_UNIT[root as usize] = 0; // PX
+    // Use existing root viewport (node 1) created by sys_boot_engine_matrix.
+    // Reconstruct its generational ID for the HTTP lexer.
+    let root_gen = dom.DOM_NODE_GENERATION[1] as u64;
+    let root: u64 = 1 | (root_gen << 16);
     
-    let mut nav_bit: u64 = 1;
-    nav_bit = nav_bit << 62;
-    let multiplexed_id = nav_bit | root;
+    let ipc_fd = ext_get_ipc_fd();
+    let is_single_process = ipc_fd < 0 && ipc_fd_from_cli < 0;
     
-    sys_ipc_send_r2m_command_with_payload(12 /* CMD_FETCH_REQUEST */, multiplexed_id, url_ptr, url_len);
-    
-    // The request has been routed to the native proxy; it will feed ingress asynchronously
+    if is_single_process {
+        // Single-process mode: IPC has no shared memory, so CMD_FETCH_REQUEST
+        // goes nowhere. Feed mock HTML directly through the HTTP lexer.
+        let mock_ptr = ext_get_mock_http_ptr();
+        let mock_len = ext_get_mock_http_len();
+        
+        let msg_mock: [u8; 30] = [91,78,69,84,93,32,83,105,110,103,108,101,45,112,114,111,99,101,115,115,32,109,111,99,107,32,108,101,110,61]; // "[NET] Single-process mock len="
+        sys_log_info((&msg_mock) as u64, 30);
+        sys_print_float(mock_len as f64);
+        let nl: [u8; 1] = [10];
+        sys_log_info((&nl) as u64, 1);
+        
+        http_set_root_node(root);
+        http_process_ingress(mock_ptr, mock_len);
+        http_set_eof();
+        
+        // Mark ALL nodes dirty after batch DOM creation
+        invalidate_all_layout();
+        ext_mark_all_compositor_dirty();
+    } else {
+        // Multi-process mode: Send fetch request via IPC to the main process
+        let mut nav_bit: u64 = 1;
+        nav_bit = nav_bit << 62;
+        let multiplexed_id = nav_bit | root;
+        sys_ipc_send_r2m_command_with_payload(12 /* CMD_FETCH_REQUEST */, multiplexed_id, url_ptr, url_len);
+        ext_mark_all_compositor_dirty();
+    }
     
     // Enter the infinite matrix
     app_run_loop();

@@ -3,6 +3,8 @@
 import user.browser.dom
 import std.core.str
 
+extern fn hash_string(ptr: u64, len: u32) -> u32;
+
 @no_mangle
 pub fn sys_dom_query_selector(root_node_idx: u32, selector_str_ptr: u64, selector_len: u32) -> u64 {
     let sel_type = parse_selector_type(selector_str_ptr); // 1 = ID, 2 = Class, 3 = Tag
@@ -92,17 +94,7 @@ pub fn parse_selector_type(selector_str_ptr: u64) -> u32 {
     return 3;
 }
 
-pub fn hash_string(ptr: u64, len: u32) -> u32 {
-    let mut hash: u32 = 2166136261;
-    let mut i: u32 = 0;
-    while i < len {
-        let ch = *((ptr + (i as u64)) as &u8) as u32;
-        hash = hash ^ ch;
-        hash = hash * 16777619;
-        i = i + 1;
-    }
-    return hash;
-}
+
 
 pub fn node_has_class(current: u32, target_hash: u32) -> bool {
     // Phase 2 placeholder

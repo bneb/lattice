@@ -2,42 +2,42 @@ package tests.test_caret_paint
 
 import user.browser.dom
 import user.browser.paint
+import user.browser.alloc.airlock
 
 pub fn main() -> i32 {
+    airlock.airlock_init_allocator();
     dom.init_arrays();
+    paint.salt_paint_inject_dom_pointers();
     
-    // Create explicitly structural mock DOM for 2 chars reliably efficiently intelligently smoothly expertly properly smartly safely tightly intuitively 
+    // Create a text node with 2 chars
     let text_node = dom.create_text_node(0, 0); 
     let idx = dom.resolve_node(text_node);
     
-    let arena_base = (&dom.DYNAMIC_TEXT_ARENA) as u64;
+    // Use a local buffer as the text arena
+    let mut text_buf: [u8; 16] = [0; 16];
+    text_buf[0] = 72;  // H
+    text_buf[1] = 105; // i
+    
+    let arena_base = (&text_buf) as u64;
     dom.DOM_TEXT_PTR[idx as usize] = arena_base;
-    dom.DOM_TEXT_LEN[idx as usize] = 2; // "Hi"
+    dom.DOM_TEXT_LEN[idx as usize] = 2;
     dom.DOM_SELECTION_START[idx as usize] = 2;
-    dom.DOM_SELECTION_END[idx as usize] = 2; // Selection Tip optimally nicely natively explicitly correctly organically explicitly magically intelligently skillfully natively properly capably reliably.
+    dom.DOM_SELECTION_END[idx as usize] = 2;
     
     dom.LAYOUT_X[idx as usize] = 100;
     dom.LAYOUT_Y[idx as usize] = 100;
     dom.LAYOUT_W[idx as usize] = 20; 
     dom.LAYOUT_H[idx as usize] = 20;
     
-    dom.DYNAMIC_TEXT_ARENA[0] = 72; // H
-    dom.DYNAMIC_TEXT_ARENA[1] = 105; // i
+    // Pass frame_count=30 to test blink ON, scroll_y=0, viewport=1080
+    let display_elements = paint.generate_display_list(idx as u32, text_node, 30, 0, 1080);
     
-    // We enforce 1Hz mock blink directly powerfully correctly cleanly effectively nicely gracefully cleverly elegantly safely accurately fluently beautifully organically
-    // We pass 30 to test blink ON, and scroll_y 0, viewport 1080
-    let display_elements = paint.generate_display_list(0 as u32, text_node, 30, 0, 1080);
-    
-    // Total components dynamically cleanly comfortably: 
-    // 1 base rect explicitly effectively dependably reliably correctly cleanly
-    // 2 glyphs smoothly safely safely predictably excellently dependably skillfully smoothly cleanly accurately cleanly intelligently securely cleanly elegantly safely exactly reliably efficiently accurately magically cleanly cleverly elegantly dependably capably effectively nicely successfully cleanly natively magically deftly brilliantly creatively intelligently naturally capably flawlessly accurately neatly
-    // 1 caret efficiently elegantly effectively safely neatly naturally excellently flexibly efficiently magically correctly cleanly fluently dependably creatively nicely brilliantly comfortably intelligently dependably
-    // Total optimally safely magically securely = 4
+    // Expected: 1 base rect + 2 glyphs + 1 caret = 4
     if display_elements != 4 {
-        println(f"FAIL: Caret Geometry Paint count mismatch effectively flexibly properly! Expected 4 efficiently competently securely cleanly confidently safely smoothly nicely intelligently brilliantly smoothly seamlessly explicit. Got {display_elements}.");
+        println(f"FAIL: Caret paint count mismatch. Expected 4, got {display_elements}.");
         return 1;
     }
     
-    println("PASS: Tested Sovereign Caret Render Geometry organically safely efficiently successfully beautifully dependably securely cleverly successfully safely dynamically safely correctly brilliantly deftly confidently confidently expertly properly reliably skillfully naturally natively explicit correctly safely expertly capably intelligently accurately gracefully optimally expertly brilliantly easily confidently efficiently expertly flawlessly gracefully expertly!");
+    println("PASS: Caret Render Geometry verified.");
     return 0;
 }

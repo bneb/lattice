@@ -3,7 +3,7 @@ package user.browser.typography
 extern fn ext_c_shape_and_measure(node_id: u32, text_ptr: u64, text_len: u32) -> f32;
 extern fn sys_atomic_write_u8(ptr: u64, val: u8);
 extern fn sys_sleep_ms(ms: u32);
-extern fn invalidate_layout(node_id: u32);
+extern fn ext_salt_invalidate_layout(node_id: u32);
 
 // Layout Thread pushes strings here; Worker Thread shapes them
 pub global SHAPE_QUEUE_NODE_ID: [u32; 1024] = [0; 1024];
@@ -43,7 +43,7 @@ pub fn typography_worker_loop() {
             let ready_ptr: u64 = (&SHAPE_RESULT_READY as u64) + (node_id as u64);
             sys_atomic_write_u8(ready_ptr, 1);
             
-            invalidate_layout(node_id);
+            ext_salt_invalidate_layout(node_id);
             
             SHAPE_HEAD = SHAPE_HEAD + 1;
         } else {
@@ -67,7 +67,7 @@ pub fn sys_typography_pump_results() {
         let ready_ptr: u64 = (&SHAPE_RESULT_READY as u64) + (node_id as u64);
         sys_atomic_write_u8(ready_ptr, 1);
         
-        invalidate_layout(node_id);
+        ext_salt_invalidate_layout(node_id);
         
         SHAPE_HEAD = SHAPE_HEAD + 1;
     }

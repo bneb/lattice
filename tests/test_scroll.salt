@@ -6,43 +6,38 @@ import user.browser.paint
 import user.browser.compositor
 import user.browser.layout
 import user.browser.alloc.airlock
+import user.browser.event_loop
+import user.browser.hit_test
 
 @no_mangle
 pub fn main() -> i32 {
     println("--- Epic 15: Scroll Physics & Hit-Test Compensation ---");
     
-    airlock.init_allocator();
+    airlock.airlock_init_allocator();
     dom.init_arrays();
+    paint.salt_paint_inject_dom_pointers();
     
     // =========================================================================
     // TEST 1: Scroll state clamping (floor at 0)
     // =========================================================================
-    compositor.DOCUMENT_HEIGHT = 3000;
-    compositor.VIEWPORT_HEIGHT = 1080;
+    event_loop.ext_diag_set_max_height(3000.0);
+    event_loop.ext_engine_init_viewport(1080.0);
+    event_loop.ext_engine_process_scroll(-999999.0);
     
-    // Test floor clamp: set a negative scroll and apply clamp
-    let mut test_scroll: f32 = -200.0;
-    if test_scroll < 0.0 {
-        test_scroll = 0.0;
-    }
-    if test_scroll != 0.0 {
-        println(f"FAIL: test_scroll should be 0, got {test_scroll}");
+    // Test floor clamp: apply negative scroll 
+    event_loop.ext_engine_process_scroll(-200.0);
+    if event_loop.ext_diag_get_scroll_y() != 0.0 {
+        println(f"FAIL: test_scroll should be 0, got {event_loop.ext_diag_get_scroll_y()}");
         return -1;
     }
-    compositor.SCROLL_Y = test_scroll;
     println("PASS: Test 1 - Scroll floor clamped at 0");
     
     // =========================================================================
     // TEST 2: Scroll state clamping (ceiling at doc_height - viewport)
     // =========================================================================
-    let max_scroll = (compositor.DOCUMENT_HEIGHT - compositor.VIEWPORT_HEIGHT) as f32;
-    let mut test_scroll2: f32 = 5000.0; // Way past end of document
-    if max_scroll > 0.0 && test_scroll2 > max_scroll {
-        test_scroll2 = max_scroll;
-    }
-    compositor.SCROLL_Y = test_scroll2;
-    if compositor.SCROLL_Y != 1920.0 { // 3000 - 1080 = 1920
-        println(f"FAIL: Expected max_scroll=1920, got {compositor.SCROLL_Y}");
+    event_loop.ext_engine_process_scroll(5000.0); // Way past end of document
+    if event_loop.ext_diag_get_scroll_y() != 1920.0 { // 3000 - 1080 = 1920
+        println(f"FAIL: Expected max_scroll=1920, got {event_loop.ext_diag_get_scroll_y()}");
         return -2;
     }
     println("PASS: Test 2 - Scroll ceiling clamped at DOCUMENT_HEIGHT - VIEWPORT_HEIGHT");
@@ -50,25 +45,33 @@ pub fn main() -> i32 {
     // =========================================================================
     // TEST 3: Hit-test with scroll compensation
     // =========================================================================
-    // Create a simple DOM node at absolute position (100, 2000)
-    dom.LAYOUT_X[0] = 100;
-    dom.LAYOUT_Y[0] = 2000;
-    dom.LAYOUT_W[0] = 200;
-    dom.LAYOUT_H[0] = 100;
-    dom.STYLE_BG_R[0] = 255;
-    dom.STYLE_Z_INDEX[0] = 0;
-    dom.DOM_NODE_COUNT = 1;
+    // Organically create the node using the engine API
+    println("Executing Test 3...");
+    let node_id = dom.create_node(1); // 1 = HTML tag
+    println("Resolved ID");
+    let idx = dom.resolve_node(node_id);
+    println("Setting Layout...");
+    dom.LAYOUT_X[idx as usize] = 100;
+    dom.LAYOUT_Y[idx as usize] = 2000;
+    dom.LAYOUT_W[idx as usize] = 200;
+    dom.LAYOUT_H[idx as usize] = 100;
+    dom.STYLE_BG_R[idx as usize] = 255;
+    dom.STYLE_Z_INDEX[idx as usize] = 0;
+    dom.STYLE_POINTER_EVENTS[idx as usize] = 1;
     
-    // Generate display list so Z_SORT_BUF is populated
-    paint.generate_display_list(0 as u32);
+    // Generate a display command to populate hit_test
+    println("paint.begin_frame()");
+    paint.begin_frame();
+    println("paint.emit_rect()");
+    paint.emit_rect(100, 2000, 200, 100, idx);
+    let cmd_count = paint.get_cmd_count();
+    println(f"CMD_COUNT is: {cmd_count}");
     
-    // Click at viewport position (150, 100) with scroll_y = 1920
-    // Adjusted Y = 100 + 1920 = 2020, which is inside the rect (2000..2100)
-    let ctx = events.dispatch_click(150, 100, 1920);
-    // status -1 = no hit, -2 = hit but no handler, 0 = hit with handler
-    // We care that the raycast HIT (status != -1)
-    if ctx.status == -1 {
-        println(f"FAIL: Expected hit at scrolled position, got status={ctx.status}");
+    println("hit_test()");
+    let hit_idx = hit_test.salt_hit_test(150.0, 100.0, 0);
+    println(f"Test 3 hit_idx returned: {hit_idx}");
+    if hit_idx == 0 {
+        println(f"FAIL: Expected hit at scrolled position, got 0");
         return -3;
     }
     println("PASS: Test 3 - Click hit-test compensated for scroll offset");
@@ -76,10 +79,12 @@ pub fn main() -> i32 {
     // =========================================================================
     // TEST 4: Hit-test miss without scroll compensation
     // =========================================================================
-    // Same click position but with scroll_y = 0
+    // Same click position but reset scroll_y to 0
+    event_loop.ext_engine_process_scroll(-999999.0);
     // Adjusted Y = 100 + 0 = 100, which is NOT inside (2000..2100)
-    let ctx2 = events.dispatch_click(150, 100, 0);
-    if ctx2.status != -1 {
+    let hit_idx2 = hit_test.salt_hit_test(150.0, 100.0, 0);
+    println(f"Test 4 hit_idx2 returned: {hit_idx2}");
+    if hit_idx2 != 0 {
         println("FAIL: Should NOT have hit the rect with scroll_y=0");
         return -4;
     }
@@ -88,16 +93,13 @@ pub fn main() -> i32 {
     // =========================================================================
     // TEST 5: Scroll does not affect short documents
     // =========================================================================
-    compositor.DOCUMENT_HEIGHT = 500; // Shorter than viewport
-    compositor.VIEWPORT_HEIGHT = 1080;
-    let short_max = (compositor.DOCUMENT_HEIGHT - compositor.VIEWPORT_HEIGHT) as f32;
-    let mut test_scroll3: f32 = 100.0;
-    if short_max <= 0.0 {
-        test_scroll3 = 0.0;
-    }
-    compositor.SCROLL_Y = test_scroll3;
-    if compositor.SCROLL_Y != 0.0 {
-        println(f"FAIL: SCROLL_Y should be 0 for short documents, got {compositor.SCROLL_Y}");
+    event_loop.ext_diag_set_max_height(500.0); // Shorter than viewport
+    event_loop.ext_engine_init_viewport(1080.0);
+    event_loop.ext_engine_process_scroll(-999999.0);
+    event_loop.ext_engine_process_scroll(100.0);
+    
+    if event_loop.ext_diag_get_scroll_y() != 0.0 {
+        println(f"FAIL: SCROLL_Y should be 0 for short documents, got {event_loop.ext_diag_get_scroll_y()}");
         return -5;
     }
     println("PASS: Test 5 - Scroll locked to 0 for documents shorter than viewport");

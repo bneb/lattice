@@ -52,7 +52,6 @@ WEAK void sys_gpu_emit_external_surface(unsigned int n, unsigned int sid, int x,
                                         int y, int w, int h) {}
 WEAK unsigned long long get_active_focus_node(void) { return 0; }
 WEAK int drain_scroll_input(void) { return 0; }
-WEAK void check_any_layout_dirty(void) {}
 WEAK unsigned long long get_dom_content_loaded_fired(void) { return 0; }
 WEAK void set_dom_content_loaded_fired(unsigned char v) {}
 WEAK unsigned long long get_frame_count(void) { return 0; }

@@ -46,7 +46,8 @@ global P_DOM_TEXT_LEN: u64 = 0;
 global P_STYLE_PARENT: u64 = 0;
 
 // u8 arrays (stride 1)
-global P_DIRTY_LAYOUT: u64 = 0;
+global P_FLAG_LAYOUT_DIRTY: u64 = 0;
+global P_FLAG_CHILD_LAYOUT_DIRTY: u64 = 0;
 global P_DIRTY_STYLE: u64 = 0;
 global P_STYLE_DISPLAY: u64 = 0;
 global P_STYLE_FLEX_DIR: u64 = 0;
@@ -106,7 +107,8 @@ extern fn dom_ptr_STYLE_MAX_HEIGHT() -> u64;
 extern fn dom_ptr_DOM_NODE_TAG() -> u64;
 extern fn dom_ptr_DOM_TEXT_LEN() -> u64;
 extern fn dom_ptr_STYLE_PARENT() -> u64;
-extern fn dom_ptr_DIRTY_LAYOUT() -> u64;
+extern fn dom_ptr_FLAG_LAYOUT_DIRTY() -> u64;
+extern fn dom_ptr_FLAG_CHILD_LAYOUT_DIRTY() -> u64;
 extern fn dom_ptr_DIRTY_STYLE() -> u64;
 extern fn dom_ptr_STYLE_DISPLAY() -> u64;
 extern fn dom_ptr_STYLE_FLEX_DIR() -> u64;
@@ -133,6 +135,7 @@ extern fn dom_ptr_STYLE_GRID_COL_VAL() -> u64;
 extern fn dom_ptr_DOM_NODE_COUNT() -> u64;
 extern fn dom_ptr_EVICTION_COUNT() -> u64;
 extern fn get_dom_node_count() -> u64;
+extern fn sys_layout_dump(node: u32, tag: u32, disp: u8, sh: i32, sw: i32, par: u32);
 
 
 
@@ -156,7 +159,8 @@ pub fn layout_inject_dom_pointers() {
     P_DOM_NODE_TAG = dom_ptr_DOM_NODE_TAG();
     P_DOM_TEXT_LEN = dom_ptr_DOM_TEXT_LEN();
     P_STYLE_PARENT = dom_ptr_STYLE_PARENT();
-    P_DIRTY_LAYOUT = dom_ptr_DIRTY_LAYOUT();
+    P_FLAG_LAYOUT_DIRTY = dom_ptr_FLAG_LAYOUT_DIRTY();
+    P_FLAG_CHILD_LAYOUT_DIRTY = dom_ptr_FLAG_CHILD_LAYOUT_DIRTY();
     P_DIRTY_STYLE = dom_ptr_DIRTY_STYLE();
     P_STYLE_DISPLAY = dom_ptr_STYLE_DISPLAY();
     P_STYLE_FLEX_DIR = dom_ptr_STYLE_FLEX_DIR();
@@ -233,15 +237,12 @@ pub fn compute_text_layout(node_id: u32, max_width: f32) {
     let mut font_size: f32 = 16.0;
     let scale_factor: f32 = 0.25;
     
-    font_bridge_sync_metrics((&FFI_SYNC_ARR[0]) as u64);
+    let ptr = (&FFI_SYNC_ARR) as u64;
+    font_bridge_sync_metrics(ptr);
     
-    let addr0 = (&FFI_SYNC_ARR[0]) as u64;
-    let addr1 = (&FFI_SYNC_ARR[1]) as u64;
-    let addr2 = (&FFI_SYNC_ARR[2]) as u64;
-    
-    let met_ascent: f32 = *((addr0) as &f32);
-    let met_descent: f32 = *((addr1) as &f32);
-    let met_linegap: f32 = *((addr2) as &f32);
+    let met_ascent: f32 = *((ptr) as &f32);
+    let met_descent: f32 = *((ptr + 4) as &f32);
+    let met_linegap: f32 = *((ptr + 8) as &f32);
     
     let ascent = met_ascent * scale_factor;
     let descent = met_descent * scale_factor;
@@ -387,12 +388,26 @@ pub fn compute_grid_layout(node_id: u32, start_x: f32, start_y: f32, available_w
 // Returns layout height successfully natively effortlessly
 @no_mangle
 pub fn compute_layout(node_idx: u32, offset_x: i32, offset_y: i32, max_width: i32) -> i32 {
+    let u_idx = node_idx as u64;
+    let is_dirty = *((P_FLAG_LAYOUT_DIRTY + u_idx) as &u8);
+    let child_dirty = *((P_FLAG_CHILD_LAYOUT_DIRTY + u_idx) as &u8);
+    
+    // Epic 85: Incremental Layout Cache Bypass
+    if is_dirty == 0 && child_dirty == 0 {
+        return *((P_LAYOUT_H + (u_idx * 4)) as &i32);
+    }
+    
+    // Evaluation Telemetry
+    LAYOUT_EVAL_COUNT = LAYOUT_EVAL_COUNT + 1;
+    
     let old_w = *((P_LAYOUT_W + (node_idx as u64) * 4) as &i32);
     let old_h = *((P_LAYOUT_H + (node_idx as u64) * 4) as &i32);
     
     let mut res = compute_layout_core(node_idx, offset_x, offset_y, max_width);
     
-    let floor_disp = *((P_STYLE_DISPLAY + (node_idx as u64)) as &u8);
+    // Phase 25: Flush both dirty flags after layout pass
+    *((P_FLAG_LAYOUT_DIRTY + u_idx) as &mut u8) = 0;
+    *((P_FLAG_CHILD_LAYOUT_DIRTY + u_idx) as &mut u8) = 0;
     
     if sys_is_node_observed_for(node_idx, 2 /* Resize */) {
         if *((P_LAYOUT_W + (node_idx as u64) * 4) as &i32) != old_w || *((P_LAYOUT_H + (node_idx as u64) * 4) as &i32) != old_h {
@@ -403,20 +418,36 @@ pub fn compute_layout(node_idx: u32, offset_x: i32, offset_y: i32, max_width: i3
 }
 
 pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_width: i32) -> i32 {
+    let n_idx = (node_idx & 0xFFFF) as u64;
+
     // 1. W3C User-Agent Stylesheet: Non-visual elements → DISPLAY_NONE
-    let ua_tag = *((P_DOM_NODE_TAG + (node_idx as u64) * 4) as &u32);
+    let ua_tag = *((P_DOM_NODE_TAG + n_idx * 4) as &u32);
     if ua_tag == 96    // TAG_CUSTOM_ELEMENT (covers <!doctype>, <meta>, <link>, etc.)
     || ua_tag == 2     // TAG_HEAD
     || ua_tag == 99    // TAG_SCRIPT (<script>)
     || ua_tag == 98    // TAG_STYLE (<style>)
     {
-        *((P_STYLE_DISPLAY + (node_idx as u64)) as &mut u8) = 0; // Force DISPLAY_NONE
+        *((P_STYLE_DISPLAY + n_idx) as &mut u8) = 0; // Force DISPLAY_NONE
+    }
+
+    // [PHASE 31] Viewport Boundary Interceptor
+    // Nodes 1 (Physical Root) and 999999 (Virtual Root) are canonical engine anchors.
+    // They represent the OS Window and must NEVER collapse.
+    if node_idx == 1 || node_idx == 999999 {
+        *((P_STYLE_DISPLAY + n_idx) as &mut u8) = 1; // Force DISPLAY_BLOCK
+        *((P_LAYOUT_X + n_idx * 4) as &mut i32) = 0;
+        *((P_LAYOUT_Y + n_idx * 4) as &mut i32) = 0;
+        *((P_LAYOUT_W + n_idx * 4) as &mut i32) = (dom.get_viewport_w() as i32);
+        *((P_LAYOUT_H + n_idx * 4) as &mut i32) = (dom.get_viewport_h() as i32);
+        // Note: The rest of the function will still recurse into children using these fixed bounds.
     }
     
     // 2. The Hard Abort
-    if *((P_STYLE_DISPLAY + (node_idx as u64)) as &u8) == 0 /* DISPLAY_NONE */ {
-        *((P_LAYOUT_W + (node_idx as u64) * 4) as &mut i32) = 0;
-        *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = 0;
+    if *((P_STYLE_DISPLAY + n_idx) as &u8) == 0 /* DISPLAY_NONE */ {
+        *((P_LAYOUT_X + n_idx * 4) as &mut i32) = 0;
+        *((P_LAYOUT_Y + n_idx * 4) as &mut i32) = 0;
+        *((P_LAYOUT_W + n_idx * 4) as &mut i32) = 0;
+        *((P_LAYOUT_H + n_idx * 4) as &mut i32) = 0;
         return 0; // DO NOT PROCESS CHILDREN. DO NOT MEASURE TEXT.
     }
 
@@ -424,7 +455,7 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
     
 
     // 1. Resolve the Containing Block Origin
-    let pos_mode = *((P_STYLE_POSITION + (node_idx as u64)) as &u8);
+    let pos_mode = *((P_STYLE_POSITION + n_idx) as &u8);
     let mut actual_x = offset_x;
     let mut actual_y = offset_y;
     
@@ -454,7 +485,7 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
     *((P_LAYOUT_Y + (node_idx as u64) * 4) as &mut i32) = actual_y;
     
     // 2. THE BYPASS: If this branch is geometrically clean, do not recurse!
-    if *((P_DIRTY_LAYOUT + (node_idx as u64)) as &u8) == 0 {
+    if *((P_FLAG_LAYOUT_DIRTY + (node_idx as u64)) as &u8) == 0 {
         if node_idx == 2 || node_idx == 1 {
             let m_b:[u8;11] = [91,76,93,32,98,121,112,97,115,115,10]; // "[L] bypass\n"
             sys_log_info((&m_b) as u64, 11);
@@ -480,7 +511,8 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
             let final_w = *((P_LAYOUT_W + (node_idx as u64) * 4) as &i32);
             let free_space = max_width - final_w;
             if free_space > 0 {
-                *((P_LAYOUT_X + (node_idx as u64) * 4) as &mut i32) = *((P_LAYOUT_X + (node_idx as u64) * 4) as &i32) + free_space;
+                // ABSOLUTE assignment (idempotent): base X is offset_x
+                *((P_LAYOUT_X + (node_idx as u64) * 4) as &mut i32) = offset_x + free_space;
             }
         }
         
@@ -509,7 +541,7 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
         
         *((P_LAYOUT_W + (node_idx as u64) * 4) as &mut i32) = img_w;
         *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = img_h;
-        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+        *((P_FLAG_LAYOUT_DIRTY + (node_idx as u64)) as &mut u8) = 0;
         return img_h;
     }
     
@@ -551,7 +583,7 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
     if display_mode == 0 {
         *((P_LAYOUT_W + (node_idx as u64) * 4) as &mut i32) = 0;
         *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = 0;
-        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+        *((P_FLAG_LAYOUT_DIRTY + (node_idx as u64)) as &mut u8) = 0;
         return 0;
     }
     
@@ -589,18 +621,30 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
     }
     
     // Border Box resolution
-    let border_left = *((P_STYLE_BORDER_W_LEFT + (node_idx as u64) * 4) as &i32);
+    let border_top = *((P_STYLE_BORDER_W_TOP + (node_idx as u64) * 4) as &i32);
     let border_right = *((P_STYLE_BORDER_W_RIGHT + (node_idx as u64) * 4) as &i32);
+    let border_bottom = *((P_STYLE_BORDER_W_BOTTOM + (node_idx as u64) * 4) as &i32);
+    let border_left = *((P_STYLE_BORDER_W_LEFT + (node_idx as u64) * 4) as &i32);
     
     let box_sizing = *((P_STYLE_BOX_SIZING + (node_idx as u64)) as &u8);
     let mut content_w = used_w;
+    let mut content_h = used_h;
+    
     if box_sizing == 1 { // border-box
-        // Width already includes padding + border, don't subtract again for layout logic size
+        // Width already includes padding + border, subtract to get inner content size
         content_w = used_w - pad_left - pad_right - border_left - border_right;
+        if used_h != -1 {
+            content_h = used_h - pad_top - pad_bottom - border_top - border_bottom;
+        }
     } else { // content-box (default)
-        // Width is content only, total box = width + padding + border
+        // Dimensions are content only, total box = content + padding + border
         content_w = used_w;
         used_w = used_w + pad_left + pad_right + border_left + border_right;
+        
+        if used_h != -1 {
+            content_h = used_h;
+            used_h = used_h + pad_top + pad_bottom + border_top + border_bottom;
+        }
     }
     
     if content_w < 0 { content_w = 0; }
@@ -626,7 +670,7 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
         if max_h != -1 && used_h > max_h { used_h = max_h; }
         
         *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = used_h;
-        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+        *((P_FLAG_LAYOUT_DIRTY + (node_idx as u64)) as &mut u8) = 0;
         return used_h;
     }
     
@@ -638,8 +682,8 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
     let mut child_idx = dom.dom_get_render_first_child_idx(node_idx as u32);
     
     if display_mode == 1 || display_mode == 5 { // BLOCK or INLINE_BLOCK
-        let mut child_offset_y = content_y + pad_top;
-        let child_offset_x = content_x + pad_left;
+        let mut child_offset_y = content_y + pad_top + border_top;
+        let child_offset_x = content_x + pad_left + border_left;
         
         // Inline flow state: tracks horizontal cursor for inline children
         let mut line_x: i32 = child_offset_x;
@@ -750,13 +794,13 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
             child_offset_y = line_y + line_height;
         }
         
-        computed_h = (child_offset_y - content_y) + pad_bottom;
+        computed_h = (child_offset_y - content_y) + pad_bottom + border_bottom;
         // Explicit height override: W3C explicit height wins over intrinsic
         if used_h != -1 {
             computed_h = used_h;
         }
         *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = computed_h;
-        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+        *((P_FLAG_LAYOUT_DIRTY + (node_idx as u64)) as &mut u8) = 0;
 
         if computed_h < 0 { computed_h = 100; }
         *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = computed_h;
@@ -793,7 +837,7 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
         if inline_max_h == 0 { inline_max_h = 20; }
         computed_h = inline_max_h;
         *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = computed_h;
-        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+        *((P_FLAG_LAYOUT_DIRTY + (node_idx as u64)) as &mut u8) = 0;
         if computed_h < 0 { computed_h = 100; }
         *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = computed_h;
         return computed_h;
@@ -841,7 +885,7 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
             if free_space < 0 { free_space = 0; }
             
             let justify = *((P_STYLE_JUSTIFY_CONTENT + (node_idx as u64)) as &u8);
-            let mut child_offset_x = content_x + pad_left;
+            let mut child_offset_x = content_x + pad_left + border_left;
             
             if total_flex_grow == 0 && free_space > 0 {
                 if justify == 1 { // center
@@ -878,7 +922,7 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
                     }
                 }
                 
-                let ch_height = compute_layout(c_idx, child_offset_x, content_y + pad_top, child_w);
+                let ch_height = compute_layout(c_idx, child_offset_x, content_y + pad_top + border_top, child_w);
                 
                 if ch_height > max_row_height { max_row_height = ch_height; }
                 
@@ -917,7 +961,7 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
                 c_idx = dom.dom_get_next_sibling_idx(c_idx);
             }
             
-            computed_h = max_row_height + pad_top + pad_bottom;
+            computed_h = max_row_height + pad_top + pad_bottom + border_top + border_bottom;
             
         } else { // COLUMN — Google Unblock: Full 3-Pass Vertical Constraint Solver
             // ================================================================
@@ -1027,12 +1071,20 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
                     let ch_w = *((P_LAYOUT_W + (c_idx as u64) * 4) as &i32);
                     if ch_w < content_w {
                         let x_offset = (content_w - ch_w) / 2;
-                        *((P_LAYOUT_X + (c_idx as u64) * 4) as &mut i32) = *((P_LAYOUT_X + (c_idx as u64) * 4) as &i32) + x_offset;
-                        // Cascade nested children offsets
-                        let mut c_child = dom.dom_get_render_first_child_idx(c_idx);
-                        while c_child != 999999 {
-                            *((P_LAYOUT_X + (c_child as u64) * 4) as &mut i32) = *((P_LAYOUT_X + (c_child as u64) * 4) as &i32) + x_offset;
-                            c_child = dom.dom_get_next_sibling_idx(c_child);
+                        // ABSOLUTE assignment (idempotent) — base = content_x + pad_left
+                        let base_x = content_x + pad_left;
+                        let old_x = *((P_LAYOUT_X + (c_idx as u64) * 4) as &i32);
+                        let new_x = base_x + x_offset;
+                        *((P_LAYOUT_X + (c_idx as u64) * 4) as &mut i32) = new_x;
+                        // Cascade nested children: shift by delta from old position
+                        let delta = new_x - old_x;
+                        if delta != 0 {
+                            let mut c_child = dom.dom_get_render_first_child_idx(c_idx);
+                            while c_child != 999999 {
+                                let old_cx = *((P_LAYOUT_X + (c_child as u64) * 4) as &i32);
+                                *((P_LAYOUT_X + (c_child as u64) * 4) as &mut i32) = old_cx + delta;
+                                c_child = dom.dom_get_next_sibling_idx(c_child);
+                            }
                         }
                     }
                 } else if align_items == 0 { // stretch (default) — expand width to container
@@ -1044,7 +1096,9 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
                     let ch_w = *((P_LAYOUT_W + (c_idx as u64) * 4) as &i32);
                     if ch_w < content_w {
                         let x_offset = content_w - ch_w;
-                        *((P_LAYOUT_X + (c_idx as u64) * 4) as &mut i32) = *((P_LAYOUT_X + (c_idx as u64) * 4) as &i32) + x_offset;
+                        // ABSOLUTE assignment (idempotent)
+                        let base_x = content_x + pad_left;
+                        *((P_LAYOUT_X + (c_idx as u64) * 4) as &mut i32) = base_x + x_offset;
                     }
                 }
                 c_idx = dom.dom_get_next_sibling_idx(c_idx);
@@ -1052,7 +1106,7 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
             
             // Computed height: use intrinsic sum if no explicit height was given
             if used_h == -1 {
-                computed_h = (child_offset_y - content_y) + pad_bottom;
+                computed_h = (child_offset_y - content_y) + pad_bottom + border_bottom;
             } else {
                 computed_h = used_h;
             }
@@ -1063,7 +1117,7 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
             computed_h = used_h;
         }
         *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = computed_h;
-        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+        *((P_FLAG_LAYOUT_DIRTY + (node_idx as u64)) as &mut u8) = 0;
         return computed_h;
         
     } else if display_mode == 4 { // GRID
@@ -1073,7 +1127,7 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
             final_h = used_h;
         }
         *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = final_h;
-        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+        *((P_FLAG_LAYOUT_DIRTY + (node_idx as u64)) as &mut u8) = 0;
         if final_h < 0 { 
             let m_c: [u8; 11] = [91,67,76,65,77,80,93,32,78,61,32];
             sys_log_info((&m_c) as u64, 11);
@@ -1147,7 +1201,7 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
                 }
                 *((P_LAYOUT_W + (tr_ch as u64) * 4) as &mut i32) = total_row_w;
                 *((P_LAYOUT_H + (tr_ch as u64) * 4) as &mut i32) = rh;
-                *((P_DIRTY_LAYOUT + (tr_ch as u64)) as &mut u8) = 0;
+                *((P_FLAG_LAYOUT_DIRTY + (tr_ch as u64)) as &mut u8) = 0;
 
                 // Position <td> cells
                 let mut col: u32 = 0;
@@ -1161,7 +1215,7 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
                         *((P_LAYOUT_Y + (td_ch as u64) * 4) as &mut i32) = row_y;
                         *((P_LAYOUT_W + (td_ch as u64) * 4) as &mut i32) = cw;
                         *((P_LAYOUT_H + (td_ch as u64) * 4) as &mut i32) = rh;
-                        *((P_DIRTY_LAYOUT + (td_ch as u64)) as &mut u8) = 0;
+                        *((P_FLAG_LAYOUT_DIRTY + (td_ch as u64)) as &mut u8) = 0;
                         cell_x = cell_x + cw;
                         col = col + 1;
                     }
@@ -1183,12 +1237,12 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
         let table_h = row_y - (content_y + pad_top) + pad_top + pad_bottom;
         *((P_LAYOUT_W + (node_idx as u64) * 4) as &mut i32) = table_w;
         *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = table_h;
-        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+        *((P_FLAG_LAYOUT_DIRTY + (node_idx as u64)) as &mut u8) = 0;
         return table_h;
 
     } else if display_mode == 7 || display_mode == 8 {
         // TABLE_ROW / TABLE_CELL: handled by parent table layout, skip
-        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+        *((P_FLAG_LAYOUT_DIRTY + (node_idx as u64)) as &mut u8) = 0;
         return used_h;
 
     } else {
@@ -1205,7 +1259,7 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
         
         *((P_LAYOUT_W + (node_idx as u64) * 4) as &mut i32) = p_width;
         *((P_LAYOUT_H + (node_idx as u64) * 4) as &mut i32) = used_h;
-        *((P_DIRTY_LAYOUT + (node_idx as u64)) as &mut u8) = 0;
+        *((P_FLAG_LAYOUT_DIRTY + (node_idx as u64)) as &mut u8) = 0;
         if used_h < 0 { 
             let m_c: [u8; 11] = [91,67,76,65,77,80,93,32,78,61,32];
             sys_log_info((&m_c) as u64, 11);
@@ -1223,9 +1277,7 @@ pub fn compute_layout_core(node_idx: u32, offset_x: i32, offset_y: i32, max_widt
 }
 pub fn layout_tree() {
     // Initiate recursive layout from the root node (index 1)
-    // 1920 viewport - 16px horizontal margins = 1904 max_width
-    // Offset by 8px x and y to account for Chromium's default tag margin
-    compute_layout(1, 8, 8, 1904);
+    compute_layout(1, 0, 0, 1920);
 }
 
 @no_mangle
@@ -1359,15 +1411,39 @@ extern fn ext_mark_all_compositor_dirty();
 
 @no_mangle
 pub fn sys_dom_check_dirty_flag() -> i32 {
-    if http_get_eof_reached() == 0 { return 0; }
     return check_any_layout_dirty();
 }
 
-@no_mangle
 pub fn sys_layout_solve_matrix() {
-    // FIX 2: Manually inject viewport
-    *((P_LAYOUT_W + 1 * 4) as &mut i32) = 1920;
-    // Removed hack
+    // [PHASE 31.5] Mandatory Viewport Injection
+    // Forcefully anchor both physical and virtual roots before solver recursion
+    let root_1_idx: u64 = 1;
+    let root_v_idx: u64 = (999999 & 0xFFFF) as u64;
+    
+    // CRITICAL: dom.get_viewport_w/H() read scalar globals (VIEWPORT_W/H)
+    // which are stomped by LLVM GlobalMerge in the multiprocess binary.
+    // Instead, read from the SoA arrays which are GlobalMerge-safe.
+    let mut vw = *((P_STYLE_W + root_1_idx * 4) as &i32);
+    let mut vh = *((P_STYLE_H + root_1_idx * 4) as &i32);
+    // Fallback: if STYLE_W[1] hasn't been set yet (first frame), use 1920x1080
+    if vw <= 0 || vw == -1 { vw = 1920; }
+    if vh <= 0 || vh == -1 { vh = 1080; }
+    
+    *((P_LAYOUT_W + root_1_idx * 4) as &mut i32) = vw;
+    *((P_LAYOUT_H + root_1_idx * 4) as &mut i32) = vh;
+    *((P_FLAG_LAYOUT_DIRTY + root_1_idx) as &mut u8) = 1;
+    
+    *((P_LAYOUT_W + root_v_idx * 4) as &mut i32) = vw;
+    *((P_LAYOUT_H + root_v_idx * 4) as &mut i32) = vh;
+    *((P_FLAG_LAYOUT_DIRTY + root_v_idx) as &mut u8) = 1;
+    *((P_STYLE_DISPLAY + root_v_idx) as &mut u8) = 1; // Force BLOCK
+    
+    // [DIAG] Print P_LAYOUT_X in layout.salt
+    let m_plx: [u8; 11] = [91,76,65,89,93,32,80,76,88,61,32]; // "[LAY] PLX= "
+    sys_log_info((&m_plx) as u64, 11);
+    sys_print_float(P_LAYOUT_X as f64);
+    let nlxy: [u8; 1] = [10];
+    sys_log_info((&nlxy) as u64, 1);
     
     let m2: [u8; 42] = [91,76,65,89,79,85,84,93,32,83,111,108,118,105,110,103,32,109,97,116,114,105,120,46,32,82,111,111,116,32,100,105,109,101,110,115,105,111,110,115,58,32];
     sys_log_info((&m2) as u64, 42); // "[LAYOUT] Solving matrix. Root dimensions: "
@@ -1385,13 +1461,30 @@ pub fn sys_layout_solve_matrix() {
     }
     transpile_dom_tree(1);
     apply_cascade_to_tree(); 
+    
+    // [DIAG] Dump node properties after cascade, before layout
+    let mut diag_i: u64 = 1;
+    let diag_limit: u64 = if limit < 16 { limit } else { 16 as u64 };
+    while diag_i < diag_limit {
+        let d_tag = *((P_DOM_NODE_TAG + diag_i * 4) as &u32);
+        let d_disp = *((P_STYLE_DISPLAY + diag_i) as &u8);
+        let d_sh = *((P_STYLE_H + diag_i * 4) as &i32);
+        let d_sw = *((P_STYLE_W + diag_i * 4) as &i32);
+        let d_par = *((P_STYLE_PARENT + diag_i * 4) as &u32);
+        
+        sys_layout_dump(diag_i as u32, d_tag, d_disp, d_sh, d_sw, d_par);
+        
+        diag_i = diag_i + 1;
+    }
+    
     layout_tree(); 
     
     // TRAP FIX: Forcefully zero all DIRTY_LAYOUT markers so that nodes skipped by [L] bypass don't deadlock the matrix!
     // FIX: After layout, mark all laid-out nodes as compositor-dirty so the GPU repaint check fires.
     let mut clear_i: u64 = 1;
     while clear_i < limit {
-        *((P_DIRTY_LAYOUT + clear_i) as &mut u8) = 0;
+        *((P_FLAG_LAYOUT_DIRTY + clear_i) as &mut u8) = 0;
+        *((P_FLAG_CHILD_LAYOUT_DIRTY + clear_i) as &mut u8) = 0;
         clear_i = clear_i + 1;
     }
     
@@ -1399,4 +1492,61 @@ pub fn sys_layout_solve_matrix() {
     ext_mark_all_compositor_dirty();
     
     sys_jsc_flush_microtasks();
+}
+
+
+
+// --- Sovereign API: Fidelity Mutation Matrix (C-FFI) ---
+
+@no_mangle
+pub fn ext_salt_set_style_dim(node_idx: u32, w: i32, h: i32) {
+    let u_idx = node_idx as u64;
+    *((P_STYLE_W + u_idx * 4) as &mut i32) = w;
+    *((P_STYLE_H + u_idx * 4) as &mut i32) = h;
+    *((P_STYLE_W_UNIT + u_idx) as &mut u8) = 0; // PX
+    *((P_STYLE_H_UNIT + u_idx) as &mut u8) = 0; // PX
+    
+    // Invalidate
+    *((P_FLAG_LAYOUT_DIRTY + u_idx) as &mut u8) = 1;
+    // Bubble up to root (simplification for test)
+    *((P_FLAG_CHILD_LAYOUT_DIRTY + 1) as &mut u8) = 1;
+}
+
+@no_mangle
+pub fn ext_salt_set_mock_border(node_idx: u32, width: u32) {
+    let u_idx = node_idx as u64;
+    let b_w = width as i32;
+    *((P_STYLE_BORDER_W_TOP + u_idx * 4) as &mut i32) = b_w;
+    *((P_STYLE_BORDER_W_RIGHT + u_idx * 4) as &mut i32) = b_w;
+    *((P_STYLE_BORDER_W_BOTTOM + u_idx * 4) as &mut i32) = b_w;
+    *((P_STYLE_BORDER_W_LEFT + u_idx * 4) as &mut i32) = b_w;
+    
+    // Invalidate
+    *((P_FLAG_LAYOUT_DIRTY + u_idx) as &mut u8) = 1;
+    *((P_FLAG_CHILD_LAYOUT_DIRTY + 1) as &mut u8) = 1;
+}
+
+@no_mangle
+pub fn ext_diag_get_layout_compute_count() -> u32 {
+    return LAYOUT_EVAL_COUNT;
+}
+
+@no_mangle
+pub fn ext_salt_layout_tree() {
+    layout_tree();
+}
+
+@no_mangle
+pub fn ext_salt_get_layout_w(node_idx: u32) -> f32 {
+    return *((P_LAYOUT_W + (node_idx as u64) * 4) as &i32) as f32;
+}
+
+@no_mangle
+pub fn ext_salt_get_layout_h(node_idx: u32) -> f32 {
+    return *((P_LAYOUT_H + (node_idx as u64) * 4) as &i32) as f32;
+}
+
+@no_mangle
+pub fn ext_salt_layout_inject_dom_pointers() {
+    layout_inject_dom_pointers();
 }

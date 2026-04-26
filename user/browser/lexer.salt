@@ -1,23 +1,54 @@
 package user.browser.lexer
 
-// Direct extern declarations to bypass mangling
-extern fn create_node(tag: i32) -> u64;
+
+pub global LEX_STATE: u32 = 0;
+pub global LEX_TAG_BUF: [u8; 128] = [0; 128];
+pub global LEX_TAG_LEN: u32 = 0;
+pub global LEX_ATTR_KEY_BUF: [u8; 128] = [0; 128];
+pub global LEX_ATTR_KEY_LEN: u32 = 0;
+pub global LEX_ATTR_VAL_BUF: [u8; 4096] = [0; 4096];
+pub global LEX_ATTR_VAL_LEN: u32 = 0;
+pub global LEX_TEXT_BUF: [u8; 16384] = [0; 16384];
+pub global LEX_TEXT_LEN: u32 = 0;
+
+pub global LEX_CURRENT_PARENT: u64 = 0;
+pub global LEX_CURRENT_NODE: u64 = 0;
+pub global LEX_CURRENT_TAG: i32 = 0;
+pub global LEX_IS_SELF_CLOSING: u8 = 0;
+pub global LEX_QUOTE_CHAR: u8 = 0;
+
+pub global LEX_INITIALIZED: u8 = 0;
+
+// W3C HTML5 Script Data State Machine (§8.2.4.6)
+// 0 = SCRIPT_DATA           — normal script content, </script> closes
+// 1 = SCRIPT_DATA_ESCAPED   — after <!--, </script> does NOT close
+// 2 = SCRIPT_DATA_DOUBLE_ESCAPED — after <script inside escaped
+pub global LEX_SCRIPT_STATE: u8 = 0;
+
+// Consecutive dash counter for --> detection in escaped state
+pub global LEX_DASH_COUNT: u8 = 0;
+
+
+// Direct extern declarations — route through ext_salt_ C-ABI wrappers
+extern fn ext_salt_create_node(tag: i32) -> u64;
 extern fn bind_attribute(node_id: u64, k_ptr: u64, k_len: u32, v_ptr: u64, v_len: u32) -> u32;
-extern fn create_text_node(ptr: u64, len: u32) -> u64;
-extern fn append_child(parent: u64, child: u64);
+extern fn ext_salt_create_text_node(ptr: u64, len: u32) -> u64;
+extern fn ext_salt_append_child(parent: u64, child: u64);
 extern fn js_set_node_executable(node_id: u64, can_exec: u8);
 extern fn js_set_id(node_id: u64, id_ptr: u64, id_len: u32);
 extern fn js_set_class(node_id: u64, class_ptr: u64, class_len: u32);
 extern fn js_dom_get_parent(node_id: u64) -> u64;
 
 extern fn dom_get_first_child(idx: u32) -> u64;
-extern fn resolve_node(id: u64) -> u32;
-extern fn dom_get_text_ptr(idx: u32) -> u64;
+extern fn ext_salt_resolve_node(node_id: u64) -> u32;
+extern fn dom_register_iframe(node_idx: u32) -> u32;
+extern fn ext_salt_set_inline_style(node_idx: u32, ptr: u64, len: u32);
 extern fn dom_get_tag(idx: u32) -> u32;
 extern fn dom_get_text_len(idx: u32) -> u32;
 extern fn js_queue_script(ptr: u64, len: u32);
 extern fn css_lex_stylesheet(ptr: u64, len: u32, scope_node_id: u32);
 extern fn queue_script_fetch(src_ptr: u64, src_len: u32) -> u64;
+extern fn dom_get_text_ptr(idx: u32) -> u64;
 extern fn dom_get_script_src_ptr(idx: u32) -> u64;
 extern fn dom_get_script_src_len(idx: u32) -> u32;
 extern fn dom_set_script_src(node_idx: u32, src_ptr: u64, src_len: u32);
@@ -47,18 +78,39 @@ extern fn dom_set_spec_height(idx: u32, val: u16);
 extern fn dom_set_style_w_unit(idx: u32, unit: u8);
 extern fn dom_set_style_h_unit(idx: u32, unit: u8);
 
+extern fn css_lex_inline_style(node_idx: u32, ptr: u64, len: u32);
+extern fn ext_salt_set_node_class_hash(node_idx: u32, hash: u32);
+extern fn hash_string(ptr: u64, len: u32) -> u32;
+
 // ============================================================================
 // Tag Name Matcher
 // ============================================================================
 // Compares bytes at html_ptr[start..start+len] against known tag strings.
 // Returns the TAG_ID constant matching dom.salt values.
 
-fn match_tag(html_ptr: u64, start: u32, len: u32) -> i32 {
+
+
+fn get_tag_buf_ptr() -> u64 { return (&LEX_TAG_BUF) as u64; }
+fn get_akey_buf_ptr() -> u64 { return (&LEX_ATTR_KEY_BUF) as u64; }
+fn get_aval_buf_ptr() -> u64 { return (&LEX_ATTR_VAL_BUF) as u64; }
+fn get_txt_buf_ptr() -> u64 { return (&LEX_TEXT_BUF) as u64; }
+
+fn get_tag_byte(idx: u32) -> u8 {
+    let ptr = get_tag_buf_ptr();
+    return *((ptr + (idx as u64)) as &u8);
+}
+fn get_attr_key_byte(idx: u32) -> u8 {
+    let ptr = get_akey_buf_ptr();
+    return *((ptr + (idx as u64)) as &u8);
+}
+fn get_attr_val_byte(idx: u32) -> u8 {
+    let ptr = get_aval_buf_ptr();
+    return *((ptr + (idx as u64)) as &u8);
+}
+
+fn match_tag(len: u32) -> i32 {
     if len == 0 { return 4; } // TAG_DIV default
-    let p = html_ptr + (start as u64);
-    
-    // Convert first byte to lowercase (ASCII OR 0x20)
-    let b0 = *((p) as &u8) | 32;
+    let b0 = get_tag_byte(0) | 32;
     
     if len == 1 {
         if b0 == 112 { return 6; }  // 'p' -> TAG_P
@@ -66,81 +118,70 @@ fn match_tag(html_ptr: u64, start: u32, len: u32) -> i32 {
         if b0 == 98 { return 15; }  // 'b' -> TAG_B
         if b0 == 105 { return 16; } // 'i' -> TAG_I
         if b0 == 117 { return 96; } // 'u' hasn't been implemented specifically, but return 96 so we keep the tag
-        return 96;
+        return 255;
     }
     if len == 2 {
-        let b1 = *((p + 1) as &u8) | 32;
+        let b1 = get_tag_byte((1) as u32) | 32;
         if b0 == 104 && b1 == 49 { return 9; } // 'h1' -> TAG_H1
         if b0 == 116 && b1 == 114 { return 13; } // 'tr' -> TAG_TR
         if b0 == 116 && b1 == 100 { return 14; } // 'td' -> TAG_TD
-        return 96;
+        return 255;
     }
     if len == 3 {
-        let b1 = *((p + 1) as &u8) | 32;
-        let b2 = *((p + 2) as &u8) | 32;
+        let b1 = get_tag_byte((1) as u32) | 32;
+        let b2 = get_tag_byte((2) as u32) | 32;
         if b0 == 100 && b1 == 105 && b2 == 118 { return 4; } // 'div' -> TAG_DIV
         if b0 == 105 && b1 == 109 && b2 == 103 { return 8; } // 'img' -> TAG_IMG
-        return 96;
+        return 255;
     }
     if len == 4 {
-        let b1 = *((p + 1) as &u8) | 32;
-        let b2 = *((p + 2) as &u8) | 32;
-        let b3 = *((p + 3) as &u8) | 32;
+        let b1 = get_tag_byte((1) as u32) | 32;
+        let b2 = get_tag_byte((2) as u32) | 32;
+        let b3 = get_tag_byte((3) as u32) | 32;
         if b0 == 115 && b1 == 112 && b2 == 97 && b3 == 110 { return 5; }  // 'span' -> TAG_SPAN
         if b0 == 104 && b1 == 116 && b2 == 109 && b3 == 108 { return 1; } // 'html' -> TAG_HTML
         if b0 == 104 && b1 == 101 && b2 == 97 && b3 == 100 { return 2; }  // 'head' -> TAG_HEAD
         if b0 == 98 && b1 == 111 && b2 == 100 && b3 == 121 { return 3; }  // 'body' -> TAG_BODY
         if b0 == 102 && b1 == 111 && b2 == 110 && b3 == 116 { return 17; } // 'font' -> TAG_FONT
-        return 96;
+        return 255;
     }
     if len == 5 {
-        let b1 = *((p + 1) as &u8) | 32;
-        let b2 = *((p + 2) as &u8) | 32;
-        let b3 = *((p + 3) as &u8) | 32;
-        let b4 = *((p + 4) as &u8) | 32;
+        let b1 = get_tag_byte((1) as u32) | 32;
+        let b2 = get_tag_byte((2) as u32) | 32;
+        let b3 = get_tag_byte((3) as u32) | 32;
+        let b4 = get_tag_byte((4) as u32) | 32;
         if b0 == 116 && b1 == 97 && b2 == 98 && b3 == 108 && b4 == 101 { return 12; } // 'table' -> TAG_TABLE
         // 'style' -> 98
         if b0 == 115 && b1 == 116 && b2 == 121 && b3 == 108 && b4 == 101 { return 98; }
         if b0 == 118 && b1 == 105 && b2 == 100 && b3 == 101 && b4 == 111 { return 25; } // 'video' -> TAG_VIDEO
         if b0 == 105 && b1 == 110 && b2 == 112 && b3 == 117 && b4 == 116 { return 18; } // 'input' -> TAG_INPUT
-        return 96;
+        return 255;
     }
     if len == 6 {
-        let b1 = *((p + 1) as &u8) | 32;
-        let b2 = *((p + 2) as &u8) | 32;
-        let b3 = *((p + 3) as &u8) | 32;
-        let b4 = *((p + 4) as &u8) | 32;
-        let b5 = *((p + 5) as &u8) | 32;
+        let b1 = get_tag_byte((1) as u32) | 32;
+        let b2 = get_tag_byte((2) as u32) | 32;
+        let b3 = get_tag_byte((3) as u32) | 32;
+        let b4 = get_tag_byte((4) as u32) | 32;
+        let b5 = get_tag_byte((5) as u32) | 32;
         // 'script' -> 99
         if b0 == 115 && b1 == 99 && b2 == 114 && b3 == 105 && b4 == 112 && b5 == 116 { return 99; }
-        // 'center' -> 11
-        if b0 == 99 && b1 == 101 && b2 == 110 && b3 == 116 && b4 == 101 && b5 == 114 { return 11; }
-        // Epic 69: 'iframe' -> TAG_IFRAME=26
+        // 'shadow' -> 21
+        if b0 == 115 && b1 == 104 && b2 == 97 && b3 == 100 && b4 == 111 && b5 == 119 { return 21; }
+        // 'iframe' -> TAG_IFRAME=26
         if b0 == 105 && b1 == 102 && b2 == 114 && b3 == 97 && b4 == 109 && b5 == 101 { return 26; }
         // 'canvas' -> TAG_CANVAS=27
         if b0 == 99 && b1 == 97 && b2 == 110 && b3 == 118 && b4 == 97 && b5 == 115 { return 27; }
-        // 'button' -> TAG_BUTTON=20
-        if b0 == 98 && b1 == 117 && b2 == 116 && b3 == 116 && b4 == 111 && b5 == 110 { return 20; }
-        // 'strong' -> TAG_STRONG=17 (reuse font slot since font isn't needed anymore)
-        if b0 == 115 && b1 == 116 && b2 == 114 && b3 == 111 && b4 == 110 && b5 == 103 { return 17; }
-        return 96;
+        return 255;
     }
-    return 96; // TAG_CUSTOM_ELEMENT default instead of 4
+    return 255;
 }
 
-fn fnv1a_hash_bytes(html_ptr: u64, start: u32, len: u32) -> u32 {
-    let mut hash: u32 = 2166136261;
-    let mut i: u32 = 0;
-    while i < len {
-        let mut b = *((html_ptr + (start + i) as u64) as &u8);
-        if b >= 65 && b <= 90 {
-            b = b + 32; // Lowercase for consistent JS custom element hashing
-        }
-        hash = hash ^ (b as u32);
-        hash = hash * 16777619;
-        i = i + 1;
-    }
-    return hash;
+fn fnv1a_hash_bytes(len: u32) -> u32 {
+    return hash_string(get_tag_buf_ptr(), len);
+}
+
+fn fnv1a_hash_attr_val(len: u32) -> u32 {
+    return hash_string(get_aval_buf_ptr(), len);
 }
 
 // W3C Void Elements — do NOT push onto parent stack
@@ -154,36 +195,35 @@ fn is_void_element(tag: i32) -> bool {
 }
 
 // Check if tag name bytes represent a void element not in our tag table
-fn is_void_tag_name(html_ptr: u64, start: u32, len: u32) -> bool {
-    let p = html_ptr + (start as u64);
-    let b0 = *((p) as &u8) | 32;
+fn is_void_tag_name(len: u32) -> bool {
+    let b0 = get_tag_byte(0) | 32;
     
     if len == 2 {
-        let b1 = *((p + 1) as &u8) | 32;
+        let b1 = get_tag_byte((1) as u32) | 32;
         if b0 == 98 && b1 == 114 { return true; } // 'br'
         if b0 == 104 && b1 == 114 { return true; } // 'hr'
         return false;
     }
     if len == 3 {
-        let b1 = *((p + 1) as &u8) | 32;
-        let b2 = *((p + 2) as &u8) | 32;
+        let b1 = get_tag_byte((1) as u32) | 32;
+        let b2 = get_tag_byte((2) as u32) | 32;
         if b0 == 105 && b1 == 109 && b2 == 103 { return true; } // 'img'
         if b0 == 99 && b1 == 111 && b2 == 108 { return true; } // 'col'
         return false;
     }
     if len == 4 {
-        let b1 = *((p + 1) as &u8) | 32;
-        let b2 = *((p + 2) as &u8) | 32;
-        let b3 = *((p + 3) as &u8) | 32;
+        let b1 = get_tag_byte((1) as u32) | 32;
+        let b2 = get_tag_byte((2) as u32) | 32;
+        let b3 = get_tag_byte((3) as u32) | 32;
         if b0 == 109 && b1 == 101 && b2 == 116 && b3 == 97 { return true; } // 'meta'
         if b0 == 108 && b1 == 105 && b2 == 110 && b3 == 107 { return true; } // 'link'
         return false;
     }
     if len == 5 {
-        let b1 = *((p + 1) as &u8) | 32;
-        let b2 = *((p + 2) as &u8) | 32;
-        let b3 = *((p + 3) as &u8) | 32;
-        let b4 = *((p + 4) as &u8) | 32;
+        let b1 = get_tag_byte((1) as u32) | 32;
+        let b2 = get_tag_byte((2) as u32) | 32;
+        let b3 = get_tag_byte((3) as u32) | 32;
+        let b4 = get_tag_byte((4) as u32) | 32;
         if b0 == 105 && b1 == 110 && b2 == 112 && b3 == 117 && b4 == 116 { return true; } // 'input'
         return false;
     }
@@ -193,109 +233,116 @@ fn is_void_tag_name(html_ptr: u64, start: u32, len: u32) -> bool {
 // ============================================================================
 // Matches an attribute key at html_ptr[start..start+len] against "id"
 // ============================================================================
-fn is_attr_id(html_ptr: u64, start: u32, len: u32) -> bool {
+fn is_attr_id(len: u32) -> bool {
     if len != 2 { return false; }
-    let p = html_ptr + (start as u64);
-    let b0 = *((p) as &u8) | 32;
-    let b1 = *((p + 1) as &u8) | 32;
+    let b0 = get_attr_key_byte(0) | 32;
+    let b1 = get_attr_key_byte(1) | 32;
     return b0 == 105 && b1 == 100; // 'id'
 }
 
-fn is_attr_class(html_ptr: u64, start: u32, len: u32) -> bool {
+fn is_attr_class(len: u32) -> bool {
     if len != 5 { return false; }
-    let p = html_ptr + (start as u64);
-    let b0 = *((p) as &u8) | 32;
-    let b1 = *((p + 1) as &u8) | 32;
-    let b2 = *((p + 2) as &u8) | 32;
-    let b3 = *((p + 3) as &u8) | 32;
-    let b4 = *((p + 4) as &u8) | 32;
+    let b0 = get_attr_key_byte(0) | 32;
+    let b1 = get_attr_key_byte(1) | 32;
+    let b2 = get_attr_key_byte(2) | 32;
+    let b3 = get_attr_key_byte(3) | 32;
+    let b4 = get_attr_key_byte(4) | 32;
     return b0 == 99 && b1 == 108 && b2 == 97 && b3 == 115 && b4 == 115; // 'class'
 }
 
-fn is_attr_src(html_ptr: u64, start: u32, len: u32) -> bool {
+fn is_attr_style(len: u32) -> bool {
+    if len != 5 { return false; }
+    let b0 = get_attr_key_byte(0) | 32;
+    let b1 = get_attr_key_byte(1) | 32;
+    let b2 = get_attr_key_byte(2) | 32;
+    let b3 = get_attr_key_byte(3) | 32;
+    let b4 = get_attr_key_byte(4) | 32;
+    // s(115), t(116), y(121), l(108), e(101)
+    return b0 == 115 && b1 == 116 && b2 == 121 && b3 == 108 && b4 == 101;
+}
+
+fn is_attr_src(len: u32) -> bool {
     if len != 3 { return false; }
-    let p = html_ptr + (start as u64);
-    let b0 = *((p) as &u8) | 32;
-    let b1 = *((p + 1) as &u8) | 32;
-    let b2 = *((p + 2) as &u8) | 32;
+    let b0 = get_attr_key_byte(0) | 32;
+    let b1 = get_attr_key_byte(1) | 32;
+    let b2 = get_attr_key_byte(2) | 32;
     return b0 == 115 && b1 == 114 && b2 == 99; // 'src'
 }
 
-fn is_match_bgcolor(html_ptr: u64, start: u32, len: u32) -> bool {
-    if len != 7 { return false; }
-    let p = html_ptr + (start as u64);
-    let b0 = *((p) as &u8) | 32;
-    let b1 = *((p + 1) as &u8) | 32;
-    let b2 = *((p + 2) as &u8) | 32;
-    let b3 = *((p + 3) as &u8) | 32;
-    let b4 = *((p + 4) as &u8) | 32;
-    let b5 = *((p + 5) as &u8) | 32;
-    let b6 = *((p + 6) as &u8) | 32;
+fn is_match_bgcolor(len: u32) -> bool {
+    if len == 0 { return false; }
+    let b0 = get_attr_key_byte(0) | 32;
+    let b1 = get_tag_byte((1) as u32) | 32;
+    let b2 = get_tag_byte((2) as u32) | 32;
+    let b3 = get_tag_byte((3) as u32) | 32;
+    let b4 = get_tag_byte((4) as u32) | 32;
+    let b5 = get_tag_byte((5) as u32) | 32;
+    let b6 = get_tag_byte((6) as u32) | 32;
     return b0 == 98 && b1 == 103 && b2 == 99 && b3 == 111 && b4 == 108 && b5 == 111 && b6 == 114; // 'bgcolor'
 }
 
-fn is_match_color(html_ptr: u64, start: u32, len: u32) -> bool {
-    if len != 5 { return false; }
-    let p = html_ptr + (start as u64);
-    let b0 = *((p) as &u8) | 32;
-    let b1 = *((p + 1) as &u8) | 32;
-    let b2 = *((p + 2) as &u8) | 32;
-    let b3 = *((p + 3) as &u8) | 32;
-    let b4 = *((p + 4) as &u8) | 32;
+fn is_match_color(len: u32) -> bool {
+    if len == 0 { return false; }
+    let b0 = get_attr_key_byte(0) | 32;
+    let b1 = get_tag_byte((1) as u32) | 32;
+    let b2 = get_tag_byte((2) as u32) | 32;
+    let b3 = get_tag_byte((3) as u32) | 32;
+    let b4 = get_tag_byte((4) as u32) | 32;
     return b0 == 99 && b1 == 111 && b2 == 108 && b3 == 111 && b4 == 114; // 'color'
 }
 
-fn is_match_align(html_ptr: u64, start: u32, len: u32) -> bool {
-    if len != 5 { return false; }
-    let p = html_ptr + (start as u64);
-    let b0 = *((p) as &u8) | 32;
-    let b1 = *((p + 1) as &u8) | 32;
-    let b2 = *((p + 2) as &u8) | 32;
-    let b3 = *((p + 3) as &u8) | 32;
-    let b4 = *((p + 4) as &u8) | 32;
+fn is_match_align(len: u32) -> bool {
+    if len == 0 { return false; }
+    let b0 = get_attr_key_byte(0) | 32;
+    let b1 = get_tag_byte((1) as u32) | 32;
+    let b2 = get_tag_byte((2) as u32) | 32;
+    let b3 = get_tag_byte((3) as u32) | 32;
+    let b4 = get_tag_byte((4) as u32) | 32;
     return b0 == 97 && b1 == 108 && b2 == 105 && b3 == 103 && b4 == 110; // 'align'
 }
 
-fn is_match_right(html_ptr: u64, start: u32, len: u32) -> bool {
-    if len != 5 { return false; }
-    let p = html_ptr + (start as u64);
-    let b0 = *((p) as &u8) | 32;
-    let b1 = *((p + 1) as &u8) | 32;
-    let b2 = *((p + 2) as &u8) | 32;
-    let b3 = *((p + 3) as &u8) | 32;
-    let b4 = *((p + 4) as &u8) | 32;
+fn is_match_right(len: u32) -> bool {
+    if len == 0 { return false; }
+    let b0 = get_attr_val_byte(0) | 32;
+    let b1 = get_tag_byte((1) as u32) | 32;
+    let b2 = get_tag_byte((2) as u32) | 32;
+    let b3 = get_tag_byte((3) as u32) | 32;
+    let b4 = get_tag_byte((4) as u32) | 32;
     return b0 == 114 && b1 == 105 && b2 == 103 && b3 == 104 && b4 == 116; // 'right'
 }
 
-fn is_match_width(html_ptr: u64, start: u32, len: u32) -> bool {
-    if len != 5 { return false; }
-    let p = html_ptr + (start as u64);
-    let b0 = *((p) as &u8) | 32;
-    let b1 = *((p + 1) as &u8) | 32;
-    let b2 = *((p + 2) as &u8) | 32;
-    let b3 = *((p + 3) as &u8) | 32;
-    let b4 = *((p + 4) as &u8) | 32;
+fn is_match_width(len: u32) -> bool {
+    if len == 0 { return false; }
+    let b0 = get_attr_key_byte(0) | 32;
+    let b1 = get_tag_byte((1) as u32) | 32;
+    let b2 = get_tag_byte((2) as u32) | 32;
+    let b3 = get_tag_byte((3) as u32) | 32;
+    let b4 = get_tag_byte((4) as u32) | 32;
     return b0 == 119 && b1 == 105 && b2 == 100 && b3 == 116 && b4 == 104; // 'width'
 }
 
-fn is_match_height(html_ptr: u64, start: u32, len: u32) -> bool {
+fn is_match_height(len: u32) -> bool {
     if len != 6 { return false; }
-    let p = html_ptr + (start as u64);
-    let b0 = *((p) as &u8) | 32;
-    let b1 = *((p + 1) as &u8) | 32;
-    let b2 = *((p + 2) as &u8) | 32;
-    let b3 = *((p + 3) as &u8) | 32;
-    let b4 = *((p + 4) as &u8) | 32;
-    let b5 = *((p + 5) as &u8) | 32;
-    return b0 == 104 && b1 == 101 && b2 == 105 && b3 == 103 && b4 == 104 && b5 == 116; // 'height'
+    if get_attr_key_byte(0)|32 != 104 { return false; } if get_attr_key_byte(1)|32 != 101 { return false; }
+    if get_attr_key_byte(2)|32 != 105 { return false; } if get_attr_key_byte(3)|32 != 103 { return false; }
+    if get_attr_key_byte(4)|32 != 104 { return false; } if get_attr_key_byte(5)|32 != 116 { return false; }
+    return true;
 }
 
-fn parse_positive_int(ptr: u64, len: u32) -> i32 {
+fn is_match_style(len: u32) -> bool {
+    if len != 5 { return false; }
+    if get_attr_key_byte(0)|32 != 115 { return false; } if get_attr_key_byte(1)|32 != 116 { return false; }
+    if get_attr_key_byte(2)|32 != 121 { return false; } if get_attr_key_byte(3)|32 != 108 { return false; }
+    if get_attr_key_byte(4)|32 != 101 { return false; }
+    return true;
+}
+
+fn parse_positive_int(len: u32) -> i32 {
     let mut val: u32 = 0;
     let mut i: u32 = 0;
     let mut found = false;
     while i < len {
-        let b = *((ptr + i as u64) as &u8);
+        let b = get_attr_val_byte(((i as u64)) as u32);
         if b >= 48 && b <= 57 { // '0' to '9'
             val = (val * 10) + ((b - 48) as u32);
             found = true;
@@ -322,342 +369,408 @@ fn parse_positive_int(ptr: u64, len: u32) -> i32 {
 //   7 = CLOSE_TAG  — inside </tag>, reading tag name to skip
 //   8 = CLOSE_SKIP — skipping until '>' in close tag
 
-@no_mangle
-pub fn lex_html(html_ptr: u64, max_len: u32, root_id: u64, can_execute: u8) {
+
+pub fn lex_html(html_ptr: u64, chunk_len: u32, root_id: u64, can_execute: u8) {
+    
+    let p_tag = get_tag_buf_ptr();
+    let p_akey = get_akey_buf_ptr();
+    let p_aval = get_aval_buf_ptr();
+    let p_txt = get_txt_buf_ptr();
+
+    if LEX_INITIALIZED == 0 {
+        LEX_CURRENT_PARENT = root_id;
+        LEX_INITIALIZED = 1;
+    }
+    
     let mut i: u32 = 0;
-    let mut state: u32 = 0;
-    
-    let mut tag_start: u32 = 0;
-    let mut tag_len: u32 = 0;
-    let mut text_start: u32 = 0;
-    let mut text_len: u32 = 0;
-    
-    let mut attr_key_start: u32 = 0;
-    let mut attr_key_len: u32 = 0;
-    let mut attr_val_start: u32 = 0;
-    let mut attr_val_len: u32 = 0;
-    
-    let mut current_parent = root_id;
-    let mut current_node: u64 = 0;
-    let mut current_tag: i32 = 0;
-    let mut is_self_closing = false;
-    let mut quote_char: u8 = 0; // Track which quote opened the attr value
-    
-    while i < max_len {
+    while i < chunk_len {
         let b = *((html_ptr + i as u64) as &u8);
         
-        if state == 0 { // DATA
+        if LEX_STATE == 0 { // DATA
             if b == 60 { // '<'
                 let mut is_closing_raw = false;
-                if current_tag == 99 || current_tag == 98 {
-                    // Epic 76: RAW_TEXT mode! If inside <script> or <style>, 
-                    // ONLY allow '<' to open a tag if it's followed by '/'
-                    if i + 1 < max_len {
-                        let next_b = *((html_ptr + (i + 1) as u64) as &u8);
-                        if next_b == 47 { // '/'
-                            is_closing_raw = true;
-                        }
-                    }
-                } else {
-                    is_closing_raw = true; // Not raw text, allow child tags
-                }
-                
-                if is_closing_raw {
-                    if text_len > 0 {
-                        let txt = create_text_node(html_ptr + text_start as u64, text_len);
-                        js_set_node_executable(txt, can_execute);
-                        append_child(current_parent, txt);
-                        text_len = 0;
-                    }
-                    state = 1;
-                } else {
-                    // Inside script/style, treat '<' as raw DATA byte
-                    if text_len == 0 { text_start = i; }
-                    text_len = text_len + 1;
-                }
-            } else {
-                if text_len == 0 { text_start = i; }
-                text_len = text_len + 1;
-            }
-        } else if state == 1 { // TAG_OPEN
-            if b == 47 { // '/' (closing tag)
-                state = 7; // CLOSE_TAG
-                tag_start = i + 1;
-                tag_len = 0;
-            } else if b == 33 { // '!' — DOCTYPE or comment → skip to '>'
-                // Consume everything until we see '>'
-                i = i + 1;
-                while i < max_len {
-                    if *((html_ptr + i as u64) as &u8) == 62 { // '>'
-                        break;
-                    }
-                    i = i + 1;
-                }
-                state = 0; // Return to DATA — no node created, no parent pushed
-            } else {
-                tag_start = i;
-                tag_len = 1;
-                state = 2; // TAG_NAME
-            }
-        } else if state == 2 { // TAG_NAME
-            if b == 62 || b == 32 || b == 47 { // '>' or space or '/'
-                let tag = match_tag(html_ptr, tag_start, tag_len);
-                current_tag = tag;
-                let is_void = is_void_tag_name(html_ptr, tag_start, tag_len);
-                is_self_closing = (b == 47);
-                current_node = create_node(tag);
-                if tag == 96 {
-                    let hash = fnv1a_hash_bytes(html_ptr, tag_start, tag_len);
-                    let node_idx = resolve_node(current_node);
-                    if node_idx != 0xFFFFFFFF {
-                        dom_set_custom_tag(node_idx, hash, html_ptr + tag_start as u64, tag_len);
-                    }
-                }
-                js_set_node_executable(current_node, can_execute);
-                append_child(current_parent, current_node);
-                
-                if b == 62 {
-                    // Only push as parent if NOT a void element
-                    if !is_void && !is_self_closing {
-                        current_parent = current_node;
-                    }
-                    state = 0;
-                } else if b == 47 {
-                    // Self-closing tag start, wait for '>'
-                    is_self_closing = true;
-                    state = 3; // go to ATTR_SPACE to find the '>'
-                } else {
-                    state = 3; // ATTR_SPACE
-                }
-            } else {
-                tag_len = tag_len + 1;
-            }
-        } else if state == 3 { // ATTR_SPACE — whitespace between attributes
-            if b == 62 { // '>'
-                let is_void = is_void_tag_name(html_ptr, tag_start, tag_len);
-                if !is_void && !is_self_closing {
-                    current_parent = current_node;
-                }
-                is_self_closing = false;
-                state = 0;
-            } else if b == 47 { // '/' — self-closing like <br/> or <tr .../>
-                is_self_closing = true;
-            } else if b != 32 && b != 9 && b != 10 && b != 13 { // not whitespace
-                attr_key_start = i;
-                attr_key_len = 1;
-                state = 4; // ATTR_NAME
-            }
-        } else if state == 4 { // ATTR_NAME
-            if b == 61 { // '='
-                state = 5; // ATTR_EQ
-            } else if b == 32 || b == 62 || b == 47 { // space or '>' or '/'
-                // Boolean attribute (no value)
-                bind_attribute(
-                    current_node,
-                    html_ptr + attr_key_start as u64, attr_key_len,
-                    0, 0
-                );
-                if b == 62 {
-                    let is_void = is_void_tag_name(html_ptr, tag_start, tag_len);
-                    if !is_void && !is_self_closing {
-                        current_parent = current_node;
-                    }
-                    is_self_closing = false;
-                    state = 0;
-                } else if b == 47 {
-                    is_self_closing = true;
-                    state = 3;
-                } else {
-                    state = 3;
-                }
-            } else {
-                attr_key_len = attr_key_len + 1;
-            }
-        } else if state == 5 { // ATTR_EQ — expecting opening quote or unquoted value
-            if b == 34 || b == 39 { // '"' or '\''
-                quote_char = b; // Remember which quote opened
-                attr_val_start = i + 1;
-                attr_val_len = 0;
-                state = 6; // ATTR_VAL
-            } else if b == 62 { // '>' before any value — malformed, bailout
-                let is_void = is_void_tag_name(html_ptr, tag_start, tag_len);
-                if !is_void && !is_self_closing {
-                    current_parent = current_node;
-                }
-                is_self_closing = false;
-                state = 0;
-            } else if b != 32 && b != 9 && b != 10 && b != 13 { // Unquoted attr value
-                attr_val_start = i;
-                attr_val_len = 1;
-                quote_char = 0; // No quote — terminate on space or >
-                state = 6;
-            }
-        } else if state == 6 { // ATTR_VAL — inside (quoted or unquoted) value
-            let is_close = if quote_char != 0 { b == quote_char } else { b == 32 || b == 62 || b == 9 || b == 10 || b == 13 };
-            if is_close {
-                // Emit attribute
-                bind_attribute(
-                    current_node,
-                    html_ptr + attr_key_start as u64, attr_key_len,
-                    html_ptr + attr_val_start as u64, attr_val_len
-                );
-                // Special handling: if key is "id", also call js_set_id
-                if is_attr_id(html_ptr, attr_key_start, attr_key_len) {
-                    js_set_id(current_node, html_ptr + attr_val_start as u64, attr_val_len);
-                }
-                // Special handling: if key is "class", also call js_set_class
-                if is_attr_class(html_ptr, attr_key_start, attr_key_len) {
-                    js_set_class(current_node, html_ptr + attr_val_start as u64, attr_val_len);
-                }
-                // Epic 61: If key is "src" on a <script>, track the external URL
-                if is_attr_src(html_ptr, attr_key_start, attr_key_len) {
-                    if current_tag == 99 { // TAG_SCRIPT
-                        let src_node_idx = resolve_node(current_node);
-                        if src_node_idx != 0xFFFFFFFF {
-                            // Store src pointer into the DOM SoA arrays
-                            dom_set_script_src(src_node_idx, html_ptr + attr_val_start as u64, attr_val_len);
-                        }
-                    }
-                    // Epic 69: If key is "src" on an <iframe>, track the URL in iframe SoA
-                    if current_tag == 26 { // TAG_IFRAME
-                        let ifr_node_idx = resolve_node(current_node);
-                        if ifr_node_idx != 0xFFFFFFFF {
-                            let ifr_slot = dom_register_iframe(ifr_node_idx);
-                            if ifr_slot != 0xFFFFFFFF {
-                                dom_set_iframe_src(ifr_slot, html_ptr + attr_val_start as u64, attr_val_len);
+                if LEX_CURRENT_TAG == 99 { // Inside <script>
+                    // W3C HTML5 Script Data FSM (§8.2.4.6-§8.2.4.29)
+                    // Only close when in base SCRIPT_DATA state (0) AND
+                    // lookahead confirms case-insensitive </script> match.
+                    if LEX_SCRIPT_STATE == 0 {
+                        // State 0: SCRIPT_DATA — check for </script> to close
+                        let remaining = chunk_len - i;
+                        if remaining >= 9 {
+                            let c1 = *((html_ptr + (i + 1) as u64) as &u8);
+                            let c2 = *((html_ptr + (i + 2) as u64) as &u8) | 32;
+                            let c3 = *((html_ptr + (i + 3) as u64) as &u8) | 32;
+                            let c4 = *((html_ptr + (i + 4) as u64) as &u8) | 32;
+                            let c5 = *((html_ptr + (i + 5) as u64) as &u8) | 32;
+                            let c6 = *((html_ptr + (i + 6) as u64) as &u8) | 32;
+                            let c7 = *((html_ptr + (i + 7) as u64) as &u8) | 32;
+                            let c8 = *((html_ptr + (i + 8) as u64) as &u8);
+                            if c1 == 47 && c2 == 115 && c3 == 99 && c4 == 114 && c5 == 105 && c6 == 112 && c7 == 116 {
+                                if c8 == 62 || c8 == 32 || c8 == 9 || c8 == 10 || c8 == 13 {
+                                    is_closing_raw = true;
+                                }
                             }
                         }
-                    }
-                    // Epic 80: Image Resource Fetch Pipeline
-                    if current_tag == 8 { // TAG_IMG
-                        let img_node_idx = resolve_node(current_node);
-                        if img_node_idx != 0xFFFFFFFF {
-                            let img_fetch_id = queue_image_fetch(img_node_idx);
-                            if img_fetch_id != 0 {
-                                let mut img_bit: u64 = 1;
-                                img_bit = img_bit << 59;
-                                let multiplexed_id = img_bit | img_fetch_id;
-                                sys_ipc_send_r2m_command_with_payload(
-                                    12 /* CMD_FETCH_REQUEST */,
-                                    multiplexed_id,
-                                    html_ptr + attr_val_start as u64,
-                                    attr_val_len);
+                        // Also check for <!-- to enter escaped state
+                        if !is_closing_raw {
+                            if remaining >= 4 {
+                                let la1 = *((html_ptr + (i + 1) as u64) as &u8);
+                                let la2 = *((html_ptr + (i + 2) as u64) as &u8);
+                                let la3 = *((html_ptr + (i + 3) as u64) as &u8);
+                                if la1 == 33 && la2 == 45 && la3 == 45 {
+                                    LEX_SCRIPT_STATE = 1;
+                                }
                             }
                         }
-                    }
-                }
-                
-                // Legacy HTML Attributes mapping at Specificity 0
-                if is_match_bgcolor(html_ptr, attr_key_start, attr_key_len) {
-                    let mut hex_start = html_ptr + attr_val_start as u64;
-                    if *((hex_start) as &u8) == 35 { hex_start = hex_start + 1; } // Skip '#'
-                    let mut r: u8 = 0; let mut g: u8 = 0; let mut b: u8 = 0;
-                    parse_hex_to_rgb(hex_start, &mut r, &mut g, &mut b);
-                    let bg_idx = resolve_node(current_node);
-                    dom_set_style_bg(bg_idx, r, g, b);
-                    dom_set_spec_bg(bg_idx, 0); // Tier 0
-                } else if is_match_color(html_ptr, attr_key_start, attr_key_len) {
-                    let mut hex_start = html_ptr + attr_val_start as u64;
-                    if *((hex_start) as &u8) == 35 { hex_start = hex_start + 1; } // Skip '#'
-                    let mut r: u8 = 0; let mut g: u8 = 0; let mut b: u8 = 0;
-                    parse_hex_to_rgb(hex_start, &mut r, &mut g, &mut b);
-                    let color_idx = resolve_node(current_node);
-                    dom_set_style_color(color_idx, r, g, b);
-                    dom_set_spec_color(color_idx, 0); // Tier 0
-                } else if is_match_align(html_ptr, attr_key_start, attr_key_len) {
-                    if is_match_right(html_ptr, attr_val_start, attr_val_len) {
-                        let align_idx = resolve_node(current_node);
-                        dom_set_style_text_align(align_idx, 1);
-                        dom_set_spec_text_align(align_idx, 0);
-                    }
-                } else if is_match_width(html_ptr, attr_key_start, attr_key_len) {
-                    let mut unit: u8 = 0; // UNIT_PX
-                    let mut parse_len = attr_val_len;
-                    if attr_val_len > 0 {
-                        let last_byte_ptr = html_ptr + (attr_val_start + attr_val_len - 1) as u64;
-                        if *((last_byte_ptr) as &u8) == 37 {
-                            unit = 1; // UNIT_PERCENT
-                            parse_len = parse_len - 1;
+                    } else if LEX_SCRIPT_STATE == 1 {
+                        // State 1: SCRIPT_DATA_ESCAPED — inside <!--
+                        // Check for <script to enter double-escaped
+                        let remaining = chunk_len - i;
+                        if remaining >= 8 {
+                            let la1 = *((html_ptr + (i + 1) as u64) as &u8) | 32;
+                            let la2 = *((html_ptr + (i + 2) as u64) as &u8) | 32;
+                            let la3 = *((html_ptr + (i + 3) as u64) as &u8) | 32;
+                            let la4 = *((html_ptr + (i + 4) as u64) as &u8) | 32;
+                            let la5 = *((html_ptr + (i + 5) as u64) as &u8) | 32;
+                            let la6 = *((html_ptr + (i + 6) as u64) as &u8) | 32;
+                            let la7 = *((html_ptr + (i + 7) as u64) as &u8);
+                            if la1 == 115 && la2 == 99 && la3 == 114 && la4 == 105 && la5 == 112 && la6 == 116 {
+                                if la7 == 62 || la7 == 32 || la7 == 9 || la7 == 10 || la7 == 13 {
+                                    LEX_SCRIPT_STATE = 2;
+                                }
+                            }
                         }
-                    }
-                    let parsed_val = parse_positive_int(html_ptr + attr_val_start as u64, parse_len);
-                    if parsed_val > 0 {
-                        let w_idx = resolve_node(current_node);
-                        dom_set_style_width(w_idx, parsed_val);
-                        dom_set_style_w_unit(w_idx, unit);
-                        dom_set_spec_width(w_idx, 0);
-                    }
-                } else if is_match_height(html_ptr, attr_key_start, attr_key_len) {
-                    let mut unit: u8 = 0; // UNIT_PX
-                    let mut parse_len = attr_val_len;
-                    if attr_val_len > 0 {
-                        let last_byte_ptr = html_ptr + (attr_val_start + attr_val_len - 1) as u64;
-                        if *((last_byte_ptr) as &u8) == 37 {
-                            unit = 1; // UNIT_PERCENT
-                            parse_len = parse_len - 1;
+                        // Check for </script> to leave escaped back to base
+                        if remaining >= 9 {
+                            let la1 = *((html_ptr + (i + 1) as u64) as &u8);
+                            let la2 = *((html_ptr + (i + 2) as u64) as &u8) | 32;
+                            let la3 = *((html_ptr + (i + 3) as u64) as &u8) | 32;
+                            let la4 = *((html_ptr + (i + 4) as u64) as &u8) | 32;
+                            let la5 = *((html_ptr + (i + 5) as u64) as &u8) | 32;
+                            let la6 = *((html_ptr + (i + 6) as u64) as &u8) | 32;
+                            let la7 = *((html_ptr + (i + 7) as u64) as &u8) | 32;
+                            let la8 = *((html_ptr + (i + 8) as u64) as &u8);
+                            if la1 == 47 && la2 == 115 && la3 == 99 && la4 == 114 && la5 == 105 && la6 == 112 && la7 == 116 {
+                                if la8 == 62 || la8 == 32 || la8 == 9 || la8 == 10 || la8 == 13 {
+                                    LEX_SCRIPT_STATE = 0;
+                                }
+                            }
                         }
-                    }
-                    let parsed_val = parse_positive_int(html_ptr + attr_val_start as u64, parse_len);
-                    if parsed_val > 0 {
-                        let h_idx = resolve_node(current_node);
-                        dom_set_style_height(h_idx, parsed_val);
-                        dom_set_style_h_unit(h_idx, unit);
-                        dom_set_spec_height(h_idx, 0);
-                    }
-                }
-                
-
-                // If unquoted value closed by '>', also close the tag
-                if quote_char == 0 && b == 62 {
-                    let is_void = is_void_tag_name(html_ptr, tag_start, tag_len);
-                    if !is_void && !is_self_closing {
-                        current_parent = current_node;
-                    }
-                    is_self_closing = false;
-                    state = 0;
-                } else {
-                    state = 3; // back to ATTR_SPACE
-                }
-            } else {
-                attr_val_len = attr_val_len + 1;
-            }
-        } else if state == 7 { // CLOSE_TAG — accumulating close tag name
-            if b == 62 { // '>'
-                let tag = match_tag(html_ptr, tag_start, tag_len);
-                if tag == 99 && can_execute == 1 { // SCRIPT
-                    let script_node_idx = resolve_node(current_parent);
-                    let ext_src_ptr = dom_get_script_src_ptr(script_node_idx);
-                    let ext_src_len = dom_get_script_src_len(script_node_idx);
-                    
-                    if ext_src_ptr != 0 && ext_src_len > 0 {
-                        // Epic 61: External <script src="..."> — queue and dispatch
-                        let fetch_id = queue_script_fetch(ext_src_ptr, ext_src_len);
-                        if fetch_id != 0 {
-                            // Multiplex: set bit 60 to mark this as a script fetch
-                            let mut script_bit: u64 = 1;
-                            script_bit = script_bit << 60;
-                            let multiplexed_id = script_bit | fetch_id;
-                            sys_ipc_send_r2m_command_with_payload(12 /* CMD_FETCH_REQUEST */, multiplexed_id, ext_src_ptr, ext_src_len);
-                        }
-                    } else {
-                        // Inline <script> — existing path
-                        let c_id = dom_get_first_child(resolve_node(current_parent));
-                        if c_id != 0 {
-                            let c_idx = resolve_node(c_id);
-                            if c_idx != 0xFFFFFFFF {
-                                let text_ptr = dom_get_text_ptr(c_idx);
-                                let ptr_len = dom_get_text_len(c_idx);
-                                if ptr_len > 0 {
-                                    js_queue_script(text_ptr, ptr_len);
+                    } else if LEX_SCRIPT_STATE == 2 {
+                        // State 2: SCRIPT_DATA_DOUBLE_ESCAPED — inside <script inside <!--
+                        // Check for </script> to return to escaped
+                        let remaining = chunk_len - i;
+                        if remaining >= 9 {
+                            let la1 = *((html_ptr + (i + 1) as u64) as &u8);
+                            let la2 = *((html_ptr + (i + 2) as u64) as &u8) | 32;
+                            let la3 = *((html_ptr + (i + 3) as u64) as &u8) | 32;
+                            let la4 = *((html_ptr + (i + 4) as u64) as &u8) | 32;
+                            let la5 = *((html_ptr + (i + 5) as u64) as &u8) | 32;
+                            let la6 = *((html_ptr + (i + 6) as u64) as &u8) | 32;
+                            let la7 = *((html_ptr + (i + 7) as u64) as &u8) | 32;
+                            let la8 = *((html_ptr + (i + 8) as u64) as &u8);
+                            if la1 == 47 && la2 == 115 && la3 == 99 && la4 == 114 && la5 == 105 && la6 == 112 && la7 == 116 {
+                                if la8 == 62 || la8 == 32 || la8 == 9 || la8 == 10 || la8 == 13 {
+                                    LEX_SCRIPT_STATE = 1;
                                 }
                             }
                         }
                     }
+                } else if LEX_CURRENT_TAG == 98 { // Inside <style>
+                    if i + 1 < chunk_len {
+                        let next_b = *((html_ptr + (i + 1) as u64) as &u8);
+                        if next_b == 47 { is_closing_raw = true; }
+                    }
+                } else {
+                    is_closing_raw = true;
                 }
-                if tag == 98 { // STYLE
-                    let s_id = dom_get_first_child(resolve_node(current_parent));
+                
+                if is_closing_raw {
+                    if LEX_TEXT_LEN > 0 {
+                        if LEX_CURRENT_TAG == 98 {
+                            let style_idx = ext_salt_resolve_node(LEX_CURRENT_NODE);
+                            let scope = dom_get_scope_idx(style_idx);
+                            css_lex_stylesheet(p_txt, LEX_TEXT_LEN, scope);
+                        } else {
+                            let txt = ext_salt_create_text_node(p_txt, LEX_TEXT_LEN);
+                            js_set_node_executable(txt, can_execute);
+                            ext_salt_append_child(LEX_CURRENT_PARENT, txt);
+                        }
+                        LEX_TEXT_LEN = 0;
+                    }
+                    LEX_SCRIPT_STATE = 0;
+                    LEX_DASH_COUNT = 0;
+                    LEX_STATE = 1;
+                } else {
+                    if LEX_TEXT_LEN < 16384 {
+                        *((p_txt + (LEX_TEXT_LEN as u64)) as &mut u8) = b;
+                        LEX_TEXT_LEN = LEX_TEXT_LEN + 1;
+                    }
+                }
+            } else {
+                // Track --> for leaving escaped state (W3C §8.2.4.22)
+                if LEX_CURRENT_TAG == 99 && LEX_SCRIPT_STATE == 1 {
+                    if b == 45 {
+                        LEX_DASH_COUNT = LEX_DASH_COUNT + 1;
+                    } else if b == 62 && LEX_DASH_COUNT >= 2 {
+                        LEX_SCRIPT_STATE = 0;
+                        LEX_DASH_COUNT = 0;
+                    } else {
+                        LEX_DASH_COUNT = 0;
+                    }
+                }
+                if LEX_TEXT_LEN < 16384 {
+                    *((p_txt + (LEX_TEXT_LEN as u64)) as &mut u8) = b;
+                    LEX_TEXT_LEN = LEX_TEXT_LEN + 1;
+                }
+            }
+        } else if LEX_STATE == 1 { // TAG_OPEN
+            if b == 47 { // '/'
+                LEX_STATE = 7; // CLOSE_TAG
+                LEX_TAG_LEN = 0;
+            } else if b == 33 { // '!' comment skip
+                LEX_STATE = 8; // COMMENT_SKIP
+            } else {
+                LEX_TAG_LEN = 0;
+                *((p_tag) as &mut u8) = b;
+                LEX_TAG_LEN = 1;
+                LEX_STATE = 2; // TAG_NAME
+            }
+        } else if LEX_STATE == 8 { // COMMENT_SKIP
+            if b == 62 { LEX_STATE = 0; } // '>'
+        } else if LEX_STATE == 2 { // TAG_NAME
+            if b == 62 || b == 32 || b == 47 {
+                let tag = match_tag(LEX_TAG_LEN);
+                LEX_CURRENT_TAG = tag;
+                let is_void = is_void_tag_name(LEX_TAG_LEN);
+                LEX_IS_SELF_CLOSING = if b == 47 { 1 } else { 0 };
+                LEX_CURRENT_NODE = ext_salt_create_node(tag);
+                
+                if tag == 96 {
+                    let hash = fnv1a_hash_bytes(LEX_TAG_LEN);
+                    let node_idx = ext_salt_resolve_node(LEX_CURRENT_NODE);
+                    if node_idx != 0xFFFFFFFF {
+                        dom_set_custom_tag(node_idx, hash, p_tag, LEX_TAG_LEN);
+                    }
+                }
+                js_set_node_executable(LEX_CURRENT_NODE, can_execute);
+                ext_salt_append_child(LEX_CURRENT_PARENT, LEX_CURRENT_NODE);
+                
+                if b == 62 {
+                    if !is_void && LEX_IS_SELF_CLOSING == 0 {
+                        LEX_CURRENT_PARENT = LEX_CURRENT_NODE;
+                    }
+                    LEX_STATE = 0;
+                } else if b == 47 {
+                    LEX_IS_SELF_CLOSING = 1;
+                    LEX_STATE = 3;
+                } else {
+                    LEX_STATE = 3;
+                }
+            } else {
+                if LEX_TAG_LEN < 128 {
+                    *((p_tag + (LEX_TAG_LEN as u64)) as &mut u8) = b;
+                    LEX_TAG_LEN = LEX_TAG_LEN + 1;
+                }
+            }
+        } else if LEX_STATE == 3 { // ATTR_SPACE
+            if b == 62 {
+                let is_void = is_void_tag_name(LEX_TAG_LEN);
+                if !is_void && LEX_IS_SELF_CLOSING == 0 {
+                    LEX_CURRENT_PARENT = LEX_CURRENT_NODE;
+                }
+                LEX_IS_SELF_CLOSING = 0;
+                LEX_STATE = 0;
+            } else if b == 47 {
+                LEX_IS_SELF_CLOSING = 1;
+            } else if b != 32 && b != 9 && b != 10 && b != 13 {
+                LEX_ATTR_KEY_LEN = 0;
+                *((p_akey) as &mut u8) = b;
+                LEX_ATTR_KEY_LEN = 1;
+                LEX_STATE = 4;
+            }
+        } else if LEX_STATE == 4 { // ATTR_NAME
+            if b == 61 { // '='
+                LEX_STATE = 5; // ATTR_EQ
+            } else if b == 32 || b == 62 || b == 47 {
+                bind_attribute(LEX_CURRENT_NODE, p_akey, LEX_ATTR_KEY_LEN, 0, 0);
+                if b == 62 {
+                    let is_void = is_void_tag_name(LEX_TAG_LEN);
+                    if !is_void && LEX_IS_SELF_CLOSING == 0 {
+                        LEX_CURRENT_PARENT = LEX_CURRENT_NODE;
+                    }
+                    LEX_IS_SELF_CLOSING = 0;
+                    LEX_STATE = 0;
+                } else if b == 47 {
+                    LEX_IS_SELF_CLOSING = 1;
+                    LEX_STATE = 3;
+                } else {
+                    LEX_STATE = 3;
+                }
+            } else {
+                if LEX_ATTR_KEY_LEN < 128 {
+                    *((p_akey + (LEX_ATTR_KEY_LEN as u64)) as &mut u8) = b;
+                    LEX_ATTR_KEY_LEN = LEX_ATTR_KEY_LEN + 1;
+                }
+            }
+        } else if LEX_STATE == 5 { // ATTR_EQ
+            if b == 34 || b == 39 {
+                LEX_QUOTE_CHAR = b;
+                LEX_ATTR_VAL_LEN = 0;
+                LEX_STATE = 6;
+            } else if b == 62 {
+                let is_void = is_void_tag_name(LEX_TAG_LEN);
+                if !is_void && LEX_IS_SELF_CLOSING == 0 {
+                    LEX_CURRENT_PARENT = LEX_CURRENT_NODE;
+                }
+                LEX_IS_SELF_CLOSING = 0;
+                LEX_STATE = 0;
+            } else if b != 32 && b != 9 && b != 10 && b != 13 {
+                LEX_ATTR_VAL_LEN = 0;
+                *((p_aval) as &mut u8) = b;
+                LEX_ATTR_VAL_LEN = 1;
+                LEX_QUOTE_CHAR = 0;
+                LEX_STATE = 6;
+            }
+        } else if LEX_STATE == 6 { // ATTR_VAL
+            let mut is_close = false;
+            if LEX_QUOTE_CHAR != 0 {
+                if b == LEX_QUOTE_CHAR { is_close = true; }
+            } else {
+                if b == 32 || b == 62 || b == 9 || b == 10 || b == 13 { is_close = true; }
+            }
+            
+            if is_close {
+                bind_attribute(LEX_CURRENT_NODE, p_akey, LEX_ATTR_KEY_LEN, p_aval, LEX_ATTR_VAL_LEN);
+                if is_attr_id(LEX_ATTR_KEY_LEN) {
+                    js_set_id(LEX_CURRENT_NODE, p_aval, LEX_ATTR_VAL_LEN);
+                }
+                if is_attr_class(LEX_ATTR_KEY_LEN) {
+                    let class_idx = ext_salt_resolve_node(LEX_CURRENT_NODE);
+                    if class_idx != 0xFFFFFFFF {
+                        js_set_class(LEX_CURRENT_NODE, p_aval, LEX_ATTR_VAL_LEN);
+                        let hash = fnv1a_hash_attr_val(LEX_ATTR_VAL_LEN);
+                        ext_salt_set_node_class_hash(class_idx, hash);
+                    }
+                }
+                if is_attr_style(LEX_ATTR_KEY_LEN) {
+                    let style_idx = ext_salt_resolve_node(LEX_CURRENT_NODE);
+                    if style_idx != 0xFFFFFFFF {
+                        ext_salt_set_inline_style(style_idx, p_aval, LEX_ATTR_VAL_LEN);
+                    }
+                }
+                if is_attr_src(LEX_ATTR_KEY_LEN) {
+                    if LEX_CURRENT_TAG == 99 {
+                        let src_node_idx = ext_salt_resolve_node(LEX_CURRENT_NODE);
+                        if src_node_idx != 0xFFFFFFFF { dom_set_script_src(src_node_idx, p_aval, LEX_ATTR_VAL_LEN); }
+                    }
+                    if LEX_CURRENT_TAG == 26 {
+                        let ifr_node_idx = ext_salt_resolve_node(LEX_CURRENT_NODE);
+                        if ifr_node_idx != 0xFFFFFFFF {
+                            let ifr_slot = dom_register_iframe(ifr_node_idx);
+                            if ifr_slot != 0xFFFFFFFF { dom_set_iframe_src(ifr_slot, p_aval, LEX_ATTR_VAL_LEN); }
+                        }
+                    }
+                    if LEX_CURRENT_TAG == 8 {
+                        let img_node_idx = ext_salt_resolve_node(LEX_CURRENT_NODE);
+                        if img_node_idx != 0xFFFFFFFF {
+                            let img_fetch_id = queue_image_fetch(img_node_idx);
+                            if img_fetch_id != 0 {
+                                let mut img_bit: u64 = 1; img_bit = img_bit << 59;
+                                sys_ipc_send_r2m_command_with_payload(12, img_bit | img_fetch_id, p_aval, LEX_ATTR_VAL_LEN);
+                            }
+                        }
+                    }
+                }
+                
+                if is_match_bgcolor(LEX_ATTR_KEY_LEN) {
+                    let mut hex_start = p_aval;
+                    if get_attr_val_byte(0) == 35 { hex_start = hex_start + 1; }
+                    let mut r: u8 = 0; let mut g: u8 = 0; let mut b_c: u8 = 0;
+                    parse_hex_to_rgb(hex_start, &mut r, &mut g, &mut b_c);
+                    let bg_idx = ext_salt_resolve_node(LEX_CURRENT_NODE);
+                    dom_set_style_bg(bg_idx, r, g, b_c); dom_set_spec_bg(bg_idx, 0);
+                } else if is_match_color(LEX_ATTR_KEY_LEN) {
+                    let mut hex_start = p_aval;
+                    if get_attr_val_byte(0) == 35 { hex_start = hex_start + 1; }
+                    let mut r: u8 = 0; let mut g: u8 = 0; let mut b_c: u8 = 0;
+                    parse_hex_to_rgb(hex_start, &mut r, &mut g, &mut b_c);
+                    let color_idx = ext_salt_resolve_node(LEX_CURRENT_NODE);
+                    dom_set_style_color(color_idx, r, g, b_c); dom_set_spec_color(color_idx, 0);
+                } else if is_match_align(LEX_ATTR_KEY_LEN) {
+                    if is_match_right(LEX_ATTR_VAL_LEN) {
+                        let align_idx = ext_salt_resolve_node(LEX_CURRENT_NODE);
+                        dom_set_style_text_align(align_idx, 1); dom_set_spec_text_align(align_idx, 0);
+                    }
+                } else if is_match_width(LEX_ATTR_KEY_LEN) {
+                    let mut unit: u8 = 0; let mut parse_len = LEX_ATTR_VAL_LEN;
+                    if LEX_ATTR_VAL_LEN > 0 {
+                        if *( (p_aval + ((LEX_ATTR_VAL_LEN - 1) as u64)) as &u8 ) == 37 { unit = 1; parse_len = parse_len - 1; }
+                    }
+                    let parsed_val = parse_positive_int(parse_len);
+                    if parsed_val > 0 {
+                        let w_idx = ext_salt_resolve_node(LEX_CURRENT_NODE);
+                        dom_set_style_width(w_idx, parsed_val); dom_set_style_w_unit(w_idx, unit); dom_set_spec_width(w_idx, 0);
+                    }
+                } else if is_match_height(LEX_ATTR_KEY_LEN) {
+                    let mut unit: u8 = 0; let mut parse_len = LEX_ATTR_VAL_LEN;
+                    if LEX_ATTR_VAL_LEN > 0 {
+                        if *( (p_aval + ((LEX_ATTR_VAL_LEN - 1) as u64)) as &u8 ) == 37 { unit = 1; parse_len = parse_len - 1; }
+                    }
+                    let parsed_val = parse_positive_int(parse_len);
+                    if parsed_val > 0 {
+                        let h_idx = ext_salt_resolve_node(LEX_CURRENT_NODE);
+                        dom_set_style_height(h_idx, parsed_val); dom_set_style_h_unit(h_idx, unit); dom_set_spec_height(h_idx, 0);
+                    }
+                } else if is_match_style(LEX_ATTR_KEY_LEN) {
+                    let style_idx = ext_salt_resolve_node(LEX_CURRENT_NODE);
+                    if style_idx != 0xFFFFFFFF && LEX_ATTR_VAL_LEN > 0 {
+                        css_lex_inline_style(style_idx, p_aval, LEX_ATTR_VAL_LEN);
+                    }
+                }
+                
+                if LEX_QUOTE_CHAR == 0 && b == 62 {
+                    let is_void = is_void_tag_name(LEX_TAG_LEN);
+                    if !is_void && LEX_IS_SELF_CLOSING == 0 { LEX_CURRENT_PARENT = LEX_CURRENT_NODE; }
+                    LEX_IS_SELF_CLOSING = 0; LEX_STATE = 0;
+                } else {
+                    LEX_STATE = 3;
+                }
+            } else {
+                if LEX_ATTR_VAL_LEN < 4096 {
+                    *((p_aval + (LEX_ATTR_VAL_LEN as u64)) as &mut u8) = b;
+                    LEX_ATTR_VAL_LEN = LEX_ATTR_VAL_LEN + 1;
+                }
+            }
+        } else if LEX_STATE == 7 { // CLOSE_TAG
+            if b == 62 {
+                let tag = match_tag(LEX_TAG_LEN);
+                if tag == 99 && can_execute == 1 {
+                    let script_node_idx = ext_salt_resolve_node(LEX_CURRENT_PARENT);
+                    let ext_src_ptr = dom_get_script_src_ptr(script_node_idx);
+                    let ext_src_len = dom_get_script_src_len(script_node_idx);
+                    if ext_src_ptr != 0 && ext_src_len > 0 {
+                        let fetch_id = queue_script_fetch(ext_src_ptr, ext_src_len);
+                        if fetch_id != 0 {
+                            let mut script_bit: u64 = 1; script_bit = script_bit << 60;
+                            sys_ipc_send_r2m_command_with_payload(12, script_bit | fetch_id, ext_src_ptr, ext_src_len);
+                        }
+                    } else {
+                        let c_id = dom_get_first_child(ext_salt_resolve_node(LEX_CURRENT_PARENT));
+                        if c_id != 0 {
+                            let c_idx = ext_salt_resolve_node(c_id);
+                            if c_idx != 0xFFFFFFFF {
+                                let text_ptr = dom_get_text_ptr(c_idx);
+                                let ptr_len = dom_get_text_len(c_idx);
+                                if ptr_len > 0 { js_queue_script(text_ptr, ptr_len); }
+                            }
+                        }
+                    }
+                }
+                if tag == 98 {
+                    let s_id = dom_get_first_child(ext_salt_resolve_node(LEX_CURRENT_PARENT));
                     if s_id != 0 {
-                        let s_idx = resolve_node(s_id);
+                        let s_idx = ext_salt_resolve_node(s_id);
                         if s_idx != 0xFFFFFFFF {
                             let text_ptr = dom_get_text_ptr(s_idx);
                             let ptr_len = dom_get_text_len(s_idx);
@@ -668,78 +781,46 @@ pub fn lex_html(html_ptr: u64, max_len: u32, root_id: u64, can_execute: u8) {
                         }
                     }
                 }
-                // Epic 69: On </iframe>, emit CMD_SPAWN_IFRAME to Main Process
-                if tag == 26 { // TAG_IFRAME
-                    let ifr_node_idx = resolve_node(current_parent);
+                if tag == 26 {
+                    let ifr_node_idx = ext_salt_resolve_node(LEX_CURRENT_PARENT);
                     if ifr_node_idx != 0xFFFFFFFF {
-                        // Find the iframe slot for this node
-                        let mut ifr_slot: u32 = 0xFFFFFFFF;
-                        let mut ifr_s: u32 = 0;
-                        while ifr_s < 256 {
-                            // Linear scan — 256 slots is trivial
-                            ifr_s = ifr_s + 1;
-                        }
-                        // Use node_idx as arg1 so Main Process can route the surface back
-                        // Payload = iframe src URL bytes
-                        // We need to find which slot has this node — walk DOM_IFRAME_NODE_ID
-                        ifr_s = 0;
-                        while ifr_s < 256 {
-                            // Extern arrays not accessible here, use dom_get_iframe_src approach
-                            ifr_s = ifr_s + 1;
-                        }
-                        // Simplified: emit CMD_SPAWN_IFRAME=4 with node_idx
-                        // The src URL was already stored by dom_set_iframe_src, main process reads it
                         sys_ipc_send_r2m_command_with_payload(4, ifr_node_idx as u64, 0, 0);
                     }
                 }
                 
-                // Pop parent: unwinding stack for implicit close
-                let mut target_parent = current_parent;
+                let mut target_parent = LEX_CURRENT_PARENT;
                 let mut found = false;
                 while target_parent != 0 && target_parent != root_id {
-                    let tp_idx = resolve_node(target_parent);
+                    let tp_idx = ext_salt_resolve_node(target_parent);
                     if tp_idx == 0xFFFFFFFF { break; }
                     let tp_tag = dom_get_tag(tp_idx);
-                    let target_tag: u32 = tag as u32;
-                    if tp_tag == target_tag {
-                        found = true;
-                        break;
-                    }
+                    if tp_tag == (tag as u32) { found = true; break; }
                     target_parent = js_dom_get_parent(target_parent);
                 }
-                
                 if found {
-                    // Match found! Unwind.
-                    current_parent = js_dom_get_parent(target_parent);
-                    if current_parent == 0 { current_parent = root_id; }
+                    LEX_CURRENT_PARENT = js_dom_get_parent(target_parent);
+                    if LEX_CURRENT_PARENT == 0 { LEX_CURRENT_PARENT = root_id; }
                 }
                 
-                // CRITICAL: Reset current_tag to exit RAW_TEXT mode.
-                // Without this, closing </script> leaves current_tag=99,
-                // causing all subsequent '<' chars to be treated as raw text.
-                current_tag = 0;
-                state = 0;
+                LEX_CURRENT_TAG = 0;
+                LEX_STATE = 0;
             } else {
-                tag_len = tag_len + 1;
+                if LEX_TAG_LEN < 128 {
+                    *((p_tag + (LEX_TAG_LEN as u64)) as &mut u8) = b;
+                    LEX_TAG_LEN = LEX_TAG_LEN + 1;
+                }
             }
         }
         
         i = i + 1;
     }
-    
-    // Flush any trailing text
-    if text_len > 0 {
-        let txt = create_text_node(html_ptr + text_start as u64, text_len);
-        js_set_node_executable(txt, can_execute);
-        append_child(current_parent, txt);
-    }
 }
-
 @no_mangle
 pub fn js_lex_html_chunk(root_id: u64, ptr: u64, len: u32, can_execute: u8) {
     lex_html(ptr, len, root_id, can_execute);
 }
 
+@no_mangle
 pub fn salt_lex_html_chunk(root_id: u64, ptr: u64, len: u32, can_execute: u8) {
     lex_html(ptr, len, root_id, can_execute);
 }

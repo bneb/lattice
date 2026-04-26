@@ -2,10 +2,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-extern void airlock_init_allocator();
-extern void init_arrays();
+extern void ext_salt_airlock_init_allocator();
+extern void ext_salt_init_arrays();
 extern int32_t js_init_quickjs();
-extern uint64_t create_node(uint32_t tag);
+extern uint64_t ext_salt_create_node(uint32_t tag);
 extern void js_dom_append_child(uint32_t parent_idx, uint32_t child_idx);
 extern void dom_set_id(uint32_t idx, uint64_t id_ptr, uint32_t id_len);
 extern uint64_t dom_alloc_text(uint32_t len);

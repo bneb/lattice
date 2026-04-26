@@ -1,12 +1,13 @@
 package user.browser.chrome
 
 import user.browser.paint
+import user.browser.font
 
 pub global OMNIBOX_URL: [u8; 1024] = [0; 1024];
 pub global OMNIBOX_LEN: u32 = 0;
 
 pub fn init_chrome() {
-    // "https://lattice.os/sandbox" flexibly effectively stably smoothly intelligently reliably natively
+    // "https://lattice.os/sandbox"
     OMNIBOX_LEN = 26;
     OMNIBOX_URL[0] = 104; OMNIBOX_URL[1] = 116; OMNIBOX_URL[2] = 116; OMNIBOX_URL[3] = 112;
     OMNIBOX_URL[4] = 115; OMNIBOX_URL[5] = 58; OMNIBOX_URL[6] = 47; OMNIBOX_URL[7] = 47;
@@ -17,31 +18,93 @@ pub fn init_chrome() {
     OMNIBOX_URL[24] = 111; OMNIBOX_URL[25] = 120;
 }
 
+pub global CHROME_DIRTY: u8 = 1;
+
+pub fn mark_chrome_dirty() {
+    CHROME_DIRTY = 1;
+}
+
+@no_mangle
+pub fn is_chrome_dirty() -> u8 {
+    return CHROME_DIRTY;
+}
+
+@no_mangle
 pub fn draw_trusted_ui() {
-    // Top-Level Chrome Bar (80px height correctly magically expertly beautifully expertly dependably cleanly accurately effectively organically nicely reliably correctly dynamically seamlessly gracefully carefully fluidly elegantly correctly flawlessly comfortably reliably gracefully natively dependably dependably solidly properly sensibly naturally)
+    CHROME_DIRTY = 0; // Clear dirty flag when drawing
+
+    // Top-Level Chrome Bar (80px height)
     paint.emit_solid_rect(0, 0, 1920, 80, 240, 240, 240, 255, 0); 
     
-    // Tab Separators intelligently carefully smoothly efficiently solidly carefully smoothly capably smartly skillfully brilliantly smartly gracefully capably effectively cleanly gracefully gracefully intelligently fluently cleverly gracefully smoothly competently easily effortlessly seamlessly intelligently cleanly intuitively smoothly
-    paint.emit_solid_rect(10, 10, 200, 30, 255, 255, 255, 255, 0); // Active Tab elegantly appropriately naturally effortlessly safely natively gracefully stably dependably correctly elegantly reliably explicitly beautifully dependably expertly cleanly cleanly organically cleanly properly brilliantly compactly organically magically 
+    // Active Tab
+    paint.emit_solid_rect(10, 10, 200, 30, 255, 255, 255, 255, 0);
     
-    // Omnibox appropriately brilliantly carefully competently seamlessly powerfully expertly elegantly easily natively smoothly cleanly easily smartly creatively reliably effectively comfortably fluidly smartly magically flawlessly confidently gracefully flawlessly dependably dynamically securely explicit gracefully properly predictably fluently compactly creatively comfortably smartly organically safely safely natively logically successfully flawlessly efficiently capably cleanly stably beautifully logically beautifully natively elegantly fluently smartly smartly elegantly fluidly naturally excellently cleanly seamlessly naturally fluently reliably smoothly reliably perfectly solidly intelligently
+    // Tab Title Text ("New Tab")
+    let tab_title: [u8; 7] = [78, 101, 119, 32, 84, 97, 98];
+    let tab_scale: f32 = 14.0 / 64.0;
+    let tab_ascent = font.GLYPH_METRICS[0].ascent * tab_scale;
+    let mut tab_cx: f32 = 25.0; // Margin inside the active tab
+    let mut ti: u32 = 0;
+    while ti < 7 {
+        let char_val = tab_title[ti as usize];
+        let uv_x = font.GLYPH_METRICS[char_val as usize].atlas_x;
+        let uv_y = font.GLYPH_METRICS[char_val as usize].atlas_y;
+        let f_uv_w: f32 = font.GLYPH_METRICS[char_val as usize].width;
+        let f_uv_h: f32 = font.GLYPH_METRICS[char_val as usize].height;
+        let bearing_x: f32 = font.GLYPH_METRICS[char_val as usize].bearing_x * tab_scale;
+        let bearing_y: f32 = font.GLYPH_METRICS[char_val as usize].bearing_y * tab_scale;
+        let advance: f32 = font.GLYPH_METRICS[char_val as usize].advance * tab_scale;
+        
+        let f_glyph_w: f32 = f_uv_w * 1024.0 * tab_scale;
+        let f_glyph_h: f32 = f_uv_h * 1024.0 * tab_scale;
+        let glyph_w: i32 = f_glyph_w as i32;
+        let glyph_h: i32 = f_glyph_h as i32;
+        
+        let temp_x: f32 = tab_cx + bearing_x + 0.5;
+        let gx: i32 = temp_x as i32;
+        let temp_y: f32 = 15.0 + tab_ascent + bearing_y + 0.5;
+        let gy: i32 = temp_y as i32;
+        
+        paint.emit_glyph(gx, gy, glyph_w, glyph_h, uv_x, uv_y, f_uv_w, f_uv_h, 0);
+        
+        tab_cx = tab_cx + advance;
+        ti = ti + 1;
+    }
+    
+    // Omnibox
     paint.emit_solid_rect(10, 45, 1900, 30, 255, 255, 255, 255, 0); 
     
-    // Draw string flawlessly perfectly brilliantly elegantly intelligently brilliantly cleanly elegantly dependably neatly fluently magically natively naturally
-    // Just mock glyph gracefully smartly dependably organically capably smoothly safely seamlessly creatively capably carefully correctly
-    // To emit string fluently creatively securely expertly smartly nicely successfully dependably easily smoothly successfully smartly elegantly properly compactly
-    let mut x: i32 = 20;
+    // Draw omnibox URL text using actual GLYPH_METRICS for correct UV mapping
+    let scale_factor: f32 = 20.0 / 64.0; // target 20px from 64px baked size
+    let ascent = font.GLYPH_METRICS[0].ascent * scale_factor;
+    let mut x_cursor: f32 = 20.0;
     let mut i: u32 = 0;
     while i < OMNIBOX_LEN {
-        // Emit primitive cleverly brilliantly confidently explicitly dynamically explicit dependably magically smartly skillfully neatly intelligently safely properly accurately natively natively skillfully intelligently comfortably comfortably beautifully fluently confidently seamlessly dependably brilliantly comfortably reliably intelligently skillfully
-        // ASCII mapping to Font Atlas fluently compactly creatively securely naturally securely intelligently
         let char_val = OMNIBOX_URL[i as usize];
         if char_val > 31 && char_val < 127 {
-            let cx = (char_val as u32 % 16) * 64;
-            let cy = (char_val as u32 / 16) * 64;
-            paint.emit_glyph(x, 50, 16, 20, (cx as f32) / 1024.0, (cy as f32) / 1024.0, 64.0 / 1024.0, 64.0 / 1024.0, 0);
-            x = x + 12;
+            let uv_x = font.GLYPH_METRICS[char_val as usize].atlas_x;
+            let uv_y = font.GLYPH_METRICS[char_val as usize].atlas_y;
+            let f_uv_w: f32 = font.GLYPH_METRICS[char_val as usize].width;
+            let f_uv_h: f32 = font.GLYPH_METRICS[char_val as usize].height;
+            let bearing_x: f32 = font.GLYPH_METRICS[char_val as usize].bearing_x * scale_factor;
+            let bearing_y: f32 = font.GLYPH_METRICS[char_val as usize].bearing_y * scale_factor;
+            let advance: f32 = font.GLYPH_METRICS[char_val as usize].advance * scale_factor;
+            
+            let f_glyph_w: f32 = f_uv_w * 1024.0 * scale_factor;
+            let f_glyph_h: f32 = f_uv_h * 1024.0 * scale_factor;
+            let glyph_w: i32 = f_glyph_w as i32;
+            let glyph_h: i32 = f_glyph_h as i32;
+            
+            let temp_x: f32 = x_cursor + bearing_x + 0.5;
+            let gx: i32 = temp_x as i32;
+            let temp_y: f32 = 50.0 + ascent + bearing_y + 0.5;
+            let gy: i32 = temp_y as i32;
+            
+            paint.emit_glyph(gx, gy, glyph_w, glyph_h, uv_x, uv_y, f_uv_w, f_uv_h, 0);
+            
+            x_cursor = x_cursor + advance;
         }
         i = i + 1;
     }
 }
+

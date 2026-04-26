@@ -786,11 +786,51 @@ void facet_gpu_rasterize_primitives(void *native_drawable,
     }
   }
 
-  // Instanced draw: 4 vertices per quad, param_count instances
-  [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip
-              vertexStart:0
-              vertexCount:4
-            instanceCount:param_count];
+  // Batch Breaking Render Loop for Display List Textures
+  int current_batch_start = 0;
+  id<MTLTexture> current_tex_at_1 = nil;
+  if (global_image_count > 0 && global_image_textures[0]) {
+    current_tex_at_1 = global_image_textures[0];
+  }
+
+  for (int i = 0; i <= param_count; i++) {
+    bool break_batch = false;
+    id<MTLTexture> desired_tex = current_tex_at_1;
+
+    if (i < param_count) {
+      if (rects[i].type == 5) { // OP_DRAW_IMAGE
+        uint32_t node_idx = rects[i].color;
+        extern uint32_t ext_dom_get_img_texture_slot(uint32_t node_idx);
+        uint32_t tex_id = ext_dom_get_img_texture_slot(node_idx);
+        if (tex_id > 0 && tex_id < 64) {
+             desired_tex = global_image_textures[tex_id];
+        }
+      }
+      
+      if (desired_tex != current_tex_at_1 && rects[i].type == 5) {
+          break_batch = true;
+      }
+    } else {
+      break_batch = true; // Flush final primitives
+    }
+
+    if (break_batch && i > current_batch_start) {
+      if (current_tex_at_1) {
+          [encoder setFragmentTexture:current_tex_at_1 atIndex:1];
+      }
+      [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip
+                  vertexStart:0
+                  vertexCount:4
+                instanceCount:(i - current_batch_start)
+                 baseInstance:current_batch_start];
+      current_batch_start = i;
+    }
+
+    if (i < param_count && break_batch) {
+      current_tex_at_1 = desired_tex;
+    }
+  }
+
   [encoder endEncoding];
 
   [cmd_buffer presentDrawable:drawable];
@@ -894,10 +934,51 @@ void facet_gpu_rasterize_to_texture(id<MTLTexture> target,
       }
     }
 
-    [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip
-                vertexStart:0
-                vertexCount:4
-              instanceCount:param_count];
+    // Batch Breaking Render Loop for Multi-Process Rasterization
+    int current_batch_start = 0;
+    id<MTLTexture> current_tex_at_1 = nil;
+    if (global_image_count > 0 && global_image_textures[0]) {
+      current_tex_at_1 = global_image_textures[0];
+    }
+  
+    for (int i = 0; i <= param_count; i++) {
+      bool break_batch = false;
+      id<MTLTexture> desired_tex = current_tex_at_1;
+  
+      if (i < param_count) {
+        if (rects[i].type == 5) { // OP_DRAW_IMAGE
+          uint32_t node_idx = rects[i].color;
+          extern uint32_t ext_dom_get_img_texture_slot(uint32_t node_idx);
+          uint32_t tex_id = ext_dom_get_img_texture_slot(node_idx);
+          if (tex_id > 0 && tex_id < 64) {
+               desired_tex = global_image_textures[tex_id];
+          }
+        }
+        
+        if (desired_tex != current_tex_at_1 && rects[i].type == 5) {
+            break_batch = true;
+        }
+      } else {
+        break_batch = true; // Flush final primitives
+      }
+  
+      if (break_batch && i > current_batch_start) {
+        if (current_tex_at_1) {
+            [encoder setFragmentTexture:current_tex_at_1 atIndex:1];
+        }
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip
+                    vertexStart:0
+                    vertexCount:4
+                  instanceCount:(i - current_batch_start)
+                   baseInstance:current_batch_start];
+        current_batch_start = i;
+      }
+  
+      if (i < param_count && break_batch) {
+        current_tex_at_1 = desired_tex;
+      }
+    }
+  
     [encoder endEncoding];
 
     [cmd_buffer commit];

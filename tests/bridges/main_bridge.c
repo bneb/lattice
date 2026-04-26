@@ -3,6 +3,7 @@
 #include <string.h>
 
 extern int tests__test_e2e_multiprocess__tests_e2e_multiprocess_run();
+extern int tests__test_sprint9_nav_e2e__tests_sprint9_nav_e2e_run();
 extern int salt_browser_main(uint32_t argc, uint64_t argv);
 extern int32_t ext_ipc_init_shared_memory(int32_t fd);
 
@@ -17,6 +18,8 @@ int main(int argc, char **argv) {
                  "_tests__test_e2e_multiprocess__tests_e2e_multiprocess_run") ==
           0) {
         return tests__test_e2e_multiprocess__tests_e2e_multiprocess_run();
+      } else if (strcmp(argv[i + 1], "_tests__test_sprint9_nav_e2e__tests_sprint9_nav_e2e_run") == 0) {
+        return tests__test_sprint9_nav_e2e__tests_sprint9_nav_e2e_run();
       }
     }
     if (strcmp(argv[i], "--ipc-fd") == 0 && i + 1 < argc) {
@@ -59,9 +62,9 @@ void ext_mac_update_omnibox(uint64_t ptr, uint32_t len) {
 // These functions are requested by Salt via fully mangled names
 // but are exported by their modules as unmangled names due to @no_mangle.
 
-extern void append_child(uint64_t, uint64_t);
+extern void ext_salt_append_child(uint64_t, uint64_t);
 void user__browser__dom__append_child(uint64_t p, uint64_t c) {
-  append_child(p, c);
+  ext_salt_append_child(p, c);
 }
 
 extern int32_t bind_event_listener(uint32_t, uint32_t, uint32_t);
@@ -70,9 +73,9 @@ int32_t user__browser__dom__bind_event_listener(uint32_t n, uint32_t s,
   return bind_event_listener(n, s, pc);
 }
 
-extern uint64_t create_node(uint32_t);
+extern uint64_t ext_salt_create_node(uint32_t);
 uint64_t user__browser__dom__create_node(uint32_t tag) {
-  return create_node(tag);
+  return ext_salt_create_node(tag);
 }
 
 extern int32_t dom_set_text(uint64_t, uint64_t, uint32_t);

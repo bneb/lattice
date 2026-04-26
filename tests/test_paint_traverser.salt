@@ -5,7 +5,7 @@ import user.browser.paint
 
 @no_mangle
 pub fn main() -> i32 {
-    dom.set_dom_node_count(3);
+    dom.DOM_NODE_COUNT = 3;
     
     dom.LAYOUT_X[0] = 0; dom.LAYOUT_Y[0] = 0; dom.LAYOUT_W[0] = 1920; dom.LAYOUT_H[0] = 1080;
     dom.STYLE_BG_R[0] = 255; dom.STYLE_BG_G[0] = 255; dom.STYLE_BG_B[0] = 255;
@@ -19,7 +19,7 @@ pub fn main() -> i32 {
     dom.STYLE_BG_R[2] = 0; dom.STYLE_BG_G[2] = 0; dom.STYLE_BG_B[2] = 255;
     dom.STYLE_Z_INDEX[2] = 5;
     
-    let result = paint.generate_display_list(0);
+    let result = paint.generate_display_list(0, 0, 0, 0, 1080);
     
     if result != 3 { return result; }
     

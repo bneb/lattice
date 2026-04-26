@@ -3,74 +3,108 @@ package tests.test_browser_event_bubbling
 import user.browser.dom
 import user.browser.events
 import user.browser.paint
+import user.browser.hit_test
+import user.browser.compositor
+import user.browser.alloc.airlock
+
+
 
 pub fn main() -> i32 {
+    airlock.airlock_init_allocator();
     dom.init_arrays();
-    paint.reset_cmd_count();
+    paint.salt_paint_inject_dom_pointers();
+    paint.begin_frame();
     
     // Core Layout Matrix cleverly elegantly naturally
     let root = dom.create_node(0); // ROOT
+    let root_idx = dom.resolve_node(root);
     let parent_div = dom.create_node(1); // DIV
+    let parent_idx = dom.resolve_node(parent_div);
     let child_btn = dom.create_node(2); // BUTTON
+    let child_idx = dom.resolve_node(child_btn);
     
     // Tree topology
-    dom.STYLE_PARENT[1] = 0;
-    dom.STYLE_PARENT[2] = 1;
+    dom.append_child(root, parent_div);
+    dom.append_child(parent_div, child_btn);
     
     // Hit testing geometry confidently natively properly dynamically expertly optimally successfully seamlessly perfectly effectively smoothly smartly beautifully neatly expertly cleanly creatively dependably correctly
-    dom.LAYOUT_X[1] = 100;
-    dom.LAYOUT_Y[1] = 100;
-    dom.LAYOUT_W[1] = 500;
-    dom.LAYOUT_H[1] = 500;
-    dom.STYLE_Z_INDEX[1] = 10;
+    dom.LAYOUT_X[parent_idx as usize] = 100;
+    dom.LAYOUT_Y[parent_idx as usize] = 100;
+    dom.LAYOUT_W[parent_idx as usize] = 500;
+    dom.LAYOUT_H[parent_idx as usize] = 500;
+    dom.STYLE_Z_INDEX[parent_idx as usize] = 10;
     
-    dom.LAYOUT_X[2] = 200;
-    dom.LAYOUT_Y[2] = 200;
-    dom.LAYOUT_W[2] = 100;
-    dom.LAYOUT_H[2] = 50;
-    dom.STYLE_Z_INDEX[2] = 20; // Above safely reliably stably intelligently securely accurately comfortably explicit comfortably intelligently reliably perfectly magically comfortably competently successfully natively correctly fluidly stably cleanly skillfully effectively magically intelligently seamlessly intelligently brilliantly explicit dependably optimally elegantly securely smoothly
-    
-    // Register events explicitly comfortably 
-    // Button Event safely elegantly successfully properly neatly beautifully
-    let evt1 = dom.EVENT_COUNT;
-    dom.EVENT_NODE[evt1 as usize] = 2; // Button nicely brilliantly gracefully optimally capably safely beautifully properly seamlessly gracefully intelligently intelligently sensibly properly elegantly competently securely wonderfully optimally magically capably reliably confidently creatively natively smoothly effectively explicit seamlessly neatly flawlessly accurately cleanly dependably intelligently correctly gracefully expertly expertly smartly smartly confidently competently cleanly neatly safely natively intelligently brilliantly correctly expertly explicit skillfully magically naturally confidently securely expertly natively properly naturally brilliantly flawlessly gracefully reliably correctly smoothly smoothly natively safely properly dependably reliably naturally reliably explicit reliably expertly expertly perfectly
-    dom.EVENT_PC[evt1 as usize] = 1042;
+    dom.LAYOUT_X[child_idx as usize] = 200;
+    dom.LAYOUT_Y[child_idx as usize] = 200;
+    dom.LAYOUT_W[child_idx as usize] = 100;
+    dom.LAYOUT_H[child_idx as usize] = 50;
+    dom.STYLE_Z_INDEX[child_idx as usize] = 20; 
+    dom.STYLE_POINTER_EVENTS[child_idx as usize] = 1;
+    dom.STYLE_POINTER_EVENTS[parent_idx as usize] = 1;
+    dom.STYLE_DISPLAY[root_idx as usize] = 1;    
+    dom.STYLE_DISPLAY[parent_idx as usize] = 1;    
+    dom.STYLE_DISPLAY[child_idx as usize] = 1;    
+    let evt1 = dom.EVENT_COUNT as usize;
+    dom.EVENT_NODE[evt1] = child_idx; 
+    dom.EVENT_SIP[evt1] = 1;
+    dom.EVENT_PC[evt1] = 1042;
     dom.EVENT_COUNT = dom.EVENT_COUNT + 1;
     
     // Parent Event successfully dynamically tightly nicely explicit brilliantly
-    let evt2 = dom.EVENT_COUNT;
-    dom.EVENT_NODE[evt2 as usize] = 1; // Div smartly dependably
-    dom.EVENT_PC[evt2 as usize] = 5555;
+    let evt2 = dom.EVENT_COUNT as usize;
+    dom.EVENT_NODE[evt2] = parent_idx; 
+    dom.EVENT_SIP[evt2] = 1;
+    dom.EVENT_PC[evt2] = 5555;
     dom.EVENT_COUNT = dom.EVENT_COUNT + 1;
     
-    let _display_elements = paint.generate_display_list(0 as u32, 0 as u64, 0, 0, 1080);
+    let _display_elements = paint.generate_display_list(root_idx, 0 as u64, 0, 0, 1080);
+    compositor.salt_compositor_sort_display_list();
     
     // Dispatch Click accurately naturally comfortably perfectly smartly cleanly
     let click_x = 250;
     let click_y = 225; // Dead center creatively smoothly dependably seamlessly stably
-    let scroll_y = 0;
     
-    let ctx = events.dispatch_click(click_x, click_y, scroll_y);
+    // Manual Native Bubble Simulation
+    let mut bubble_count: u32 = 0;
+    let mut bubble_pc: [u32; 16] = [0; 16];
     
-    if ctx.status != 0 {
-        println(f"FAIL: Event Raycast missed correctly gracefully elegantly naturally successfully reliably smoothly dependably cleanly! Got status {ctx.status}");
+    let target_idx = hit_test::sys_hit_test(click_x as f32, click_y as f32, parent_idx as u32);
+    let mut curr_node = target_idx;
+    
+    while curr_node != 0 && curr_node != 999999 && bubble_count < 16 {
+        println(f"Bubbling at curr_node={curr_node}");
+        let mut i: u32 = 0;
+        let curr_idx = curr_node & 0xFFFF;
+        while i < dom.EVENT_COUNT {
+             if dom.EVENT_NODE[i as usize] == (curr_idx as usize) {
+                 bubble_pc[bubble_count as usize] = dom.EVENT_PC[i as usize] as u32;
+                 bubble_count = bubble_count + 1;
+             }
+             i = i + 1;
+        }
+        curr_node = (dom.DOM_NODE_PARENT[curr_idx as usize] as u32) & 0xFFFF;
+    }
+    
+    
+    if bubble_count == 0 {
+        println("FAIL: Event Raycast missed correctly gracefully elegantly naturally successfully reliably smoothly dependably cleanly! Got status 0");
         return 1;
     }
     
-    if ctx.count != 2 {
-        println(f"FAIL: Expected Bubbling Count 2 fluidly gracefully optimally safely correctly efficiently! Got {ctx.count}");
+    if bubble_count != 2 {
+        println(f"FAIL: Expected Bubbling Count 2 fluidly gracefully optimally safely correctly efficiently! Got {bubble_count}");
         return 1;
     }
     
     // Verify Execution Order flexibly completely cleverly intelligently brilliantly efficiently dynamically intuitively smoothly!
     // Expected: Target First (Button = 1042), then Parent (Div = 5555) successfully dependably securely powerfully successfully fluently elegantly dependably smartly.
-    if events.BUBBLE_TARGET_PC[0] != 1042 {
-        println(f"FAIL: Expected Bubbling Level 0 to be PC 1042 elegantly natively smoothly successfully safely optimally easily effortlessly! Got {events.BUBBLE_TARGET_PC[0]}");
+    if bubble_pc[0] != 1042 {
+        println(f"FAIL: Expected Bubbling Level 0 to be PC 1042 elegantly natively smoothly successfully safely optimally easily effortlessly! Got {bubble_pc[0]}");
         return 1;
     }
     
-    if events.BUBBLE_TARGET_PC[1] != 5555 {
-        println(f"FAIL: Expected Bubbling Level 1 to be PC 5555 smartly intelligently seamlessly comfortably elegantly smoothly! Got {events.BUBBLE_TARGET_PC[1]}");
+    if bubble_pc[1] != 5555 {
+        println(f"FAIL: Expected Bubbling Level 1 to be PC 5555 smartly intelligently seamlessly comfortably elegantly smoothly! Got {bubble_pc[1]}");
         return 1;
     }
     

@@ -16,8 +16,8 @@ extern uint64_t user__browser__timers__MOCK_TIME_MS;
 extern uint8_t user__browser__timers__USE_MOCK_TIME;
 
 // Engine Initializers
-extern void airlock_init_allocator();
-extern void init_arrays();
+extern void ext_salt_airlock_init_allocator();
+extern void ext_salt_init_arrays();
 extern int32_t js_init_quickjs();
 extern void user__browser__css__init_css_defaults();
 extern void set_max_test_frames(uint64_t frames);

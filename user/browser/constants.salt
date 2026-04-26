@@ -25,7 +25,8 @@ pub const DISPLAY_NONE:  u8 = 0;
 pub const DISPLAY_BLOCK: u8 = 1;
 pub const DISPLAY_FLEX:  u8 = 2;
 pub const DISPLAY_INLINE: u8 = 3;
-
+pub const DISPLAY_GRID: u8 = 4;
+pub const DISPLAY_INLINE_BLOCK: u8 = 5;
 pub const FLEX_DIR_ROW: u8 = 0;
 pub const FLEX_DIR_COL: u8 = 1;
 

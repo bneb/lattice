@@ -55,6 +55,18 @@ pub global RULE_LEFT:          [i32; 4096] = [-1; 4096];
 pub global RULE_Z_INDEX:       [i32; 4096] = [0;  4096]; // 0 is default, wait, -1 isn't great because z-index can be negative. But let's use -2147483648 for unset.
 pub global RULE_Z_INDEX_SET:   [u8;  4096] = [0;  4096]; // bool since z-index can be any value
 
+// Box Model
+pub global RULE_MARGIN_TOP:    [i32; 4096] = [-1; 4096];
+pub global RULE_MARGIN_RIGHT:  [i32; 4096] = [-1; 4096];
+pub global RULE_MARGIN_BOTTOM: [i32; 4096] = [-1; 4096];
+pub global RULE_MARGIN_LEFT:   [i32; 4096] = [-1; 4096];
+pub global RULE_MARGIN_SET:    [u8;  4096] = [0;  4096];
+
+pub global RULE_PAD_TOP:       [i32; 4096] = [-1; 4096];
+pub global RULE_PAD_RIGHT:     [i32; 4096] = [-1; 4096];
+pub global RULE_PAD_BOTTOM:    [i32; 4096] = [-1; 4096];
+pub global RULE_PAD_LEFT:      [i32; 4096] = [-1; 4096];
+pub global RULE_PAD_SET:       [u8;  4096] = [0;  4096];
 
 pub global RULE_COUNT: u32 = 0;
 
@@ -85,7 +97,16 @@ pub fn init_css_lexer_arrays() {
 }
 
 // Find existing slot or insert new one (hybrid linear probing)
-fn find_or_insert_slot(hash: u32, scope_id: u32) -> u32 {
+extern fn css_arena_set_hash(idx: u32, val: u32);
+extern fn css_arena_inc_count();
+extern fn css_arena_set_display(idx: u32, val: u8);
+extern fn css_arena_set_width(idx: u32, val: i32);
+extern fn css_arena_set_height(idx: u32, val: i32);
+extern fn css_arena_set_color(idx: u32, val: u32);
+extern fn css_arena_set_margin_top(idx: u32, val: i32);
+extern fn css_arena_set_padding(idx: u32, pt: i32, pr: i32, pb: i32, pl: i32);
+
+fn find_or_insert_slot(hash: u32, scope_node_id: u32) -> u32 {
     let mut slot = hash % 4096;
     let mut probes: u32 = 0;
     while probes < 4096 {
@@ -93,10 +114,13 @@ fn find_or_insert_slot(hash: u32, scope_id: u32) -> u32 {
         if RULE_HASH[s] == 0 {
             // Empty slot — claim it
             RULE_HASH[s] = hash;
+            RULE_SCOPE[s] = scope_node_id;
             RULE_COUNT = RULE_COUNT + 1;
+            css_arena_set_hash(slot, hash);
+            css_arena_inc_count();
             return slot;
         }
-        if RULE_HASH[s] == hash && RULE_SCOPE[s] == scope_id {
+        if RULE_HASH[s] == hash && RULE_SCOPE[s] == scope_node_id {
             // Same selector — overwrite (CSS last-rule-wins)
             return slot;
         }
@@ -472,8 +496,69 @@ fn apply_rule_property(slot: u32, ptr: u64, prop_start: u32, prop_len: u32, val_
     }
     
     // "top" (3 chars, starts with 't')
+    if p0 == 109 && prop_len == 6 {
+        let mut i: u32 = 0;
+        let mut space_idx: u32 = 0xFFFFFFFF;
+        while i < val_len {
+            if *((vp + i as u64) as &u8) == 32 { // space
+                space_idx = i;
+                break;
+            }
+            i = i + 1;
+        }
+
+        if space_idx != 0xFFFFFFFF {
+            let vp1 = vp;
+            let val1_len = space_idx;
+            let mut j = space_idx + 1;
+            while j < val_len {
+                if *((vp + j as u64) as &u8) != 32 { break; }
+                j = j + 1;
+            }
+            let vp2 = vp + j as u64;
+            let val2_len = val_len - j;
+
+            let mut v1 = parse_int(vp1, val1_len);
+            if (*((vp1) as &u8) | 32) == 97 { v1 = -2; } // 'a'uto
+            let mut v2 = parse_int(vp2, val2_len);
+            if (*((vp2) as &u8) | 32) == 97 { v2 = -2; } // 'a'uto
+
+            RULE_MARGIN_TOP[s] = v1;
+            RULE_MARGIN_BOTTOM[s] = v1;
+            RULE_MARGIN_RIGHT[s] = v2;
+            RULE_MARGIN_LEFT[s] = v2;
+        } else {
+            let mut v = parse_int(vp, val_len);
+            if (*((vp) as &u8) | 32) == 97 { v = -2; } // 'a'uto
+            RULE_MARGIN_TOP[s] = v;
+            RULE_MARGIN_RIGHT[s] = v;
+            RULE_MARGIN_BOTTOM[s] = v;
+            RULE_MARGIN_LEFT[s] = v;
+        }
+        RULE_MARGIN_SET[s] = 1;
+        return;
+    }
+    // "padding" (7 chars, starts with 'p')
+    if p0 == 112 && prop_len == 7 {
+        let v = parse_int(vp, val_len);
+        RULE_PAD_TOP[s] = v;
+        RULE_PAD_RIGHT[s] = v;
+        RULE_PAD_BOTTOM[s] = v;
+        RULE_PAD_LEFT[s] = v;
+        RULE_PAD_SET[s] = 1;
+        return;
+    }
+    // "margin-top" (10 chars)
+    if p0 == 109 && prop_len == 10 {
+        let p7 = *((pp + 7) as &u8) | 32;
+        if p7 == 116 { // 't' -> margin-top
+            RULE_MARGIN_TOP[s] = parse_int(vp, val_len);
+            RULE_MARGIN_SET[s] = 1;
+        }
+        return;
+    }
     if p0 == 116 && prop_len == 3 {
-        RULE_TOP[s] = parse_int(vp, val_len);
+        RULE_MARGIN_TOP[s] = parse_int(vp, val_len); // Wait, "top" is handled differently up there. Oh, this is top as margin? No, "top" was caught before this. Removing this legacy snippet.
         return;
     }
     // "right" (5 chars, starts with 'r')
@@ -588,6 +673,17 @@ extern fn dom_set_style_bottom(idx: u32, val: i32);
 extern fn dom_set_style_left(idx: u32, val: i32);
 extern fn dom_set_style_z_index(idx: u32, val: i32);
 
+extern fn dom_set_style_margin(idx: u32, t: i32, r: i32, b: i32, l: i32);
+extern fn dom_get_margin_top(idx: u32) -> i32;
+extern fn dom_get_margin_right(idx: u32) -> i32;
+extern fn dom_get_margin_bottom(idx: u32) -> i32;
+extern fn dom_get_margin_left(idx: u32) -> i32;
+
+extern fn dom_set_style_padding(idx: u32, t: i32, r: i32, b: i32, l: i32);
+extern fn dom_get_padding_top(idx: u32) -> i32;
+extern fn dom_get_padding_right(idx: u32) -> i32;
+extern fn dom_get_padding_bottom(idx: u32) -> i32;
+extern fn dom_get_padding_left(idx: u32) -> i32;
 
 // Specificity read/write externs
 extern fn dom_get_spec_display(idx: u32) -> u16;
@@ -819,6 +915,150 @@ fn apply_matching_rule(idx: u32, slot: u32, specificity: u16) {
         if specificity >= dom_get_spec_z_index(idx) {
             dom_set_style_z_index(idx, RULE_Z_INDEX[s]);
             dom_set_spec_z_index(idx, specificity);
+        }
+    }
+    if RULE_MARGIN_SET[s] != 0 {
+        // Without specificity logic for margin in dom.salt, we just apply it
+        let mt = RULE_MARGIN_TOP[s];
+        let mr = RULE_MARGIN_RIGHT[s];
+        let mb = RULE_MARGIN_BOTTOM[s];
+        let ml = RULE_MARGIN_LEFT[s];
+        let mut cur_t = dom_get_margin_top(idx);
+        let mut cur_r = dom_get_margin_right(idx);
+        let mut cur_b = dom_get_margin_bottom(idx);
+        let mut cur_l = dom_get_margin_left(idx);
+        if mt != -1 { cur_t = mt; }
+        if mr != -1 { cur_r = mr; }
+        if mb != -1 { cur_b = mb; }
+        if ml != -1 { cur_l = ml; }
+        dom_set_style_margin(idx, cur_t, cur_r, cur_b, cur_l);
+    }
+    if RULE_PAD_SET[s] != 0 {
+        let pt = RULE_PAD_TOP[s];
+        let pr = RULE_PAD_RIGHT[s];
+        let pb = RULE_PAD_BOTTOM[s];
+        let pl = RULE_PAD_LEFT[s];
+        let mut cur_t = dom_get_padding_top(idx);
+        let mut cur_r = dom_get_padding_right(idx);
+        let mut cur_b = dom_get_padding_bottom(idx);
+        let mut cur_l = dom_get_padding_left(idx);
+        if pt != -1 { cur_t = pt; }
+        if pr != -1 { cur_r = pr; }
+        if pb != -1 { cur_b = pb; }
+        if pl != -1 { cur_l = pl; }
+        dom_set_style_padding(idx, cur_t, cur_r, cur_b, cur_l);
+    }
+}
+
+pub const CSS_PROP_UNKNOWN: u32 = 0xFFFFFFFF;
+
+extern fn dom_set_style_color(idx: u32, r: u8, g: u8, b: u8);
+extern fn dom_set_spec_color(idx: u32, val: u16);
+extern fn parse_hex_to_rgb(ptr: u64, r: *mut u8, g: *mut u8, b: *mut u8);
+
+extern fn dom_set_style_width(idx: u32, val: i32);
+extern fn dom_set_spec_width(idx: u32, val: u16);
+extern fn dom_set_style_height(idx: u32, val: i32);
+extern fn dom_set_spec_height(idx: u32, val: u16);
+
+fn apply_inline_property(node_idx: u32, ptr: u64, prop_start: u32, prop_len: u32, val_start: u32, val_len: u32) -> u32 {
+    let pp = ptr + prop_start as u64;
+    let vp = ptr + val_start as u64;
+    let p0 = *((pp) as &u8) | 32;
+
+    if p0 == 119 && prop_len == 5 { // "width"
+        dom_set_style_width(node_idx, parse_int(vp, val_len));
+        dom_set_spec_width(node_idx, 1000);
+        return 1;
+    }
+    
+    if p0 == 104 && prop_len == 6 { // "height"
+        dom_set_style_height(node_idx, parse_int(vp, val_len));
+        dom_set_spec_height(node_idx, 1000);
+        return 1;
+    }
+
+    if p0 == 99 && prop_len == 5 { // "color"
+        let mut hex_start = vp;
+        if *((vp) as &u8) == 35 { hex_start = vp + 1; }
+        let mut r: u8 = 0; let mut g: u8 = 0; let mut b_c: u8 = 0;
+        parse_hex_to_rgb(hex_start, (&mut r) as *mut u8, (&mut g) as *mut u8, (&mut b_c) as *mut u8);
+        dom_set_style_color(node_idx, r, g, b_c);
+        dom_set_spec_color(node_idx, 1000);
+        return 1;
+    }
+
+    return CSS_PROP_UNKNOWN;
+}
+
+@no_mangle
+pub fn css_lex_inline_style(node_idx: u32, ptr: u64, len: u32) {
+    let mut cursor: u32 = 0;
+    while cursor < len {
+        while cursor < len {
+            let b = *((ptr + cursor as u64) as &u8);
+            if b != 32 && b != 9 && b != 10 && b != 13 { break; }
+            cursor = cursor + 1;
+        }
+        if cursor >= len { break; }
+
+        let prop_start = cursor;
+        let mut prop_len: u32 = 0;
+        while cursor < len {
+            let b = *((ptr + cursor as u64) as &u8);
+            if b == 58 || b == 59 || b == 125 { break; }
+            prop_len = prop_len + 1;
+            cursor = cursor + 1;
+        }
+
+        while prop_len > 0 {
+            let tail = *((ptr + (prop_start + prop_len - 1) as u64) as &u8);
+            if tail == 32 || tail == 9 { prop_len = prop_len - 1; } else { break; }
+        }
+
+        if cursor >= len { break; }
+        let sep = *((ptr + cursor as u64) as &u8);
+        if sep == 59 || sep == 125 {
+            cursor = cursor + 1;
+            continue;
+        }
+
+        cursor = cursor + 1; // skip ':'
+
+        while cursor < len {
+            let b = *((ptr + cursor as u64) as &u8);
+            if b != 32 && b != 9 && b != 10 && b != 13 { break; }
+            cursor = cursor + 1;
+        }
+
+        let val_start = cursor;
+        let mut val_len: u32 = 0;
+        while cursor < len {
+            let b = *((ptr + cursor as u64) as &u8);
+            if b == 59 || b == 125 { break; }
+            val_len = val_len + 1;
+            cursor = cursor + 1;
+        }
+
+        while val_len > 0 {
+            let tail = *((ptr + (val_start + val_len - 1) as u64) as &u8);
+            if tail == 32 || tail == 9 || tail == 13 || tail == 10 { val_len = val_len - 1; } else { break; }
+        }
+
+        if prop_len > 0 && val_len > 0 {
+            let property_id = apply_inline_property(node_idx, ptr, prop_start, prop_len, val_start, val_len);
+            if property_id == CSS_PROP_UNKNOWN {
+                while cursor < len {
+                    let c = *((ptr + cursor as u64) as &u8);
+                    if c == 59 || c == 125 { break; }
+                    cursor = cursor + 1;
+                }
+            }
+        }
+
+        if cursor < len {
+            let b = *((ptr + cursor as u64) as &u8);
+            if b == 59 || b == 125 { cursor = cursor + 1; }
         }
     }
 }

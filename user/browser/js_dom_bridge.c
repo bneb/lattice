@@ -70,7 +70,7 @@ extern uint64_t dom_get_id_ptr(uint32_t idx);
 extern uint32_t dom_get_id_len(uint32_t idx);
 extern uint64_t dom_get_class_ptr(uint32_t idx);
 extern uint32_t dom_get_class_len(uint32_t idx);
-extern uint64_t create_text_node(uint64_t text_ptr, uint32_t len);
+extern uint64_t ext_salt_create_text_node(uint64_t text_ptr, uint32_t len);
 extern void dom_set_id(uint32_t idx, uint64_t id_ptr, uint32_t id_len);
 extern uint64_t dom_alloc_text(uint32_t len);
 extern uint64_t dom_get_parent_node_id(uint32_t idx);
@@ -1591,7 +1591,7 @@ static JSValue js_prisimi_node_getContext(JSContext *ctx, JSValueConst this_val,
 
 extern void js_dom_append_child(uint32_t parent_idx, uint32_t child_idx);
 extern void js_dom_remove_child(uint32_t parent_idx, uint32_t child_idx);
-extern uint64_t create_node(uint32_t tag);
+extern uint64_t ext_salt_create_node(uint32_t tag);
 
 // Map a tag name string to a dom.salt TAG_* constant
 static uint32_t map_string_to_tag_id(const char *tag, size_t len) {
@@ -1703,7 +1703,7 @@ static JSValue js_document_createElement(JSContext *ctx, JSValueConst this_val,
   uint32_t tag_id = map_string_to_tag_id(tag_name, len);
   JS_FreeCString(ctx, tag_name);
 
-  uint64_t node_id = create_node(tag_id);
+  uint64_t node_id = ext_salt_create_node(tag_id);
   JSValue obj = JS_NewObjectClass(ctx, prisimi_node_class_id);
   JS_SetOpaque(obj, (void *)(uintptr_t)node_id);
   return obj;
@@ -1726,7 +1726,7 @@ static JSValue js_document_createTextNode(JSContext *ctx, JSValueConst this_val,
   }
   JS_FreeCString(ctx, text);
 
-  uint64_t node_id = create_text_node(safe_ptr, (uint32_t)len);
+  uint64_t node_id = ext_salt_create_text_node(safe_ptr, (uint32_t)len);
   JSValue obj = JS_NewObjectClass(ctx, prisimi_node_class_id);
   JS_SetOpaque(obj, (void *)(uintptr_t)node_id);
   return obj;
@@ -2095,7 +2095,7 @@ static JSValue js_element_attachShadow(JSContext *ctx, JSValueConst this_val,
     return JS_EXCEPTION;
 
   // Create Shadow Root Node (TAG_SHADOW_ROOT = 21)
-  uint64_t shadow_id = create_node(21);
+  uint64_t shadow_id = ext_salt_create_node(21);
 
   uint32_t host_idx = (uint32_t)(host_id & 0xFFFF);
   uint32_t shadow_idx = (uint32_t)(shadow_id & 0xFFFF);
@@ -2708,7 +2708,7 @@ static JSValue js_HTMLElement_constructor(JSContext *ctx,
 
   // Instantiate a default DOM node (TAG_DIV) to back this Custom Element
   // natively
-  uint64_t node_id = create_node(4);
+  uint64_t node_id = ext_salt_create_node(4);
   JS_SetOpaque(obj, (void *)(uintptr_t)node_id);
   return obj;
 }

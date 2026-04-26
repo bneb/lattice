@@ -2,12 +2,12 @@
 #include <stdint.h>
 #include <string.h>
 
-extern void airlock_init_allocator();
-extern void init_arrays();
+extern void ext_salt_airlock_init_allocator();
+extern void ext_salt_init_arrays();
 extern int32_t js_init_quickjs();
 extern int32_t js_eval_buffer(const char* code_ptr, uint32_t len);
-extern uint64_t create_node(uint32_t tag);
-extern uint32_t resolve_node(uint64_t id);
+extern uint64_t ext_salt_create_node(uint32_t tag);
+extern uint32_t ext_salt_resolve_node(uint64_t id);
 extern void sys_js_evaluate_script(uint64_t code_ptr, uint32_t code_len, uint64_t filename_ptr, uint32_t filename_len);
 extern void js_bridge_dispatch_document_event(const char *type_ptr, uint32_t type_len);
 extern int32_t js_execute_pending_jobs();

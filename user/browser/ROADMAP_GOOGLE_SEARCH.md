@@ -933,7 +933,7 @@ if cmd_type == 5 { // CMD_KEYDOWN
         // Append character to input value
         input_append_char(focused, char_ptr, char_len);
         // Re-measure text width for cursor positioning
-        dom.DIRTY_LAYOUT[focused as usize] = 1;
+        dom.FLAG_LAYOUT_DIRTY[focused as usize] = 1;
         dom.DIRTY_PAINT[focused as usize] = 1;
     }
 }
@@ -1248,7 +1248,7 @@ Track the currently hovered node (from mouse move events). When painting a butto
 
 ### 9.4 Performance: Layout Caching
 
-The dirty-flag system already exists. Ensure that after JS execution + script pump, only newly created/modified nodes have `DIRTY_LAYOUT = 1`. The rest should bypass via the existing fast path (line 409 in `layout.salt`).
+The dirty-flag system already exists. Ensure that after JS execution + script pump, only newly created/modified nodes have `FLAG_LAYOUT_DIRTY = 1`. The rest should bypass via the existing fast path (line 409 in `layout.salt`).
 
 ### 9.5 Performance: Incremental Paint
 

@@ -232,6 +232,8 @@ void sys_ipc_push_command(uint32_t cmd_type, uint64_t arg1, uint32_t arg2) {
 void sys_ipc_push_command_with_payload(uint32_t cmd_type, uint64_t arg1,
                                        uint64_t payload_ptr,
                                        uint32_t payload_len) {
+  printf("[C-IPC] PUSH received: type=%u, arg1=%llu, p_ptr=%llu, p_len=%u\n", cmd_type, arg1, payload_ptr, payload_len);
+  
   if (!shared_memory)
     return;
   IPCRing *ring = (IPCRing *)shared_memory;
@@ -276,6 +278,12 @@ SaltIPCCommand *sys_ipc_read_m2r_command(void) {
   global_ipc_read_cmd.arg2 = cmd->arg2;
   global_ipc_read_cmd.payload_ptr = (uint64_t)cmd->payload;
   global_ipc_read_cmd.payload_len = cmd->payload_len;
+
+  printf("[C-IPC] READ returning: ptr=%p (type=%u, len=%u)\n", &global_ipc_read_cmd, global_ipc_read_cmd.type, global_ipc_read_cmd.payload_len);
+  uint8_t *b = (uint8_t*)&global_ipc_read_cmd;
+  printf("[C-IPC] BYTES: ");
+  for (int i=0; i<40; i++) { printf("%02x ", b[i]); }
+  printf("\n");
 
   atomic_store(&ring->tail,
                (tail + 1) % ((RING_SIZE - 8) / sizeof(IPCCommand)));
@@ -443,6 +451,11 @@ void sys_print_float(double f) {
   fflush(stdout);
 }
 
+void sys_layout_dump(uint32_t n, uint32_t tag, uint8_t disp, int32_t sh, int32_t sw, uint32_t par) {
+  printf("[LAYOUT DUMP] Node:%-4u Tag:%2u Disp:%u w:%-5d h:%-5d parent:%u\n", n, tag, disp, sw, sh, par);
+  fflush(stdout);
+}
+
 #include <mach/mach_time.h>
 
 double sys_time_now_ms() {
@@ -488,3 +501,63 @@ void sys_gpu_commit(void) {
     sys_ipc_send_r2m_command(1, (uint64_t)fake_iosurface_id);
   }
 }
+
+// Stubs for main.salt functions (not in TEST_DEPS)
+__attribute__((weak)) void sys_browser_navigate(uint64_t ptr, uint32_t len) {}
+__attribute__((weak)) void sys_js_pump_script_queue(void) {}
+__attribute__((weak)) void set_frame_count(int32_t count) {}
+__attribute__((weak)) int32_t get_frame_count(void) { return 0; }
+__attribute__((weak)) int32_t get_max_test_frames(void) { return 0; }
+__attribute__((weak)) void construct_search_url_and_navigate(uint64_t a_ptr, uint32_t a_len, uint64_t n_ptr, uint32_t n_len, uint64_t v_ptr, uint32_t v_len) {}
+__attribute__((weak)) int32_t check_any_layout_dirty(void) { return 0; }
+__attribute__((weak)) void set_dom_content_loaded_fired(void) {}
+__attribute__((weak)) int32_t get_dom_content_loaded_fired(void) { return 0; }
+__attribute__((weak)) void pump_websocket_frames(void) {}
+__attribute__((weak)) void pump_storage_queue(void) {}
+__attribute__((weak)) void js_engine_pump_microtasks(void) {}
+__attribute__((weak)) void app_run_loop(void) {}
+__attribute__((weak)) int32_t find_form_ancestor(uint32_t n) { return 0; }
+__attribute__((weak)) int32_t dom_get_attr_action_idx(uint32_t n) { return -1; }
+__attribute__((weak)) int32_t dom_get_attr_name_idx(uint32_t n) { return -1; }
+__attribute__((weak)) uint64_t js_get_attr_val_ptr(uint32_t i) { return 0; }
+__attribute__((weak)) uint32_t js_get_attr_val_len(uint32_t i) { return 0; }
+__attribute__((weak)) void ext_engine_dispatch_js_keyboard_event(uint32_t n, uint8_t k) {}
+__attribute__((weak)) void apply_rules_to_node(uint32_t idx) {}
+
+// Stubs for layout.salt FFI wrappers
+__attribute__((weak)) void ext_flush_frame(int32_t w, int32_t h) {}
+__attribute__((weak)) int32_t ext_get_layout_x(uint32_t n) { return 0; }
+__attribute__((weak)) int32_t ext_get_layout_y(uint32_t n) { return 0; }
+__attribute__((weak)) int32_t ext_get_layout_w(uint32_t n) { return 0; }
+__attribute__((weak)) int32_t ext_get_layout_h(uint32_t n) { return 0; }
+__attribute__((weak)) void ext_salt_invalidate_layout(uint32_t n) {}
+__attribute__((weak)) void ext_salt_invalidate_all_layout(void) {}
+__attribute__((weak)) uint32_t ext_salt_resolve_node(uint64_t id) { return 0; }
+__attribute__((weak)) uint64_t ext_salt_create_text_node(uint64_t _p, uint32_t _l) { return 0; }
+
+// Stubs for net/hpack
+__attribute__((weak)) void ext_tls_write_bytes(uint64_t p, uint32_t l) {}
+__attribute__((weak)) uint64_t ext_hpack_get_static_key(uint32_t i) { return 0; }
+__attribute__((weak)) uint64_t ext_hpack_get_static_val(uint32_t i) { return 0; }
+__attribute__((weak)) void ext_net_route_header_to_stream(uint32_t sid, uint64_t kp, uint32_t kl, uint64_t vp, uint32_t vl) {}
+
+// Stubs for http/lexer
+__attribute__((weak)) void http_reset_state(void) {}
+__attribute__((weak)) void http_set_root_node(uint64_t id) {}
+__attribute__((weak)) void http_process_ingress(uint64_t p, uint32_t l) {}
+__attribute__((weak)) uint8_t http_get_eof_reached(void) { return 0; }
+__attribute__((weak)) void http_set_eof(void) {}
+__attribute__((weak)) void js_lex_html_chunk(uint64_t rid, uint64_t p, uint32_t l, uint8_t e) {}
+__attribute__((weak)) uint64_t dom_alloc_text(uint32_t l) { return 0; }
+__attribute__((weak)) void js_resolve_fetch(uint64_t id, uint64_t p, uint32_t l) {}
+__attribute__((weak)) int32_t complete_script_fetch(uint64_t id, uint64_t p, uint32_t l) { return -1; }
+__attribute__((weak)) void dom_add_scroll_y(int32_t d) {}
+__attribute__((weak)) void native_go_back(void) {}
+
+// JSC stubs
+__attribute__((weak)) void sys_jsc_init(void) {}
+__attribute__((weak)) void sys_jsc_evaluate_script(uint64_t p, uint32_t l, uint64_t f) {}
+__attribute__((weak)) void sys_jsc_flush_microtasks(void) {}
+__attribute__((weak)) void sys_typography_init(void) {}
+
+

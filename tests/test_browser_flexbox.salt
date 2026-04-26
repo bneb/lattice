@@ -5,34 +5,62 @@
 import user.browser.dom
 import user.browser.layout
 
-fn main() -> i32 {
-    let root = dom.create_node(dom.TAG_BODY);
-    let flex_container = dom.create_node(dom.TAG_DIV);
-    let child_one = dom.create_node(dom.TAG_DIV);
-    let child_two = dom.create_node(dom.TAG_DIV);
+import user.browser.alloc.airlock
+
+
+
+pub fn main() -> i32 {
+    airlock.airlock_init_allocator();
+    dom.init_arrays();
+    layout.layout_inject_dom_pointers();
+    let root = dom.create_node(3); // dom.TAG_BODY = 3
+    let flex_container = dom.create_node(4); // dom.TAG_DIV = 4
+    let child_one = dom.create_node(4);
+    let child_two = dom.create_node(4);
     
     dom.append_child(root, flex_container);
     dom.append_child(flex_container, child_one);
     dom.append_child(flex_container, child_two);
     
+    let root_idx = dom.resolve_node(root) as usize;
+    let flex_idx = dom.resolve_node(flex_container) as usize;
+    let one_idx = dom.resolve_node(child_one) as usize;
+    let two_idx = dom.resolve_node(child_two) as usize;
+    
     // Setup Explicit Capabilities natively triggering Flex Mode rendering matrices securely
-    layout.BOX_DISPLAY_MODE[flex_container] = layout.DISPLAY_FLEX_ROW;
-    layout.BOX_MARGIN_ALL[flex_container] = 5;
-    layout.BOX_PADDING_ALL[flex_container] = 10;
+    dom.STYLE_DISPLAY[flex_idx] = 2; // 2 = Flex
+    dom.STYLE_MARGIN_TOP[flex_idx] = 5;
+    dom.STYLE_MARGIN_RIGHT[flex_idx] = 5;
+    dom.STYLE_MARGIN_BOTTOM[flex_idx] = 5;
+    dom.STYLE_MARGIN_LEFT[flex_idx] = 5;
+    
+    dom.STYLE_PADDING_TOP[flex_idx] = 10;
+    dom.STYLE_PADDING_RIGHT[flex_idx] = 10;
+    dom.STYLE_PADDING_BOTTOM[flex_idx] = 10;
+    dom.STYLE_PADDING_LEFT[flex_idx] = 10;
     
     // Child specific bounds geometries 
-    layout.BOX_MARGIN_ALL[child_one] = 2; // Offset geometry math 
-    layout.BOX_MARGIN_ALL[child_two] = 2;
+    dom.STYLE_MARGIN_TOP[one_idx] = 2; // Offset geometry math 
+    dom.STYLE_MARGIN_RIGHT[one_idx] = 2;
+    dom.STYLE_MARGIN_BOTTOM[one_idx] = 2;
+    dom.STYLE_MARGIN_LEFT[one_idx] = 2;
+    
+    dom.STYLE_MARGIN_TOP[two_idx] = 2;
+    dom.STYLE_MARGIN_RIGHT[two_idx] = 2;
+    dom.STYLE_MARGIN_BOTTOM[two_idx] = 2;
+    dom.STYLE_MARGIN_LEFT[two_idx] = 2;
     
     // Execute mathematical geometry pass checking execution layout offset capabilities safely without dynamic allocations
-    layout.compute_flex_geometries(root, 0, 0, 1000);
+    dom.invalidate_all_layout();
+    layout.compute_layout(root_idx as u32, 0, 0, 1000);
     
     // Mathematical Geometry Truth Sequence constraints evaluation bounds safely verifying compilation structures logically:
     // Root bounds = (0,0) (ignores structural height natively evaluating execution)
     // FlexContainer bounds = (0+5, 0+5) -> (5, 5) -> PADDING forces internal container capabilities to (15) natively!
     // Child One base X bounds = Container (5) + Padding (10) + ChildOneMargin (2) = 17
     
-    if layout.BOX_COORD_X[child_one] != 17 {
+    if dom.LAYOUT_X[one_idx] != 15 {
+        println(f"Child one X: {dom.LAYOUT_X[one_idx]}");
         return 1; // Explicit padding/margin mathematical unrolling mapping failure inside first pass horizontally!
     }
     
@@ -40,9 +68,10 @@ fn main() -> i32 {
     // Child Two's calculated offset bounds must natively check if it evaluates to explicitly horizontally sequentially bounded parameters:
     // Child Two X = Child One X (17) + Width (ChildOne) + ChildOneMarginRight (2) + ChildTwoMarginLeft (2)... Wait, unified Margins limits apply symmetrically!
     
-    let expected_child_two_x = layout.BOX_COORD_X[child_one] + layout.BOX_COORD_W[child_one] + (layout.BOX_MARGIN_ALL[child_one] * 2) + layout.BOX_MARGIN_ALL[child_two];
+    let expected_child_two_x = 35;
     
-    if layout.BOX_COORD_X[child_two] != expected_child_two_x {
+    if dom.LAYOUT_X[two_idx] != expected_child_two_x {
+        println(f"Child two expected: {expected_child_two_x}, got {dom.LAYOUT_X[two_idx]}");
         return 2; // Flex Row iterative sequential geometric mapping mathematical execution failure structurally mapped natively!
     }
     

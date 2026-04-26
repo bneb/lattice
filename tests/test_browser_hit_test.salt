@@ -8,55 +8,59 @@ import user.browser.dom
 import user.browser.layout
 import user.browser.paint
 import user.browser.events
+import user.browser.hit_test
+import user.browser.alloc.airlock
+import user.browser.compositor
+
+
+
 
 pub fn main() -> i32 {
+    airlock.airlock_init_allocator();
     dom.init_arrays();
+    paint.salt_paint_inject_dom_pointers();
     
     // Create Box A (Large background)
-    let node_a = dom.create_node(1); // root child 1
-    dom.LAYOUT_X[node_a as usize] = 0;
-    dom.LAYOUT_Y[node_a as usize] = 0;
-    dom.LAYOUT_W[node_a as usize] = 1920;
-    dom.LAYOUT_H[node_a as usize] = 1080;
-    dom.STYLE_Z_INDEX[node_a as usize] = 0;
+    let node_a = dom.create_node(1 as u32);
+    let node_a_idx = dom.resolve_node(node_a);
+    dom.LAYOUT_X[node_a_idx as usize] = 0;
+    dom.LAYOUT_Y[node_a_idx as usize] = 0;
+    dom.LAYOUT_W[node_a_idx as usize] = 1920;
+    dom.LAYOUT_H[node_a_idx as usize] = 1080;
+    dom.STYLE_Z_INDEX[node_a_idx as usize] = 0;
     
     // Create Box B (Small foreground button)
-    let node_b = dom.create_node(1); // root child 2
-    dom.LAYOUT_X[node_b as usize] = 400;
-    dom.LAYOUT_Y[node_b as usize] = 200;
-    dom.LAYOUT_W[node_b as usize] = 100;
-    dom.LAYOUT_H[node_b as usize] = 50;
-    dom.STYLE_Z_INDEX[node_b as usize] = 10;
+    let node_b = dom.create_node(1); 
+    let node_b_idx = dom.resolve_node(node_b);
+    dom.LAYOUT_X[node_b_idx as usize] = 400;
+    dom.LAYOUT_Y[node_b_idx as usize] = 200;
+    dom.LAYOUT_W[node_b_idx as usize] = 100;
+    dom.LAYOUT_H[node_b_idx as usize] = 50;
+    dom.STYLE_Z_INDEX[node_b_idx as usize] = 10;
     
-    // Register Event for Box A
-    let evt_a_idx = dom.get_event_count() as usize;
-    dom.EVENT_NODE[evt_a_idx] = node_a as u32;
-    dom.EVENT_SIP[evt_a_idx] = 1;
-    dom.EVENT_PC[evt_a_idx] = 100;
-    dom.set_event_count(dom.get_event_count() + 1);
+    let root = dom.create_node(1); // Root node element
+    let root_idx = dom.resolve_node(root);
+    dom.STYLE_DISPLAY[root_idx as usize] = 1; // Block
+    dom.append_child(root, node_a);
+    dom.append_child(root, node_b);
+    dom.STYLE_POINTER_EVENTS[node_a_idx as usize] = 1;
+    dom.STYLE_POINTER_EVENTS[node_b_idx as usize] = 1;
+    dom.STYLE_DISPLAY[node_a_idx as usize] = 1;
+    dom.STYLE_DISPLAY[node_b_idx as usize] = 1;
     
-    // Register Event for Box B
-    let evt_b_idx = dom.get_event_count() as usize;
-    dom.EVENT_NODE[evt_b_idx] = node_b as u32;
-    dom.EVENT_SIP[evt_b_idx] = 1;
-    dom.EVENT_PC[evt_b_idx] = 200;
-    dom.set_event_count(dom.get_event_count() + 1);
+
     
     // Generate Z_SORT_BUF
-    paint.generate_display_list(0);
+    paint.generate_display_list(root_idx, root, 0, 0, 1080);
+    compositor.salt_compositor_sort_display_list();
     
     // Test 1: Click outside Box B but inside Box A
-    events.MOUSE_CLICK_COUNT = 0;
-    events.enqueue_click(10, 10);
-    let ctx1 = events.dispatch_click(events.MOUSE_CLICK_X[0], events.MOUSE_CLICK_Y[0]);
-    
-    if ctx1.target_pc != 100 { return 1; }
+    let hit_1: u32 = hit_test::sys_hit_test(10.0, 10.0, root_idx); // Raycast at 10,10 starting from root
+    if hit_1 != node_a_idx { return 1; }
     
     // Test 2: Click inside Box B
-    events.MOUSE_CLICK_COUNT = 0;
-    events.enqueue_click(450, 220);
-    let ctx2 = events.dispatch_click(events.MOUSE_CLICK_X[0], events.MOUSE_CLICK_Y[0]);
-    if ctx2.target_pc != 200 { return 2; }
+    let hit_2: u32 = hit_test::sys_hit_test(450.0, 220.0, root_idx);
+    if hit_2 != node_b_idx { return 2; }
     
     return 0; // Success
 }

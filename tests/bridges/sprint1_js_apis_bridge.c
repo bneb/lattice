@@ -5,13 +5,13 @@
 #include <JavaScriptCore/JavaScriptCore.h>
 
 // Extern dependencies 
-extern void airlock_init_allocator(void);
-extern void init_arrays(void);
+extern void ext_salt_airlock_init_allocator(void);
+extern void ext_salt_init_arrays(void);
 extern void sys_jsc_init(void);
 extern void sys_jsc_teardown(void);
 
 extern void user__browser__css__init_css_defaults(void);
-extern uint64_t create_node(uint32_t tag);
+extern uint64_t ext_salt_create_node(uint32_t tag);
 extern void http_set_root_node(uint64_t node_id);
 
 extern JSGlobalContextRef global_ctx;

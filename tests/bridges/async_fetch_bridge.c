@@ -4,14 +4,14 @@
 #include <string.h>
 
 // External Engine Initializers
-extern void airlock_init_allocator();
-extern void init_arrays();
+extern void ext_salt_airlock_init_allocator();
+extern void ext_salt_init_arrays();
 extern int32_t js_init_quickjs();
 extern int32_t js_eval_buffer(const char* code_ptr, uint32_t len);
 extern int32_t js_execute_pending_jobs();
 
 // DOM creation & layout
-extern uint64_t create_node(uint32_t tag);
+extern uint64_t ext_salt_create_node(uint32_t tag);
 extern void js_dom_append_child(uint32_t parent_idx, uint32_t child_idx);
 extern void user__browser__css__init_css_defaults();
 extern void dom_set_id(uint32_t idx, uint64_t ptr, uint32_t len);

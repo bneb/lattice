@@ -13,7 +13,6 @@ void set_dom_content_loaded_fired(uint8_t v) {}
 void set_frame_count(uint64_t v) {}
 void sys_browser_navigate(uint64_t ptr, uint32_t len) {}
 void sys_js_pump_script_queue() {}
-int32_t check_any_layout_dirty() { return 0; }
 
 int sys_gpu_is_iosurface_mode(void) { return 1; }
 void sys_gpu_rasterize_iosurface(void *rects, int width, int height,

@@ -74,6 +74,12 @@ void sys_jsc_evaluate_script(uint64_t script_ptr, uint32_t script_len,
   memcpy(code, (void *)(uintptr_t)script_ptr, script_len);
   code[script_len] = '\0';
 
+  if (script_len > 0) {
+      char snippet[128] = {0};
+      strncpy(snippet, code, script_len < 127 ? script_len : 127);
+      printf("[Prisimi JIT] Evaluating Script (len=%u): %s...\n", script_len, snippet);
+  }
+
   JSStringRef scriptJS = JSStringCreateWithUTF8CString(code);
   JSStringRef fileJS =
       filename ? JSStringCreateWithUTF8CString(filename) : NULL;

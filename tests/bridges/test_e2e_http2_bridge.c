@@ -16,7 +16,6 @@ void ext_net_route_header_to_stream(uint32_t stream_id, uint64_t key_ptr,
 // Net/Event loop stubs missing from other bridges
 
 void sys_net_init_h2_connection(uint64_t hostname) {}
-int32_t check_any_layout_dirty() { return 0; }
 void pump_websocket_frames() {}
 
 void set_dom_content_loaded_fired(uint8_t fired) {}

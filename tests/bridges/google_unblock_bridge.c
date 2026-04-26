@@ -11,14 +11,14 @@
 // ═══════════════════════════════════════════════════════════════
 
 // --- Salt Engine Init Functions ---
-extern void airlock_init_allocator(void);
-extern void init_arrays(void);
+extern void ext_salt_airlock_init_allocator(void);
+extern void ext_salt_init_arrays(void);
 extern void layout_inject_dom_pointers(void);
 extern void paint_inject_dom_pointers(void);
 
 // --- DOM ---
-extern uint64_t create_node(uint32_t tag);
-extern void append_child(uint64_t parent, uint64_t child);
+extern uint64_t ext_salt_create_node(uint32_t tag);
+extern void ext_salt_append_child(uint64_t parent, uint64_t child);
 extern void http_set_root_node(uint64_t node_id);
 extern void http_set_eof(void);
 extern void invalidate_all_layout(void);
@@ -94,7 +94,6 @@ void sys_browser_navigate(uint64_t p, uint32_t l) {}
 void sys_typography_init(void) {}
 void sys_js_pump_script_queue(void) {}
 void pump_websocket_frames(void) {}
-int32_t check_any_layout_dirty(void) { return 0; }
 void sys_net_init_h2_connection(uint64_t h) {}
 void ext_tls_write_bytes(uint64_t d, uint32_t l) {}
 uint64_t ext_hpack_get_static_key(uint32_t i) { return 0; }

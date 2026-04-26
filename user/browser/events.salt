@@ -2,9 +2,12 @@ package user.browser.events
 
 import user.browser.dom
 import user.browser.paint
-import user.browser.compositor
 import user.browser.chrome
 import user.browser.net
+import user.browser.compositor
+
+extern fn drain_keyboard_input() -> u32;
+extern fn ext_mark_all_compositor_dirty();
 
 pub struct EventDispatchContext {
     pub count: u32,
@@ -111,22 +114,53 @@ pub fn enqueue_click(x: i32, y: i32) {
 
 extern fn drain_scroll_input() -> i32;
 extern fn js_engine_teardown();
-extern fn init_arrays();
-extern fn airlock_init_allocator();
+extern fn ext_salt_init_arrays();
+extern fn ext_salt_airlock_init_allocator();
 extern fn sys_jsc_init();
-extern fn create_node(tag: i32) -> u64;
+extern fn ext_salt_create_node(tag: i32) -> u64;
 
 extern fn sys_on_mouse_click(x: i32, y: i32);
 extern fn sys_ipc_send_r2m_command_with_payload(cmd: u32, arg1: u64, ptr: u64, len: u32);
 
 @no_mangle
 pub fn sys_events_pump_os_queue() {
+    compositor.window_pump_events();
+    
     let current_scroll_y = drain_scroll_input();
-    let keyboard_count = compositor.drain_keyboard_input();
+    let keyboard_count = drain_keyboard_input();
 
     if keyboard_count > 0 {
-        // Obsolete UI text field polling ripped out per architecture.
-        // Hitting Enter natively dispatches EVENT_NAVIGATE into M2R queue perfectly.
+        let key_ptr: u64 = compositor.get_key_buf_ptr();
+        let mut ki: u32 = 0;
+        while ki < keyboard_count {
+            let ch: u8 = *((key_ptr + (ki as u64)) as &u8);
+            
+            if ch == 13 || ch == 10 {
+                // Enter key — navigate to the URL in the omnibar
+                let new_root = ext_salt_create_node(1); // 1 = TAG_HTML
+                let nav_bit: u64 = 1 << 62;
+                sys_ipc_send_r2m_command_with_payload(
+                    12, // CMD_FETCH_REQUEST
+                    nav_bit | new_root,
+                    (&chrome.OMNIBOX_URL) as u64,
+                    chrome.OMNIBOX_LEN
+                );
+            } else if ch == 127 || ch == 8 {
+                // Backspace — delete last character
+                if chrome.OMNIBOX_LEN > 0 {
+                    chrome.OMNIBOX_LEN = chrome.OMNIBOX_LEN - 1;
+                }
+            } else if ch >= 32 && ch < 127 {
+                // Printable ASCII — append to omnibar
+                if chrome.OMNIBOX_LEN < 1023 {
+                    chrome.OMNIBOX_URL[chrome.OMNIBOX_LEN as usize] = ch;
+                    chrome.OMNIBOX_LEN = chrome.OMNIBOX_LEN + 1;
+                }
+            }
+            ki = ki + 1;
+        }
+        // Mark chrome dirty so the frame repaints with updated text
+        chrome.mark_chrome_dirty();
     }
     
     let m_count = get_mouse_click_count();

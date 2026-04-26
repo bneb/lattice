@@ -9,17 +9,17 @@
 // ═══════════════════════════════════════════════════════════════
 
 // --- Salt Engine Init Functions ---
-extern void airlock_init_allocator(void);
-extern void init_arrays(void);
-extern void layout_inject_dom_pointers(void);
-extern void paint_inject_dom_pointers(void);
+extern void ext_salt_airlock_init_allocator(void);
+extern void ext_salt_init_arrays(void);
+extern void ext_salt_layout_inject_dom_pointers(void);
+extern void ext_salt_paint_inject_dom_pointers(void);
 
 // --- DOM ---
-extern uint64_t create_node(uint32_t tag);
-extern void append_child(uint64_t parent, uint64_t child);
+extern uint64_t ext_salt_create_node(uint32_t tag);
+extern void ext_salt_append_child(uint64_t parent, uint64_t child);
 extern void http_set_root_node(uint64_t node_id);
 extern void http_set_eof(void);
-extern void invalidate_all_layout(void);
+extern void ext_salt_invalidate_all_layout(void);
 extern void js_lex_html_chunk(uint64_t root_id, uint64_t buf_ptr, uint64_t len,
                               uint64_t is_final);
 extern uint32_t ext_get_dom_node_count(void);
@@ -69,10 +69,19 @@ extern float dom_get_layout_h(uint32_t idx);
 extern int32_t dom_get_style_w(uint32_t idx);
 extern int32_t dom_get_style_h(uint32_t idx);
 extern uint8_t dom_get_style_display(uint32_t idx);
-extern int32_t user__browser__dom__LAYOUT_X[65536];
-extern int32_t user__browser__dom__LAYOUT_Y[65536];
 
 // --- Paint SoA arrays for direct verification ---
+extern uint32_t user__browser__dom__DOM_NODE_COUNT;
+extern uint32_t user__browser__dom__DOM_NODE_CURRENT_MAX;
+
+// --- Expose the raw Rust/Salt style node layouts to C bridge ---
+// (We provide them here to prevent linker errors on the test suite end)
+extern int user__browser__dom__LAYOUT_X[8192];
+extern int user__browser__dom__LAYOUT_Y[8192];
+extern int user__browser__dom__LAYOUT_W[8192];
+extern int user__browser__dom__LAYOUT_H[8192];
+
+// Core node representation
 extern int32_t user__browser__paint__CMD_X[8192];
 extern int32_t user__browser__paint__CMD_Y[8192];
 extern int32_t user__browser__paint__CMD_W[8192];
@@ -106,12 +115,7 @@ void sys_gpu_commit_iosurface(void) {
   printf("  [STUB] sys_gpu_commit_iosurface\n");
 }
 
-// C-ABI trampoline (same as main_bridge.c) — needed because paint.salt calls
-// this
-void ext_flush_frame(int32_t w, int32_t h) {
-  flush_frame_called = 1;
-  flush_frame(w, h);
-}
+// C-ABI trampoline has been abstracted strictly to mock_gui_stubs.c
 
 void sys_gpu_set_scissor_rect(int32_t x, int32_t y, int32_t w, int32_t h) {}
 
@@ -129,7 +133,6 @@ uint8_t get_dom_content_loaded_fired(void) { return 1; }
 __attribute__((weak)) void sys_browser_navigate(uint64_t p, uint32_t l) {}
 void sys_typography_init(void) {}
 void pump_websocket_frames(void) {}
-int32_t check_any_layout_dirty(void) { return 0; }
 void sys_net_init_h2_connection(uint64_t h) {}
 void ext_tls_write_bytes(uint64_t d, uint32_t l) {}
 
@@ -247,10 +250,10 @@ int render_pipeline_e2e_test(void) {
 
   // ─── Phase 1: Initialize Engine ───
   printf("[Phase 1] Initializing engine subsystems...\n");
-  airlock_init_allocator();
-  init_arrays();
-  layout_inject_dom_pointers();
-  paint_inject_dom_pointers();
+  ext_salt_airlock_init_allocator();
+  ext_salt_init_arrays();
+  ext_salt_layout_inject_dom_pointers();
+  ext_salt_paint_inject_dom_pointers();
   user__browser__css__init_css_defaults();
   user__browser__font__init_glyphs();
   user__browser__compositor__load_font_atlas(
@@ -260,7 +263,7 @@ int render_pipeline_e2e_test(void) {
   printf("[Phase 2] Creating styled DOM tree...\n");
 
   // Root node (TAG_HTML = 1)
-  uint64_t root = create_node(1);
+  uint64_t root = ext_salt_create_node(1);
   uint32_t root_idx =
       (uint32_t)(root & 0xFFFF); // Extract node index from packed ID
   printf("  Root packed ID: 0x%llx, index: %u\n", root, root_idx);
@@ -292,7 +295,7 @@ int render_pipeline_e2e_test(void) {
   // ─── Phase 3: Layout ───
   printf("[Phase 3] Running layout solver...\n");
   
-  invalidate_all_layout();
+  ext_salt_invalidate_all_layout();
   ext_layout_tree();
 
   int32_t root_w = (int32_t)dom_get_layout_w(root_idx);
@@ -410,16 +413,16 @@ int render_pipeline_e2e_test(void) {
   printf("[Phase 7] Rendering Google fixture for visual comparison...\n");
 
   // Re-init for Google fixture
-  airlock_init_allocator();
-  init_arrays();
-  layout_inject_dom_pointers();
-  paint_inject_dom_pointers();
+  ext_salt_airlock_init_allocator();
+  ext_salt_init_arrays();
+  ext_salt_layout_inject_dom_pointers();
+  ext_salt_paint_inject_dom_pointers();
   user__browser__css__init_css_defaults();
   user__browser__font__init_glyphs();
   user__browser__compositor__load_font_atlas(
       (uint64_t)user__browser__font__SDF_ATLAS, 1024, 1024);
 
-  uint64_t g_root = create_node(1);
+  uint64_t g_root = ext_salt_create_node(1);
   uint32_t g_root_idx = (uint32_t)(g_root & 0xFFFF);
   dom_set_style_width(g_root_idx, 1920);
   dom_set_style_height(g_root_idx, 1080);
@@ -455,7 +458,7 @@ int render_pipeline_e2e_test(void) {
            user__browser__css_lexer__RULE_COUNT);
     apply_cascade_to_tree();
 
-    invalidate_all_layout();
+    ext_salt_invalidate_all_layout();
     ext_layout_tree();
 
     int32_t g_rw = (int32_t)dom_get_layout_w(g_root_idx);
@@ -524,7 +527,7 @@ int render_pipeline_e2e_test(void) {
   }
   // ─── Phase 8: Adversarial Inline Parsing (Integer Wrap) ───
   printf("\n[Phase 8] Testing adversarial inline height parser... \n");
-  uint64_t adv_root = create_node(1); // HEAD/BODY reset
+  uint64_t adv_root = ext_salt_create_node(1); // HEAD/BODY reset
   uint32_t adv_root_idx = (uint32_t)(adv_root & 0xFFFF);
   dom_set_style_width(adv_root_idx, 1920);
   dom_set_style_height(adv_root_idx, 1080);
@@ -559,10 +562,10 @@ int render_pipeline_e2e_test(void) {
   printf("\n[Phase 9] Dynamic JS Execution Pipeline...\n");
 
   // Re-init for a clean DOM
-  airlock_init_allocator();
-  init_arrays();
-  layout_inject_dom_pointers();
-  paint_inject_dom_pointers();
+  ext_salt_airlock_init_allocator();
+  ext_salt_init_arrays();
+  ext_salt_layout_inject_dom_pointers();
+  ext_salt_paint_inject_dom_pointers();
   user__browser__css__init_css_defaults();
   user__browser__font__init_glyphs();
   user__browser__compositor__load_font_atlas(
@@ -572,7 +575,7 @@ int render_pipeline_e2e_test(void) {
   extern void sys_jsc_init(void);
   sys_jsc_init();
 
-  uint64_t js_root = create_node(1); // TAG_HTML
+  uint64_t js_root = ext_salt_create_node(1); // TAG_HTML
   uint32_t js_root_idx = (uint32_t)(js_root & 0xFFFF);
   dom_set_style_width(js_root_idx, 1920);
   dom_set_style_height(js_root_idx, 1080);
@@ -633,7 +636,7 @@ int render_pipeline_e2e_test(void) {
     // Run layout and verify the INPUT gets valid bounds
     transpile_dom_tree(js_root_idx);
     apply_cascade_to_tree();
-    invalidate_all_layout();
+    ext_salt_invalidate_all_layout();
     ext_layout_tree();
 
     int32_t input_w = (int32_t)dom_get_layout_w(input_node_idx);

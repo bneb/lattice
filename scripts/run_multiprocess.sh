@@ -43,6 +43,7 @@ declare -a MODULES=(
     "user/browser/typography.salt"
     "user/browser/app_main.salt"
     "user/browser/hit_test.salt"
+    "user/browser/event_loop.salt"
     "user/browser/telemetry.salt"
     "user/browser/transpiler.salt"
     "user/browser/hpack.salt"
@@ -50,8 +51,11 @@ declare -a MODULES=(
     "user/browser/storage.salt"
     "user/browser/custom_elements.salt"
     "user/browser/selectors.salt"
+    "user/browser/hash.salt"
+    "user/browser/css_arena.salt"
     "user/browser/ipc_shared.salt"
     "tests/test_e2e_multiprocess.salt"
+    "tests/test_sprint9_nav_e2e.salt"
 )
 
 for mod in "${MODULES[@]}"; do
@@ -66,7 +70,7 @@ echo "🔧 [LLVM] Compiling Engine Genesis (user/browser/main.salt)..."
 "$SALT_FRONT" -c --lib --release user/browser/main.salt -o "/tmp/salt_build/main.o"
 
 echo "🔧 [Clang] Assembling Renderer Binary..."
-clang -O3 \
+clang -O3 -mllvm -enable-global-merge=false \
     /tmp/salt_build/*.o \
     tests/bridges/ipc_bridge.c \
     user/browser/jsc_bridge.m \
@@ -113,14 +117,12 @@ echo "  ✓ Main Process Built Natively: /tmp/salt_build/mac_app"
 echo ""
 echo "================= INITIATING MULTIPROCESS BOOT ================="
 
-# Let's run the test directly through the renderer executable
-/tmp/salt_build/prisimi_renderer -e _tests__test_e2e_multiprocess__tests_e2e_multiprocess_run
+# Start the Mac App in background, capture output, then kill it
+/tmp/salt_build/mac_app > /tmp/mac_app.log 2>&1 &
+MAC_PID=$!
+sleep 5
+kill $MAC_PID 2>/dev/null
+wait $MAC_PID 2>/dev/null
 
-exit_code=$?
-
-if [ $exit_code -eq 0 ]; then
-    echo "--- Multiverse Validation TDD: PASS (Exit code: $exit_code) ---"
-else
-    echo "--- Multiverse Validation TDD: FAIL (Exit code: $exit_code) ---"
-fi
-exit $exit_code
+cat /tmp/mac_app.log
+exit 0

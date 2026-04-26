@@ -35,7 +35,6 @@ WEAK void set_dom_content_loaded_fired(uint32_t v) {}
 WEAK uint64_t ext_hpack_get_static_key(uint32_t i) { return 0; }
 WEAK uint64_t ext_hpack_get_static_val(uint32_t i) { return 0; }
 WEAK void ext_flush_frame(void) {}
-WEAK int32_t check_any_layout_dirty(void) { return 0; }
 WEAK uint32_t get_frame_count(void) { return 1; }
 WEAK void set_frame_count(uint32_t v) {}
 WEAK uint32_t get_max_test_frames(void) { return 1; }

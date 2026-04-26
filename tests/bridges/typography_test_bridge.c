@@ -25,5 +25,4 @@ uint64_t get_frame_count(void) { return 0; }
 void set_dom_content_loaded_fired(uint32_t val) {}
 uint32_t get_dom_content_loaded_fired(void) { return 0; }
 uint32_t get_max_test_frames(void) { return 10; }
-uint32_t check_any_layout_dirty(void) { return 0; }
 void pump_websocket_frames(void) {}

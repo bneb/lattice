@@ -1,43 +1,90 @@
+package user.browser.hit_test
 import user.browser.dom
+import user.browser.event_loop
+
+// ═══════════════════════════════════════════════════════════════
+// Pointer Injection Matrix — Paint Command Pointers for Hit-Test
+// Initialized ONCE at boot via hit_test_inject_paint_pointers().
+// ═══════════════════════════════════════════════════════════════
+
+global P_CMD_X: u64 = 0;
+global P_CMD_Y: u64 = 0;
+global P_CMD_W: u64 = 0;
+global P_CMD_H: u64 = 0;
+global P_CMD_NODE_ID: u64 = 0;
+global P_CMD_COUNT: u64 = 0;
+global P_Z_SORT_BUF: u64 = 0;
+global P_Z_SORT_COUNT: u64 = 0;
+
+extern fn paint_ptr_CMD_X() -> u64;
+extern fn paint_ptr_CMD_Y() -> u64;
+extern fn paint_ptr_CMD_W() -> u64;
+extern fn paint_ptr_CMD_H() -> u64;
+extern fn paint_ptr_CMD_NODE_ID() -> u64;
+extern fn paint_ptr_CMD_COUNT() -> u64;
+extern fn paint_ptr_Z_SORT_BUF() -> u64;
+extern fn paint_ptr_Z_SORT_COUNT() -> u64;
+
+@no_mangle
+pub fn hit_test_inject_paint_pointers() {
+    P_CMD_X = paint_ptr_CMD_X();
+    P_CMD_Y = paint_ptr_CMD_Y();
+    P_CMD_W = paint_ptr_CMD_W();
+    P_CMD_H = paint_ptr_CMD_H();
+    P_CMD_NODE_ID = paint_ptr_CMD_NODE_ID();
+    P_CMD_COUNT = paint_ptr_CMD_COUNT();
+    P_Z_SORT_BUF = paint_ptr_Z_SORT_BUF();
+    P_Z_SORT_COUNT = paint_ptr_Z_SORT_COUNT();
+}
+
+pub fn salt_hit_test(x: f32, y: f32, root_node: u32) -> u32 {
+    return sys_hit_test(x, y, root_node);
+}
 
 @no_mangle
 pub fn sys_hit_test(x: f32, y: f32, root_node: u32) -> u32 {
-    let mut deepest_match = 0;
+    let count = *((P_CMD_COUNT) as &u32);
+    if count == 0 { return 0; }
     
-    // Reverse iterative DFS (to respect default DOM painting order)
-    let mut stack: [u32; 128] = [0; 128];
-    let mut stack_ptr: i32 = 0;
-    stack[stack_ptr as usize] = root_node;
+    // Phase 11: Translate physical mouse coordinate to logical document coordinate
+    let logical_y = y + event_loop.get_viewport_scroll_y();
     
-    while stack_ptr >= 0 {
-        let current = stack[stack_ptr as usize];
-        stack_ptr = stack_ptr - 1;
+    // Z-Aware Raycaster: Reverse Linear Scan (Highest Z to Lowest Z)
+    // The painter's algorithm generated a stably-sorted display list.
+    // The topmost elements (painted last) are at the end of the Z_SORT_BUF array.
+    
+    let z_count = *((P_Z_SORT_COUNT) as &u32);
+    let scan_count = if z_count > 0 { z_count } else { count };
+    
+    let mut i: i32 = (scan_count as i32) - 1;
+    while i >= 0 {
+        // If z-sorted, use sorted index; otherwise linear
+        let si = if z_count > 0 {
+            *((P_Z_SORT_BUF + (i as u64) * 4) as &u32)
+        } else {
+            i as u32
+        };
+        let node_id = *((P_CMD_NODE_ID + (si as u64) * 4) as &u32);
         
-        if current == 0 { continue; }
-        
-        // Skip nodes with pointer-events: none or display: none
-        if user::browser::dom::STYLE_POINTER_EVENTS[current as usize] == 0 || user::browser::dom::STYLE_DISPLAY[current as usize] == 0 {
-            continue;
-        }
-        
-        let node_x = user::browser::dom::LAYOUT_X[current as usize] as f32;
-        let node_y = user::browser::dom::LAYOUT_Y[current as usize] as f32;
-        let node_w = user::browser::dom::LAYOUT_W[current as usize] as f32;
-        let node_h = user::browser::dom::LAYOUT_H[current as usize] as f32;
-        
-        // Check intersection
-        if x >= node_x && x <= (node_x + node_w) && y >= node_y && y <= (node_y + node_h) {
-            deepest_match = current;
-            
-            // Push children onto the stack to find a deeper, more specific match
-            let mut child = user::browser::dom::DOM_NODE_FIRST_CHILD[current as usize];
-            while child != 0 {
-                stack_ptr = stack_ptr + 1;
-                stack[stack_ptr as usize] = (child & 0xFFFF) as u32;
-                child = user::browser::dom::DOM_NODE_NEXT_SIBLING[(child & 0xFFFF) as usize];
+        if node_id != 0 {
+            let p_events = dom.STYLE_POINTER_EVENTS[node_id as usize];
+            // Check pointer events (0 = none/ignore)
+            if p_events != 0 {
+                
+                let rx = *((P_CMD_X + (si as u64) * 4) as &i32) as f32;
+                let ry = *((P_CMD_Y + (si as u64) * 4) as &i32) as f32;
+                let rw = *((P_CMD_W + (si as u64) * 4) as &i32) as f32;
+                let rh = *((P_CMD_H + (si as u64) * 4) as &i32) as f32;
+                
+                // Point-in-Rectangle Collision Detection (using logical_y)
+                if x >= rx && x <= (rx + rw) && logical_y >= ry && logical_y <= (ry + rh) {
+                    return node_id;
+                }
             }
         }
+        
+        i = i - 1;
     }
     
-    return deepest_match;
+    return root_node; // Fallback to root (typically 1 for Body)
 }

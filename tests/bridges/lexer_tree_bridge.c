@@ -2,7 +2,6 @@
 #include <string.h>
 #include <stdio.h>
 
-__attribute__((weak)) uint8_t check_any_layout_dirty() { return 0; }
 __attribute__((weak)) void ext_flush_frame() {}
 __attribute__((weak)) void ext_tls_write_bytes(uint64_t a, uint32_t b) {}
 __attribute__((weak)) uint8_t get_dom_content_loaded_fired() { return 0; }
@@ -15,14 +14,14 @@ __attribute__((weak)) void sys_browser_navigate(uint64_t a, uint32_t b) {}
 __attribute__((weak)) void sys_js_pump_script_queue() {}
 
 // Externs from Salt DOM
-extern void init_arrays();
-extern uint64_t create_node(int32_t tag);
+extern void ext_salt_init_arrays();
+extern uint64_t ext_salt_create_node(int32_t tag);
 
 // Externs from HTML Lexer
 extern void js_lex_html_chunk(uint64_t root_id, uint64_t ptr, uint32_t len, uint8_t can_execute);
 
 // Access arrays directly
-extern uint32_t resolve_node(uint64_t id);
+extern uint32_t ext_salt_resolve_node(uint64_t id);
 extern uint64_t dom_get_first_child(uint32_t idx);
 extern uint64_t dom_get_next_sibling(uint32_t idx);
 extern uint32_t dom_get_tag(uint32_t idx);

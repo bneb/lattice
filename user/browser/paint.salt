@@ -42,6 +42,20 @@ global P_CANVAS_SURFACE_IDS: u64 = 0;
 global P_DOM_SELECTION_START: u64 = 0;
 global P_DOM_SELECTION_END: u64 = 0;
 global P_DOM_NODE_TEXTURE_ID: u64 = 0;
+global P_IMG_PTR: u64 = 0;
+
+// Allocate standard layouts buffer up to 8K nodes
+pub global GPU_RECT_BUF: [u8; 655360] = [0; 655360]; // 8192 * 80 bytes
+
+@no_mangle
+pub fn paint_ptr_GPU_RECT_BUF() -> u64 {
+    return (&GPU_RECT_BUF) as u64;
+}
+
+@no_mangle
+pub fn paint_ptr_P_IMG_PTR() -> u64 {
+    return (&P_IMG_PTR) as u64;
+}
 
 // i32 arrays (stride 4)
 global P_LAYOUT_X: u64 = 0;
@@ -127,6 +141,7 @@ extern fn dom_ptr_STYLE_FONT_SIZE() -> u64;
 extern fn dom_ptr_EVICTION_QUEUE() -> u64;
 extern fn dom_ptr_EVICTION_COUNT() -> u64;
 extern fn dom_ptr_DOM_NODE_COUNT() -> u64;
+extern fn dom_ptr_IMG_PTR() -> u64;
 
 extern fn get_dom_node_count() -> u64;
 
@@ -183,6 +198,7 @@ pub fn paint_inject_dom_pointers() {
     P_EVICTION_QUEUE = dom_ptr_EVICTION_QUEUE();
     P_EVICTION_COUNT = dom_ptr_EVICTION_COUNT();
     P_DOM_NODE_COUNT = dom_ptr_DOM_NODE_COUNT();
+    P_IMG_PTR = dom_ptr_IMG_PTR();
 }
 
 extern fn sys_clock_get_ms() -> u64;
@@ -231,17 +247,132 @@ pub global PAINT_CURR_R: u8 = 0;
 pub global PAINT_CURR_G: u8 = 0;
 pub global PAINT_CURR_B: u8 = 0;
 
-pub global CMD_COUNT: u32 = 0;
-pub global PAINT_VISIT_COUNT: u32 = 0;
+// CRITICAL: These must be [T;1] arrays, NOT scalar globals,
+// because LLVM GlobalMerge displaces scalar global addresses
+// in the multiprocess renderer binary.
+pub global CMD_COUNT_A: [u32; 1] = [0; 1];
+pub global PAINT_VISIT_COUNT_A: [u32; 1] = [0; 1];
+
+// ============================================================================
+// Phase 32: Display List Compiler (Path Alpha)
+// ============================================================================
+
+pub const OP_DRAW_RECT: u8 = 1;
+pub const OP_DRAW_TEXT: u8 = 2;
+pub const OP_PUSH_CLIP: u8 = 3;
+pub const OP_POP_CLIP: u8 = 4;
+pub const OP_DRAW_IMAGE: u8 = 5;
+
+pub global DL_OPCODE: [u8;  16384] = [0; 16384];
+pub global DL_X:      [f32; 16384] = [0.0; 16384];
+pub global DL_Y:      [f32; 16384] = [0.0; 16384];
+pub global DL_W:      [f32; 16384] = [0.0; 16384];
+pub global DL_H:      [f32; 16384] = [0.0; 16384];
+pub global DL_COLOR:  [u32; 16384] = [0; 16384];
+pub global DL_COUNT:  u32 = 0;
+
+@no_mangle
+pub fn ext_paint_get_dl_count() -> u32 { return DL_COUNT; }
+
+@no_mangle
+pub fn ext_paint_get_dl_opcode_ptr() -> u64 { return (&DL_OPCODE[0]) as u64; }
+
+@no_mangle
+pub fn ext_paint_get_dl_x_ptr() -> u64 { return (&DL_X[0]) as u64; }
+
+@no_mangle
+pub fn ext_paint_get_dl_y_ptr() -> u64 { return (&DL_Y[0]) as u64; }
+
+@no_mangle
+pub fn ext_paint_get_dl_w_ptr() -> u64 { return (&DL_W[0]) as u64; }
+
+@no_mangle
+pub fn ext_paint_get_dl_h_ptr() -> u64 { return (&DL_H[0]) as u64; }
+
+@no_mangle
+pub fn ext_paint_get_dl_color_ptr() -> u64 { return (&DL_COLOR[0]) as u64; }
+
+pub fn compile_display_list_recursive(node_idx: u32) {
+    let n_idx = (node_idx & 0xFFFF) as u64;
+    
+    if node_idx == 0 || *((P_STYLE_DISPLAY + n_idx) as &u8) == 0 { return; }
+
+    PAINT_VISIT_COUNT_A[0] = PAINT_VISIT_COUNT_A[0] + 1;
+
+    let img_ptr = *((P_IMG_PTR + n_idx * 8) as &u64);
+    let count = DL_COUNT;
+
+    if img_ptr != 0 && count < 16383 {
+        let x = *((P_LAYOUT_X + n_idx * 4) as &i32) as f32;
+        let y = *((P_LAYOUT_Y + n_idx * 4) as &i32) as f32;
+        let w = *((P_LAYOUT_W + n_idx * 4) as &i32) as f32;
+        let h = *((P_LAYOUT_H + n_idx * 4) as &i32) as f32;
+
+        let c_idx = count as usize;
+        DL_OPCODE[c_idx] = OP_DRAW_IMAGE;
+        DL_X[c_idx] = x;
+        DL_Y[c_idx] = y;
+        DL_W[c_idx] = w;
+        DL_H[c_idx] = h;
+        // Re-use DL_COLOR to store the node_idx so Metal can look up the IMG_PTR
+        DL_COLOR[c_idx] = node_idx; 
+        DL_COUNT = count + 1;
+    } else {
+        // 1. Emit Background Rect
+        let a = *((P_STYLE_BG_A + n_idx) as &u8);
+        if a > 0 && count < 16383 {
+            let r = *((P_STYLE_BG_R + n_idx) as &u8) as u32;
+            let g = *((P_STYLE_BG_G + n_idx) as &u8) as u32;
+            let b = *((P_STYLE_BG_B + n_idx) as &u8) as u32;
+            let u_a = a as u32;
+
+            let x = *((P_LAYOUT_X + n_idx * 4) as &i32) as f32;
+            let y = *((P_LAYOUT_Y + n_idx * 4) as &i32) as f32;
+            let w = *((P_LAYOUT_W + n_idx * 4) as &i32) as f32;
+            let h = *((P_LAYOUT_H + n_idx * 4) as &i32) as f32;
+            
+            let c_idx = count as usize;
+            DL_OPCODE[c_idx] = OP_DRAW_RECT;
+            DL_X[c_idx] = x;
+            DL_Y[c_idx] = y;
+            DL_W[c_idx] = w;
+            DL_H[c_idx] = h;
+            DL_COLOR[c_idx] = (r << 24) | (g << 16) | (b << 8) | u_a;
+            DL_COUNT = count + 1;
+        }
+    }
+
+    // 2. Recurse to children (Painter's Algorithm: Front-to-back traversal of tree = back-to-front rendering)
+    let mut child = dom.dom_get_render_first_child_idx(node_idx);
+    while child != 0 && child != 999999 {
+        compile_display_list_recursive(child);
+        let c_idx = (child & 0xFFFF) as u64;
+        let next_packed = *((P_DOM_NODE_NEXT_SIBLING + c_idx * 8) as &u64);
+        child = (next_packed & 0xFFFFFFFF) as u32; // Keep generation for next iteration's resolve
+    }
+}
+
+@no_mangle
+pub fn ext_paint_compile_display_list() {
+    DL_COUNT = 0;
+    PAINT_VISIT_COUNT_A[0] = 0;
+    // We start traversal from Node 1 (Physical Root)
+    compile_display_list_recursive(1);
+    
+    // Also include Node 999999 if it's not a descendant of 1?
+    // In our engine Node 1 is the <html> root.
+}
 
 pub fn emit_rect(x: i32, y: i32, w: i32, h: i32, n: u32) -> i32 {
-    if CMD_COUNT >= 8192 { return -1; }
+    if CMD_COUNT_A[0] >= 8192 { return -1; }
     
     let u_n = n as usize;
     let mut r = *((P_STYLE_BG_R + (u_n as u64)) as &u8);
     let mut g = *((P_STYLE_BG_G + (u_n as u64)) as &u8);
     let mut b = *((P_STYLE_BG_B + (u_n as u64)) as &u8);
     let a = *((P_STYLE_BG_A + (u_n as u64)) as &u8);
+    
+    if a == 0 { return 0; }
     
     let tag = *((P_DOM_NODE_TAG + (n as u64) * 4) as &u32);
     if n == dom_get_hovered_node() && (tag == 20 || tag == 7) {
@@ -250,10 +381,27 @@ pub fn emit_rect(x: i32, y: i32, w: i32, h: i32, n: u32) -> i32 {
         if b >= 25 { b = b - 25; } else { b = 0; }
     }
     
-    let idx = CMD_COUNT;
+    let idx = CMD_COUNT_A[0];
+    
+    // [DIAG] Check if we write -11520
+    if x == -11520 {
+        let m_diag: [u8; 18] = [91,68,73,65,71,93,32,101,109,105,116,95,120,61,45,49,49,53]; // "[DIAG] emit_x=-115"
+        sys_log_info((&m_diag) as u64, 18);
+        sys_print_float(n as f64);
+        let nl: [u8; 1] = [10];
+        sys_log_info((&nl) as u64, 1);
+    }
+    
     CMD_TYPE[idx as usize] = 0; // 0 = RECT
-    CMD_X[idx as usize] = x;
-    CMD_Y[idx as usize] = y;
+    // Defensive clamp: prevent off-screen coordinates from reaching the GPU
+    let mut cx = x;
+    let mut cy = y;
+    if cx < -8192 { cx = -8192; }
+    if cx > 16384 { cx = 16384; }
+    if cy < -8192 { cy = -8192; }
+    if cy > 16384 { cy = 16384; }
+    CMD_X[idx as usize] = cx;
+    CMD_Y[idx as usize] = cy;
     CMD_W[idx as usize] = w;
     CMD_H[idx as usize] = h;
     CMD_UV_X[idx as usize] = 0.0;
@@ -280,14 +428,14 @@ pub fn emit_rect(x: i32, y: i32, w: i32, h: i32, n: u32) -> i32 {
     CMD_OPACITY[idx as usize] = *((P_STYLE_OPACITY + (u_n as u64) * 4) as &f32);
     CMD_NODE_ID[idx as usize] = n;
     
-    CMD_COUNT = CMD_COUNT + 1;
+    CMD_COUNT_A[0] = CMD_COUNT_A[0] + 1;
     return 0;
 }
 
 pub fn emit_solid_rect(x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8, a: u8, n: u32) -> i32 {
-    if CMD_COUNT >= 8192 { return -1; }
+    if CMD_COUNT_A[0] >= 8192 { return -1; }
     
-    let idx = CMD_COUNT;
+    let idx = CMD_COUNT_A[0];
     CMD_TYPE[idx as usize] = 0; // 0 = RECT
     CMD_X[idx as usize] = x;
     CMD_Y[idx as usize] = y;
@@ -317,14 +465,14 @@ pub fn emit_solid_rect(x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8, a: u
     CMD_OPACITY[idx as usize] = 1.0;
     CMD_NODE_ID[idx as usize] = n;
     
-    CMD_COUNT = CMD_COUNT + 1;
+    CMD_COUNT_A[0] = CMD_COUNT_A[0] + 1;
     return 0;
 }
 
 pub fn emit_glyph(x: i32, y: i32, w: i32, h: i32, uv_x: f32, uv_y: f32, uv_w: f32, uv_h: f32, n: u32) -> i32 {
-    if CMD_COUNT >= 8192 { return -1; }
+    if CMD_COUNT_A[0] >= 8192 { return -1; }
     
-    let idx = CMD_COUNT;
+    let idx = CMD_COUNT_A[0];
     CMD_TYPE[idx as usize] = 1; // 1 = GLYPH (SDF) smoothly naturally securely cleanly nicely creatively neatly capably smartly securely properly sensibly gracefully effectively flexibly explicit safely explicitly gracefully intelligently safely cleanly intelligently seamlessly confidently wonderfully flawlessly dependably dependably solidly properly
     CMD_X[idx as usize] = x;
     CMD_Y[idx as usize] = y;
@@ -348,14 +496,14 @@ pub fn emit_glyph(x: i32, y: i32, w: i32, h: i32, uv_x: f32, uv_y: f32, uv_w: f3
     CMD_TY[idx as usize] = 0.0;
     CMD_OPACITY[idx as usize] = 1.0;
     
-    CMD_COUNT = CMD_COUNT + 1;
+    CMD_COUNT_A[0] = CMD_COUNT_A[0] + 1;
     return 0;
 }
 
 pub fn emit_image(x: i32, y: i32, w: i32, h: i32, tex_idx: u8, n: u32) -> i32 {
-    if CMD_COUNT >= 8192 { return -1; }
+    if CMD_COUNT_A[0] >= 8192 { return -1; }
     
-    let idx = CMD_COUNT;
+    let idx = CMD_COUNT_A[0];
     CMD_TYPE[idx as usize] = 2; // 2 = BITMAP IMAGE
     CMD_X[idx as usize] = x;
     CMD_Y[idx as usize] = y;
@@ -377,25 +525,25 @@ pub fn emit_image(x: i32, y: i32, w: i32, h: i32, tex_idx: u8, n: u32) -> i32 {
     CMD_TY[idx as usize] = 0.0;
     CMD_OPACITY[idx as usize] = 1.0;
     
-    CMD_COUNT = CMD_COUNT + 1;
+    CMD_COUNT_A[0] = CMD_COUNT_A[0] + 1;
     return 0;
 }
 
 pub global Z_SORT_BUF: [u32; 8192] = [0; 8192];
-pub global Z_SORT_COUNT: u32 = 0;
+pub global Z_SORT_COUNT_A: [u32; 1] = [0; 1];
 
 pub fn get_z_sort_count() -> u32 {
-    return Z_SORT_COUNT;
+    return Z_SORT_COUNT_A[0];
 }
 
 pub fn get_cmd_count() -> u32 {
-    return CMD_COUNT;
+    return CMD_COUNT_A[0];
 }
 
 pub fn begin_frame() {
-    CMD_COUNT = 0;
-    PAINT_VISIT_COUNT = 0;
-    Z_SORT_COUNT = 0;
+    CMD_COUNT_A[0] = 0;
+    PAINT_VISIT_COUNT_A[0] = 0;
+    Z_SORT_COUNT_A[0] = 0;
     CLIP_STACK_PTR = 0;
     
     // Initial viewport clip (effectively infinite/viewport max)
@@ -413,9 +561,9 @@ pub fn begin_frame() {
 }
 
 pub fn sys_gpu_emit_video_frame(node_id: u32, x: i32, y: i32, w: i32, h: i32) -> i32 {
-    if CMD_COUNT >= 8192 { return -1; }
+    if CMD_COUNT_A[0] >= 8192 { return -1; }
     
-    let idx = CMD_COUNT;
+    let idx = CMD_COUNT_A[0];
     CMD_TYPE[idx as usize] = 3; // 3 = VIDEO YUV
     CMD_X[idx as usize] = x;
     CMD_Y[idx as usize] = y;
@@ -439,14 +587,14 @@ pub fn sys_gpu_emit_video_frame(node_id: u32, x: i32, y: i32, w: i32, h: i32) ->
     CMD_TY[idx as usize] = 0.0;
     CMD_OPACITY[idx as usize] = 1.0;
     
-    CMD_COUNT = CMD_COUNT + 1;
+    CMD_COUNT_A[0] = CMD_COUNT_A[0] + 1;
     return 0;
 }
 
 pub fn sys_gpu_emit_external_surface(node_id: u32, surface_id: u32, x: i32, y: i32, w: i32, h: i32) -> i32 {
-    if CMD_COUNT >= 8192 { return -1; }
+    if CMD_COUNT_A[0] >= 8192 { return -1; }
     
-    let idx = CMD_COUNT;
+    let idx = CMD_COUNT_A[0];
     CMD_TYPE[idx as usize] = 4; // 4 = EXTERNAL IOSURFACE
     CMD_X[idx as usize] = x;
     CMD_Y[idx as usize] = y;
@@ -470,7 +618,7 @@ pub fn sys_gpu_emit_external_surface(node_id: u32, surface_id: u32, x: i32, y: i
     CMD_TY[idx as usize] = 0.0;
     CMD_OPACITY[idx as usize] = 1.0;
     
-    CMD_COUNT = CMD_COUNT + 1;
+    CMD_COUNT_A[0] = CMD_COUNT_A[0] + 1;
     return 0;
 }
 
@@ -588,7 +736,7 @@ pub fn paint_node(n: u32, focus_node: u64, frame_count: u64, scroll_y: i32, view
             
             let mut is_focused = 0;
             if focus_node != 0 {
-                let resolved_f = resolve_node(focus_node);
+                let resolved_f = dom.resolve_node(focus_node);
                 if resolved_f != 0xFFFFFFFF && n == (resolved_f as u32) {
                     is_focused = 1;
                 }
@@ -829,7 +977,7 @@ fn intersect_clip(cur_x: i32, cur_y: i32, cur_w: i32, cur_h: i32, new_x: i32, ne
 
 @no_mangle
 pub fn paint_layer(node_id: u32, pass_type: i32, focus: u64, scroll: i32, vh: i32) {
-    PAINT_VISIT_COUNT = PAINT_VISIT_COUNT + 1;
+    PAINT_VISIT_COUNT_A[0] = PAINT_VISIT_COUNT_A[0] + 1;
     if node_id == 0 || *((P_STYLE_DISPLAY + (node_id as u64)) as &u8) == 0 { return; }
     
     let overflow = *((P_STYLE_OVERFLOW + (node_id as u64)) as &u8);
@@ -905,6 +1053,22 @@ pub fn paint_layer(node_id: u32, pass_type: i32, focus: u64, scroll: i32, vh: i3
 }
 
 pub fn generate_display_list(root_node: u32, focus_node: u64, frame_count: u64, scroll_y: i32, viewport_height: i32) -> i32 {
+    // [DIAG] Dump layout of first few nodes to check for layout corruption
+    let nl: [u8; 1] = [10];
+    let m_dmp: [u8; 11] = [91,68,77,80,93,32,76,88,49,61,32]; // "[DMP] LX1= "
+    sys_log_info((&m_dmp) as u64, 11);
+    sys_print_float( *((P_LAYOUT_X + 1 * 4) as &i32) as f64 );
+    let m_dmpw: [u8; 6] = [32,76,87,49,61,32]; // " LW1= "
+    sys_log_info((&m_dmpw) as u64, 6);
+    sys_print_float( *((P_LAYOUT_W + 1 * 4) as &i32) as f64 );
+    
+    let m_lx2: [u8; 6] = [32,76,88,50,61,32]; // " LX2= "
+    sys_log_info((&m_lx2) as u64, 6);
+    sys_print_float( *((P_LAYOUT_X + 2 * 4) as &i32) as f64 );
+    let m_lw2: [u8; 6] = [32,76,87,50,61,32]; // " LW2= "
+    sys_log_info((&m_lw2) as u64, 6);
+    sys_print_float( *((P_LAYOUT_W + 2 * 4) as &i32) as f64 );
+    sys_log_info((&nl) as u64, 1);
     // Zero-allocation Multi-pass Stacking Context implementation
     
     paint_layer(root_node, 0, focus_node, scroll_y, viewport_height);  // Normal flow
@@ -916,7 +1080,7 @@ pub fn generate_display_list(root_node: u32, focus_node: u64, frame_count: u64, 
 }
 extern fn get_active_focus_node() -> u64;
 extern fn drain_scroll_input() -> i32;
-extern fn resolve_node(id: u64) -> u32;
+
 
 pub fn paint_tree() {
     let focus = get_active_focus_node();
@@ -925,8 +1089,12 @@ pub fn paint_tree() {
     generate_display_list(1, focus, 0, scroll, 600);
 }
 
+extern fn is_chrome_dirty() -> u8;
+
 @no_mangle
 pub fn sys_gpu_check_dirty_flag() -> i32 {
+    if is_chrome_dirty() == 1 { return 1; }
+    
     let limit = get_dom_node_count() as u32;
     let mut i: u32 = 1;
     while i < limit {
@@ -947,7 +1115,6 @@ pub fn sys_gpu_check_dirty_flag() -> i32 {
     return 0;
 }
 
-@no_mangle
 pub fn paint_mark_compositor_dirty(node_idx: u32) {
     if P_COMPOSITOR_DIRTY != 0 {
         *((P_COMPOSITOR_DIRTY + (node_idx as u64)) as &mut u8) = 1;
@@ -967,7 +1134,8 @@ pub fn ext_mark_all_compositor_dirty() {
 }
 
 extern fn sys_gpu_commit();
-extern fn ext_flush_frame(width: i32, height: i32);
+extern fn flush_frame(width: i32, height: i32);
+extern fn draw_trusted_ui();
 
 extern fn sys_print_float(f: f64);
 extern fn sys_log_info(msg_ptr: u64, msg_len: u32);
@@ -975,6 +1143,16 @@ extern fn sys_log_info(msg_ptr: u64, msg_len: u32);
 @no_mangle
 pub fn sys_metal_render_frame() {
     begin_frame();
+    
+    // [DIAG] Verify pointer injection and counter reset
+    let m_ptrs: [u8; 12] = [91,80,84,82,83,93,32,80,76,87,61,32]; // "[PTRS] PLW= "
+    sys_log_info((&m_ptrs) as u64, 12);
+    sys_print_float(P_LAYOUT_W as f64);
+    let m_cnt: [u8; 6] = [32,67,78,84,61,32]; // " CNT= "
+    sys_log_info((&m_cnt) as u64, 6);
+    sys_print_float(CMD_COUNT_A[0] as f64);
+    let nl0: [u8; 1] = [10];
+    sys_log_info((&nl0) as u64, 1);
     
     // [DIAG] Root node (1) tree structure
     let m_root: [u8; 17] = [91,80,65,73,78,84,93,32,114,111,111,116,32,99,104,61,32]; // "[PAINT] root ch= "
@@ -996,23 +1174,24 @@ pub fn sys_metal_render_frame() {
     sys_log_info((&nl) as u64, 1);
     
     // [DIAG] If root has a child, log child's dimensions
-    if first_child != 0 && first_child != 999999 {
+    if first_child != 0 {
+        let n_ch_idx = (first_child & 0xFFFF) as u64;
         let m_ch: [u8; 17] = [91,80,65,73,78,84,93,32,99,104,105,108,100,32,119,61,32]; // "[PAINT] child w= "
         sys_log_info((&m_ch) as u64, 17);
-        let ch_w = *((P_LAYOUT_W + (first_child as u64) * 4) as &i32);
+        let ch_w = *((P_LAYOUT_W + n_ch_idx * 4) as &i32);
         sys_print_float(ch_w as f64);
         let m_ch_h: [u8; 4] = [32,104,61,32]; // " h= "
         sys_log_info((&m_ch_h) as u64, 4);
-        let ch_h = *((P_LAYOUT_H + (first_child as u64) * 4) as &i32);
+        let ch_h = *((P_LAYOUT_H + n_ch_idx * 4) as &i32);
         sys_print_float(ch_h as f64);
         let m_ch_d: [u8; 6] = [32,100,105,115,112,61]; // " disp="
         sys_log_info((&m_ch_d) as u64, 6);
-        let ch_disp = *((P_STYLE_DISPLAY + (first_child as u64)) as &u8);
+        let ch_disp = *((P_STYLE_DISPLAY + n_ch_idx) as &u8);
         sys_print_float(ch_disp as f64);
         
         let m_ch_t: [u8; 6] = [32,116,97,103,61,32]; // " tag= "
         sys_log_info((&m_ch_t) as u64, 6);
-        let ch_tag = *((P_DOM_NODE_TAG + (first_child as u64) * 4) as &u32);
+        let ch_tag = *((P_DOM_NODE_TAG + n_ch_idx * 4) as &u32);
         sys_print_float(ch_tag as f64);
         
         sys_log_info((&nl) as u64, 1);
@@ -1026,10 +1205,11 @@ pub fn sys_metal_render_frame() {
     let mut cnt_dirty: u32 = 0;    // dirty_paint==1
     let mut di: u32 = 1;
     while di < limit {
-        let dw = *((P_LAYOUT_W + (di as u64) * 4) as &i32);
-        let dh = *((P_LAYOUT_H + (di as u64) * 4) as &i32);
-        let dd = *((P_STYLE_DISPLAY + (di as u64)) as &u8);
-        let dp = *((P_DIRTY_PAINT + (di as u64)) as &u8);
+        let n_di = (di & 0xFFFF) as u64;
+        let dw = *((P_LAYOUT_W + n_di * 4) as &i32);
+        let dh = *((P_LAYOUT_H + n_di * 4) as &i32);
+        let dd = *((P_STYLE_DISPLAY + n_di) as &u8);
+        let dp = *((P_DIRTY_PAINT + n_di) as &u8);
         if dd == 0 { cnt_dnone = cnt_dnone + 1; }
         if dp == 1 { cnt_dirty = cnt_dirty + 1; }
         if dw > 0 && dh > 0 { cnt_sized = cnt_sized + 1; }
@@ -1055,6 +1235,7 @@ pub fn sys_metal_render_frame() {
     sys_log_info((&nl) as u64, 1);
 
     paint_tree();
+    draw_trusted_ui();
     
     let m3: [u8; 39] = [91,71,80,85,93,32,67,111,109,109,105,116,116,105,110,103,32,102,114,97,109,101,46,32,80,97,105,110,116,101,100,32,82,101,99,116,115,58,32]; 
     sys_log_info((&m3) as u64, 39);
@@ -1062,10 +1243,42 @@ pub fn sys_metal_render_frame() {
     // " visited= "
     let m_vis: [u8; 10] = [32,118,105,115,105,116,101,100,61,32];
     sys_log_info((&m_vis) as u64, 10);
-    sys_print_float(PAINT_VISIT_COUNT as f64);
+    sys_print_float(PAINT_VISIT_COUNT_A[0] as f64);
     sys_log_info((&nl) as u64, 1);
     
-    ext_flush_frame(1920, 1080);
+    // [DIAG] Log raw CMD values and precise address from paint.salt side before flush
+    let m_plxp: [u8; 11] = [91,80,78,84,93,32,80,76,88,61,32]; // "[PNT] PLX= "
+    sys_log_info((&m_plxp) as u64, 11);
+    sys_print_float(P_LAYOUT_X as f64);
+    
+    let m_pnt_cx: [u8; 11] = [91,80,78,84,93,32,67,88,65,61,32]; // "[PNT] CXA= "
+    sys_log_info((&m_pnt_cx) as u64, 11);
+    sys_print_float((&CMD_X) as u64 as f64);
+    sys_log_info((&nl) as u64, 1);
+
+    let m_raw: [u8; 11] = [91,82,65,87,93,32,67,88,48,61,32]; // "[RAW] CX0= "
+    sys_log_info((&m_raw) as u64, 11);
+    sys_print_float(CMD_X[0] as f64);
+    
+    // [DIAG] Print value using casted pointer INSIDE paint.salt!
+    let m_ptr_val: [u8; 11] = [91,80,84,82,93,32,86,65,76,61,32]; // "[PTR] VAL= "
+    sys_log_info((&m_ptr_val) as u64, 11);
+    let pval = *(((&CMD_X) as u64) as &i32);
+    sys_print_float(pval as f64);
+    sys_log_info((&nl) as u64, 1);
+
+    let m_cw: [u8; 5] = [32,87,48,61,32]; // " W0= "
+    sys_log_info((&m_cw) as u64, 5);
+    sys_print_float(CMD_W[0] as f64);
+    let m_ch2: [u8; 5] = [32,72,48,61,32]; // " H0= "
+    sys_log_info((&m_ch2) as u64, 5);
+    sys_print_float(CMD_H[0] as f64);
+    let m_a0: [u8; 5] = [32,65,48,61,32]; // " A0= "
+    sys_log_info((&m_a0) as u64, 5);
+    sys_print_float(CMD_A[0] as f64);
+    sys_log_info((&nl) as u64, 1);
+    
+    flush_frame(1920, 1080);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1086,3 +1299,42 @@ pub fn ext_paint_tree() {
 pub fn ext_paint_get_cmd_count() -> u32 {
     return get_cmd_count();
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Pointer Injection Matrix — Paint Command Array Exports
+// Consumer modules (compositor.salt, hit_test.salt) call these ONCE
+// at boot to store local pointer globals, avoiding the
+// EMIT_INDEX_FALLBACK_RVALUE compiler bug with cross-module array indexing.
+// ═══════════════════════════════════════════════════════════════
+
+@no_mangle pub fn paint_ptr_CMD_X() -> u64 { return (&CMD_X) as u64; }
+@no_mangle pub fn paint_ptr_CMD_Y() -> u64 { return (&CMD_Y) as u64; }
+@no_mangle pub fn paint_ptr_CMD_W() -> u64 { return (&CMD_W) as u64; }
+@no_mangle pub fn paint_ptr_CMD_H() -> u64 { return (&CMD_H) as u64; }
+@no_mangle pub fn paint_ptr_CMD_R() -> u64 { return (&CMD_R) as u64; }
+@no_mangle pub fn paint_ptr_CMD_G() -> u64 { return (&CMD_G) as u64; }
+@no_mangle pub fn paint_ptr_CMD_B() -> u64 { return (&CMD_B) as u64; }
+@no_mangle pub fn paint_ptr_CMD_A() -> u64 { return (&CMD_A) as u64; }
+@no_mangle pub fn paint_ptr_CMD_UV_X() -> u64 { return (&CMD_UV_X) as u64; }
+@no_mangle pub fn paint_ptr_CMD_UV_Y() -> u64 { return (&CMD_UV_Y) as u64; }
+@no_mangle pub fn paint_ptr_CMD_UV_W() -> u64 { return (&CMD_UV_W) as u64; }
+@no_mangle pub fn paint_ptr_CMD_UV_H() -> u64 { return (&CMD_UV_H) as u64; }
+@no_mangle pub fn paint_ptr_CMD_TYPE() -> u64 { return (&CMD_TYPE) as u64; }
+@no_mangle pub fn paint_ptr_CMD_RAD() -> u64 { return (&CMD_RAD) as u64; }
+@no_mangle pub fn paint_ptr_CMD_SHADOW_R() -> u64 { return (&CMD_SHADOW_R) as u64; }
+@no_mangle pub fn paint_ptr_CMD_SHADOW_G() -> u64 { return (&CMD_SHADOW_G) as u64; }
+@no_mangle pub fn paint_ptr_CMD_SHADOW_B() -> u64 { return (&CMD_SHADOW_B) as u64; }
+@no_mangle pub fn paint_ptr_CMD_SHADOW_A() -> u64 { return (&CMD_SHADOW_A) as u64; }
+@no_mangle pub fn paint_ptr_CMD_SHADOW_X() -> u64 { return (&CMD_SHADOW_X) as u64; }
+@no_mangle pub fn paint_ptr_CMD_SHADOW_Y() -> u64 { return (&CMD_SHADOW_Y) as u64; }
+@no_mangle pub fn paint_ptr_CMD_SHADOW_B_L() -> u64 { return (&CMD_SHADOW_B_L) as u64; }
+@no_mangle pub fn paint_ptr_CMD_SHADOW_S() -> u64 { return (&CMD_SHADOW_S) as u64; }
+@no_mangle pub fn paint_ptr_CMD_TX() -> u64 { return (&CMD_TX) as u64; }
+@no_mangle pub fn paint_ptr_CMD_TY() -> u64 { return (&CMD_TY) as u64; }
+@no_mangle pub fn paint_ptr_CMD_OPACITY() -> u64 { return (&CMD_OPACITY) as u64; }
+@no_mangle pub fn paint_ptr_CMD_NODE_ID() -> u64 { return (&CMD_NODE_ID) as u64; }
+
+@no_mangle pub fn paint_ptr_CMD_COUNT() -> u64 { return (&CMD_COUNT_A) as u64; }
+@no_mangle pub fn paint_ptr_Z_SORT_COUNT() -> u64 { return (&Z_SORT_COUNT_A) as u64; }
+@no_mangle pub fn paint_ptr_Z_SORT_BUF() -> u64 { return (&Z_SORT_BUF) as u64; }
+

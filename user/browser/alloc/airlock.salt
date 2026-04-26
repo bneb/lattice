@@ -12,7 +12,6 @@ pub global BLOCK_COUNT: u32 = 1;
 
 pub global SIP_MEM_START: [u32; 1024] = [0; 1024];
 
-@no_mangle
 pub fn airlock_init_allocator() {
     BLOCK_SIZES[0] = MAX_AIRLOCK_CAPACITY;
     BLOCK_OFFSETS[0] = 0;
@@ -139,3 +138,7 @@ pub global JS_EVAL_SCRATCHPAD: [u8; 1048576] = [0; 1048576];
 pub fn js_eval_scratchpad_ptr() -> u64 {
     return (&JS_EVAL_SCRATCHPAD) as u64;
 }
+
+// C-FFI ABI Export Wrapper
+@no_mangle
+pub fn ext_salt_airlock_init_allocator() { airlock_init_allocator(); }

@@ -241,6 +241,16 @@ if grep -q 'sprint6_form_test' "$SALT_FILE" 2>/dev/null; then
     BRIDGES+=("$PROJECT_ROOT/tests/bridges/sprint6_form_bridge.c")
 fi
 
+if [[ "$BASENAME" == "test_script_fsm" ]]; then
+    BRIDGES+=("$PROJECT_ROOT/tests/test_script_fsm.c")
+    LIB_MODE=true
+fi
+
+if [[ "$BASENAME" == "test_image_pipeline" ]]; then
+    BRIDGES+=("$PROJECT_ROOT/tests/test_image_pipeline.c")
+    LIB_MODE=true
+fi
+
 if [[ "$BASENAME" == "test_lexer_tree" ]]; then
     BRIDGES+=("$PROJECT_ROOT/tests/bridges/lexer_tree_bridge.c")
     BRIDGES+=("$PROJECT_ROOT/tests/bridges/integration_bridge.c")
@@ -272,7 +282,7 @@ LL_FILES=()
 if [[ "$BASENAME" == "test_e2e_integration" ]] || grep -q 'sys_exec_capture_stdout' "$SALT_FILE" 2>/dev/null; then
     TEST_DEPS=()
 else
-    TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "user/os/process.salt" "user/os/ipc_ring.salt" "user/os/worker_ring.salt" "user/netd/virtio_bridge.salt" "user/browser/alloc/airlock.salt" "user/browser/font.salt" "user/browser/css_utils.salt" "user/browser/css.salt" "user/browser/css_lexer.salt" "user/browser/http_lexer.salt" "user/browser/dom.salt" "user/browser/observers.salt" "user/browser/typography.salt" "user/browser/ipc_shared.salt" "user/browser/lexer.salt" "user/browser/html_serializer.salt" "user/browser/paint.salt" "user/browser/events.salt" "user/browser/layout.salt" "user/browser/timers.salt" "user/browser/history.salt" "user/browser/js_jsc.salt" "user/browser/websocket.salt" "user/browser/worker.salt" "user/browser/animations.salt" "user/browser/compositor.salt" "user/browser/chrome.salt" "user/browser/media.salt" "user/browser/app_main.salt" "user/browser/telemetry.salt" "user/browser/transpiler.salt" "user/browser/hpack.salt" "user/browser/net.salt" "user/browser/storage.salt" "user/browser/custom_elements.salt" "user/browser/selectors.salt" "user/browser/hit_test.salt")
+    TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "user/os/process.salt" "user/os/ipc_ring.salt" "user/os/worker_ring.salt" "user/netd/virtio_bridge.salt" "user/browser/alloc/airlock.salt" "user/browser/font.salt" "user/browser/css_utils.salt" "user/browser/css.salt" "user/browser/css_lexer.salt" "user/browser/http_lexer.salt" "user/browser/hash.salt" "user/browser/css_arena.salt" "user/browser/style_resolve.salt" "user/browser/dom.salt" "user/browser/observers.salt" "user/browser/typography.salt" "user/browser/ipc_shared.salt" "user/browser/lexer.salt" "user/browser/html_serializer.salt" "user/browser/paint.salt" "user/browser/events.salt" "user/browser/layout.salt" "user/browser/timers.salt" "user/browser/history.salt" "user/browser/js_jsc.salt" "user/browser/websocket.salt" "user/browser/worker.salt" "user/browser/animations.salt" "user/browser/compositor.salt" "user/browser/chrome.salt" "user/browser/media.salt" "user/browser/app_main.salt" "user/browser/telemetry.salt" "user/browser/transpiler.salt" "user/browser/hpack.salt" "user/browser/net.salt" "user/browser/storage.salt" "user/browser/custom_elements.salt" "user/browser/selectors.salt" "user/browser/hit_test.salt" "user/browser/event_loop.salt")
 fi
 
 for mod in "${TEST_DEPS[@]}"; do

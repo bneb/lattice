@@ -90,7 +90,7 @@ void js_quickjs_init() {
   sys_jsc_init();
 }
 
-extern void init_arrays(void);
+extern void ext_salt_init_arrays(void);
 void sys_init_arrays(void) { init_arrays(); }
 
 void pump_websocket_frames() {}
@@ -99,6 +99,5 @@ uint8_t get_dom_content_loaded_fired() { return 0; }
 void set_frame_count(uint64_t count) {}
 uint64_t get_frame_count() { return 0; }
 uint64_t get_max_test_frames() { return 60; }
-uint8_t check_any_layout_dirty() { return 0; }
 void sys_browser_navigate(uint64_t url_ptr, uint32_t url_len) {}
 void sys_js_pump_script_queue() {}

@@ -3,9 +3,13 @@
 // =============================================================================
 
 import user.browser.dom
+import user.browser.lexer
+import user.browser.alloc.airlock
 
-fn main() -> i32 {
-    let mock_node = dom.create_node(dom.TAG_DIV);
+pub fn main() -> i32 {
+    airlock.airlock_init_allocator();
+    dom.salt_init_arrays();
+    let mock_node = dom.salt_create_node(4 as u32); // dom.TAG_DIV = 4
     
     let mut html: [u8; 34] = [0; 34];
     
@@ -27,22 +31,21 @@ fn main() -> i32 {
     
     html[32] = 0x22; html[33] = 0x3E;
     
-    // Structural execution limits dynamically natively evaluates OS geometry seamlessly testing physical arrays cleanly inherently manually natively limits cleanly boundaries!
-    let cursor_advance = dom.parse_attributes_bounds((&html) as u64, 34, 7, mock_node);
+    lexer.lex_html((&html) as u64, 34 as u32, mock_node, 0 as u8);
     
-    // Verify cursor skipped perfectly natively exactly at index 34
-    if cursor_advance != 34 {
-        return 1;
-    }
+    // The `<table...>` tag element should be instantiated as the first child of mock_node
+    let mock_idx = dom.salt_resolve_node(mock_node) as usize;
+    let table_id = dom.DOM_NODE_FIRST_CHILD[mock_idx];
+    let table_idx = dom.salt_resolve_node(table_id) as usize;
     
-    // Assert structural attributes parsed implicitly manually seamlessly 
-    if dom.DOM_ID_LEN[mock_node] != 4 {
+    // Assert structural attributes parsed
+    if dom.DOM_ID_LEN[table_idx] != 4 {
         return 2; 
     }
     
-    if dom.DOM_CLASS_LEN[mock_node] != 8 {
+    if dom.DOM_CLASS_LEN[table_idx] != 8 {
         return 3; 
     }
     
-    return 0; // Hardware zero-copy variables extract implicitly! Arrays test passes successfully!
+    return 0; // Success
 }

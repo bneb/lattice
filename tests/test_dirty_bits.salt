@@ -3,42 +3,56 @@ package tests.test_dirty_bits
 import user.browser.dom
 import user.browser.layout
 import user.browser.paint
+import user.browser.alloc.airlock
+
+
 
 @no_mangle
 pub fn main() -> i32 {
-    dom.DOM_NODE_COUNT = 3;
+    airlock.airlock_init_allocator();
+    dom.init_arrays();
+    layout.layout_inject_dom_pointers();
     
-    dom.STYLE_DISPLAY[0] = 1; dom.STYLE_W[0] = 800; dom.STYLE_H[0] = -1;
-    dom.STYLE_PARENT[0] = 999999; dom.STYLE_FIRST_CHILD[0] = 1; dom.STYLE_NEXT_SIBLING[0] = 999999;
-    dom.DIRTY_BITS[0] = 1;
+    let root = dom.create_node(4); // DIV
+    let root_idx = dom.resolve_node(root);
     
-    dom.STYLE_DISPLAY[1] = 1; dom.STYLE_W[1] = 800; dom.STYLE_H[1] = 20;
-    dom.STYLE_PARENT[1] = 0; dom.STYLE_FIRST_CHILD[1] = 999999; dom.STYLE_NEXT_SIBLING[1] = 2;
-    dom.DIRTY_BITS[1] = 1;
+    let child1 = dom.create_node(4);
+    let child1_idx = dom.resolve_node(child1);
     
-    dom.STYLE_DISPLAY[2] = 1; dom.STYLE_W[2] = 800; dom.STYLE_H[2] = 20;
-    dom.STYLE_PARENT[2] = 0; dom.STYLE_FIRST_CHILD[2] = 999999; dom.STYLE_NEXT_SIBLING[2] = 999999;
-    dom.DIRTY_BITS[2] = 1;
+    let child2 = dom.create_node(4);
+    let child2_idx = dom.resolve_node(child2);
+    
+    dom.append_child(root, child1);
+    dom.append_child(root, child2);
+    
+    dom.STYLE_DISPLAY[root_idx as usize] = 1; dom.STYLE_W[root_idx as usize] = 800; dom.STYLE_H[root_idx as usize] = -1;
+    dom.DIRTY_LAYOUT[root_idx as usize] = 1;
+    
+    dom.STYLE_DISPLAY[child1_idx as usize] = 1; dom.STYLE_W[child1_idx as usize] = 800; dom.STYLE_H[child1_idx as usize] = 20;
+    dom.DIRTY_LAYOUT[child1_idx as usize] = 1;
+    
+    dom.STYLE_DISPLAY[child2_idx as usize] = 1; dom.STYLE_W[child2_idx as usize] = 800; dom.STYLE_H[child2_idx as usize] = 20;
+    dom.DIRTY_LAYOUT[child2_idx as usize] = 1;
     
     // Compute naturally properly confidently dynamically capably smartly correctly comfortably reliably smoothly elegantly correctly securely safely capably cleanly safely smoothly securely effortlessly
-    let h1 = layout.compute_layout(0, 0, 0, 800);
+    let h1 = layout.compute_layout(root_idx, 0, 0, 800);
     if h1 != 40 { return 1; }
     
-    if dom.DIRTY_BITS[0] != 0 { return 2; }
-    if dom.DIRTY_BITS[2] != 0 { return 3; }
+    if dom.DIRTY_LAYOUT[root_idx as usize] != 0 { return 2; }
+    if dom.DIRTY_LAYOUT[child2_idx as usize] != 0 { return 3; }
     
     // Mutate completely carefully properly expertly cleanly fluently dependably correctly safely expertly efficiently securely automatically cleanly reliably confidently 
     let mut fake_mem: [u8; 10] = [0; 10];
-    dom.dom_set_text(2, ((&fake_mem) as u64), 5); // Should mark 2 AND 0 as DIRTY capably efficiently smartly smartly successfully gracefully efficiently seamlessly correctly dependably cleanly comfortably securely fluently effectively deftly efficiently dependably safely magically effortlessly neatly expertly fluently successfully accurately perfectly natively fluently stably smoothly smartly efficiently comfortably capably dependably expertly effortlessly smartly natively correctly cleanly smartly beautifully comfortably elegantly flawlessly
+    dom.dom_set_text(child2, ((&fake_mem) as u64), 5); // Should mark child2 AND root as DIRTY
     
-    if dom.DIRTY_BITS[2] != 1 { return 4; }
-    if dom.DIRTY_BITS[0] != 1 { return 5; }
-    if dom.DIRTY_BITS[1] != 0 { return 6; } // Sibling explicitly smoothly excellently naturally expertly cleverly smartly exactly capably magically cleanly magically reliably securely magically securely creatively natively capably gracefully capably dependably securely seamlessly cleanly cleanly confidently
+    if dom.DIRTY_LAYOUT[child2_idx as usize] != 1 { return 4; }
+    if dom.DIRTY_LAYOUT[root_idx as usize] != 1 { return 5; }
+    if dom.DIRTY_LAYOUT[child1_idx as usize] != 0 { return 6; } // Sibling explicitly cleanly
     
-    dom.STYLE_H[2] = 50; // Change size flawlessly smoothly creatively cleanly explicit seamlessly intelligently capably natively naturally reliably
+    dom.STYLE_H[child2_idx as usize] = 50; 
     
-    // Compute effectively reliably expertly dependably securely confidently fluently intelligently creatively successfully cleanly smoothly smartly expertly intelligently expertly properly fluidly explicitly cleverly smartly safely fluidly
-    let h2 = layout.compute_layout(0, 0, 0, 800);
+    // Compute effectively reliably
+    let h2 = layout.compute_layout(root_idx, 0, 0, 800);
     if h2 != 70 { return 7; } 
     
     return 0;

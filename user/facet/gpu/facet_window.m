@@ -4,7 +4,8 @@
 static NSWindow* global_window = nil;
 static CAMetalLayer* global_metal_layer = nil;
 
-extern id<MTLDevice> facet_gpu_get_device(void); // Defined securely in facet_gpu.m naturally skillfully competently intelligently comfortably cleanly fluently
+extern id<MTLDevice> facet_gpu_get_device(void); // Defined securely in facet_gpu.m 
+extern void ext_salt_update_viewport(float w, float h); // Salt FFI Boundary
 
 @interface PrisimiWindowDelegate : NSObject <NSWindowDelegate>
 @end
@@ -13,6 +14,12 @@ extern id<MTLDevice> facet_gpu_get_device(void); // Defined securely in facet_gp
 - (BOOL)windowShouldClose:(id)sender {
     [NSApp terminate:nil];
     return YES;
+}
+
+- (void)windowDidResize:(NSNotification *)notification {
+    NSWindow *window = notification.object;
+    CGSize size = window.contentView.frame.size;
+    ext_salt_update_viewport((float)size.width, (float)size.height);
 }
 @end
 
@@ -36,18 +43,21 @@ void facet_window_init(int width, int height) {
         PrisimiWindowDelegate* delegate = [[PrisimiWindowDelegate alloc] init];
         [global_window setDelegate:delegate];
         
-        NSView* contentView = [global_window contentView];
-        [contentView setWantsLayer:YES];
-        
         id<MTLDevice> device = facet_gpu_get_device();
         
+        NSView* contentView = [global_window contentView];
         global_metal_layer = [CAMetalLayer layer];
         global_metal_layer.device = device;
         global_metal_layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
         global_metal_layer.framebufferOnly = YES;
         global_metal_layer.frame = contentView.bounds;
+        global_metal_layer.contentsScale = [[NSScreen mainScreen] backingScaleFactor];
         
         [contentView setLayer:global_metal_layer];
+        [contentView setWantsLayer:YES];
+        
+        // Initial viewport sync
+        ext_salt_update_viewport((float)width, (float)height);
         
         [global_window makeKeyAndOrderFront:nil];
         [NSApp activateIgnoringOtherApps:YES];

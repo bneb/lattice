@@ -15,12 +15,12 @@ extern int32_t decode_data_uri(const uint8_t *src, uint32_t src_len,
 extern void dom_set_script_src(uint32_t node_idx, uint64_t src_ptr,
                                uint32_t src_len);
 extern uint64_t queue_script_fetch(uint64_t src_ptr, uint32_t src_len);
-extern void invalidate_layout(uint32_t node_id);
-extern void invalidate_all_layout(void);
+extern void ext_salt_invalidate_layout(uint32_t node_id);
+extern void ext_salt_invalidate_all_layout(void);
 extern void js_lex_html_chunk(uint64_t root_id, uint64_t ptr, uint32_t len,
                               uint8_t can_execute);
 
-extern uint64_t create_node(uint32_t tag);
+extern uint64_t ext_salt_create_node(uint32_t tag);
 extern void ext_dom_free_node(uint32_t node_id);
 extern uint32_t dom_get_free_list_count();
 extern uint64_t dom_get_text_ptr(uint32_t idx);
@@ -73,15 +73,13 @@ extern void js_set_style_opacity(uint64_t node_id, float val);
 // --- Globals ---
 extern JSObjectRef create_js_node_wrapper(JSContextRef ctx, uint64_t node_id);
 
-// --- Timer Registry ---
-typedef struct {
-  JSObjectRef callback;
-  uint32_t id;
-  uint8_t active;
-} JSCTimer;
+#include <dispatch/dispatch.h>
+#include <stdatomic.h>
 
-static JSCTimer timer_registry[256];
-static JSCTimer raf_registry[256];
+// --- GCD Timer Flags ---
+// 0 = active, 1 = cancelled
+static _Atomic(uint8_t) timer_cancelled[65536];
+static _Atomic(uint32_t) global_timer_id = 1;
 
 // --- FNV-1a Hash (same as QuickJS bridge) ---
 static uint32_t fnv1a_hash_str(const char *str) {
@@ -120,49 +118,94 @@ JSValueRef jsc_print(JSContextRef ctx, JSObjectRef function,
 }
 
 // setTimeout(callback, delay)
-JSValueRef jsc_setTimeout(JSContextRef ctx, JSObjectRef function,
-                          JSObjectRef thisObject, size_t argc,
-                          const JSValueRef argv[], JSValueRef *exception) {
-  if (argc < 2)
-    return JSValueMakeUndefined(ctx);
+JSValueRef JSC_SetTimeout(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception) {
+    if (argumentCount < 1 || !JSValueIsObject(ctx, arguments[0])) return JSValueMakeUndefined(ctx);
+    
+    JSObjectRef callback = JSValueToObject(ctx, arguments[0], exception);
+    double delay_ms = (argumentCount > 1 && JSValueIsNumber(ctx, arguments[1])) ? JSValueToNumber(ctx, arguments[1], exception) : 0.0;
+    
+    uint32_t timer_id = atomic_fetch_add(&global_timer_id, 1);
+    if (timer_id < 65536) atomic_store(&timer_cancelled[timer_id], 0);
+    
+    JSValueProtect(ctx, callback);
+    
+    dispatch_time_t dt = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay_ms * NSEC_PER_MSEC));
+    
+    dispatch_after(dt, dispatch_get_main_queue(), ^{
+        if (timer_id < 65536 && atomic_load(&timer_cancelled[timer_id]) == 1) {
+            JSValueUnprotect(ctx, callback);
+            return;
+        }
+        JSObjectCallAsFunction(ctx, callback, NULL, 0, NULL, NULL);
+        JSValueUnprotect(ctx, callback);
+    });
+    
+    return JSValueMakeNumber(ctx, timer_id);
+}
 
-  uint32_t delay = (uint32_t)JSValueToNumber(ctx, argv[1], exception);
-  uint32_t timer_id = ext_timers_add_timeout(delay, 0);
-
-  for (int i = 0; i < 256; i++) {
-    if (!timer_registry[i].active) {
-      timer_registry[i].callback = JSValueToObject(ctx, argv[0], exception);
-      JSValueProtect(ctx, timer_registry[i].callback);
-      timer_registry[i].id = timer_id;
-      timer_registry[i].active = 1;
-      break;
+JSValueRef JSC_ClearTimeout(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception) {
+    if (argumentCount < 1 || !JSValueIsNumber(ctx, arguments[0])) return JSValueMakeUndefined(ctx);
+    
+    uint32_t timer_id = (uint32_t)JSValueToNumber(ctx, arguments[0], exception);
+    if (timer_id < 65536) {
+        atomic_store(&timer_cancelled[timer_id], 1);
     }
-  }
+    
+    return JSValueMakeUndefined(ctx);
+}
 
-  return JSValueMakeNumber(ctx, timer_id);
+// setInterval(callback, delay)
+static void JSC_DispatchInterval(JSContextRef ctx, JSObjectRef callback, double delay_ms, uint32_t timer_id) {
+    dispatch_time_t dt = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay_ms * NSEC_PER_MSEC));
+    dispatch_after(dt, dispatch_get_main_queue(), ^{
+        if (timer_id < 65536 && atomic_load(&timer_cancelled[timer_id]) == 1) {
+            JSValueUnprotect(ctx, callback);
+            return;
+        }
+        JSObjectCallAsFunction(ctx, callback, NULL, 0, NULL, NULL);
+        JSC_DispatchInterval(ctx, callback, delay_ms, timer_id);
+    });
+}
+
+JSValueRef JSC_SetInterval(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception) {
+    if (argumentCount < 1 || !JSValueIsObject(ctx, arguments[0])) return JSValueMakeUndefined(ctx);
+    
+    JSObjectRef callback = JSValueToObject(ctx, arguments[0], exception);
+    double delay_ms = (argumentCount > 1 && JSValueIsNumber(ctx, arguments[1])) ? JSValueToNumber(ctx, arguments[1], exception) : 0.0;
+    
+    uint32_t timer_id = atomic_fetch_add(&global_timer_id, 1);
+    if (timer_id < 65536) atomic_store(&timer_cancelled[timer_id], 0);
+    
+    JSValueProtect(ctx, callback);
+    JSC_DispatchInterval(ctx, callback, delay_ms, timer_id);
+    
+    return JSValueMakeNumber(ctx, timer_id);
 }
 
 // requestAnimationFrame(callback)
-JSValueRef jsc_requestAnimationFrame(JSContextRef ctx, JSObjectRef function,
-                                     JSObjectRef thisObject, size_t argc,
-                                     const JSValueRef argv[],
-                                     JSValueRef *exception) {
-  if (argc < 1)
-    return JSValueMakeUndefined(ctx);
-
-  uint32_t raf_id = ext_timers_add_raf();
-
-  for (int i = 0; i < 256; i++) {
-    if (!raf_registry[i].active) {
-      raf_registry[i].callback = JSValueToObject(ctx, argv[0], exception);
-      JSValueProtect(ctx, raf_registry[i].callback);
-      raf_registry[i].id = raf_id;
-      raf_registry[i].active = 1;
-      break;
-    }
-  }
-
-  return JSValueMakeNumber(ctx, raf_id);
+JSValueRef JSC_RequestAnimationFrame(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception) {
+    if (argumentCount < 1 || !JSValueIsObject(ctx, arguments[0])) return JSValueMakeUndefined(ctx);
+    
+    JSObjectRef callback = JSValueToObject(ctx, arguments[0], exception);
+    
+    uint32_t raf_id = atomic_fetch_add(&global_timer_id, 1);
+    if (raf_id < 65536) atomic_store(&timer_cancelled[raf_id], 0);
+    
+    JSValueProtect(ctx, callback);
+    
+    // ~16ms (60fps) GCD alignment
+    dispatch_time_t dt = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(16 * NSEC_PER_MSEC));
+    dispatch_after(dt, dispatch_get_main_queue(), ^{
+        if (raf_id < 65536 && atomic_load(&timer_cancelled[raf_id]) == 1) {
+            JSValueUnprotect(ctx, callback);
+            return;
+        }
+        JSValueRef args[] = { JSValueMakeNumber(ctx, 0.0) };
+        JSObjectCallAsFunction(ctx, callback, NULL, 1, args, NULL);
+        JSValueUnprotect(ctx, callback);
+    });
+    
+    return JSValueMakeNumber(ctx, raf_id);
 }
 
 static char *jsc_value_to_cstring(JSContextRef ctx, JSValueRef val,
@@ -279,7 +322,7 @@ JSValueRef jsc_document_createElement(JSContextRef ctx, JSObjectRef function,
     tag_id = 96; // Hyphenated tag without constructor, still TAG_CUSTOM_ELEMENT
   }
 
-  uint64_t node_id = create_node(tag_id);
+  uint64_t node_id = ext_salt_create_node(tag_id);
   if (node_id == 0) {
     free(tag);
     return JSValueMakeNull(ctx);
@@ -548,7 +591,7 @@ JSValueRef jsc_document_write(JSContextRef ctx, JSObjectRef function,
     js_lex_html_chunk(1, safe_ptr, html_len, 1);
 
     // Mark entire tree dirty for re-layout
-    invalidate_all_layout();
+    ext_salt_invalidate_all_layout();
   }
 
   free(buffer);
@@ -917,7 +960,7 @@ JSValueRef jsc_node_appendChild(JSContextRef ctx, JSObjectRef function,
   }
 
   // Trigger layout invalidation for the parent subtree
-  invalidate_layout(parent_idx);
+  ext_salt_invalidate_layout(parent_idx);
 
   return argv[0]; // appendChild returns the appended child
 }
@@ -1620,7 +1663,7 @@ JSValueRef jsc_document_createTextNode(JSContextRef ctx, JSObjectRef function,
                                        JSObjectRef thisObject, size_t argc,
                                        const JSValueRef argv[],
                                        JSValueRef *exception) {
-  uint64_t node_id = create_node(0); // TAG_TEXT = 0
+  uint64_t node_id = ext_salt_create_node(0); // TAG_TEXT = 0
   if (node_id == 0)
     return JSValueMakeNull(ctx);
 
@@ -1732,7 +1775,7 @@ JSValueRef jsc_node_attachShadow(JSContextRef ctx, JSObjectRef function,
                                  const JSValueRef argv[],
                                  JSValueRef *exception) {
   uint32_t host_idx = jsc_get_node_idx(thisObject);
-  uint64_t shadow_id = create_node(4);
+  uint64_t shadow_id = ext_salt_create_node(4);
   if (shadow_id == 0)
     return JSValueMakeNull(ctx);
   uint32_t shadow_idx = (uint32_t)(shadow_id & 0xFFFF);
@@ -1793,59 +1836,7 @@ JSValueRef get_node_scrollTop(JSContextRef ctx, JSObjectRef object,
 }
 
 // ---- setInterval / clearTimeout / clearInterval / cancelAnimationFrame ----
-JSValueRef jsc_setInterval(JSContextRef ctx, JSObjectRef function,
-                           JSObjectRef thisObject, size_t argc,
-                           const JSValueRef argv[], JSValueRef *exception) {
-  if (argc < 2)
-    return JSValueMakeUndefined(ctx);
-  uint32_t delay = (uint32_t)JSValueToNumber(ctx, argv[1], exception);
-  uint32_t timer_id = ext_timers_add_timeout(delay, 1);
-  for (int i = 0; i < 256; i++) {
-    if (!timer_registry[i].active) {
-      timer_registry[i].callback = JSValueToObject(ctx, argv[0], exception);
-      JSValueProtect(ctx, timer_registry[i].callback);
-      timer_registry[i].id = timer_id;
-      timer_registry[i].active = 1;
-      break;
-    }
-  }
-  return JSValueMakeNumber(ctx, timer_id);
-}
 
-JSValueRef jsc_clearTimeout(JSContextRef ctx, JSObjectRef function,
-                            JSObjectRef thisObject, size_t argc,
-                            const JSValueRef argv[], JSValueRef *exception) {
-  if (argc < 1)
-    return JSValueMakeUndefined(ctx);
-  uint32_t t_id = (uint32_t)JSValueToNumber(ctx, argv[0], exception);
-  for (int i = 0; i < 256; i++) {
-    if (timer_registry[i].active && timer_registry[i].id == t_id) {
-      JSValueUnprotect(ctx, timer_registry[i].callback);
-      timer_registry[i].active = 0;
-      break;
-    }
-  }
-  ext_timers_clear(t_id);
-  return JSValueMakeUndefined(ctx);
-}
-
-JSValueRef jsc_cancelAnimationFrame(JSContextRef ctx, JSObjectRef function,
-                                    JSObjectRef thisObject, size_t argc,
-                                    const JSValueRef argv[],
-                                    JSValueRef *exception) {
-  if (argc < 1)
-    return JSValueMakeUndefined(ctx);
-  uint32_t r_id = (uint32_t)JSValueToNumber(ctx, argv[0], exception);
-  for (int i = 0; i < 256; i++) {
-    if (raf_registry[i].active && raf_registry[i].id == r_id) {
-      JSValueUnprotect(ctx, raf_registry[i].callback);
-      raf_registry[i].active = 0;
-      break;
-    }
-  }
-  ext_timers_clear(r_id);
-  return JSValueMakeUndefined(ctx);
-}
 
 // ---- Style: transform, flexGrow, gridTemplateColumns, gridColumnStart ----
 static bool jsc_style_set_transform(JSContextRef ctx, JSObjectRef object,
@@ -1927,7 +1918,7 @@ JSObjectRef jsc_HTMLElement_constructor(JSContextRef ctx,
   if (UPGRADE_STACK_PTR > 0) {
     node_id = upgrade_stack_pop(); // Bind to existing native DOM node
   } else {
-    node_id = create_node(4); // Standalone new HTMLElement() — allocate fresh
+    node_id = ext_salt_create_node(4); // Standalone new HTMLElement() — allocate fresh
   }
   return create_js_node_wrapper(ctx, node_id);
 }
@@ -2468,10 +2459,11 @@ JSValueRef jsc_postMessage(JSContextRef ctx, JSObjectRef function,
   return JSValueMakeUndefined(ctx);
 }
 
-extern int32_t user__browser__dom__LAYOUT_X[65536];
-extern int32_t user__browser__dom__LAYOUT_Y[65536];
-extern int32_t user__browser__dom__LAYOUT_W[65536];
-extern int32_t user__browser__dom__LAYOUT_H[65536];
+// Layout FFI — clean double-returning accessors into Salt SoA arrays
+extern double ext_get_layout_x(uint32_t node_idx);
+extern double ext_get_layout_y(uint32_t node_idx);
+extern double ext_get_layout_w(uint32_t node_idx);
+extern double ext_get_layout_h(uint32_t node_idx);
 extern int32_t base64_decode(const uint8_t *src, uint32_t src_len, uint8_t *dst, uint32_t dst_max);
 
 static char jsc_current_url[4096] = "https://www.google.com/";
@@ -2506,20 +2498,32 @@ static JSValueRef jsc_location_get_hash(JSContextRef ctx, JSObjectRef obj, JSStr
 
 JSValueRef get_node_offsetWidth(JSContextRef ctx, JSObjectRef object, JSStringRef pn, JSValueRef *ex) {
   uint32_t n_idx = jsc_get_node_idx(object);
-  return JSValueMakeNumber(ctx, (double)user__browser__dom__LAYOUT_W[n_idx]);
+  return JSValueMakeNumber(ctx, ext_get_layout_w(n_idx));
 }
 
 JSValueRef get_node_offsetHeight(JSContextRef ctx, JSObjectRef object, JSStringRef pn, JSValueRef *ex) {
   uint32_t n_idx = jsc_get_node_idx(object);
-  return JSValueMakeNumber(ctx, (double)user__browser__dom__LAYOUT_H[n_idx]);
+  return JSValueMakeNumber(ctx, ext_get_layout_h(n_idx));
 }
 
 JSValueRef jsc_node_getBoundingClientRect(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef *ex) {
-  uint32_t n_idx = jsc_get_node_idx(thisObject);
-  double x = (double)user__browser__dom__LAYOUT_X[n_idx];
-  double y = (double)user__browser__dom__LAYOUT_Y[n_idx];
-  double w = (double)user__browser__dom__LAYOUT_W[n_idx];
-  double h = (double)user__browser__dom__LAYOUT_H[n_idx];
+  // Secure node resolution — if private data is null, this is an unbound call
+  void *priv = JSObjectGetPrivate(thisObject);
+  if (!priv) {
+    JSStringRef errMsg = JSStringCreateWithUTF8CString("getBoundingClientRect called on invalid node");
+    *ex = JSValueMakeString(ctx, errMsg);
+    JSStringRelease(errMsg);
+    return JSValueMakeUndefined(ctx);
+  }
+  uint32_t n_idx = (uint32_t)((uint64_t)(uintptr_t)priv & 0xFFFF);
+
+  // Read layout metrics through clean FFI boundary
+  double x = ext_get_layout_x(n_idx);
+  double y = ext_get_layout_y(n_idx);
+  double w = ext_get_layout_w(n_idx);
+  double h = ext_get_layout_h(n_idx);
+
+  // Construct DOMRect-like object with all 8 W3C properties
   JSObjectRef rect = JSObjectMake(ctx, NULL, NULL);
   JSStringRef keys[] = {
       JSStringCreateWithUTF8CString("x"),      JSStringCreateWithUTF8CString("y"),
@@ -2544,8 +2548,8 @@ JSValueRef jsc_node_cloneNode(JSContextRef ctx, JSObjectRef function, JSObjectRe
   uint32_t n_idx = jsc_get_node_idx(thisObject);
   extern uint32_t dom_get_tag(uint32_t idx);
   uint32_t tag = dom_get_tag(n_idx);
-  extern uint64_t create_node(uint32_t t);
-  uint64_t new_id = create_node(tag);
+  extern uint64_t ext_salt_create_node(uint32_t t);
+  uint64_t new_id = ext_salt_create_node(tag);
   return create_js_node_wrapper(ctx, (uint32_t)(new_id & 0xFFFF));
 }
 
@@ -2667,9 +2671,103 @@ JSObjectRef jsc_XMLHttpRequest_constructor(JSContextRef ctx, JSObjectRef constru
 }
 
 JSObjectRef jsc_image_constructor(JSContextRef ctx, JSObjectRef constructor, size_t argc, const JSValueRef argv[], JSValueRef *ex) {
-  extern uint64_t create_node(uint32_t t);
-  uint64_t new_id = create_node(8); // TAG_IMG is 8
+  extern uint64_t ext_salt_create_node(uint32_t t);
+  uint64_t new_id = ext_salt_create_node(8); // TAG_IMG is 8
   return create_js_node_wrapper(ctx, (uint32_t)(new_id & 0xFFFF));
+}
+
+JSValueRef jsc_crypto_getRandomValues(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef *ex) {
+  if (argc < 1) {
+      JSStringRef errorStr = JSStringCreateWithUTF8CString("TypeError: Failed to execute 'getRandomValues' on 'Crypto': 1 argument required.");
+      *ex = JSValueMakeString(ctx, errorStr);
+      JSStringRelease(errorStr);
+      return JSValueMakeUndefined(ctx);
+  }
+
+  JSObjectRef arrayObj = JSValueToObject(ctx, argv[0], ex);
+
+  JSTypedArrayType arrayType = JSValueGetTypedArrayType(ctx, arrayObj, ex);
+  if (arrayType == kJSTypedArrayTypeNone) {
+      JSStringRef errorStr = JSStringCreateWithUTF8CString("TypeMismatchError: Argument 1 is not a TypedArray.");
+      *ex = JSValueMakeString(ctx, errorStr);
+      JSStringRelease(errorStr);
+      return JSValueMakeUndefined(ctx);
+  }
+
+  size_t byteLength = JSObjectGetTypedArrayByteLength(ctx, arrayObj, ex);
+  if (byteLength > 65536) {
+      JSStringRef errMsg = JSStringCreateWithUTF8CString("QuotaExceededError");
+      *ex = JSValueMakeString(ctx, errMsg);
+      JSStringRelease(errMsg);
+      return argv[0];
+  }
+
+  void* bytes = JSObjectGetTypedArrayBytesPtr(ctx, arrayObj, ex);
+  if (bytes && byteLength > 0) {
+      arc4random_buf(bytes, byteLength);
+  }
+
+  return argv[0];
+}
+
+JSValueRef jsc_storage_getItem(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef *exception) {
+  return JSValueMakeNull(ctx);
+}
+JSValueRef jsc_storage_setItem(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef *exception) {
+  return JSValueMakeUndefined(ctx);
+}
+
+JSValueRef jsc__DumpException(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef *exception) {
+  if (argc > 0) {
+    JSStringRef str = JSValueToStringCopy(ctx, argv[0], NULL);
+    size_t max_len = JSStringGetMaximumUTF8CStringSize(str);
+    char *buf = malloc(max_len);
+    JSStringGetUTF8CString(str, buf, max_len);
+    printf("[Prisimi JIT] (Google _DumpException hook): Caught -> %s\n", buf);
+    free(buf);
+    JSStringRelease(str);
+  }
+  return JSValueMakeUndefined(ctx);
+}
+
+void ext_engine_inject_timer_polyfills(JSGlobalContextRef ctx) {
+    JSObjectRef global = JSContextGetGlobalObject(ctx);
+    
+    // Inject setTimeout
+    JSStringRef setTimeName = JSStringCreateWithUTF8CString("setTimeout");
+    JSObjectRef setTimeFunc = JSObjectMakeFunctionWithCallback(ctx, setTimeName, JSC_SetTimeout);
+    JSObjectSetProperty(ctx, global, setTimeName, setTimeFunc, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, NULL);
+    JSStringRelease(setTimeName);
+    
+    // Inject clearTimeout
+    JSStringRef clearTimeName = JSStringCreateWithUTF8CString("clearTimeout");
+    JSObjectRef clearTimeFunc = JSObjectMakeFunctionWithCallback(ctx, clearTimeName, JSC_ClearTimeout);
+    JSObjectSetProperty(ctx, global, clearTimeName, clearTimeFunc, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, NULL);
+    JSStringRelease(clearTimeName);
+
+    // Inject setInterval
+    JSStringRef setIntervalName = JSStringCreateWithUTF8CString("setInterval");
+    JSObjectRef setIntervalFunc = JSObjectMakeFunctionWithCallback(ctx, setIntervalName, JSC_SetInterval);
+    JSObjectSetProperty(ctx, global, setIntervalName, setIntervalFunc, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, NULL);
+    JSStringRelease(setIntervalName);
+
+    // Inject clearInterval (aliases to clearTimeout dynamically since IDs share atomic keyspace)
+    JSStringRef clearIntervalName = JSStringCreateWithUTF8CString("clearInterval");
+    JSObjectRef clearIntervalFunc = JSObjectMakeFunctionWithCallback(ctx, clearIntervalName, JSC_ClearTimeout);
+    JSObjectSetProperty(ctx, global, clearIntervalName, clearIntervalFunc, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, NULL);
+    JSStringRelease(clearIntervalName);
+
+    // Inject requestAnimationFrame
+    JSStringRef rafName = JSStringCreateWithUTF8CString("requestAnimationFrame");
+    JSObjectRef rafFunc = JSObjectMakeFunctionWithCallback(ctx, rafName, JSC_RequestAnimationFrame);
+    JSObjectSetProperty(ctx, global, rafName, rafFunc, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, NULL);
+    JSStringRelease(rafName);
+
+    // Inject cancelAnimationFrame
+    JSStringRef cafName = JSStringCreateWithUTF8CString("cancelAnimationFrame");
+    JSObjectRef cafFunc = JSObjectMakeFunctionWithCallback(ctx, cafName, JSC_ClearTimeout);
+    JSObjectSetProperty(ctx, global, cafName, cafFunc, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, NULL);
+    JSStringRelease(cafName);
 }
 
 void bind_native_globals(JSGlobalContextRef ctx) {
@@ -2725,6 +2823,19 @@ void bind_native_globals(JSGlobalContextRef ctx) {
       kJSPropertyAttributeNone, NULL);
   JSStringRelease(setWidthStr);
 
+  // Crypto
+  JSObjectRef crypto = JSObjectMake(ctx, NULL, NULL);
+  JSStringRef grvStr = JSStringCreateWithUTF8CString("getRandomValues");
+  JSObjectSetProperty(
+      ctx, crypto, grvStr,
+      JSObjectMakeFunctionWithCallback(ctx, grvStr, jsc_crypto_getRandomValues),
+      kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, NULL);
+  JSStringRelease(grvStr);
+
+  JSStringRef cryptoStr = JSStringCreateWithUTF8CString("crypto");
+  JSObjectSetProperty(ctx, global, cryptoStr, crypto, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, NULL);
+  JSStringRelease(cryptoStr);
+
   // Performance
   JSObjectRef performance = JSObjectMake(ctx, NULL, NULL);
   JSStringRef nowStr = JSStringCreateWithUTF8CString("now");
@@ -2739,49 +2850,10 @@ void bind_native_globals(JSGlobalContextRef ctx) {
                       kJSPropertyAttributeNone, NULL);
   JSStringRelease(perfStr);
 
-  // Timers
-  JSStringRef timeoutStr = JSStringCreateWithUTF8CString("setTimeout");
-  JSObjectSetProperty(
-      ctx, global, timeoutStr,
-      JSObjectMakeFunctionWithCallback(ctx, timeoutStr, jsc_setTimeout),
-      kJSPropertyAttributeNone, NULL);
-  JSStringRelease(timeoutStr);
+  // Inject ALL Timer polyfills through our managed GCD function
+  ext_engine_inject_timer_polyfills(ctx);
 
-  JSStringRef rafStr = JSStringCreateWithUTF8CString("requestAnimationFrame");
-  JSObjectSetProperty(
-      ctx, global, rafStr,
-      JSObjectMakeFunctionWithCallback(ctx, rafStr, jsc_requestAnimationFrame),
-      kJSPropertyAttributeNone, NULL);
-  JSStringRelease(rafStr);
 
-  // Wave 4: setInterval, clearTimeout, clearInterval, cancelAnimationFrame
-  JSStringRef siStr = JSStringCreateWithUTF8CString("setInterval");
-  JSObjectSetProperty(
-      ctx, global, siStr,
-      JSObjectMakeFunctionWithCallback(ctx, siStr, jsc_setInterval),
-      kJSPropertyAttributeNone, NULL);
-  JSStringRelease(siStr);
-
-  JSStringRef ctStr = JSStringCreateWithUTF8CString("clearTimeout");
-  JSObjectSetProperty(
-      ctx, global, ctStr,
-      JSObjectMakeFunctionWithCallback(ctx, ctStr, jsc_clearTimeout),
-      kJSPropertyAttributeNone, NULL);
-  JSStringRelease(ctStr);
-
-  JSStringRef ciStr = JSStringCreateWithUTF8CString("clearInterval");
-  JSObjectSetProperty(
-      ctx, global, ciStr,
-      JSObjectMakeFunctionWithCallback(ctx, ciStr, jsc_clearTimeout),
-      kJSPropertyAttributeNone, NULL); // same mechanism
-  JSStringRelease(ciStr);
-
-  JSStringRef cafStr = JSStringCreateWithUTF8CString("cancelAnimationFrame");
-  JSObjectSetProperty(
-      ctx, global, cafStr,
-      JSObjectMakeFunctionWithCallback(ctx, cafStr, jsc_cancelAnimationFrame),
-      kJSPropertyAttributeNone, NULL);
-  JSStringRelease(cafStr);
 
   // Console
   JSObjectRef console = JSObjectMake(ctx, NULL, NULL);
@@ -2942,11 +3014,15 @@ void bind_native_globals(JSGlobalContextRef ctx) {
                       kJSPropertyAttributeNone, NULL);
   JSStringRelease(documentStr);
 
-  // Window: self-reference + addEventListener + postMessage
   JSStringRef windowStr = JSStringCreateWithUTF8CString("window");
   JSObjectSetProperty(ctx, global, windowStr, global,
                       kJSPropertyAttributeReadOnly, NULL);
   JSStringRelease(windowStr);
+
+  JSStringRef topStr = JSStringCreateWithUTF8CString("top");
+  JSObjectSetProperty(ctx, global, topStr, global,
+                      kJSPropertyAttributeReadOnly, NULL);
+  JSStringRelease(topStr);
 
   JSStringRef selfStr = JSStringCreateWithUTF8CString("self");
   JSObjectSetProperty(ctx, global, selfStr, global,
@@ -3154,6 +3230,51 @@ void bind_native_globals(JSGlobalContextRef ctx) {
     JSStringRelease(giStr);
   }
 
+  // localStorage and sessionStorage
+  {
+    JSObjectRef storageObj = JSObjectMake(ctx, NULL, NULL);
+    JSStringRef getItemStr = JSStringCreateWithUTF8CString("getItem");
+    JSObjectSetProperty(ctx, storageObj, getItemStr, JSObjectMakeFunctionWithCallback(ctx, getItemStr, jsc_storage_getItem), kJSPropertyAttributeNone, NULL);
+    JSStringRelease(getItemStr);
+    JSStringRef setItemStr = JSStringCreateWithUTF8CString("setItem");
+    JSObjectSetProperty(ctx, storageObj, setItemStr, JSObjectMakeFunctionWithCallback(ctx, setItemStr, jsc_storage_setItem), kJSPropertyAttributeNone, NULL);
+    JSStringRelease(setItemStr);
+    
+    JSStringRef lsStr = JSStringCreateWithUTF8CString("localStorage");
+    JSObjectSetProperty(ctx, global, lsStr, storageObj, kJSPropertyAttributeNone, NULL);
+    JSStringRelease(lsStr);
+    JSStringRef ssStr = JSStringCreateWithUTF8CString("sessionStorage");
+    JSObjectSetProperty(ctx, global, ssStr, storageObj, kJSPropertyAttributeNone, NULL);
+    JSStringRelease(ssStr);
+  }
+
+  // window._._DumpException AND Object.prototype._DumpException
+  {
+    JSObjectRef _obj = JSObjectMake(ctx, NULL, NULL);
+    JSStringRef _DumpStr = JSStringCreateWithUTF8CString("_DumpException");
+    JSObjectRef dumpFunc = JSObjectMakeFunctionWithCallback(ctx, _DumpStr, jsc__DumpException);
+    
+    JSObjectSetProperty(ctx, _obj, _DumpStr, dumpFunc, kJSPropertyAttributeNone, NULL);
+    JSStringRef _str = JSStringCreateWithUTF8CString("_");
+    JSObjectSetProperty(ctx, global, _str, _obj, kJSPropertyAttributeNone, NULL);
+    JSStringRelease(_str);
+    
+    // Inject onto Object.prototype because Google uses scoped variables `(function(_){...})(this.gbar_)`
+    JSStringRef objStr = JSStringCreateWithUTF8CString("Object");
+    JSValueRef objVal = JSObjectGetProperty(ctx, global, objStr, NULL);
+    JSObjectRef objConstructor = JSValueToObject(ctx, objVal, NULL);
+    
+    JSStringRef protoStr = JSStringCreateWithUTF8CString("prototype");
+    JSValueRef protoVal = JSObjectGetProperty(ctx, objConstructor, protoStr, NULL);
+    JSObjectRef protoObj = JSValueToObject(ctx, protoVal, NULL);
+
+    JSObjectSetProperty(ctx, protoObj, _DumpStr, dumpFunc, kJSPropertyAttributeNone, NULL);
+    
+    JSStringRelease(protoStr);
+    JSStringRelease(objStr);
+    JSStringRelease(_DumpStr);
+  }
+
   // Google Unblock: window.google — empty object stub
   {
     JSObjectRef googleObj = JSObjectMake(ctx, NULL, NULL);
@@ -3167,31 +3288,9 @@ void bind_native_globals(JSGlobalContextRef ctx) {
 // --- Callback Dispatchers (invoked from Salt) ---
 
 void sys_js_execute_timer(uint32_t timer_id, uint8_t is_interval) {
-  // find in registry and call
-  extern JSGlobalContextRef global_ctx;
-  for (int i = 0; i < 256; i++) {
-    if (timer_registry[i].active && timer_registry[i].id == timer_id) {
-      JSObjectCallAsFunction(global_ctx, timer_registry[i].callback, NULL, 0,
-                             NULL, NULL);
-      if (!is_interval) {
-        JSValueUnprotect(global_ctx, timer_registry[i].callback);
-        timer_registry[i].active = 0;
-      }
-      break;
-    }
-  }
+    // Obsolete - Handled by GCD directly.
 }
 
 void sys_js_execute_raf(uint32_t raf_id, double timestamp) {
-  extern JSGlobalContextRef global_ctx;
-  for (int i = 0; i < 256; i++) {
-    if (raf_registry[i].active && raf_registry[i].id == raf_id) {
-      JSValueRef arg = JSValueMakeNumber(global_ctx, timestamp);
-      JSObjectCallAsFunction(global_ctx, raf_registry[i].callback, NULL, 1,
-                             &arg, NULL);
-      JSValueUnprotect(global_ctx, raf_registry[i].callback);
-      raf_registry[i].active = 0;
-      break;
-    }
-  }
+    // Obsolete - Handled by GCD directly.
 }

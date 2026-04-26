@@ -3,8 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
-extern void airlock_init_allocator();
-extern void init_arrays();
+extern void ext_salt_airlock_init_allocator();
+extern void ext_salt_init_arrays();
 extern void sys_jsc_init();
 extern void sys_jsc_evaluate_script(uint64_t script_ptr, uint32_t script_len,
                                     const char *filename);

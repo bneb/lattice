@@ -4,14 +4,14 @@
 #include <string.h>
 
 // External Engine Initializers
-extern void airlock_init_allocator();
-extern void init_arrays();
+extern void ext_salt_airlock_init_allocator();
+extern void ext_salt_init_arrays();
 extern int js_quickjs_init();
 
 // Salt Mangled Native Functions
 extern void user__browser__css__init_css_defaults();
 extern void user__browser__font__init_glyphs();
-extern uint64_t create_node(uint32_t tag);
+extern uint64_t ext_salt_create_node(uint32_t tag);
 extern void http_set_root_node(uint64_t node_id);
 extern uint8_t http_get_eof_reached();
 extern void apply_cascade_to_tree();

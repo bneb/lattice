@@ -73,6 +73,42 @@ static int cdm_count = 0;
   // Purposefully left blank. AppKit will only call this instead of drawRect:,
   // which leaves layer.contents safely persistent without AppKit stomping it.
 }
+- (BOOL)acceptsFirstResponder { return YES; }
+- (BOOL)canBecomeKeyView { return YES; }
+
+// Sprint 5: Native Keyboard Input → IPC CMD 14
+- (void)keyDown:(NSEvent *)event {
+  unsigned short keyCode = event.keyCode;
+  uint8_t charCode = 0;
+
+  if (keyCode == 51) {        // macOS Delete (Backspace)
+    charCode = 8;
+  } else if (keyCode == 36) { // Return/Enter
+    charCode = 10;
+  } else {
+    NSString *chars = event.characters;
+    if (chars.length > 0) {
+      unichar uc = [chars characterAtIndex:0];
+      if (uc < 128) charCode = (uint8_t)uc;
+    }
+  }
+
+  if (charCode != 0) {
+    sys_ipc_push_command(14 /* CMD_KEYDOWN */, (uint64_t)charCode, 0);
+  }
+}
+
+// Sprint 5: Native Mouse Click → IPC CMD 13
+- (void)mouseDown:(NSEvent *)event {
+  NSPoint loc = [self convertPoint:event.locationInWindow fromView:nil];
+  int32_t mx = (int32_t)loc.x;
+  int32_t my = (int32_t)loc.y;
+  // Pack two i32 coordinates into one u64: x in upper 32, y in lower 32
+  uint64_t packed = ((uint64_t)(uint32_t)mx << 32) | (uint64_t)(uint32_t)my;
+  sys_ipc_push_command(13 /* CMD_MOUSEDOWN */, packed, 0);
+  // Grab keyboard focus to this view
+  [self.window makeFirstResponder:self];
+}
 @end
 
 @interface BrowserChrome : NSWindowController <NSTextFieldDelegate>
@@ -411,6 +447,10 @@ static BrowserChrome *globalChrome = NULL;
                 });
               } else {
                 NSLog(@"[Network] Fetch failed: %@", error);
+                dispatch_async(dispatch_get_main_queue(), ^{
+                  extern void sys_ipc_push_command(uint32_t cmd, uint64_t arg1, uint32_t arg2);
+                  sys_ipc_push_command(9 /* CMD_FETCH_RESPONSE */, fetch_id, 0);
+                });
               }
             }];
         [task resume];
@@ -690,6 +730,7 @@ int main(int argc, const char *argv[]) {
     // Initialize Browser Chrome with the window
     BrowserChrome *chrome = [[BrowserChrome alloc] initWithWindow:window];
     [app activateIgnoringOtherApps:YES];
+
 
     // Instead of NSApplicationMain, we can run the runloop or just use NSApp
     // run

@@ -2,8 +2,8 @@
 #include <stdint.h>
 #include <string.h>
 
-extern void airlock_init_allocator();
-extern void init_arrays();
+extern void ext_salt_airlock_init_allocator();
+extern void ext_salt_init_arrays();
 extern int32_t js_init_quickjs();
 extern int32_t js_eval_buffer(const uint64_t code_ptr, uint32_t len);
 

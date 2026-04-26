@@ -1,9 +1,12 @@
 package user.browser.net
 
 import user.browser.dom
-import user.browser.compositor
 import user.os.ipc_ring
 import user.os.worker_ring
+import user.browser.layout
+import user.browser.paint
+
+extern fn decode_and_upload_image(bytes_ptr: u64, len: u32, out_w: u64, out_h: u64) -> i32;
 
 // ============================================================================
 // Epic 51: Zero-Allocation Async Fetch Queue (SoA)
@@ -358,10 +361,7 @@ extern fn read_ipc_command_payload_len(ptr: u64) -> u32;
 
 extern fn sys_browser_navigate(url_ptr: u64, url_len: u32);
 extern fn http_reset_state();
-extern fn invalidate_layout(idx: u32);
-extern fn invalidate_all_layout();
-extern fn paint_mark_compositor_dirty(node_idx: u32);
-extern fn resolve_node(id: u64) -> u32;
+
 extern fn ext_get_dom_node_count() -> u64;
 extern fn sys_log_info(ptr: u64, len: u32);
 extern fn sys_print_float(f: f64);
@@ -377,13 +377,18 @@ extern fn http_set_eof();
 extern fn dom_alloc_text(len: u32) -> u64;
 extern fn complete_script_fetch(fetch_id: u64, buf_ptr: u64, buf_len: u32) -> i32;
 extern fn sys_jsc_evaluate_script(code_ptr: u64, code_len: u32, filename_ptr: u64);
-extern fn resolve_node(id: u64) -> u32;
+
 extern fn js_bridge_dispatch_websocket_message(ws_id: u32, ptr: u64, len: u32);
 extern fn js_bridge_dispatch_main_message(ptr: u64, len: u32);
 extern fn pump_websocket_frames();
 extern fn pump_storage_queue();
 
-@no_mangle
+// Sprint 5: Keyboard Input & Focus FFI
+extern fn ext_engine_process_mouse_down(x: f32, y: f32);
+extern fn ext_engine_process_key_down(char_code: u8);
+extern fn ext_dom_mutate_text(node_id: u32, insert_char: u8, is_backspace: u8);
+extern fn dom_get_active_focus() -> u32;
+
 pub fn sys_net_pump_ingress() {
     let mut idx = 0;
     while idx < 10 {
@@ -420,10 +425,26 @@ pub fn sys_net_pump_ingress() {
             let surface_id = arg2;
             if iframe_slot < 256 {
                 dom.DOM_IFRAME_SURFACE_ID[iframe_slot as usize] = surface_id;
-                invalidate_layout(dom.DOM_IFRAME_NODE_ID[iframe_slot as usize]);
+                dom.invalidate_layout(dom.DOM_IFRAME_NODE_ID[iframe_slot as usize]);
             }
         } else if cmd_type == 7 { // CMD_WORKER_REGISTERED
             HAS_ACTIVE_SERVICE_WORKER = 1;
+        } else if cmd_type == 13 { // CMD_MOUSEDOWN (Sprint 5)
+            // Unpack: x in upper 32 bits, y in lower 32 bits
+            let mx = (arg1 >> 32) as i32;
+            let my = (arg1 & 0xFFFFFFFF) as i32;
+            ext_engine_process_mouse_down(mx as f32, my as f32);
+        } else if cmd_type == 14 { // CMD_KEYDOWN (Sprint 5)
+            let char_code = arg1 as u8;
+            if char_code == 8 { // Backspace
+                let focus = dom_get_active_focus();
+                if focus != 0 {
+                    ext_dom_mutate_text(focus, 0, 1);
+                    ext_salt_invalidate_layout(focus);
+                }
+            } else {
+                ext_engine_process_key_down(char_code);
+            }
         } else if cmd_type == 10 { // CMD_SCROLL
             dom_add_scroll_y(arg1 as i32);
         } else if cmd_type == 9 { // CMD_FETCH_RESPONSE
@@ -492,8 +513,8 @@ pub fn sys_net_pump_ingress() {
                 // Signal EOF so the layout solver fires
                 http_set_eof();
                 
-                // TRAP 1 FIX: explicitly flag DIRTY_LAYOUT for the matrix
-                let u_idx = resolve_node(root_id);
+                // TRAP 1 FIX: explicitly flag FLAG_LAYOUT_DIRTY for the matrix
+                let u_idx = dom.resolve_node(root_id);
                 
                 // TELEMETRY: Log resolve result
                 let m_res: [u8; 14] = [91,70,69,84,67,72,93,32,117,95,105,100,120,61]; // "[FETCH] u_idx="
@@ -507,9 +528,9 @@ pub fn sys_net_pump_ingress() {
                 sys_log_info((&nl) as u64, 1);
                 
                 // Mark ALL nodes dirty after batch DOM creation
-                // (The layout solver's 'geometrically clean bypass' skips nodes with DIRTY_LAYOUT=0)
-                invalidate_all_layout();
-                
+                // (The layout solver's 'geometrically clean bypass' skips nodes with FLAG_LAYOUT_DIRTY=0)
+                dom.invalidate_layout(0);
+                paint.paint_mark_compositor_dirty(0);
                 sys_js_pump_script_queue();
                 sys_jsc_flush_microtasks();
             } else if is_img_fetch && bulk_ptr != 0 {
@@ -521,7 +542,7 @@ pub fn sys_net_pump_ingress() {
                         if node_idx != 0xFFFFFFFF && node_idx != 0 {
                             let mut out_w: i32 = 0;
                             let mut out_h: i32 = 0;
-                            let tex_id = compositor.decode_and_upload_image(bulk_ptr, fetch_len, (&mut out_w) as u64, (&mut out_h) as u64);
+                            let tex_id = decode_and_upload_image(bulk_ptr, fetch_len, (&mut out_w) as u64, (&mut out_h) as u64);
                             if tex_id > 0 {
                                 dom.DOM_NODE_TEXTURE_ID[node_idx as usize] = tex_id as u32;
                                 dom.DOM_CANVAS_WIDTH[node_idx as usize] = out_w as u32;
@@ -531,8 +552,7 @@ pub fn sys_net_pump_ingress() {
                                 if dom.STYLE_W[node_idx as usize] == -1 { dom.STYLE_W[node_idx as usize] = out_w; }
                                 if dom.STYLE_H[node_idx as usize] == -1 { dom.STYLE_H[node_idx as usize] = out_h; }
                                 
-                                // Make sure layout sees the new intrinsic size
-                                invalidate_layout(node_idx);
+                                paint.paint_mark_compositor_dirty(node_idx);
                             }
                         }
                         dom.IMG_FETCH_STATE[f_i as usize] = 0; // mark done
@@ -668,10 +688,10 @@ pub fn sys_net_pump_ingress() {
                             }
                         }
                     } else {
-                        let n_idx = resolve_node(NETWORK_INGEST_NODE_ID);
+                        let n_idx = dom.resolve_node(NETWORK_INGEST_NODE_ID);
                         if n_idx != 0xFFFFFFFF && n_idx != 0 {
                             let mut out_w: i32 = 0; let mut out_h: i32 = 0;
-                            compositor.decode_and_upload_image((&NETWORK_INGEST_BUFFER) as u64, NETWORK_INGEST_EXPECTED_LEN, (&mut out_w) as u64, (&mut out_h) as u64);
+                            decode_and_upload_image((&NETWORK_INGEST_BUFFER) as u64, NETWORK_INGEST_EXPECTED_LEN, (&mut out_w) as u64, (&mut out_h) as u64);
                         }
                     }
                     NETWORK_INGEST_STATE = 0;
@@ -703,4 +723,22 @@ pub fn sys_net_pump_ingress() {
     pump_net_fetch_queue();
     pump_websocket_frames();
     pump_storage_queue();
+    
+    // Epic 86 Phase 26: TLS Ingress Socket Pump
+    // pump_network_ingress();
+}
+
+extern fn ext_ring_buffer_poll_chunk(out_buffer: u64, out_len: u64) -> bool;
+extern fn salt_lex_html_chunk(root_id: u64, ptr: u64, len: u32, can_execute: u8);
+
+pub global NET_INGRESS_CHUNK: [u8; 8192] = [0; 8192];
+pub global NET_CHUNK_LEN: [u64; 1] = [0];
+
+pub fn get_ingress_buf_ptr() -> u64 { return (&NET_INGRESS_CHUNK) as u64; }
+pub fn get_chunk_len_ptr() -> u64 { return (&NET_CHUNK_LEN) as u64; }
+
+
+
+pub fn pump_network_ingress() {
+    // Disabled due to missing FFI bindings in mac_app
 }
