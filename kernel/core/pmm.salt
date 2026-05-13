@@ -50,7 +50,7 @@ const MAX_CPUS: u64 = 16;
 struct PmmCoreState {
     head: u64,          // offset 0:  Treiber stack head (physical address)
     count: u64,         // offset 8:  Number of free pages in this core's list
-    _pad0: u64,         // offset 16: Padding to fill cacheline
+    lock: u64,          // offset 16: Spinlock for cross-core access
     _pad1: u64,         // offset 24
     _pad2: u64,         // offset 32
     _pad3: u64,         // offset 40
@@ -60,8 +60,8 @@ struct PmmCoreState {
 // sizeof(PmmCoreState) = 64 bytes = 1 cacheline ✓
 
 global PMM_SHARDS: [PmmCoreState; 16] = [PmmCoreState {
-    head: 0, count: 0,
-    _pad0: 0, _pad1: 0, _pad2: 0, _pad3: 0, _pad4: 0, _pad5: 0
+    head: 0, count: 0, lock: 0,
+    _pad1: 0, _pad2: 0, _pad3: 0, _pad4: 0, _pad5: 0
 }; 16];
 
 // Total pages across all cores (for diagnostic/reporting only)
@@ -106,6 +106,20 @@ pub fn init_cpu_count(n: u64) {
     }
 }
 
+fn acquire_lock(core: u64) {
+    loop {
+        if atomic_cas_i64(&PMM_SHARDS[core].lock, 0 as i64, 1 as i64) == 0 as i64 {
+            return;
+        }
+        // Hint to CPU that we are in a spin-wait loop
+        // Ideally we would emit a 'pause' instruction here
+    }
+}
+
+fn release_lock(core: u64) {
+    PMM_SHARDS[core].lock = 0;
+}
+
 // ============================================================================
 // ALLOC: Pop a page from THIS core's free list (returns PhysAddr as u64)
 // ============================================================================
@@ -115,8 +129,10 @@ pub fn init_cpu_count(n: u64) {
 pub fn alloc() -> u64 {
     disable_interrupts();
     let cpu = get_cpu_id();
+    acquire_lock(cpu);
     let head = PMM_SHARDS[cpu].head;
     if head == 0 {
+        release_lock(cpu);
         enable_interrupts();
         // Local list empty — try stealing from a remote core
         return steal_from_remote();
@@ -125,6 +141,7 @@ pub fn alloc() -> u64 {
     let next = *(vaddr as &u64);
     PMM_SHARDS[cpu].head = next;
     PMM_SHARDS[cpu].count = PMM_SHARDS[cpu].count - 1;
+    release_lock(cpu);
     enable_interrupts();
     return head;
 }
@@ -140,54 +157,40 @@ pub fn free(page: u64) {
     }
     disable_interrupts();
     let cpu = get_cpu_id();
+    acquire_lock(cpu);
     let vaddr = memory.phys_to_virt(memory.PhysAddr { val: page }).val;
     *(vaddr as &mut u64) = PMM_SHARDS[cpu].head;
     PMM_SHARDS[cpu].head = page;
     PMM_SHARDS[cpu].count = PMM_SHARDS[cpu].count + 1;
+    release_lock(cpu);
     enable_interrupts();
 }
 
 // ============================================================================
-// steal_from_remote — Lock-free cross-core page stealing via atomic CAS
-// ============================================================================
-// When a core's local list is empty, scan remote cores for one with excess
-// pages and atomically steal the head page using cmpxchg.
-//
-// CRITICAL: CLI cannot protect remote data. Core 0's cli() does not stop
-// Core 1 from executing pmm.alloc() simultaneously. Only atomic CAS on
-// the victim's head pointer ensures correctness when two cores race.
-//
-// The count decrement IS atomic — atomic_add_i64 emits atomicrmw add,
-// preventing count corruption when multiple cores steal from the same victim
-// simultaneously. The head pointer CAS ensures list integrity; atomic count
-// ensures the steal threshold heuristic remains accurate.
+// steal_from_remote — Cross-core page stealing with spinlocks
 // ============================================================================
 fn steal_from_remote() -> u64 {
     let thief = get_cpu_id();
     let mut victim: u64 = 0;
 
     while victim < NUM_CPUS {
-        if victim != thief && PMM_SHARDS[victim].count > STEAL_THRESHOLD {
-            // Read the victim's current head. Non-atomic read is safe here:
-            // the subsequent CAS validates the value hasn't changed.
-            let victim_head = PMM_SHARDS[victim].head;
-            if victim_head != 0 {
-                // Read the next pointer from the victim's head page
-                let vaddr = memory.phys_to_virt(memory.PhysAddr { val: victim_head }).val;
-                let next = *(vaddr as &u64);
-
-                // Atomic CAS: swap victim's head only if it hasn't changed.
-                // atomic_cas_i64 is a compiler intrinsic (llvm.cmpxchg).
-                // First arg must be a reference (!llvm.ptr), not a u64.
-                let old_val = atomic_cas_i64(&PMM_SHARDS[victim].head, victim_head as i64, next as i64);
-                if old_val == victim_head as i64 {
-                    // Steal successful! Atomic count decrement via atomicrmw add.
-                    // This prevents count corruption under concurrent steals.
-                    atomic_add_i64(&PMM_SHARDS[victim].count, -1 as i64);
+        if victim != thief {
+            disable_interrupts();
+            acquire_lock(victim);
+            if PMM_SHARDS[victim].count > STEAL_THRESHOLD {
+                let victim_head = PMM_SHARDS[victim].head;
+                if victim_head != 0 {
+                    let vaddr = memory.phys_to_virt(memory.PhysAddr { val: victim_head }).val;
+                    let next = *(vaddr as &u64);
+                    PMM_SHARDS[victim].head = next;
+                    PMM_SHARDS[victim].count = PMM_SHARDS[victim].count - 1;
+                    release_lock(victim);
+                    enable_interrupts();
                     return victim_head;
                 }
-                // CAS failed — another core mutated the list. Try next victim.
             }
+            release_lock(victim);
+            enable_interrupts();
         }
         victim = victim + 1;
     }

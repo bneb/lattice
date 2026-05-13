@@ -296,6 +296,26 @@ pub fn translate_user_addr(pml4_phys: u64, vaddr: u64) -> u64 {
     return page_phys + page_offset;
 }
 
+pub fn get_user_pte(pml4_phys: u64, vaddr: u64) -> u64 {
+    let pml4_virt = memory.phys_to_virt(memory.PhysAddr { val: pml4_phys }).val;
+    let pml4e = *((pml4_virt + (pml4_index(vaddr) * 8)) as &u64);
+    if (pml4e & PTE_PRESENT) == 0 { return 0; }
+
+    let pdp_phys = pml4e & ADDR_MASK;
+    let pdp_virt = memory.phys_to_virt(memory.PhysAddr { val: pdp_phys }).val;
+    let pdpe = *((pdp_virt + (pdp_index(vaddr) * 8)) as &u64);
+    if (pdpe & PTE_PRESENT) == 0 { return 0; }
+
+    let pd_phys = pdpe & ADDR_MASK;
+    let pd_virt = memory.phys_to_virt(memory.PhysAddr { val: pd_phys }).val;
+    let pde = *((pd_virt + (pd_index(vaddr) * 8)) as &u64);
+    if (pde & PTE_PRESENT) == 0 { return 0; }
+
+    let pt_phys = pde & ADDR_MASK;
+    let pt_virt = memory.phys_to_virt(memory.PhysAddr { val: pt_phys }).val;
+    return *((pt_virt + (pt_index(vaddr) * 8)) as &u64);
+}
+
 // =============================================================================
 // unmap_user_page -- Clear a single 4KB leaf PTE (read-only walk, no alloc)
 // =============================================================================

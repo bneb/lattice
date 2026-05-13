@@ -361,3 +361,71 @@ user_stack_init:
     /* RAX = ctx_ptr (bottom of frame = initial fiber.stack_ptr) */
     ret
 
+/* ====================================================================
+ * sched_yield
+ * ====================================================================
+ * Cooperative yield called by a preemptive thread.
+ * Returns back to the scheduler via GS:[48].
+ * ==================================================================== */
+.global sched_yield
+sched_yield:
+    /* Check if we are inside a unified thread */
+    mov r11, gs:[GS_SCHED_RSP]
+    test r11, r11
+    jz .Lcall_dispatch_directly
+
+    /* Build an IRETQ-compatible frame */
+    push KERNEL_SS
+
+    /* Calculate RSP before the call (RSP + 8) */
+    mov r10, rsp
+    add r10, 8
+    push r10
+
+    pushfq
+    push KERNEL_CS
+
+    /* Return address */
+    mov r10, [rsp + 32]
+    push r10
+
+    /* Save 15 GPRs */
+    push r15
+    push r14
+    push r13
+    push r12
+    push r11
+    push r10
+    push r9
+    push r8
+    push rbp
+    push rdi
+    push rsi
+    push rdx
+    push rcx
+    push rbx
+    push rax
+
+    /* Side-channel: write thread's saved RSP to GS:[56] */
+    mov gs:[GS_SAVED_THREAD_RSP], rsp
+
+    /* Restore scheduler RSP and clear the sentinel */
+    mov rsp, gs:[GS_SCHED_RSP]
+    mov qword ptr gs:[GS_SCHED_RSP], 0
+
+    /* Return POLL_PENDING (0) to the scheduler. */
+    xor eax, eax
+
+    /* Restore scheduler's callee-saved registers */
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbp
+    pop rbx
+
+    ret
+
+.Lcall_dispatch_directly:
+    jmp do_dispatch
+

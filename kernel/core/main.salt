@@ -196,8 +196,11 @@ pub fn terminal_tx_poll_thread() {
     }
 }
 
+extern fn do_dispatch();
+
 @no_mangle
 pub fn salt_yield_check() {
+    do_dispatch();
 }
 
 @no_mangle

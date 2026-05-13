@@ -96,25 +96,54 @@ pub struct RunState {
 
 fn alloc_f32(count: i64) -> Ptr<f32> {
     let ptr: Ptr<u8> = malloc(count * 4);
+    if ptr as i64 == 0 {
+        return 0 as Ptr<f32>;
+    }
     return ptr as Ptr<f32>;
 }
 
 pub fn alloc_run_state(cfg: Config) -> RunState {
     let kw_dim: i64 = (cfg.dim * cfg.n_kv_heads) / cfg.n_heads;
     
+    let x = alloc_f32(cfg.dim);
+    let xb = alloc_f32(cfg.dim);
+    let xb2 = alloc_f32(cfg.dim);
+    let hb = alloc_f32(cfg.hidden_dim);
+    let hb2 = alloc_f32(cfg.hidden_dim);
+    let q = alloc_f32(cfg.dim);
+    let k = alloc_f32(kw_dim);
+    let v = alloc_f32(kw_dim);
+    let att = alloc_f32(cfg.n_heads * cfg.seq_len);
+    let logits = alloc_f32(cfg.vocab_size);
+    let key_cache = alloc_f32(cfg.n_layers * cfg.seq_len * kw_dim);
+    let value_cache = alloc_f32(cfg.n_layers * cfg.seq_len * kw_dim);
+
+    if x as i64 == 0 || xb as i64 == 0 || xb2 as i64 == 0 || hb as i64 == 0 || hb2 as i64 == 0 ||
+       q as i64 == 0 || k as i64 == 0 || v as i64 == 0 || att as i64 == 0 || logits as i64 == 0 ||
+       key_cache as i64 == 0 || value_cache as i64 == 0 {
+        if x as i64 != 0 { free(x as Ptr<u8>); }
+        if xb as i64 != 0 { free(xb as Ptr<u8>); }
+        if xb2 as i64 != 0 { free(xb2 as Ptr<u8>); }
+        if hb as i64 != 0 { free(hb as Ptr<u8>); }
+        if hb2 as i64 != 0 { free(hb2 as Ptr<u8>); }
+        if q as i64 != 0 { free(q as Ptr<u8>); }
+        if k as i64 != 0 { free(k as Ptr<u8>); }
+        if v as i64 != 0 { free(v as Ptr<u8>); }
+        if att as i64 != 0 { free(att as Ptr<u8>); }
+        if logits as i64 != 0 { free(logits as Ptr<u8>); }
+        if key_cache as i64 != 0 { free(key_cache as Ptr<u8>); }
+        if value_cache as i64 != 0 { free(value_cache as Ptr<u8>); }
+        return RunState {
+            x: 0 as Ptr<f32>, xb: 0 as Ptr<f32>, xb2: 0 as Ptr<f32>, hb: 0 as Ptr<f32>, hb2: 0 as Ptr<f32>,
+            q: 0 as Ptr<f32>, k: 0 as Ptr<f32>, v: 0 as Ptr<f32>, att: 0 as Ptr<f32>, logits: 0 as Ptr<f32>,
+            key_cache: 0 as Ptr<f32>, value_cache: 0 as Ptr<f32>,
+        };
+    }
+    
     return RunState {
-        x: alloc_f32(cfg.dim),
-        xb: alloc_f32(cfg.dim),
-        xb2: alloc_f32(cfg.dim),
-        hb: alloc_f32(cfg.hidden_dim),
-        hb2: alloc_f32(cfg.hidden_dim),
-        q: alloc_f32(cfg.dim),
-        k: alloc_f32(kw_dim),
-        v: alloc_f32(kw_dim),
-        att: alloc_f32(cfg.n_heads * cfg.seq_len),
-        logits: alloc_f32(cfg.vocab_size),
-        key_cache: alloc_f32(cfg.n_layers * cfg.seq_len * kw_dim),
-        value_cache: alloc_f32(cfg.n_layers * cfg.seq_len * kw_dim),
+        x: x, xb: xb, xb2: xb2, hb: hb, hb2: hb2,
+        q: q, k: k, v: v, att: att, logits: logits,
+        key_cache: key_cache, value_cache: value_cache,
     };
 }
 
@@ -139,6 +168,10 @@ pub fn free_run_state(s: RunState) {
 
 @fast_math
 pub fn forward(cfg: Config, w: TransformerWeights, s: RunState, token: i64, pos: i64) {
+    if s.x as i64 == 0 {
+        return; // OOM check
+    }
+
     let dim: i64 = cfg.dim;
     let hidden_dim: i64 = cfg.hidden_dim;
     let head_size: i64 = dim / cfg.n_heads;

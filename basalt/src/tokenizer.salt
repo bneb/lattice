@@ -50,6 +50,17 @@ pub struct Tokenizer {
     pub special_tokens: Ptr<SpecialToken>,
     pub n_special: i64,
     pub special_capacity: i64,
+    pub token_hash: Ptr<i64>,
+    pub hash_size: i64,
+}
+
+fn hash_str(text: Ptr<u8>, len: i64) -> u32 {
+    let mut hash: u32 = 2166136261;
+    for i in 0..len {
+        hash = hash ^ (text[i] as u32);
+        hash = hash * 16777619;
+    }
+    return hash;
 }
 
 // -----------------------------------------------------------------------------
@@ -63,6 +74,9 @@ pub fn load_tokenizer(data: Ptr<u8>, vocab_size: i64) -> Tokenizer {
     // Allocate vocab array
     let entry_size: i64 = 24; // sizeof(TokenizerEntry) padded
     let vocab_buf = malloc(vocab_size * entry_size);
+    if vocab_buf as i64 == 0 {
+        return Tokenizer { vocab: 0 as Ptr<TokenizerEntry>, vocab_size: 0, special_tokens: 0 as Ptr<SpecialToken>, special_count: 0, max_token_length: 0 };
+    }
     let vocab = vocab_buf as Ptr<TokenizerEntry>;
     
     // Allocate a single contiguous arena for all token text.
@@ -70,6 +84,9 @@ pub fn load_tokenizer(data: Ptr<u8>, vocab_size: i64) -> Tokenizer {
     // Cache-friendly: all string data lives in one allocation.
     let arena_size: i64 = vocab_size * (max_len as i64 + 1);
     let text_arena = malloc(arena_size);
+    if text_arena as i64 == 0 {
+        return Tokenizer { vocab: vocab, vocab_size: 0, special_tokens: 0 as Ptr<SpecialToken>, special_count: 0, max_token_length: 0 };
+    }
     let mut arena_offset: i64 = 0;
     
     for i in 0..vocab_size {
@@ -80,6 +97,9 @@ pub fn load_tokenizer(data: Ptr<u8>, vocab_size: i64) -> Tokenizer {
         offset = offset + 4;
         
         // Copy text bytes into arena + null terminator
+        if arena_offset + len as i64 + 1 > arena_size {
+            return Tokenizer { vocab: vocab, vocab_size: vocab_size, special_tokens: 0 as Ptr<SpecialToken>, special_count: 0, max_token_length: max_len };
+        }
         let text_ptr = text_arena.offset(arena_offset);
         for j in 0..(len as i64) {
             text_ptr[j] = data[offset + j];
@@ -94,7 +114,31 @@ pub fn load_tokenizer(data: Ptr<u8>, vocab_size: i64) -> Tokenizer {
     // Allocate special token registry (capacity 16)
     let special_cap: i64 = 16;
     let special_buf = malloc(special_cap * 24); // sizeof(SpecialToken) = 8+8+8 = 24
+    if special_buf as i64 == 0 {
+        return Tokenizer { vocab: vocab, vocab_size: vocab_size, special_tokens: 0 as Ptr<SpecialToken>, special_count: 0, max_token_length: max_len, token_hash: 0 as Ptr<i64>, hash_size: 0 };
+    }
     let special_tokens = special_buf as Ptr<SpecialToken>;
+    
+    // Allocate and populate hash table
+    let hash_size: i64 = 65536; // Power of 2, > 32000
+    let hash_buf = malloc(hash_size * 8);
+    let token_hash = hash_buf as Ptr<i64>;
+    if token_hash as i64 != 0 {
+        // Initialize with -1
+        for i in 0..hash_size {
+            token_hash[i] = -1;
+        }
+        // Populate hash table
+        for i in 0..vocab_size {
+            let entry = vocab[i];
+            let hash = hash_str(entry.text, entry.len as i64);
+            let mut idx = (hash as i64) & (hash_size - 1);
+            while token_hash[idx] != -1 {
+                idx = (idx + 1) & (hash_size - 1);
+            }
+            token_hash[idx] = i;
+        }
+    }
     
     return Tokenizer {
         vocab: vocab,
@@ -104,6 +148,8 @@ pub fn load_tokenizer(data: Ptr<u8>, vocab_size: i64) -> Tokenizer {
         special_tokens: special_tokens,
         n_special: 0,
         special_capacity: special_cap,
+        token_hash: token_hash,
+        hash_size: hash_size,
     };
 }
 
@@ -111,6 +157,9 @@ pub fn free_tokenizer(tok: Tokenizer) {
     free(tok.text_arena);
     free(tok.vocab as Ptr<u8>);
     free(tok.special_tokens as Ptr<u8>);
+    if tok.token_hash as i64 != 0 {
+        free(tok.token_hash as Ptr<u8>);
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -135,6 +184,8 @@ pub fn register_special_token(tok: Ptr<Tokenizer>, text: Ptr<u8>, len: i64, toke
         special_tokens: t.special_tokens,
         n_special: t.n_special + 1,
         special_capacity: t.special_capacity,
+        token_hash: t.token_hash,
+        hash_size: t.hash_size,
     };
 }
 
@@ -167,6 +218,21 @@ fn str_eq(a: Ptr<u8>, a_len: i64, b: Ptr<u8>, b_len: i64) -> bool {
 }
 
 pub fn find_token(tok: Tokenizer, text: Ptr<u8>, text_len: i64) -> i64 {
+    if tok.token_hash as i64 != 0 {
+        let hash = hash_str(text, text_len);
+        let mut idx = (hash as i64) & (tok.hash_size - 1);
+        while tok.token_hash[idx] != -1 {
+            let token_id = tok.token_hash[idx];
+            let entry = tok.vocab[token_id];
+            if str_eq(entry.text, entry.len as i64, text, text_len) {
+                return token_id;
+            }
+            idx = (idx + 1) & (tok.hash_size - 1);
+        }
+        return -1;
+    }
+
+    // Fallback to linear search if hash table allocation failed
     for i in 0..tok.vocab_size {
         let entry = tok.vocab[i];
         if str_eq(entry.text, entry.len as i64, text, text_len) {
@@ -213,6 +279,7 @@ fn bpe_encode_segment(tok: Tokenizer, text: Ptr<u8>, seg_start: i64, seg_len: i6
     // Step 1: Initialize — each byte becomes a single-byte token
     for i in 0..seg_len {
         let byte_buf = malloc(1);
+        if byte_buf as i64 == 0 { return; }
         byte_buf[0] = text[seg_start + i];
         let tid = find_token(tok, byte_buf, 1);
         if tid >= 0 {
@@ -226,6 +293,7 @@ fn bpe_encode_segment(tok: Tokenizer, text: Ptr<u8>, seg_start: i64, seg_len: i6
     // Only merge tokens within this segment (from offset to n)
     let seg_token_start = offset;
     let merge_buf = malloc(tok.max_token_length as i64 + 1);
+    if merge_buf as i64 == 0 { return; }
     
     let mut changed: i32 = 1;
     for iter in 0..1000 {

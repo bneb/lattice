@@ -27,6 +27,8 @@ extern fn get_cpu_id() -> u64;
 // Flight recorder (kernel/core/flight_recorder.salt)
 extern fn flight_log_trace(fiber_id: u64, event: u64);
 
+extern fn sched_yield();
+
 // =============================================================================
 // Kernel Scheduler — O(1) Multi-Level Bitmap, Per-Core Sharded
 // =============================================================================
@@ -428,7 +430,7 @@ pub fn fiber_count() -> u64 {
 
 @no_yield
 @no_mangle
-pub fn sched_yield() {
+pub fn do_dispatch() {
     region("sched_yield") {
         let cpu = get_cpu_id();
         let current = SCHED_ARRAY[cpu].current;

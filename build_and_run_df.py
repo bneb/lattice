@@ -23,14 +23,15 @@ def main():
     src = "kernel/core/df_test_runner.salt"
     out = "df_test_runner"
     
-    subprocess.run(f"{salt_front} {src} --lib --no-verify --disable-alias-scopes > /tmp/{out}.mlir", shell=True, check=True)
+    subprocess.run(f"{salt_front} {src} --lib --disable-alias-scopes > /tmp/{out}.mlir", shell=True, check=True)
     subprocess.run(f"{salt_opt} --emit-llvm --verify=false < /tmp/{out}.mlir 2>/dev/null | sed '{sed_fix}' > /tmp/{out}.ll", shell=True, check=True)
     subprocess.run(f"{llc} /tmp/{out}.ll -filetype=obj -o qemu_build/{out}.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64", shell=True, check=True)
     
     print("=== Linking ===")
     all_objs = glob.glob("qemu_build/*.o")
     # Filter out suite.o and bench.o or whatever might conflict
-    link_objs = [o for o in all_objs if not o.endswith("suite.o") and not o.endswith("bench.o")]
+    excludes = ["suite.o", "bench.o", "user_test_memory.o", "user_ring3_test_b.o", "user_hello.o", "sip_app.o", "user_lib_syscall.o"]
+    link_objs = [o for o in all_objs if not any(o.endswith(ex) for ex in excludes)]
     
     # Check if df_test_runner.o is in link_objs
     if "qemu_build/df_test_runner.o" not in link_objs:
