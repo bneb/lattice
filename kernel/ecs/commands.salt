@@ -19,17 +19,23 @@ pub struct Commands {
     pub count: u32,
 }
 
-pub fn new_commands() -> Commands {
-    return Commands {
-        buffer: [Command { 
-            cmd_type: 0, 
-            target: Entity { id: 0, gen: 0 }, 
-            priority: SchedulingPriority { level: 0, tickets: 0 }, 
-            mem_map: MemoryMap { size: 0, pml4_phys: 0 }, 
-            thread_state: ThreadState { status: 0, stack_ptr: 0 } 
-        }; 1024],
-        count: 0,
+extern fn malloc(size: i64) -> u64;
+
+pub fn new_commands() -> Ptr<Commands> {
+    let ptr = malloc(32784) as Ptr<Commands>; // ~32KB for the struct
+    let cmd_ptr = ptr[0] as &mut Commands;
+    cmd_ptr.count = 0;
+    
+    // Initialize the first element just in case
+    cmd_ptr.buffer[0] = Command { 
+        cmd_type: 0, 
+        target: Entity { id: 0, gen: 0 }, 
+        priority: SchedulingPriority { level: 0, tickets: 0 }, 
+        mem_map: MemoryMap { size: 0, pml4_phys: 0 }, 
+        thread_state: ThreadState { status: 0, stack_ptr: 0 } 
     };
+    
+    return ptr;
 }
 
 impl Commands {

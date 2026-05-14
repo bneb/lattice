@@ -41,11 +41,13 @@ impl SparseSet<T> {
         
         let existing = self.sparse[entity.id as i64];
         if existing != 0xFFFFFFFF {
-            // Check if generation matches
-            if self.entity_map[existing as i64].gen == entity.gen {
-                self.dense[existing as i64] = component;
-                return;
-            }
+            // RED TEAM FIX: If the generation mismatches, it means the old entity was freed
+            // but the user forgot to remove it from this component set. 
+            // We MUST overwrite the existing dense slot rather than allocating a new one, 
+            // otherwise the old dense slot leaks permanently.
+            self.dense[existing as i64] = component;
+            self.entity_map[existing as i64] = entity;
+            return;
         }
         
         let c = self.count;

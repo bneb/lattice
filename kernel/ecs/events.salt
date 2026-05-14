@@ -4,15 +4,18 @@ pub struct HardwareInterrupt {
     pub irq_number: u8,
 }
 
+extern fn volatile_read_i64(addr: u64) -> i64;
+extern fn volatile_write_i64(addr: u64, val: i64);
+
 pub struct HardwareEvents {
-    pub queue: [HardwareInterrupt; 1024],
-    pub head: u32,
-    pub tail: u32,
+    pub queue: [u8; 1024],
+    pub head: i64,
+    pub tail: i64,
 }
 
 pub fn new_hardware_events() -> HardwareEvents {
     return HardwareEvents {
-        queue: [HardwareInterrupt { irq_number: 0 }; 1024],
+        queue: [0; 1024],
         head: 0,
         tail: 0,
     };
@@ -20,25 +23,37 @@ pub fn new_hardware_events() -> HardwareEvents {
 
 // Global ECS event queue for hardware interrupts
 pub global HARDWARE_EVENTS: HardwareEvents = HardwareEvents {
-    queue: [HardwareInterrupt { irq_number: 0 }; 1024],
+    queue: [0; 1024],
     head: 0,
     tail: 0,
 };
 
 impl HardwareEvents {
     pub fn push(self: &mut HardwareEvents, irq: u8) {
-        let next_head = (self.head + 1) % 1024;
-        if next_head != self.tail {
-            self.queue[self.head as i64] = HardwareInterrupt { irq_number: irq };
-            self.head = next_head;
+        let head_addr = (&self.head) as u64;
+        let tail_addr = (&self.tail) as u64;
+        
+        let curr_head = volatile_read_i64(head_addr);
+        let curr_tail = volatile_read_i64(tail_addr);
+        
+        let next_head = (curr_head + 1) % 1024;
+        if next_head != curr_tail {
+            self.queue[curr_head as i64] = irq;
+            volatile_write_i64(head_addr, next_head);
         }
     }
     
     pub fn pop(self: &mut HardwareEvents, out: &mut HardwareInterrupt) -> bool {
-        if self.head == self.tail { return false; }
+        let head_addr = (&self.head) as u64;
+        let tail_addr = (&self.tail) as u64;
         
-        out.irq_number = self.queue[self.tail as i64].irq_number;
-        self.tail = (self.tail + 1) % 1024;
+        let curr_head = volatile_read_i64(head_addr);
+        let curr_tail = volatile_read_i64(tail_addr);
+        
+        if curr_head == curr_tail { return false; }
+        
+        out.irq_number = self.queue[curr_tail as i64];
+        volatile_write_i64(tail_addr, (curr_tail + 1) % 1024);
         return true;
     }
 }
