@@ -1,0 +1,45 @@
+package main
+
+import kernel.ecs.entity.{Entity, EntityAllocator, new_entity_allocator}
+import kernel.ecs.sparse_set.SparseSet
+
+extern fn println(s: Ptr<u8>);
+
+struct TestComponent {
+    val: i32,
+}
+
+fn main() -> i32 {
+    let mut alloc = new_entity_allocator();
+    let mut set = SparseSet::<TestComponent>::new();
+    
+    let e1 = alloc.allocate();
+    let e2 = alloc.allocate();
+
+    // Insert
+    set.insert(e1, TestComponent { val: 100 });
+    set.insert(e2, TestComponent { val: 200 });
+
+    // Get
+    let c1 = set.get(e1);
+    if c1.is_null() { return 1; }
+    if c1.val != 100 { return 2; }
+
+    let c2 = set.get(e2);
+    if c2.is_null() { return 3; }
+    if c2.val != 200 { return 4; }
+
+    // Mutate via get_mut
+    let c1_mut = set.get_mut(e1);
+    c1_mut.val = 150;
+
+    let c1_check = set.get(e1);
+    if c1_check.val != 150 { return 5; }
+
+    // Free entity and check if it's considered removed (or we remove it)
+    set.remove(e1);
+    let c1_after = set.get(e1);
+    if !c1_after.is_null() { return 6; }
+
+    return 0;
+}

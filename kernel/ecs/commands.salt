@@ -1,0 +1,64 @@
+package kernel.ecs.commands
+
+import kernel.ecs.world.{World, SchedulingPriority, MemoryMap, ThreadState}
+import kernel.ecs.entity.Entity
+
+pub const CMD_SPAWN_THREAD: u32 = 1;
+pub const CMD_UPDATE_PRIORITY: u32 = 2;
+
+pub struct Command {
+    pub cmd_type: u32,
+    pub target: Entity,
+    pub priority: SchedulingPriority,
+    pub mem_map: MemoryMap,
+    pub thread_state: ThreadState,
+}
+
+pub struct Commands {
+    pub buffer: [Command; 1024],
+    pub count: u32,
+}
+
+pub fn new_commands() -> Commands {
+    return Commands {
+        buffer: [Command { 
+            cmd_type: 0, 
+            target: Entity { id: 0, gen: 0 }, 
+            priority: SchedulingPriority { level: 0, tickets: 0 }, 
+            mem_map: MemoryMap { size: 0, pml4_phys: 0 }, 
+            thread_state: ThreadState { status: 0, stack_ptr: 0 } 
+        }; 1024],
+        count: 0,
+    };
+}
+
+impl Commands {
+    pub fn push(self: &mut Commands, cmd: Command) {
+        if self.count < 1024 {
+            self.buffer[self.count as i64] = cmd;
+            self.count = self.count + 1;
+        }
+    }
+    
+    pub fn apply(self: &mut Commands, w: &mut World) {
+        let mut i: u32 = 0;
+        while i < self.count {
+            let cmd = self.buffer[i as i64];
+            if cmd.cmd_type == CMD_SPAWN_THREAD {
+                let alloc_ref = &mut w.alloc;
+                let e = alloc_ref.allocate();
+                let threads_ref = &mut w.threads;
+                threads_ref.insert(e, cmd.thread_state);
+                let mem_maps_ref = &mut w.mem_maps;
+                mem_maps_ref.insert(e, cmd.mem_map);
+                let priorities_ref = &mut w.priorities;
+                priorities_ref.insert(e, cmd.priority);
+            } else if cmd.cmd_type == CMD_UPDATE_PRIORITY {
+                let priorities_ref = &mut w.priorities;
+                priorities_ref.insert(cmd.target, cmd.priority);
+            }
+            i = i + 1;
+        }
+        self.count = 0;
+    }
+}

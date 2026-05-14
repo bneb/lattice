@@ -1,0 +1,62 @@
+package main
+
+import kernel.ecs.entity.Entity
+import kernel.ecs.world.{World, new_world, SchedulingPriority, ThreadState}
+
+extern fn println(s: Ptr<u8>);
+
+@no_mangle
+pub fn run_scheduler_system(w: &mut World) {
+    let priorities = &w.priorities;
+    let threads = &mut w.threads;
+    let count = threads.count;
+    
+    // Explicit MLIR fast-path loop
+    let mut i: u32 = 0;
+    while i < count {
+        let t = threads.dense.offset(i as i64);
+        let e = threads.entity_map[i as usize];
+        
+        let p = priorities.get(e);
+        if p as u64 != 0 {
+            if t.status == 1 { // 1 = Runnable
+                t.status = 2; // 2 = Running
+            }
+        }
+        i = i + 1;
+    }
+}
+
+fn main() -> i32 {
+    let mut w = new_world();
+    let alloc = &mut w.alloc;
+    let priorities = &mut w.priorities;
+    let threads = &mut w.threads;
+    
+    let mut i: u32 = 0;
+    while i < 65000 {
+        let e = alloc.allocate();
+        // 6500 out of 65000 are runnable
+        let mut status = 0;
+        if i % 10 == 0 { status = 1; }
+        
+        threads.insert(e, ThreadState { status: status, stack_ptr: 0x100000000 + (i as u64) });
+        priorities.insert(e, SchedulingPriority { level: 1, tickets: 0 });
+        i = i + 1;
+    }
+    
+    // Run the scheduler
+    run_scheduler_system(&mut w);
+    
+    // Check results
+    let e0 = Entity { id: 0, gen: 0 };
+    let t0 = w.threads.get(e0);
+    if t0 as u64 == 0 { return 1; }
+    if t0.status != 2 { return 2; }
+    
+    let e1 = Entity { id: 1, gen: 0 };
+    let t1 = w.threads.get(e1);
+    if t1.status != 0 { return 3; }
+    
+    return 0;
+}

@@ -1,0 +1,38 @@
+package main
+
+import kernel.ecs.entity.{Entity, EntityAllocator, new_entity_allocator}
+
+extern fn println(s: Ptr<u8>);
+
+fn main() -> i32 {
+    let mut alloc = new_entity_allocator();
+    
+    // Spawn some entities
+    let e1 = alloc.allocate();
+    if e1.id != 0 { return 1; }
+    if e1.gen != 0 { return 1; }
+    
+    let e2 = alloc.allocate();
+    if e2.id != 1 { return 2; }
+    
+    // Free an entity
+    alloc.free(e1);
+    
+    // Reallocate, it should reuse the ID but bump the generation
+    let e3 = alloc.allocate();
+    if e3.id != 0 { return 3; }
+    if e3.gen != 1 { return 4; }
+    
+    let e4 = alloc.allocate();
+    if e4.id != 2 { return 5; }
+
+    // Test a second free
+    alloc.free(e3);
+    alloc.free(e2);
+
+    let e5 = alloc.allocate();
+    if e5.id != 1 { return 6; }
+    if e5.gen != 1 { return 7; }
+
+    return 0;
+}

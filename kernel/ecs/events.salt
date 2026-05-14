@@ -1,0 +1,50 @@
+package kernel.ecs.events
+
+pub struct HardwareInterrupt {
+    pub irq_number: u8,
+}
+
+pub struct HardwareEvents {
+    pub queue: [HardwareInterrupt; 1024],
+    pub head: u32,
+    pub tail: u32,
+}
+
+pub fn new_hardware_events() -> HardwareEvents {
+    return HardwareEvents {
+        queue: [HardwareInterrupt { irq_number: 0 }; 1024],
+        head: 0,
+        tail: 0,
+    };
+}
+
+// Global ECS event queue for hardware interrupts
+pub global HARDWARE_EVENTS: HardwareEvents = HardwareEvents {
+    queue: [HardwareInterrupt { irq_number: 0 }; 1024],
+    head: 0,
+    tail: 0,
+};
+
+impl HardwareEvents {
+    pub fn push(self: &mut HardwareEvents, irq: u8) {
+        let next_head = (self.head + 1) % 1024;
+        if next_head != self.tail {
+            self.queue[self.head as i64] = HardwareInterrupt { irq_number: irq };
+            self.head = next_head;
+        }
+    }
+    
+    pub fn pop(self: &mut HardwareEvents, out: &mut HardwareInterrupt) -> bool {
+        if self.head == self.tail { return false; }
+        
+        out.irq_number = self.queue[self.tail as i64].irq_number;
+        self.tail = (self.tail + 1) % 1024;
+        return true;
+    }
+}
+
+@no_mangle
+pub fn ecs_push_hardware_interrupt(irq: u8) {
+    let q = &mut HARDWARE_EVENTS;
+    q.push(irq);
+}
