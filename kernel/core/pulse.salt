@@ -59,6 +59,8 @@ global TICK_COUNTER: u64 = 0;
 // Diagnostic: total events dropped due to full buffer
 global DROP_COUNT: u64 = 0;
 
+extern fn ecs_push_hardware_interrupt(irq: u8);
+
 // =============================================================================
 // push — Enqueue a PulseEvent from ISR context. O(1), no alloc, no locks.
 // Returns 1 on success, 0 if the ring is full (event dropped).
@@ -76,6 +78,10 @@ pub fn push(event_type: u64, data: u64) -> u64 {
     RING[base + 2] = TICK_COUNTER;
 
     HEAD = next_head;
+    
+    // Also push to the DBOS ECS hardware events pipeline
+    ecs_push_hardware_interrupt(event_type as u8);
+    
     return 1;
 }
 

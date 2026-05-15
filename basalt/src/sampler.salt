@@ -64,11 +64,17 @@ pub fn sample_token(probabilities: Ptr<f32>, n: i64, coin: f32) -> i64
 // -----------------------------------------------------------------------------
 fn alloc_f32(count: i64) -> Ptr<f32> {
     let ptr: Ptr<u8> = malloc(count * 4);
+    if ptr as i64 == 0 {
+        return 0 as Ptr<f32>;
+    }
     return ptr as Ptr<f32>;
 }
 
 fn alloc_i64(count: i64) -> Ptr<i64> {
     let ptr: Ptr<u8> = malloc(count * 8);
+    if ptr as i64 == 0 {
+        return 0 as Ptr<i64>;
+    }
     return ptr as Ptr<i64>;
 }
 
@@ -96,6 +102,9 @@ pub fn sample_topp(probabilities: Ptr<f32>, n: i64, topp: f32, coin: f32) -> i64
     // Build filtered list of (probability, original_index) pairs
     let prob_buf = alloc_f32(n);
     let idx_buf = alloc_i64(n);
+    if prob_buf as i64 == 0 || idx_buf as i64 == 0 {
+        return 0; // Fallback
+    }
     let mut n0: i64 = 0;
     for i in 0..n {
         let p: f32 = probabilities[i];

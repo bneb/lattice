@@ -1,7 +1,8 @@
 package main
 
 import kernel.ecs.entity.{Entity, EntityAllocator, new_entity_allocator}
-import kernel.ecs.sparse_set.SparseSet
+import kernel.ecs.sparse_set.{SparseSet, new_sparse_set}
+import std.core.mem.size_of
 
 extern fn println(s: Ptr<u8>);
 
@@ -11,7 +12,13 @@ struct TestComponent {
 
 fn main() -> i32 {
     let mut alloc = new_entity_allocator();
-    let mut set = SparseSet::<TestComponent>::new();
+    let s = new_sparse_set(size_of::<TestComponent>() as i64);
+    let mut set = SparseSet::<TestComponent> {
+        dense: s.dense as Ptr<TestComponent>,
+        sparse: s.sparse,
+        entity_map: s.entity_map,
+        count: s.count,
+    };
     
     let e1 = alloc.allocate();
     let e2 = alloc.allocate();

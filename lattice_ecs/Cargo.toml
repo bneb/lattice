@@ -1,0 +1,8 @@
+[package]
+name = "lattice_ecs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# We'll need a hash map that works in no_std. hashbrown is perfect.
+hashbrown = "0.14"

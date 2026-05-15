@@ -57,15 +57,24 @@ struct PmmCoreState {
     _pad4: u64,         // offset 48
     _pad5: u64,         // offset 56
 }
-// sizeof(PmmCoreState) = 64 bytes = 1 cacheline ✓
 
-global PMM_SHARDS: [PmmCoreState; 16] = [PmmCoreState {
-    head: 0, count: 0, lock: 0,
-    _pad1: 0, _pad2: 0, _pad3: 0, _pad4: 0, _pad5: 0
-}; 16];
+// ============================================================================
+// DBOS TRANSITION: PMM_RESOURCE.shards is now treated as an ECS Global Resource.
+// In the final hybrid architecture, this struct is injected into the World.
+// For the intermediate transition, it remains global but exposes resource accessors.
+// ============================================================================
+pub struct PmmResource {
+    pub shards: [PmmCoreState; 16],
+    pub total_pages: u64,
+}
 
-// Total pages across all cores (for diagnostic/reporting only)
-global TOTAL_PAGES: u64 = 0;
+global PMM_RESOURCE: PmmResource = PmmResource {
+    shards: [PmmCoreState {
+        head: 0, count: 0, lock: 0,
+        _pad1: 0, _pad2: 0, _pad3: 0, _pad4: 0, _pad5: 0
+    }; 16],
+    total_pages: 0,
+};
 
 // Number of online CPUs (set during init, default 1 for BSP-only)
 global NUM_CPUS: u64 = 1;
@@ -84,11 +93,11 @@ pub fn add_region(start: u64, end: u64) {
         let target = core_idx % NUM_CPUS;
 
         let vaddr = memory.phys_to_virt(memory.PhysAddr { val: current }).val;
-        *(vaddr as &mut u64) = PMM_SHARDS[target].head;
+        *(vaddr as &mut u64) = PMM_RESOURCE.shards[target].head;
 
-        PMM_SHARDS[target].head = current;
-        PMM_SHARDS[target].count = PMM_SHARDS[target].count + 1;
-        TOTAL_PAGES += 1;
+        PMM_RESOURCE.shards[target].head = current;
+        PMM_RESOURCE.shards[target].count = PMM_RESOURCE.shards[target].count + 1;
+        PMM_RESOURCE.total_pages += 1;
 
         core_idx = core_idx + 1;
         current += PAGE_SIZE;
@@ -108,7 +117,7 @@ pub fn init_cpu_count(n: u64) {
 
 fn acquire_lock(core: u64) {
     loop {
-        if atomic_cas_i64(&PMM_SHARDS[core].lock, 0 as i64, 1 as i64) == 0 as i64 {
+        if atomic_cas_i64(&PMM_RESOURCE.shards[core].lock, 0 as i64, 1 as i64) == 0 as i64 {
             return;
         }
         // Hint to CPU that we are in a spin-wait loop
@@ -117,7 +126,7 @@ fn acquire_lock(core: u64) {
 }
 
 fn release_lock(core: u64) {
-    PMM_SHARDS[core].lock = 0;
+    PMM_RESOURCE.shards[core].lock = 0;
 }
 
 // ============================================================================
@@ -130,7 +139,7 @@ pub fn alloc() -> u64 {
     disable_interrupts();
     let cpu = get_cpu_id();
     acquire_lock(cpu);
-    let head = PMM_SHARDS[cpu].head;
+    let head = PMM_RESOURCE.shards[cpu].head;
     if head == 0 {
         release_lock(cpu);
         enable_interrupts();
@@ -139,8 +148,8 @@ pub fn alloc() -> u64 {
     }
     let vaddr = memory.phys_to_virt(memory.PhysAddr { val: head }).val;
     let next = *(vaddr as &u64);
-    PMM_SHARDS[cpu].head = next;
-    PMM_SHARDS[cpu].count = PMM_SHARDS[cpu].count - 1;
+    PMM_RESOURCE.shards[cpu].head = next;
+    PMM_RESOURCE.shards[cpu].count = PMM_RESOURCE.shards[cpu].count - 1;
     release_lock(cpu);
     enable_interrupts();
     return head;
@@ -159,9 +168,9 @@ pub fn free(page: u64) {
     let cpu = get_cpu_id();
     acquire_lock(cpu);
     let vaddr = memory.phys_to_virt(memory.PhysAddr { val: page }).val;
-    *(vaddr as &mut u64) = PMM_SHARDS[cpu].head;
-    PMM_SHARDS[cpu].head = page;
-    PMM_SHARDS[cpu].count = PMM_SHARDS[cpu].count + 1;
+    *(vaddr as &mut u64) = PMM_RESOURCE.shards[cpu].head;
+    PMM_RESOURCE.shards[cpu].head = page;
+    PMM_RESOURCE.shards[cpu].count = PMM_RESOURCE.shards[cpu].count + 1;
     release_lock(cpu);
     enable_interrupts();
 }
@@ -177,13 +186,13 @@ fn steal_from_remote() -> u64 {
         if victim != thief {
             disable_interrupts();
             acquire_lock(victim);
-            if PMM_SHARDS[victim].count > STEAL_THRESHOLD {
-                let victim_head = PMM_SHARDS[victim].head;
+            if PMM_RESOURCE.shards[victim].count > STEAL_THRESHOLD {
+                let victim_head = PMM_RESOURCE.shards[victim].head;
                 if victim_head != 0 {
                     let vaddr = memory.phys_to_virt(memory.PhysAddr { val: victim_head }).val;
                     let next = *(vaddr as &u64);
-                    PMM_SHARDS[victim].head = next;
-                    PMM_SHARDS[victim].count = PMM_SHARDS[victim].count - 1;
+                    PMM_RESOURCE.shards[victim].head = next;
+                    PMM_RESOURCE.shards[victim].count = PMM_RESOURCE.shards[victim].count - 1;
                     release_lock(victim);
                     enable_interrupts();
                     return victim_head;
@@ -202,7 +211,7 @@ fn steal_from_remote() -> u64 {
 // ============================================================================
 pub fn available() -> u64 {
     let cpu = get_cpu_id();
-    return PMM_SHARDS[cpu].count;
+    return PMM_RESOURCE.shards[cpu].count;
 }
 
 // Total pages across all cores (diagnostic)
@@ -210,7 +219,7 @@ pub fn available_total() -> u64 {
     let mut total: u64 = 0;
     let mut i: u64 = 0;
     while i < NUM_CPUS {
-        total = total + PMM_SHARDS[i].count;
+        total = total + PMM_RESOURCE.shards[i].count;
         i = i + 1;
     }
     return total;
