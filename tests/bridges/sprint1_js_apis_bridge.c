@@ -10,6 +10,16 @@ extern void ext_salt_init_arrays(void);
 extern void sys_jsc_init(void);
 extern void sys_jsc_teardown(void);
 
+// Dummy implementations for linker
+__attribute__((weak)) void css_arena_inc_count(void) {}
+__attribute__((weak)) void css_arena_set_hash(void) {}
+__attribute__((weak)) void ext_engine_process_key_down(void) {}
+__attribute__((weak)) void ext_engine_process_mouse_down(void) {}
+__attribute__((weak)) void ext_salt_paint_inject_dom_pointers(void) {}
+__attribute__((weak)) uint32_t hash_string(uint64_t ptr, uint32_t len) { return 0; }
+__attribute__((weak)) void user__browser__compositor__load_font_atlas(uint64_t pixels, int32_t width, int32_t height) {}
+
+
 extern void user__browser__css__init_css_defaults(void);
 extern uint64_t ext_salt_create_node(uint32_t tag);
 extern void http_set_root_node(uint64_t node_id);
@@ -20,17 +30,17 @@ int sprint1_js_apis_test(void) {
     int failures = 0;
     printf("\n[Sprint 1] Testing JavaScript DOM API Mocks for Google\n");
 
-    airlock_init_allocator();
-    init_arrays();
+    ext_salt_airlock_init_allocator();
+    ext_salt_init_arrays();
     user__browser__css__init_css_defaults();
     
     sys_jsc_init();
 
     // Create a dummy root node for document.body to correctly attach
-    uint64_t js_root = create_node(1); // TAG_HTML
+    uint64_t js_root = ext_salt_create_node(1); // TAG_HTML
     http_set_root_node(js_root);
     // Needs body and head internally matching typical structure
-    uint64_t body_node = create_node(3); // TAG_BODY
+    uint64_t body_node = ext_salt_create_node(3); // TAG_BODY
     extern void js_dom_append_child(uint32_t parent, uint32_t child);
     js_dom_append_child(1, (uint32_t)(body_node & 0xFFFF));
 
@@ -126,3 +136,4 @@ int sprint1_js_apis_test(void) {
     printf("\n=== Results: %d failures ===\n", failures);
     return failures;
 }
+__attribute__((weak)) void ext_net_navigate(uint64_t url_ptr, uint32_t url_len) {}

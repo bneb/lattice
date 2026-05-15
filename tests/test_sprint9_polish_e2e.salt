@@ -11,6 +11,7 @@ extern fn test_sys_on_mouse_move(x: i32, y: i32);
 extern fn test_get_hovered_node() -> u32;
 extern fn test_set_focused_node(node: u32);
 extern fn sys_print_float(f: f64);
+extern fn hit_test_inject_paint_pointers();
 
 @no_mangle
 pub fn main() -> i32 {
@@ -57,6 +58,7 @@ pub fn main() -> i32 {
     dom.DIRTY_PAINT[2] = 1;
 
     paint_inject_dom_pointers();
+    hit_test_inject_paint_pointers();
 
     // Pass 1: Render everything
     ext_paint_begin_frame();
@@ -69,6 +71,12 @@ pub fn main() -> i32 {
     ext_paint_begin_frame();
     ext_paint_tree();
     let count2 = ext_paint_get_cmd_count(); // Should be 0 since dirty_paint is 0
+
+    // Re-dirty for hit-test simulation
+    dom.DIRTY_PAINT[1] = 1;
+    dom.DIRTY_PAINT[2] = 1;
+    ext_paint_begin_frame();
+    ext_paint_tree();
 
     // Hover simulation
     test_sys_on_mouse_move(150, 125); // Inside button node (x:100, y:100, w:200, h:50)

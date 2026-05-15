@@ -102,6 +102,7 @@ int32_t sys_js_init_worker_context() {
 void sys_js_evaluate_script(const char* code_ptr, uint32_t len, const char* name_ptr, uint32_t name_len) {
     if (!ctx) return;
     char *buf = malloc(len + 1);
+    if (!buf) return;
     memcpy(buf, code_ptr, len);
     buf[len] = '\0';
     JS_Eval(ctx, buf, len, name_ptr ? name_ptr : "<worker>", JS_EVAL_TYPE_GLOBAL);

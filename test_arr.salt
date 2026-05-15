@@ -1,0 +1,11 @@
+package test_arr
+
+extern fn sys_print_float(v: f64);
+
+@no_mangle
+pub fn main() -> i32 {
+    let mut arr: [i32; 64] = [0; 64];
+    arr[0] = 100;
+    sys_print_float(arr[0] as f64);
+    return 0;
+}

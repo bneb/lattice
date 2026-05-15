@@ -24,7 +24,15 @@ syscall_entry:
 
     /* Syscall number is in EAX (RAX) */
     mov rdi, rax
+    
+    /* Align stack to 16 bytes for System V ABI */
+    mov r12, rsp
+    and rsp, -16
+    
     call handle_syscall
+    
+    /* Restore original stack pointer */
+    mov rsp, r12
 
     /* RAX now holds the syscall return value.
      * We must skip restoring the saved RAX (at stack offset)

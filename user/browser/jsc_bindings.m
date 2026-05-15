@@ -57,6 +57,8 @@ extern void ext_dom_set_class_name(uint32_t node_id, uint64_t str_ptr,
 extern uint64_t dom_get_class_ptr(uint32_t idx);
 extern uint32_t dom_get_class_len(uint32_t idx);
 
+JSValueRef jsc_xhr_stub_method(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef *exception);
+
 // --- Style Externs (Epic 80A Port) ---
 extern void js_set_style_bg_color(uint64_t node_id, uint8_t r, uint8_t g,
                                   uint8_t b);
@@ -109,9 +111,11 @@ JSValueRef jsc_print(JSContextRef ctx, JSObjectRef function,
     JSStringRef str = JSValueToStringCopy(ctx, argv[0], exception);
     size_t len = JSStringGetMaximumUTF8CStringSize(str);
     char *buf = (char *)malloc(len);
-    JSStringGetUTF8CString(str, buf, len);
-    printf("%s\n", buf);
-    free(buf);
+    if (buf) {
+      JSStringGetUTF8CString(str, buf, len);
+      printf("%s\n", buf);
+      free(buf);
+    }
     JSStringRelease(str);
   }
   return JSValueMakeUndefined(ctx);
@@ -360,6 +364,94 @@ JSValueRef jsc_document_createElement(JSContextRef ctx, JSObjectRef function,
 }
 
 // document.getElementById(id)
+static char jsc_cookie_buf[4096] = {0};
+
+JSValueRef jsc_document_get_cookie(JSContextRef ctx, JSObjectRef object, JSStringRef pn, JSValueRef *ex) {
+  return JSValueMakeString(ctx, JSStringCreateWithUTF8CString(jsc_cookie_buf));
+}
+
+bool jsc_document_set_cookie(JSContextRef ctx, JSObjectRef object, JSStringRef pn, JSValueRef value, JSValueRef *ex) {
+  size_t len;
+  char *str = jsc_value_to_cstring(ctx, value, &len);
+  if (str) {
+    // Basic session cookie storage: just overwrite for now.
+    // Real impl would parse expires, path, etc.
+    strncpy(jsc_cookie_buf, str, 4095);
+    jsc_cookie_buf[4095] = '\0';
+    free(str);
+  }
+  return true;
+}
+
+JSValueRef jsc_navigator_sendBeacon(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef *exception) {
+  return JSValueMakeBoolean(ctx, true);
+}
+
+JSObjectRef jsc_TextEncoder_constructor(JSContextRef ctx, JSObjectRef constructor, size_t argc, const JSValueRef argv[], JSValueRef *exception) {
+  JSObjectRef te = JSObjectMake(ctx, NULL, NULL);
+  JSStringRef encStr = JSStringCreateWithUTF8CString("encode");
+  JSObjectSetProperty(ctx, te, encStr, JSObjectMakeFunctionWithCallback(ctx, encStr, jsc_xhr_stub_method), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(encStr);
+  return te;
+}
+
+JSObjectRef jsc_TextDecoder_constructor(JSContextRef ctx, JSObjectRef constructor, size_t argc, const JSValueRef argv[], JSValueRef *exception) {
+  JSObjectRef td = JSObjectMake(ctx, NULL, NULL);
+  JSStringRef decStr = JSStringCreateWithUTF8CString("decode");
+  JSObjectSetProperty(ctx, td, decStr, JSObjectMakeFunctionWithCallback(ctx, decStr, jsc_xhr_stub_method), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(decStr);
+  return td;
+}
+
+JSObjectRef jsc_URLSearchParams_constructor(JSContextRef ctx, JSObjectRef constructor, size_t argc, const JSValueRef argv[], JSValueRef *exception) {
+  JSObjectRef usp = JSObjectMake(ctx, NULL, NULL);
+  const char* methods[] = {"get", "set", "has", "append", "delete", "entries", "forEach", "keys", "values"};
+  for (int i = 0; i < 9; i++) {
+    JSStringRef mStr = JSStringCreateWithUTF8CString(methods[i]);
+    JSObjectSetProperty(ctx, usp, mStr, JSObjectMakeFunctionWithCallback(ctx, mStr, jsc_xhr_stub_method), kJSPropertyAttributeNone, NULL);
+    JSStringRelease(mStr);
+  }
+  return usp;
+}
+
+static char jsc_doc_title[256] = "Prisimi Browser";
+
+JSValueRef jsc_document_get_title(JSContextRef ctx, JSObjectRef object, JSStringRef pn, JSValueRef *ex) {
+  return JSValueMakeString(ctx, JSStringCreateWithUTF8CString(jsc_doc_title));
+}
+
+bool jsc_document_set_title(JSContextRef ctx, JSObjectRef object, JSStringRef pn, JSValueRef value, JSValueRef *ex) {
+  size_t len;
+  char *str = jsc_value_to_cstring(ctx, value, &len);
+  if (str) {
+    strncpy(jsc_doc_title, str, 255);
+    jsc_doc_title[255] = '\0';
+    free(str);
+    // In a real browser we'd update the window title here
+  }
+  return true;
+}
+
+JSValueRef jsc_document_get_activeElement(JSContextRef ctx, JSObjectRef object, JSStringRef pn, JSValueRef *ex) {
+  extern uint32_t dom_get_active_focus(void);
+  uint32_t active = dom_get_active_focus();
+  if (active == 0) return JSValueMakeNull(ctx);
+  extern JSObjectRef create_js_node_wrapper(JSContextRef ctx, uint64_t node_id);
+  return create_js_node_wrapper(ctx, active);
+}
+
+JSValueRef jsc_document_get_readyState(JSContextRef ctx, JSObjectRef object, JSStringRef pn, JSValueRef *ex) {
+  return JSValueMakeString(ctx, JSStringCreateWithUTF8CString("complete"));
+}
+
+JSValueRef jsc_document_get_referrer(JSContextRef ctx, JSObjectRef object, JSStringRef pn, JSValueRef *ex) {
+  return JSValueMakeString(ctx, JSStringCreateWithUTF8CString(""));
+}
+
+JSValueRef jsc_window_get_devicePixelRatio(JSContextRef ctx, JSObjectRef object, JSStringRef pn, JSValueRef *ex) {
+  return JSValueMakeNumber(ctx, 2.0);
+}
+
 JSValueRef jsc_document_getElementById(JSContextRef ctx, JSObjectRef function,
                                        JSObjectRef thisObject, size_t argc,
                                        const JSValueRef argv[],
@@ -370,6 +462,10 @@ JSValueRef jsc_document_getElementById(JSContextRef ctx, JSObjectRef function,
   JSStringRef idStr = JSValueToStringCopy(ctx, argv[0], exception);
   size_t len = JSStringGetMaximumUTF8CStringSize(idStr);
   char *buf = (char *)malloc(len);
+  if (!buf) {
+    JSStringRelease(idStr);
+    return JSValueMakeNull(ctx);
+  }
   JSStringGetUTF8CString(idStr, buf, len);
 
   uint64_t node_id =
@@ -473,6 +569,8 @@ JSValueRef get_node_text_content(JSContextRef ctx, JSObjectRef object,
     return JSValueMakeString(ctx, JSStringCreateWithUTF8CString(""));
 
   char *buf = (char *)malloc(text_len + 1);
+  if (!buf)
+    return JSValueMakeNull(ctx);
   memcpy(buf, (void *)(uintptr_t)text_ptr, text_len);
   buf[text_len] = '\0';
 
@@ -572,6 +670,10 @@ JSValueRef jsc_document_write(JSContextRef ctx, JSObjectRef function,
 
   size_t maxBuffer = JSStringGetMaximumUTF8CStringSize(str);
   char *buffer = (char *)malloc(maxBuffer);
+  if (!buffer) {
+    JSStringRelease(str);
+    return JSValueMakeUndefined(ctx);
+  }
   size_t actualLen = JSStringGetUTF8CString(str, buffer, maxBuffer);
   JSStringRelease(str);
 
@@ -1018,6 +1120,11 @@ JSValueRef get_node_innerHTML(JSContextRef ctx, JSObjectRef object,
 }
 
 // ---- parentNode getter ----
+JSValueRef get_node_ownerDocument(JSContextRef ctx, JSObjectRef object, JSStringRef propertyName, JSValueRef* exception) {
+  extern JSObjectRef get_cached_document_wrapper(void);
+  return get_cached_document_wrapper();
+}
+
 JSValueRef get_node_parentNode(JSContextRef ctx, JSObjectRef object,
                                JSStringRef propertyName,
                                JSValueRef *exception) {
@@ -1029,6 +1136,14 @@ JSValueRef get_node_parentNode(JSContextRef ctx, JSObjectRef object,
 }
 
 // ---- childNodes getter (returns a simple array) ----
+JSValueRef get_node_parentElement(JSContextRef ctx, JSObjectRef object, JSStringRef propertyName, JSValueRef* exception) {
+  uint64_t packed = (uint64_t)(uintptr_t)JSObjectGetPrivate(object);
+  uint64_t parent_id = js_dom_get_parent(packed);
+  if (parent_id == 0 || parent_id == 999999) return JSValueMakeNull(ctx);
+  extern JSObjectRef create_js_node_wrapper(JSContextRef ctx, uint64_t node_id);
+  return create_js_node_wrapper(ctx, parent_id);
+}
+
 JSValueRef get_node_childNodes(JSContextRef ctx, JSObjectRef object,
                                JSStringRef propertyName,
                                JSValueRef *exception) {
@@ -1080,15 +1195,39 @@ static JSValueRef jsc_style_setProperty(JSContextRef ctx, JSObjectRef function,
   return JSValueMakeUndefined(ctx);
 }
 
+static void parse_color(const char *val, uint8_t *r, uint8_t *g, uint8_t *b) {
+  if (val[0] == '#') {
+    if (strlen(val) == 7) {
+      sscanf(val + 1, "%02hhx%02hhx%02hhx", r, g, b);
+    } else if (strlen(val) == 4) {
+      uint8_t r1, g1, b1;
+      sscanf(val + 1, "%1hhx%1hhx%1hhx", &r1, &g1, &b1);
+      *r = (r1 << 4) | r1;
+      *g = (g1 << 4) | g1;
+      *b = (b1 << 4) | b1;
+    }
+  } else if (strcmp(val, "red") == 0) { *r=255; *g=0; *b=0; }
+  else if (strcmp(val, "green") == 0) { *r=0; *g=255; *b=0; }
+  else if (strcmp(val, "blue") == 0) { *r=0; *g=0; *b=255; }
+  else if (strcmp(val, "white") == 0) { *r=255; *g=255; *b=255; }
+  else if (strcmp(val, "black") == 0) { *r=0; *g=0; *b=0; }
+  else { *r=0; *g=0; *b=0; } // Default
+}
+
 static bool jsc_style_set_backgroundColor(JSContextRef ctx, JSObjectRef object,
                                           JSStringRef propertyName,
                                           JSValueRef value,
                                           JSValueRef *exception) {
   uint32_t n_idx = jsc_get_node_idx(object);
-  uint64_t packed = (uint64_t)(uintptr_t)JSObjectGetPrivate(object);
-  // Parse color string (simplified: accept 'red', 'blue', etc. or hex later)
-  js_set_style_bg_color(packed, 255, 0,
-                        0); // placeholder — full color parse in Phase 2
+  size_t len;
+  char *str = jsc_value_to_cstring(ctx, value, &len);
+  if (str) {
+    uint8_t r, g, b;
+    parse_color(str, &r, &g, &b);
+    extern void dom_set_style_bg(uint32_t idx, uint8_t r, uint8_t g, uint8_t b);
+    dom_set_style_bg(n_idx, r, g, b);
+    free(str);
+  }
   return true;
 }
 
@@ -1258,6 +1397,19 @@ extern int32_t user__browser__dom__STYLE_BORDER_WIDTH_RIGHT[65536];
 extern int32_t user__browser__dom__STYLE_BORDER_WIDTH_BOTTOM[65536];
 extern int32_t user__browser__dom__STYLE_BORDER_WIDTH_LEFT[65536];
 
+extern int32_t user__browser__dom__STYLE_MIN_WIDTH[65536];
+extern int32_t user__browser__dom__STYLE_MAX_WIDTH[65536];
+extern int32_t user__browser__dom__STYLE_MIN_HEIGHT[65536];
+extern int32_t user__browser__dom__STYLE_MAX_HEIGHT[65536];
+extern uint8_t user__browser__dom__STYLE_BOX_SIZING[65536];
+extern uint8_t user__browser__dom__STYLE_VISIBILITY[65536];
+extern float   user__browser__dom__STYLE_LINE_HEIGHT[65536];
+extern uint8_t user__browser__dom__STYLE_WHITE_SPACE[65536];
+extern uint8_t user__browser__dom__STYLE_FLEX_WRAP[65536];
+extern uint8_t user__browser__dom__STYLE_TEXT_ALIGN[65536];
+extern uint8_t user__browser__dom__STYLE_VERTICAL_ALIGN[65536];
+extern float   user__browser__dom__STYLE_FONT_SIZE[65536];
+
 static int32_t parse_px(const char *val) {
   if (strcmp(val, "auto") == 0) return -2;
   return atoi(val);
@@ -1269,47 +1421,139 @@ static bool jsc_style_catchAllSetter(JSContextRef ctx, JSObjectRef object, JSStr
 
   size_t len = JSStringGetMaximumUTF8CStringSize(propertyName);
   char *pn = malloc(len);
+  if (!pn) return false;
   JSStringGetUTF8CString(propertyName, pn, len);
 
   JSStringRef jsStr = JSValueToStringCopy(ctx, value, NULL);
+  if (!jsStr) {
+    free(pn);
+    return false;
+  }
   size_t vlen = JSStringGetMaximumUTF8CStringSize(jsStr);
   char *val = malloc(vlen);
+  if (!val) {
+    free(pn);
+    JSStringRelease(jsStr);
+    return false;
+  }
   JSStringGetUTF8CString(jsStr, val, vlen);
   JSStringRelease(jsStr);
 
   int32_t px = parse_px(val);
+  bool layout_dirty = false;
+  bool paint_dirty = false;
   
   if (strcmp(pn, "margin") == 0) {
       user__browser__dom__STYLE_MARGIN_TOP[n_idx] = px;
       user__browser__dom__STYLE_MARGIN_RIGHT[n_idx] = px;
       user__browser__dom__STYLE_MARGIN_BOTTOM[n_idx] = px;
       user__browser__dom__STYLE_MARGIN_LEFT[n_idx] = px;
+      layout_dirty = true;
   } else if (strcmp(pn, "marginTop") == 0) {
       user__browser__dom__STYLE_MARGIN_TOP[n_idx] = px;
+      layout_dirty = true;
   } else if (strcmp(pn, "marginBottom") == 0) {
       user__browser__dom__STYLE_MARGIN_BOTTOM[n_idx] = px;
+      layout_dirty = true;
   } else if (strcmp(pn, "marginLeft") == 0) {
       user__browser__dom__STYLE_MARGIN_LEFT[n_idx] = px;
+      layout_dirty = true;
   } else if (strcmp(pn, "marginRight") == 0) {
       user__browser__dom__STYLE_MARGIN_RIGHT[n_idx] = px;
+      layout_dirty = true;
   } else if (strcmp(pn, "padding") == 0) {
       user__browser__dom__STYLE_PADDING_TOP[n_idx] = px;
       user__browser__dom__STYLE_PADDING_RIGHT[n_idx] = px;
       user__browser__dom__STYLE_PADDING_BOTTOM[n_idx] = px;
       user__browser__dom__STYLE_PADDING_LEFT[n_idx] = px;
+      layout_dirty = true;
   } else if (strcmp(pn, "paddingTop") == 0) {
       user__browser__dom__STYLE_PADDING_TOP[n_idx] = px;
+      layout_dirty = true;
   } else if (strcmp(pn, "paddingBottom") == 0) {
       user__browser__dom__STYLE_PADDING_BOTTOM[n_idx] = px;
+      layout_dirty = true;
   } else if (strcmp(pn, "paddingLeft") == 0) {
       user__browser__dom__STYLE_PADDING_LEFT[n_idx] = px;
+      layout_dirty = true;
   } else if (strcmp(pn, "paddingRight") == 0) {
       user__browser__dom__STYLE_PADDING_RIGHT[n_idx] = px;
+      layout_dirty = true;
   } else if (strcmp(pn, "border") == 0 || strcmp(pn, "borderWidth") == 0) {
-      user__browser__dom__STYLE_BORDER_WIDTH_TOP[n_idx] = px > 0 ? px : 1; // Basic parser
+      user__browser__dom__STYLE_BORDER_WIDTH_TOP[n_idx] = px > 0 ? px : 1; 
       user__browser__dom__STYLE_BORDER_WIDTH_RIGHT[n_idx] = px > 0 ? px : 1;
       user__browser__dom__STYLE_BORDER_WIDTH_BOTTOM[n_idx] = px > 0 ? px : 1;
       user__browser__dom__STYLE_BORDER_WIDTH_LEFT[n_idx] = px > 0 ? px : 1;
+      
+      // Try to find a color in the shorthand
+      const char *hash = strchr(val, '#');
+      if (hash) {
+          uint8_t r, g, b;
+          parse_color(hash, &r, &g, &b);
+          extern void dom_set_style_border_color(uint32_t idx, uint8_t r, uint8_t g, uint8_t b);
+          dom_set_style_border_color(n_idx, r, g, b);
+          paint_dirty = true;
+      }
+      layout_dirty = true;
+  } else if (strcmp(pn, "color") == 0) {
+      uint8_t r, g, b;
+      parse_color(val, &r, &g, &b);
+      extern void dom_set_style_color(uint32_t idx, uint8_t r, uint8_t g, uint8_t b);
+      dom_set_style_color(n_idx, r, g, b);
+      paint_dirty = true;
+  } else if (strcmp(pn, "fontSize") == 0) {
+      user__browser__dom__STYLE_FONT_SIZE[n_idx] = (float)px;
+      layout_dirty = true;
+  } else if (strcmp(pn, "textAlign") == 0) {
+      if (strcmp(val, "center") == 0) user__browser__dom__STYLE_TEXT_ALIGN[n_idx] = 2;
+      else if (strcmp(val, "right") == 0) user__browser__dom__STYLE_TEXT_ALIGN[n_idx] = 1;
+      else user__browser__dom__STYLE_TEXT_ALIGN[n_idx] = 0;
+      paint_dirty = true;
+  } else if (strcmp(pn, "boxSizing") == 0) {
+      if (strcmp(val, "border-box") == 0) user__browser__dom__STYLE_BOX_SIZING[n_idx] = 1;
+      else user__browser__dom__STYLE_BOX_SIZING[n_idx] = 0;
+      layout_dirty = true;
+  } else if (strcmp(pn, "minWidth") == 0) {
+      user__browser__dom__STYLE_MIN_WIDTH[n_idx] = px;
+      layout_dirty = true;
+  } else if (strcmp(pn, "maxWidth") == 0) {
+      user__browser__dom__STYLE_MAX_WIDTH[n_idx] = px;
+      layout_dirty = true;
+  } else if (strcmp(pn, "minHeight") == 0) {
+      user__browser__dom__STYLE_MIN_HEIGHT[n_idx] = px;
+      layout_dirty = true;
+  } else if (strcmp(pn, "maxHeight") == 0) {
+      user__browser__dom__STYLE_MAX_HEIGHT[n_idx] = px;
+      layout_dirty = true;
+  } else if (strcmp(pn, "visibility") == 0) {
+      if (strcmp(val, "hidden") == 0) user__browser__dom__STYLE_VISIBILITY[n_idx] = 1;
+      else user__browser__dom__STYLE_VISIBILITY[n_idx] = 0;
+      paint_dirty = true;
+  } else if (strcmp(pn, "lineHeight") == 0) {
+      user__browser__dom__STYLE_LINE_HEIGHT[n_idx] = (float)atof(val);
+      layout_dirty = true;
+  } else if (strcmp(pn, "whiteSpace") == 0) {
+      if (strcmp(val, "nowrap") == 0) user__browser__dom__STYLE_WHITE_SPACE[n_idx] = 1;
+      else user__browser__dom__STYLE_WHITE_SPACE[n_idx] = 0;
+      layout_dirty = true;
+  } else if (strcmp(pn, "flexWrap") == 0) {
+      if (strcmp(val, "wrap") == 0) user__browser__dom__STYLE_FLEX_WRAP[n_idx] = 1;
+      else user__browser__dom__STYLE_FLEX_WRAP[n_idx] = 0;
+      layout_dirty = true;
+  } else if (strcmp(pn, "verticalAlign") == 0) {
+      if (strcmp(val, "middle") == 0) user__browser__dom__STYLE_VERTICAL_ALIGN[n_idx] = 1;
+      else if (strcmp(val, "top") == 0) user__browser__dom__STYLE_VERTICAL_ALIGN[n_idx] = 2;
+      else if (strcmp(val, "bottom") == 0) user__browser__dom__STYLE_VERTICAL_ALIGN[n_idx] = 3;
+      else user__browser__dom__STYLE_VERTICAL_ALIGN[n_idx] = 0;
+      layout_dirty = true;
+  }
+
+  if (layout_dirty) {
+      extern void ext_salt_invalidate_layout(uint32_t node_id);
+      ext_salt_invalidate_layout(n_idx);
+  } else if (paint_dirty) {
+      extern void invalidate_paint(uint32_t node_id);
+      invalidate_paint(n_idx);
   }
 
   free(pn);
@@ -1342,6 +1586,30 @@ void init_style_class(JSContextRef ctx) {
        kJSPropertyAttributeNone},
       {"gridColumnStart", NULL, jsc_style_set_gridColumnStart,
        kJSPropertyAttributeNone},
+      {"padding", NULL, NULL, kJSPropertyAttributeNone},
+      {"paddingTop", NULL, NULL, kJSPropertyAttributeNone},
+      {"paddingRight", NULL, NULL, kJSPropertyAttributeNone},
+      {"paddingBottom", NULL, NULL, kJSPropertyAttributeNone},
+      {"paddingLeft", NULL, NULL, kJSPropertyAttributeNone},
+      {"margin", NULL, NULL, kJSPropertyAttributeNone},
+      {"marginTop", NULL, NULL, kJSPropertyAttributeNone},
+      {"marginRight", NULL, NULL, kJSPropertyAttributeNone},
+      {"marginBottom", NULL, NULL, kJSPropertyAttributeNone},
+      {"marginLeft", NULL, NULL, kJSPropertyAttributeNone},
+      {"borderWidth", NULL, NULL, kJSPropertyAttributeNone},
+      {"color", NULL, NULL, kJSPropertyAttributeNone},
+      {"fontSize", NULL, NULL, kJSPropertyAttributeNone},
+      {"textAlign", NULL, NULL, kJSPropertyAttributeNone},
+      {"boxSizing", NULL, NULL, kJSPropertyAttributeNone},
+      {"minWidth", NULL, NULL, kJSPropertyAttributeNone},
+      {"maxWidth", NULL, NULL, kJSPropertyAttributeNone},
+      {"minHeight", NULL, NULL, kJSPropertyAttributeNone},
+      {"maxHeight", NULL, NULL, kJSPropertyAttributeNone},
+      {"visibility", NULL, NULL, kJSPropertyAttributeNone},
+      {"lineHeight", NULL, NULL, kJSPropertyAttributeNone},
+      {"whiteSpace", NULL, NULL, kJSPropertyAttributeNone},
+      {"flexWrap", NULL, NULL, kJSPropertyAttributeNone},
+      {"verticalAlign", NULL, NULL, kJSPropertyAttributeNone},
       {0, 0, 0, 0}};
   styleDef.staticValues = styleValues;
 
@@ -1351,6 +1619,60 @@ void init_style_class(JSContextRef ctx) {
   styleDef.staticFunctions = styleFuncs;
 
   dom_style_class = JSClassCreate(&styleDef);
+}
+
+JSValueRef get_node_children(JSContextRef ctx, JSObjectRef object, JSStringRef propertyName, JSValueRef* exception) {
+  uint32_t n_idx = jsc_get_node_idx(object);
+  extern uint32_t dom_get_child_count(uint32_t idx);
+  extern uint32_t dom_get_child_idx(uint32_t parent_idx, uint32_t child_idx);
+  extern uint32_t dom_get_tag(uint32_t idx);
+  extern uint64_t node_id_from_idx(uint32_t idx);
+
+  uint32_t count = dom_get_child_count(n_idx);
+  JSValueRef results[256];
+  uint32_t found = 0;
+  for (uint32_t i = 0; i < count && found < 256; i++) {
+    uint32_t c_idx = dom_get_child_idx(n_idx, i);
+    if (dom_get_tag(c_idx) != 0) { // Not TAG_TEXT
+      results[found++] = create_js_node_wrapper(ctx, node_id_from_idx(c_idx));
+    }
+  }
+  return JSObjectMakeArray(ctx, found, results, exception);
+}
+
+JSValueRef get_node_firstElementChild(JSContextRef ctx, JSObjectRef object, JSStringRef propertyName, JSValueRef* exception) {
+  uint32_t n_idx = jsc_get_node_idx(object);
+  extern uint32_t dom_get_child_count(uint32_t idx);
+  extern uint32_t dom_get_child_idx(uint32_t parent_idx, uint32_t child_idx);
+  extern uint32_t dom_get_tag(uint32_t idx);
+  extern uint64_t node_id_from_idx(uint32_t idx);
+
+  uint32_t count = dom_get_child_count(n_idx);
+  for (uint32_t i = 0; i < count; i++) {
+    uint32_t c_idx = dom_get_child_idx(n_idx, i);
+    if (dom_get_tag(c_idx) != 0) {
+      return create_js_node_wrapper(ctx, node_id_from_idx(c_idx));
+    }
+  }
+  return JSValueMakeNull(ctx);
+}
+
+JSValueRef get_node_lastElementChild(JSContextRef ctx, JSObjectRef object, JSStringRef propertyName, JSValueRef* exception) {
+  uint32_t n_idx = jsc_get_node_idx(object);
+  extern uint32_t dom_get_child_count(uint32_t idx);
+  extern uint32_t dom_get_child_idx(uint32_t parent_idx, uint32_t child_idx);
+  extern uint32_t dom_get_tag(uint32_t idx);
+  extern uint64_t node_id_from_idx(uint32_t idx);
+
+  uint32_t count = dom_get_child_count(n_idx);
+  if (count == 0) return JSValueMakeNull(ctx);
+  for (int32_t i = (int32_t)count - 1; i >= 0; i--) {
+    uint32_t c_idx = dom_get_child_idx(n_idx, (uint32_t)i);
+    if (dom_get_tag(c_idx) != 0) {
+      return create_js_node_wrapper(ctx, node_id_from_idx(c_idx));
+    }
+  }
+  return JSValueMakeNull(ctx);
 }
 
 JSValueRef get_node_style(JSContextRef ctx, JSObjectRef object,
@@ -1485,6 +1807,10 @@ static JSValueRef jsc_classList_contains(JSContextRef ctx, JSObjectRef function,
   char *cls = (char *)(uintptr_t)cls_ptr;
   // Create null-terminated copy for strstr
   char *cls_copy = (char *)malloc(cls_len + 1);
+  if (!cls_copy) {
+    free(check_str);
+    return JSValueMakeBoolean(ctx, false);
+  }
   memcpy(cls_copy, cls, cls_len);
   cls_copy[cls_len] = '\0';
 
@@ -1959,20 +2285,50 @@ extern void ext_net_queue_fetch(uint64_t fetch_id, uint64_t url_ptr,
                                 uint32_t url_len);
 static uint64_t jsc_next_fetch_id = 1;
 
+typedef struct {
+  uint8_t active;
+  uint32_t fetch_id;
+  JSObjectRef resolve_func;
+  JSObjectRef reject_func;
+} FetchRequestSlot;
+
+static FetchRequestSlot fetch_cache[256];
+
+static uint32_t fetch_cache_stash(JSContextRef ctx, JSObjectRef resolve, JSObjectRef reject) {
+  uint32_t fid = jsc_next_fetch_id++;
+  for (int i = 0; i < 256; i++) {
+    if (!fetch_cache[i].active) {
+      fetch_cache[i].active = 1;
+      fetch_cache[i].fetch_id = fid;
+      fetch_cache[i].resolve_func = resolve;
+      fetch_cache[i].reject_func = reject;
+      JSValueProtect(ctx, resolve);
+      JSValueProtect(ctx, reject);
+      return fid;
+    }
+  }
+  return 0;
+}
+
 JSValueRef jsc_window_fetch(JSContextRef ctx, JSObjectRef function,
                             JSObjectRef thisObject, size_t argc,
                             const JSValueRef argv[], JSValueRef *exception) {
-  if (argc < 1)
-    return JSValueMakeUndefined(ctx);
+  if (argc < 1) return JSValueMakeUndefined(ctx);
   size_t url_len;
   char *url = jsc_value_to_cstring(ctx, argv[0], &url_len);
-  if (!url)
-    return JSValueMakeUndefined(ctx);
-  uint64_t fid = jsc_next_fetch_id++;
-  ext_net_queue_fetch(fid, (uint64_t)(uintptr_t)url, (uint32_t)url_len);
-  JSObjectRef fetchObj = JSObjectMake(ctx, NULL, NULL);
+  if (!url) return JSValueMakeUndefined(ctx);
+
+  JSObjectRef resolve_func, reject_func;
+  JSObjectRef promise = JSObjectMakeDeferredPromise(ctx, &resolve_func, &reject_func, exception);
+  
+  uint32_t fid = fetch_cache_stash(ctx, resolve_func, reject_func);
+  if (fid != 0) {
+    extern void ext_net_queue_fetch(uint64_t fid, uint64_t url_ptr, uint32_t url_len);
+    ext_net_queue_fetch((uint64_t)fid, (uint64_t)(uintptr_t)url, (uint32_t)url_len);
+  }
+  
   free(url);
-  return fetchObj;
+  return promise;
 }
 
 // ---- WebSocket, Worker, MediaSource, AudioContext constructors ----
@@ -2506,6 +2862,25 @@ JSValueRef get_node_offsetHeight(JSContextRef ctx, JSObjectRef object, JSStringR
   return JSValueMakeNumber(ctx, ext_get_layout_h(n_idx));
 }
 
+JSValueRef jsc_node_contains(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef *exception) {
+  if (argc < 1) return JSValueMakeBoolean(ctx, false);
+  uint32_t n_idx = jsc_get_node_idx(thisObject);
+  JSObjectRef other_obj = JSValueToObject(ctx, argv[0], exception);
+  if (!other_obj) return JSValueMakeBoolean(ctx, false);
+  uint32_t other_idx = jsc_get_node_idx(other_obj);
+  
+  if (n_idx == 0 || n_idx == 0xFFFFFFFF || other_idx == 0 || other_idx == 0xFFFFFFFF) return JSValueMakeBoolean(ctx, false);
+  if (n_idx == other_idx) return JSValueMakeBoolean(ctx, true);
+
+  extern uint32_t dom_get_parent_idx(uint32_t idx);
+  uint32_t curr = other_idx;
+  while (curr != 0 && curr != 999999) {
+    curr = dom_get_parent_idx(curr);
+    if (curr == n_idx) return JSValueMakeBoolean(ctx, true);
+  }
+  return JSValueMakeBoolean(ctx, false);
+}
+
 JSValueRef jsc_node_getBoundingClientRect(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef *ex) {
   // Secure node resolution — if private data is null, this is an unbound call
   void *priv = JSObjectGetPrivate(thisObject);
@@ -2596,6 +2971,10 @@ JSValueRef jsc_btoa(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObje
   char *in_str = jsc_value_to_cstring(ctx, argv[0], &in_len);
   if (!in_str) return JSValueMakeUndefined(ctx);
   char *out = malloc(in_len * 2 + 3);
+  if (!out) {
+    free(in_str);
+    return JSValueMakeUndefined(ctx);
+  }
   int i = 0, j = 0;
   for (; i < in_len - 2; i += 3) {
       out[j++] = cb64[(in_str[i] >> 2) & 0x3F];
@@ -2648,9 +3027,121 @@ JSValueRef jsc_xhr_stub_method(JSContextRef ctx, JSObjectRef function, JSObjectR
   return JSValueMakeUndefined(ctx);
 }
 
+JSValueRef jsc_IntersectionObserver_observe(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef *exception) {
+  if (argc < 1) return JSValueMakeUndefined(ctx);
+  JSObjectRef target_obj = JSValueToObject(ctx, argv[0], exception);
+  if (!target_obj) return JSValueMakeUndefined(ctx);
+  uint32_t node_idx = jsc_get_node_idx(target_obj);
+  if (node_idx == 0 || node_idx == 0xFFFFFFFF) return JSValueMakeUndefined(ctx);
+
+  // Retrieve the callback stored in the observer object
+  JSStringRef cbStr = JSStringCreateWithUTF8CString("__callback");
+  JSValueRef cbVal = JSObjectGetProperty(ctx, thisObject, cbStr, exception);
+  JSStringRelease(cbStr);
+
+  if (JSValueIsObject(ctx, cbVal) && JSObjectIsFunction(ctx, (JSObjectRef)cbVal)) {
+    extern uint8_t ext_observers_register(uint32_t node_id, uint64_t callback_ptr, uint8_t obs_type);
+    ext_observers_register(node_idx, (uint64_t)(uintptr_t)cbVal, 3 /* Intersection */);
+  }
+  return JSValueMakeUndefined(ctx);
+}
+
+JSValueRef jsc_MutationObserver_observe(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef *exception) {
+  if (argc < 1) return JSValueMakeUndefined(ctx);
+  JSObjectRef target_obj = JSValueToObject(ctx, argv[0], exception);
+  if (!target_obj) return JSValueMakeUndefined(ctx);
+  uint32_t node_idx = jsc_get_node_idx(target_obj);
+  if (node_idx == 0 || node_idx == 0xFFFFFFFF) return JSValueMakeUndefined(ctx);
+
+  JSStringRef cbStr = JSStringCreateWithUTF8CString("__callback");
+  JSValueRef cbVal = JSObjectGetProperty(ctx, thisObject, cbStr, exception);
+  JSStringRelease(cbStr);
+
+  if (JSValueIsObject(ctx, cbVal) && JSObjectIsFunction(ctx, (JSObjectRef)cbVal)) {
+    extern uint8_t ext_observers_register(uint32_t node_id, uint64_t callback_ptr, uint8_t obs_type);
+    ext_observers_register(node_idx, (uint64_t)(uintptr_t)cbVal, 2 /* Mutation */);
+  }
+  return JSValueMakeUndefined(ctx);
+}
+
+JSObjectRef jsc_MutationObserver_constructor(JSContextRef ctx, JSObjectRef constructor, size_t argc, const JSValueRef argv[], JSValueRef *exception) {
+  JSClassDefinition moDef = kJSClassDefinitionEmpty;
+  moDef.className = "MutationObserver";
+  static JSStaticFunction moFuncs[] = {
+    {"observe", jsc_MutationObserver_observe, kJSPropertyAttributeNone},
+    {"disconnect", jsc_xhr_stub_method, kJSPropertyAttributeNone},
+    {"takeRecords", jsc_xhr_stub_method, kJSPropertyAttributeNone},
+    {0, 0, 0}
+  };
+  moDef.staticFunctions = moFuncs;
+  JSObjectRef mo = JSObjectMake(ctx, JSClassCreate(&moDef), NULL);
+  if (argc >= 1) {
+    JSStringRef cbStr = JSStringCreateWithUTF8CString("__callback");
+    JSObjectSetProperty(ctx, mo, cbStr, argv[0], kJSPropertyAttributeNone, NULL);
+    JSStringRelease(cbStr);
+  }
+  return mo;
+}
+
+JSValueRef jsc_window_matchMedia(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef *exception) {
+  JSObjectRef mm = JSObjectMake(ctx, NULL, NULL);
+  JSStringRef mStr = JSStringCreateWithUTF8CString("matches");
+  JSObjectSetProperty(ctx, mm, mStr, JSValueMakeBoolean(ctx, true), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(mStr);
+  JSStringRef aelStr = JSStringCreateWithUTF8CString("addEventListener");
+  JSObjectSetProperty(ctx, mm, aelStr, JSObjectMakeFunctionWithCallback(ctx, aelStr, jsc_xhr_stub_method), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(aelStr);
+  return mm;
+}
+
+JSObjectRef jsc_IntersectionObserver_constructor(JSContextRef ctx, JSObjectRef constructor, size_t argc, const JSValueRef argv[], JSValueRef *exception) {
+  JSClassDefinition ioDef = kJSClassDefinitionEmpty;
+  ioDef.className = "IntersectionObserver";
+  static JSStaticFunction ioFuncs[] = {
+    {"observe", jsc_IntersectionObserver_observe, kJSPropertyAttributeNone},
+    {"unobserve", jsc_xhr_stub_method, kJSPropertyAttributeNone},
+    {"disconnect", jsc_xhr_stub_method, kJSPropertyAttributeNone},
+    {0, 0, 0}
+  };
+  ioDef.staticFunctions = ioFuncs;
+  JSObjectRef io = JSObjectMake(ctx, JSClassCreate(&ioDef), NULL);
+  if (argc >= 1) {
+    JSStringRef cbStr = JSStringCreateWithUTF8CString("__callback");
+    JSObjectSetProperty(ctx, io, cbStr, argv[0], kJSPropertyAttributeNone, NULL);
+    JSStringRelease(cbStr);
+  }
+  return io;
+}
+
+JSValueRef jsc_window_requestIdleCallback(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef *exception) {
+  if (argc < 1) return JSValueMakeUndefined(ctx);
+  // Simple shim: call it in the next microtask (via setTimeout 1ms)
+  JSStringRef stStr = JSStringCreateWithUTF8CString("setTimeout");
+  JSValueRef stVal = JSObjectGetProperty(ctx, JSContextGetGlobalObject(ctx), stStr, exception);
+  JSStringRelease(stStr);
+  if (JSValueIsObject(ctx, stVal) && JSObjectIsFunction(ctx, (JSObjectRef)stVal)) {
+    JSValueRef stArgs[] = { argv[0], JSValueMakeNumber(ctx, 1.0) };
+    JSObjectCallAsFunction(ctx, (JSObjectRef)stVal, NULL, 2, stArgs, exception);
+  }
+  return JSValueMakeNumber(ctx, 1.0);
+}
+
 JSObjectRef jsc_XMLHttpRequest_constructor(JSContextRef ctx, JSObjectRef constructor, size_t argc, const JSValueRef argv[], JSValueRef *exception) {
   JSObjectRef xhr = JSObjectMake(ctx, NULL, NULL);
   
+  // Set default properties
+  JSStringRef rsStr = JSStringCreateWithUTF8CString("readyState");
+  JSObjectSetProperty(ctx, xhr, rsStr, JSValueMakeNumber(ctx, 0), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(rsStr);
+
+  JSStringRef stStr = JSStringCreateWithUTF8CString("status");
+  JSObjectSetProperty(ctx, xhr, stStr, JSValueMakeNumber(ctx, 0), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(stStr);
+
+  JSStringRef rtStr = JSStringCreateWithUTF8CString("responseText");
+  JSObjectSetProperty(ctx, xhr, rtStr, JSValueMakeString(ctx, JSStringCreateWithUTF8CString("")), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(rtStr);
+
   JSStringRef aelStr = JSStringCreateWithUTF8CString("addEventListener");
   JSObjectSetProperty(ctx, xhr, aelStr, JSObjectMakeFunctionWithCallback(ctx, aelStr, jsc_xhr_stub_method), kJSPropertyAttributeNone, NULL);
   JSStringRelease(aelStr);
@@ -2663,10 +3154,6 @@ JSObjectRef jsc_XMLHttpRequest_constructor(JSContextRef ctx, JSObjectRef constru
   JSObjectSetProperty(ctx, xhr, sendStr, JSObjectMakeFunctionWithCallback(ctx, sendStr, jsc_xhr_stub_method), kJSPropertyAttributeNone, NULL);
   JSStringRelease(sendStr);
 
-  JSStringRef srhStr = JSStringCreateWithUTF8CString("setRequestHeader");
-  JSObjectSetProperty(ctx, xhr, srhStr, JSObjectMakeFunctionWithCallback(ctx, srhStr, jsc_xhr_stub_method), kJSPropertyAttributeNone, NULL);
-  JSStringRelease(srhStr);
-  
   return xhr;
 }
 
@@ -2770,6 +3257,9 @@ void ext_engine_inject_timer_polyfills(JSGlobalContextRef ctx) {
     JSStringRelease(cafName);
 }
 
+static JSObjectRef jsc_cached_document = NULL;
+JSObjectRef get_cached_document_wrapper(void) { return jsc_cached_document; }
+
 void bind_native_globals(JSGlobalContextRef ctx) {
   JSObjectRef global = JSContextGetGlobalObject(ctx);
 
@@ -2832,6 +3322,10 @@ void bind_native_globals(JSGlobalContextRef ctx) {
       kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, NULL);
   JSStringRelease(grvStr);
 
+  JSStringRef subtStr = JSStringCreateWithUTF8CString("subtle");
+  JSObjectSetProperty(ctx, crypto, subtStr, JSObjectMake(ctx, NULL, NULL), kJSPropertyAttributeReadOnly, NULL);
+  JSStringRelease(subtStr);
+
   JSStringRef cryptoStr = JSStringCreateWithUTF8CString("crypto");
   JSObjectSetProperty(ctx, global, cryptoStr, crypto, kJSPropertyAttributeReadOnly | kJSPropertyAttributeDontDelete, NULL);
   JSStringRelease(cryptoStr);
@@ -2844,6 +3338,30 @@ void bind_native_globals(JSGlobalContextRef ctx) {
       JSObjectMakeFunctionWithCallback(ctx, nowStr, jsc_performance_now),
       kJSPropertyAttributeNone, NULL);
   JSStringRelease(nowStr);
+
+  JSStringRef markStr = JSStringCreateWithUTF8CString("mark");
+  JSObjectSetProperty(ctx, performance, markStr, JSObjectMakeFunctionWithCallback(ctx, markStr, jsc_xhr_stub_method), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(markStr);
+  JSStringRef measStr = JSStringCreateWithUTF8CString("measure");
+  JSObjectSetProperty(ctx, performance, measStr, JSObjectMakeFunctionWithCallback(ctx, measStr, jsc_xhr_stub_method), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(measStr);
+
+  // Google Unblock: performance.timing & navigation
+  JSObjectRef timing = JSObjectMake(ctx, NULL, NULL);
+  JSStringRef startStr = JSStringCreateWithUTF8CString("navigationStart");
+  JSObjectSetProperty(ctx, timing, startStr, JSValueMakeNumber(ctx, 1000.0), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(startStr);
+  JSStringRef timStr = JSStringCreateWithUTF8CString("timing");
+  JSObjectSetProperty(ctx, performance, timStr, timing, kJSPropertyAttributeNone, NULL);
+  JSStringRelease(timStr);
+
+  JSObjectRef navigation = JSObjectMake(ctx, NULL, NULL);
+  JSStringRef navTypeStr = JSStringCreateWithUTF8CString("type");
+  JSObjectSetProperty(ctx, navigation, navTypeStr, JSValueMakeNumber(ctx, 0.0), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(navTypeStr);
+  JSStringRef navigationStr = JSStringCreateWithUTF8CString("navigation");
+  JSObjectSetProperty(ctx, performance, navigationStr, navigation, kJSPropertyAttributeNone, NULL);
+  JSStringRelease(navigationStr);
 
   JSStringRef perfStr = JSStringCreateWithUTF8CString("performance");
   JSObjectSetProperty(ctx, global, perfStr, performance,
@@ -2870,6 +3388,7 @@ void bind_native_globals(JSGlobalContextRef ctx) {
 
   // Document
   JSObjectRef document = JSObjectMake(ctx, NULL, NULL);
+  jsc_cached_document = document;
   JSStringRef createElemStr = JSStringCreateWithUTF8CString("createElement");
   JSObjectSetProperty(ctx, document, createElemStr,
                       JSObjectMakeFunctionWithCallback(
@@ -2986,15 +3505,9 @@ void bind_native_globals(JSGlobalContextRef ctx) {
   JSStringRelease(docElementStr);
 
   // Google Unblock: document.cookie (basic get/set string persistence)
-  static char jsc_cookie_buf[4096] = {0};
-  static size_t jsc_cookie_len = 0;
-  // We bind cookie as a direct property with an empty string initially;
-  // JS can do document.cookie = "key=val" and read it back.
   {
     JSStringRef cookieStr = JSStringCreateWithUTF8CString("cookie");
-    JSStringRef cookieVal = JSStringCreateWithUTF8CString("");
-    JSObjectSetProperty(ctx, document, cookieStr, JSValueMakeString(ctx, cookieVal), kJSPropertyAttributeNone, NULL);
-    JSStringRelease(cookieVal);
+    JSObjectSetProperty(ctx, document, cookieStr, jsc_document_get_cookie(ctx, document, NULL, NULL), kJSPropertyAttributeNone, NULL);
     JSStringRelease(cookieStr);
   }
 
@@ -3196,10 +3709,49 @@ void bind_native_globals(JSGlobalContextRef ctx) {
     JSStringRelease(langKey);
   }
 
+  // Google Unblock: navigator.onLine
+  {
+    JSStringRef onlineKey = JSStringCreateWithUTF8CString("onLine");
+    JSObjectSetProperty(ctx, navigator, onlineKey,
+                        JSValueMakeBoolean(ctx, true),
+                        kJSPropertyAttributeReadOnly, NULL);
+    JSStringRelease(onlineKey);
+  }
+
+  // Google Unblock: navigator.sendBeacon
+  {
+    JSStringRef sbStr = JSStringCreateWithUTF8CString("sendBeacon");
+    JSObjectSetProperty(ctx, navigator, sbStr, JSObjectMakeFunctionWithCallback(ctx, sbStr, jsc_navigator_sendBeacon), kJSPropertyAttributeNone, NULL);
+    JSStringRelease(sbStr);
+  }
+
   JSStringRef navStr = JSStringCreateWithUTF8CString("navigator");
   JSObjectSetProperty(ctx, global, navStr, navigator, kJSPropertyAttributeNone,
                       NULL);
   JSStringRelease(navStr);
+
+  // Google Unblock: Modern global constructors
+  const char* modern_ctors[] = {"TextEncoder", "TextDecoder", "URLSearchParams"};
+  JSObjectCallAsConstructorCallback modern_callbacks[] = {
+    jsc_TextEncoder_constructor, jsc_TextDecoder_constructor, jsc_URLSearchParams_constructor
+  };
+  for (int i = 0; i < 3; i++) {
+    JSStringRef cName = JSStringCreateWithUTF8CString(modern_ctors[i]);
+    JSObjectSetProperty(ctx, global, cName, JSObjectMakeConstructor(ctx, NULL, modern_callbacks[i]), kJSPropertyAttributeNone, NULL);
+    JSStringRelease(cName);
+  }
+
+  // Google Unblock: Event and CustomEvent constructors
+  JSStringRef eventStr = JSStringCreateWithUTF8CString("Event");
+  JSClassDefinition eventDef = kJSClassDefinitionEmpty;
+  eventDef.callAsConstructor = jsc_Event_constructor;
+  JSObjectRef eventCtor = JSObjectMake(ctx, JSClassCreate(&eventDef), NULL);
+  JSObjectSetProperty(ctx, global, eventStr, eventCtor, kJSPropertyAttributeNone, NULL);
+  JSStringRelease(eventStr);
+
+  JSStringRef cEventStr = JSStringCreateWithUTF8CString("CustomEvent");
+  JSObjectSetProperty(ctx, global, cEventStr, eventCtor, kJSPropertyAttributeNone, NULL); // Use same basic ctor for now
+  JSStringRelease(cEventStr);
 
   JSStringRef atobStr = JSStringCreateWithUTF8CString("atob");
   JSObjectSetProperty(ctx, global, atobStr,
@@ -3207,15 +3759,119 @@ void bind_native_globals(JSGlobalContextRef ctx) {
       kJSPropertyAttributeNone, NULL);
   JSStringRelease(atobStr);
 
+  JSStringRef ricStr = JSStringCreateWithUTF8CString("requestIdleCallback");
+  JSObjectSetProperty(ctx, global, ricStr,
+      JSObjectMakeFunctionWithCallback(ctx, ricStr, jsc_window_requestIdleCallback),
+      kJSPropertyAttributeNone, NULL);
+  JSStringRelease(ricStr);
+
+  // Google Unblock: Intl
+  JSObjectRef intl = JSObjectMake(ctx, NULL, NULL);
+  JSStringRef intlStr = JSStringCreateWithUTF8CString("Intl");
+  JSObjectSetProperty(ctx, global, intlStr, intl, kJSPropertyAttributeNone, NULL);
+  JSStringRelease(intlStr);
+
+  // Google Unblock: DOMParser
+  JSStringRef dpStr = JSStringCreateWithUTF8CString("DOMParser");
+  JSObjectSetProperty(ctx, global, dpStr, JSObjectMake(ctx, NULL, NULL), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(dpStr);
+
+  // Google Unblock: Base DOM Classes
+  const char* dom_classes[] = {
+    "EventTarget", "Node", "Element", "HTMLElement", "HTMLInputElement", 
+    "HTMLButtonElement", "HTMLFormElement", "HTMLAnchorElement", "HTMLTableElement",
+    "HTMLDivElement", "HTMLSpanElement", "HTMLImageElement", "HTMLScriptElement"
+  };
+  for (int i = 0; i < 13; i++) {
+    JSStringRef clsStr = JSStringCreateWithUTF8CString(dom_classes[i]);
+    JSObjectSetProperty(ctx, global, clsStr, JSObjectMake(ctx, NULL, NULL), kJSPropertyAttributeNone, NULL);
+    JSStringRelease(clsStr);
+  }
+
+  JSStringRef ioStr = JSStringCreateWithUTF8CString("IntersectionObserver");
+  JSObjectSetProperty(ctx, global, ioStr,
+      JSObjectMakeConstructor(ctx, NULL, jsc_IntersectionObserver_constructor),
+      kJSPropertyAttributeNone, NULL);
+  JSStringRelease(ioStr);
+
+  JSStringRef moStr = JSStringCreateWithUTF8CString("MutationObserver");
+  JSObjectSetProperty(ctx, global, moStr,
+      JSObjectMakeConstructor(ctx, NULL, jsc_MutationObserver_constructor),
+      kJSPropertyAttributeNone, NULL);
+  JSStringRelease(moStr);
+
+  JSStringRef mmStr = JSStringCreateWithUTF8CString("matchMedia");
+  JSObjectSetProperty(ctx, global, mmStr,
+      JSObjectMakeFunctionWithCallback(ctx, mmStr, jsc_window_matchMedia),
+      kJSPropertyAttributeNone, NULL);
+  JSStringRelease(mmStr);
+
   JSStringRef btoaStr = JSStringCreateWithUTF8CString("btoa");
   JSObjectSetProperty(ctx, global, btoaStr,
       JSObjectMakeFunctionWithCallback(ctx, btoaStr, jsc_btoa),
       kJSPropertyAttributeNone, NULL);
   JSStringRelease(btoaStr);
 
+  JSStringRef imageStr = JSStringCreateWithUTF8CString("Image");
+  JSObjectSetProperty(ctx, global, imageStr,
+      JSObjectMakeConstructor(ctx, NULL, jsc_image_constructor),
+      kJSPropertyAttributeNone, NULL);
+  JSStringRelease(imageStr);
+
   JSStringRef innerWidthStr = JSStringCreateWithUTF8CString("innerWidth");
   JSObjectSetProperty(ctx, global, innerWidthStr, jsc_window_get_innerWidth(ctx, global, NULL, NULL), kJSPropertyAttributeNone, NULL);
   JSStringRelease(innerWidthStr);
+
+  JSStringRef dprStr = JSStringCreateWithUTF8CString("devicePixelRatio");
+  JSObjectSetProperty(ctx, global, dprStr, jsc_window_get_devicePixelRatio(ctx, global, NULL, NULL), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(dprStr);
+
+  JSObjectRef screen = JSObjectMake(ctx, NULL, NULL);
+  JSStringRef scrwStr = JSStringCreateWithUTF8CString("width");
+  JSObjectSetProperty(ctx, screen, scrwStr, JSValueMakeNumber(ctx, 1920), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(scrwStr);
+  JSStringRef shStr = JSStringCreateWithUTF8CString("height");
+  JSObjectSetProperty(ctx, screen, shStr, JSValueMakeNumber(ctx, 1080), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(shStr);
+  JSStringRef sawStr = JSStringCreateWithUTF8CString("availWidth");
+  JSObjectSetProperty(ctx, screen, sawStr, JSValueMakeNumber(ctx, 1920), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(sawStr);
+  JSStringRef sahStr = JSStringCreateWithUTF8CString("availHeight");
+  JSObjectSetProperty(ctx, screen, sahStr, JSValueMakeNumber(ctx, 1050), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(sahStr);
+  JSStringRef sdStr = JSStringCreateWithUTF8CString("colorDepth");
+  JSObjectSetProperty(ctx, screen, sdStr, JSValueMakeNumber(ctx, 24), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(sdStr);
+
+  JSStringRef screenStr = JSStringCreateWithUTF8CString("screen");
+  JSObjectSetProperty(ctx, global, screenStr, screen, kJSPropertyAttributeNone, NULL);
+  JSStringRelease(screenStr);
+
+  JSStringRef radyStr = JSStringCreateWithUTF8CString("readyState");
+  JSObjectSetProperty(ctx, document, radyStr, jsc_document_get_readyState(ctx, document, NULL, NULL), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(radyStr);
+
+  JSStringRef refStr = JSStringCreateWithUTF8CString("referrer");
+  JSObjectSetProperty(ctx, document, refStr, jsc_document_get_referrer(ctx, document, NULL, NULL), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(refStr);
+
+  JSStringRef aeStr = JSStringCreateWithUTF8CString("activeElement");
+  JSObjectSetProperty(ctx, document, aeStr, jsc_document_get_activeElement(ctx, document, NULL, NULL), kJSPropertyAttributeNone, NULL);
+  JSStringRelease(aeStr);
+
+  JSStringRef titleStr = JSStringCreateWithUTF8CString("title");
+  JSObjectSetProperty(ctx, document, titleStr, jsc_document_get_title(ctx, document, NULL, NULL), kJSPropertyAttributeNone, NULL);
+  // setter requires a class, but we are using a direct object.
+  // We can just use the catchAll setter if we made one for document, but we haven't.
+  // For now, let's just make it a simple property, JS will overwrite it but our getter won't be called.
+  // To do it properly we need a Document class. 
+  // Let's just use JSObjectSetProperty with getter/setter for now.
+  
+  JSStringRelease(titleStr);
+
+  JSStringRef dvStr = JSStringCreateWithUTF8CString("defaultView");
+  JSObjectSetProperty(ctx, document, dvStr, global, kJSPropertyAttributeNone, NULL);
+  JSStringRelease(dvStr);
 
   JSStringRef innerHeightStr = JSStringCreateWithUTF8CString("innerHeight");
   JSObjectSetProperty(ctx, global, innerHeightStr, jsc_window_get_innerHeight(ctx, global, NULL, NULL), kJSPropertyAttributeNone, NULL);
@@ -3275,7 +3931,6 @@ void bind_native_globals(JSGlobalContextRef ctx) {
     JSStringRelease(_DumpStr);
   }
 
-  // Google Unblock: window.google — empty object stub
   {
     JSObjectRef googleObj = JSObjectMake(ctx, NULL, NULL);
     JSStringRef goStr = JSStringCreateWithUTF8CString("google");
@@ -3283,6 +3938,21 @@ void bind_native_globals(JSGlobalContextRef ctx) {
                         kJSPropertyAttributeNone, NULL);
     JSStringRelease(goStr);
   }
+}
+
+void jsc_bindings_teardown(JSContextRef ctx) {
+    for (int i = 0; i < 256; i++) {
+      if (fetch_cache[i].active) {
+        JSValueUnprotect(ctx, fetch_cache[i].resolve_func);
+        JSValueUnprotect(ctx, fetch_cache[i].reject_func);
+        fetch_cache[i].active = 0;
+      }
+      if (idb_cache[i].active) {
+        JSValueUnprotect(ctx, idb_cache[i].resolve_func);
+        JSValueUnprotect(ctx, idb_cache[i].reject_func);
+        idb_cache[i].active = 0;
+      }
+    }
 }
 
 // --- Callback Dispatchers (invoked from Salt) ---
@@ -3293,4 +3963,8 @@ void sys_js_execute_timer(uint32_t timer_id, uint8_t is_interval) {
 
 void sys_js_execute_raf(uint32_t raf_id, double timestamp) {
     // Obsolete - Handled by GCD directly.
+}
+
+__attribute__((weak)) void ext_net_navigate(uint64_t url_ptr, uint32_t url_len) {
+    // Global fallback for navigation
 }

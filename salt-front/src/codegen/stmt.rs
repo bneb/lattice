@@ -1383,7 +1383,7 @@ fn hoist_allocas_in_block(ctx: &mut LoweringContext, stmts: &[Stmt], local_vars:
                     
                     if !local_vars.contains_key(&name) {
                         let ty = if let syn::Pat::Type(pt) = &local.pat {
-                            resolve_type(ctx, &crate::grammar::SynType::from_std(*pt.ty.clone()).unwrap())
+                            resolve_type(ctx, &crate::grammar::SynType::from_std(*pt.ty.clone()).map_err(|e| e.to_string())?)
                         } else if let Some(_init) = &local.init {
                             // HEURISTIC: Try to infer type from init expression ONLY if it's a simple literal or known variable.
                             // In a real compiler, we'd do a full type inference pass.
@@ -1449,7 +1449,7 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
                 let name = if let syn::Pat::Ident(id) = pat { id.ident.to_string() } else { "".to_string() };
                 if !name.is_empty() && local_vars.contains_key(&name) {
                     // Variable was hoisted as a Ptr.
-                    let (ty, kind) = local_vars.get(&name).unwrap().clone();
+                    let (ty, kind) = local_vars.get(&name).ok_or_else(|| format!("Local variable {} lost during emission", name))?.clone();
                         if let Some(init) = &local.init {
                             // [V25.2] Domain Isolation: Don't pass Pointer hints to RHS
                             // This prevents Type Osmosis in expressions like train_images + (i * INPUT_SIZE)
@@ -1479,7 +1479,7 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
                     // Extract type annotation FIRST to use as hint for emit_expr
                     // This enables turbofish elimination: `let x: Vec<u8> = Vec::new()`
                     let type_hint: Option<Type> = match &local.pat {
-                        syn::Pat::Type(pt) => Some(resolve_type(ctx, &crate::grammar::SynType::from_std(*pt.ty.clone()).unwrap())),
+                        syn::Pat::Type(pt) => Some(resolve_type(ctx, &crate::grammar::SynType::from_std(*pt.ty.clone()).map_err(|e| e.to_string())?)),
                         _ => None,
                     };
                     
@@ -2282,7 +2282,7 @@ pub fn emit_pattern(
             }
         }
         syn::Pat::Struct(ps) => {
-            let struct_name = ps.path.segments.last().unwrap().ident.to_string();
+            let struct_name = ps.path.segments.last().ok_or_else(|| "Empty path in struct pattern".to_string())?.ident.to_string();
             let info = ctx.struct_registry().values().find(|i| i.name == struct_name).cloned().ok_or(format!("Unknown struct {}", struct_name))?.clone();
             
             let struct_ty_mlir = actual_ty.to_mlir_type(ctx)?;
@@ -2464,11 +2464,15 @@ pub fn emit_salt_if(
             expr: Box::new(cond.clone()),
         });
         ctx.emission.path_conditions.push(negated_cond);
-        else_diverges = match else_branch.as_ref().unwrap().as_ref() {
-            SaltElse::Block(b) => emit_block(ctx, out, &b.stmts, &mut else_vars)?,
-            SaltElse::If(nested) => {
-                 emit_salt_if(ctx, out, &nested.cond, &nested.then_branch, &nested.else_branch, &mut else_vars)?
+        else_diverges = if let Some(eb) = else_branch {
+            match eb.as_ref() {
+                SaltElse::Block(b) => emit_block(ctx, out, &b.stmts, &mut else_vars)?,
+                SaltElse::If(nested) => {
+                     emit_salt_if(ctx, out, &nested.cond, &nested.then_branch, &nested.else_branch, &mut else_vars)?
+                }
             }
+        } else {
+            false
         };
         ctx.emission.path_conditions.pop();
         if !else_diverges {
@@ -2711,7 +2715,7 @@ fn emit_pattern_condition(
             if path.is_empty() {
                 return Err("Empty variant path".to_string());
             }
-            let variant_name = path.last().unwrap().to_string();
+            let variant_name = path.last().ok_or_else(|| "Failed to get variant name".to_string())?.to_string();
             
             // The scrutinee_ty should be an enum type
             // For specialized generic enums (e.g. Result<File, IOError>), 

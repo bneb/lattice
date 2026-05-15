@@ -525,7 +525,7 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
                  // Now truncate from i64 to target type if needed
                  let dst_width = get_bit_width(to);
                  if dst_width < 64 {
-                     out.push_str(&format!("    {} = arith.trunci {} : i64 to {}\n", res, intermediate, to.to_mlir_type(ctx).unwrap()));
+                     out.push_str(&format!("    {} = arith.trunci {} : i64 to {}\n", res, intermediate, to.to_mlir_type(ctx)?));
                      return Ok(res);
                  } else {
                      return Ok(intermediate);
@@ -539,19 +539,19 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
              if src_width == dst_width {
                  return Ok(var.to_string());
              } else if src_width > dst_width {
-                 emit("arith.trunci", &from.to_mlir_type(ctx).unwrap(), &to.to_mlir_type(ctx).unwrap());
+                 emit("arith.trunci", &from.to_mlir_type(ctx)?, &to.to_mlir_type(ctx)?);
                  return Ok(res);
              } else {
                  let op = if from.is_unsigned() { "arith.extui" } else { "arith.extsi" };
-                 emit(op, &from.to_mlir_type(ctx).unwrap(), &to.to_mlir_type(ctx).unwrap());
+                 emit(op, &from.to_mlir_type(ctx)?, &to.to_mlir_type(ctx)?);
                  return Ok(res);
              }
         },
         // [SOVEREIGN V25.6] Integer -> Float Promotion (Parity with C)
         (from, to) if from.is_integer() && to.is_float() => {
              let op = if from.is_unsigned() { "arith.uitofp" } else { "arith.sitofp" };
-             let src_str = from.to_mlir_type(ctx).unwrap();
-             let dst_str = to.to_mlir_type(ctx).unwrap();
+             let src_str = from.to_mlir_type(ctx)?;
+             let dst_str = to.to_mlir_type(ctx)?;
              emit(op, &src_str, &dst_str);
              return Ok(res);
         },
@@ -2492,8 +2492,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
 
         let parts: Vec<&str> = base_name.split("__").collect();
         let (path, name) = if parts.len() > 1 {
-
-             (parts[..parts.len()-1].iter().map(|s| s.to_string()).collect::<Vec<_>>(), parts.last().unwrap().to_string())
+             (parts[..parts.len()-1].iter().map(|s| s.to_string()).collect::<Vec<_>>(), parts.last().expect("parts.len() > 1").to_string())
         } else {
              (vec![], base_name.to_string())
         };
@@ -2615,13 +2614,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
     }
 
     pub fn drain_work_queue(&mut self) {
-        loop {
-            // Pop task (Short borrow)
-            let task_opt = self.monomorphizer_mut().work_queue.pop_front();
-            if task_opt.is_none() { break; }
-            let task = task_opt.unwrap();
-
-
+        while let Some(task) = self.monomorphizer_mut().work_queue.pop_front() {
             // Setup Context for Self-Resolution
             let old_self = self.current_self_ty().clone();
             let self_type = if task.is_enum { Type::Enum(task.mangled_name.clone()) } else { Type::Struct(task.mangled_name.clone()) };
@@ -2631,7 +2624,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             let base_name = &task.template_name;
             let parts: Vec<&str> = base_name.split("__").collect();
             let (path, name) = if parts.len() > 1 {
-                 (parts[..parts.len()-1].iter().map(|s| s.to_string()).collect::<Vec<_>>(), parts.last().unwrap().to_string())
+                 (parts[..parts.len()-1].iter().map(|s| s.to_string()).collect::<Vec<_>>(), parts.last().expect("parts.len() > 1").to_string())
             } else {
                  (vec![], base_name.to_string())
             };
@@ -2642,17 +2635,19 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             };
 
             // EXPAND (No Registry Borrow Here, only Read Templates + Request Spec)
-            let _result = if task.is_enum {
-                let info = self.expand_enum_structure(&task.template_name, &task.args).expect("Failed to expand enum");
-                // Commit to Registry
-                if let Some(entry) = self.enum_registry_mut().get_mut(&key) {
-                    *entry = info;
+            if task.is_enum {
+                if let Ok(info) = self.expand_enum_structure(&task.template_name, &task.args) {
+                    // Commit to Registry
+                    if let Some(entry) = self.enum_registry_mut().get_mut(&key) {
+                        *entry = info;
+                    }
                 }
             } else {
-                let info = self.expand_template_structure(&task.template_name, &task.args).expect("Failed to expand struct");
-                // Commit to Registry
-                if let Some(entry) = self.struct_registry_mut().get_mut(&key) {
-                    *entry = info;
+                if let Ok(info) = self.expand_template_structure(&task.template_name, &task.args) {
+                    // Commit to Registry
+                    if let Some(entry) = self.struct_registry_mut().get_mut(&key) {
+                        *entry = info;
+                    }
                 }
             };
 

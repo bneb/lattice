@@ -6,7 +6,7 @@
 //   SovereignArena → General-purpose task allocation
 //   DmaArena       → NIC-mapped pinned memory for zero-copy I/O
 
-package std.mem.arena
+package user.browser.alloc.resilient_arena
 
 // ============================================================================
 // SovereignArena: Pointer-Bump Allocator
@@ -76,6 +76,100 @@ impl SovereignArena {
     // How many bytes remain
     fn remaining(self: &SovereignArena) -> i64 {
         return self.capacity - self.cursor;
+    }
+}
+
+// ============================================================================
+// ResilientArena: Multi-Chunk Growable Allocator
+// ============================================================================
+//
+// Strike a middle ground for "break glass" applications (like Browsers)
+// that have unpredictable memory needs but still require O(1) resets.
+//
+// Supports expansion into up to 16 chunks of `chunk_capacity` bytes.
+// Resets back to the first chunk in O(1) while keeping chunks for reuse.
+//
+
+const MAX_ARENA_CHUNKS: i32 = 16;
+
+extern fn sovereign_arena_alloc(size: i64) -> u64;
+
+pub struct ResilientArena {
+    pub chunks: [Ptr<u8>; 16],   // Pool of allocated memory blocks
+    pub num_chunks: i32,         // Total chunks currently in the pool
+    pub current_idx: i32,        // Index of the chunk we are currently bumping
+    pub cursor: i64,             // Offset within the current chunk
+    pub chunk_capacity: i64,     // Capacity of a single chunk
+    pub alloc_count: i64,        // Diagnostic: total allocations
+}
+
+impl ResilientArena {
+    // Initialize a new resilient arena with the given chunk size (safe for static initialization)
+    pub fn new(chunk_capacity: i64) -> ResilientArena {
+        return ResilientArena {
+            chunks: [0 as Ptr<u8>; 16],
+            num_chunks: 1, // Start with 1 logically so alloc knows we are on chunk 0
+            current_idx: 0,
+            cursor: 0,
+            chunk_capacity: chunk_capacity,
+            alloc_count: 0,
+        };
+    }
+
+    // Allocate `size` bytes with 128-byte alignment
+    pub fn alloc(self: &mut ResilientArena, size: i64) -> Ptr<u8> {
+        // Lazy initialize the very first chunk
+        if (self.chunks[0] as i64) == 0 {
+            let first_chunk = sovereign_arena_alloc(self.chunk_capacity);
+            self.chunks[0] = first_chunk as Ptr<u8>;
+        }
+
+        // Align cursor safely using integer division to avoid bitwise operator ambiguity
+        let aligned_cursor = ((self.cursor + ARENA_ALIGNMENT - 1) / ARENA_ALIGNMENT) * ARENA_ALIGNMENT;
+        let mut new_cursor = aligned_cursor + size;
+
+        if new_cursor > self.chunk_capacity {
+            // Current chunk exhausted. Can we move to next or grow?
+            if (self.current_idx + 1) < self.num_chunks {
+                // Reuse existing chunk from pool
+                self.current_idx = self.current_idx + 1;
+                self.cursor = 0;
+                return self.alloc(size); // Recurse once into new chunk
+            } else if self.num_chunks < MAX_ARENA_CHUNKS {
+                // "Break Glass": Allocate new chunk
+                let new_chunk = sovereign_arena_alloc(self.chunk_capacity);
+                if (new_chunk as i64) == 0 { return 0 as Ptr<u8>; }
+                
+                self.chunks[self.num_chunks as usize] = new_chunk as Ptr<u8>;
+                self.num_chunks = self.num_chunks + 1;
+                self.current_idx = self.num_chunks - 1;
+                self.cursor = 0;
+                return self.alloc(size);
+            } else {
+                // Hard limit reached (M-limit)
+                return 0 as Ptr<u8>;
+            }
+        }
+
+        self.cursor = new_cursor;
+        self.alloc_count = self.alloc_count + 1;
+        let base = self.chunks[self.current_idx as usize];
+        return base.offset(aligned_cursor);
+    }
+
+    // O(1) reset: return to the first chunk and zero the cursor
+    pub fn reset(self: &mut ResilientArena) {
+        self.current_idx = 0;
+        self.cursor = 0;
+        // Note: Chunks remain in the pool for zero-cost reuse next cycle.
+    }
+
+    pub fn total_capacity(self: &ResilientArena) -> i64 {
+        return (self.num_chunks as i64) * self.chunk_capacity;
+    }
+
+    pub fn used(self: &ResilientArena) -> i64 {
+        return (self.current_idx as i64) * self.chunk_capacity + self.cursor;
     }
 }
 

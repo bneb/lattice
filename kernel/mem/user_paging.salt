@@ -236,6 +236,13 @@ fn walk_or_create(table_phys: u64, index: u64) -> u64 {
 // map_user_page -- Map a single 4KB page with Ring 3 permissions
 // =============================================================================
 pub fn map_user_page(pml4_phys: u64, vaddr: u64, paddr: u64, flags: u64) {
+    // SECURITY FIX: Protect kernel page tables from user-controlled mappings.
+    // The higher half (kernel space) starts at index 256. 
+    // Bit 47 must be 0 for a valid user address.
+    if vaddr >= 0x0000800000000000 {
+        return;
+    }
+
     let pdp  = walk_or_create(pml4_phys, pml4_index(vaddr));
     let pd   = walk_or_create(pdp, pdp_index(vaddr));
     let pt   = walk_or_create(pd, pd_index(vaddr));
@@ -367,9 +374,10 @@ pub fn unmap_user_page(pml4_phys: u64, vaddr: u64) -> bool {
 // =============================================================================
 pub fn destroy_user_pml4(pml4_phys: u64) {
     let pml4_virt = memory.phys_to_virt(memory.PhysAddr { val: pml4_phys }).val;
-    // Start at index 1, NOT 0. PML4[0] is borrowed from the kernel
-    // identity map and must NOT be freed.
-    let mut pml4_i: u64 = 1;
+    // SECURITY FIX: Index 0 must be freed! User-mode ELFs and heaps exist in index 0.
+    // PML4[0] is no longer borrowed from the kernel identity map; it is allocated
+    // uniquely for each user process.
+    let mut pml4_i: u64 = 0;
     while pml4_i < KERNEL_PML4_START {
         let pml4_entry = *((pml4_virt + pml4_i * 8) as &u64);
         if (pml4_entry & PTE_PRESENT) != 0 {

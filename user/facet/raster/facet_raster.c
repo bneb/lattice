@@ -23,15 +23,23 @@ FacetPath *facet_path_new(void) {
     return NULL;
   p->capacity = 64;
   p->cmds = (FacetPathCmd *)malloc(p->capacity * sizeof(FacetPathCmd));
+  if (!p->cmds) {
+    free(p);
+    return NULL;
+  }
   p->count = 0;
   return p;
 }
 
 static void path_ensure_capacity(FacetPath *p) {
   if (p->count >= p->capacity) {
-    p->capacity *= 2;
-    p->cmds =
-        (FacetPathCmd *)realloc(p->cmds, p->capacity * sizeof(FacetPathCmd));
+    size_t new_capacity = p->capacity * 2;
+    FacetPathCmd *new_cmds =
+        (FacetPathCmd *)realloc(p->cmds, new_capacity * sizeof(FacetPathCmd));
+    if (new_cmds) {
+      p->cmds = new_cmds;
+      p->capacity = new_capacity;
+    }
   }
 }
 
@@ -93,6 +101,10 @@ FacetCanvas *facet_canvas_new(uint32_t width, uint32_t height) {
   c->height = height;
   c->stride = width * 4;
   c->pixels = (uint8_t *)calloc(c->stride * height, 1);
+  if (!c->pixels) {
+    free(c);
+    return NULL;
+  }
   return c;
 }
 
@@ -200,14 +212,21 @@ static EdgeTable et_new(void) {
   EdgeTable et;
   et.capacity = 256;
   et.edges = (Edge *)malloc(et.capacity * sizeof(Edge));
+  if (!et.edges) {
+    et.capacity = 0;
+  }
   et.count = 0;
   return et;
 }
 
 static void et_push(EdgeTable *et, Edge e) {
   if (et->count >= et->capacity) {
-    et->capacity *= 2;
-    et->edges = (Edge *)realloc(et->edges, et->capacity * sizeof(Edge));
+    size_t new_capacity = et->capacity == 0 ? 256 : et->capacity * 2;
+    Edge *new_edges = (Edge *)realloc(et->edges, new_capacity * sizeof(Edge));
+    if (!new_edges)
+      return;
+    et->edges = new_edges;
+    et->capacity = new_capacity;
   }
   et->edges[et->count++] = e;
 }
@@ -372,6 +391,10 @@ void facet_canvas_fill(FacetCanvas *canvas, const FacetPath *path,
 
   /* Phase 3: Coverage buffer */
   float *coverage = (float *)calloc(canvas->width, sizeof(float));
+  if (!coverage) {
+    et_free(&et);
+    return;
+  }
 
   /* Phase 4: Scanline sweep */
   for (int scanline = y_start; scanline < y_end; scanline++) {

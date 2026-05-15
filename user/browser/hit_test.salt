@@ -43,15 +43,12 @@ pub fn salt_hit_test(x: f32, y: f32, root_node: u32) -> u32 {
 
 @no_mangle
 pub fn sys_hit_test(x: f32, y: f32, root_node: u32) -> u32 {
+    if P_CMD_COUNT == 0 { return root_node; }
     let count = *((P_CMD_COUNT) as &u32);
-    if count == 0 { return 0; }
+    if count == 0 { return root_node; }
     
     // Phase 11: Translate physical mouse coordinate to logical document coordinate
-    let logical_y = y + event_loop.get_viewport_scroll_y();
-    
-    // Z-Aware Raycaster: Reverse Linear Scan (Highest Z to Lowest Z)
-    // The painter's algorithm generated a stably-sorted display list.
-    // The topmost elements (painted last) are at the end of the Z_SORT_BUF array.
+    let logical_y = y + dom.LAYOUT_SCROLL_Y[1 as usize];
     
     let z_count = *((P_Z_SORT_COUNT) as &u32);
     let scan_count = if z_count > 0 { z_count } else { count };

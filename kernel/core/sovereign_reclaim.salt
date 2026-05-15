@@ -160,16 +160,17 @@ fn release_kernel_resources(pid: u64) -> u64 {
 // =============================================================================
 
 fn cleanup_process_slot(pid: u64) {
-    process.PROC_TABLE[pid].state = process.PROC_ZOMBIE;
-    process.PROC_TABLE[pid].user_pml4 = 0;
-    process.PROC_TABLE[pid].kernel_rsp = 0;
-    process.PROC_TABLE[pid].kernel_stack_base = 0;
-    process.PROC_TABLE[pid].kernel_stack_top = 0;
-    process.PROC_TABLE[pid].user_entry = 0;
-    process.PROC_TABLE[pid].user_stack_top = 0;
-    process.PROC_TABLE[pid].brk_base = 0;
-    process.PROC_TABLE[pid].brk_current = 0;
-    process.PROC_TABLE[pid].mmap_base = 0;
-    process.PROC_TABLE[pid].vma_list_head = 0;
+    // Wipe process structure metadata using setter functions
+    process.set_state(pid, process.PROC_ZOMBIE);
+    process.set_user_pml4(pid, 0);
+    process.set_kernel_rsp(pid, 0);
+    process.set_kernel_stack_base(pid, 0);
+    process.set_kernel_stack_top(pid, 0);
+    process.set_user_entry(pid, 0);
+    process.set_user_stack_top(pid, 0);
+    process.set_brk_base(pid, 0);
+    process.set_brk_current(pid, 0);
+    process.set_mmap_base(pid, 0);
+    process.set_vma_list_head(pid, 0);
     process.dec_count();
 }

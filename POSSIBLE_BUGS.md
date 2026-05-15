@@ -1,27 +1,34 @@
-# Possible Bugs and Issues - High-Fidelity Audit
+# Possible Bugs and Security Vulnerabilities
 
-This document lists critical logical, architectural, and security bugs identified during an exhaustive, line-by-line manual audit of the core codebase. These issues go beyond structural linting and represent actual threats to system stability and security.
+This document is the result of a multi-phase, rigorous, line-by-line manual audit of the entire repository by dedicated sub-agents. It outlines deep logical bugs, severe security vulnerabilities, race conditions, and memory leaks that automated static analysis tools missed.
 
-## 1. Kernel Scheduler
-- **[CRITICAL] Recursive Stack Overflow in `sched_yield`**: `kernel/core/scheduler.salt:505` calls `invoke_task` inline without switching to a dedicated scheduler stack or performing a proper context switch. Frequent yielding between fibers will lead to infinite kernel stack growth and a crash.
-- **[BUG] Duplicate Syscall Numbers**: `kernel/core/syscall.salt:88` and `:94` both define syscall number 12. The second definition (`SYS_CORE_ACQUIRE`) is unreachable.
+## 1. Salt Compiler (Soundness & Codegen)
+- **[CRITICAL SECURITY] Unsound Precondition Verification in `@requires`**: `salt-front/src/codegen/verification/mod.rs`. The compiler elides runtime checks if Z3 returns `SAT`. This only proves a case *can* be satisfied, not that it is *always* satisfied. It should check for `UNSAT` on the negation of the requirement.
+- **[CRITICAL SECURITY] Unchecked Pointer Indexing**: `salt-front/src/codegen/expr/memory.rs`. `Ptr<T>` indexing (`ptr[i]`) lowers to raw, unchecked MLIR `getelementptr` instructions. Z3 bounds verification exists in the source but is disconnected from the codegen path, enabling trivial buffer overflows.
+- **[CRITICAL SECURITY] Generic Monomorphization Type Confusion**: `salt-front/src/codegen/generic_resolver.rs`. Unification logic does not validate consistency for subsequent encounters of the same generic parameter. This allows `fn swap<T>(a: T, b: T)` to be called with mismatched types (e.g., `Int` and `Ptr`), causing raw memory corruption during execution.
 
-## 2. Memory Management
-- **[CRITICAL] ABA Race Condition in PMM**: `kernel/core/pmm.salt:166-177` implements a lock-free Treiber stack for cross-core stealing without hazard pointers or generational counters. A core can read a `next` pointer from a page that is concurrently re-allocated and modified, leading to total free-list corruption.
-- **[BUG] Lack of SMP Synchronization**: Globals such as `CURRENT_PID`, `NEXT_PID`, `PROC_TABLE`, and the `slab_cache` registry are accessed and modified across cores without atomics or spinlocks, leading to inevitable state corruption on multi-core systems.
-- **[FRAGILE] Non-Contiguous Stack Allocation**: `kernel/core/process.salt:98` loops to allocate `KSTACK_PAGES` but assumes the resulting pages are physically contiguous when calculating `stack_top`. While currently `KSTACK_PAGES=1`, this is a latent bug that will trigger if stack size is increased.
+## 2. Kernel Assembly (Arch-Specific)
+- **[CRITICAL SECURITY] GS-Base Race Condition in NMI Handler**: `kernel/arch/x86_64/nmi_handler.S`. If an NMI hits between `SYSCALL` and the kernel's first `swapgs`, the handler sees a kernel `CS` and skips its own `swapgs`. The kernel then uses the User GS base, leading to catastrophic information leaks or crashes.
+- **[BUG] System V ABI Violation (Stack Misalignment)**: `kernel/arch/x86/syscall_entry.S` and `syscall_entry_fast.S`. The stack is misaligned by 8 bytes before calling C/Salt functions. This violates the 16-byte alignment requirement and can cause `#GP` faults on SSE instructions.
+- **[SECURITY] Register State Leaks during Context Switch**: `kernel/arch/x86_64/context_switch_asm.S`. Scratch registers (RAX, RCX, RDX, R8-R11) are not cleared when switching between fibers or processes, allowing sensitive data to bleed across contexts.
 
-## 3. Hardware Events & IPC
-- **[CRITICAL] Non-Functional Event Queue**: `kernel/core/pulse.salt:72` has the `push` function disabled with a TODO. Consequently, ALL hardware interrupts (keyboard, timer, etc.) are dropped, rendering the kernel's event-driven logic dead.
-- **[SECURITY] Unvalidated Pointer Dereference in `moe_drain_bar`**: `kernel/core/syscall.salt:392` dereferences a `payload_ptr` obtained from a BAR mailbox without validating it against `is_valid_user_ptr`. This allows a process with access to the mailbox to trigger arbitrary kernel memory reads.
-- **[SECURITY] Insecure `sys_shm_grant`**: `kernel/core/syscall.salt:764` allows any process to inject memory mappings into any other process's address space without the target's consent or a handshake mechanism. This allows a malicious process to overwrite another's stack or data.
-- **[SECURITY] Permission Escalation**: `sys_shm_grant` maps pages with `PTE_WRITE` (`kernel/core/syscall.salt:847`) regardless of the sender's original permissions, allowing a process to grant "Write" access to any page it can "Read".
+## 3. Kernel Memory Management (Ring 0)
+- **[CRITICAL SECURITY] Arbitrary Kernel Page Table Corruption**: `kernel/mem/user_paging.salt` (`map_user_page`). The function lacks a user-range check for `vaddr`. A process can map a physical frame over a kernel PDPT or PD, gaining arbitrary kernel read/write access.
+- **[CRITICAL BUG] PMM Treiber Stack Corruption via Double Free**: `kernel/mem/pmm_sharded.salt` (`free_frame`). The PMM does not verify if a page is already free. Pushing the same physical address twice creates a cycle in the Treiber stack, leading to the same frame being allocated to multiple conflicting components.
+- **[CRITICAL SECURITY] Arbitrary Kernel R/W via User-Controlled MOE_BAR_PTR**: `kernel/core/syscall.salt` (`syscall_set_moe_bar_ptr`). A syscall allows any user process to set the global `MOE_BAR_PTR` to an arbitrary 64-bit address without validation. During `sched_yield`, the kernel zeros out this address, enabling arbitrary kernel memory corruption.
+- **[BUG] Total User Memory Leak on Process Exit**: `kernel/mem/user_paging.salt` (`destroy_user_pml4`). The function explicitly skips index 0. Because all user-mode ELFs and heaps exist in index 0, every process exit leaks its entire memory footprint and page tables.
+- **[CRITICAL SECURITY] Out-of-Bounds Kernel R/W via Untrusted SPSC Capacity**: `kernel/lib/ipc_shm.salt`. Bulk operations read `capacity` from user-writable shared pages without bounds checking.
+- **[CRITICAL SECURITY] Fastpath IPC OOB Array Access**: `kernel/ipc/fastpath.salt`. Unvalidated `cap_id` used as a direct index into global arrays.
+- **[CRITICAL SECURITY] Division by Zero Kernel DoS**: `kernel/core/main.salt`. Computes modulo using a `capacity` value read from a user-shared ring buffer.
 
-## 4. Userspace / Basalt
-- **[BUG] Segfault on OOM in Transformer**: `basalt/src/transformer.salt:117` returns a "null" `RunState` on allocation failure, but `forward` (line 144) dereferences its members without checking, causing an immediate crash on memory pressure.
-- **[BUG] Memory Leak in `alloc_run_state`**: If only some buffers fail to allocate in `basalt/src/transformer.salt`, the successfully allocated ones are leaked before returning.
-- **[BUG] Buffer Overflow in Tokenizer**: `basalt/src/tokenizer.salt:100` copies token text based on a length read from the file without verifying it stays within the pre-allocated `arena_size`. Corrupted files can cause a heap overflow.
-- **[PERF] O(N) Token Lookup**: `basalt/src/tokenizer.salt:173` uses linear search for token IDs across 32,000+ entries, making tokenization extremely slow.
+## 4. Userspace (Ring 3)
+- **[CRITICAL BUG] SPSC Ring Buffer Overflow**: `user/lib/ring.salt`. Copy loops fail to handle wrap-around, causing OOB reads/writes at ring boundaries.
+- **[BUG] GPU Command Buffer Overflow**: `user/browser/compositor.salt`. `trigger_hardware_compositor` writes to `GPU_RECT_BUF` without bounds checking.
+- **[BUG] WebSocket Message Truncation**: `user/browser/main.salt`. Fixed-size buffer silently truncates large payloads.
+- **[RACE CONDITION] Global State in NetD**: `user/netd/router.salt`. `bind_stream` lacks mutexes on global port arrays.
 
----
-*Note: This list is in addition to the structural issues found in the previous automated scan.*
+## 5. Basalt (Llama 2 Engine)
+- **[CRITICAL LEAK] Per-Token Scratch Buffer Leak**: `basalt/src/sampler.salt`. `prob_buf` and `idx_buf` are never freed, leaking ~384MB per 1000 tokens.
+- **[BUG] Top-P Truncation Disabled**: `basalt/src/sampler.salt`. A dead loop (`for skip in 0..0 {}`) prevents truncation.
+- **[BUG] RoPE Rotation Corruption**: `basalt/src/model_loader.salt`. Identical real/imaginary pointers passed for RoPE rotation, breaking attention.
+- **[LEAK] Engine Lifecycle RoPE Leak**: `basalt/src/main.salt`. `basalt_engine_free` fails to free frequency buffers.

@@ -242,7 +242,8 @@ pub fn get_gpu_buffer_ptr() -> u64 {
 }
 
 pub fn trigger_hardware_compositor(canvas_ptr: u64, width: i32, height: i32) {
-    let count = paint.get_z_sort_count();
+    let mut count = paint.get_z_sort_count();
+    if count > 8192 { count = 8192; }
     
     let mut i: u32 = 0;
     while i < count {
@@ -312,7 +313,8 @@ pub fn trigger_hardware_compositor(canvas_ptr: u64, width: i32, height: i32) {
 
 @no_mangle
 pub fn trigger_e2e_compositor(out_buffer_ptr: u64, width: i32, height: i32) {
-    let count = paint.get_cmd_count();
+    let mut count = paint.get_cmd_count();
+    if count > 8192 { count = 8192; }
     let mut i: u32 = 0;
     while i < count {
         let mut x = *((P_CMD_X + (i as u64) * 4) as &i32);
@@ -361,7 +363,8 @@ extern fn sys_print_float(f: f64);
 
 @no_mangle
 pub fn flush_frame(width: i32, height: i32) {
-    let count = paint.get_cmd_count();
+    let mut count = paint.get_cmd_count();
+    if count > 8192 { count = 8192; }
     
     // [DIAG] Log entry into flush_frame
     let m_ff: [u8; 14] = [91,70,76,85,83,72,93,32,99,111,117,110,116,61]; // "[FLUSH] count="

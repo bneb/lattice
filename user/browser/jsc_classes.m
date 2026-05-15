@@ -65,6 +65,12 @@ extern JSValueRef get_node_offsetHeight(JSContextRef ctx, JSObjectRef object, JS
 extern JSValueRef jsc_node_getBoundingClientRect(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef* exception);
 extern JSValueRef jsc_node_hasAttribute(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef* exception);
 extern JSValueRef jsc_node_cloneNode(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef* exception);
+extern JSValueRef get_node_parentElement(JSContextRef ctx, JSObjectRef object, JSStringRef propertyName, JSValueRef* exception);
+extern JSValueRef get_node_children(JSContextRef ctx, JSObjectRef object, JSStringRef propertyName, JSValueRef* exception);
+extern JSValueRef get_node_firstElementChild(JSContextRef ctx, JSObjectRef object, JSStringRef propertyName, JSValueRef* exception);
+extern JSValueRef get_node_lastElementChild(JSContextRef ctx, JSObjectRef object, JSStringRef propertyName, JSValueRef* exception);
+extern JSValueRef get_node_ownerDocument(JSContextRef ctx, JSObjectRef object, JSStringRef propertyName, JSValueRef* exception);
+extern JSValueRef jsc_node_contains(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef* exception);
 
 JSClassRef dom_node_class = NULL;
 
@@ -117,11 +123,16 @@ void init_dom_classes(JSGlobalContextRef ctx) {
         { "node_index", get_node_index, NULL, kJSPropertyAttributeReadOnly },
         { "innerHTML", get_node_innerHTML, set_node_innerHTML, kJSPropertyAttributeNone },
         { "parentNode", get_node_parentNode, NULL, kJSPropertyAttributeReadOnly },
+        { "parentElement", get_node_parentElement, NULL, kJSPropertyAttributeReadOnly },
         { "childNodes", get_node_childNodes, NULL, kJSPropertyAttributeReadOnly },
+        { "children", get_node_children, NULL, kJSPropertyAttributeReadOnly },
         { "style", get_node_style, NULL, kJSPropertyAttributeReadOnly },
         { "classList", get_node_classList, NULL, kJSPropertyAttributeReadOnly },
         { "firstChild", get_node_firstChild, NULL, kJSPropertyAttributeReadOnly },
+        { "firstElementChild", get_node_firstElementChild, NULL, kJSPropertyAttributeReadOnly },
         { "nextSibling", get_node_nextSibling, NULL, kJSPropertyAttributeReadOnly },
+        { "lastElementChild", get_node_lastElementChild, NULL, kJSPropertyAttributeReadOnly },
+        { "ownerDocument", get_node_ownerDocument, NULL, kJSPropertyAttributeReadOnly },
         { "id", get_node_id, set_node_id, kJSPropertyAttributeNone },
         { "className", get_node_className, set_node_className, kJSPropertyAttributeNone },
         { "dataset", get_node_dataset, NULL, kJSPropertyAttributeReadOnly },
@@ -156,6 +167,7 @@ void init_dom_classes(JSGlobalContextRef ctx) {
         { "getBoundingClientRect", jsc_node_getBoundingClientRect, kJSPropertyAttributeNone },
         { "hasAttribute", jsc_node_hasAttribute, kJSPropertyAttributeNone },
         { "cloneNode", jsc_node_cloneNode, kJSPropertyAttributeNone },
+        { "contains", jsc_node_contains, kJSPropertyAttributeNone },
         { 0, 0, 0 }
     };
     nodeDef.staticFunctions = nodeFuncs;

@@ -95,7 +95,7 @@ impl<'a, 'ctx, 'b> Seeker<'a, 'ctx, 'b> {
             // THE STRUCT PIVOT: Every literal is a layout request.
             Expr::Struct(s) => {
                 let path_ty = syn::Type::Path(syn::TypePath { qself: None, path: s.path.clone() });
-                let resolved_ty = crate::codegen::type_bridge::resolve_type(self.ctx, &crate::grammar::SynType::from_std(path_ty).unwrap());
+                let resolved_ty = crate::codegen::type_bridge::resolve_type(self.ctx, &crate::grammar::SynType::from_std(path_ty).map_err(|e| e.to_string())?);
                 
                 if let Type::Concrete(base, args) = &resolved_ty {
                      self.ctx.ensure_struct_exists(base, args)?;
@@ -122,7 +122,7 @@ impl<'a, 'ctx, 'b> Seeker<'a, 'ctx, 'b> {
                     if let Ok(target_key) = self.ctx.resolve_path_to_fqn(&path.path) {
                         if path_str.contains("array") {
                         }
-                        let mut concrete_args = self.ctx.extract_call_site_generics(&path.path);
+                        let mut concrete_args = self.ctx.extract_call_site_generics(&path.path)?;
                         
                         // If target is a Struct (RawVec), check if we need to infer implicit generics from context
                         let mut _inferred_generics = false;
@@ -163,7 +163,7 @@ impl<'a, 'ctx, 'b> Seeker<'a, 'ctx, 'b> {
                              let parts: Vec<&str> = mangled_name.split("__").collect();
                              if parts.len() > 1 {
                                  let base_name = Mangler::mangle(&parts[..parts.len()-1]);
-                                 let method_name = parts.last().unwrap().to_string();
+                                 let method_name = parts.last().ok_or_else(|| "Failed to get method name".to_string())?.to_string();
                                  
                                  // Determine Arity of Base Struct
                                  let mut struct_arity = 0;
@@ -217,14 +217,22 @@ impl<'a, 'ctx, 'b> Seeker<'a, 'ctx, 'b> {
              Expr::MethodCall(m) => {
                 let receiver_ty = self.resolve_receiver_type(&m.receiver, locals).unwrap_or(Type::Unit);
                 if let Type::Struct(_) | Type::Concrete(..) | Type::Reference(..) = receiver_ty {
-                      let generics = if let Some(t) = &m.turbofish {
-                          t.args.iter().map(|a| match a {
-                               syn::GenericArgument::Type(ty) => crate::codegen::type_bridge::resolve_type(self.ctx, &crate::grammar::SynType::from_std(ty.clone()).unwrap()),
-                               syn::GenericArgument::Const(syn::Expr::Lit(syn::ExprLit{lit: syn::Lit::Int(li),..})) => 
-                                  Type::Struct(li.base10_digits().to_string()),
-                              _ => Type::Unit
-                          }).collect()
-                      } else { vec![] };
+                      let generics = {
+                          let mut res = Vec::new();
+                          if let Some(t) = &m.turbofish {
+                              for a in &t.args {
+                                  match a {
+                                       syn::GenericArgument::Type(ty) => {
+                                           res.push(crate::codegen::type_bridge::resolve_type(self.ctx, &crate::grammar::SynType::from_std(ty.clone()).map_err(|e| e.to_string())?));
+                                       }
+                                       syn::GenericArgument::Const(syn::Expr::Lit(syn::ExprLit{lit: syn::Lit::Int(li),..})) => 
+                                          res.push(Type::Struct(li.base10_digits().to_string())),
+                                      _ => res.push(Type::Unit)
+                                  }
+                              }
+                          }
+                          res
+                      };
                       
                       match self.ctx.resolve_method_to_task(&receiver_ty, &m.method.to_string(), generics) {
                           Ok(task) => {
@@ -281,7 +289,7 @@ impl<'a, 'ctx, 'b> Seeker<'a, 'ctx, 'b> {
                 // But Expr::Cast in Rust is `expr as Type`. Salt allows `as Type`.
                 // resolve_type handles struct existence if we parse it.
                 // We should check the type `c.ty`.
-                let ty = crate::codegen::type_bridge::resolve_type(self.ctx, &crate::grammar::SynType::from_std(*c.ty.clone()).unwrap());
+                let ty = crate::codegen::type_bridge::resolve_type(self.ctx, &crate::grammar::SynType::from_std(*c.ty.clone()).map_err(|e| e.to_string())?);
                 if let Type::Struct(name) = &ty {
                      self.ctx.ensure_struct_exists(name, &[])?;
                 } else if let Type::Concrete(base, args) = &ty {
@@ -397,7 +405,7 @@ impl<'a, 'ctx, 'b> Seeker<'a, 'ctx, 'b> {
 impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
 
     // Helper to replace the above due to signature mismatch with reality
-    pub fn extract_call_site_generics(&mut self, path: &syn::Path) -> Vec<Type> {
+    pub fn extract_call_site_generics(&mut self, path: &syn::Path) -> Result<Vec<Type>, String> {
          let mut params = Vec::new();
          // Check ALL segments for generics (e.g. Vec::<u8>::new)
          for seg in &path.segments {
@@ -405,7 +413,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                  for arg in &args.args {
                      match arg {
                          syn::GenericArgument::Type(ty) => {
-                             params.push(crate::codegen::type_bridge::resolve_type(self, &crate::grammar::SynType::from_std(ty.clone()).unwrap()));
+                             params.push(crate::codegen::type_bridge::resolve_type(self, &crate::grammar::SynType::from_std(ty.clone()).map_err(|e| e.to_string())?));
                          }
                          syn::GenericArgument::Const(c) => {
                               // evaluate const?
@@ -423,7 +431,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                  }
              }
          }
-         params
+         Ok(params)
     }
 
     pub fn resolve_method_to_task(&mut self, receiver_ty: &Type, method_name: &str, generics: Vec<Type>) -> Result<MonomorphizationTask, String> {

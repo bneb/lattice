@@ -245,6 +245,15 @@ typedef struct __attribute__((packed)) {
 // Main Test Routine
 // ═══════════════════════════════════════════════════════════════
 
+// Dummy implementations for linker
+__attribute__((weak)) void css_arena_inc_count(void) {}
+__attribute__((weak)) void css_arena_set_hash(void) {}
+__attribute__((weak)) void ext_engine_process_key_down(void) {}
+__attribute__((weak)) void ext_engine_process_mouse_down(void) {}
+__attribute__((weak)) void ext_salt_paint_inject_dom_pointers(void) {}
+__attribute__((weak)) uint32_t hash_string(uint64_t ptr, uint32_t len) { return 0; }
+__attribute__((weak)) void user__browser__compositor__load_font_atlas(uint64_t pixels, int32_t width, int32_t height) {}
+
 int render_pipeline_e2e_test(void) {
   int failures = 0;
 

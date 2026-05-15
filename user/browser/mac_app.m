@@ -178,7 +178,7 @@ static BrowserChrome *globalChrome = NULL;
   if (shm_fd < 0) {
     perror("mac_app shm_open tab failed");
   }
-  ftruncate(shm_fd, 2097152);
+  ftruncate(shm_fd, 8388608);
 
   // Clear FD_CLOEXEC so the fd survives execl() into the child renderer
   int flags = fcntl(shm_fd, F_GETFD);
@@ -193,7 +193,7 @@ static BrowserChrome *globalChrome = NULL;
   if (pid == 0) {
     // We are the child. Exec the Prisimi engine with the shared FD.
     char fd_str[16];
-    sprintf(fd_str, "%d", shm_fd);
+    snprintf(fd_str, sizeof(fd_str), "%d", shm_fd);
     execl("/tmp/salt_build/prisimi_renderer", "prisimi_renderer", "--ipc-fd",
           fd_str, "--url", [url UTF8String], NULL);
     exit(1); // Failsafe
@@ -225,11 +225,11 @@ static BrowserChrome *globalChrome = NULL;
     perror("[OOPIF] shm_open failed");
     return;
   }
-  ftruncate(iframe_shm_fd, 2097152);
+  ftruncate(iframe_shm_fd, 8388608);
 
   // Map it in the main process so we can poll the child's R2M ring
   void *iframe_shm_ptr =
-      mmap(NULL, 2097152, PROT_READ | PROT_WRITE, MAP_SHARED, iframe_shm_fd, 0);
+      mmap(NULL, 8388608, PROT_READ | PROT_WRITE, MAP_SHARED, iframe_shm_fd, 0);
   if (iframe_shm_ptr == MAP_FAILED) {
     perror("[OOPIF] mmap failed");
     close(iframe_shm_fd);
@@ -248,7 +248,7 @@ static BrowserChrome *globalChrome = NULL;
   if (iframe_pid == 0) {
     // Child: exec renderer with iframe's private IPC FD
     char fd_str[16];
-    sprintf(fd_str, "%d", iframe_shm_fd);
+    snprintf(fd_str, sizeof(fd_str), "%d", iframe_shm_fd);
     execl("/tmp/salt_build/prisimi_renderer", "prisimi_renderer", "--ipc-fd",
           fd_str, "--url", url_buf, NULL);
     _exit(1);
@@ -423,21 +423,54 @@ static BrowserChrome *globalChrome = NULL;
                                                    uint32_t arg2);
                   extern uint64_t sys_ipc_get_bulk_ingress_ptr(void);
 
-                  uint64_t bulk_ptr = sys_ipc_get_bulk_ingress_ptr();
-                  if (bulk_ptr != 0) {
-                    uint32_t fetch_len = data.length < (2097152 - 131072)
-                                             ? (uint32_t)data.length
-                                             : (2097152 - 131072);
-                    if (fetch_len > 0 && data.bytes) {
-                      memcpy((void *)bulk_ptr, data.bytes, fetch_len);
-                    }
+                  uint64_t bulk_base = sys_ipc_get_bulk_ingress_ptr();
+                  if (bulk_base != 0) {
+                    // Epic 108: 16-Slot Multi-Buffer Bulk SHM
+                    static uint32_t g_bulk_seq = 0;
+                    const int NUM_SLOTS = 16;
+                    const uint32_t SLOT_SIZE = 516096; // ~504KB per slot
 
-                    NSLog(@"[Network] Pushing CMD_FETCH_RESPONSE: "
-                          @"fetch_id=0x%llx len=%u bulk_ptr=0x%llx",
-                          (unsigned long long)fetch_id, fetch_len,
-                          (unsigned long long)bulk_ptr);
-                    sys_ipc_push_command(9 /* CMD_FETCH_RESPONSE */, fetch_id,
-                                         fetch_len);
+                    @synchronized(globalChrome) {
+                      int selected_slot = -1;
+                      for (int s = 0; s < NUM_SLOTS; s++) {
+                        _Atomic uint32_t *slot_status =
+                            (_Atomic uint32_t *)(bulk_base + s * SLOT_SIZE);
+                        if (atomic_load(slot_status) == 0) {
+                          selected_slot = s;
+                          break;
+                        }
+                      }
+
+                      if (selected_slot == -1) {
+                        NSLog(@"[Network] NO FREE SLOTS! Dropping fetch response.");
+                        return;
+                      }
+
+                      g_bulk_seq++;
+                      if (g_bulk_seq == 0) g_bulk_seq = 1;
+                      uint32_t seq = g_bulk_seq & 0xFFFFFF; // 24 bits
+
+                      uint8_t *slot_ptr = (uint8_t *)(bulk_base + selected_slot * SLOT_SIZE);
+                      uint32_t fetch_len = data.length < (SLOT_SIZE - 8)
+                                               ? (uint32_t)data.length
+                                               : (SLOT_SIZE - 8);
+                      
+                      if (fetch_len > 0 && data.bytes) {
+                        memcpy(slot_ptr + 8, data.bytes, fetch_len);
+                      }
+
+                      // Signal that data is ready in this slot
+                      *((uint32_t *)(slot_ptr + 4)) = fetch_len;
+                      atomic_store((_Atomic uint32_t *)slot_ptr, seq);
+
+                      NSLog(@"[Network] Pushing CMD_FETCH_RESPONSE: "
+                            @"fetch_id=0x%llx slot=%d seq=%u len=%u",
+                            (unsigned long long)fetch_id, selected_slot, seq, fetch_len);
+
+                      uint32_t arg2 = (selected_slot << 24) | seq;
+                      sys_ipc_push_command(9 /* CMD_FETCH_RESPONSE */, fetch_id,
+                                           arg2);
+                    }
                   }
 
                   NSLog(@"[Network] Fetched %lu bytes natively into Bulk SHM "
@@ -600,7 +633,7 @@ static BrowserChrome *globalChrome = NULL;
   pid_t pid = fork();
   if (pid == 0) {
     char fd_str[16];
-    sprintf(fd_str, "%d", sw_shm_fd);
+    snprintf(fd_str, sizeof(fd_str), "%d", sw_shm_fd);
     // Execute the headless worker binary
     execl("/tmp/salt_build/prisimi_worker", "prisimi_worker", "--ipc-fd",
           fd_str, "--script", [scriptUrl UTF8String], NULL);
@@ -658,7 +691,7 @@ static BrowserChrome *globalChrome = NULL;
     }
 
     char fd_str[16];
-    sprintf(fd_str, "%d", cdm_shm_fd);
+    snprintf(fd_str, sizeof(fd_str), "%d", cdm_shm_fd);
     execl("/tmp/salt_build/prisimi_cdm", "prisimi_cdm", "--ipc-fd", fd_str,
           NULL);
     _exit(1);
@@ -698,6 +731,7 @@ void ext_mac_update_omnibox(uint64_t ptr, uint32_t len) {
   if (!globalChrome)
     return;
   char *c_str = malloc(len + 1);
+  if (!c_str) return;
   memcpy(c_str, (void *)ptr, len);
   c_str[len] = '\0';
   NSString *new_url = [NSString stringWithUTF8String:c_str];

@@ -361,6 +361,7 @@ extern fn read_ipc_command_payload_len(ptr: u64) -> u32;
 
 extern fn sys_browser_navigate(url_ptr: u64, url_len: u32);
 extern fn http_reset_state();
+extern fn ext_salt_reset_lexer();
 
 extern fn ext_get_dom_node_count() -> u64;
 extern fn sys_log_info(ptr: u64, len: u32);
@@ -376,7 +377,9 @@ extern fn js_lex_html_chunk(root_id: u64, ptr: u64, len: u32, can_exec: u8);
 extern fn http_set_eof();
 extern fn dom_alloc_text(len: u32) -> u64;
 extern fn complete_script_fetch(fetch_id: u64, buf_ptr: u64, buf_len: u32) -> i32;
-extern fn sys_jsc_evaluate_script(code_ptr: u64, code_len: u32, filename_ptr: u64);
+extern fn sys_jsc_evaluate_script(code_ptr: u64, code_len: u32, name_ptr: u64);
+extern fn sys_memcpy(dst: u64, src: u64, len: u32);
+
 
 extern fn js_bridge_dispatch_websocket_message(ws_id: u32, ptr: u64, len: u32);
 extern fn js_bridge_dispatch_main_message(ptr: u64, len: u32);
@@ -445,12 +448,32 @@ pub fn sys_net_pump_ingress() {
             } else {
                 ext_engine_process_key_down(char_code);
             }
-        } else if cmd_type == 10 { // CMD_SCROLL
+        } else if cmd_type == 6 { // CMD_SCROLL
             dom_add_scroll_y(arg1 as i32);
+        } else if cmd_type == 10 { // CMD_CDM_REGISTERED
+            let cdm_fd = arg1 as i32;
+            let m_cdm: [u8; 18] = [91,78,69,84,93,32,67,68,77,32,114,101,103,105,115,116,101,114]; // "[NET] CDM register"
+            sys_log_info((&m_cdm) as u64, 18);
         } else if cmd_type == 9 { // CMD_FETCH_RESPONSE
             // FIX: Re-read arg2 from cmd_ptr directly — Salt register-clobber workaround
-            let fetch_len = read_ipc_command_arg2(cmd_ptr);
-            let bulk_ptr = sys_ipc_get_bulk_ingress_ptr();
+            let arg2 = read_ipc_command_arg2(cmd_ptr);
+            let slot_idx = (arg2 >> 24) as u32;
+            let expected_seq = arg2 & 0xFFFFFF;
+            
+            let bulk_base = sys_ipc_get_bulk_ingress_ptr();
+            let SLOT_SIZE: u32 = 516096;
+            let slot_base = bulk_base + (slot_idx * SLOT_SIZE) as u64;
+            
+            // Epic 108: Robust Multi-Slot Bulk SHM Synchronization
+            // Wait for MainProcess to signal that data is ready in THIS slot
+            let slot_status_ptr = slot_base as &mut u32;
+            let mut ready_timeout = 10000000;
+            while *slot_status_ptr != expected_seq && ready_timeout > 0 {
+                ready_timeout = ready_timeout - 1;
+            }
+            
+            let fetch_len = *((slot_base + 4) as &u32);
+            let bulk_ptr = slot_base + 8; // Data starts at offset 8
             
             // TELEMETRY: Log fetch response details
             let m_fr: [u8; 21] = [91,70,69,84,67,72,93,32,82,101,115,112,111,110,115,101,32,108,101,110,61]; // "[FETCH] Response len="
@@ -473,66 +496,25 @@ pub fn sys_net_pump_ingress() {
             script_bit = script_bit << 60;
             let is_script_fetch = (arg1 & script_bit) != 0;
             
-            // TELEMETRY: Log nav check
-            let m_nav: [u8; 12] = [91,70,69,84,67,72,93,32,110,97,118,61]; // "[FETCH] nav="
-            sys_log_info((&m_nav) as u64, 12);
             if is_nav {
-                let m_y: [u8; 4] = [89,69,83,10]; // "YES\n"
-                sys_log_info((&m_y) as u64, 4);
-            } else {
-                let m_n: [u8; 3] = [78,79,10]; // "NO\n"
-                sys_log_info((&m_n) as u64, 3);
-            }
-            
-            if is_nav && bulk_ptr != 0 {
-                let root_id = arg1 - nav_bit;
-                
-                // TELEMETRY: Log root_id
-                let m_root: [u8; 16] = [91,70,69,84,67,72,93,32,114,111,111,116,95,105,100,61]; // "[FETCH] root_id="
-                sys_log_info((&m_root) as u64, 16);
-                sys_print_float(root_id as f64);
-                sys_log_info((&nl) as u64, 1);
-                
-                http_reset_state(); // Reset lexer state machine
-                http_set_root_node(root_id);
-                
-                // TELEMETRY: Log first 16 bytes of body for verification
-                let m_body: [u8; 16] = [91,70,69,84,67,72,93,32,66,111,100,121,91,48,93,61]; // "[FETCH] Body[0]="
-                sys_log_info((&m_body) as u64, 16);
-                if fetch_len > 0 {
-                    let first_byte = *(bulk_ptr as &u8);
-                    sys_print_float(first_byte as f64);
+                if fetch_len > 0 && bulk_ptr != 0 {
+                    let root_id = arg1 - nav_bit;
+                    http_reset_state();
+                    ext_salt_reset_lexer();
+                    http_set_root_node(root_id);
+                    js_lex_html_chunk(root_id, bulk_ptr, fetch_len, 1);
+                    http_set_eof();
+                    dom.resolve_node(root_id);
                 }
-                sys_log_info((&nl) as u64, 1);
-                
-                // NSURLSession returns PURE BODY (no HTTP headers).
-                // Bypass http_process_ingress (which expects HTTP/1.1 status line)
-                // and pipe the raw body directly to the DOM lexer.
-                js_lex_html_chunk(root_id, bulk_ptr, fetch_len, 1);
-                
-                // Signal EOF so the layout solver fires
-                http_set_eof();
-                
-                // TRAP 1 FIX: explicitly flag FLAG_LAYOUT_DIRTY for the matrix
-                let u_idx = dom.resolve_node(root_id);
-                
-                // TELEMETRY: Log resolve result
-                let m_res: [u8; 14] = [91,70,69,84,67,72,93,32,117,95,105,100,120,61]; // "[FETCH] u_idx="
-                sys_log_info((&m_res) as u64, 14);
-                sys_print_float(u_idx as f64);
-                sys_log_info((&nl) as u64, 1);
-                
-                let m1: [u8; 35] = [91,68,79,77,93,32,76,101,120,101,114,32,102,105,110,105,115,104,101,100,46,32,84,111,116,97,108,32,78,111,100,101,115,58,32]; 
-                sys_log_info((&m1) as u64, 35);
-                sys_print_float(ext_get_dom_node_count() as f64);
-                sys_log_info((&nl) as u64, 1);
                 
                 // Mark ALL nodes dirty after batch DOM creation
-                // (The layout solver's 'geometrically clean bypass' skips nodes with FLAG_LAYOUT_DIRTY=0)
-                dom.invalidate_layout(0);
-                paint.paint_mark_compositor_dirty(0);
+                dom.invalidate_all_layout();
+                paint.paint_mark_compositor_dirty(1);
                 sys_js_pump_script_queue();
                 sys_jsc_flush_microtasks();
+                
+                // Epic 108: Acknowledge consumption of this slot
+                *slot_status_ptr = 0;
             } else if is_img_fetch && bulk_ptr != 0 {
                 let img_fetch_id = arg1 - img_bit;
                 let mut f_i: u32 = 0;
@@ -547,31 +529,24 @@ pub fn sys_net_pump_ingress() {
                                 dom.DOM_NODE_TEXTURE_ID[node_idx as usize] = tex_id as u32;
                                 dom.DOM_CANVAS_WIDTH[node_idx as usize] = out_w as u32;
                                 dom.DOM_CANVAS_HEIGHT[node_idx as usize] = out_h as u32;
-                                
-                                // Intrinsic dimensions!
                                 if dom.STYLE_W[node_idx as usize] == -1 { dom.STYLE_W[node_idx as usize] = out_w; }
                                 if dom.STYLE_H[node_idx as usize] == -1 { dom.STYLE_H[node_idx as usize] = out_h; }
-                                
                                 paint.paint_mark_compositor_dirty(node_idx);
                             }
                         }
-                        dom.IMG_FETCH_STATE[f_i as usize] = 0; // mark done
+                        dom.IMG_FETCH_STATE[f_i as usize] = 0;
                         break;
                     }
                     f_i = f_i + 1;
                 }
+                *slot_status_ptr = 0;
             } else if is_script_fetch {
                 let script_fetch_id = arg1 - script_bit;
                 if fetch_len > 0 && bulk_ptr != 0 {
                     let perm_ptr = dom_alloc_text(fetch_len);
                     if perm_ptr != 0 {
                         sys_jsc_flush_microtasks();
-                        let mut cp_i: u32 = 0;
-                        while cp_i < fetch_len {
-                            let byte = *((bulk_ptr + cp_i as u64) as &u8);
-                            *((perm_ptr + cp_i as u64) as &mut u8) = byte;
-                            cp_i = cp_i + 1;
-                        }
+                        sys_memcpy(perm_ptr, bulk_ptr, fetch_len);
                         let slot = complete_script_fetch(script_fetch_id, perm_ptr, fetch_len);
                         if slot >= 0 {
                             let src_ptr = dom.SCRIPT_FETCH_SRC_PTR[slot as usize];
@@ -587,14 +562,12 @@ pub fn sys_net_pump_ingress() {
                         if dom.PENDING_SCRIPT_COUNT > 0 { dom.PENDING_SCRIPT_COUNT = dom.PENDING_SCRIPT_COUNT - 1; }
                     }
                 }
+                *slot_status_ptr = 0;
             } else {
-                // Non-nav fetch response: complete the fetch promise
-                let m_nn: [u8; 25] = [91,70,69,84,67,72,93,32,78,111,110,45,110,97,118,32,99,111,109,112,108,101,116,101,10]; // "[FETCH] Non-nav complete\n"
-                sys_log_info((&m_nn) as u64, 25);
-                
                 if bulk_ptr != 0 {
                     complete_fetch(arg1, bulk_ptr, fetch_len);
                 }
+                *slot_status_ptr = 0;
             }
         }
         idx = idx + 1;

@@ -1,50 +1,19 @@
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
-extern void sys_on_mouse_click(int32_t x, int32_t y);
-extern void sys_net_pump_ingress(void);
-extern void sys_ipc_push_command(uint32_t type, uint64_t arg1, uint32_t arg2);
+// Dummy implementations for linker
+__attribute__((weak)) void css_arena_inc_count(void) {}
+__attribute__((weak)) void css_arena_set_hash(void) {}
+__attribute__((weak)) void ext_engine_process_key_down(void) {}
+__attribute__((weak)) void ext_engine_process_mouse_down(void) {}
+__attribute__((weak)) void ext_salt_paint_inject_dom_pointers(void) {}
+__attribute__((weak)) uint32_t hash_string(uint64_t ptr, uint32_t len) { return 0; }
+__attribute__((weak)) void user__browser__compositor__load_font_atlas(uint64_t pixels, int32_t width, int32_t height) {}
 
-static uint64_t last_nav_url_ptr = 0;
-static uint32_t last_nav_url_len = 0;
-
-void sys_browser_navigate(uint64_t ptr, uint32_t len) {
-    last_nav_url_ptr = ptr;
-    last_nav_url_len = len;
+int sprint8_search_e2e_test_dummy(void) { return 0; }
+void ext_net_navigate(uint64_t url_ptr, uint32_t url_len) {
+    char* url = (char*)(uintptr_t)url_ptr;
+    printf("[BRIDGE] Navigating to: %.*s\n", url_len, url);
 }
-
-uint64_t test_get_last_nav_url_ptr(void) { return last_nav_url_ptr; }
-uint32_t test_get_last_nav_url_len(void) { return last_nav_url_len; }
-
-extern void dom_add_scroll_y(int32_t delta_y);
-
-void test_push_scroll_ipc(int32_t delta_y) {
-    dom_add_scroll_y(delta_y);
-}
-
-void test_simulate_click(int32_t x, int32_t y) {
-    sys_on_mouse_click(x, y);
-}
-
-// ── Linker Stubs for test environment ──
-#define WEAK __attribute__((weak))
-WEAK void ext_net_route_header_to_stream(uint32_t s, uint64_t kp, uint32_t kl, uint64_t vp, uint32_t vl) {}
-WEAK void ext_tls_write_bytes(uint64_t p, uint32_t l) {}
-WEAK uint32_t get_dom_content_loaded_fired(void) { return 1; }
-WEAK void set_dom_content_loaded_fired(uint32_t v) {}
-WEAK uint64_t ext_hpack_get_static_key(uint32_t i) { return 0; }
-WEAK uint64_t ext_hpack_get_static_val(uint32_t i) { return 0; }
-WEAK void ext_flush_frame(void) {}
-WEAK uint32_t get_frame_count(void) { return 1; }
-WEAK void set_frame_count(uint32_t v) {}
-WEAK uint32_t get_max_test_frames(void) { return 1; }
-WEAK void pump_websocket_frames(void) {}
-WEAK void sys_js_pump_script_queue(void) {}
-WEAK void js_bridge_dispatch_main_message(uint64_t p, uint32_t l) {}
-WEAK void sys_jsc_flush_microtasks(void) {}
-WEAK void js_resolve_fetch(uint64_t id, uint64_t bp, uint32_t len) {}
-WEAK void complete_script_fetch(uint64_t id, uint64_t bp, uint32_t len) {}
-WEAK void complete_fetch(uint64_t id, uint64_t bp, uint32_t len) {}
-WEAK uint64_t sys_ipc_get_bulk_ingress_ptr(void) { return 0; }
-WEAK uint32_t compositor_decode_and_upload_image(uint64_t p, uint32_t len, uint64_t w_p, uint64_t h_p) { return 0; }
-

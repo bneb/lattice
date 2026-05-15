@@ -8,7 +8,7 @@ pub global LEX_ATTR_KEY_BUF: [u8; 128] = [0; 128];
 pub global LEX_ATTR_KEY_LEN: u32 = 0;
 pub global LEX_ATTR_VAL_BUF: [u8; 4096] = [0; 4096];
 pub global LEX_ATTR_VAL_LEN: u32 = 0;
-pub global LEX_TEXT_BUF: [u8; 16384] = [0; 16384];
+pub global LEX_TEXT_BUF: [u8; 1048576] = [0; 1048576];
 pub global LEX_TEXT_LEN: u32 = 0;
 
 pub global LEX_CURRENT_PARENT: u64 = 0;
@@ -77,7 +77,8 @@ extern fn dom_set_style_height(idx: u32, val: i32);
 extern fn dom_set_spec_height(idx: u32, val: u16);
 extern fn dom_set_style_w_unit(idx: u32, unit: u8);
 extern fn dom_set_style_h_unit(idx: u32, unit: u8);
-
+extern fn dom_set_text(idx: u32, ptr: u64, len: u32);
+extern fn dom_set_placeholder(idx: u32, ptr: u64, len: u32);
 extern fn css_lex_inline_style(node_idx: u32, ptr: u64, len: u32);
 extern fn ext_salt_set_node_class_hash(node_idx: u32, hash: u32);
 extern fn hash_string(ptr: u64, len: u32) -> u32;
@@ -165,8 +166,10 @@ fn match_tag(len: u32) -> i32 {
         let b5 = get_tag_byte((5) as u32) | 32;
         // 'script' -> 99
         if b0 == 115 && b1 == 99 && b2 == 114 && b3 == 105 && b4 == 112 && b5 == 116 { return 99; }
-        // 'shadow' -> 21
-        if b0 == 115 && b1 == 104 && b2 == 97 && b3 == 100 && b4 == 111 && b5 == 119 { return 21; }
+        // 'form' -> 21
+        if b0 == 102 && b1 == 111 && b2 == 114 && b3 == 109 { return 21; }
+        // 'shadow' -> 22
+        if b0 == 115 && b1 == 104 && b2 == 97 && b3 == 100 && b4 == 111 && b5 == 119 { return 22; }
         // 'iframe' -> TAG_IFRAME=26
         if b0 == 105 && b1 == 102 && b2 == 114 && b3 == 97 && b4 == 109 && b5 == 101 { return 26; }
         // 'canvas' -> TAG_CANVAS=27
@@ -267,6 +270,33 @@ fn is_attr_src(len: u32) -> bool {
     let b1 = get_attr_key_byte(1) | 32;
     let b2 = get_attr_key_byte(2) | 32;
     return b0 == 115 && b1 == 114 && b2 == 99; // 'src'
+}
+
+fn is_attr_value(len: u32) -> bool {
+    if len != 5 { return false; }
+    let b0 = get_attr_key_byte(0) | 32;
+    let b1 = get_attr_key_byte(1) | 32;
+    let b2 = get_attr_key_byte(2) | 32;
+    let b3 = get_attr_key_byte(3) | 32;
+    let b4 = get_attr_key_byte(4) | 32;
+    return b0 == 118 && b1 == 97 && b2 == 108 && b3 == 117 && b4 == 101; // 'value'
+}
+
+fn is_attr_placeholder(len: u32) -> bool {
+    if len != 11 { return false; }
+    let b0 = get_attr_key_byte(0) | 32;
+    let b1 = get_attr_key_byte(1) | 32;
+    let b2 = get_attr_key_byte(2) | 32;
+    let b3 = get_attr_key_byte(3) | 32;
+    let b4 = get_attr_key_byte(4) | 32;
+    let b5 = get_attr_key_byte(5) | 32;
+    let b6 = get_attr_key_byte(6) | 32;
+    let b7 = get_attr_key_byte(7) | 32;
+    let b8 = get_attr_key_byte(8) | 32;
+    let b9 = get_attr_key_byte(9) | 32;
+    let b10 = get_attr_key_byte(10) | 32;
+    // p l a c e h o l d e r
+    return b0 == 112 && b1 == 108 && b2 == 97 && b3 == 99 && b4 == 101 && b5 == 104 && b6 == 111 && b7 == 108 && b8 == 100 && b9 == 101 && b10 == 114;
 }
 
 fn is_match_bgcolor(len: u32) -> bool {
@@ -502,7 +532,7 @@ pub fn lex_html(html_ptr: u64, chunk_len: u32, root_id: u64, can_execute: u8) {
                     LEX_DASH_COUNT = 0;
                     LEX_STATE = 1;
                 } else {
-                    if LEX_TEXT_LEN < 16384 {
+                    if LEX_TEXT_LEN < 1048576 {
                         *((p_txt + (LEX_TEXT_LEN as u64)) as &mut u8) = b;
                         LEX_TEXT_LEN = LEX_TEXT_LEN + 1;
                     }
@@ -519,7 +549,7 @@ pub fn lex_html(html_ptr: u64, chunk_len: u32, root_id: u64, can_execute: u8) {
                         LEX_DASH_COUNT = 0;
                     }
                 }
-                if LEX_TEXT_LEN < 16384 {
+                if LEX_TEXT_LEN < 1048576 {
                     *((p_txt + (LEX_TEXT_LEN as u64)) as &mut u8) = b;
                     LEX_TEXT_LEN = LEX_TEXT_LEN + 1;
                 }
@@ -682,6 +712,22 @@ pub fn lex_html(html_ptr: u64, chunk_len: u32, root_id: u64, can_execute: u8) {
                         }
                     }
                 }
+                if is_attr_value(LEX_ATTR_KEY_LEN) {
+                    if LEX_CURRENT_TAG == 18 || LEX_CURRENT_TAG == 19 {
+                        let node_idx = ext_salt_resolve_node(LEX_CURRENT_NODE);
+                        if node_idx != 0xFFFFFFFF {
+                            dom_set_text(node_idx, p_aval, LEX_ATTR_VAL_LEN);
+                        }
+                    }
+                }
+                if is_attr_placeholder(LEX_ATTR_KEY_LEN) {
+                    if LEX_CURRENT_TAG == 18 || LEX_CURRENT_TAG == 19 {
+                        let node_idx = ext_salt_resolve_node(LEX_CURRENT_NODE);
+                        if node_idx != 0xFFFFFFFF {
+                            dom_set_placeholder(node_idx, p_aval, LEX_ATTR_VAL_LEN);
+                        }
+                    }
+                }
                 
                 if is_match_bgcolor(LEX_ATTR_KEY_LEN) {
                     let mut hex_start = p_aval;
@@ -818,6 +864,20 @@ pub fn lex_html(html_ptr: u64, chunk_len: u32, root_id: u64, can_execute: u8) {
 @no_mangle
 pub fn js_lex_html_chunk(root_id: u64, ptr: u64, len: u32, can_execute: u8) {
     lex_html(ptr, len, root_id, can_execute);
+}
+
+@no_mangle
+pub fn ext_salt_reset_lexer() {
+    LEX_INITIALIZED = 0;
+    LEX_STATE = 0;
+    LEX_TAG_LEN = 0;
+    LEX_ATTR_KEY_LEN = 0;
+    LEX_ATTR_VAL_LEN = 0;
+    LEX_TEXT_LEN = 0;
+    LEX_SCRIPT_STATE = 0;
+    LEX_DASH_COUNT = 0;
+    LEX_CURRENT_PARENT = 0;
+    LEX_CURRENT_NODE = 0;
 }
 
 @no_mangle

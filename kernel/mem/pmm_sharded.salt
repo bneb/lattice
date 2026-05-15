@@ -69,6 +69,13 @@ fn get_next_frame_ptr(phys_head: u64) -> u64 {
 fn set_next_frame_ptr(phys_head: u64, next_phys: u64) {
     let vaddr = memory.phys_to_virt(memory.PhysAddr { val: phys_head }).val;
     *(vaddr as &mut u64) = next_phys;
+    *((vaddr + 8) as &mut u64) = 0xDFDFDFDFDFDFDFDF; // Double-free detection magic
+}
+
+fn check_double_free(phys_head: u64) -> bool {
+    let vaddr = memory.phys_to_virt(memory.PhysAddr { val: phys_head }).val;
+    let magic = *((vaddr + 8) as &u64);
+    return magic == 0xDFDFDFDFDFDFDFDF;
 }
 
 // ============================================================================
@@ -114,6 +121,9 @@ pub fn alloc_frame() -> u64 {
         if old_val == current_head as i64 {
             // CAS success
             atomic_add_i64(&SHARDS[core_id].free_count, -1 as i64);
+            // Clear magic
+            let vaddr = memory.phys_to_virt(memory.PhysAddr { val: current_head }).val;
+            *((vaddr + 8) as &mut u64) = 0;
             enable_interrupts();
             return current_head;
         }
@@ -131,6 +141,10 @@ pub fn alloc_frame() -> u64 {
 // ============================================================================
 pub fn free_frame(page: u64) {
     if (page % PAGE_SIZE) != 0 {
+        return;
+    }
+    if check_double_free(page) {
+        // Double free detected! Refuse to corrupt the list.
         return;
     }
     disable_interrupts();

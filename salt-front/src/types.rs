@@ -293,6 +293,13 @@ impl Type {
         }
     }
 
+    pub fn peel_reference(&self) -> Option<Type> {
+        match self {
+            Type::Reference(inner, _) => Some((**inner).clone()),
+            _ => None,
+        }
+    }
+
     /// Context-free MLIR type mapping for common cases.
     /// Used by LoweringContext methods that don't need full CodegenContext.
     /// For complex cases (generic substitution, type_map lookup), use the full

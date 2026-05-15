@@ -83,16 +83,20 @@ global PORT_OWNERS:   [u64; 65536] = [0 as u64; 65536];
 pub fn bind_stream(port: u16, stream_handle: u64, tcb_handle: u64, owner_pid: u64) -> u64 {
     let idx = port as u64;
     
-    // Check if port is already bound
-    if PORT_STATES[idx] != PORT_UNBOUND {
+    // SECURITY FIX: Atomically claim the port (state transition to STAGING=99)
+    // This prevents race conditions when multiple apps attempt to bind the same port simultaneously.
+    let old_state = atomic_cas_i64(&PORT_STATES[idx], PORT_UNBOUND as i64, 99 as i64);
+    if old_state != PORT_UNBOUND as i64 {
         return 1;
     }
     
-    // Bind the port
+    // We now exclusively own the slot. Stage the payload.
     PORT_STREAMS[idx] = stream_handle;
     PORT_TCBS[idx]    = tcb_handle;
-    PORT_STATES[idx]  = PORT_BOUND;
     PORT_OWNERS[idx]  = owner_pid;
+    
+    // Finally, commit the state (store-release)
+    PORT_STATES[idx]  = PORT_BOUND;
     
     return 0;
 }
@@ -103,19 +107,26 @@ pub fn bind_stream(port: u16, stream_handle: u64, tcb_handle: u64, owner_pid: u6
 pub fn unbind_stream(port: u16, caller_pid: u64) -> u64 {
     let idx = port as u64;
     
-    // Verify ownership
-    if PORT_STATES[idx] == PORT_UNBOUND {
-        return 1;  // Not bound
+    // Atomically transition PORT_BOUND -> STAGING (99) to claim the unbind
+    let old_state = atomic_cas_i64(&PORT_STATES[idx], PORT_BOUND as i64, 99 as i64);
+    if old_state != PORT_BOUND as i64 {
+        return 1;  // Not bound or already unbinding
     }
+    
+    // Verify ownership now that we locked the state
     if PORT_OWNERS[idx] != caller_pid {
+        // Rollback
+        PORT_STATES[idx] = PORT_BOUND;
         return 2;  // Not owner
     }
     
     // Clear the binding
     PORT_STREAMS[idx] = 0;
     PORT_TCBS[idx]    = 0;
-    PORT_STATES[idx]  = PORT_UNBOUND;
     PORT_OWNERS[idx]  = 0;
+    
+    // Finally, mark UNBOUND
+    PORT_STATES[idx]  = PORT_UNBOUND;
     
     return 0;
 }

@@ -13,8 +13,10 @@ void sys_jsc_dump_exception(JSContextRef ctx, JSValueRef exception) {
   JSStringRef exceptionStr = JSValueToStringCopy(ctx, exception, NULL);
   size_t len = JSStringGetMaximumUTF8CStringSize(exceptionStr);
   char *buf = (char *)malloc(len);
-  JSStringGetUTF8CString(exceptionStr, buf, len);
-  printf("[Prisimi JIT] Exception: %s\n", buf);
+  if (buf) {
+    JSStringGetUTF8CString(exceptionStr, buf, len);
+    printf("[Prisimi JIT] Exception: %s\n", buf);
+  }
 
   // Attempt to get line/column if available
   JSObjectRef excObj = JSValueToObject(ctx, exception, NULL);
@@ -27,7 +29,7 @@ void sys_jsc_dump_exception(JSContextRef ctx, JSValueRef exception) {
     JSStringRelease(lineProp);
   }
 
-  free(buf);
+  if (buf) free(buf);
   JSStringRelease(exceptionStr);
 }
 
@@ -71,6 +73,7 @@ void sys_jsc_evaluate_script(uint64_t script_ptr, uint32_t script_len,
   // Bounded allocation: only one copy during the transition to JSC internal
   // representation
   char *code = (char *)malloc(script_len + 1);
+  if (!code) return;
   memcpy(code, (void *)(uintptr_t)script_ptr, script_len);
   code[script_len] = '\0';
 
@@ -78,11 +81,21 @@ void sys_jsc_evaluate_script(uint64_t script_ptr, uint32_t script_len,
       char snippet[128] = {0};
       strncpy(snippet, code, script_len < 127 ? script_len : 127);
       printf("[Prisimi JIT] Evaluating Script (len=%u): %s...\n", script_len, snippet);
+      fflush(stdout);
   }
 
   JSStringRef scriptJS = JSStringCreateWithUTF8CString(code);
-  JSStringRef fileJS =
-      filename ? JSStringCreateWithUTF8CString(filename) : NULL;
+  JSStringRef fileJS = NULL;
+  if (filename) {
+      char safe_filename[256] = {0};
+      // We must check character by character up to 255 to prevent reading out of mapped bounds
+      // in case the pointer from Salt is not null-terminated.
+      for (int i = 0; i < 255; i++) {
+          if (filename[i] == '\0') break;
+          safe_filename[i] = filename[i];
+      }
+      fileJS = JSStringCreateWithUTF8CString(safe_filename);
+  }
 
   JSValueRef exception = NULL;
   JSEvaluateScript(global_ctx, scriptJS, NULL, fileJS, 1, &exception);
@@ -104,6 +117,7 @@ double sys_jsc_eval_to_number(uint64_t script_ptr, uint32_t script_len) {
     return -999.0;
 
   char *code = (char *)malloc(script_len + 1);
+  if (!code) return -999.0;
   memcpy(code, (void *)(uintptr_t)script_ptr, script_len);
   code[script_len] = '\0';
 
@@ -210,9 +224,11 @@ void sys_jsc_flush_observer_queues() {
       JSStringRef excStr = JSValueToStringCopy(global_ctx, exception, NULL);
       size_t max_sz = JSStringGetMaximumUTF8CStringSize(excStr);
       char *buf = malloc(max_sz);
-      JSStringGetUTF8CString(excStr, buf, max_sz);
-      printf("[Prisimi JSC] ❌ ResizeObserver Exception: %s\n", buf);
-      free(buf);
+      if (buf) {
+        JSStringGetUTF8CString(excStr, buf, max_sz);
+        printf("[Prisimi JSC] ❌ ResizeObserver Exception: %s\n", buf);
+        free(buf);
+      }
       JSStringRelease(excStr);
     }
   }
@@ -249,9 +265,11 @@ void sys_jsc_flush_observer_queues() {
       JSStringRef excStr = JSValueToStringCopy(global_ctx, exception, NULL);
       size_t max_sz = JSStringGetMaximumUTF8CStringSize(excStr);
       char *buf = malloc(max_sz);
-      JSStringGetUTF8CString(excStr, buf, max_sz);
-      printf("[Prisimi JSC] ❌ MutationObserver Exception: %s\n", buf);
-      free(buf);
+      if (buf) {
+        JSStringGetUTF8CString(excStr, buf, max_sz);
+        printf("[Prisimi JSC] ❌ MutationObserver Exception: %s\n", buf);
+        free(buf);
+      }
       JSStringRelease(excStr);
     }
   }
@@ -285,9 +303,11 @@ void sys_jsc_flush_observer_queues() {
       JSStringRef excStr = JSValueToStringCopy(global_ctx, exception, NULL);
       size_t max_sz = JSStringGetMaximumUTF8CStringSize(excStr);
       char *buf = malloc(max_sz);
-      JSStringGetUTF8CString(excStr, buf, max_sz);
-      printf("[Prisimi JSC] ❌ IntersectionObserver Exception: %s\n", buf);
-      free(buf);
+      if (buf) {
+        JSStringGetUTF8CString(excStr, buf, max_sz);
+        printf("[Prisimi JSC] ❌ IntersectionObserver Exception: %s\n", buf);
+        free(buf);
+      }
       JSStringRelease(excStr);
     }
   }
@@ -311,6 +331,8 @@ void sys_jsc_gc() {
 
 void sys_jsc_teardown() {
   if (global_ctx) {
+    extern void jsc_bindings_teardown(JSContextRef ctx);
+    jsc_bindings_teardown(global_ctx);
     JSGlobalContextRelease(global_ctx);
     global_ctx = NULL;
   }

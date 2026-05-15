@@ -254,7 +254,61 @@ fn parse_and_apply_style(node_id: u64, ptr: u64, len: u32) {
 }
 
 extern fn init_css_lexer_arrays();
+extern fn tag_to_hash(tag: u32) -> u32;
+extern fn css_insert_native_rule(hash: u32) -> u32;
+
+// Rule setters from css_lexer.salt
+extern fn css_set_rule_display(slot: u32, val: u8);
+extern fn css_set_rule_padding(slot: u32, t: i32, r: i32, b: i32, l: i32);
+extern fn css_set_rule_margin(slot: u32, t: i32, r: i32, b: i32, l: i32);
+extern fn css_set_rule_font(slot: u32, size: f32, weight: u8);
+extern fn css_set_rule_width(slot: u32, val: i32);
+extern fn css_set_rule_border_width(slot: u32, val: i32);
 
 pub fn init_css_defaults() {
     init_css_lexer_arrays();
+    init_user_agent_stylesheet();
+}
+
+fn init_user_agent_stylesheet() {
+    // 1. body { display: block; padding: 8px; }
+    let body_hash = tag_to_hash(3);
+    let s_body = css_insert_native_rule(body_hash);
+    css_set_rule_display(s_body, 1); // BLOCK
+    css_set_rule_padding(s_body, 8, 8, 8, 8);
+
+    // 2. h1 { display: block; font-size: 32px; font-weight: bold; margin: 10px 0; }
+    let h1_hash = tag_to_hash(9);
+    let s_h1 = css_insert_native_rule(h1_hash);
+    css_set_rule_display(s_h1, 1); // BLOCK
+    css_set_rule_font(s_h1, 32.0, 1); // BOLD
+    css_set_rule_margin(s_h1, 10, 0, 10, 0);
+
+    // 3. p { display: block; margin: 10px 0; }
+    let p_hash = tag_to_hash(6);
+    let s_p = css_insert_native_rule(p_hash);
+    css_set_rule_display(s_p, 1); // BLOCK
+    css_set_rule_margin(s_p, 10, 0, 10, 0);
+
+    // 4. table { display: table; }
+    let tbl_hash = tag_to_hash(12);
+    let s_tbl = css_insert_native_rule(tbl_hash);
+    css_set_rule_display(s_tbl, 6); // TABLE
+
+    // 5. tr { display: table-row; }
+    let tr_hash = tag_to_hash(13);
+    let s_tr = css_insert_native_rule(tr_hash);
+    css_set_rule_display(s_tr, 7); // TABLE_ROW
+
+    // 6. td { display: table-cell; }
+    let td_hash = tag_to_hash(14);
+    let s_td = css_insert_native_rule(td_hash);
+    css_set_rule_display(s_td, 8); // TABLE_CELL
+
+    // 7. input { display: inline-block; width: 173px; border: 1px solid #ccc; padding: 1px; }
+    let inp_hash = tag_to_hash(18);
+    let s_inp = css_insert_native_rule(inp_hash);
+    css_set_rule_display(s_inp, 5); // INLINE_BLOCK
+    css_set_rule_width(s_inp, 173);
+    css_set_rule_border_width(s_inp, 1);
 }

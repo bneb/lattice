@@ -36,13 +36,13 @@ pub struct SpecializationTask {
     pub is_enum: bool,
 }
 
-/// [V4.0 SCORCHED EARTH] F-string segment for native expansion
-#[derive(Clone, Debug)]
-pub enum FStringSegment {
-    Literal(String),
-    Expr(String, Option<String>), // (expression, optional format spec)
-}
+pub mod fstring;
+pub mod resolver;
+pub mod guards;
 
+pub use fstring::FStringSegment;
+pub use guards::GenericContextGuard;
+pub use guards::ImportContextGuard;
 pub struct MonomorphizerState {
     pub work_queue: VecDeque<SpecializationTask>,
     pub pending_set: HashSet<String>,
@@ -2992,48 +2992,6 @@ impl<'a> CodegenContext<'a> {
     }
 }
 
-
-pub struct GenericContextGuard<'b, 'a> {
-    ctx: &'b CodegenContext<'a>,
-    old_args: std::collections::BTreeMap<String, Type>,
-    old_self: Option<Type>,
-    old_ordered_args: Vec<Type>,
-}
-
-impl<'b, 'a> GenericContextGuard<'b, 'a> {
-    pub fn new(ctx: &'b CodegenContext<'a>, new_args: std::collections::BTreeMap<String, Type>, self_ty: Type, ordered_args: Vec<Type>) -> Self {
-        let old_args = std::mem::replace(&mut *ctx.current_type_map_mut(), new_args);
-        let old_self = std::mem::replace(&mut *ctx.current_self_ty_mut(), Some(self_ty));
-        let old_ordered_args = std::mem::replace(&mut *ctx.current_generic_args_mut(), ordered_args);
-        Self { ctx, old_args, old_self, old_ordered_args }
-    }
-}
-
-impl<'b, 'a> Drop for GenericContextGuard<'b, 'a> {
-    fn drop(&mut self) {
-        *self.ctx.current_type_map_mut() = self.old_args.clone();
-        *self.ctx.current_self_ty_mut() = self.old_self.clone();
-        *self.ctx.current_generic_args_mut() = self.old_ordered_args.clone();
-    }
-}
-
-pub struct ImportContextGuard<'b, 'a> {
-    ctx: &'b CodegenContext<'a>,
-    old_imports: Vec<ImportDecl>,
-}
-
-impl<'b, 'a> ImportContextGuard<'b, 'a> {
-    pub fn new(ctx: &'b CodegenContext<'a>, new_imports: Vec<ImportDecl>) -> Self {
-        let old_imports = std::mem::replace(&mut *ctx.imports_mut(), new_imports);
-        Self { ctx, old_imports }
-    }
-}
-
-impl<'b, 'a> Drop for ImportContextGuard<'b, 'a> {
-    fn drop(&mut self) {
-        *self.ctx.imports_mut() = self.old_imports.clone();
-    }
-}
 
 impl<'a> CodegenContext<'a> {
 

@@ -237,6 +237,14 @@ if grep -q 'sprint5_keyboard_test' "$SALT_FILE" 2>/dev/null; then
     BRIDGES+=("$PROJECT_ROOT/tests/bridges/sprint5_keyboard_bridge.c")
 fi
 
+if grep -q 'sprint8_search_e2e_test' "$SALT_FILE" 2>/dev/null; then
+    BRIDGES+=("$PROJECT_ROOT/tests/bridges/sprint8_search_e2e_bridge.c")
+fi
+
+if grep -q 'sprint9_polish_test' "$SALT_FILE" 2>/dev/null || [[ "$BASENAME" == "test_sprint9_polish_e2e" ]]; then
+    BRIDGES+=("$PROJECT_ROOT/tests/bridges/sprint9_polish_bridge.c")
+fi
+
 if grep -q 'sprint6_form_test' "$SALT_FILE" 2>/dev/null; then
     BRIDGES+=("$PROJECT_ROOT/tests/bridges/sprint6_form_bridge.c")
 fi

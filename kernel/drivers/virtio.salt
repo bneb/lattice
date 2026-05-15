@@ -438,6 +438,37 @@ pub fn virtq_poll_used(vq: &mut VirtqState, out_id: &mut u32, out_len: &mut u32)
     return true;
 }
 
+// Helpers to avoid cross-module global array access linker errors
+pub fn init_rx_virtq(base_phys: u64) {
+    virtq_init(&mut VQ_RX, 0, base_phys);
+}
+
+pub fn init_tx_virtq(base_phys: u64) {
+    virtq_init(&mut VQ_TX, 1, base_phys);
+}
+
+pub fn rx_add_buf(buf_phys: u64, len: u32, write_only: bool) {
+    virtq_add_buf(&mut VQ_RX, buf_phys, len, write_only);
+}
+
+pub fn tx_add_buf(buf_phys: u64, len: u32, write_only: bool) {
+    virtq_add_buf(&mut VQ_TX, buf_phys, len, write_only);
+}
+
+pub fn rx_poll_used(out_id: &mut u32, out_len: &mut u32) -> bool {
+    return virtq_poll_used(&mut VQ_RX, out_id, out_len);
+}
+
+pub fn tx_poll_used(out_id: &mut u32, out_len: &mut u32) -> bool {
+    return virtq_poll_used(&mut VQ_TX, out_id, out_len);
+}
+
+pub fn get_rx_base() -> u64 { return VQ_RX.base; }
+pub fn get_rx_size() -> u16 { return VQ_RX.size; }
+pub fn get_tx_base() -> u64 { return VQ_TX.base; }
+pub fn get_tx_size() -> u16 { return VQ_TX.size; }
+pub fn get_tx_num_free() -> u16 { return VQ_TX.num_free; }
+
 // =============================================================================
 // VirtIO Device Initialization Sequence
 // =============================================================================

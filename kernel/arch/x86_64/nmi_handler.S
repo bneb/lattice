@@ -38,6 +38,8 @@ nmi_diag_count:
 
 .text
 .global nmi_isr_wrapper
+.extern syscall_entry_fast
+.extern syscall_sysretq_point
 
 nmi_isr_wrapper:
     # ── Paranoid GS Entry ──────────────────────────────────────────────
@@ -47,16 +49,38 @@ nmi_isr_wrapper:
     #   RSP+16: RFLAGS
     #   RSP+24: RSP (interrupted)
     #   RSP+32: SS
-    #
-    # Check CS from interrupted frame to determine SWAPGS state.
-    # If RPL (bits 1:0 of CS) is non-zero, we interrupted Ring 3.
-    test    byte ptr [rsp + 8], 3
-    jz      .Lnmi_kernel_gs
+    
+    # We must preserve ALL registers. Push two scratch registers so we can check RIP
+    push    r11
+    push    r10
 
-    # Ring 3 was interrupted: swap to kernel GS
+    # If RPL (bits 1:0 of CS) is non-zero, we interrupted Ring 3.
+    # In this case, we definitely need to SWAPGS.
+    test    byte ptr [rsp + 16 + 8], 3
+    jnz     .Lentry_needs_swapgs
+
+    # If CS is 0 (Ring 0), we STILL might need to SWAPGS if we hit the precise window
+    # between SYSCALL and SWAPGS, or SWAPGS and SYSRETQ.
+    mov     r11, [rsp + 16] # RIP is at RSP + 16 (since we pushed two 8-byte regs)
+    lea     r10, [rip + syscall_entry_fast]
+    cmp     r11, r10
+    je      .Lentry_needs_swapgs
+
+    lea     r10, [rip + syscall_sysretq_point]
+    cmp     r11, r10
+    je      .Lentry_needs_swapgs
+
+    # No SWAPGS needed
+    jmp     .Lentry_no_swapgs
+
+.Lentry_needs_swapgs:
     swapgs
 
-.Lnmi_kernel_gs:
+.Lentry_no_swapgs:
+    # Pop scratch registers so we can use the regular save sequence
+    pop     r10
+    pop     r11
+
     # ── Save scratch registers ─────────────────────────────────────────
     push    rax
     push    rcx
@@ -70,9 +94,6 @@ nmi_isr_wrapper:
 
     # ── Check unified fiber sentinel ───────────────────────────────────
     # GS:[48] = sched_rsp. If non-zero, a unified fiber is running.
-    # We cannot safely preempt it here (NMI is not re-entrant and the
-    # fiber's stack may be in a half-swapped state). Set the pending
-    # flag for the scheduler to handle later.
     mov     rax, qword ptr gs:[48]
     test    rax, rax
     jz      .Lnmi_no_fiber
@@ -84,6 +105,27 @@ nmi_isr_wrapper:
     # ── NMI acknowledgment is automatic (no EOI needed for NMI) ────────
     inc qword ptr [rip + nmi_diag_count]
 
+    # ── Paranoid GS Exit Check (BEFORE POPPING REGS) ───────────────────
+    # We pushed 9 registers (72 bytes). Hardware frame starts at RSP + 72.
+    test    byte ptr [rsp + 72 + 8], 3
+    jnz     .Lexit_needs_swapgs
+
+    mov     r11, [rsp + 72] # RIP
+    lea     r10, [rip + syscall_entry_fast]
+    cmp     r11, r10
+    je      .Lexit_needs_swapgs
+
+    lea     r10, [rip + syscall_sysretq_point]
+    cmp     r11, r10
+    je      .Lexit_needs_swapgs
+
+    jmp     .Lexit_no_swapgs
+
+.Lexit_needs_swapgs:
+    # We swapped on entry, so swap back on exit.
+    swapgs
+
+.Lexit_no_swapgs:
     # ── Restore scratch registers ──────────────────────────────────────
     pop     r11
     pop     r10
@@ -95,13 +137,6 @@ nmi_isr_wrapper:
     pop     rcx
     pop     rax
 
-    # ── Paranoid GS Exit ───────────────────────────────────────────────
-    # Mirror the entry check: if we swapped GS on entry, swap back.
-    test    byte ptr [rsp + 8], 3
-    jz      .Lnmi_no_swapgs_exit
-    swapgs
-
-.Lnmi_no_swapgs_exit:
     iretq
 
 .global read_nmi_diag_count

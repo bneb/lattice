@@ -26,6 +26,10 @@ JSValueRef js_fetchevent_respondWith(JSContextRef ctx, JSObjectRef function,
     JSStringRef str = JSValueToStringCopy(ctx, argv[0], exception);
     size_t len = JSStringGetMaximumUTF8CStringSize(str);
     char *buf = (char *)malloc(len);
+    if (!buf) {
+      JSStringRelease(str);
+      return JSValueMakeUndefined(ctx);
+    }
     JSStringGetUTF8CString(str, buf, len);
 
     // Send CMD_FETCH_RESPONSE (type 9) back to Main
@@ -49,6 +53,10 @@ JSValueRef jsc_worker_self_addEventListener(JSContextRef ctx,
   JSStringRef typeStr = JSValueToStringCopy(ctx, argv[0], exception);
   size_t len = JSStringGetMaximumUTF8CStringSize(typeStr);
   char *type = (char *)malloc(len);
+  if (!type) {
+    JSStringRelease(typeStr);
+    return JSValueMakeUndefined(ctx);
+  }
   JSStringGetUTF8CString(typeStr, type, len);
 
   if (strcmp(type, "fetch") == 0) {
@@ -121,6 +129,7 @@ void sys_jsc_evaluate_script(uint64_t script_ptr, uint32_t script_len,
     return;
 
   char *code = (char *)malloc(script_len + 1);
+  if (!code) return;
   memcpy(code, (void *)(uintptr_t)script_ptr, script_len);
   code[script_len] = '\0';
 
@@ -135,9 +144,11 @@ void sys_jsc_evaluate_script(uint64_t script_ptr, uint32_t script_len,
     JSStringRef excStr = JSValueToStringCopy(global_ctx, exception, NULL);
     size_t max_sz = JSStringGetMaximumUTF8CStringSize(excStr);
     char *buf = malloc(max_sz);
-    JSStringGetUTF8CString(excStr, buf, max_sz);
-    printf("[Prisimi JSC Worker] Exception: %s\n", buf);
-    free(buf);
+    if (buf) {
+      JSStringGetUTF8CString(excStr, buf, max_sz);
+      printf("[Prisimi JSC Worker] Exception: %s\n", buf);
+      free(buf);
+    }
     JSStringRelease(excStr);
   }
 
@@ -176,6 +187,7 @@ void sys_jsc_dispatch_fetch_event(uint32_t fetch_id, uint64_t url_ptr,
 
   // Set request.url
   char *url_buf = (char *)malloc(url_len + 1);
+  if (!url_buf) return;
   memcpy(url_buf, (void *)(uintptr_t)url_ptr, url_len);
   url_buf[url_len] = '\0';
 
@@ -202,9 +214,11 @@ void sys_jsc_dispatch_fetch_event(uint32_t fetch_id, uint64_t url_ptr,
     JSStringRef excStr = JSValueToStringCopy(global_ctx, exception, NULL);
     size_t max_sz = JSStringGetMaximumUTF8CStringSize(excStr);
     char *buf = malloc(max_sz);
-    JSStringGetUTF8CString(excStr, buf, max_sz);
-    printf("[Prisimi JSC Worker] Dispatch Exception: %s\n", buf);
-    free(buf);
+    if (buf) {
+      JSStringGetUTF8CString(excStr, buf, max_sz);
+      printf("[Prisimi JSC Worker] Fetch Event Exception: %s\n", buf);
+      free(buf);
+    }
     JSStringRelease(excStr);
   }
 }

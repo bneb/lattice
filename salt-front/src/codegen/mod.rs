@@ -158,14 +158,14 @@ use crate::z3_shim as z3;
     
     // 0. Pre-Scanning & Registration Phase (Multi-module awareness)
     for (_, ast) in &loader.loaded_files {
-        register_templates(&ctx, ast);
+        register_templates(&ctx, ast)?;
     }
-    register_templates(&ctx, file);
+    register_templates(&ctx, file)?;
 
     for (_, ast) in &loader.loaded_files {
-        register_signatures(&ctx, ast);
+        register_signatures(&ctx, ast)?;
     }
-    register_signatures(&ctx, file);
+    register_signatures(&ctx, file)?;
     
     // Init Definition Check
     let dep_order = loader.get_compilation_order().map_err(|e| e)?;
@@ -1125,7 +1125,7 @@ pub fn emit_trait(ctx: &CodegenContext, trait_def: &SaltTrait) -> Result<String,
 pub fn emit_extern_fn(ctx: &CodegenContext, decl: &ExternFnDecl) -> Result<String, String> {
     let mut args_code = Vec::new();
     for arg in &decl.args {
-        let ty = ctx.bridge_resolve_type(arg.ty.as_ref().unwrap());
+        let ty = ctx.bridge_resolve_type(arg.ty.as_ref().ok_or_else(|| "Extern function argument missing type".to_string())?);
         args_code.push(ctx.resolve_mlir_type(&ty)?);
     }
     
@@ -1667,7 +1667,7 @@ fn emit_impl(ctx: &CodegenContext, imp: &SaltImpl) -> Result<String, String> {
     let mut out = String::new();
     match imp {
         SaltImpl::Methods { target_ty, methods, generics: _ } => {
-            let parsed_ty = crate::types::Type::from_syn(target_ty).unwrap();
+            let parsed_ty = crate::types::Type::from_syn(target_ty).ok_or_else(|| "Failed to parse type from syntax in impl block".to_string())?;
             let target_name_full = ctx.bridge_resolve_codegen_type(&parsed_ty).mangle_suffix();
             let _target_base_name = match &parsed_ty {
                 Type::Struct(name) | Type::Enum(name) => name.clone(),
@@ -1680,7 +1680,7 @@ fn emit_impl(ctx: &CodegenContext, imp: &SaltImpl) -> Result<String, String> {
             *ctx.current_self_ty_mut() = Some(parsed_ty.clone());
             
             for m in methods {
-                let key = parsed_ty.to_key().expect("Failed to derive TypeKey for impl target");
+                let key = parsed_ty.to_key().ok_or_else(|| format!("Failed to derive TypeKey for impl target {}", target_name_full))?;
                 // [V4.0 SOVEREIGN] Register via TraitRegistry with signature extraction
                 ctx.trait_registry_mut().register_simple(key, m.clone(), Some(parsed_ty.clone()), ctx.imports().clone());
                 // Only emit immediately if NOT a generic struct/enum and NOT a generic method
@@ -1696,7 +1696,7 @@ fn emit_impl(ctx: &CodegenContext, imp: &SaltImpl) -> Result<String, String> {
         }
         // [COUNCIL V2] Trait impl blocks — emit method bodies (e.g. impl Display for Point { fn fmt })
         SaltImpl::Trait { trait_name: _, target_ty, methods, generics: _ } => {
-            let parsed_ty = crate::types::Type::from_syn(target_ty).unwrap();
+            let parsed_ty = crate::types::Type::from_syn(target_ty).ok_or_else(|| "Failed to parse type from syntax in trait impl block".to_string())?;
             let target_name_full = ctx.bridge_resolve_codegen_type(&parsed_ty).mangle_suffix();
             
             // Set current self type for methods
@@ -1704,7 +1704,7 @@ fn emit_impl(ctx: &CodegenContext, imp: &SaltImpl) -> Result<String, String> {
             *ctx.current_self_ty_mut() = Some(parsed_ty.clone());
             
             for m in methods {
-                let key = parsed_ty.to_key().expect("Failed to derive TypeKey for trait impl target");
+                let key = parsed_ty.to_key().ok_or_else(|| format!("Failed to derive TypeKey for trait impl target {}", target_name_full))?;
                 ctx.trait_registry_mut().register_simple(key, m.clone(), Some(parsed_ty.clone()), ctx.imports().clone());
                 // Emit the method with mangled name: TypeName__method
                 if !matches!(parsed_ty, Type::Concrete(..)) || m.generics.is_none() {
@@ -1769,9 +1769,9 @@ fn scan_dir(ctx: &CodegenContext, dir: &std::path::Path, pass1: bool) -> Result<
                 let processed = crate::preprocess(&content);
                 if let Ok(file) = syn::parse_str::<SaltFile>(&processed) {
                     if pass1 {
-                        register_templates(ctx, &file);
+                        register_templates(ctx, &file)?;
                     } else {
-                        register_signatures(ctx, &file);
+                        register_signatures(ctx, &file)?;
                     }
                 }
             }
@@ -1780,7 +1780,7 @@ fn scan_dir(ctx: &CodegenContext, dir: &std::path::Path, pass1: bool) -> Result<
     Ok(())
 }
 
-fn register_templates(ctx: &CodegenContext, file: &SaltFile) {
+fn register_templates(ctx: &CodegenContext, file: &SaltFile) -> Result<(), String> {
     let pkg_name = if let Some(pkg) = &file.package {
         Mangler::mangle(&pkg.name.iter().map(|id| id.to_string()).collect::<Vec<_>>())
     } else {
@@ -1820,9 +1820,10 @@ fn register_templates(ctx: &CodegenContext, file: &SaltFile) {
             _ => {}
         }
     }
+    Ok(())
 }
 
-fn register_signatures(ctx: &CodegenContext, file: &SaltFile) {
+fn register_signatures(ctx: &CodegenContext, file: &SaltFile) -> Result<(), String> {
     let pkg_name = if let Some(pkg) = &file.package {
         Mangler::mangle(&pkg.name.iter().map(|id| id.to_string()).collect::<Vec<_>>())
     } else {
@@ -1858,7 +1859,8 @@ fn register_signatures(ctx: &CodegenContext, file: &SaltFile) {
                 
                 // Use a safe wrapper for signature resolution during pre-scan
                 let ret = if let Some(rt) = &f.ret_type { resolve_type_safe(ctx, rt) } else { Type::Unit };
-                let args = f.args.iter().map(|a| resolve_type_safe(ctx, a.ty.as_ref().unwrap())).collect();
+                let unknown_ty = crate::grammar::SynType::Other("UnknownSelf".to_string());
+                let args = f.args.iter().map(|a| resolve_type_safe(ctx, a.ty.as_ref().unwrap_or(&unknown_ty))).collect();
                 ctx.globals_mut().insert(mangled, Type::Fn(args, Box::new(ret)));
             }
             Item::ExternFn(ef) => {
@@ -1874,7 +1876,8 @@ fn register_signatures(ctx: &CodegenContext, file: &SaltFile) {
                 ctx.external_decls_mut().insert(name.clone());
                              
                 let ret = if let Some(rt) = &ef.ret_type { resolve_type_safe(ctx, rt) } else { Type::Unit };
-                let args: Vec<Type> = ef.args.iter().map(|a| resolve_type_safe(ctx, a.ty.as_ref().unwrap())).collect();
+                let unknown_ty = crate::grammar::SynType::Other("UnknownSelf".to_string());
+                let args: Vec<Type> = ef.args.iter().map(|a| resolve_type_safe(ctx, a.ty.as_ref().unwrap_or(&unknown_ty))).collect();
                 ctx.globals_mut().insert(mangled.clone(), Type::Fn(args.clone(), Box::new(ret.clone())));
 
                 // [SOVEREIGN FIX] Emit MLIR declaration to decl_out
@@ -1975,7 +1978,7 @@ fn register_signatures(ctx: &CodegenContext, file: &SaltFile) {
                          _ => parsed_ty.mangle_suffix(),
                      };
                      
-                     let mut key = parsed_ty.to_key().expect("Failed to derive TypeKey for impl target");
+                     let mut key = parsed_ty.to_key().ok_or_else(|| format!("Failed to derive TypeKey for impl target {}", _target_name))?;
                      // Fix: If this is a generic impl, we must register it as the Template Key (spec = None)
                      if generics.is_some() {
                          key.specialization = None;
@@ -2007,8 +2010,10 @@ fn register_signatures(ctx: &CodegenContext, file: &SaltFile) {
             _ => {}
         }
     }
+    // Restore
     *ctx.imports_mut() = old_imports;
     *ctx.current_package.borrow_mut() = old_pkg;
+    Ok(())
 }
 
 /// A non-panicking version of resolve_type for pre-scanning.
@@ -2022,7 +2027,8 @@ fn resolve_type_safe(ctx: &CodegenContext, ty: &crate::grammar::SynType) -> Type
                      if let Some(self_ty) = ctx.current_self_ty().as_ref() {
                          return self_ty.clone();
                      }
-                     panic!("Use of 'Self' outside of an implementation block");
+                     eprintln!("CRITICAL: Use of 'Self' outside of an implementation block");
+                     return Type::Concrete("Unknown_Self".to_string(), vec![]);
                  }
                  
                  // [CROSS-MODULE STRUCT] Split qualified names like "addr::PhysAddr" into
@@ -2046,7 +2052,7 @@ fn resolve_type_safe(ctx: &CodegenContext, ty: &crate::grammar::SynType) -> Type
                          }
                      }
                      eprintln!("CRITICAL: resolve_type_safe failed to resolve '{}'. Imports: {:?}", name, ctx.imports().iter().map(|i| i.alias.as_ref().map(|a| a.to_string()).unwrap_or("?".to_string())).collect::<Vec<_>>());
-                     panic!("FQN Enforcement: Failed to resolve type '{}' in scanning phase.", name);
+                     return Type::Concrete(format!("Unknown_{}", name), vec![]);
                  };
                  
                  let _ = ctx.ensure_struct_exists(&resolved_name, &[]); 
@@ -2183,14 +2189,14 @@ fn scan_dependencies_in_file(ctx: &CodegenContext, f: &SaltFile) -> Result<(), S
                         continue; 
                     }
                     // Also check if target_ty implies generics (e.g. impl Vec<T>)
-                    let parsed_ty = crate::types::Type::from_syn(target_ty).unwrap();
+                    let parsed_ty = crate::types::Type::from_syn(target_ty).ok_or_else(|| "Failed to parse type from syntax in impl block during scan".to_string())?;
                     let substituted = crate::codegen::type_bridge::substitute_generics(&ctx.current_type_map(), &parsed_ty);
                     if substituted.has_generics() {
 
                          continue;
                     }
 
-                     let parsed_ty = crate::types::Type::from_syn(target_ty).unwrap();
+                     let parsed_ty = crate::types::Type::from_syn(target_ty).ok_or_else(|| "Failed to parse type from syntax in impl block during scan".to_string())?;
                      // Resolve target (might trigger specialization!)
                      let resolved_target = ctx.bridge_resolve_codegen_type(&parsed_ty);
                      
@@ -2249,7 +2255,7 @@ fn scan_stmt(ctx: &CodegenContext, stmt: &crate::grammar::Stmt) -> Result<(), St
         crate::grammar::Stmt::Syn(s) => match s {
             syn::Stmt::Local(l) => {
                 if let syn::Pat::Type(pt) = &l.pat {
-                    ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(*pt.ty.clone()).expect("Failed to convert local type"));
+                    ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(*pt.ty.clone()).map_err(|e| e.to_string())?);
                 }
                 if let Some(init) = &l.init { scan_expr(ctx, &init.expr)?; }
                 Ok(())
@@ -2314,7 +2320,7 @@ fn scan_expr(ctx: &CodegenContext, expr: &syn::Expr) -> Result<(), String> {
                          for arg in &args.args {
                              match arg {
                                  syn::GenericArgument::Type(ty) => {
-                                     generic_args.push(ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(ty.clone()).expect("Failed to convert generic arg")));
+                                     generic_args.push(ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(ty.clone()).map_err(|e| e.to_string())?));
                                  }
                                  syn::GenericArgument::Const(expr) => {
                                      if let Ok(crate::evaluator::ConstValue::Integer(val)) = ctx.evaluator.borrow_mut().eval_expr(expr) {
@@ -2342,7 +2348,7 @@ fn scan_expr(ctx: &CodegenContext, expr: &syn::Expr) -> Result<(), String> {
                     let parts: Vec<&str> = full_mangled.split("__").collect();
                     if parts.len() >= 2 {
                          let base_name = Mangler::mangle(&parts[..parts.len()-1]);
-                         let method_name = parts.last().unwrap();
+                         let method_name = parts.last().ok_or_else(|| "Failed to get method name from mangled path".to_string())?;
                          
                          // Check if base_name is a known template
                          if ctx.struct_templates().contains_key(&base_name) || ctx.enum_templates().contains_key(&base_name) {
@@ -2359,7 +2365,7 @@ fn scan_expr(ctx: &CodegenContext, expr: &syn::Expr) -> Result<(), String> {
                              // Reconstruct key from base_name string
                              let base_parts: Vec<&str> = base_name.split("__").collect();
                              let (b_path, b_name) = if base_parts.len() > 1 {
-                                 (base_parts[..base_parts.len()-1].iter().map(|s| s.to_string()).collect::<Vec<_>>(), base_parts.last().unwrap().to_string())
+                                 (base_parts[..base_parts.len()-1].iter().map(|s| s.to_string()).collect::<Vec<_>>(), base_parts.last().ok_or_else(|| "Failed to get base name".to_string())?.to_string())
                              } else {
                                  (vec![], base_name.clone())
                              };
@@ -2410,7 +2416,8 @@ fn scan_expr(ctx: &CodegenContext, expr: &syn::Expr) -> Result<(), String> {
 
                                  // Resolve Ret Type to trigger instantiation
                                  if let Some(rt) = &f.ret_type { let _ = ctx.bridge_resolve_type(rt); }
-                                 for a in &f.args { let _ = ctx.bridge_resolve_type(a.ty.as_ref().unwrap()); }
+                                 let unknown_ty = crate::grammar::SynType::Other("UnknownSelf".to_string());
+                                 for a in &f.args { let _ = ctx.bridge_resolve_type(a.ty.as_ref().unwrap_or(&unknown_ty)); }
                                  
                                  *ctx.current_type_map_mut() = old_map;
                                  
@@ -2419,11 +2426,11 @@ fn scan_expr(ctx: &CodegenContext, expr: &syn::Expr) -> Result<(), String> {
                                  let segments_len = p.path.segments.len();
                                  if segments_len >= 2 {
                                      let mut base_path = p.path.clone();
-                                     let method_seg = base_path.segments.pop().unwrap().into_value();
+                                     let method_seg = base_path.segments.pop().ok_or_else(|| "Failed to pop method segment".to_string())?.into_value();
                                      
                                      // Resolve Base Type (Self)
                                      let base_ty_syn = syn::Type::Path(syn::TypePath { qself: None, path: base_path });
-                                     let self_ty = ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(base_ty_syn).expect("Failed to convert base type"));
+                                     let self_ty = ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(base_ty_syn).map_err(|e| e.to_string())?);
                                      
                                      // 2. Extract Generic Arguments
                                      let mut concrete_tys = Vec::new();
@@ -2438,7 +2445,7 @@ fn scan_expr(ctx: &CodegenContext, expr: &syn::Expr) -> Result<(), String> {
                                          for arg in &args.args {
                                              match arg {
                                                  syn::GenericArgument::Type(ty) => {
-                                                     concrete_tys.push(ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(ty.clone()).unwrap()));
+                                                     concrete_tys.push(ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(ty.clone()).map_err(|e| e.to_string())?));
                                                  }
                                                  syn::GenericArgument::Const(expr) => {
                                                       if let Ok(crate::evaluator::ConstValue::Integer(val)) = ctx.evaluator.borrow_mut().eval_expr(expr) {
@@ -2489,14 +2496,14 @@ fn scan_expr(ctx: &CodegenContext, expr: &syn::Expr) -> Result<(), String> {
              // Check if it is a specialized struct instantiation
             // Resolve the path type!
              let ty_syn = syn::Type::Path(syn::TypePath { qself: None, path: s.path.clone() });
-             ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(ty_syn).expect("Failed to convert struct expr type"));
+             ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(ty_syn).map_err(|e| e.to_string())?);
              
              for f in &s.fields { scan_expr(ctx, &f.expr)?; }
              Ok(())
         }
         syn::Expr::Cast(c) => {
             scan_expr(ctx, &c.expr)?;
-            ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(*c.ty.clone()).expect("Failed to convert cast type"));
+            ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(*c.ty.clone()).map_err(|e| e.to_string())?);
             Ok(())
         }
         syn::Expr::Binary(b) => {
@@ -2519,7 +2526,7 @@ fn scan_expr(ctx: &CodegenContext, expr: &syn::Expr) -> Result<(), String> {
                 if let Some(turbofish) = &m.turbofish {
                     for arg in &turbofish.args {
                         if let syn::GenericArgument::Type(ty) = arg {
-                            method_generics.push(ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(ty.clone()).expect("Failed to convert method generic")));
+                            method_generics.push(ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(ty.clone()).map_err(|e| e.to_string())?));
                         }
                     }
                 }

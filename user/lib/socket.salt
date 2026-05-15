@@ -52,18 +52,13 @@ fn vol_write64(addr: u64, val: u64) {
 fn spsc_available(base: u64) -> u64 {
     let head = vol_read64(base + RING_HEAD_OFF);
     let tail = vol_read64(base + RING_TAIL_OFF);
-    if head >= tail {
-        return head - tail;
-    }
-    // Wrapped: capacity - tail + head
-    let cap = vol_read64(base + RING_CAPACITY_OFF);
-    return cap - tail + head;
+    return head - tail;
 }
 
 /// Returns the number of bytes available to write to the ring.
 fn spsc_free_space(base: u64) -> u64 {
     let cap = vol_read64(base + RING_CAPACITY_OFF);
-    return cap - spsc_available(base) - 1;  // -1 to distinguish full from empty
+    return cap - spsc_available(base);
 }
 
 /// Pop up to `count` bytes from ring into `dst`. Returns bytes popped.
@@ -173,21 +168,22 @@ fn tx_vaddr(fd: u64) -> u64 {
 /// Bind a port. Sends CMD_BIND to NetD and blocks for response.
 /// On success, returns a Socket with deterministic VADDR rings.
 /// On failure, returns a Socket with state=CLOSED.
+extern fn sys_ipc_recv_full(msg_out: u64);
+
 pub fn bind(port: u64) -> Socket {
     // Send: CMD_BIND, port, 0
     syscall.ipc_send(socket_protocol.NETD_PID, socket_protocol.CMD_BIND, port, 0);
 
     // Block until NetD replies
-    let sender = syscall.ipc_recv();
+    let msg_buf: [u64; 4] = [0; 4];
+    sys_ipc_recv_full((&msg_buf) as u64);
 
-    // ipc_recv returns sender_pid in RAX; the response payload is in
-    // the registers that were overwritten by the kernel:
-    //   After ipc_recv returns: RAX=sender, RDI=msg0, RSI=msg1, RDX=msg2
-    // In Salt, the extern fn returns RAX. The msg0/msg1/msg2 values are
-    // only accessible via inline assembly or a multi-return ABI.
-    // For now, we assume success if sender == NETD_PID.
-    // The FD is deterministically assigned as port % 256.
-    let fd = port % 256;
+    let sender = msg_buf[0];
+    let msg0 = msg_buf[1];
+
+    // SECURITY FIX: Read the non-predictable FD assigned by NetD from the IPC payload.
+    // The previous implementation used port % 256 which allowed deterministic FD hijacking.
+    let fd = msg0;
 
     if sender == socket_protocol.NETD_PID {
         return Socket {

@@ -652,9 +652,11 @@ pub fn emit_expr(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, 
                         Some(Type::Reference(inner, _)) if matches!(**inner, Type::U8) => {
                             format!("{}.append_str({})", handler_name, expr_str)
                         }
-                        Some(Type::Struct(name)) | Some(Type::Concrete(name, _)) => {
-                            let name = name.clone();
-                            let the_ty = resolved_ty.as_ref().unwrap();
+                        Some(the_ty @ (Type::Struct(_) | Type::Concrete(_, _))) => {
+                            let name = match the_ty {
+                                Type::Struct(n) | Type::Concrete(n, _) => n.clone(),
+                                _ => unreachable!(),
+                            };
                             // Check if the struct has a fmt() method
                             let type_key = crate::codegen::type_bridge::type_to_type_key(the_ty);
                             if ctx.trait_registry().contains_method(&type_key, "fmt") {
@@ -816,7 +818,7 @@ pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr
                     }
                     else { false }
                  }) {
-                    return Err(format!("Undefined global or static '{}' in package/module path '{}'", segments.last().unwrap(), segments.join(".")));
+                    return Err(format!("Undefined global or static '{}' in package/module path '{}'", segments.last().unwrap_or(&"".to_string()), segments.join(".")));
                  }
             }
         } else {
@@ -830,7 +832,7 @@ pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr
                 }
                 else { false }
             }) {
-                return Err(format!("Undefined global or static '{}' in package/module path '{}'", segments.last().unwrap(), segments.join(".")));
+                return Err(format!("Undefined global or static '{}' in package/module path '{}'", segments.last().unwrap_or(&"".to_string()), segments.join(".")));
             }
         }
     }
@@ -1221,7 +1223,7 @@ pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr
                              // [VERIFIED METAL] Phase 5: Use centralized struct lookup
                              info_opt = ctx.find_struct_by_name(sn);
                         }
-                        let info = info_opt.expect(&format!("Struct info missing for '{}' (available: {:?})", sn, ctx.struct_registry().iter().map(|(k, v)| (k.name.clone(), v.fields.len())).collect::<Vec<_>>()));
+                        let info = info_opt.ok_or_else(|| format!("Struct info missing for '{}' (available: {:?})", sn, ctx.struct_registry().iter().map(|(k, v)| (k.name.clone(), v.fields.len())).collect::<Vec<_>>()))?;
 
                        if let Some((idx, raw_field_ty)) = info.fields.get(&field_name) {
                             // [SOVEREIGN V4.0] CHAINED RESOLUTION FIX: Build local specialization map

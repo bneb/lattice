@@ -88,12 +88,13 @@ global PROC_COUNT: u64 = 0;
 pub fn alloc_pid() -> u64 {
     let mut i: u64 = 0;
     while i < MAX_PROCS {
-        if PROC_TABLE[i].state == PROC_FREE {
-            let pid = NEXT_PID;
-            NEXT_PID = NEXT_PID + 1;
-            PROC_TABLE[i].pid = pid;
+        // SECURITY FIX: Atomically claim the slot (PROC_FREE -> 99 (ALLOCATING))
+        let old_state = atomic_cas_i64(&PROC_TABLE[i].state, PROC_FREE as i64, 99 as i64);
+        if old_state == PROC_FREE as i64 {
+            let pid = atomic_add_i64(&NEXT_PID, 1 as i64);
+            PROC_TABLE[i].pid = pid as u64;
             PROC_TABLE[i].state = PROC_READY;
-            PROC_COUNT = PROC_COUNT + 1;
+            atomic_add_i64(&PROC_COUNT, 1 as i64);
             return i;
         }
         i = i + 1;
@@ -276,6 +277,14 @@ pub fn get_vma_list_head(slot: u64) -> u64 {
 pub fn set_vma_list_head(slot: u64, val: u64) {
     PROC_TABLE[slot].vma_list_head = val;
 }
+
+pub fn set_user_pml4(slot: u64, val: u64) { PROC_TABLE[slot].user_pml4 = val; }
+pub fn set_kernel_stack_base(slot: u64, val: u64) { PROC_TABLE[slot].kernel_stack_base = val; }
+pub fn set_kernel_stack_top(slot: u64, val: u64) { PROC_TABLE[slot].kernel_stack_top = val; }
+pub fn set_user_entry(slot: u64, val: u64) { PROC_TABLE[slot].user_entry = val; }
+pub fn set_user_stack_top(slot: u64, val: u64) { PROC_TABLE[slot].user_stack_top = val; }
+
+pub fn dec_count() { atomic_add_i64(&PROC_COUNT, -1 as i64); }
 
 // @no_mangle ABI Wrappers
 @no_mangle

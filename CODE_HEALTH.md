@@ -1,23 +1,27 @@
-# Code Health Report - High-Fidelity Audit
+# Code Health and Architecture Report
 
-This report summarizes significant architectural and "code smell" issues identified during a deep manual audit of the codebase.
+This report summarizes significant architectural and "code smell" issues identified during a deep manual audit of the codebase across all major subsystems.
 
-## 1. Architectural Leaks & Coupling
-- **Tightly Coupled Syscalls & Hardware**: `kernel/core/syscall.salt` contains significant hardware-specific logic for the "MoE TX Bridge" (`moe_drain_bar`). This should be abstracted into a driver layer rather than living in the syscall dispatcher.
-- **Leaky Abstractions in PMM**: The PMM (`kernel/core/pmm.salt`) exposes raw `u64` physical addresses throughout the kernel. Higher-level modules should interact with `PhysAddr` types or opaque handles to prevent accidental pointer arithmetic on physical addresses.
-- **Global State Proliferation**: The kernel relies heavily on global variables (`CURRENT_PID`, `NEXT_PID`, `PMM_SHARDS`) without a unified "Kernel Context" or "Core Context" struct. This makes testing difficult and leads to the synchronization issues noted in `POSSIBLE_BUGS.md`.
+## 1. Compiler Soundness & Debt (salt-front)
+- **Disconnected Verification Logic**: `salt-front/src/codegen/ptr_bounds_verifier.rs`. Verification logic for pointer bounds is fully implemented but entirely unreferenced in the codegen path. This indicates a "shadow" safety system that provides no real-world protection.
+- **Inconsistent Unification**: The generic resolver skips subsequent encounters of the same generic parameter, bypassing structural equivalence checks. This is a major architectural flaw that breaks the language's type-safety guarantee.
 
-## 2. Complexity & Length
-- **Monolithic Files**: Several core files exceed 500 lines (`kernel/core/syscall.salt`, `kernel/core/scheduler.salt`, `kernel/core/main.salt`). These files handle too many responsibilities (e.g., `main.salt` handles memory, SMP, terminal logic, and process spawning).
-- **Excessive Nesting**: Many compute kernels in `basalt/src/kernels.salt` and the scheduler logic use 4+ levels of indentation, making the control flow difficult to follow and increasing the risk of logic errors.
+## 2. Kernel Architecture (Ring 0)
+- **Missing Cross-Core TLB Shootdown**: `kernel/core/vmm.salt`. Guard pages only flush the local TLB, leading to severe incoherence across SMP cores.
+- **GS-Base Initialization Race**: The interaction between `SYSCALL` (hardware segment swap) and the kernel's software `SWAPGS` is vulnerable to NMI interrupts, a classic "unfixable" architectural race if not handled with extreme care in the entry stubs.
+- **Tightly Coupled Syscalls & Hardware**: `kernel/core/syscall.salt` contains hardware-specific logic for the "MoE TX Bridge".
 
 ## 3. Resilience & Safety
-- **Manual Memory Management**: The widespread use of `malloc`/`free` and raw pointer arithmetic in `basalt` and the kernel without RAII-like patterns (which Salt may not support) leads to the frequent memory leaks and OOM-handling bugs identified.
-- **Lack of Error Propagation**: Many functions (e.g., `sys_write`, `sys_shm_grant`) return silently or with a simple `-1` on failure, losing critical diagnostic information. There is no structured error handling (Result types or similar) in the core logic.
-- **Hardcoded Memory Layouts**: Stacks and page tables are often hardcoded to specific virtual addresses (e.g., `0xFFFFFFFF80126000`), making the system fragile to changes in the memory map.
+- **Manual Memory Management**: widespread use of `malloc`/`free` without RAII or lifecycle tracking leads to frequent leaks.
+- **Lack of Error Propagation**: Many critical kernel functions return silently or with uninformative integers, losing diagnostic context.
+- **Hardcoded Memory Layouts**: The kernel relies on specific virtual address constants (e.g., `0xFFFFFFFF80126000`), making the memory map extremely fragile.
 
-## 4. Sub-optimal Algorithms
-- **Linear Search in Hot Paths**: Tokenization and PID allocation use O(N) linear scans. For a system intended to scale (32k tokens, 16 processes), these should be replaced with HashMaps or bitsets.
+## 4. Sub-optimal Algorithms & Performance Anti-Patterns
+- **Linear Search in Hot Paths**: PID allocation and tokenization use $O(N)$ scans.
+- **$O(N^2)$ Tokenizer Prompt Pre-scan**: Prompt encoding speed degrades exponentially with context length.
+- **Excessive Mallocs in Tokenizer**: Initialization performs `malloc(1)` for every single byte, fragmenting the heap.
+- **Hardcoded Engine Limits**: Llama 2 engine is artificially limited to 1GB models due to hardcoded mmap lengths.
 
----
-*Note: This report is a high-level architectural summary. Specific line-by-line structural violations (indentation, scope length, etc.) are documented in the automated logs.*
+## 5. UI/UX Bugs in System Processes
+- **Debug Artifact in Production**: `user/browser/compositor.salt` unconditionally overwrites the first primitive's X-coordinate.
+- **Busy-Waiting in Main Thread**: The browser UI freezes while waiting for shared-memory IPC.

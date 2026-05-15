@@ -195,6 +195,13 @@ pub fn layout_inject_dom_pointers() {
     P_STYLE_FONT_SIZE = dom_ptr_STYLE_FONT_SIZE();
     P_LAYOUT_SCROLL_X = dom_ptr_LAYOUT_SCROLL_X();
     P_LAYOUT_SCROLL_Y = dom_ptr_LAYOUT_SCROLL_Y();
+    
+    // [DIAG] Check injected pointer
+    let m_inj: [u8; 12] = [91,73,78,74,93,32,80,83,88,61,32,10]; // "[INJ] PSX= \n"
+    sys_log_info((&m_inj) as u64, 11);
+    sys_print_float(P_LAYOUT_SCROLL_X as f64);
+    let nl_inj: [u8; 1] = [10];
+    sys_log_info((&nl_inj) as u64, 1);
     P_STYLE_GRID_COL_VAL = dom_ptr_STYLE_GRID_COL_VAL();
 }
 
@@ -1437,6 +1444,16 @@ pub fn sys_layout_solve_matrix() {
     *((P_LAYOUT_H + root_v_idx * 4) as &mut i32) = vh;
     *((P_FLAG_LAYOUT_DIRTY + root_v_idx) as &mut u8) = 1;
     *((P_STYLE_DISPLAY + root_v_idx) as &mut u8) = 1; // Force BLOCK
+    
+    // [DIAG] Print pointers to verify overlapping
+    let m_ptr_w: [u8; 5] = [80,76,87,61,32]; // "PLW= "
+    sys_log_info((&m_ptr_w) as u64, 5);
+    sys_print_float(P_LAYOUT_W as f64);
+    let m_ptr_sx: [u8; 6] = [32,80,83,88,61,32]; // " PSX= "
+    sys_log_info((&m_ptr_sx) as u64, 6);
+    sys_print_float(P_LAYOUT_SCROLL_X as f64);
+    let nlxy: [u8; 1] = [10];
+    sys_log_info((&nlxy) as u64, 1);
     
     // [DIAG] Print P_LAYOUT_X in layout.salt
     let m_plx: [u8; 11] = [91,76,65,89,93,32,80,76,88,61,32]; // "[LAY] PLX= "

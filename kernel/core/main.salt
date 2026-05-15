@@ -8,6 +8,21 @@ package kernel.core.main
 import kernel.drivers.serial
 import kernel.arch.x86.idt
 
+@no_mangle
+pub fn multiboot_parse(mb_info: u64) { let dummy = 0; }
+
+@no_mangle
+pub fn terminal_main(w: u64, h: u64, pitch: u64) { let dummy = 0; }
+
+@no_mangle
+pub fn netd_main(arg1: u64, arg2: u64, arg3: u64) { let dummy = 0; }
+
+@no_mangle
+pub fn moe_init_trampoline(state: u64, bar_out: u64, poll_out: u64) { let dummy = 0; }
+
+@no_mangle
+pub fn ecs_push_hardware_interrupt(a: u64, b: u64, c: u64, d: u64) { let dummy = 0; }
+
 // =============================================================================
 // Assembly FFI (unmangled symbols from .S files)
 // =============================================================================
@@ -112,6 +127,7 @@ extern fn syscall_set_moe_peer_mac(b0: u8, b1: u8, b2: u8, b3: u8, b4: u8, b5: u
 // kernel/net/netcore.salt
 extern fn netcore_set_rx_notify(ptr: u64);
 extern fn map_user_page_extern(pml4_phys: u64, vaddr: u64, paddr: u64, flags: u64);
+extern fn create_user_pml4_kpti(kernel_pml4: u64) -> u64;
 
 // kernel/drivers/virtio_net.salt
 extern fn moe_net_init() -> bool;
@@ -134,7 +150,6 @@ const PROC_RUNNING: u64 = 2;
 const PROC_READY: u64  = 1;
 
 // NEW BARE METAL MODULES
-extern fn multiboot_parse(mb_info: u64);
 extern fn fb_clear(color: u32);
 extern fn fb_get_width() -> u32;
 extern fn fb_get_height() -> u32;
@@ -142,9 +157,6 @@ extern fn fb_get_pitch() -> u32;
 extern fn fb_get_phys() -> u64;
 extern fn ps2_kbd_irq_handler();
 extern fn ps2_set_rx_ring(ptr: u64);
-
-extern fn terminal_main(w: u64, h: u64, pitch: u64);
-extern fn netd_main(arg1: u64, arg2: u64, arg3: u64);
 
 global KERNEL_TX_RING_VIRT: u64 = 0;
 global KERNEL_LINE_BUFFER: [u8; 64] = [0; 64];
@@ -169,7 +181,10 @@ pub fn terminal_tx_poll_thread() {
             let head = *((KERNEL_TX_RING_VIRT + 0) as &u64);
             let tail = *((KERNEL_TX_RING_VIRT + 64) as &u64);
             if head != tail {
-                let capacity = *((KERNEL_TX_RING_VIRT + 8) as &u64);
+                let mut capacity = *((KERNEL_TX_RING_VIRT + 8) as &u64);
+                if capacity == 0 {
+                    capacity = 3904; // SECURITY FIX: Prevent Division by Zero DoS from malformed user capacity
+                }
                 let c = *((KERNEL_TX_RING_VIRT + 192 + tail) as &u8);
                 
                 let new_tail = (tail + 1) % capacity;
@@ -361,6 +376,9 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     process_set_state(slot_task0, PROC_READY);
     serial.print("[KeuOS] Task 0 (dispatcher) spawned\n");
 
+// KPTI SECURITY FIX: Create dedicated user address spaces for Ring 3 processes
+    let terminal_pml4 = create_user_pml4_kpti(kernel_pml4);
+
     serial.print("[KeuOS] Bootstrapping Sovereign Ring 3 Terminal SIP...\n");
     let fb_w = fb_get_width() as u64;
     let fb_h = fb_get_height() as u64;
@@ -370,14 +388,14 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     // Map 1024 pages of Framebuffer (1024 * 4KB = 4MB) to 0x40002000
     let mut fb_idx: u64 = 0;
     while fb_idx < 1024 {
-        map_user_page_extern(kernel_pml4, 0x40002000 + (fb_idx * 4096), fb_phys + (fb_idx * 4096), 0x7);
+        map_user_page_extern(terminal_pml4, 0x40002000 + (fb_idx * 4096), fb_phys + (fb_idx * 4096), 0x7);
         fb_idx = fb_idx + 1;
     }
 
     // Allocate 1 page for SPSC Ring Buffer at 0x40001000
     // This establishes the secure IPC boundary between Kernel (Producer) and SIP (Consumer)
     let rx_ring_phys = pmm_alloc();
-    map_user_page_extern(kernel_pml4, 0x40001000, rx_ring_phys, 0x7);
+    map_user_page_extern(terminal_pml4, 0x40001000, rx_ring_phys, 0x7);
     
     // Wire the physical SPSC Ring to the PS/2 Kernel Module
     let rx_ring_kern = rx_ring_phys + KERNEL_BASE;
@@ -392,7 +410,7 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     // Allocate 1 page for TX_RING at 0x40003000
     // ------------------------------------------------------------------------
     let tx_ring_phys = pmm_alloc();
-    map_user_page_extern(kernel_pml4, 0x40003000, tx_ring_phys, 0x7);
+    map_user_page_extern(terminal_pml4, 0x40003000, tx_ring_phys, 0x7);
     
     let tx_ring_kern = tx_ring_phys + KERNEL_BASE;
     *((tx_ring_kern + 0) as &mut u64) = 0;           // head
@@ -406,14 +424,14 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     let mut cp_idx: u64 = 0;
     while cp_idx < 16 {
         let cp_phys = pmm_alloc();
-        map_user_page_extern(kernel_pml4, 0x40402000 + (cp_idx * 4096), cp_phys, 0x7);
+        map_user_page_extern(terminal_pml4, 0x40402000 + (cp_idx * 4096), cp_phys, 0x7);
         cp_idx = cp_idx + 1;
     }
 
     let slot_terminal = exec_spawn_ring3_coroutine(
             (&terminal_main) as u64,
             fb_w, fb_h, fb_pitch,
-            kernel_pml4
+            terminal_pml4
         );
     process_set_state(slot_terminal, PROC_READY);
     serial.print("[KeuOS] Terminal SIP coroutine spawned\n");
@@ -423,10 +441,11 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     process_set_state(slot_tx, PROC_READY);
     serial.print("[KeuOS] TX_RING Supervisor C2 Thread spawned\n");
 
+    let netd_pml4 = create_user_pml4_kpti(kernel_pml4);
     let slot_netd = exec_spawn_ring3_coroutine(
             (&netd_main) as u64,
             0, 0, 0,
-            kernel_pml4
+            netd_pml4
         );
     process_set_state(slot_netd, PROC_READY);
     serial.print("[KeuOS] NetD Ring 3 SIP spawned (Fastpath Handoff Target)\n");
@@ -519,12 +538,13 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     *((state_ptr + 72) as &mut u64) = rx_notify_ptr;
     *((state_ptr + 80) as &mut u64) = rx_pool_vaddr;
 
+    let moe_pml4 = create_user_pml4_kpti(kernel_pml4);
     let slot_a = exec_spawn_ring3_coroutine(
             (&moe_init_trampoline) as u64,
             state_ptr,
             bar_ptr,
             poll_ptr,
-            kernel_pml4
+            moe_pml4
         );
     serial.print("[KeuOS] MoE Pipeline spawned\n");
 

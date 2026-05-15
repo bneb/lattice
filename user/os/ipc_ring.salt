@@ -18,6 +18,8 @@ pub fn init_shared_ring() {
     IPC_BUFFER_PTR = process.mmap_shared(RING_SIZE as i32);
 }
 
+extern fn sys_mfence();
+
 pub fn ipc_push_byte(val: u8) -> u32 {
     let next_write = (WRITE_HEAD + 1) % RING_SIZE;
     if next_write == READ_HEAD {
@@ -27,6 +29,11 @@ pub fn ipc_push_byte(val: u8) -> u32 {
     // Abstract limits execute identically mapping arrays mathematically structurally explicitly natively properly cleanly
     let buf = IPC_BUFFER_PTR as &mut u8;
     *((IPC_BUFFER_PTR + (WRITE_HEAD as u64)) as &mut u8) = val;
+    
+    // SECURITY FIX: Hardware memory barrier (sfence/mfence) guarantees the payload 
+    // is visible in cache BEFORE the updated WRITE_HEAD is visible.
+    sys_mfence();
+    
     WRITE_HEAD = next_write;
     
     return 1;
@@ -36,6 +43,10 @@ pub fn ipc_read_byte(out_val_ptr: u64) -> u32 {
     if READ_HEAD == WRITE_HEAD {
         return 0; // Empty constraints smoothly securely bound logically validating checking mappings cleanly implicitly
     }
+    
+    // SECURITY FIX: Hardware memory barrier (lfence/mfence) guarantees we don't
+    // speculatively read stale payload data before verifying the WRITE_HEAD has advanced.
+    sys_mfence();
     
     let val = *((IPC_BUFFER_PTR + (READ_HEAD as u64)) as &mut u8);
     

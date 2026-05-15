@@ -176,6 +176,24 @@ void sys_on_mouse_click(int32_t x, int32_t y) {
       }
       curr = ext_dom_get_parent_idx(curr);
     }
+
+    // 3. Sprint 9: Form Submission on Click
+    curr = target_node_idx;
+    while (curr != 0 && curr != 999999) {
+        uint32_t tag = dom_get_tag(curr);
+        if (tag == 18 || tag == 20) { // TAG_INPUT or TAG_BUTTON
+            // Simple heuristic: if it's a button or input[type=submit] in a form, submit it.
+            // For now, we'll just check if it's inside a form.
+            extern uint32_t find_form_ancestor(uint32_t node);
+            uint32_t form = find_form_ancestor(curr);
+            if (form != 0) {
+                extern void dom_handle_form_submit(uint32_t form_idx);
+                dom_handle_form_submit(form);
+                return;
+            }
+        }
+        curr = ext_dom_get_parent_idx(curr);
+    }
 }
 
 extern void ext_dom_set_hovered_node(uint32_t node_idx);

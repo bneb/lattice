@@ -167,30 +167,39 @@ impl VerificationEngine {
                  // - If requirement is definitely true → PASS  
                  // - If Z3 can't determine (uninterpreted functions) → PASS (conservative)
                  
-                 // Check: is the requirement definitely violated?
-                 // We check if the requirement itself is provably false (UNSAT).
+                 // We check if the negation of the requirement is satisfiable.
+                 // If NOT(req) is UNSAT, then req is ALWAYS TRUE (proven).
                  let solver = crate::z3_shim::Solver::new(ctx.z3_ctx);
                  let mut solver_params = crate::z3_shim::Params::new(ctx.z3_ctx);
                  solver_params.set_u32("timeout", 100);
                  solver.set_params(&solver_params);
-                 solver.assert(&z3_req_subst);
                  
-                                  *ctx.total_checks += 1;
+                 // Also add path conditions from the caller's context to constrain the arguments
+                 let path_conditions = ctx.emission.path_conditions.clone();
+                 for pc in &path_conditions {
+                     let dummy_locals_for_pc = local_vars.clone(); // The path condition uses caller's locals
+                     if let Ok(z3_pc) = crate::codegen::expr::translate_bool_to_z3(ctx, pc, &dummy_locals_for_pc, &sym_ctx) {
+                         solver.assert(&z3_pc);
+                     }
+                 }
+                 
+                 solver.assert(&z3_req_subst.not());
+                 
+                 *ctx.total_checks += 1;
                  
                  match solver.check() {
-                     crate::z3_shim::SatResult::Unsat => {
-                         // The requirement is DEFINITELY unsatisfiable → violation!
-                         // Example: requires { b > 0 } with b=0 → (0 > 0) is UNSAT
+                     crate::z3_shim::SatResult::Sat => {
+                         // The negation CAN be satisfied → the requirement can be VIOLATED!
                          let constraint_str = format!("{}", z3_req_subst);
                          
                          // Extract counterexample values from the substitution map
                          let mut counterexample_values = Vec::new();
-                         for (i, p_name) in params.iter().enumerate() {
-                             if let Some(z3_val) = call_vals_z3.get(i) {
-                                 // Try to extract concrete integer value from Z3 ast
-                                 let val_str = format!("{}", z3_val);
-                                 if let Ok(v) = val_str.parse::<i64>() {
-                                     counterexample_values.push((p_name.clone(), v));
+                         if let Some(model) = solver.get_model() {
+                             for (i, p_name) in params.iter().enumerate() {
+                                 if let Some(z3_val) = call_vals_z3.get(i) {
+                                     if let Some(val) = model.eval(z3_val, true) {
+                                         counterexample_values.push((p_name.clone(), val.as_i64().unwrap_or(0)));
+                                     }
                                  }
                              }
                          }
@@ -209,8 +218,8 @@ impl VerificationEngine {
                          };
                          return Err(failure.format_error());
                      }
-                     crate::z3_shim::SatResult::Sat => {
-                         // Requirement CAN be satisfied → PASS
+                     crate::z3_shim::SatResult::Unsat => {
+                         // The negation CANNOT be satisfied → the requirement is PROVEN!
                          *ctx.elided_checks += 1;
                      }
                      crate::z3_shim::SatResult::Unknown => {

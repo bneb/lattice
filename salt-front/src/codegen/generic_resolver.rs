@@ -161,7 +161,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
         call_arg_exprs: &[syn::Expr],
         local_vars: &HashMap<String, (Type, crate::codegen::context::LocalKind)>,
         map: &mut BTreeMap<String, Type>,
-    ) {
+    ) -> Result<(), String> {
         let trace_locals: BTreeMap<String, Type> = local_vars.iter()
             .map(|(k, (t, _))| (k.clone(), t.clone()))
             .collect();
@@ -196,12 +196,13 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
                         };
 
                         if let Ok(concrete_ty) = concrete_result {
-                            unify_types(&pat_ty, &concrete_ty, map);
+                            unify_types(&pat_ty, &concrete_ty, map)?;
                         }
                     }
                 }
             }
         }
+        Ok(())
     }
 
     /// Fallback: Try to resolve a path expression as a function name to get Fn type.
@@ -233,7 +234,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
         call_arg_exprs: &[syn::Expr],
         local_vars: &HashMap<String, (Type, crate::codegen::context::LocalKind)>,
         map: &mut BTreeMap<String, Type>,
-    ) {
+    ) -> Result<(), String> {
         let is_instance_method = template.args.first()
             .map(|arg| arg.name.to_string() == "self")
             .unwrap_or(false);
@@ -246,10 +247,11 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
                 if let Ok(ty) = crate::codegen::tracer::TypeTracer::trace_expr_type(
                     self.ctx, first_expr, &trace_locals
                 ) {
-                    unify_types(defined_self, &ty, map);
+                    unify_types(defined_self, &ty, map)?;
                 }
             }
         }
+        Ok(())
     }
 
     /// Phase 5: Infer generics from expected return type.
@@ -257,18 +259,18 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
         template: &SaltFn,
         expected_ret_ty: Option<&Type>,
         map: &mut BTreeMap<String, Type>,
-    ) {
-        let Some(expected) = expected_ret_ty else { return };
+    ) -> Result<(), String> {
+        let Some(expected) = expected_ret_ty else { return Ok(()) };
         
         // Only proceed if there are still unmapped generics
         let unmapped = self.get_unmapped_generics(template, map);
-        if unmapped.is_empty() { return; }
+        if unmapped.is_empty() { return Ok(()); }
 
         // Resolve template return type WITHOUT current specialization context
         let template_ret_ty = {
             let rt = match &template.ret_type {
                 Some(rt) => rt.clone(),
-                None => return,
+                None => return Ok(()),
             };
             self.ctx.with_generic_context(
                 BTreeMap::new(),
@@ -279,7 +281,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
         };
 
         let mut inferred = BTreeMap::new();
-        unify_types(&template_ret_ty, expected, &mut inferred);
+        unify_types(&template_ret_ty, expected, &mut inferred)?;
 
         for name in &unmapped {
             if let Some(ty) = inferred.get(name) {
@@ -288,6 +290,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
                 }
             }
         }
+        Ok(())
     }
 
     /// Phase 6: Infer phantom generics from Fn return types.
@@ -348,7 +351,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
 
         for req in &required {
             if !map.contains_key(req) {
-                if let Some(inferred) = self.infer_single_from_return(req, template, expected_ret_ty) {
+                if let Some(inferred) = self.infer_single_from_return(req, template, expected_ret_ty)? {
                     map.insert(req.clone(), inferred);
                 } else {
                     return Err(format!("Unresolved generic '{}' in function '{}'", req, template.name));
@@ -375,7 +378,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
         for req in &required {
             if !map.contains_key(req) {
                 // Last-resort: try return type inference
-                if let Some(inferred) = self.infer_single_from_return(req, template, expected_ret_ty) {
+                if let Some(inferred) = self.infer_single_from_return(req, template, expected_ret_ty)? {
                     map.insert(req.clone(), inferred);
                 } else {
                     return Err(format!("Unresolved generic '{}' in function '{}'", req, template.name));
@@ -388,7 +391,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
             let struct_generics = extract_generic_names_from_type(sty);
             for sg in &struct_generics {
                 if !map.contains_key(sg) {
-                    if let Some(inferred) = self.infer_single_from_return(sg, template, expected_ret_ty) {
+                    if let Some(inferred) = self.infer_single_from_return(sg, template, expected_ret_ty)? {
                         map.insert(sg.clone(), inferred);
                     } else {
                         return Err(format!(
@@ -408,10 +411,16 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
         generic_name: &str,
         template: &SaltFn,
         expected_ret_ty: Option<&Type>,
-    ) -> Option<Type> {
-        let expected = expected_ret_ty?;
+    ) -> Result<Option<Type>, String> {
+        let expected = match expected_ret_ty {
+            Some(e) => e,
+            None => return Ok(None),
+        };
         let template_ret_ty = {
-            let rt = template.ret_type.as_ref()?;
+            let rt = match template.ret_type.as_ref() {
+                Some(r) => r,
+                None => return Ok(None),
+            };
             self.ctx.with_generic_context(
                 BTreeMap::new(),
                 Type::Unit,
@@ -429,8 +438,8 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
         let normalized = normalize_generics(&template_ret_ty, &declared);
 
         let mut temp_map = BTreeMap::new();
-        unify_types(&normalized, expected, &mut temp_map);
-        temp_map.remove(generic_name)
+        unify_types(&normalized, expected, &mut temp_map)?;
+        Ok(temp_map.remove(generic_name))
     }
 
     /// Collect all declared generic param names from a function template.
@@ -552,63 +561,68 @@ pub fn unify_types(
     template: &Type,
     concrete: &Type,
     map: &mut BTreeMap<String, Type>,
-) {
+) -> Result<(), String> {
     match (template, concrete) {
         // Explicit generic marker
         (Type::Generic(name), _) => {
-            if !map.contains_key(name) {
+            if let Some(existing) = map.get(name) {
+                if existing != concrete {
+                    return Err(format!("Generic monomorphization type confusion: parameter '{}' was already bound to '{:?}' but is now being bound to '{:?}'.", name, existing, concrete));
+                }
+            } else {
                 map.insert(name.clone(), concrete.clone());
             }
         }
         // Recurse into Pointer
         (Type::Pointer { element: e1, .. }, Type::Pointer { element: e2, .. }) => {
-            unify_types(e1, e2, map);
+            unify_types(e1, e2, map)?;
         }
         // Pointer ↔ Concrete(Ptr) bridge
         (Type::Pointer { element: p_elem, .. }, Type::Concrete(c_name, c_args))
             if c_name.contains("Ptr") && c_args.len() == 1 =>
         {
-            unify_types(p_elem, &c_args[0], map);
+            unify_types(p_elem, &c_args[0], map)?;
         }
         (Type::Concrete(p_name, p_args), Type::Pointer { element: c_elem, .. })
             if p_name.contains("Ptr") && p_args.len() == 1 =>
         {
-            unify_types(&p_args[0], c_elem, map);
+            unify_types(&p_args[0], c_elem, map)?;
         }
         // Recurse into Concrete args
         (Type::Concrete(n1, args1), Type::Concrete(n2, args2)) if args1.len() == args2.len() => {
             // Allow matching even with qualified vs unqualified names
             if n1 == n2 || n1.ends_with(&format!("__{}", n2)) || n2.ends_with(&format!("__{}", n1)) {
                 for (a1, a2) in args1.iter().zip(args2.iter()) {
-                    unify_types(a1, a2, map);
+                    unify_types(a1, a2, map)?;
                 }
             }
         }
         // Recurse into Reference
         (Type::Reference(inner1, _), Type::Reference(inner2, _)) => {
-            unify_types(inner1, inner2, map);
+            unify_types(inner1, inner2, map)?;
         }
         // Auto-deref: &T can unify with T
-        (Type::Reference(p_inner, _), c) => unify_types(p_inner, c, map),
-        (p, Type::Reference(c_inner, _)) => unify_types(p, c_inner, map),
+        (Type::Reference(p_inner, _), c) => unify_types(p_inner, c, map)?,
+        (p, Type::Reference(c_inner, _)) => unify_types(p, c_inner, map)?,
         // Recurse into Array
         (Type::Array(inner1, _, _), Type::Array(inner2, _, _)) => {
-            unify_types(inner1, inner2, map);
+            unify_types(inner1, inner2, map)?;
         }
         // Recurse into Fn
         (Type::Fn(p_args, p_ret), Type::Fn(c_args, c_ret)) => {
-            unify_types(p_ret, c_ret, map);
+            unify_types(p_ret, c_ret, map)?;
             for (pa, ca) in p_args.iter().zip(c_args.iter()) {
-                unify_types(pa, ca, map);
+                unify_types(pa, ca, map)?;
             }
         }
         // Recurse into Owned/Atomic
         (Type::Owned(p_inner), Type::Owned(c_inner)) |
         (Type::Atomic(p_inner), Type::Atomic(c_inner)) => {
-            unify_types(p_inner, c_inner, map);
+            unify_types(p_inner, c_inner, map)?;
         }
         _ => {} // No unification possible
     }
+    Ok(())
 }
 
 /// Extract generic parameter names from a type (for struct-level inference).

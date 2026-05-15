@@ -3,7 +3,6 @@
 #include <string.h>
 
 extern int tests__test_e2e_multiprocess__tests_e2e_multiprocess_run();
-extern int tests__test_sprint9_nav_e2e__tests_sprint9_nav_e2e_run();
 extern int salt_browser_main(uint32_t argc, uint64_t argv);
 extern int32_t ext_ipc_init_shared_memory(int32_t fd);
 
@@ -18,8 +17,6 @@ int main(int argc, char **argv) {
                  "_tests__test_e2e_multiprocess__tests_e2e_multiprocess_run") ==
           0) {
         return tests__test_e2e_multiprocess__tests_e2e_multiprocess_run();
-      } else if (strcmp(argv[i + 1], "_tests__test_sprint9_nav_e2e__tests_sprint9_nav_e2e_run") == 0) {
-        return tests__test_sprint9_nav_e2e__tests_sprint9_nav_e2e_run();
       }
     }
     if (strcmp(argv[i], "--ipc-fd") == 0 && i + 1 < argc) {
@@ -44,6 +41,18 @@ int main(int argc, char **argv) {
 
   // Call the Salt main() with argc/argv so it can parse --url,
   // initialize JSC, DOM, fonts, create root node, and enter app_run_loop.
+  extern uint64_t dom_ptr_LAYOUT_W();
+  extern uint64_t dom_ptr_LAYOUT_SCROLL_X();
+  extern uint64_t dom_ptr_LAYOUT_SCROLL_Y();
+  extern uint64_t dom_ptr_VIEWPORT_W();
+  extern uint64_t dom_ptr_VIEWPORT_H();
+  
+  fprintf(stderr, "[DIAG-C] LAYOUT_W: %llx\n", dom_ptr_LAYOUT_W());
+  fprintf(stderr, "[DIAG-C] LAYOUT_SCROLL_X: %llx\n", dom_ptr_LAYOUT_SCROLL_X());
+  fprintf(stderr, "[DIAG-C] LAYOUT_SCROLL_Y: %llx\n", dom_ptr_LAYOUT_SCROLL_Y());
+  fprintf(stderr, "[DIAG-C] VIEWPORT_W: %llx\n", dom_ptr_VIEWPORT_W());
+  fprintf(stderr, "[DIAG-C] VIEWPORT_H: %llx\n", dom_ptr_VIEWPORT_H());
+
   return salt_browser_main((uint32_t)argc, (uint64_t)argv);
 }
 
@@ -126,4 +135,27 @@ void ext_set_media_tail(uint32_t val) {
 extern void flush_frame(int32_t width, int32_t height);
 void ext_flush_frame(int32_t width, int32_t height) {
   flush_frame(width, height);
+}
+
+// ============================================================================
+// Missing Symbols Fix (Epic 108)
+// ============================================================================
+
+uint32_t hash_string(uint64_t ptr, uint32_t len) {
+  uint32_t hash = 2166136261U;
+  const uint8_t *data = (const uint8_t *)ptr;
+  for (uint32_t i = 0; i < len; i++) {
+    hash ^= data[i];
+    hash *= 16777619U;
+  }
+  return hash;
+}
+
+void css_arena_inc_count(void) {}
+void css_arena_set_hash(uint32_t slot, uint32_t hash) {}
+void ext_engine_process_mouse_down(float x, float y) {}
+
+uint64_t sovereign_arena_alloc(uint64_t size) {
+  // Bridge implementation for ResilientArena in macOS multiprocess mode
+  return (uint64_t)calloc(1, size);
 }

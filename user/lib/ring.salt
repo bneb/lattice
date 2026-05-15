@@ -80,12 +80,12 @@ pub fn push(ring_base: u64, payload: u64, len: u64) -> u64
         return 0;
     }
 
-    // Raw memory copy into the ring's data region
-    let dst = ring_base + DATA_OFFSET + head;
+    // Raw memory copy into the ring's data region with wrap-around support
     let mut i: u64 = 0;
     while i < len {
         let src_byte = *((payload + i) as &u8);
-        *((dst + i) as &mut u8) = src_byte;
+        let dst_idx = (head + i) % capacity;
+        *((ring_base + DATA_OFFSET + dst_idx) as &mut u8) = src_byte;
         i = i + 1;
     }
 
@@ -135,11 +135,11 @@ pub fn pop(ring_base: u64, buf: u64, max_len: u64) -> u64
         read_len = max_len;
     }
 
-    // Raw memory copy from the ring's data region
-    let src = ring_base + DATA_OFFSET + tail;
+    // Raw memory copy from the ring's data region with wrap-around support
     let mut i: u64 = 0;
     while i < read_len {
-        let src_byte = *((src + i) as &u8);
+        let src_idx = (tail + i) % capacity;
+        let src_byte = *((ring_base + DATA_OFFSET + src_idx) as &u8);
         *((buf + i) as &mut u8) = src_byte;
         i = i + 1;
     }

@@ -397,6 +397,7 @@ static void *salt_thread_trampoline(void *arg) {
 int64_t salt_thread_spawn(int64_t fn_addr) {
   pthread_t tid;
   struct salt_thread_trampoline_ctx *ctx = malloc(sizeof(*ctx));
+  if (!ctx) return 0;
   ctx->fn = (salt_thread_fn)fn_addr;
   int ret = pthread_create(&tid, NULL, salt_thread_trampoline, ctx);
   if (ret != 0) {
@@ -418,6 +419,7 @@ int32_t salt_thread_join(int64_t handle) {
 // Mutex: opaque handle (pointer to pthread_mutex_t)
 int64_t salt_mutex_create(void) {
   pthread_mutex_t *m = (pthread_mutex_t *)malloc(sizeof(pthread_mutex_t));
+  if (!m) return 0;
   pthread_mutex_init(m, NULL);
   return (int64_t)m;
 }

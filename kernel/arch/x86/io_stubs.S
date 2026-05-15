@@ -2,8 +2,6 @@
 // kernel/arch/x86/io_stubs.S
 // I/O Port Access Stubs (outl, inl, inw, outb, inb)
 // =============================================================================
-// These are required by the VirtIO PCI driver for port-mapped I/O.
-// =============================================================================
 
 .intel_syntax noprefix
 

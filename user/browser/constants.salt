@@ -20,13 +20,25 @@ pub const TAG_TD:     u32 = 14;
 pub const TAG_B:      u32 = 15;
 pub const TAG_I:      u32 = 16;
 pub const TAG_FONT:   u32 = 17;
+pub const TAG_INPUT:  u32 = 18;
+pub const TAG_TEXTAREA: u32 = 19;
+pub const TAG_BUTTON: u32 = 20;
+pub const TAG_FORM:   u32 = 21;
+pub const TAG_SHADOW: u32 = 22;
+pub const TAG_VIDEO:  u32 = 25;
+pub const TAG_IFRAME: u32 = 26;
+pub const TAG_CANVAS: u32 = 27;
 
 pub const DISPLAY_NONE:  u8 = 0;
 pub const DISPLAY_BLOCK: u8 = 1;
 pub const DISPLAY_FLEX:  u8 = 2;
 pub const DISPLAY_INLINE: u8 = 3;
-pub const DISPLAY_GRID: u8 = 4;
+pub const DISPLAY_GRID:  u8 = 4;
 pub const DISPLAY_INLINE_BLOCK: u8 = 5;
+pub const DISPLAY_TABLE:       u8 = 6;
+pub const DISPLAY_TABLE_ROW:   u8 = 7;
+pub const DISPLAY_TABLE_CELL:  u8 = 8;
+
 pub const FLEX_DIR_ROW: u8 = 0;
 pub const FLEX_DIR_COL: u8 = 1;
 

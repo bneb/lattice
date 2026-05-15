@@ -46,10 +46,10 @@ pub fn tests_e2e_multiprocess_run() -> i32 {
     let O_RDWR = 2;
     let shm_fd = shm_open((&name_str) as u64, O_CREAT | O_RDWR, 438); // 0666
     if shm_fd < 0 { return 1; }
-    
-    ftruncate(shm_fd, 2097152);
-    let ptr = mmap(0, 2097152, 1 | 2 /* PROT_READ|PROT_WRITE */, 1 /* MAP_SHARED */, shm_fd, 0);
-    
+
+    ftruncate(shm_fd, 8388608); // 8MB
+    let ptr = mmap(0, 8388608, 1 | 2 /* PROT_READ|PROT_WRITE */, 1 /* MAP_SHARED */, shm_fd, 0);
+
     // Zero out ring management headers (M2R at 0, R2M at 64KB)
     if ptr != 0xFFFFFFFFFFFFFFFF {
         // M2R: head(0), tail(4)
@@ -59,7 +59,6 @@ pub fn tests_e2e_multiprocess_run() -> i32 {
         *((ptr + 65536) as &mut u32) = 0;
         *((ptr + 65540) as &mut u32) = 0;
     }
-    
     ext_ipc_init_shm(shm_fd);
     
     let pid = fork();

@@ -17,6 +17,15 @@ static int decoded_w = 0;
 static int decoded_h = 0;
 
 // Decode the baked test PNG. Returns 0 on success.
+// Dummy implementations for linker
+void css_arena_inc_count(void) {}
+void css_arena_set_hash(void) {}
+void ext_engine_process_key_down(void) {}
+void ext_engine_process_mouse_down(void) {}
+void ext_salt_paint_inject_dom_pointers(void) {}
+uint32_t hash_string(uint64_t ptr, uint32_t len) { return 0; }
+void user__browser__compositor__load_font_atlas(uint64_t pixels, int32_t width, int32_t height) {}
+
 int facet_test_decode_baked_png(void) {
     decoded_pixels = facet_image_decode(test_png_4x4, test_png_4x4_len, &decoded_w, &decoded_h);
     if (!decoded_pixels) return -1;

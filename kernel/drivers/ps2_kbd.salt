@@ -1,11 +1,11 @@
 package kernel.drivers.ps2_kbd
 
-extern fn kernel__core__io__inb(port: u16) -> u8;
-extern fn kernel__core__io__outb(port: u16, val: u8);
+import kernel.drivers.serial
+
+extern fn inb(port: u16) -> u8;
+extern fn outb(port: u16, val: u8);
 extern fn disable_interrupts();
 extern fn enable_interrupts();
-
-import kernel.drivers.serial
 
 global CMD_START: u64 = 0;
 global LATEST_DEBUG_KEY: u8 = 0;
@@ -18,8 +18,8 @@ pub fn ps2_set_rx_ring(ptr: u64) {
 
 pub fn init_legacy() {
     // Empty the PS/2 buffer
-    while (kernel__core__io__inb(0x64) & 1) == 1 {
-        let dummy = kernel__core__io__inb(0x60);
+    while (inb(0x64) & 1) == 1 {
+        let dummy = inb(0x60);
     }
     serial.print("[ps2] Legacy keyboard init complete\n");
 }
@@ -28,20 +28,21 @@ extern fn ps2_translate(code: u8) -> u8;
 
 // Will be invoked from the IRQ1 assembly or IDT wrapper
 pub fn handle_interrupt() {
-    let status = kernel__core__io__inb(0x64);
+    let status = inb(0x64);
     if (status & 1) == 1 {
-        let scancode = kernel__core__io__inb(0x60);
+        let scancode = inb(0x60);
         LATEST_DEBUG_KEY = scancode;
         
         let ascii = ps2_translate(scancode);
-        if ascii > 0 && RX_RING_VIRT != 0 {
-            let capacity = *((RX_RING_VIRT + 8) as &u64);
-            let head = *((RX_RING_VIRT + 0) as &u64);
-            let tail = *((RX_RING_VIRT + 64) as &u64);
+        let rx_ring = RX_RING_VIRT;
+        if ascii > 0 && rx_ring != 0 {
+            let capacity = *((rx_ring + 8) as &u64);
+            let head = *((rx_ring + 0) as &u64);
+            let tail = *((rx_ring + 64) as &u64);
             let new_head = (head + 1) % capacity;
             if new_head != tail {
-                *((RX_RING_VIRT + 192 + head) as &mut u8) = ascii;
-                *((RX_RING_VIRT + 0) as &mut u64) = new_head;
+                *((rx_ring + 192 + head) as &mut u8) = ascii;
+                *((rx_ring + 0) as &mut u64) = new_head;
             }
         }
     }
@@ -75,5 +76,5 @@ pub fn ps2_get_key_blocking() -> u8 {
 pub fn ps2_kbd_irq_handler() {
     handle_interrupt();
     // EOI to PIC master
-    kernel__core__io__outb(0x20, 0x20);
+    outb(0x20, 0x20);
 }

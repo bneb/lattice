@@ -19,6 +19,7 @@ declare -a MODULES=(
     "user/os/worker_ring.salt"
     "user/netd/virtio_bridge.salt"
     "user/browser/alloc/airlock.salt"
+    "user/browser/alloc/resilient_arena.salt"
     "user/browser/font.salt"
     "user/browser/css_utils.salt"
     "user/browser/css.salt"
@@ -118,9 +119,10 @@ echo ""
 echo "================= INITIATING MULTIPROCESS BOOT ================="
 
 # Start the Mac App in background, capture output, then kill it
+export JSC_useJIT=false
 /tmp/salt_build/mac_app > /tmp/mac_app.log 2>&1 &
 MAC_PID=$!
-sleep 5
+sleep 600
 kill $MAC_PID 2>/dev/null
 wait $MAC_PID 2>/dev/null
 

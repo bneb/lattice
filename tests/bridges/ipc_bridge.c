@@ -27,9 +27,9 @@ typedef struct {
   uint32_t payload_len;
 } SaltIPCCommand;
 
-// We partition the 128KB into:
-// 0    -  64KB: M2R Ring (Inputs, Navigations)
-// 64KB - 128KB: R2M Ring (IOSurfaces, Crash states)
+// We partition the 256KB into:
+// 0    - 128KB: M2R Ring (Inputs, Navigations)
+// 128KB - 256KB: R2M Ring (IOSurfaces, Crash states)
 
 #define RING_SIZE 65536
 #define CMD_SIZE sizeof(IPCCommand)
@@ -40,10 +40,10 @@ typedef struct {
 // Actually, let's rigidly define the layout:
 // 0x0000: uint32_t m2r_head
 // 0x0004: uint32_t m2r_tail
-// 0x0008: IPCCommand commands[... (fitting in 64KB - 8)]
-// 0x10000: uint32_t r2m_head
-// 0x10004: uint32_t r2m_tail
-// 0x10008: IPCCommand r2m_commands[...]
+// 0x0008: IPCCommand commands[... (fitting in 128KB - 8)]
+// 0x20000: uint32_t r2m_head
+// 0x20004: uint32_t r2m_tail
+// 0x20008: IPCCommand r2m_commands[...]
 
 typedef struct {
   atomic_uint head;

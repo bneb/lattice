@@ -150,7 +150,13 @@ extern fn fast_memcpy(dst: u64, src: u64, count: u64);
 pub fn spsc_push_bulk(base_addr: u64, src: u64, len: u64) -> u64 {
     let head = volatile_read_i64(base_addr + HEAD_OFFSET) as u64;
     let tail = volatile_read_i64(base_addr + TAIL_OFFSET) as u64;
-    let cap  = volatile_read_i64(base_addr + CAPACITY_OFFSET) as u64;
+    let mut cap = volatile_read_i64(base_addr + CAPACITY_OFFSET) as u64;
+
+    // SECURITY FIX: Clamp capacity to maximum allowed data capacity to prevent
+    // untrusted userspace from inducing buffer overflows in the kernel fast_memcpy
+    if cap > DATA_CAPACITY {
+        cap = DATA_CAPACITY;
+    }
 
     let avail = cap - (head - tail);
     let count = if len < avail { len } else { avail };
@@ -186,7 +192,12 @@ pub fn spsc_push_bulk(base_addr: u64, src: u64, len: u64) -> u64 {
 pub fn spsc_pop_bulk(base_addr: u64, dst: u64, len: u64) -> u64 {
     let head = volatile_read_i64(base_addr + HEAD_OFFSET) as u64;
     let tail = volatile_read_i64(base_addr + TAIL_OFFSET) as u64;
-    let cap  = volatile_read_i64(base_addr + CAPACITY_OFFSET) as u64;
+    let mut cap = volatile_read_i64(base_addr + CAPACITY_OFFSET) as u64;
+
+    // SECURITY FIX: Clamp capacity to maximum allowed data capacity
+    if cap > DATA_CAPACITY {
+        cap = DATA_CAPACITY;
+    }
 
     let avail = head - tail;
     let count = if len < avail { len } else { avail };

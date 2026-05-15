@@ -17,6 +17,11 @@ global FASTPATH_STATE: [u8; 64]      = [0; 64];
 
 @no_mangle
 pub fn fastpath_handoff_syscall(cap_id: u64, payload_offset: u32, payload_len: u32) {
+    if cap_id >= 64 {
+        serial.print("[Fastpath] FATAL: Invalid capability ID (OOB).\n");
+        return;
+    }
+
     // 1. Intercept native Ring 3 structure
     let phys_addr = capability.sys_cap_unmap(cap_id);
     if phys_addr == 0 {

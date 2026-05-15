@@ -11,6 +11,8 @@ use crate::codegen::trait_registry::TraitRegistry;
 
 use crate::codegen::passes::liveness::LivenessResult;
 
+pub mod scanner;
+
 /// Phase 1: Template and registry discovery (read-mostly after initialization)
 pub struct DiscoveryState {
     // --- Absorbed from CodegenContext façade ---
@@ -105,6 +107,60 @@ impl DiscoveryState {
     /// [SOVEREIGN V7.0] Register a trait's home module.
     pub fn register_trait_home(&mut self, trait_name: String, module_package: String) {
         self.trait_origins.entry(trait_name).or_insert(module_package);
+    }
+
+    pub fn require_local_function(&mut self, mangled_name: &str, file: &crate::grammar::SaltFile, expansion: &mut crate::codegen::phases::ExpansionState) -> bool {
+        // Check if already requested in the global registry
+        if self.entity_registry.identity_map.contains(mangled_name) {
+            return true;
+        }
+
+        let current_pkg_prefix = if let Some(pkg) = &file.package {
+             crate::common::mangling::Mangler::mangle(&pkg.name.iter().map(|id| id.to_string()).collect::<Vec<_>>()) + "__"
+        } else {
+             String::new()
+        };
+
+        // Try to find in current file
+        let mut result = None;
+        for item in &file.items {
+            if let crate::grammar::Item::Fn(f) = item {
+                let my_mangled = if f.attributes.iter().any(|a| a.name == "no_mangle") {
+                    f.name.to_string()
+                } else {
+                    format!("{}{}", current_pkg_prefix, f.name)
+                };
+                if my_mangled == mangled_name {
+                    let path = if let Some(pkg) = &file.package {
+                        pkg.name.iter().map(|id| id.to_string()).collect()
+                    } else {
+                        vec![]
+                    };
+                    let identity = crate::types::TypeKey {
+                        path,
+                        name: f.name.to_string(),
+                        specialization: None,
+                    };
+                    result = Some(crate::codegen::collector::MonomorphizationTask {
+                        identity,
+                        mangled_name: mangled_name.to_string(),
+                        func: f.clone(),
+                        concrete_tys: vec![],
+                        self_ty: None,
+                        imports: file.imports.clone(),
+                        type_map: std::collections::BTreeMap::new(),
+                    });
+                    break;
+                }
+            }
+        }
+
+        if let Some(task) = result {
+            expansion.pending_generations.push_back(task);
+            self.entity_registry.identity_map.insert(mangled_name.to_string());
+            return true;
+        }
+        false
     }
 
     /// [SOVEREIGN V7.0] The Sovereign Check: Does this module own the type?

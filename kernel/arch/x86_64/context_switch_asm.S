@@ -45,6 +45,18 @@ switch_stacks:
     pop r12
     pop rbx
     pop rbp
+    
+    # 4. Clear scratch registers to prevent information leaks
+    xor eax, eax
+    xor ecx, ecx
+    xor edx, edx
+    xor esi, esi
+    xor edi, edi
+    xor r8d, r8d
+    xor r9d, r9d
+    xor r10d, r10d
+    xor r11d, r11d
+
     ret
 
 # =============================================================================

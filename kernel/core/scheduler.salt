@@ -705,12 +705,22 @@ fn dispatch_stolen(cpu: u64, stolen_word: u64) {
             SCHED_ARRAY[cpu].l1_summary = SCHED_ARRAY[cpu].l1_summary | bit;
             SCHED_ARRAY[cpu].count = SCHED_ARRAY[cpu].count + 1;
 
-            // Clear victim's slot
+            // SECURITY FIX: Clear victim's slot using atomic operations to prevent 
+            // concurrent corruption when victim_cpu schedules itself.
             let victim_bit: u64 = (1 as u64) << victim_slot;
             let victim_inv: u64 = victim_bit ^ 0xFFFFFFFFFFFFFFFF;
-            SCHED_ARRAY[victim_cpu].l1_summary = SCHED_ARRAY[victim_cpu].l1_summary & victim_inv;
+            
+            let mut success = false;
+            while !success {
+                let old_val = SCHED_ARRAY[victim_cpu].l1_summary;
+                let new_val = old_val & victim_inv;
+                let cas_res = atomic_cas_i64(&SCHED_ARRAY[victim_cpu].l1_summary, old_val as i64, new_val as i64);
+                if cas_res == old_val as i64 {
+                    success = true;
+                }
+            }
             SCHED_ARRAY[victim_cpu].fibers[victim_slot].active = false;
-            SCHED_ARRAY[victim_cpu].count = SCHED_ARRAY[victim_cpu].count - 1;
+            atomic_add_i64(&SCHED_ARRAY[victim_cpu].count, -1 as i64);
 
             // Dispatch: invoke the stolen fiber via its step_fn
             // The step_fn is the compiler-emitted async step function.

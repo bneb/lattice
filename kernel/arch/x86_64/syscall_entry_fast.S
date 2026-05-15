@@ -112,7 +112,13 @@ syscall_entry_fast:
     mov rdi, rax                /* num  -> rdi (1st param) */
     mov rcx, r8                 /* arg2 -> rcx (4th param) */
 
+    /* Align stack to 16 bytes for System V ABI */
+    sub rsp, 8
+
     call handle_syscall
+
+    /* Restore stack alignment */
+    add rsp, 8
 
     /* RAX now holds the syscall return value (SysV ABI).
      * Save it before restoring caller-saved registers. */
@@ -146,6 +152,8 @@ syscall_entry_fast:
 
     /* SWAPGS: Kernel GS → User GS (before returning to Ring 3) */
     swapgs
+.global syscall_sysretq_point
+syscall_sysretq_point:
     sysretq
 
 .Lsys_exit:

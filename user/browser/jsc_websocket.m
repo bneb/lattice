@@ -49,6 +49,10 @@ JSObjectRef js_ws_constructor(JSContextRef ctx, JSObjectRef constructor,
   JSStringRef url_str = JSValueToStringCopy(ctx, arguments[0], exception);
   size_t url_len = JSStringGetMaximumUTF8CStringSize(url_str);
   char *url = malloc(url_len);
+  if (!url) {
+    JSStringRelease(url_str);
+    return NULL;
+  }
   JSStringGetUTF8CString(url_str, url, url_len);
   JSStringRelease(url_str);
 
@@ -91,16 +95,18 @@ void sys_jsc_flush_ws_events() {
       JSStringRelease(data_str);
     } else {
       char *text_buf = (char *)malloc(payload_len + 1);
-      memcpy(text_buf, (void *)payload_ptr, payload_len);
-      text_buf[payload_len] = '\0';
+      if (text_buf) {
+        memcpy(text_buf, (void *)payload_ptr, payload_len);
+        text_buf[payload_len] = '\0';
 
-      JSStringRef text = JSStringCreateWithUTF8CString(text_buf);
-      JSStringRef data_str = JSStringCreateWithUTF8CString("data");
-      JSObjectSetProperty(global_ctx, event_obj, data_str,
-                          JSValueMakeString(global_ctx, text), 0, NULL);
-      JSStringRelease(data_str);
-      JSStringRelease(text);
-      free(text_buf);
+        JSStringRef text = JSStringCreateWithUTF8CString(text_buf);
+        JSStringRef data_str = JSStringCreateWithUTF8CString("data");
+        JSObjectSetProperty(global_ctx, event_obj, data_str,
+                            JSValueMakeString(global_ctx, text), 0, NULL);
+        JSStringRelease(text);
+        JSStringRelease(data_str);
+        free(text_buf);
+      }
     }
 
     sys_jsc_invoke_property_callback(ws_instance, "onmessage", event_obj);

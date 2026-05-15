@@ -68,6 +68,27 @@ pub global RULE_PAD_BOTTOM:    [i32; 4096] = [-1; 4096];
 pub global RULE_PAD_LEFT:      [i32; 4096] = [-1; 4096];
 pub global RULE_PAD_SET:       [u8;  4096] = [0;  4096];
 
+// New rule properties for Sprint 2/3
+pub global RULE_BORDER_W_TOP:    [i32; 4096] = [-1; 4096];
+pub global RULE_BORDER_W_RIGHT:  [i32; 4096] = [-1; 4096];
+pub global RULE_BORDER_W_BOTTOM: [i32; 4096] = [-1; 4096];
+pub global RULE_BORDER_W_LEFT:   [i32; 4096] = [-1; 4096];
+pub global RULE_BORDER_SET:      [u8;  4096] = [0;  4096];
+
+pub global RULE_BOX_SIZING:      [u8;  4096] = [255; 4096];
+pub global RULE_MIN_WIDTH:       [i32; 4096] = [-1; 4096];
+pub global RULE_MAX_WIDTH:       [i32; 4096] = [-1; 4096];
+pub global RULE_MIN_HEIGHT:      [i32; 4096] = [-1; 4096];
+pub global RULE_MAX_HEIGHT:      [i32; 4096] = [-1; 4096];
+pub global RULE_VISIBILITY:      [u8;  4096] = [255; 4096];
+pub global RULE_LINE_HEIGHT:     [f32; 4096] = [-1.0; 4096];
+pub global RULE_WHITE_SPACE:     [u8;  4096] = [255; 4096];
+pub global RULE_FLEX_WRAP:       [u8;  4096] = [255; 4096];
+pub global RULE_TEXT_ALIGN:      [u8;  4096] = [255; 4096];
+pub global RULE_VERTICAL_ALIGN:  [u8;  4096] = [255; 4096];
+pub global RULE_FONT_SIZE:       [f32; 4096] = [0.0; 4096];
+pub global RULE_FONT_WEIGHT:     [u8;  4096] = [255; 4096];
+
 pub global RULE_COUNT: u32 = 0;
 
 // ============================================================================
@@ -92,10 +113,27 @@ pub fn init_css_lexer_arrays() {
         RULE_LEFT[i as usize] = -1;
         RULE_Z_INDEX_SET[i as usize] = 0;
         
-        i = i + 1;
-    }
-}
+        RULE_MARGIN_SET[i as usize] = 0;
+        RULE_PAD_SET[i as usize] = 0;
 
+        RULE_BORDER_SET[i as usize] = 0;
+        RULE_BOX_SIZING[i as usize] = 255;
+        RULE_MIN_WIDTH[i as usize] = -1;
+        RULE_MAX_WIDTH[i as usize] = -1;
+        RULE_MIN_HEIGHT[i as usize] = -1;
+        RULE_MAX_HEIGHT[i as usize] = -1;
+        RULE_VISIBILITY[i as usize] = 255;
+        RULE_LINE_HEIGHT[i as usize] = -1.0;
+        RULE_WHITE_SPACE[i as usize] = 255;
+        RULE_FLEX_WRAP[i as usize] = 255;
+        RULE_TEXT_ALIGN[i as usize] = 255;
+        RULE_VERTICAL_ALIGN[i as usize] = 255;
+        RULE_FONT_SIZE[i as usize] = 0.0;
+        RULE_FONT_WEIGHT[i as usize] = 255;
+
+        i = i + 1;
+        }
+        }
 // Find existing slot or insert new one (hybrid linear probing)
 extern fn css_arena_set_hash(idx: u32, val: u32);
 extern fn css_arena_inc_count();
@@ -106,7 +144,8 @@ extern fn css_arena_set_color(idx: u32, val: u32);
 extern fn css_arena_set_margin_top(idx: u32, val: i32);
 extern fn css_arena_set_padding(idx: u32, pt: i32, pr: i32, pb: i32, pl: i32);
 
-fn find_or_insert_slot(hash: u32, scope_node_id: u32) -> u32 {
+@no_mangle
+pub fn css_insert_rule(hash: u32, scope_node_id: u32) -> u32 {
     let mut slot = hash % 4096;
     let mut probes: u32 = 0;
     while probes < 4096 {
@@ -320,17 +359,17 @@ pub fn css_lex_stylesheet(ptr: u64, len: u32, scope_node_id: u32) {
                     let first = *((ptr + sel_start as u64) as &u8);
                     if first == 46 { // '.' class selector
                         let hash = css_fnv1a(ptr + (sel_start + 1) as u64, sel_len - 1);
-                        current_slot = find_or_insert_slot(hash, scope_node_id);
+                        current_slot = css_insert_rule(hash, scope_node_id);
                         current_specificity = 10;
                         RULE_SELECTOR_TYPE[current_slot as usize] = 2;
                     } else if first == 35 { // '#' id selector
                         let hash = css_fnv1a(ptr + (sel_start + 1) as u64, sel_len - 1);
-                        current_slot = find_or_insert_slot(hash, scope_node_id);
+                        current_slot = css_insert_rule(hash, scope_node_id);
                         current_specificity = 100;
                         RULE_SELECTOR_TYPE[current_slot as usize] = 3;
                     } else { // tag selector
                         let hash = css_fnv1a(ptr + sel_start as u64, sel_len);
-                        current_slot = find_or_insert_slot(hash, scope_node_id);
+                        current_slot = css_insert_rule(hash, scope_node_id);
                         current_specificity = 1;
                         RULE_SELECTOR_TYPE[current_slot as usize] = 1;
                     }
@@ -495,49 +534,71 @@ fn apply_rule_property(slot: u32, ptr: u64, prop_start: u32, prop_len: u32, val_
         return;
     }
     
+    // margin (6 chars), margin-top (10), margin-left (11), margin-right (12), margin-bottom (13)
+    if p0 == 109 {
+        if prop_len == 6 {
+            let mut i: u32 = 0;
+            let mut space_idx: u32 = 0xFFFFFFFF;
+            while i < val_len {
+                if *((vp + i as u64) as &u8) == 32 { // space
+                    space_idx = i;
+                    break;
+                }
+                i = i + 1;
+            }
+
+            if space_idx != 0xFFFFFFFF {
+                let vp1 = vp;
+                let val1_len = space_idx;
+                let mut j = space_idx + 1;
+                while j < val_len {
+                    if *((vp + j as u64) as &u8) != 32 { break; }
+                    j = j + 1;
+                }
+                let vp2 = vp + j as u64;
+                let val2_len = val_len - j;
+
+                let v1 = parse_int(vp1, val1_len);
+                let v2 = parse_int(vp2, val2_len);
+
+                RULE_MARGIN_TOP[s] = v1;
+                RULE_MARGIN_BOTTOM[s] = v1;
+                RULE_MARGIN_RIGHT[s] = v2;
+                RULE_MARGIN_LEFT[s] = v2;
+            } else {
+                let v = parse_int(vp, val_len);
+                RULE_MARGIN_TOP[s] = v;
+                RULE_MARGIN_RIGHT[s] = v;
+                RULE_MARGIN_BOTTOM[s] = v;
+                RULE_MARGIN_LEFT[s] = v;
+            }
+            RULE_MARGIN_SET[s] = 1;
+            return;
+        } else if prop_len >= 10 {
+            let p7 = *((pp + 7) as &u8) | 32;
+            if p7 == 116 { // 't' -> margin-top
+                RULE_MARGIN_TOP[s] = parse_int(vp, val_len);
+                RULE_MARGIN_SET[s] = 1;
+            } else if p7 == 98 { // 'b' -> margin-bottom
+                RULE_MARGIN_BOTTOM[s] = parse_int(vp, val_len);
+                RULE_MARGIN_SET[s] = 1;
+            } else if p7 == 108 { // 'l' -> margin-left
+                RULE_MARGIN_LEFT[s] = parse_int(vp, val_len);
+                RULE_MARGIN_SET[s] = 1;
+            } else if p7 == 114 { // 'r' -> margin-right
+                RULE_MARGIN_RIGHT[s] = parse_int(vp, val_len);
+                RULE_MARGIN_SET[s] = 1;
+            }
+            return;
+        }
+    }
+
     // "top" (3 chars, starts with 't')
-    if p0 == 109 && prop_len == 6 {
-        let mut i: u32 = 0;
-        let mut space_idx: u32 = 0xFFFFFFFF;
-        while i < val_len {
-            if *((vp + i as u64) as &u8) == 32 { // space
-                space_idx = i;
-                break;
-            }
-            i = i + 1;
-        }
-
-        if space_idx != 0xFFFFFFFF {
-            let vp1 = vp;
-            let val1_len = space_idx;
-            let mut j = space_idx + 1;
-            while j < val_len {
-                if *((vp + j as u64) as &u8) != 32 { break; }
-                j = j + 1;
-            }
-            let vp2 = vp + j as u64;
-            let val2_len = val_len - j;
-
-            let mut v1 = parse_int(vp1, val1_len);
-            if (*((vp1) as &u8) | 32) == 97 { v1 = -2; } // 'a'uto
-            let mut v2 = parse_int(vp2, val2_len);
-            if (*((vp2) as &u8) | 32) == 97 { v2 = -2; } // 'a'uto
-
-            RULE_MARGIN_TOP[s] = v1;
-            RULE_MARGIN_BOTTOM[s] = v1;
-            RULE_MARGIN_RIGHT[s] = v2;
-            RULE_MARGIN_LEFT[s] = v2;
-        } else {
-            let mut v = parse_int(vp, val_len);
-            if (*((vp) as &u8) | 32) == 97 { v = -2; } // 'a'uto
-            RULE_MARGIN_TOP[s] = v;
-            RULE_MARGIN_RIGHT[s] = v;
-            RULE_MARGIN_BOTTOM[s] = v;
-            RULE_MARGIN_LEFT[s] = v;
-        }
-        RULE_MARGIN_SET[s] = 1;
+    if p0 == 116 && prop_len == 3 {
+        RULE_TOP[s] = parse_int(vp, val_len);
         return;
     }
+
     // "padding" (7 chars, starts with 'p')
     if p0 == 112 && prop_len == 7 {
         let v = parse_int(vp, val_len);
@@ -546,19 +607,6 @@ fn apply_rule_property(slot: u32, ptr: u64, prop_start: u32, prop_len: u32, val_
         RULE_PAD_BOTTOM[s] = v;
         RULE_PAD_LEFT[s] = v;
         RULE_PAD_SET[s] = 1;
-        return;
-    }
-    // "margin-top" (10 chars)
-    if p0 == 109 && prop_len == 10 {
-        let p7 = *((pp + 7) as &u8) | 32;
-        if p7 == 116 { // 't' -> margin-top
-            RULE_MARGIN_TOP[s] = parse_int(vp, val_len);
-            RULE_MARGIN_SET[s] = 1;
-        }
-        return;
-    }
-    if p0 == 116 && prop_len == 3 {
-        RULE_MARGIN_TOP[s] = parse_int(vp, val_len); // Wait, "top" is handled differently up there. Oh, this is top as margin? No, "top" was caught before this. Removing this legacy snippet.
         return;
     }
     // "right" (5 chars, starts with 'r')
@@ -583,6 +631,122 @@ fn apply_rule_property(slot: u32, ptr: u64, prop_start: u32, prop_len: u32, val_
         return;
     }
 
+    // "border" (6 chars)
+    if p0 == 98 && prop_len == 6 {
+        let v = parse_int(vp, val_len);
+        RULE_BORDER_W_TOP[s] = v;
+        RULE_BORDER_W_RIGHT[s] = v;
+        RULE_BORDER_W_BOTTOM[s] = v;
+        RULE_BORDER_W_LEFT[s] = v;
+        RULE_BORDER_SET[s] = 1;
+        return;
+    }
+    // "border-width" (12 chars)
+    if p0 == 98 && prop_len == 12 {
+        let v = parse_int(vp, val_len);
+        RULE_BORDER_W_TOP[s] = v;
+        RULE_BORDER_W_RIGHT[s] = v;
+        RULE_BORDER_W_BOTTOM[s] = v;
+        RULE_BORDER_W_LEFT[s] = v;
+        RULE_BORDER_SET[s] = 1;
+        return;
+    }
+    // "box-sizing" (10 chars)
+    if p0 == 98 && prop_len == 10 {
+        let v0 = *((vp) as &u8) | 32;
+        if v0 == 98 { RULE_BOX_SIZING[s] = 1; } // border-box
+        else if v0 == 99 { RULE_BOX_SIZING[s] = 0; } // content-box
+        return;
+    }
+    // "min-width" (9 chars)
+    if p0 == 109 && prop_len == 9 {
+        let p1 = *((pp + 1) as &u8) | 32;
+        if p1 == 105 { // m[i]n-width
+            RULE_MIN_WIDTH[s] = parse_int(vp, val_len);
+        }
+        return;
+    }
+    // "max-width" (9 chars)
+    if p0 == 109 && prop_len == 9 {
+        let p1 = *((pp + 1) as &u8) | 32;
+        if p1 == 97 { // m[a]x-width
+            RULE_MAX_WIDTH[s] = parse_int(vp, val_len);
+        }
+        return;
+    }
+    // "line-height" (11 chars)
+    if p0 == 108 && prop_len == 11 {
+        RULE_LINE_HEIGHT[s] = parse_float(vp, val_len);
+        return;
+    }
+    // "visibility" (10 chars)
+    if p0 == 118 && prop_len == 10 {
+        let v0 = *((vp) as &u8) | 32;
+        if v0 == 118 { RULE_VISIBILITY[s] = 0; } // visible
+        else if v0 == 104 { RULE_VISIBILITY[s] = 1; } // hidden
+        return;
+    }
+    // "white-space" (11 chars)
+    if p0 == 119 && prop_len == 11 {
+        let v0 = *((vp) as &u8) | 32;
+        if v0 == 110 { 
+            if val_len > 2 {
+                let v2 = *((vp + 2) as &u8) | 32;
+                if v2 == 119 { RULE_WHITE_SPACE[s] = 1; } // nowrap
+                else { RULE_WHITE_SPACE[s] = 0; } // normal
+            } else {
+                RULE_WHITE_SPACE[s] = 0; // normal
+            }
+        }
+        return;
+    }
+    // "flex-wrap" (9 chars)
+    if p0 == 102 && prop_len == 9 {
+        let v0 = *((vp) as &u8) | 32;
+        if v0 == 119 { RULE_FLEX_WRAP[s] = 1; } // wrap
+        else if v0 == 110 { RULE_FLEX_WRAP[s] = 0; } // nowrap
+        return;
+    }
+    // "text-align" (10 chars)
+    if p0 == 116 && prop_len == 10 {
+        let v0 = *((vp) as &u8) | 32;
+        if v0 == 108 { RULE_TEXT_ALIGN[s] = 0; } // left
+        else if v0 == 114 { RULE_TEXT_ALIGN[s] = 1; } // right
+        else if v0 == 99 { RULE_TEXT_ALIGN[s] = 2; } // center
+        return;
+    }
+    // "vertical-align" (14 chars)
+    if p0 == 118 && prop_len == 14 {
+        let v0 = *((vp) as &u8) | 32;
+        if v0 == 98 { RULE_VERTICAL_ALIGN[s] = 0; } // baseline
+        else if v0 == 109 { RULE_VERTICAL_ALIGN[s] = 1; } // middle
+        else if v0 == 116 { RULE_VERTICAL_ALIGN[s] = 2; } // top
+        else if v0 == 98 && val_len > 3 { RULE_VERTICAL_ALIGN[s] = 3; } // bottom
+        return;
+    }
+    // "font-size" (9 chars)
+    if p0 == 102 && prop_len == 9 {
+        let p5 = *((pp + 5) as &u8) | 32;
+        if p5 == 115 { // font-[s]ize
+            RULE_FONT_SIZE[s] = parse_float(vp, val_len);
+        }
+        return;
+    }
+    // "font-weight" (11 chars)
+    if p0 == 102 && prop_len == 11 {
+        let p5 = *((pp + 5) as &u8) | 32;
+        if p5 == 119 { // font-[w]eight
+            let v0 = *((vp) as &u8) | 32;
+            if v0 == 98 { RULE_FONT_WEIGHT[s] = 1; } // bold
+            else if v0 == 110 { RULE_FONT_WEIGHT[s] = 0; } // normal
+            else {
+                let fw_val = parse_int(vp, val_len);
+                if fw_val >= 600 { RULE_FONT_WEIGHT[s] = 1; }
+                else { RULE_FONT_WEIGHT[s] = 0; }
+            }
+        }
+        return;
+    }
 
     // "background-color" or "background" (starts with 'b')
     if p0 == 98 && prop_len >= 10 {
@@ -604,7 +768,40 @@ fn apply_rule_property(slot: u32, ptr: u64, prop_start: u32, prop_len: u32, val_
 }
 
 // Parse a simple unsigned integer from bytes (stops at non-digit or 'p' for px)
+fn parse_float(ptr: u64, len: u32) -> f32 {
+    let mut num: f32 = 0.0;
+    let mut i: u32 = 0;
+    let mut decimal = false;
+    let mut div: f32 = 10.0;
+    while i < len {
+        let ch = *((ptr + i as u64) as &u8);
+        if ch >= 48 && ch <= 57 {
+            if !decimal {
+                num = (num * 10.0) + ((ch - 48) as f32);
+            } else {
+                num = num + ((ch - 48) as f32) / div;
+                div = div * 10.0;
+            }
+        } else if ch == 46 { // '.'
+            decimal = true;
+        } else if ch < 33 {
+            // skip space
+        } else {
+            break;
+        }
+        i = i + 1;
+    }
+    return num;
+}
+
 fn parse_int(ptr: u64, len: u32) -> i32 {
+    if len >= 4 {
+        let b0 = *((ptr) as &u8) | 32;
+        let b1 = *((ptr + 1) as &u8) | 32;
+        let b2 = *((ptr + 2) as &u8) | 32;
+        let b3 = *((ptr + 3) as &u8) | 32;
+        if b0 == 97 && b1 == 117 && b2 == 116 && b3 == 111 { return -2; } // "auto"
+    }
     let mut result: i32 = 0;
     let mut i: u32 = 0;
     let mut neg: i32 = 1;
@@ -680,6 +877,20 @@ extern fn dom_get_margin_bottom(idx: u32) -> i32;
 extern fn dom_get_margin_left(idx: u32) -> i32;
 
 extern fn dom_set_style_padding(idx: u32, t: i32, r: i32, b: i32, l: i32);
+extern fn dom_set_style_border_width(idx: u32, t: i32, r: i32, b: i32, l: i32);
+extern fn dom_set_style_box_sizing(idx: u32, val: u8);
+extern fn dom_set_style_min_width(idx: u32, val: i32);
+extern fn dom_set_style_max_width(idx: u32, val: i32);
+extern fn dom_set_style_min_height(idx: u32, val: i32);
+extern fn dom_set_style_max_height(idx: u32, val: i32);
+extern fn dom_set_style_visibility(idx: u32, val: u8);
+extern fn dom_set_style_line_height(idx: u32, val: f32);
+extern fn dom_set_style_white_space(idx: u32, val: u8);
+extern fn dom_set_style_flex_wrap(idx: u32, val: u8);
+extern fn dom_set_style_text_align(idx: u32, val: u8);
+extern fn dom_set_style_vertical_align(idx: u32, val: u8);
+extern fn dom_set_style_font_size(idx: u32, val: f32);
+extern fn dom_set_style_font_weight(idx: u32, val: u8);
 extern fn dom_get_padding_top(idx: u32) -> i32;
 extern fn dom_get_padding_right(idx: u32) -> i32;
 extern fn dom_get_padding_bottom(idx: u32) -> i32;
@@ -710,11 +921,44 @@ extern fn dom_set_spec_bottom(idx: u32, val: u16);
 extern fn dom_get_spec_left(idx: u32) -> u16;
 extern fn dom_set_spec_left(idx: u32, val: u16);
 extern fn dom_get_spec_z_index(idx: u32) -> u16;
+extern fn dom_get_spec_text_align(idx: u32) -> u16;
+extern fn dom_get_spec_padding(idx: u32) -> u16;
+extern fn dom_get_spec_margin(idx: u32) -> u16;
+extern fn dom_get_spec_border_w(idx: u32) -> u16;
+extern fn dom_get_spec_box_sizing(idx: u32) -> u16;
+extern fn dom_get_spec_min_width(idx: u32) -> u16;
+extern fn dom_get_spec_max_width(idx: u32) -> u16;
+extern fn dom_get_spec_min_height(idx: u32) -> u16;
+extern fn dom_get_spec_max_height(idx: u32) -> u16;
+extern fn dom_get_spec_visibility(idx: u32) -> u16;
+extern fn dom_get_spec_line_height(idx: u32) -> u16;
+extern fn dom_get_spec_white_space(idx: u32) -> u16;
+extern fn dom_get_spec_flex_wrap(idx: u32) -> u16;
+extern fn dom_get_spec_font_size(idx: u32) -> u16;
+extern fn dom_get_spec_font_weight(idx: u32) -> u16;
+extern fn dom_get_spec_v_align(idx: u32) -> u16;
 extern fn dom_set_spec_z_index(idx: u32, val: u16);
+extern fn dom_set_spec_text_align(idx: u32, val: u16);
+extern fn dom_set_spec_padding(idx: u32, val: u16);
+extern fn dom_set_spec_margin(idx: u32, val: u16);
+extern fn dom_set_spec_border_w(idx: u32, val: u16);
+extern fn dom_set_spec_box_sizing(idx: u32, val: u16);
+extern fn dom_set_spec_min_width(idx: u32, val: u16);
+extern fn dom_set_spec_max_width(idx: u32, val: u16);
+extern fn dom_set_spec_min_height(idx: u32, val: u16);
+extern fn dom_set_spec_max_height(idx: u32, val: u16);
+extern fn dom_set_spec_visibility(idx: u32, val: u16);
+extern fn dom_set_spec_line_height(idx: u32, val: u16);
+extern fn dom_set_spec_white_space(idx: u32, val: u16);
+extern fn dom_set_spec_flex_wrap(idx: u32, val: u16);
+extern fn dom_set_spec_font_size(idx: u32, val: u16);
+extern fn dom_set_spec_font_weight(idx: u32, val: u16);
+extern fn dom_set_spec_v_align(idx: u32, val: u16);
 
 
 // Tag name to hash mapping (precomputed FNV1a for known tags)
-fn tag_to_hash(tag: u32) -> u32 {
+@no_mangle
+pub fn tag_to_hash(tag: u32) -> u32 {
     // Compute FNV1a of the lowercase tag name string
     if tag == 4 { // "div"
         return css_fnv1a_literal(100, 105, 118, 0, 0, 0, 3);
@@ -734,6 +978,24 @@ fn tag_to_hash(tag: u32) -> u32 {
     if tag == 3 { // "body"
         return css_fnv1a_literal(98, 111, 100, 121, 0, 0, 4);
     }
+    if tag == 12 { // "table"
+        return css_fnv1a_literal(116, 97, 98, 108, 101, 0, 5);
+    }
+    if tag == 13 { // "tr"
+        return css_fnv1a_literal(116, 114, 0, 0, 0, 0, 2);
+    }
+    if tag == 14 { // "td"
+        return css_fnv1a_literal(116, 100, 0, 0, 0, 0, 2);
+    }
+    if tag == 18 { // "input"
+        return css_fnv1a_literal(105, 110, 112, 117, 116, 0, 5);
+    }
+    if tag == 20 { // "button"
+        return css_fnv1a_literal(98, 117, 116, 116, 111, 110, 6);
+    }
+    if tag == 21 { // "form"
+        return css_fnv1a_literal(102, 111, 114, 109, 0, 0, 4);
+    }
     return 0;
 }
 
@@ -748,6 +1010,13 @@ fn css_fnv1a_literal(b0: u8, b1: u8, b2: u8, b3: u8, b4: u8, b5: u8, len: u32) -
         i = i + 1;
     }
     return hash;
+}
+
+@no_mangle
+pub fn css_insert_native_rule(tag_hash: u32) -> u32 {
+    // Inserts a global rule (scope 999999) for a tag.
+    // Specificity is 1 (Probe 1).
+    return css_insert_rule(tag_hash, 999999);
 }
 
 // Walk the entire DOM tree and apply CSS rules
@@ -918,35 +1187,125 @@ fn apply_matching_rule(idx: u32, slot: u32, specificity: u16) {
         }
     }
     if RULE_MARGIN_SET[s] != 0 {
-        // Without specificity logic for margin in dom.salt, we just apply it
-        let mt = RULE_MARGIN_TOP[s];
-        let mr = RULE_MARGIN_RIGHT[s];
-        let mb = RULE_MARGIN_BOTTOM[s];
-        let ml = RULE_MARGIN_LEFT[s];
-        let mut cur_t = dom_get_margin_top(idx);
-        let mut cur_r = dom_get_margin_right(idx);
-        let mut cur_b = dom_get_margin_bottom(idx);
-        let mut cur_l = dom_get_margin_left(idx);
-        if mt != -1 { cur_t = mt; }
-        if mr != -1 { cur_r = mr; }
-        if mb != -1 { cur_b = mb; }
-        if ml != -1 { cur_l = ml; }
-        dom_set_style_margin(idx, cur_t, cur_r, cur_b, cur_l);
+        if specificity >= dom_get_spec_margin(idx) {
+            let mt = RULE_MARGIN_TOP[s];
+            let mr = RULE_MARGIN_RIGHT[s];
+            let mb = RULE_MARGIN_BOTTOM[s];
+            let ml = RULE_MARGIN_LEFT[s];
+            let mut cur_t = dom_get_margin_top(idx);
+            let mut cur_r = dom_get_margin_right(idx);
+            let mut cur_b = dom_get_margin_bottom(idx);
+            let mut cur_l = dom_get_margin_left(idx);
+            if mt != -1 { cur_t = mt; }
+            if mr != -1 { cur_r = mr; }
+            if mb != -1 { cur_b = mb; }
+            if ml != -1 { cur_l = ml; }
+            dom_set_style_margin(idx, cur_t, cur_r, cur_b, cur_l);
+            dom_set_spec_margin(idx, specificity);
+        }
     }
     if RULE_PAD_SET[s] != 0 {
-        let pt = RULE_PAD_TOP[s];
-        let pr = RULE_PAD_RIGHT[s];
-        let pb = RULE_PAD_BOTTOM[s];
-        let pl = RULE_PAD_LEFT[s];
-        let mut cur_t = dom_get_padding_top(idx);
-        let mut cur_r = dom_get_padding_right(idx);
-        let mut cur_b = dom_get_padding_bottom(idx);
-        let mut cur_l = dom_get_padding_left(idx);
-        if pt != -1 { cur_t = pt; }
-        if pr != -1 { cur_r = pr; }
-        if pb != -1 { cur_b = pb; }
-        if pl != -1 { cur_l = pl; }
-        dom_set_style_padding(idx, cur_t, cur_r, cur_b, cur_l);
+        if specificity >= dom_get_spec_padding(idx) {
+            let pt = RULE_PAD_TOP[s];
+            let pr = RULE_PAD_RIGHT[s];
+            let pb = RULE_PAD_BOTTOM[s];
+            let pl = RULE_PAD_LEFT[s];
+            let mut cur_t = dom_get_padding_top(idx);
+            let mut cur_r = dom_get_padding_right(idx);
+            let mut cur_b = dom_get_padding_bottom(idx);
+            let mut cur_l = dom_get_padding_left(idx);
+            if pt != -1 { cur_t = pt; }
+            if pr != -1 { cur_r = pr; }
+            if pb != -1 { cur_b = pb; }
+            if pl != -1 { cur_l = pl; }
+            dom_set_style_padding(idx, cur_t, cur_r, cur_b, cur_l);
+            dom_set_spec_padding(idx, specificity);
+        }
+    }
+    
+    // border-width
+    if RULE_BORDER_SET[s] != 0 {
+        if specificity >= dom_get_spec_border_w(idx) {
+            dom_set_style_border_width(idx, RULE_BORDER_W_TOP[s], RULE_BORDER_W_RIGHT[s], RULE_BORDER_W_BOTTOM[s], RULE_BORDER_W_LEFT[s]);
+            dom_set_spec_border_w(idx, specificity);
+        }
+    }
+    // box-sizing
+    if RULE_BOX_SIZING[s] != 255 {
+        if specificity >= dom_get_spec_box_sizing(idx) {
+            dom_set_style_box_sizing(idx, RULE_BOX_SIZING[s]);
+            dom_set_spec_box_sizing(idx, specificity);
+        }
+    }
+    // min-width
+    if RULE_MIN_WIDTH[s] != -1 {
+        if specificity >= dom_get_spec_min_width(idx) {
+            dom_set_style_min_width(idx, RULE_MIN_WIDTH[s]);
+            dom_set_spec_min_width(idx, specificity);
+        }
+    }
+    // max-width
+    if RULE_MAX_WIDTH[s] != -1 {
+        if specificity >= dom_get_spec_max_width(idx) {
+            dom_set_style_max_width(idx, RULE_MAX_WIDTH[s]);
+            dom_set_spec_max_width(idx, specificity);
+        }
+    }
+    // visibility
+    if RULE_VISIBILITY[s] != 255 {
+        if specificity >= dom_get_spec_visibility(idx) {
+            dom_set_style_visibility(idx, RULE_VISIBILITY[s]);
+            dom_set_spec_visibility(idx, specificity);
+        }
+    }
+    // line-height
+    if RULE_LINE_HEIGHT[s] != -1.0 {
+        if specificity >= dom_get_spec_line_height(idx) {
+            dom_set_style_line_height(idx, RULE_LINE_HEIGHT[s]);
+            dom_set_spec_line_height(idx, specificity);
+        }
+    }
+    // white-space
+    if RULE_WHITE_SPACE[s] != 255 {
+        if specificity >= dom_get_spec_white_space(idx) {
+            dom_set_style_white_space(idx, RULE_WHITE_SPACE[s]);
+            dom_set_spec_white_space(idx, specificity);
+        }
+    }
+    // flex-wrap
+    if RULE_FLEX_WRAP[s] != 255 {
+        if specificity >= dom_get_spec_flex_wrap(idx) {
+            dom_set_style_flex_wrap(idx, RULE_FLEX_WRAP[s]);
+            dom_set_spec_flex_wrap(idx, specificity);
+        }
+    }
+    // text-align
+    if RULE_TEXT_ALIGN[s] != 255 {
+        if specificity >= dom_get_spec_text_align(idx) {
+            dom_set_style_text_align(idx, RULE_TEXT_ALIGN[s]);
+            dom_set_spec_text_align(idx, specificity);
+        }
+    }
+    // vertical-align
+    if RULE_VERTICAL_ALIGN[s] != 255 {
+        if specificity >= dom_get_spec_v_align(idx) {
+            dom_set_style_vertical_align(idx, RULE_VERTICAL_ALIGN[s]);
+            dom_set_spec_v_align(idx, specificity);
+        }
+    }
+    // font-size
+    if RULE_FONT_SIZE[s] != 0.0 {
+        if specificity >= dom_get_spec_font_size(idx) {
+            dom_set_style_font_size(idx, RULE_FONT_SIZE[s]);
+            dom_set_spec_font_size(idx, specificity);
+        }
+    }
+    // font-weight
+    if RULE_FONT_WEIGHT[s] != 255 {
+        if specificity >= dom_get_spec_font_weight(idx) {
+            dom_set_style_font_weight(idx, RULE_FONT_WEIGHT[s]);
+            dom_set_spec_font_weight(idx, specificity);
+        }
     }
 }
 
@@ -966,25 +1325,119 @@ fn apply_inline_property(node_idx: u32, ptr: u64, prop_start: u32, prop_len: u32
     let vp = ptr + val_start as u64;
     let p0 = *((pp) as &u8) | 32;
 
-    if p0 == 119 && prop_len == 5 { // "width"
+    // "display"
+    if p0 == 100 && prop_len == 7 {
+        let v0 = *((vp) as &u8) | 32;
+        if v0 == 102 && val_len == 4 { dom_set_style_display(node_idx, 2); } // flex
+        else if v0 == 98 && val_len == 5 { dom_set_style_display(node_idx, 1); } // block
+        else if v0 == 110 && val_len == 4 { dom_set_style_display(node_idx, 0); } // none
+        else if v0 == 105 && val_len == 6 { dom_set_style_display(node_idx, 3); } // inline
+        else if v0 == 105 && val_len == 12 { dom_set_style_display(node_idx, 5); } // inline-block
+        dom_set_spec_display(node_idx, 1000);
+        return 1;
+    }
+
+    // "margin" / "margin-top" etc
+    if p0 == 109 && prop_len >= 6 {
+        if prop_len == 6 { // "margin"
+             let v = parse_int(vp, val_len);
+             dom_set_style_margin(node_idx, v, v, v, v);
+             dom_set_spec_margin(node_idx, 1000);
+             return 1;
+        } else if prop_len >= 10 {
+            let p7 = *((pp + 7) as &u8) | 32;
+            let v = parse_int(vp, val_len);
+            let mut mt = dom_get_margin_top(node_idx);
+            let mut mr = dom_get_margin_right(node_idx);
+            let mut mb = dom_get_margin_bottom(node_idx);
+            let mut ml = dom_get_margin_left(node_idx);
+            if p7 == 116 { mt = v; } // top
+            else if p7 == 98 { mb = v; } // bottom
+            else if p7 == 108 { ml = v; } // left
+            else if p7 == 114 { mr = v; } // right
+            dom_set_style_margin(node_idx, mt, mr, mb, ml);
+            dom_set_spec_margin(node_idx, 1000);
+            return 1;
+        }
+    }
+
+    // "padding"
+    if p0 == 112 && prop_len == 7 {
+        let v = parse_int(vp, val_len);
+        dom_set_style_padding(node_idx, v, v, v, v);
+        dom_set_spec_padding(node_idx, 1000);
+        return 1;
+    }
+
+    // "border" / "border-width"
+    if p0 == 98 && prop_len >= 6 {
+        if prop_len == 6 || prop_len == 12 { // "border" or "border-width"
+            let v = parse_int(vp, val_len);
+            dom_set_style_border_width(node_idx, v, v, v, v);
+            dom_set_spec_border_w(node_idx, 1000);
+            return 1;
+        }
+    }
+
+    // "width"
+    if p0 == 119 && prop_len == 5 {
         dom_set_style_width(node_idx, parse_int(vp, val_len));
         dom_set_spec_width(node_idx, 1000);
         return 1;
     }
     
-    if p0 == 104 && prop_len == 6 { // "height"
+    // "height"
+    if p0 == 104 && prop_len == 6 {
         dom_set_style_height(node_idx, parse_int(vp, val_len));
         dom_set_spec_height(node_idx, 1000);
         return 1;
     }
 
-    if p0 == 99 && prop_len == 5 { // "color"
+    // "color"
+    if p0 == 99 && prop_len == 5 {
         let mut hex_start = vp;
         if *((vp) as &u8) == 35 { hex_start = vp + 1; }
         let mut r: u8 = 0; let mut g: u8 = 0; let mut b_c: u8 = 0;
         parse_hex_to_rgb(hex_start, (&mut r) as *mut u8, (&mut g) as *mut u8, (&mut b_c) as *mut u8);
         dom_set_style_color(node_idx, r, g, b_c);
         dom_set_spec_color(node_idx, 1000);
+        return 1;
+    }
+
+    // "background-color"
+    if p0 == 98 && prop_len >= 10 {
+        let mut hex_start = vp;
+        if *((vp) as &u8) == 35 { hex_start = vp + 1; }
+        let mut r: u8 = 0; let mut g: u8 = 0; let mut b_c: u8 = 0;
+        parse_hex_to_rgb(hex_start, (&mut r) as *mut u8, (&mut g) as *mut u8, (&mut b_c) as *mut u8);
+        dom_set_style_bg(node_idx, r, g, b_c);
+        dom_set_spec_bg(node_idx, 1000);
+        return 1;
+    }
+
+    // "text-align"
+    if p0 == 116 && prop_len == 10 {
+        let v0 = *((vp) as &u8) | 32;
+        if v0 == 108 { dom_set_style_text_align(node_idx, 0); } // left
+        else if v0 == 114 { dom_set_style_text_align(node_idx, 1); } // right
+        else if v0 == 99 { dom_set_style_text_align(node_idx, 2); } // center
+        dom_set_spec_text_align(node_idx, 1000);
+        return 1;
+    }
+
+    // "font-size"
+    if p0 == 102 && prop_len == 9 {
+        dom_set_style_font_size(node_idx, parse_float(vp, val_len));
+        dom_set_spec_font_size(node_idx, 1000);
+        return 1;
+    }
+
+    // "font-weight"
+    if p0 == 102 && prop_len == 11 {
+        let v0 = *((vp) as &u8) | 32;
+        if v0 == 98 { dom_set_style_font_weight(node_idx, 1); } // bold
+        else { dom_set_style_font_weight(node_idx, 0); } // normal
+        dom_set_spec_font_weight(node_idx, 1000);
         return 1;
     }
 
@@ -1060,5 +1513,56 @@ pub fn css_lex_inline_style(node_idx: u32, ptr: u64, len: u32) {
             let b = *((ptr + cursor as u64) as &u8);
             if b == 59 || b == 125 { cursor = cursor + 1; }
         }
+    }
+}
+
+@no_mangle
+pub fn css_set_rule_display(slot: u32, val: u8) {
+    if slot < 4096 { RULE_DISPLAY[slot as usize] = val; }
+}
+
+@no_mangle
+pub fn css_set_rule_padding(slot: u32, t: i32, r: i32, b: i32, l: i32) {
+    if slot < 4096 {
+        RULE_PAD_TOP[slot as usize] = t;
+        RULE_PAD_RIGHT[slot as usize] = r;
+        RULE_PAD_BOTTOM[slot as usize] = b;
+        RULE_PAD_LEFT[slot as usize] = l;
+        RULE_PAD_SET[slot as usize] = 1;
+    }
+}
+
+@no_mangle
+pub fn css_set_rule_margin(slot: u32, t: i32, r: i32, b: i32, l: i32) {
+    if slot < 4096 {
+        RULE_MARGIN_TOP[slot as usize] = t;
+        RULE_MARGIN_RIGHT[slot as usize] = r;
+        RULE_MARGIN_BOTTOM[slot as usize] = b;
+        RULE_MARGIN_LEFT[slot as usize] = l;
+        RULE_MARGIN_SET[slot as usize] = 1;
+    }
+}
+
+@no_mangle
+pub fn css_set_rule_font(slot: u32, size: f32, weight: u8) {
+    if slot < 4096 {
+        if size > 0.0 { RULE_FONT_SIZE[slot as usize] = size; }
+        if weight != 255 { RULE_FONT_WEIGHT[slot as usize] = weight; }
+    }
+}
+
+@no_mangle
+pub fn css_set_rule_width(slot: u32, val: i32) {
+    if slot < 4096 { RULE_WIDTH[slot as usize] = val; }
+}
+
+@no_mangle
+pub fn css_set_rule_border_width(slot: u32, val: i32) {
+    if slot < 4096 {
+        RULE_BORDER_W_TOP[slot as usize] = val;
+        RULE_BORDER_W_RIGHT[slot as usize] = val;
+        RULE_BORDER_W_BOTTOM[slot as usize] = val;
+        RULE_BORDER_W_LEFT[slot as usize] = val;
+        RULE_BORDER_SET[slot as usize] = 1;
     }
 }

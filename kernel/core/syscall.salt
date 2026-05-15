@@ -677,23 +677,20 @@ pub fn sys_ipc_send(target_pid: u64, msg0: u64, msg1: u64, msg2: u64) -> u64 {
         return 0 - 1;
     }
 
-    // Store message in target's PCB
-    process.set_ipc_msg(target_pid, sender, msg0, msg1, msg2);
-
-    // If target is blocked on IPC recv, atomically unblock it and switch.
-    // SMP SAFETY: Use atomic CAS to prevent two cores from both seeing
-    // IPC_BLOCKED and double-switching to the same process.
-    if target_state == PROC_IPC_BLOCKED {
-        let state_addr = process.get_state_addr(target_pid);
-        let old = smp_cas_u64(state_addr, PROC_IPC_BLOCKED, PROC_READY);
-        if old == PROC_IPC_BLOCKED {
-            // WE won the race — switch to target
-            switch_to_process(sender, target_pid);
-        }
-        // Else: another core already unblocked it. Message is buffered.
+    // SMP SAFETY & SECURITY FIX:
+    // Only write to the target's PCB if we successfully win the race to unblock it.
+    // This prevents interleaved message corruption from concurrent senders.
+    let state_addr = process.get_state_addr(target_pid);
+    let old = smp_cas_u64(state_addr, PROC_IPC_BLOCKED, PROC_READY);
+    if old == PROC_IPC_BLOCKED {
+        // WE won the race — we have exclusive access to the PCB IPC fields
+        process.set_ipc_msg(target_pid, sender, msg0, msg1, msg2);
+        switch_to_process(sender, target_pid);
+        return 0;
     }
-
-    return 0;
+    
+    // Target was not blocked or another core unblocked it first
+    return 0 - 1;
 }
 
 // =============================================================================
