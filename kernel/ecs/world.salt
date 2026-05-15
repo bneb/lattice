@@ -1,35 +1,29 @@
 package kernel.ecs.world
 
 import kernel.ecs.entity.{Entity, EntityAllocator, new_entity_allocator}
-import kernel.ecs.sparse_set.SparseSet
-
-pub struct MemoryMap {
-    pub size: u64,
-    pub pml4_phys: u64,
-}
-
-pub struct SchedulingPriority {
-    pub level: u32,
-    pub tickets: u32,
-}
-
-pub struct ThreadState {
-    pub status: u32,
-    pub stack_ptr: u64,
-}
+import kernel.ecs.sparse_set.{ThreadSparseSet, PrioritySparseSet, new_thread_set, new_priority_set}
+import kernel.ecs.components.{MemoryMap, ThreadState, SchedulingPriority}
+import kernel.drivers.serial
+import std.core.mem.size_of
 
 pub struct World {
-    pub alloc: EntityAllocator,
-    pub mem_maps: SparseSet<MemoryMap>,
-    pub priorities: SparseSet<SchedulingPriority>,
-    pub threads: SparseSet<ThreadState>,
+    pub alloc: Ptr<EntityAllocator>,
+    pub priorities: Ptr<PrioritySparseSet>,
+    pub threads: Ptr<ThreadSparseSet>,
 }
 
-pub fn new_world() -> World {
-    return World {
-        alloc: new_entity_allocator(),
-        mem_maps: SparseSet::<MemoryMap>::new(),
-        priorities: SparseSet::<SchedulingPriority>::new(),
-        threads: SparseSet::<ThreadState>::new(),
+extern fn malloc(size: i64) -> u64;
+
+pub fn new_world() -> Ptr<World> {
+    let threads_res = new_thread_set();
+    let priorities_res = new_priority_set();
+    let allocator_res = new_entity_allocator();
+    
+    let w_ptr = malloc(32) as Ptr<World>;
+    w_ptr[0] = World {
+        alloc: allocator_res,
+        priorities: priorities_res,
+        threads: threads_res,
     };
+    return w_ptr;
 }

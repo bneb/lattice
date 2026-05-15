@@ -262,7 +262,7 @@ int main(int argc, char **argv) {
 
   // Register tensor bufferization patterns (tensor.extract -> memref.load etc.)
   mlir::tensor::registerBufferizableOpInterfaceExternalModels(mlirRegistry);
-  mlir::registerAllToLLVMIRTranslations(mlirRegistry);
+  mlir::registerLLVMDialectTranslation(mlirRegistry);
   mlir::registerBuiltinDialectTranslation(mlirRegistry);
 
   cl::ParseCommandLineOptions(argc, argv, "Salt Optimizer & Backend\n");

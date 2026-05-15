@@ -1,7 +1,9 @@
 package kernel.ecs.commands
 
-import kernel.ecs.world.{World, SchedulingPriority, MemoryMap, ThreadState}
-import kernel.ecs.entity.Entity
+import kernel.ecs.world.World
+import kernel.ecs.components.{SchedulingPriority, MemoryMap, ThreadState}
+import kernel.ecs.entity.{Entity, entity_allocator_allocate}
+import kernel.ecs.sparse_set.{thread_set_insert, priority_set_insert}
 
 pub const CMD_SPAWN_THREAD: u32 = 1;
 pub const CMD_UPDATE_PRIORITY: u32 = 2;
@@ -46,22 +48,17 @@ impl Commands {
         }
     }
     
-    pub fn apply(self: &mut Commands, w: &mut World) {
+    pub fn apply(self: &mut Commands, w_ptr: Ptr<World>) {
+        let w = w_ptr[0];
         let mut i: u32 = 0;
         while i < self.count {
             let cmd = self.buffer[i as i64];
             if cmd.cmd_type == CMD_SPAWN_THREAD {
-                let alloc_ref = &mut w.alloc;
-                let e = alloc_ref.allocate();
-                let threads_ref = &mut w.threads;
-                threads_ref.insert(e, cmd.thread_state);
-                let mem_maps_ref = &mut w.mem_maps;
-                mem_maps_ref.insert(e, cmd.mem_map);
-                let priorities_ref = &mut w.priorities;
-                priorities_ref.insert(e, cmd.priority);
+                let e = entity_allocator_allocate(w.alloc);
+                thread_set_insert(w.threads, e, cmd.thread_state);
+                priority_set_insert(w.priorities, e, cmd.priority);
             } else if cmd.cmd_type == CMD_UPDATE_PRIORITY {
-                let priorities_ref = &mut w.priorities;
-                priorities_ref.insert(cmd.target, cmd.priority);
+                priority_set_insert(w.priorities, cmd.target, cmd.priority);
             }
             i = i + 1;
         }

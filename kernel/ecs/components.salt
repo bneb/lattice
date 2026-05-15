@@ -1,0 +1,16 @@
+package kernel.ecs.components
+
+pub struct MemoryMap {
+    pub size: u64,
+    pub pml4_phys: u64,
+}
+
+pub struct SchedulingPriority {
+    pub level: u32,
+    pub tickets: u32,
+}
+
+pub struct ThreadState {
+    pub status: u32,
+    pub stack_ptr: u64,
+}

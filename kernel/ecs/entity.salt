@@ -1,49 +1,64 @@
 package kernel.ecs.entity
 
+import kernel.drivers.serial
+
 pub struct Entity {
     pub id: u32,
     pub gen: u32,
 }
 
-pub const MAX_ENTITIES: u32 = 65536;
+pub const MAX_ENTITIES: u32 = 1024;
 
 pub struct EntityAllocator {
-    pub generations: [u32; 65536],
-    pub free_indices: [u32; 65536],
+    pub generations: Ptr<u32>,
+    pub free_indices: Ptr<u32>,
     pub free_count: u32,
     pub next_fresh_id: u32,
 }
 
-pub fn new_entity_allocator() -> EntityAllocator {
-    return EntityAllocator {
-        generations: [0; 65536],
-        free_indices: [0; 65536],
+extern fn malloc(size: i64) -> u64;
+
+pub fn new_entity_allocator() -> Ptr<EntityAllocator> {
+    let gen_ptr = malloc(4096) as Ptr<u32>; // 1024 * 4
+    let free_ptr = malloc(4096) as Ptr<u32>;
+    
+    let mut i: u32 = 0;
+    while i < 1024 {
+        gen_ptr[i as i64] = 0;
+        free_ptr[i as i64] = 0;
+        i = i + 1;
+    }
+
+    let alloc_ptr = malloc(32) as Ptr<EntityAllocator>;
+    alloc_ptr[0] = EntityAllocator {
+        generations: gen_ptr,
+        free_indices: free_ptr,
         free_count: 0,
         next_fresh_id: 0,
     };
+    return alloc_ptr;
 }
 
-impl EntityAllocator {
-    pub fn allocate(self: &mut EntityAllocator) -> Entity {
-        if self.free_count > 0 {
-            self.free_count = self.free_count - 1;
-            let id = self.free_indices[self.free_count as usize];
-            return Entity { id: id, gen: self.generations[id as usize] };
-        }
-        
-        let id = self.next_fresh_id;
-        if id >= MAX_ENTITIES {
-            return Entity { id: 0xFFFFFFFF, gen: 0 };
-        }
-        self.next_fresh_id = self.next_fresh_id + 1;
-        return Entity { id: id, gen: self.generations[id as usize] };
+pub fn entity_allocator_allocate(self: Ptr<EntityAllocator>) -> Entity {
+    if self[0].free_count > 0 {
+        self[0].free_count = self[0].free_count - 1;
+        let id = self[0].free_indices[self[0].free_count as usize];
+        return Entity { id: id, gen: self[0].generations[id as usize] };
     }
     
-    pub fn free(self: &mut EntityAllocator, e: Entity) {
-        if e.id < MAX_ENTITIES && self.generations[e.id as usize] == e.gen {
-            self.generations[e.id as usize] = self.generations[e.id as usize] + 1;
-            self.free_indices[self.free_count as usize] = e.id;
-            self.free_count = self.free_count + 1;
-        }
+    let id = self[0].next_fresh_id;
+    if id >= MAX_ENTITIES {
+        return Entity { id: 0xFFFFFFFF, gen: 0 };
+    }
+    let gen = self[0].generations[id as usize];
+    self[0].next_fresh_id = self[0].next_fresh_id + 1;
+    return Entity { id: id, gen: gen };
+}
+
+pub fn entity_allocator_free(self: Ptr<EntityAllocator>, e: Entity) {
+    if e.id < MAX_ENTITIES && self[0].generations[e.id as usize] == e.gen {
+        self[0].generations[e.id as usize] = self[0].generations[e.id as usize] + 1;
+        self[0].free_indices[self[0].free_count as usize] = e.id;
+        self[0].free_count = self[0].free_count + 1;
     }
 }
