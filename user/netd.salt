@@ -74,9 +74,9 @@ fn handle_bind(sender: u64, port: u64, bindings: u64, next_fd: &mut u64) -> u64 
     // Check if port is already bound
     let mut i: u64 = 0;
     while i < MAX_BINDINGS {
-        let slot = bindings + (i * 24);  // sizeof(Binding) = 24 bytes (3 × u64)
+        let slot = bindings + (i * 32);  // sizeof(Binding) = 32 bytes (4 × u64)
         let slot_port = *((slot + 0) as &u64);
-        let slot_state = *((slot + 16) as &u64);
+        let slot_state = *((slot + 24) as &u64);
         if slot_port == port && slot_state != BIND_FREE {
             // Port in use — reply with error
             syscall.ipc_send(sender, socket_protocol.RESP_ERR, socket_protocol.ERR_PORT_IN_USE, 0);
@@ -90,8 +90,8 @@ fn handle_bind(sender: u64, port: u64, bindings: u64, next_fd: &mut u64) -> u64 
     let mut found = false;
     i = 0;
     while i < MAX_BINDINGS {
-        let slot = bindings + (i * 24);
-        let slot_state = *((slot + 16) as &u64);
+        let slot = bindings + (i * 32);
+        let slot_state = *((slot + 24) as &u64);
         if slot_state == BIND_FREE {
             slot_idx = i;
             found = true;
@@ -110,10 +110,11 @@ fn handle_bind(sender: u64, port: u64, bindings: u64, next_fd: &mut u64) -> u64 
     let fd = *next_fd;
     *next_fd = fd + 1;
 
-    let slot = bindings + (slot_idx * 24);
+    let slot = bindings + (slot_idx * 32);
     *((slot + 0) as &mut u64) = port;
     *((slot + 8) as &mut u64) = fd;
-    *((slot + 16) as &mut u64) = BIND_BOUND;
+    *((slot + 16) as &mut u64) = sender; // Record owner_pid
+    *((slot + 24) as &mut u64) = BIND_BOUND;
 
     // Reply with RESP_OK + fd
     syscall.ipc_send(sender, socket_protocol.RESP_OK, fd, 0);
@@ -126,24 +127,25 @@ fn handle_accept(sender: u64, fd: u64, bindings: u64) {
     // Find the binding for this FD
     let mut i: u64 = 0;
     while i < MAX_BINDINGS {
-        let slot = bindings + (i * 24);
+        let slot = bindings + (i * 32);
         let slot_fd = *((slot + 8) as &u64);
-        let slot_state = *((slot + 16) as &u64);
+        let slot_owner = *((slot + 16) as &u64);
+        let slot_state = *((slot + 24) as &u64);
         if slot_fd == fd && slot_state == BIND_BOUND {
+            if slot_owner != sender {
+                // Deny hijacking!
+                syscall.ipc_send(sender, socket_protocol.RESP_ERR, 0xFFFFFFFF, 0);
+                return;
+            }
+
             // Transition to LISTENING
-            *((slot + 16) as &mut u64) = BIND_LISTENING;
+            *((slot + 24) as &mut u64) = BIND_LISTENING;
 
             // Grant shared memory pages for RX and TX rings
             // NetD allocates physical pages and maps them into the caller's
             // address space at the deterministic VADDRs.
             let rx_dst = rx_vaddr_for_fd(fd);
             let tx_dst = tx_vaddr_for_fd(fd);
-
-            // In production: allocate physical pages, init SPSC headers,
-            // then call sys_shm_grant to map them into the caller's space.
-            // For the stub, we use pre-allocated pages.
-            // syscall.shm_grant(sender, rx_src, rx_dst, 0);
-            // syscall.shm_grant(sender, tx_src, tx_dst, 0);
 
             // Reply OK to wake the application
             syscall.ipc_send(sender, socket_protocol.RESP_OK, fd, 0);
@@ -160,14 +162,22 @@ fn handle_accept(sender: u64, fd: u64, bindings: u64) {
 fn handle_close(sender: u64, fd: u64, bindings: u64) {
     let mut i: u64 = 0;
     while i < MAX_BINDINGS {
-        let slot = bindings + (i * 24);
+        let slot = bindings + (i * 32);
         let slot_fd = *((slot + 8) as &u64);
-        let slot_state = *((slot + 16) as &u64);
+        let slot_owner = *((slot + 16) as &u64);
+        let slot_state = *((slot + 24) as &u64);
         if slot_fd == fd && slot_state != BIND_FREE {
+            if slot_owner != sender {
+                // Deny hijacking!
+                syscall.ipc_send(sender, socket_protocol.RESP_ERR, 0xFFFFFFFF, 0);
+                return;
+            }
+            
             // Clear the slot
             *((slot + 0) as &mut u64) = 0;
             *((slot + 8) as &mut u64) = 0;
-            *((slot + 16) as &mut u64) = BIND_FREE;
+            *((slot + 16) as &mut u64) = 0;
+            *((slot + 24) as &mut u64) = BIND_FREE;
 
             syscall.ipc_send(sender, socket_protocol.RESP_OK, 0, 0);
             return;
@@ -185,9 +195,9 @@ fn handle_close(sender: u64, fd: u64, bindings: u64) {
 // It blocks on ipc_recv, dispatches commands, and replies.
 
 pub fn netd_main() {
-    // Allocate binding table on stack (16 × 24 = 384 bytes)
-    // Each binding is 3 u64s: port, fd, state
-    let mut binding_storage: [u64; 48] = [0; 48];  // 48 × 8 = 384 bytes
+    // Allocate binding table on stack (16 × 32 = 512 bytes)
+    // Each binding is 4 u64s: port, fd, owner_pid, state
+    let mut binding_storage: [u64; 64] = [0; 64];  // 64 × 8 = 512 bytes
     let bindings = (&binding_storage) as u64;
 
     let mut next_fd: u64 = 0;

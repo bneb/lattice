@@ -331,7 +331,14 @@ pub fn handle_ack(src_ip: u32, dst_ip: u32, src_port: u16, dst_port: u16,
         return 0xFFFFFFFF;  // Hash mismatch — cookie tampered or wrong source
     }
 
-    // 3. Cookie valid — NOW allocate the TCB
+    // 3. Cookie valid — check for replay / duplicate
+    let existing_slot = lookup(dst_port, src_ip, src_port);
+    if existing_slot != 0xFFFFFFFF {
+        // Idempotent ACK for an already established connection
+        return existing_slot;
+    }
+
+    // 4. NOW allocate the TCB
     let slot = alloc();
     if slot == 0xFFFFFFFF {
         return 0xFFFFFFFF;  // Pool exhausted (even valid clients get dropped)

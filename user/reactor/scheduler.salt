@@ -281,18 +281,28 @@ pub fn init_reactor() {
 }
 
 pub fn spawn_task(state_addr: u64, deque_addr: u64) -> u32 {
-    let id = TASK_COUNT;
-    if id >= MAX_REACTOR_TASKS {
+    let mut id: u32 = 0;
+    let mut found = false;
+    
+    // Linearly scan for an IDLE or DONE slot to recycle
+    while id < MAX_REACTOR_TASKS {
+        let slot_addr = TASK_REGISTRY + ((id as u64) * 24);
+        let status = *((slot_addr) as &u32);
+        if status == TASK_IDLE {
+            found = true;
+            break;
+        }
+        if status == TASK_DONE {
+            found = true;
+            break;
+        }
+        id = id + 1;
+    }
+    
+    if !found {
         return 0xFFFFFFFF; // Error: Too many tasks
     }
     
-    // Each TaskSlot is 24 bytes. 
-    // struct layout: 
-    // 0: status (u32)
-    // 4: pending_token (u32)
-    // 8: result (u32)
-    // 12: task_id (u32)
-    // 16: state_addr (u64)
     let slot_addr = TASK_REGISTRY + ((id as u64) * 24);
     
     // Initialize
@@ -302,7 +312,10 @@ pub fn spawn_task(state_addr: u64, deque_addr: u64) -> u32 {
     *((slot_addr + 12) as &mut u32) = id;
     *((slot_addr + 16) as &mut u64) = state_addr;
     
-    TASK_COUNT = TASK_COUNT + 1;
+    // Update TASK_COUNT to max bound for iteration bounds if necessary
+    if id >= TASK_COUNT {
+        TASK_COUNT = id + 1;
+    }
     
     // Enqueue to the local deque
     push_bottom(deque_addr, id as i64);

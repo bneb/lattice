@@ -261,11 +261,12 @@ pub fn net_tx_send(pkt: u64, pkt_len: u32) -> bool {
 
     // Reclaim any completed TX descriptors first
     let reclaimed = tx_reclaim_used();
-    serial.print("[TX] free=");
-    serial.print_u64(virtio.get_tx_num_free() as u64);
-    serial.print(" reclaimed=");
-    serial.print_u64(reclaimed as u64);
-    serial.print("\n");
+    
+    if virtio.get_tx_num_free() == 0 {
+        serial.print("[TX] Queue full (0 free descriptors), dropping packet to prevent DMA corruption\n");
+        return false;
+    }
+    
     // Use the next TX buffer slot (round-robin)
     let slot = (TX_COUNT % (MAX_BUFS as u64)) as u64;
     let buf_virt = TX_BUF_VIRT + slot * (BUF_SIZE as u64);

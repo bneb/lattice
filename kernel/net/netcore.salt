@@ -114,10 +114,12 @@ pub fn process_one() -> bool {
     }
 
     if eth_hdr.ethertype == 0x0800 {
-        // IPv4
-        let ip_start = eth_start + 14;
-        let ip_len = eth_len - 14;
-        handle_ipv4(ip_start, ip_len, src_mac);
+        // IPv4 (requires at least 14 eth + 20 ip bytes)
+        if eth_len >= 34 {
+            let ip_start = eth_start + 14;
+            let ip_len = eth_len - 14;
+            handle_ipv4(ip_start, ip_len, src_mac);
+        }
     }
 
     // Generic Ring 3 notification — kernel does not inspect payload
