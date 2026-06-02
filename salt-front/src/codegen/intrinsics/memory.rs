@@ -210,7 +210,14 @@ pub fn emit_memory_intrinsic(
             if args.is_empty() {
                 return Err("Intrinsic 'ptr_is_null' expects 1 argument: (ptr)".to_string());
             }
-            let (ptr, ptr_ty) = emit_expr(ctx, out, &args[0], local_vars, None)?;
+            let (mut ptr, mut ptr_ty) = emit_expr(ctx, out, &args[0], local_vars, None)?;
+            
+            if let Type::Reference(inner, _) = &ptr_ty {
+                let load_val = format!("%loaded_ptr_{}", ctx.next_id());
+                ctx.emit_load_logical(out, &load_val, &ptr, inner)?;
+                ptr = load_val;
+                ptr_ty = (**inner).clone();
+            }
             
             let struct_ty = ptr_ty.to_mlir_storage_type(ctx)?;
             let raw_ptr = if struct_ty == "!llvm.ptr" {
@@ -239,12 +246,18 @@ pub fn emit_memory_intrinsic(
             if args.len() != 2 {
                 return Err("Intrinsic 'ptr_offset' expects 2 arguments: (ptr, count)".to_string());
             }
-            let (ptr, ptr_ty) = emit_expr(ctx, out, &args[0], local_vars, None)?;
+            let (mut ptr, mut ptr_ty) = emit_expr(ctx, out, &args[0], local_vars, None)?;
+            
+            if let Type::Reference(inner, _) = &ptr_ty {
+                let load_val = format!("%loaded_ptr_{}", ctx.next_id());
+                ctx.emit_load_logical(out, &load_val, &ptr, inner)?;
+                ptr = load_val;
+                ptr_ty = (**inner).clone();
+            }
+            
             let (count, _) = emit_expr(ctx, out, &args[1], local_vars, Some(&Type::I64))?;
             
-            let elem_ty = if let Type::Reference(inner, _) = &ptr_ty {
-                inner.to_mlir_type(ctx)?
-            } else if let Type::Concrete(name, args) = &ptr_ty {
+            let elem_ty = if let Type::Concrete(name, args) = &ptr_ty {
                 if (name.ends_with("Ptr") || name.contains("Ptr")) && !args.is_empty() {
                     args[0].to_mlir_type(ctx)?
                 } else {
@@ -284,11 +297,20 @@ pub fn emit_memory_intrinsic(
             let res = format!("%ptr_offset_{}", ctx.next_id());
             let struct_ty = ptr_ty.to_mlir_storage_type(ctx)?;
             
-            let raw_ptr = if struct_ty == "!llvm.ptr" {
+            let is_aggregate = matches!(ptr_ty, Type::Struct(_) | Type::Concrete(_, _) | Type::Array(_, _, _));
+            let loaded_ptr = if is_aggregate {
+                let load_val = format!("%loaded_struct_{}", ctx.next_id());
+                out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> {}\n", load_val, ptr, struct_ty));
+                load_val
+            } else {
                 ptr.clone()
+            };
+            
+            let raw_ptr = if struct_ty == "!llvm.ptr" {
+                loaded_ptr
             } else {
                 let val_i64 = if struct_ty == "i64" {
-                    ptr.clone()
+                    loaded_ptr
                 } else {
                     let val_i64 = format!("%ptr_val_{}", ctx.next_id());
                     ctx.emit_extractvalue(out, &val_i64, &ptr, 0, &struct_ty);
@@ -323,7 +345,14 @@ pub fn emit_memory_intrinsic(
             if args.is_empty() {
                 return Err("Intrinsic 'ptr_read' / 'ptr_read_at' expects 1-2 arguments: (ptr) or (ptr, index)".to_string());
             }
-            let (ptr, ptr_ty) = emit_expr(ctx, out, &args[0], local_vars, None)?;
+            let (mut ptr, mut ptr_ty) = emit_expr(ctx, out, &args[0], local_vars, None)?;
+            
+            if let Type::Reference(inner, _) = &ptr_ty {
+                let load_val = format!("%loaded_ptr_{}", ctx.next_id());
+                ctx.emit_load_logical(out, &load_val, &ptr, inner)?;
+                ptr = load_val;
+                ptr_ty = (**inner).clone();
+            }
             
             let index_val = if args.len() >= 2 {
                 let (idx, _) = emit_expr(ctx, out, &args[1], local_vars, Some(&Type::I64))?;
@@ -332,9 +361,7 @@ pub fn emit_memory_intrinsic(
                 None
             };
             
-            let inner_ty = if let Type::Reference(inner, _) = &ptr_ty {
-                (**inner).clone()
-            } else if let Type::Concrete(name, args) = &ptr_ty {
+            let inner_ty = if let Type::Concrete(name, args) = &ptr_ty {
                 if (name.ends_with("Ptr") || name.contains("Ptr")) && !args.is_empty() {
                     args[0].clone()
                 } else { return Err(format!("ptr_read expected Ptr<T>, got {:?}", ptr_ty)); }
@@ -350,11 +377,20 @@ pub fn emit_memory_intrinsic(
             
             let struct_ty = ptr_ty.to_mlir_storage_type(ctx)?;
             
+            let is_aggregate = matches!(ptr_ty, Type::Struct(_) | Type::Concrete(_, _) | Type::Array(_, _, _));
+            let loaded_ptr = if is_aggregate {
+                let load_val = format!("%loaded_struct_{}", ctx.next_id());
+                out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> {}\n", load_val, ptr, struct_ty));
+                load_val
+            } else {
+                ptr.clone()
+            };
+            
             let raw_ptr = if struct_ty == "!llvm.ptr" {
-                 ptr.clone()
+                 loaded_ptr
             } else {
                 let val_i64 = if struct_ty == "i64" {
-                    ptr.clone()
+                    loaded_ptr
                 } else {
                     let val = format!("%ptr_val_r_{}", ctx.next_id());
                     ctx.emit_extractvalue(out, &val, &ptr, 0, &struct_ty);
@@ -383,11 +419,16 @@ pub fn emit_memory_intrinsic(
             if args.len() != 2 {
                 return Err("Intrinsic 'ptr_write' expects 2 arguments: (ptr, value)".to_string());
             }
-            let (ptr, ptr_ty) = emit_expr(ctx, out, &args[0], local_vars, None)?;
+            let (mut ptr, mut ptr_ty) = emit_expr(ctx, out, &args[0], local_vars, None)?;
             
-            let inner_ty = if let Type::Reference(inner, _) = &ptr_ty {
-                (**inner).clone()
-            } else if let Type::Concrete(name, args) = &ptr_ty {
+            if let Type::Reference(inner, _) = &ptr_ty {
+                let load_val = format!("%loaded_ptr_{}", ctx.next_id());
+                ctx.emit_load_logical(out, &load_val, &ptr, inner)?;
+                ptr = load_val;
+                ptr_ty = (**inner).clone();
+            }
+            
+            let inner_ty = if let Type::Concrete(name, args) = &ptr_ty {
                 if (name.ends_with("Ptr") || name.contains("Ptr")) && !args.is_empty() {
                     args[0].clone()
                 } else { return Err(format!("ptr_write expected Ptr<T>, got {:?}", ptr_ty)); }
@@ -405,11 +446,20 @@ pub fn emit_memory_intrinsic(
             
             let struct_ty = ptr_ty.to_mlir_storage_type(ctx)?;
             
+            let is_aggregate = matches!(ptr_ty, Type::Struct(_) | Type::Concrete(_, _) | Type::Array(_, _, _));
+            let loaded_ptr = if is_aggregate {
+                let load_val = format!("%loaded_struct_{}", ctx.next_id());
+                out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> {}\n", load_val, ptr, struct_ty));
+                load_val
+            } else {
+                ptr.clone()
+            };
+            
             let raw_ptr = if struct_ty == "!llvm.ptr" {
-                 ptr.clone()
+                 loaded_ptr
             } else {
                 let val_i64 = if struct_ty == "i64" {
-                    ptr.clone()
+                    loaded_ptr
                 } else {
                     let val = format!("%ptr_val_w_{}", ctx.next_id());
                     ctx.emit_extractvalue(out, &val, &ptr, 0, &struct_ty);

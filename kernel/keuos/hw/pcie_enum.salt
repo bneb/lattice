@@ -94,6 +94,13 @@ pub fn discover_device_bar(
                         let phys_high: u64 = (bar0_high as u64) << 32;
                         let physical_addr: u64 = phys_high | phys_low;
 
+                        // Enable Bus Mastering and Memory Space (Command Register is at 0x04)
+                        let cmd_byte_off: u32 = (bus << 20) | (dev << 15) | (0 << 12) | 0x04;
+                        let cmd_word_off: i64 = (cmd_byte_off / 4) as i64;
+                        let mut cmd_reg: u32 = ecam_base.offset(cmd_word_off).read();
+                        cmd_reg = cmd_reg | 0x00000006; // Bus Master (bit 2) + Memory Space (bit 1)
+                        ecam_base.offset(cmd_word_off).write(cmd_reg);
+
                         return HardwareResource {
                             physical_address: physical_addr,
                             vendor_id: vendor,

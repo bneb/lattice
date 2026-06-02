@@ -1,0 +1,188 @@
+package kernel.drivers.nvme
+
+use std.core.ptr.Ptr
+use kernel.drivers.serial
+
+extern fn outb(port: u16, val: u8);
+
+pub struct SqEntry {
+    pub cdw0: u32,
+    pub nsid: u32,
+    pub rsvd2: u64,
+    pub mptr: u64,
+    pub dptr_prp1: u64,
+    pub dptr_prp2: u64,
+    pub cdw10: u32,
+    pub cdw11: u32,
+    pub cdw12: u32,
+    pub cdw13: u32,
+    pub cdw14: u32,
+    pub cdw15: u32,
+}
+
+pub struct CqEntry {
+    pub cdw0: u32,
+    pub rsvd1: u32,
+    pub sq_head: u16,
+    pub sq_id: u16,
+    pub command_id: u16,
+    pub status: u16,
+}
+
+pub struct NvmeController {
+    pub bar: Ptr<u32>,
+    pub asq: Ptr<SqEntry>,
+    pub acq: Ptr<CqEntry>,
+    pub asq_phys: u64,
+    pub acq_phys: u64,
+    pub asq_tail: u32,
+    pub acq_head: u32,
+    pub acq_phase: u16,
+}
+
+pub fn init(bar_addr: u64, asq_phys: u64, acq_phys: u64) -> NvmeController {
+    let mut ctrl = NvmeController {
+        bar: bar_addr as Ptr<u32>,
+        asq: asq_phys as Ptr<SqEntry>,
+        acq: acq_phys as Ptr<CqEntry>,
+        asq_phys: asq_phys,
+        acq_phys: acq_phys,
+        asq_tail: 0,
+        acq_head: 0,
+        acq_phase: 1, // Phase tag is 1 initially
+    };
+    
+    // 1. Disable the controller (clear CC.EN)
+    let cc_offset = 0x14 / 4;
+    let mut cc = ctrl.bar.offset(cc_offset).read();
+    cc = cc & 0xFFFFFFFE; // clear bit 0
+    ctrl.bar.offset(cc_offset).write(cc);
+    unsafe { outb(0x80, 0); }
+    
+    // Wait for CSTS.RDY to become 0
+    let csts_offset = 0x1C / 4;
+    while (ctrl.bar.offset(csts_offset).read() & 0x1) != 0 {
+        unsafe { outb(0x80, 0); }
+    }
+    serial.print("NVMe: Controller is disabled.\n");
+
+    // 2. Set AQA (Admin Queue Attributes)
+    // 32 entries (0-based, so 31 = 0x1F) for both ASQ and ACQ
+    // ASQ Size (bits 11:0), ACQ Size (bits 27:16)
+    let aqa_offset = 0x24 / 4;
+    let aqa = (31 << 16) | 31; 
+    ctrl.bar.offset(aqa_offset).write(aqa);
+    unsafe { outb(0x80, 0); }
+
+    // 3. Set ASQ Base Address
+    let asq_offset = 0x28 / 4;
+    ctrl.bar.offset(asq_offset).write((asq_phys & 0xFFFFFFFF) as u32);
+    unsafe { outb(0x80, 0); }
+    ctrl.bar.offset(asq_offset + 1).write((asq_phys >> 32) as u32);
+    unsafe { outb(0x80, 0); }
+
+    // 4. Set ACQ Base Address
+    let acq_offset = 0x30 / 4;
+    ctrl.bar.offset(acq_offset).write((acq_phys & 0xFFFFFFFF) as u32);
+    unsafe { outb(0x80, 0); }
+    ctrl.bar.offset(acq_offset + 1).write((acq_phys >> 32) as u32);
+    unsafe { outb(0x80, 0); }
+
+    // 5. Enable the controller (set CC.EN=1)
+    // Also set command set to NVM (CSS=0) and queue entry sizes
+    // IOSQES = 6 (64 bytes), IOCQES = 4 (16 bytes)
+    let mut new_cc = ctrl.bar.offset(cc_offset).read();
+    
+    // set bit 0 (EN), bits 23:16 (IOSQES=6), bits 27:24 (IOCQES=4)
+    // 6 << 16 = 0x00060000
+    // 4 << 20 = 0x00400000
+    new_cc = new_cc | 0x00460001; 
+    ctrl.bar.offset(cc_offset).write(new_cc);
+    unsafe { outb(0x80, 0); }
+    
+    // Wait for CSTS.RDY to become 1
+    while (ctrl.bar.offset(csts_offset).read() & 0x1) == 0 {
+        unsafe { outb(0x80, 0); }
+    }
+    serial.print("NVMe: Controller is ENABLED and ready.\n");
+
+    return ctrl;
+}
+
+pub fn submit_admin_cmd(ctrl: Ptr<NvmeController>, cmd: Ptr<SqEntry>) {
+    // Copy the command into the ASQ at the tail index
+    let asq = ctrl.offset(0).read().asq;
+    let tail = ctrl.offset(0).read().asq_tail;
+    
+    // Copy 64 bytes (16 dwords) using Ptr<u32> to avoid struct copy bug
+    let dest = asq.offset(tail as i64) as Ptr<u32>;
+    let src = cmd as Ptr<u32>;
+    let mut i = 0;
+    while i < 16 {
+        let val = src.offset(i as i64).read();
+        dest.offset(i as i64).write(val);
+        i = i + 1;
+    }
+
+    // Update tail
+    let mut next_tail = tail + 1;
+    if next_tail >= 32 {
+        next_tail = 0;
+    }
+    
+    // Write back tail to struct
+    let mut c = ctrl.offset(0).read();
+    c.asq_tail = next_tail;
+    ctrl.offset(0).write(c);
+
+    // Ring ASQ Tail Doorbell (SQ0 TDBL at offset 0x1000)
+    let sq0_tdbl = 0x1000 / 4;
+    let bar = ctrl.offset(0).read().bar;
+    bar.offset(sq0_tdbl).write(next_tail as u32);
+    unsafe { outb(0x80, 0); }
+}
+
+pub fn poll_admin_cq(ctrl: Ptr<NvmeController>) -> u16 {
+    let acq = ctrl.offset(0).read().acq;
+    let head = ctrl.offset(0).read().acq_head;
+    let expected_phase = ctrl.offset(0).read().acq_phase;
+    
+    // Wait for the phase bit (bit 0 of status) to match expected_phase
+    // CQ entry is 16 bytes, status is the last u16
+    let entry = acq.offset(head);
+    
+    while ((entry.offset(0).read().status & 1) != expected_phase) {
+        // spin with outb as a compiler barrier so LLVM doesn't hoist the load
+        unsafe { outb(0x80, 0); }
+    }
+    
+    let status = entry.offset(0).read().status;
+    
+    // Update head
+    let mut next_head = head + 1;
+    let mut next_phase = expected_phase;
+    if next_head >= 32 {
+        next_head = 0;
+        if next_phase == 1 { next_phase = 0; } else { next_phase = 1; }
+    }
+    
+    let mut c = ctrl.offset(0).read();
+    c.acq_head = next_head;
+    c.acq_phase = next_phase;
+    ctrl.offset(0).write(c);
+    
+    // Ring CQ0 Head Doorbell (CQ0 HDBL at offset 0x1004)
+    let cq0_hdbl = 0x1004 / 4;
+    let bar = ctrl.offset(0).read().bar;
+    bar.offset(cq0_hdbl).write(next_head);
+    
+    return status;
+}
+
+pub fn zero_memory(ptr: Ptr<u8>, size: u32) {
+    let mut i = 0;
+    while i < size {
+        ptr.offset(i).write(0);
+        i = i + 1;
+    }
+}

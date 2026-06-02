@@ -36,6 +36,7 @@ qemu-system-x86_64 \
     -serial mon:stdio \
     -drive file="$DISK",format=raw,if=none,id=nvme_drive \
     -device nvme,serial=1234,drive=nvme_drive \
-    -m 256M
+    -m 256M \
+    -trace "pci_nvme*"
 
 echo "=== Exited ==="

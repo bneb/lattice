@@ -459,7 +459,7 @@ pub fn resolve_and_emit_method(
                      recv_val
                  } else {
                      // If the expected self argument is a reference/pointer, we must spill the value
-                     if matches!(self_arg_ty, Type::Reference(_, _) | Type::Pointer { .. }) {
+                     if matches!(self_arg_ty, Type::Reference(_, _)) {
                          // Check if it's a global first
                          let mut is_global = false;
                          let mut global_ptr = None;

@@ -27,6 +27,7 @@ KERNEL_SALT_FILES=(
     "$PROJECT_ROOT/kernel/tests/nvme_test.salt"
     "$PROJECT_ROOT/kernel/keuos/hw/pcie_enum.salt"
     "$PROJECT_ROOT/kernel/drivers/serial.salt"
+    "$PROJECT_ROOT/kernel/drivers/nvme.salt"
 )
 
 echo "  [1/5] Compiling Salt → MLIR..."
