@@ -15,28 +15,35 @@ use std.collections.string_map.StringMap_new
 use std.collections.string_map.StringMap_drop
 use user.lib.socket.{Socket, bind, accept, read, write, close}
 use user.lettuce.store.{execute, ExecResult}
-use user.lettuce.resp.{write_simple_string, write_error}
 use user.reactor.scheduler
-use user.basalt.main.basalt_poll_cycle
 
 const PORT: u64 = 6379;
-const SESSION_BUF_SIZE: i64 = 1048576;
-const SEND_BUF_SIZE: i64 = 1048576;
+const SESSION_BUF_SIZE: i64 = 16384;
+const SEND_BUF_SIZE: i64 = 32768;
 
 extern fn puts(s: Ptr<u8>) -> i32;
 extern fn memmove(dst: Ptr<u8>, src: Ptr<u8>, n: i64) -> Ptr<u8>;
-extern fn malloc(size: i64) -> Ptr<u8>;
-extern fn free(ptr: u64);
-extern fn r3_sys_yield();
 
-fn alloc_ring(capacity: u64) -> u64 {
-    let size = 192 + capacity * 8;
-    let ptr = malloc(size as i64) as u64;
-    *((ptr + 0) as &mut u64) = 0; // head
-    *((ptr + 8) as &mut u64) = capacity;
-    *((ptr + 64) as &mut u64) = 0; // tail
-    return ptr;
-}
+pub fn main() -> i32 {
+    puts("LETTUCE starting on KeuOS... (Port 6379)" as Ptr<u8>);
+
+    // 1. Bind port
+    let mut sock = bind(PORT);
+    if sock.fd == 0 {
+        puts("LETTUCE: Error binding port 6379" as Ptr<u8>);
+        return 1;
+    }
+
+    puts("LETTUCE: Bound to port 6379. Waiting for connection..." as Ptr<u8>);
+
+    // 2. Accept connection (blocking IPC until NetD completes TCP handshake)
+    let ok = accept(&mut sock);
+    if !ok {
+        puts("LETTUCE: Accept failed" as Ptr<u8>);
+        return 1;
+    }
+
+    puts("LETTUCE: Client connected! Entering zero-trap data plane." as Ptr<u8>);
 
 pub struct ClientSession {
     sock: Socket,
@@ -46,42 +53,16 @@ pub struct ClientSession {
     read_cursor: i64,
     parse_cursor: i64,
     state: u32,
-    basalt_tx: u64,
-    basalt_rx: u64,
 }
+
+extern fn malloc(size: i64) -> Ptr<u8>;
+extern fn free(ptr: u64);
+extern fn r3_sys_yield();
 
 pub fn client_tick(session: Ptr<ClientSession>) -> bool {
     let mut sess = session.read();
     if sess.state == 0 {
         return false;
-    }
-
-    if sess.state == 2 {
-        // Polling Basalt RX for completion
-        let rx = sess.basalt_rx;
-        let head = *((rx + 0) as &u64);
-        let tail = *((rx + 64) as &u64);
-        if head != tail {
-            // Inference complete
-            let cap = *((rx + 8) as &u64);
-            let result_val = *((rx + 192 + tail) as &u64);
-            *((rx + 64) as &mut u64) = (tail + 8) % (cap * 8);
-
-            // Write success response directly
-            let w = write_simple_string(sess.send_ptr, "Inference Complete" as StringView);
-            let mut written: u64 = 0;
-            while written < (w as u64) {
-                let ww = write(&sess.sock, (sess.send_ptr.offset(written as i64)) as u64, (w as u64) - written);
-                if ww == 0 {
-                    r3_sys_yield();
-                } else {
-                    written = written + ww;
-                }
-            }
-            sess.state = 1; // Back to NORMAL
-            session.write(sess);
-        }
-        return true;
     }
 
     let space_left = SESSION_BUF_SIZE - sess.read_cursor;
@@ -109,47 +90,21 @@ pub fn client_tick(session: Ptr<ClientSession>) -> bool {
         let req_view = StringView::from_raw(sess.buf_ptr.offset(sess.parse_cursor), unparsed_len);
         let resp_ptr = sess.send_ptr.offset(total_resp);
         
-        let result = execute(sess.smap, req_view, resp_ptr, SEND_BUF_SIZE - total_resp);
+        let result = execute(sess.smap, req_view, resp_ptr);
 
         if result.input_consumed <= 0 {
             break; // Need more data
         }
 
-        if result.resp_len == -1 {
-            // INFER request: signal Basalt TX
-            let tx = sess.basalt_tx;
-            let head = *((tx + 0) as &u64);
-            let cap = *((tx + 8) as &u64);
-            let tail = *((tx + 64) as &u64);
-            let next = (head + 8) % (cap * 8);
-            if next != tail {
-                *((tx + 192 + head) as &mut u64) = result.prompt_ptr;
-                *((tx + 0) as &mut u64) = next;
-                sess.state = 2; // Transition to WAITING_BASALT
-                sess.parse_cursor = sess.parse_cursor + result.input_consumed;
-                break;
-            } else {
-                // SPSC Ring Full! DoS Fix
-                let r = write_error(sess.send_ptr.offset(total_resp), "ERR Basalt ring full" as StringView);
-                total_resp = total_resp + r;
-                sess.parse_cursor = sess.parse_cursor + result.input_consumed;
-                free(result.prompt_ptr);
-            }
-        } else {
-            total_resp = total_resp + result.resp_len;
-            sess.parse_cursor = sess.parse_cursor + result.input_consumed;
-        }
+        total_resp = total_resp + result.resp_len;
+        sess.parse_cursor = sess.parse_cursor + result.input_consumed;
 
         // Flush early if send buffer is nearing capacity
         if total_resp > (SEND_BUF_SIZE - 4096) {
             let mut written: u64 = 0;
             while written < (total_resp as u64) {
                 let w = write(&sess.sock, (sess.send_ptr.offset(written as i64)) as u64, (total_resp as u64) - written);
-                if w == 0 {
-                    r3_sys_yield();
-                } else {
-                    written = written + w;
-                }
+                written = written + w;
             }
             total_resp = 0;
         }
@@ -160,11 +115,7 @@ pub fn client_tick(session: Ptr<ClientSession>) -> bool {
         let mut written: u64 = 0;
         while written < (total_resp as u64) {
             let w = write(&sess.sock, (sess.send_ptr.offset(written as i64)) as u64, (total_resp as u64) - written);
-            if w == 0 {
-                r3_sys_yield();
-            } else {
-                written = written + w;
-            }
+            written = written + w;
         }
     }
 
@@ -210,11 +161,6 @@ pub fn main() -> i32 {
     let smap = StringMap_new();
     let session_buf = malloc(SESSION_BUF_SIZE);
     let send_buf = malloc(SEND_BUF_SIZE);
-    let let_tx_basalt_rx = alloc_ring(64);
-    let basalt_tx_let_rx = alloc_ring(64);
-    let basalt_arena = malloc(65536) as u64;
-    let nvme_addr = malloc(4096) as u64;
-    let rdma_addr = malloc(4096) as u64;
 
     let mut session = ClientSession {
         sock: sock,
@@ -224,8 +170,6 @@ pub fn main() -> i32 {
         read_cursor: 0,
         parse_cursor: 0,
         state: 1,
-        basalt_tx: let_tx_basalt_rx,
-        basalt_rx: basalt_tx_let_rx,
     };
     
     let session_ptr = (&mut session) as Ptr<ClientSession>;
@@ -233,10 +177,6 @@ pub fn main() -> i32 {
     // 4. Cooperative Reactor Loop
     while true {
         let active = client_tick(session_ptr);
-        
-        // Zero-trap hardware inference orchestration!
-        basalt_poll_cycle(let_tx_basalt_rx, basalt_tx_let_rx, basalt_arena, 65536, nvme_addr, rdma_addr);
-        
         if !active {
             break;
         }
@@ -247,10 +187,5 @@ pub fn main() -> i32 {
     StringMap_drop(smap);
     free(session_buf as u64);
     free(send_buf as u64);
-    free(let_tx_basalt_rx);
-    free(basalt_tx_let_rx);
-    free(basalt_arena);
-    free(nvme_addr);
-    free(rdma_addr);
     return 0;
 }

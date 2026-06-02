@@ -4,11 +4,14 @@
 
 package tests.stdlib_stress
 
-use std.collections.Vec
+use std.collections.vec.Vec
+use std.mem.allocator.HeapAllocator
+use std.string.String
 
 // Test 1: Basic Vec operations
 fn test_vec_basic() -> i32 {
-    let mut v = Vec<i32>::new();
+    let alloc = HeapAllocator {};
+    let mut v = Vec<i32, HeapAllocator>::new(alloc, 4);
     
     // Push values
     for i in 0..100 {
@@ -30,15 +33,18 @@ fn test_vec_basic() -> i32 {
     // Pop and verify
     let popped = v.pop();
     if v.len() != 99 {
+        v.free();
         return 3;
     }
     
+    v.free();
     return 0;
 }
 
 // Test 2: Vec growth (capacity doubling)
 fn test_vec_growth() -> i32 {
-    let mut v = Vec<i64>::with_capacity(4);
+    let alloc = HeapAllocator {};
+    let mut v = Vec<i64, HeapAllocator>::new(alloc, 4);
     
     // Initial capacity should be 4
     if v.capacity() != 4 {
@@ -58,19 +64,22 @@ fn test_vec_growth() -> i32 {
     // Verify values preserved after growth
     for i in 0..16 {
         if v.get(i) != (i * 10) as i64 {
+            v.free();
             return 3;
         }
     }
     
+    v.free();
     return 0;
 }
 
 // Test 3: Nested Vec (2 levels) - targets recursion guard
 fn test_nested_vec_2() -> i32 {
-    let mut outer = Vec<Vec<i32>>::new();
+    let alloc = HeapAllocator {};
+    let mut outer = Vec<Vec<i32, HeapAllocator>, HeapAllocator>::new(alloc, 4);
     
     for i in 0..5 {
-        let mut inner = Vec<i32>::new();
+        let mut inner = Vec<i32, HeapAllocator>::new(alloc, 4);
         for j in 0..10 {
             inner.push(i * 10 + j);
         }
@@ -78,16 +87,24 @@ fn test_nested_vec_2() -> i32 {
     }
     
     if outer.len() != 5 {
+        for i in 0..outer.len() {
+            let mut inner = outer.get(i);
+            inner.free();
+        }
+        outer.free();
         return 1;
     }
     
+    for i in 0..outer.len() {
+        let mut inner = outer.get(i);
+        inner.free();
+    }
+    outer.free();
     return 0;
 }
 
 // Test 4: String operations
 fn test_string() -> i32 {
-    use std.string.String;
-    
     let mut s = String::new();
     
     // Push ASCII characters
@@ -96,14 +113,17 @@ fn test_string() -> i32 {
     s.push_ascii(33);  // '!'
     
     if s.len() != 3 {
+        s.free();
         return 1;
     }
     
     // Verify byte values
     if s.byte_at(0) != 72 {
+        s.free();
         return 2;
     }
     
+    s.free();
     return 0;
 }
 

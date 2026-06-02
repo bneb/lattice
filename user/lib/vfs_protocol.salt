@@ -1,0 +1,53 @@
+// =============================================================================
+// user/lib/vfs_protocol.salt
+// Virtual File System (VFS) IPC Protocol
+// =============================================================================
+
+package user.lib.vfs_protocol
+
+pub const STORED_PID: u64 = 6;
+
+// =============================================================================
+// Control Plane Commands (Application → StoreD)
+// =============================================================================
+pub const CMD_VFS_INIT: u64 = 0x20;
+
+// =============================================================================
+// Control Plane Responses (StoreD → Application)
+// =============================================================================
+pub const RESP_OK: u64  = 0x00;
+pub const RESP_ERR: u64 = 0xFF;
+
+// =============================================================================
+// Data Plane Constants
+// =============================================================================
+pub const VFS_VADDR_BASE: u64   = 0x610000000000;  // 97 TB mark
+pub const VFS_REGION_SIZE: u64  = 8192;            // 2 pages (Command + Completion)
+pub const VFS_PAGE_SIZE: u64    = 4096;
+
+// =============================================================================
+// VFS Ring Data Structures
+// =============================================================================
+// We use a fixed 256-byte command structure to allow inline string paths.
+pub struct VfsCommand {
+    pub op: u64,         // 1=OPEN, 2=READ, 3=WRITE, 4=CLOSE, 5=MKDIR, 6=UNLINK, 7=EXISTS
+    pub id: u64,         // Command ID (echoed in completion)
+    pub fd: u64,         // Target FD for read/write/close
+    pub size: u64,       // Size for read/write
+    pub path: [u8; 224]  // Inline path buffer (256 - 32)
+}
+
+pub struct VfsCompletion {
+    pub id: u64,         // Matches Command ID
+    pub status: i64,     // 0=OK, <0=Error code (e.g. -ENOENT)
+    pub fd: u64,         // Returned FD for OPEN
+    pub size: u64        // Bytes read/written
+}
+
+pub const OP_OPEN: u64   = 1;
+pub const OP_READ: u64   = 2;
+pub const OP_WRITE: u64  = 3;
+pub const OP_CLOSE: u64  = 4;
+pub const OP_MKDIR: u64  = 5;
+pub const OP_UNLINK: u64 = 6;
+pub const OP_EXISTS: u64 = 7;

@@ -1,0 +1,9 @@
+use std.core.ptr.Ptr
+extern fn malloc(size: i64) -> Ptr<u8>;
+pub struct Foo { p: Ptr<u8> }
+pub fn main() -> Ptr<Foo> {
+    let f = Foo { p: malloc(10) };
+    let p = malloc(8) as Ptr<Foo>;
+    p.write(f);
+    return p;
+}

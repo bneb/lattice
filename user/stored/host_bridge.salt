@@ -1,0 +1,177 @@
+// =============================================================================
+// std.fs — Filesystem Operations
+// =============================================================================
+// Result<T>-based API for filesystem operations.
+// All fallible operations return Result<T> with Status canonical error codes.
+// Built on POSIX syscalls via FFI bridges.
+//
+// Design decisions:
+//   - exists() stays -> bool (not fallible — access() -1 means "doesn't exist")
+//   - create_dir/remove_dir/remove_file -> Result<i32> with Status mapping
+//   - read_dir() returns Result<DirHandle>, iterated via dir_next()
+//   - DirHandle is a raw DIR* pointer handle (closed via dir_close)
+
+package user.stored.host_bridge
+
+use std.core.ptr.Ptr
+use std.core.result.Result
+use std.status.Status
+
+// ─── FFI Bridges (POSIX) ─────────────────────────────────────────────────────
+extern fn access(path: Ptr<u8>, mode: i32) -> i32;
+extern fn unlink(path: Ptr<u8>) -> i32;
+extern fn rename(old: Ptr<u8>, new: Ptr<u8>) -> i32;
+extern fn mkdir(path: Ptr<u8>, mode: i32) -> i32;
+extern fn rmdir(path: Ptr<u8>) -> i32;
+extern fn salt_errno() -> i32;
+
+// Directory iteration runtime bridges
+extern fn salt_opendir(path: Ptr<u8>) -> i64;
+extern fn salt_readdir(handle: i64, name_buf: Ptr<u8>, buf_cap: i64, out_name_len: &mut i64, out_is_dir: &mut i32) -> i32;
+extern fn salt_closedir(handle: i64);
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+// POSIX errno values → canonical Status mapping
+// ENOENT  = 2  → NOT_FOUND
+// EEXIST  = 17 → ALREADY_EXISTS
+// EACCES  = 13 → PERMISSION_DENIED
+// ENOTDIR = 20 → INVALID_ARGUMENT
+// ENOTEMPTY = 66 (macOS) / 39 (Linux) → FAILED_PRECONDITION
+
+// ─── Internal: errno to Status ───────────────────────────────────────────────
+
+fn errno_to_status(errno_val: i32) -> Status {
+    if errno_val == 2 {
+        return Status::from_code(5);  // NOT_FOUND
+    }
+    if errno_val == 17 {
+        return Status::from_code(6);  // ALREADY_EXISTS
+    }
+    if errno_val == 13 {
+        return Status::from_code(7);  // PERMISSION_DENIED
+    }
+    if errno_val == 20 {
+        return Status::from_code(3);  // INVALID_ARGUMENT (not a directory)
+    }
+    if errno_val == 66 || errno_val == 39 {
+        return Status::from_code(9);  // FAILED_PRECONDITION (dir not empty)
+    }
+    return Status::with_detail(13, errno_val);  // INTERNAL with errno as detail
+}
+
+// ─── Public API ──────────────────────────────────────────────────────────────
+
+/// Check if a path exists on the filesystem.
+/// Returns true if the file or directory exists.
+/// This is not fallible — "not found" is a valid boolean answer, not an error.
+@trusted
+pub fn exists(path: &u8) -> bool {
+    let result = access(path as Ptr<u8>, 0);  // F_OK = 0
+    return result == 0;
+}
+
+/// Create a directory with default permissions (0o755).
+/// Returns Result::Ok(0) on success.
+/// Returns Result::Err with appropriate Status code on failure:
+///   - Status::already_exists if the directory already exists
+///   - Status::not_found if parent directory doesn't exist
+///   - Status::permission_denied if access is denied
+@trusted
+pub fn create_dir(path: &u8) -> Result<i32> {
+    let result = mkdir(path as Ptr<u8>, 493);  // 0o755 = 493 decimal
+    if result < 0 {
+        let e = salt_errno();
+        return Result::Err(errno_to_status(e));
+    }
+    return Result::Ok(0);
+}
+
+/// Remove (delete) an empty directory.
+/// Returns Result::Ok(0) on success.
+/// Returns Result::Err with appropriate Status code on failure:
+///   - Status::not_found if directory doesn't exist
+///   - Status::failed_precondition if directory is not empty
+///   - Status::permission_denied if access is denied
+@trusted
+pub fn remove_dir(path: &u8) -> Result<i32> {
+    let result = rmdir(path as Ptr<u8>);
+    if result < 0 {
+        let e = salt_errno();
+        return Result::Err(errno_to_status(e));
+    }
+    return Result::Ok(0);
+}
+
+/// Remove (delete) a file.
+/// Returns Result::Ok(0) on success.
+/// Returns Result::Err with appropriate Status code on failure:
+///   - Status::not_found if file doesn't exist
+///   - Status::permission_denied if access is denied
+@trusted
+pub fn remove_file(path: &u8) -> Result<i32> {
+    let result = unlink(path as Ptr<u8>);
+    if result < 0 {
+        let e = salt_errno();
+        return Result::Err(errno_to_status(e));
+    }
+    return Result::Ok(0);
+}
+
+/// Rename a file or directory.
+/// Returns Result::Ok(0) on success.
+@trusted
+pub fn rename_path(old_path: &u8, new_path: &u8) -> Result<i32> {
+    let result = rename(old_path as Ptr<u8>, new_path as Ptr<u8>);
+    if result < 0 {
+        let e = salt_errno();
+        return Result::Err(errno_to_status(e));
+    }
+    return Result::Ok(0);
+}
+
+// =============================================================================
+// Directory Iteration
+// =============================================================================
+// Usage:
+//   let res = fs::read_dir("/tmp\0");
+//   let mut iter = res.unwrap();
+//   let mut buf: [u8; 256] = [0; 256];
+//   let mut name_len: i64 = 0;
+//   let mut is_dir: i32 = 0;
+//   while fs::dir_next(&mut iter, &buf[0] as Ptr<u8>, 256, &mut name_len, &mut is_dir) {
+//       // name_len bytes of name in buf, is_dir indicates directory
+//   }
+//   fs::dir_close(&mut iter);
+
+/// Opaque directory handle (wraps a DIR* pointer as i64).
+pub struct DirHandle {
+    pub handle: i64
+}
+
+/// Open a directory for iteration.
+/// Returns Result<DirHandle> — Err(not_found) if path doesn't exist.
+@trusted
+pub fn read_dir(path: &u8) -> Result<DirHandle> {
+    let h = salt_opendir(path as Ptr<u8>);
+    if h == 0 {
+        let e = salt_errno();
+        return Result::Err(errno_to_status(e));
+    }
+    return Result::Ok(DirHandle { handle: h });
+}
+
+/// Read the next directory entry into the provided buffer.
+/// Returns true if an entry was read, false if iteration is complete.
+/// On success, out_name_len contains the name length, out_is_dir is 1 for dirs.
+@trusted
+pub fn dir_next(dh: &mut DirHandle, name_buf: Ptr<u8>, buf_cap: i64, out_name_len: &mut i64, out_is_dir: &mut i32) -> bool {
+    let result = salt_readdir(dh.handle, name_buf, buf_cap, out_name_len, out_is_dir);
+    return result == 1;
+}
+
+/// Close a directory handle.
+@trusted
+pub fn dir_close(dh: &mut DirHandle) {
+    salt_closedir(dh.handle);
+    dh.handle = 0;
+}

@@ -1,0 +1,166 @@
+// =============================================================================
+// user/stored/main.salt
+// StoreD Daemon — Zero-Trap Virtual File System Daemon
+// =============================================================================
+//
+// StoreD is the KeuOS storage daemon, running as process slot 6.
+// It acts as the Host File System Bridge, translating Zero-Trap SPSC IPC
+// requests from Ring 3 applications into POSIX FFI calls (for now).
+//
+// Architecture:
+//   Control Plane: Apps send CMD_VFS_INIT via sys_ipc_send after granting SHM.
+//   Data Plane: StoreD polls the SPSC Command Ring for VfsCommand structs,
+//               executes them via host_bridge, and pushes VfsCompletion structs.
+// =============================================================================
+
+package main
+
+use std.core.ptr.Ptr
+use user.lib.syscall
+use user.lib.vfs_protocol
+use user.stored.host_bridge
+
+extern fn r3_sys_yield();
+
+const MAX_APPS: u64 = 64;
+
+// We need a simple way to track connected apps for polling.
+// We'll store connected PIDs in an array.
+// 0 means slot is unused.
+fn find_free_slot(connected_apps: Ptr<u64>) -> i64 {
+    let mut i: i64 = 0;
+    while i < MAX_APPS as i64 {
+        if connected_apps.offset(i).read() == 0 {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fn add_app(connected_apps: Ptr<u64>, pid: u64) -> bool {
+    // Check if already exists
+    let mut i: i64 = 0;
+    while i < MAX_APPS as i64 {
+        if connected_apps.offset(i).read() == pid {
+            return true;
+        }
+        i = i + 1;
+    }
+    
+    // Find free slot
+    let slot = find_free_slot(connected_apps);
+    if slot >= 0 {
+        connected_apps.offset(slot).write(pid);
+        return true;
+    }
+    return false;
+}
+
+// Memory read helper
+fn vol_read64(addr: u64) -> u64 {
+    return *((addr) as &u64);
+}
+
+// Memory write helper
+fn vol_write64(addr: u64, val: u64) {
+    *((addr) as &mut u64) = val;
+}
+
+// Process pending VFS commands for a specific app
+fn process_app_ring(pid: u64) -> u64 {
+    let base = vfs_protocol.VFS_VADDR_BASE + (pid * vfs_protocol.VFS_REGION_SIZE);
+    let cmd_ring = base;                                   // Page 0
+    let comp_ring = base + vfs_protocol.VFS_PAGE_SIZE;     // Page 1
+    
+    // Command ring SPSC layout
+    let head = vol_read64(cmd_ring + 0); // RING_HEAD_OFF
+    let tail = vol_read64(cmd_ring + 8); // RING_TAIL_OFF
+    
+    if head == tail {
+        return 0; // Nothing to process
+    }
+    
+    // Pop a command (fixed 256 bytes = 32 u64s)
+    let cap = vol_read64(cmd_ring + 16); // Capacity in bytes (e.g., 4096)
+    let data = cmd_ring + 128;           // RING_DATA_OFF
+    
+    let start_idx = tail % cap;
+    
+    // For simplicity, we assume 256-byte aligned entries that don't wrap in the middle.
+    // Read command fields
+    let op   = vol_read64(data + start_idx + 0);
+    let id   = vol_read64(data + start_idx + 8);
+    let fd   = vol_read64(data + start_idx + 16);
+    let size = vol_read64(data + start_idx + 24);
+    let path_ptr = data + start_idx + 32; // Points to the 224-byte path buffer
+    
+    // Update tail (popped 256 bytes)
+    vol_write64(cmd_ring + 8, tail + 256);
+    
+    // Execute command
+    let mut status: i64 = 0;
+    let mut out_fd: u64 = 0;
+    let mut out_size: u64 = 0;
+    
+    if op == vfs_protocol.OP_EXISTS {
+        let exists = host_bridge::exists(path_ptr as &u8);
+        status = if exists { 0 } else { 2 }; // 2 = ENOENT map
+    } else if op == vfs_protocol.OP_MKDIR {
+        let res = host_bridge::create_dir(path_ptr as &u8);
+        if res.is_err() {
+            status = -1; // General error for now
+        }
+    } else if op == vfs_protocol.OP_UNLINK {
+        let res = host_bridge::remove_file(path_ptr as &u8);
+        if res.is_err() {
+            status = -1;
+        }
+    }
+    
+    // Push completion to comp_ring
+    let comp_head = vol_read64(comp_ring + 0);
+    let comp_cap = vol_read64(comp_ring + 16);
+    let comp_data = comp_ring + 128;
+    let comp_idx = comp_head % comp_cap;
+    
+    vol_write64(comp_data + comp_idx + 0, id);
+    vol_write64(comp_data + comp_idx + 8, status as u64);
+    vol_write64(comp_data + comp_idx + 16, out_fd);
+    vol_write64(comp_data + comp_idx + 24, out_size);
+    
+    // Update head (pushed 32 bytes for completion struct)
+    vol_write64(comp_ring + 0, comp_head + 32);
+    
+    return 1;
+}
+
+pub fn main() -> i32 {
+    let mut connected_apps: [u64; 64] = [0; 64];
+    let apps_ptr = (&connected_apps) as Ptr<u64>;
+    
+    loop {
+        // Non-blocking poll of all connected apps
+        let mut work_done: u64 = 0;
+        let mut i: i64 = 0;
+        while i < MAX_APPS as i64 {
+            let pid = apps_ptr.offset(i).read();
+            if pid != 0 {
+                work_done = work_done + process_app_ring(pid);
+            }
+            i = i + 1;
+        }
+        
+        // Check for new control plane connections (non-blocking if possible,
+        // or we block if no work was done and no connections)
+        // For simplicity, we just yield if no work
+        if work_done == 0 {
+            // Check IPC (this would be non-blocking in a real reactor,
+            // but for now we might have to use sys_ipc_recv which blocks)
+            // Wait, we can't block if we have apps to poll!
+            // We need a sys_ipc_try_recv.
+            r3_sys_yield();
+        }
+    }
+    return 0;
+}

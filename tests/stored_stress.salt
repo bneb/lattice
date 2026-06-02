@@ -1,0 +1,44 @@
+// =============================================================================
+// tests/stored_stress.salt
+// Zero-Trap VFS Integration Test
+// =============================================================================
+package main
+
+use std.fs.fs.VfsConnection
+
+extern fn puts(s: &u8) -> i32;
+
+pub fn main() -> i32 {
+    puts("=== StoreD VFS Integration Test ===\n" as &u8);
+    
+    // Connect to StoreD
+    let mut vfs = VfsConnection::connect();
+    
+    // 1. Test EXISTS (non-existent)
+    puts("[TEST] Checking non-existent file...\n" as &u8);
+    let e1 = vfs.exists("/tmp/stored_test_does_not_exist.txt\0" as &u8);
+    if e1 {
+        puts("FAILED: Expected file to not exist.\n" as &u8);
+        return 1;
+    }
+    
+    // 2. Test MKDIR
+    puts("[TEST] Creating directory...\n" as &u8);
+    let dir_path = "/tmp/stored_test_dir\0" as &u8;
+    let res = vfs.create_dir(dir_path);
+    if res.is_err() {
+        puts("FAILED: Expected directory creation to succeed.\n" as &u8);
+        return 2;
+    }
+    
+    // 3. Test EXISTS (existent)
+    puts("[TEST] Checking existent directory...\n" as &u8);
+    let e2 = vfs.exists(dir_path);
+    if !e2 {
+        puts("FAILED: Expected directory to exist.\n" as &u8);
+        return 3;
+    }
+    
+    puts("=== All VFS tests passed! ===\n" as &u8);
+    return 0;
+}

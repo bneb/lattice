@@ -15,6 +15,10 @@
 
 package user.basalt.main
 
+use user.basalt.app_hw_matmul.execute_hardware_inference
+
+extern fn free(ptr: u64);
+
 // ============================================================================
 // Basalt Configuration Constants
 // ============================================================================
@@ -75,7 +79,9 @@ pub fn basalt_poll_cycle(
     rx_ring: u64,
     tx_ring: u64,
     arena_base: u64,
-    arena_cap: u64
+    arena_cap: u64,
+    nvme_addr: u64,
+    rdma_addr: u64
 ) {
     let mut arena_offset: u64 = 0;
     let headroom: u64 = 54;
@@ -91,49 +97,23 @@ pub fn basalt_poll_cycle(
     // Read the prompt pointer
     let capacity = *((rx_ring + 8) as &u64);
     let prompt = *((rx_ring + 192 + tail) as &u64);
-    let new_tail = (tail + 8) % capacity;
+    let new_tail = (tail + 8) % (capacity * 8);
     *((rx_ring + 64) as &mut u64) = new_tail;
 
-    // Stream generation loop
-    let mut gen_idx: u32 = 0;
-    while gen_idx < MOCK_RESPONSE_LEN {
-        let mut chunk: u32 = MOCK_CHUNK_SIZE;
-        if gen_idx + chunk > MOCK_RESPONSE_LEN {
-            chunk = MOCK_RESPONSE_LEN - gen_idx;
-        }
-        gen_idx = gen_idx + chunk;
+    // Execute zero-trap physical hardware inference!
+    let hw_res = execute_hardware_inference(nvme_addr, rdma_addr, arena_base);
+    
+    // Free the heap allocated prompt from Lettuce
+    free(prompt);
 
-        // Arena alloc with headroom
-        let total_req = (chunk as u64) + headroom;
-        let current = arena_base + arena_offset;
-        let rem = current % 8;
-        let mut pad: u64 = 0;
-        if rem != 0 {
-            pad = 8 - rem;
-        }
-        let alloc_total = total_req + pad;
-        if arena_offset + alloc_total > arena_cap {
-            break;
-        }
-        let tx_ptr = current + pad + headroom;
-        arena_offset = arena_offset + alloc_total;
-
-        // Fill mock payload
-        let mut i: u32 = 0;
-        while i < chunk {
-            *((tx_ptr + (i as u64)) as &mut u8) = 0x41;
-            i = i + 1;
-        }
-
-        // Push to TX ring
-        let tx_head = *((tx_ring + 0) as &u64);
-        let tx_cap = *((tx_ring + 8) as &u64);
-        let tx_tail = *((tx_ring + 64) as &u64);
-        let tx_next = (tx_head + 8) % tx_cap;
-        if tx_next != tx_tail {
-            *((tx_ring + 192 + tx_head) as &mut u64) = tx_ptr;
-            *((tx_ring + 0) as &mut u64) = tx_next;
-        }
+    // Push completion signal to TX ring
+    let tx_head = *((tx_ring + 0) as &u64);
+    let tx_cap = *((tx_ring + 8) as &u64);
+    let tx_tail = *((tx_ring + 64) as &u64);
+    let tx_next = (tx_head + 8) % (tx_cap * 8);
+    if tx_next != tx_tail {
+        *((tx_ring + 192 + tx_head) as &mut u64) = 1; // Signal complete
+        *((tx_ring + 0) as &mut u64) = tx_next;
     }
 
     // O(1) arena reset

@@ -40,11 +40,13 @@ Running non-trivial services in Ring 3 with a solidified core ABI.
 
 ---
 
-## Phase 4: The AI Appliance *(Long Term)*
+## Phase 4: The AI Appliance *(Completed ✅)*
 
 Realizing the end-to-end agent runtime vision.
 
-- **Basalt Integration** — Port the Basalt reasoning engine into Ring 3.
+- Integrating `basalt` inside `lettuce` via SPSC rings instead of sockets.
+- Exposing zero-trap BAR addresses (`nvme_addr`, `rdma_addr`) to physical hardware.
+- Cooperative reactor loop scheduling.
 - **Full Pipeline** — Run the complete NetD, Basalt, and Lettuce pipeline entirely as verified services.
 
 ---

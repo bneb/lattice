@@ -3,13 +3,11 @@
 // =============================================================================
 // Result<T>-based API for filesystem operations.
 // All fallible operations return Result<T> with Status canonical error codes.
-// Built on POSIX syscalls via FFI bridges.
 //
-// Design decisions:
-//   - exists() stays -> bool (not fallible — access() -1 means "doesn't exist")
-//   - create_dir/remove_dir/remove_file -> Result<i32> with Status mapping
-//   - read_dir() returns Result<DirHandle>, iterated via dir_next()
-//   - DirHandle is a raw DIR* pointer handle (closed via dir_close)
+// ZERO-TRAP VFS CLIENT:
+// This module implements the SPSC ring IPC protocol to communicate with StoreD
+// (the Storage Daemon at PID 6). It bypasses the kernel completely for data ops.
+// =============================================================================
 
 package std.fs
 
@@ -17,161 +15,187 @@ use std.core.ptr.Ptr
 use std.core.result.Result
 use std.status.Status
 
-// ─── FFI Bridges (POSIX) ─────────────────────────────────────────────────────
-extern fn access(path: Ptr<u8>, mode: i32) -> i32;
-extern fn unlink(path: Ptr<u8>) -> i32;
-extern fn rename(old: Ptr<u8>, new: Ptr<u8>) -> i32;
-extern fn mkdir(path: Ptr<u8>, mode: i32) -> i32;
-extern fn rmdir(path: Ptr<u8>) -> i32;
-extern fn salt_errno() -> i32;
+// ─── StoreD Protocol Constants ───────────────────────────────────────────────
+const STORED_PID: u64 = 6;
+const CMD_VFS_INIT: u64 = 0x20;
+const RESP_OK: u64 = 0x00;
 
-// Directory iteration runtime bridges
-extern fn salt_opendir(path: Ptr<u8>) -> i64;
-extern fn salt_readdir(handle: i64, name_buf: Ptr<u8>, buf_cap: i64, out_name_len: &mut i64, out_is_dir: &mut i32) -> i32;
-extern fn salt_closedir(handle: i64);
+const VFS_VADDR_BASE: u64   = 0x610000000000;
+const VFS_REGION_SIZE: u64  = 8192;
+const VFS_PAGE_SIZE: u64    = 4096;
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-// POSIX errno values → canonical Status mapping
-// ENOENT  = 2  → NOT_FOUND
-// EEXIST  = 17 → ALREADY_EXISTS
-// EACCES  = 13 → PERMISSION_DENIED
-// ENOTDIR = 20 → INVALID_ARGUMENT
-// ENOTEMPTY = 66 (macOS) / 39 (Linux) → FAILED_PRECONDITION
+const OP_OPEN: u64   = 1;
+const OP_READ: u64   = 2;
+const OP_WRITE: u64  = 3;
+const OP_CLOSE: u64  = 4;
+const OP_MKDIR: u64  = 5;
+const OP_UNLINK: u64 = 6;
+const OP_EXISTS: u64 = 7;
 
-// ─── Internal: errno to Status ───────────────────────────────────────────────
+// ─── External Syscalls (Control Plane Only) ──────────────────────────────────
+extern fn sys_ipc_send(target: u64, msg0: u64, msg1: u64, msg2: u64);
+extern fn sys_ipc_recv() -> u64;
+extern fn sys_ipc_get_msg0() -> u64;
+extern fn sys_shm_grant(target: u64, src: u64, dst: u64, flags: u64) -> u64;
+extern fn malloc(size: i64) -> u64;
+extern fn my_pid() -> u64;
+extern fn r3_sys_yield();
 
-fn errno_to_status(errno_val: i32) -> Status {
-    if errno_val == 2 {
-        return Status::from_code(5);  // NOT_FOUND
-    }
-    if errno_val == 17 {
-        return Status::from_code(6);  // ALREADY_EXISTS
-    }
-    if errno_val == 13 {
-        return Status::from_code(7);  // PERMISSION_DENIED
-    }
-    if errno_val == 20 {
-        return Status::from_code(3);  // INVALID_ARGUMENT (not a directory)
-    }
-    if errno_val == 66 || errno_val == 39 {
-        return Status::from_code(9);  // FAILED_PRECONDITION (dir not empty)
-    }
-    return Status::with_detail(13, errno_val);  // INTERNAL with errno as detail
+// ─── Global VFS State ────────────────────────────────────────────────────────
+// In KeuOS, applications explicitly connect to the VFS Daemon.
+pub struct VfsConnection {
+    pub cmd_ring: u64,
+    pub comp_ring: u64,
+    pub seq: u64
 }
 
-// ─── Public API ──────────────────────────────────────────────────────────────
-
-/// Check if a path exists on the filesystem.
-/// Returns true if the file or directory exists.
-/// This is not fallible — "not found" is a valid boolean answer, not an error.
-@trusted
-pub fn exists(path: &u8) -> bool {
-    let result = access(path as Ptr<u8>, 0);  // F_OK = 0
-    return result == 0;
-}
-
-/// Create a directory with default permissions (0o755).
-/// Returns Result::Ok(0) on success.
-/// Returns Result::Err with appropriate Status code on failure:
-///   - Status::already_exists if the directory already exists
-///   - Status::not_found if parent directory doesn't exist
-///   - Status::permission_denied if access is denied
-@trusted
-pub fn create_dir(path: &u8) -> Result<i32> {
-    let result = mkdir(path as Ptr<u8>, 493);  // 0o755 = 493 decimal
-    if result < 0 {
-        let e = salt_errno();
-        return Result::Err(errno_to_status(e));
+impl VfsConnection {
+    pub fn connect() -> VfsConnection {
+        // 1. Allocate 2 pages (8192 bytes)
+        let memory = malloc(8192);
+        
+        // 2. Initialize SPSC headers
+        // Command Ring (Page 0)
+        *((memory + 0) as &mut u64) = 0; // HEAD
+        *((memory + 8) as &mut u64) = 0; // TAIL
+        *((memory + 16) as &mut u64) = 4096 - 128; // CAPACITY
+        
+        // Completion Ring (Page 1)
+        let comp_base = memory + 4096;
+        *((comp_base + 0) as &mut u64) = 0; // HEAD
+        *((comp_base + 8) as &mut u64) = 0; // TAIL
+        *((comp_base + 16) as &mut u64) = 4096 - 128; // CAPACITY
+        
+        // 3. Grant SHM to StoreD
+        let my_id = my_pid();
+        let dst_vaddr = VFS_VADDR_BASE + (my_id * VFS_REGION_SIZE);
+        sys_shm_grant(STORED_PID, memory, dst_vaddr, 3); // 3 = READ | WRITE
+        
+        // 4. Send INIT command
+        sys_ipc_send(STORED_PID, CMD_VFS_INIT, 0, 0);
+        
+        // 5. Wait for RESP_OK
+        loop {
+            let sender = sys_ipc_recv();
+            if sender == STORED_PID {
+                let resp = sys_ipc_get_msg0();
+                if resp == RESP_OK {
+                    break;
+                }
+            }
+        }
+        
+        return VfsConnection {
+            cmd_ring: memory,
+            comp_ring: memory + 4096,
+            seq: 0
+        };
     }
-    return Result::Ok(0);
-}
 
-/// Remove (delete) an empty directory.
-/// Returns Result::Ok(0) on success.
-/// Returns Result::Err with appropriate Status code on failure:
-///   - Status::not_found if directory doesn't exist
-///   - Status::failed_precondition if directory is not empty
-///   - Status::permission_denied if access is denied
-@trusted
-pub fn remove_dir(path: &u8) -> Result<i32> {
-    let result = rmdir(path as Ptr<u8>);
-    if result < 0 {
-        let e = salt_errno();
-        return Result::Err(errno_to_status(e));
+    // ─── Internal Ring Helpers ───────────────────────────────────────────────────
+
+    fn push_command(&mut self, op: u64, fd: u64, size: u64, path: &u8) -> u64 {
+        self.seq = self.seq + 1;
+        let id = self.seq;
+        
+        let head = *((self.cmd_ring + 0) as &u64);
+        let cap = *((self.cmd_ring + 16) as &u64);
+        let data = self.cmd_ring + 128;
+        
+        let start_idx = head % cap;
+        
+        // Write VfsCommand struct (32 u64s = 256 bytes)
+        *((data + start_idx + 0) as &mut u64) = op;
+        *((data + start_idx + 8) as &mut u64) = id;
+        *((data + start_idx + 16) as &mut u64) = fd;
+        *((data + start_idx + 24) as &mut u64) = size;
+        
+        // Copy path (up to 223 bytes + null terminator)
+        let mut i: u64 = 0;
+        let path_ptr = path as u64;
+        while i < 223 {
+            let b = *((path_ptr + i) as &u8);
+            *((data + start_idx + 32 + i) as &mut u8) = b;
+            if b == 0 {
+                break;
+            }
+            i = i + 1;
+        }
+        *((data + start_idx + 32 + i) as &mut u8) = 0; // Ensure null terminated
+        
+        *((self.cmd_ring + 0) as &mut u64) = head + 256;
+        return id;
     }
-    return Result::Ok(0);
-}
 
-/// Remove (delete) a file.
-/// Returns Result::Ok(0) on success.
-/// Returns Result::Err with appropriate Status code on failure:
-///   - Status::not_found if file doesn't exist
-///   - Status::permission_denied if access is denied
-@trusted
-pub fn remove_file(path: &u8) -> Result<i32> {
-    let result = unlink(path as Ptr<u8>);
-    if result < 0 {
-        let e = salt_errno();
-        return Result::Err(errno_to_status(e));
+    fn wait_completion(&mut self, target_id: u64) -> VfsCompletion {
+        loop {
+            let head = *((self.comp_ring + 0) as &u64);
+            let tail = *((self.comp_ring + 8) as &u64);
+            
+            if head != tail {
+                let cap = *((self.comp_ring + 16) as &u64);
+                let data = self.comp_ring + 128;
+                let start_idx = tail % cap;
+                
+                let id = *((data + start_idx + 0) as &u64);
+                let status = *((data + start_idx + 8) as &i64);
+                let fd = *((data + start_idx + 16) as &u64);
+                let size = *((data + start_idx + 24) as &u64);
+                
+                *((self.comp_ring + 8) as &mut u64) = tail + 32;
+                
+                if id == target_id {
+                    return VfsCompletion { status: status, fd: fd, size: size };
+                }
+            } else {
+                // Spin-wait / Yield
+                r3_sys_yield();
+            }
+        }
+        // Unreachable
+        return VfsCompletion { status: -1, fd: 0, size: 0 };
     }
-    return Result::Ok(0);
-}
 
-/// Rename a file or directory.
-/// Returns Result::Ok(0) on success.
-@trusted
-pub fn rename_path(old_path: &u8, new_path: &u8) -> Result<i32> {
-    let result = rename(old_path as Ptr<u8>, new_path as Ptr<u8>);
-    if result < 0 {
-        let e = salt_errno();
-        return Result::Err(errno_to_status(e));
+    // ─── Public API ──────────────────────────────────────────────────────────────
+
+    pub fn exists(&mut self, path: &u8) -> bool {
+        let id = self.push_command(OP_EXISTS, 0, 0, path);
+        let comp = self.wait_completion(id);
+        return comp.status == 0;
     }
-    return Result::Ok(0);
-}
 
-// =============================================================================
-// Directory Iteration
-// =============================================================================
-// Usage:
-//   let res = fs::read_dir("/tmp\0");
-//   let mut iter = res.unwrap();
-//   let mut buf: [u8; 256] = [0; 256];
-//   let mut name_len: i64 = 0;
-//   let mut is_dir: i32 = 0;
-//   while fs::dir_next(&mut iter, &buf[0] as Ptr<u8>, 256, &mut name_len, &mut is_dir) {
-//       // name_len bytes of name in buf, is_dir indicates directory
-//   }
-//   fs::dir_close(&mut iter);
-
-/// Opaque directory handle (wraps a DIR* pointer as i64).
-pub struct DirHandle {
-    pub handle: i64
-}
-
-/// Open a directory for iteration.
-/// Returns Result<DirHandle> — Err(not_found) if path doesn't exist.
-@trusted
-pub fn read_dir(path: &u8) -> Result<DirHandle> {
-    let h = salt_opendir(path as Ptr<u8>);
-    if h == 0 {
-        let e = salt_errno();
-        return Result::Err(errno_to_status(e));
+    pub fn create_dir(&mut self, path: &u8) -> Result<i32> {
+        let id = self.push_command(OP_MKDIR, 0, 0, path);
+        let comp = self.wait_completion(id);
+        if comp.status < 0 {
+            return Result::Err(map_status(comp.status));
+        }
+        return Result::Ok(0);
     }
-    return Result::Ok(DirHandle { handle: h });
+
+    pub fn remove_file(&mut self, path: &u8) -> Result<i32> {
+        let id = self.push_command(OP_UNLINK, 0, 0, path);
+        let comp = self.wait_completion(id);
+        if comp.status < 0 {
+            return Result::Err(map_status(comp.status));
+        }
+        return Result::Ok(0);
+    }
 }
 
-/// Read the next directory entry into the provided buffer.
-/// Returns true if an entry was read, false if iteration is complete.
-/// On success, out_name_len contains the name length, out_is_dir is 1 for dirs.
-@trusted
-pub fn dir_next(dh: &mut DirHandle, name_buf: Ptr<u8>, buf_cap: i64, out_name_len: &mut i64, out_is_dir: &mut i32) -> bool {
-    let result = salt_readdir(dh.handle, name_buf, buf_cap, out_name_len, out_is_dir);
-    return result == 1;
+// VfsCompletion { id, status, fd, size } (32 bytes = 4 u64s)
+struct VfsCompletion {
+    status: i64,
+    fd: u64,
+    size: u64
 }
 
-/// Close a directory handle.
-@trusted
-pub fn dir_close(dh: &mut DirHandle) {
-    salt_closedir(dh.handle);
-    dh.handle = 0;
+fn map_status(code: i64) -> Status {
+    if code == 0 {
+        return Status::ok();
+    }
+    if code == 2 {
+        return Status::from_code(5); // NOT_FOUND
+    }
+    return Status::with_detail(13, code as i32); // INTERNAL
 }

@@ -35,6 +35,12 @@ fn main() -> i32 {
     if res3.resp_len != 7 { return res3.resp_len as i32; }
     if memcmp(out_ptr, "+PONG\r\n" as Ptr<u8>, 7) != 0 { return 6; }
 
+    // 3. INFER model prompt
+    let req4: StringView = "*3\r\n$5\r\nINFER\r\n$5\r\nllama\r\n$12\r\nhello world!\r\n";
+    let res4 = store.execute(smap, req4, out_ptr, 1024);
+    if res4.resp_len != -1 { return 7; }
+    if res4.prompt_ptr == 0 { return 8; }
+
     StringMap_drop(smap);
     return 0; // Success
 }
