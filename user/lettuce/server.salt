@@ -18,8 +18,8 @@ use user.lettuce.store.{execute, ExecResult}
 use user.reactor.scheduler
 
 const PORT: u64 = 6379;
-const SESSION_BUF_SIZE: i64 = 16384;
-const SEND_BUF_SIZE: i64 = 32768;
+const SESSION_BUF_SIZE: i64 = 1048576;
+const SEND_BUF_SIZE: i64 = 1048576;
 
 extern fn puts(s: Ptr<u8>) -> i32;
 extern fn memmove(dst: Ptr<u8>, src: Ptr<u8>, n: i64) -> Ptr<u8>;
@@ -68,7 +68,7 @@ pub fn client_tick(session: Ptr<ClientSession>) -> bool {
         let req_view = StringView::from_raw(sess.buf_ptr.offset(sess.parse_cursor), unparsed_len);
         let resp_ptr = sess.send_ptr.offset(total_resp);
         
-        let result = execute(sess.smap, req_view, resp_ptr);
+        let result = execute(sess.smap, req_view, resp_ptr, SEND_BUF_SIZE - total_resp);
 
         if result.input_consumed <= 0 {
             break; // Need more data

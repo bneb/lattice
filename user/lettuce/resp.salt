@@ -1,0 +1,351 @@
+// =============================================================================
+// LETTUCE — RESP Protocol Parser & Writer
+// =============================================================================
+// Reusable module for Redis Serialization Protocol:
+//   +  Simple Strings        -  Errors
+//   :  Integers              $  Bulk Strings (including null: $-1)
+//   *  Arrays
+//
+// Provides: resp_parse() → RespValue, plus response writers.
+// =============================================================================
+
+package user.lettuce.resp
+
+use std.core.ptr.Ptr
+use std.core.str.StringView
+
+extern fn memcpy(dst: Ptr<u8>, src: Ptr<u8>, n: i64) -> Ptr<u8>;
+
+// ============================================================================
+// RESP Type Tags — exposed as inline functions (Salt const export)
+// ============================================================================
+
+@inline
+pub fn RESP_SIMPLE_STRING() -> i64 { return 1; }
+
+@inline
+pub fn RESP_ERROR() -> i64 { return 2; }
+
+@inline
+pub fn RESP_INTEGER() -> i64 { return 3; }
+
+@inline
+pub fn RESP_BULK_STRING() -> i64 { return 4; }
+
+@inline
+pub fn RESP_ARRAY() -> i64 { return 5; }
+
+@inline
+pub fn RESP_NULL() -> i64 { return 6; }
+
+// ============================================================================
+// RespValue — Flat tagged struct for parsed RESP data
+// ============================================================================
+
+pub struct RespValue {
+    pub type_tag: i64,
+    pub int_val: i64,
+    pub str_ptr: Ptr<u8>,
+    pub str_len: i64,
+    pub array_count: i64,
+    pub bytes_consumed: i64,
+}
+
+pub fn resp_nil() -> RespValue {
+    return RespValue {
+        type_tag: RESP_NULL(),
+        int_val: 0,
+        str_ptr: 0 as Ptr<u8>,
+        str_len: 0,
+        array_count: 0,
+        bytes_consumed: 0,
+    };
+}
+
+// ============================================================================
+// Helper: find \r\n in a StringView starting from offset
+// ============================================================================
+
+fn find_crlf(input: StringView, start: i64) -> i64 {
+    let len = input.length();
+    let mut i = start;
+    while i < len - 1 {
+        if input.byte_at(i) == 13 && input.byte_at(i + 1) == 10 {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+// ============================================================================
+// Helper: parse ASCII integer from StringView[start..end)
+// ============================================================================
+
+fn parse_int_from_view(input: StringView, start: i64, end: i64) -> i64 {
+    let mut result: i64 = 0;
+    let mut neg: bool = false;
+    let mut i = start;
+
+    if i < end && input.byte_at(i) == 45 {
+        neg = true;
+        i = i + 1;
+    }
+
+    while i < end {
+        let b = input.byte_at(i) as i64;
+        result = result * 10 + (b - 48);
+        i = i + 1;
+    }
+
+    if neg {
+        return 0 - result;
+    }
+    return result;
+}
+
+// ============================================================================
+// RespParser: parse a single RESP value from a StringView
+// ============================================================================
+
+pub fn resp_parse(input: StringView) -> RespValue {
+    let len = input.length();
+    if len == 0 {
+        return resp_nil();
+    }
+
+    let prefix = input.byte_at(0);
+
+    // +OK\r\n → Simple String
+    if prefix == 43 {
+        let crlf = find_crlf(input, 1);
+        if crlf < 0 {
+            return resp_nil();
+        }
+        let sv = input.slice(1, crlf);
+        return RespValue {
+            type_tag: RESP_SIMPLE_STRING(),
+            int_val: 0,
+            str_ptr: sv.ptr,
+            str_len: sv.length(),
+            array_count: 0,
+            bytes_consumed: crlf + 2,
+        };
+    }
+
+    // -ERR message\r\n → Error
+    if prefix == 45 {
+        let crlf = find_crlf(input, 1);
+        if crlf < 0 {
+            return resp_nil();
+        }
+        let sv = input.slice(1, crlf);
+        return RespValue {
+            type_tag: RESP_ERROR(),
+            int_val: 0,
+            str_ptr: sv.ptr,
+            str_len: sv.length(),
+            array_count: 0,
+            bytes_consumed: crlf + 2,
+        };
+    }
+
+    // :1000\r\n → Integer
+    if prefix == 58 {
+        let crlf = find_crlf(input, 1);
+        if crlf < 0 {
+            return resp_nil();
+        }
+        let val = parse_int_from_view(input, 1, crlf);
+        return RespValue {
+            type_tag: RESP_INTEGER(),
+            int_val: val,
+            str_ptr: 0 as Ptr<u8>,
+            str_len: 0,
+            array_count: 0,
+            bytes_consumed: crlf + 2,
+        };
+    }
+
+    // $6\r\nfoobar\r\n → Bulk String   or   $-1\r\n → Null
+    if prefix == 36 {
+        let crlf = find_crlf(input, 1);
+        if crlf < 0 {
+            return resp_nil();
+        }
+        let str_len = parse_int_from_view(input, 1, crlf);
+
+        // Null bulk string: $-1\r\n
+        if str_len < 0 {
+            return RespValue {
+                type_tag: RESP_NULL(),
+                int_val: 0,
+                str_ptr: 0 as Ptr<u8>,
+                str_len: 0,
+                array_count: 0,
+                bytes_consumed: crlf + 2,
+            };
+        }
+
+        let data_start = crlf + 2;
+        let data_end = data_start + str_len;
+        if data_end > len {
+            return resp_nil();
+        }
+        let sv = input.slice(data_start, data_end);
+        return RespValue {
+            type_tag: RESP_BULK_STRING(),
+            int_val: 0,
+            str_ptr: sv.ptr,
+            str_len: sv.length(),
+            array_count: 0,
+            bytes_consumed: data_end + 2,
+        };
+    }
+
+    // *2\r\n... → Array
+    if prefix == 42 {
+        let crlf = find_crlf(input, 1);
+        if crlf < 0 {
+            return resp_nil();
+        }
+        let count = parse_int_from_view(input, 1, crlf);
+
+        // Null array
+        if count < 0 {
+            return RespValue {
+                type_tag: RESP_NULL(),
+                int_val: 0,
+                str_ptr: 0 as Ptr<u8>,
+                str_len: 0,
+                array_count: 0,
+                bytes_consumed: crlf + 2,
+            };
+        }
+
+        // Parse each element to compute total bytes consumed
+        let mut offset = crlf + 2;
+        let mut i: i64 = 0;
+        while i < count {
+            let remaining = input.slice(offset, len);
+            let elem = resp_parse(remaining);
+            offset = offset + elem.bytes_consumed;
+            i = i + 1;
+        }
+
+        // For arrays, str_ptr points to the start of elements data
+        let elems_start = crlf + 2;
+        if offset > len {
+            return resp_nil();
+        }
+        return RespValue {
+            type_tag: RESP_ARRAY(),
+            int_val: 0,
+            str_ptr: input.slice(elems_start, offset).ptr,
+            str_len: offset - elems_start,
+            array_count: count,
+            bytes_consumed: offset,
+        };
+    }
+
+    return resp_nil();
+}
+
+// ============================================================================
+// RespWriter: format RESP responses into a buffer
+// Returns bytes written
+// ============================================================================
+
+// Helper: write i64 as ASCII decimal digits to buf. Returns bytes written.
+pub fn write_i64_to_buf(buf: Ptr<u8>, val: i64) -> i64 {
+    if val == 0 {
+        buf.write(48);
+        return 1;
+    }
+
+    let mut v = val;
+    let mut neg = false;
+    if v < 0 {
+        neg = true;
+        v = 0 - v;
+    }
+
+    // Write digits in reverse into temp buffer
+    let mut tmp: [u8; 20] = [0; 20];
+    let mut count: i64 = 0;
+    while v > 0 {
+        tmp[count] = ((v % 10) + 48) as u8;
+        v = v / 10;
+        count = count + 1;
+    }
+
+    let mut pos: i64 = 0;
+    if neg {
+        buf.write(45);  // '-'
+        pos = 1;
+    }
+
+    // Reverse copy
+    let mut i = count - 1;
+    while i >= 0 {
+        buf.offset(pos).write(tmp[i]);
+        pos = pos + 1;
+        i = i - 1;
+    }
+
+    return pos;
+}
+
+pub fn write_simple_string(buf: Ptr<u8>, msg: StringView) -> i64 {
+    buf.write(43);  // '+'
+    let mp = msg.ptr;
+    let ml = msg.length();
+    memcpy(buf.offset(1), mp, ml);
+    buf.offset(1 + ml).write(13);      // '\r'
+    buf.offset(1 + ml + 1).write(10);  // '\n'
+    return 1 + ml + 2;
+}
+
+pub fn write_error(buf: Ptr<u8>, msg: StringView) -> i64 {
+    buf.write(45);  // '-'
+    let mp = msg.ptr;
+    let ml = msg.length();
+    memcpy(buf.offset(1), mp, ml);
+    buf.offset(1 + ml).write(13);
+    buf.offset(1 + ml + 1).write(10);
+    return 1 + ml + 2;
+}
+
+pub fn write_integer(buf: Ptr<u8>, val: i64) -> i64 {
+    buf.write(58);  // ':'
+    let num_len = write_i64_to_buf(buf.offset(1), val);
+    buf.offset(1 + num_len).write(13);
+    buf.offset(1 + num_len + 1).write(10);
+    return 1 + num_len + 2;
+}
+
+pub fn write_bulk_string(buf: Ptr<u8>, data: StringView) -> i64 {
+    buf.write(36);  // '$'
+    let dl = data.length();
+    let len_str = write_i64_to_buf(buf.offset(1), dl);
+    let mut pos = 1 + len_str;
+    buf.offset(pos).write(13);
+    buf.offset(pos + 1).write(10);
+    pos = pos + 2;
+    let dp = data.ptr;
+    memcpy(buf.offset(pos), dp, dl);
+    pos = pos + dl;
+    buf.offset(pos).write(13);
+    buf.offset(pos + 1).write(10);
+    return pos + 2;
+}
+
+pub fn write_null_bulk(buf: Ptr<u8>) -> i64 {
+    // $-1\r\n
+    buf.write(36);           // '$'
+    buf.offset(1).write(45); // '-'
+    buf.offset(2).write(49); // '1'
+    buf.offset(3).write(13); // '\r'
+    buf.offset(4).write(10); // '\n'
+    return 5;
+}

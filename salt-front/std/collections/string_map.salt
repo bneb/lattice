@@ -230,8 +230,15 @@ pub struct StringMap {
     // =================================================================
     pub fn StringMap_set(smap: Ptr<StringMap>, key: StringView, val: StringView) {
         let mut self = smap.read();
-        if unlikely(self.growth_left == 0) {
-            self = StringMap_grow(self);
+        
+        let key_ptr = key.ptr;
+        let key_len = key.length();
+        let val_ptr = val.ptr;
+        let val_len = val.length();
+        let required_arena = self.arena_used + key_len + val_len;
+
+        if unlikely(self.growth_left == 0 || required_arena > self.arena_cap) {
+            self = StringMap_grow(self, required_arena);
         }
 
         // Extract StringView fields BEFORE any function calls that consume them
@@ -368,7 +375,7 @@ pub struct StringMap {
     // =================================================================
     // grow — Compacting rehash: new ctrl + defragmented arena
     // =================================================================
-    fn StringMap_grow(mut self: StringMap) -> StringMap {
+    fn StringMap_grow(mut self: StringMap, min_arena: i64) -> StringMap {
         let old_cap = self.cap;
         let mut new_cap: i64 = 16;
         if old_cap > 0 {
@@ -388,7 +395,13 @@ pub struct StringMap {
         let new_vlen = alloc_bytes(new_cap * 8) as Ptr<i64>;
 
         // New arena for defragmentation
-        let new_arena_cap = new_cap * 64;
+        let mut new_arena_cap = new_cap * 64;
+        if new_arena_cap < min_arena {
+            new_arena_cap = min_arena;
+        }
+        // Round up to nearest 1KB
+        new_arena_cap = (new_arena_cap + 1023) & -1024;
+        
         let new_arena = alloc_bytes(new_arena_cap) as Ptr<u8>;
         let mut new_arena_used: i64 = 0;
 
