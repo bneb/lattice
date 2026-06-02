@@ -23,7 +23,6 @@ impl StringView {
     // Constructors
     // =========================================================================
 
-    @inline
     pub fn from_raw(ptr: Ptr<u8>, len: i64) -> StringView {
         return StringView { ptr: ptr, len: len };
     }
@@ -178,3 +177,8 @@ impl StringView {
             && self.ptr.offset(3).read() == d;
     }
 }
+
+pub fn _force_export_str() {
+    let _ = StringView::from_raw(0 as Ptr<u8>, 0);
+}
+

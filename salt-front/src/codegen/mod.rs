@@ -181,7 +181,7 @@ use std::collections::{HashMap, HashSet};
     
     // Initialize Context
     let mut ctx = CodegenContext::new(file, release_mode, Some(&loader_registry), &z3_ctx);
-    ctx.emit_alias_scopes = !disable_alias_scopes;
+    ctx.emit_alias_scopes = false; // !disable_alias_scopes;
     ctx.no_verify = no_verify;
     ctx.lib_mode = lib_mode;
     ctx.sip_mode = sip_mode;

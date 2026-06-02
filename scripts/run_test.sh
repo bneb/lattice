@@ -273,9 +273,7 @@ if grep -q 'sprint6_form_test' "$SALT_FILE" 2>/dev/null; then
     BRIDGES+=("$PROJECT_ROOT/tests/bridges/sprint6_form_bridge.c")
 fi
 
-if [[ "$is_lettuce_test" == true ]]; then
-    BRIDGES+=("$PROJECT_ROOT/benchmarks/bench_ecs_epoch_reclaim_bridge.c")
-fi
+# Block removed
 
 if [[ "$BASENAME" == "test_script_fsm" ]]; then
     BRIDGES+=("$PROJECT_ROOT/tests/test_script_fsm.c")
@@ -324,7 +322,7 @@ elif [[ "$BENCHMARK_MODE" == true ]]; then
 elif [[ "$is_basalt_test" == true ]]; then
     TEST_DEPS=("std/core/str.salt" "std/time.salt" "basalt/src/transformer.salt" "basalt/src/kernels.salt" "basalt/src/quant.salt")
 elif [[ "$is_lettuce_test" == true ]]; then
-    TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "user/os/process.salt" "user/os/ipc_ring.salt" "user/netd/virtio_bridge.salt")
+    TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "user/os/process.salt" "user/os/ipc_ring.salt" "user/netd/virtio_bridge.salt" "user/lettuce/store.salt" "user/lettuce/resp.salt" "std/simd/mod.salt" "std/collections/string_map.salt")
 elif [[ "$is_ecs_test" == true ]]; then
     TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "kernel/ecs/entity.salt" "kernel/ecs/components.salt" "kernel/ecs/sparse_set.salt" "kernel/ecs/world.salt" "kernel/ecs/ecs_bridge.salt" "kernel/ecs/commands.salt" "kernel/ecs/events.salt" "kernel/ecs/ecs_scheduler.salt" "kernel/ecs/ecs_ipc.salt" "kernel/ecs/ecs_epoch.salt")
 else

@@ -23,7 +23,6 @@ pub struct Group {
 
 impl Group {
     // Load 8 control bytes from memory
-    @inline
     pub fn load(ptr: Ptr<i8>) -> Group {
         return Group { data: (ptr as Ptr<u64>).read() };
     }
@@ -188,5 +187,9 @@ pub fn load_u64x2(ptr: Ptr<u8>) -> u64x2 {
         lo: ptr64.read(),
         hi: ptr64.offset(1).read(),
     };
+}
+
+pub fn _force_export_simd() {
+    let _ = Group::load(0 as Ptr<i8>);
 }
 

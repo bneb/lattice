@@ -588,8 +588,15 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         let val_str = if val == 0.0 { "0.0".to_string() } else { format!("{:.17e}", val) };
         out.push_str(&format!("    {} = arith.constant {} : {}\n", res, val_str, ty));
     }
-    pub fn emit_load(&self, out: &mut String, res: &str, ptr: &str, ty: &str) {
-        out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> {}\n", res, ptr, ty));
+    pub fn emit_load(&self, out: &mut String, val: &str, ptr: &str, ty: &str) {
+        let mut scope_attr = "";
+        // Disable alias_scopes to prevent LLVM from deleting loop conditions
+        // if ptr.contains("local") || ptr.contains("spill") {
+        //      scope_attr = " { alias_scopes = [#scope_local], noalias = [#scope_global] }";
+        // } else if ptr.contains("global") {
+        //      scope_attr = " { alias_scopes = [#scope_global], noalias = [#scope_local] }";
+        // }
+        out.push_str(&format!("    {} = llvm.load {}{} : !llvm.ptr -> {}\n", val, ptr, scope_attr, ty));
     }
     pub fn emit_load_scoped(&self, out: &mut String, res: &str, ptr: &str, ty: &str, scope: &str, noalias: &str) {
         if !self.config.emit_alias_scopes { self.emit_load(out, res, ptr, ty); return; }
@@ -1587,7 +1594,7 @@ impl<'a> CodegenContext<'a> {
             consuming_fns: HashMap::new(),
             suppress_specialization: Cell::new(false),
             target_platform: crate::codegen::passes::io_backend::TargetPlatform::default(),
-            emit_alias_scopes: true, // default: emit scopes
+            emit_alias_scopes: false, // temporarily disabled to fix llvm bug
             no_verify: false, // default: verification enabled
             lib_mode: false,
             sip_mode: false,
