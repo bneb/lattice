@@ -18,6 +18,8 @@ global DOWN_READ: u32 = 0;
 
 global UP_WRITE: u32 = 0;
 global UP_READ: u32 = 0;
+extern fn sys_mfence();
+extern fn memcpy(dst: u64, src: u64, len: u32);
 
 pub fn init_shared_ring() {
     WORKER_DOWN_BUFFER = process.mmap_shared(RING_SIZE as i32);
@@ -100,4 +102,74 @@ pub fn read_up_u32(out_val_ptr: u64) -> u32 {
     if read_up_byte((&mut b4) as u64) == 0 { return 0; }
     let val: u32 = (b1 as u32) | ((b2 as u32) << 8) | ((b3 as u32) << 16) | ((b4 as u32) << 24);
     let out_ptr = out_val_ptr as &mut u32; *out_ptr = val; return 1;
+}
+
+pub fn push_down_bytes(src_ptr: u64, len: u32) -> u32 {
+    let used = (DOWN_WRITE + RING_SIZE - DOWN_READ) % RING_SIZE;
+    let available_space = RING_SIZE - used - 1;
+    if len > available_space { return 0; }
+    
+    let first_chunk = RING_SIZE - DOWN_WRITE;
+    if len <= first_chunk {
+        memcpy(WORKER_DOWN_BUFFER + (DOWN_WRITE as u64), src_ptr, len);
+    } else {
+        memcpy(WORKER_DOWN_BUFFER + (DOWN_WRITE as u64), src_ptr, first_chunk);
+        memcpy(WORKER_DOWN_BUFFER, src_ptr + (first_chunk as u64), len - first_chunk);
+    }
+    
+    sys_mfence();
+    DOWN_WRITE = (DOWN_WRITE + len) % RING_SIZE;
+    return 1;
+}
+
+pub fn read_down_bytes(dst_ptr: u64, len: u32) -> u32 {
+    let used = (DOWN_WRITE + RING_SIZE - DOWN_READ) % RING_SIZE;
+    if len > used { return 0; }
+    
+    sys_mfence();
+    let first_chunk = RING_SIZE - DOWN_READ;
+    if len <= first_chunk {
+        memcpy(dst_ptr, WORKER_DOWN_BUFFER + (DOWN_READ as u64), len);
+    } else {
+        memcpy(dst_ptr, WORKER_DOWN_BUFFER + (DOWN_READ as u64), first_chunk);
+        memcpy(dst_ptr + (first_chunk as u64), WORKER_DOWN_BUFFER, len - first_chunk);
+    }
+    
+    DOWN_READ = (DOWN_READ + len) % RING_SIZE;
+    return 1;
+}
+
+pub fn push_up_bytes(src_ptr: u64, len: u32) -> u32 {
+    let used = (UP_WRITE + RING_SIZE - UP_READ) % RING_SIZE;
+    let available_space = RING_SIZE - used - 1;
+    if len > available_space { return 0; }
+    
+    let first_chunk = RING_SIZE - UP_WRITE;
+    if len <= first_chunk {
+        memcpy(WORKER_UP_BUFFER + (UP_WRITE as u64), src_ptr, len);
+    } else {
+        memcpy(WORKER_UP_BUFFER + (UP_WRITE as u64), src_ptr, first_chunk);
+        memcpy(WORKER_UP_BUFFER, src_ptr + (first_chunk as u64), len - first_chunk);
+    }
+    
+    sys_mfence();
+    UP_WRITE = (UP_WRITE + len) % RING_SIZE;
+    return 1;
+}
+
+pub fn read_up_bytes(dst_ptr: u64, len: u32) -> u32 {
+    let used = (UP_WRITE + RING_SIZE - UP_READ) % RING_SIZE;
+    if len > used { return 0; }
+    
+    sys_mfence();
+    let first_chunk = RING_SIZE - UP_READ;
+    if len <= first_chunk {
+        memcpy(dst_ptr, WORKER_UP_BUFFER + (UP_READ as u64), len);
+    } else {
+        memcpy(dst_ptr, WORKER_UP_BUFFER + (UP_READ as u64), first_chunk);
+        memcpy(dst_ptr + (first_chunk as u64), WORKER_UP_BUFFER, len - first_chunk);
+    }
+    
+    UP_READ = (UP_READ + len) % RING_SIZE;
+    return 1;
 }
