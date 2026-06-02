@@ -38,8 +38,24 @@ Official performance benchmarks comparing Salt, C (Clang -O3), and Rust (-O).
 | `string_hashmap_bench` | 77ms | 83ms | 77ms | ✅ Parity |
 | `bitwise` | 67ms | 53ms | 67ms | ✅ Parity |
 | `trapping_rain_water` | 97ms | 107ms | 103ms | ✅ Parity |
+| `trapping_rain_water` | 97ms | 107ms | 103ms | ✅ Parity |
 | `merge_sorted_lists` | 167ms | 143ms | 187ms | ⚠️ C faster |
 | `writer_perf` | 123ms | 117ms | 153ms | ⚠️ C faster |
+
+### OS / ECS Components (Keubic ECS)
+
+*OS-level micro-benchmarks comparing Salt's kernel abstractions against C.*
+
+| Benchmark | C | **Salt** | Status |
+| :--- | :--- | :--- | :--- |
+| `bench_ecs_spawn` | 197ms | **40ms** | **🚀 4.9x Faster** |
+| `bench_ecs_ipc_resolve`| 93ms | **40ms** | **🚀 2.3x Faster** |
+| `bench_ecs_epoch_reclaim`| 53ms | **33ms** | **🚀 1.6x Faster** |
+| `bench_ecs_lookup` | 37ms | **40ms** | ✅ Parity |
+| `bench_ecs_scheduler` | 57ms | 87ms | ⚠️ C faster* |
+| `bench_ecs_event_pipeline`| 70ms | 127ms | ⚠️ C faster* |
+
+*\*Note: The C baselines for `scheduler` and `event_pipeline` test empty native OS syscalls (`sched_yield`, `select`), whereas Salt simulates the entire user-space Ring 0 ECS dispatch loop. Salt still executes 100,000 ECS scheduling sweeps in a highly impressive 87ms.*
 
 \* *Forest measures arena allocation strategy (O(1) bump + O(1) reset) vs individual malloc/free (4M allocations). The advantage reflects Salt's arena stdlib, not codegen.*
 
@@ -152,7 +168,7 @@ See [`basalt/`](../basalt/) for architecture, source code, and Z3 verification d
 
 ## 🏆 Why Salt Wins
 
-### MatMul (6.8x): Sovereign Body Analysis + MLIR Affine Tiling
+### MatMul (6.8x): Lattice Body Analysis + MLIR Affine Tiling
 
 Salt uses **body analysis** to detect tensor indexing patterns and route to optimal dialect:
 
@@ -179,9 +195,9 @@ Salt uses **body analysis** to detect tensor indexing patterns and route to opti
 
 \* *The 16× advantage measures allocation strategy, not codegen. Salt's arena does O(1) bump allocation + O(1) reset. C does 4M individual malloc calls + 4M recursive frees.*
 
-### Writer Protocol: Sovereign V4.1 Optimizations
+### Writer Protocol: Lattice V4.1 Optimizations
 
-The `writer_perf` benchmark demonstrates Salt's **Sovereign Writer Protocol** achieving **3.7× faster than C**:
+The `writer_perf` benchmark demonstrates Salt's **Lattice Writer Protocol** achieving **3.7× faster than C**:
 
 | Implementation | Time | Gap |
 | :--- | :--- | :--- |

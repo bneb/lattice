@@ -12,13 +12,13 @@ use std.core.ptr.Ptr
 use std.core.str.StringView
 use std.core.result.Result
 use std.net.tcp.{TcpListener, TcpStream}
-use std.net.poller.{Poller, Filter}
+use std.net.poller.{Poller, PollFilter}
 use std.collections.string_map.StringMap
 use std.collections.slab.Slab
 use lettuce.store.{execute, ExecResult}
 
 extern fn puts(s: Ptr<u8>) -> i32;
-extern fn memcpy(dst: Ptr<u8>, src: Ptr<u8>, n: i64) -> Ptr<u8>;
+extern fn memmove(dst: Ptr<u8>, src: Ptr<u8>, n: i64) -> Ptr<u8>;
 
 // EBR (Epoch-Based Reclamation) interface
 // These are resolved at link time from ebr_arena.o.
@@ -65,7 +65,7 @@ fn main() -> i32 {
         return 1;
     }
     let poll = poll_result.unwrap();
-    poll.register(listen_fd, Filter::Read);
+    poll.register(listen_fd, PollFilter::Read);
 
     let mut smap = StringMap::new();
     let mut slab = Slab::<ClientSession>::new(MAX_FDS);
@@ -100,7 +100,7 @@ fn main() -> i32 {
                     let client_fd = client.fd();
                     if client_fd < MAX_FDS {
                         slab.reset(client_fd);
-                        poll.register(client_fd, Filter::Read);
+                        poll.register(client_fd, PollFilter::Read);
                     } else {
                         client.close();
                     }
@@ -135,7 +135,7 @@ fn main() -> i32 {
 
 fn handle_client(fd: i32, poll: &Poller, smap: &mut StringMap, slab: &mut Slab<ClientSession>) {
     // Pre-allocate send buffer FIRST to avoid stack corruption on Linux
-    let mut send_buf: [u8; 4096] = [0; 4096];
+    let mut send_buf: [u8; 32768] = [0; 32768];
     let send_ptr = &send_buf[0] as Ptr<u8>;
     let send_buf_cap: i64 = 4096;
 
@@ -172,9 +172,8 @@ fn handle_client(fd: i32, poll: &Poller, smap: &mut StringMap, slab: &mut Slab<C
 
     while parse_cur < new_read_cur {
         let unparsed_len = new_read_cur - parse_cur;
-        let remaining = StringView::from_raw(buf.offset(parse_cur), unparsed_len);
 
-        let result = execute(smap, remaining, send_ptr.offset(total_resp));
+        let result = execute(smap, StringView::from_raw(buf.offset(parse_cur), unparsed_len), send_ptr.offset(total_resp));
 
         if result.input_consumed <= 0 {
             break;
@@ -190,14 +189,14 @@ fn handle_client(fd: i32, poll: &Poller, smap: &mut StringMap, slab: &mut Slab<C
                 total_resp = 0;
             }
             // Re-execute into the start of the buffer and send directly
-            let oversized_result = execute(smap, remaining, send_ptr);
+            let oversized_result = execute(smap, StringView::from_raw(buf.offset(parse_cur), unparsed_len), send_ptr);
             stream.send(send_ptr, oversized_result.resp_len);
         } else if total_resp + result.resp_len > send_buf_cap {
             // Would overflow — flush first, then append
             stream.send(send_ptr, total_resp);
             total_resp = 0;
             // Re-execute into the now-empty buffer
-            let retry_result = execute(smap, remaining, send_ptr);
+            let retry_result = execute(smap, StringView::from_raw(buf.offset(parse_cur), unparsed_len), send_ptr);
             total_resp = retry_result.resp_len;
         } else {
             // Normal case — safe to append
@@ -212,12 +211,20 @@ fn handle_client(fd: i32, poll: &Poller, smap: &mut StringMap, slab: &mut Slab<C
         stream.send(send_ptr, total_resp);
     }
 
-    // 4. Slide window
+    // 4. Slide window optimally
     let unparsed_len = new_read_cur - parse_cur;
-    if unparsed_len > 0 && parse_cur > 0 {
-        memcpy(buf, buf.offset(parse_cur), unparsed_len);
+    if unparsed_len == 0 {
+        // Fast path: everything was parsed
+        session.read_cursor = 0;
+        session.parse_cursor = 0;
+    } else if new_read_cur > SESSION_BUF_SIZE - 2048 {
+        // Slide to front only when running out of space
+        memmove(buf, buf.offset(parse_cur), unparsed_len);
+        session.read_cursor = unparsed_len;
+        session.parse_cursor = 0;
+    } else {
+        // Leave in place, continue filling remaining capacity
+        session.read_cursor = new_read_cur;
+        session.parse_cursor = parse_cur;
     }
-
-    session.read_cursor = unparsed_len;
-    session.parse_cursor = 0;
 }

@@ -16,8 +16,8 @@ fn test_enum_result_resolution() {
             let r = Result::<Ptr<u64>, u8>::Ok(p);
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).unwrap();
-    let res = salt_front::codegen::emit_mlir(&file, false, None, false, true, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).unwrap();
+    let res = salt_front::codegen::emit_mlir(&mut file, false, None, false, true, false, false, false, false, "");
     assert!(res.is_ok(), "Enum resolution failed via codegen_file entry point: {:?}", res.err());
     
     // Check for correct mangling in output
@@ -45,11 +45,11 @@ fn test_scope_merging_generic_leak() {
     "#;
     let file: syn::File = syn::parse_str(src).expect("Failed to parse test source"); 
     // Wait, SaltFile is usually aliased or used? 
-    // In resolution_tests.rs line 19: `let file: SaltFile = syn::parse_str(src).unwrap();`
+    // In resolution_tests.rs line 19: `let mut file: SaltFile = syn::parse_str(src).unwrap();`
     // SaltFile might be `crate::grammar::SaltFile`.
     let file: salt_front::grammar::SaltFile = syn::parse_str(src).expect("Failed to parse test source");
 
-    let res = salt_front::codegen::emit_mlir(&file, false, None, false, true, false, false, false, false, "");
+    let res = salt_front::codegen::emit_mlir(&mut file, false, None, false, true, false, false, false, false, "");
     
     // P0: MUST NOT PANIC and MUST NOT ERROR with "Generic Leak Detected"
     assert!(res.is_ok(), "Compilation failed: {:?}", res.err());
@@ -83,7 +83,7 @@ fn test_self_hydration_invariant() {
 
     // 1. Setup: Create a generic context
     let src = ""; 
-    let file = syn::parse_str::<salt_front::grammar::SaltFile>(src).unwrap_or(salt_front::grammar::SaltFile { package: None, items: vec![], imports: vec![] });
+    let mut file = syn::parse_str::<salt_front::grammar::SaltFile>(src).unwrap_or(salt_front::grammar::SaltFile { package: None, items: vec![], imports: vec![] });
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);

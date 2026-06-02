@@ -32,13 +32,13 @@ const MAX_CPUS: u64 = 16;
 const MAX_RETIRE_PER_CORE: u64 = 512;
 
 // Global monotonic epoch
-global GLOBAL_EPOCH: u64 = 0;
+pub global GLOBAL_EPOCH: u64 = 0;
 
 // Per-core epoch snapshot (set on enter, cleared on exit)
-global CORE_EPOCH: [u64; 16] = [0 as u64; 16];
+pub global CORE_EPOCH: [u64; 16] = [0 as u64; 16];
 
 // Per-core "in epoch" flag (1 = this core is inside a critical section)
-global CORE_IN_EPOCH: [u64; 16] = [0 as u64; 16];
+pub global CORE_IN_EPOCH: [u64; 16] = [0 as u64; 16];
 
 // Per-core retire lists: flat arrays of (epoch_at_retire, ptr) pairs
 // Stored as [epoch0, ptr0, epoch1, ptr1, ...] — 2 u64s per entry
@@ -156,4 +156,19 @@ pub fn ebr_reclaim(cpu: u64) {
     }
 
     RETIRE_COUNT[cpu] = write_idx;
+}
+
+@no_mangle
+pub fn ebr_get_global_epoch() -> u64 {
+    return GLOBAL_EPOCH;
+}
+
+@no_mangle
+pub fn ebr_get_core_epoch(cpu: u64) -> u64 {
+    return CORE_EPOCH[cpu];
+}
+
+@no_mangle
+pub fn ebr_get_core_in_epoch(cpu: u64) -> u64 {
+    return CORE_IN_EPOCH[cpu];
 }

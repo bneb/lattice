@@ -153,7 +153,13 @@ impl ResilientArena {
 
         self.cursor = new_cursor;
         self.alloc_count = self.alloc_count + 1;
-        let base = self.chunks[self.current_idx as usize];
+        let mut base = self.chunks[self.current_idx as usize];
+        if (base as i64) == 0 {
+            // Emergency fallback: lazy init again if current chunk is 0
+            let fallback_chunk = sovereign_arena_alloc(self.chunk_capacity);
+            self.chunks[self.current_idx as usize] = fallback_chunk as Ptr<u8>;
+            base = fallback_chunk as Ptr<u8>;
+        }
         return base.offset(aligned_cursor);
     }
 

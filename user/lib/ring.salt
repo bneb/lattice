@@ -68,15 +68,18 @@ pub fn push(ring_base: u64, payload: u64, len: u64) -> u64
     let tail = read_u64(ring_base, TAIL_OFFSET);
     let capacity = read_u64(ring_base, CAPACITY_OFFSET);
 
+    if capacity == 0 {
+        return 0;
+    }
+
     // Guard: payload must fit
     if len > capacity {
         return 0;
     }
 
-    let next_head = (head + len) % capacity;
-
     // Guard: would overwrite unread data
-    if next_head == tail {
+    let available_space = capacity - (head - tail);
+    if len > available_space {
         return 0;
     }
 
@@ -90,7 +93,7 @@ pub fn push(ring_base: u64, payload: u64, len: u64) -> u64
     }
 
     // Atomic head update (visible to consumer)
-    write_u64(ring_base, HEAD_OFFSET, next_head);
+    write_u64(ring_base, HEAD_OFFSET, head + len);
 
     return 1;
 }
@@ -116,17 +119,16 @@ pub fn pop(ring_base: u64, buf: u64, max_len: u64) -> u64
     let tail = read_u64(ring_base, TAIL_OFFSET);
     let capacity = read_u64(ring_base, CAPACITY_OFFSET);
 
-    // Ring empty
-    if head == tail {
+    if capacity == 0 {
         return 0;
     }
 
     // Calculate available bytes
-    let mut available: u64 = 0;
-    if head > tail {
-        available = head - tail;
-    } else {
-        available = capacity - tail + head;
+    let available = head - tail;
+
+    // Ring empty
+    if available == 0 {
+        return 0;
     }
 
     // Read up to max_len
@@ -145,8 +147,7 @@ pub fn pop(ring_base: u64, buf: u64, max_len: u64) -> u64
     }
 
     // Atomic tail update (visible to producer)
-    let new_tail = (tail + read_len) % capacity;
-    write_u64(ring_base, TAIL_OFFSET, new_tail);
+    write_u64(ring_base, TAIL_OFFSET, tail + read_len);
 
     return read_len;
 }

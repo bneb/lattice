@@ -1,6 +1,5 @@
 use crate::types::Type;
 use crate::codegen::context::{LoweringContext, LocalKind};
-use super::utils::*;
 use crate::codegen::type_bridge::*;
 use crate::common::mangling::Mangler;
 use std::collections::HashMap;
@@ -197,7 +196,7 @@ pub fn emit_path(ctx: &mut LoweringContext, out: &mut String, p: &syn::ExprPath,
             let pkg_mangled = Mangler::mangle(&pkg.name.iter().map(|id: &syn::Ident| id.to_string()).collect::<Vec<_>>());
             let local_mangled = Mangler::mangle(&[&pkg_mangled, &mangled]);
             if name == "GLOBAL_ALLOC" {
-                 let resol = ctx.resolve_global(&local_mangled);
+                 let _resol = ctx.resolve_global(&local_mangled);
             }
             if ctx.resolve_global(&local_mangled).is_some() || ctx.evaluator.constant_table.contains_key(&local_mangled) {
                 mangled = local_mangled;
@@ -373,6 +372,7 @@ pub fn emit_path(ctx: &mut LoweringContext, out: &mut String, p: &syn::ExprPath,
              }
              
              // For globals, we load the value
+             ctx.ensure_global_declared(&mangled, &ty)?;
              let ptr = format!("%global_ptr_{}", ctx.next_id());
              ctx.emit_addressof(out, &ptr, &mangled)?;
              
@@ -396,7 +396,7 @@ pub fn emit_path(ctx: &mut LoweringContext, out: &mut String, p: &syn::ExprPath,
     // 3. Enum Variant Lookup (without payload)
     if segments.len() >= 2 {
         let enum_name = &segments[0];
-        let variant_name = segments.last().unwrap();
+        let variant_name = segments.last().ok_or_else(|| "Empty segments in Enum Variant Lookup".to_string())?;
         
         // Fix: Resolve enum name via imports (e.g. Option -> std__core__option__Option)
         let mut resolved_enum_name = enum_name.clone();
@@ -429,7 +429,8 @@ pub fn emit_path(ctx: &mut LoweringContext, out: &mut String, p: &syn::ExprPath,
             if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
                 for arg in &args.args {
                     if let syn::GenericArgument::Type(ty) = arg {
-                        generic_args.push(resolve_type(ctx, &crate::grammar::SynType::from_std(ty.clone()).unwrap()));
+                        let syn_ty = crate::grammar::SynType::from_std(ty.clone()).map_err(|e| e.to_string())?;
+                        generic_args.push(resolve_type(ctx, &syn_ty));
                     }
                 }
             }
@@ -522,7 +523,7 @@ pub fn emit_path(ctx: &mut LoweringContext, out: &mut String, p: &syn::ExprPath,
                 // Scan source file for a matching function declaration
                 let fn_sig = ctx.config.file.items.iter().find_map(|item| {
                     if let crate::grammar::Item::Fn(f) = item {
-                        let my_mangled = if f.attributes.iter().any(|a| a.name == "no_mangle") {
+                        let my_mangled = if f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" ) {
                             f.name.to_string()
                         } else {
                             format!("{}{}", current_pkg_prefix, f.name)
@@ -758,7 +759,8 @@ pub fn emit_repeat(ctx: &mut LoweringContext, out: &mut String, r: &syn::ExprRep
 pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStruct, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<(String, Type), String> {
     // Convert path to Type for resolution
     let path_ty = syn::Type::Path(syn::TypePath { qself: None, path: s.path.clone() });
-    let raw_resolved_ty = resolve_type(ctx, &crate::grammar::SynType::from_std(path_ty).unwrap());
+    let syn_ty = crate::grammar::SynType::from_std(path_ty).map_err(|e| e.to_string())?;
+    let raw_resolved_ty = resolve_type(ctx, &syn_ty);
     // [SOVEREIGN FIX] Apply generic substitution for struct literals in specialized method contexts
     // This ensures RawVec in RawVec<T>::new() resolves to RawVec_u8 when T=u8
     let resolved_ty = raw_resolved_ty.substitute(&ctx.current_type_map());
@@ -772,8 +774,8 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
             // Use find_struct_template_by_name to get the fully-qualified name
             let template_name = ctx.find_struct_template_by_name(name);
             if template_name.is_some() && !ctx.current_type_map().is_empty() {
-                let full_name = template_name.clone().unwrap();
-                let has_template = ctx.struct_templates().contains_key(&full_name);
+                let full_name = template_name.clone().expect("Template name must exist");
+                let _has_template = ctx.struct_templates().contains_key(&full_name);
                 // [ORDERING FIX] Build args in template's declared generic parameter order,
                 // NOT HashMap::values() order which is non-deterministic.
                 // Without this, Vec<T, A> with {T: I64, A: HeapAllocator} could produce
@@ -942,6 +944,12 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
             if let syn::Member::Named(id) = &field.member {
                 let name = id.to_string();
                 
+                // Clear any pending pointer state before evaluating the field,
+                // and clear it again after, so inner calls like Ptr::empty()
+                // don't leak their pointer state to the outer struct variable.
+                *ctx.pending_pointer_state = None;
+
+                
                 // CRITICAL FIX: Re-resolve field type using active Generic Context
                 // Accessing via registry 'info' might yield Unit if the registry was populated
                 // during a phase where the generic parameter was unknown.
@@ -963,6 +971,9 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
                 
                 let (val, actual_ty) = emit_expr(ctx, out, &field.expr, local_vars, Some(&f_ty))?;
                 
+                // Clear state again after evaluating the field
+                *ctx.pending_pointer_state = None;
+
                 // TYPE POISONING GUARD
                 if f_ty == Type::Unit && actual_ty == Type::I64 {
                     // Check if expression was a constant
@@ -1035,7 +1046,7 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
         out.push_str(&format!("    {} = llvm.mlir.undef : {}\n", current_struct, mlir_ty));
         
         for (i, field_ty) in info.field_order.iter().enumerate() {
-             let field_name = info.fields.iter().find(|(_, (idx, _))| *idx == i).map(|(k, _)| k).unwrap();
+             let field_name = info.fields.iter().find(|(_, (idx, _))| *idx == i).map(|(k, _)| k).ok_or_else(|| format!("Field index {} not found", i))?;
              if let Some((val, actual_ty)) = field_vals.get(field_name) {
                   let next_struct = format!("%struct_step_{}", ctx.next_id());
                   let concrete_field_ty = field_ty.substitute(&ctx.current_type_map());
@@ -1099,7 +1110,7 @@ pub(crate) fn emit_enum_constructor(
                  let (val, _ty) = emit_expr(ctx, out, arg_expr, local_vars, Some(target_payload_ty))?;
                  // Store and Load
                  let payload_buffer = format!("%payload_buf_{}", ctx.next_id());
-                 out.push_str(&format!("    {} = llvm.alloca %c1_i64 x {} : (i64) -> !llvm.ptr\n", payload_buffer, array_mlir_ty));
+                 out.push_str(&format!("    {} = llvm.alloca %c1_i64 x {} {{alignment = 8 : i64}} : (i64) -> !llvm.ptr\n", payload_buffer, array_mlir_ty));
                  
                  let target_payload_mlir: String = target_payload_ty.to_mlir_type(ctx)?;
                  out.push_str(&format!("    llvm.store {}, {} : {}, !llvm.ptr\n", val, payload_buffer, target_payload_mlir));

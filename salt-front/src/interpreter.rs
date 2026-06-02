@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 use std::fmt::Write;
-use crate::grammar::{SaltFile, SaltFn, SaltBlock, Stmt, SaltIf, SaltElse, SaltWhile, SaltFor, Item, Arg};
+use crate::grammar::{SaltFile, SaltBlock, Stmt, SaltIf, SaltElse, Item};
 
 /// Runtime value.
 #[derive(Clone, Debug)]

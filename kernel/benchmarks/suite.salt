@@ -108,9 +108,6 @@ pub fn bench_suite_run() {
     run();
 
     // ── 2. Syscall latency (Ring 3 trampoline) ────────────────────────
-    // Fixed: Warmup loop now uses R12 (callee-saved) instead of ECX.
-    // SYSCALL hardware clobbers RCX with the return RIP — using ECX as
-    // a loop counter across SYSCALL caused the 0x7FFFFFF* crash on KVM.
     if is_kvm {
         serial.print("BENCH:suite:running syscall_bench\n");
         run_syscall_bench();
@@ -118,15 +115,16 @@ pub fn bench_suite_run() {
         serial.print("BENCH:suite:SKIP syscall_bench (TCG — requires IRETQ+SYSRET)\n");
     }
 
-    // ── 3. IPC ping-pong — SKIPPED: triple faults on KVM (responder spawn) ──
-    serial.print("BENCH:suite:SKIP ipc_bench (responder spawn crash, investigating)\n");
-    // let responder_addr = (&ipc_responder) as u64;
-    // scheduler.spawn(responder_addr);
-    // scheduler.yield_now();
-    // run_ipc_bench();
+    // ── 3. IPC ping-pong ──────────────────────────────────────────
+    serial.print("BENCH:suite:running ipc_bench\n");
+    let responder_addr = fn_addr(ipc_responder);
+    scheduler.spawn(responder_addr);
+    scheduler.yield_now();
+    run_ipc_bench();
 
-    // ── 4. Context switch — SKIPPED: same scheduler.spawn() crash ──
-    serial.print("BENCH:suite:SKIP ctx_switch_bench (scheduler.spawn crash)\n");
+    // ── 4. Context switch ─────────────────────────────────────────
+    serial.print("BENCH:suite:running ctx_switch_bench\n");
+    run_ctx_switch_bench();
 
     // ── 5. Interrupt latency — SKIPPED: hangs on KVM ──
     serial.print("BENCH:suite:SKIP irq_latency_bench (hangs on KVM)\n");
@@ -135,8 +133,9 @@ pub fn bench_suite_run() {
     serial.print("BENCH:suite:running pmm_bench\n");
     run_pmm_bench();
 
-    // ── 7. Slab stress — SKIPPED: uses scheduler.spawn pattern ──
-    serial.print("BENCH:suite:SKIP slab_stress_bench (investigating hangs)\n");
+    // ── 7. Slab stress ────────────────────────────────────────────
+    serial.print("BENCH:suite:running slab_stress_bench\n");
+    run_slab_stress();
 
     // ── 8. SMP (per-core alloc throughput + AP boot count) ───────────
     serial.print("BENCH:suite:running smp_bench\n");

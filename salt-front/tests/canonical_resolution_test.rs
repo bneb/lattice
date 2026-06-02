@@ -41,8 +41,8 @@ fn test_canonical_struct_resolution() {
             // Case 2: Struct with Ptr<T> fields (recursive)
             let b2 = Box::new(Node {
                 val: 42,
-                left: Ptr::<Node>::empty(),
-                right: Ptr::<Node>::empty()
+                left: Ptr<Node>::empty(),
+                right: Ptr<Node>::empty()
             });
             let n = b2.read();
             printf_shim("node: %lld\n", n.val as i64);
@@ -51,7 +51,7 @@ fn test_canonical_struct_resolution() {
             // Case 3: Different struct type in same function
             let b3 = Box::new(ListNode {
                 data: 99,
-                next: Ptr::<ListNode>::empty()
+                next: Ptr<ListNode>::empty()
             });
             let ln = b3.read();
             printf_shim("list: %lld\n", ln.data);

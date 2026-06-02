@@ -101,7 +101,7 @@ if [ -f "$SCRIPT_DIR/echo_salt.salt" ]; then
         fail "salt-front release binary not found (run: cargo build --release)"
     else
         # Salt → MLIR → LLVM IR → native binary (with C bridge)
-        DYLD_LIBRARY_PATH=/opt/homebrew/lib $SALT_FRONT "$SCRIPT_DIR/echo_salt.salt" --release --danger-no-verify 2>/dev/null \
+        DYLD_LIBRARY_PATH=/opt/homebrew/lib $SALT_FRONT "$SCRIPT_DIR/echo_salt.salt" --release 2>/dev/null \
             | grep -v "^DEBUG:\|^Debug:\|^>>>\|^State\|salt.verify\|^\[V4.0\]" \
             > "$BUILD_DIR/echo_salt_clean.mlir" && \
         mlir-opt --convert-linalg-to-loops --expand-strided-metadata --lower-affine \

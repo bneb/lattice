@@ -1,0 +1,63 @@
+package kernel.ecs.ecs_bridge
+
+import kernel.ecs.world.{World, world_spawn, world_destroy}
+import kernel.ecs.entity.{Entity}
+import kernel.ecs.components.{ThreadState, SchedulingPriority}
+import kernel.ecs.sparse_set.{thread_set_insert, thread_set_get_mut, priority_set_insert}
+
+extern fn get_ecs_world_ptr() -> u64;
+
+@no_mangle
+pub fn ecs_bridge_spawn_thread(step_fn: u64, stack_ptr: u64, stack_base: u64) -> u64 {
+    let w_ptr = get_ecs_world_ptr() as Ptr<World>;
+    if (w_ptr as u64) == 0 { return 0; }
+    
+    let w = w_ptr as &mut World;
+    let e = world_spawn(w_ptr);
+    
+    let t = ThreadState {
+        status: 1, // THREAD_RUNNABLE
+        stack_ptr: stack_ptr,
+        stack_base: stack_base,
+        step_fn: step_fn,
+        task_frame: 0,
+        ctx_ptr: 0,
+    };
+    thread_set_insert(w.threads, e, t);
+    
+    let p = SchedulingPriority { level: 128, tickets: 10 };
+    priority_set_insert(w.priorities, e, p);
+    
+    let id_u64 = e.id as u64;
+    let gen_u64 = e.gen as u64;
+    return id_u64 | (gen_u64 << 32);
+}
+
+@no_mangle
+pub fn ecs_bridge_set_thread_status(entity_val: u64, status: u32) {
+    let w_ptr = get_ecs_world_ptr() as Ptr<World>;
+    if (w_ptr as u64) == 0 { return; }
+    
+    let w = w_ptr as &mut World;
+    let id = (entity_val & 0xFFFFFFFF) as u32;
+    let gen = (entity_val >> 32) as u32;
+    let e = Entity { id: id, gen: gen };
+    
+    let t = thread_set_get_mut(w.threads, e);
+    if (t as u64) != 0 {
+        let t_ref = t as &mut ThreadState;
+        t_ref.status = status;
+    }
+}
+
+@no_mangle
+pub fn ecs_bridge_destroy_thread(entity_val: u64) {
+    let w_ptr = get_ecs_world_ptr() as Ptr<World>;
+    if (w_ptr as u64) == 0 { return; }
+    
+    let id = (entity_val & 0xFFFFFFFF) as u32;
+    let gen = (entity_val >> 32) as u32;
+    let e = Entity { id: id, gen: gen };
+    
+    world_destroy(w_ptr, e);
+}

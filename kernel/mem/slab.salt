@@ -148,7 +148,8 @@ pub fn pop_stack() -> u64 {
 
         // Dereference the canonical pointer to get the next block
         let link = current_ptr as &u64;
-        let next_ptr = link[0];
+        let mut next_ptr: u64 = 0;
+        unsafe { next_ptr = link[0]; }
 
         // 128-bit Hardware CAS
         let head_addr = (&SLAB_SHARDS[cpu]) as u64;
@@ -185,7 +186,7 @@ pub fn push_stack(ptr: u64) {
 
     loop {
         // Chain the freed block
-        link[0] = current_ptr;
+        unsafe { link[0] = current_ptr; }
 
         let head_addr = (&SLAB_SHARDS[cpu]) as u64;
         let (old_ptr, old_gen, success) = atomic_cas_128(

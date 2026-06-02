@@ -1,7 +1,5 @@
 use crate::types::Type;
 use crate::codegen::context::{LoweringContext, LocalKind};
-use super::utils::*;
-use crate::codegen::type_bridge::*;
 use std::collections::HashMap;
 use super::{emit_expr, unify_types};
 
@@ -255,7 +253,7 @@ pub fn emit_match(ctx: &mut LoweringContext, out: &mut String, m: &syn::ExprMatc
             },
             syn::Pat::Path(p) => {
                  // Enum::Variant
-                 let last = p.path.segments.last().unwrap().ident.to_string();
+                 let last = p.path.segments.last().ok_or_else(|| "Empty path in pattern".to_string())?.ident.to_string();
                  if let Some((_, _, idx)) = info.variants.iter().find(|(n, _, _)| n == &last) {
                      switch_cases_map.push((*idx, block_label.clone()));
                  } else {
@@ -264,7 +262,7 @@ pub fn emit_match(ctx: &mut LoweringContext, out: &mut String, m: &syn::ExprMatc
             },
             syn::Pat::TupleStruct(ts) => {
                  // Enum::Variant(v)
-                 let last = ts.path.segments.last().unwrap().ident.to_string();
+                 let last = ts.path.segments.last().ok_or_else(|| "Empty path in tuple struct pattern".to_string())?.ident.to_string();
                  if let Some((_, _ty_opt, idx)) = info.variants.iter().find(|(n, _, _)| n == &last) {
                      // Bindings are handled during block emission
                      switch_cases_map.push((*idx, block_label.clone()));
@@ -300,7 +298,7 @@ pub fn emit_match(ctx: &mut LoweringContext, out: &mut String, m: &syn::ExprMatc
         
         // Handle bindings if TupleStruct
         if let syn::Pat::TupleStruct(ts) = &arm.pat {
-             let last = ts.path.segments.last().unwrap().ident.to_string();
+             let last = ts.path.segments.last().ok_or_else(|| "Empty path in tuple struct pattern".to_string())?.ident.to_string();
               if let Some((_, Some(inner_ty), _)) = info.variants.iter().find(|(n, _, _)| n == &last) {
                   if let Some(syn::Pat::Ident(id)) = ts.elems.first() {
                         let payload_array = format!("%payload_raw_{}_{}", i, ctx.next_id());

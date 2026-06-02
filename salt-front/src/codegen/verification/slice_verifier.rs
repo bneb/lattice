@@ -14,7 +14,6 @@
 //! is <= buf.length, enabling downstream slice elision.
 
 use crate::z3_shim::ast::Ast;
-use crate::z3_shim as z3;
 
 /// Result of a Z3 slice verification attempt
 #[derive(Debug, Clone, PartialEq)]

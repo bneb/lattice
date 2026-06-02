@@ -50,6 +50,17 @@ proc_context_switch:
     pop rbx
     pop rbp
 
+    /* Clear scratch registers to prevent information leaks to the new process */
+    xor eax, eax
+    xor ecx, ecx
+    xor edx, edx
+    xor esi, esi
+    xor edi, edi
+    xor r8d, r8d
+    xor r9d, r9d
+    xor r10d, r10d
+    xor r11d, r11d
+
     ret
 
 /* =============================================================================
@@ -63,6 +74,8 @@ proc_trampoline:
     mov es, ax
     mov fs, ax
     swapgs
+.global proc_trampoline_iretq
+proc_trampoline_iretq:
     iretq
 
 /* =============================================================================
@@ -84,6 +97,8 @@ moe_trampoline:
     mov es, ax
     mov fs, ax
     swapgs
+.global moe_trampoline_iretq
+moe_trampoline_iretq:
     iretq
 
 /* =============================================================================

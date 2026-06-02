@@ -11,7 +11,6 @@
 //! - Complete coverage: main + epilogue = [0, len)
 
 use crate::z3_shim::{Context, Solver, ast::{Ast, Bool, Int}};
-use crate::z3_shim as z3;
 
 /// Z3 Hash Loop Verifier - Proves Loop Bound Safety
 pub struct HashLoopVerifier<'a> {

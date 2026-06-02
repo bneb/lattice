@@ -31,3 +31,13 @@ volatile_read_i64:
 volatile_write_i64:
     movq %rsi, (%rdi)
     ret
+
+.global salt_atomic_load_i64
+salt_atomic_load_i64:
+    movq (%rdi), %rax
+    ret
+
+.global salt_atomic_store_i64
+salt_atomic_store_i64:
+    movq %rsi, (%rdi)
+    ret

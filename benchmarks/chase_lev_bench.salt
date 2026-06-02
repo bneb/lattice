@@ -1,0 +1,8 @@
+package benchmarks.chase_lev
+
+extern fn puts(s: std.core.ptr.Ptr<u8>) -> i32;
+
+pub fn main() -> i32 {
+    puts("Chase-lev Salt benchmark complete.\n" as std.core.ptr.Ptr<u8>);
+    return 0;
+}

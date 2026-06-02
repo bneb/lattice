@@ -59,7 +59,7 @@ pub fn verify_pulse_bounds(
 
     // DFS from entry block (id = 0)
     let mut stack: Vec<(usize, i64, Vec<usize>)> = vec![(0, 0, vec![0])];
-    let mut visited_on_path: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let _visited_on_path: std::collections::HashSet<usize> = std::collections::HashSet::new();
 
     while let Some((block_id, accumulated_cost, path)) = stack.pop() {
         let block = match block_map.get(&block_id) {
@@ -148,7 +148,7 @@ fn score_stmt(stmt: &Stmt) -> i64 {
             let body_cost: i64 = body.stmts.iter().map(|s| score_stmt(s)).sum();
             10 * body_cost // Conservative default: 10 iterations
         }
-        StmtKind::Loop(body) => {
+        StmtKind::Loop(_body) => {
             // Unbounded loop — cost is effectively infinite
             // This should have been caught by has_unbounded_loop
             i64::MAX / 2
@@ -157,7 +157,6 @@ fn score_stmt(stmt: &Stmt) -> i64 {
         StmtKind::Return(None) => 0,
         StmtKind::Assume(_) => 0, // Z3 annotations are free
         StmtKind::Continue | StmtKind::Break => 0,
-        _ => 1, // Default: 1 cycle for unknown statements
     }
 }
 
@@ -220,6 +219,18 @@ fn has_unbounded_loop(stmts: &[Stmt]) -> bool {
                 if !has_yield {
                     return true;
                 }
+                if has_unbounded_loop(&body.stmts) { return true; }
+            }
+            StmtKind::While { body, .. } | StmtKind::For { body, .. } => {
+                if has_unbounded_loop(&body.stmts) { return true; }
+            }
+            StmtKind::Local(local) => {
+                if let Some(expr) = &local.init {
+                    if expr_has_unbounded_loop(expr) { return true; }
+                }
+            }
+            StmtKind::Expr(expr) | StmtKind::Semi(expr) | StmtKind::Return(Some(expr)) => {
+                if expr_has_unbounded_loop(expr) { return true; }
             }
             _ => {}
         }
@@ -227,21 +238,72 @@ fn has_unbounded_loop(stmts: &[Stmt]) -> bool {
     false
 }
 
+fn expr_has_unbounded_loop(expr: &Expr) -> bool {
+    match &expr.kind {
+        ExprKind::Binary { lhs, rhs, .. } => expr_has_unbounded_loop(lhs) || expr_has_unbounded_loop(rhs),
+        ExprKind::Unary { expr: inner, .. } => expr_has_unbounded_loop(inner),
+        ExprKind::Call { callee, args } => expr_has_unbounded_loop(callee) || args.iter().any(|a| expr_has_unbounded_loop(a)),
+        ExprKind::Assign { lhs, rhs } => expr_has_unbounded_loop(lhs) || expr_has_unbounded_loop(rhs),
+        ExprKind::Index { base, index } => expr_has_unbounded_loop(base) || expr_has_unbounded_loop(index),
+        ExprKind::Field { base, .. } => expr_has_unbounded_loop(base),
+        ExprKind::Ref(inner) => expr_has_unbounded_loop(inner),
+        ExprKind::Cast { expr: inner, .. } => expr_has_unbounded_loop(inner),
+        ExprKind::If { cond, then_branch, else_branch } => {
+            expr_has_unbounded_loop(cond)
+                || has_unbounded_loop(&then_branch.stmts)
+                || else_branch.as_ref().map_or(false, |e| expr_has_unbounded_loop(e))
+        }
+        ExprKind::Block(block) => has_unbounded_loop(&block.stmts),
+        ExprKind::MethodCall { receiver, args, .. } => {
+            expr_has_unbounded_loop(receiver) || args.iter().any(|a| expr_has_unbounded_loop(a))
+        }
+        ExprKind::StructLit { fields, .. } => fields.iter().any(|(_, v)| expr_has_unbounded_loop(v)),
+        ExprKind::Return(val) => val.as_ref().map_or(false, |v| expr_has_unbounded_loop(v)),
+        _ => false,
+    }
+}
+
 /// Check if a statement contains a yield expression.
 fn stmt_contains_yield(stmt: &Stmt) -> bool {
     match &stmt.kind {
-        StmtKind::Expr(expr) | StmtKind::Semi(expr) => expr_contains_yield(expr),
-        StmtKind::While { body, .. } | StmtKind::For { body, .. } => {
+        StmtKind::Expr(expr) | StmtKind::Semi(expr) | StmtKind::Return(Some(expr)) => expr_contains_yield(expr),
+        StmtKind::While { cond, body } => {
+            expr_contains_yield(cond) || body.stmts.iter().any(|s| stmt_contains_yield(s))
+        }
+        StmtKind::For { body, .. } => {
             body.stmts.iter().any(|s| stmt_contains_yield(s))
         }
         StmtKind::Loop(body) => body.stmts.iter().any(|s| stmt_contains_yield(s)),
+        StmtKind::Local(local) => local.init.as_ref().map_or(false, |e| expr_contains_yield(e)),
         _ => false,
     }
 }
 
 /// Check if an expression contains a yield.
 fn expr_contains_yield(expr: &Expr) -> bool {
-    matches!(&expr.kind, ExprKind::Yield(_))
+    match &expr.kind {
+        ExprKind::Yield(_) => true,
+        ExprKind::Binary { lhs, rhs, .. } => expr_contains_yield(lhs) || expr_contains_yield(rhs),
+        ExprKind::Unary { expr: inner, .. } => expr_contains_yield(inner),
+        ExprKind::Call { callee, args } => expr_contains_yield(callee) || args.iter().any(|a| expr_contains_yield(a)),
+        ExprKind::Assign { lhs, rhs } => expr_contains_yield(lhs) || expr_contains_yield(rhs),
+        ExprKind::Index { base, index } => expr_contains_yield(base) || expr_contains_yield(index),
+        ExprKind::Field { base, .. } => expr_contains_yield(base),
+        ExprKind::Ref(inner) => expr_contains_yield(inner),
+        ExprKind::Cast { expr: inner, .. } => expr_contains_yield(inner),
+        ExprKind::If { cond, then_branch, else_branch } => {
+            expr_contains_yield(cond)
+                || then_branch.stmts.iter().any(|s| stmt_contains_yield(s))
+                || else_branch.as_ref().map_or(false, |e| expr_contains_yield(e))
+        }
+        ExprKind::Block(block) => block.stmts.iter().any(|s| stmt_contains_yield(s)),
+        ExprKind::MethodCall { receiver, args, .. } => {
+            expr_contains_yield(receiver) || args.iter().any(|a| expr_contains_yield(a))
+        }
+        ExprKind::StructLit { fields, .. } => fields.iter().any(|(_, v)| expr_contains_yield(v)),
+        ExprKind::Return(val) => val.as_ref().map_or(false, |v| expr_contains_yield(v)),
+        _ => false,
+    }
 }
 
 #[cfg(test)]

@@ -8,20 +8,13 @@ package kernel.core.main
 import kernel.drivers.serial
 import kernel.arch.x86.idt
 
-@no_mangle
-pub fn multiboot_parse(mb_info: u64) { let dummy = 0; }
+extern fn multiboot_parse(mb_info: u64);
+extern fn sys_moe_init_trampoline(state: u64, bar_out: u64, poll_out: u64);
 
-@no_mangle
-pub fn terminal_main(w: u64, h: u64, pitch: u64) { let dummy = 0; }
+pub fn sys_terminal_main(w: u64, h: u64, pitch: u64) { let dummy = 0; }
+pub fn sys_netd_main(arg1: u64, arg2: u64, arg3: u64) { let dummy = 0; }
 
-@no_mangle
-pub fn netd_main(arg1: u64, arg2: u64, arg3: u64) { let dummy = 0; }
 
-@no_mangle
-pub fn moe_init_trampoline(state: u64, bar_out: u64, poll_out: u64) { let dummy = 0; }
-
-@no_mangle
-pub fn ecs_push_hardware_interrupt(a: u64, b: u64, c: u64, d: u64) { let dummy = 0; }
 
 // =============================================================================
 // Assembly FFI (unmangled symbols from .S files)
@@ -29,6 +22,7 @@ pub fn ecs_push_hardware_interrupt(a: u64, b: u64, c: u64, d: u64) { let dummy =
 extern fn read_cr3() -> u64;
 extern fn idle_halt();
 extern fn proc_context_switch(old_rsp_ptr: u64, new_rsp: u64, new_cr3: u64, new_rsp0: u64);
+extern fn sys_alloc_kernel_stack() -> u64;
 extern fn get_user_elf_a_addr() -> u64;
 extern fn get_user_elf_b_addr() -> u64;
 extern fn get_user_elf_c_addr() -> u64;
@@ -68,6 +62,9 @@ extern fn pit_init();
 // kernel/core/scheduler.salt
 extern fn sched_init();
 extern fn sched_start();
+
+// kernel/ecs/world.salt
+extern fn ecs_world_init() -> u64;
 
 // kernel/core/pmm.salt
 extern fn pmm_add_region(start: u64, end: u64);
@@ -127,7 +124,7 @@ extern fn syscall_set_moe_peer_mac(b0: u8, b1: u8, b2: u8, b3: u8, b4: u8, b5: u
 // kernel/net/netcore.salt
 extern fn netcore_set_rx_notify(ptr: u64);
 extern fn map_user_page_extern(pml4_phys: u64, vaddr: u64, paddr: u64, flags: u64);
-extern fn create_user_pml4_kpti(kernel_pml4: u64) -> u64;
+extern fn sys_create_user_pml4_kpti(kernel_pml4: u64) -> u64;
 
 // kernel/drivers/virtio_net.salt
 extern fn moe_net_init() -> bool;
@@ -142,7 +139,7 @@ extern fn exec_spawn_ring3_coroutine(entry: u64, arg1: u64, arg2: u64, arg3: u64
 extern fn virtio_net_get_mac_byte(idx: u64) -> u8;
 
 // user/reactor/tasks/moe_pipeline.salt
-extern fn moe_init_trampoline(state: u64, bar_out: u64, poll_out: u64);
+// extern fn declared above
 
 // Local copies of process constants
 const MAX_PROCS: u64   = 16;
@@ -159,6 +156,12 @@ extern fn ps2_kbd_irq_handler();
 extern fn ps2_set_rx_ring(ptr: u64);
 
 global KERNEL_TX_RING_VIRT: u64 = 0;
+global KERNEL_ECS_WORLD: u64 = 0;
+
+@no_mangle
+pub fn get_ecs_world_ptr() -> u64 {
+    return KERNEL_ECS_WORLD;
+}
 global KERNEL_LINE_BUFFER: [u8; 64] = [0; 64];
 global KERNEL_LINE_LEN: u32 = 0;
 
@@ -185,9 +188,16 @@ pub fn terminal_tx_poll_thread() {
                 if capacity == 0 {
                     capacity = 3904; // SECURITY FIX: Prevent Division by Zero DoS from malformed user capacity
                 }
-                let c = *((KERNEL_TX_RING_VIRT + 192 + tail) as &u8);
+                if capacity > 3904 {
+                    capacity = 3904;
+                }
+                let idx = tail % capacity;
+                let mut c: u8 = 0;
+                if idx < 3904 {
+                    c = *((KERNEL_TX_RING_VIRT + 192 + idx) as &u8);
+                }
                 
-                let new_tail = (tail + 1) % capacity;
+                let new_tail = tail + 1;
                 *((KERNEL_TX_RING_VIRT + 64) as &mut u64) = new_tail;
                 
                 if c == 10 { // newline
@@ -257,6 +267,9 @@ pub fn kmain(magic: u32, mb_info: &u8) {
 
     serial.print("KEUOS BOOT: Scheduler...\n");
     sched_init();
+
+    serial.print("KEUOS BOOT: ECS World...\n");
+    KERNEL_ECS_WORLD = ecs_world_init();
 
     // PMM initialization is now strictly driven by Multiboot E820 Map
     // (pmm_add_region is called internally by multiboot_parse).
@@ -333,7 +346,7 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     percpu_set_kernel_cr3(0, kernel_pml4);  // GS:[64] = kernel CR3 for KPTI
 
     // GDT/TSS for Ring 3 — populate IST entries BEFORE LTR
-    let kernel_rsp0: u64 = 0xFFFFFFFF80126000;
+    let kernel_rsp0: u64 = sys_alloc_kernel_stack();
     tss_init_tss(kernel_rsp0);
 
     // Wire IST stacks into TSS (IST 1 = NMI, IST 2 = DF)
@@ -363,7 +376,7 @@ pub fn kmain(magic: u32, mb_info: &u8) {
 
     // BENCHMARK SUITE — IST tests run first (test_ist_isolation), then Ring 3 TDD
     // v6.2.23-BenchBypass: Skip bench suite to isolate the network fabric.
-    // bench_suite_run();
+    bench_suite_run();
 
     // Save kernel PML4 for syscall.salt (process_exit CR3 swap)
     syscall_set_kernel_pml4(kernel_pml4);
@@ -377,7 +390,7 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     serial.print("[KeuOS] Task 0 (dispatcher) spawned\n");
 
 // KPTI SECURITY FIX: Create dedicated user address spaces for Ring 3 processes
-    let terminal_pml4 = create_user_pml4_kpti(kernel_pml4);
+    let terminal_pml4 = sys_create_user_pml4_kpti(kernel_pml4);
 
     serial.print("[KeuOS] Bootstrapping Sovereign Ring 3 Terminal SIP...\n");
     let fb_w = fb_get_width() as u64;
@@ -429,7 +442,7 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     }
 
     let slot_terminal = exec_spawn_ring3_coroutine(
-            (&terminal_main) as u64,
+            (&sys_terminal_main) as u64,
             fb_w, fb_h, fb_pitch,
             terminal_pml4
         );
@@ -441,9 +454,9 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     process_set_state(slot_tx, PROC_READY);
     serial.print("[KeuOS] TX_RING Supervisor C2 Thread spawned\n");
 
-    let netd_pml4 = create_user_pml4_kpti(kernel_pml4);
+    let netd_pml4 = sys_create_user_pml4_kpti(kernel_pml4);
     let slot_netd = exec_spawn_ring3_coroutine(
-            (&netd_main) as u64,
+            (&sys_netd_main) as u64,
             0, 0, 0,
             netd_pml4
         );
@@ -538,9 +551,9 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     *((state_ptr + 72) as &mut u64) = rx_notify_ptr;
     *((state_ptr + 80) as &mut u64) = rx_pool_vaddr;
 
-    let moe_pml4 = create_user_pml4_kpti(kernel_pml4);
+    let moe_pml4 = sys_create_user_pml4_kpti(kernel_pml4);
     let slot_a = exec_spawn_ring3_coroutine(
-            (&moe_init_trampoline) as u64,
+            (&sys_moe_init_trampoline) as u64,
             state_ptr,
             bar_ptr,
             poll_ptr,

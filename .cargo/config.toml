@@ -1,0 +1,5 @@
+[env]
+# Ensure Z3 is found correctly by bindgen and the linker when building on macOS via Homebrew
+LIBRARY_PATH = "/opt/homebrew/lib"
+CPATH = "/opt/homebrew/include"
+DYLD_LIBRARY_PATH = "/opt/homebrew/lib"

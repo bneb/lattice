@@ -10,7 +10,7 @@ macro_rules! test_ctx {
     ($name:ident, $test:block) => {
         #[test]
         fn $name() {
-            let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap();
+            let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap();
             let z3_cfg = z3::Config::new();
             let z3_ctx = z3::Context::new(&z3_cfg);
             let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -26,7 +26,7 @@ macro_rules! test_ctx {
 
 #[test]
 fn test_emit_binop_addi() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -37,7 +37,7 @@ fn test_emit_binop_addi() {
 
 #[test]
 fn test_emit_binop_muli() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -48,7 +48,7 @@ fn test_emit_binop_muli() {
 
 #[test]
 fn test_emit_binop_addf() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -63,7 +63,7 @@ fn test_emit_binop_addf() {
 
 #[test]
 fn test_emit_const_int() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -74,7 +74,7 @@ fn test_emit_const_int() {
 
 #[test]
 fn test_emit_const_int_negative() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -85,7 +85,7 @@ fn test_emit_const_int_negative() {
 
 #[test]
 fn test_emit_const_float() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -102,7 +102,7 @@ fn test_emit_const_float() {
 
 #[test]
 fn test_emit_load() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -113,7 +113,7 @@ fn test_emit_load() {
 
 #[test]
 fn test_emit_store() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -128,7 +128,7 @@ fn test_emit_store() {
 
 #[test]
 fn test_emit_alloca() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -143,7 +143,7 @@ fn test_emit_alloca() {
 
 #[test]
 fn test_emit_gep_field() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -158,7 +158,7 @@ fn test_emit_gep_field() {
 
 #[test]
 fn test_emit_extractvalue() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -169,7 +169,7 @@ fn test_emit_extractvalue() {
 
 #[test]
 fn test_emit_insertvalue() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -184,7 +184,7 @@ fn test_emit_insertvalue() {
 
 #[test]
 fn test_emit_cmp_int() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -195,7 +195,7 @@ fn test_emit_cmp_int() {
 
 #[test]
 fn test_emit_cmp_float() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -210,7 +210,7 @@ fn test_emit_cmp_float() {
 
 #[test]
 fn test_emit_cast_extsi() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -221,7 +221,7 @@ fn test_emit_cast_extsi() {
 
 #[test]
 fn test_emit_trunc() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -236,7 +236,7 @@ fn test_emit_trunc() {
 
 #[test]
 fn test_emit_br() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -247,7 +247,7 @@ fn test_emit_br() {
 
 #[test]
 fn test_emit_cond_br() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -262,7 +262,7 @@ fn test_emit_cond_br() {
 
 #[test]
 fn test_emit_label() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -277,7 +277,7 @@ fn test_emit_label() {
 
 #[test]
 fn test_emit_return() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -288,7 +288,7 @@ fn test_emit_return() {
 
 #[test]
 fn test_emit_return_void() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -300,7 +300,7 @@ fn test_emit_return_void() {
 #[test]
 fn test_emit_load_logical() {
     // We don't need actual files for builder tests, just a valid context
-    let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
+    let mut file: SaltFile = syn::parse_str("fn main() {}").unwrap();
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -317,7 +317,7 @@ fn test_emit_load_logical() {
 
 #[test]
 fn test_emit_store_logical() {
-    let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
+    let mut file: SaltFile = syn::parse_str("fn main() {}").unwrap();
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -333,7 +333,7 @@ fn test_emit_store_logical() {
 
 #[test]
 fn test_emit_addressof_variants() {
-    let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
+    let mut file: SaltFile = syn::parse_str("fn main() {}").unwrap();
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -352,7 +352,7 @@ fn test_emit_addressof_variants() {
 
 #[test]
 fn test_emit_atomicrmw_ops() {
-    let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
+    let mut file: SaltFile = syn::parse_str("fn main() {}").unwrap();
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -372,7 +372,7 @@ fn test_emit_atomicrmw_ops() {
 
 #[test]
 fn test_emit_sequence() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -392,7 +392,7 @@ fn test_emit_sequence() {
 
 #[test]
 fn test_emit_load_exclusive() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -409,7 +409,7 @@ fn test_emit_load_exclusive() {
 
 #[test]
 fn test_emit_load_atomic() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -422,7 +422,7 @@ fn test_emit_load_atomic() {
 
 #[test]
 fn test_emit_store_atomic() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -435,7 +435,7 @@ fn test_emit_store_atomic() {
 
 #[test]
 fn test_emit_atomicrmw() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -451,7 +451,7 @@ fn test_emit_atomicrmw() {
 
 #[test]
 fn test_emit_call_with_result() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -463,7 +463,7 @@ fn test_emit_call_with_result() {
 
 #[test]
 fn test_emit_call_void() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -479,7 +479,7 @@ fn test_emit_call_void() {
 
 #[test]
 fn test_emit_addressof() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -494,7 +494,7 @@ fn test_emit_addressof() {
 
 #[test]
 fn test_emit_inttoptr() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     
@@ -509,7 +509,7 @@ fn test_emit_inttoptr() {
 
 #[test]
 fn test_emit_verify() {
-    let file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
+    let mut file: SaltFile = syn::parse_str("fn main() -> i32 { return 0; }").unwrap(); let z3_cfg = z3::Config::new(); let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     let mut out = String::new();
     

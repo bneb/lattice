@@ -1,5 +1,5 @@
 // string_hashmap_bench.salt - String Key HashMap Benchmark
-package main
+package basalt
 // Tests FNV-1a hash performance for String keys
 
 use std.collections.hash_map.HashMap

@@ -113,9 +113,10 @@ mod tests_sir_emit;
 mod tests_netd_integration;
 #[cfg(test)]
 mod tests_sir_ast_extraction;
+#[cfg(test)]
+mod tests_ring_abi;
 use crate::grammar::{SaltFile, Item, SaltFn, SaltImpl, ExternFnDecl, SaltConcept, SaltTrait};
 use crate::codegen::context::{CodegenContext, LocalKind, GenericContextGuard};
-use crate::codegen::type_bridge::{resolve_type, resolve_codegen_type};
 use crate::codegen::stmt::emit_block;
 use crate::codegen::module_loader::ModuleLoader;
 use crate::common::mangling::Mangler;
@@ -123,8 +124,7 @@ use crate::common::mangling::Mangler;
 use crate::types::Type;
 use crate::registry::Registry;
 use std::collections::{HashMap, HashSet};
-use crate::z3_shim as z3;
-    pub fn emit_mlir(file: &SaltFile, release_mode: bool, _registry: Option<&Registry>, _skip_scan: bool, no_verify: bool, disable_alias_scopes: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> Result<String, String> {
+    pub fn emit_mlir(file: &mut SaltFile, release_mode: bool, _registry: Option<&Registry>, _skip_scan: bool, no_verify: bool, disable_alias_scopes: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> Result<String, String> {
     // 1. Recursive Module Loading
     let mut loader_registry = Registry::new();
     let mut loader = ModuleLoader::new(vec![
@@ -142,6 +142,39 @@ use crate::z3_shim as z3;
     
     
 
+
+    // 1.5. AST-to-HIR Name Resolution Pass
+    let mut global_types = HashSet::new();
+    let collect_globals = |f: &SaltFile, globals: &mut HashSet<String>| {
+        let pkg_prefix = if let Some(pkg) = &f.package {
+            Mangler::mangle(&pkg.name.iter().map(|id| id.to_string()).collect::<Vec<_>>())
+        } else {
+            String::new()
+        };
+        for item in &f.items {
+            let name = match item {
+                Item::Struct(s) => Some(&s.name),
+                Item::Enum(e) => Some(&e.name),
+                Item::Trait(t) => Some(&t.name),
+                Item::Concept(c) => Some(&c.name),
+                _ => None,
+            };
+            if let Some(id) = name {
+                let fqn = if pkg_prefix.is_empty() { id.to_string() } else { format!("{}__{}", pkg_prefix, id) };
+                globals.insert(fqn);
+            }
+        }
+    };
+    
+    for (_, ast) in &loader.loaded_files {
+        collect_globals(ast, &mut global_types);
+    }
+    collect_globals(file, &mut global_types);
+
+    for (_, ast) in loader.loaded_files.iter_mut() {
+        crate::codegen::phases::resolution::name_resolver::NameResolver::resolve_file(ast, &global_types);
+    }
+    crate::codegen::phases::resolution::name_resolver::NameResolver::resolve_file(file, &global_types);
 
     let z3_cfg = crate::z3_shim::Config::new();
     let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
@@ -332,7 +365,7 @@ impl<'a> CodegenContext<'a> {
             let mut tasks = Vec::new();
             for item in &self.file.borrow().items {
                 if let Item::Fn(f) = item {
-                    let is_no_mangle = f.attributes.iter().any(|a| a.name == "no_mangle");
+                    let is_no_mangle = f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" );
                     let is_pub = f.is_pub;
                     if is_no_mangle || is_pub {
                         if let Some(task) = self.create_main_task(&f.name.to_string()) {
@@ -836,7 +869,7 @@ impl<'a> CodegenContext<'a> {
                     // [SOVEREIGN FIX] In lib mode, mangle function names with package prefix
                     // to avoid symbol collisions between modules (e.g., multiple `init` functions).
                     // @no_mangle functions retain their bare names.
-                    let is_no_mangle = f.attributes.iter().any(|a| a.name == "no_mangle");
+                    let is_no_mangle = f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" );
                     // TODO: Remove `main_salt` hardcode once sovereign_train.salt uses
                     // `@no_mangle fn main_salt()`. The @no_mangle attribute already exists
                     // in the grammar and handles this generically for any FFI boundary.
@@ -856,7 +889,7 @@ impl<'a> CodegenContext<'a> {
                         func: f.clone(),
                         concrete_tys: vec![],
                         self_ty: None,
-                        imports: self.file.borrow().imports.clone(),
+                        imports: CodegenContext::compute_full_imports(&self.file.borrow()),
                         type_map: std::collections::BTreeMap::new(),
                     });
                 }
@@ -917,6 +950,8 @@ impl<'a> CodegenContext<'a> {
         
         // Deterministic iteration for stability
         let mut sorted_starts = all_keys.clone();
+        for _k in &all_keys {
+        }
         sorted_starts.sort_by(|a, b| a.mangle().cmp(&b.mangle()));
         
         for key in &sorted_starts {
@@ -965,6 +1000,13 @@ impl<'a> CodegenContext<'a> {
                 }
                 type_str.push_str(")>");
                 out.push_str(&format!("!struct_{} = {}\n", info.name, type_str));
+
+                // [CANONICAL ALIAS] Emit canonical alias for all namespace-prefixed enums
+                let canonical_name = Type::Enum(info.name.clone()).to_canonical_name();
+                if canonical_name != info.name && !emitted_canonical_aliases.contains(&canonical_name) {
+                    emitted_canonical_aliases.insert(canonical_name.clone());
+                    out.push_str(&format!("!struct_{} = !struct_{}\n", canonical_name, info.name));
+                }
             }
         }
 
@@ -989,9 +1031,9 @@ impl<'a> CodegenContext<'a> {
                 // Only if it exists in struct_registry.
                 if let Some((k, _)) = self.struct_registry().iter().find(|(_, v)| v.name == *name) {
                     deps.push(k.clone());
+                } else if let Some((k, _)) = self.enum_registry().iter().find(|(_, v)| v.name == *name) {
+                    deps.push(k.clone());
                 }
-                // If Enum, we might depend on it? Enums are usually i32 + payload (ptr/array). 
-                // If payload is by-value struct... Enums use Opaque structs for variants currently?
             },
             Type::Concrete(_base, _params) => {
                  // Should be resolved to mangled name by now in storage type?
@@ -1002,6 +1044,8 @@ impl<'a> CodegenContext<'a> {
                  // For Concrete, we construct a key.
                  // (Simplified: rely on mangled name lookup)
                  if let Some((k, _)) = self.struct_registry().iter().find(|(k, _)| k.mangle() == ty.mangle_suffix()) {
+                     deps.push(k.clone());
+                 } else if let Some((k, _)) = self.enum_registry().iter().find(|(k, _)| k.mangle() == ty.mangle_suffix()) {
                      deps.push(k.clone());
                  }
             },
@@ -1153,7 +1197,7 @@ fn emit_async_fn(
 ) -> Result<String, String> {
     use crate::codegen::passes::async_to_state::{StateMachineEmitter, StateMachineConfig};
 
-    let fn_name = if func.attributes.iter().any(|a| a.name == "no_mangle") {
+    let fn_name = if func.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" ) {
         func.name.to_string()
     } else {
         ctx.mangle_fn_name(&func.name.to_string()).to_string()
@@ -1256,7 +1300,7 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
     }
 
     let fn_name = override_name.unwrap_or_else(|| {
-        if func.attributes.iter().any(|a| a.name == "no_mangle") {
+        if func.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" ) {
             func.name.to_string()
         } else {
             ctx.mangle_fn_name(&func.name.to_string()).to_string()
@@ -1320,7 +1364,10 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
     
     for arg in &func.args {
         let ty = if let Some(t) = &arg.ty {
-            ctx.bridge_resolve_type(t)
+            let res = ctx.bridge_resolve_type(t);
+            if arg.name.to_string() == "self" {
+            }
+            res
         } else if arg.name.to_string() == "self" {
              if let Some(self_ty) = &*ctx.current_self_ty() {
                  self_ty.clone()
@@ -1375,7 +1422,7 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
     // When present, emit LLVM passthrough for alwaysinline to force inlining
     let has_inline = func.attributes.iter().any(|a| a.name == "inline");
     let has_noinline = func.attributes.iter().any(|a| a.name == "noinline");
-    let is_no_mangle = func.attributes.iter().any(|a| a.name == "no_mangle");
+    let is_no_mangle = func.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" );
     
     // [SOVEREIGN V2.0: EAGER LEAF INLINER]
     // Automatically detect small pure functions that should be inlined for vectorization.
@@ -1408,22 +1455,25 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
     // MLIR requires visibility keyword in syntax, not attribute dictionary
     // ENTRY POINT: `fn main` must always be public for the C linker to find `_main`.
     let is_main = fn_name == "main";
+    let is_generic_instantiation = !ctx.current_type_map().is_empty() || !ctx.current_generic_args().is_empty();
     let visibility_keyword = if func.is_pub || is_no_mangle || is_main {
         "public" 
     } else {
         "private"
     };
 
-    let fn_attrs = if has_inline || has_noinline || is_no_mangle || is_auto_leaf {
+    let mut attr_dict = Vec::new();
+    
+    if is_generic_instantiation {
+        attr_dict.push("linkage = #llvm.linkage<internal>".to_string());
+    }
+
+    if has_inline || has_noinline || is_no_mangle || is_auto_leaf {
         let mut pt_items = Vec::new();
         if has_inline || is_auto_leaf { pt_items.push("\"alwaysinline\"".to_string()); }
         if has_noinline { pt_items.push("\"noinline\"".to_string()); }
         if is_no_mangle {
              pt_items.push("[\"frame-pointer\", \"non-leaf\"]".to_string());
-             // [CROSS-COMPILATION FIX] Use lib_mode to select CPU.
-             // In --lib mode, we're cross-compiling for x86_64 kernel.
-             // Hardcoding apple-m4 caused salt-opt to segfault when the module triple
-             // is x86_64-unknown-none-elf (ARM backend init + x86 triple = crash).
              let target_cpu = if ctx.lib_mode {
                  "x86-64"
              } else {
@@ -1432,7 +1482,13 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
              pt_items.push(format!("[\"target-cpu\", \"{}\"]", target_cpu));
              pt_items.push("[\"stack-alignment\", \"16\"]".to_string());
         }
-        format!(" attributes {{ passthrough = [ {} ] }}", pt_items.join(", "))
+        if !pt_items.is_empty() {
+            attr_dict.push(format!("passthrough = [ {} ]", pt_items.join(", ")));
+        }
+    }
+    
+    let fn_attrs = if !attr_dict.is_empty() {
+        format!(" attributes {{ {} }}", attr_dict.join(", "))
     } else {
         "".to_string()
     };
@@ -1527,7 +1583,7 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
     let has_trusted = func.attributes.iter().any(|a| a.name == "trusted");
     
     // Add assertions from 'requires' clause (skip if @trusted)
-    let sym_ctx = crate::codegen::verification::SymbolicContext::new(ctx.z3_ctx);
+    let _sym_ctx = crate::codegen::verification::SymbolicContext::new(ctx.z3_ctx);
     if !has_trusted {
         for req in &func.requires {
             // Step 1+2+3: Z3 translation, proof check, and assertion registration
@@ -1591,9 +1647,13 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
     let old_fast_math_fn = ctx.emission.borrow().in_fast_math_fn;
     ctx.emission.borrow_mut().in_fast_math_fn = has_fast_math;
 
+    let old_trusted_fn = ctx.emission.borrow().in_trusted_fn;
+    ctx.emission.borrow_mut().in_trusted_fn = has_trusted;
+
     let terminator = ctx.with_lowering_ctx(|lctx| emit_block(lctx, &mut body_out, &func.body.stmts, &mut local_vars))?;
     
     ctx.emission.borrow_mut().in_fast_math_fn = old_fast_math_fn;
+    ctx.emission.borrow_mut().in_trusted_fn = old_trusted_fn;
     *ctx.no_yield_mut() = old_no_yield;
     *ctx.current_pulse_mut() = old_pulse;
     

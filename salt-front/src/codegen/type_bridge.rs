@@ -3,9 +3,7 @@ use crate::codegen::context::LoweringContext;
 use crate::registry::{StructInfo, EnumInfo};
 use crate::evaluator::ConstValue;
 use std::collections::HashMap;
-use crate::common::mangling::Mangler;
 use crate::codegen::abi::Layout;
-use crate::z3_shim as z3;
 
 // ============================================================================
 
@@ -116,10 +114,10 @@ impl Type {
     }
     
     // [V1.0 POINTER DECAY RULE]
-    // All safe pointers (NodePtr, Ptr, etc.) are emitted as native !llvm.ptr
+    // All safe pointers (NodePtr, Ptr, etc.) and references are emitted as native !llvm.ptr
     // This eliminates struct wrapper overhead and inttoptr/ptrtoint casts.
     // Front-end sees safety metadata; backend sees naked 8-byte pointer.
-    if self.k_is_ptr_type() {
+    if self.k_is_ptr_type() || matches!(self, Type::Reference(_, _)) {
         return Ok("!llvm.ptr".to_string());
     }
 
@@ -837,7 +835,7 @@ pub fn cast_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, from
                  let size_to = to.size_of(&struct_registry);
                  let align_from = from.align_of(&struct_registry);
                  let align_to = to.align_of(&struct_registry);
-                 drop(struct_registry); // Release borrow
+                 let _ = struct_registry; // Release borrow
                  
                  return Err(format!(
                      "FORMAL INTEGRITY ERROR: Unsound cast from {} to {}. \
@@ -1053,13 +1051,27 @@ pub fn substitute_generics(type_map: &std::collections::BTreeMap<String, Type>, 
                     return Type::Generic(name.clone());
                 }
             }
+            if let Type::Generic(concrete_name) = concrete {
+                if concrete_name == name {
+                    return Type::Generic(name.clone());
+                }
+            }
 
             substitute_generics(type_map, concrete)
         }
         // Explicit Generic type
         Type::Generic(name) => {
             if let Some(concrete) = type_map.get(name) {
-
+                if let Type::Generic(concrete_name) = concrete {
+                    if concrete_name == name {
+                        return Type::Generic(name.clone());
+                    }
+                }
+                if let Type::Struct(concrete_name) = concrete {
+                    if concrete_name == name {
+                        return Type::Generic(name.clone());
+                    }
+                }
                 substitute_generics(type_map, concrete)
             } else {
                 ty.clone()
@@ -1067,10 +1079,28 @@ pub fn substitute_generics(type_map: &std::collections::BTreeMap<String, Type>, 
         }
         // Concrete types with generic args (e.g., Entry<K, V>)
         Type::Concrete(name, args) => {
+            if args.is_empty() {
+                if let Some(concrete) = type_map.get(name) {
+                    return substitute_generics(type_map, concrete);
+                }
+                if name.contains("__") {
+                    let suffix = name.rsplit("__").next().unwrap_or(name);
+                    if let Some(concrete) = type_map.get(suffix) {
+                        return substitute_generics(type_map, concrete);
+                    }
+                }
+            }
             let substituted_args: Vec<Type> = args.iter()
                 .map(|a| substitute_generics(type_map, a))
                 .collect();
             Type::Concrete(name.clone(), substituted_args)
+        }
+        Type::SelfType => {
+            if let Some(concrete) = type_map.get("Self") {
+                substitute_generics(type_map, concrete)
+            } else {
+                ty.clone()
+            }
         }
         // Pointer types
         Type::Pointer { element, provenance, is_mutable } => {
@@ -1248,77 +1278,20 @@ pub fn to_mlir_type(ctx: &mut LoweringContext, ty: &Type) -> Result<String, Stri
 pub fn resolve_codegen_type(ctx: &mut LoweringContext, ty: &Type) -> Type {
     let flattened = flatten_inception_recursive(ty, 0, "codegen_resolve");
     let res = match &flattened {
-        Type::Enum(name) => {
-            let mut resolved_name = name.clone();
-            // Try resolving via imports - Transactional Block
-            {
-                let imports = ctx.imports();
-                for imp in &*imports {
-                    if let Some(group) = &imp.group {
-                        if group.iter().any(|id| id.to_string() == *name) {
-                            let base = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
-                            resolved_name = format!("{}__{}", base, name);
-                            break;
-                        }
-                    }
-                    if let Some(last) = imp.name.last() {
-                        if let Some(alias) = &imp.alias {
-                            if alias.to_string() == *name {
-                                resolved_name = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
-                                break;
-                            }
-                        } else if last.to_string() == *name {
-                            resolved_name = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
-                            break;
-                        }
-                    }
-                }
-            } // Import borrow drops here
-            Type::Enum(resolved_name)
-        }
+        Type::Enum(name) => Type::Enum(name.clone()),
         Type::Generic(name) => {
-            // TRANSACTIONAL: Extract concrete type and DROP borrow immediately
-            let concrete_opt = {
-                ctx.current_type_map().get(name).cloned()
-            };
-
+            let concrete_opt = ctx.current_type_map().get(name).cloned();
             if let Some(concrete_ty) = concrete_opt {
-                // Safe to recurse now that map is potentially free (for this scope)
+                 if let Type::Generic(ref n) = concrete_ty {
+                     if n == name {
+                         return concrete_ty;
+                     }
+                 }
                  resolve_codegen_type(ctx, &concrete_ty)
             } else if ctx.enum_registry().values().any(|i| i.name == *name) || ctx.enum_templates().contains_key(name) {
                 Type::Enum(name.clone())
             } else {
-                // Check if it's an imported type - Transactional
-                let mut resolved_name = name.clone();
-                {
-                    let imports = ctx.imports();
-                    for imp in &*imports {
-                        if let Some(group) = &imp.group {
-                            if group.iter().any(|id| id.to_string() == *name) {
-                                let base = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
-                                resolved_name = Mangler::mangle(&[&base, name]);
-                                break;
-                            }
-                        }
-                        if let Some(last) = imp.name.last() {
-                            if let Some(alias) = &imp.alias {
-                                if alias.to_string() == *name {
-                                    resolved_name = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
-                                    break;
-                                }
-                            } else if last.to_string() == *name {
-                                resolved_name = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
-                                break;
-                            }
-                        }
-                    }
-                } // Imports drop here
-                
-                if ctx.enum_registry().values().any(|i| i.name == resolved_name) || ctx.enum_templates().contains_key(&resolved_name) {
-                    Type::Enum(resolved_name)
-                } else {
-                    Type::Struct(resolved_name)
-                }
+                Type::Struct(name.clone())
             }
         }
         Type::SelfType => {
@@ -1577,105 +1550,49 @@ pub fn resolve_codegen_type(ctx: &mut LoweringContext, ty: &Type) -> Type {
             } else {
                 
                 
-                // Fix 2: Resolve base_name
+                // [AST-to-HIR] fallback for non-FQN bases during transition
                 let mut resolved_base = base_name.clone();
-                let mut found = false;
-
-                // [CROSS-MODULE STRUCT] If base_name contains "::" (e.g. "addr::PhysAddr"),
-                // split into segments and use resolve_package_prefix_ctx to resolve to FQN.
-                if base_name.contains("::") {
-                    let segments: Vec<String> = base_name.split("::").map(|s| s.to_string()).collect();
-                    if let Some((pkg, item)) = crate::codegen::expr::utils::resolve_package_prefix_ctx(ctx, &segments) {
-                        resolved_base = if item.is_empty() { pkg } else if pkg.is_empty() { item } else { format!("{}__{}", pkg, item) };
-                        found = true;
-                    }
-                }
-                // 1. Try explicit imports - Transactional Block
-                {
-                    let imports = ctx.imports();
-                    if base_name == "Result" {
-
-                    }
+                if !resolved_base.contains("__") {
+                    let suffix = format!("__{}", base_name);
+                    let canonical_candidate = ctx.struct_templates().keys()
+                        .find(|k| k.ends_with(&suffix))
+                        .cloned()
+                        .or_else(|| {
+                            ctx.enum_templates().keys()
+                                .find(|k| k.ends_with(&suffix))
+                                .cloned()
+                        });
                     
-                    for imp in &*imports {
-                        // Check Alias
-                        if let Some(alias) = &imp.alias {
-                             if alias.to_string() == *base_name {
-                                 resolved_base = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
-                                 found = true;
-                                 break;
-                             }
-                        } 
-                        
-                        // Check Last Segment
-                        if !found {
-                            if let Some(last) = imp.name.last() {
-                                 if last.to_string() == *base_name {
-                                     resolved_base = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
-                                     found = true;
-
-                                     break;
-                                 }
-                            }
-                        }
-    
-                        // Check Group Imports
-                        if !found {
-                            if let Some(group) = &imp.group {
-                                if base_name == "Result" {
-
-                                }
-                                if group.iter().any(|id| id.to_string() == *base_name) {
-                                     resolved_base = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
-                                     // Append the item name (base_name) to the package base
-                                     resolved_base = format!("{}__{}", resolved_base, base_name);
-                                     found = true;
-
-                                     break;
-                                }
-                            }
+                    if let Some(candidate) = canonical_candidate {
+                        resolved_base = candidate;
+                    } else {
+                        let segments: Vec<String> = base_name.split("::").map(|s| s.to_string()).collect();
+                        if let Some((pkg, item)) = crate::codegen::expr::utils::resolve_package_prefix_ctx(ctx, &segments) {
+                             resolved_base = if item.is_empty() { pkg } else if pkg.is_empty() { item } else { format!("{}__{}", pkg, item) };
                         }
                     }
-                } // Imports Borrow Drops Here
-
-                // 2. If not found in imports, check if it's already a valid template name (direct match)
-                if !found {
-                     if ctx.struct_templates().contains_key(&resolved_base) || ctx.enum_templates().contains_key(&resolved_base) {
-                         found = true;
-                     }
                 }
 
-                // 3. Suffix Fallback / Global Search
-                if !found {
-                     // [VERIFIED METAL] Phase 5: Use centralized template lookup
-                     if let Some(template_name) = ctx.find_struct_template_by_name(&base_name) {
-                         resolved_base = template_name;
-                         found = true;
-                     } else if let Some(template_name) = ctx.find_enum_template_by_name(&base_name) {
-                         resolved_base = template_name;
-                         found = true;
-                     }
-                }
-
-                if found {
-                    // Success: specialized struct
-                    let is_enum = ctx.enum_templates().contains_key(&resolved_base);
+                let is_enum = ctx.enum_templates().contains_key(&resolved_base);
+                if ctx.struct_templates().contains_key(&resolved_base) || is_enum {
                     if !ctx.suppress_specialization.get() {
                         let _ = ctx.specialize_template(&resolved_base, &resolved_params, is_enum);
                     }
-                    Type::Concrete(resolved_base, resolved_params)
-                } else {
-
-                    Type::Concrete(resolved_base, resolved_params)
                 }
+                Type::Concrete(resolved_base, resolved_params)
             }
         }
-        Type::Reference(inner, is_mut) => Type::Reference(Box::new(resolve_codegen_type(ctx, inner)), *is_mut),
         Type::Pointer { element, provenance, is_mutable } => Type::Pointer {
             element: Box::new(resolve_codegen_type(ctx, element)),
             provenance: provenance.clone(),
             is_mutable: *is_mutable,
         },
+        Type::Reference(inner, mutability) => Type::Reference(Box::new(resolve_codegen_type(ctx, inner)), *mutability),
+        Type::Owned(inner) => Type::Owned(Box::new(resolve_codegen_type(ctx, inner))),
+        Type::Fn(args, ret) => Type::Fn(
+            args.iter().map(|a| resolve_codegen_type(ctx, a)).collect(),
+            Box::new(resolve_codegen_type(ctx, ret)),
+        ),
         Type::Window(inner, region) => Type::Window(Box::new(resolve_codegen_type(ctx, inner)), region.clone()),
         Type::Array(inner, len, _) => Type::Array(Box::new(resolve_codegen_type(ctx, inner)), *len, false),
         Type::Tuple(elems) => Type::Tuple(elems.iter().map(|e| resolve_codegen_type(ctx, e)).collect()),
@@ -1683,7 +1600,7 @@ pub fn resolve_codegen_type(ctx: &mut LoweringContext, ty: &Type) -> Type {
         _ => ty.clone(),
     };
 
-    if let Type::Struct(name) = ty {
+    if let Type::Struct(_name) = ty {
 
     }
     res
@@ -2120,7 +2037,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                                     if let Some(s) = templates.get(tname) {
                                         s.generics.as_ref().map(|g| g.params.clone())
                                     } else {
-                                        drop(templates);
+                                        let _ = templates;
                                         let etemplates = self.enum_templates();
                                         etemplates.get(tname).and_then(|e| e.generics.as_ref()).map(|g| g.params.clone())
                                     }
@@ -2171,16 +2088,26 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             }
 
             // Deduce package path from func_name or use empty
-            let path_segments: Vec<String> = if func_name.contains("__") {
-                 func_name.split("__").map(|s| s.to_string()).collect()
-            } else {
-                 vec![]
-            };
-            let pkg_path = if path_segments.len() > 1 {
-                path_segments[0..path_segments.len()-1].to_vec()
-            } else {
-                vec![]
-            };
+            let mut pkg_path = Vec::new();
+            if let Some((t_name, _method)) = func_name.rsplit_once("__") {
+                if let Some(pkg) = self.discovery.type_origins.get(t_name) {
+                    pkg_path = pkg.split('.').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect();
+                } else {
+                }
+            }
+            
+            if pkg_path.is_empty() {
+                let path_segments: Vec<String> = if func_name.contains("__") {
+                     func_name.split("__").map(|s| s.to_string()).collect()
+                } else {
+                     vec![]
+                };
+                pkg_path = if path_segments.len() > 1 {
+                    path_segments[0..path_segments.len()-1].to_vec()
+                } else {
+                    vec![]
+                };
+            }
 
             let task = crate::codegen::collector::MonomorphizationTask {
                 identity: crate::types::TypeKey { 
@@ -2195,9 +2122,8 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                 imports: imports.clone(),
                 type_map: spec_map,
             };
+            self.expansion.pending_generations.push_back(task);
 
-
-            self.pending_generations_mut().push_back(task);
         } else {
              eprintln!("Error: Function '{}' not found for specialization.", func_name);
         }
@@ -2355,6 +2281,9 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                         // [CRITICAL] The args here ARE the concrete types for the struct generics!
 
                         (name.clone(), args.clone())
+                    } else if let Type::Pointer { element, .. } = st {
+                        let canonical_element = crate::codegen::type_bridge::resolve_codegen_type(self, &(**element));
+                        ("std__core__ptr__Ptr".to_string(), vec![canonical_element])
                     } else {
                         ("".to_string(), vec![])
                     };
@@ -2436,16 +2365,26 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             }
 
             // Deduce package path from func_name or use empty
-            let path_segments: Vec<String> = if func_name.contains("__") {
-                 func_name.split("__").map(|s| s.to_string()).collect()
-            } else {
-                 vec![]
-            };
-            let pkg_path = if path_segments.len() > 1 {
-                path_segments[0..path_segments.len()-1].to_vec()
-            } else {
-                vec![]
-            };
+            let mut pkg_path = Vec::new();
+            if let Some((t_name, _method)) = func_name.rsplit_once("__") {
+                if let Some(pkg) = self.discovery.type_origins.get(t_name) {
+                    pkg_path = pkg.split('.').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect();
+                } else {
+                }
+            }
+            
+            if pkg_path.is_empty() {
+                let path_segments: Vec<String> = if func_name.contains("__") {
+                     func_name.split("__").map(|s| s.to_string()).collect()
+                } else {
+                     vec![]
+                };
+                pkg_path = if path_segments.len() > 1 {
+                    path_segments[0..path_segments.len()-1].to_vec()
+                } else {
+                    vec![]
+                };
+            }
 
             let task = crate::codegen::collector::MonomorphizationTask {
                 identity: crate::types::TypeKey { 
@@ -2460,13 +2399,11 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                 imports: imports.clone(),
                 type_map: spec_map,
             };
+            self.expansion.pending_generations.push_back(task);
+        };
 
-
-            self.pending_generations_mut().push_back(task);
-        }
         mangled
     }
-
     pub fn specialize_template(&mut self, base_name: &str, concrete_tys: &[Type], is_enum: bool) -> Result<TypeKey, String> {
         // [CANONICAL RESOLUTION] Canonicalize concrete_tys before constructing the TypeKey.
         // Without this, Struct("Node") produces "Box_Node" while Struct("main__Node") produces
@@ -2481,6 +2418,28 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                         .cloned()
                     {
                         return Type::Struct(canonical);
+                    }
+                    if let Some(canonical) = self.struct_registry().keys()
+                        .find(|k| k.name == *name || k.name.ends_with(&suffix))
+                        .map(|k| k.mangle())
+                    {
+                        return Type::Struct(canonical);
+                    }
+                }
+            } else if let Type::Enum(name) = ty {
+                if !name.contains("__") {
+                    let suffix = format!("__{}", name);
+                    if let Some(canonical) = self.enum_templates().keys()
+                        .find(|k| k.ends_with(&suffix))
+                        .cloned()
+                    {
+                        return Type::Enum(canonical);
+                    }
+                    if let Some(canonical) = self.enum_registry().keys()
+                        .find(|k| k.name == *name || k.name.ends_with(&suffix))
+                        .map(|k| k.mangle())
+                    {
+                        return Type::Enum(canonical);
                     }
                 }
             }
@@ -2548,14 +2507,14 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         // 6. Atomic Registration (Placeholder)
         // Insert empty info to prevent recursive re-entry if registry lookup happens (redundant with pending_set but safe)
         if is_enum {
-             let mut reg = self.enum_registry_mut();
+             let reg = self.enum_registry_mut();
              reg.insert(key.clone(), EnumInfo {
                  name: mangled.clone(), variants: Vec::new(), max_payload_size: 0,
                  template_name: if concrete_tys.is_empty() { None } else { Some(base_name.to_string()) },
                  specialization_args: concrete_tys.to_vec(),
              });
         } else {
-             let mut reg = self.struct_registry_mut();
+             let reg = self.struct_registry_mut();
              reg.insert(key.clone(), StructInfo {
                  name: mangled.clone(), fields: HashMap::new(), field_order: Vec::new(), field_alignments: Vec::new(),
                  template_name: if concrete_tys.is_empty() { None } else { Some(base_name.to_string()) },
@@ -2600,7 +2559,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         if let Ok(mlir_def) = full_ty.to_mlir_storage_type(self) {
              if mlir_def.contains(", (") || mlir_def.contains(", ()") {
                 let dummy_name = format!("__typedef_{}", mangled);
-                let mut d = self.decl_out_mut();
+                let d = self.decl_out_mut();
                 d.push_str(&format!("  llvm.mlir.global private @{}() : {} {{\n", dummy_name, mlir_def));
                 d.push_str(&format!("    %0 = llvm.mlir.zero : {}\n", mlir_def));
                 d.push_str(&format!("    llvm.return %0 : {}\n", mlir_def));
@@ -2671,7 +2630,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                     // Construct a private dummy global to force the type definition into the module scope.
                     // This satisfies the "Definition Precedence" requirement.
                     let dummy_name = format!("__typedef_{}", task.mangled_name);
-                    let mut d = self.decl_out_mut();
+                    let d = self.decl_out_mut();
                     d.push_str(&format!("  llvm.mlir.global private @{}() : {} {{\n", dummy_name, mlir_def));
                     d.push_str(&format!("    %0 = llvm.mlir.zero : {}\n", mlir_def));
                     d.push_str(&format!("    llvm.return %0 : {}\n", mlir_def));
@@ -2723,13 +2682,13 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
     ) -> Result<StructInfo, String> {
         // 1. Transactional Read: Extract Template Data
         // We clone generics and fields to free struct_templates for the next level of recursion.
-        let (generics, fields) = {
-            let templates = self.struct_templates();
-            let template = templates.get(template_name)
-                .cloned()
-                .ok_or_else(|| format!("Template '{}' not found in registry", template_name))?;
-            (template.generics.clone(), template.fields.clone())
+        let templates = self.struct_templates();
+        let template = match templates.get(template_name) {
+            Some(t) => t.clone(),
+            None => return Err(format!("Template '{}' not found in registry.", template_name)),
         };
+        let generics = template.generics.clone();
+        let fields = template.fields.clone();
 
         // Fix: Context Swap to Template Definition Scope to prevent Key Drift
         // This makes sure that field resolution (e.g. "GlobalSlabAlloc") happens in the std lib context, NOT the user context.
@@ -2875,17 +2834,13 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
              // Registry stores full mangled name in 'name' field with empty path for Struct types.
              let key = crate::types::TypeKey { path: vec![], name: template_name.to_string(), specialization: None };
              
-             // eprintln!("DEBUG: Eager Check {} on {:?}", method_name, key);
-
              if let Some((func, _, _)) = self.trait_registry().get_legacy(&key, &method_name) {
                  if let Some(g) = &func.generics {
                      if !g.params.is_empty() {
-
                          continue; 
                      }
                  }
              } else {
-
              }
 
              let full_name = format!("{}__{}", template_name, method_name);
@@ -2970,7 +2925,6 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
              // Registry stores full mangled name in 'name' field with empty path for Struct types.
              let key = crate::types::TypeKey { path: vec![], name: template_name.to_string(), specialization: None };
              
-             // eprintln!("DEBUG: Eager Check {} on {:?}", method_name, key);
 
              if let Some((func, _, _)) = self.trait_registry().get_legacy(&key, &method_name) {
                  if let Some(g) = &func.generics {

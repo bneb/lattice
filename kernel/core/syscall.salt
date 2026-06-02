@@ -8,9 +8,11 @@ import kernel.arch.x86.tss
 import kernel.core.memory
 import kernel.core.vma
 import kernel.core.pulse
+import kernel.core.moe
+import kernel.core.ring_abi
+import kernel.core.capability
 // FFI bridges — bypass module mangling, link against @no_mangle symbols
 extern fn sys_cap_bind(flags: u64) -> u64;
-extern fn sys_ring_map(capability_id: u64) -> u64;
 extern fn sys_core_acquire(target_core_id: u64) -> u64;
 extern fn outw(port: u64, val: u64);
 
@@ -21,7 +23,9 @@ extern fn idle_halt();
 extern fn invlpg_addr(vaddr: u64);
 extern fn set_syscall_kernel_rsp0(rsp0: u64);
 extern fn smp_cas_u64(ptr: u64, expected: u64, desired: u64) -> u64;
-
+extern fn netcore_poll_all() -> u32;
+extern fn virtio_notify_rx();
+extern fn virtio_notify_tx();
 // =============================================================================
 // User Pointer Validation
 // =============================================================================
@@ -39,7 +43,8 @@ const USER_PAGE_FLAGS: u64 = 0x7;  // PRESENT | WRITE | USER
 const USER_ADDR_LIMIT: u64 = 0x0000800000000000;
 
 
-fn is_valid_user_ptr(ptr: u64, len: u64) -> bool {
+@no_mangle
+pub fn is_valid_user_ptr(ptr: u64, len: u64) -> bool {
     if ptr >= USER_ADDR_LIMIT {
         return false;
     }
@@ -78,8 +83,15 @@ pub fn handle_syscall(num: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
         // SYS_CAP_BIND: arg0=flags
         return sys_cap_bind(arg0);
     } else if num == 11 {
-        // SYS_RING_MAP: arg0=capability_id
-        return sys_ring_map(arg0);
+        // SYS_RING_MAP: Initialize ring-buffer ABI for the calling process
+        // arg0 = capability_id (must have CAP_FLAG_RING_ABI)
+        let pid = process.current();
+        let cap_flags = capability.get_flags(pid, arg0);
+        if (cap_flags & capability.CAP_FLAG_RING_ABI) == 0 {
+            serial.print("[syscall] sys_ring_map REJECT: capability missing or invalid\n");
+            return 0;
+        }
+        return ring_abi.init_ring(pid);
     } else if num == 13 {
         // SYS_CORE_ACQUIRE: arg0=target_core_id
         return sys_core_acquire(arg0);
@@ -90,29 +102,15 @@ pub fn handle_syscall(num: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
         // SYS_IPC_AWAIT: ENOSYS — fastpath module not yet linkable
         return 0 - 1;
     } else if num == 119 {
-        moe_drain_bar();             // TX bridge: flush pending WQE before yielding
+        // Ring ABI: drain submission queue before yielding
+        let yield_pid = process.current();
+        ring_abi.drain_sq(yield_pid);
+        moe.drain_bar();             // TX bridge: flush pending WQE before yielding
         netcore_poll_all();          // RX bridge: poll for incoming packets
         // I/O Pump: Safe VMEXIT via VirtIO Queue Notify (PCI PIO).
         // This traps to KVM without enabling interrupts — no #DF risk.
         virtio_notify_rx();          // Queue 0: remind QEMU to inject RX frames
         virtio_notify_tx();          // Queue 1: remind QEMU to drain TX descriptors
-
-        // --- v6.2.26 Ring Diagnostics ---
-        let current_tx = virtio_net_get_tx_used();
-        if current_tx != LAST_TX_USED {
-            serial.print("[DIAG] TX frame consumed by QEMU! (used_idx=");
-            serial.print_u64(current_tx as u64);
-            serial.print(")\n");
-            LAST_TX_USED = current_tx;
-        }
-
-        let current_rx = virtio_net_get_rx_used();
-        if current_rx != LAST_RX_USED {
-            serial.print("[DIAG] RX packet deposited by QEMU! (used_idx=");
-            serial.print_u64(current_rx as u64);
-            serial.print(")\n");
-            LAST_RX_USED = current_rx;
-        }
         // --------------------------------
 
         // NO sched_yield() here — we are inside invoke_preemptive_thread's
@@ -145,7 +143,7 @@ pub fn handle_syscall(num: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
         return sys_shm_grant(arg0, arg1, arg2, 1);
     } else if num == 99 {
         // SYS_SHUTDOWN: Drain any pending WQE, then ACPI exit
-        moe_drain_bar();
+        moe.drain_bar();
         outw(0x604, 0x2000);
         return 0;
     }
@@ -223,6 +221,9 @@ pub fn process_exit(exit_code: u64) {
     // Destroy user address space (frees ALL user pages + page tables)
     user_paging.destroy_user_pml4(user_pml4);
 
+    // Destroy ring-buffer ABI pages if active
+    ring_abi.destroy_ring(slot);
+
     // Mark ZOMBIE and decrement count
     process.set_state(slot, PROC_ZOMBIE);
     process.dec_count();
@@ -293,136 +294,6 @@ pub fn set_kernel_pml4(pml4: u64) {
 }
 
 // =============================================================================
-// MoE TX Bridge — Zero-Copy WQE Dispatch
-// =============================================================================
-// These globals are wired by main.salt at boot time.
-global MOE_BAR_PTR: u64 = 0;
-global MOE_PEER_MAC: [u8; 6] = [0 as u8; 6];
-
-// v6.2.26 Ring Diagnostics — track device-written used_idx across yields
-global LAST_TX_USED: u16 = 0;
-global LAST_RX_USED: u16 = 0;
-
-const KEUOS_ETHERTYPE: u16 = 0x1A77;
-const MOE_PAYLOAD_SIZE: u32 = 2048;  // 16x16 f64 tensor = 2048 bytes
-
-// Scratch buffer for building outgoing Ethernet frames
-// Must not collide with netcore's scratch at 0xFFFFFFFF80470000
-const MOE_TX_SCRATCH: u64 = 0xFFFFFFFF80480000;
-
-@no_mangle
-pub fn syscall_set_moe_bar_ptr(ptr: u64) {
-    MOE_BAR_PTR = ptr;
-}
-
-@no_mangle
-pub fn syscall_set_moe_peer_mac(b0: u8, b1: u8, b2: u8, b3: u8, b4: u8, b5: u8) {
-    MOE_PEER_MAC[0] = b0;
-    MOE_PEER_MAC[1] = b1;
-    MOE_PEER_MAC[2] = b2;
-    MOE_PEER_MAC[3] = b3;
-    MOE_PEER_MAC[4] = b4;
-    MOE_PEER_MAC[5] = b5;
-}
-
-// =============================================================================
-// moe_drain_bar — Flush a pending WQE into a raw Ethernet frame
-// =============================================================================
-// Called from syscall 119 (sched_yield) before the coroutine sleeps.
-// Reads the WQE from the shared bar_ptr mailbox. If control != 0,
-// wraps the payload in a raw Ethernet frame with EtherType 0x1A77
-// and pushes it to VirtIO TX. Zeros the mailbox to prevent double-fire.
-// =============================================================================
-
-// Extern bindings — avoid importing virtio_net/eth (transitive import collision)
-extern fn virtio_net_get_mac_byte(idx: u64) -> u8;
-extern fn moe_net_tx_send(pkt: u64, pkt_len: u32) -> bool;
-extern fn netcore_poll_all() -> u32;
-extern fn virtio_notify_rx();
-extern fn virtio_notify_tx();
-extern fn virtio_net_get_tx_used() -> u16;
-extern fn virtio_net_get_rx_used() -> u16;
-extern fn idle_halt();
-
-fn moe_drain_bar() -> bool {
-    if MOE_BAR_PTR == 0 {
-        return false;
-    }
-
-    let control: u64 = *((MOE_BAR_PTR) as &u64);
-    if control == 0 {
-        return false;  // No pending WQE
-    }
-
-    serial.print("[MOE_TX] Draining bar, control=");
-    serial.print_u64(control);
-    serial.print("\n");
-
-    let payload_ptr: u64 = *((MOE_BAR_PTR + 8) as &u64);
-
-    if !is_valid_user_ptr(payload_ptr, 8) {
-        serial.print("SECURITY: Invalid pointer passed to MOE bridge\n");
-        return false;
-    }
-
-    // Build raw Ethernet frame at scratch buffer.
-    // NOTE: Do NOT prepend virtio_net_hdr here — net_tx_send() in
-    // virtio_net.salt already prepends a 10-byte zeroed header before
-    // copying this buffer into the TX DMA ring.
-    // Layout: [6 dst MAC] [6 src MAC] [2 EtherType] [16B WQE] [30B pad] = 60B
-
-    // 1. Destination MAC (peer)
-    let mut i: u32 = 0;
-    while i < 6 {
-        *((MOE_TX_SCRATCH + i as u64) as &mut u8) = MOE_PEER_MAC[i];
-        i = i + 1;
-    }
-
-    // 2. Source MAC (our MAC from virtio_net)
-    let mut j: u32 = 0;
-    while j < 6 {
-        *((MOE_TX_SCRATCH + 6 + j as u64) as &mut u8) = virtio_net_get_mac_byte(j as u64);
-        j = j + 1;
-    }
-
-    // 3. EtherType 0x1A77 (big-endian)
-    *((MOE_TX_SCRATCH + 12) as &mut u8) = 0x1A as u8;
-    *((MOE_TX_SCRATCH + 13) as &mut u8) = 0x77 as u8;
-
-    // 4. Pack the payload data into the frame body (offset 14)
-    let mut data_val: u64 = 0;
-    if payload_ptr != 0 {
-        let pid = process.current();
-        let user_pml4 = process.get_pml4(pid);
-        let phys = user_paging.translate_user_addr(user_pml4, payload_ptr);
-        if phys != 0 {
-            let kern_ptr = memory.phys_to_virt_raw(phys);
-            data_val = *((kern_ptr) as &u64); // Safe translation read
-        }
-    }
-
-    *((MOE_TX_SCRATCH + 14) as &mut u64) = data_val; // payload byte 0-7: actual data
-    *((MOE_TX_SCRATCH + 22) as &mut u64) = control;  // payload byte 8-15: control word
-
-    // 5. IEEE 802.3: Pad to minimum 60-byte Ethernet frame
-    let mut p: u32 = 30;
-    while p < 60 {
-        *((MOE_TX_SCRATCH + p as u64) as &mut u8) = 0;
-        p = p + 1;
-    }
-
-    serial.print("[MOE_TX] Sending 60B Eth (net_tx_send adds vnet_hdr)\n");
-
-    moe_net_tx_send(MOE_TX_SCRATCH, 60);
-
-    // Zero the mailbox — prevent double-fire
-    *((MOE_BAR_PTR) as &mut u64) = 0;
-    *((MOE_BAR_PTR + 8) as &mut u64) = 0;
-
-    return true;
-}
-
-// =============================================================================
 // schedule_next — Reactive preemptive scheduling with Task 0 priority
 // =============================================================================
 // THE REACTIVE FAST-PATH:
@@ -466,6 +337,8 @@ pub fn schedule_next() {
 // switch_to_process — Context switch from current to next process
 // =============================================================================
 fn switch_to_process(current: u64, next: u64) {
+    // Ring ABI: drain outgoing process's submission queue before switching
+    ring_abi.drain_sq(current);
     process.set_state(current, PROC_READY);
     process.set_state(next, PROC_RUNNING);
     process.set_current(next);
@@ -659,6 +532,7 @@ extern fn ipc_stage_payload(msg0: u64, msg1: u64, msg2: u64);
 // Returns 0 on success, -1 on invalid target.
 // =============================================================================
 @no_mangle
+@no_mangle
 pub fn sys_ipc_send(target_pid: u64, msg0: u64, msg1: u64, msg2: u64) -> u64 {
     let sender = process.current();
 
@@ -707,6 +581,7 @@ pub fn sys_ipc_send(target_pid: u64, msg0: u64, msg1: u64, msg2: u64) -> u64 {
 // Returns: sender_pid in RAX.
 // Post-condition: ipc_recv_msg0/1/2 contain the payload for assembly.
 // =============================================================================
+@no_mangle
 @no_mangle
 pub fn sys_ipc_recv() -> u64 {
     let slot = process.current();
@@ -768,6 +643,7 @@ pub fn sys_ipc_recv() -> u64 {
 // memory namespace. The target's dst_vaddr must be unmapped (fresh region)
 // so no TLB shootdown is needed on the receiving core.
 // =============================================================================
+@no_mangle
 @no_mangle
 pub fn sys_shm_grant(target_pid: u64, src_vaddr: u64, dst_vaddr: u64, num_pages: u64) -> u64 {
     let sender = process.current();

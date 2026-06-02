@@ -7,7 +7,6 @@ use crate::codegen::type_bridge::{resolve_type, promote_numeric};
 use std::collections::{HashMap, HashSet};
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
-use crate::z3_shim as z3;
 
 /// Try to extract a constant integer from an expression for affine loop bounds.
 /// Returns Some(value) if the expression is a compile-time constant literal.
@@ -56,6 +55,11 @@ fn block_has_control_flow(stmts: &[Stmt]) -> bool {
                 // While loops ALWAYS create cf.br/cf.cond_br - multiple blocks
                 // They are fundamentally incompatible with affine.for nesting
                 return true;
+            }
+            Stmt::Unsafe(u) => {
+                if block_has_control_flow(&u.stmts) {
+                    return true;
+                }
             }
             _ => {}
         }
@@ -122,6 +126,7 @@ fn expr_has_if(expr: &syn::Expr) -> bool {
         syn::Expr::Paren(p) => expr_has_if(&p.expr),
         syn::Expr::Field(f) => expr_has_if(&f.base),
         syn::Expr::Index(i) => expr_has_if(&i.expr) || expr_has_if(&i.index),
+        syn::Expr::Assign(a) => expr_has_if(&a.left) || expr_has_if(&a.right),
         syn::Expr::Block(b) => b.block.stmts.iter().any(|s| match s {
             syn::Stmt::Expr(e, _) => expr_has_if(e),
             _ => false,
@@ -879,14 +884,17 @@ fn emit_scf_for_runtime_reduction(
     
     // [V25.8] Narrow the IV inside the loop if possible
     let mut body_vars = local_vars.clone();
+    let z3_iv_name: String;
     if can_narrow {
         let iv_i32 = format!("%iv_i32_{}", ctx.next_id());
         out.push_str(&format!("    {} = arith.index_cast {} : index to i32\n", iv_i32, iv));
-        body_vars.insert(var_name.to_string(), (Type::I32, LocalKind::SSA(iv_i32)));
+        body_vars.insert(var_name.to_string(), (Type::I32, LocalKind::SSA(iv_i32.clone())));
+        z3_iv_name = iv_i32;
     } else {
         let iv_i64 = format!("%iv_i64_{}", ctx.next_id());
         out.push_str(&format!("    {} = arith.index_cast {} : index to i64\n", iv_i64, iv));
-        body_vars.insert(var_name.to_string(), (Type::I64, LocalKind::SSA(iv_i64)));
+        body_vars.insert(var_name.to_string(), (Type::I64, LocalKind::SSA(iv_i64.clone())));
+        z3_iv_name = iv_i64;
     }
     
     // Shadow the accumulator with the iter_args parameter
@@ -895,6 +903,33 @@ fn emit_scf_for_runtime_reduction(
         reduction.accumulator_var.clone(),
         (reduction.ty.clone(), LocalKind::SSA(iter_acc.clone()))
     );
+
+    // === Z3 HOARE LOGIC: For Loop Induction Variable Bounds ===
+    let _z3_for_loop_active = if !ctx.config.no_verify {
+        let z3_i = ctx.mk_var(&z3_iv_name);
+        ctx.symbolic_tracker.insert(z3_iv_name.clone(), z3_i.clone());
+        
+        ctx.z3_solver.push();
+        
+        let z3_zero = ctx.mk_int(0);
+        ctx.z3_solver.assert(&z3_i.ge(&z3_zero));
+        
+        if let syn::Expr::Range(r) = &f.iter {
+            if let Some(end_expr) = &r.end {
+                if let Ok(z3_end) = crate::codegen::expr::translate_to_z3(ctx, end_expr, local_vars) {
+                     ctx.z3_solver.assert(&z3_i.lt(&z3_end));
+                }
+            }
+            if let Some(start_expr) = &r.start {
+                if let Ok(z3_start) = crate::codegen::expr::translate_to_z3(ctx, start_expr, local_vars) {
+                    ctx.z3_solver.assert(&z3_i.ge(&z3_start));
+                }
+            }
+        }
+        true
+    } else {
+        false
+    };
     
     // [V7.5] Enable fast-math context for reduction body
     // Allows LLVM to reorder FP operations for vectorization
@@ -923,6 +958,11 @@ fn emit_scf_for_runtime_reduction(
     // Emit scf.yield with the new accumulator value
     out.push_str(&format!("      scf.yield {} : {}\n", next_val, mlir_ty));
     out.push_str("    }\n");
+    
+    // === Z3 HOARE LOGIC: Pop for-loop solver scope ===
+    if _z3_for_loop_active {
+        ctx.z3_solver.pop(1);
+    }
     
     // [V7.5] Reset fast-math context after reduction body
     ctx.emission.in_fast_math_reduction = false;
@@ -1015,7 +1055,35 @@ fn emit_scf_for_simple(
     
     // Set up body vars with loop variable
     let mut body_vars = local_vars.clone();
-    body_vars.insert(var_name.clone(), (Type::I64, LocalKind::SSA(iv_i64)));
+    body_vars.insert(var_name.clone(), (Type::I64, LocalKind::SSA(iv_i64.clone())));
+    
+    // === Z3 HOARE LOGIC: For Loop Induction Variable Bounds ===
+    // Register the induction variable with Z3 and assert domain constraints.
+    let _z3_for_loop_active = if !ctx.config.no_verify {
+        let z3_i = ctx.mk_var(&iv_i64);
+        ctx.symbolic_tracker.insert(iv_i64.clone(), z3_i.clone());
+        
+        ctx.z3_solver.push();
+        
+        let z3_zero = ctx.mk_int(0);
+        ctx.z3_solver.assert(&z3_i.ge(&z3_zero));
+        
+        if let syn::Expr::Range(r) = &f.iter {
+            if let Some(end_expr) = &r.end {
+                if let Ok(z3_end) = crate::codegen::expr::translate_to_z3(ctx, end_expr, local_vars) {
+                     ctx.z3_solver.assert(&z3_i.lt(&z3_end));
+                }
+            }
+            if let Some(start_expr) = &r.start {
+                if let Ok(z3_start) = crate::codegen::expr::translate_to_z3(ctx, start_expr, local_vars) {
+                    ctx.z3_solver.assert(&z3_i.ge(&z3_start));
+                }
+            }
+        }
+        true
+    } else {
+        false
+    };
     
     ctx.enter_affine_context();
     
@@ -1023,6 +1091,11 @@ fn emit_scf_for_simple(
     let _body_diverges = emit_block(ctx, out, &f.body.stmts, &mut body_vars)?;
     
     ctx.exit_affine_context();
+    
+    // === Z3 HOARE LOGIC: Pop for-loop solver scope ===
+    if _z3_for_loop_active {
+        ctx.z3_solver.pop(1);
+    }
     
     // Close scf.for
     out.push_str("    }\n");
@@ -1455,6 +1528,14 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
                             // This prevents Type Osmosis in expressions like train_images + (i * INPUT_SIZE)
                             let hint = if ty.k_is_ptr_type() { None } else { Some(&ty) };
                             let (val, init_ty) = emit_expr(ctx, out, &init.expr, local_vars, hint)?;
+                            
+                            // [SOVEREIGN PHASE 3] Strict Affine Memory Safety
+                            if ty.is_affine() {
+                                if let Some(rhs_var_name) = crate::codegen::expr::extract_ident_name(&init.expr) {
+                                    ctx.consumed_vars_mut().insert(rhs_var_name);
+                                }
+                            }
+                            
                             let val_prom = crate::codegen::type_bridge::promote_numeric(ctx, out, &val, &init_ty, &ty)?;
                             if let LocalKind::Ptr(ptr) = kind {
                                  ctx.emit_store_logical(out, &val_prom, &ptr, &ty)?;
@@ -1484,7 +1565,16 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
                     };
                     
                     let (val, actual_ty) = if let Some(init) = &local.init {
-                        emit_expr(ctx, out, &init.expr, local_vars, type_hint.as_ref())?
+                        let (v, t) = emit_expr(ctx, out, &init.expr, local_vars, type_hint.as_ref())?;
+                        
+                        // [SOVEREIGN PHASE 3] Strict Affine Memory Safety (unhoisted)
+                        if t.is_affine() {
+                            if let Some(rhs_var_name) = crate::codegen::expr::extract_ident_name(&init.expr) {
+                                ctx.consumed_vars_mut().insert(rhs_var_name);
+                            }
+                        }
+                        
+                        (v, t)
                     } else {
                         ("%c0".to_string(), Type::I32)
                     };
@@ -1690,7 +1780,7 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
                     if let Ok(z3_inv) = crate::codegen::expr::translate_bool_to_z3(
                         ctx, inv_expr, &body_vars, &sym_ctx
                     ) {
-                        use crate::z3_shim::ast::Ast;
+                        
                         ctx.z3_solver.push();
                         ctx.z3_solver.assert(&z3_inv.not());
                         let check = ctx.z3_solver.check();
@@ -1773,7 +1863,7 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
                 if let Ok(z3_cond) = crate::codegen::expr::translate_bool_to_z3(
                     ctx, &w.cond, local_vars, &sym_ctx
                 ) {
-                    use crate::z3_shim::ast::Ast;
+                    
                     ctx.z3_solver.assert(&z3_cond.not());
                 }
             }
@@ -2103,10 +2193,12 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
                 .or_else(|| ctx.config.file.package.as_ref())
                 .and_then(|pkg| pkg.name.iter().next().map(|id| id.to_string()));
 
-            let is_privileged = matches!(first_seg.as_deref(), Some("std") | Some("kernel"));
+            let fn_name = ctx.current_fn_name();
+            let is_privileged = matches!(first_seg.as_deref(), Some("std") | Some("kernel") | Some("basalt"))
+                || fn_name.starts_with("std__") || fn_name.starts_with("kernel__") || fn_name.starts_with("basalt__");
 
             if !is_privileged {
-                return Err("unsafe blocks are not allowed in user code. All unsafe operations must go through the standard library's safe abstractions or be placed in kernel.* packages. See docs/UNSAFE.md.".to_string());
+                return Err("unsafe blocks are not allowed in user code. All unsafe operations must go through the standard library's safe abstractions or be placed in kernel.* or basalt packages. See docs/UNSAFE.md.".to_string());
             }
 
             let was_unsafe = *ctx.is_unsafe_block();
@@ -2727,10 +2819,11 @@ fn emit_pattern_condition(
             };
             
             // Look up the enum in the registry to get the discriminant
+            let registry_keys: Vec<_> = ctx.enum_registry().values().map(|i| i.name.clone()).collect();
             let info = ctx.enum_registry().values()
                 .find(|i| i.name == enum_name || i.name.ends_with(&format!("__{}", enum_name)))
                 .cloned()
-                .ok_or_else(|| format!("Unknown enum '{}' in pattern match", enum_name))?;
+                .ok_or_else(|| format!("Unknown enum '{}' in pattern match. Available enums: {:?}", enum_name, registry_keys))?;
             
             // Find the variant and its discriminant
             let (_variant_name, _payload_ty, discriminant) = info.variants.iter()
@@ -2896,10 +2989,11 @@ fn emit_pattern_bindings(
                 
                 let variant_name = path.last().map(|i| i.to_string()).unwrap_or_default();
                 
+                let registry_keys: Vec<_> = ctx.enum_registry().values().map(|i| i.name.clone()).collect();
                 let info = ctx.enum_registry().values()
                     .find(|i| i.name == enum_name || i.name.ends_with(&format!("__{}", enum_name)))
                     .cloned()
-                    .ok_or_else(|| format!("Unknown enum '{}' in pattern binding", enum_name))?;
+                    .ok_or_else(|| format!("Unknown enum '{}' in pattern binding. Available enums: {:?}", enum_name, registry_keys))?;
                 
                 // Find the variant's payload type
                 let (_, payload_ty, _) = info.variants.iter()
@@ -3099,7 +3193,6 @@ pub fn emit_cleanup_for_return(ctx: &mut LoweringContext, out: &mut String, loca
                             type_map: std::collections::BTreeMap::new(),
                         };
                         ctx.entity_registry_mut().request_specialization(task.clone());
-                        ctx.pending_generations_mut().push_back(task);
                     }
                     
                     drop_fns.push((mangled, ptr.clone()));
@@ -3118,11 +3211,38 @@ pub fn emit_cleanup_for_return(ctx: &mut LoweringContext, out: &mut String, loca
     // Owned types that need cleanup should use explicit drop() calls or
     // register with the CleanupStack for RAII-Lite handling.
     for (name, (ty, kind)) in local_vars {
-        if matches!(ty, Type::Owned(_)) {
+        if let Type::Owned(inner) = ty {
             if !ctx.consumed_vars().contains(name) {
-                 if let LocalKind::Ptr(_ptr) = kind {
-                     // TODO: Emit proper cleanup for Owned types
-                     // For now, assume external management (e.g., region allocator)
+                 if let LocalKind::Ptr(ptr) = kind {
+                     let loaded_ptr = format!("%owned_load_{}", ctx.next_id());
+                     out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> !llvm.ptr\n", loaded_ptr, ptr));
+                     
+                     let type_key = crate::codegen::type_bridge::type_to_type_key(inner);
+                     if ctx.trait_registry().contains_method(&type_key, "drop") {
+                         let type_name = match &**inner {
+                             Type::Struct(n) | Type::Concrete(n, _) => n.clone(),
+                             _ => String::new(),
+                         };
+                         if !type_name.is_empty() {
+                             let mangled = format!("{}__drop", type_name);
+                             let drop_impl_data = ctx.generic_impls().get(&mangled).cloned();
+                             if let Some((func_def, func_imports)) = drop_impl_data {
+                                 let task = crate::codegen::collector::MonomorphizationTask {
+                                     identity: crate::types::TypeKey { path: vec![], name: mangled.clone(), specialization: None },
+                                     mangled_name: mangled.clone(),
+                                     func: func_def,
+                                     concrete_tys: vec![],
+                                     self_ty: Some((**inner).clone()),
+                                     imports: func_imports,
+                                     type_map: std::collections::BTreeMap::new(),
+                                 };
+                                 ctx.entity_registry_mut().request_specialization(task.clone());
+                                 ctx.pending_generations_mut().push_back(task);
+                             }
+                             out.push_str(&format!("    func.call @{}({}) : (!llvm.ptr) -> ()\n", mangled, loaded_ptr));
+                         }
+                     }
+                     out.push_str(&format!("    func.call @free({}) : (!llvm.ptr) -> ()\n", loaded_ptr));
                  }
             }
         }

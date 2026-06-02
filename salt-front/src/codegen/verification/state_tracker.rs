@@ -11,7 +11,6 @@
 
 use crate::z3_shim::ast::{Ast, Int, Bool};
 use std::collections::HashMap;
-use crate::z3_shim as z3;
 
 /// The ownership state of a tracked resource.
 /// Each resource transitions through these states during its lifetime.

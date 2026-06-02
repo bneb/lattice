@@ -7,11 +7,11 @@
 //
 // =============================================================================
 
-package basalt.transformer
+package basalt.src.transformer
 
 use std.core.ptr.Ptr
-use basalt.kernels.{rmsnorm, softmax, mat_mul}
-use basalt.quant.{mat_mul_vec_q8, dequant_block_q8}
+use basalt.src.kernels.{rmsnorm, softmax, mat_mul}
+use basalt.src.quant.{mat_mul_vec_q8, dequant_block_q8}
 
 extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: Ptr<u8>);
@@ -167,7 +167,8 @@ pub fn free_run_state(s: RunState) {
 // -----------------------------------------------------------------------------
 
 @fast_math
-pub fn forward(cfg: Config, w: TransformerWeights, s: RunState, token: i64, pos: i64) {
+pub fn forward(cfg: &Config, w: &TransformerWeights, s: &RunState, token: i64, pos: i64) {
+    unsafe {
     if s.x as i64 == 0 {
         return; // OOM check
     }
@@ -358,4 +359,5 @@ pub fn forward(cfg: Config, w: TransformerWeights, s: RunState, token: i64, pos:
     } else {
         mat_mul(s.logits, w.w_cls, s.x, cfg.vocab_size, 1, cfg.dim);
     }
+    } // End unsafe
 }

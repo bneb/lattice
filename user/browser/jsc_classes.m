@@ -48,6 +48,7 @@ extern JSValueRef jsc_node_insertBefore(JSContextRef ctx, JSObjectRef function, 
 extern JSValueRef jsc_node_replaceChild(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef* exception);
 extern JSValueRef jsc_node_removeAttribute(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef* exception);
 extern JSValueRef jsc_node_click(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef* exception);
+extern JSValueRef jsc_node_submit(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef* exception);
 extern JSValueRef jsc_node_attachShadow(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef* exception);
 extern JSValueRef jsc_node_getContext(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef* exception);
 extern JSValueRef jsc_Element_animate(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef* exception);
@@ -161,6 +162,7 @@ void init_dom_classes(JSGlobalContextRef ctx) {
         { "replaceChild", jsc_node_replaceChild, kJSPropertyAttributeNone },
         { "removeAttribute", jsc_node_removeAttribute, kJSPropertyAttributeNone },
         { "click", jsc_node_click, kJSPropertyAttributeNone },
+        { "submit", jsc_node_submit, kJSPropertyAttributeNone },
         { "attachShadow", jsc_node_attachShadow, kJSPropertyAttributeNone },
         { "getContext", jsc_node_getContext, kJSPropertyAttributeNone },
         { "animate", jsc_Element_animate, kJSPropertyAttributeNone },

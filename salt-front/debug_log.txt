@@ -1,5 +1,0 @@
-DEBUG: Mutated vars in popcount: {"x"}
-DEBUG: [emit_fn] popcount has mutated vars: {"x"}
-TRACE: [emit_fn] arg n -> SSA("%arg_n")
-TRACE: [emit_stmt] Move matched
-TRACE: [emit_stmt] Move matched

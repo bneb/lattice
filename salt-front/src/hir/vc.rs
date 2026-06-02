@@ -7,10 +7,9 @@
 //! then the condition holds under all possible executions, and the compiler
 //! can elide the runtime check entirely.
 
-use crate::z3_shim::{Config, Context, Solver, SatResult, ast::{Int, Ast}};
+use crate::z3_shim::{Context, Solver, SatResult, ast::{Int, Ast}};
 use std::collections::HashMap;
 use crate::hir::ids::VarId;
-use crate::z3_shim as z3;
 
 /// Z3-backed verification context for proving compile-time safety contracts.
 pub struct VerificationContext<'ctx> {

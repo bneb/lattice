@@ -16,8 +16,8 @@ use salt_front::grammar::SaltFile;
 /// Helper: compile Salt source with debug info enabled.
 /// Returns the MLIR string on success.
 fn compile_with_debug(src: &str) -> String {
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse test source");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, true, "test.salt");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse test source");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, true, "test.salt");
     assert!(res.is_ok(), "Compilation failed: {:?}", res.err());
     res.unwrap()
 }
@@ -25,8 +25,8 @@ fn compile_with_debug(src: &str) -> String {
 /// Helper: compile Salt source WITHOUT debug info.
 /// Returns the MLIR string on success.
 fn compile_without_debug(src: &str) -> String {
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse test source");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse test source");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     assert!(res.is_ok(), "Compilation failed: {:?}", res.err());
     res.unwrap()
 }
@@ -399,8 +399,8 @@ fn test_source_file_name_in_locs() {
             return 42;
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, true, "my_module.salt");
+    let mut file: SaltFile = syn::parse_str(src).expect("parse");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, true, "my_module.salt");
     assert!(res.is_ok(), "Compilation failed: {:?}", res.err());
     let mlir = res.unwrap();
 

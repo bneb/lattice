@@ -63,6 +63,9 @@ extern fn timer_isr_wrapper();
 extern fn syscall_entry();
 
 @no_mangle
+extern fn tlb_shootdown_wrapper();
+
+@no_mangle
 extern fn virtio_isr_wrapper();
 
 // NMI and Double Fault handlers (IST-based)
@@ -134,6 +137,10 @@ pub fn init() {
         // 0x2B: VirtIO-Net IRQ (IRQ11 = PIC offset 0x20 + 11)
         let virtio_handler = (&virtio_isr_wrapper) as u64;
         register_gate(0x2B, virtio_handler);
+        
+        // 0xFD: TLB Shootdown IPI
+        let shootdown_handler = (&tlb_shootdown_wrapper) as u64;
+        register_gate(0xFD, shootdown_handler);
         
         let limit = (256 * 16 - 1) as u16;
         let base = (&GLOBAL_IDT) as u64;

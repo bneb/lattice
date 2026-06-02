@@ -1,0 +1,22 @@
+package main
+
+// sys_exec_capture_stdout
+
+import std.core.ptr.Ptr
+
+struct Container {
+    data: Ptr<u32>
+}
+
+pub fn main() -> i64 {
+    let mut c = Container { data: Ptr::empty::<u32>() };
+    
+    // This works:
+    // let d = c.data;
+    // let x = d.offset(0);
+    
+    // This panics with MonomorphizationError: Failed to resolve SelfType:
+    let y = c.data.offset(0);
+    
+    return 0;
+}

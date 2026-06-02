@@ -82,6 +82,8 @@ drop_to_ring3_and_bench:
     /* SWAPGS: Kernel GS → User GS before entering Ring 3 */
     swapgs
 
+.global bench_trampoline_iretq
+bench_trampoline_iretq:
     /* 5. Execute the privilege drop. CPU is now in Ring 3. */
     iretq
 

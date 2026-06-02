@@ -1,39 +1,48 @@
+// =============================================================================
+// test_ecs_ipc_latency.salt — O(1) IPC Latency Lookup Test
+// =============================================================================
+// RED-TO-GREEN: Validates O(1) page table physical address resolution.
+// =============================================================================
+
 package main
 
-import kernel.ecs.entity.Entity
-import kernel.ecs.world.{World, new_world, MemoryMap}
+import kernel.ecs.entity.{Entity, entity_allocator_allocate}
+import kernel.ecs.world.{World, new_world, world_spawn}
+import kernel.ecs.components.{MemoryMap}
+import kernel.ecs.sparse_set.{
+    memmap_set_insert, memmap_set_get
+}
 
 extern fn println(s: Ptr<u8>);
 
 @no_mangle
-pub fn ipc_resolve_memory(w: &World, target: Entity) -> u64 {
-    let mem_maps = &w.mem_maps;
-    let map = mem_maps.get(target);
-    if map as u64 == 0 {
+pub fn ipc_resolve_memory(w: Ptr<World>, target: Entity) -> u64 {
+    let mem_maps = w[0].mem_maps;
+    let map = memmap_set_get(mem_maps, target);
+    if (map as u64) == 0 {
         return 0; // Not found
     }
-    return map.pml4_phys; // O(1) lookup
+    return map[0].pml4_phys; // O(1) lookup
 }
 
 fn main() -> i32 {
-    let mut w = new_world();
-    let alloc = &mut w.alloc;
-    let mem_maps = &mut w.mem_maps;
+    let w = new_world();
     
-    let a = alloc.allocate();
-    let b = alloc.allocate();
-    let c = alloc.allocate();
+    let a = world_spawn(w);
+    let b = world_spawn(w);
+    let c = world_spawn(w);
     
-    mem_maps.insert(a, MemoryMap { size: 1024, pml4_phys: 0xAAAA000 });
-    mem_maps.insert(b, MemoryMap { size: 2048, pml4_phys: 0xBBBB000 });
+    memmap_set_insert(w[0].mem_maps, a, MemoryMap { size: 1024, pml4_phys: 0xAAAA000 });
+    memmap_set_insert(w[0].mem_maps, b, MemoryMap { size: 2048, pml4_phys: 0xBBBB000 });
     
     // Simulate IPC targeting Entity B
-    let pml4 = ipc_resolve_memory(&w, b);
+    let pml4 = ipc_resolve_memory(w, b);
     if pml4 != 0xBBBB000 { return 1; }
     
     // Target Entity C which has no memory map
-    let pml4_c = ipc_resolve_memory(&w, c);
+    let pml4_c = ipc_resolve_memory(w, c);
     if pml4_c != 0 { return 2; }
     
+    println("All IPC latency tests PASSED!");
     return 0;
 }

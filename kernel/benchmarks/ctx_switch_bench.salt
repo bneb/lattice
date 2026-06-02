@@ -19,6 +19,7 @@ package benchmarks.ctx_switch_bench
 use kernel.core.scheduler
 use kernel.drivers.serial
 use kernel.core.timing
+extern fn sched_yield();
 
 // The fiber workload — implemented in assembly (kernel/arch/x86_64/fiber_loop.S)
 // to guarantee FPU register pressure across context switches.
@@ -43,7 +44,7 @@ fn run_rof_tier(n: i32, actual_samples: i32) {
 
     // 1. Spawn worker fibers
     for _ in 0..n {
-        let entry = (&fiber_loop) as u64;
+        let entry = fn_addr(fiber_loop);
         scheduler.spawn(entry);
     }
 
@@ -59,7 +60,7 @@ fn run_rof_tier(n: i32, actual_samples: i32) {
 
     while samples < actual_samples {
         // Yield to next fiber and back
-        scheduler.yield_now();
+        sched_yield();
 
         let now = timing.get_cycles() as i64;
         let gap = now - last_tsc;
@@ -90,7 +91,7 @@ fn run_rof_tier(n: i32, actual_samples: i32) {
     // 5. Clean up: signal all fiber_loop fibers to exit, then drain
     fiber_loop_stop();
     while scheduler.get_fiber_count() > baseline {
-        scheduler.yield_now();
+        sched_yield();
     }
     fiber_loop_reset();
 }

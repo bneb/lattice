@@ -27,7 +27,9 @@ impl<T> Slice<T> {
         requires index >= 0;
         requires index < self.len;
     {
-        return self.data[index];
+        unsafe {
+            return self.data[index];
+        }
     }
 
     // Verified write. Z3 proves index is in bounds → check elided.
@@ -36,7 +38,9 @@ impl<T> Slice<T> {
         requires index >= 0;
         requires index < self.len;
     {
-        self.data[index] = val;
+        unsafe {
+            self.data[index] = val;
+        }
     }
 
     // Sub-slicing: "give me a window into this buffer."

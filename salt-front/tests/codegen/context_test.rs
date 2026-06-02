@@ -25,7 +25,7 @@ mod tests {
         // Mock a Context to test `get_physical_index`
         // We don't need a real file for this specific method if we populate registry manually?
         // Actually CodegenContext::new requires basic args.
-        let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
+        let mut file: SaltFile = syn::parse_str("fn main() {}").unwrap();
         let z3_cfg = z3::Config::new();
         let z3_ctx = z3::Context::new(&z3_cfg);
         let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -67,7 +67,7 @@ mod tests {
     
     #[test]
     fn test_layout_cache() {
-        let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
+        let mut file: SaltFile = syn::parse_str("fn main() {}").unwrap();
         let z3_cfg = z3::Config::new();
         let z3_ctx = z3::Context::new(&z3_cfg);
         let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -92,7 +92,7 @@ mod tests {
             fn main() {}
         "#;
         
-        let file: SaltFile = syn::parse_str(code).unwrap();
+        let mut file: SaltFile = syn::parse_str(code).unwrap();
         let z3_cfg = z3::Config::new();
         let z3_ctx = z3::Context::new(&z3_cfg);
         let ctx = CodegenContext::new(&file, false, None, &z3_ctx);

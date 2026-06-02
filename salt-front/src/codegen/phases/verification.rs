@@ -2,7 +2,6 @@
 //! Contains Z3 context, solver, and symbolic tracking for formal verification.
 
 use std::collections::HashMap;
-use crate::z3_shim as z3;
 
 /// Phase 4: Z3 verification state (isolated for solver queries)
 pub struct VerificationState<'a> {

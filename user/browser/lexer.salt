@@ -41,6 +41,10 @@ extern fn js_dom_get_parent(node_id: u64) -> u64;
 
 extern fn dom_get_first_child(idx: u32) -> u64;
 extern fn ext_salt_resolve_node(node_id: u64) -> u32;
+
+extern fn sys_log_info(ptr: u64, len: u32);
+extern fn sys_print_float(f: f64);
+
 extern fn dom_register_iframe(node_idx: u32) -> u32;
 extern fn ext_salt_set_inline_style(node_idx: u32, ptr: u64, len: u32);
 extern fn dom_get_tag(idx: u32) -> u32;

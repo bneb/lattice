@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use crate::hir::ids::VarId;
-use crate::hir::expr::{Expr, ExprKind, Literal, BinOp, Block};
-use crate::hir::stmt::{Stmt, StmtKind, Local, Pattern};
+use crate::hir::expr::{Expr, ExprKind, Literal, Block};
+use crate::hir::stmt::{Stmt, StmtKind, Pattern};
 use crate::hir::items::{Item, ItemKind};
 use crate::hir::types::Type;
 
@@ -49,7 +49,7 @@ pub struct TypeckContext {
     structs: HashMap<String, StructDef>,
 
     /// Trait definitions keyed by name.
-    traits: HashMap<String, TraitDef>,
+    _traits: HashMap<String, TraitDef>,
 
     /// Accumulated type errors (non-fatal collection mode).
     pub errors: Vec<String>,
@@ -72,7 +72,7 @@ impl TypeckContext {
             local_env: HashMap::new(),
             functions: HashMap::new(),
             structs: HashMap::new(),
-            traits: HashMap::new(),
+            _traits: HashMap::new(),
             errors: Vec::new(),
             consumed_vars: HashSet::new(),
         }
@@ -116,7 +116,7 @@ impl TypeckContext {
                 ItemKind::Trait(t) => {
                     let mut required_methods = HashMap::new();
                     for trait_item in &t.items {
-                        if let crate::hir::items::TraitItem::Fn { name, func } = trait_item {
+                        let crate::hir::items::TraitItem::Fn { name, func } = trait_item; {
                             let param_count = func.inputs.len();
                             let sig = FnSig {
                                 params: func.inputs.iter().map(|p| p.ty.clone()).collect(),
@@ -163,7 +163,7 @@ impl TypeckContext {
                     // Build map of provided methods
                     let mut provided: HashMap<String, FnSig> = HashMap::new();
                     for impl_item in &imp.items {
-                        if let crate::hir::items::ImplItem::Fn { name, func } = impl_item {
+                        let crate::hir::items::ImplItem::Fn { name, func } = impl_item; {
                             let param_count = func.inputs.len();
                             let sig = FnSig {
                                 params: func.inputs.iter().map(|p| p.ty.clone()).collect(),
@@ -222,7 +222,7 @@ impl TypeckContext {
                     if let Ok(struct_name) = Self::extract_struct_name(&imp.self_ty) {
                         if let Some(struct_def) = structs.get_mut(&struct_name) {
                             for impl_item in &imp.items {
-                                if let crate::hir::items::ImplItem::Fn { name, func } = impl_item {
+                                let crate::hir::items::ImplItem::Fn { name, func } = impl_item; {
                                     let param_count = func.inputs.len();
                                     let sig = FnSig {
                                         params: func.inputs.iter().map(|p| p.ty.clone()).collect(),
@@ -242,7 +242,7 @@ impl TypeckContext {
             local_env: HashMap::new(),
             functions,
             structs,
-            traits,
+            _traits: traits,
             errors: trait_errors,
             consumed_vars: HashSet::new(),
         }
@@ -852,7 +852,7 @@ mod tests {
     use super::*;
     use crate::hir::ids::VarId;
     use crate::hir::expr::{Expr, ExprKind, Literal, BinOp};
-    use crate::hir::stmt::{Stmt, StmtKind, Local, Pattern};
+    use crate::hir::stmt::{Stmt, StmtKind, Pattern};
     use crate::hir::types::Type;
 
     fn mk_expr(kind: ExprKind) -> Expr {
@@ -2026,7 +2026,7 @@ mod tests {
 
     #[test]
     fn test_requires_in_block() {
-        use crate::hir::stmt::{Stmt, StmtKind, Local, Pattern};
+        use crate::hir::stmt::{Stmt, StmtKind, Pattern};
 
         let mut ctx = TypeckContext::new();
 

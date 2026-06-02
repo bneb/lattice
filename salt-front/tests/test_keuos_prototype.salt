@@ -1,0 +1,15 @@
+import std.core.result
+import std.status
+
+fn check_error() -> Result<i32> {
+    return Result::Ok(42);
+}
+
+fn main() -> i32 {
+    let res = check_error();
+    match res {
+        Result::Ok(val) => { return val; }
+        Result::Err(e) => { return 1; }
+    }
+    return 0;
+}

@@ -1,13 +1,35 @@
+// =============================================================================
+// kernel/ecs/entity.salt
+// Generational Entity ID — The Atom of the DBOS
+// =============================================================================
+//
+// Every OS primitive (process, thread, socket, IPC channel, memory region)
+// is an Entity: a 64-bit generational index into flat, cache-friendly arrays.
+//
+// The EntityAllocator maintains a free-list of recycled IDs to prevent the
+// flat arrays from growing infinitely. When an entity is freed, its generation
+// is bumped — stale references to the old entity will fail the generation check.
+//
+// Design decisions (per Sprint Plan — Mike Acton):
+//   - Entity IDs are u32 direct indices, NOT hashed
+//   - Free-list is a flat array, NOT a linked list
+//   - O(1) allocate, O(1) free, O(1) is-alive check
+// =============================================================================
+
 package kernel.ecs.entity
 
-import kernel.drivers.serial
+extern fn malloc(size: i64) -> u64;
 
 pub struct Entity {
     pub id: u32,
     pub gen: u32,
 }
 
-pub const MAX_ENTITIES: u32 = 1024;
+// Max entities across the entire OS — supports 64K processes/threads/sockets
+pub const MAX_ENTITIES: u32 = 65536;
+
+// Sentinel for "no entity" / invalid entity
+pub const ENTITY_INVALID: u32 = 0xFFFFFFFF;
 
 pub struct EntityAllocator {
     pub generations: Ptr<u32>,
@@ -16,49 +38,89 @@ pub struct EntityAllocator {
     pub next_fresh_id: u32,
 }
 
-extern fn malloc(size: i64) -> u64;
-
 pub fn new_entity_allocator() -> Ptr<EntityAllocator> {
-    let gen_ptr = malloc(4096) as Ptr<u32>; // 1024 * 4
-    let free_ptr = malloc(4096) as Ptr<u32>;
-    
+    let gen_size = (MAX_ENTITIES as i64) * 4;
+    let free_size = (MAX_ENTITIES as i64) * 4;
+    let gen_ptr = malloc(gen_size) as Ptr<u32>;
+    let free_ptr = malloc(free_size) as Ptr<u32>;
+
+    // Zero-initialize generations and free-list
     let mut i: u32 = 0;
-    while i < 1024 {
-        gen_ptr[i as i64] = 0;
-        free_ptr[i as i64] = 0;
+    while i < MAX_ENTITIES {
+        unsafe {
+            (*(( (gen_ptr as u64) + (i as u64) * 4 ) as &mut u32)) = 1;
+            (*(( (free_ptr as u64) + (i as u64) * 4 ) as &mut u32)) = 0;
+        }
         i = i + 1;
     }
 
     let alloc_ptr = malloc(32) as Ptr<EntityAllocator>;
-    alloc_ptr[0] = EntityAllocator {
-        generations: gen_ptr,
-        free_indices: free_ptr,
-        free_count: 0,
-        next_fresh_id: 0,
-    };
+    let allocator = alloc_ptr as &mut EntityAllocator;
+    allocator.generations = gen_ptr;
+    allocator.free_indices = free_ptr;
+    allocator.free_count = 0;
+    allocator.next_fresh_id = 0;
     return alloc_ptr;
 }
 
-pub fn entity_allocator_allocate(self: Ptr<EntityAllocator>) -> Entity {
-    if self[0].free_count > 0 {
-        self[0].free_count = self[0].free_count - 1;
-        let id = self[0].free_indices[self[0].free_count as usize];
-        return Entity { id: id, gen: self[0].generations[id as usize] };
+// =============================================================================
+// Standalone functions — take Ptr<EntityAllocator> directly
+// These avoid the MLIR codegen bug with alloc[0].method() patterns.
+// =============================================================================
+
+pub fn entity_allocator_allocate(allocator_ptr: Ptr<EntityAllocator>) -> Entity {
+    let allocator = allocator_ptr as &mut EntityAllocator;
+    // Try to reuse a freed ID from the free-list
+    let fc = allocator.free_count;
+    if fc > 0 {
+        let new_fc = fc - 1;
+        unsafe {
+            let id = (*(( (allocator.free_indices as u64) + (new_fc as u64) * 4 ) as &u32));
+            let gen = (*(( (allocator.generations as u64) + (id as u64) * 4 ) as &u32));
+            allocator.free_count = new_fc;
+            return Entity { id: id, gen: gen };
+        }
     }
-    
-    let id = self[0].next_fresh_id;
+
+    // Mint a fresh ID
+    let id = allocator.next_fresh_id;
     if id >= MAX_ENTITIES {
-        return Entity { id: 0xFFFFFFFF, gen: 0 };
+        return Entity { id: ENTITY_INVALID, gen: 0 };
     }
-    let gen = self[0].generations[id as usize];
-    self[0].next_fresh_id = self[0].next_fresh_id + 1;
-    return Entity { id: id, gen: gen };
+    unsafe {
+        let gen = (*(( (allocator.generations as u64) + (id as u64) * 4 ) as &u32));
+        allocator.next_fresh_id = id + 1;
+        return Entity { id: id, gen: gen };
+    }
 }
 
-pub fn entity_allocator_free(self: Ptr<EntityAllocator>, e: Entity) {
-    if e.id < MAX_ENTITIES && self[0].generations[e.id as usize] == e.gen {
-        self[0].generations[e.id as usize] = self[0].generations[e.id as usize] + 1;
-        self[0].free_indices[self[0].free_count as usize] = e.id;
-        self[0].free_count = self[0].free_count + 1;
+pub fn entity_allocator_free(allocator_ptr: Ptr<EntityAllocator>, e: Entity) {
+    let allocator = allocator_ptr as &mut EntityAllocator;
+    if e.id < MAX_ENTITIES {
+        unsafe {
+            let current_gen = (*(( (allocator.generations as u64) + (e.id as u64) * 4 ) as &u32));
+            if current_gen == e.gen {
+                // Bump generation to invalidate stale references
+                (*(( (allocator.generations as u64) + (e.id as u64) * 4 ) as &mut u32)) = current_gen + 1;
+                let fc = allocator.free_count;
+                (*(( (allocator.free_indices as u64) + (fc as u64) * 4 ) as &mut u32)) = e.id;
+                allocator.free_count = fc + 1;
+            }
+        }
     }
+}
+
+pub fn entity_allocator_is_alive(allocator_ptr: Ptr<EntityAllocator>, e: Entity) -> bool {
+    let allocator = allocator_ptr as &EntityAllocator;
+    if e.id >= MAX_ENTITIES {
+        return false;
+    }
+    unsafe {
+        return (*(( (allocator.generations as u64) + (e.id as u64) * 4 ) as &u32)) == e.gen;
+    }
+}
+
+pub fn entity_allocator_count(allocator_ptr: Ptr<EntityAllocator>) -> u32 {
+    let allocator = allocator_ptr as &EntityAllocator;
+    return allocator.next_fresh_id - allocator.free_count;
 }

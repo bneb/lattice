@@ -156,6 +156,7 @@ def compile_salt(src_file):
     ll_content = re.sub(r'"target-cpu"="[^"]*"', '"target-cpu"="x86-64"', ll_content)
     ll_content = re.sub(r'"target-features"="[^"]*"', '"target-features"="+cx16"', ll_content)
     ll_content = ll_content.replace('getelementptr inbounds nuw', 'getelementptr inbounds')
+    ll_content = ll_content.replace('LLVMDialectModule', os.path.basename(ll_file))
     with open(ll_file, 'w') as f:
         f.write(ll_content)
 
@@ -232,6 +233,7 @@ def build_sip():
     ll_content = re.sub(r'"target-cpu"="[^"]*"', '"target-cpu"="x86-64"', ll_content)
     ll_content = re.sub(r'"target-features"="[^"]*"', '"target-features"="+cx16"', ll_content)
     ll_content = ll_content.replace('getelementptr inbounds nuw', 'getelementptr inbounds')
+    ll_content = ll_content.replace('LLVMDialectModule', os.path.basename(ll_file))
     with open(ll_file, 'w') as f:
         f.write(ll_content)
     
@@ -360,7 +362,9 @@ def build_kernel():
                  glob.glob(f"{KERNEL_ROOT}/sys/*.salt") + \
                  glob.glob(f"{KERNEL_ROOT}/lib/*.salt") + \
                  glob.glob(f"{KERNEL_ROOT}/ipc/*.salt") + \
+                 glob.glob(f"{KERNEL_ROOT}/ecs/*.salt") + \
                  glob.glob(f"{KERNEL_ROOT}/arch/x86/*.salt") + \
+                 glob.glob(f"{KERNEL_ROOT}/boot/*.salt") + \
                  glob.glob(f"{WORKSPACE_ROOT}/user/reactor/tasks/*.salt")
     # Exclude files that don't compile yet (WIP / incomplete dependencies)
     # Exclude files that don't compile yet (WIP / incomplete dependencies)
@@ -376,16 +380,9 @@ def build_kernel():
     for f in salt_files:
         try:
             objects.append(compile_salt(f))
-        except subprocess.CalledProcessError:
-            # Path-encoded fallback name
-            rel_path = os.path.relpath(f, WORKSPACE_ROOT)
-            safe_name = rel_path.replace(os.sep, "_").replace(".salt", "")
-            obj_file = os.path.join(BUILD_DIR, f"{safe_name}.o")
-            if os.path.exists(obj_file):
-                print(f"    {RED}⚠ Compilation failed, reusing pre-compiled {obj_file}{RESET}")
-                objects.append(obj_file)
-            else:
-                print(f"    {RED}⚠ Compilation failed, no pre-compiled .o — skipping {base_name}{RESET}")
+        except subprocess.CalledProcessError as e:
+            print(f"ERROR: Compilation failed for {f}")
+            sys.exit(1)
 
     # Compile Arch Assembly
     asm_files = glob.glob(f"{KERNEL_ROOT}/arch/x86/*.S") + \
@@ -800,15 +797,14 @@ if __name__ == "__main__":
                 if line.startswith("QEMU: "):
                     line = line[6:]
 
-                # ROF context switch: "ROF Result: Avg Context Switch Gap = 1567 cycles"
-                m = re.search(r"ROF Result: Avg Context Switch Gap = (\d+) cycles", line)
+                # New context switch benchmark format: BENCH:ctx_switch:tier fibers=4 avg=3000 min=3000 max=3000
+                m = re.search(r"BENCH:ctx_switch:tier fibers=4 avg=(\d+)", line)
                 if m:
                     results["ctx_switch_4"] = int(m.group(1))
 
-                # ROF1K context switch
-                m = re.search(r"ROF1K Result: Avg Context Switch Gap = (\d+) cycles", line)
+                m = re.search(r"BENCH:ctx_switch:tier fibers=64 avg=(\d+)", line)
                 if m:
-                    results["ctx_switch_1k"] = int(m.group(1))
+                    results["ctx_switch_64"] = int(m.group(1))
 
                 # ROF-LITE context switch (integer-only, TCG-safe)
                 m = re.search(r"ROF-LITE Result: Avg Context Switch Gap = (\d+) cycles", line)
@@ -915,9 +911,9 @@ if __name__ == "__main__":
             keuos_val = results.get('ctx_switch_4')
             print(f"  {'Ctx switch (4 FPU)':<24} {fmt(keuos_val):>10} {'~2,000':>10} {'~10,000':>10} {'~12,000':>10}")
 
-            # Context switch (lite, integer-only)
-            keuos_val = results.get('ctx_switch_lite')
-            print(f"  {'Ctx switch (4 int)':<24} {fmt(keuos_val):>10} {'~2,000':>10} {'~10,000':>10} {'~12,000':>10}")
+            # Context switch (64 fibers)
+            keuos_val = results.get('ctx_switch_64')
+            print(f"  {'Ctx switch (64 FPU)':<24} {fmt(keuos_val):>10} {'~2,000':>10} {'~10,000':>10} {'~12,000':>10}")
 
             # IPC
             keuos_val = results.get('ipc_avg')

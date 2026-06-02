@@ -138,8 +138,43 @@ void ext_flush_frame(int32_t width, int32_t height) {
 }
 
 // ============================================================================
-// Missing Symbols Fix (Epic 108)
+// Single-Process Native Fetch (Epic 108 Bypass)
+// Allows prisimi_engine --url to actually load data on macOS
 // ============================================================================
+static uint8_t* g_native_fetch_buf = NULL;
+static size_t g_native_fetch_len = 0;
+
+uint64_t ext_get_mock_http_ptr(uint64_t url_ptr, uint32_t url_len) {
+  if (url_ptr && url_len > 0) {
+      if (g_native_fetch_buf) free(g_native_fetch_buf);
+      
+      char url[1024];
+      uint32_t safe_len = url_len < 1023 ? url_len : 1023;
+      memcpy(url, (void *)url_ptr, safe_len);
+      url[safe_len] = '\0';
+      
+      char cmd[2048];
+      snprintf(cmd, sizeof(cmd), "curl -s -L \"%s\"", url);
+      FILE* fp = popen(cmd, "r");
+      if (fp) {
+          g_native_fetch_buf = malloc(1048576); // 1MB buffer
+          g_native_fetch_len = fread(g_native_fetch_buf, 1, 1048576, fp);
+          pclose(fp);
+          fprintf(stderr, "[NATIVE-FETCH] Loaded %zu bytes from %s\n", g_native_fetch_len, url);
+          return (uint64_t)g_native_fetch_buf;
+      }
+  }
+
+  // Fallback to internal mock
+  extern const char* mock_http;
+  return (uint64_t)mock_http;
+}
+
+uint32_t ext_get_mock_http_len() {
+  if (g_native_fetch_len > 0) return (uint32_t)g_native_fetch_len;
+  extern const char* mock_http;
+  return (uint32_t)strlen(mock_http);
+}
 
 uint32_t hash_string(uint64_t ptr, uint32_t len) {
   uint32_t hash = 2166136261U;

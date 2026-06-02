@@ -786,7 +786,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
     pub fn get_struct_fields_lowering(&self, struct_name: &str) -> Option<Vec<(String, Type)>> {
         for info in self.discovery.struct_registry.values() {
             if info.name == struct_name || info.name.ends_with(&format!("__{}", struct_name)) {
-                let mut fields: Vec<(String, Type)> = info.fields.iter()
+                let _fields: Vec<(String, Type)> = info.fields.iter()
                     .map(|(name, (idx, ty))| (name.clone(), ty.clone(), *idx))
                     .collect::<Vec<_>>()
                     .into_iter()
@@ -1559,6 +1559,11 @@ impl<'a> CodegenContext<'a> {
 
         f(&mut lctx)
     }
+
+    pub fn compute_full_imports(file: &SaltFile) -> Vec<crate::grammar::ImportDecl> {
+        file.imports.clone()
+    }
+
     pub fn new(file: &'a SaltFile, release_mode: bool, registry: Option<&'a Registry>, z3_ctx: &'a crate::z3_shim::Context) -> Self {
         Self {
             // Phased state containers
@@ -3920,7 +3925,7 @@ impl<'a> CodegenContext<'a> {
                     }
                     // [V4.0 SOVEREIGN] Handle trait impl blocks: `impl Trait for Type { ... }`
                     // Flatten trait methods into the implementing type's method table
-                    else if let crate::grammar::SaltImpl::Trait { trait_name, target_ty, methods, generics } = impl_item {
+                    else if let crate::grammar::SaltImpl::Trait { trait_name: _, target_ty, methods, generics } = impl_item {
                         let saved_imports = self.imports().clone();
                         let saved_map = self.current_type_map().clone();
                         
@@ -4470,7 +4475,6 @@ impl<'a> CodegenContext<'a> {
                      };
                      
                      use crate::codegen::context::EnumInfo;
-use crate::z3_shim as z3;
                      self.enum_registry_mut().insert(key, EnumInfo {
                          name,
                          variants,

@@ -141,12 +141,12 @@ fn expand_derive_annotations(source: &str) -> String {
             }
 
             // Collect the struct definition lines
-            let struct_start = i;
+            let _struct_start = i;
             let mut struct_name = String::new();
             let mut fields: Vec<(String, String)> = Vec::new(); // (name, type)
             let mut brace_depth = 0;
             let mut found_struct = false;
-            let mut struct_end = i;
+            let mut __struct_end = i;
 
             // Parse struct header
             let header = lines[i].trim();
@@ -200,7 +200,7 @@ fn expand_derive_annotations(source: &str) -> String {
                 }
 
                 if brace_depth == 0 && found_struct {
-                    struct_end = i;
+                    __struct_end = i;
                     break;
                 }
                 i += 1;
@@ -465,13 +465,21 @@ fn collect_string_content(chars: &mut std::iter::Peekable<std::str::Chars>) -> S
     content
 }
 
-/// [C++ STYLE GENERICS] Convert `Ident<T, U>::method()` to `Ident::<T, U>::method()`
-/// This allows C++-style generic instantiation syntax while keeping syn happy.
-/// Disambiguation: `>` immediately followed by `::` is always a generic instantiation.
-/// Regular comparisons like `if x < y` never have `>::` after them.
+/// [C++ STYLE GENERICS] Convert Salt-style generic calls to syn-compatible turbofish syntax.
+/// 
+/// Salt syntax uses C++/Java-style generics in expression position:
+///   - `HashMap<i64, i64>::new()`  → `HashMap::<i64, i64>::new()`
+///   - `identity<i32>(42)`         → `identity::<i32>(42)`
+///   - `Option<i32>::Some(42)`     → `Option::<i32>::Some(42)`
+///
+/// Disambiguation rules:
+///   - `>` followed by `::` is always a generic instantiation (static method path)
+///   - `>` followed by `(` is always a generic function call
+///   - `<` preceded by an identifier (not by `::`) starts generic args
+///   - Regular comparisons like `if x < y` never have `>::` or `>(` after them
 fn convert_generic_call_syntax(line: &str) -> String {
-    // Quick check: must contain both < and >:: to be relevant
-    if !line.contains(">::") {
+    // Quick check: must contain < to be relevant
+    if !line.contains('<') {
         return line.to_string();
     }
     
@@ -506,20 +514,21 @@ fn convert_generic_call_syntax(line: &str) -> String {
             continue;
         }
         
-        // Look for pattern: Ident<...>::  (where Ident does NOT end with ::)
+        // Look for pattern: Ident<...>:: or Ident<...>(
         // We detect `<` that starts generic args by checking:
         //   1. The char before `<` is alphanumeric or _ (end of identifier)
         //   2. The char before that is NOT ':' (not already turbofish ::< )
-        //   3. There's a matching `>` followed by `::` somewhere ahead
+        //   3. There's a matching `>` followed by `::` or `(` somewhere ahead
         if c == '<' {
             let prev_is_ident = i > 0 && (chars[i - 1].is_alphanumeric() || chars[i - 1] == '_');
             let already_turbofish = i >= 2 && chars[i - 1] == ':' && chars[i - 2] == ':';
             
             if prev_is_ident && !already_turbofish {
-                // Try to find matching > followed by ::
+                // Try to find matching > followed by :: or (
                 let mut depth = 1;
                 let mut j = i + 1;
                 let mut found_close = false;
+                let mut is_call_site = false; // true if >( pattern, false if >:: pattern
                 
                 while j < len && depth > 0 {
                     match chars[j] {
@@ -527,9 +536,15 @@ fn convert_generic_call_syntax(line: &str) -> String {
                         '>' => {
                             depth -= 1;
                             if depth == 0 {
-                                // Check if > is followed by ::
+                                // Check if > is followed by :: (static method path)
                                 if j + 2 < len && chars[j + 1] == ':' && chars[j + 2] == ':' {
                                     found_close = true;
+                                    is_call_site = false;
+                                }
+                                // Check if > is followed by ( (generic function call)
+                                else if j + 1 < len && chars[j + 1] == '(' {
+                                    found_close = true;
+                                    is_call_site = true;
                                 }
                             }
                         }
@@ -541,8 +556,32 @@ fn convert_generic_call_syntax(line: &str) -> String {
                 }
                 
                 if found_close {
-                    // Insert :: before < to convert to turbofish
-                    result.push_str("::");
+                    // For >( pattern, we must exclude function/struct/impl definitions.
+                    // Walk backwards from < to find the start of the identifier, then
+                    // check if the token before the identifier is a definition keyword.
+                    if is_call_site {
+                        // Find the start of the identifier before <
+                        let mut ident_start = i - 1;
+                        while ident_start > 0 && (chars[ident_start - 1].is_alphanumeric() || chars[ident_start - 1] == '_') {
+                            ident_start -= 1;
+                        }
+                        // Check what precedes the identifier
+                        let prefix = &result[..result.len() - (i - ident_start)];
+                        let trimmed_prefix = prefix.trim_end();
+                        let is_definition = trimmed_prefix.ends_with("fn")
+                            || trimmed_prefix.ends_with("struct")
+                            || trimmed_prefix.ends_with("impl")
+                            || trimmed_prefix.ends_with("enum")
+                            || trimmed_prefix.ends_with("trait")
+                            || trimmed_prefix.ends_with("type");
+                        
+                        if !is_definition {
+                            result.push_str("::");
+                        }
+                    } else {
+                        // >:: pattern — always convert
+                        result.push_str("::");
+                    }
                 }
             }
         }
@@ -1039,7 +1078,7 @@ fn convert_force_unwrap(line: &str) -> String {
 /// Handles balanced parentheses, method chains (a.b().c~), and simple identifiers.
 fn extract_force_unwrap_expr(s: &str) -> String {
     let chars: Vec<char> = s.chars().collect();
-    let mut end = chars.len();
+    let end = chars.len();
     let mut depth_paren = 0i32;
     let mut depth_angle = 0i32;
     
@@ -1095,7 +1134,7 @@ fn extract_force_unwrap_expr(s: &str) -> String {
 // with full TraitRegistry context for signature-aware format spec dispatch.
 
 
-pub fn compile_ast(file: &mut SaltFile, release_mode: bool, registry: Option<&crate::registry::Registry>, skip_scan: bool, vverify: bool, disable_alias_scopes: bool, no_verify: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> anyhow::Result<String> {
+pub fn compile_ast(file: &mut SaltFile, release_mode: bool, registry: Option<&crate::registry::Registry>, skip_scan: bool, _vverify: bool, disable_alias_scopes: bool, no_verify: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> anyhow::Result<String> {
     // [PRELUDE] Inject implicit stdlib imports for built-in types.
     // Ptr<T> is a built-in type whose methods (write, read, offset) live in std/core/ptr.salt.
     // Without this import, standalone files can use Ptr<T> but can't call its methods.
@@ -1155,9 +1194,120 @@ pub fn compile(source: &str, release_mode: bool, registry: Option<&crate::regist
             );
         }
     }
+    
+    // Reject Rust-style turbofish syntax — Salt uses C++/Java-style generics
+    check_turbofish_syntax(source)?;
+    
     let processed = preprocess(source);
     let mut file: SaltFile = parse_str(&processed)?;
     compile_ast(&mut file, release_mode, registry, skip_scan, vverify, false, false, false, false, false, "<stdin>")
+}
+
+/// [SALT SYNTAX] Detect Rust-style turbofish `::<` in Salt source and emit a helpful error.
+///
+/// Salt uses C++/Java-style generics: `identity<i32>(42)`, not `identity::<i32>(42)`.
+/// This function scans the raw source for `::<` patterns in expression context
+/// (outside string literals) and produces a clear diagnostic with a suggested fix.
+///
+/// **Scope**: Only flags `::<T>(` (function call turbofish). Ignores `::<T>::` (static
+/// method paths) and `::<T> {` (struct literals) because the preprocessor already
+/// handles `Ident<T>::method()` → `Ident::<T>::method()` conversion, and struct
+/// literals like `Container<i32> { ... }` are ambiguous with comparisons for syn.
+fn check_turbofish_syntax(source: &str) -> anyhow::Result<()> {
+    for (line_num, line) in source.lines().enumerate() {
+        let trimmed = line.trim();
+        // Skip comment-only lines
+        if trimmed.starts_with("//") {
+            continue;
+        }
+        // Strip trailing comments
+        let code = if let Some(idx) = trimmed.find("//") {
+            &trimmed[..idx]
+        } else {
+            trimmed
+        };
+        
+        // Scan for ::< outside string literals
+        let chars: Vec<char> = code.chars().collect();
+        let len = chars.len();
+        let mut in_string = false;
+        
+        for i in 0..len {
+            // Track string context
+            if chars[i] == '"' {
+                if in_string {
+                    let escaped = i > 0 && chars[i - 1] == '\\';
+                    if !escaped { in_string = false; }
+                } else {
+                    in_string = true;
+                }
+                continue;
+            }
+            if in_string { continue; }
+            
+            // Detect ::< pattern
+            if i + 2 < len && chars[i] == ':' && chars[i + 1] == ':' && chars[i + 2] == '<' {
+                // Must be preceded by an identifier (not start of line, not another ::)
+                if i > 0 && (chars[i - 1].is_alphanumeric() || chars[i - 1] == '_') {
+                    // Find the matching > to determine what follows
+                    let mut depth = 0;
+                    let mut gen_end = i + 2;
+                    for j in (i + 2)..len {
+                        match chars[j] {
+                            '<' => depth += 1,
+                            '>' => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    gen_end = j + 1;
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    
+                    // Check what follows the closing >
+                    // Only flag if > is followed by ( — a function call turbofish
+                    // Skip if followed by :: (static method path — preprocessor handles this)
+                    // Skip if followed by { or whitespace+{ (struct literal — no Salt equivalent yet)
+                    let after = &chars[gen_end..];
+                    let after_trimmed: String = after.iter().collect::<String>();
+                    let after_trimmed = after_trimmed.trim_start();
+                    
+                    let is_function_call = after_trimmed.starts_with('(');
+                    let is_static_path = after_trimmed.starts_with("::");
+                    let is_struct_literal = after_trimmed.starts_with('{');
+                    
+                    if is_function_call && !is_static_path && !is_struct_literal {
+                        // Extract the identifier before ::<
+                        let mut ident_start = i - 1;
+                        while ident_start > 0 && (chars[ident_start - 1].is_alphanumeric() || chars[ident_start - 1] == '_') {
+                            ident_start -= 1;
+                        }
+                        let ident: String = chars[ident_start..i].iter().collect();
+                        let original: String = chars[ident_start..gen_end].iter().collect();
+                        let fixed: String = format!("{}{}", ident, chars[(i + 2)..gen_end].iter().collect::<String>());
+                        
+                        anyhow::bail!(
+                            "Line {}: Salt uses `Name<T>` syntax, not Rust-style turbofish `Name::<T>`\n\
+                             \n\
+                             \x1b[31m  {} |\x1b[0m  {}\n\
+                             \x1b[31m     |\x1b[0m  {}  \x1b[31m^^ remove this\x1b[0m\n\
+                             \n\
+                             \x1b[32m  help:\x1b[0m write `{}` instead of `{}`",
+                            line_num + 1,
+                            line_num + 1,
+                            trimmed,
+                            " ".repeat(code.find(&original).unwrap_or(0) + ident.len()),
+                            fixed,
+                            original,
+                        );
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// [CROSS-MODULE STRUCT] Convert `module.StructName { ... }` to `module::StructName { ... }`
@@ -1682,6 +1832,76 @@ mod tests {
         let output = convert_module_struct_literal(r#"let s = "addr.PhysAddr { val: 0 }";"#);
         assert!(!output.contains("addr::PhysAddr"),
             "String content should NOT be converted, got: {}", output);
+    }
+    // ============================================================
+    // GENERIC CALL SYNTAX PREPROCESSOR TESTS
+    // Salt uses C++-style `identity<i32>(42)` not Rust turbofish
+    // ============================================================
+
+    #[test]
+    fn test_generic_call_function_with_paren() {
+        let output = convert_generic_call_syntax("let x = identity<i32>(42);");
+        assert!(output.contains("identity::<i32>(42)"),
+            "identity<i32>(42) should become identity::<i32>(42), got: {}", output);
+    }
+
+    #[test]
+    fn test_generic_call_static_method() {
+        let output = convert_generic_call_syntax("let x = Option<i32>::Some(42);");
+        assert!(output.contains("Option::<i32>::Some(42)"),
+            "Option<i32>::Some(42) should become Option::<i32>::Some(42), got: {}", output);
+    }
+
+    #[test]
+    fn test_generic_call_preserves_comparison() {
+        // `if x < 5` should NOT be converted
+        let output = convert_generic_call_syntax("if x < 5 { y }");
+        assert_eq!(output, "if x < 5 { y }",
+            "Comparisons should not be converted, got: {}", output);
+    }
+
+    #[test]
+    fn test_generic_call_preserves_existing_turbofish() {
+        // Already turbofish should not get double ::
+        let output = convert_generic_call_syntax("let x = identity::<i32>(42);");
+        assert!(!output.contains("::::<"),
+            "Already-turbofish should not get double ::, got: {}", output);
+    }
+
+    #[test]
+    fn test_generic_call_nested() {
+        let output = convert_generic_call_syntax("let x = Result<Ptr<u64>, u8>::Ok(p);");
+        assert!(output.contains("Result::<Ptr<u64>, u8>::Ok(p)"),
+            "Nested generics should work, got: {}", output);
+    }
+
+    #[test]
+    fn test_generic_call_in_string_literal() {
+        let output = convert_generic_call_syntax(r#"let s = "identity<i32>(42)";"#);
+        assert!(!output.contains("::<"),
+            "Should not convert inside string literals, got: {}", output);
+    }
+
+    #[test]
+    fn test_generic_call_excludes_fn_definition() {
+        // fn identity<T>(x: T) is a definition, NOT a call
+        let output = convert_generic_call_syntax("fn identity<T>(x: T) -> T {");
+        assert!(!output.contains("::<"),
+            "Function definitions should NOT be converted, got: {}", output);
+    }
+
+    #[test]
+    fn test_generic_call_excludes_struct_definition() {
+        let output = convert_generic_call_syntax("struct Pair<T>(T, T);");
+        assert!(!output.contains("::<"),
+            "Struct definitions should NOT be converted, got: {}", output);
+    }
+
+    #[test]
+    fn test_generic_call_excludes_impl_definition() {
+        let output = convert_generic_call_syntax("impl<T> Pair<T> {");
+        assert!(!output.contains("impl::<"),
+            "Impl blocks should NOT be converted, got: {}", output);
     }
 }
 

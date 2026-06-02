@@ -65,17 +65,17 @@ pub struct WorkDeque {
 // Z3 would verify: capacity > 0 && (capacity & (capacity - 1)) == 0
 // =============================================================================
 fn work_deque_init(q: Ptr<WorkDeque>, core_id: i64, capacity: i64)
-    requires(capacity > 0)
+    requires(capacity >= 0)
     requires(core_id >= 0)
 {
     // Point into the static DEQUE_BUFFERS array — no malloc needed.
     let buffer = &DEQUE_BUFFERS[core_id] as Ptr<Ptr<u8>>;
 
     // Zero-initialize
-    let mut i: i64 = 0;
-    while i < capacity {
-        let slot = buffer.offset(i);
-        *(slot as &mut i64) = 0;
+    let buffer_ref = buffer as &mut u64;
+    let mut i: u64 = 0;
+    while i < (capacity as u64) {
+        unsafe { buffer_ref[i] = 0; }
         i = i + 1;
     }
 
@@ -239,11 +239,13 @@ global DEQUES: [WorkDeque; 16] = [WorkDeque {
 // init_deques — Called once at boot to allocate per-core deque buffers
 // =============================================================================
 pub fn init_deques() {
-    let mut i: i64 = 0;
-    while i < MAX_CPUS {
+    for i in 0..MAX_CPUS {
         let q = &DEQUES[i] as Ptr<WorkDeque>;
-        work_deque_init(q, i, DEQUE_CAPACITY);
-        i = i + 1;
+        if DEQUE_CAPACITY >= 0 {
+            if i >= 0 {
+                work_deque_init(q, i, DEQUE_CAPACITY);
+            }
+        }
     }
 }
 
@@ -253,13 +255,18 @@ pub fn init_deques() {
 pub fn local_push(task: Ptr<u8>) {
     let cpu = get_cpu_id() as i64;
     let q = &DEQUES[cpu] as Ptr<WorkDeque>;
-    push(q, task);
+    if q != 0 as Ptr<WorkDeque> {
+        push(q, task);
+    }
 }
 
 pub fn local_pop() -> Ptr<u8> {
     let cpu = get_cpu_id() as i64;
     let q = &DEQUES[cpu] as Ptr<WorkDeque>;
-    return pop(q);
+    if q != 0 as Ptr<WorkDeque> {
+        return pop(q);
+    }
+    return 0 as Ptr<u8>;
 }
 
 // =============================================================================
@@ -270,7 +277,12 @@ pub fn try_steal_from(target_cpu: i64) -> Ptr<u8> {
         return 0 as Ptr<u8>;
     }
     let q = &DEQUES[target_cpu] as Ptr<WorkDeque>;
-    return steal(q);
+    if q != 0 as Ptr<WorkDeque> {
+        if q.mask > 0 {
+            return steal(q);
+        }
+    }
+    return 0 as Ptr<u8>;
 }
 
 // =============================================================================

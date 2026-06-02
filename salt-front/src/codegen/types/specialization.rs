@@ -85,6 +85,13 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                              s.generics.as_ref().map(|g| g.params.clone())
                          } else if let Some(e) = self.discovery.enum_templates.get(&template_name) {
                              e.generics.as_ref().map(|g| g.params.clone())
+                         } else if template_name == "std__core__ptr__Ptr" {
+                             let mut p = syn::punctuated::Punctuated::new();
+                             p.push(crate::grammar::GenericParam::Type { 
+                                 name: syn::Ident::new("T", proc_macro2::Span::call_site()), 
+                                 constraint: None 
+                             });
+                             Some(p)
                          } else { None };
                          
                          if let Some(params) = gen_params {
@@ -186,7 +193,6 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                 type_map: spec_map,
             };
 
-            self.expansion.pending_generations.push_back(task);
         } else {
              eprintln!("Error: Function '{}' not found for specialization.", func_name);
         }

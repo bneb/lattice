@@ -58,11 +58,21 @@ pub struct Process {
     pub mmap_base: u64,         // Starting search address for anonymous mappings
     pub vma_list_head: u64,     // Pointer to first Vma struct (slab-allocated linked list)
     pub pcid: u64,              // PCID (12-bit, 1..4095) for TLB tagging
+    // --- Namespaces ---
+    pub fs_namespace_id: u64,
+    pub net_namespace_id: u64,
     // --- IPC Fast-Path State ---
     pub ipc_sender: u64,        // PID of sender (valid when state == IPC_BLOCKED was unblocked)
     pub ipc_msg0: u64,          // IPC payload word 0
     pub ipc_msg1: u64,          // IPC payload word 1
     pub ipc_msg2: u64,          // IPC payload word 2
+    // --- Ring-Buffer ABI State ---
+    pub ring_active: u64,       // 1 if ring ABI is mapped for this process
+    pub ring_sq_kern: u64,      // Kernel VA of SQ shared page
+    pub ring_cq_kern: u64,      // Kernel VA of CQ shared page
+    pub ring_sq_phys: u64,      // Physical addr of SQ page (for cleanup)
+    pub ring_cq_phys: u64,      // Physical addr of CQ page (for cleanup)
+    pub ring_capacity: u64,     // Ring capacity (power of 2)
 }
 
 // =============================================================================
@@ -75,7 +85,10 @@ global PROC_TABLE: [Process; 16] = [Process {
     brk_base: 0, brk_current: 0,
     mmap_base: 0, vma_list_head: 0,
     pcid: 0,
-    ipc_sender: 0, ipc_msg0: 0, ipc_msg1: 0, ipc_msg2: 0
+    fs_namespace_id: 0, net_namespace_id: 0,
+    ipc_sender: 0, ipc_msg0: 0, ipc_msg1: 0, ipc_msg2: 0,
+    ring_active: 0, ring_sq_kern: 0, ring_cq_kern: 0,
+    ring_sq_phys: 0, ring_cq_phys: 0, ring_capacity: 0
 }; 16];
 
 global CURRENT_PID: u64 = 0;
@@ -83,21 +96,40 @@ global NEXT_PID: u64 = 1;
 global PROC_COUNT: u64 = 0;
 
 // =============================================================================
-// alloc_pid — Find a free slot and return its index
+extern fn ctz_u64(x: u64) -> u64;
+
+global PID_BITMAP: [u64; 4] = [0 as u64; 4];
+
+// =============================================================================
+// alloc_pid — Find a free slot and return its index in O(1) via hardware bitmap
 // =============================================================================
 pub fn alloc_pid() -> u64 {
-    let mut i: u64 = 0;
-    while i < MAX_PROCS {
-        // SECURITY FIX: Atomically claim the slot (PROC_FREE -> 99 (ALLOCATING))
-        let old_state = atomic_cas_i64(&PROC_TABLE[i].state, PROC_FREE as i64, 99 as i64);
-        if old_state == PROC_FREE as i64 {
-            let pid = atomic_add_i64(&NEXT_PID, 1 as i64);
-            PROC_TABLE[i].pid = pid as u64;
-            PROC_TABLE[i].state = PROC_READY;
-            atomic_add_i64(&PROC_COUNT, 1 as i64);
-            return i;
+    let mut group: u64 = 0;
+    while group < 4 {
+        let mut success = false;
+        while !success {
+            let old = PID_BITMAP[group];
+            let free_mask = old ^ 0xFFFFFFFFFFFFFFFF;
+            if free_mask == 0 {
+                // Group is full
+                success = true; // break inner loop to advance group
+            } else {
+                let bit = ctz_u64(free_mask);
+                let mask = (1 as u64) << bit;
+                let new = old | mask;
+                let old_val = atomic_cas_i64(&PID_BITMAP[group], old as i64, new as i64);
+                if old_val == old as i64 {
+                    // Successfully claimed the slot
+                    let slot = group * 64 + bit;
+                    let pid = atomic_add_i64(&NEXT_PID, 1 as i64);
+                    PROC_TABLE[slot].pid = pid as u64;
+                    PROC_TABLE[slot].state = PROC_READY;
+                    atomic_add_i64(&PROC_COUNT, 1 as i64);
+                    return slot;
+                }
+            }
         }
-        i = i + 1;
+        group = group + 1;
     }
     return MAX_PROCS; // No free slots
 }
@@ -130,6 +162,11 @@ pub fn alloc_kernel_stack() -> u64 {
         i = i + 1;
     }
     return base;
+}
+
+@no_mangle
+pub fn sys_alloc_kernel_stack() -> u64 {
+    return alloc_kernel_stack();
 }
 
 // =============================================================================
@@ -178,6 +215,20 @@ pub fn get_state_addr(slot: u64) -> u64 {
 }
 
 pub fn set_state(slot: u64, state: u64) {
+    if state == PROC_FREE {
+        let group = slot / 64;
+        let bit = slot % 64;
+        let mask = (1 as u64) << bit;
+        let mut success = false;
+        while !success {
+            let old = PID_BITMAP[group];
+            let new = old & (mask ^ 0xFFFFFFFFFFFFFFFF);
+            let old_val = atomic_cas_i64(&PID_BITMAP[group], old as i64, new as i64);
+            if old_val == old as i64 {
+                success = true;
+            }
+        }
+    }
     PROC_TABLE[slot].state = state;
 }
 
@@ -228,10 +279,33 @@ pub fn init_slot(slot: u64, pml4: u64, kstack_base: u64, kstack_top: u64,
     PROC_TABLE[slot].mmap_base = 0;
     PROC_TABLE[slot].vma_list_head = 0;
     PROC_TABLE[slot].pcid = allocate_pcid();
+    
+    // Default to inheriting namespace 0 if no parent, otherwise explicitly assigned later.
+    PROC_TABLE[slot].fs_namespace_id = 0;
+    PROC_TABLE[slot].net_namespace_id = 0;
 }
 
 pub fn get_pcid(slot: u64) -> u64 {
     return PROC_TABLE[slot].pcid;
+}
+
+// =============================================================================
+// Namespaces
+// =============================================================================
+pub fn get_fs_namespace_id(slot: u64) -> u64 {
+    return PROC_TABLE[slot].fs_namespace_id;
+}
+
+pub fn set_fs_namespace_id(slot: u64, id: u64) {
+    PROC_TABLE[slot].fs_namespace_id = id;
+}
+
+pub fn get_net_namespace_id(slot: u64) -> u64 {
+    return PROC_TABLE[slot].net_namespace_id;
+}
+
+pub fn set_net_namespace_id(slot: u64, id: u64) {
+    PROC_TABLE[slot].net_namespace_id = id;
 }
 
 // =============================================================================
@@ -324,6 +398,22 @@ pub fn get_ipc_sender(slot: u64) -> u64 { return PROC_TABLE[slot].ipc_sender; }
 pub fn get_ipc_msg0(slot: u64) -> u64 { return PROC_TABLE[slot].ipc_msg0; }
 pub fn get_ipc_msg1(slot: u64) -> u64 { return PROC_TABLE[slot].ipc_msg1; }
 pub fn get_ipc_msg2(slot: u64) -> u64 { return PROC_TABLE[slot].ipc_msg2; }
+
+// =============================================================================
+// Ring-Buffer ABI Accessors
+// =============================================================================
+pub fn get_ring_active(slot: u64) -> u64 { return PROC_TABLE[slot].ring_active; }
+pub fn set_ring_active(slot: u64, val: u64) { PROC_TABLE[slot].ring_active = val; }
+pub fn get_ring_sq_kern(slot: u64) -> u64 { return PROC_TABLE[slot].ring_sq_kern; }
+pub fn set_ring_sq_kern(slot: u64, val: u64) { PROC_TABLE[slot].ring_sq_kern = val; }
+pub fn get_ring_cq_kern(slot: u64) -> u64 { return PROC_TABLE[slot].ring_cq_kern; }
+pub fn set_ring_cq_kern(slot: u64, val: u64) { PROC_TABLE[slot].ring_cq_kern = val; }
+pub fn get_ring_sq_phys(slot: u64) -> u64 { return PROC_TABLE[slot].ring_sq_phys; }
+pub fn set_ring_sq_phys(slot: u64, val: u64) { PROC_TABLE[slot].ring_sq_phys = val; }
+pub fn get_ring_cq_phys(slot: u64) -> u64 { return PROC_TABLE[slot].ring_cq_phys; }
+pub fn set_ring_cq_phys(slot: u64, val: u64) { PROC_TABLE[slot].ring_cq_phys = val; }
+pub fn get_ring_capacity(slot: u64) -> u64 { return PROC_TABLE[slot].ring_capacity; }
+pub fn set_ring_capacity(slot: u64, val: u64) { PROC_TABLE[slot].ring_capacity = val; }
 
 @no_mangle
 pub fn process_set_ipc_msg(slot: u64, sender: u64, msg0: u64, msg1: u64, msg2: u64) {

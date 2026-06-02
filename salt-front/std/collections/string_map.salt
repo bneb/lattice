@@ -169,6 +169,8 @@ impl StringMap {
     pub fn get(&self, key: StringView) -> i64 {
         if self.cap == 0 { return -1; }
 
+        let kptr = key.ptr;
+        let klen = key.length();
         let hash = fnv1a(key);
         let tag = (hash & 0x7F) as i8;
         let h1 = (hash >> 7) as i64;
@@ -187,7 +189,8 @@ impl StringMap {
                     let tz = ctz_u64(bits);
                     let byte_off = tz / 8;
                     let slot = (idx + byte_off as i64) & mask;
-                    if self.key_eq(slot, key) {
+                    let key_sv2 = StringView::from_raw(kptr, klen);
+                    if self.key_eq(slot, key_sv2) {
                         return slot;
                     }
                     bits = bits & (bits - 1);
@@ -312,6 +315,8 @@ impl StringMap {
     pub fn del(&mut self, key: StringView) -> bool {
         if self.cap == 0 { return false; }
 
+        let kptr = key.ptr;
+        let klen = key.length();
         let hash = fnv1a(key);
         let tag = (hash & 0x7F) as i8;
         let h1 = (hash >> 7) as i64;
@@ -322,7 +327,8 @@ impl StringMap {
             let ctrl_byte = self.ctrl.offset(idx).read();
 
             if ctrl_byte == tag {
-                if self.key_eq(idx, key) {
+                let key_sv2 = StringView::from_raw(kptr, klen);
+                if self.key_eq(idx, key_sv2) {
                     self.mirror_ctrl(idx, SM_DELETED());
                     self.len = self.len - 1;
                     self.growth_left = self.growth_left - 1;

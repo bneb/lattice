@@ -290,6 +290,8 @@ JSValueRef jsc_document_createElement(JSContextRef ctx, JSObjectRef function,
     tag_id = 19;
   else if (strcmp(tag, "BUTTON") == 0)
     tag_id = 20;
+  else if (strcmp(tag, "FORM") == 0)
+    tag_id = 21;
   else if (strcmp(tag, "VIDEO") == 0)
     tag_id = 25;
   else if (strcmp(tag, "IFRAME") == 0)
@@ -364,21 +366,23 @@ JSValueRef jsc_document_createElement(JSContextRef ctx, JSObjectRef function,
 }
 
 // document.getElementById(id)
-static char jsc_cookie_buf[4096] = {0};
+static char jsc_document_cookie[8192] = "";
 
 JSValueRef jsc_document_get_cookie(JSContextRef ctx, JSObjectRef object, JSStringRef pn, JSValueRef *ex) {
-  return JSValueMakeString(ctx, JSStringCreateWithUTF8CString(jsc_cookie_buf));
+  return JSValueMakeString(ctx, JSStringCreateWithUTF8CString(jsc_document_cookie));
 }
 
 bool jsc_document_set_cookie(JSContextRef ctx, JSObjectRef object, JSStringRef pn, JSValueRef value, JSValueRef *ex) {
   size_t len;
   char *str = jsc_value_to_cstring(ctx, value, &len);
   if (str) {
-    // Basic session cookie storage: just overwrite for now.
-    // Real impl would parse expires, path, etc.
-    strncpy(jsc_cookie_buf, str, 4095);
-    jsc_cookie_buf[4095] = '\0';
-    free(str);
+      // Append or replace cookie (very basic implementation)
+      // Real browsers parse key=value and handle expires/path/domain
+      if (strlen(jsc_document_cookie) + len + 2 < 8192) {
+          if (strlen(jsc_document_cookie) > 0) strcat(jsc_document_cookie, "; ");
+          strcat(jsc_document_cookie, str);
+      }
+      free(str);
   }
   return true;
 }
@@ -1415,6 +1419,34 @@ static int32_t parse_px(const char *val) {
   return atoi(val);
 }
 
+static void parse_shorthand(const char *val, int32_t *t, int32_t *r, int32_t *b, int32_t *l) {
+  char buf[256];
+  strncpy(buf, val, 255);
+  buf[255] = '\0';
+  char *tokens[4];
+  int count = 0;
+  char *tok = strtok(buf, " \t\r\n");
+  while (tok && count < 4) {
+    tokens[count++] = tok;
+    tok = strtok(NULL, " \t\r\n");
+  }
+  if (count == 1) {
+    *t = *r = *b = *l = parse_px(tokens[0]);
+  } else if (count == 2) {
+    *t = *b = parse_px(tokens[0]);
+    *r = *l = parse_px(tokens[1]);
+  } else if (count == 3) {
+    *t = parse_px(tokens[0]);
+    *r = *l = parse_px(tokens[1]);
+    *b = parse_px(tokens[2]);
+  } else if (count == 4) {
+    *t = parse_px(tokens[0]);
+    *r = parse_px(tokens[1]);
+    *b = parse_px(tokens[2]);
+    *l = parse_px(tokens[3]);
+  }
+}
+
 static bool jsc_style_catchAllSetter(JSContextRef ctx, JSObjectRef object, JSStringRef propertyName, JSValueRef value, JSValueRef* exception) {
   uint32_t n_idx = (uint32_t)(uintptr_t)JSObjectGetPrivate(object);
   if (n_idx == 0 || n_idx == 0xFFFFFFFF) return false;
@@ -1444,10 +1476,12 @@ static bool jsc_style_catchAllSetter(JSContextRef ctx, JSObjectRef object, JSStr
   bool paint_dirty = false;
   
   if (strcmp(pn, "margin") == 0) {
-      user__browser__dom__STYLE_MARGIN_TOP[n_idx] = px;
-      user__browser__dom__STYLE_MARGIN_RIGHT[n_idx] = px;
-      user__browser__dom__STYLE_MARGIN_BOTTOM[n_idx] = px;
-      user__browser__dom__STYLE_MARGIN_LEFT[n_idx] = px;
+      int32_t t=0, r=0, b=0, l=0;
+      parse_shorthand(val, &t, &r, &b, &l);
+      user__browser__dom__STYLE_MARGIN_TOP[n_idx] = t;
+      user__browser__dom__STYLE_MARGIN_RIGHT[n_idx] = r;
+      user__browser__dom__STYLE_MARGIN_BOTTOM[n_idx] = b;
+      user__browser__dom__STYLE_MARGIN_LEFT[n_idx] = l;
       layout_dirty = true;
   } else if (strcmp(pn, "marginTop") == 0) {
       user__browser__dom__STYLE_MARGIN_TOP[n_idx] = px;
@@ -1462,10 +1496,12 @@ static bool jsc_style_catchAllSetter(JSContextRef ctx, JSObjectRef object, JSStr
       user__browser__dom__STYLE_MARGIN_RIGHT[n_idx] = px;
       layout_dirty = true;
   } else if (strcmp(pn, "padding") == 0) {
-      user__browser__dom__STYLE_PADDING_TOP[n_idx] = px;
-      user__browser__dom__STYLE_PADDING_RIGHT[n_idx] = px;
-      user__browser__dom__STYLE_PADDING_BOTTOM[n_idx] = px;
-      user__browser__dom__STYLE_PADDING_LEFT[n_idx] = px;
+      int32_t t=0, r=0, b=0, l=0;
+      parse_shorthand(val, &t, &r, &b, &l);
+      user__browser__dom__STYLE_PADDING_TOP[n_idx] = t;
+      user__browser__dom__STYLE_PADDING_RIGHT[n_idx] = r;
+      user__browser__dom__STYLE_PADDING_BOTTOM[n_idx] = b;
+      user__browser__dom__STYLE_PADDING_LEFT[n_idx] = l;
       layout_dirty = true;
   } else if (strcmp(pn, "paddingTop") == 0) {
       user__browser__dom__STYLE_PADDING_TOP[n_idx] = px;
@@ -1508,6 +1544,7 @@ static bool jsc_style_catchAllSetter(JSContextRef ctx, JSObjectRef object, JSStr
       if (strcmp(val, "center") == 0) user__browser__dom__STYLE_TEXT_ALIGN[n_idx] = 2;
       else if (strcmp(val, "right") == 0) user__browser__dom__STYLE_TEXT_ALIGN[n_idx] = 1;
       else user__browser__dom__STYLE_TEXT_ALIGN[n_idx] = 0;
+      layout_dirty = true; // Align now affects layout (Epic 106)
       paint_dirty = true;
   } else if (strcmp(pn, "boxSizing") == 0) {
       if (strcmp(val, "border-box") == 0) user__browser__dom__STYLE_BOX_SIZING[n_idx] = 1;
@@ -1586,30 +1623,6 @@ void init_style_class(JSContextRef ctx) {
        kJSPropertyAttributeNone},
       {"gridColumnStart", NULL, jsc_style_set_gridColumnStart,
        kJSPropertyAttributeNone},
-      {"padding", NULL, NULL, kJSPropertyAttributeNone},
-      {"paddingTop", NULL, NULL, kJSPropertyAttributeNone},
-      {"paddingRight", NULL, NULL, kJSPropertyAttributeNone},
-      {"paddingBottom", NULL, NULL, kJSPropertyAttributeNone},
-      {"paddingLeft", NULL, NULL, kJSPropertyAttributeNone},
-      {"margin", NULL, NULL, kJSPropertyAttributeNone},
-      {"marginTop", NULL, NULL, kJSPropertyAttributeNone},
-      {"marginRight", NULL, NULL, kJSPropertyAttributeNone},
-      {"marginBottom", NULL, NULL, kJSPropertyAttributeNone},
-      {"marginLeft", NULL, NULL, kJSPropertyAttributeNone},
-      {"borderWidth", NULL, NULL, kJSPropertyAttributeNone},
-      {"color", NULL, NULL, kJSPropertyAttributeNone},
-      {"fontSize", NULL, NULL, kJSPropertyAttributeNone},
-      {"textAlign", NULL, NULL, kJSPropertyAttributeNone},
-      {"boxSizing", NULL, NULL, kJSPropertyAttributeNone},
-      {"minWidth", NULL, NULL, kJSPropertyAttributeNone},
-      {"maxWidth", NULL, NULL, kJSPropertyAttributeNone},
-      {"minHeight", NULL, NULL, kJSPropertyAttributeNone},
-      {"maxHeight", NULL, NULL, kJSPropertyAttributeNone},
-      {"visibility", NULL, NULL, kJSPropertyAttributeNone},
-      {"lineHeight", NULL, NULL, kJSPropertyAttributeNone},
-      {"whiteSpace", NULL, NULL, kJSPropertyAttributeNone},
-      {"flexWrap", NULL, NULL, kJSPropertyAttributeNone},
-      {"verticalAlign", NULL, NULL, kJSPropertyAttributeNone},
       {0, 0, 0, 0}};
   styleDef.staticValues = styleValues;
 
@@ -2090,6 +2103,63 @@ JSValueRef jsc_node_click(JSContextRef ctx, JSObjectRef function,
                                        uint32_t type_hash, float client_x,
                                        float client_y);
     sys_jsc_dispatch_event(node_idx, fnv1a_hash_str("click"), 0.0f, 0.0f);
+  }
+  return JSValueMakeUndefined(ctx);
+}
+
+JSValueRef jsc_node_submit(JSContextRef ctx, JSObjectRef function,
+                           JSObjectRef thisObject, size_t argc,
+                           const JSValueRef argv[], JSValueRef *exception) {
+  uint32_t node_idx = jsc_get_node_idx(thisObject);
+  if (node_idx > 0) {
+    // 1. Extract form action and method
+    extern uint64_t dom_get_attr_ptr(uint32_t node_idx, const char *key);
+    extern uint32_t dom_get_attr_len(uint32_t node_idx, const char *key);
+    
+    uint64_t action_ptr = dom_get_attr_ptr(node_idx, "action");
+    uint32_t action_len = dom_get_attr_len(node_idx, "action");
+    
+    char action[1024] = "/search";
+    if (action_ptr && action_len > 0) {
+      if (action_len > 1023) action_len = 1023;
+      memcpy(action, (void*)(uintptr_t)action_ptr, action_len);
+      action[action_len] = '\0';
+    }
+
+    // 2. Iterate children to find inputs (very simple for POC)
+    // Build search query: ?q=val&...
+    char query[4096] = {0};
+    strcat(query, action);
+    strcat(query, "?");
+
+    extern uint32_t dom_get_child_count(uint32_t idx);
+    extern uint32_t dom_get_child_idx(uint32_t parent_idx, uint32_t child_idx);
+    extern uint32_t dom_get_tag(uint32_t idx);
+    extern uint64_t dom_get_value_ptr(uint32_t idx);
+    extern uint32_t dom_get_value_len(uint32_t idx);
+
+    uint32_t count = dom_get_child_count(node_idx);
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t c_idx = dom_get_child_idx(node_idx, i);
+        if (dom_get_tag(c_idx) == 18) { // TAG_INPUT
+            uint64_t name_ptr = dom_get_attr_ptr(c_idx, "name");
+            uint32_t name_len = dom_get_attr_len(c_idx, "name");
+            if (name_ptr) {
+                strncat(query, (char*)(uintptr_t)name_ptr, name_len);
+                strcat(query, "=");
+                uint64_t val_ptr = dom_get_value_ptr(c_idx);
+                uint32_t val_len = dom_get_value_len(c_idx);
+                if (val_ptr) {
+                    strncat(query, (char*)(uintptr_t)val_ptr, val_len);
+                }
+                strcat(query, "&");
+            }
+        }
+    }
+
+    // 3. Navigate
+    extern void sys_browser_navigate(uint64_t ptr, uint32_t len);
+    sys_browser_navigate((uint64_t)(uintptr_t)query, (uint32_t)strlen(query));
   }
   return JSValueMakeUndefined(ctx);
 }
@@ -2824,6 +2894,12 @@ extern int32_t base64_decode(const uint8_t *src, uint32_t src_len, uint8_t *dst,
 
 static char jsc_current_url[4096] = "https://www.google.com/";
 
+void jsc_set_current_url(const char *url, uint32_t len) {
+  uint32_t copy_len = len < 4095 ? len : 4095;
+  memcpy(jsc_current_url, url, copy_len);
+  jsc_current_url[copy_len] = '\0';
+}
+
 static JSValueRef jsc_location_get_href(JSContextRef ctx, JSObjectRef object, JSStringRef pn, JSValueRef *ex) {
   return JSValueMakeString(ctx, JSStringCreateWithUTF8CString(jsc_current_url));
 }
@@ -2837,19 +2913,66 @@ static bool jsc_location_set_href(JSContextRef ctx, JSObjectRef object, JSString
   return true;
 }
 static JSValueRef jsc_location_get_hostname(JSContextRef ctx, JSObjectRef obj, JSStringRef pn, JSValueRef *ex) {
-  return JSValueMakeString(ctx, JSStringCreateWithUTF8CString("www.google.com"));
+  const char *p = strstr(jsc_current_url, "://");
+  if (!p) return JSValueMakeString(ctx, JSStringCreateWithUTF8CString(""));
+  p += 3;
+  const char *slash = strchr(p, '/');
+  size_t hlen = slash ? (size_t)(slash - p) : strlen(p);
+  char host[256];
+  if (hlen > 255) hlen = 255;
+  memcpy(host, p, hlen);
+  host[hlen] = '\0';
+  return JSValueMakeString(ctx, JSStringCreateWithUTF8CString(host));
 }
 static JSValueRef jsc_location_get_protocol(JSContextRef ctx, JSObjectRef obj, JSStringRef pn, JSValueRef *ex) {
-  return JSValueMakeString(ctx, JSStringCreateWithUTF8CString("https:"));
+  const char *p = strstr(jsc_current_url, "://");
+  if (!p) return JSValueMakeString(ctx, JSStringCreateWithUTF8CString("https:"));
+  size_t len = (size_t)(p - jsc_current_url);
+  char proto[32];
+  if (len > 30) len = 30;
+  memcpy(proto, jsc_current_url, len);
+  proto[len] = ':';
+  proto[len+1] = '\0';
+  return JSValueMakeString(ctx, JSStringCreateWithUTF8CString(proto));
 }
 static JSValueRef jsc_location_get_pathname(JSContextRef ctx, JSObjectRef obj, JSStringRef pn, JSValueRef *ex) {
-  return JSValueMakeString(ctx, JSStringCreateWithUTF8CString("/"));
+  const char *p = strstr(jsc_current_url, "://");
+  if (!p) return JSValueMakeString(ctx, JSStringCreateWithUTF8CString("/"));
+  p += 3;
+  const char *slash = strchr(p, '/');
+  if (!slash) return JSValueMakeString(ctx, JSStringCreateWithUTF8CString("/"));
+  const char *q = strchr(slash, '?');
+  const char *h = strchr(slash, '#');
+  const char *end = q ? q : (h ? h : slash + strlen(slash));
+  size_t len = (size_t)(end - slash);
+  char path[1024];
+  if (len > 1023) len = 1023;
+  memcpy(path, slash, len);
+  path[len] = '\0';
+  return JSValueMakeString(ctx, JSStringCreateWithUTF8CString(path));
 }
 static JSValueRef jsc_location_get_search(JSContextRef ctx, JSObjectRef obj, JSStringRef pn, JSValueRef *ex) {
-  return JSValueMakeString(ctx, JSStringCreateWithUTF8CString(""));
+  const char *q = strchr(jsc_current_url, '?');
+  if (!q) return JSValueMakeString(ctx, JSStringCreateWithUTF8CString(""));
+  const char *h = strchr(q, '#');
+  size_t len = h ? (size_t)(h - q) : strlen(q);
+  char search[4096];
+  if (len > 4095) len = 4095;
+  memcpy(search, q, len);
+  search[len] = '\0';
+  return JSValueMakeString(ctx, JSStringCreateWithUTF8CString(search));
 }
 static JSValueRef jsc_location_get_hash(JSContextRef ctx, JSObjectRef obj, JSStringRef pn, JSValueRef *ex) {
-  return JSValueMakeString(ctx, JSStringCreateWithUTF8CString(""));
+  const char *h = strchr(jsc_current_url, '#');
+  if (!h) return JSValueMakeString(ctx, JSStringCreateWithUTF8CString(""));
+  return JSValueMakeString(ctx, JSStringCreateWithUTF8CString(h));
+}
+
+static JSValueRef jsc_location_set_window(JSContextRef ctx, JSObjectRef function, JSObjectRef thisObject, size_t argc, const JSValueRef argv[], JSValueRef *exception) {
+  if (argc > 0) {
+    return (JSValueRef)jsc_location_set_href(ctx, thisObject, NULL, argv[0], exception);
+  }
+  return JSValueMakeUndefined(ctx);
 }
 
 JSValueRef get_node_offsetWidth(JSContextRef ctx, JSObjectRef object, JSStringRef pn, JSValueRef *ex) {
@@ -3936,6 +4059,20 @@ void bind_native_globals(JSGlobalContextRef ctx) {
     JSStringRef goStr = JSStringCreateWithUTF8CString("google");
     JSObjectSetProperty(ctx, global, goStr, googleObj,
                         kJSPropertyAttributeNone, NULL);
+    
+    // Epic 111: Google Search Unblock Stubs
+    JSStringRef gxStr = JSStringCreateWithUTF8CString("x");
+    JSObjectSetProperty(ctx, googleObj, gxStr, JSObjectMakeFunctionWithCallback(ctx, gxStr, jsc_xhr_stub_method), kJSPropertyAttributeNone, NULL);
+    JSStringRelease(gxStr);
+    
+    JSStringRef glStr = JSStringCreateWithUTF8CString("log");
+    JSObjectSetProperty(ctx, googleObj, glStr, JSObjectMakeFunctionWithCallback(ctx, glStr, jsc_xhr_stub_method), kJSPropertyAttributeNone, NULL);
+    JSStringRelease(glStr);
+
+    JSStringRef kStr = JSStringCreateWithUTF8CString("kEXPI");
+    JSObjectSetProperty(ctx, googleObj, kStr, JSValueMakeString(ctx, JSStringCreateWithUTF8CString("0")), kJSPropertyAttributeNone, NULL);
+    JSStringRelease(kStr);
+
     JSStringRelease(goStr);
   }
 }
@@ -3965,6 +4102,7 @@ void sys_js_execute_raf(uint32_t raf_id, double timestamp) {
     // Obsolete - Handled by GCD directly.
 }
 
-__attribute__((weak)) void ext_net_navigate(uint64_t url_ptr, uint32_t url_len) {
-    // Global fallback for navigation
+void ext_net_navigate(uint64_t url_ptr, uint32_t url_len) {
+    extern void sys_browser_navigate(uint64_t ptr, uint32_t len);
+    sys_browser_navigate(url_ptr, url_len);
 }

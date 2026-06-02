@@ -44,7 +44,7 @@ extern fn salt_clock_now() -> i64;
 // Precompute RoPE
 // -----------------------------------------------------------------------------
 
-fn build_freq_cis(cfg: Config) -> TransformerWeights {
+fn build_freq_cis(cfg: &Config) -> TransformerWeights {
     let head_size = cfg.dim / cfg.n_heads;
     let n_elem = cfg.seq_len * (head_size / 2);
     
@@ -52,6 +52,8 @@ fn build_freq_cis(cfg: Config) -> TransformerWeights {
     let imag_ptr = malloc(n_elem * 4) as Ptr<f32>;
     
     if real_ptr as i64 == 0 || imag_ptr as i64 == 0 {
+        if real_ptr as i64 != 0 { free(real_ptr as Ptr<u8>); }
+        if imag_ptr as i64 != 0 { free(imag_ptr as Ptr<u8>); }
         return TransformerWeights {
             token_embedding_table: 0 as Ptr<f32>, rms_att_weight: 0 as Ptr<f32>,
             wq: 0 as Ptr<f32>, wk: 0 as Ptr<f32>, wv: 0 as Ptr<f32>, wo: 0 as Ptr<f32>,
@@ -64,7 +66,7 @@ fn build_freq_cis(cfg: Config) -> TransformerWeights {
     
     for pos in 0..cfg.seq_len {
         for i in 0..(head_size / 2) {
-            let exponent = (i * 2) as f32 / head_size as f32;
+            let exponent = (i as f32 * 2.0f32) / (head_size as f32);
             let freq = 1.0f32 / powf(10000.0f32, exponent);
             let val = pos as f32 * freq;
             
@@ -88,13 +90,25 @@ fn build_freq_cis(cfg: Config) -> TransformerWeights {
 // File Helpers
 // -----------------------------------------------------------------------------
 
+extern fn lseek(fd: i32, offset: i64, whence: i32) -> i64;
+
 fn mmap_file(path: Ptr<u8>) -> Ptr<u8> {
     let fd = open(path, 0); // O_RDONLY
     if fd < 0 {
         return 0 as Ptr<u8>;
     }
+    
+    // SEEK_END=2 to get file size, SEEK_SET=0 to rewind
+    let size = lseek(fd, 0, 2);
+    lseek(fd, 0, 0);
+    
+    if size <= 0 {
+        close(fd);
+        return 0 as Ptr<u8>;
+    }
+
     // PROT_READ=1, MAP_PRIVATE=2
-    let data = mmap(0 as Ptr<u8>, 1024 * 1024 * 1024, 1, 2, fd, 0);
+    let data = mmap(0 as Ptr<u8>, size as u64, 1, 2, fd, 0);
     let data_addr = data as i64;
     if data_addr == -1 {
         close(fd);
@@ -114,7 +128,7 @@ fn run_mock() -> i32 {
         vocab_size: 1000, seq_len: 128,
     };
     
-    let state = alloc_run_state(cfg);
+    let state = alloc_run_state(&cfg);
     
     let dummy_bytes: i64 = 128 * 1024 * 1024;
     let dummy_ptr: Ptr<u8> = malloc(dummy_bytes);
@@ -131,7 +145,7 @@ fn run_mock() -> i32 {
         w_cls: dummy_float,
     };
 
-    forward(cfg, w, state, 1, 0);
+    forward(&cfg, &w, &state, 1, 0);
     let next_token = sample_argmax(state.logits, cfg.vocab_size);
     println("Sampled token: {}", next_token);
     
@@ -157,12 +171,12 @@ fn run_inference(model_path: Ptr<u8>, tok_path: Ptr<u8>) -> i32 {
     }
     
     let mut w = if q8 == 1 {
-        get_weights_q8(model_data, cfg)
+        get_weights_q8(model_data, &cfg)
     } else {
-        get_weights(model_data, cfg)
+        get_weights(model_data, &cfg)
     };
     
-    let rope_w = build_freq_cis(cfg);
+    let rope_w = build_freq_cis(&cfg);
     w.freq_cis_real = rope_w.freq_cis_real;
     w.freq_cis_imag = rope_w.freq_cis_imag;
     
@@ -182,7 +196,7 @@ fn run_inference(model_path: Ptr<u8>, tok_path: Ptr<u8>) -> i32 {
     let n_prompt_tokens = salt_get_prompt_count();
     println("Prompt tokens: {}", n_prompt_tokens);
 
-    let state = alloc_run_state(cfg);
+    let state = alloc_run_state(&cfg);
     let steps: i64 = cfg.seq_len;
     
     println("Generating {} tokens...", steps);
@@ -192,13 +206,13 @@ fn run_inference(model_path: Ptr<u8>, tok_path: Ptr<u8>) -> i32 {
     let t_start = salt_clock_now();
 
     for pi in 0..n_prompt_tokens {
-        forward(cfg, w, state, token, pos);
+        forward(&cfg, &w, &state, token, pos);
         token = salt_get_prompt_token(pi);
         pos = pos + 1;
     }
 
     for gp in pos..steps {
-        forward(cfg, w, state, token, gp);
+        forward(&cfg, &w, &state, token, gp);
         token = sample_argmax(state.logits, cfg.vocab_size);
         
         if has_tok {
@@ -218,6 +232,14 @@ fn run_inference(model_path: Ptr<u8>, tok_path: Ptr<u8>) -> i32 {
     println("tokens: {}", steps);
     println("elapsed: {}ms", elapsed_ms);
     println("tok/s: {}", toks_per_sec);
+    
+    free_run_state(state);
+    if rope_w.freq_cis_real as i64 != 0 {
+        free(rope_w.freq_cis_real as Ptr<u8>);
+    }
+    if rope_w.freq_cis_imag as i64 != 0 {
+        free(rope_w.freq_cis_imag as Ptr<u8>);
+    }
     
     return 0;
 }
@@ -283,24 +305,28 @@ pub fn basalt_engine_init(model_data: Ptr<u8>, model_size: i64) -> Ptr<EngineSta
     let cfg = load_config(model_data);
     let q8: i32 = is_model_q8(model_data);
     let mut w = if q8 == 1 {
-        get_weights_q8(model_data, cfg)
+        get_weights_q8(model_data, &cfg)
     } else {
-        get_weights(model_data, cfg)
+        get_weights(model_data, &cfg)
     };
-    let rope_w = build_freq_cis(cfg);
+    let rope_w = build_freq_cis(&cfg);
     w.freq_cis_real = rope_w.freq_cis_real;
     w.freq_cis_imag = rope_w.freq_cis_imag;
     
     let es_ptr = malloc(1024) as Ptr<EngineState>;
     if es_ptr as i64 == 0 {
+        if rope_w.freq_cis_real as i64 != 0 { free(rope_w.freq_cis_real as Ptr<u8>); }
+        if rope_w.freq_cis_imag as i64 != 0 { free(rope_w.freq_cis_imag as Ptr<u8>); }
         return 0 as Ptr<EngineState>;
     }
     
     es_ptr.config = cfg;
     es_ptr.weights = w;
-    let run_state = alloc_run_state(cfg);
+    let run_state = alloc_run_state(&cfg);
     if run_state.x as i64 == 0 {
         free(es_ptr as Ptr<u8>);
+        if rope_w.freq_cis_real as i64 != 0 { free(rope_w.freq_cis_real as Ptr<u8>); }
+        if rope_w.freq_cis_imag as i64 != 0 { free(rope_w.freq_cis_imag as Ptr<u8>); }
         return 0 as Ptr<EngineState>;
     }
     es_ptr.state = run_state;
@@ -335,7 +361,10 @@ pub fn basalt_engine_get_config(es_ptr: Ptr<EngineState>, param_id: i64) -> i64 
 pub fn basalt_engine_prefill(es_ptr: Ptr<EngineState>, token_id: i64) {
     if es_ptr.initialized == 0 { return; }
 
-    forward(es_ptr.config, es_ptr.weights, es_ptr.state, es_ptr.token, es_ptr.pos);
+    let mut tmp_cfg = es_ptr.config;
+    let mut tmp_w = es_ptr.weights;
+    let mut tmp_state = es_ptr.state;
+    forward(&tmp_cfg, &tmp_w, &tmp_state, es_ptr.token, es_ptr.pos);
     es_ptr.token = token_id;
     es_ptr.pos = es_ptr.pos + 1;
 }
@@ -346,7 +375,9 @@ pub fn basalt_engine_generate_step(es_ptr: Ptr<EngineState>) -> i64 {
     let cfg = es_ptr.config;
     if es_ptr.pos >= cfg.seq_len { return -1; }
 
-    forward(cfg, es_ptr.weights, es_ptr.state, es_ptr.token, es_ptr.pos);
+    let mut tmp_w = es_ptr.weights;
+    let mut tmp_state = es_ptr.state;
+    forward(&cfg, &tmp_w, &tmp_state, es_ptr.token, es_ptr.pos);
 
     // ── Sampling: temperature → softmax → sample ────────────────────────
     let logits: Ptr<f32> = es_ptr.state.logits;
@@ -407,6 +438,15 @@ pub fn basalt_engine_set_sampling(es_ptr: Ptr<EngineState>, temp: f32, topp: f32
 pub fn basalt_engine_free(es_ptr: Ptr<EngineState>) {
     if es_ptr.initialized == 0 { return; }
     free_run_state(es_ptr.state);
+    
+    let w = es_ptr.weights;
+    if w.freq_cis_real as i64 != 0 {
+        free(w.freq_cis_real as Ptr<u8>);
+    }
+    if w.freq_cis_imag as i64 != 0 {
+        free(w.freq_cis_imag as Ptr<u8>);
+    }
+
     free(es_ptr as Ptr<u8>);
     es_ptr.initialized = 0;
 }
@@ -415,19 +455,9 @@ pub fn basalt_engine_free(es_ptr: Ptr<EngineState>) {
 
 pub fn basalt_engine_reset(es_ptr: Ptr<EngineState>) {
     if es_ptr.initialized == 0 { return; }
-    let cfg = es_ptr.config;
-    let kv_dim: i64 = (cfg.dim * cfg.n_kv_heads) / cfg.n_heads;
-    let cache_size: i64 = cfg.n_layers * cfg.seq_len * kv_dim;
 
-    // Extract local pointers to avoid chained field access in loop
-    let kc: Ptr<f32> = es_ptr.state.key_cache;
-    let vc: Ptr<f32> = es_ptr.state.value_cache;
-
-    for i in 0..cache_size {
-        kc[i] = 0.0f32;
-        vc[i] = 0.0f32;
-    }
-
+    // No need to manually zero out the KV cache (key_cache and value_cache) 
+    // since it gets overwritten sequentially based on `pos`.
     es_ptr.pos = 0;
     es_ptr.token = 1;
 }
@@ -442,7 +472,9 @@ pub fn basalt_engine_ingest_prompt(es_ptr: Ptr<EngineState>, tokens_ptr: Ptr<i64
 
     for i in 0..count {
         if es_ptr.pos >= cfg.seq_len { return; }
-        forward(cfg, es_ptr.weights, es_ptr.state, es_ptr.token, es_ptr.pos);
+        let mut tmp_w = es_ptr.weights;
+    let mut tmp_state = es_ptr.state;
+    forward(&cfg, &tmp_w, &tmp_state, es_ptr.token, es_ptr.pos);
         es_ptr.token = tokens_ptr[i];
         es_ptr.pos = es_ptr.pos + 1;
     }

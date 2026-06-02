@@ -1,29 +1,130 @@
+// =============================================================================
+// kernel/ecs/world.salt
+// The World — In-Memory Columnar Database of All OS State
+// =============================================================================
+//
+// The World is the single source of truth for the entire operating system.
+// Every process, thread, socket, IPC channel, and memory region is an Entity
+// with components stored in flat, cache-friendly SparseSet arrays.
+//
+// This is the "DBOS" (Database Operating System) pattern:
+//   - Each SparseSet is a "table column"
+//   - Entity IDs are "primary keys"
+//   - Cross-component references are "foreign keys" (u32 entity IDs)
+//   - ECS queries are "SELECT ... WHERE" operations on contiguous arrays
+//   - The scheduler is just a query: SELECT entity FROM threads, priorities
+//     WHERE threads.status == RUNNABLE ORDER BY priorities.level ASC LIMIT 1
+//
+// No HashMap, no dynamic dispatch, no type erasure.
+// Just flat arrays and cache-line-friendly iteration.
+// =============================================================================
+
 package kernel.ecs.world
 
-import kernel.ecs.entity.{Entity, EntityAllocator, new_entity_allocator}
-import kernel.ecs.sparse_set.{ThreadSparseSet, PrioritySparseSet, new_thread_set, new_priority_set}
-import kernel.ecs.components.{MemoryMap, ThreadState, SchedulingPriority}
-import kernel.drivers.serial
-import std.core.mem.size_of
-
-pub struct World {
-    pub alloc: Ptr<EntityAllocator>,
-    pub priorities: Ptr<PrioritySparseSet>,
-    pub threads: Ptr<ThreadSparseSet>,
+import kernel.ecs.entity.{
+    Entity, EntityAllocator, new_entity_allocator,
+    entity_allocator_allocate, entity_allocator_free,
+    entity_allocator_is_alive, entity_allocator_count
+}
+import kernel.ecs.events.ecs_events_init
+import kernel.ecs.sparse_set.{
+    ThreadSparseSet, PrioritySparseSet, MemoryMapSparseSet,
+    IpcCapSparseSet, OpenSocketSparseSet, CpuAffinitySparseSet,
+    EpochInfoSparseSet, PerfCountersSparseSet,
+    new_thread_set, new_priority_set, new_memmap_set,
+    new_ipc_cap_set, new_socket_set, new_affinity_set,
+    new_epoch_info_set, new_perf_counters_set,
+    thread_set_remove, priority_set_remove, memmap_set_remove,
+    ipc_cap_set_remove, socket_set_remove, affinity_set_remove,
+    epoch_info_set_remove, perf_counters_set_remove
 }
 
 extern fn malloc(size: i64) -> u64;
 
+pub struct World {
+    // Entity allocator — mint and recycle entity IDs
+    pub alloc: Ptr<EntityAllocator>,
+
+    // === Core OS Tables ===
+    pub threads: Ptr<ThreadSparseSet>,             // Thread execution state
+    pub priorities: Ptr<PrioritySparseSet>,         // Scheduling priority
+    pub mem_maps: Ptr<MemoryMapSparseSet>,          // Memory mappings (PML4)
+
+    // === IPC/Network Tables ===
+    pub ipc_caps: Ptr<IpcCapSparseSet>,            // IPC capability descriptors
+    pub open_sockets: Ptr<OpenSocketSparseSet>,    // Socket descriptors
+
+    // === SMP Tables ===
+    pub cpu_affinities: Ptr<CpuAffinitySparseSet>,  // CPU affinity + migration
+
+    // === Reclamation / Telemetry Tables ===
+    pub epoch_infos: Ptr<EpochInfoSparseSet>,      // Deferred reclamation metadata
+    pub perf_counters: Ptr<PerfCountersSparseSet>,  // Telemetry counters
+}
+
 pub fn new_world() -> Ptr<World> {
+    let allocator_res = new_entity_allocator();
     let threads_res = new_thread_set();
     let priorities_res = new_priority_set();
-    let allocator_res = new_entity_allocator();
-    
-    let w_ptr = malloc(32) as Ptr<World>;
+    let mem_maps_res = new_memmap_set();
+    let ipc_caps_res = new_ipc_cap_set();
+    let sockets_res = new_socket_set();
+    let affinities_res = new_affinity_set();
+    let epoch_infos_res = new_epoch_info_set();
+    let perf_counters_res = new_perf_counters_set();
+
+    let w_ptr = malloc(80) as Ptr<World>;
     w_ptr[0] = World {
         alloc: allocator_res,
-        priorities: priorities_res,
         threads: threads_res,
+        priorities: priorities_res,
+        mem_maps: mem_maps_res,
+        ipc_caps: ipc_caps_res,
+        open_sockets: sockets_res,
+        cpu_affinities: affinities_res,
+        epoch_infos: epoch_infos_res,
+        perf_counters: perf_counters_res,
     };
     return w_ptr;
+}
+
+// =============================================================================
+// Standalone World Functions
+// =============================================================================
+
+/// Spawn a new entity and return it. Caller must add components.
+pub fn world_spawn(self: Ptr<World>) -> Entity {
+    return entity_allocator_allocate(self[0].alloc);
+}
+
+/// Destroy an entity and remove all its components from every table.
+pub fn world_destroy(self: Ptr<World>, entity: Entity) {
+    thread_set_remove(self[0].threads, entity);
+    priority_set_remove(self[0].priorities, entity);
+    memmap_set_remove(self[0].mem_maps, entity);
+    ipc_cap_set_remove(self[0].ipc_caps, entity);
+    socket_set_remove(self[0].open_sockets, entity);
+    affinity_set_remove(self[0].cpu_affinities, entity);
+    epoch_info_set_remove(self[0].epoch_infos, entity);
+    perf_counters_set_remove(self[0].perf_counters, entity);
+
+    // Return entity ID to the free-list (bumps generation)
+    entity_allocator_free(self[0].alloc, entity);
+}
+
+/// Check if an entity is still alive (generation matches)
+pub fn world_is_alive(self: Ptr<World>, entity: Entity) -> bool {
+    return entity_allocator_is_alive(self[0].alloc, entity);
+}
+
+/// Return total number of live entities
+pub fn world_entity_count(self: Ptr<World>) -> u32 {
+    return entity_allocator_count(self[0].alloc);
+}
+
+@no_mangle
+pub fn ecs_world_init() -> u64 {
+    let w = new_world();
+    ecs_events_init();
+    return w as u64;
 }

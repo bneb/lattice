@@ -1,0 +1,35 @@
+// =============================================================================
+// std.process.spawn
+// Declarative Process Creation Manifest
+// =============================================================================
+// Replaces fork() with a structured, schema-driven approach.
+//
+// Usage:
+//   let manifest = SpawnManifest {
+//       elf_vaddr: 0x1000000,
+//       namespace_flags: spawn.NS_ISOLATE_FS | spawn.NS_ISOLATE_IPC
+//   };
+//   let ok = ring.spawn(manifest.as_ptr());
+// =============================================================================
+
+package std.process.spawn
+
+// Namespace Isolation Flags (CLONE_NEW* equivalents)
+pub const NS_ISOLATE_FS:  u64 = 1;
+pub const NS_ISOLATE_NET: u64 = 2;
+pub const NS_ISOLATE_IPC: u64 = 4;
+
+// The declarative manifest used by the kernel to build the process
+pub struct SpawnManifest {
+    pub elf_vaddr: u64,
+    pub namespace_flags: u64,
+}
+
+impl SpawnManifest {
+    pub fn new(elf_vaddr: u64) -> SpawnManifest {
+        return SpawnManifest {
+            elf_vaddr: elf_vaddr,
+            namespace_flags: 0, // Inherit all by default
+        };
+    }
+}

@@ -1,4 +1,4 @@
-use crate::codegen::context::{CodegenContext, LoweringContext};
+use crate::codegen::context::CodegenContext;
 
 /// [V4.0 SCORCHED EARTH] F-string segment for native expansion
 #[derive(Clone, Debug)]
@@ -7,7 +7,7 @@ pub enum FStringSegment {
     Expr(String, Option<String>), // (expression, optional format spec)
 }
 
-pub fn native_fstring_expand_impl(ctx: &CodegenContext, content: &str) -> String {
+pub fn native_fstring_expand_impl(_ctx: &CodegenContext, content: &str) -> String {
     let segments = parse_fstring_segments_impl(content);
     if segments.is_empty() { return "\"\"".to_string(); }
     let has_interpolation = segments.iter().any(|s| matches!(s, FStringSegment::Expr(_, _)));
@@ -61,7 +61,7 @@ pub fn native_hex_expand_impl(content: &str) -> String {
     format!("Vec::<u8>::from_array([{}])", bytes.join(", "))
 }
 
-pub fn native_target_fstring_expand_impl(ctx: &CodegenContext, target: &str, content: &str) -> String {
+pub fn native_target_fstring_expand_impl(_ctx: &CodegenContext, target: &str, content: &str) -> String {
     let segments = parse_fstring_segments_impl(content);
     if segments.is_empty() { return "{ }".to_string(); }
     let mut code = String::new();

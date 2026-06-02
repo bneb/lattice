@@ -1,4 +1,4 @@
-# KeuOS: Sovereign Microkernel Architecture
+# KeuOS: Formal Microkernel Architecture
 
 ## Overview
 
@@ -6,7 +6,7 @@ KeuOS is a microkernel operating system written entirely in [Salt](salt-front/),
 
 The key insight is that Salt's compile-time formal verification eliminates the need for runtime safety checks. This means KeuOS can move performance-critical subsystems (networking, storage) into Ring 3 user space without the "Security Tax" that normally makes microkernels slower than monolithic kernels.
 
-## The Sovereignty Model
+## The Formal Shadow Model
 
 ```
                     ┌─────────────────────────────────────┐
@@ -49,7 +49,7 @@ The key insight is that Salt's compile-time formal verification eliminates the n
 | **VirtIO** | `kernel/drivers/virtio.salt` | NIC and block device (DMA) |
 | **NetD Bridge** | `kernel/net/netd_bridge.salt` | VirtIO RX → SPSC ring pump |
 | **SMP** | `kernel/arch/x86/smp.salt` | AP bootstrap, per-CPU state |
-| **Sovereign Reclaim** | `kernel/core/sovereign_reclaim.salt` | 5-phase hardware-fenced process teardown |
+| **Keubic Reclaim** | `kernel/core/lattice_reclaim.salt` | 5-phase hardware-fenced process teardown |
 | **Chase-Lev Deque** | `kernel/sched/chase_lev.salt` | Per-core lock-free work-stealing deque, static `DEQUE_BUFFERS[16][1024]` |
 | **Epoch-Based Reclamation** | `kernel/lib/ebr_arena.salt` | Zero-pause concurrent memory compaction via `ebr_enter_epoch`/`exit_epoch` |
 | **SIR Boundary** | `salt-front/src/codegen/sir/` | Versioned AST extraction: types, contracts, spans → SirModule JSON/Flatbuffer |
@@ -151,10 +151,10 @@ python3 tools/runner_qemu.py kernel/build/keuos.elf
 
 | Version | Codename | Achievement |
 |---------|----------|-------------|
-| v0.9.0 | *Sovereign Networking* | Ring 3 NetD, zero-trap sockets, SPSC IPC |
-| v0.9.1 | *Sovereign Foundation* | `@align(64)` cache-line isolation, proof-carrying IPC, SipHash-2-4 hardening, sovereign reclaim, chaos testing |
+| v0.9.0 | *Keubic Networking* | Ring 3 NetD, zero-trap sockets, SPSC IPC |
+| v0.9.1 | *Keubic Foundation* | `@align(64)` cache-line isolation, proof-carrying IPC, SipHash-2-4 hardening, lattice reclaim, chaos testing |
 | v0.9.2 | *Postcondition Pivot* | Z3-backed `ensures` for pure functions — path-sensitive WP verification, implicit guard negation, incompleteness gate (6/6 GREEN) |
-| v0.9.3 | *Sovereign Authority* | Chase-Lev work-stealing SMP, stateless SYN cookie hardening (SipHash-2-4), Epoch-Based Reclamation, SIR boundary decoupling (194/194 tests) |
-| v1.0.0 | *Sovereign Architecture* | Salt LSP v0.2.0 (zero-I/O, Z3 hover, Go-to-Definition), full 16-core SMP scale-out, adversarial NetD, 32/32 LSP tests |
-| v1.1.0 | *Loop Sovereignty* | `invariant` keyword, induction-based termination proofs (planned) |
+| v0.9.3 | *Keubic Authority* | Chase-Lev work-stealing SMP, stateless SYN cookie hardening (SipHash-2-4), Epoch-Based Reclamation, SIR boundary decoupling (194/194 tests) |
+| v1.0.0 | *KeuOS Architecture* | Salt LSP v0.2.0 (zero-I/O, Z3 hover, Go-to-Definition), full 16-core SMP scale-out, adversarial NetD, 32/32 LSP tests |
+| v1.1.0 | *Loop Validation* | `invariant` keyword, induction-based termination proofs (planned) |
 | v1.2.0 | *Persistence Pillar* | Block-VMO storage, NVMe SPSC bridge (planned) |

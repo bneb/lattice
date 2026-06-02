@@ -40,6 +40,9 @@ nmi_diag_count:
 .global nmi_isr_wrapper
 .extern syscall_entry_fast
 .extern syscall_sysretq_point
+.extern proc_trampoline_iretq
+.extern moe_trampoline_iretq
+.extern bench_trampoline_iretq
 
 nmi_isr_wrapper:
     # ── Paranoid GS Entry ──────────────────────────────────────────────
@@ -67,6 +70,18 @@ nmi_isr_wrapper:
     je      .Lentry_needs_swapgs
 
     lea     r10, [rip + syscall_sysretq_point]
+    cmp     r11, r10
+    je      .Lentry_needs_swapgs
+
+    lea     r10, [rip + proc_trampoline_iretq]
+    cmp     r11, r10
+    je      .Lentry_needs_swapgs
+
+    lea     r10, [rip + moe_trampoline_iretq]
+    cmp     r11, r10
+    je      .Lentry_needs_swapgs
+
+    lea     r10, [rip + bench_trampoline_iretq]
     cmp     r11, r10
     je      .Lentry_needs_swapgs
 
@@ -116,6 +131,18 @@ nmi_isr_wrapper:
     je      .Lexit_needs_swapgs
 
     lea     r10, [rip + syscall_sysretq_point]
+    cmp     r11, r10
+    je      .Lexit_needs_swapgs
+
+    lea     r10, [rip + proc_trampoline_iretq]
+    cmp     r11, r10
+    je      .Lexit_needs_swapgs
+
+    lea     r10, [rip + moe_trampoline_iretq]
+    cmp     r11, r10
+    je      .Lexit_needs_swapgs
+
+    lea     r10, [rip + bench_trampoline_iretq]
     cmp     r11, r10
     je      .Lexit_needs_swapgs
 

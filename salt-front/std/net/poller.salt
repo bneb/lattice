@@ -18,7 +18,7 @@ use std.core.result.Result
 use std.io.reactor_kqueue.KqueueReactor
 
 /// Event filter types.
-pub enum Filter {
+pub enum PollFilter {
     Read,
     Write
 }
@@ -41,10 +41,10 @@ impl Poller {
 
     /// Register a file descriptor for read or write events.
     /// Returns 0 on success, -1 on error.
-    pub fn register(&self, fd: i32, filter: Filter) -> i32 {
+    pub fn register(&self, fd: i32, filter: PollFilter) -> i32 {
         let f = match filter {
-            Filter::Read => 0,
-            Filter::Write => 1
+            PollFilter::Read => 0,
+            PollFilter::Write => 1
         };
         return syscall::http_kq_register(self.reactor.fd(), fd, f);
     }

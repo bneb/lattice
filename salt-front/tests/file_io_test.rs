@@ -30,8 +30,8 @@ fn test_file_struct_parses() {
             return 1;
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse File struct");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse File struct");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     assert!(res.is_ok(), "File struct codegen failed: {:?}", res.err());
 }
 
@@ -65,8 +65,8 @@ fn test_file_open_close_signature() {
             return 0;
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     assert!(res.is_ok(), "File open/close codegen failed: {:?}", res.err());
 }
 
@@ -96,8 +96,8 @@ fn test_file_read_write_syscalls() {
             return 0;
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     assert!(res.is_ok(), "File read/write codegen failed: {:?}", res.err());
 }
 
@@ -120,8 +120,8 @@ fn test_native_ptr_struct() {
             return 0;
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse Ptr<u8>");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse Ptr<u8>");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     assert!(res.is_ok(), "Ptr<u8> codegen failed: {:?}", res.err());
 }
 
@@ -149,8 +149,8 @@ fn test_mmap_returns_native_ptr() {
             return 0;
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse mmap");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse mmap");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     assert!(res.is_ok(), "mmap returning Ptr<u8> failed: {:?}", res.err());
 }
 
@@ -206,8 +206,8 @@ fn test_read_all_convenience() {
             return 0;
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse read_all");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse read_all");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     assert!(res.is_ok(), "read_all convenience function failed: {:?}", res.err());
 }
 

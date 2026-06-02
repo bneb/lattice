@@ -56,7 +56,7 @@ mod tests {
             struct Node { val: i32 }
 
             fn main() -> i32 {
-                let p = Ptr::<Node>::empty();
+                let p = Ptr<Node>::empty();
                 let x = p.val;
                 return 0;
             }
@@ -74,7 +74,7 @@ mod tests {
             struct Node { val: i32 }
 
             fn main() -> i32 {
-                let p = Ptr::<Node>::empty();
+                let p = Ptr<Node>::empty();
                 let a = p.addr;
                 return 0;
             }
@@ -103,7 +103,7 @@ mod tests {
             }
 
             fn main() -> i32 {
-                check(Ptr::<Node>::empty());
+                check(Ptr<Node>::empty());
                 return 0;
             }
         "#;
@@ -128,7 +128,7 @@ mod tests {
             }
 
             fn main() -> i32 {
-                check(Ptr::<Node>::empty());
+                check(Ptr<Node>::empty());
                 return 0;
             }
         "#;
@@ -146,7 +146,7 @@ mod tests {
             struct Node { val: i32 }
 
             fn main() -> i32 {
-                let p = Ptr::<Node>::empty();
+                let p = Ptr<Node>::empty();
                 if p.addr != 0 {
                     let y = p.val;
                 }

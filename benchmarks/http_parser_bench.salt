@@ -4,7 +4,7 @@
 // Uses std.http.parser.parse_request_line with out-parameters.
 // Parses request line + counts headers by scanning for \r\n pairs.
 
-package main
+package basalt
 
 use std.core.str.StringView
 use std.core.ptr.Ptr

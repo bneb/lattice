@@ -59,6 +59,18 @@ global NUM_CPUS: u64 = 1;
 
 const STEAL_THRESHOLD: u64 = 16;
 
+fn pack_head(phys: u64, epoch: u64) -> u64 {
+    return (phys & 0x0000FFFFFFFFF000) | ((epoch & 0xFFFF) << 48);
+}
+
+fn unpack_phys(head: u64) -> u64 {
+    return head & 0x0000FFFFFFFFF000;
+}
+
+fn unpack_epoch(head: u64) -> u64 {
+    return head >> 48;
+}
+
 // Helper to read the next frame physical pointer from a given frame
 fn get_next_frame_ptr(phys_head: u64) -> u64 {
     let vaddr = memory.phys_to_virt(memory.PhysAddr { val: phys_head }).val;
@@ -88,8 +100,10 @@ pub fn init(start: u64, end: u64) {
     while (current + PAGE_SIZE) <= end {
         let target = core_idx % NUM_CPUS;
 
-        set_next_frame_ptr(current, SHARDS[target].head_frame);
-        SHARDS[target].head_frame = current;
+        let current_epoch = unpack_epoch(SHARDS[target].head_frame);
+        let next_head = pack_head(current, current_epoch + 1);
+        set_next_frame_ptr(current, unpack_phys(SHARDS[target].head_frame));
+        SHARDS[target].head_frame = next_head;
         SHARDS[target].free_count = SHARDS[target].free_count + 1;
         
         TOTAL_PAGES += 1;
@@ -113,8 +127,11 @@ pub fn alloc_frame() -> u64 {
     
     // Lock-free pop via intrinsic atomic CAS
     let mut current_head = SHARDS[core_id].head_frame;
-    while current_head != 0 {
-        let next_head = get_next_frame_ptr(current_head);
+    while unpack_phys(current_head) != 0 {
+        let phys_head = unpack_phys(current_head);
+        let next_phys = get_next_frame_ptr(phys_head);
+        let epoch = unpack_epoch(current_head);
+        let next_head = pack_head(next_phys, epoch + 1);
         
         // intrinsic: atomic_cas_i64
         let old_val = atomic_cas_i64(&SHARDS[core_id].head_frame, current_head as i64, next_head as i64);
@@ -122,10 +139,10 @@ pub fn alloc_frame() -> u64 {
             // CAS success
             atomic_add_i64(&SHARDS[core_id].free_count, -1 as i64);
             // Clear magic
-            let vaddr = memory.phys_to_virt(memory.PhysAddr { val: current_head }).val;
+            let vaddr = memory.phys_to_virt(memory.PhysAddr { val: phys_head }).val;
             *((vaddr + 8) as &mut u64) = 0;
             enable_interrupts();
-            return current_head;
+            return phys_head;
         }
         // CAS failed, retry
         current_head = SHARDS[core_id].head_frame;
@@ -155,8 +172,10 @@ pub fn free_frame(page: u64) {
     let mut success = false;
     
     while !success {
-        set_next_frame_ptr(page, current_head);
-        let old_val = atomic_cas_i64(&SHARDS[core_id].head_frame, current_head as i64, page as i64);
+        set_next_frame_ptr(page, unpack_phys(current_head));
+        let epoch = unpack_epoch(current_head);
+        let next_head = pack_head(page, epoch + 1);
+        let old_val = atomic_cas_i64(&SHARDS[core_id].head_frame, current_head as i64, next_head as i64);
         if old_val == current_head as i64 {
             success = true;
         } else {
@@ -174,7 +193,8 @@ pub fn free_frame(page: u64) {
 pub fn bulk_free(frames: Ptr<u64>, count: u64) {
     let mut i: u64 = 0;
     while i < count {
-        let page = frames[i];
+        let mut page: u64 = 0;
+        unsafe { page = frames[i]; }
         if page != 0 {
             free_frame(page);
         }
@@ -191,13 +211,16 @@ fn steal_from_remote(thief: u64) -> u64 {
     while victim < NUM_CPUS {
         if victim != thief && SHARDS[victim].free_count > STEAL_THRESHOLD {
             let victim_head = SHARDS[victim].head_frame;
-            if victim_head != 0 {
-                let next = get_next_frame_ptr(victim_head);
+            let phys_head = unpack_phys(victim_head);
+            if phys_head != 0 {
+                let next_phys = get_next_frame_ptr(phys_head);
+                let epoch = unpack_epoch(victim_head);
+                let next_head = pack_head(next_phys, epoch + 1);
 
-                let old_val = atomic_cas_i64(&SHARDS[victim].head_frame, victim_head as i64, next as i64);
+                let old_val = atomic_cas_i64(&SHARDS[victim].head_frame, victim_head as i64, next_head as i64);
                 if old_val == victim_head as i64 {
                     atomic_add_i64(&SHARDS[victim].free_count, -1 as i64);
-                    return victim_head;
+                    return phys_head;
                 }
             }
         }

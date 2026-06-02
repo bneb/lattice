@@ -3,6 +3,7 @@ package user.browser.compositor
 import user.browser.paint
 import user.browser.dom
 import user.browser.animations
+import user.browser.layout
 
 extern fn facet_gpu_rasterize_primitives(native_drawable: u64, rects: u64, width: i32, height: i32, rect_count: i32, scroll_y: f32);
 extern fn facet_gpu_render_to_buffer(out_buffer: u64, rects: u64, width: i32, height: i32, rect_count: i32, scroll_y: f32);
@@ -17,6 +18,9 @@ extern fn facet_window_next_drawable() -> u64;
 extern fn facet_window_pump_events();
 extern fn facet_window_get_scroll_delta() -> f32;
 extern fn facet_window_drain_keyboard(target: u64) -> u32;
+
+extern fn sys_log_info(ptr: u64, len: u32);
+extern fn sys_print_float(f: f64);
 
 // Epic 68: IOSurface Multi-Process Mode
 pub global COMPOSITOR_SCROLL_Y: [f32; 1] = [0.0; 1];
@@ -136,7 +140,7 @@ pub fn evict_texture(node_idx: u32) {
     let tex_id = dom.DOM_NODE_TEXTURE_ID[node_idx as usize];
     if tex_id != 0xFFFFFFFF && tex_id != 0 {
         facet_gpu_free_texture(tex_id as i32);
-        dom.DOM_NODE_FETCH_STATE[node_idx as usize] = 0; // IDLE natively beautifully dependably natively properly smoothly
+        dom.DOM_NODE_FETCH_STATE[node_idx as usize] = 0; // IDLE natives beautifully dependably natives properly smoothly
         dom.DOM_NODE_TEXTURE_ID[node_idx as usize] = 0;
     }
 }
@@ -187,16 +191,6 @@ pub fn compositor_inject_paint_pointers() {
     P_CMD_TY = paint_ptr_CMD_TY();
     P_CMD_OPACITY = paint_ptr_CMD_OPACITY();
     P_CMD_NODE_ID = paint_ptr_CMD_NODE_ID();
-    
-    // [DIAG] Print pointers to verify GlobalMerge bug
-    let m_px: [u8; 11] = [91,67,79,77,80,93,32,80,88,61,32]; // "[COMP] PX= "
-    sys_log_info((&m_px) as u64, 11);
-    sys_print_float(P_CMD_X as f64);
-    let m_pw: [u8; 5] = [32,80,87,61,32]; // " PW= "
-    sys_log_info((&m_pw) as u64, 5);
-    sys_print_float(P_CMD_W as f64);
-    let nl: [u8; 1] = [10];
-    sys_log_info((&nl) as u64, 1);
 }
 
 pub fn window_init(width: i32, height: i32) {
@@ -358,20 +352,10 @@ pub fn trigger_e2e_compositor(out_buffer_ptr: u64, width: i32, height: i32) {
     facet_gpu_render_to_buffer(out_buffer_ptr, rects_ptr, width, height, count as i32, 0.0);
 }
 
-extern fn sys_log_info(msg_ptr: u64, msg_len: u32);
-extern fn sys_print_float(f: f64);
-
 @no_mangle
 pub fn flush_frame(width: i32, height: i32) {
     let mut count = paint.get_cmd_count();
     if count > 8192 { count = 8192; }
-    
-    // [DIAG] Log entry into flush_frame
-    let m_ff: [u8; 14] = [91,70,76,85,83,72,93,32,99,111,117,110,116,61]; // "[FLUSH] count="
-    sys_log_info((&m_ff) as u64, 14);
-    sys_print_float(count as f64);
-    let nl: [u8; 1] = [10];
-    sys_log_info((&nl) as u64, 1);
     
     if count == 0 { return; }
     // Pack SoA paint commands into packed GPU rect buffer
@@ -401,7 +385,6 @@ pub fn flush_frame(width: i32, height: i32) {
         let shadow_color_u32 = ((sr as u32) << 24) | ((sg as u32) << 16) | ((sb as u32) << 8) | (sa as u32);
         
         let offset = i * 80;
-        let rects_ptr = paint_ptr_GPU_RECT_BUF();
         let bptr = paint_ptr_GPU_RECT_BUF();
         
         *((bptr + (offset as u64)) as &mut f32) = cx as f32;
@@ -433,30 +416,9 @@ pub fn flush_frame(width: i32, height: i32) {
         i = i + 1;
     }
     
-    // [DIAG] Log first rect packed values
-    let buf_ptr = paint_ptr_GPU_RECT_BUF();
-    
-    // Explicit padding check
-    *((buf_ptr) as &mut f32) = 55.0;
-    
-    let sys_val = *((buf_ptr) as &f32);
-    
-    let m_fr: [u8; 11] = [91,70,76,85,83,72,93,32,114,61,10]; // "[FLUSH] r=\n"
-    sys_log_info((&m_fr) as u64, 11);
-    sys_print_float(sys_val as f64);
-    
-    let nl: [u8; 1] = [10];
-    sys_log_info((&nl) as u64, 1);
-    
     let rects_ptr = paint_ptr_GPU_RECT_BUF();
     
     let ios_mode = sys_gpu_is_iosurface_mode();
-    // [DIAG] Log path decision
-    let m_path: [u8; 13] = [91,70,76,85,83,72,93,32,112,97,116,104,61]; // "[FLUSH] path="
-    sys_log_info((&m_path) as u64, 13);
-    sys_print_float(ios_mode as f64);
-    sys_log_info((&nl) as u64, 1);
-    
     if ios_mode == 1 {
         // Multi-Process: Render to IOSurface, signal Main Process
         sys_gpu_rasterize_iosurface(rects_ptr, width, height, count as i32, SCROLL_Y[0]);
@@ -464,12 +426,6 @@ pub fn flush_frame(width: i32, height: i32) {
     } else {
         // Single-Process: Render directly to window drawable
         let drawable = facet_window_next_drawable();
-        // [DIAG] Log drawable
-        let m_draw: [u8; 13] = [91,70,76,85,83,72,93,32,100,114,97,119,61]; // "[FLUSH] draw="
-        sys_log_info((&m_draw) as u64, 13);
-        sys_print_float(drawable as f64);
-        sys_log_info((&nl) as u64, 1);
-        
         if drawable != 0 {
             facet_gpu_rasterize_primitives(drawable, rects_ptr, width, height, count as i32, SCROLL_Y[0]);
         }

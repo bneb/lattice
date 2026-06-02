@@ -15,6 +15,7 @@
 package basalt.sampler
 
 extern fn malloc(size: i64) -> Ptr<u8>;
+extern fn free(ptr: Ptr<u8>);
 
 // -----------------------------------------------------------------------------
 // sample_argmax — Greedy Decoding
@@ -23,8 +24,8 @@ extern fn malloc(size: i64) -> Ptr<u8>;
 // Used when temperature = 0 for reproducible output.
 // -----------------------------------------------------------------------------
 pub fn sample_argmax(probabilities: Ptr<f32>, n: i64) -> i64
-    requires n > 0
 {
+    if n <= 0 { return 0; }
     let mut best_idx: i64 = 0;
     let mut best_val: f32 = probabilities[0];
     for i in 1..n {
@@ -47,8 +48,8 @@ pub fn sample_argmax(probabilities: Ptr<f32>, n: i64) -> i64
 // and running softmax BEFORE calling this function.
 // -----------------------------------------------------------------------------
 pub fn sample_token(probabilities: Ptr<f32>, n: i64, coin: f32) -> i64
-    requires n > 0
 {
+    if n <= 0 { return 0; }
     let mut cdf: f32 = 0.0f32;
     for i in 0..n {
         cdf = cdf + probabilities[i];
@@ -94,8 +95,8 @@ fn alloc_i64(count: i64) -> Ptr<i64> {
 // For the hot path, pre-allocate these in RunState.
 // -----------------------------------------------------------------------------
 pub fn sample_topp(probabilities: Ptr<f32>, n: i64, topp: f32, coin: f32) -> i64
-    requires n > 0
 {
+    if n <= 0 { return 0; }
     // Cutoff: skip tokens with negligible probability
     let cutoff: f32 = (1.0f32 - topp) / ((n - 1) as f32);
 
@@ -103,8 +104,11 @@ pub fn sample_topp(probabilities: Ptr<f32>, n: i64, topp: f32, coin: f32) -> i64
     let prob_buf = alloc_f32(n);
     let idx_buf = alloc_i64(n);
     if prob_buf as i64 == 0 || idx_buf as i64 == 0 {
+        if prob_buf as i64 != 0 { free(prob_buf as Ptr<u8>); }
+        if idx_buf as i64 != 0 { free(idx_buf as Ptr<u8>); }
         return 0; // Fallback
     }
+    
     let mut n0: i64 = 0;
     for i in 0..n {
         let p: f32 = probabilities[i];
@@ -113,6 +117,12 @@ pub fn sample_topp(probabilities: Ptr<f32>, n: i64, topp: f32, coin: f32) -> i64
             idx_buf[n0] = i;
             n0 = n0 + 1;
         }
+    }
+
+    if n0 == 0 {
+        free(prob_buf as Ptr<u8>);
+        free(idx_buf as Ptr<u8>);
+        return sample_argmax(probabilities, n);
     }
 
     // Insertion sort by probability descending
@@ -137,23 +147,33 @@ pub fn sample_topp(probabilities: Ptr<f32>, n: i64, topp: f32, coin: f32) -> i64
     // Truncate to top-p cumulative mass
     let mut cumulative: f32 = 0.0f32;
     let mut last_idx: i64 = n0 - 1;
+    let mut found: i64 = 0;
     for i in 0..n0 {
-        cumulative = cumulative + prob_buf[i];
-        if cumulative > topp {
-            last_idx = i;
-            // Break simulation: remaining iterations are no-ops
-            for skip in 0..0 {}
+        if found == 0 {
+            cumulative = cumulative + prob_buf[i];
+            if cumulative > topp {
+                last_idx = i;
+                found = 1;
+            }
         }
     }
 
     // Sample from the truncated distribution
     let r: f32 = coin * cumulative;
     let mut cdf: f32 = 0.0f32;
+    let mut result: i64 = idx_buf[last_idx];
+    let mut sampled: i64 = 0;
     for i in 0..last_idx + 1 {
-        cdf = cdf + prob_buf[i];
-        if r < cdf {
-            return idx_buf[i];
+        if sampled == 0 {
+            cdf = cdf + prob_buf[i];
+            if r < cdf {
+                result = idx_buf[i];
+                sampled = 1;
+            }
         }
     }
-    return idx_buf[last_idx];
+    
+    free(prob_buf as Ptr<u8>);
+    free(idx_buf as Ptr<u8>);
+    return result;
 }

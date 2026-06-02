@@ -288,7 +288,7 @@ pub fn resolve_path_to_enum(
     if parts.len() < 2 { return None; }
     
     let enum_name_candidate = Mangler::mangle(&parts[..parts.len()-1]);
-    let variant_name = parts.last().unwrap();
+    let variant_name = parts.last()?;
     
 
     
@@ -317,12 +317,12 @@ pub fn resolve_path_to_enum(
     
     
     if let Some(base_template) = template_match {
-        let def = ctx.enum_templates().get(&base_template).unwrap().clone();
+        let def = ctx.enum_templates().get(&base_template)?.clone();
         
-        let mut target_variant = None;
+        let mut _target_variant = None;
         for v in def.variants.iter() {
             if v.name == *variant_name {
-                target_variant = Some(v.clone());
+                _target_variant = Some(v.clone());
                 break;
             }
         }

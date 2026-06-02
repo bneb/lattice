@@ -94,7 +94,7 @@ pub fn ebr_arena_new(max_cores: i32) -> EbrArena
 // while this core is active.
 // ============================================================================
 pub fn enter_epoch(arena: &mut EbrArena, core_id: i32)
-    requires(core_id >= 0)
+    requires(core_id >= 0 && core_id < arena.max_cores)
 {
     let ep = arena.local_epochs.offset(core_id as i64);
     // In production: atomic_store_release(ep, atomic_load_acquire(&arena.global_epoch))
@@ -109,7 +109,7 @@ pub fn enter_epoch(arena: &mut EbrArena, core_id: i32)
 // any references and should not block reclamation.
 // ============================================================================
 pub fn exit_epoch(arena: &mut EbrArena, core_id: i32)
-    requires(core_id >= 0)
+    requires(core_id >= 0 && core_id < arena.max_cores)
 {
     let ep = arena.local_epochs.offset(core_id as i64);
     *(ep as &mut u64) = EPOCH_INACTIVE;
@@ -123,7 +123,7 @@ pub fn exit_epoch(arena: &mut EbrArena, core_id: i32)
 // past this epoch.
 // ============================================================================
 pub fn retire(arena: &mut EbrArena, core_id: i32, ptr: Ptr<u8>)
-    requires(core_id >= 0)
+    requires(core_id >= 0 && core_id < arena.max_cores)
 {
     // Allocate a RetiredNode (in production: from a lock-free free list)
     let node = malloc(24) as Ptr<RetiredNode>;  // sizeof(RetiredNode) = 24
@@ -211,7 +211,7 @@ pub fn safe_reclaim_blocks(arena: &mut EbrArena, core_id: i32)
 // get_retired_count — Count nodes in a core's retired list
 // ============================================================================
 pub fn get_retired_count(arena: &EbrArena, core_id: i32) -> i64
-    requires(core_id >= 0)
+    requires(core_id >= 0 && core_id < arena.max_cores)
 {
     let list_slot = arena.retired_lists.offset(core_id as i64);
     let mut head = *(list_slot as &Ptr<RetiredNode>);

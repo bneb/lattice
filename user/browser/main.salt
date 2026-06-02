@@ -58,6 +58,7 @@ extern fn sys_jsc_evaluate_script(ptr: u64, len: u32, filename: u64);
 extern fn js_bridge_dispatch_event(node_id: u64, type_ptr: u64, type_len: u32);
 extern fn drain_scroll_input() -> i32;
 extern fn sys_on_mouse_click(x: i32, y: i32);
+extern fn jsc_set_current_url(ptr: u64, len: u32);
 extern fn js_resolve_fetch(fetch_id: u64, ptr: u64, len: u32);
 extern fn sys_jsc_flush_microtasks();
 extern fn js_engine_teardown();
@@ -129,7 +130,6 @@ pub fn get_max_test_frames() -> u64 {
 }
 
 // Epic 99 Mock HTTP
-extern fn ext_get_mock_http_ptr() -> u64;
 extern fn ext_get_mock_http_len() -> u32;
 extern fn http_process_ingress(buf_ptr: u64, buf_len: u32);
 extern fn ext_ipc_init_shm(fd: i32) -> i32;
@@ -186,13 +186,6 @@ pub fn sys_js_pump_script_queue() {
         sys_jsc_evaluate_script(s_ptr, s_len, 0);
         count = count + 1;
     }
-    
-    let msg: [u8; 33] = [91,74,83,67,93,32,80,117,109,112,101,100,32,115,99,114,105,112,116,115,58,32,0,0,0,0,0,0,0,0,0,0,0];
-    sys_log_info((&msg) as u64, 22);
-    sys_print_float(count as f64);
-    
-    let nl: [u8; 1] = [10];
-    sys_log_info((&nl) as u64, 1);
 }
 
 
@@ -384,6 +377,9 @@ pub fn sys_parse_cli_ipc_fd(argc: u32, argv: u64) -> i32 {
 
 extern fn ext_cdm_sandbox_init();
 
+extern fn ext_get_mock_http_ptr(url_ptr: u64, url_len: u32) -> u64;
+extern fn ext_get_mock_http_len() -> u32;
+
 @no_mangle
 pub fn salt_browser_main(argc: u32, argv: u64) -> u32 {
     let msg: [u8; 40] = [73, 110, 105, 116, 105, 97, 108, 105, 122, 105, 110, 103, 32, 80, 114, 105, 115, 105, 109, 105, 32, 83, 111, 118, 101, 114, 101, 105, 103, 110, 32, 69, 110, 103, 105, 110, 101, 46, 46, 46];
@@ -424,6 +420,10 @@ pub fn salt_browser_main(argc: u32, argv: u64) -> u32 {
     let url_len = sys_parse_cli_url_len(argc, argv);
     let url_ptr = sys_parse_cli_url_ptr(argc, argv);
     
+    if url_ptr != 0 {
+        jsc_set_current_url(url_ptr, url_len);
+    }
+    
     if url_ptr == 0 || url_len == 0 {
         let err_msg: [u8; 31] = [70, 65, 84, 65, 76, 58, 32, 78, 111, 32, 112, 97, 121, 108, 111, 97, 100, 32, 85, 82, 76, 32, 112, 114, 111, 118, 105, 100, 101, 100, 46];
         sys_log_error((&err_msg) as u64, 31);
@@ -442,22 +442,20 @@ pub fn salt_browser_main(argc: u32, argv: u64) -> u32 {
     let is_single_process = ipc_fd < 0 && ipc_fd_from_cli < 0;
     
     if is_single_process {
-        // Single-process mode: IPC has no shared memory, so CMD_FETCH_REQUEST
-        // goes nowhere. Feed mock HTML directly through the HTTP lexer.
-        let mock_ptr = ext_get_mock_http_ptr();
-        let mock_len = ext_get_mock_http_len();
+        // [V1.2] Single-process stability: reset DOM and init viewport
+        dom.init_arrays();
+        dom.init_root_viewport(1920, 1080);
         
-        let msg_mock: [u8; 30] = [91,78,69,84,93,32,83,105,110,103,108,101,45,112,114,111,99,101,115,115,32,109,111,99,107,32,108,101,110,61]; // "[NET] Single-process mock len="
-        sys_log_info((&msg_mock) as u64, 30);
-        sys_print_float(mock_len as f64);
-        let nl: [u8; 1] = [10];
-        sys_log_info((&nl) as u64, 1);
+        let root: u64 = 1; // Generation 0, Index 1
+        
+        // Single-process bridge (Epic 108 Bypass) uses curl internally
+        let mock_ptr = ext_get_mock_http_ptr(url_ptr, url_len);
+        let mock_len = ext_get_mock_http_len();
         
         http_set_root_node(root);
         http_process_ingress(mock_ptr, mock_len);
         http_set_eof();
         
-        // Mark ALL nodes dirty after batch DOM creation
         invalidate_all_layout();
         ext_mark_all_compositor_dirty();
     } else {

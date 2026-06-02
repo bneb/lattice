@@ -369,6 +369,7 @@ user_stack_init:
  * ==================================================================== */
 .global sched_yield
 sched_yield:
+    cli
     /* Check if we are inside a unified thread */
     mov r11, gs:[GS_SCHED_RSP]
     test r11, r11
@@ -379,7 +380,7 @@ sched_yield:
 
     /* Calculate RSP before the call (RSP + 8) */
     mov r10, rsp
-    add r10, 8
+    add r10, 16
     push r10
 
     pushfq
@@ -427,5 +428,6 @@ sched_yield:
     ret
 
 .Lcall_dispatch_directly:
+    sti
     jmp do_dispatch
 

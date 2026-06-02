@@ -1,6 +1,0 @@
-global my_array: [u64; 1024] = [0; 1024];
-@no_mangle
-pub fn get_top() -> u64 {
-    let top = (&my_array[1023]) as u64;
-    return top;
-}

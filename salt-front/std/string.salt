@@ -138,9 +138,11 @@ impl String {
     // Append a null-terminated C string
     pub fn push_cstr(&mut self, s: &u8) {
         let mut i = 0;
-        while s[i] != 0 {
-            self.push_byte(s[i]);
-            i += 1;
+        unsafe {
+            while s[i] != 0 {
+                self.push_byte(s[i]);
+                i += 1;
+            }
         }
     }
 
@@ -554,8 +556,10 @@ pub fn from_literal(s: &u8, len: i64) -> String
 {
     let safe_len = if len < 0 { 0 as i64 } else { len };
     let mut result = String::with_capacity(safe_len);
-    for i in 0..(safe_len as i32) {
-        result.push_byte(s[i]);
+    unsafe {
+        for i in 0..(safe_len as i32) {
+            result.push_byte(s[i]);
+        }
     }
     return result;
 }
@@ -597,8 +601,10 @@ impl InterpolatedStringHandler {
     // Append a static literal segment (compile-time known)
     pub fn append_literal(&mut self, s: &u8, len: i64) {
         // Direct copy without UTF-8 validation (literals are always valid)
-        for i in 0..len {
-            self.inner.push_byte(s[i]);
+        unsafe {
+            for i in 0..len {
+                self.inner.push_byte(s[i]);
+            }
         }
     }
 
@@ -661,9 +667,11 @@ impl InterpolatedStringHandler {
     pub fn append_str(&mut self, val: &u8) {
         // C-string: copy until null terminator
         let mut i = 0;
-        while val[i] != 0 {
-            self.inner.push_byte(val[i]);
-            i += 1;
+        unsafe {
+            while val[i] != 0 {
+                self.inner.push_byte(val[i]);
+                i += 1;
+            }
         }
     }
 
@@ -708,8 +716,10 @@ impl InterpolatedStringHandler {
     @inline
     pub fn append_literal_unchecked(&mut self, base: u64, offset: u64, s: &u8, len: i64) -> u64 {
         let data_ptr = base as Ptr<u8>;
-        for i in 0..len {
-            data_ptr[(offset as i64) + i] = s[i];
+        unsafe {
+            for i in 0..len {
+                data_ptr[(offset as i64) + i] = s[i];
+            }
         }
         return offset + (len as u64);
     }

@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 macro_rules! with_ctx {
     ($ctx:ident, $block:block) => {
         let code = "fn main() {}";
-        let file: SaltFile = syn::parse_str(code).unwrap();
+        let mut file: SaltFile = syn::parse_str(code).unwrap();
         let z3_cfg = z3::Config::new();
         let z3_ctx = z3::Context::new(&z3_cfg);
         let $ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -29,7 +29,7 @@ fn test_label_resolution_stress() {
         }
         
         let file_code = format!("fn stress() {{ {} }}", code);
-        let file: SaltFile = syn::parse_str(&file_code).unwrap();
+        let mut file: SaltFile = syn::parse_str(&file_code).unwrap();
         let func = match &file.items[0] {
             Item::Fn(f) => f,
             _ => panic!("Expected function"),
@@ -60,7 +60,7 @@ fn test_early_return_matrix() {
         code = format!("{} else {{ return 99; }}", code);
         
         let file_code = format!("fn matrix(x: i32) -> i32 {{ {} }}", code);
-        let file: SaltFile = syn::parse_str(&file_code).unwrap();
+        let mut file: SaltFile = syn::parse_str(&file_code).unwrap();
         let func = match &file.items[0] {
             Item::Fn(f) => f,
             _ => panic!("Expected function"),
@@ -106,7 +106,7 @@ fn test_affine_for_with_simple_body_allowed() {
             }
         }
     "#;
-    let file: SaltFile = syn::parse_str(code).unwrap();
+    let mut file: SaltFile = syn::parse_str(code).unwrap();
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -137,7 +137,7 @@ fn test_affine_for_with_if_expr_falls_back_to_cf() {
             }
         }
     "#;
-    let file: SaltFile = syn::parse_str(code).unwrap();
+    let mut file: SaltFile = syn::parse_str(code).unwrap();
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -172,7 +172,7 @@ fn test_affine_for_with_if_stmt_falls_back_to_cf() {
             }
         }
     "#;
-    let file: SaltFile = syn::parse_str(code).unwrap();
+    let mut file: SaltFile = syn::parse_str(code).unwrap();
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -211,7 +211,7 @@ fn test_while_loop_inside_for_falls_back_to_cf() {
             }
         }
     "#;
-    let file: SaltFile = syn::parse_str(code).unwrap();
+    let mut file: SaltFile = syn::parse_str(code).unwrap();
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -249,7 +249,7 @@ fn test_nested_for_loops_stay_in_affine() {
             }
         }
     "#;
-    let file: SaltFile = syn::parse_str(code).unwrap();
+    let mut file: SaltFile = syn::parse_str(code).unwrap();
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -285,7 +285,7 @@ fn test_nested_for_with_deep_while_falls_back() {
             }
         }
     "#;
-    let file: SaltFile = syn::parse_str(code).unwrap();
+    let mut file: SaltFile = syn::parse_str(code).unwrap();
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -316,7 +316,7 @@ fn test_standalone_while_emits_cf() {
             }
         }
     "#;
-    let file: SaltFile = syn::parse_str(code).unwrap();
+    let mut file: SaltFile = syn::parse_str(code).unwrap();
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);

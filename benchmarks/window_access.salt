@@ -1,4 +1,4 @@
-package main
+package basalt
 
 use std.core.ptr.Ptr
 use std.core.arena

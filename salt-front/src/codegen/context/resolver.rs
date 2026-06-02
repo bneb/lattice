@@ -18,6 +18,9 @@ pub fn resolve_method_impl(ctx: &CodegenContext, receiver_ty: &Type, method_name
             if let Some(result) = ctx.discovery.borrow().trait_registry.get_legacy(&template_key, method_name) {
                 return Ok(result);
             }
+            if let Some(result) = ctx.discovery.borrow().trait_registry.find_method_by_name(&key.name, method_name, &current_ty) {
+                return Ok(result);
+            }
         }
 
         if let Some(next_ty) = current_ty.peel_reference() {
@@ -44,6 +47,9 @@ pub fn resolve_method_lctx_impl(ctx: &LoweringContext, receiver_ty: &Type, metho
             }
             let template_key = key.to_template();
             if let Some(result) = ctx.discovery.trait_registry.get_legacy(&template_key, method_name) {
+                return Ok(result);
+            }
+            if let Some(result) = ctx.discovery.trait_registry.find_method_by_name(&key.name, method_name, &current_ty) {
                 return Ok(result);
             }
         }

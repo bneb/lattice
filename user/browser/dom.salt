@@ -9,6 +9,18 @@ extern fn ext_jsc_trigger_connected_callback(node_id: u64);
 extern fn ext_jsc_trigger_disconnected_callback(node_id: u64);
 extern fn ext_events_free_node_callbacks(node_idx: u32);
 
+
+pub fn delete_text_at_node(node: u64) {
+    ext_dom_mutate_text(node as u32, 0, 1);
+}
+
+pub fn append_text_to_node(node: u64, ch: u8) {
+    ext_dom_mutate_text(node as u32, ch, 0);
+}
+
+extern fn strlen(ptr: u64) -> u32;
+extern fn strcmp(s1: u64, len1: u32, s2: u64, len2: u32) -> bool;
+
 // ============================================================================
 // Data-Oriented DOM Representation
 // ============================================================================
@@ -53,10 +65,12 @@ pub global DOM_TEXT_LEN:           [u32; 65536] = [0; 65536];
 pub global DOM_TEXT_ARENA_OBJ:    ResilientArena = ResilientArena::new(10485760); // 10MB Chunks
 pub global ACTIVE_CURSOR_INDEX:    u32 = 0;
 
+extern fn sovereign_arena_alloc(size: i64) -> u64;
+
 @no_mangle
 pub fn dom_alloc_text(len: u32) -> u64 {
-    let arena_ptr = (&mut DOM_TEXT_ARENA_OBJ) as &mut ResilientArena;
-    return arena_ptr.alloc(len as i64) as u64;
+    // Use direct allocation for stability (Epic 108 workaround)
+    return sovereign_arena_alloc(len as i64);
 }
 
 pub const MAX_ATTRIBUTES: u32 = 262144;
@@ -95,9 +109,9 @@ pub global PLACEHOLDER_PTR: [u64; 65536] = [0; 65536];
 pub global PLACEHOLDER_LEN: [u32; 65536] = [0; 65536];
 
 @no_mangle
-pub fn dom_ptr_PLACEHOLDER_PTR() -> u64 { return (&PLACEHOLDER_PTR) as u64; }
+pub fn dom_ptr_PLACEHOLDER_PTR() -> u64 { return (&PLACEHOLDER_PTR[0]) as u64; }
 @no_mangle
-pub fn dom_ptr_PLACEHOLDER_LEN() -> u64 { return (&PLACEHOLDER_LEN) as u64; }
+pub fn dom_ptr_PLACEHOLDER_LEN() -> u64 { return (&PLACEHOLDER_LEN[0]) as u64; }
 
 @no_mangle
 pub fn dom_set_placeholder(idx: u32, ptr: u64, len: u32) {
@@ -155,13 +169,13 @@ pub fn dom_get_generation(idx: u32) -> u32 {
 
 
 // Styling Matrix (SoA)
-pub global VIEWPORT_W: f32 = 0.5;
-pub global VIEWPORT_H: f32 = 0.5;
+pub global VIEWPORT_W_A: [f32; 1] = [1920.0];
+pub global VIEWPORT_H_A: [f32; 1] = [1080.0];
 
 @no_mangle
 pub fn ext_salt_update_viewport(w: f32, h: f32) {
-    VIEWPORT_W = w;
-    VIEWPORT_H = h;
+    VIEWPORT_W_A[0] = w;
+    VIEWPORT_H_A[0] = h;
     // Force a full layout pass because the window size changed. 
     // We use node 999999 as the canonical virtual root (Root Node = The Window).
     // IMPORTANT: Index must be masked to avoid OOB write!
@@ -169,11 +183,11 @@ pub fn ext_salt_update_viewport(w: f32, h: f32) {
 }
 
 pub fn get_viewport_w() -> f32 {
-    return VIEWPORT_W;
+    return VIEWPORT_W_A[0];
 }
 
 pub fn get_viewport_h() -> f32 {
-    return VIEWPORT_H;
+    return VIEWPORT_H_A[0];
 }
 pub global CLASS_HASH: [u32; 65536] = [0; 65536];
 
@@ -564,6 +578,18 @@ pub global DOM_SELECTION_END:   [u32; 65536] = [0; 65536];
 pub global EVICTION_QUEUE: [u32; 1024] = [0; 1024];
 pub global EVICTION_COUNT: u32 = 0;
 
+pub global FOCUSED_NODE_IDX: u32 = 0; // 0 = nothing focused
+
+@no_mangle
+pub fn dom_set_focused_node(node_idx: u32) {
+    FOCUSED_NODE_IDX = node_idx;
+}
+
+@no_mangle
+pub fn dom_get_focused_node() -> u32 {
+    return FOCUSED_NODE_IDX;
+}
+
 // Per-node string attributes (id, className)
 pub global DOM_ID_PTR:    [u64; 65536] = [0; 65536];
 pub global DOM_ID_LEN:    [u32; 65536] = [0; 65536];
@@ -601,113 +627,113 @@ pub global IFRAME_COUNT:          u32 = 0;
 // ============================================================================
 
 // Layout outputs (i32, stride 4)
-@no_mangle pub fn dom_ptr_LAYOUT_X() -> u64 { return (&LAYOUT_X) as u64; }
-@no_mangle pub fn dom_ptr_LAYOUT_Y() -> u64 { return (&LAYOUT_Y) as u64; }
-@no_mangle pub fn dom_ptr_LAYOUT_W() -> u64 { return (&LAYOUT_W) as u64; }
-@no_mangle pub fn dom_ptr_LAYOUT_H() -> u64 { return (&LAYOUT_H) as u64; }
+@no_mangle pub fn dom_ptr_LAYOUT_X() -> u64 { return (&LAYOUT_X[0]) as u64; }
+@no_mangle pub fn dom_ptr_LAYOUT_Y() -> u64 { return (&LAYOUT_Y[0]) as u64; }
+@no_mangle pub fn dom_ptr_LAYOUT_W() -> u64 { return (&LAYOUT_W[0]) as u64; }
+@no_mangle pub fn dom_ptr_LAYOUT_H() -> u64 { return (&LAYOUT_H[0]) as u64; }
 
 // Layout scroll (f32, stride 4)
-@no_mangle pub fn dom_ptr_LAYOUT_SCROLL_X() -> u64 { return (&LAYOUT_SCROLL_X) as u64; }
-@no_mangle pub fn dom_ptr_LAYOUT_SCROLL_Y() -> u64 { return (&LAYOUT_SCROLL_Y) as u64; }
-@no_mangle pub fn dom_ptr_VIEWPORT_W() -> u64 { return (&VIEWPORT_W) as u64; }
-@no_mangle pub fn dom_ptr_VIEWPORT_H() -> u64 { return (&VIEWPORT_H) as u64; }
+@no_mangle pub fn dom_ptr_LAYOUT_SCROLL_X() -> u64 { return (&LAYOUT_SCROLL_X[0]) as u64; }
+@no_mangle pub fn dom_ptr_LAYOUT_SCROLL_Y() -> u64 { return (&LAYOUT_SCROLL_Y[0]) as u64; }
+@no_mangle pub fn dom_ptr_VIEWPORT_W() -> u64 { return (&VIEWPORT_W_A[0]) as u64; }
+@no_mangle pub fn dom_ptr_VIEWPORT_H() -> u64 { return (&VIEWPORT_H_A[0]) as u64; }
 
 // DOM tree linkage (u64, stride 8)
-@no_mangle pub fn dom_ptr_DOM_NODE_NEXT_SIBLING() -> u64 { return (&DOM_NODE_NEXT_SIBLING) as u64; }
-@no_mangle pub fn dom_ptr_DOM_NODE_FIRST_CHILD() -> u64 { return (&DOM_NODE_FIRST_CHILD) as u64; }
-@no_mangle pub fn dom_ptr_DOM_NODE_PARENT() -> u64 { return (&DOM_NODE_PARENT) as u64; }
-@no_mangle pub fn dom_ptr_DOM_TEXT_PTR() -> u64 { return (&DOM_TEXT_PTR) as u64; }
+@no_mangle pub fn dom_ptr_DOM_NODE_NEXT_SIBLING() -> u64 { return (&DOM_NODE_NEXT_SIBLING[0]) as u64; }
+@no_mangle pub fn dom_ptr_DOM_NODE_FIRST_CHILD() -> u64 { return (&DOM_NODE_FIRST_CHILD[0]) as u64; }
+@no_mangle pub fn dom_ptr_DOM_NODE_PARENT() -> u64 { return (&DOM_NODE_PARENT[0]) as u64; }
+@no_mangle pub fn dom_ptr_DOM_TEXT_PTR() -> u64 { return (&DOM_TEXT_PTR[0]) as u64; }
 
 // DOM tree data (u32, stride 4)
-@no_mangle pub fn dom_ptr_DOM_NODE_TAG() -> u64 { return (&DOM_NODE_TAG) as u64; }
-@no_mangle pub fn dom_ptr_DOM_TEXT_LEN() -> u64 { return (&DOM_TEXT_LEN) as u64; }
-@no_mangle pub fn dom_ptr_DOM_NODE_GENERATION() -> u64 { return (&DOM_NODE_GENERATION) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_PARENT() -> u64 { return (&STYLE_PARENT) as u64; }
+@no_mangle pub fn dom_ptr_DOM_NODE_TAG() -> u64 { return (&DOM_NODE_TAG[0]) as u64; }
+@no_mangle pub fn dom_ptr_DOM_TEXT_LEN() -> u64 { return (&DOM_TEXT_LEN[0]) as u64; }
+@no_mangle pub fn dom_ptr_DOM_NODE_GENERATION() -> u64 { return (&DOM_NODE_GENERATION[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_PARENT() -> u64 { return (&STYLE_PARENT[0]) as u64; }
 
 // Style properties (u8, stride 1)
-@no_mangle pub fn dom_ptr_FLAG_LAYOUT_DIRTY() -> u64 { return (&FLAG_LAYOUT_DIRTY) as u64; }
-@no_mangle pub fn dom_ptr_FLAG_CHILD_LAYOUT_DIRTY() -> u64 { return (&FLAG_CHILD_LAYOUT_DIRTY) as u64; }
-@no_mangle pub fn dom_ptr_DIRTY_PAINT() -> u64 { return (&DIRTY_PAINT) as u64; }
-@no_mangle pub fn dom_ptr_DIRTY_STYLE() -> u64 { return (&DIRTY_STYLE) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_DISPLAY() -> u64 { return (&STYLE_DISPLAY) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_FLEX_DIR() -> u64 { return (&STYLE_FLEX_DIR) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_JUSTIFY_CONTENT() -> u64 { return (&STYLE_JUSTIFY_CONTENT) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_ALIGN_ITEMS() -> u64 { return (&STYLE_ALIGN_ITEMS) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_W_UNIT() -> u64 { return (&STYLE_W_UNIT) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_POSITION() -> u64 { return (&STYLE_POSITION) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_OVERFLOW() -> u64 { return (&STYLE_OVERFLOW) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_GRID_COL_COUNT() -> u64 { return (&STYLE_GRID_COL_COUNT) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_GRID_COL_START() -> u64 { return (&STYLE_GRID_COL_START) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_GRID_ROW_START() -> u64 { return (&STYLE_GRID_ROW_START) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_TEXT_ALIGN() -> u64 { return (&STYLE_TEXT_ALIGN) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BORDER_COLOR_R() -> u64 { return (&STYLE_BORDER_COLOR_R) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BORDER_COLOR_G() -> u64 { return (&STYLE_BORDER_COLOR_G) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BORDER_COLOR_B() -> u64 { return (&STYLE_BORDER_COLOR_B) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BOX_SIZING() -> u64 { return (&STYLE_BOX_SIZING) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_VISIBILITY() -> u64 { return (&STYLE_VISIBILITY) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_FLEX_WRAP() -> u64 { return (&STYLE_FLEX_WRAP) as u64; }
+@no_mangle pub fn dom_ptr_FLAG_LAYOUT_DIRTY() -> u64 { return (&FLAG_LAYOUT_DIRTY[0]) as u64; }
+@no_mangle pub fn dom_ptr_FLAG_CHILD_LAYOUT_DIRTY() -> u64 { return (&FLAG_CHILD_LAYOUT_DIRTY[0]) as u64; }
+@no_mangle pub fn dom_ptr_DIRTY_PAINT() -> u64 { return (&DIRTY_PAINT[0]) as u64; }
+@no_mangle pub fn dom_ptr_DIRTY_STYLE() -> u64 { return (&DIRTY_STYLE[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_DISPLAY() -> u64 { return (&STYLE_DISPLAY[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_FLEX_DIR() -> u64 { return (&STYLE_FLEX_DIR[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_JUSTIFY_CONTENT() -> u64 { return (&STYLE_JUSTIFY_CONTENT[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_ALIGN_ITEMS() -> u64 { return (&STYLE_ALIGN_ITEMS[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_W_UNIT() -> u64 { return (&STYLE_W_UNIT[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_POSITION() -> u64 { return (&STYLE_POSITION[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_OVERFLOW() -> u64 { return (&STYLE_OVERFLOW[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_GRID_COL_COUNT() -> u64 { return (&STYLE_GRID_COL_COUNT[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_GRID_COL_START() -> u64 { return (&STYLE_GRID_COL_START[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_GRID_ROW_START() -> u64 { return (&STYLE_GRID_ROW_START[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_TEXT_ALIGN() -> u64 { return (&STYLE_TEXT_ALIGN[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BORDER_COLOR_R() -> u64 { return (&STYLE_BORDER_COLOR_R[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BORDER_COLOR_G() -> u64 { return (&STYLE_BORDER_COLOR_G[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BORDER_COLOR_B() -> u64 { return (&STYLE_BORDER_COLOR_B[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BOX_SIZING() -> u64 { return (&STYLE_BOX_SIZING[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_VISIBILITY() -> u64 { return (&STYLE_VISIBILITY[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_FLEX_WRAP() -> u64 { return (&STYLE_FLEX_WRAP[0]) as u64; }
 // Style properties (i32, stride 4)
-@no_mangle pub fn dom_ptr_STYLE_W() -> u64 { return (&STYLE_W) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_H() -> u64 { return (&STYLE_H) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_H_UNIT() -> u64 { return (&STYLE_H_UNIT) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_FLEX_GROW() -> u64 { return (&STYLE_FLEX_GROW) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_FLEX_BASIS() -> u64 { return (&STYLE_FLEX_BASIS) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_PADDING_TOP() -> u64 { return (&STYLE_PADDING_TOP) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_PADDING_RIGHT() -> u64 { return (&STYLE_PADDING_RIGHT) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_PADDING_BOTTOM() -> u64 { return (&STYLE_PADDING_BOTTOM) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_PADDING_LEFT() -> u64 { return (&STYLE_PADDING_LEFT) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_TOP() -> u64 { return (&STYLE_TOP) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_LEFT() -> u64 { return (&STYLE_LEFT) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_MARGIN_TOP() -> u64 { return (&STYLE_MARGIN_TOP) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_MARGIN_RIGHT() -> u64 { return (&STYLE_MARGIN_RIGHT) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_MARGIN_BOTTOM() -> u64 { return (&STYLE_MARGIN_BOTTOM) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_MARGIN_LEFT() -> u64 { return (&STYLE_MARGIN_LEFT) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BORDER_WIDTH_TOP() -> u64 { return (&STYLE_BORDER_WIDTH_TOP) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BORDER_WIDTH_RIGHT() -> u64 { return (&STYLE_BORDER_WIDTH_RIGHT) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BORDER_WIDTH_BOTTOM() -> u64 { return (&STYLE_BORDER_WIDTH_BOTTOM) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BORDER_WIDTH_LEFT() -> u64 { return (&STYLE_BORDER_WIDTH_LEFT) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_MIN_WIDTH() -> u64 { return (&STYLE_MIN_WIDTH) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_MAX_WIDTH() -> u64 { return (&STYLE_MAX_WIDTH) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_MIN_HEIGHT() -> u64 { return (&STYLE_MIN_HEIGHT) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_MAX_HEIGHT() -> u64 { return (&STYLE_MAX_HEIGHT) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_Z_INDEX() -> u64 { return (&STYLE_Z_INDEX) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_W() -> u64 { return (&STYLE_W[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_H() -> u64 { return (&STYLE_H[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_H_UNIT() -> u64 { return (&STYLE_H_UNIT[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_FLEX_GROW() -> u64 { return (&STYLE_FLEX_GROW[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_FLEX_BASIS() -> u64 { return (&STYLE_FLEX_BASIS[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_PADDING_TOP() -> u64 { return (&STYLE_PADDING_TOP[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_PADDING_RIGHT() -> u64 { return (&STYLE_PADDING_RIGHT[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_PADDING_BOTTOM() -> u64 { return (&STYLE_PADDING_BOTTOM[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_PADDING_LEFT() -> u64 { return (&STYLE_PADDING_LEFT[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_TOP() -> u64 { return (&STYLE_TOP[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_LEFT() -> u64 { return (&STYLE_LEFT[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_MARGIN_TOP() -> u64 { return (&STYLE_MARGIN_TOP[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_MARGIN_RIGHT() -> u64 { return (&STYLE_MARGIN_RIGHT[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_MARGIN_BOTTOM() -> u64 { return (&STYLE_MARGIN_BOTTOM[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_MARGIN_LEFT() -> u64 { return (&STYLE_MARGIN_LEFT[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BORDER_WIDTH_TOP() -> u64 { return (&STYLE_BORDER_WIDTH_TOP[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BORDER_WIDTH_RIGHT() -> u64 { return (&STYLE_BORDER_WIDTH_RIGHT[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BORDER_WIDTH_BOTTOM() -> u64 { return (&STYLE_BORDER_WIDTH_BOTTOM[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BORDER_WIDTH_LEFT() -> u64 { return (&STYLE_BORDER_WIDTH_LEFT[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_MIN_WIDTH() -> u64 { return (&STYLE_MIN_WIDTH[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_MAX_WIDTH() -> u64 { return (&STYLE_MAX_WIDTH[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_MIN_HEIGHT() -> u64 { return (&STYLE_MIN_HEIGHT[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_MAX_HEIGHT() -> u64 { return (&STYLE_MAX_HEIGHT[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_Z_INDEX() -> u64 { return (&STYLE_Z_INDEX[0]) as u64; }
 
 // Style properties (f32, stride 4)
-@no_mangle pub fn dom_ptr_STYLE_FONT_SIZE() -> u64 { return (&STYLE_FONT_SIZE) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_GRID_COL_VAL() -> u64 { return (&STYLE_GRID_COL_VAL) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_GRID_COL_TYPE() -> u64 { return (&STYLE_GRID_COL_TYPE) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_FONT_SIZE() -> u64 { return (&STYLE_FONT_SIZE[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_GRID_COL_VAL() -> u64 { return (&STYLE_GRID_COL_VAL[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_GRID_COL_TYPE() -> u64 { return (&STYLE_GRID_COL_TYPE[0]) as u64; }
 
 // Paint-only arrays
-@no_mangle pub fn dom_ptr_STYLE_BG_R() -> u64 { return (&STYLE_BG_R) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BG_G() -> u64 { return (&STYLE_BG_G) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BG_B() -> u64 { return (&STYLE_BG_B) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BG_A() -> u64 { return (&STYLE_BG_A) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_COLOR_R() -> u64 { return (&STYLE_COLOR_R) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_COLOR_G() -> u64 { return (&STYLE_COLOR_G) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_COLOR_B() -> u64 { return (&STYLE_COLOR_B) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BORDER_RADIUS() -> u64 { return (&STYLE_BORDER_RADIUS) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_OPACITY() -> u64 { return (&STYLE_OPACITY) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_TRANSFORM_X() -> u64 { return (&STYLE_TRANSFORM_X) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_TRANSFORM_Y() -> u64 { return (&STYLE_TRANSFORM_Y) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_R() -> u64 { return (&STYLE_BOX_SHADOW_R) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_G() -> u64 { return (&STYLE_BOX_SHADOW_G) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_B() -> u64 { return (&STYLE_BOX_SHADOW_B) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_A() -> u64 { return (&STYLE_BOX_SHADOW_A) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_OFFSET_X() -> u64 { return (&STYLE_BOX_SHADOW_OFFSET_X) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_OFFSET_Y() -> u64 { return (&STYLE_BOX_SHADOW_OFFSET_Y) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_BLUR() -> u64 { return (&STYLE_BOX_SHADOW_BLUR) as u64; }
-@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_SPREAD() -> u64 { return (&STYLE_BOX_SHADOW_SPREAD) as u64; }
-@no_mangle pub fn dom_ptr_COMPOSITOR_DIRTY() -> u64 { return (&COMPOSITOR_DIRTY) as u64; }
-@no_mangle pub fn dom_ptr_DOM_NODE_FETCH_STATE() -> u64 { return (&DOM_NODE_FETCH_STATE) as u64; }
-@no_mangle pub fn dom_ptr_DOM_NODE_TEXTURE_ID() -> u64 { return (&DOM_NODE_TEXTURE_ID) as u64; }
-@no_mangle pub fn dom_ptr_DOM_IFRAME_SURFACE_ID() -> u64 { return (&DOM_IFRAME_SURFACE_ID) as u64; }
-@no_mangle pub fn dom_ptr_DOM_SELECTION_START() -> u64 { return (&DOM_SELECTION_START) as u64; }
-@no_mangle pub fn dom_ptr_DOM_SELECTION_END() -> u64 { return (&DOM_SELECTION_END) as u64; }
-@no_mangle pub fn dom_ptr_EVICTION_QUEUE() -> u64 { return (&EVICTION_QUEUE) as u64; }
-@no_mangle pub fn dom_ptr_CANVAS_SURFACE_IDS() -> u64 { return (&CANVAS_SURFACE_IDS) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BG_R() -> u64 { return (&STYLE_BG_R[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BG_G() -> u64 { return (&STYLE_BG_G[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BG_B() -> u64 { return (&STYLE_BG_B[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BG_A() -> u64 { return (&STYLE_BG_A[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_COLOR_R() -> u64 { return (&STYLE_COLOR_R[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_COLOR_G() -> u64 { return (&STYLE_COLOR_G[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_COLOR_B() -> u64 { return (&STYLE_COLOR_B[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BORDER_RADIUS() -> u64 { return (&STYLE_BORDER_RADIUS[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_OPACITY() -> u64 { return (&STYLE_OPACITY[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_TRANSFORM_X() -> u64 { return (&STYLE_TRANSFORM_X[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_TRANSFORM_Y() -> u64 { return (&STYLE_TRANSFORM_Y[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_R() -> u64 { return (&STYLE_BOX_SHADOW_R[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_G() -> u64 { return (&STYLE_BOX_SHADOW_G[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_B() -> u64 { return (&STYLE_BOX_SHADOW_B[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_A() -> u64 { return (&STYLE_BOX_SHADOW_A[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_OFFSET_X() -> u64 { return (&STYLE_BOX_SHADOW_OFFSET_X[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_OFFSET_Y() -> u64 { return (&STYLE_BOX_SHADOW_OFFSET_Y[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_BLUR() -> u64 { return (&STYLE_BOX_SHADOW_BLUR[0]) as u64; }
+@no_mangle pub fn dom_ptr_STYLE_BOX_SHADOW_SPREAD() -> u64 { return (&STYLE_BOX_SHADOW_SPREAD[0]) as u64; }
+@no_mangle pub fn dom_ptr_COMPOSITOR_DIRTY() -> u64 { return (&COMPOSITOR_DIRTY[0]) as u64; }
+@no_mangle pub fn dom_ptr_DOM_NODE_FETCH_STATE() -> u64 { return (&DOM_NODE_FETCH_STATE[0]) as u64; }
+@no_mangle pub fn dom_ptr_DOM_NODE_TEXTURE_ID() -> u64 { return (&DOM_NODE_TEXTURE_ID[0]) as u64; }
+@no_mangle pub fn dom_ptr_DOM_IFRAME_SURFACE_ID() -> u64 { return (&DOM_IFRAME_SURFACE_ID[0]) as u64; }
+@no_mangle pub fn dom_ptr_DOM_SELECTION_START() -> u64 { return (&DOM_SELECTION_START[0]) as u64; }
+@no_mangle pub fn dom_ptr_DOM_SELECTION_END() -> u64 { return (&DOM_SELECTION_END[0]) as u64; }
+@no_mangle pub fn dom_ptr_EVICTION_QUEUE() -> u64 { return (&EVICTION_QUEUE[0]) as u64; }
+@no_mangle pub fn dom_ptr_CANVAS_SURFACE_IDS() -> u64 { return (&CANVAS_SURFACE_IDS[0]) as u64; }
 @no_mangle pub fn dom_ptr_EVICTION_COUNT() -> u64 { return (&EVICTION_COUNT) as u64; }
 @no_mangle pub fn dom_ptr_DOM_NODE_COUNT() -> u64 { return (&DOM_NODE_COUNT) as u64; }
-@no_mangle pub fn dom_ptr_IMG_PTR() -> u64 { return (&IMG_PTR) as u64; }
+@no_mangle pub fn dom_ptr_IMG_PTR() -> u64 { return (&IMG_PTR[0]) as u64; }
 
 @no_mangle
 pub fn invalidate_style_subtree(mut node_id: u32) {
@@ -1016,9 +1042,7 @@ pub fn get_pending_script_count() -> u32 {
 
 @no_mangle
 pub fn init_arrays() {
-    DOM_TEXT_ARENA_OBJ.current_idx = 0;
-    DOM_TEXT_ARENA_OBJ.cursor = 0;
-    DOM_NODE_COUNT = 3; // Preserve Node 1 (Root) and Node 2 (Virtual Viewport)
+    DOM_NODE_COUNT = 1; 
     DOM_FREE_LIST_COUNT = 0;
     ATTR_COUNT = 0;
     EVICTION_COUNT = 0;
@@ -1026,12 +1050,6 @@ pub fn init_arrays() {
     PENDING_SCRIPT_COUNT = 0;
     NEXT_SCRIPT_FETCH_ID = 1;
     IFRAME_COUNT = 0;
-
-    // Preserve linkage of Node 2 to Node 1
-    DOM_NODE_FIRST_CHILD[1] = 2;
-    DOM_LAST_CHILD[1] = 2;
-    DOM_NODE_NEXT_SIBLING[2] = 0;
-    DOM_NODE_PREV_SIBLING[2] = 0;
 
     // Reset iframe tracking
     let mut ifr: u32 = 0;
@@ -1056,7 +1074,7 @@ pub fn init_arrays() {
         sf = sf + 1;
     }
 
-    let mut i: u32 = 3; // Do not wipe Node 1 and Node 2 attributes!
+    let mut i: u32 = 1; 
     while i < 65536 {        let u_i = i as usize;
         INLINE_STYLE_PTR[u_i] = 0;
         INLINE_STYLE_LEN[u_i] = 0;
@@ -3225,8 +3243,8 @@ pub fn init_root_viewport(width: i32, height: i32) -> u64 {
     let root_idx = (root & 65535) as usize;
     STYLE_W[root_idx] = width;
     STYLE_H[root_idx] = height;
-    VIEWPORT_W = width as f32;
-    VIEWPORT_H = height as f32;
+    VIEWPORT_W_A[0] = width as f32;
+    VIEWPORT_H_A[0] = height as f32;
     return root;
 }
 
@@ -3379,6 +3397,56 @@ pub fn node_id_from_idx(idx: u32) -> u64 {
     let gen: u32 = DOM_NODE_GENERATION[idx as usize];
     let gen64 = gen as u64;
     return (gen64 << 16) | (idx as u64);
+}
+
+@no_mangle
+pub fn dom_get_attr_ptr(node_idx: u32, key_ptr: u64) -> u64 {
+    if node_idx >= 65536 { return 0; }
+    let node_id = node_id_from_idx(node_idx);
+    let key_len = strlen(key_ptr);
+    let mut i: u32 = 0;
+    while i < ATTR_COUNT {
+        if ATTR_NODE_ID[i as usize] == node_id {
+            if ATTR_KEY_LEN[i as usize] == key_len {
+                if strcmp(ATTR_KEY_PTR[i as usize], key_len, key_ptr, key_len) {
+                    return ATTR_VAL_PTR[i as usize];
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+@no_mangle
+pub fn dom_get_attr_len(node_idx: u32, key_ptr: u64) -> u32 {
+    if node_idx >= 65536 { return 0; }
+    let node_id = node_id_from_idx(node_idx);
+    let key_len = strlen(key_ptr);
+    let mut i: u32 = 0;
+    while i < ATTR_COUNT {
+        if ATTR_NODE_ID[i as usize] == node_id {
+            if ATTR_KEY_LEN[i as usize] == key_len {
+                if strcmp(ATTR_KEY_PTR[i as usize], key_len, key_ptr, key_len) {
+                    return ATTR_VAL_LEN[i as usize];
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+@no_mangle
+pub fn dom_get_value_ptr(node_idx: u32) -> u64 {
+    if node_idx >= 65536 { return 0; }
+    return DOM_TEXT_PTR[node_idx as usize];
+}
+
+@no_mangle
+pub fn dom_get_value_len(node_idx: u32) -> u32 {
+    if node_idx >= 65536 { return 0; }
+    return DOM_TEXT_LEN[node_idx as usize];
 }
 
 extern fn ext_net_navigate(url_ptr: u64, url_len: u32);

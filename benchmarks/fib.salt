@@ -1,4 +1,4 @@
-package main
+package basalt
 
 fn fib(n: i32) -> i32 {
     if n <= 1 { 

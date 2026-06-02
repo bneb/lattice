@@ -11,3 +11,6 @@ pub fn netd_main(arg1: u64, arg2: u64, arg3: u64) {
         salt_yield_check();
     }
 }
+
+@no_mangle
+pub fn sys_netd_main(arg1: u64, arg2: u64, arg3: u64) { netd_main(arg1, arg2, arg3); }

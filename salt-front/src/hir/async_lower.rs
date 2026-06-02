@@ -23,7 +23,6 @@ use crate::hir::expr::{Expr, ExprKind};
 use crate::hir::stmt::{Stmt, StmtKind, Pattern};
 use crate::hir::items::{self, Item, ItemKind, Param, Visibility, Field};
 use crate::hir::types::Type;
-use crate::z3_shim as z3;
 
 /// Metadata for a variable that crosses a yield boundary.
 /// Carries enough information to generate a struct field.

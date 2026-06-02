@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use crate::grammar::{SaltFile, SaltFn, ImportDecl, StructDef, EnumDef};
-use crate::registry::{Registry, StructInfo, EnumInfo};
+use crate::registry::{StructInfo, EnumInfo};
 use crate::types::{Type, TypeKey};
 use crate::hir::items::Item;
 use crate::codegen::collector::EntityRegistry;
@@ -109,7 +109,7 @@ impl DiscoveryState {
         self.trait_origins.entry(trait_name).or_insert(module_package);
     }
 
-    pub fn require_local_function(&mut self, mangled_name: &str, file: &crate::grammar::SaltFile, expansion: &mut crate::codegen::phases::ExpansionState) -> bool {
+    pub fn require_local_function(&mut self, mangled_name: &str, file: &crate::grammar::SaltFile, _expansion: &mut crate::codegen::phases::ExpansionState) -> bool {
         // Check if already requested in the global registry
         if self.entity_registry.identity_map.contains(mangled_name) {
             return true;
@@ -125,7 +125,7 @@ impl DiscoveryState {
         let mut result = None;
         for item in &file.items {
             if let crate::grammar::Item::Fn(f) = item {
-                let my_mangled = if f.attributes.iter().any(|a| a.name == "no_mangle") {
+                let my_mangled = if f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export") {
                     f.name.to_string()
                 } else {
                     format!("{}{}", current_pkg_prefix, f.name)
@@ -147,7 +147,7 @@ impl DiscoveryState {
                         func: f.clone(),
                         concrete_tys: vec![],
                         self_ty: None,
-                        imports: file.imports.clone(),
+                        imports: crate::codegen::context::CodegenContext::compute_full_imports(file),
                         type_map: std::collections::BTreeMap::new(),
                     });
                     break;
@@ -155,8 +155,7 @@ impl DiscoveryState {
             }
         }
 
-        if let Some(task) = result {
-            expansion.pending_generations.push_back(task);
+        if let Some(_task) = result {
             self.entity_registry.identity_map.insert(mangled_name.to_string());
             return true;
         }

@@ -143,7 +143,6 @@ extern fn user_data_start();
 extern fn user_data_end();
 extern fn read_gs_base() -> u64;
 
-@no_mangle
 pub fn create_user_pml4_kpti(kernel_pml4: u64) -> u64 {
     let user_pml4 = pmm.alloc();
     if user_pml4 == 0 {
@@ -212,6 +211,11 @@ pub fn create_user_pml4_kpti(kernel_pml4: u64) -> u64 {
     }
 
     return user_pml4;
+}
+
+@no_mangle
+pub fn sys_create_user_pml4_kpti(kernel_pml4: u64) -> u64 {
+    return create_user_pml4_kpti(kernel_pml4);
 }
 
 // =============================================================================

@@ -110,19 +110,17 @@ pub fn execute(smap: &mut StringMap, input: StringView, out_buf: Ptr<u8>) -> Exe
             let r = write_error(out_buf, "ERR incomplete inline command" as StringView);
             return ExecResult { resp_len: r, input_consumed: consumed2 };
         }
-        let line = input.slice(0, line_end);
-
-        if cmd_eq4(line, 112, 105, 110, 103) {
+        if cmd_eq4(input.slice(0, line_end), 112, 105, 110, 103) {
             // PING
             let r = write_simple_string(out_buf, "PONG" as StringView);
             return ExecResult { resp_len: r, input_consumed: consumed };
         }
-        if cmd_eq7(line, 99, 111, 109, 109, 97, 110, 100) {
+        if cmd_eq7(input.slice(0, line_end), 99, 111, 109, 109, 97, 110, 100) {
             // COMMAND
             let r = write_empty_array(out_buf);
             return ExecResult { resp_len: r, input_consumed: consumed };
         }
-        if cmd_eq6(line, 99, 111, 110, 102, 105, 103) {
+        if cmd_eq6(input.slice(0, line_end), 99, 111, 110, 102, 105, 103) {
             // CONFIG
             let r = write_empty_array(out_buf);
             return ExecResult { resp_len: r, input_consumed: consumed };
@@ -151,28 +149,26 @@ pub fn execute(smap: &mut StringMap, input: StringView, out_buf: Ptr<u8>) -> Exe
         let r = write_error(out_buf, "ERR invalid command format" as StringView);
         return ExecResult { resp_len: r, input_consumed: consumed };
     }
-    let cmd_name = StringView::from_raw(arg0.str_ptr, arg0.str_len);
-
     // --- PING ---
-    if cmd_eq4(cmd_name, 112, 105, 110, 103) {
+    if cmd_eq4(StringView::from_raw(arg0.str_ptr, arg0.str_len), 112, 105, 110, 103) {
         let r = write_simple_string(out_buf, "PONG" as StringView);
         return ExecResult { resp_len: r, input_consumed: consumed };
     }
 
     // --- COMMAND ---
-    if cmd_eq7(cmd_name, 99, 111, 109, 109, 97, 110, 100) {
+    if cmd_eq7(StringView::from_raw(arg0.str_ptr, arg0.str_len), 99, 111, 109, 109, 97, 110, 100) {
         let r = write_empty_array(out_buf);
         return ExecResult { resp_len: r, input_consumed: consumed };
     }
 
     // --- CONFIG ---
-    if cmd_eq6(cmd_name, 99, 111, 110, 102, 105, 103) {
+    if cmd_eq6(StringView::from_raw(arg0.str_ptr, arg0.str_len), 99, 111, 110, 102, 105, 103) {
         let r = write_empty_array(out_buf);
         return ExecResult { resp_len: r, input_consumed: consumed };
     }
 
     // --- SET key value ---
-    if cmd_eq3(cmd_name, 115, 101, 116) {
+    if cmd_eq3(StringView::from_raw(arg0.str_ptr, arg0.str_len), 115, 101, 116) {
         if cmd.array_count < 3 {
             let r = write_error(out_buf, "ERR wrong number of arguments for 'SET'" as StringView);
             return ExecResult { resp_len: r, input_consumed: consumed };
@@ -189,7 +185,7 @@ pub fn execute(smap: &mut StringMap, input: StringView, out_buf: Ptr<u8>) -> Exe
     }
 
     // --- GET key ---
-    if cmd_eq3(cmd_name, 103, 101, 116) {
+    if cmd_eq3(StringView::from_raw(arg0.str_ptr, arg0.str_len), 103, 101, 116) {
         if cmd.array_count < 2 {
             let r = write_error(out_buf, "ERR wrong number of arguments for 'GET'" as StringView);
             return ExecResult { resp_len: r, input_consumed: consumed };
@@ -208,7 +204,7 @@ pub fn execute(smap: &mut StringMap, input: StringView, out_buf: Ptr<u8>) -> Exe
     }
 
     // --- DEL key ---
-    if cmd_eq3(cmd_name, 100, 101, 108) {
+    if cmd_eq3(StringView::from_raw(arg0.str_ptr, arg0.str_len), 100, 101, 108) {
         if cmd.array_count < 2 {
             let r = write_error(out_buf, "ERR wrong number of arguments for 'DEL'" as StringView);
             return ExecResult { resp_len: r, input_consumed: consumed };

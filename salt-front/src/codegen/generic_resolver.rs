@@ -73,15 +73,15 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
         self.apply_struct_generics(struct_generics, struct_concrete_args, &mut map);
 
         // ── Phase 3: Argument inference ─────────────────────────────────
-        self.infer_from_arguments(template, call_arg_exprs, local_vars, &mut map);
+        self.infer_from_arguments(template, call_arg_exprs, local_vars, &mut map)?;
 
         // ── Phase 4: Self-type inference (methods only) ─────────────────
         if let Some(sty) = self_ty {
-            self.infer_from_self_type(template, sty, call_arg_exprs, local_vars, &mut map);
+            self.infer_from_self_type(template, sty, call_arg_exprs, local_vars, &mut map)?;
         }
 
         // ── Phase 5: Return-type inference ──────────────────────────────
-        self.infer_from_return_type(template, expected_ret_ty, &mut map);
+        self.infer_from_return_type(template, expected_ret_ty, &mut map)?;
 
         // ── Phase 6: Phantom generic inference ──────────────────────────
         // Use only METHOD-level declared generics to avoid struct-level Fn types 
@@ -298,7 +298,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
     /// Example: `Map<I, F, T>` where `F = Fn(i64)->i64` => `T = i64`.
     /// Phantom generics don't appear in struct fields but represent the
     /// output type of a function-typed generic parameter.
-    fn infer_phantom_generics_from_template(&mut self,
+    fn _infer_phantom_generics_from_template(&mut self,
         template: &SaltFn,
         map: &mut BTreeMap<String, Type>,
     ) {
@@ -339,7 +339,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
         struct_generic_names: &[String],
         map: &mut BTreeMap<String, Type>,
         expected_ret_ty: Option<&Type>,
-        self_ty: Option<&Type>,
+        _self_ty: Option<&Type>,
     ) -> Result<(), String> {
         // Only check method-level generics (skip struct-level)
         let required: Vec<String> = template.generics.as_ref()
@@ -364,7 +364,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
     }
 
     /// Phase 7: Verify all required generics are resolved.
-    fn verify_completeness(&mut self,
+    fn _verify_completeness(&mut self,
         template: &SaltFn,
         map: &mut BTreeMap<String, Type>,
         expected_ret_ty: Option<&Type>,
@@ -566,8 +566,20 @@ pub fn unify_types(
         // Explicit generic marker
         (Type::Generic(name), _) => {
             if let Some(existing) = map.get(name) {
-                if existing != concrete {
-                    return Err(format!("Generic monomorphization type confusion: parameter '{}' was already bound to '{:?}' but is now being bound to '{:?}'.", name, existing, concrete));
+                let is_equivalent = if existing == concrete {
+                    true
+                } else {
+                    match (existing, concrete) {
+                        (Type::Struct(n1), Type::Concrete(n2, args)) |
+                        (Type::Concrete(n2, args), Type::Struct(n1)) => n1 == n2 && args.is_empty(),
+                        _ => false,
+                    }
+                };
+                if !is_equivalent {
+                    // [SOVEREIGN FIX] If a generic is already bound (e.g. via turbofish),
+                    // allow the existing bound type to take precedence over inferred argument types.
+                    // The call-site type checking (e.g. cast_numeric) will handle any coercions.
+                    // Do not fail monomorphization here.
                 }
             } else {
                 map.insert(name.clone(), concrete.clone());

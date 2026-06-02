@@ -31,7 +31,7 @@ pub struct ShaderOutput {
 }
 
 /// Main entry point: emit a @shader function as MSL text + LLVM host glue
-pub fn emit_shader_fn(ctx: &mut LoweringContext, func: &SaltFn) -> Result<String, String> {
+pub fn emit_shader_fn(_ctx: &mut LoweringContext, func: &SaltFn) -> Result<String, String> {
     let kind = extract_shader_kind(&func.attributes)
         .ok_or_else(|| "emit_shader_fn called on non-shader function".to_string())?;
     let workgroup_size = extract_workgroup_size(&func.attributes);
@@ -74,7 +74,7 @@ pub fn emit_shader_fn(ctx: &mut LoweringContext, func: &SaltFn) -> Result<String
 }
 
 /// Generate complete MSL source text from a Salt function
-pub fn generate_msl(func: &SaltFn, kind: &str, workgroup_size: u32) -> Result<String, String> {
+pub fn generate_msl(func: &SaltFn, kind: &str, _workgroup_size: u32) -> Result<String, String> {
     let fn_name = func.name.to_string();
     let mut msl = String::new();
 

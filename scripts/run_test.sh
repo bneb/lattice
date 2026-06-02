@@ -30,15 +30,19 @@ export DYLD_LIBRARY_PATH=/opt/homebrew/lib
 # Defaults
 COMPILE_ONLY=false
 VERBOSE=false
+NO_VERIFY=false
 EXTRA_BRIDGES=()
 SALT_FILE=""
 LIB_MODE=false
+BENCHMARK_MODE=false
 
 # Parse args
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --compile-only) COMPILE_ONLY=true; shift ;;
+        --benchmark) BENCHMARK_MODE=true; shift ;;
         --lib) LIB_MODE=true; shift ;;
+        --no-verify) NO_VERIFY=true; shift ;;
         --verbose) VERBOSE=true; shift ;;
         --bridge) EXTRA_BRIDGES+=("$2"); shift 2 ;;
         *) SALT_FILE="$1"; shift ;;
@@ -55,6 +59,23 @@ BASENAME=$(basename "$SALT_FILE" .salt)
 TMP_DIR="/tmp/salt_build"
 mkdir -p "$TMP_DIR"
 
+is_ecs_test=false
+is_standalone=false
+is_basalt_test=false
+is_lettuce_test=false
+if [[ "$BASENAME" == *lettuce* ]] || [[ "$SALT_FILE" == *lettuce* ]]; then
+    is_lettuce_test=true
+fi
+if [[ "$BASENAME" == *ecs* ]] || [[ "$BASENAME" == *scheduler* ]] || [[ "$BASENAME" == *ipc* ]] || [[ "$BASENAME" == *epoch* ]] || [[ "$SALT_FILE" == *ecs* ]]; then
+    is_ecs_test=true
+fi
+if [[ "$BASENAME" == *chase_lev* ]] || [[ "$BASENAME" == *sliding_window* ]]; then
+    is_standalone=true
+fi
+if [[ "$BASENAME" == *basalt_kv* ]]; then
+    is_basalt_test=true
+fi
+
 MLIR_OUT="$TMP_DIR/${BASENAME}.mlir"
 OPT_OUT="$TMP_DIR/${BASENAME}.opt.mlir"
 LL_OUT="$TMP_DIR/${BASENAME}.ll"
@@ -64,7 +85,8 @@ BIN_OUT="$TMP_DIR/${BASENAME}"
 BRIDGES=("$SALT_FRONT/runtime.c")
 BRIDGES+=("$PROJECT_ROOT/user/os/facet_os.c")
 BRIDGES+=("$PROJECT_ROOT/tests/bridges/ipc_bridge.c")
-if [[ "$BASENAME" != "test_e2e_integration" ]] && ! grep -q 'sys_exec_capture_stdout' "$SALT_FILE" 2>/dev/null; then
+BRIDGES+=("$PROJECT_ROOT/tests/bridges/mac_stubs.c")
+if [[ "$is_ecs_test" == false ]] && [[ "$is_standalone" == false ]] && [[ "$is_basalt_test" == false ]] && [[ "$is_lettuce_test" == false ]] && [[ "$BENCHMARK_MODE" == false ]] && [[ "$BASENAME" != "test_e2e_integration" ]] && ! grep -q 'sys_exec_capture_stdout' "$SALT_FILE" 2>/dev/null; then
     BRIDGES+=("$PROJECT_ROOT/user/browser/jsc_bridge.m")
     BRIDGES+=("$PROJECT_ROOT/user/browser/jsc_classes.m")
     BRIDGES+=("$PROJECT_ROOT/user/browser/jsc_bindings.m")
@@ -91,17 +113,19 @@ if grep -q 'netd_tls_' "$SALT_FILE" 2>/dev/null; then
     C_FLAGS_ARR+=(-I"$PROJECT_ROOT/vendor/bearssl/inc")
 fi
 
-BRIDGES+=("$PROJECT_ROOT/user/browser/font_bridge.c")
+if [[ "$is_ecs_test" == false ]] && [[ "$is_standalone" == false ]] && [[ "$is_basalt_test" == false ]] && [[ "$is_lettuce_test" == false ]] && [[ "$BENCHMARK_MODE" == false ]]; then
+    BRIDGES+=("$PROJECT_ROOT/user/browser/font_bridge.c")
+fi
 
 # Detect Facet Window bridge
 LD_FLAGS=(-lm -framework JavaScriptCore)
-if grep -q 'facet_window_open' "$SALT_FILE" 2>/dev/null; then
+if [[ "$is_ecs_test" == false ]] && [[ "$is_standalone" == false ]] && [[ "$is_basalt_test" == false ]] && [[ "$is_lettuce_test" == false ]] && [[ "$BENCHMARK_MODE" == false ]] && grep -q 'facet_window_open' "$SALT_FILE" 2>/dev/null; then
     BRIDGES+=("$PROJECT_ROOT/user/facet/window/facet_window.m")
     LD_FLAGS+=("-framework" "Cocoa" "-framework" "CoreGraphics" "-fobjc-arc")
 fi
 
 # Detect Facet GPU bridge
-if [[ "$BASENAME" != "test_e2e_integration" ]] && ! grep -q 'sys_exec_capture_stdout' "$SALT_FILE" 2>/dev/null; then
+if [[ "$is_ecs_test" == false ]] && [[ "$is_standalone" == false ]] && [[ "$is_basalt_test" == false ]] && [[ "$is_lettuce_test" == false ]] && [[ "$BENCHMARK_MODE" == false ]] && [[ "$BASENAME" != "test_e2e_integration" ]] && ! grep -q 'sys_exec_capture_stdout' "$SALT_FILE" 2>/dev/null; then
     if grep -q 'facet_gpu' "$SALT_FILE" 2>/dev/null || grep -q 'facet_gpu' $(dirname "$SALT_FILE")/*.salt 2>/dev/null || grep -q 'facet_gpu' $(dirname "$SALT_FILE")/../*/*.salt 2>/dev/null || grep -q 'facet_window' $(dirname "$SALT_FILE")/../*/*.salt 2>/dev/null; then
         BRIDGES+=("$PROJECT_ROOT/user/facet/gpu/facet_gpu.m")
         BRIDGES+=("$PROJECT_ROOT/user/facet/gpu/facet_window.m")
@@ -113,7 +137,7 @@ if [[ "$BASENAME" != "test_e2e_integration" ]] && ! grep -q 'sys_exec_capture_st
 fi
 
 # Detect SPSC/kernel stub bridge (provides volatile_read_i64, cpu_pause, idle_halt)
-if grep -q 'volatile_read_i64\|volatile_write_i64\|cpu_pause' "$SALT_FILE" 2>/dev/null; then
+if [[ "$is_ecs_test" == true ]] || grep -q 'volatile_read_i64\|volatile_write_i64\|cpu_pause' "$SALT_FILE" 2>/dev/null; then
     if [[ -f "$PROJECT_ROOT/tests/bridges/spsc_bridge.c" ]]; then
         BRIDGES+=("$PROJECT_ROOT/tests/bridges/spsc_bridge.c")
     fi
@@ -249,6 +273,10 @@ if grep -q 'sprint6_form_test' "$SALT_FILE" 2>/dev/null; then
     BRIDGES+=("$PROJECT_ROOT/tests/bridges/sprint6_form_bridge.c")
 fi
 
+if [[ "$is_lettuce_test" == true ]]; then
+    BRIDGES+=("$PROJECT_ROOT/benchmarks/bench_ecs_epoch_reclaim_bridge.c")
+fi
+
 if [[ "$BASENAME" == "test_script_fsm" ]]; then
     BRIDGES+=("$PROJECT_ROOT/tests/test_script_fsm.c")
     LIB_MODE=true
@@ -289,6 +317,16 @@ LL_FILES=()
 
 if [[ "$BASENAME" == "test_e2e_integration" ]] || grep -q 'sys_exec_capture_stdout' "$SALT_FILE" 2>/dev/null; then
     TEST_DEPS=()
+elif [[ "$is_standalone" == true ]]; then
+    TEST_DEPS=()
+elif [[ "$BENCHMARK_MODE" == true ]]; then
+    TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "user/os/process.salt" "user/os/ipc_ring.salt" "user/netd/virtio_bridge.salt")
+elif [[ "$is_basalt_test" == true ]]; then
+    TEST_DEPS=("std/core/str.salt" "std/time.salt" "basalt/src/transformer.salt" "basalt/src/kernels.salt" "basalt/src/quant.salt")
+elif [[ "$is_lettuce_test" == true ]]; then
+    TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "user/os/process.salt" "user/os/ipc_ring.salt" "user/netd/virtio_bridge.salt")
+elif [[ "$is_ecs_test" == true ]]; then
+    TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "kernel/ecs/entity.salt" "kernel/ecs/components.salt" "kernel/ecs/sparse_set.salt" "kernel/ecs/world.salt" "kernel/ecs/ecs_bridge.salt" "kernel/ecs/commands.salt" "kernel/ecs/events.salt" "kernel/ecs/ecs_scheduler.salt" "kernel/ecs/ecs_ipc.salt" "kernel/ecs/ecs_epoch.salt")
 else
     TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "user/os/process.salt" "user/os/ipc_ring.salt" "user/os/worker_ring.salt" "user/netd/virtio_bridge.salt" "user/browser/alloc/airlock.salt" "user/browser/font.salt" "user/browser/css_utils.salt" "user/browser/css.salt" "user/browser/css_lexer.salt" "user/browser/http_lexer.salt" "user/browser/hash.salt" "user/browser/css_arena.salt" "user/browser/style_resolve.salt" "user/browser/dom.salt" "user/browser/observers.salt" "user/browser/typography.salt" "user/browser/ipc_shared.salt" "user/browser/lexer.salt" "user/browser/html_serializer.salt" "user/browser/paint.salt" "user/browser/events.salt" "user/browser/layout.salt" "user/browser/timers.salt" "user/browser/history.salt" "user/browser/js_jsc.salt" "user/browser/websocket.salt" "user/browser/worker.salt" "user/browser/animations.salt" "user/browser/compositor.salt" "user/browser/chrome.salt" "user/browser/media.salt" "user/browser/app_main.salt" "user/browser/telemetry.salt" "user/browser/transpiler.salt" "user/browser/hpack.salt" "user/browser/net.salt" "user/browser/storage.salt" "user/browser/custom_elements.salt" "user/browser/selectors.salt" "user/browser/hit_test.salt" "user/browser/event_loop.salt")
 fi
@@ -299,12 +337,17 @@ for mod in "${TEST_DEPS[@]}"; do
         dep_base=$(basename "$mod" .salt)
         dep_ll="$TMP_DIR/${dep_base}.ll"
         echo "🔧 [LLVM] Compiling ${mod}..."
-        "$SALT_FRONT/target/release/salt-front" "$dep_path" --lib --release > "${dep_ll}.mlir"
+        if [[ "$NO_VERIFY" == true ]]; then
+            "$SALT_FRONT/target/release/salt-front" "$dep_path" --danger-no-verify --lib --release | grep -v "^DEBUG" | grep -v "^Debug" > "${dep_ll}.mlir"
+        else
+            "$SALT_FRONT/target/release/salt-front" "$dep_path" --lib --release | grep -v "^DEBUG" | grep -v "^Debug" > "${dep_ll}.mlir"
+        fi
         # Fix MLIR f32 literal emission: (0 : f32) -> (0. : f32)
         sed -i '' 's/(0 : f32)/(0. : f32)/g' "${dep_ll}.mlir"
         mlir-opt "${dep_ll}.mlir" --allow-unregistered-dialect \
             --canonicalize --cse --loop-invariant-code-motion --sccp --canonicalize --cse \
             --lower-affine --convert-scf-to-cf --convert-vector-to-llvm \
+            --expand-strided-metadata --finalize-memref-to-llvm \
             --convert-cf-to-llvm --convert-arith-to-llvm --convert-math-to-llvm \
             --convert-func-to-llvm --reconcile-unrealized-casts -o "${dep_ll}.opt"
         sed -i '' '/"salt.verify"/d' "${dep_ll}.opt"
@@ -313,8 +356,15 @@ for mod in "${TEST_DEPS[@]}"; do
         # Patch MLIR-generated globals to be linkonce_odr so they get merged perfectly across files creatively peacefully manually efficiently effectively beautifully
         sed -i '' 's/internal global/weak_odr global/g' "$dep_ll"
         sed -i '' 's/define internal/define weak_odr/g' "$dep_ll"
-        sed -i '' 's/= global \[/= weak_odr global \[/g' "$dep_ll"
-        sed -i '' 's/= global i/= weak_odr global i/g' "$dep_ll"
+        sed -i '' 's/define ptr/define weak_odr ptr/g' "$dep_ll"
+        sed -i '' 's/define void/define weak_odr void/g' "$dep_ll"
+        sed -i '' 's/define i64/define weak_odr i64/g' "$dep_ll"
+        sed -i '' 's/define i32/define weak_odr i32/g' "$dep_ll"
+        sed -i '' 's/define i16/define weak_odr i16/g' "$dep_ll"
+        sed -i '' 's/define i8/define weak_odr i8/g' "$dep_ll"
+        sed -i '' 's/define i1/define weak_odr i1/g' "$dep_ll"
+        sed -i '' 's/define %/define weak_odr %/g' "$dep_ll"
+        sed -i '' 's/= global /= weak_odr global /g' "$dep_ll"
         sed -i '' '/target triple =/d' "$dep_ll"
         sed -i '' '/target datalayout =/d' "$dep_ll"
         
@@ -325,9 +375,17 @@ done
 # Step 1: salt-front → MLIR
 log "salt-front → MLIR"
 if [[ "$LIB_MODE" == true ]]; then
-    "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --lib --release > "$MLIR_OUT"
+    if [[ "$NO_VERIFY" == true ]]; then
+        "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --danger-no-verify --lib --release | grep -v "^DEBUG" | grep -v "^Debug" > "$MLIR_OUT"
+    else
+        "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --lib --release | grep -v "^DEBUG" | grep -v "^Debug" > "$MLIR_OUT"
+    fi
 else
-    "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --release > "$MLIR_OUT"
+    if [[ "$NO_VERIFY" == true ]]; then
+        "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --danger-no-verify --release | grep -v "^DEBUG" | grep -v "^Debug" > "$MLIR_OUT"
+    else
+        "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --release | grep -v "^DEBUG" | grep -v "^Debug" > "$MLIR_OUT"
+    fi
 fi
 echo "  ✓ MLIR generated"
 
@@ -342,6 +400,8 @@ mlir-opt "$MLIR_OUT" \
     --lower-affine \
     --convert-scf-to-cf \
     --convert-vector-to-llvm \
+    --expand-strided-metadata \
+    --finalize-memref-to-llvm \
     --convert-cf-to-llvm \
     --convert-arith-to-llvm \
     --convert-math-to-llvm \

@@ -2,7 +2,7 @@ use crate::codegen::context::LoweringContext;
 use crate::codegen::collector::MonomorphizationTask;
 use crate::types::{Type, TypeKey};
 use crate::grammar::{Stmt};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use syn::{Expr, Pat};
 use crate::common::mangling::Mangler;
 
@@ -202,7 +202,7 @@ impl<'a, 'ctx, 'b> Seeker<'a, 'ctx, 'b> {
                                          } else {
                                          }
                                      },
-                                     Err(e) => {
+                                     Err(_e) => {
                                          if method_name == "array" || base_name.contains("Vec") {
                                          }
                                      }
@@ -241,7 +241,7 @@ impl<'a, 'ctx, 'b> Seeker<'a, 'ctx, 'b> {
                               } else {
                               }
                           },
-                          Err(e) => {
+                          Err(_e) => {
                           }
                       }
                 }
@@ -549,9 +549,9 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
 
         
         let identity = TypeKey {
-             path: vec![self_ty.mangle_suffix()],
-             name: method_name.to_string(),
-             specialization: if generics.is_empty() { None } else { Some(generics.clone()) },
+             path: vec![],
+             name: mangled_name.clone(),
+             specialization: None,
         };
         
         Ok(MonomorphizationTask {

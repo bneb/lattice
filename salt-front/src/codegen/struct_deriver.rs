@@ -80,7 +80,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                 let field_defs: Vec<_> = def.fields.iter()
                     .map(|f| (f.name.to_string(), f.ty.clone()))
                     .collect();
-                drop(templates);
+                let _ = templates;
                 let mut fields = Vec::new();
                 for (field_name, field_ty_ast) in &field_defs {
                     let field_ty = crate::codegen::type_bridge::resolve_type(self, field_ty_ast);

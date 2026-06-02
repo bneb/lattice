@@ -358,3 +358,6 @@ pub fn init_pipeline_state(
     *((state + STATE_NETWORK_BAR) as &mut u64) = network_bar;
     *((state + STATE_PEER_MAC) as &mut u64) = peer_mac;
 }
+
+@no_mangle
+pub fn sys_moe_init_trampoline(state_ptr: u64, bar_out: u64, poll_out: u64) { moe_init_trampoline(state_ptr, bar_out, poll_out); }

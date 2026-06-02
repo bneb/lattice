@@ -1,5 +1,8 @@
 #include <stdint.h>
+#include <stdlib.h>
 #include <unistd.h>
+
+__attribute__((weak)) void sys_mfence(void) { __sync_synchronize(); }
 
 __attribute__((weak)) void sys_sleep_ms(uint32_t ms) { usleep(ms * 1000); }
 
@@ -34,7 +37,26 @@ __attribute__((weak)) uint64_t sys_time_now_ms_int(void) { return 0; }
 
 // C-ABI trampoline: Salt cannot call @no_mangle'd flush_frame cross-module
 // (see main_bridge.c:122 for the reference implementation)
-extern void flush_frame(int32_t width, int32_t height);
+__attribute__((weak)) void flush_frame(int32_t width, int32_t height) {}
 __attribute__((weak)) void ext_flush_frame(int32_t width, int32_t height) {
   flush_frame(width, height);
+}
+
+// Missing Symbols Fix (Epic 108)
+__attribute__((weak)) uint32_t hash_string(uint64_t ptr, uint32_t len) {
+  uint32_t hash = 2166136261U;
+  const uint8_t *data = (const uint8_t *)ptr;
+  for (uint32_t i = 0; i < len; i++) {
+    hash ^= data[i];
+    hash *= 16777619U;
+  }
+  return hash;
+}
+
+__attribute__((weak)) void css_arena_inc_count(void) {}
+__attribute__((weak)) void css_arena_set_hash(uint32_t slot, uint32_t hash) {}
+__attribute__((weak)) void ext_engine_process_mouse_down(float x, float y) {}
+
+__attribute__((weak)) uint64_t sovereign_arena_alloc(uint64_t size) {
+  return (uint64_t)calloc(1, size);
 }

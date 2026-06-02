@@ -1,0 +1,777 @@
+{
+  "Microbenchmarks (Algorithms & Data Structures)": {
+    "bench_ecs_epoch_reclaim (C)": {
+      "binary_size_bytes": 33480,
+      "peak_rss_kb": 6592,
+      "execution_time_s_mean": 0.041100972487280764,
+      "execution_time_s_stdev": 0.06082244676770666,
+      "execution_time_s_variance": 0.0036993700308105095,
+      "execution_time_s_min": 0.005817375145852566,
+      "execution_time_s_max": 0.11133241700008512,
+      "execution_time_s_p99": 0.11133241700008512
+    },
+    "bench_ecs_epoch_reclaim (Salt)": {
+      "binary_size_bytes": 59792,
+      "peak_rss_kb": 3696,
+      "execution_time_s_mean": 0.03704484753931562,
+      "execution_time_s_stdev": 0.0543756096833852,
+      "execution_time_s_variance": 0.002956706928439855,
+      "execution_time_s_min": 0.005575834307819605,
+      "execution_time_s_max": 0.09983233315870166,
+      "execution_time_s_p99": 0.09983233315870166
+    },
+    "bench_ecs_event_pipeline (C)": {
+      "binary_size_bytes": 33928,
+      "peak_rss_kb": 1008,
+      "execution_time_s_mean": 0.0699176110016803,
+      "execution_time_s_stdev": 0.0575817526919805,
+      "execution_time_s_variance": 0.0033156582430804034,
+      "execution_time_s_min": 0.036431957967579365,
+      "execution_time_s_max": 0.13640670897439122,
+      "execution_time_s_p99": 0.13640670897439122
+    },
+    "bench_ecs_ipc_resolve (C)": {
+      "binary_size_bytes": 33752,
+      "peak_rss_kb": 1008,
+      "execution_time_s_mean": 0.07814781926572323,
+      "execution_time_s_stdev": 0.056893344861891904,
+      "execution_time_s_variance": 0.003236852689574162,
+      "execution_time_s_min": 0.04508537519723177,
+      "execution_time_s_max": 0.1438421248458326,
+      "execution_time_s_p99": 0.1438421248458326
+    },
+    "bench_ecs_ipc_resolve (Salt)": {
+      "binary_size_bytes": 57720,
+      "peak_rss_kb": 3680,
+      "execution_time_s_mean": 0.03691240260377526,
+      "execution_time_s_stdev": 0.05678764477184928,
+      "execution_time_s_variance": 0.0032248365987337406,
+      "execution_time_s_min": 0.004113332834094763,
+      "execution_time_s_max": 0.10248512495309114,
+      "execution_time_s_p99": 0.10248512495309114
+    },
+    "bench_ecs_lookup (C)": {
+      "binary_size_bytes": 33440,
+      "peak_rss_kb": 1008,
+      "execution_time_s_mean": 0.035153666976839304,
+      "execution_time_s_stdev": 0.055367039830043416,
+      "execution_time_s_variance": 0.0030655090995416138,
+      "execution_time_s_min": 0.0031117089092731476,
+      "execution_time_s_max": 0.09908595774322748,
+      "execution_time_s_p99": 0.09908595774322748
+    },
+    "bench_ecs_scheduler (C)": {
+      "binary_size_bytes": 33464,
+      "peak_rss_kb": 1008,
+      "execution_time_s_mean": 0.04414518037810922,
+      "execution_time_s_stdev": 0.055457269932710364,
+      "execution_time_s_variance": 0.0030755087883895006,
+      "execution_time_s_min": 0.012093250174075365,
+      "execution_time_s_max": 0.10818170802667737,
+      "execution_time_s_p99": 0.10818170802667737
+    },
+    "bench_ecs_scheduler (Salt)": {
+      "binary_size_bytes": 58136,
+      "peak_rss_kb": 3744,
+      "execution_time_s_mean": 0.08307729164759318,
+      "execution_time_s_stdev": 0.060009710187335474,
+      "execution_time_s_variance": 0.003601165316767995,
+      "execution_time_s_min": 0.04822412505745888,
+      "execution_time_s_max": 0.1523701250553131,
+      "execution_time_s_p99": 0.1523701250553131
+    },
+    "bench_ecs_spawn (C)": {
+      "binary_size_bytes": 33568,
+      "peak_rss_kb": 1008,
+      "execution_time_s_mean": 0.21743483298147717,
+      "execution_time_s_stdev": 0.05804379227629523,
+      "execution_time_s_variance": 0.0033690818218137094,
+      "execution_time_s_min": 0.17574150022119284,
+      "execution_time_s_max": 0.2837274158373475,
+      "execution_time_s_p99": 0.2837274158373475
+    },
+    "bench_ecs_spawn (Salt)": {
+      "binary_size_bytes": 57192,
+      "peak_rss_kb": 6912,
+      "execution_time_s_mean": 0.033088736080875,
+      "execution_time_s_stdev": 0.05281247552026338,
+      "execution_time_s_variance": 0.0027891575705784187,
+      "execution_time_s_min": 0.002538749948143959,
+      "execution_time_s_max": 0.09407129231840372,
+      "execution_time_s_p99": 0.09407129231840372
+    },
+    "binary_tree_path (C)": {
+      "binary_size_bytes": 33696,
+      "peak_rss_kb": 1168,
+      "execution_time_s_mean": 0.03345240264510115,
+      "execution_time_s_stdev": 0.05405389479359526,
+      "execution_time_s_variance": 0.0029218235423570647,
+      "execution_time_s_min": 0.0022206250578165054,
+      "execution_time_s_max": 0.09586845804005861,
+      "execution_time_s_p99": 0.09586845804005861
+    },
+    "binary_tree_path (Rust)": {
+      "binary_size_bytes": 442848,
+      "peak_rss_kb": 1424,
+      "execution_time_s_mean": 0.04162690260758003,
+      "execution_time_s_stdev": 0.06440367603803274,
+      "execution_time_s_variance": 0.0041478334872118725,
+      "execution_time_s_min": 0.004354625009000301,
+      "execution_time_s_max": 0.11599379125982523,
+      "execution_time_s_p99": 0.11599379125982523
+    },
+    "binary_tree_path (Salt)": {
+      "binary_size_bytes": 55976,
+      "peak_rss_kb": 1136,
+      "execution_time_s_mean": 0.03254719435547789,
+      "execution_time_s_stdev": 0.05274169589473355,
+      "execution_time_s_variance": 0.0027816864858525537,
+      "execution_time_s_min": 0.0020572911016643047,
+      "execution_time_s_max": 0.0934480419382453,
+      "execution_time_s_p99": 0.0934480419382453
+    },
+    "bitwise (C)": {
+      "binary_size_bytes": 16840,
+      "peak_rss_kb": 1008,
+      "execution_time_s_mean": 0.07264506894474228,
+      "execution_time_s_stdev": 0.09237489508253927,
+      "execution_time_s_variance": 0.008533121241510138,
+      "execution_time_s_min": 0.019083790946751833,
+      "execution_time_s_max": 0.17931008292362094,
+      "execution_time_s_p99": 0.17931008292362094
+    },
+    "bitwise (Rust)": {
+      "binary_size_bytes": 441736,
+      "peak_rss_kb": 1200,
+      "execution_time_s_mean": 0.055570555540422596,
+      "execution_time_s_stdev": 0.06325161247204054,
+      "execution_time_s_variance": 0.004000766480313196,
+      "execution_time_s_min": 0.01888079196214676,
+      "execution_time_s_max": 0.12860695784911513,
+      "execution_time_s_p99": 0.12860695784911513
+    },
+    "bitwise (Salt)": {
+      "binary_size_bytes": 55616,
+      "peak_rss_kb": 1056,
+      "execution_time_s_mean": 0.05257962519923846,
+      "execution_time_s_stdev": 0.054108870226690246,
+      "execution_time_s_variance": 0.0029277698372088064,
+      "execution_time_s_min": 0.021336792036890984,
+      "execution_time_s_max": 0.11505916668102145,
+      "execution_time_s_p99": 0.11505916668102145
+    },
+    "buffered_writer_perf (C)": {
+      "binary_size_bytes": 33736,
+      "peak_rss_kb": 1024,
+      "execution_time_s_mean": 0.33741858322173357,
+      "execution_time_s_stdev": 0.07179268114053614,
+      "execution_time_s_variance": 0.005154189065346693,
+      "execution_time_s_min": 0.29594154190272093,
+      "execution_time_s_max": 0.4203176246955991,
+      "execution_time_s_p99": 0.4203176246955991
+    },
+    "buffered_writer_perf (Rust)": {
+      "binary_size_bytes": 442232,
+      "peak_rss_kb": 1232,
+      "execution_time_s_mean": 0.07926270831376314,
+      "execution_time_s_stdev": 0.06446772348960085,
+      "execution_time_s_variance": 0.004156087371931633,
+      "execution_time_s_min": 0.03567729191854596,
+      "execution_time_s_max": 0.1533174579963088,
+      "execution_time_s_p99": 0.1533174579963088
+    },
+    "buffered_writer_perf (Salt)": {},
+    "chase_lev_bench (C)": {
+      "binary_size_bytes": 33488,
+      "peak_rss_kb": 1008,
+      "execution_time_s_mean": 0.03271762483442823,
+      "execution_time_s_stdev": 0.05316875355670241,
+      "execution_time_s_variance": 0.0028269163547733557,
+      "execution_time_s_min": 0.0019392920657992363,
+      "execution_time_s_max": 0.09411154128611088,
+      "execution_time_s_p99": 0.09411154128611088
+    },
+    "chase_lev_bench (Rust)": {
+      "binary_size_bytes": 460224,
+      "peak_rss_kb": 1232,
+      "execution_time_s_mean": 0.0402410002425313,
+      "execution_time_s_stdev": 0.0657862900972557,
+      "execution_time_s_variance": 0.004327835964760284,
+      "execution_time_s_min": 0.002231958322227001,
+      "execution_time_s_max": 0.1162044582888484,
+      "execution_time_s_p99": 0.1162044582888484
+    },
+    "coverage_gap (Salt)": {
+      "binary_size_bytes": 55696,
+      "peak_rss_kb": 1024,
+      "execution_time_s_mean": 0.032527791491399206,
+      "execution_time_s_stdev": 0.05264131598370489,
+      "execution_time_s_variance": 0.002771108148496264,
+      "execution_time_s_min": 0.002029665745794773,
+      "execution_time_s_max": 0.09331262484192848,
+      "execution_time_s_p99": 0.09331262484192848
+    },
+    "coverage_push (Salt)": {
+      "binary_size_bytes": 55616,
+      "peak_rss_kb": 1024,
+      "execution_time_s_mean": 0.03256854182109237,
+      "execution_time_s_stdev": 0.052608340735631656,
+      "execution_time_s_variance": 0.0027676375149563214,
+      "execution_time_s_min": 0.0021060416474938393,
+      "execution_time_s_max": 0.09331533405929804,
+      "execution_time_s_p99": 0.09331533405929804
+    },
+    "dll_salt (Salt)": {
+      "binary_size_bytes": 56144,
+      "peak_rss_kb": 1392,
+      "execution_time_s_mean": 0.03846899994338552,
+      "execution_time_s_stdev": 0.056640098944869315,
+      "execution_time_s_variance": 0.0032081008084845863,
+      "execution_time_s_min": 0.005724875256419182,
+      "execution_time_s_max": 0.10387133387848735,
+      "execution_time_s_p99": 0.10387133387848735
+    },
+    "fannkuch (C)": {
+      "binary_size_bytes": 33592,
+      "peak_rss_kb": 1024,
+      "execution_time_s_mean": 0.20434424995134273,
+      "execution_time_s_stdev": 0.05593036968121548,
+      "execution_time_s_variance": 0.0031282062526774277,
+      "execution_time_s_min": 0.17033458407968283,
+      "execution_time_s_max": 0.2688960409723222,
+      "execution_time_s_p99": 0.2688960409723222
+    },
+    "fannkuch (Rust)": {
+      "binary_size_bytes": 441736,
+      "peak_rss_kb": 1168,
+      "execution_time_s_mean": 0.1712913055283328,
+      "execution_time_s_stdev": 0.06450146777567956,
+      "execution_time_s_variance": 0.004160439345217028,
+      "execution_time_s_min": 0.13400624971836805,
+      "execution_time_s_max": 0.24577116686850786,
+      "execution_time_s_p99": 0.24577116686850786
+    },
+    "fib (C)": {
+      "binary_size_bytes": 16872,
+      "peak_rss_kb": 1008,
+      "execution_time_s_mean": 0.2068173331208527,
+      "execution_time_s_stdev": 0.05694635396562264,
+      "execution_time_s_variance": 0.0032428872299779853,
+      "execution_time_s_min": 0.17308858316391706,
+      "execution_time_s_max": 0.27256591618061066,
+      "execution_time_s_p99": 0.27256591618061066
+    },
+    "fib (Rust)": {
+      "binary_size_bytes": 442216,
+      "peak_rss_kb": 1184,
+      "execution_time_s_mean": 0.21712222245211402,
+      "execution_time_s_stdev": 0.05929679930761134,
+      "execution_time_s_variance": 0.0035161104081271374,
+      "execution_time_s_min": 0.18180145882070065,
+      "execution_time_s_max": 0.2855806667357683,
+      "execution_time_s_p99": 0.2855806667357683
+    },
+    "fib (Salt)": {
+      "binary_size_bytes": 55656,
+      "peak_rss_kb": 1024,
+      "execution_time_s_mean": 0.2058847361865143,
+      "execution_time_s_stdev": 0.056007055127585775,
+      "execution_time_s_variance": 0.0031367902240644324,
+      "execution_time_s_min": 0.17199712479487062,
+      "execution_time_s_max": 0.2705308748409152,
+      "execution_time_s_p99": 0.2705308748409152
+    },
+    "forest (C)": {
+      "binary_size_bytes": 33656,
+      "peak_rss_kb": 134384,
+      "execution_time_s_mean": 0.20501026433582106,
+      "execution_time_s_stdev": 0.059588313870967975,
+      "execution_time_s_variance": 0.0035507671499849943,
+      "execution_time_s_min": 0.1702190418727696,
+      "execution_time_s_max": 0.2738154591061175,
+      "execution_time_s_p99": 0.2738154591061175
+    },
+    "forest (Rust)": {
+      "binary_size_bytes": 460584,
+      "peak_rss_kb": 134528,
+      "execution_time_s_mean": 0.30189869413152337,
+      "execution_time_s_stdev": 0.08270100802004712,
+      "execution_time_s_variance": 0.006839456727531898,
+      "execution_time_s_min": 0.24400325026363134,
+      "execution_time_s_max": 0.3966152910143137,
+      "execution_time_s_p99": 0.3966152910143137
+    },
+    "forest (Salt)": {
+      "binary_size_bytes": 56968,
+      "peak_rss_kb": 99344,
+      "execution_time_s_mean": 0.04862212513883909,
+      "execution_time_s_stdev": 0.053033553460022455,
+      "execution_time_s_variance": 0.00281255779259706,
+      "execution_time_s_min": 0.017865792382508516,
+      "execution_time_s_max": 0.1098597920499742,
+      "execution_time_s_p99": 0.1098597920499742
+    },
+    "fstring_perf (C)": {
+      "binary_size_bytes": 33584,
+      "peak_rss_kb": 1008,
+      "execution_time_s_mean": 1.1169577087275684,
+      "execution_time_s_stdev": 0.05181844094356517,
+      "execution_time_s_variance": 0.002685150821821751,
+      "execution_time_s_min": 1.0799896670505404,
+      "execution_time_s_max": 1.176186959259212,
+      "execution_time_s_p99": 1.176186959259212
+    },
+    "fstring_perf (Rust)": {
+      "binary_size_bytes": 460768,
+      "peak_rss_kb": 1504,
+      "execution_time_s_mean": 0.7780418472054104,
+      "execution_time_s_stdev": 0.07857000420729766,
+      "execution_time_s_variance": 0.006173245561134771,
+      "execution_time_s_min": 0.7194692078046501,
+      "execution_time_s_max": 0.8673296668566763,
+      "execution_time_s_p99": 0.8673296668566763
+    },
+    "fstring_perf (Salt)": {
+      "binary_size_bytes": 56576,
+      "peak_rss_kb": 318800,
+      "execution_time_s_mean": 0.30232770880684257,
+      "execution_time_s_stdev": 0.061689937469909126,
+      "execution_time_s_variance": 0.0038056483850412983,
+      "execution_time_s_min": 0.2650723331607878,
+      "execution_time_s_max": 0.37353558419272304,
+      "execution_time_s_p99": 0.37353558419272304
+    },
+    "global_counter (C)": {
+      "binary_size_bytes": 16928,
+      "peak_rss_kb": 1040,
+      "execution_time_s_mean": 0.11692848630870382,
+      "execution_time_s_stdev": 0.056874151087598905,
+      "execution_time_s_variance": 0.0032346690619350278,
+      "execution_time_s_min": 0.08393066702410579,
+      "execution_time_s_max": 0.18260083394125104,
+      "execution_time_s_p99": 0.18260083394125104
+    },
+    "global_counter (Rust)": {
+      "binary_size_bytes": 441808,
+      "peak_rss_kb": 1168,
+      "execution_time_s_mean": 0.12356511099884908,
+      "execution_time_s_stdev": 0.061976923875832396,
+      "execution_time_s_variance": 0.0038411390931107235,
+      "execution_time_s_min": 0.08434499986469746,
+      "execution_time_s_max": 0.1950160409323871,
+      "execution_time_s_p99": 0.1950160409323871
+    },
+    "hashmap_bench (C)": {
+      "binary_size_bytes": 33840,
+      "peak_rss_kb": 1344,
+      "execution_time_s_mean": 0.05550770818566283,
+      "execution_time_s_stdev": 0.06057982380618439,
+      "execution_time_s_variance": 0.0036699150523883447,
+      "execution_time_s_min": 0.0204564998857677,
+      "execution_time_s_max": 0.1254592090845108,
+      "execution_time_s_p99": 0.1254592090845108
+    },
+    "hashmap_bench (Rust)": {
+      "binary_size_bytes": 461248,
+      "peak_rss_kb": 1840,
+      "execution_time_s_mean": 0.07566394393021862,
+      "execution_time_s_stdev": 0.06458577209195067,
+      "execution_time_s_variance": 0.004171321956713395,
+      "execution_time_s_min": 0.03835458308458328,
+      "execution_time_s_max": 0.15024116588756442,
+      "execution_time_s_p99": 0.15024116588756442
+    },
+    "hashmap_bench (Salt)": {},
+    "http_parser_bench (C)": {
+      "binary_size_bytes": 33600,
+      "peak_rss_kb": 1024,
+      "execution_time_s_mean": 0.05669593003888925,
+      "execution_time_s_stdev": 0.05619936195233046,
+      "execution_time_s_variance": 0.0031583682838490484,
+      "execution_time_s_min": 0.024165166076272726,
+      "execution_time_s_max": 0.12158929090946913,
+      "execution_time_s_p99": 0.12158929090946913
+    },
+    "http_parser_bench (Rust)": {
+      "binary_size_bytes": 460056,
+      "peak_rss_kb": 1200,
+      "execution_time_s_mean": 0.10653795829663674,
+      "execution_time_s_stdev": 0.06215557673030704,
+      "execution_time_s_variance": 0.003863315718677086,
+      "execution_time_s_min": 0.07031891727820039,
+      "execution_time_s_max": 0.17830799985677004,
+      "execution_time_s_p99": 0.17830799985677004
+    },
+    "http_parser_bench (Salt)": {
+      "binary_size_bytes": 57336,
+      "peak_rss_kb": 1040,
+      "execution_time_s_mean": 0.041121875091145434,
+      "execution_time_s_stdev": 0.05392738282648799,
+      "execution_time_s_variance": 0.002908162618514592,
+      "execution_time_s_min": 0.009944249875843525,
+      "execution_time_s_max": 0.10339183360338211,
+      "execution_time_s_p99": 0.10339183360338211
+    },
+    "longest_consecutive (C)": {
+      "binary_size_bytes": 33864,
+      "peak_rss_kb": 12720,
+      "execution_time_s_mean": 0.864645250296841,
+      "execution_time_s_stdev": 0.04571024692749503,
+      "execution_time_s_variance": 0.0020894266741725686,
+      "execution_time_s_min": 0.8236508341506124,
+      "execution_time_s_max": 0.9139351667836308,
+      "execution_time_s_p99": 0.9139351667836308
+    },
+    "longest_consecutive (Rust)": {
+      "binary_size_bytes": 461256,
+      "peak_rss_kb": 9952,
+      "execution_time_s_mean": 0.350414236386617,
+      "execution_time_s_stdev": 0.06541125634351576,
+      "execution_time_s_variance": 0.00427863245643713,
+      "execution_time_s_min": 0.3112604580819607,
+      "execution_time_s_max": 0.4259274168871343,
+      "execution_time_s_p99": 0.4259274168871343
+    },
+    "lru_cache (C)": {
+      "binary_size_bytes": 33816,
+      "peak_rss_kb": 113120,
+      "execution_time_s_mean": 0.05779315220812956,
+      "execution_time_s_stdev": 0.05981210584497648,
+      "execution_time_s_variance": 0.0035774880056106697,
+      "execution_time_s_min": 0.023183749988675117,
+      "execution_time_s_max": 0.12685816595330834,
+      "execution_time_s_p99": 0.12685816595330834
+    },
+    "lru_cache (Rust)": {
+      "binary_size_bytes": 442352,
+      "peak_rss_kb": 33712,
+      "execution_time_s_mean": 0.053775514010339975,
+      "execution_time_s_stdev": 0.06389649905227077,
+      "execution_time_s_variance": 0.0040827625911368385,
+      "execution_time_s_min": 0.016866959165781736,
+      "execution_time_s_max": 0.12755683297291398,
+      "execution_time_s_p99": 0.12755683297291398
+    },
+    "lru_cache (Salt)": {
+      "binary_size_bytes": 56592,
+      "peak_rss_kb": 1184,
+      "execution_time_s_mean": 0.03992001370837291,
+      "execution_time_s_stdev": 0.05721939999524429,
+      "execution_time_s_variance": 0.003274059735815762,
+      "execution_time_s_min": 0.006716208066791296,
+      "execution_time_s_max": 0.10599099984392524,
+      "execution_time_s_p99": 0.10599099984392524
+    },
+    "matmul (C)": {
+      "binary_size_bytes": 33576,
+      "peak_rss_kb": 25632,
+      "execution_time_s_mean": 1.0182592081837356,
+      "execution_time_s_stdev": 0.06804233034277836,
+      "execution_time_s_variance": 0.0046297587184757774,
+      "execution_time_s_min": 0.9785709576681256,
+      "execution_time_s_max": 1.0968263340182602,
+      "execution_time_s_p99": 1.0968263340182602
+    },
+    "matmul (Rust)": {
+      "binary_size_bytes": 442232,
+      "peak_rss_kb": 25824,
+      "execution_time_s_mean": 0.9791877358220518,
+      "execution_time_s_stdev": 0.04371297119836654,
+      "execution_time_s_variance": 0.0019108238509892227,
+      "execution_time_s_min": 0.9302432080730796,
+      "execution_time_s_max": 1.0143440417014062,
+      "execution_time_s_p99": 1.0143440417014062
+    },
+    "matmul (Salt)": {
+      "binary_size_bytes": 55640,
+      "peak_rss_kb": 25632,
+      "execution_time_s_mean": 0.1866359164317449,
+      "execution_time_s_stdev": 0.058097024249180576,
+      "execution_time_s_variance": 0.003375264226609876,
+      "execution_time_s_min": 0.1519564581103623,
+      "execution_time_s_max": 0.25370758306235075,
+      "execution_time_s_p99": 0.25370758306235075
+    },
+    "merge_sorted_lists (C)": {
+      "binary_size_bytes": 33688,
+      "peak_rss_kb": 1232,
+      "execution_time_s_mean": 0.07916697192316254,
+      "execution_time_s_stdev": 0.055068034604763526,
+      "execution_time_s_variance": 0.0030324884352314328,
+      "execution_time_s_min": 0.04691354185342789,
+      "execution_time_s_max": 0.14275183295831084,
+      "execution_time_s_p99": 0.14275183295831084
+    },
+    "merge_sorted_lists (Rust)": {
+      "binary_size_bytes": 442904,
+      "peak_rss_kb": 1488,
+      "execution_time_s_mean": 0.08620801412810881,
+      "execution_time_s_stdev": 0.06347529530374123,
+      "execution_time_s_variance": 0.004029113113897154,
+      "execution_time_s_min": 0.0494574592448771,
+      "execution_time_s_max": 0.15950287505984306,
+      "execution_time_s_p99": 0.15950287505984306
+    },
+    "merge_sorted_lists (Salt)": {
+      "binary_size_bytes": 56120,
+      "peak_rss_kb": 1088,
+      "execution_time_s_mean": 0.04785759700462222,
+      "execution_time_s_stdev": 0.05742194660876076,
+      "execution_time_s_variance": 0.0032972799523393707,
+      "execution_time_s_min": 0.01470262510702014,
+      "execution_time_s_max": 0.11416274961084127,
+      "execution_time_s_p99": 0.11416274961084127
+    },
+    "promotion_matrix (Salt)": {
+      "binary_size_bytes": 55624,
+      "peak_rss_kb": 1024,
+      "execution_time_s_mean": 0.03509365223969022,
+      "execution_time_s_stdev": 0.05668576561240385,
+      "execution_time_s_variance": 0.0032132760230643865,
+      "execution_time_s_min": 0.002313290722668171,
+      "execution_time_s_max": 0.10054870788007975,
+      "execution_time_s_p99": 0.10054870788007975
+    },
+    "sieve (C)": {
+      "binary_size_bytes": 33592,
+      "peak_rss_kb": 5120,
+      "execution_time_s_mean": 0.17212944446752468,
+      "execution_time_s_stdev": 0.053366687515974086,
+      "execution_time_s_variance": 0.002848003336427624,
+      "execution_time_s_min": 0.14089054195210338,
+      "execution_time_s_max": 0.23374999966472387,
+      "execution_time_s_p99": 0.23374999966472387
+    },
+    "sieve (Rust)": {
+      "binary_size_bytes": 441784,
+      "peak_rss_kb": 5280,
+      "execution_time_s_mean": 0.2775144170348843,
+      "execution_time_s_stdev": 0.06440118910599354,
+      "execution_time_s_variance": 0.004147513158265941,
+      "execution_time_s_min": 0.24001237470656633,
+      "execution_time_s_max": 0.35187758412212133,
+      "execution_time_s_p99": 0.35187758412212133
+    },
+    "sliding_window_bench (C)": {
+      "binary_size_bytes": 33496,
+      "peak_rss_kb": 1008,
+      "execution_time_s_mean": 0.03248790341118971,
+      "execution_time_s_stdev": 0.05247884463148368,
+      "execution_time_s_variance": 0.0027540291338554036,
+      "execution_time_s_min": 0.0021255421452224255,
+      "execution_time_s_max": 0.09308520890772343,
+      "execution_time_s_p99": 0.09308520890772343
+    },
+    "sliding_window_bench (Rust)": {
+      "binary_size_bytes": 460232,
+      "peak_rss_kb": 1232,
+      "execution_time_s_mean": 0.03987452775860826,
+      "execution_time_s_stdev": 0.06512452413296484,
+      "execution_time_s_variance": 0.00424120364354512,
+      "execution_time_s_min": 0.0022302079014480114,
+      "execution_time_s_max": 0.1150738331489265,
+      "execution_time_s_p99": 0.1150738331489265
+    },
+    "string_hashmap_bench (C)": {
+      "binary_size_bytes": 34120,
+      "peak_rss_kb": 2064,
+      "execution_time_s_mean": 0.059653361017505326,
+      "execution_time_s_stdev": 0.053123178269542666,
+      "execution_time_s_variance": 0.0028220720694576104,
+      "execution_time_s_min": 0.028620458208024502,
+      "execution_time_s_max": 0.12099329195916653,
+      "execution_time_s_p99": 0.12099329195916653
+    },
+    "string_hashmap_bench (Rust)": {
+      "binary_size_bytes": 463176,
+      "peak_rss_kb": 2240,
+      "execution_time_s_mean": 0.059219805213312306,
+      "execution_time_s_stdev": 0.06380349251713424,
+      "execution_time_s_variance": 0.0040708856573840055,
+      "execution_time_s_min": 0.022075457964092493,
+      "execution_time_s_max": 0.13289287500083447,
+      "execution_time_s_p99": 0.13289287500083447
+    },
+    "string_hashmap_bench (Salt)": {},
+    "sudoku_solver (C)": {
+      "binary_size_bytes": 33664,
+      "peak_rss_kb": 1024,
+      "execution_time_s_mean": 0.04622781959672769,
+      "execution_time_s_stdev": 0.056737244195514354,
+      "execution_time_s_variance": 0.0032191148789014272,
+      "execution_time_s_min": 0.0127102080732584,
+      "execution_time_s_max": 0.11173641681671143,
+      "execution_time_s_p99": 0.11173641681671143
+    },
+    "sudoku_solver (Rust)": {
+      "binary_size_bytes": 439296,
+      "peak_rss_kb": 1152,
+      "execution_time_s_mean": 0.040360833362986646,
+      "execution_time_s_stdev": 0.06508069432540974,
+      "execution_time_s_variance": 0.004235496773877419,
+      "execution_time_s_min": 0.0025687911547720432,
+      "execution_time_s_max": 0.1155091249383986,
+      "execution_time_s_p99": 0.1155091249383986
+    },
+    "sudoku_solver (Salt)": {
+      "binary_size_bytes": 56080,
+      "peak_rss_kb": 1040,
+      "execution_time_s_mean": 0.03623406961560249,
+      "execution_time_s_stdev": 0.058694937301261234,
+      "execution_time_s_variance": 0.003445095664798987,
+      "execution_time_s_min": 0.0023010000586509705,
+      "execution_time_s_max": 0.10400912491604686,
+      "execution_time_s_p99": 0.10400912491604686
+    },
+    "syntactic_chaos (Salt)": {
+      "binary_size_bytes": 55624,
+      "peak_rss_kb": 1024,
+      "execution_time_s_mean": 0.032540319177011647,
+      "execution_time_s_stdev": 0.052470071337618905,
+      "execution_time_s_variance": 0.0027531083861748167,
+      "execution_time_s_min": 0.0021609999239444733,
+      "execution_time_s_max": 0.09312745789065957,
+      "execution_time_s_p99": 0.09312745789065957
+    },
+    "trapping_rain_water (C)": {
+      "binary_size_bytes": 33560,
+      "peak_rss_kb": 6032,
+      "execution_time_s_mean": 0.12006158335134387,
+      "execution_time_s_stdev": 0.05162382452485663,
+      "execution_time_s_variance": 0.0026650192585731883,
+      "execution_time_s_min": 0.09002520889043808,
+      "execution_time_s_max": 0.1796710412018001,
+      "execution_time_s_p99": 0.1796710412018001
+    },
+    "trapping_rain_water (Rust)": {
+      "binary_size_bytes": 442360,
+      "peak_rss_kb": 5584,
+      "execution_time_s_mean": 0.10408686085914572,
+      "execution_time_s_stdev": 0.06019099112254489,
+      "execution_time_s_variance": 0.0036229554123142775,
+      "execution_time_s_min": 0.0690042907372117,
+      "execution_time_s_max": 0.17358837462961674,
+      "execution_time_s_p99": 0.17358837462961674
+    },
+    "trie (C)": {
+      "binary_size_bytes": 33640,
+      "peak_rss_kb": 262464,
+      "execution_time_s_mean": 0.11313954181969166,
+      "execution_time_s_stdev": 0.07552433509582232,
+      "execution_time_s_variance": 0.005703925191666059,
+      "execution_time_s_min": 0.06861445819959044,
+      "execution_time_s_max": 0.20034100022166967,
+      "execution_time_s_p99": 0.20034100022166967
+    },
+    "trie (Rust)": {
+      "binary_size_bytes": 442968,
+      "peak_rss_kb": 262624,
+      "execution_time_s_mean": 0.3074887500454982,
+      "execution_time_s_stdev": 0.0661190190464985,
+      "execution_time_s_variance": 0.004371724679671231,
+      "execution_time_s_min": 0.265089875087142,
+      "execution_time_s_max": 0.3836743333376944,
+      "execution_time_s_p99": 0.3836743333376944
+    },
+    "vector_add (C)": {
+      "binary_size_bytes": 16896,
+      "peak_rss_kb": 1008,
+      "execution_time_s_mean": 0.13652219421540698,
+      "execution_time_s_stdev": 0.05671371125438475,
+      "execution_time_s_variance": 0.0032164450442457274,
+      "execution_time_s_min": 0.10375587502494454,
+      "execution_time_s_max": 0.202009541913867,
+      "execution_time_s_p99": 0.202009541913867
+    },
+    "vector_add (Rust)": {
+      "binary_size_bytes": 441744,
+      "peak_rss_kb": 1184,
+      "execution_time_s_mean": 0.1414141245186329,
+      "execution_time_s_stdev": 0.06431573818778304,
+      "execution_time_s_variance": 0.004136514178639453,
+      "execution_time_s_min": 0.10426954180002213,
+      "execution_time_s_max": 0.21567954076454043,
+      "execution_time_s_p99": 0.21567954076454043
+    },
+    "vector_add (Salt)": {
+      "binary_size_bytes": 55616,
+      "peak_rss_kb": 1024,
+      "execution_time_s_mean": 0.11365276373301943,
+      "execution_time_s_stdev": 0.06054380076920689,
+      "execution_time_s_variance": 0.0036655518115814166,
+      "execution_time_s_min": 0.07844766601920128,
+      "execution_time_s_max": 0.18356212507933378,
+      "execution_time_s_p99": 0.18356212507933378
+    },
+    "window_access (C)": {
+      "binary_size_bytes": 33472,
+      "peak_rss_kb": 118224,
+      "execution_time_s_mean": 0.10082193060467641,
+      "execution_time_s_stdev": 0.05593679603148536,
+      "execution_time_s_variance": 0.0031289251502679962,
+      "execution_time_s_min": 0.06801475025713444,
+      "execution_time_s_max": 0.16540945833548903,
+      "execution_time_s_p99": 0.16540945833548903
+    },
+    "window_access (Rust)": {
+      "binary_size_bytes": 441968,
+      "peak_rss_kb": 118400,
+      "execution_time_s_mean": 0.11697055570160349,
+      "execution_time_s_stdev": 0.06369727750916068,
+      "execution_time_s_variance": 0.004057343162079028,
+      "execution_time_s_min": 0.07969754096120596,
+      "execution_time_s_max": 0.19051958387717605,
+      "execution_time_s_p99": 0.19051958387717605
+    },
+    "window_access (Salt)": {
+      "binary_size_bytes": 55792,
+      "peak_rss_kb": 118240,
+      "execution_time_s_mean": 0.09881365299224854,
+      "execution_time_s_stdev": 0.055864382406497624,
+      "execution_time_s_variance": 0.003120829221659401,
+      "execution_time_s_min": 0.06642054207623005,
+      "execution_time_s_max": 0.16332008317112923,
+      "execution_time_s_p99": 0.16332008317112923
+    },
+    "writer_perf (C)": {
+      "binary_size_bytes": 16848,
+      "peak_rss_kb": 1008,
+      "execution_time_s_mean": 0.12945484727000198,
+      "execution_time_s_stdev": 0.058734031867875014,
+      "execution_time_s_variance": 0.0034496864994565577,
+      "execution_time_s_min": 0.09336729208007455,
+      "execution_time_s_max": 0.1972274170257151,
+      "execution_time_s_p99": 0.1972274170257151
+    },
+    "writer_perf (Rust)": {
+      "binary_size_bytes": 439712,
+      "peak_rss_kb": 1152,
+      "execution_time_s_mean": 0.11367658323918779,
+      "execution_time_s_stdev": 0.06053540012589455,
+      "execution_time_s_variance": 0.0036645346684021536,
+      "execution_time_s_min": 0.07860791683197021,
+      "execution_time_s_max": 0.1835767081938684,
+      "execution_time_s_p99": 0.1835767081938684
+    },
+    "writer_perf (Salt)": {
+      "binary_size_bytes": 56416,
+      "peak_rss_kb": 1024,
+      "execution_time_s_mean": 0.1299869028540949,
+      "execution_time_s_stdev": 0.05181185675287258,
+      "execution_time_s_variance": 0.0026844685001801883,
+      "execution_time_s_min": 0.09850120823830366,
+      "execution_time_s_max": 0.1897860411554575,
+      "execution_time_s_p99": 0.1897860411554575
+    },
+    "yield_validation (Salt)": {
+      "binary_size_bytes": 55752,
+      "peak_rss_kb": 1024,
+      "execution_time_s_mean": 0.0418341807089746,
+      "execution_time_s_stdev": 0.0685405020091198,
+      "execution_time_s_variance": 0.004697800415662156,
+      "execution_time_s_min": 0.0022154171019792557,
+      "execution_time_s_max": 0.1209779167547822,
+      "execution_time_s_p99": 0.1209779167547822
+    }
+  }
+}

@@ -140,6 +140,10 @@ void sys_on_mouse_click(int32_t x, int32_t y) {
     uint32_t target_node_idx = sys_hit_test((float)x, (float)y, 1); // 1 = BODY
     if (target_node_idx == 0) return;
     
+    // 0. Set Focus
+    extern void dom_set_focused_node(uint32_t node_idx);
+    dom_set_focused_node(target_node_idx);
+    
     // 1. Dispatch JS Event
     uint32_t type_hash = fnv1a_hash_str("click");
     sys_jsc_dispatch_event(target_node_idx, type_hash, (float)x, (float)y);

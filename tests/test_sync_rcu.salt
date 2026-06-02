@@ -1,0 +1,50 @@
+package main
+
+use std.sync.rcu.RcuPointer
+use std.core.ptr.Ptr
+
+extern fn malloc(size: i64) -> Ptr<u8>;
+extern fn free(ptr: Ptr<u8>);
+
+fn main() -> i32 {
+    println("=== RCU Pointer Tests ===");
+
+    let ptr1 = malloc(8);
+    let ptr2 = malloc(8);
+    
+    let mut rcu = RcuPointer::new(ptr1);
+    
+    let read1 = rcu.read();
+    
+    let mut all_pass = true;
+    
+    if read1 == ptr1 {
+        println("PASS: initial_read");
+    } else {
+        println("FAIL: initial_read");
+        all_pass = false;
+    }
+    
+    rcu.update(ptr2);
+    let read_ptr2 = rcu.read();
+    
+    // Also read directly to see if update modified the struct
+    let direct_ptr = rcu.ptr;
+
+    if read_ptr2 == ptr2 && direct_ptr == ptr2 {
+        println("PASS: updated_read");
+    } else {
+        println("FAIL: updated_read");
+        all_pass = false;
+    }
+    
+    free(ptr1);
+    free(ptr2);
+    
+    if all_pass {
+        println("=== ALL TESTS PASSED ===");
+        return 0;
+    }
+    
+    return 1;
+}

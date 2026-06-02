@@ -458,6 +458,11 @@ kernel_halt:
     hlt
     jmp .Lhalt_loop
 
+.global get_kernel_end_phys
+get_kernel_end_phys:
+    mov rax, offset _bss_end_phys
+    ret
+
 .section .data
 .align 8
 .global gdt64

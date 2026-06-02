@@ -137,8 +137,9 @@ ssh $SSH_OPTS "${EC2_USER}@${INSTANCE_IP}" \
     "nohup timeout $BENCH_TIMEOUT qemu-system-x86_64 -kernel /home/ubuntu/kernel_expert.elf -display none -m 1G -enable-kvm -cpu host -d guest_errors,cpu_reset -D /tmp/qemu_node_b.log -no-reboot -serial file:/home/ubuntu/bench_output_node_b.txt -monitor none -netdev socket,id=net1,mcast=230.0.0.1:1234 -device virtio-net-pci,netdev=net1,mac=${MAC_EXPERT} > /home/ubuntu/qemu_b_error.log 2>&1 < /dev/null &"
 echo "  Node B launched"
 
-# Small delay to ensure Node B's VirtIO device is initialized before Router sends
-sleep 1
+# Wait for Node B's VirtIO device to initialize before Router sends
+echo "  Waiting for Node B VirtIO initialization..."
+ssh $SSH_OPTS "${EC2_USER}@${INSTANCE_IP}" 'timeout 10 bash -c "until grep -q \"VirtIO-Net initialized\" /home/ubuntu/bench_output_node_b.txt 2>/dev/null; do sleep 0.1; done"' || echo "  Node B init timeout"
 
 echo -e "${CYAN}[3/4] Launching Node A (Router: ${MAC_ROUTER}) in foreground...${NC}"
 ssh $SSH_OPTS "${EC2_USER}@${INSTANCE_IP}" "timeout $BENCH_TIMEOUT qemu-system-x86_64 \

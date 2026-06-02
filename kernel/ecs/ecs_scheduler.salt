@@ -1,0 +1,113 @@
+// =============================================================================
+// kernel/ecs/ecs_scheduler.salt
+// ECS-Backed Scheduler System — Columnar Thread Dispatching
+// =============================================================================
+
+package kernel.ecs.ecs_scheduler
+
+import kernel.ecs.world.World
+import kernel.ecs.entity.{Entity, ENTITY_INVALID}
+import kernel.ecs.components.{
+    ThreadState, SchedulingPriority, CpuAffinity,
+    THREAD_FREE, THREAD_RUNNABLE, THREAD_RUNNING, THREAD_BLOCKED, THREAD_ZOMBIE
+}
+import kernel.ecs.sparse_set.{
+    thread_set_get_mut, priority_set_get, affinity_set_get
+}
+
+/// Find the highest-priority runnable thread on a given CPU core.
+/// Replaces the legacy global scheduler arrays with ECS columnar queries.
+pub fn scheduler_system_tick(w: Ptr<World>, core_id: u32) -> Entity {
+    let world_ref = w as &World;
+    let threads = world_ref.threads;
+    let priorities = world_ref.priorities;
+    let affinities = world_ref.cpu_affinities;
+    
+    let threads_ref = threads as &ThreadSparseSet;
+    let count = threads_ref.count;
+
+    let mut best_entity = Entity { id: ENTITY_INVALID, gen: 0 };
+    let mut best_priority: u32 = 0xFFFFFFFF; // Lower is higher priority
+
+    let mut i: u32 = 0;
+    while i < count {
+        unsafe {
+            let t = threads_ref.dense.offset(i as i64) as &ThreadState;
+            if t.status == THREAD_RUNNABLE {
+                let e = *(threads_ref.entity_map.offset(i as i64) as &Entity);
+                
+                // Check CpuAffinity if it exists
+                let mut matches_core = true;
+                let aff = affinity_set_get(affinities, e);
+                if (aff as u64) != 0 {
+                    let aff_ref = aff as &CpuAffinity;
+                    if aff_ref.core_id != core_id {
+                        matches_core = false;
+                    }
+                }
+
+                if matches_core {
+                    let mut prio_level: u32 = 128; // Default medium priority
+                    let prio = priority_set_get(priorities, e);
+                    if (prio as u64) != 0 {
+                        let prio_ref = prio as &SchedulingPriority;
+                        prio_level = prio_ref.level;
+                    }
+
+                    if prio_level < best_priority {
+                        best_priority = prio_level;
+                        best_entity = e;
+                    }
+                }
+            }
+        }
+        i = i + 1;
+    }
+
+    // Transition the selected thread status to RUNNING
+    if best_entity.id != ENTITY_INVALID {
+        let t = thread_set_get_mut(threads, best_entity);
+        if (t as u64) != 0 {
+            let t_ref = t as &mut ThreadState;
+            t_ref.status = THREAD_RUNNING;
+        }
+    }
+
+    return best_entity;
+}
+
+pub fn scheduler_system_yield(w: Ptr<World>, current: Entity) {
+    let world_ref = w as &World;
+    let threads = world_ref.threads;
+    let t = thread_set_get_mut(threads, current);
+    if (t as u64) != 0 {
+        let t_ref = t as &mut ThreadState;
+        if t_ref.status == THREAD_RUNNING {
+            t_ref.status = THREAD_RUNNABLE;
+        }
+    }
+}
+
+pub fn scheduler_system_block(w: Ptr<World>, current: Entity) {
+    let world_ref = w as &World;
+    let threads = world_ref.threads;
+    let t = thread_set_get_mut(threads, current);
+    if (t as u64) != 0 {
+        let t_ref = t as &mut ThreadState;
+        if t_ref.status == THREAD_RUNNING {
+            t_ref.status = THREAD_BLOCKED;
+        }
+    }
+}
+
+pub fn scheduler_system_wakeup(w: Ptr<World>, entity: Entity) {
+    let world_ref = w as &World;
+    let threads = world_ref.threads;
+    let t = thread_set_get_mut(threads, entity);
+    if (t as u64) != 0 {
+        let t_ref = t as &mut ThreadState;
+        if t_ref.status == THREAD_BLOCKED {
+            t_ref.status = THREAD_RUNNABLE;
+        }
+    }
+}

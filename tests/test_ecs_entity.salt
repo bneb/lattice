@@ -1,38 +1,63 @@
+// =============================================================================
+// test_ecs_entity.salt — Entity Allocator Unit Tests
+// =============================================================================
+// RED-TO-GREEN: Tests entity allocation, free-list recycling, and
+// generational correctness.
+// =============================================================================
+
 package main
 
-import kernel.ecs.entity.{Entity, EntityAllocator, new_entity_allocator}
+import kernel.ecs.entity.{Entity, EntityAllocator, new_entity_allocator, entity_allocator_allocate, entity_allocator_free, entity_allocator_is_alive, entity_allocator_count, ENTITY_INVALID}
 
 extern fn println(s: Ptr<u8>);
 
 fn main() -> i32 {
-    let mut alloc = new_entity_allocator();
-    
-    // Spawn some entities
-    let e1 = alloc.allocate();
-    if e1.id != 0 { return 1; }
-    if e1.gen != 0 { return 1; }
-    
-    let e2 = alloc.allocate();
-    if e2.id != 1 { return 2; }
-    
-    // Free an entity
-    alloc.free(e1);
-    
-    // Reallocate, it should reuse the ID but bump the generation
-    let e3 = alloc.allocate();
-    if e3.id != 0 { return 3; }
-    if e3.gen != 1 { return 4; }
-    
-    let e4 = alloc.allocate();
-    if e4.id != 2 { return 5; }
+    let alloc = new_entity_allocator();
 
-    // Test a second free
-    alloc.free(e3);
-    alloc.free(e2);
+    // Test 1: Sequential allocation — IDs start at 0
+    let e1 = entity_allocator_allocate(alloc);
+    if e1.id != 0 { println("FAIL: e1.id != 0"); return 1; }
+    if e1.gen != 0 { println("FAIL: e1.gen != 0"); return 1; }
 
-    let e5 = alloc.allocate();
-    if e5.id != 1 { return 6; }
-    if e5.gen != 1 { return 7; }
+    let e2 = entity_allocator_allocate(alloc);
+    if e2.id != 1 { println("FAIL: e2.id != 1"); return 2; }
 
+    // Test 2: Free an entity — bumps generation
+    entity_allocator_free(alloc, e1);
+
+    // Test 3: Reallocate — should reuse ID 0 with generation 1
+    let e3 = entity_allocator_allocate(alloc);
+    if e3.id != 0 { println("FAIL: e3.id != 0 (reuse)"); return 3; }
+    if e3.gen != 1 { println("FAIL: e3.gen != 1 (bumped)"); return 4; }
+
+    // Test 4: Next fresh allocation continues from next_fresh_id
+    let e4 = entity_allocator_allocate(alloc);
+    if e4.id != 2 { println("FAIL: e4.id != 2"); return 5; }
+
+    // Test 5: Multiple free/realloc — LIFO free-list
+    entity_allocator_free(alloc, e3);
+    entity_allocator_free(alloc, e2);
+
+    let e5 = entity_allocator_allocate(alloc);
+    // Free-list is LIFO: e2 (id=1) pushed last -> popped first
+    if e5.id != 1 { println("FAIL: e5.id != 1 (LIFO)"); return 6; }
+    if e5.gen != 1 { println("FAIL: e5.gen != 1"); return 7; }
+
+    // Test 6: is_alive check
+    let alive = entity_allocator_is_alive(alloc, e5);
+    if !alive { println("FAIL: e5 should be alive"); return 8; }
+
+    // e1 (id=0, gen=0) was freed -> gen bumped to 1 -> so e1 is dead
+    let dead = entity_allocator_is_alive(alloc, e1);
+    if dead { println("FAIL: e1 should be dead"); return 9; }
+
+    // Test 7: entity count
+    let cnt = entity_allocator_count(alloc);
+    // Active: e4(id=2), e5(id=1) = 2 active
+    // next_fresh_id=3, free_count=1 (id=0 in free-list)
+    // count = 3 - 1 = 2
+    if cnt != 2 { println("FAIL: count should be 2"); return 10; }
+
+    println("All entity tests PASSED!");
     return 0;
 }

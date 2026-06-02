@@ -100,6 +100,13 @@ read_gs_u64:
     mov rax, qword ptr gs:[rdi]
     ret
 
+// write_gs_u64(rdi: offset, rsi: value)
+// Writes a u64 to GS segment at the given offset.
+.global write_gs_u64
+write_gs_u64:
+    mov qword ptr gs:[rdi], rsi
+    ret
+
 // =============================================================================
 // Atomics: atomic_fetch_add_i32 / atomic_load_i32
 // =============================================================================

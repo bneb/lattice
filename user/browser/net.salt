@@ -404,19 +404,6 @@ pub fn sys_net_pump_ingress() {
         let payload_ptr = read_ipc_command_payload_ptr(cmd_ptr);
         let payload_len = read_ipc_command_payload_len(cmd_ptr);
         
-        // TELEMETRY: Log every IPC command received
-        let m_cmd: [u8; 15] = [91,73,80,67,93,32,67,77,68,32,116,121,112,101,61]; // "[IPC] CMD type="
-        sys_log_info((&m_cmd) as u64, 15);
-        sys_print_float(cmd_type as f64);
-        let m_a1: [u8; 4] = [32,97,49,61]; // " a1="
-        sys_log_info((&m_a1) as u64, 4);
-        sys_print_float(arg1 as f64);
-        let m_a2: [u8; 4] = [32,97,50,61]; // " a2="
-        sys_log_info((&m_a2) as u64, 4);
-        sys_print_float(arg2 as f64);
-        let nl: [u8; 1] = [10];
-        sys_log_info((&nl) as u64, 1);
-        
         if cmd_type == 1 { // EVENT_NAVIGATE
             sys_browser_navigate(payload_ptr, payload_len);
         } else if cmd_type == 3 { // EVENT_GO_BACK
@@ -439,15 +426,7 @@ pub fn sys_net_pump_ingress() {
             ext_engine_process_mouse_down(mx as f32, my as f32);
         } else if cmd_type == 14 { // CMD_KEYDOWN (Sprint 5)
             let char_code = arg1 as u8;
-            if char_code == 8 { // Backspace
-                let focus = dom_get_active_focus();
-                if focus != 0 {
-                    ext_dom_mutate_text(focus, 0, 1);
-                    ext_salt_invalidate_layout(focus);
-                }
-            } else {
-                ext_engine_process_key_down(char_code);
-            }
+            ext_engine_process_key_down(char_code);
         } else if cmd_type == 6 { // CMD_SCROLL
             dom_add_scroll_y(arg1 as i32);
         } else if cmd_type == 10 { // CMD_CDM_REGISTERED
@@ -455,13 +434,13 @@ pub fn sys_net_pump_ingress() {
             let m_cdm: [u8; 18] = [91,78,69,84,93,32,67,68,77,32,114,101,103,105,115,116,101,114]; // "[NET] CDM register"
             sys_log_info((&m_cdm) as u64, 18);
         } else if cmd_type == 9 { // CMD_FETCH_RESPONSE
-            // FIX: Re-read arg2 from cmd_ptr directly — Salt register-clobber workaround
-            let arg2 = read_ipc_command_arg2(cmd_ptr);
-            let slot_idx = (arg2 >> 24) as u32;
-            let expected_seq = arg2 & 0xFFFFFF;
+            let ipc_arg1 = read_ipc_command_arg1(cmd_ptr);
+            let ipc_arg2 = read_ipc_command_arg2(cmd_ptr);
+            let slot_idx = (ipc_arg2 >> 24) as u32;
+            let expected_seq = ipc_arg2 & 0xFFFFFF;
             
             let bulk_base = sys_ipc_get_bulk_ingress_ptr();
-            let SLOT_SIZE: u32 = 516096;
+            let SLOT_SIZE: u32 = 2097152;
             let slot_base = bulk_base + (slot_idx * SLOT_SIZE) as u64;
             
             // Epic 108: Robust Multi-Slot Bulk SHM Synchronization
@@ -475,36 +454,31 @@ pub fn sys_net_pump_ingress() {
             let fetch_len = *((slot_base + 4) as &u32);
             let bulk_ptr = slot_base + 8; // Data starts at offset 8
             
-            // TELEMETRY: Log fetch response details
-            let m_fr: [u8; 21] = [91,70,69,84,67,72,93,32,82,101,115,112,111,110,115,101,32,108,101,110,61]; // "[FETCH] Response len="
-            sys_log_info((&m_fr) as u64, 21);
-            sys_print_float(fetch_len as f64);
-            let m_bp: [u8; 6] = [32,98,117,108,107,61]; // " bulk="
-            sys_log_info((&m_bp) as u64, 6);
-            sys_print_float(bulk_ptr as f64);
-            sys_log_info((&nl) as u64, 1);
-            
             let mut nav_bit: u64 = 1;
             nav_bit = nav_bit << 62;
-            let is_nav = (arg1 & nav_bit) != 0;
+            let is_nav = (ipc_arg1 & nav_bit) != 0;
             
             let mut img_bit: u64 = 1;
             img_bit = img_bit << 59;
-            let is_img_fetch = (arg1 & img_bit) != 0;
+            let is_img_fetch = (ipc_arg1 & img_bit) != 0;
             
             let mut script_bit: u64 = 1;
             script_bit = script_bit << 60;
-            let is_script_fetch = (arg1 & script_bit) != 0;
+            let is_script_fetch = (ipc_arg1 & script_bit) != 0;
             
             if is_nav {
                 if fetch_len > 0 && bulk_ptr != 0 {
-                    let root_id = arg1 - nav_bit;
+                    let root_id = ipc_arg1 - nav_bit;
                     http_reset_state();
                     ext_salt_reset_lexer();
                     http_set_root_node(root_id);
                     js_lex_html_chunk(root_id, bulk_ptr, fetch_len, 1);
                     http_set_eof();
                     dom.resolve_node(root_id);
+                    
+                    // Epic 108: Force layout solve and compositor refresh
+                    dom.invalidate_all_layout();
+                    ext_mark_all_compositor_dirty();
                 }
                 
                 // Mark ALL nodes dirty after batch DOM creation
@@ -531,6 +505,7 @@ pub fn sys_net_pump_ingress() {
                                 dom.DOM_CANVAS_HEIGHT[node_idx as usize] = out_h as u32;
                                 if dom.STYLE_W[node_idx as usize] == -1 { dom.STYLE_W[node_idx as usize] = out_w; }
                                 if dom.STYLE_H[node_idx as usize] == -1 { dom.STYLE_H[node_idx as usize] = out_h; }
+                                dom.invalidate_layout(node_idx);
                                 paint.paint_mark_compositor_dirty(node_idx);
                             }
                         }
@@ -550,7 +525,21 @@ pub fn sys_net_pump_ingress() {
                         let slot = complete_script_fetch(script_fetch_id, perm_ptr, fetch_len);
                         if slot >= 0 {
                             let src_ptr = dom.SCRIPT_FETCH_SRC_PTR[slot as usize];
-                            sys_jsc_evaluate_script(perm_ptr, fetch_len, src_ptr);
+
+                            // Epic 108 Safety: Detect HTML signature
+                            let mut is_html_redirect = false;
+                            if fetch_len > 10 {
+                                let b0 = *((perm_ptr) as &u8);
+                                let b1 = *((perm_ptr + 1) as &u8);
+                                if b0 == 60 && b1 == 33 { // "<!"
+                                    is_html_redirect = true;
+                                }
+                            }
+
+                            if !is_html_redirect {
+                                sys_jsc_evaluate_script(perm_ptr, fetch_len, src_ptr);
+                            }
+
                             dom.SCRIPT_FETCH_STATE[slot as usize] = 0;
                             if dom.PENDING_SCRIPT_COUNT > 0 { dom.PENDING_SCRIPT_COUNT = dom.PENDING_SCRIPT_COUNT - 1; }
                         }

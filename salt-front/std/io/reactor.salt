@@ -13,7 +13,7 @@ use std.core.ptr.Ptr
 use std.core.result.Result
 
 /// Filter type for event registration.
-pub enum Filter {
+pub enum ReactorFilter {
     Read,
     Write
 }
@@ -21,7 +21,7 @@ pub enum Filter {
 /// A single I/O event returned by wait().
 pub struct IoEvent {
     fd: i32,
-    filter: Filter
+    filter: ReactorFilter
 }
 
 /// Trait that all I/O reactor backends must implement.
@@ -29,7 +29,7 @@ pub struct IoEvent {
 pub trait Reactor {
     /// Register a file descriptor for the given event filter.
     /// Returns 0 on success, -1 on error.
-    fn register(&self, fd: i32, filter: Filter) -> i32;
+    fn register(&self, fd: i32, filter: ReactorFilter) -> i32;
 
     /// Deregister a file descriptor from the reactor.
     /// Returns 0 on success, -1 on error.

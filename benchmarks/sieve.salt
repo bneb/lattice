@@ -1,4 +1,4 @@
-package main
+package basalt
 
 // Sieve of Eratosthenes — Using Ptr<T> for typed access
 
@@ -11,26 +11,27 @@ fn sieve(limit: i32) -> i32 {
     let raw = arena::alloc(n);
     let is_prime: Ptr<u8> = raw as Ptr<u8>;
     
-    for i in 0..n { is_prime[i] = 1; }
-    is_prime[0 as i64] = 0;
-    is_prime[1 as i64] = 0;
-    
-    for p in 2..limit + 1 {
-        if p * p > limit { break; }
-        if is_prime[p as i64] != 0 {
-            let mut j = p * p;
-            while j <= limit {
-                is_prime[j as i64] = 0;
-                j += p;
+    let mut count = 0;
+    unsafe {
+        for i in 0..n { is_prime[i] = 1; }
+        is_prime[0 as i64] = 0;
+        is_prime[1 as i64] = 0;
+        
+        for p in 2..limit + 1 {
+            if p * p > limit { break; }
+            if is_prime[p as i64] != 0 {
+                let mut j = p * p;
+                while j <= limit {
+                    is_prime[j as i64] = 0;
+                    j += p;
+                }
             }
         }
+        
+        for k in 0..n {
+            if is_prime[k] != 0 { count += 1; }
+        }
     }
-    
-    let mut count = 0;
-    for k in 0..n {
-        if is_prime[k] != 0 { count += 1; }
-    }
-    
     arena::reset_to(m);
     return count;
 }

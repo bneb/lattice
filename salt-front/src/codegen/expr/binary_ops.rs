@@ -1,6 +1,5 @@
 use crate::types::Type;
 use crate::codegen::context::{LoweringContext, LocalKind};
-use super::utils::*;
 use crate::codegen::type_bridge::*;
 use std::collections::HashMap;
 use super::{emit_expr, emit_lvalue, LValueKind, extract_field_assign_receiver};
@@ -550,6 +549,13 @@ pub fn emit_assign(ctx: &mut LoweringContext, out: &mut String, a: &syn::ExprAss
     // Evaluate RHS with the appropriate hint
     let (rhs_val, rhs_ty) = emit_expr(ctx, out, &a.right, local_vars, Some(&element_ty))?;
 
+    // [SOVEREIGN PHASE 3] Strict Affine Memory Safety (assignments)
+    if rhs_ty.is_affine() {
+        if let Some(rhs_var_name) = crate::codegen::expr::extract_ident_name(&a.right) {
+            ctx.consumed_vars_mut().insert(rhs_var_name);
+        }
+    }
+
     // [POINTER STATE DRAIN] Consume any pending pointer state set by the RHS.
     // Without this, Ptr::empty() in `node.children[i] = Ptr::empty()` leaks
     // its Empty state to the next let-binding, potentially in a later function.
@@ -948,7 +954,7 @@ pub fn emit_unary(ctx: &mut LoweringContext, out: &mut String, u: &syn::ExprUnar
                 if let Some(scope_id) = cf.get_pointer_scope(&val) {
                     // Get other scopes for noalias list
                     let other_scopes = cf.get_other_arg_scopes(scope_id);
-                    drop(cf);
+                    let _ = cf;
                     
                     let alias_scope = format!("#scope_arg_{}", scope_id);
                     let noalias_str = if other_scopes.is_empty() {
@@ -960,7 +966,7 @@ pub fn emit_unary(ctx: &mut LoweringContext, out: &mut String, u: &syn::ExprUnar
                     out.push_str(&format!("    {} = llvm.load {} {{ alias_scopes = [{}]{} }} : !llvm.ptr -> {}\n",
                         raw_res, val, alias_scope, noalias_str, inner_mlir));
                 } else {
-                    drop(cf);
+                    let _ = cf;
                     // Fallback to regular load with local/global scope
                     out.push_str(&format!("    {} = llvm.load {} {{ alias_scopes = [#scope_local], noalias = [#scope_global] }} : !llvm.ptr -> {}\n",
                         raw_res, val, inner_mlir));
@@ -984,7 +990,9 @@ pub fn emit_unary(ctx: &mut LoweringContext, out: &mut String, u: &syn::ExprUnar
 }
 
 pub fn emit_cast(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCast, local_vars: &mut HashMap<String, (Type, LocalKind)>, _expected: Option<&Type>) -> Result<(String, Type), String> {
-    let raw_target_ty = resolve_type(ctx, &crate::grammar::SynType::from_std(*c.ty.clone()).unwrap());
+    let syn_ty = crate::grammar::SynType::from_std(*c.ty.clone())
+        .map_err(|e| format!("Invalid cast target type: {}", e))?;
+    let raw_target_ty = resolve_type(ctx, &syn_ty);
     // [SOVEREIGN FIX] Apply current type_map to resolve generics like T -> u8 in cast expressions
     let target_ty = raw_target_ty.substitute(&ctx.current_type_map());
 

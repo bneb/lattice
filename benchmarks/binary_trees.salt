@@ -1,0 +1,87 @@
+package binary_trees
+
+use std.core.ptr.Ptr
+use std.core.arena
+
+struct TreeNode {
+    left: Ptr<TreeNode>,
+    right: Ptr<TreeNode>,
+}
+
+struct BumpAlloc {
+    ptr: i64,
+    start: i64,
+}
+
+fn create_tree(depth: i32, bump: Ptr<BumpAlloc>) -> Ptr<TreeNode> {
+    let node_addr = bump.ptr;
+    bump.ptr = bump.ptr + 16;
+    let mut node = node_addr as Ptr<TreeNode>;
+    
+    if depth > 0 {
+        node.left = create_tree(depth - 1, bump);
+        node.right = create_tree(depth - 1, bump);
+    } else {
+        node.left = Ptr::empty();
+        node.right = Ptr::empty();
+    }
+    return node;
+}
+
+fn compute_checksum(node: Ptr<TreeNode>) -> i32 {
+    if node {
+        return 1 + compute_checksum(node.left) + compute_checksum(node.right);
+    }
+    return 0;
+}
+
+fn main() -> i32 {
+    let max_depth = 15;
+    
+    // Allocate 10MB arena upfront
+    let raw_mem = arena::alloc(10000000);
+    
+    let mut my_alloc = BumpAlloc {
+        ptr: raw_mem,
+        start: raw_mem,
+    };
+    
+    let bump = &mut my_alloc as Ptr<BumpAlloc>;
+    
+    // Stretch tree
+    let stretch_depth = max_depth + 1;
+    let stretch_tree = create_tree(stretch_depth, bump);
+    let stretch_check = compute_checksum(stretch_tree);
+    
+    // Reset for long lived tree
+    bump.ptr = bump.start;
+    let long_lived_tree = create_tree(max_depth, bump);
+    
+    // Record where we are after long lived tree
+    let long_lived_end = bump.ptr;
+    
+    let mut total_check = 0;
+    
+    let mut depth = 4;
+    while depth <= max_depth {
+        let iterations = 1 << (max_depth - depth + 4);
+        let mut check = 0;
+        
+        let mut i = 1;
+        while i <= iterations {
+            // Reset to end of long lived tree for each iteration
+            bump.ptr = long_lived_end;
+            let t = create_tree(depth, bump);
+            check += compute_checksum(t);
+            i += 1;
+        }
+        
+        total_check += check;
+        depth += 2;
+    }
+    
+    let long_lived_check = compute_checksum(long_lived_tree);
+    
+    // Avoid dead code elimination by returning
+    return total_check % 256;
+}

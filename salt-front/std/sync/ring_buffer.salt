@@ -1,0 +1,63 @@
+package std.sync.ring_buffer
+
+use std.core.ptr.Ptr
+use std.core.result.Result
+use std.status.Status
+
+// SPSC Lock-Free Ring Buffer
+pub struct RingBuffer {
+    pub buffer: Ptr<Ptr<u8>>,
+    pub capacity: i64,
+    pub mask: i64,
+    pub head: i64,
+    pub tail: i64,
+}
+
+extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
+extern fn salt_atomic_store_i64(ptr: Ptr<i64>, val: i64);
+
+impl RingBuffer {
+    pub fn new(buffer: Ptr<Ptr<u8>>, capacity: i64) -> RingBuffer 
+        requires { capacity > 0 }
+    {
+        return RingBuffer {
+            buffer: buffer,
+            capacity: capacity,
+            mask: capacity - 1,
+            head: 0,
+            tail: 0,
+        };
+    }
+
+    pub fn push(&mut self, item: Ptr<u8>) -> Result<i32> {
+        let h = self.head;
+        let t = salt_atomic_load_i64(&self.tail as Ptr<i64>);
+        
+        if (h - t) >= self.capacity {
+            return Result::Err(Status::from_code(8)); // RESOURCE_EXHAUSTED
+        }
+        
+        let index = h & self.mask;
+        let slot = self.buffer.offset(index);
+        *(slot as &mut i64) = item as i64;
+        
+        salt_atomic_store_i64(&self.head as Ptr<i64>, h + 1);
+        return Result::Ok(0);
+    }
+
+    pub fn pop(&mut self) -> Result<Ptr<u8>> {
+        let t = self.tail;
+        let h = salt_atomic_load_i64(&self.head as Ptr<i64>);
+        
+        if h == t {
+            return Result::Err(Status::from_code(5)); // NOT_FOUND
+        }
+        
+        let index = t & self.mask;
+        let slot = self.buffer.offset(index);
+        let item = *(slot as &i64) as Ptr<u8>;
+        
+        salt_atomic_store_i64(&self.tail as Ptr<i64>, t + 1);
+        return Result::Ok(item);
+    }
+}

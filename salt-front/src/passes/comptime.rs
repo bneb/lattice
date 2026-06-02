@@ -51,7 +51,9 @@ fn process_syn_stmt(stmt: &mut syn::Stmt, evaluator: &mut Evaluator) -> Result<(
                             } else {
                                 // 1. Register so future uses can see it
                                 if let syn::Pat::Ident(pat_ident) = &local.pat {
-                                    evaluator.constant_table.insert(pat_ident.ident.to_string(), val.clone());
+                                    if pat_ident.mutability.is_none() {
+                                        evaluator.constant_table.insert(pat_ident.ident.to_string(), val.clone());
+                                    }
                                 }
                                 
                                 // 2. Optimization: Replace the expression with the literal

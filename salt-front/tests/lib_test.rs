@@ -81,7 +81,7 @@ fn test_compile_generic_fn() {
             return x;
         }
         fn main() -> i32 {
-            let x: i32 = identity::<i32>(42);
+            let x: i32 = identity<i32>(42);
             return x;
         }
     "#;

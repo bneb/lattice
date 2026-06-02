@@ -11,10 +11,10 @@ import user.browser.observers
 // ============================================================================
 
 // u8 arrays (stride 1)
-global P_STYLE_BG_R: u64 = 0;
-global P_STYLE_BG_G: u64 = 0;
-global P_STYLE_BG_B: u64 = 0;
-global P_STYLE_BG_A: u64 = 0;
+global P_STYLE_BG_R: [u64; 1] = [0];
+global P_STYLE_BG_G: [u64; 1] = [0];
+global P_STYLE_BG_B: [u64; 1] = [0];
+global P_STYLE_BG_A: [u64; 1] = [0];
 global P_STYLE_COLOR_R: u64 = 0;
 global P_STYLE_COLOR_G: u64 = 0;
 global P_STYLE_COLOR_B: u64 = 0;
@@ -59,10 +59,10 @@ pub fn paint_ptr_P_IMG_PTR() -> u64 {
 }
 
 // i32 arrays (stride 4)
-global P_LAYOUT_X: u64 = 0;
-global P_LAYOUT_Y: u64 = 0;
-global P_LAYOUT_W: u64 = 0;
-global P_LAYOUT_H: u64 = 0;
+global P_LAYOUT_X: [u64; 1] = [0];
+global P_LAYOUT_Y: [u64; 1] = [0];
+global P_LAYOUT_W: [u64; 1] = [0];
+global P_LAYOUT_H: [u64; 1] = [0];
 global P_STYLE_Z_INDEX: u64 = 0;
 global P_STYLE_BORDER_WIDTH_TOP: u64 = 0;
 global P_STYLE_BORDER_WIDTH_RIGHT: u64 = 0;
@@ -91,6 +91,10 @@ global P_DOM_NODE_COUNT: u64 = 0;
 
 // Extern pointer export functions from dom.salt
 extern fn dom_ptr_STYLE_BG_R() -> u64;
+
+extern fn sys_log_info(ptr: u64, len: u32);
+extern fn sys_print_float(f: f64);
+
 extern fn dom_ptr_STYLE_BG_G() -> u64;
 extern fn dom_ptr_STYLE_BG_B() -> u64;
 extern fn dom_ptr_STYLE_BG_A() -> u64;
@@ -149,10 +153,10 @@ extern fn get_dom_node_count() -> u64;
 
 @no_mangle
 pub fn paint_inject_dom_pointers() {
-    P_STYLE_BG_R = dom_ptr_STYLE_BG_R();
-    P_STYLE_BG_G = dom_ptr_STYLE_BG_G();
-    P_STYLE_BG_B = dom_ptr_STYLE_BG_B();
-    P_STYLE_BG_A = dom_ptr_STYLE_BG_A();
+    P_STYLE_BG_R[0] = dom_ptr_STYLE_BG_R();
+    P_STYLE_BG_G[0] = dom_ptr_STYLE_BG_G();
+    P_STYLE_BG_B[0] = dom_ptr_STYLE_BG_B();
+    P_STYLE_BG_A[0] = dom_ptr_STYLE_BG_A();
     P_STYLE_COLOR_R = dom_ptr_STYLE_COLOR_R();
     P_STYLE_COLOR_G = dom_ptr_STYLE_COLOR_G();
     P_STYLE_COLOR_B = dom_ptr_STYLE_COLOR_B();
@@ -177,10 +181,10 @@ pub fn paint_inject_dom_pointers() {
     P_STYLE_BORDER_WIDTH_RIGHT = dom_ptr_STYLE_BORDER_WIDTH_RIGHT();
     P_STYLE_BORDER_WIDTH_BOTTOM = dom_ptr_STYLE_BORDER_WIDTH_BOTTOM();
     P_STYLE_BORDER_WIDTH_LEFT = dom_ptr_STYLE_BORDER_WIDTH_LEFT();
-    P_LAYOUT_X = dom_ptr_LAYOUT_X();
-    P_LAYOUT_Y = dom_ptr_LAYOUT_Y();
-    P_LAYOUT_W = dom_ptr_LAYOUT_W();
-    P_LAYOUT_H = dom_ptr_LAYOUT_H();
+    P_LAYOUT_X[0] = dom_ptr_LAYOUT_X();
+    P_LAYOUT_Y[0] = dom_ptr_LAYOUT_Y();
+    P_LAYOUT_W[0] = dom_ptr_LAYOUT_W();
+    P_LAYOUT_H[0] = dom_ptr_LAYOUT_H();
     P_DOM_NODE_FETCH_STATE = dom_ptr_DOM_NODE_FETCH_STATE();
     P_DOM_NODE_TEXTURE_ID = dom_ptr_DOM_NODE_TEXTURE_ID();
     P_DOM_IFRAME_SURFACE_ID = dom_ptr_DOM_IFRAME_SURFACE_ID();
@@ -307,10 +311,10 @@ pub fn compile_display_list_recursive(node_idx: u32) {
     let count = DL_COUNT;
 
     if img_ptr != 0 && count < 16383 {
-        let x = *((P_LAYOUT_X + n_idx * 4) as &i32) as f32;
-        let y = *((P_LAYOUT_Y + n_idx * 4) as &i32) as f32;
-        let w = *((P_LAYOUT_W + n_idx * 4) as &i32) as f32;
-        let h = *((P_LAYOUT_H + n_idx * 4) as &i32) as f32;
+        let x = *((P_LAYOUT_X[0] + n_idx * 4) as &i32) as f32;
+        let y = *((P_LAYOUT_Y[0] + n_idx * 4) as &i32) as f32;
+        let w = *((P_LAYOUT_W[0] + n_idx * 4) as &i32) as f32;
+        let h = *((P_LAYOUT_H[0] + n_idx * 4) as &i32) as f32;
 
         let c_idx = count as usize;
         DL_OPCODE[c_idx] = OP_DRAW_IMAGE;
@@ -323,17 +327,17 @@ pub fn compile_display_list_recursive(node_idx: u32) {
         DL_COUNT = count + 1;
     } else {
         // 1. Emit Background Rect
-        let a = *((P_STYLE_BG_A + n_idx) as &u8);
+        let a = *((P_STYLE_BG_A[0] + n_idx) as &u8);
         if a > 0 && count < 16383 {
-            let r = *((P_STYLE_BG_R + n_idx) as &u8) as u32;
-            let g = *((P_STYLE_BG_G + n_idx) as &u8) as u32;
-            let b = *((P_STYLE_BG_B + n_idx) as &u8) as u32;
+            let r = *((P_STYLE_BG_R[0] + n_idx) as &u8) as u32;
+            let g = *((P_STYLE_BG_G[0] + n_idx) as &u8) as u32;
+            let b = *((P_STYLE_BG_B[0] + n_idx) as &u8) as u32;
             let u_a = a as u32;
 
-            let x = *((P_LAYOUT_X + n_idx * 4) as &i32) as f32;
-            let y = *((P_LAYOUT_Y + n_idx * 4) as &i32) as f32;
-            let w = *((P_LAYOUT_W + n_idx * 4) as &i32) as f32;
-            let h = *((P_LAYOUT_H + n_idx * 4) as &i32) as f32;
+            let x = *((P_LAYOUT_X[0] + n_idx * 4) as &i32) as f32;
+            let y = *((P_LAYOUT_Y[0] + n_idx * 4) as &i32) as f32;
+            let w = *((P_LAYOUT_W[0] + n_idx * 4) as &i32) as f32;
+            let h = *((P_LAYOUT_H[0] + n_idx * 4) as &i32) as f32;
             
             let c_idx = count as usize;
             DL_OPCODE[c_idx] = OP_DRAW_RECT;
@@ -371,10 +375,10 @@ pub fn emit_rect(x: i32, y: i32, w: i32, h: i32, n: u32) -> i32 {
     if CMD_COUNT_A[0] >= 8192 { return -1; }
     
     let u_n = n as usize;
-    let mut r = *((P_STYLE_BG_R + (u_n as u64)) as &u8);
-    let mut g = *((P_STYLE_BG_G + (u_n as u64)) as &u8);
-    let mut b = *((P_STYLE_BG_B + (u_n as u64)) as &u8);
-    let a = *((P_STYLE_BG_A + (u_n as u64)) as &u8);
+    let mut r = *((P_STYLE_BG_R[0] + (u_n as u64)) as &u8);
+    let mut g = *((P_STYLE_BG_G[0] + (u_n as u64)) as &u8);
+    let mut b = *((P_STYLE_BG_B[0] + (u_n as u64)) as &u8);
+    let a = *((P_STYLE_BG_A[0] + (u_n as u64)) as &u8);
     
     if a == 0 { return 0; }
     
@@ -386,15 +390,6 @@ pub fn emit_rect(x: i32, y: i32, w: i32, h: i32, n: u32) -> i32 {
     }
     
     let idx = CMD_COUNT_A[0];
-    
-    // [DIAG] Check if we write -11520
-    if x == -11520 {
-        let m_diag: [u8; 18] = [91,68,73,65,71,93,32,101,109,105,116,95,120,61,45,49,49,53]; // "[DIAG] emit_x=-115"
-        sys_log_info((&m_diag) as u64, 18);
-        sys_print_float(n as f64);
-        let nl: [u8; 1] = [10];
-        sys_log_info((&nl) as u64, 1);
-    }
     
     CMD_TYPE[idx as usize] = 0; // 0 = RECT
     // Defensive clamp: prevent off-screen coordinates from reaching the GPU
@@ -647,10 +642,10 @@ pub fn is_node_between_selection(n: u32) -> u8 {
 }
 
 pub fn paint_node(n: u32, focus_node: u64, frame_count: u64, scroll_y: i32, viewport_height: i32) {
-    let x = *((P_LAYOUT_X + (n as u64) * 4) as &i32);
-    let y = *((P_LAYOUT_Y + (n as u64) * 4) as &i32);
-    let w = *((P_LAYOUT_W + (n as u64) * 4) as &i32);
-    let h = *((P_LAYOUT_H + (n as u64) * 4) as &i32);
+    let x = *((P_LAYOUT_X[0] + (n as u64) * 4) as &i32);
+    let y = *((P_LAYOUT_Y[0] + (n as u64) * 4) as &i32);
+    let w = *((P_LAYOUT_W[0] + (n as u64) * 4) as &i32);
+    let h = *((P_LAYOUT_H[0] + (n as u64) * 4) as &i32);
     
     if w <= 0 || h <= 0 { return; }
     let dirty_paint = *((P_DIRTY_PAINT + (n as u64)) as &u8);
@@ -694,9 +689,9 @@ pub fn paint_node(n: u32, focus_node: u64, frame_count: u64, scroll_y: i32, view
         }
     }
     
-    let r = *((P_STYLE_BG_R + (n as u64)) as &u8);
-    let g = *((P_STYLE_BG_G + (n as u64)) as &u8);
-    let b = *((P_STYLE_BG_B + (n as u64)) as &u8);
+    let r = *((P_STYLE_BG_R[0] + (n as u64)) as &u8);
+    let g = *((P_STYLE_BG_G[0] + (n as u64)) as &u8);
+    let b = *((P_STYLE_BG_B[0] + (n as u64)) as &u8);
     
     if *((P_DOM_NODE_TAG + (n as u64) * 4) as &u32) == 25 { // TAG_VIDEO
         sys_gpu_emit_video_frame(n, x, y, w, h);
@@ -778,7 +773,7 @@ pub fn paint_node(n: u32, focus_node: u64, frame_count: u64, scroll_y: i32, view
             let mut x_cursor: f32 = x as f32;
             let mut y_cursor: i32 = y;
             let text_parent_idx = *((P_STYLE_PARENT + (n as u64) * 4) as &u32);
-            let max_width = *((P_LAYOUT_W + (text_parent_idx as u64) * 4) as &i32);
+            let max_width = *((P_LAYOUT_W[0] + (text_parent_idx as u64) * 4) as &i32);
             let mut was_space = false;
             let mut prev_char: u32 = 0;
             
@@ -1002,10 +997,10 @@ pub fn paint_layer(node_id: u32, pass_type: i32, focus: u64, scroll: i32, vh: i3
     let mut pushed_clip = 0;
     
     if overflow == 1 || overflow == 2 || overflow == 3 {
-        let node_x = *((P_LAYOUT_X + (node_id as u64) * 4) as &i32);
-        let node_y = *((P_LAYOUT_Y + (node_id as u64) * 4) as &i32);
-        let node_w = *((P_LAYOUT_W + (node_id as u64) * 4) as &i32);
-        let node_h = *((P_LAYOUT_H + (node_id as u64) * 4) as &i32);
+        let node_x = *((P_LAYOUT_X[0] + (node_id as u64) * 4) as &i32);
+        let node_y = *((P_LAYOUT_Y[0] + (node_id as u64) * 4) as &i32);
+        let node_w = *((P_LAYOUT_W[0] + (node_id as u64) * 4) as &i32);
+        let node_h = *((P_LAYOUT_H[0] + (node_id as u64) * 4) as &i32);
         
         // Calculate intersection with current active clip
         let p = CLIP_STACK_PTR as usize;
@@ -1071,22 +1066,6 @@ pub fn paint_layer(node_id: u32, pass_type: i32, focus: u64, scroll: i32, vh: i3
 }
 
 pub fn generate_display_list(root_node: u32, focus_node: u64, frame_count: u64, scroll_y: i32, viewport_height: i32) -> i32 {
-    // [DIAG] Dump layout of first few nodes to check for layout corruption
-    let nl: [u8; 1] = [10];
-    let m_dmp: [u8; 11] = [91,68,77,80,93,32,76,88,49,61,32]; // "[DMP] LX1= "
-    sys_log_info((&m_dmp) as u64, 11);
-    sys_print_float( *((P_LAYOUT_X + 1 * 4) as &i32) as f64 );
-    let m_dmpw: [u8; 6] = [32,76,87,49,61,32]; // " LW1= "
-    sys_log_info((&m_dmpw) as u64, 6);
-    sys_print_float( *((P_LAYOUT_W + 1 * 4) as &i32) as f64 );
-    
-    let m_lx2: [u8; 6] = [32,76,88,50,61,32]; // " LX2= "
-    sys_log_info((&m_lx2) as u64, 6);
-    sys_print_float( *((P_LAYOUT_X + 2 * 4) as &i32) as f64 );
-    let m_lw2: [u8; 6] = [32,76,87,50,61,32]; // " LW2= "
-    sys_log_info((&m_lw2) as u64, 6);
-    sys_print_float( *((P_LAYOUT_W + 2 * 4) as &i32) as f64 );
-    sys_log_info((&nl) as u64, 1);
     // Zero-allocation Multi-pass Stacking Context implementation
     
     paint_layer(root_node, 0, focus_node, scroll_y, viewport_height);  // Normal flow
@@ -1103,8 +1082,22 @@ extern fn drain_scroll_input() -> i32;
 pub fn paint_tree() {
     let focus = get_active_focus_node();
     let scroll = drain_scroll_input();
-    // Assuming root index 1, frame 0 for now (or linked if needed), and 600px viewport
-    generate_display_list(1, focus, 0, scroll, 600);
+    
+    // Epic 109: Dynamically locate the TAG_HTML root (usually Node 1 or 2)
+    let mut root_idx: u32 = 1;
+    let limit = get_dom_node_count() as u32;
+    while root_idx < limit {
+        if dom.dom_get_tag(root_idx) == 1 { // TAG_HTML
+            break;
+        }
+        root_idx = root_idx + 1;
+    }
+    if root_idx >= limit { root_idx = 1; } // Fallback
+
+    // Use current viewport dimensions
+    let vw = dom.get_viewport_w();
+    let vh = dom.get_viewport_h();
+    generate_display_list(root_idx, focus, 0, scroll, vh as i32);
 }
 
 extern fn is_chrome_dirty() -> u8;
@@ -1117,15 +1110,6 @@ pub fn sys_gpu_check_dirty_flag() -> i32 {
     let mut i: u32 = 1;
     while i < limit {
         if *((P_COMPOSITOR_DIRTY + (i as u64)) as &u8) == 1 { 
-            // [DIAG] Log first dirty node detected
-            let m_gd: [u8; 18] = [91,71,80,85,93,32,68,105,114,116,121,32,110,111,100,101,61,32]; // "[GPU] Dirty node= "
-            sys_log_info((&m_gd) as u64, 18);
-            sys_print_float(i as f64);
-            let m_lim: [u8; 7] = [32,108,105,109,61,32,10]; // " lim= \n"
-            sys_log_info((&m_lim) as u64, 7);
-            sys_print_float(limit as f64);
-            let nl: [u8; 1] = [10];
-            sys_log_info((&nl) as u64, 1);
             return 1; 
         }
         i = i + 1;
@@ -1162,139 +1146,8 @@ extern fn sys_log_info(msg_ptr: u64, msg_len: u32);
 pub fn sys_metal_render_frame() {
     begin_frame();
     
-    // [DIAG] Verify pointer injection and counter reset
-    let m_ptrs: [u8; 12] = [91,80,84,82,83,93,32,80,76,87,61,32]; // "[PTRS] PLW= "
-    sys_log_info((&m_ptrs) as u64, 12);
-    sys_print_float(P_LAYOUT_W as f64);
-    let m_cnt: [u8; 6] = [32,67,78,84,61,32]; // " CNT= "
-    sys_log_info((&m_cnt) as u64, 6);
-    sys_print_float(CMD_COUNT_A[0] as f64);
-    let nl0: [u8; 1] = [10];
-    sys_log_info((&nl0) as u64, 1);
-    
-    // [DIAG] Root node (1) tree structure
-    let m_root: [u8; 17] = [91,80,65,73,78,84,93,32,114,111,111,116,32,99,104,61,32]; // "[PAINT] root ch= "
-    sys_log_info((&m_root) as u64, 17);
-    let first_child = dom.dom_get_render_first_child_idx(1);
-    sys_print_float(first_child as f64);
-    
-    let m_w: [u8; 4] = [32,119,61,32]; // " w= "
-    sys_log_info((&m_w) as u64, 4);
-    let root_w = *((P_LAYOUT_W + 4) as &i32); // node 1 layout width (stride=4)
-    sys_print_float(root_w as f64);
-
-    let m_h: [u8; 4] = [32,104,61,32]; // " h= "
-    sys_log_info((&m_h) as u64, 4);
-    let root_h = *((P_LAYOUT_H + 4) as &i32); // node 1 layout height
-    sys_print_float(root_h as f64);
-    
-    let nl: [u8; 1] = [10];
-    sys_log_info((&nl) as u64, 1);
-    
-    // [DIAG] If root has a child, log child's dimensions
-    if first_child != 0 {
-        let n_ch_idx = (first_child & 0xFFFF) as u64;
-        let m_ch: [u8; 17] = [91,80,65,73,78,84,93,32,99,104,105,108,100,32,119,61,32]; // "[PAINT] child w= "
-        sys_log_info((&m_ch) as u64, 17);
-        let ch_w = *((P_LAYOUT_W + n_ch_idx * 4) as &i32);
-        sys_print_float(ch_w as f64);
-        let m_ch_h: [u8; 4] = [32,104,61,32]; // " h= "
-        sys_log_info((&m_ch_h) as u64, 4);
-        let ch_h = *((P_LAYOUT_H + n_ch_idx * 4) as &i32);
-        sys_print_float(ch_h as f64);
-        let m_ch_d: [u8; 6] = [32,100,105,115,112,61]; // " disp="
-        sys_log_info((&m_ch_d) as u64, 6);
-        let ch_disp = *((P_STYLE_DISPLAY + n_ch_idx) as &u8);
-        sys_print_float(ch_disp as f64);
-        
-        let m_ch_t: [u8; 6] = [32,116,97,103,61,32]; // " tag= "
-        sys_log_info((&m_ch_t) as u64, 6);
-        let ch_tag = *((P_DOM_NODE_TAG + n_ch_idx * 4) as &u32);
-        sys_print_float(ch_tag as f64);
-        
-        sys_log_info((&nl) as u64, 1);
-    }
-    
-    // [DIAG] Census: count nodes by layout state before painting
-    let limit = get_dom_node_count() as u32;
-    let mut cnt_sized: u32 = 0;    // w>0 && h>0
-    let mut cnt_zero: u32 = 0;     // w<=0 || h<=0
-    let mut cnt_dnone: u32 = 0;    // display==0
-    let mut cnt_dirty: u32 = 0;    // dirty_paint==1
-    let mut di: u32 = 1;
-    while di < limit {
-        let n_di = (di & 0xFFFF) as u64;
-        let dw = *((P_LAYOUT_W + n_di * 4) as &i32);
-        let dh = *((P_LAYOUT_H + n_di * 4) as &i32);
-        let dd = *((P_STYLE_DISPLAY + n_di) as &u8);
-        let dp = *((P_DIRTY_PAINT + n_di) as &u8);
-        if dd == 0 { cnt_dnone = cnt_dnone + 1; }
-        if dp == 1 { cnt_dirty = cnt_dirty + 1; }
-        if dw > 0 && dh > 0 { cnt_sized = cnt_sized + 1; }
-        else { cnt_zero = cnt_zero + 1; }
-        di = di + 1;
-    }
-    // "[DIAG] sized= "
-    let m_s: [u8; 15] = [91,68,73,65,71,93,32,115,105,122,101,100,61,32,10];
-    sys_log_info((&m_s) as u64, 14);
-    sys_print_float(cnt_sized as f64);
-    // " zero= "
-    let m_z: [u8; 7] = [32,122,101,114,111,61,32];
-    sys_log_info((&m_z) as u64, 7);
-    sys_print_float(cnt_zero as f64);
-    // " dnone= "
-    let m_d: [u8; 8] = [32,100,110,111,110,101,61,32];
-    sys_log_info((&m_d) as u64, 8);
-    sys_print_float(cnt_dnone as f64);
-    // " dirty= "
-    let m_dp: [u8; 8] = [32,100,105,114,116,121,61,32];
-    sys_log_info((&m_dp) as u64, 8);
-    sys_print_float(cnt_dirty as f64);
-    sys_log_info((&nl) as u64, 1);
-
     paint_tree();
     draw_trusted_ui();
-    
-    let m3: [u8; 39] = [91,71,80,85,93,32,67,111,109,109,105,116,116,105,110,103,32,102,114,97,109,101,46,32,80,97,105,110,116,101,100,32,82,101,99,116,115,58,32]; 
-    sys_log_info((&m3) as u64, 39);
-    sys_print_float(get_cmd_count() as f64);
-    // " visited= "
-    let m_vis: [u8; 10] = [32,118,105,115,105,116,101,100,61,32];
-    sys_log_info((&m_vis) as u64, 10);
-    sys_print_float(PAINT_VISIT_COUNT_A[0] as f64);
-    sys_log_info((&nl) as u64, 1);
-    
-    // [DIAG] Log raw CMD values and precise address from paint.salt side before flush
-    let m_plxp: [u8; 11] = [91,80,78,84,93,32,80,76,88,61,32]; // "[PNT] PLX= "
-    sys_log_info((&m_plxp) as u64, 11);
-    sys_print_float(P_LAYOUT_X as f64);
-    
-    let m_pnt_cx: [u8; 11] = [91,80,78,84,93,32,67,88,65,61,32]; // "[PNT] CXA= "
-    sys_log_info((&m_pnt_cx) as u64, 11);
-    sys_print_float((&CMD_X) as u64 as f64);
-    sys_log_info((&nl) as u64, 1);
-
-    let m_raw: [u8; 11] = [91,82,65,87,93,32,67,88,48,61,32]; // "[RAW] CX0= "
-    sys_log_info((&m_raw) as u64, 11);
-    sys_print_float(CMD_X[0] as f64);
-    
-    // [DIAG] Print value using casted pointer INSIDE paint.salt!
-    let m_ptr_val: [u8; 11] = [91,80,84,82,93,32,86,65,76,61,32]; // "[PTR] VAL= "
-    sys_log_info((&m_ptr_val) as u64, 11);
-    let pval = *(((&CMD_X) as u64) as &i32);
-    sys_print_float(pval as f64);
-    sys_log_info((&nl) as u64, 1);
-
-    let m_cw: [u8; 5] = [32,87,48,61,32]; // " W0= "
-    sys_log_info((&m_cw) as u64, 5);
-    sys_print_float(CMD_W[0] as f64);
-    let m_ch2: [u8; 5] = [32,72,48,61,32]; // " H0= "
-    sys_log_info((&m_ch2) as u64, 5);
-    sys_print_float(CMD_H[0] as f64);
-    let m_a0: [u8; 5] = [32,65,48,61,32]; // " A0= "
-    sys_log_info((&m_a0) as u64, 5);
-    sys_print_float(CMD_A[0] as f64);
-    sys_log_info((&nl) as u64, 1);
     
     flush_frame(1920, 1080);
 }

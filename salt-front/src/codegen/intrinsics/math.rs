@@ -129,6 +129,42 @@ pub fn emit_math_intrinsic(
             out.push_str(&format!("    {} = \"llvm.intr.sin\"({}) : (f32) -> f32\n", res, val));
             return Ok(Some((res, Type::F32)));
         }
+        "std__math__cosf" | "cosf" => {
+            if args.len() != 1 { return Err("cosf expects 1 argument".to_string()); }
+            let (val, _) = emit_expr(ctx, out, &args[0], local_vars, Some(&Type::F32))?;
+            let res = format!("%math_cos_{}", ctx.next_id());
+            out.push_str(&format!("    {} = \"llvm.intr.cos\"({}) : (f32) -> f32\n", res, val));
+            return Ok(Some((res, Type::F32)));
+        }
+        "std__math__fabsf" | "fabsf" => {
+            if args.len() != 1 { return Err("fabsf expects 1 argument".to_string()); }
+            let (val, _) = emit_expr(ctx, out, &args[0], local_vars, Some(&Type::F32))?;
+            let res = format!("%math_fabs_{}", ctx.next_id());
+            out.push_str(&format!("    {} = \"llvm.intr.fabs\"({}) : (f32) -> f32\n", res, val));
+            return Ok(Some((res, Type::F32)));
+        }
+        "std__math__floorf" | "floorf" => {
+            if args.len() != 1 { return Err("floorf expects 1 argument".to_string()); }
+            let (val, _) = emit_expr(ctx, out, &args[0], local_vars, Some(&Type::F32))?;
+            let res = format!("%math_floor_{}", ctx.next_id());
+            out.push_str(&format!("    {} = \"llvm.intr.floor\"({}) : (f32) -> f32\n", res, val));
+            return Ok(Some((res, Type::F32)));
+        }
+        "std__math__ceilf" | "ceilf" => {
+            if args.len() != 1 { return Err("ceilf expects 1 argument".to_string()); }
+            let (val, _) = emit_expr(ctx, out, &args[0], local_vars, Some(&Type::F32))?;
+            let res = format!("%math_ceil_{}", ctx.next_id());
+            out.push_str(&format!("    {} = \"llvm.intr.ceil\"({}) : (f32) -> f32\n", res, val));
+            return Ok(Some((res, Type::F32)));
+        }
+        "std__math__powf" | "powf" => {
+            if args.len() != 2 { return Err("powf expects 2 arguments".to_string()); }
+            let (v1, _) = emit_expr(ctx, out, &args[0], local_vars, Some(&Type::F32))?;
+            let (v2, _) = emit_expr(ctx, out, &args[1], local_vars, Some(&Type::F32))?;
+            let res = format!("%math_powf_{}", ctx.next_id());
+            out.push_str(&format!("    {} = \"llvm.intr.pow\"({}, {}) : (f32, f32) -> f32\n", res, v1, v2));
+            return Ok(Some((res, Type::F32)));
+        }
 
         _ => Ok(None),
     }

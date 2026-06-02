@@ -11,7 +11,7 @@ use std.os.syscall
 use std.core.ptr.Ptr
 use std.core.result.Result
 use std.status.Status
-use std.io.reactor.{Reactor, Filter}
+use std.io.reactor.{Reactor, ReactorFilter}
 
 /// kqueue-backed I/O reactor for macOS.
 pub struct KqueueReactor {
@@ -30,10 +30,10 @@ impl KqueueReactor {
 }
 
 impl Reactor for KqueueReactor {
-    pub fn register(&self, fd: i32, filter: Filter) -> i32 {
+    pub fn register(&self, fd: i32, filter: ReactorFilter) -> i32 {
         let f = match filter {
-            Filter::Read => 0,
-            Filter::Write => 1
+            ReactorFilter::Read => 0,
+            ReactorFilter::Write => 1
         };
         return syscall::http_kq_register(self.kq, fd, f);
     }

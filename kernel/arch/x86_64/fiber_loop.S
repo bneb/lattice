@@ -12,7 +12,6 @@
 .global fiber_loop
 .global fiber_loop_done
 .extern sched_yield
-.extern fiber_exit
 
 .section .rodata
 .align 16
@@ -54,10 +53,9 @@ fiber_loop:
     jmp .Lloop
 
 .Lexit:
-    /* Clean termination: restore stack and call fiber_exit */
+    /* Clean termination: restore stack and return to preemptive_exit_trampoline */
     addq $16, %rsp
-    call fiber_exit
-    /* fiber_exit never returns */
+    ret
 
 /* -------------------------------------------------------------------------- */
 /* Control API — called from Salt benchmarks                                  */

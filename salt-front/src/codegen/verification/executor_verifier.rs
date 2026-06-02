@@ -13,7 +13,6 @@
 //! 6. Arena Reset Safety: reset only when mailbox fully drained
 
 use crate::z3_shim::ast::Ast;
-use crate::z3_shim as z3;
 
 const QUEUE_CAPACITY: i64 = 1024;
 

@@ -66,7 +66,7 @@ pub fn resp_nil() -> RespValue {
 // Helper: find \r\n in a StringView starting from offset
 // ============================================================================
 
-fn find_crlf(input: StringView, start: i64) -> i64 {
+fn find_crlf(&input: &StringView, start: i64) -> i64 {
     let len = input.length();
     let mut i = start;
     while i < len - 1 {
@@ -82,7 +82,7 @@ fn find_crlf(input: StringView, start: i64) -> i64 {
 // Helper: parse ASCII integer from StringView[start..end)
 // ============================================================================
 
-fn parse_int_from_view(input: StringView, start: i64, end: i64) -> i64 {
+fn parse_int_from_view(&input: &StringView, start: i64, end: i64) -> i64 {
     let mut result: i64 = 0;
     let mut neg: bool = false;
     let mut i = start;
@@ -118,7 +118,7 @@ pub fn resp_parse(input: StringView) -> RespValue {
 
     // +OK\r\n → Simple String
     if prefix == 43 {
-        let crlf = find_crlf(input, 1);
+        let crlf = find_crlf(&input, 1);
         if crlf < 0 {
             return resp_nil();
         }
@@ -135,7 +135,7 @@ pub fn resp_parse(input: StringView) -> RespValue {
 
     // -ERR message\r\n → Error
     if prefix == 45 {
-        let crlf = find_crlf(input, 1);
+        let crlf = find_crlf(&input, 1);
         if crlf < 0 {
             return resp_nil();
         }
@@ -152,11 +152,11 @@ pub fn resp_parse(input: StringView) -> RespValue {
 
     // :1000\r\n → Integer
     if prefix == 58 {
-        let crlf = find_crlf(input, 1);
+        let crlf = find_crlf(&input, 1);
         if crlf < 0 {
             return resp_nil();
         }
-        let val = parse_int_from_view(input, 1, crlf);
+        let val = parse_int_from_view(&input, 1, crlf);
         return RespValue {
             type_tag: RESP_INTEGER(),
             int_val: val,
@@ -169,11 +169,11 @@ pub fn resp_parse(input: StringView) -> RespValue {
 
     // $6\r\nfoobar\r\n → Bulk String   or   $-1\r\n → Null
     if prefix == 36 {
-        let crlf = find_crlf(input, 1);
+        let crlf = find_crlf(&input, 1);
         if crlf < 0 {
             return resp_nil();
         }
-        let str_len = parse_int_from_view(input, 1, crlf);
+        let str_len = parse_int_from_view(&input, 1, crlf);
 
         // Null bulk string: $-1\r\n
         if str_len < 0 {
@@ -202,11 +202,11 @@ pub fn resp_parse(input: StringView) -> RespValue {
 
     // *2\r\n... → Array
     if prefix == 42 {
-        let crlf = find_crlf(input, 1);
+        let crlf = find_crlf(&input, 1);
         if crlf < 0 {
             return resp_nil();
         }
-        let count = parse_int_from_view(input, 1, crlf);
+        let count = parse_int_from_view(&input, 1, crlf);
 
         // Null array
         if count < 0 {

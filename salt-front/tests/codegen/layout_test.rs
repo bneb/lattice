@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 macro_rules! with_ctx {
     ($ctx:ident, $code:expr) => {
-        let file = salt_front::grammar::SaltFile {
+        let mut file = salt_front::grammar::SaltFile {
             package: None,
             imports: vec![],
             items: vec![],
@@ -387,7 +387,7 @@ fn test_expr_error_paths_saturation() {
 
         // 32. Use-before-def in scan_local_definitions (via library call)
          // 32. Use-before-def in scan_local_definitions (via library call)
-         let file = SaltFile::empty(); // Dummy file
+         let mut file = SaltFile::empty(); // Dummy file
          ctx.scan_defs_from_file(&file);
     });
 }

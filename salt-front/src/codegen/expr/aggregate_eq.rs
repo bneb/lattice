@@ -1,6 +1,5 @@
 use crate::codegen::context::LoweringContext;
 use crate::types::Type;
-use crate::z3_shim as z3;
 
 fn combine_conditions(ctx: &mut LoweringContext, out: &mut String, conds: Vec<String>, is_eq: bool) -> String {
      if conds.is_empty() {
@@ -78,7 +77,7 @@ pub fn emit_aggregate_eq(ctx: &mut LoweringContext, out: &mut String, op: &syn::
                      ctx.emit_cmp(out, &res, "arith.cmpi", pred, &l_val, &r_val, "i32");
                      Ok(res)
                  } else {
-                     let enum_names: Vec<_> = ctx.enum_registry().values().map(|i| i.name.clone()).collect();
+                     let _enum_names: Vec<_> = ctx.enum_registry().values().map(|i| i.name.clone()).collect();
                      Err(format!("Cannot compare unknown struct '{}'", name))
                  }
              }

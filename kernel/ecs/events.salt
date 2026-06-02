@@ -1,18 +1,28 @@
+// =============================================================================
+// kernel/ecs/events.salt
+// Typed Event Queues — Zero-Trap Hardware and OS Event Propagation
+// =============================================================================
+ 
 package kernel.ecs.events
-
+ 
+import kernel.ecs.entity.Entity
+import std.core.mem.size_of
+ 
+extern fn volatile_read_i64(addr: u64) -> i64;
+extern fn volatile_write_i64(addr: u64, val: i64);
+extern fn malloc(size: i64) -> u64;
+ 
+// 1. HardwareInterrupt Queue
 pub struct HardwareInterrupt {
     pub irq_number: u8,
 }
-
-extern fn volatile_read_i64(addr: u64) -> i64;
-extern fn volatile_write_i64(addr: u64, val: i64);
-
+ 
 pub struct HardwareEvents {
     pub queue: [u8; 1024],
     pub head: i64,
     pub tail: i64,
 }
-
+ 
 pub fn new_hardware_events() -> HardwareEvents {
     return HardwareEvents {
         queue: [0; 1024],
@@ -20,46 +30,229 @@ pub fn new_hardware_events() -> HardwareEvents {
         tail: 0,
     };
 }
-
+ 
 // Global ECS event queue for hardware interrupts
 pub global HARDWARE_EVENTS: HardwareEvents = HardwareEvents {
     queue: [0; 1024],
     head: 0,
     tail: 0,
 };
-
-impl HardwareEvents {
-    pub fn push(self: &mut HardwareEvents, irq: u8) {
-        let head_addr = (&self.head) as u64;
-        let tail_addr = (&self.tail) as u64;
-        
-        let curr_head = volatile_read_i64(head_addr);
-        let curr_tail = volatile_read_i64(tail_addr);
-        
-        let next_head = (curr_head + 1) % 1024;
-        if next_head != curr_tail {
-            self.queue[curr_head as i64] = irq;
-            volatile_write_i64(head_addr, next_head);
-        }
-    }
+ 
+pub fn hardware_events_push(self: Ptr<HardwareEvents>, irq: u8) {
+    let head_addr = (&self[0].head) as u64;
+    let tail_addr = (&self[0].tail) as u64;
     
-    pub fn pop(self: &mut HardwareEvents, out: &mut HardwareInterrupt) -> bool {
-        let head_addr = (&self.head) as u64;
-        let tail_addr = (&self.tail) as u64;
-        
-        let curr_head = volatile_read_i64(head_addr);
-        let curr_tail = volatile_read_i64(tail_addr);
-        
-        if curr_head == curr_tail { return false; }
-        
-        out.irq_number = self.queue[curr_tail as i64];
-        volatile_write_i64(tail_addr, (curr_tail + 1) % 1024);
-        return true;
+    let curr_head = volatile_read_i64(head_addr);
+    let curr_tail = volatile_read_i64(tail_addr);
+    
+    let next_head = (curr_head + 1) % 1024;
+    if next_head != curr_tail {
+        self[0].queue[curr_head as i64] = irq;
+        volatile_write_i64(head_addr, next_head);
     }
 }
-
+ 
+pub fn hardware_events_pop(self: Ptr<HardwareEvents>, out: Ptr<HardwareInterrupt>) -> bool {
+    let head_addr = (&self[0].head) as u64;
+    let tail_addr = (&self[0].tail) as u64;
+    
+    let curr_head = volatile_read_i64(head_addr);
+    let curr_tail = volatile_read_i64(tail_addr);
+    
+    if curr_head == curr_tail { return false; }
+    
+    out[0].irq_number = self[0].queue[curr_tail as i64];
+    volatile_write_i64(tail_addr, (curr_tail + 1) % 1024);
+    return true;
+}
+ 
 @no_mangle
 pub fn ecs_push_hardware_interrupt(irq: u8) {
     let q = &mut HARDWARE_EVENTS;
-    q.push(irq);
+    hardware_events_push(q as Ptr<HardwareEvents>, irq);
+}
+ 
+// 2. NetworkPacketEvent Queue
+pub struct NetworkPacketEvent {
+    pub ring_entity: u32,
+    pub len: u16,
+}
+ 
+pub struct NetworkEvents {
+    pub queue: Ptr<NetworkPacketEvent>,
+    pub head: i64,
+    pub tail: i64,
+}
+ 
+pub global NETWORK_EVENTS: Ptr<NetworkEvents> = 0 as Ptr<NetworkEvents>;
+ 
+pub fn new_network_events() -> Ptr<NetworkEvents> {
+    let q_ptr = malloc(512 * size_of::<NetworkPacketEvent>()) as Ptr<NetworkPacketEvent>;
+    let p = malloc(24) as Ptr<NetworkEvents>;
+    p[0] = NetworkEvents {
+        queue: q_ptr,
+        head: 0,
+        tail: 0,
+    };
+    return p;
+}
+ 
+pub fn network_events_push(self: Ptr<NetworkEvents>, ev: NetworkPacketEvent) {
+    let head_addr = (&self[0].head) as u64;
+    let tail_addr = (&self[0].tail) as u64;
+    
+    let curr_head = volatile_read_i64(head_addr);
+    let curr_tail = volatile_read_i64(tail_addr);
+    
+    let next_head = (curr_head + 1) % 512;
+    if next_head != curr_tail {
+        unsafe {
+            let slot = (self[0].queue.offset(curr_head as i64)) as &mut NetworkPacketEvent;
+            *slot = ev;
+        }
+        volatile_write_i64(head_addr, next_head);
+    }
+}
+ 
+pub fn network_events_pop(self: Ptr<NetworkEvents>, out: Ptr<NetworkPacketEvent>) -> bool {
+    let head_addr = (&self[0].head) as u64;
+    let tail_addr = (&self[0].tail) as u64;
+    
+    let curr_head = volatile_read_i64(head_addr);
+    let curr_tail = volatile_read_i64(tail_addr);
+    
+    if curr_head == curr_tail { return false; }
+    
+    unsafe {
+        let slot = (self[0].queue.offset(curr_tail as i64)) as &NetworkPacketEvent;
+        let out_ref = out as &mut NetworkPacketEvent;
+        *out_ref = *slot;
+    }
+    volatile_write_i64(tail_addr, (curr_tail + 1) % 512);
+    return true;
+}
+ 
+// 3. TimerEvent Queue
+pub struct TimerEvent {
+    pub deadline_ns: u64,
+}
+ 
+pub struct TimerEvents {
+    pub queue: Ptr<TimerEvent>,
+    pub head: i64,
+    pub tail: i64,
+}
+ 
+pub global TIMER_EVENTS: Ptr<TimerEvents> = 0 as Ptr<TimerEvents>;
+ 
+pub fn new_timer_events() -> Ptr<TimerEvents> {
+    let q_ptr = malloc(512 * size_of::<TimerEvent>()) as Ptr<TimerEvent>;
+    let p = malloc(24) as Ptr<TimerEvents>;
+    p[0] = TimerEvents {
+        queue: q_ptr,
+        head: 0,
+        tail: 0,
+    };
+    return p;
+}
+ 
+pub fn timer_events_push(self: Ptr<TimerEvents>, ev: TimerEvent) {
+    let head_addr = (&self[0].head) as u64;
+    let tail_addr = (&self[0].tail) as u64;
+    
+    let curr_head = volatile_read_i64(head_addr);
+    let curr_tail = volatile_read_i64(tail_addr);
+    
+    let next_head = (curr_head + 1) % 512;
+    if next_head != curr_tail {
+        unsafe {
+            let slot = (self[0].queue.offset(curr_head as i64)) as &mut TimerEvent;
+            *slot = ev;
+        }
+        volatile_write_i64(head_addr, next_head);
+    }
+}
+ 
+pub fn timer_events_pop(self: Ptr<TimerEvents>, out: Ptr<TimerEvent>) -> bool {
+    let head_addr = (&self[0].head) as u64;
+    let tail_addr = (&self[0].tail) as u64;
+    
+    let curr_head = volatile_read_i64(head_addr);
+    let curr_tail = volatile_read_i64(tail_addr);
+    
+    if curr_head == curr_tail { return false; }
+    
+    unsafe {
+        let slot = (self[0].queue.offset(curr_tail as i64)) as &TimerEvent;
+        let out_ref = out as &mut TimerEvent;
+        *out_ref = *slot;
+    }
+    volatile_write_i64(tail_addr, (curr_tail + 1) % 512);
+    return true;
+}
+ 
+// 4. ProcessExitEvent Queue
+pub struct ProcessExitEvent {
+    pub entity: Entity,
+    pub exit_code: i32,
+}
+ 
+pub struct ProcessExitEvents {
+    pub queue: Ptr<ProcessExitEvent>,
+    pub head: i64,
+    pub tail: i64,
+}
+ 
+pub global PROCESS_EXIT_EVENTS: Ptr<ProcessExitEvents> = 0 as Ptr<ProcessExitEvents>;
+ 
+pub fn new_process_exit_events() -> Ptr<ProcessExitEvents> {
+    let q_ptr = malloc(256 * size_of::<ProcessExitEvent>()) as Ptr<ProcessExitEvent>;
+    let p = malloc(24) as Ptr<ProcessExitEvents>;
+    p[0] = ProcessExitEvents {
+        queue: q_ptr,
+        head: 0,
+        tail: 0,
+    };
+    return p;
+}
+ 
+pub fn process_exit_events_push(self: Ptr<ProcessExitEvents>, ev: ProcessExitEvent) {
+    let head_addr = (&self[0].head) as u64;
+    let tail_addr = (&self[0].tail) as u64;
+    
+    let curr_head = volatile_read_i64(head_addr);
+    let curr_tail = volatile_read_i64(tail_addr);
+    
+    let next_head = (curr_head + 1) % 256;
+    if next_head != curr_tail {
+        unsafe {
+            let slot = (self[0].queue.offset(curr_head as i64)) as &mut ProcessExitEvent;
+            *slot = ev;
+        }
+        volatile_write_i64(head_addr, next_head);
+    }
+}
+ 
+pub fn process_exit_events_pop(self: Ptr<ProcessExitEvents>, out: Ptr<ProcessExitEvent>) -> bool {
+    let head_addr = (&self[0].head) as u64;
+    let tail_addr = (&self[0].tail) as u64;
+    
+    let curr_head = volatile_read_i64(head_addr);
+    let curr_tail = volatile_read_i64(tail_addr);
+    
+    if curr_head == curr_tail { return false; }
+    
+    unsafe {
+        let slot = (self[0].queue.offset(curr_tail as i64)) as &ProcessExitEvent;
+        let out_ref = out as &mut ProcessExitEvent;
+        *out_ref = *slot;
+    }
+    volatile_write_i64(tail_addr, (curr_tail + 1) % 256);
+    return true;
+}
+ 
+pub fn ecs_events_init() {
+    NETWORK_EVENTS = new_network_events();
+    TIMER_EVENTS = new_timer_events();
+    PROCESS_EXIT_EVENTS = new_process_exit_events();
 }

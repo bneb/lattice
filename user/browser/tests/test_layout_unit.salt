@@ -1,0 +1,233 @@
+package main
+
+import user.browser.dom
+import user.browser.layout
+import user.browser.constants
+
+extern fn sys_exit(code: i32);
+extern fn sys_log_info(msg_ptr: u64, msg_len: u32);
+extern fn sys_print_float(f: f64);
+
+fn assert_eq(val: i32, expected: i32, msg_ptr: u64, msg_len: u32) {
+    if val != expected {
+        sys_log_info(msg_ptr, msg_len);
+        let m_v: [u8; 5] = [32, 118, 97, 108, 61]; // " val="
+        sys_log_info((&m_v) as u64, 5);
+        sys_print_float(val as f64);
+        let m_e: [u8; 5] = [32, 101, 120, 112, 61]; // " exp="
+        sys_log_info((&m_e) as u64, 5);
+        sys_print_float(expected as f64);
+        let nl: [u8; 1] = [10];
+        sys_log_info((&nl) as u64, 1);
+        sys_exit(1);
+    }
+}
+
+fn main() {
+    layout.layout_inject_dom_pointers();
+    
+    // Set viewport (f32)
+    *((dom.dom_ptr_VIEWPORT_W()) as &mut f32) = 1000.0;
+    *((dom.dom_ptr_VIEWPORT_H()) as &mut f32) = 1000.0;
+
+    // Reset generations and defaults for nodes 1-4
+    let mut i: u32 = 1;
+    while i <= 4 {
+        dom.DOM_NODE_GENERATION[i as usize] = 0;
+        dom.STYLE_W[i as usize] = -1;
+        dom.STYLE_H[i as usize] = -1;
+        dom.STYLE_MIN_WIDTH[i as usize] = -1;
+        dom.STYLE_MAX_WIDTH[i as usize] = -1;
+        dom.STYLE_MIN_HEIGHT[i as usize] = -1;
+        dom.STYLE_MAX_HEIGHT[i as usize] = -1;
+        dom.STYLE_PADDING_TOP[i as usize] = 0;
+        dom.STYLE_PADDING_RIGHT[i as usize] = 0;
+        dom.STYLE_PADDING_BOTTOM[i as usize] = 0;
+        dom.STYLE_PADDING_LEFT[i as usize] = 0;
+        dom.STYLE_BORDER_WIDTH_TOP[i as usize] = 0;
+        dom.STYLE_BORDER_WIDTH_RIGHT[i as usize] = 0;
+        dom.STYLE_BORDER_WIDTH_BOTTOM[i as usize] = 0;
+        dom.STYLE_BORDER_WIDTH_LEFT[i as usize] = 0;
+        dom.STYLE_MARGIN_TOP[i as usize] = 0;
+        dom.STYLE_MARGIN_RIGHT[i as usize] = 0;
+        dom.STYLE_MARGIN_BOTTOM[i as usize] = 0;
+        dom.STYLE_MARGIN_LEFT[i as usize] = 0;
+        dom.STYLE_W_UNIT[i as usize] = 0; // PX
+        dom.STYLE_POSITION[i as usize] = 0; // STATIC
+        i = i + 1;
+    }
+    
+    // --- TEST 1: Inline-Block Shrink-to-fit (Block children) ---
+    // Root (1) -> Container (2) -> [Child 3 (100px), Child 4 (150px)]
+    
+    let root: u32 = 1;
+    let container: u32 = 2;
+    let c1: u32 = 3;
+    let c2: u32 = 4;
+
+    // Reset generations to 0
+    dom.DOM_NODE_GENERATION[1] = 0;
+    dom.DOM_NODE_GENERATION[2] = 0;
+    dom.DOM_NODE_GENERATION[3] = 0;
+    dom.DOM_NODE_GENERATION[4] = 0;
+
+    // Root
+    dom.DOM_NODE_TAG[1] = constants.TAG_HTML;
+    dom.STYLE_DISPLAY[1] = constants.DISPLAY_BLOCK;
+    dom.STYLE_W[1] = -1;
+    dom.FLAG_LAYOUT_DIRTY[1] = 1;
+    
+    // Container
+    dom.DOM_NODE_TAG[2] = constants.TAG_DIV;
+    dom.STYLE_DISPLAY[2] = constants.DISPLAY_INLINE_BLOCK;
+    dom.STYLE_PARENT[2] = 1;
+    dom.FLAG_LAYOUT_DIRTY[2] = 1;
+    dom.STYLE_W[2] = -1; // AUTO
+    
+    // Child 1
+    dom.DOM_NODE_TAG[3] = constants.TAG_DIV;
+    dom.STYLE_DISPLAY[3] = constants.DISPLAY_BLOCK;
+    dom.STYLE_W[3] = 100;
+    dom.STYLE_PARENT[3] = 2;
+    dom.FLAG_LAYOUT_DIRTY[3] = 1;
+    
+    // Child 2
+    dom.DOM_NODE_TAG[4] = constants.TAG_DIV;
+    dom.STYLE_DISPLAY[4] = constants.DISPLAY_BLOCK;
+    dom.STYLE_W[4] = 150;
+    dom.STYLE_PARENT[4] = 2;
+    dom.FLAG_LAYOUT_DIRTY[4] = 1;
+    
+    // Links
+    dom.DOM_NODE_FIRST_CHILD[1] = 2 as u64;
+    dom.DOM_NODE_FIRST_CHILD[2] = 3 as u64;
+    dom.DOM_NODE_NEXT_SIBLING[3] = 4 as u64;
+    dom.DOM_NODE_NEXT_SIBLING[4] = 0;
+    
+    // Layout
+    layout.compute_layout(1, 0, 0, 1000);
+    
+    let w2 = layout.ext_salt_get_layout_w(2) as i32;
+    let m_fail1: [u8; 15] = [84, 101, 115, 116, 32, 49, 32, 70, 97, 105, 108, 101, 100, 58, 32];
+    assert_eq(w2, 150, (&m_fail1) as u64, 15);
+
+    let m_ok: [u8; 12] = [84, 101, 115, 116, 32, 49, 32, 80, 97, 115, 115, 10]; // "Test 1 Pass\n"
+    sys_log_info((&m_ok) as u64, 12);
+
+    // --- TEST 2: Inline-Block Shrink-to-fit (Inline children summing) ---
+    // Root (1) -> Container (5) -> [Child 6 (50px), Child 7 (70px)]
+    let c5: u32 = 5;
+    let c6: u32 = 6;
+    let c7: u32 = 7;
+    
+    let mut j: u32 = 5;
+    while j <= 7 {
+        dom.DOM_NODE_GENERATION[j as usize] = 0;
+        dom.STYLE_W[j as usize] = -1;
+        dom.STYLE_H[j as usize] = -1;
+        dom.STYLE_MIN_WIDTH[j as usize] = -1;
+        dom.STYLE_MAX_WIDTH[j as usize] = -1;
+        dom.STYLE_PADDING_TOP[j as usize] = 0;
+        dom.STYLE_PADDING_RIGHT[j as usize] = 0;
+        dom.STYLE_PADDING_BOTTOM[j as usize] = 0;
+        dom.STYLE_PADDING_LEFT[j as usize] = 0;
+        dom.STYLE_BORDER_WIDTH_TOP[j as usize] = 0;
+        dom.STYLE_BORDER_WIDTH_RIGHT[j as usize] = 0;
+        dom.STYLE_BORDER_WIDTH_BOTTOM[j as usize] = 0;
+        dom.STYLE_BORDER_WIDTH_LEFT[j as usize] = 0;
+        dom.STYLE_W_UNIT[j as usize] = 0;
+        j = j + 1;
+    }
+    
+    dom.DOM_NODE_TAG[5] = constants.TAG_DIV;
+    dom.STYLE_DISPLAY[5] = constants.DISPLAY_INLINE_BLOCK;
+    dom.STYLE_PARENT[5] = 1;
+    dom.FLAG_LAYOUT_DIRTY[5] = 1;
+    
+    dom.DOM_NODE_TAG[6] = constants.TAG_IMG;
+    dom.STYLE_DISPLAY[6] = constants.DISPLAY_INLINE;
+    dom.STYLE_W[6] = 50;
+    dom.STYLE_PARENT[6] = 5;
+    dom.FLAG_LAYOUT_DIRTY[6] = 1;
+    
+    dom.DOM_NODE_TAG[7] = constants.TAG_IMG;
+    dom.STYLE_DISPLAY[7] = constants.DISPLAY_INLINE;
+    dom.STYLE_W[7] = 70;
+    dom.STYLE_PARENT[7] = 5;
+    dom.FLAG_LAYOUT_DIRTY[7] = 1;
+    
+    dom.DOM_NODE_NEXT_SIBLING[2] = 5 as u64; // Link after container 2
+    dom.DOM_NODE_FIRST_CHILD[5] = 6 as u64;
+    dom.DOM_NODE_NEXT_SIBLING[6] = 7 as u64;
+    dom.DOM_NODE_NEXT_SIBLING[7] = 0;
+    
+    dom.FLAG_LAYOUT_DIRTY[1] = 1;
+    dom.FLAG_LAYOUT_DIRTY[2] = 1;
+    dom.FLAG_LAYOUT_DIRTY[5] = 1;
+    
+    layout.compute_layout(1, 0, 0, 1000);
+    
+    let w5 = layout.ext_salt_get_layout_w(5) as i32;
+    let m_fail2: [u8; 15] = [84, 101, 115, 116, 32, 50, 32, 70, 97, 105, 108, 101, 100, 58, 32];
+    assert_eq(w5, 120, (&m_fail2) as u64, 15);
+
+    let m_ok2: [u8; 12] = [84, 101, 115, 116, 32, 50, 32, 80, 97, 115, 115, 10]; // "Test 2 Pass\n"
+    sys_log_info((&m_ok2) as u64, 12);
+
+    // --- TEST 3: Text-align Center for Inline-Block children ---
+    // Root (1) -> Container (8) (W=1000, Align=Center) -> Child 9 (W=100)
+    let c8: u32 = 8;
+    let c9: u32 = 9;
+    
+    let mut k: u32 = 8;
+    while k <= 9 {
+        dom.DOM_NODE_GENERATION[k as usize] = 0;
+        dom.STYLE_W[k as usize] = -1;
+        dom.STYLE_H[k as usize] = -1;
+        dom.STYLE_MIN_WIDTH[k as usize] = -1;
+        dom.STYLE_MAX_WIDTH[k as usize] = -1;
+        dom.STYLE_PADDING_TOP[k as usize] = 0;
+        dom.STYLE_PADDING_RIGHT[k as usize] = 0;
+        dom.STYLE_PADDING_BOTTOM[k as usize] = 0;
+        dom.STYLE_PADDING_LEFT[k as usize] = 0;
+        dom.STYLE_BORDER_WIDTH_TOP[k as usize] = 0;
+        dom.STYLE_BORDER_WIDTH_RIGHT[k as usize] = 0;
+        dom.STYLE_BORDER_WIDTH_BOTTOM[k as usize] = 0;
+        dom.STYLE_BORDER_WIDTH_LEFT[k as usize] = 0;
+        dom.STYLE_MARGIN_TOP[k as usize] = 0;
+        dom.STYLE_MARGIN_RIGHT[k as usize] = 0;
+        dom.STYLE_MARGIN_BOTTOM[k as usize] = 0;
+        dom.STYLE_MARGIN_LEFT[k as usize] = 0;
+        dom.STYLE_W_UNIT[k as usize] = 0;
+        dom.STYLE_TEXT_ALIGN[k as usize] = 0;
+        k = k + 1;
+    }
+    
+    dom.DOM_NODE_TAG[8] = constants.TAG_DIV;
+    dom.STYLE_DISPLAY[8] = constants.DISPLAY_BLOCK;
+    dom.STYLE_W[8] = 1000;
+    dom.STYLE_TEXT_ALIGN[8] = 2; // CENTER
+    dom.STYLE_PARENT[8] = 1;
+    dom.FLAG_LAYOUT_DIRTY[8] = 1;
+    
+    dom.DOM_NODE_TAG[9] = constants.TAG_DIV;
+    dom.STYLE_DISPLAY[9] = constants.DISPLAY_INLINE_BLOCK;
+    dom.STYLE_W[9] = 100;
+    dom.STYLE_PARENT[9] = 8;
+    dom.FLAG_LAYOUT_DIRTY[9] = 1;
+    
+    dom.DOM_NODE_NEXT_SIBLING[5] = 8 as u64; // Link after container 5
+    dom.DOM_NODE_FIRST_CHILD[8] = 9 as u64;
+    dom.DOM_NODE_NEXT_SIBLING[9] = 0;
+    
+    dom.FLAG_LAYOUT_DIRTY[1] = 1;
+    layout.compute_layout(1, 0, 0, 1000);
+    
+    let x9 = layout.ext_salt_get_layout_x(9) as i32;
+    let m_fail3: [u8; 15] = [84, 101, 115, 116, 32, 51, 32, 70, 97, 105, 108, 101, 100, 58, 32];
+    assert_eq(x9, 450, (&m_fail3) as u64, 15);
+
+    let m_ok3: [u8; 12] = [84, 101, 115, 116, 32, 51, 32, 80, 97, 115, 115, 10];
+    sys_log_info((&m_ok3) as u64, 12);
+    sys_exit(0);
+}

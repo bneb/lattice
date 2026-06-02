@@ -1,4 +1,4 @@
-package main
+package basalt
 
 // Yield Validation: exercises the yield pulse injection path
 // The compiler's stride-1024 yield check should fire in tight loops.

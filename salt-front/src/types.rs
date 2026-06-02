@@ -430,6 +430,10 @@ impl Type {
         }
     }
 
+    pub fn is_affine(&self) -> bool {
+        matches!(self, Type::Owned(_) | Type::Tensor(..))
+    }
+
     pub fn to_key(&self) -> Option<TypeKey> {
         match self {
             Type::Struct(name) | Type::Enum(name) => Some(TypeKey { path: vec![], name: name.clone(), specialization: None }),

@@ -9,7 +9,7 @@ mod tests {
     #[test]
     fn test_iterator_for_loop_compiles() {
         let code = r#"
-            package test::iter_basic;
+            package test.iter_basic;
 
             enum Option<T> {
                 Some(T),
@@ -55,7 +55,7 @@ mod tests {
     #[test]
     fn test_iterator_emits_next_call() {
         let code = r#"
-            package test::iter_next;
+            package test.iter_next;
 
             enum Option<T> {
                 Some(T),
@@ -105,7 +105,7 @@ mod tests {
     #[test]
     fn test_iterator_emits_tag_check() {
         let code = r#"
-            package test::iter_tag;
+            package test.iter_tag;
 
             enum Option<T> {
                 Some(T),
@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn test_range_loop_still_works() {
         let code = r#"
-            package test::range_still_works;
+            package test.range_still_works;
             fn main() -> i32 {
                 let mut sum: i64 = 0;
                 for i in 0..10 {
@@ -177,7 +177,7 @@ mod tests {
     #[test]
     fn test_empty_iterator() {
         let code = r#"
-            package test::iter_empty;
+            package test.iter_empty;
 
             enum Option<T> {
                 Some(T),

@@ -31,6 +31,8 @@ extern fn get_proc_trampoline_addr() -> u64;
 extern fn get_kernel_trampoline_addr() -> u64;
 extern fn get_moe_trampoline_addr() -> u64;
 
+
+
 // =============================================================================
 // Constants
 // =============================================================================
@@ -99,7 +101,7 @@ pub fn spawn_process(elf_base: u64, kernel_pml4: u64) -> u64 {
     let kstack_top_virt = memory.phys_to_virt(memory.PhysAddr { val: kstack_top_phys }).val;
 
     // Step 5: Create user address space
-    let user_pml4 = user_paging.create_user_pml4(kernel_pml4);
+    let user_pml4 = user_paging.create_user_pml4_kpti(kernel_pml4);
     if user_pml4 == 0 {
         serial.print("[spawn] FATAL: OOM for PML4\n");
         process.free_kernel_stack(kstack_base_phys);

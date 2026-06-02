@@ -9,7 +9,7 @@
 
 package main
 
-use std.io.file.{File, O_RDONLY, PROT_READ, MAP_PRIVATE, mmap_raw};
+use std.io.file.{File, OpenFlags, Prot, MapFlags};
 use std.core.result.Result;
 use std.core.arena.Arena;
 use std.core.slice.Slice;
@@ -60,12 +60,13 @@ fn run() -> Result<i32> {
     println("Loading MNIST via MMAP...");
 
     // Load training data — ? propagates Status on failure
-    let img_file = File::open("mnist_train_images.bin", O_RDONLY)?;
-    let lbl_file = File::open("mnist_train_labels.bin", O_RDONLY)?;
+    let img_file = File::open("mnist_train_images.bin", OpenFlags { bits: 0 })?;
+    let lbl_file = File::open("mnist_train_labels.bin", OpenFlags { bits: 0 })?;
 
     let train_img_size = TRAIN_COUNT * INPUT_SIZE * 4;
-    let train_images = img_file.mmap::<f32>(train_img_size, PROT_READ, MAP_PRIVATE)?;
-    let train_labels = lbl_file.mmap::<u8>(TRAIN_COUNT, PROT_READ, MAP_PRIVATE)?;
+    let train_images = img_file.mmap::<f32>(train_img_size, Prot { bits: 1 }, MapFlags { bits: 2 })?;
+    let train_labels_ptr = lbl_file.mmap::<u8>(TRAIN_COUNT, Prot { bits: 1 }, MapFlags { bits: 2 })?;
+    let train_labels = Slice<u8>::new(train_labels_ptr, TRAIN_COUNT);
 
     println("Initializing weights (Xavier)...");
 
@@ -106,7 +107,7 @@ fn run() -> Result<i32> {
 
          for sample in 0..TRAIN_COUNT {
             let input = Slice<f32>::new(train_images.offset(sample * INPUT_SIZE), INPUT_SIZE);
-            let label = train_labels[sample];
+            let label = train_labels.at(sample);
 
             // === FORWARD PASS ===
             

@@ -26,7 +26,7 @@ mod sovereign_authority_tests {
 
     #[test]
     fn test_register_type_home() {
-        let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+        let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
         let mut state = make_disc_state(&file);
         state.register_type_home("std__string__String".to_string(), "std.string".to_string());
         
@@ -36,7 +36,7 @@ mod sovereign_authority_tests {
 
     #[test]
     fn test_register_trait_home() {
-        let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+        let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
         let mut state = make_disc_state(&file);
         state.register_trait_home("std__eq__Eq".to_string(), "std.eq".to_string());
         
@@ -46,7 +46,7 @@ mod sovereign_authority_tests {
 
     #[test]
     fn test_type_home_first_writer_wins() {
-        let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+        let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
         let mut state = make_disc_state(&file);
         state.register_type_home("Foo".to_string(), "module_a".to_string());
         // Second registration should NOT overwrite
@@ -58,7 +58,7 @@ mod sovereign_authority_tests {
 
     #[test]
     fn test_unknown_type_is_never_home() {
-        let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+        let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
         let state = make_disc_state(&file);
         assert!(!state.is_type_home("Unknown", "any_module"));
     }
@@ -70,7 +70,7 @@ mod sovereign_authority_tests {
     /// Legal: Module owns the Type → can implement any trait for it
     #[test]
     fn test_legal_impl_type_home() {
-        let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+        let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
         let mut state = make_disc_state(&file);
         state.register_type_home("Foo".to_string(), "user.data".to_string());
         state.register_trait_home("Eq".to_string(), "std.eq".to_string());
@@ -88,7 +88,7 @@ mod sovereign_authority_tests {
     /// Legal: Module owns the Trait → can implement it for any type
     #[test]
     fn test_legal_impl_trait_home() {
-        let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+        let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
         let mut state = make_disc_state(&file);
         state.register_type_home("i64".to_string(), "std.primitives".to_string());
         state.register_trait_home("Inspector".to_string(), "user.inspect".to_string());
@@ -110,7 +110,7 @@ mod sovereign_authority_tests {
     /// ILLEGAL: Module owns neither the Type nor the Trait
     #[test]
     fn test_reject_orphan_hijack() {
-        let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+        let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
         let mut state = make_disc_state(&file);
         state.register_type_home("std__string__String".to_string(), "std.string".to_string());
         state.register_trait_home("std__eq__Eq".to_string(), "std.eq".to_string());
@@ -134,7 +134,7 @@ mod sovereign_authority_tests {
     /// ILLEGAL: Implementing external trait for a primitive you don't own
     #[test]
     fn test_reject_primitive_hijack() {
-        let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+        let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
         let mut state = make_disc_state(&file);
         state.register_type_home("i64".to_string(), "std.primitives".to_string());
         state.register_trait_home("Eq".to_string(), "std.eq".to_string());
@@ -152,7 +152,7 @@ mod sovereign_authority_tests {
     /// ILLEGAL: Duplicate implementation in the same module
     #[test]
     fn test_reject_duplicate_implementation() {
-        let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+        let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
         let mut state = make_disc_state(&file);
         state.register_type_home("Foo".to_string(), "user.data".to_string());
         state.register_trait_home("Eq".to_string(), "std.eq".to_string());
@@ -174,7 +174,7 @@ mod sovereign_authority_tests {
     /// Legal: Same trait for DIFFERENT types in the same module
     #[test]
     fn test_allow_different_types_same_trait() {
-        let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+        let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
         let mut state = make_disc_state(&file);
         state.register_type_home("Foo".to_string(), "user.data".to_string());
         state.register_type_home("Bar".to_string(), "user.data".to_string());
@@ -191,7 +191,7 @@ mod sovereign_authority_tests {
     /// Legal: Different traits for the same type in the same module
     #[test]
     fn test_allow_same_type_different_traits() {
-        let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+        let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
         let mut state = make_disc_state(&file);
         state.register_type_home("Foo".to_string(), "user.data".to_string());
         state.register_trait_home("Eq".to_string(), "std.eq".to_string());
@@ -213,7 +213,7 @@ mod sovereign_authority_tests {
 
     macro_rules! with_ctx {
         ($name:ident, $block:block) => {
-            let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+            let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
             let z3_cfg = z3::Config::new();
             let z3_ctx = z3::Context::new(&z3_cfg);
             #[allow(unused_mut)]
@@ -283,7 +283,7 @@ mod sovereign_authority_tests {
     /// Empty module (no types, no traits) should pass coherence trivially
     #[test]
     fn test_empty_state_passes_coherence() {
-        let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+        let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
         let state = make_disc_state(&file);
         assert!(state.validate_coherence().is_ok());
     }
@@ -292,7 +292,7 @@ mod sovereign_authority_tests {
     /// (bootstrap edge case — should pass since we can't determine violation)
     #[test]
     fn test_unregistered_origins_default_behavior() {
-        let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+        let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
         let mut state = make_disc_state(&file);
         // Neither type nor trait registered in origins
         let _ = state.register_trait_impl(

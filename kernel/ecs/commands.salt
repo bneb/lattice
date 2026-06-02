@@ -1,12 +1,46 @@
+// =============================================================================
+// kernel/ecs/commands.salt
+// Deferred Mutation Queue — Safe Batched World Updates
+// =============================================================================
+//
+// Systems push commands to a buffer during their tick. At the end of the
+// tick, all commands are flushed atomically via apply(). This prevents
+// aliasing issues during system iteration and provides a natural
+// transaction boundary.
+//
+// Double-buffering is used to prevent reentrancy issues (e.g. if applying a
+// command causes another command to be pushed).
+// =============================================================================
+
 package kernel.ecs.commands
 
-import kernel.ecs.world.World
-import kernel.ecs.components.{SchedulingPriority, MemoryMap, ThreadState}
-import kernel.ecs.entity.{Entity, entity_allocator_allocate}
-import kernel.ecs.sparse_set.{thread_set_insert, priority_set_insert}
+import kernel.ecs.world.{
+    World, world_spawn, world_destroy
+}
+import kernel.ecs.components.{
+    SchedulingPriority, MemoryMap, ThreadState, IpcCapability,
+    OpenSocket, CpuAffinity
+}
+import kernel.ecs.entity.{
+    Entity, entity_allocator_allocate
+}
+import kernel.ecs.sparse_set.{
+    thread_set_insert, thread_set_get_mut,
+    priority_set_insert, memmap_set_insert,
+    ipc_cap_set_insert, socket_set_insert,
+    affinity_set_insert
+}
+import std.core.mem.size_of
 
+// Command type constants
 pub const CMD_SPAWN_THREAD: u32 = 1;
 pub const CMD_UPDATE_PRIORITY: u32 = 2;
+pub const CMD_UPDATE_STATE: u32 = 3;
+pub const CMD_DESTROY_ENTITY: u32 = 4;
+pub const CMD_GRANT_IPC_CAP: u32 = 5;
+pub const CMD_SET_AFFINITY: u32 = 6;
+pub const CMD_SET_MEMORY_MAP: u32 = 7;
+pub const CMD_OPEN_SOCKET: u32 = 8;
 
 pub struct Command {
     pub cmd_type: u32,
@@ -14,54 +48,150 @@ pub struct Command {
     pub priority: SchedulingPriority,
     pub mem_map: MemoryMap,
     pub thread_state: ThreadState,
+    pub ipc_cap: IpcCapability,
+    pub affinity: CpuAffinity,
+    pub socket: OpenSocket,
 }
 
+pub const MAX_COMMANDS: u32 = 4096;
+
 pub struct Commands {
-    pub buffer: [Command; 1024],
+    pub active_buffer: Ptr<Command>,
+    pub back_buffer: Ptr<Command>,
     pub count: u32,
 }
 
 extern fn malloc(size: i64) -> u64;
 
 pub fn new_commands() -> Ptr<Commands> {
-    let ptr = malloc(32784) as Ptr<Commands>; // ~32KB for the struct
-    let cmd_ptr = ptr[0] as &mut Commands;
-    cmd_ptr.count = 0;
-    
-    // Initialize the first element just in case
-    cmd_ptr.buffer[0] = Command { 
-        cmd_type: 0, 
-        target: Entity { id: 0, gen: 0 }, 
-        priority: SchedulingPriority { level: 0, tickets: 0 }, 
-        mem_map: MemoryMap { size: 0, pml4_phys: 0 }, 
-        thread_state: ThreadState { status: 0, stack_ptr: 0 } 
-    };
-    
-    return ptr;
+    let cmd_size = size_of::<Command>();
+    let active_buf = malloc((MAX_COMMANDS as i64) * cmd_size) as Ptr<Command>;
+    let back_buf = malloc((MAX_COMMANDS as i64) * cmd_size) as Ptr<Command>;
+
+    let cmds_ptr = malloc(24) as Ptr<Commands>;
+    let cmds = cmds_ptr as &mut Commands;
+    cmds.active_buffer = active_buf;
+    cmds.back_buffer = back_buf;
+    cmds.count = 0;
+    return cmds_ptr;
 }
 
-impl Commands {
-    pub fn push(self: &mut Commands, cmd: Command) {
-        if self.count < 1024 {
-            self.buffer[self.count as i64] = cmd;
-            self.count = self.count + 1;
+// =============================================================================
+// Standalone Commands Functions
+// =============================================================================
+
+pub fn commands_push(self: Ptr<Commands>, cmd: Command) {
+    let cmds = self as &mut Commands;
+    let c = cmds.count;
+    if c < MAX_COMMANDS {
+        unsafe {
+            *(cmds.active_buffer.offset(c as i64) as &mut Command) = cmd;
         }
+        cmds.count = c + 1;
     }
-    
-    pub fn apply(self: &mut Commands, w_ptr: Ptr<World>) {
-        let w = w_ptr[0];
-        let mut i: u32 = 0;
-        while i < self.count {
-            let cmd = self.buffer[i as i64];
+}
+
+pub fn commands_apply(self: Ptr<Commands>, w_ptr: Ptr<World>) {
+    let cmds = self as &mut Commands;
+    let w = w_ptr as &mut World;
+
+    // Swap active_buffer and back_buffer
+    let temp = cmds.active_buffer;
+    cmds.active_buffer = cmds.back_buffer;
+    cmds.back_buffer = temp;
+
+    let count = cmds.count;
+    cmds.count = 0; // Reset active count
+
+    let mut i: u32 = 0;
+    while i < count {
+        unsafe {
+            let cmd = *(cmds.back_buffer.offset(i as i64) as &Command);
+
             if cmd.cmd_type == CMD_SPAWN_THREAD {
-                let e = entity_allocator_allocate(w.alloc);
+                let e = world_spawn(w_ptr);
                 thread_set_insert(w.threads, e, cmd.thread_state);
                 priority_set_insert(w.priorities, e, cmd.priority);
+
             } else if cmd.cmd_type == CMD_UPDATE_PRIORITY {
                 priority_set_insert(w.priorities, cmd.target, cmd.priority);
+
+            } else if cmd.cmd_type == CMD_UPDATE_STATE {
+                let t = thread_set_get_mut(w.threads, cmd.target);
+                if (t as u64) != 0 {
+                    *(t as &mut ThreadState) = cmd.thread_state;
+                }
+
+            } else if cmd.cmd_type == CMD_DESTROY_ENTITY {
+                world_destroy(w_ptr, cmd.target);
+
+            } else if cmd.cmd_type == CMD_GRANT_IPC_CAP {
+                ipc_cap_set_insert(w.ipc_caps, cmd.target, cmd.ipc_cap);
+
+            } else if cmd.cmd_type == CMD_SET_AFFINITY {
+                affinity_set_insert(w.cpu_affinities, cmd.target, cmd.affinity);
+
+            } else if cmd.cmd_type == CMD_SET_MEMORY_MAP {
+                memmap_set_insert(w.mem_maps, cmd.target, cmd.mem_map);
+
+            } else if cmd.cmd_type == CMD_OPEN_SOCKET {
+                socket_set_insert(w.open_sockets, cmd.target, cmd.socket);
             }
-            i = i + 1;
         }
-        self.count = 0;
+
+        i = i + 1;
     }
+}
+
+pub fn commands_is_empty(self: Ptr<Commands>) -> bool {
+    let cmds = self as &Commands;
+    return cmds.count == 0;
+}
+
+pub fn commands_pending_count(self: Ptr<Commands>) -> u32 {
+    let cmds = self as &Commands;
+    return cmds.count;
+}
+
+// =============================================================================
+// Helper functions to build common commands
+// =============================================================================
+
+pub fn cmd_spawn_thread(state: ThreadState, prio: SchedulingPriority) -> Command {
+    return Command {
+        cmd_type: CMD_SPAWN_THREAD,
+        target: Entity { id: 0, gen: 0 },
+        priority: prio,
+        mem_map: MemoryMap { size: 0, pml4_phys: 0 },
+        thread_state: state,
+        ipc_cap: IpcCapability { ring_phys: 0, proof_hint: 0, peer_entity_id: 0, direction: 0 },
+        affinity: CpuAffinity { core_id: 0, migration_count: 0 },
+        socket: OpenSocket { local_port: 0, remote_port: 0, remote_ip: 0, state: 0, ring_entity_id: 0, _padding: 0 },
+    };
+}
+
+pub fn cmd_destroy(entity: Entity) -> Command {
+    return Command {
+        cmd_type: CMD_DESTROY_ENTITY,
+        target: entity,
+        priority: SchedulingPriority { level: 0, tickets: 0 },
+        mem_map: MemoryMap { size: 0, pml4_phys: 0 },
+        thread_state: ThreadState { status: 0, stack_ptr: 0, stack_base: 0, step_fn: 0, task_frame: 0, ctx_ptr: 0 },
+        ipc_cap: IpcCapability { ring_phys: 0, proof_hint: 0, peer_entity_id: 0, direction: 0 },
+        affinity: CpuAffinity { core_id: 0, migration_count: 0 },
+        socket: OpenSocket { local_port: 0, remote_port: 0, remote_ip: 0, state: 0, ring_entity_id: 0, _padding: 0 },
+    };
+}
+
+pub fn cmd_update_thread_state(entity: Entity, state: ThreadState) -> Command {
+    return Command {
+        cmd_type: CMD_UPDATE_STATE,
+        target: entity,
+        priority: SchedulingPriority { level: 0, tickets: 0 },
+        mem_map: MemoryMap { size: 0, pml4_phys: 0 },
+        thread_state: state,
+        ipc_cap: IpcCapability { ring_phys: 0, proof_hint: 0, peer_entity_id: 0, direction: 0 },
+        affinity: CpuAffinity { core_id: 0, migration_count: 0 },
+        socket: OpenSocket { local_port: 0, remote_port: 0, remote_ip: 0, state: 0, ring_entity_id: 0, _padding: 0 },
+    };
 }

@@ -16,8 +16,8 @@ fn test_println_basic_literal() {
             println("Hello, Salt!");
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse test source");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse test source");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "println basic literal failed: {:?}", res.err());
     
@@ -52,8 +52,8 @@ fn test_println_format_string_i32() {
             println("Answer: {}", x);
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "println format string failed: {:?}", res.err());
     
@@ -81,8 +81,8 @@ fn test_println_multiple_placeholders() {
             println("a={}, b={}", a, b);
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "println multiple placeholders failed: {:?}", res.err());
     
@@ -105,8 +105,8 @@ fn test_println_no_args() {
             println();
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "println no args failed: {:?}", res.err());
     
@@ -128,8 +128,8 @@ fn test_print_no_newline() {
             print("No newline");
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "print failed: {:?}", res.err());
     
@@ -155,8 +155,8 @@ fn test_println_float() {
             println("Pi = {}", pi);
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "println f64 failed: {:?}", res.err());
     
@@ -179,8 +179,8 @@ fn test_println_bool() {
             println("Flag: {}", flag);
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "println bool failed: {:?}", res.err());
     
@@ -202,8 +202,8 @@ fn test_println_escaped_braces() {
             println("Escaped: {{}}");
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "println escaped braces failed: {:?}", res.err());
     
@@ -229,8 +229,8 @@ fn test_println_hook_signatures() {
             println("{} {} {}", x, y, z);
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "println hook signatures failed: {:?}", res.err());
     
@@ -257,8 +257,8 @@ fn test_println_arg_mismatch() {
             println("Two placeholders: {} {}", x);
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     
     // Should fail with argument count mismatch
     assert!(res.is_err(), "println arg mismatch should error");
@@ -280,8 +280,8 @@ fn test_println_usize() {
             println("Length: {}", len);
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "println usize failed: {:?}", res.err());
     
@@ -304,8 +304,8 @@ fn test_println_string_dedup() {
             println("Same");
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "println dedup failed: {:?}", res.err());
     
@@ -336,8 +336,8 @@ fn test_println_struct_fallback() {
             println("Point: {}", p);
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "println struct fallback failed: {:?}", res.err());
     
@@ -364,8 +364,8 @@ fn test_println_struct_with_primitives() {
             println("Coord: {}", c);
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "println struct with primitives failed: {:?}", res.err());
     
@@ -394,8 +394,8 @@ fn test_println_nested_struct() {
             println("Outer: {}", o);
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "println nested struct failed: {:?}", res.err());
     
@@ -421,8 +421,8 @@ fn test_println_struct_and_primitive_mixed() {
             println("Mixed: {} and {}", x, d);
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "println mixed struct/primitive failed: {:?}", res.err());
     
@@ -447,8 +447,8 @@ fn test_println_empty_struct() {
             println("Unit: {}", u);
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
     
     assert!(res.is_ok(), "println empty struct failed: {:?}", res.err());
     

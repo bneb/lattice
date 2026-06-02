@@ -31,7 +31,7 @@ LLVM_VERSION="${LLVM_VERSION:-21}"
 export PATH="/opt/homebrew/opt/llvm@${LLVM_VERSION}/bin:$PATH"
 
 # Build output
-BUILD_DIR="$PROJECT_ROOT/build"
+BUILD_DIR="$PROJECT_ROOT/build_out"
 TMP_DIR="/tmp/salt_build"
 mkdir -p "$BUILD_DIR" "$TMP_DIR"
 
@@ -70,7 +70,6 @@ for SALT_FILE in "${KERNEL_SALT_FILES[@]}"; do
     cargo run --release --quiet -- \
         "$SALT_FILE" \
         --lib \
-        --search-path "$PROJECT_ROOT" \
         > "$TMP_DIR/kernel_${BASENAME}.mlir" 2>/dev/null || {
         echo "  ✗ MLIR generation failed for $BASENAME"
         exit 1

@@ -1,6 +1,6 @@
 use crate::codegen::context::CodegenContext;
 use crate::types::{Type};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use syn::{Expr};
 
 pub trait TypeTracer {

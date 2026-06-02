@@ -1,0 +1,35 @@
+package basalt
+
+import kernel.ecs.world.{World, new_world, world_spawn}
+import kernel.ecs.components.{ThreadState, IpcCapability}
+import kernel.ecs.sparse_set.{thread_set_insert, ipc_cap_set_insert, thread_set_get}
+import kernel.ecs.ecs_ipc.{ipc_deliver_packet}
+import kernel.ecs.entity.{Entity}
+
+fn main() -> i32 {
+    let w = new_world();
+    
+    let cons = world_spawn(w);
+    
+    thread_set_insert(w[0].threads, cons, ThreadState { status: 3, stack_ptr: 0x200, stack_base: 0, step_fn: 0, task_frame: 0, ctx_ptr: 0x200 }); // 3 = THREAD_BLOCKED
+    
+    ipc_cap_set_insert(w[0].ipc_caps, cons, IpcCapability {
+        ring_phys: 0x1000,
+        proof_hint: 0xABC,
+        peer_entity_id: cons.id,
+        direction: 1, // 1 = consumer
+    });
+    
+    let mut i: u32 = 0;
+    while i < 1000000 {
+        let t = thread_set_get(w[0].threads, cons);
+        t[0].status = 3; // THREAD_BLOCKED
+        
+        let target = ipc_deliver_packet(w, cons.id);
+        if target.id != cons.id { return 1; }
+        
+        i = i + 1;
+    }
+    
+    return 0;
+}

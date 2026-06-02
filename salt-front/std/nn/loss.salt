@@ -29,25 +29,27 @@ pub fn softmax_cross_entropy_grad(
     size: i64,
     label: i64
 ) {
-    // Find max for numerical stability
-    let mut max_val = output[0];
-    for i in 1..size {
-        if output[i] > max_val {
-            max_val = output[i];
+    unsafe {
+        // Find max for numerical stability
+        let mut max_val = output[0];
+        for i in 1..size {
+            if output[i] > max_val {
+                max_val = output[i];
+            }
         }
-    }
 
-    // Compute exp(output[i] - max) and sum
-    let mut exp_sum: f32 = 0.0f32;
-    for i in 0..size {
-        delta[i] = expf(output[i] - max_val);
-        exp_sum = exp_sum + delta[i];
-    }
+        // Compute exp(output[i] - max) and sum
+        let mut exp_sum: f32 = 0.0f32;
+        for i in 0..size {
+            delta[i] = expf(output[i] - max_val);
+            exp_sum = exp_sum + delta[i];
+        }
 
-    // Softmax - one_hot(label)
-    for i in 0..size {
-        let softmax = delta[i] / exp_sum;
-        let target: f32 = if i == label { 1.0f32 } else { 0.0f32 };
-        delta[i] = softmax - target;
+        // Softmax - one_hot(label)
+        for i in 0..size {
+            let softmax = delta[i] / exp_sum;
+            let target: f32 = if i == label { 1.0f32 } else { 0.0f32 };
+            delta[i] = softmax - target;
+        }
     }
 }

@@ -1,0 +1,68 @@
+package std.mem.arena
+
+// SovereignArena: Fast bump allocator for local task frames
+struct SovereignArena {
+    base: Ptr<u8>,
+    offset: i64,
+    capacity: i64,
+}
+
+impl SovereignArena {
+    fn new(size: i64) -> SovereignArena {
+        let ptr = intrinsics::macos_syscall(197, 0, 0, size); // mmap
+        return SovereignArena {
+            base: ptr as Ptr<u8>,
+            offset: 0,
+            capacity: size,
+        };
+    }
+
+    fn reset(self: &mut SovereignArena) {
+        self.offset = 0;
+    }
+}
+
+// DmaArena: Memory pinned for I/O operations
+struct DmaArena {
+    base: Ptr<u8>,
+    pages: i64,
+}
+
+impl DmaArena {
+    fn new(pages: i64) -> DmaArena {
+        let size = pages * 16384;
+        let ptr = intrinsics::macos_syscall(197, 0, 0, size); // mmap
+        return DmaArena {
+            base: ptr as Ptr<u8>,
+            pages: pages,
+        };
+    }
+
+    fn deinit(self: &mut DmaArena) {
+        let size = self.pages * 16384;
+        intrinsics::macos_syscall(73, self.base as i64, size, 0); // munmap
+    }
+}
+
+// DelayedFreeMailbox: For cross-core task frame reclamation
+struct DelayedFreeMailbox {
+    head: Ptr<u8>,
+}
+
+impl DelayedFreeMailbox {
+    fn new() -> DelayedFreeMailbox {
+        return DelayedFreeMailbox {
+            head: intrinsics::ptr_null(),
+        };
+    }
+
+    fn drain(self: &mut DelayedFreeMailbox, arena: &mut SovereignArena) {
+        // TODO: Implement actual list draining
+        self.head = intrinsics::ptr_null();
+    }
+
+    fn drain_treiber(self: &mut DelayedFreeMailbox, arena: &mut SovereignArena) {
+        // TODO: Implement actual treiber stack draining
+        self.head = intrinsics::ptr_null();
+    }
+}

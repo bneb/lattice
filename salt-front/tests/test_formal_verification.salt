@@ -1,0 +1,21 @@
+fn require_positive(x: i64) -> i64 
+    requires x > 0
+    ensures result > 0
+{
+    salt_return x;
+}
+
+fn test_valid() {
+    let y = 5;
+    let z = require_positive(y);
+}
+
+fn test_invalid() {
+    let y = -5;
+    let z = require_positive(y); 
+}
+
+fn main() {
+    test_valid();
+    test_invalid();
+}

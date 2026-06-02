@@ -91,7 +91,7 @@ pub fn emit_atomic_intrinsic(
             let (ptr_var, _) = emit_expr(ctx, out, &args[0], local_vars, None)?;
             let res = format!("%atomic_load_{}", ctx.next_id());
             out.push_str(&format!(
-                "    {} = \"llvm.intr.atomic.load\"({}) {{ordering = 4 : i64}} : (!llvm.ptr) -> i64\n",
+                "    {} = \"llvm.load\"({}) {{alignment = 8 : i64, ordering = 4 : i64}} : (!llvm.ptr) -> i64\n",
                 res, ptr_var
             ));
             Ok(Some((res, Type::I64)))
@@ -103,7 +103,7 @@ pub fn emit_atomic_intrinsic(
             let (ptr_var, _) = emit_expr(ctx, out, &args[0], local_vars, None)?;
             let (val_var, _) = emit_expr(ctx, out, &args[1], local_vars, None)?;
             out.push_str(&format!(
-                "    \"llvm.intr.atomic.store\"({}, {}) {{ordering = 5 : i64}} : (i64, !llvm.ptr) -> ()\n",
+                "    \"llvm.store\"({}, {}) {{alignment = 8 : i64, ordering = 5 : i64}} : (i64, !llvm.ptr) -> ()\n",
                 val_var, ptr_var
             ));
             Ok(Some(("".to_string(), Type::Unit)))

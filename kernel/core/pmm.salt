@@ -27,6 +27,7 @@ package kernel.core.pmm
 // ============================================================================
 
 import kernel.core.memory
+import kernel.drivers.serial
 
 extern fn get_cpu_id() -> u64;
 extern fn disable_interrupts();
@@ -89,19 +90,35 @@ pub fn add_region(start: u64, end: u64) {
     let mut current = (start + 4095) & (0xFFFFFFFFFFFFF000);
     let mut core_idx: u64 = 0;
 
+    // DEBUG PRINT
+    serial.print("      -> pmm.add_region loop starting: current=");
+    serial.print_u64(current);
+    serial.print(" end=");
+    serial.print_u64(end);
+    serial.print("\n");
+
     while (current + PAGE_SIZE) <= end {
         let target = core_idx % NUM_CPUS;
 
         let vaddr = memory.phys_to_virt(memory.PhysAddr { val: current }).val;
+        
+        // Print the first iteration
+        if core_idx == 0 {
+            serial.print("      -> pmm.add_region writing to vaddr=");
+            serial.print_u64(vaddr);
+            serial.print("\n");
+        }
+        
         *(vaddr as &mut u64) = PMM_RESOURCE.shards[target].head;
 
         PMM_RESOURCE.shards[target].head = current;
         PMM_RESOURCE.shards[target].count = PMM_RESOURCE.shards[target].count + 1;
-        PMM_RESOURCE.total_pages += 1;
+        PMM_RESOURCE.total_pages = PMM_RESOURCE.total_pages + 1;
 
         core_idx = core_idx + 1;
-        current += PAGE_SIZE;
+        current = current + PAGE_SIZE;
     }
+    serial.print("      -> pmm.add_region loop done\n");
 }
 
 // ============================================================================

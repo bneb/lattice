@@ -157,8 +157,8 @@ fn test_matvec_pattern_emits_per_arg_scopes() {
             return 0;
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, true, false, false, false, false, "");
     
     assert!(res.is_ok(), "matvec alias scope emission failed: {:?}", res.err());
     
@@ -195,8 +195,8 @@ fn test_single_pointer_arg_no_noalias() {
             return 0;
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, true, false, false, false, false, "");
     
     assert!(res.is_ok(), "single arg scope emission failed: {:?}", res.err());
     
@@ -221,8 +221,8 @@ fn test_non_pointer_args_no_scope() {
             return add_ints(1, 2);
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, true, false, false, false, false, "");
     
     assert!(res.is_ok(), "non-pointer args should compile: {:?}", res.err());
     
@@ -255,8 +255,8 @@ fn test_gep_inherits_scope_in_mlir() {
             return 0;
         }
     "#;
-    let file: SaltFile = syn::parse_str(src).expect("Failed to parse");
-    let res = emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+    let mut file: SaltFile = syn::parse_str(src).expect("Failed to parse");
+    let res = emit_mlir(&mut file, false, None, false, true, false, false, false, false, "");
     
     assert!(res.is_ok(), "GEP scope inheritance failed: {:?}", res.err());
     

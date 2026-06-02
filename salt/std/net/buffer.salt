@@ -23,6 +23,9 @@ impl SovereignBuffer {
     // Create a view into this buffer (zero-copy slice)
     // Z3 proves: 0 <= start <= end <= self.length
     fn slice(self: &SovereignBuffer, start: i64, end: i64) -> SovereignBuffer {
+        requires start >= 0;
+        requires end >= start;
+        requires end <= self.length;
         return SovereignBuffer {
             data: self.data.offset(start),
             capacity: end - start,
@@ -34,6 +37,8 @@ impl SovereignBuffer {
     // Find the first occurrence of a byte starting from `start`
     // Returns the index relative to buffer base, or -1 if not found
     fn find(self: &SovereignBuffer, start: i64, needle: u8) -> i64 {
+        requires start >= 0;
+        requires start <= self.length;
         let mut i = start;
         while i < self.length {
             let byte = self.data.read_at(i);
@@ -48,6 +53,8 @@ impl SovereignBuffer {
     // Find the first occurrence of `needle` starting from `start`
     // Stops at the delimiter and returns the position
     fn find_until(self: &SovereignBuffer, start: i64, delimiter: u8) -> i64 {
+        requires start >= 0;
+        requires start <= self.length;
         return self.find(start, delimiter);
     }
 
@@ -68,6 +75,8 @@ impl SovereignBuffer {
 
     // Check if a specific byte sequence exists at a position
     fn check_at(self: &SovereignBuffer, pos: i64, pattern: Ptr<u8>, plen: i64) -> bool {
+        requires pos >= 0;
+        requires plen >= 0;
         if pos + plen > self.length {
             return false;
         }
@@ -83,11 +92,15 @@ impl SovereignBuffer {
 
     // Read a single byte at offset (bounds-checked unless Z3 elides it)
     fn byte_at(self: &SovereignBuffer, idx: i64) -> u8 {
+        requires idx >= 0;
+        requires self.offset + idx < self.length;
         return self.data.read_at(self.offset + idx);
     }
 
     // Advance the read cursor
     fn advance(self: &mut SovereignBuffer, n: i64) {
+        requires n >= 0;
+        requires self.offset + n <= self.length;
         self.offset = self.offset + n;
     }
 

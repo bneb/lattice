@@ -1,7 +1,6 @@
 use crate::hir::ids::DefId;
 use crate::hir::types::Type;
 use crate::hir::expr::Block;
-use crate::hir::stmt::Stmt;
 
 #[derive(Clone, Debug)]
 pub struct Item {

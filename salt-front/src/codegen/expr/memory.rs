@@ -1,10 +1,8 @@
 use crate::types::Type;
 use crate::codegen::context::{LoweringContext, LocalKind};
-use super::utils::*;
 use crate::codegen::type_bridge::*;
 use std::collections::HashMap;
 use super::{emit_expr, emit_lvalue, LValueKind};
-use crate::z3_shim as z3;
 
 pub fn emit_field(
     ctx: &mut LoweringContext,
@@ -24,15 +22,27 @@ pub fn emit_field(
             // Return pointer directly, mark as reference for GEP path below
             // [SSA PROMOTION] Don't double-wrap if ty is already a Reference
             if matches!(&ty, Type::Reference(_, _)) {
-                (addr, ty, true)  // Already a reference, use as-is
+                let actual_addr = if _kind == LValueKind::Local {
+                    let loaded_ref = format!("%loaded_ref_{}", ctx.next_id());
+                    ctx.emit_load(out, &loaded_ref, &addr, "!llvm.ptr");
+                    loaded_ref
+                } else {
+                    addr
+                };
+                (actual_addr, ty, true)  // Already a reference, use as-is
             } else {
-                (addr, Type::Reference(Box::new(ty), false), true)
+                (addr, ty, true) 
             }
         } else {
             // For non-aggregates, load as usual
-            let val = format!("%field_base_load_{}", ctx.next_id());
-            let mlir_ty = ty.to_mlir_storage_type(ctx)?;
-            ctx.emit_load(out, &val, &addr, &mlir_ty);
+            let val = if _kind == LValueKind::SSA {
+                addr.clone()
+            } else {
+                let v = format!("%field_base_load_{}", ctx.next_id());
+                let mlir_ty = ty.to_mlir_storage_type(ctx)?;
+                ctx.emit_load(out, &v, &addr, &mlir_ty);
+                v
+            };
             (val, ty, false)
         }
     } else {
@@ -357,17 +367,17 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
              // This replaces the legacy "NativePtr" string-matching logic.
              Type::Pointer { ref element, .. } | Type::Reference(ref element, _) => {
                  // Z3 Bounds Verification Integration
-                 let func_name = "unknown".to_string();
-                 let mut info = crate::codegen::verification::ptr_bounds_verifier::PtrBoundsInfo::new(&func_name);
-                 let proof_result = crate::codegen::verification::ptr_bounds_verifier::verify_ptr_dynamic_index(ctx.z3_ctx, &info);
+                 let func_name = ctx.current_fn_name().clone();
+                 let info = crate::codegen::verification::ptr_bounds_verifier::PtrBoundsInfo::new(&func_name);
+                 let proof_result = crate::codegen::verification::ptr_bounds_verifier::verify_ptr_dynamic_index(ctx.z3_ctx, &ctx.z3_solver, &info);
                  
                  match proof_result {
                      crate::codegen::verification::ptr_bounds_verifier::PtrProofResult::Proven => {
                          *ctx.elided_checks += 1;
                      }
                      _ => {
-                         if func_name != "unknown" {
-                             return Err(format!("Unsafe pointer indexing in '{}': Z3 could not prove bounds safety for raw pointer indexing. You must provide explicit bounds constraints via @requires or loop invariants.", func_name));
+                         if !ctx.config.no_verify && !*ctx.is_unsafe_block() {
+                             return Err(format!("Unsafe pointer indexing in '{}': Z3 could not prove bounds safety for raw pointer indexing. You must provide explicit bounds constraints via @requires, loop invariants, or wrap the access in an unsafe block.", func_name));
                          }
                      }
                  }
@@ -739,13 +749,13 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
         // This handles Ptr<T> when emit_lvalue didn't catch it
         Type::Pointer { ref element, .. } => {
              // Z3 Bounds Verification Integration
-             let func_name = "unknown".to_string();
-             let mut info = crate::codegen::verification::ptr_bounds_verifier::PtrBoundsInfo::new(&func_name);
+             let func_name = ctx.current_fn_name().clone();
+             let info = crate::codegen::verification::ptr_bounds_verifier::PtrBoundsInfo::new(&func_name);
              
              // Extract loop invariant upper bounds or known local array sizes
              // Note: In an advanced version we would query MallocTracker or loop invariants
              // but for now, we rely on the Z3 context having the path conditions mapped.
-             let proof_result = crate::codegen::verification::ptr_bounds_verifier::verify_ptr_dynamic_index(ctx.z3_ctx, &info);
+             let proof_result = crate::codegen::verification::ptr_bounds_verifier::verify_ptr_dynamic_index(ctx.z3_ctx, &ctx.z3_solver, &info);
              
              match proof_result {
                  crate::codegen::verification::ptr_bounds_verifier::PtrProofResult::Proven => {
@@ -754,8 +764,8 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
                  _ => {
                      // Since Ptr<T> has no runtime length, we cannot emit a runtime bounds check.
                      // Therefore, to enforce memory safety, we MUST reject unproven pointer indexing at compile time.
-                     if func_name != "unknown" {
-                         return Err(format!("Unsafe pointer indexing in '{}': Z3 could not prove bounds safety for raw pointer indexing. You must provide explicit bounds constraints via @requires or loop invariants.", func_name));
+                     if !ctx.config.no_verify && !*ctx.is_unsafe_block() {
+                         return Err(format!("Unsafe pointer indexing in '{}': Z3 could not prove bounds safety for raw pointer indexing. You must provide explicit bounds constraints via @requires, loop invariants, or wrap the access in an unsafe block.", func_name));
                      }
                  }
              }
@@ -789,7 +799,7 @@ pub fn translate_to_z3<'a, 'ctx>(
             Ok(ctx.mk_int(val))
         }
         syn::Expr::Path(p) => {
-            let name = p.path.segments.last().unwrap().ident.to_string();
+            let name = p.path.segments.last().ok_or_else(|| "Empty path segments".to_string())?.ident.to_string();
             // First check local variables for SSA value
             if let Some((_, kind)) = local_vars.get(&name) {
                 if let LocalKind::SSA(ssa) = kind {

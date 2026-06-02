@@ -71,7 +71,7 @@ pub fn run_syscall_bench() {
     // IRETQ drops CPL to 3, ring3_bench_loop_asm runs the benchmark,
     // sentinel SYSCALL(0xBEEF) escapes back here.
     let stack_top = (&ring3_stack[1023]) as u64;
-    let ring3_entry = (&ring3_bench_loop_asm) as u64;
+    let ring3_entry = fn_addr(ring3_bench_loop_asm);
     drop_to_ring3_and_bench(ring3_entry, stack_top);
 
     // ── BACK IN RING 0 ─────────────────────────────────────────────────

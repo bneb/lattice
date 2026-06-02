@@ -15,8 +15,6 @@
 //!   - Assert the violation (index >= alloc_elements)
 //!   - UNSAT → proven safe, SAT → unsafe
 
-use crate::z3_shim::ast::Ast;
-use crate::z3_shim as z3;
 
 /// Result of a Z3 pointer bounds verification attempt
 #[derive(Debug, Clone, PartialEq)]
@@ -163,9 +161,10 @@ pub fn verify_ptr_offset(
 /// Z3 can prove safety when the bound matches the allocation size.
 pub fn verify_ptr_dynamic_index(
     z3_ctx: &crate::z3_shim::Context,
+    solver: &crate::z3_shim::Solver,
     info: &PtrBoundsInfo,
 ) -> PtrProofResult {
-    let solver = crate::z3_shim::Solver::new(z3_ctx);
+    solver.push(); // Push a frame to isolate bounds checking constraints
     let zero = crate::z3_shim::ast::Int::from_i64(z3_ctx, 0);
 
     let alloc_size = if let Some(n) = info.alloc_elements {
@@ -196,7 +195,7 @@ pub fn verify_ptr_dynamic_index(
     let violation = idx.ge(&alloc_size);
     solver.assert(&violation);
 
-    match solver.check() {
+    let result = match solver.check() {
         crate::z3_shim::SatResult::Unsat => PtrProofResult::Proven,
         crate::z3_shim::SatResult::Sat => {
             PtrProofResult::Unsafe(format!(
@@ -205,7 +204,9 @@ pub fn verify_ptr_dynamic_index(
             ))
         }
         crate::z3_shim::SatResult::Unknown => PtrProofResult::Unknown,
-    }
+    };
+    solver.pop(1);
+    result
 }
 
 

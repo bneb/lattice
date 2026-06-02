@@ -365,7 +365,7 @@ void ext_net_tls_handshake(uint32_t fd, uint32_t id) {}
 void js_bridge_dispatch_document_event(uint32_t node_id, uint32_t type) {}
 void disabled_ext_tls_write_bytes(uint64_t data_ptr, uint32_t len) {}
 
-static const char *mock_http =
+const char *mock_http =
     "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"
     "<!DOCTYPE html><html>"
     "<head><style>"
@@ -389,13 +389,13 @@ static const char *mock_http =
     "</div>"
     "</body></html>";
 
-uint64_t ext_get_mock_http_ptr() {
+__attribute__((weak)) uint64_t ext_get_mock_http_ptr(uint64_t url_ptr, uint32_t url_len) {
   fprintf(stderr, "[MOCK-DIAG] ext_get_mock_http_ptr() called, len=%lu\n",
           strlen(mock_http));
   return (uint64_t)mock_http;
 }
 
-uint32_t ext_get_mock_http_len() { return (uint32_t)strlen(mock_http); }
+__attribute__((weak)) uint32_t ext_get_mock_http_len() { return (uint32_t)strlen(mock_http); }
 void ext_dom_set_custom_tag(uint32_t node_id, uint64_t ptr, uint32_t len) {}
 uint32_t disabled_ext_hpack_encode_headers(uint64_t m_ptr, uint64_t p_ptr,
                                            uint32_t sid) {

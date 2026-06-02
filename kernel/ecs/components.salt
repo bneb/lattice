@@ -1,16 +1,116 @@
+// =============================================================================
+// kernel/ecs/components.salt
+// DBOS Component Definitions — The Columns of the OS Database
+// =============================================================================
+//
+// Each struct here is a "column" in the OS's columnar database.
+// Components are stored in flat SparseSet arrays for cache-friendly iteration.
+// Components are small, POD (plain old data), no pointers to heap.
+//
+// Thread State Machine:
+//   0 = FREE       (slot available)
+//   1 = RUNNABLE   (ready to execute)
+//   2 = RUNNING    (currently on a core)
+//   3 = BLOCKED    (waiting for IPC/timer/IO)
+//   4 = ZOMBIE     (exited, awaiting reclaim)
+// =============================================================================
+
 package kernel.ecs.components
 
+// --- Core OS Components ---
+
+/// Physical memory mapping for a process entity.
+/// The "foreign key" linking an entity to its address space.
 pub struct MemoryMap {
-    pub size: u64,
-    pub pml4_phys: u64,
+    pub size: u64,           // Total mapped bytes
+    pub pml4_phys: u64,      // Physical address of PML4 page table root
 }
 
+/// Scheduling priority and lottery tickets for the ECS scheduler.
 pub struct SchedulingPriority {
-    pub level: u32,
-    pub tickets: u32,
+    pub level: u32,          // 0 = highest, 255 = lowest
+    pub tickets: u32,        // Lottery tickets for probabilistic fairness
 }
 
+/// Thread execution state — the primary dispatch column.
 pub struct ThreadState {
-    pub status: u32,
-    pub stack_ptr: u64,
+    pub status: u32,         // 0=FREE, 1=RUNNABLE, 2=RUNNING, 3=BLOCKED, 4=ZOMBIE
+    pub stack_ptr: u64,      // Saved RSP for context switch
+    pub stack_base: u64,     // Base of the slab-allocated stack
+    pub step_fn: u64,        // Async: step function addr (0 = preemptive)
+    pub task_frame: u64,     // Async: TaskFrame pointer
+    pub ctx_ptr: u64,        // Unified context pointer (stack_ptr or task_frame)
+}
+
+// Thread status constants
+pub const THREAD_FREE: u32 = 0;
+pub const THREAD_RUNNABLE: u32 = 1;
+pub const THREAD_RUNNING: u32 = 2;
+pub const THREAD_BLOCKED: u32 = 3;
+pub const THREAD_ZOMBIE: u32 = 4;
+
+// --- IPC Components ---
+
+/// IPC Capability — proof-carrying descriptor for SPSC ring access.
+/// Links an entity to an SPSC ring buffer with Z3-sealed proof hints.
+pub struct IpcCapability {
+    pub ring_phys: u64,          // Physical address of SPSC ring page
+    pub proof_hint: u64,         // SipHash-2-4 sealed proof from Z3
+    pub peer_entity_id: u32,     // Entity ID of the other endpoint
+    pub direction: u32,          // 0 = producer, 1 = consumer
+}
+
+// IPC direction constants
+pub const IPC_PRODUCER: u32 = 0;
+pub const IPC_CONSUMER: u32 = 1;
+
+/// Open socket descriptor — tracks active network connections.
+/// The ECS "OpenSockets" table replaces Linux's fd table.
+pub struct OpenSocket {
+    pub local_port: u32,         // Local port (u32 for alignment)
+    pub remote_port: u32,        // Remote port
+    pub remote_ip: u32,          // Remote IPv4 address
+    pub state: u32,              // TCP state machine value
+    pub ring_entity_id: u32,     // Entity ID of associated SPSC ring
+    pub _padding: u32,           // Alignment padding to 24 bytes
+}
+
+// TCP state constants
+pub const TCP_CLOSED: u32 = 0;
+pub const TCP_LISTEN: u32 = 1;
+pub const TCP_SYN_SENT: u32 = 2;
+pub const TCP_ESTABLISHED: u32 = 3;
+pub const TCP_FIN_WAIT: u32 = 4;
+
+// --- SMP Components ---
+
+/// CPU affinity and migration tracking for SMP scheduling.
+pub struct CpuAffinity {
+    pub core_id: u32,            // Current/preferred core
+    pub migration_count: u32,    // Number of cross-core migrations (telemetry)
+}
+
+// --- Reclamation Components ---
+
+/// Epoch metadata for deferred reclamation.
+/// When a component is retired, this tracks when it can be safely freed.
+pub struct EpochInfo {
+    pub retire_epoch: u64,       // Global epoch when this component was retired
+    pub arena_mark: u64,         // Arena watermark for O(1) bulk free
+}
+
+// --- Telemetry Components ---
+
+/// Per-entity performance counters.
+pub struct PerfCounters {
+    pub cycles_total: u64,       // Total CPU cycles consumed
+    pub context_switches: u32,   // Number of context switches
+    pub ipc_messages_sent: u32,  // Number of IPC messages sent
+    pub ipc_messages_recv: u32,  // Number of IPC messages received
+    pub page_faults: u32,        // Number of page faults
+}
+
+/// Test component for unit testing
+pub struct TestComponent {
+    pub val: i32,
 }

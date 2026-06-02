@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, HashMap};
 macro_rules! with_ctx {
     ($ctx:ident, $block:block) => {
         let code = "fn main() {}";
-        let file: SaltFile = syn::parse_str(code).unwrap();
+        let mut file: SaltFile = syn::parse_str(code).unwrap();
         let z3_cfg = z3::Config::new();
         let z3_ctx = z3::Context::new(&z3_cfg);
         let $ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -43,7 +43,7 @@ fn test_loop_iv_registered_as_usize() {
             }
         }
     "#;
-    let file: SaltFile = syn::parse_str(code).unwrap();
+    let mut file: SaltFile = syn::parse_str(code).unwrap();
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -80,7 +80,7 @@ fn test_pointer_index_assignment_compiles() {
             }
         }
     "#;
-    let file: SaltFile = syn::parse_str(code).unwrap();
+    let mut file: SaltFile = syn::parse_str(code).unwrap();
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -169,7 +169,7 @@ fn test_pointer_read_in_loop_compiles() {
             return sum;
         }
     "#;
-    let file: SaltFile = syn::parse_str(code).unwrap();
+    let mut file: SaltFile = syn::parse_str(code).unwrap();
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -217,7 +217,7 @@ fn test_init_xavier_pattern_compiles() {
             }
         }
     "#;
-    let file: SaltFile = syn::parse_str(code).unwrap();
+    let mut file: SaltFile = syn::parse_str(code).unwrap();
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);

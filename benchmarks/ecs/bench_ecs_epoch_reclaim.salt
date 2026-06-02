@@ -1,0 +1,31 @@
+package basalt
+
+import kernel.ecs.world.{World, new_world, world_spawn, world_is_alive}
+import kernel.ecs.components.{ThreadState}
+import kernel.ecs.sparse_set.{thread_set_insert}
+import kernel.ecs.ecs_epoch.{ecs_retire_entity, ecs_epoch_reclaim}
+
+extern fn ebr_enter_epoch(cpu: u64);
+extern fn ebr_exit_epoch(cpu: u64);
+extern fn ebr_advance_epoch();
+extern fn ebr_get_global_epoch() -> u64;
+
+fn main() -> i32 {
+    let w = new_world();
+    
+    let mut i: u32 = 0;
+    while i < 100000 {
+        ebr_enter_epoch(0);
+        let e = world_spawn(w);
+        thread_set_insert(w[0].threads, e, ThreadState { status: 1, stack_ptr: 0x100, stack_base: 0, step_fn: 0, task_frame: 0, ctx_ptr: 0x100 });
+        
+        ecs_retire_entity(w, e);
+        ebr_exit_epoch(0);
+        
+        ebr_advance_epoch();
+        ecs_epoch_reclaim(w);
+        i = i + 1;
+    }
+    
+    return 0;
+}

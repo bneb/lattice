@@ -1,0 +1,57 @@
+// =============================================================================
+// tests/test_spawn_async.salt
+// End-to-End Test for Asynchronous Process Spawn via Ring Buffer ABI
+// =============================================================================
+
+import std.io.ring
+import std.process.spawn
+
+// A dummy ELF header signature to pass validate_elf_inline
+global DUMMY_ELF: [u8; 64] = [
+    0x7F, 69, 76, 70, // "\x7FELF"
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, // entry @ 24
+    0, 0, 0, 0, 0, 0, 0, 0, // phoff @ 32
+    0, 0, 0, 0, 0, 0, 0, 0, // 40
+    0, 0, 0, 0, 0, 0, // 48
+    0, 0,             // phentsize @ 54
+    0, 0,             // phnum @ 56
+    0, 0, 0, 0, 0, 0
+];
+
+pub fn main() -> i64 {
+    let mut r = ring.IoRing::map();
+    if !r.is_valid() {
+        return 1;
+    }
+
+    let elf_vaddr = (&DUMMY_ELF[0]) as u64;
+
+    // Create a spawn manifest with FS isolation
+    let mut manifest = spawn.SpawnManifest::new(elf_vaddr);
+    manifest.namespace_flags = spawn.NS_ISOLATE_FS;
+    
+    // Asynchronously submit the spawn request
+    let ok = r.spawn((&manifest) as u64, 42);
+    if !ok {
+        return 2;
+    }
+
+    // Reap the child PID
+    let cqe = r.reap();
+    if cqe.user_data != 42 {
+        return 3;
+    }
+    
+    let child_pid = cqe.result as u64;
+    
+    // PID 16 is MAX_PROCS (failure)
+    // The test framework might give us PID 2 or 3 depending on test execution order.
+    // If it's < 16, we know the kernel successfully registered the process and namespaces!
+    if child_pid >= 16 {
+        return 4;
+    }
+
+    return 0; // GREEN!
+}

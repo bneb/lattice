@@ -32,13 +32,12 @@ pub use arena_verifier::ArenaVerifier;
 pub use arena_escape::ArenaEscapeTracker;
 pub use proof_witness::{ProofHint, VerificationFailure};
 
-use crate::codegen::context::{CodegenContext, LoweringContext};
+use crate::codegen::context::LoweringContext;
 use crate::types::Type;
 use std::collections::HashMap;
 use crate::z3_shim::ast::Ast;
 
 use std::rc::Rc;
-use crate::z3_shim as z3;
 
 pub struct SymbolicContext<'ctx> {
     pub z3_ctx: &'ctx crate::z3_shim::Context,

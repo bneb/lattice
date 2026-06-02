@@ -6,7 +6,7 @@
 // This wires all Sovereign modules into a single ingest pipeline:
 //   - std.mem.arena      (SovereignArena, DmaArena, DelayedFreeMailbox)
 //   - std.net.buffer     (SovereignBuffer, find_header_end)
-//   - std.async.executor (LocalQueue, run_worker, reap_completions)
+//   - std.task.executor (LocalQueue, run_worker, reap_completions)
 
 package benchmarks.c10m
 

@@ -532,7 +532,7 @@ pub fn test_pcid_cr3_noflush() {
 // Validates that the User PML4 does NOT map the kernel half of the address
 // space (PML4 indices 256-511), ensuring KPTI Meltdown mitigation.
 // =============================================================================
-extern fn create_user_pml4_kpti(kernel_pml4: u64) -> u64;
+extern fn sys_create_user_pml4_kpti(kernel_pml4: u64) -> u64;
 
 @no_mangle
 pub fn test_kpti_user_pml4_isolated() {
@@ -543,7 +543,7 @@ pub fn test_kpti_user_pml4_isolated() {
     let kernel_pml4 = kernel_cr3 & 0x000FFFFFFFFFF000;
 
     // Create a new user PML4
-    let user_pml4 = create_user_pml4_kpti(kernel_pml4);
+    let user_pml4 = sys_create_user_pml4_kpti(kernel_pml4);
     if user_pml4 == 0 {
         serial.print("TEST:ring3:kpti_isolated:FAIL (OOM)\n");
         return;
@@ -557,7 +557,8 @@ pub fn test_kpti_user_pml4_isolated() {
     let kernel_pml4_ptr = kernel_pml4_virt as &u64;
 
     // 1. Verify identity map (PML4[0]) is present (required for jump)
-    let pml4_0 = pml4_ptr[0];
+    let mut pml4_0: u64 = 0;
+    unsafe { pml4_0 = pml4_ptr[0]; }
     if (pml4_0 & 0x1) != 0 {
         serial.print("TEST:ring3:kpti_identity_present:PASS\n");
         pass_count = pass_count + 1;
@@ -571,7 +572,13 @@ pub fn test_kpti_user_pml4_isolated() {
     let mut blind_copy_leak = false;
     let mut i: u64 = 256;
     while i < 512 {
-        if pml4_ptr[i] != 0 && pml4_ptr[i] == kernel_pml4_ptr[i] {
+        let mut pml4_i: u64 = 0;
+        let mut kernel_pml4_i: u64 = 0;
+        unsafe {
+            pml4_i = pml4_ptr[i];
+            kernel_pml4_i = kernel_pml4_ptr[i];
+        }
+        if pml4_i != 0 && pml4_i == kernel_pml4_i {
             blind_copy_leak = true;
             serial.print("TEST:ring3:kpti_blind_copy_leak:FAIL index=");
             serial.print_u64(i);

@@ -9,7 +9,7 @@ mod tests {
     #[test]
     fn test_nested_struct_pass_by_value() {
         let code = r#"
-            package test::struct_pass;
+            package test.struct_pass;
             
             struct Complex { r: f32, i: f32 }
             struct Config { dim: i64 }

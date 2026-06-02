@@ -150,6 +150,9 @@ pub struct EmissionState {
     /// Tracks the branch conditions that are known to hold at the current code point.
     /// Pushed when entering if-then (condition) or if-else (negated condition),
     /// popped when leaving the branch.
+    /// [v0.9.3] Function-level @trusted flag.
+    /// When true, bounds verification for raw pointer indexing is skipped.
+    pub in_trusted_fn: bool,
     pub path_conditions: Vec<syn::Expr>,
 }
 

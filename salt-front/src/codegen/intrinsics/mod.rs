@@ -214,7 +214,6 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                             type_map: std::collections::BTreeMap::new(),
                         };
                         self.entity_registry_mut().request_specialization(task.clone());
-                        self.pending_generations_mut().push_back(task);
                     }
                     let c1 = format!("%c1_fmt_{}", id);
                     out.push_str(&format!("    {} = arith.constant 1 : i64\n", c1));

@@ -254,6 +254,11 @@ fn tx_reclaim_used() -> u32 {
 }
 
 pub fn net_tx_send(pkt: u64, pkt_len: u32) -> bool {
+    if pkt_len > BUF_SIZE - VIRTIO_NET_HDR_SIZE {
+        serial.print("[TX] Packet too large, dropping\n");
+        return false;
+    }
+
     // Reclaim any completed TX descriptors first
     let reclaimed = tx_reclaim_used();
     serial.print("[TX] free=");

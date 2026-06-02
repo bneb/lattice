@@ -1,3 +1,5 @@
+pub mod special_methods;
+pub mod method_resolution;
 pub mod utils;
  
 use crate::types::Type;
@@ -11,7 +13,6 @@ pub mod aggregate_eq;
 pub mod while_loop;
 pub mod resolver;
 pub mod tensor_ops;
-use aggregate_eq::emit_aggregate_eq;
 use while_loop::emit_while;
 // use crate::codegen::verification::SymbolicContext;
 
@@ -22,12 +23,11 @@ pub(crate) mod control_flow;
 pub(crate) mod memory;
 
 // Re-exports from submodules
-use binary_ops::{emit_binary, emit_logic, emit_assign, emit_compound_assign, emit_unary, emit_cast};
-use literals::{emit_lit, emit_path, emit_array, emit_tuple, emit_repeat, emit_struct, emit_enum_constructor};
-pub(crate) use calls::{emit_call, emit_method_call, emit_tensor_constructor, resolve_call_path};
-use control_flow::{emit_if_expr, emit_block_expr, emit_match, emit_if_as_select};
+use binary_ops::{emit_binary, emit_assign, emit_unary, emit_cast};
+use literals::{emit_lit, emit_path, emit_array, emit_tuple, emit_repeat, emit_struct};
+pub(crate) use calls::{emit_call, emit_method_call};
+use control_flow::{emit_if_expr, emit_block_expr, emit_match};
 use memory::{emit_field, emit_index};
-use crate::z3_shim as z3;
 pub(crate) use memory::{translate_to_z3, translate_bool_to_z3};
 
 /// [SOVEREIGN WRITER PROTOCOL] Parse __target_fstring__!(target, "content") macro arguments
@@ -91,6 +91,9 @@ pub fn mark_expression_escaped(ctx: &mut LoweringContext, expr: &syn::Expr) {
         // Method call: `return result.unwrap();` — check receiver
         syn::Expr::MethodCall(m) => {
             mark_expression_escaped(ctx, &m.receiver);
+            for arg in &m.args {
+                mark_expression_escaped(ctx, arg);
+            }
         }
         // Paren: `return (p as Ptr<T>);`
         syn::Expr::Paren(p) => {
@@ -144,6 +147,7 @@ pub fn emit_expr(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, 
                     }
                     
                     // Not cached - do actual load
+                    ctx.ensure_global_declared(&mangled_name, &target_ty)?;
                     let ptr = format!("%global_resolved_ptr_{}", ctx.next_id());
                     ctx.emit_addressof(out, &ptr, &mangled_name)?;
                     let _mlir_ty = target_ty.to_mlir_storage_type(ctx)?;
@@ -303,7 +307,7 @@ pub fn emit_expr(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, 
         syn::Expr::Try(t) => {
             let (val, ty) = emit_expr(ctx, out, &t.expr, local_vars, None)?;
             // [UNIFIED] Structural Result<T> detection via enum registry
-            if let Some(enum_info) = ctx.is_result_enum(&ty) {
+            if let Some(_enum_info) = ctx.is_result_enum(&ty) {
                 let result_mlir = ty.to_mlir_type(ctx)?;
                 // Extract the tag (discriminant) — always at index 0
                 let tag = format!("%try_tag_{}", ctx.next_id());
@@ -856,14 +860,14 @@ pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr
                         // If so, it's already a pointer - just return it directly without spilling
                         let is_ephemeral_ref = ctx.emission.ephemeral_refs.contains(&ssa_name);
                         if is_ephemeral_ref {
-                            // Ephemeral refs ARE pointers, return as LValueKind::Ptr without spilling
-                            return Ok((ssa_name, ty, LValueKind::Ptr));
+                            // Ephemeral refs ARE pointers, return as LValueKind::SSA without spilling
+                            return Ok((ssa_name, ty, LValueKind::SSA));
                         }
                         // [REFERENCE FIX] Reference types (e.g., &self) are already pointers to the 
                         // underlying struct. Do NOT spill them - return the pointer value directly.
                         // Spilling a pointer creates a pointer-to-pointer which breaks field access.
                         if matches!(ty, Type::Reference(_, _)) {
-                            return Ok((ssa_name, ty, LValueKind::Ptr));
+                            return Ok((ssa_name, ty, LValueKind::SSA));
                         }
                         // [NOTE] Ptr<T> spills look wasteful in MLIR but are eliminated by
                         // LLVM's mem2reg during `clang -O3`. Attempting to skip the spill here
@@ -883,6 +887,7 @@ pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr
             if let Some((pkg, item)) = resolve_package_prefix_ctx(ctx, &segments) {
                 let mangled_name = if item.is_empty() { pkg } else if pkg.is_empty() { item } else { format!("{}__{}", pkg, item) };
                 if let Some(ty) = ctx.resolve_global(&mangled_name) {
+                    ctx.ensure_global_declared(&mangled_name, &ty)?;
                     let addr = format!("%addr_glob_{}", ctx.next_id());
                     ctx.emit_addressof(out, &addr, &mangled_name)?;
                     return Ok((addr, ty, LValueKind::Global(mangled_name.clone())));
@@ -1344,10 +1349,15 @@ pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr
                   }
                   crate::types::Type::Reference(ref inner, _) => {
                       // [SOVEREIGN FIX] For reference types (like &mut self), the base_addr
-                      // IS the address of the struct. We should NOT load from it - that would
-                      // treat the struct bytes as a pointer, causing segfaults.
-                      // The reference type means base_addr points to the struct directly.
-                      let loaded_ptr = base_addr.clone();
+                      // is a pointer to the struct. If it's an SSA value, it is the pointer itself.
+                      // If it's a Local variable (e.g., promoted mutable argument), we must load it.
+                      let loaded_ptr = if kind == LValueKind::SSA {
+                          base_addr.clone()
+                      } else {
+                          let res = format!("%loaded_ref_{}", ctx.next_id());
+                          ctx.emit_load(out, &res, &base_addr, "!llvm.ptr");
+                          res
+                      };
                       
                       let inner_resolved = if let crate::types::Type::Concrete(base, args) = &**inner {
                           crate::types::Type::Struct(ctx.ensure_struct_exists(base, args)?)
@@ -1485,7 +1495,8 @@ pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr
              }
         }
         syn::Expr::Cast(c) => {
-             let target_ty = resolve_type(ctx, &crate::grammar::SynType::from_std(*c.ty.clone()).unwrap());
+             let syn_ty = crate::grammar::SynType::from_std(*c.ty.clone()).map_err(|e| e.to_string())?;
+             let target_ty = resolve_type(ctx, &syn_ty);
              match target_ty {
                  Type::Reference(..) | Type::Owned(..) => {
                      let (val, ty) = emit_expr(ctx, out, &c.expr, local_vars, None)?;
@@ -1578,6 +1589,7 @@ pub fn translate_bool_to_z3<'a, 'ctx>(
 /// Structural unification for bidirectional type inference.
 /// Walks two types in parallel, extracting bindings for generic placeholders.
 /// Handles both Type::Generic("T") and Type::Struct("T") (single-char uppercase names).
+#[allow(dead_code)]
 pub(crate) fn unify_types_recursive(template: &Type, concrete: &Type, map: &mut std::collections::BTreeMap<String, Type>) {
     match (template, concrete) {
         // Type::Generic("T") — explicit generic marker

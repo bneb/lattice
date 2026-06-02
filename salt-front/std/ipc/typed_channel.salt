@@ -1,0 +1,211 @@
+// =============================================================================
+// std.ipc.typed_channel — Typed IPC over Ring Buffers
+// =============================================================================
+//
+// Provides a schema-driven typed message abstraction over the raw ring-buffer
+// ABI. Instead of passing opaque u64 words, processes exchange typed
+// IpcMessage values with a message type discriminator.
+//
+// Architecture:
+//   - Each process has its own IoRing (SQ + CQ shared-memory pages)
+//   - IPC messages are submitted as SQEs with OP_IPC_SEND
+//   - The kernel delivers messages to the target's PCB IPC fields
+//   - The target reads delivered messages from its PCB via sys_ipc_recv
+//
+// Message Schema:
+//   The msg_type field acts as a discriminator that both sender and
+//   receiver agree on. This enables runtime type checking and structured
+//   communication between processes.
+//
+// Usage:
+//   use std.ipc.typed_channel.{TypedChannel, IpcMessage}
+//
+//   let mut ch = TypedChannel::new(&mut ring);
+//   ch.send(target_pid, IpcMessage::ping(42));
+//   ch.send(target_pid, IpcMessage::data(addr, len));
+// =============================================================================
+
+package std.ipc.typed_channel
+
+use std.io.ring.{IoRing, SQE, CQE}
+
+// =============================================================================
+// Well-Known Message Types
+// =============================================================================
+// Message types are u64 discriminators. The upper 16 bits identify the
+// protocol/service, the lower 48 bits identify the specific message.
+// =============================================================================
+pub const MSG_PING: u64       = 0x0001000000000001;  // Health check
+pub const MSG_PONG: u64       = 0x0001000000000002;  // Health check response
+pub const MSG_DATA: u64       = 0x0002000000000001;  // Data transfer (addr, len)
+pub const MSG_DATA_ACK: u64   = 0x0002000000000002;  // Data transfer ack
+pub const MSG_SHUTDOWN: u64   = 0x0003000000000001;  // Graceful shutdown request
+pub const MSG_GRANT: u64      = 0x0004000000000001;  // SHM grant notification
+pub const MSG_GRANT_ACK: u64  = 0x0004000000000002;  // SHM grant acknowledgement
+pub const MSG_CUSTOM: u64     = 0xFFFF000000000000;  // User-defined base
+
+// =============================================================================
+// IpcMessage — A typed IPC message value
+// =============================================================================
+pub struct IpcMessage {
+    pub msg_type: u64,     // Message type discriminator
+    pub payload_0: u64,    // First payload word
+    pub payload_1: u64,    // Second payload word
+}
+
+impl IpcMessage {
+    // =========================================================================
+    // Constructor helpers for well-known message types
+    // =========================================================================
+
+    /// Create a PING message with a sequence number.
+    pub fn ping(seq: u64) -> IpcMessage {
+        return IpcMessage { msg_type: MSG_PING, payload_0: seq, payload_1: 0 };
+    }
+
+    /// Create a PONG response with the original sequence number.
+    pub fn pong(seq: u64) -> IpcMessage {
+        return IpcMessage { msg_type: MSG_PONG, payload_0: seq, payload_1: 0 };
+    }
+
+    /// Create a DATA message with buffer address and length.
+    pub fn data(addr: u64, len: u64) -> IpcMessage {
+        return IpcMessage { msg_type: MSG_DATA, payload_0: addr, payload_1: len };
+    }
+
+    /// Create a DATA_ACK message with bytes consumed.
+    pub fn data_ack(bytes_consumed: u64) -> IpcMessage {
+        return IpcMessage { msg_type: MSG_DATA_ACK, payload_0: bytes_consumed, payload_1: 0 };
+    }
+
+    /// Create a SHUTDOWN message.
+    pub fn shutdown() -> IpcMessage {
+        return IpcMessage { msg_type: MSG_SHUTDOWN, payload_0: 0, payload_1: 0 };
+    }
+
+    /// Create a GRANT notification with virtual address and page count.
+    pub fn grant(vaddr: u64, pages: u64) -> IpcMessage {
+        return IpcMessage { msg_type: MSG_GRANT, payload_0: vaddr, payload_1: pages };
+    }
+
+    /// Create a GRANT_ACK response.
+    pub fn grant_ack(vaddr: u64) -> IpcMessage {
+        return IpcMessage { msg_type: MSG_GRANT_ACK, payload_0: vaddr, payload_1: 0 };
+    }
+
+    /// Create a custom message with user-defined type tag.
+    pub fn custom(tag: u64, p0: u64, p1: u64) -> IpcMessage {
+        return IpcMessage { msg_type: MSG_CUSTOM | tag, payload_0: p0, payload_1: p1 };
+    }
+
+    // =========================================================================
+    // Type queries
+    // =========================================================================
+
+    /// Check if this message matches a specific type.
+    pub fn is_type(&self, t: u64) -> bool {
+        return self.msg_type == t;
+    }
+
+    /// Check if this is a PING message.
+    pub fn is_ping(&self) -> bool {
+        return self.msg_type == MSG_PING;
+    }
+
+    /// Check if this is a PONG message.
+    pub fn is_pong(&self) -> bool {
+        return self.msg_type == MSG_PONG;
+    }
+
+    /// Check if this is a DATA message.
+    pub fn is_data(&self) -> bool {
+        return self.msg_type == MSG_DATA;
+    }
+
+    /// Check if this is a SHUTDOWN message.
+    pub fn is_shutdown(&self) -> bool {
+        return self.msg_type == MSG_SHUTDOWN;
+    }
+
+    /// Check if this is a custom message.
+    pub fn is_custom(&self) -> bool {
+        return (self.msg_type & 0xFFFF000000000000) == MSG_CUSTOM;
+    }
+
+    /// Extract the custom tag (lower 48 bits for custom messages).
+    pub fn custom_tag(&self) -> u64 {
+        return self.msg_type & 0x0000FFFFFFFFFFFF;
+    }
+}
+
+// =============================================================================
+// TypedChannel — Ergonomic typed IPC over an IoRing
+// =============================================================================
+pub struct TypedChannel {
+    pub ring: &mut IoRing,
+    pub pending_sends: u64,     // Count of unacknowledged sends
+}
+
+impl TypedChannel {
+    // =========================================================================
+    // new — Wrap an existing IoRing with typed IPC semantics
+    // =========================================================================
+    pub fn new(ring: &mut IoRing) -> TypedChannel {
+        return TypedChannel { ring: ring, pending_sends: 0 };
+    }
+
+    // =========================================================================
+    // send — Submit a typed IPC message to target_pid via the ring
+    // =========================================================================
+    // Encodes the IpcMessage into the ring's SQE format:
+    //   SQE.op       = OP_IPC_SEND (7)
+    //   SQE.fd       = target_pid
+    //   SQE.buf      = msg_type (discriminator)
+    //   SQE.len      = payload_0
+    //   SQE.user_data = internally generated sequence ID
+    //   SQE.flags    = payload_1 (packed into flags field)
+    // =========================================================================
+    pub fn send(&mut self, target_pid: u64, msg: IpcMessage) -> bool {
+        let sqe = SQE {
+            op: 7,  // OP_IPC_SEND
+            fd: target_pid,
+            buf: msg.msg_type,
+            len: msg.payload_0,
+            user_data: self.pending_sends,
+            flags: msg.payload_1,
+        };
+        let ok = self.ring.submit(sqe);
+        if ok {
+            self.pending_sends = self.pending_sends + 1;
+        }
+        return ok;
+    }
+
+    // =========================================================================
+    // send_and_flush — Send a typed message and immediately trigger drain
+    // =========================================================================
+    pub fn send_and_flush(&mut self, target_pid: u64, msg: IpcMessage) -> bool {
+        let ok = self.send(target_pid, msg);
+        if ok {
+            self.ring.flush();
+        }
+        return ok;
+    }
+
+    // =========================================================================
+    // has_results — Check if there are send results (CQEs) available
+    // =========================================================================
+    pub fn has_results(&self) -> bool {
+        return self.ring.has_completions();
+    }
+
+    // =========================================================================
+    // reap_result — Pop a send result from the CQ
+    // =========================================================================
+    // Returns a CQE with result=0 for success, result=-1 for failure.
+    // The user_data corresponds to the sequence number of the send.
+    // =========================================================================
+    pub fn reap_result(&mut self) -> CQE {
+        return self.ring.reap();
+    }
+}

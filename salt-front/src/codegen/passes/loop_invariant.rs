@@ -13,9 +13,7 @@
 //!   - Tracks injection count for diagnostics
 
 use crate::grammar::{SaltFor, SaltBlock, Stmt, SaltFn};
-use crate::z3_shim::ast::Ast;
 use std::collections::HashMap;
-use crate::z3_shim as z3;
 
 /// A loop invariant extracted from a `for` loop's range pattern.
 #[derive(Debug, Clone)]

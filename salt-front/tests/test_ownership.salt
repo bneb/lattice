@@ -1,0 +1,24 @@
+struct MyBox {
+    value: i64
+}
+
+fn consume_box(b: MyBox) {
+    // consumes b
+}
+
+fn test_move() {
+    let b = MyBox { value: 42 };
+    consume_box(b);
+    // let y = b; // Would error: Use of moved value: b
+}
+
+fn test_assign_move() {
+    let b = MyBox { value: 42 };
+    let y = b;
+    let z = b; // Should error: Use of moved value: b
+}
+
+fn main() {
+    test_move();
+    test_assign_move();
+}

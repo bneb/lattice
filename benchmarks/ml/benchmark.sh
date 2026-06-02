@@ -75,7 +75,7 @@ build_salt() {
     mlir-translate --mlir-to-llvmir sovereign_train.opt.mlir -o sovereign_train.ll 2>/dev/null
     
     # LLVM-level optimization (Crucial for vectorization and LICM)
-    opt -O3 --mcpu=native --enable-unsafe-fp-math sovereign_train.ll -S -o sovereign_train_opt.ll 2>/dev/null
+    opt -O3 sovereign_train.ll -S -o sovereign_train_opt.ll 2>/dev/null
     
     clang -O3 -ffast-math -march=native sovereign_train_opt.ll ml_bridge.c $RUNTIME_C -lm -o sovereign_train_salt 2>/dev/null
 }

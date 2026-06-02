@@ -52,13 +52,12 @@ extern fn get_cpu_id() -> u64;
 // Does trivial compute then exits cleanly. The fiber_exit() call triggers
 // deferred stack reclamation via the scheduler's PENDING_RECLAIM protocol.
 // =============================================================================
-@no_mangle
-fn ephemeral_fiber() {
+pub fn ephemeral_fiber() {
     let mut x: u64 = 0;
     for _ in 0..100 {
         x = x + 1;
     }
-    scheduler.exit_fiber();
+    return;
 }
 
 // =============================================================================
@@ -165,12 +164,12 @@ fn phase2() -> bool {
         // Spawn a batch of ephemeral fibers
         let mut s: i32 = 0;
         while s < batch_size {
-            let entry = (&ephemeral_fiber) as u64;
+            let entry = fn_addr(ephemeral_fiber);
             let result = scheduler.spawn(entry);
 
             // If spawn fails (no free bitmap slots), yield to let fibers die
             if result == 9999 {
-                scheduler.yield_now();
+                sched_yield();
                 s = s - 1;
             }
 
@@ -181,7 +180,7 @@ fn phase2() -> bool {
         // Drain until fiber_count returns to the baseline (pre-spawn) level.
         let mut safety: i32 = 0;
         while scheduler.get_fiber_count() > baseline_count {
-            scheduler.yield_now();
+            sched_yield();
             safety = safety + 1;
             if safety > 1000000 {
                 serial.print("BENCH:slab_reclaim:phase2:FAIL fibers did not exit\n");

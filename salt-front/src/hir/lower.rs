@@ -16,8 +16,8 @@ use std::collections::HashSet;
 use crate::grammar::{self, SaltFile, SynType};
 use crate::hir::ids::{DefId, VarId};
 use crate::hir::items::*;
-use crate::hir::expr::{self as hir_expr, Expr, ExprKind, Block, Literal, BinOp, UnOp};
-use crate::hir::stmt::{self as hir_stmt, Stmt, StmtKind, Local, Pattern};
+use crate::hir::expr::{Expr, ExprKind, Block, Literal, BinOp, UnOp};
+use crate::hir::stmt::{Stmt, StmtKind, Local, Pattern};
 use crate::hir::scope::ScopeStack;
 use crate::types::Type;
 
@@ -814,14 +814,7 @@ impl LoweringContext {
                     span,
                 }
             }
-            syn::Expr::Return(ret) => {
-                let inner = ret.expr.as_ref().map(|e| Box::new(self.lower_syn_expr(e)));
-                Expr {
-                    kind: ExprKind::Return(inner),
-                    ty: Type::Unit,
-                    span,
-                }
-            }
+
             // Fallback for unsupported expressions
             _ => Expr { kind: ExprKind::Literal(Literal::Int(0)), ty: Type::Unit, span },
         }

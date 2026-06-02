@@ -44,7 +44,12 @@ pub fn resolve_codegen_type(ctx: &mut LoweringContext, ty: &Type) -> Type {
                 Type::Enum(name.clone())
             } else {
                 let mut resolved_name = name.clone();
-                {
+                let local_fqn = format!("{}{}", ctx.package_prefix(), name);
+                if ctx.struct_templates().contains_key(&local_fqn) {
+                    resolved_name = local_fqn;
+                } else if ctx.enum_templates().contains_key(&local_fqn) {
+                    resolved_name = local_fqn;
+                } else {
                     let imports = ctx.imports();
                     for imp in &*imports {
                         if let Some(group) = &imp.group {
@@ -60,8 +65,38 @@ pub fn resolve_codegen_type(ctx: &mut LoweringContext, ty: &Type) -> Type {
             }
         }
         Type::Concrete(base, args) => {
+            let mut resolved_base = base.clone();
+            let local_fqn = format!("{}{}", ctx.package_prefix(), base);
+            if ctx.struct_templates().contains_key(&local_fqn) {
+                resolved_base = local_fqn;
+            } else if ctx.enum_templates().contains_key(&local_fqn) {
+                resolved_base = local_fqn;
+            } else {
+                let imports = ctx.imports();
+                for imp in &*imports {
+                    if let Some(group) = &imp.group {
+                        if group.iter().any(|id| id.to_string() == *base) {
+                            let pkg = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
+                            resolved_base = format!("{}__{}", pkg, base);
+                            break;
+                        }
+                    }
+                    if let Some(last) = imp.name.last() {
+                        if let Some(alias) = &imp.alias {
+                            if alias.to_string() == *base {
+                                resolved_base = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
+                                break;
+                            }
+                        } else if last.to_string() == *base {
+                            resolved_base = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
+                            break;
+                        }
+                    }
+                }
+            }
             let res_args: Vec<Type> = args.iter().map(|a| resolve_codegen_type(ctx, a)).collect();
-            Type::Concrete(base.clone(), res_args)
+            let res = Type::Concrete(resolved_base, res_args);
+            res
         }
         Type::Pointer { element, provenance, is_mutable } => {
             Type::Pointer {

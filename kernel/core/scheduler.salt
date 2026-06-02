@@ -57,6 +57,13 @@ extern fn sched_yield();
 // =============================================================================
 
 const MAX_FIBERS: u64 = 256;
+// =============================================================================
+// ECS Bridge Invocations
+// =============================================================================
+extern fn ecs_bridge_spawn_thread(step_fn: u64, stack_ptr: u64, stack_base: u64) -> u64;
+extern fn ecs_bridge_set_thread_status(entity_val: u64, status: u32);
+extern fn ecs_bridge_destroy_thread(entity_val: u64);
+
 const SLAB_SLOT_SIZE: u64 = 16384; // mm_layout.SLAB_SLOT_SIZE
 const L2_GROUPS: u64 = 16;
 const ALL_ONES: u64 = 0xFFFFFFFFFFFFFFFF;
@@ -71,6 +78,7 @@ pub struct Fiber {
     pub task_frame: u64,    // Async: pointer to slab-allocated TaskFrame
     pub ctx_ptr: u64,       // Unified context pointer: stack_ptr (preemptive) or task_frame (async)
                             // Set at spawn time — eliminates conditional in sched_yield dispatch
+    pub ecs_entity_val: u64, // Packed entity ID/Gen from the ECS
 }
 
 pub struct SchedulerState {
@@ -90,7 +98,7 @@ pub struct SchedulerState {
 // Only SCHED_ARRAY[0] is used on single-core configurations.
 // =============================================================================
 global SCHED_ARRAY: [SchedulerState; 16] = [SchedulerState {
-    fibers: [Fiber { id: 0, stack_ptr: 0, stack_base: 0, active: false, step_fn: 0, task_frame: 0, ctx_ptr: 0 }; 256],
+    fibers: [Fiber { id: 0, stack_ptr: 0, stack_base: 0, active: false, step_fn: 0, task_frame: 0, ctx_ptr: 0, ecs_entity_val: 0 }; 256],
     current: 0,
     count: 0,
     next_id: 1,
@@ -103,7 +111,7 @@ global SCHED_ARRAY: [SchedulerState; 16] = [SchedulerState {
 global PENDING_RECLAIMS: [u64; 16] = [0 as u64; 16];
 
 
-extern fn switch_stacks(old_sp_ptr: *mut u64, new_sp: u64);
+
 
 // Universal Task Invocation Primitive (kernel/arch/x86_64/async_call.S)
 // Calls fn_addr(arg) and returns the i64 result. This is the kernel's
@@ -119,6 +127,7 @@ extern fn invoke_preemptive_thread(ctx_ptr: u64) -> i64;
 
 // Read GS segment at offset — used to recover saved_thread_rsp from GS:[56]
 extern fn read_gs_u64(offset: u64) -> u64;
+extern fn write_gs_u64(offset: u64, value: u64);
 
 @no_mangle
 pub fn timer_isr() {
@@ -142,16 +151,17 @@ pub fn timer_isr() {
 pub fn init() {
     region("sched_init") {
        let cpu = get_cpu_id();
-       SCHED_ARRAY[cpu].fibers[0].active = true;
+       // Note: Fiber 0 (the main boot thread) is NOT set to active.
+       // It acts as a cooperative driver for benchmarks, but cannot be preemptively scheduled
+       // by do_dispatch because it bypasses invoke_preemptive_thread and runs on the boot stack.
+       SCHED_ARRAY[cpu].fibers[0].active = false;
        SCHED_ARRAY[cpu].fibers[0].id = 0;
        SCHED_ARRAY[cpu].fibers[0].stack_base = 0;
        SCHED_ARRAY[cpu].current = 0;
-       SCHED_ARRAY[cpu].count = 1;
+       SCHED_ARRAY[cpu].count = 0;
        SCHED_ARRAY[cpu].yield_pending = false;
 
-       // Mark fiber 0 as active in bitmap
-       SCHED_ARRAY[cpu].l2_details[0] = 1 as u64;
-       SCHED_ARRAY[cpu].l1_summary = 1 as u64;
+       // DO NOT mark fiber 0 as active in the bitmap
     }
 }
 
@@ -253,6 +263,9 @@ pub fn spawn(entry_addr: u64) -> u64 {
             // Unified ctx_ptr: preemptive fibers dispatch via stack_ptr
             SCHED_ARRAY[cpu].fibers[slot].ctx_ptr = SCHED_ARRAY[cpu].fibers[slot].stack_ptr;
             
+            let ecs_val = ecs_bridge_spawn_thread(SCHED_ARRAY[cpu].fibers[slot].step_fn, SCHED_ARRAY[cpu].fibers[slot].stack_ptr, stack_base);
+            SCHED_ARRAY[cpu].fibers[slot].ecs_entity_val = ecs_val;
+
             SCHED_ARRAY[cpu].next_id = SCHED_ARRAY[cpu].next_id + 1;
             SCHED_ARRAY[cpu].count = SCHED_ARRAY[cpu].count + 1;
 
@@ -320,6 +333,9 @@ pub fn spawn_async(step_fn_addr: u64, frame_size: u64) -> u64
             // Unified ctx_ptr: async fibers dispatch via task_frame
             SCHED_ARRAY[cpu].fibers[slot].ctx_ptr = frame_ptr;
 
+            let ecs_val = ecs_bridge_spawn_thread(step_fn_addr, 0, 0);
+            SCHED_ARRAY[cpu].fibers[slot].ecs_entity_val = ecs_val;
+
             SCHED_ARRAY[cpu].next_id = SCHED_ARRAY[cpu].next_id + 1;
             SCHED_ARRAY[cpu].count = SCHED_ARRAY[cpu].count + 1;
 
@@ -347,77 +363,7 @@ pub fn start() {
 // =============================================================================
 @no_yield
 @no_mangle
-pub fn fiber_exit() {
-    region("fiber_exit") {
-        let cpu = get_cpu_id();
-        let slot = SCHED_ARRAY[cpu].current;
-        let stack_base = SCHED_ARRAY[cpu].fibers[slot].stack_base;
-
-        // Flush any previously-pending reclamation BEFORE overwriting.
-        if PENDING_RECLAIMS[cpu] != 0 {
-            vmm.vmm_set_present(PENDING_RECLAIMS[cpu]);
-            push_stack(PENDING_RECLAIMS[cpu]);
-            PENDING_RECLAIMS[cpu] = 0;
-        }
-
-        // Stage OUR stack for deferred reclamation.
-        PENDING_RECLAIMS[cpu] = stack_base;
-
-        // Tear down the fiber from the scheduler
-        SCHED_ARRAY[cpu].fibers[slot].active = false;
-        SCHED_ARRAY[cpu].fibers[slot].stack_ptr = 0;
-        SCHED_ARRAY[cpu].fibers[slot].stack_base = 0;
-        bitmap_clear(slot);
-        SCHED_ARRAY[cpu].count = SCHED_ARRAY[cpu].count - 1;
-
-        // Find the next runnable fiber via bitmap
-        let current_group = slot / 64;
-        let current_bit = slot % 64;
-        let mut next: u64 = slot;
-
-        let l2_cur = SCHED_ARRAY[cpu].l2_details[current_group];
-        let l1 = SCHED_ARRAY[cpu].l1_summary;
-
-        let above = l2_cur & mask_above_bit(current_bit);
-        if above != 0 {
-            next = current_group * 64 + ctz_u64(above);
-        } else {
-            let l1_above = l1 & mask_above_bit(current_group);
-            if l1_above != 0 {
-                let grp = ctz_u64(l1_above);
-                let l2_grp = SCHED_ARRAY[cpu].l2_details[grp];
-                next = grp * 64 + ctz_u64(l2_grp);
-            } else {
-                let l1_below = l1 & mask_below_bit(current_group);
-                if l1_below != 0 {
-                    let grp = ctz_u64(l1_below);
-                    let l2_grp = SCHED_ARRAY[cpu].l2_details[grp];
-                    next = grp * 64 + ctz_u64(l2_grp);
-                } else {
-                    let below = l2_cur & mask_below_bit(current_bit);
-                    if below != 0 {
-                        next = current_group * 64 + ctz_u64(below);
-                    }
-                }
-            }
-        }
-
-        if next != slot {
-            SCHED_ARRAY[cpu].current = next;
-            let old = &SCHED_ARRAY[cpu].fibers[slot].stack_ptr;
-            let new_sp = SCHED_ARRAY[cpu].fibers[next].stack_ptr;
-            switch_stacks(old, new_sp);
-
-            // Deferred reclamation after resuming
-            let cpu2 = get_cpu_id();
-            if PENDING_RECLAIMS[cpu2] != 0 {
-                vmm.vmm_set_present(PENDING_RECLAIMS[cpu2]);
-                push_stack(PENDING_RECLAIMS[cpu2]);
-                PENDING_RECLAIMS[cpu2] = 0;
-            }
-        }
-    }
-}
+// legacy fiber_exit removed
 
 // =============================================================================
 // fiber_count — Active Fiber Count (this core)
@@ -490,16 +436,22 @@ pub fn do_dispatch() {
             // Flight recorder: log DISPATCH before invoke_task
             flight_log_trace(next, 0);  // EVENT_DISPATCH = 0
 
+            let ecs_val = SCHED_ARRAY[cpu].fibers[next].ecs_entity_val;
+            ecs_bridge_set_thread_status(ecs_val, 2); // THREAD_RUNNING
+
             let status = invoke_task(next_step_fn, ctx);
 
             if status == POLL_READY {
                 // Flight recorder: log COMPLETED
                 flight_log_trace(next, 2);  // EVENT_COMPLETED = 2
 
+                ecs_bridge_destroy_thread(ecs_val);
+
                 // Fiber completed — reclaim resources
                 SCHED_ARRAY[cpu].fibers[next].active = false;
                 SCHED_ARRAY[cpu].fibers[next].step_fn = 0;
                 SCHED_ARRAY[cpu].fibers[next].ctx_ptr = 0;
+                SCHED_ARRAY[cpu].fibers[next].ecs_entity_val = 0;
 
                 // Async fibers: reclaim TaskFrame slab
                 let tf = SCHED_ARRAY[cpu].fibers[next].task_frame;
@@ -524,12 +476,15 @@ pub fn do_dispatch() {
                 // Flight recorder: log YIELD
                 flight_log_trace(next, 1);  // EVENT_YIELD = 1
 
+                ecs_bridge_set_thread_status(ecs_val, 1); // THREAD_RUNNABLE
+
                 // POLL_PENDING — fiber stays in bitmap
                 // For preemptive fibers: update stack_ptr from GS:[56] side channel
                 let saved_rsp = read_gs_u64(56);
                 if saved_rsp != 0 {
                     SCHED_ARRAY[cpu].fibers[next].stack_ptr = saved_rsp;
                     SCHED_ARRAY[cpu].fibers[next].ctx_ptr = saved_rsp;
+                    write_gs_u64(56, 0); // CLEAR IT so it doesn't corrupt other fibers (e.g. main thread)
                 }
             }
 
@@ -552,9 +507,7 @@ pub fn get_fiber_count() -> u64 {
     return fiber_count();
 }
 
-pub fn exit_fiber() {
-    fiber_exit();
-}
+// removed exit_fiber
 
 @no_mangle
 pub fn get_current_fiber() -> u64 {
@@ -592,7 +545,12 @@ pub fn sched_get_id() -> u64 {
 
 @no_mangle
 pub fn sched_spawn_async(step_fn_addr: u64, frame_size: u64) -> u64 {
-    return spawn_async(step_fn_addr, frame_size);
+    if step_fn_addr != 0 {
+        if frame_size > 0 {
+            return spawn_async(step_fn_addr, frame_size);
+        }
+    }
+    return 0;
 }
 
 // Test getters for fiber fields
@@ -699,6 +657,7 @@ fn dispatch_stolen(cpu: u64, stolen_word: u64) {
             SCHED_ARRAY[cpu].fibers[local_slot].stack_ptr  = SCHED_ARRAY[victim_cpu].fibers[victim_slot].stack_ptr;
             SCHED_ARRAY[cpu].fibers[local_slot].stack_base = SCHED_ARRAY[victim_cpu].fibers[victim_slot].stack_base;
             SCHED_ARRAY[cpu].fibers[local_slot].id         = SCHED_ARRAY[victim_cpu].fibers[victim_slot].id;
+            SCHED_ARRAY[cpu].fibers[local_slot].ecs_entity_val = SCHED_ARRAY[victim_cpu].fibers[victim_slot].ecs_entity_val;
             SCHED_ARRAY[cpu].fibers[local_slot].active     = true;
 
             // Mark runnable in local bitmap
@@ -720,6 +679,7 @@ fn dispatch_stolen(cpu: u64, stolen_word: u64) {
                 }
             }
             SCHED_ARRAY[victim_cpu].fibers[victim_slot].active = false;
+            SCHED_ARRAY[victim_cpu].fibers[victim_slot].ecs_entity_val = 0;
             atomic_add_i64(&SCHED_ARRAY[victim_cpu].count, -1 as i64);
 
             // Dispatch: invoke the stolen fiber via its step_fn
@@ -727,8 +687,45 @@ fn dispatch_stolen(cpu: u64, stolen_word: u64) {
             // ctx_ptr is the unified context (task_frame for async, stack_ptr for preemptive).
             let step = SCHED_ARRAY[cpu].fibers[local_slot].step_fn;
             let ctx = SCHED_ARRAY[cpu].fibers[local_slot].ctx_ptr;
+            let ecs_val = SCHED_ARRAY[cpu].fibers[local_slot].ecs_entity_val;
+            
             if step != 0 {
-                invoke_task(step, ctx);
+                ecs_bridge_set_thread_status(ecs_val, 2); // THREAD_RUNNING
+                let status = invoke_task(step, ctx);
+                
+                if status == POLL_READY {
+                    ecs_bridge_destroy_thread(ecs_val);
+                    SCHED_ARRAY[cpu].fibers[local_slot].active = false;
+                    SCHED_ARRAY[cpu].fibers[local_slot].step_fn = 0;
+                    SCHED_ARRAY[cpu].fibers[local_slot].ctx_ptr = 0;
+                    SCHED_ARRAY[cpu].fibers[local_slot].ecs_entity_val = 0;
+
+                    let tf = SCHED_ARRAY[cpu].fibers[local_slot].task_frame;
+                    if tf != 0 {
+                        SCHED_ARRAY[cpu].fibers[local_slot].task_frame = 0;
+                        vmm.vmm_set_present(tf);
+                        push_stack(tf);
+                    }
+                    let sb = SCHED_ARRAY[cpu].fibers[local_slot].stack_base;
+                    if sb != 0 {
+                        SCHED_ARRAY[cpu].fibers[local_slot].stack_base = 0;
+                        SCHED_ARRAY[cpu].fibers[local_slot].stack_ptr = 0;
+                        vmm.vmm_set_present(sb);
+                        push_stack(sb);
+                    }
+                    
+                    let inv_bit: u64 = bit ^ 0xFFFFFFFFFFFFFFFF;
+                    SCHED_ARRAY[cpu].l1_summary = SCHED_ARRAY[cpu].l1_summary & inv_bit;
+                    SCHED_ARRAY[cpu].count = SCHED_ARRAY[cpu].count - 1;
+                } else {
+                    ecs_bridge_set_thread_status(ecs_val, 1); // THREAD_RUNNABLE
+                    let saved_rsp = read_gs_u64(56);
+                    if saved_rsp != 0 {
+                        SCHED_ARRAY[cpu].fibers[local_slot].stack_ptr = saved_rsp;
+                        SCHED_ARRAY[cpu].fibers[local_slot].ctx_ptr = saved_rsp;
+                        write_gs_u64(56, 0); // CLEAR IT here too
+                    }
+                }
             }
 
             return;

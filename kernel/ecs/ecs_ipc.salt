@@ -1,0 +1,49 @@
+// =============================================================================
+// kernel/ecs/ecs_ipc.salt
+// ECS-Backed Zero-Trap IPC Resolution
+// =============================================================================
+
+package kernel.ecs.ecs_ipc
+
+import kernel.ecs.world.World
+import kernel.ecs.entity.{Entity, ENTITY_INVALID}
+import kernel.ecs.components.{
+    ThreadState, IpcCapability,
+    THREAD_BLOCKED, THREAD_RUNNABLE
+}
+import kernel.ecs.sparse_set.{
+    thread_set_get_mut, ipc_cap_set_get
+}
+
+/// When a packet arrives on an SPSC ring, find the associated consumer entity,
+/// check its capability, and transition its thread status from BLOCKED to RUNNABLE.
+pub fn ipc_deliver_packet(w: Ptr<World>, ring_entity: u32) -> Entity {
+    if ring_entity >= 65536 {
+        return Entity { id: ENTITY_INVALID, gen: 0 };
+    }
+    
+    let world_ref = w as &World;
+    let alloc_ref = world_ref.alloc as &EntityAllocator;
+    
+    unsafe {
+        let gen = *(alloc_ref.generations.offset(ring_entity as i64) as &u32);
+        let target = Entity { id: ring_entity, gen: gen };
+        
+        // Verify target has a valid IPC capability component
+        let cap = ipc_cap_set_get(world_ref.ipc_caps, target);
+        if (cap as u64) == 0 {
+            return Entity { id: ENTITY_INVALID, gen: 0 };
+        }
+        
+        // Transition target thread state if it is BLOCKED
+        let t = thread_set_get_mut(world_ref.threads, target);
+        if (t as u64) != 0 {
+            let t_ref = t as &mut ThreadState;
+            if t_ref.status == THREAD_BLOCKED {
+                t_ref.status = THREAD_RUNNABLE;
+            }
+        }
+        
+        return target;
+    }
+}

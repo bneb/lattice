@@ -11,7 +11,7 @@
 //
 // Salt users write simple loops and get these optimizations automatically.
 
-package main
+package basalt
 
 fn main() -> i32 {
     let a = Tensor::<f64>(1.0, [1024, 1024]);

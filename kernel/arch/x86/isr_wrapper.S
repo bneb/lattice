@@ -97,3 +97,52 @@ timer_isr_wrapper:
 .L_timer_return_to_kernel:
     iretq
 
+
+.global tlb_shootdown_wrapper
+.extern apic_send_eoi
+
+/*
+ * TLB Shootdown IPI Handler
+ * Reloads CR3 to flush the TLB across cores, then acknowledges the APIC.
+ */
+tlb_shootdown_wrapper:
+    # ─── SWAPGS Check ───
+    test qword ptr [rsp + 8], 3
+    jz .L_tlb_from_kernel
+    swapgs
+.L_tlb_from_kernel:
+
+    # Save caller-saved registers before any C calls or register clobbering
+    push rax
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push r8
+    push r9
+    push r10
+    push r11
+
+    # 1. Reload CR3 to flush TLB
+    mov rax, cr3
+    mov cr3, rax
+
+    # 2. Handshake with APIC (Send EOI)
+    call apic_send_eoi
+
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rax
+
+    # ─── SWAPGS Return Check ───
+    test qword ptr [rsp + 8], 3
+    jz .L_tlb_return_to_kernel
+    swapgs
+.L_tlb_return_to_kernel:
+    iretq

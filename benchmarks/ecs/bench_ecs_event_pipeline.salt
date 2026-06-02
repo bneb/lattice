@@ -1,0 +1,51 @@
+package basalt
+
+import kernel.ecs.world.{World, new_world, world_spawn}
+import kernel.ecs.components.{ThreadState, SchedulingPriority, CpuAffinity}
+import kernel.ecs.sparse_set.{thread_set_insert, priority_set_insert, affinity_set_insert}
+import kernel.ecs.events.{
+    NetworkPacketEvent, new_network_events, network_events_push, network_events_pop, ecs_events_init, NETWORK_EVENTS
+}
+import kernel.ecs.ecs_scheduler.{scheduler_system_tick, scheduler_system_yield}
+import kernel.ecs.entity.{Entity}
+
+fn main() -> i32 {
+    let w = new_world();
+    ecs_events_init();
+    
+    let mut i: u32 = 0;
+    while i < 1000 {
+        let e = world_spawn(w);
+        thread_set_insert(w[0].threads, e, ThreadState { status: 3, stack_ptr: 0x100, stack_base: 0, step_fn: 0, task_frame: 0, ctx_ptr: 0x100 }); // 3 = THREAD_BLOCKED
+        priority_set_insert(w[0].priorities, e, SchedulingPriority { level: 2, tickets: 100 });
+        affinity_set_insert(w[0].cpu_affinities, e, CpuAffinity { core_id: 0, migration_count: 0 });
+        i = i + 1;
+    }
+    
+    let mut iterations: u32 = 0;
+    let mut out_event = NetworkPacketEvent { ring_entity: 0, len: 0 };
+    while iterations < 50000 {
+        let target_entity_id = (iterations % 1000) + 1;
+        network_events_push(NETWORK_EVENTS, NetworkPacketEvent {
+            ring_entity: target_entity_id,
+            len: 64,
+        });
+        
+        let has_event = network_events_pop(NETWORK_EVENTS, &mut out_event);
+        if has_event {
+            let dense_idx = w[0].threads[0].sparse[out_event.ring_entity as i64];
+            if dense_idx != 0xFFFFFFFF {
+                w[0].threads[0].dense[dense_idx as i64].status = 1; // 1 = THREAD_RUNNABLE
+            }
+        }
+        
+        let next_task = scheduler_system_tick(w, 0);
+        if next_task.id != 0xFFFFFFFF {
+            scheduler_system_yield(w, next_task);
+        }
+        
+        iterations = iterations + 1;
+    }
+    
+    return 0;
+}

@@ -10,10 +10,10 @@
 //! NOTE: Legacy AST-heuristic string matching (e.g., `find_io_operation`) 
 //! has been entirely removed in favor of this strict topological analysis.
 
-use crate::grammar::{SaltFn, SaltFile, Item};
+use crate::grammar::{SaltFile, Item};
 use crate::grammar::attr::extract_pulse_hz;
 use crate::codegen::passes::call_graph::CallGraphAnalyzer;
-use std::collections::{HashSet, HashMap};
+use std::collections::HashSet;
 
 /// Result of sync verification
 #[derive(Debug, Clone)]

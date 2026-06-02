@@ -1,5 +1,5 @@
 // LeetCode 208: Implement Trie (Prefix Tree)
-package main
+package basalt
 
 use std.core.ptr.Ptr
 use std.core.arena
@@ -21,14 +21,16 @@ fn create_node() -> Ptr<TrieNode> {
 fn insert(root: Ptr<TrieNode>, word: Ptr<u8>, len: i64) {
     let mut curr = root;
     for i in 0..len {
-        let idx = (word[i] as i32) - 97;
-        let child = curr.children[idx as i64];
-        if child {
-            curr = child;
-        } else {
-            let new_child = create_node();
-            curr.children[idx as i64] = new_child;
-            curr = new_child;
+        unsafe {
+            let idx = (word[i] as i32) - 97;
+            let child = curr.children[idx as i64];
+            if child {
+                curr = child;
+            } else {
+                let new_child = create_node();
+                curr.children[idx as i64] = new_child;
+                curr = new_child;
+            }
         }
     }
     curr.is_word = 1;
@@ -38,12 +40,14 @@ fn search(root: Ptr<TrieNode>, word: Ptr<u8>, len: i64) -> bool {
     if root {
         let mut curr = root;
         for i in 0..len {
-            let idx = (word[i] as i32) - 97;
-            let child = curr.children[idx as i64];
-            if child {
-                curr = child;
-            } else {
-                return false;
+            unsafe {
+                let idx = (word[i] as i32) - 97;
+                let child = curr.children[idx as i64];
+                if child {
+                    curr = child;
+                } else {
+                    return false;
+                }
             }
         }
         return curr.is_word != 0;
@@ -52,11 +56,13 @@ fn search(root: Ptr<TrieNode>, word: Ptr<u8>, len: i64) -> bool {
 }
 
 fn fill_word(word: Ptr<u8>, i: i32) {
-    word[0 as i64] = ((i % 26) + 97) as u8;
-    word[1 as i64] = (((i / 26) % 26) + 97) as u8;
-    word[2 as i64] = (((i / 676) % 26) + 97) as u8;
-    word[3 as i64] = (((i / 17576) % 26) + 97) as u8;
-    word[4 as i64] = ((i % 7) + 97) as u8;
+    unsafe {
+        word[0 as i64] = ((i % 26) + 97) as u8;
+        word[1 as i64] = (((i / 26) % 26) + 97) as u8;
+        word[2 as i64] = (((i / 676) % 26) + 97) as u8;
+        word[3 as i64] = (((i / 17576) % 26) + 97) as u8;
+        word[4 as i64] = ((i % 7) + 97) as u8;
+    }
 }
 
 fn main() -> i32 {

@@ -32,11 +32,25 @@ pub fn emit_system_intrinsic(
             out.push_str("    \"llvm.intr.aarch64.hint\"() {hint = 2 : i32} : () -> ()\n");
             Ok(Some(("".to_string(), Type::Unit)))
         }
+        "m4_sev" | "sovereign__sev" => {
+            if !args.is_empty() {
+                return Err("Intrinsic 'm4_sev' expects 0 arguments".to_string());
+            }
+            out.push_str("    \"llvm.intr.aarch64.hint\"() {hint = 4 : i32} : () -> ()\n");
+            Ok(Some(("".to_string(), Type::Unit)))
+        }
         "m4_dmb_ish" | "sovereign__dmb_ish" => {
             if !args.is_empty() {
                 return Err("Intrinsic 'm4_dmb_ish' expects 0 arguments".to_string());
             }
-            out.push_str("    \"llvm.intr.aarch64.dmb\"() {domain = 3 : i32, type_ = 0 : i32} : () -> ()\n");
+            out.push_str("    \"llvm.fence\"() {syncscope = \"\", ordering = 5 : i64} : () -> ()\n");
+            Ok(Some(("".to_string(), Type::Unit)))
+        }
+        "trap" => {
+            if !args.is_empty() {
+                return Err("Intrinsic 'trap' expects 0 arguments".to_string());
+            }
+            out.push_str("    \"llvm.intr.trap\"() : () -> ()\n");
             Ok(Some(("".to_string(), Type::Unit)))
         }
         "fn_addr" => {
@@ -53,17 +67,37 @@ pub fn emit_system_intrinsic(
                 return Err("intrin_prefetch expects 4 arguments: (addr, rw, locality, cache_type)".to_string());
             }
             let (ptr, _) = emit_expr(ctx, out, &args[0], local_vars, Some(&Type::I64))?;
-            let (rw, _) = emit_expr(ctx, out, &args[1], local_vars, Some(&Type::I32))?;
-            let (locality, _) = emit_expr(ctx, out, &args[2], local_vars, Some(&Type::I32))?;
-            let (cache, _) = emit_expr(ctx, out, &args[3], local_vars, Some(&Type::I32))?;
+            
+            let extract_int = |e: &syn::Expr| -> Result<i32, String> {
+                if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(ref i), .. }) = e {
+                    i.base10_parse::<i32>().map_err(|e| e.to_string())
+                } else {
+                    Err("prefetch arguments (rw, locality, cache_type) must be integer literals".to_string())
+                }
+            };
+            
+            let rw = extract_int(&args[1])?;
+            let hint = extract_int(&args[2])?;
+            let cache = extract_int(&args[3])?;
             
             let ptr_converted = format!("%prefetch_ptr_{}", ctx.next_id());
             out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", ptr_converted, ptr));
-            out.push_str(&format!("    \"llvm.intr.prefetch\"({}, {}, {}, {}) : (!llvm.ptr, i32, i32, i32) -> ()\n",
-                ptr_converted, rw, locality, cache));
+            out.push_str(&format!("    \"llvm.intr.prefetch\"({}) <{{rw = {} : i32, hint = {} : i32, cache = {} : i32}}> : (!llvm.ptr) -> ()\n",
+                ptr_converted, rw, hint, cache));
             
             let res = format!("%prefetch_res_{}", ctx.next_id());
             out.push_str(&format!("    {} = arith.constant 0 : i64\n", res));
+            Ok(Some((res, Type::I64)))
+        }
+        "intrin_expect" | "std__simd__intrin_expect" => {
+            if args.len() != 2 {
+                return Err("intrin_expect expects 2 arguments: (val, expected)".to_string());
+            }
+            let (val, _) = emit_expr(ctx, out, &args[0], local_vars, Some(&Type::I64))?;
+            let (expected, _) = emit_expr(ctx, out, &args[1], local_vars, Some(&Type::I64))?;
+            let res = format!("%expect_{}", ctx.next_id());
+            out.push_str(&format!("    {} = \"llvm.intr.expect\"({}, {}) : (i64, i64) -> i64\n",
+                res, val, expected));
             Ok(Some((res, Type::I64)))
         }
         "yield_check" | "salt_yield_check" | "std__thread__yield_now" => {

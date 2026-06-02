@@ -1,7 +1,7 @@
 // Doubly-Linked List Benchmark — Ptr<T> + arena allocation
 // Exercises pointer manipulation, struct field access, and arena throughput.
 
-package main
+package basalt
 
 use std.core.ptr.Ptr
 use std.core.arena

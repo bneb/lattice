@@ -17,7 +17,7 @@ package std.io.reactor_keuos
 use std.core.ptr.Ptr
 use std.core.result.Result
 use std.status.Status
-use std.io.reactor.{Reactor, Filter}
+use std.io.reactor.{Reactor, ReactorFilter}
 
 /// KeuOS kernel VirtIO-backed I/O reactor.
 /// Stub: returns errors until the kernel VirtIO stack is ready.
@@ -35,7 +35,7 @@ impl KeuOSReactor {
 }
 
 impl Reactor for KeuOSReactor {
-    pub fn register(&self, fd: i32, filter: Filter) -> i32 {
+    pub fn register(&self, fd: i32, filter: ReactorFilter) -> i32 {
         // TODO: syscall 129 (reactor_register)
         return -1;
     }

@@ -14,7 +14,6 @@ extern fn volatile_write_i32(addr: u64, val: i32);
 extern fn volatile_read_i64(addr: u64) -> i64;
 extern fn volatile_write_i64(addr: u64, val: i64);
 extern fn sched_yield();
-extern fn fiber_exit();
 
 const NUM_SAMPLES: i32 = 10;
 const MIN_CYCLES: i64 = 100;
@@ -48,7 +47,7 @@ pub fn ipc_responder() {
     // Signal done and exit fiber
     // NOTE: infinite loop removed — salt-opt SIGSEGV on cf.br back-edge
     volatile_write_i32(done_addr, 1);
-    fiber_exit();
+    return;
 }
 
 @no_mangle

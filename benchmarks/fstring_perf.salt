@@ -1,4 +1,4 @@
-package main
+package basalt
 
 // F-String Performance Benchmark - Salt
 // Measures string formatting performance with f-strings

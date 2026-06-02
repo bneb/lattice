@@ -49,3 +49,6 @@ pub fn terminal_main(w: u64, h: u64, pitch: u64) {
         }
     }
 }
+
+@no_mangle
+pub fn sys_terminal_main(w: u64, h: u64, pitch: u64) { terminal_main(w, h, pitch); }

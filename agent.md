@@ -1,5 +1,10 @@
 # Agent Instructions
 
+## Branding Rules
+- **CRITICAL:** Do NOT use the term "Sovereign" anywhere in this project. This applies to code, documentation, benchmarks, architecture components, and marketing material.
+- **CRITICAL:** The term "Lattice" is reserved strictly for the monorepo name. Do NOT use "Lattice" to brand any internal OS components (e.g., do not use "Lattice ECS" or "Lattice Core").
+
+
 ## Salt Language
 Salt files use the `.salt` extension. See `.agent/skills/salt-language/SKILL.md` for the full language reference.
 

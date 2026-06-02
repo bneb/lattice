@@ -5,94 +5,85 @@ import kernel.core.pmm
 import kernel.drivers.framebuffer
 import kernel.drivers.serial
 
-// Multiboot2 info parsing.
+// Multiboot1 info parsing.
 // The bootloader passes a physical pointer to the mb_info struct.
 pub fn parse(mb_info_phys: u64) {
     let mb_info_virt = memory.phys_to_virt_raw(mb_info_phys);
-    let total_size = *(mb_info_virt as &u32);
-    serial.print("[multiboot] MB2 parsing starting... Size: ");
-    serial.print_u32(total_size);
+    let flags = *(mb_info_virt as &u32);
+    serial.print("[multiboot] MB1 parsing starting... Flags: ");
+    serial.print_u64(flags as u64);
     serial.print("\n");
     
-    // tags start at mb_info_virt + 8
-    let mut current_tag = mb_info_virt + 8;
-    let end_addr = mb_info_virt + (total_size as u64);
-
-    while current_tag < end_addr {
-        let tag_type = *(current_tag as &u32);
-        let tag_size = *((current_tag + 4) as &u32);
-        
-        if tag_type == 0 {
-            break; // End tag
-        } else if tag_type == 6 {
-            serial.print("[multiboot] Found Memory Map Tag\n");
-            parse_mmap_tag(current_tag, tag_size);
-        } else if tag_type == 8 {
-            serial.print("[multiboot] Found Framebuffer Tag\n");
-            parse_framebuffer_tag(current_tag);
-        }
-        
-        // Tags are 8-byte aligned
-        let mut next_tag_offset = tag_size as u64;
-        if (next_tag_offset % 8) != 0 {
-            next_tag_offset = next_tag_offset + (8 - (next_tag_offset % 8));
-        }
-        current_tag = current_tag + next_tag_offset;
+    // Check if bit 6 is set (mmap is valid)
+    if (flags & 64) != 0 {
+        let mmap_length = *((mb_info_virt + 44) as &u32);
+        let mmap_addr = *((mb_info_virt + 48) as &u32);
+        serial.print("[multiboot] Found Memory Map\n");
+        parse_mmap(mmap_addr as u64, mmap_length);
     }
 }
 
-fn parse_mmap_tag(tag_ptr: u64, tag_size: u32) {
-    let entry_size = *((tag_ptr + 8) as &u32);
-    // Entries start at offset 16
-    let mut current_entry = tag_ptr + 16;
-    let end_entry = tag_ptr + (tag_size as u64);
+extern fn get_kernel_end_phys() -> u64;
+
+fn parse_mmap(mmap_addr: u64, mmap_length: u32) {
+    serial.print("[multiboot] mmap_addr: ");
+    serial.print_u64(mmap_addr);
+    serial.print(" mmap_length: ");
+    serial.print_u64(mmap_length as u64);
+    serial.print("\n");
+
+    let mmap_virt = memory.phys_to_virt_raw(mmap_addr);
+    let mut current_entry = mmap_virt;
+    let end_entry = mmap_virt + (mmap_length as u64);
     
     let mut added_pages: u64 = 0;
+    let kernel_end_phys = get_kernel_end_phys();
+    let safe_start = (kernel_end_phys + 4095) & 0xFFFFFFFFFFFFF000;
 
     while current_entry < end_entry {
-        let base_addr = *(current_entry as &u64);
-        let length = *((current_entry + 8) as &u64);
-        let mmap_type = *((current_entry + 16) as &u32);
+        let size = *(current_entry as &u32);
+        let base_addr = *((current_entry + 4) as &u64);
+        let length = *((current_entry + 12) as &u64);
+        let mmap_type = *((current_entry + 20) as &u32);
+        
+        serial.print("  [mmap] base=");
+        serial.print_u64(base_addr);
+        serial.print(" len=");
+        serial.print_u64(length);
+        serial.print(" type=");
+        serial.print_u64(mmap_type as u64);
+        serial.print("\n");
 
         // mmap_type 1 = AVAILABLE
         if mmap_type == 1 {
-            // Guard: don't map below 1MB where BIOS/stubs live
-            // Guard: don't map below 32MB where kernel lives (safest for MVP)
-            if base_addr >= 0x2000000 {
-                pmm.add_region(base_addr, base_addr + length);
-                added_pages = added_pages + (length / 4096);
-            } else if (base_addr + length) > 0x2000000 {
-                // Partial overlap
-                pmm.add_region(0x2000000, base_addr + length);
-                let diff = (base_addr + length) - 0x2000000;
-                added_pages = added_pages + (diff / 4096);
+            let mut region_start = base_addr;
+            let region_end = base_addr + length;
+            
+            // Guard: don't map where kernel lives
+            if region_start < safe_start {
+                region_start = safe_start;
+            }
+            
+            if region_start < region_end {
+                serial.print("    -> adding region\n");
+                pmm.add_region(region_start, region_end);
+                serial.print("    -> added region\n");
+                added_pages = added_pages + ((region_end - region_start) / 4096);
             }
         }
-        current_entry = current_entry + (entry_size as u64);
+        
+        current_entry = current_entry + (size as u64) + 4;
     }
-    serial.print("[multiboot] PMM dynamic region init complete. Added pages: ");
+    
+    serial.print("[multiboot] Added pages: ");
     serial.print_u64(added_pages);
     serial.print("\n");
 }
 
-fn parse_framebuffer_tag(tag_ptr: u64) {
-    let fb_addr = *((tag_ptr + 8) as &u64);
-    let pitch = *((tag_ptr + 16) as &u32);
-    let width = *((tag_ptr + 20) as &u32);
-    let height = *((tag_ptr + 24) as &u32);
-    let bpp = *((tag_ptr + 28) as &u8);
-    let fb_type = *((tag_ptr + 29) as &u8);
-
-    serial.print("[multiboot] FB Init: ADDR=");
-    serial.print_u64(fb_addr);
-    serial.print(" W=");
-    serial.print_u32(width);
-    serial.print(" H=");
-    serial.print_u32(height);
-    serial.print("\n");
-    
-    framebuffer.init(fb_addr, width, height, pitch, bpp, fb_type);
-}
+// Disabling framebuffer for now as we don't have MB1 VBE info yet
+// fn parse_framebuffer_tag(tag_ptr: u64) {
+//     ...
+// }
 
 @no_mangle
 pub fn multiboot_parse(mb_info: u64) {

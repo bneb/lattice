@@ -1,0 +1,16 @@
+package basalt
+
+import kernel.ecs.world.{World, new_world, world_spawn}
+import kernel.ecs.components.{ThreadState}
+import kernel.ecs.sparse_set.{thread_set_insert}
+
+fn main() -> i32 {
+    let w = new_world();
+    let mut i: u32 = 0;
+    while i < 60000 {
+        let e = world_spawn(w);
+        thread_set_insert(w[0].threads, e, ThreadState { status: 1, stack_ptr: 0x100, stack_base: 0, step_fn: 0, task_frame: 0, ctx_ptr: 0x100 });
+        i = i + 1;
+    }
+    return 0;
+}

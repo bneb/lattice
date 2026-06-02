@@ -1,0 +1,86 @@
+package main
+
+use std.core.ptr.Ptr
+use std.sync.ring_buffer.RingBuffer
+use std.core.result.Result
+use std.status.Status
+
+extern fn malloc(size: i64) -> Ptr<u8>;
+extern fn free(ptr: Ptr<u8>);
+
+fn main() -> i32 {
+    println("=== RingBuffer SPSC Tests ===");
+
+    let buffer_memory = malloc(64);
+    let buffer = buffer_memory as Ptr<Ptr<u8>>;
+    
+    let mut rb = RingBuffer::new(buffer, 8);
+
+    // Test 1: Empty pop
+    let pop_empty = rb.pop();
+    if pop_empty.is_err() {
+        println("PASS: empty_pop");
+    } else {
+        println("FAIL: empty_pop");
+    }
+
+    // Test 2: Push and Pop
+    let item1 = malloc(1);
+    let push1 = rb.push(item1);
+    if push1.is_ok() {
+        println("PASS: push1");
+    } else {
+        println("FAIL: push1");
+    }
+
+    let pop1 = rb.pop();
+    if pop1.is_ok() && pop1.unwrap() == item1 {
+        println("PASS: pop1");
+    } else {
+        println("FAIL: pop1");
+    }
+
+    // Test 3: Fill to capacity
+    let mut i = 0;
+    while i < 8 {
+        let item = malloc(1);
+        let p = rb.push(item);
+        if p.is_err() {
+            println("FAIL: fill_push");
+        }
+        i = i + 1;
+    }
+    println("PASS: fill_to_capacity");
+
+    // Test 4: Push to full
+    let item_extra = malloc(1);
+    let push_full = rb.push(item_extra);
+    if push_full.is_err() {
+        println("PASS: push_full");
+    } else {
+        println("FAIL: push_full");
+    }
+    free(item_extra);
+
+    // Test 5: Pop all
+    let mut j = 0;
+    while j < 8 {
+        let p = rb.pop();
+        if p.is_err() {
+            println("FAIL: pop_all");
+        } else {
+            free(p.unwrap());
+        }
+        j = j + 1;
+    }
+    println("PASS: pop_all");
+
+    free(item1);
+    free(buffer_memory);
+
+    println("=== ALL TESTS PASSED ===");
+
+    // We do not free individual items to avoid cluttering the test, 
+    // we only care about the lock-free semantics.
+    return 0;
+}

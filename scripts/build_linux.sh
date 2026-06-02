@@ -119,7 +119,6 @@ build_kernel() {
     for SALT_FILE in "${KERNEL_SALT_FILES[@]}"; do
         BASENAME=$(basename "$SALT_FILE" .salt)
         "$SALT_BIN" "$SALT_FILE" --lib \
-            --search-path "$PROJECT_ROOT" \
             > "$TMP_DIR/kernel_${BASENAME}.mlir" 2>/dev/null || {
             echo "  ✗ MLIR generation failed for $BASENAME"
             exit 1

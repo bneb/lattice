@@ -11,7 +11,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.metrics import precision_recall_fscore_support, confusion_matrix
+
 from pathlib import Path
 
 # Hyperparameters (matching C baseline)
@@ -93,9 +93,18 @@ def evaluate(model, images, labels):
             all_labels.append(labels[i].item())
     
     # Compute metrics
-    precision, recall, f1, support = precision_recall_fscore_support(
-        all_labels, all_preds, average=None, zero_division=0
-    )
+    precision = np.zeros(10)
+    recall = np.zeros(10)
+    f1 = np.zeros(10)
+    
+    for c in range(10):
+        tp = sum(1 for p, l in zip(all_preds, all_labels) if p == c and l == c)
+        fp = sum(1 for p, l in zip(all_preds, all_labels) if p == c and l != c)
+        fn = sum(1 for p, l in zip(all_preds, all_labels) if p != c and l == c)
+        
+        precision[c] = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall[c] = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1[c] = 2 * (precision[c] * recall[c]) / (precision[c] + recall[c]) if (precision[c] + recall[c]) > 0 else 0.0
     
     # Macro averages
     macro_precision = np.mean(precision)

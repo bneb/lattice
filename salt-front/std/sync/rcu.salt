@@ -1,0 +1,26 @@
+package std.sync.rcu
+
+use std.core.ptr.Ptr
+
+extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
+extern fn salt_atomic_store_i64(ptr: Ptr<i64>, val: i64);
+
+// Read-Copy-Update (RCU) pointer
+pub struct RcuPointer {
+    pub ptr: Ptr<u8>,
+}
+
+impl RcuPointer {
+    pub fn new(initial: Ptr<u8>) -> RcuPointer {
+        return RcuPointer { ptr: initial };
+    }
+
+    pub fn read(&self) -> Ptr<u8> {
+        let val = salt_atomic_load_i64(&self.ptr as Ptr<i64>);
+        return val as Ptr<u8>;
+    }
+
+    pub fn update(&mut self, new_ptr: Ptr<u8>) {
+        salt_atomic_store_i64(&self.ptr as Ptr<i64>, new_ptr as i64);
+    }
+}

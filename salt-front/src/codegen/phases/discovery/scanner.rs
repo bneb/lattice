@@ -1,4 +1,4 @@
-use crate::grammar::{SaltFile, Item, SaltImpl, SaltFn, ImportDecl};
+use crate::grammar::{SaltFile, Item, SaltImpl, ImportDecl};
 use crate::types::{Type, TypeKey};
 use crate::common::mangling::Mangler;
 use crate::codegen::context::LoweringContext;
@@ -27,7 +27,7 @@ pub fn scan_defs_from_file_impl(ctx: &mut LoweringContext, file: &SaltFile, is_m
             let (ident_name, mangled_str) = match item {
                 Item::Struct(s) => (&s.name, format!("{}{}", pkg_prefix, s.name)),
                 Item::Enum(e) => (&e.name, format!("{}{}", pkg_prefix, e.name)),
-                Item::Fn(f) => (&f.name, if f.attributes.iter().any(|a| a.name == "no_mangle") { f.name.to_string() } else { format!("{}{}", pkg_prefix, f.name) }),
+                Item::Fn(f) => (&f.name, if f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" ) { f.name.to_string() } else { format!("{}{}", pkg_prefix, f.name) }),
                 Item::ExternFn(e) => (&e.name, e.name.to_string()),
                 Item::Global(g) => (&g.name, format!("{}{}", pkg_prefix, g.name)),
                 Item::Const(c) => (&c.name, format!("{}{}", pkg_prefix, c.name)),
@@ -63,7 +63,7 @@ pub fn scan_defs_from_file_impl(ctx: &mut LoweringContext, file: &SaltFile, is_m
             }
             Item::Fn(f) => {
                 let is_extern = f.attributes.iter().any(|a| a.name == "extern");
-                let is_no_mangle = f.attributes.iter().any(|a| a.name == "no_mangle");
+                let is_no_mangle = f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" );
                 if is_extern {
                     ctx.emission.external_decls.insert(f.name.to_string());
                 }

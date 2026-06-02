@@ -26,20 +26,14 @@ pub enum CallKind {
     },
 }
 
-struct ResolutionTarget {
+pub(crate) struct ResolutionTarget {
     template: SaltFn,
     base_name: String,
-    kind: TargetKind,
     self_ty: Option<Type>, // Only for methods
     imports: Vec<crate::grammar::ImportDecl>,
 }
 
-#[derive(Debug, PartialEq)]
-enum TargetKind {
-    Local,
-    Global,
-    Method,
-}
+
 
 pub struct CallSiteResolver<'a, 'ctx, 'b> {
     ctx: &'b mut LoweringContext<'a, 'ctx>,
@@ -165,7 +159,6 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                 let target = ResolutionTarget {
                     template: func.clone(),
                     base_name: format!("{}__{}",  crate::common::mangling::Mangler::mangle_type_key(&type_key), method_name),
-                    kind: TargetKind::Method,
                     self_ty: self_ty.clone(),
                     imports: imports.clone(),
                 };
@@ -581,7 +574,8 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                  if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
                      for arg in &args.args {
                          if let syn::GenericArgument::Type(ty) = arg {
-                             generics.push(crate::codegen::type_bridge::resolve_type(self.ctx, &crate::grammar::SynType::from_std(ty.clone()).unwrap()));
+                             let syn_ty = crate::grammar::SynType::from_std(ty.clone()).map_err(|e| e.to_string())?;
+                             generics.push(crate::codegen::type_bridge::resolve_type(self.ctx, &syn_ty));
                          }
                      }
                  }
@@ -711,10 +705,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         // [SOVEREIGN V6] Target Feature Detection
         name.starts_with("target__") ||
         // [std.nn] Neural network building blocks
-        name == "add_bias" || name == "relu" || name == "relu_grad" ||
-        name == "zeros" || name == "scale" || name == "argmax" ||
-        name == "sigmoid" || name == "tanh_activation" ||
-        name == "softmax_cross_entropy_grad" ||
+        name == "add_bias" ||
         // [OPERATION MATH KERNEL] std.math → LLVM intrinsics
         name.starts_with("std__math__") ||
         name == "expf" || name == "logf" || name == "sqrtf" || name == "powf" ||
@@ -725,6 +716,8 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         // so they route to the intrinsic handler in intrinsics.rs
         name == "spin_loop_hint" || name == "cycle_counter" || name == "read_tls_deadline" ||
         name == "atomic_add_i64" || name == "atomic_load_i64" || name == "atomic_store_i64" ||
+        name == "atomic_load_ptr" || name == "atomic_swap_ptr" ||
+        name == "m4_wfe" || name == "m4_dmb_ish" || name == "m4_sev" || name == "trap" ||
         // [salt.fn_ptr] Function pointer address extraction
         name == "fn_addr"
     }
@@ -735,7 +728,8 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
             for arg in &args.args {
                 if let syn::GenericArgument::Type(ty) = arg {
-                    generics.push(crate::codegen::type_bridge::resolve_type(self.ctx, &crate::grammar::SynType::from_std(ty.clone()).unwrap()));
+                    let syn_ty = crate::grammar::SynType::from_std(ty.clone()).map_err(|e| e.to_string())?;
+                    generics.push(crate::codegen::type_bridge::resolve_type(self.ctx, &syn_ty));
                 }
             }
         }
@@ -760,8 +754,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                       if m.to_string() == canonical_name || f.name.to_string() == name {
                           return Some(ResolutionTarget {
                               template: f.clone(),
-                              base_name: if f.attributes.iter().any(|a| a.name == "no_mangle") { f.name.to_string() } else { m.to_string() }, // Use the canonical mangled name
-                              kind: TargetKind::Local,
+                              base_name: if f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" ) { f.name.to_string() } else { m.to_string() }, // Use the canonical mangled name
                               self_ty: None,
                               imports: self.ctx.imports().clone(),
                           });
@@ -785,7 +778,6 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                          return Some(ResolutionTarget {
                                template: wrapper,
                                base_name: m,
-                               kind: TargetKind::Global,
                                self_ty: None,
                                imports: vec![],
                          });
@@ -799,7 +791,6 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
              return Some(ResolutionTarget {
                  template: f.clone(),
                  base_name: canonical_name.clone(),
-                 kind: TargetKind::Global,
                  self_ty: None,
                  imports: imports.clone(),
              });
@@ -822,7 +813,6 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                         return Some(ResolutionTarget {
                             template: func.clone(),
                             base_name: format!("{}__{}", pkg_mangled, name),
-                            kind: TargetKind::Global,
                             self_ty: None,
                             imports: mod_info.imports.clone(),
                         });
@@ -838,7 +828,6 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                             return Some(ResolutionTarget {
                                 template: func.clone(),
                                 base_name: format!("{}__{}", pkg_mangled, simple_name),
-                                kind: TargetKind::Global,
                                 self_ty: None,
                                 imports: mod_info.imports.clone(),
                             });
@@ -872,7 +861,6 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                     return Some(ResolutionTarget {
                         template: func.clone(),
                         base_name: correct_name,
-                        kind: TargetKind::Global,
                         self_ty: None,
                         imports: mod_info.imports.clone(),
                     });
@@ -884,7 +872,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         // Uses canonical name to split
         let parts: Vec<&str> = canonical_name.split("__").collect();
         if parts.len() >= 2 {
-             let method = parts.last().unwrap();
+             let method = parts.last()?;
              
              // Iterative Split Attempt: Try to find where Path ends and Name begins
              // e.g. std__collections__vec__Vec -> Path=[std, collections, vec], Name=Vec
@@ -905,7 +893,6 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                      return Some(ResolutionTarget {
                          template: func.clone(),
                          base_name: canonical_name.clone(),
-                         kind: TargetKind::Method,
                          self_ty: self_ty.clone(),
                          imports: imports.clone(),
                      }); 
@@ -923,7 +910,6 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                  return Some(ResolutionTarget {
                      template: func.clone(),
                      base_name: canonical_name.clone(),
-                     kind: TargetKind::Method,
                      self_ty: self_ty.clone(),
                      imports: imports.clone(),
                  }); 
@@ -939,7 +925,6 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                  return Some(ResolutionTarget {
                      template: func,
                      base_name: canonical_name.clone(),
-                     kind: TargetKind::Method,
                      self_ty,
                      imports,
                  });
@@ -964,7 +949,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
             }
         }
 
-        drop(current_fn);
+        let _ = current_fn;
         
         // If it already looks fully qualified (contains __), assume it is valid
         if name.contains("__") {
@@ -998,7 +983,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         (candidate, false)
     }
 
-    pub fn unify_generics(&mut self, 
+    pub(crate) fn unify_generics(&mut self, 
         target: &ResolutionTarget, 
         explicit_generics: &[Type],
         call_args: &[syn::Expr],
@@ -1048,7 +1033,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         )
     }
 
-    fn verify_completeness(&mut self, 
+    fn _verify_completeness(&mut self, 
         template: &SaltFn, 
         map: &mut BTreeMap<String, Type>,
         expected_ret_ty: Option<&Type>
@@ -1397,14 +1382,15 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
     fn resolve_signature(&mut self, template: &SaltFn, map: &BTreeMap<String, Type>) -> Result<(Type, Vec<Type>), String> {
          let ret = if let Some(rt) = &template.ret_type {
              let resolved = crate::codegen::type_bridge::resolve_type(self.ctx, rt);
-             let substituted = resolved.substitute(map);
+             let _substituted = resolved.substitute(map);
              let substituted = resolved.substitute(map);
              substituted
          } else { Type::Unit };
          
          let args = template.args.iter().map(|a| {
-             crate::codegen::type_bridge::resolve_type(self.ctx, a.ty.as_ref().unwrap()).substitute(map)
-         }).collect();
+             let ty = a.ty.as_ref().ok_or_else(|| format!("Missing type for argument {}", a.name))?;
+             Ok(crate::codegen::type_bridge::resolve_type(self.ctx, ty).substitute(map))
+         }).collect::<Result<Vec<_>, String>>()?;
          
          Ok((ret, args))
     }

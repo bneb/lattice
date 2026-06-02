@@ -373,6 +373,7 @@ pub fn load_imports(file: &crate::grammar::SaltFile, registry: &mut crate::regis
                                 crate::types::Type::Unit
                             };
                             info.functions.insert(f.name.to_string(), (args, ret));
+                            info.function_templates.insert(f.name.to_string(), f.clone());
                         }
                         if let Item::ExternFn(ef) = import_item {
                              let args = extract_args(&ef.args);

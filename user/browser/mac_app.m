@@ -178,7 +178,7 @@ static BrowserChrome *globalChrome = NULL;
   if (shm_fd < 0) {
     perror("mac_app shm_open tab failed");
   }
-  ftruncate(shm_fd, 8388608);
+  ftruncate(shm_fd, 33554432); // 32MB SHM (16 slots * 2MB)
 
   // Clear FD_CLOEXEC so the fd survives execl() into the child renderer
   int flags = fcntl(shm_fd, F_GETFD);
@@ -425,10 +425,10 @@ static BrowserChrome *globalChrome = NULL;
 
                   uint64_t bulk_base = sys_ipc_get_bulk_ingress_ptr();
                   if (bulk_base != 0) {
-                    // Epic 108: 16-Slot Multi-Buffer Bulk SHM
+                    // Epic 108: Multi-Buffer Bulk SHM (Expanded for Google)
                     static uint32_t g_bulk_seq = 0;
                     const int NUM_SLOTS = 16;
-                    const uint32_t SLOT_SIZE = 516096; // ~504KB per slot
+                    const uint32_t SLOT_SIZE = 2097152; // 2MB per slot
 
                     @synchronized(globalChrome) {
                       int selected_slot = -1;

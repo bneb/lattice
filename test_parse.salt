@@ -1,4 +1,0 @@
-package test
-pub fn test_val() -> u64 {
-    return 0xFFFF800000000000;
-}

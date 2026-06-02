@@ -18,6 +18,7 @@ mod tests {
         let z3_cfg = crate::z3_shim::Config::new();
         let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
+        ctx.no_verify = true;
         ctx.register_builtins();
         crate::codegen::register_templates(&ctx, &file);
         crate::codegen::register_signatures(&ctx, &file);

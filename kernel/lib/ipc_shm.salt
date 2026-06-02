@@ -88,6 +88,10 @@ pub fn spsc_push(base_addr: u64, byte: u8) -> bool {
     let tail = volatile_read_i64(base_addr + TAIL_OFFSET) as u64;
     let cap  = volatile_read_i64(base_addr + CAPACITY_OFFSET) as u64;
 
+    if cap == 0 {
+        return false;
+    }
+
     // Full?
     if (head - tail) >= cap {
         return false;
@@ -123,6 +127,9 @@ pub fn spsc_pop(base_addr: u64) -> i64 {
     }
 
     let cap = volatile_read_i64(base_addr + CAPACITY_OFFSET) as u64;
+    if cap == 0 {
+        return 0 - 1;
+    }
     let idx = tail % cap;
     // Defense-in-depth: clamp idx to prevent OOB read from corrupted capacity
     // @invariant(idx < DATA_CAPACITY)
@@ -151,6 +158,10 @@ pub fn spsc_push_bulk(base_addr: u64, src: u64, len: u64) -> u64 {
     let head = volatile_read_i64(base_addr + HEAD_OFFSET) as u64;
     let tail = volatile_read_i64(base_addr + TAIL_OFFSET) as u64;
     let mut cap = volatile_read_i64(base_addr + CAPACITY_OFFSET) as u64;
+
+    if cap == 0 {
+        return 0;
+    }
 
     // SECURITY FIX: Clamp capacity to maximum allowed data capacity to prevent
     // untrusted userspace from inducing buffer overflows in the kernel fast_memcpy
@@ -193,6 +204,10 @@ pub fn spsc_pop_bulk(base_addr: u64, dst: u64, len: u64) -> u64 {
     let head = volatile_read_i64(base_addr + HEAD_OFFSET) as u64;
     let tail = volatile_read_i64(base_addr + TAIL_OFFSET) as u64;
     let mut cap = volatile_read_i64(base_addr + CAPACITY_OFFSET) as u64;
+
+    if cap == 0 {
+        return 0;
+    }
 
     // SECURITY FIX: Clamp capacity to maximum allowed data capacity
     if cap > DATA_CAPACITY {
@@ -240,7 +255,11 @@ pub fn spsc_free_space(base_addr: u64) -> u64 {
     let head = volatile_read_i64(base_addr + HEAD_OFFSET) as u64;
     let tail = volatile_read_i64(base_addr + TAIL_OFFSET) as u64;
     let cap  = volatile_read_i64(base_addr + CAPACITY_OFFSET) as u64;
-    return cap - (head - tail);
+    let used = head - tail;
+    if used >= cap {
+        return 0;
+    }
+    return cap - used;
 }
 
 // =============================================================================
@@ -313,6 +332,9 @@ pub fn spsc_consume_adaptive(base_addr: u64) -> i64 {
 
     // Data available — extract one byte (same logic as spsc_pop)
     let cap = volatile_read_i64(base_addr + CAPACITY_OFFSET) as u64;
+    if cap == 0 {
+        return 0 - 1;
+    }
     let idx = tail % cap;
     if idx >= DATA_CAPACITY {
         return 0 - 1;
@@ -335,6 +357,10 @@ pub fn spsc_push_wake(base_addr: u64, byte: u8) -> u64 {
     let head = volatile_read_i64(base_addr + HEAD_OFFSET) as u64;
     let tail = volatile_read_i64(base_addr + TAIL_OFFSET) as u64;
     let cap  = volatile_read_i64(base_addr + CAPACITY_OFFSET) as u64;
+
+    if cap == 0 {
+        return 0;
+    }
 
     if (head - tail) >= cap {
         return 0;  // Full

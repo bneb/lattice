@@ -78,7 +78,7 @@ fn test_reinterpret_cast_in_helper_function() {
         package test::cast;
         struct Wrapper { value: i64 }
         fn cast_to_i64(w: Wrapper) -> i64 {
-            return reinterpret_cast::<i64>(w);
+            return reinterpret_cast<i64>(w);
         }
         fn main() -> i32 {
             let w: Wrapper = Wrapper { value: 42 };

@@ -1,4 +1,4 @@
-package main
+package basalt.trapping_rain_water
 
 // LeetCode 42: Trapping Rain Water — Ptr<T> with [] indexing
 
@@ -14,35 +14,37 @@ fn main() -> i32 {
     for i in 0..n {
         let mut val = (i % 10) as i32;
         if ((i / 10) % 2) == 1 { val = 9 - val; }
-        height[i] = val;
+        unsafe { height[i] = val; }
     }
     
     let mut grand_total = 0;
     for iter in 0..1000 {
-        left[0 as i64] = height[0 as i64];
-        for i in 1..n {
-            let h = height[i];
-            let prev = left[i - 1];
-            left[i] = if prev > h { prev } else { h };
+        unsafe {
+            left[0 as i64] = height[0 as i64];
+            for i in 1..n {
+                let h = height[i];
+                let prev = left[i - 1];
+                left[i] = if prev > h { prev } else { h };
+            }
+            
+            right[n - 1] = height[n - 1];
+            let mut j = n - 2;
+            while j >= 0 {
+                let h = height[j];
+                let nxt = right[j + 1];
+                right[j] = if nxt > h { nxt } else { h };
+                j -= 1;
+            }
+            
+            let mut water = 0;
+            for i in 0..n {
+                let l = left[i];
+                let r = right[i];
+                let min_h = if l < r { l } else { r };
+                water += min_h - height[i];
+            }
+            grand_total += water;
         }
-        
-        right[n - 1] = height[n - 1];
-        let mut j = n - 2;
-        while j >= 0 {
-            let h = height[j];
-            let nxt = right[j + 1];
-            right[j] = if nxt > h { nxt } else { h };
-            j -= 1;
-        }
-        
-        let mut water = 0;
-        for i in 0..n {
-            let l = left[i];
-            let r = right[i];
-            let min_h = if l < r { l } else { r };
-            water += min_h - height[i];
-        }
-        grand_total += water;
     }
     
     if grand_total > 0 { return 0; }

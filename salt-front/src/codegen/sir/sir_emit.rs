@@ -156,7 +156,7 @@ pub fn build_sir_module(
 // AST Extraction — Walk Salt AST and produce SIR
 // =============================================================================
 
-use crate::grammar::{SaltFile, Item, SaltFn, StructDef, SynType, Arg};
+use crate::grammar::{SaltFile, Item, SaltFn, StructDef, SynType};
 
 /// Convert a Salt SynType to a SIR SirType.
 fn syntype_to_sirtype(ty: &SynType) -> SirType {

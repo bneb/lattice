@@ -1,0 +1,303 @@
+// =============================================================================
+// std.io.ring — User-Space Ring-Buffer ABI Wrapper
+// =============================================================================
+//
+// Provides an ergonomic Salt API over the KeuOS kernel's io_uring-style
+// ring-buffer ABI. User programs interact with IoRing, SQE, and CQE types
+// instead of doing raw pointer arithmetic on shared-memory pages.
+//
+// Usage:
+//   use std.io.ring.{IoRing, SQE, CQE}
+//
+//   let mut ring = IoRing::map();
+//   ring.submit(SQE::nop(42));
+//   ring.flush();
+//   let cqe = ring.reap();
+//
+// The ring buffer is mapped via sys_ring_map (syscall 11). The kernel
+// allocates two shared-memory pages:
+//   - SQ (Submission Queue): user pushes SQEs, kernel drains
+//   - CQ (Completion Queue): kernel posts CQEs, user pops
+//
+// Concurrency: SPSC (Single Producer, Single Consumer)
+//   SQ: user = producer (writes head), kernel = consumer (writes tail)
+//   CQ: kernel = producer (writes head), user = consumer (writes tail)
+// =============================================================================
+
+package std.io.ring
+
+// =============================================================================
+// Constants (must match kernel/core/ring_abi.salt)
+// =============================================================================
+const HEADER_SIZE: u64 = 64;
+const SQE_SIZE: u64 = 64;
+const CQE_SIZE: u64 = 32;
+const PAGE_SIZE: u64 = 4096;
+
+// Header field offsets
+const HDR_HEAD: u64     = 0;
+const HDR_TAIL: u64     = 8;
+const HDR_CAPACITY: u64 = 16;
+const HDR_MASK: u64     = 24;
+
+// SQE field offsets
+const SQE_OPCODE: u64   = 0;
+const SQE_FD: u64       = 8;
+const SQE_BUFFER: u64   = 16;
+const SQE_LENGTH: u64   = 24;
+const SQE_USERDATA: u64 = 32;
+const SQE_FLAGS: u64    = 40;
+
+// CQE field offsets
+const CQE_USERDATA: u64 = 0;
+const CQE_RESULT: u64   = 8;
+const CQE_FLAGS: u64    = 16;
+
+// Op codes
+pub const OP_NOP: u64   = 0;
+pub const OP_WRITE: u64 = 1;
+pub const OP_READ: u64  = 2;
+pub const OP_YIELD: u64 = 3;
+pub const OP_EXIT: u64  = 4;
+pub const OP_BRK: u64   = 5;
+pub const OP_MMAP: u64  = 6;
+pub const OP_IPC_SEND: u64 = 7;
+pub const OP_SHM_GRANT: u64 = 8;
+pub const OP_SPAWN: u64 = 9;
+
+// Syscall numbers
+const SYS_RING_MAP: u64 = 11;
+const SYS_YIELD: u64    = 119;
+
+// Sentinel for empty CQ
+const CQ_EMPTY: u64 = 0xFFFFFFFFFFFFFFFF;
+
+// =============================================================================
+// FFI — Syscall and Atomic Primitives
+// =============================================================================
+extern fn salt_syscall0(num: u64) -> u64;
+extern fn salt_syscall1(num: u64, arg0: u64) -> u64;
+extern fn salt_atomic_load_i64(ptr: u64) -> i64;
+extern fn salt_atomic_store_i64(ptr: u64, val: i64);
+
+// =============================================================================
+// SQE — Submission Queue Entry (user-facing value type)
+// =============================================================================
+pub struct SQE {
+    pub op: u64,
+    pub fd: u64,
+    pub buf: u64,
+    pub len: u64,
+    pub user_data: u64,
+    pub flags: u64,
+}
+
+impl SQE {
+    /// Create a NOP submission (useful for testing ring round-trips).
+    pub fn nop(user_data: u64) -> SQE {
+        return SQE { op: OP_NOP, fd: 0, buf: 0, len: 0, user_data: user_data, flags: 0 };
+    }
+
+    /// Create a WRITE submission (fd=1 for stdout/serial).
+    pub fn write(fd: u64, buf: u64, len: u64, user_data: u64) -> SQE {
+        return SQE { op: OP_WRITE, fd: fd, buf: buf, len: len, user_data: user_data, flags: 0 };
+    }
+
+    /// Create a BRK submission (heap growth).
+    pub fn brk(new_brk: u64, user_data: u64) -> SQE {
+        return SQE { op: OP_BRK, fd: 0, buf: new_brk, len: 0, user_data: user_data, flags: 0 };
+    }
+
+    /// Create an MMAP submission.
+    pub fn mmap(length: u64, prot: u64, user_data: u64) -> SQE {
+        return SQE { op: OP_MMAP, fd: 0, buf: length, len: prot, user_data: user_data, flags: 0 };
+    }
+
+    /// Create an IPC_SEND submission.
+    pub fn ipc_send(target_pid: u64, msg0: u64, msg1: u64, user_data: u64) -> SQE {
+        return SQE { op: OP_IPC_SEND, fd: target_pid, buf: msg0, len: msg1, user_data: user_data, flags: 0 };
+    }
+
+    /// Create a SHM_GRANT submission (single page).
+    pub fn shm_grant(target_pid: u64, src_vaddr: u64, dst_vaddr: u64, user_data: u64) -> SQE {
+        return SQE { op: OP_SHM_GRANT, fd: target_pid, buf: src_vaddr, len: dst_vaddr, user_data: user_data, flags: 0 };
+    }
+
+    /// Create a SPAWN submission using a structured manifest.
+    pub fn spawn(manifest_vaddr: u64, user_data: u64) -> SQE {
+        return SQE { op: OP_SPAWN, fd: 0, buf: manifest_vaddr, len: 0, user_data: user_data, flags: 0 };
+    }
+}
+
+// =============================================================================
+// CQE — Completion Queue Entry (user-facing value type)
+// =============================================================================
+pub struct CQE {
+    pub user_data: u64,
+    pub result: i64,
+    pub flags: u64,
+}
+
+// =============================================================================
+// IoRing — User-Space Ring Buffer Handle
+// =============================================================================
+pub struct IoRing {
+    pub sq_base: u64,     // User VA of SQ shared page
+    pub cq_base: u64,     // User VA of CQ shared page
+    pub capacity: u64,    // Ring capacity (power of 2)
+    pub mask: u64,        // capacity - 1
+}
+
+impl IoRing {
+    // =========================================================================
+    // map — Map the ring-buffer ABI for this process
+    // =========================================================================
+    // Calls sys_cap_bind to acquire a capability, then sys_ring_map (syscall 11) 
+    // to allocate shared SQ/CQ pages.
+    // Returns an IoRing handle, or an IoRing with sq_base=0 on failure.
+    // =========================================================================
+    pub fn map() -> IoRing {
+        // 1. Bind a capability with CAP_FLAG_RING_ABI (4)
+        let cap_id = salt_syscall1(10, 4); // SYS_CAP_BIND
+        if cap_id == 0 {
+            return IoRing { sq_base: 0, cq_base: 0, capacity: 0, mask: 0 };
+        }
+
+        // 2. Map the ring ABI using the capability
+        let sq_va = salt_syscall1(SYS_RING_MAP, cap_id);
+        if sq_va == 0 {
+            return IoRing { sq_base: 0, cq_base: 0, capacity: 0, mask: 0 };
+        }
+        let cq_va = sq_va + PAGE_SIZE;
+        let cap = *((sq_va + HDR_CAPACITY) as &u64);
+        let m = *((sq_va + HDR_MASK) as &u64);
+        return IoRing { sq_base: sq_va, cq_base: cq_va, capacity: cap, mask: m };
+    }
+
+    // =========================================================================
+    // is_valid — Check if the ring was successfully mapped
+    // =========================================================================
+    pub fn is_valid(&self) -> bool {
+        return self.sq_base != 0;
+    }
+
+    // =========================================================================
+    // submit — Push an SQE to the submission queue
+    // =========================================================================
+    // Returns true if the SQE was pushed, false if the SQ is full.
+    // The kernel will drain the SQ at the next scheduling point.
+    // =========================================================================
+    pub fn submit(&mut self, sqe: SQE) -> bool {
+        let head = *((self.sq_base + HDR_HEAD) as &u64);
+        let tail = salt_atomic_load_i64(self.sq_base + HDR_TAIL) as u64;
+
+        // Check for full ring
+        if (head - tail) >= self.capacity {
+            return false;
+        }
+
+        // Calculate entry address
+        let index = head & self.mask;
+        let entry = self.sq_base + HEADER_SIZE + (index * SQE_SIZE);
+
+        // Write SQE fields
+        *((entry + SQE_OPCODE) as &mut u64) = sqe.op;
+        *((entry + SQE_FD) as &mut u64) = sqe.fd;
+        *((entry + SQE_BUFFER) as &mut u64) = sqe.buf;
+        *((entry + SQE_LENGTH) as &mut u64) = sqe.len;
+        *((entry + SQE_USERDATA) as &mut u64) = sqe.user_data;
+        *((entry + SQE_FLAGS) as &mut u64) = sqe.flags;
+
+        // Publish: store head atomically so kernel sees the new entry
+        salt_atomic_store_i64(self.sq_base + HDR_HEAD, (head + 1) as i64);
+        return true;
+    }
+
+    // =========================================================================
+    // reap — Pop a CQE from the completion queue
+    // =========================================================================
+    // Returns the CQE, or a CQE with user_data=CQ_EMPTY if the CQ is empty.
+    // =========================================================================
+    pub fn reap(&mut self) -> CQE {
+        let tail = *((self.cq_base + HDR_TAIL) as &u64);
+        let head = salt_atomic_load_i64(self.cq_base + HDR_HEAD) as u64;
+
+        if head == tail {
+            return CQE { user_data: CQ_EMPTY, result: 0, flags: 0 };
+        }
+
+        // Calculate entry address
+        let index = tail & self.mask;
+        let entry = self.cq_base + HEADER_SIZE + (index * CQE_SIZE);
+
+        // Read CQE fields
+        let user_data = *((entry + CQE_USERDATA) as &u64);
+        let result = *((entry + CQE_RESULT) as &i64);
+        let flags = *((entry + CQE_FLAGS) as &u64);
+
+        // Advance tail atomically so kernel sees we consumed the entry
+        salt_atomic_store_i64(self.cq_base + HDR_TAIL, (tail + 1) as i64);
+
+        return CQE { user_data: user_data, result: result, flags: flags };
+    }
+
+    // =========================================================================
+    // flush — Trigger kernel drain by yielding the CPU
+    // =========================================================================
+    // This causes the kernel to drain all pending SQEs and post CQEs.
+    // After this call, reap() should return completions for submitted SQEs.
+    // =========================================================================
+    pub fn flush(&self) {
+        salt_syscall0(SYS_YIELD);
+    }
+
+    // =========================================================================
+    // Convenience: submit_and_flush — Submit one SQE and immediately flush
+    // =========================================================================
+    pub fn submit_and_flush(&mut self, sqe: SQE) -> bool {
+        let ok = self.submit(sqe);
+        if ok {
+            self.flush();
+        }
+        return ok;
+    }
+
+    // =========================================================================
+    // Convenience: write — Submit a write and flush
+    // =========================================================================
+    pub fn write(&mut self, fd: u64, buf: u64, len: u64, user_data: u64) -> bool {
+        return self.submit(SQE::write(fd, buf, len, user_data));
+    }
+
+    // =========================================================================
+    // Convenience: nop — Submit a NOP and flush  
+    // =========================================================================
+    pub fn nop(&mut self, user_data: u64) -> bool {
+        return self.submit(SQE::nop(user_data));
+    }
+
+    // =========================================================================
+    // Convenience: spawn — Submit a process spawn request and flush  
+    // =========================================================================
+    pub fn spawn(&mut self, manifest_vaddr: u64, user_data: u64) -> bool {
+        return self.submit(SQE::spawn(manifest_vaddr, user_data));
+    }
+
+    // =========================================================================
+    // has_completions — Check if there are CQEs waiting without consuming them
+    // =========================================================================
+    pub fn has_completions(&self) -> bool {
+        let tail = *((self.cq_base + HDR_TAIL) as &u64);
+        let head = salt_atomic_load_i64(self.cq_base + HDR_HEAD) as u64;
+        return head != tail;
+    }
+
+    // =========================================================================
+    // sq_available — Number of free slots in the submission queue
+    // =========================================================================
+    pub fn sq_available(&self) -> u64 {
+        let head = *((self.sq_base + HDR_HEAD) as &u64);
+        let tail = salt_atomic_load_i64(self.sq_base + HDR_TAIL) as u64;
+        return self.capacity - (head - tail);
+    }
+}

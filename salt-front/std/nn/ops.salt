@@ -17,27 +17,41 @@ pub fn add_bias(dst: Ptr<f32>, size: i64, bias: Ptr<f32>) {
 
 // Zero-fill: dst[i] = 0.0 for all i
 pub fn zeros(dst: Ptr<f32>, size: i64) {
-    for i in 0..size {
-        dst[i] = 0.0f32;
+    unsafe {
+        for i in 0..size {
+            dst[i] = 0.0f32;
+        }
+    }
+}
+
+pub fn init_zeros(dst: Ptr<f32>, size: i64) {
+    unsafe {
+        for i in 0..size {
+            dst[i] = 0.0f32;
+        }
     }
 }
 
 // Scale: dst[i] *= factor for all i
 pub fn scale(dst: Ptr<f32>, size: i64, factor: f32) {
-    for i in 0..size {
-        dst[i] = dst[i] * factor;
+    unsafe {
+        for i in 0..size {
+            dst[i] = dst[i] * factor;
+        }
     }
 }
 
 // Argmax: returns index of maximum element
 pub fn argmax(buf: Ptr<f32>, size: i64) -> i64 {
-    let mut best_idx: i64 = 0;
-    let mut best_val: f32 = buf[0];
-    for i in 1..size {
-        if buf[i] > best_val {
-            best_val = buf[i];
-            best_idx = i;
+    unsafe {
+        let mut best_idx: i64 = 0;
+        let mut best_val: f32 = buf[0];
+        for i in 1..size {
+            if buf[i] > best_val {
+                best_val = buf[i];
+                best_idx = i;
+            }
         }
+        return best_idx;
     }
-    return best_idx;
 }

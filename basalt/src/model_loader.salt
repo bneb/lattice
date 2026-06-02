@@ -57,7 +57,7 @@ pub fn is_model_q8(data: Ptr<u8>) -> i32 {
 // Weights Mapping (f32)
 // -----------------------------------------------------------------------------
 
-pub fn get_weights(data: Ptr<u8>, cfg: Config) -> TransformerWeights {
+pub fn get_weights(data: Ptr<u8>, cfg: &Config) -> TransformerWeights {
     // Legacy 7-int header: 28 bytes. New 8-int header: 32 bytes.
     // For backward compat with existing f32 models, keep 28-byte offset.
     let header_size: i64 = 7 * 4;
@@ -108,8 +108,11 @@ pub fn get_weights(data: Ptr<u8>, cfg: Config) -> TransformerWeights {
     let rms_final_weight = w_ptr;
     w_ptr = w_ptr.offset(dim);
     
+    let rope_size = cfg.seq_len * (head_size / 2);
     let freq_cis_real = w_ptr;
+    w_ptr = w_ptr.offset(rope_size);
     let freq_cis_imag = w_ptr;
+    w_ptr = w_ptr.offset(rope_size);
     let w_cls = token_embedding_table; // Shared weights
     
     let null_u8 = 0 as Ptr<u8>;
@@ -149,7 +152,7 @@ fn q8_bytes(n_floats: i64) -> i64 {
     return (n_floats / 32) * 34;
 }
 
-pub fn get_weights_q8(data: Ptr<u8>, cfg: Config) -> TransformerWeights {
+pub fn get_weights_q8(data: Ptr<u8>, cfg: &Config) -> TransformerWeights {
     // New 8-int header: 32 bytes
     let header_size: i64 = 8 * 4;
     

@@ -2,7 +2,7 @@
 // Demonstrates Salt's O(1) bump allocation and O(1) mark/reset reclamation.
 // Tree depth 22 requires ~100MB; the 64MB global arena will OOM gracefully.
 
-package main
+package basalt
 
 use std.core.ptr.Ptr
 use std.core.arena.Arena

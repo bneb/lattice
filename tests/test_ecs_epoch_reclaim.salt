@@ -1,0 +1,97 @@
+// =============================================================================
+// test_ecs_epoch_reclaim.salt — ECS Epoch Reclamation Unit Test
+// =============================================================================
+// RED-TO-GREEN: Validates safe deferred memory reclamation rules.
+// =============================================================================
+
+package main
+
+import kernel.ecs.entity.Entity
+import kernel.ecs.world.{World, new_world, world_spawn, world_is_alive}
+import kernel.ecs.components.{ThreadState, EpochInfo}
+import kernel.ecs.sparse_set.{
+    thread_set_insert, thread_set_get, epoch_info_set_get
+}
+import kernel.ecs.ecs_epoch.{ecs_retire_entity, ecs_epoch_reclaim}
+
+extern fn println(s: Ptr<u8>);
+
+global TEST_GLOBAL_EPOCH: u64 = 0;
+global TEST_CORE_EPOCH: [u64; 16] = [0 as u64; 16];
+global TEST_CORE_IN_EPOCH: [u64; 16] = [0 as u64; 16];
+
+@no_mangle
+pub fn ebr_enter_epoch(cpu: u64) {
+    TEST_CORE_EPOCH[cpu] = TEST_GLOBAL_EPOCH;
+    TEST_CORE_IN_EPOCH[cpu] = 1;
+}
+
+@no_mangle
+pub fn ebr_exit_epoch(cpu: u64) {
+    TEST_CORE_IN_EPOCH[cpu] = 0;
+}
+
+@no_mangle
+pub fn ebr_advance_epoch() {
+    TEST_GLOBAL_EPOCH = TEST_GLOBAL_EPOCH + 1;
+}
+
+@no_mangle
+pub fn ebr_get_global_epoch() -> u64 {
+    return TEST_GLOBAL_EPOCH;
+}
+
+@no_mangle
+pub fn ebr_get_core_epoch(cpu: u64) -> u64 {
+    return TEST_CORE_EPOCH[cpu];
+}
+
+@no_mangle
+pub fn ebr_get_core_in_epoch(cpu: u64) -> u64 {
+    return TEST_CORE_IN_EPOCH[cpu];
+}
+
+
+fn main() -> i32 {
+    let w = new_world();
+    
+    // Core 0 enters epoch 0
+    ebr_enter_epoch(0);
+    
+    // Spawn and retire entity A
+    let e_a = world_spawn(w);
+    thread_set_insert(w[0].threads, e_a, ThreadState { status: 1, stack_ptr: 0x100, stack_base: 0, step_fn: 0, task_frame: 0, ctx_ptr: 0x100 });
+    
+    ecs_retire_entity(w, e_a);
+    
+    // Verify e_a is retired but still alive
+    let info_a = epoch_info_set_get(w[0].epoch_infos, e_a);
+    if info_a.is_null() { return 1; }
+    if info_a[0].retire_epoch != 0 { return 2; }
+    if !world_is_alive(w, e_a) { return 3; }
+    
+    // Attempt reclaim -> should NOT reclaim because core 0 is still at epoch 0
+    ecs_epoch_reclaim(w);
+    if !world_is_alive(w, e_a) { return 4; }
+    
+    // Core 0 exits epoch 0
+    ebr_exit_epoch(0);
+    
+    // Advance global epoch to 1
+    ebr_advance_epoch();
+    if ebr_get_global_epoch() != 1 { return 5; }
+    
+    // Core 0 enters epoch 1
+    ebr_enter_epoch(0);
+    
+    // Attempt reclaim -> now safe epoch is 1, and e_a retired at 0 < 1 -> should reclaim!
+    ecs_epoch_reclaim(w);
+    if world_is_alive(w, e_a) { return 6; }
+    
+    // Verify epoch info was removed
+    let info_a_after = epoch_info_set_get(w[0].epoch_infos, e_a);
+    if !info_a_after.is_null() { return 7; }
+    
+    println("All ECS epoch reclamation tests PASSED!");
+    return 0;
+}

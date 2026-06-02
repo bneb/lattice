@@ -1,5 +1,5 @@
 // Bitwise operations benchmark using popcount
-package main
+package basalt
 
 fn main(argc: i32) -> i32 {
     let iterations = 100000000;

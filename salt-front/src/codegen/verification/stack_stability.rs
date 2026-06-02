@@ -15,7 +15,6 @@
 // =============================================================================
 
 use crate::z3_shim::ast::Ast;
-use crate::z3_shim as z3;
 
 /// Result of the stack stability proof.
 #[derive(Debug, Clone)]

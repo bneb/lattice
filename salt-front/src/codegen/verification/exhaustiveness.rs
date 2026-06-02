@@ -13,7 +13,6 @@ use crate::types::Type;
 use crate::codegen::context::{CodegenContext, LoweringContext};
 use crate::registry::EnumInfo;
 use crate::z3_shim::ast::Ast;
-use crate::z3_shim as z3;
 
 /// Result of exhaustiveness checking
 #[derive(Debug)]

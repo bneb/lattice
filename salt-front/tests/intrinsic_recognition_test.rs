@@ -16,9 +16,9 @@ fn compiles_intrinsic(code: &str) -> bool {
         Ok(_file) => {
             let z3_cfg = z3::Config::new();
             let _z3_ctx = z3::Context::new(&z3_cfg);
-            let file: SaltFile = syn::parse_str(&src).unwrap();
+            let mut file: SaltFile = syn::parse_str(&src).unwrap();
             // emit_mlir(file, release_mode, registry, skip_scan, vverify)
-            let result = salt_front::codegen::emit_mlir(&file, false, None, false, false, false, false, false, false, "");
+            let result = salt_front::codegen::emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
             result.is_ok()
         }
         Err(_) => false,
