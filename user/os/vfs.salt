@@ -1,0 +1,52 @@
+package user.os.vfs
+
+use std.core.ptr.Ptr
+use user.reactor.scheduler
+
+pub struct VfsNode {
+    pub file_id: u32,
+    pub start_lba: u64,
+    pub blocks: u32,
+}
+
+// Global contiguous allocation table (extremely simplified for AI workloads)
+pub global ALLOC_TABLE: Ptr<VfsNode> = 0 as Ptr<VfsNode>;
+pub global NEXT_LBA: u64 = 0;
+pub global NUM_FILES: u32 = 0;
+
+pub fn init_vfs(table_addr: u64) {
+    ALLOC_TABLE = table_addr as Ptr<VfsNode>;
+    NEXT_LBA = 1; // Reserve LBA 0 for MBR/Superblock
+    NUM_FILES = 0;
+}
+
+pub fn allocate_contiguous(blocks: u32) -> u32 {
+    let id = NUM_FILES;
+    
+    let mut node = VfsNode {
+        file_id: id,
+        start_lba: NEXT_LBA,
+        blocks: blocks,
+    };
+    
+    ALLOC_TABLE.offset(id as i64).write(node);
+    
+    NEXT_LBA = NEXT_LBA + (blocks as u64);
+    NUM_FILES = NUM_FILES + 1;
+    
+    return id;
+}
+
+pub fn vfs_read_async(file_id: u32, buffer_ptr: u64) -> u32 {
+    // Look up the file
+    let node = ALLOC_TABLE.offset(file_id as i64).read();
+    
+    // Spawn a Reactor Task to handle the async I/O polling
+    // We pass the start_lba and buffer_ptr as state to the task
+    // (In reality, we'd enqueue an IPC message to the storage daemon, 
+    // but for the monolithic test case, we spawn a polling coroutine).
+    
+    let task_id = scheduler.spawn_task(buffer_ptr, node.start_lba);
+    
+    return task_id;
+}
