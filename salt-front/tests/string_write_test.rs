@@ -189,18 +189,20 @@ fn test_string_fstring_append_ops() {
 #[test]
 fn test_ptr_lvalue_indexing() {
     let src = format!(r#"
-        package main;
+        package kernel.test;
         {}
         use std.core.arena;
         fn main() {{
             let arena = Arena::new(4096);
             let p = arena.alloc_array::<u8>(32);
             // Direct L-value write via ptr[i] = val
-            p[0] = 72;    // 'H'
-            p[1] = 101;   // 'e'
-            p[2] = 108;   // 'l'
-            // Read back via ptr[i]
-            let h = p[0];
+            unsafe {{
+                p[0] = 72;    // 'H'
+                p[1] = 101;   // 'e'
+                p[2] = 108;   // 'l'
+                // Read back via ptr[i]
+                let h = p[0];
+            }}
         }}
     "#, STRING_IMPORTS);
     let res = compile_salt(&src);

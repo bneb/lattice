@@ -304,7 +304,8 @@ mod tests {
         let info = PtrBoundsInfo::new("loop_fn")
             .with_alloc(256)
             .with_index_bounds(0, 256);  // from loop invariant: i ∈ [0, 256)
-        let result = verify_ptr_dynamic_index(&ctx, &info);
+        let solver = crate::z3_shim::Solver::new(&ctx);
+        let result = verify_ptr_dynamic_index(&ctx, &solver, &info);
         assert_eq!(result, PtrProofResult::Proven,
             "ptr.index(i) with loop invariant i ∈ [0, 256) on alloc(256) must be proven safe");
     }
@@ -316,7 +317,8 @@ mod tests {
         let info = PtrBoundsInfo::new("unbounded_fn")
             .with_alloc(256);
         // No index_upper_bound → Z3 can find idx = 256 → SAT
-        let result = verify_ptr_dynamic_index(&ctx, &info);
+        let solver = crate::z3_shim::Solver::new(&ctx);
+        let result = verify_ptr_dynamic_index(&ctx, &solver, &info);
         assert!(matches!(result, PtrProofResult::Unsafe(_)),
             "Dynamic ptr index without bounds MUST be flagged unsafe");
     }
@@ -328,7 +330,8 @@ mod tests {
         let info = PtrBoundsInfo::new("overflow_fn")
             .with_alloc(256)
             .with_index_bounds(0, 512);
-        let result = verify_ptr_dynamic_index(&ctx, &info);
+        let solver = crate::z3_shim::Solver::new(&ctx);
+        let result = verify_ptr_dynamic_index(&ctx, &solver, &info);
         assert!(matches!(result, PtrProofResult::Unsafe(_)),
             "Loop bound 512 exceeding alloc 256 MUST be flagged unsafe");
     }

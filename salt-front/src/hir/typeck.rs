@@ -852,7 +852,7 @@ mod tests {
     use super::*;
     use crate::hir::ids::VarId;
     use crate::hir::expr::{Expr, ExprKind, Literal, BinOp};
-    use crate::hir::stmt::{Stmt, StmtKind, Pattern};
+    use crate::hir::stmt::{Stmt, StmtKind, Pattern, Local};
     use crate::hir::types::Type;
 
     fn mk_expr(kind: ExprKind) -> Expr {
@@ -2026,7 +2026,7 @@ mod tests {
 
     #[test]
     fn test_requires_in_block() {
-        use crate::hir::stmt::{Stmt, StmtKind, Pattern};
+        use crate::hir::stmt::{Stmt, StmtKind, Pattern, Local};
 
         let mut ctx = TypeckContext::new();
 
@@ -2148,8 +2148,8 @@ mod tests {
         ]);
         let ctx = TypeckContext::with_items(&[trait_item]);
 
-        assert!(ctx.traits.contains_key("Write"));
-        let t = &ctx.traits["Write"];
+        assert!(ctx._traits.contains_key("Write"));
+        let t = &ctx._traits["Write"];
         assert_eq!(t.required_methods.len(), 1);
         assert!(t.required_methods.contains_key("write"));
         let sig = &t.required_methods["write"];
@@ -2317,7 +2317,7 @@ mod tests {
         ]);
 
         let ctx = TypeckContext::with_items(&[trait_item]);
-        let t = &ctx.traits["Hashable"];
+        let t = &ctx._traits["Hashable"];
         assert!(t.required_methods.contains_key("hash"));
         assert!(t.required_methods.contains_key("eq"));
         assert_eq!(t.required_methods["hash"].return_type, Type::U64);

@@ -1,0 +1,56 @@
+package kernel.tests.nvme_test
+
+use std.core.ptr.Ptr
+use kernel.keuos.hw.pcie_enum
+use kernel.drivers.serial
+
+extern fn outb(port: u16, val: u8);
+
+pub fn qemu_exit(code: u8) {
+    // ISA debug exit
+    unsafe {
+        outb(0xf4, code);
+    }
+}
+
+pub fn kmain(magic: u32, info: Ptr<u8>) {
+    serial.init();
+    serial.print("==================================\n");
+    serial.print(" NVMe Test Kernel Booted \n");
+    serial.print("==================================\n");
+
+    let ecam_base: Ptr<u32> = 0xB0000000 as Ptr<u32>;
+    
+    // QEMU NVMe: Vendor = 0x1B36, Device = 0x0010
+    serial.print("Scanning PCIe bus for NVMe controller...\n");
+    let res = pcie_enum.discover_device_bar(ecam_base, 0x1B36, 0x0010, 2);
+
+    if res.physical_address != 0 {
+        serial.print("NVMe Controller Found!\n");
+        serial.print("  Bus:  "); serial.print_u64(res.bus as u64); serial.print("\n");
+        serial.print("  Dev:  "); serial.print_u64(res.device as u64); serial.print("\n");
+        serial.print("  BAR0: "); serial.print_hex(res.physical_address); serial.print("\n");
+
+        let nvme_bar: Ptr<u32> = res.physical_address as Ptr<u32>;
+        
+        // Read CAP (Capabilities) - 64-bit at offset 0x00
+        let cap_low: u32 = nvme_bar.offset(0).read();
+        let cap_high: u32 = nvme_bar.offset(1).read();
+        let cap: u64 = ((cap_high as u64) << 32) | (cap_low as u64);
+        
+        // Read VS (Version) - 32-bit at offset 0x08
+        let vs: u32 = nvme_bar.offset(2).read();
+
+        serial.print("  CAP:  "); serial.print_hex(cap); serial.print("\n");
+        serial.print("  VS:   "); serial.print_hex(vs as u64); serial.print("\n");
+
+    } else {
+        serial.print("NVMe Controller NOT found.\n");
+    }
+
+    serial.print("Test complete. Exiting QEMU.\n");
+    qemu_exit(0);
+
+    // If exit fails, halt
+    while true { }
+}

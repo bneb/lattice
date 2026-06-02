@@ -157,6 +157,7 @@ impl<'ctx> VerificationContext<'ctx> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::z3_shim::Config;
 
     // ═════════════════════════════════════════════════════════════════════
     // Phase 6: Track B — Z3 Verification Engine

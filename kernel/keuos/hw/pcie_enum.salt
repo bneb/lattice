@@ -17,6 +17,7 @@
 package kernel.keuos.hw.pcie_enum
 
 use std.core.ptr.Ptr
+use kernel.drivers.serial
 
 // ============================================================================
 // HardwareResource — Discovered PCIe Device Info
@@ -68,6 +69,13 @@ pub fn discover_device_bar(
 
             // 0xFFFF = no device present
             if vendor != 0xFFFF {
+                // DEBUG: Print all devices found
+                serial.print("Found PCI Device: Vendor 0x");
+                serial.print_hex(vendor as u64);
+                serial.print(" Device 0x");
+                serial.print_hex(dev_id as u64);
+                serial.print("\n");
+                
                 if vendor == target_vendor {
                     if dev_id == target_device {
                         // Device found — extract 64-bit BAR0

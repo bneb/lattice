@@ -140,6 +140,7 @@ pub fn generate_sync_constraints(func_name: &str, calls_io: bool) -> String {
 mod tests {
     use super::*;
     use crate::codegen::passes::call_graph::{CallGraphAnalyzer, FnAttributes};
+    use crate::grammar::SaltFn;
 
     #[test]
     fn test_sync_verifier_new() {

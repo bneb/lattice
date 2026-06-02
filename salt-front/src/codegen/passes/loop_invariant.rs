@@ -211,6 +211,7 @@ pub fn inject_invariants_z3<'ctx>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::z3_shim::ast::Ast;
 
     /// Helper: parse a pattern using Pat::parse_single
     fn parse_pat(s: &str) -> syn::Pat {
