@@ -165,7 +165,7 @@ WARNING: Could not formally prove contract. Emitting runtime check.
 |---------|--------|
 | `requires` precondition verification | ✅ Complete |
 | `ensures` postcondition verification | ✅ Complete |
-| Loop invariant inference | ✅ Basic support |
+| Loop invariant verification (havoc & induction) | ✅ Complete |
 | Full ADT/`match` lowering | ✅ Complete |
 | Trait resolution | ✅ Complete |
 | Generic monomorphization | ✅ Complete |

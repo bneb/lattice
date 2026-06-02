@@ -156,5 +156,5 @@ python3 tools/runner_qemu.py kernel/build/keuos.elf
 | v0.9.2 | *Postcondition Pivot* | Z3-backed `ensures` for pure functions — path-sensitive WP verification, implicit guard negation, incompleteness gate (6/6 GREEN) |
 | v0.9.3 | *Keubic Authority* | Chase-Lev work-stealing SMP, stateless SYN cookie hardening (SipHash-2-4), Epoch-Based Reclamation, SIR boundary decoupling (194/194 tests) |
 | v1.0.0 | *KeuOS Architecture* | Salt LSP v0.2.0 (zero-I/O, Z3 hover, Go-to-Definition), full 16-core SMP scale-out, adversarial NetD, 32/32 LSP tests |
-| v1.1.0 | *Loop Validation* | `invariant` keyword, induction-based termination proofs (planned) |
-| v1.2.0 | *Persistence Pillar* | Block-VMO storage, NVMe SPSC bridge (planned) |
+| v1.1.0 | *Loop Validation* | `invariant` keyword, Z3 induction-based verification, havoc semantics (Completed) |
+| v1.2.0 | *Persistence Pillar* | PCIe ECAM enumeration, NVMe MMIO CAP/VS extraction (Completed), Block-VMO storage, NVMe SPSC bridge (planned) |
