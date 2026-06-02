@@ -1,70 +1,160 @@
 // =============================================================================
-// std.net.Poller — Event loop abstraction (delegates to Reactor backend)
+// std.net.poller — Userspace Event Polling
 // =============================================================================
 // Layer 2 of the 3-layer network architecture.
-// Wraps an I/O Reactor backend into a safe, ergonomic event poller.
 //
-// The Reactor trait (std.io.reactor) defines the OS-agnostic interface.
-// On macOS, this uses KqueueReactor. On the KeuOS kernel, it will use
-// KeuOSReactor once VirtIO lands. Applications use Poller and never
-// interact with backends directly.
+// ZERO-TRAP POLLER:
+// Replaces kqueue. This Poller maintains a local list of registered FDs
+// and simply loops over their SPSC rings to check for available data.
+// If no data is available across all rings, it yields to the scheduler.
+// =============================================================================
 
 package std.net.poller
 
-use std.os.syscall
 use std.core.ptr.Ptr
 use std.status.Status
 use std.core.result.Result
-use std.io.reactor_kqueue.KqueueReactor
+use std.net.tcp
 
-/// Event filter types.
+extern fn r3_sys_yield();
+extern fn rdtsc() -> i64;
+extern fn salt_atomic_load_i64(ptr: u64) -> i64;
+
+fn atomic_read(addr: u64) -> u64 {
+    let v = salt_atomic_load_i64(addr);
+    return v as u64;
+}
+
 pub enum PollFilter {
     Read,
     Write
 }
 
-/// Safe abstraction over the I/O reactor backend.
-/// On macOS, delegates to KqueueReactor (kqueue via http_bridge.c).
 pub struct Poller {
-    reactor: KqueueReactor
+    // Array of registered file descriptors (max 64 for now)
+    // -1 means unused slot.
+    fds: [i32; 64],
+    filters: [i32; 64] // 0=Read, 1=Write
 }
 
 impl Poller {
-    /// Create a new Poller backed by the default Reactor for this platform.
     pub fn new() -> Result<Poller> {
-        let reactor_result = KqueueReactor::new();
-        if reactor_result.is_err() {
-            return Result::Err(Status::internal("reactor creation failed"));
-        }
-        return Result::Ok(Poller { reactor: reactor_result.unwrap() });
+        let f: [i32; 64] = [-1; 64];
+        let fil: [i32; 64] = [0; 64];
+        let mut p = Poller {
+            fds: f,
+            filters: fil
+        };
+        return Result::<Poller>::Ok(p);
     }
 
-    /// Register a file descriptor for read or write events.
-    /// Returns 0 on success, -1 on error.
-    pub fn register(&self, fd: i32, filter: PollFilter) -> i32 {
+    pub fn register(&mut self, fd: i32, filter: PollFilter) -> i32 {
         let f = match filter {
             PollFilter::Read => 0,
             PollFilter::Write => 1
         };
-        return syscall::http_kq_register(self.reactor.fd(), fd, f);
+        
+        // Find empty slot
+        let mut i: i64 = 0;
+        while i < 64 {
+            if self.fds[i] == -1 {
+                self.fds[i] = fd;
+                self.filters[i] = f;
+                return 0;
+            }
+            i = i + 1;
+        }
+        return -1; // No space
     }
 
-    /// Deregister a file descriptor from the poller.
-    /// Returns 0 on success, -1 on error.
-    pub fn deregister(&self, fd: i32) -> i32 {
-        return syscall::http_kq_deregister(self.reactor.fd(), fd);
+    pub fn deregister(&mut self, fd: i32) -> i32 {
+        let mut i: i64 = 0;
+        while i < 64 {
+            if self.fds[i] == fd {
+                self.fds[i] = -1;
+                return 0;
+            }
+            i = i + 1;
+        }
+        return -1; // Not found
     }
 
-    /// Wait for events. Fills the provided buffer and returns count.
-    /// Zero-allocation: caller provides a stack-allocated event buffer.
-    /// timeout_ms: -1 = block forever, 0 = poll, >0 = timeout in ms.
-    /// Returns number of events, or -1 on error.
+    fn check_read_avail(fd: i32) -> bool {
+        let base = tcp::rx_vaddr(fd);
+        let head = atomic_read(base + 0); // RING_HEAD_OFF
+        let tail = atomic_read(base + 8); // RING_TAIL_OFF
+        if head < tail { return false; }
+        return head > tail;
+    }
+
+    fn check_write_avail(fd: i32) -> bool {
+        let base = tcp::tx_vaddr(fd);
+        let head = atomic_read(base + 0);
+        let tail = atomic_read(base + 8);
+        if head < tail { return false; }
+        // RING_CAPACITY is hardcoded to 3968 in tcp, we can assume it here
+        return (3968 - (head - tail)) > 0;
+    }
+
     pub fn wait(&self, event_buf: Ptr<i64>, max_events: i32, timeout_ms: i32) -> i32 {
-        return syscall::http_kq_wait(self.reactor.fd(), event_buf, max_events, timeout_ms);
-    }
+        let mut num_events: i32 = 0;
+        
+        let start_time = rdtsc();
+        // Assume ~2 GHz clock for ticks (2 million ticks per ms)
+        let deadline = start_time + ((timeout_ms as i64) * 2000000);
 
-    /// Get the raw file descriptor backing this Poller's reactor.
-    pub fn fd(&self) -> i32 {
-        return self.reactor.fd();
+        // Spin-loop until we find at least one event
+        loop {
+            let mut i: i64 = 0;
+            while i < 64 {
+                let fd = self.fds[i];
+                if fd != -1 {
+                    let f = self.filters[i];
+                    let mut has_event = false;
+                    
+                    if f == 0 { // Read
+                        has_event = check_read_avail(fd);
+                    } else { // Write
+                        has_event = check_write_avail(fd);
+                    }
+
+                    if has_event {
+                        if num_events < max_events {
+                            // The legacy Kqueue reactor returned pairs of [fd, filter]
+                            // or just [fd]? The event_buf expects `fd` at (idx * 2) 
+                            // as seen in lettuce: `let event_fd = events[idx] as i32;`
+                            let idx = (num_events * 2) as i64;
+                            *((event_buf.offset(idx)) as &mut i64) = fd as i64;
+                            // The second element in the pair was user_data/filter.
+                            *((event_buf.offset(idx + 1)) as &mut i64) = f as i64;
+                            
+                            num_events = num_events + 1;
+                        }
+                    }
+                }
+                i = i + 1;
+            }
+
+            if num_events > 0 {
+                return num_events;
+            }
+            
+            // Non-blocking poll mode
+            if timeout_ms == 0 {
+                return 0;
+            }
+            
+            // Timeout check
+            if timeout_ms > 0 {
+                if rdtsc() > deadline {
+                    return 0;
+                }
+            }
+            
+            // No events found, yield to scheduler (Zero-Trap wait)
+            r3_sys_yield();
+        }
+        
+        return 0; // Unreachable
     }
 }

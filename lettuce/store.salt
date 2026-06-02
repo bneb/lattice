@@ -17,7 +17,7 @@ package lettuce.store
 
 use std.core.ptr.Ptr
 use std.core.str.StringView
-use std.collections.string_map.StringMap
+use std.collections.string_map.{StringMap, StringMap_set, StringMap_get, StringMap_value_at, StringMap_del}
 use lettuce.resp.{
     RespValue, resp_parse, resp_nil,
     RESP_ARRAY, RESP_BULK_STRING, RESP_NULL,
@@ -28,6 +28,8 @@ use lettuce.resp.{
 // EBR retirement — defer memory reclamation instead of immediate free.
 // Resolved at link time from ebr_arena.o.
 extern fn ebr_retire(core: u64, ptr: u64);
+extern fn malloc(size: i64) -> Ptr<u8>;
+extern fn memmove(dst: Ptr<u8>, src: Ptr<u8>, n: i64) -> Ptr<u8>;
 
 // ============================================================================
 // ExecResult — response length + input bytes consumed for pipelining
@@ -36,6 +38,7 @@ extern fn ebr_retire(core: u64, ptr: u64);
 pub struct ExecResult {
     pub resp_len: i64,
     pub input_consumed: i64,
+    pub context_ptr: u64,
 }
 
 // ============================================================================
@@ -59,6 +62,14 @@ fn cmd_eq4(sv: StringView, a: u8, b: u8, c: u8, d: u8) -> bool {
     let c2 = sv.byte_at(2) | 32;
     let c3 = sv.byte_at(3) | 32;
     return c0 == a && c1 == b && c2 == c && c3 == d;
+}
+
+@inline
+fn cmd_eq5(sv: StringView, a: u8, b: u8, c: u8, d: u8, e: u8) -> bool {
+    if sv.length() != 5 { return false; }
+    return (sv.byte_at(0) | 32) == a && (sv.byte_at(1) | 32) == b
+        && (sv.byte_at(2) | 32) == c && (sv.byte_at(3) | 32) == d
+        && (sv.byte_at(4) | 32) == e;
 }
 
 @inline
@@ -96,7 +107,7 @@ fn write_empty_array(buf: Ptr<u8>) -> i64 {
 //   input_consumed: bytes consumed from input (for pipeline advancement)
 // ============================================================================
 
-pub fn execute(smap: &mut StringMap, input: StringView, out_buf: Ptr<u8>) -> ExecResult {
+pub fn execute(smap: Ptr<StringMap>, input: StringView, out_buf: Ptr<u8>) -> ExecResult {
     // --- Inline command support (redis-benchmark sends PING as "PING\r\n") ---
     if input.length() > 0 && input.byte_at(0) != 42 {
         // Not a RESP array ('*' = 42), handle as inline command
@@ -113,20 +124,20 @@ pub fn execute(smap: &mut StringMap, input: StringView, out_buf: Ptr<u8>) -> Exe
         if cmd_eq4(input.slice(0, line_end), 112, 105, 110, 103) {
             // PING
             let r = write_simple_string(out_buf, "PONG" as StringView);
-            return ExecResult { resp_len: r, input_consumed: consumed };
+            return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
         }
         if cmd_eq7(input.slice(0, line_end), 99, 111, 109, 109, 97, 110, 100) {
             // COMMAND
             let r = write_empty_array(out_buf);
-            return ExecResult { resp_len: r, input_consumed: consumed };
+            return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
         }
         if cmd_eq6(input.slice(0, line_end), 99, 111, 110, 102, 105, 103) {
             // CONFIG
             let r = write_empty_array(out_buf);
-            return ExecResult { resp_len: r, input_consumed: consumed };
+            return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
         }
         let r2 = write_error(out_buf, "ERR unknown inline command" as StringView);
-        return ExecResult { resp_len: r2, input_consumed: consumed };
+        return ExecResult { resp_len: r2, input_consumed: consumed, context_ptr: 0 };
     }
 
     // --- Standard RESP array parsing ---
@@ -135,11 +146,11 @@ pub fn execute(smap: &mut StringMap, input: StringView, out_buf: Ptr<u8>) -> Exe
 
     if cmd.type_tag != RESP_ARRAY() {
         let r = write_error(out_buf, "ERR protocol error: expected array" as StringView);
-        return ExecResult { resp_len: r, input_consumed: consumed };
+        return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
     }
     if cmd.array_count < 1 {
         let r = write_error(out_buf, "ERR empty command" as StringView);
-        return ExecResult { resp_len: r, input_consumed: consumed };
+        return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
     }
 
     // Parse command name (first array element)
@@ -147,31 +158,49 @@ pub fn execute(smap: &mut StringMap, input: StringView, out_buf: Ptr<u8>) -> Exe
     let arg0 = resp_parse(elems);
     if arg0.type_tag != RESP_BULK_STRING() {
         let r = write_error(out_buf, "ERR invalid command format" as StringView);
-        return ExecResult { resp_len: r, input_consumed: consumed };
+        return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
     }
     // --- PING ---
     if cmd_eq4(StringView::from_raw(arg0.str_ptr, arg0.str_len), 112, 105, 110, 103) {
         let r = write_simple_string(out_buf, "PONG" as StringView);
-        return ExecResult { resp_len: r, input_consumed: consumed };
+        return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
     }
 
     // --- COMMAND ---
     if cmd_eq7(StringView::from_raw(arg0.str_ptr, arg0.str_len), 99, 111, 109, 109, 97, 110, 100) {
         let r = write_empty_array(out_buf);
-        return ExecResult { resp_len: r, input_consumed: consumed };
+        return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
     }
 
     // --- CONFIG ---
     if cmd_eq6(StringView::from_raw(arg0.str_ptr, arg0.str_len), 99, 111, 110, 102, 105, 103) {
         let r = write_empty_array(out_buf);
-        return ExecResult { resp_len: r, input_consumed: consumed };
+        return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
+    }
+
+    // --- INFER prompt ---
+    if cmd_eq5(StringView::from_raw(arg0.str_ptr, arg0.str_len), 105, 110, 102, 101, 114) {
+        if cmd.array_count < 2 {
+            let r = write_error(out_buf, "ERR wrong number of arguments for 'INFER'" as StringView);
+            return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
+        }
+        let rest1 = elems.slice(arg0.bytes_consumed, elems.length());
+        let arg1 = resp_parse(rest1);
+        let prompt_sv = StringView::from_raw(arg1.str_ptr, arg1.str_len);
+        
+        let ctx = malloc(16 + prompt_sv.length()) as u64;
+        let ctx_ptr = ctx as Ptr<u8>;
+        *((ctx_ptr as u64 + 4) as &mut i32) = prompt_sv.length() as i32;
+        memmove(ctx_ptr.offset(16), prompt_sv.ptr, prompt_sv.length());
+        
+        return ExecResult { resp_len: -1, input_consumed: consumed, context_ptr: ctx };
     }
 
     // --- SET key value ---
     if cmd_eq3(StringView::from_raw(arg0.str_ptr, arg0.str_len), 115, 101, 116) {
         if cmd.array_count < 3 {
             let r = write_error(out_buf, "ERR wrong number of arguments for 'SET'" as StringView);
-            return ExecResult { resp_len: r, input_consumed: consumed };
+            return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
         }
         let rest1 = elems.slice(arg0.bytes_consumed, elems.length());
         let arg1 = resp_parse(rest1);
@@ -179,52 +208,52 @@ pub fn execute(smap: &mut StringMap, input: StringView, out_buf: Ptr<u8>) -> Exe
         let arg2 = resp_parse(rest2);
         let key = StringView::from_raw(arg1.str_ptr, arg1.str_len);
         let val = StringView::from_raw(arg2.str_ptr, arg2.str_len);
-        smap.set(key, val);
+        StringMap_set(smap, key, val);
         let r = write_simple_string(out_buf, "OK" as StringView);
-        return ExecResult { resp_len: r, input_consumed: consumed };
+        return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
     }
 
     // --- GET key ---
     if cmd_eq3(StringView::from_raw(arg0.str_ptr, arg0.str_len), 103, 101, 116) {
         if cmd.array_count < 2 {
             let r = write_error(out_buf, "ERR wrong number of arguments for 'GET'" as StringView);
-            return ExecResult { resp_len: r, input_consumed: consumed };
+            return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
         }
         let rest1 = elems.slice(arg0.bytes_consumed, elems.length());
         let arg1 = resp_parse(rest1);
         let key = StringView::from_raw(arg1.str_ptr, arg1.str_len);
-        let slot = smap.get(key);
+        let slot = StringMap_get(smap, key);
         if slot < 0 {
             let r = write_null_bulk(out_buf);
-            return ExecResult { resp_len: r, input_consumed: consumed };
+            return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
         }
-        let val = smap.value_at(slot);
+        let val = StringMap_value_at(smap, slot);
         let r = write_bulk_string(out_buf, val);
-        return ExecResult { resp_len: r, input_consumed: consumed };
+        return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
     }
 
     // --- DEL key ---
     if cmd_eq3(StringView::from_raw(arg0.str_ptr, arg0.str_len), 100, 101, 108) {
         if cmd.array_count < 2 {
             let r = write_error(out_buf, "ERR wrong number of arguments for 'DEL'" as StringView);
-            return ExecResult { resp_len: r, input_consumed: consumed };
+            return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
         }
         let rest1 = elems.slice(arg0.bytes_consumed, elems.length());
         let arg1 = resp_parse(rest1);
         let key = StringView::from_raw(arg1.str_ptr, arg1.str_len);
-        let deleted = smap.del(key);
+        let deleted = StringMap_del(smap, key);
         if deleted {
             // EBR: defer reclamation instead of immediate free.
             // The key's memory is retired to the EBR arena — it will be
             // reclaimed when all concurrent readers have exited their epoch.
             ebr_retire(0, arg1.str_ptr as u64);
             let r = write_integer(out_buf, 1);
-            return ExecResult { resp_len: r, input_consumed: consumed };
+            return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
         }
         let r0 = write_integer(out_buf, 0);
-        return ExecResult { resp_len: r0, input_consumed: consumed };
+        return ExecResult { resp_len: r0, input_consumed: consumed, context_ptr: 0 };
     }
 
-    let re = write_error(out_buf, "ERR unknown command" as StringView);
-    return ExecResult { resp_len: re, input_consumed: consumed };
+    let r_err = write_error(out_buf, "ERR unknown command" as StringView);
+    return ExecResult { resp_len: r_err, input_consumed: consumed, context_ptr: 0 };
 }

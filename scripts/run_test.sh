@@ -97,6 +97,9 @@ if [[ "$is_ecs_test" == false ]] && [[ "$is_standalone" == false ]] && [[ "$is_b
 fi
 
 BRIDGES+=("$PROJECT_ROOT/vendor/openlibm/libopenlibm.a")
+if [[ "$is_lettuce_test" == true ]]; then
+    BRIDGES+=("$PROJECT_ROOT/lettuce/tests/dummy_ebr.c")
+fi
 
 # Add C flags
 C_FLAGS_ARR=(-I"$PROJECT_ROOT/vendor/openlibm/include" -I"$PROJECT_ROOT/vendor/openlibm/src" -Wno-implicit-fallthrough -Wno-int-conversion -D_GNU_SOURCE)
@@ -322,7 +325,7 @@ elif [[ "$BENCHMARK_MODE" == true ]]; then
 elif [[ "$is_basalt_test" == true ]]; then
     TEST_DEPS=("std/core/str.salt" "std/time.salt" "basalt/src/transformer.salt" "basalt/src/kernels.salt" "basalt/src/quant.salt")
 elif [[ "$is_lettuce_test" == true ]]; then
-    TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "user/os/process.salt" "user/os/ipc_ring.salt" "user/netd/virtio_bridge.salt" "user/lettuce/store.salt" "user/lettuce/resp.salt" "std/simd/mod.salt" "std/collections/string_map.salt")
+    TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "user/os/process.salt" "user/os/ipc_ring.salt" "user/netd/virtio_bridge.salt" "lettuce/store.salt" "lettuce/resp.salt" "std/simd/mod.salt" "std/collections/string_map.salt")
 elif [[ "$is_ecs_test" == true ]]; then
     TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "kernel/ecs/entity.salt" "kernel/ecs/components.salt" "kernel/ecs/sparse_set.salt" "kernel/ecs/world.salt" "kernel/ecs/ecs_bridge.salt" "kernel/ecs/commands.salt" "kernel/ecs/events.salt" "kernel/ecs/ecs_scheduler.salt" "kernel/ecs/ecs_ipc.salt" "kernel/ecs/ecs_epoch.salt")
 else

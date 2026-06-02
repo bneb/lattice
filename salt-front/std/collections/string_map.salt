@@ -247,7 +247,6 @@ pub struct StringMap {
         let val_ptr = val.ptr;
         let val_len = val.length();
         
-        printf("INSIDE StringMap_set: key_len=%lld, val_len=%lld\n\0".ptr, key_len, val_len);
 
         // Reconstruct a StringView for fnv1a from the saved raw fields
         let key_sv = StringView::from_raw(key_ptr, key_len);

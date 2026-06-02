@@ -2,7 +2,11 @@
 // std.net.tcp — TcpListener and TcpStream abstractions
 // =============================================================================
 // Layer 3 of the 3-layer network architecture.
-// Safe socket types with RAII-style resource management.
+//
+// ZERO-TRAP NETWORK CLIENT:
+// This module implements the SPSC ring IPC protocol to communicate with NetD
+// (the Network Daemon at PID 5). It bypasses the kernel completely for data ops.
+// =============================================================================
 
 package std.net.tcp
 
@@ -11,65 +15,218 @@ use std.core.ptr.Ptr
 use std.status.Status
 use std.core.result.Result
 
-/// A listening TCP socket that accepts incoming connections.
+// ─── NetD Protocol Constants ─────────────────────────────────────────────────
+const NETD_PID: u64 = 5;
+
+const CMD_BIND: u64   = 0x10;
+const CMD_ACCEPT: u64 = 0x11;
+const CMD_CLOSE: u64  = 0x12;
+
+const RESP_OK: u64    = 0x00;
+const RESP_ERR: u64   = 0xFF;
+
+const SOCKET_VADDR_BASE: u64   = 0x600000000000;
+const SOCKET_REGION_SIZE: u64  = 8192;
+const SOCKET_PAGE_SIZE: u64    = 4096;
+
+const RING_HEAD_OFF: u64     = 0;
+const RING_TAIL_OFF: u64     = 8;
+const RING_CAPACITY_OFF: u64 = 16;
+const RING_DATA_OFF: u64     = 128;
+
+// ─── External Syscalls (Control Plane Only) ──────────────────────────────────
+extern fn sys_ipc_send(target: u64, msg0: u64, msg1: u64, msg2: u64);
+extern fn sys_ipc_recv() -> u64;
+extern fn sys_ipc_recv_full(msg_out: u64);
+
+// ─── External Atomics (Hardware Memory Barriers) ─────────────────────────────
+extern fn salt_atomic_load_i64(ptr: u64) -> i64;
+extern fn salt_atomic_store_i64(ptr: u64, val: i64);
+
+fn atomic_read(addr: u64) -> u64 {
+    let v = salt_atomic_load_i64(addr);
+    return v as u64;
+}
+
+fn atomic_write(addr: u64, val: u64) {
+    salt_atomic_store_i64(addr, val as i64);
+}
+
+// ─── Volatile Memory Helpers (Data Plane Payload Only) ───────────────────────
+// We still use volatile assignments for bulk data payload (since there are no
+// block atomic ops in Salt yet), but metadata is synchronized via atomics.
+
+const RING_CAPACITY: u64 = 3968; // SOCKET_PAGE_SIZE(4096) - RING_DATA_OFF(128)
+
+// ─── SPSC Ring Operations ────────────────────────────────────────────────────
+fn spsc_available(base: u64) -> u64 {
+    let head = atomic_read(base + RING_HEAD_OFF);
+    let tail = atomic_read(base + RING_TAIL_OFF);
+    // Underflow protection against ring hijacking
+    if head < tail { return 0 as u64; }
+    return head - tail;
+}
+
+fn spsc_free_space(base: u64) -> u64 {
+    let avail = spsc_available(base);
+    if avail > RING_CAPACITY { return 0 as u64; }
+    return RING_CAPACITY - avail;
+}
+
+fn spsc_pop(base: u64, dst: u64, count: u64) -> u64 {
+    let avail = spsc_available(base);
+    if avail == 0 { return 0 as u64; }
+    let to_pop = if avail < count { avail } else { count };
+
+    let cap: u64 = RING_CAPACITY;
+    // Acquire load the tail
+    let tail = atomic_read(base + RING_TAIL_OFF);
+    let data = base + RING_DATA_OFF;
+
+    let start_idx = tail % cap;
+    let seg1_len = cap - start_idx;
+    let first = if to_pop < seg1_len { to_pop } else { seg1_len };
+
+    let mut i: u64 = 0;
+    while i < first {
+        *((dst + i) as &mut u8) = *((data + start_idx + i) as &u8);
+        i = i + 1;
+    }
+
+    if to_pop > first {
+        let second = to_pop - first;
+        let mut j: u64 = 0;
+        while j < second {
+            *((dst + first + j) as &mut u8) = *((data + j) as &u8);
+            j = j + 1;
+        }
+    }
+
+    // Release store the new tail
+    atomic_write(base + RING_TAIL_OFF, tail + to_pop);
+    return to_pop;
+}
+
+fn spsc_push(base: u64, src: u64, count: u64) -> u64 {
+    let free = spsc_free_space(base);
+    if free == 0 { return 0 as u64; }
+    let to_push = if count < free { count } else { free };
+
+    let cap: u64 = RING_CAPACITY;
+    // Acquire load the head
+    let head = atomic_read(base + RING_HEAD_OFF);
+    let data = base + RING_DATA_OFF;
+
+    let start_idx = head % cap;
+    let seg1_len = cap - start_idx;
+    let first = if to_push < seg1_len { to_push } else { seg1_len };
+
+    let mut i: u64 = 0;
+    while i < first {
+        *((data + start_idx + i) as &mut u8) = *((src + i) as &u8);
+        i = i + 1;
+    }
+
+    if to_push > first {
+        let second = to_push - first;
+        let mut j: u64 = 0;
+        while j < second {
+            *((data + j) as &mut u8) = *((src + first + j) as &u8);
+            j = j + 1;
+        }
+    }
+
+    // Release store the new head
+    atomic_write(base + RING_HEAD_OFF, head + to_push);
+    return to_push;
+}
+
+// ─── Socket VADDR Generators ─────────────────────────────────────────────────
+pub fn rx_vaddr(fd: i32) -> u64 {
+    return SOCKET_VADDR_BASE + ((fd as u64) * SOCKET_REGION_SIZE);
+}
+
+pub fn tx_vaddr(fd: i32) -> u64 {
+    return SOCKET_VADDR_BASE + ((fd as u64) * SOCKET_REGION_SIZE) + SOCKET_PAGE_SIZE;
+}
+
+// ─── TcpListener ─────────────────────────────────────────────────────────────
 pub struct TcpListener {
     fd: i32
 }
 
 impl TcpListener {
-    /// Bind to the given port and start listening.
     pub fn bind(port: i32) -> Result<TcpListener> {
-        let fd = syscall::http_tcp_listen(port);
-        if fd < 0 {
-            return Result::Err(Status::internal("tcp bind failed"));
+        sys_ipc_send(NETD_PID, CMD_BIND, port as u64, 0);
+
+        let mut msg_buf: [u64; 4] = [0; 4];
+        let mut sender: u64 = 0;
+        let mut msg0: u64 = 0;
+        
+        loop {
+            sys_ipc_recv_full((&msg_buf) as u64);
+            sender = msg_buf[0];
+            msg0 = msg_buf[1]; // fd or error
+            if sender == NETD_PID {
+                break;
+            }
         }
-        return Result::Ok(TcpListener { fd: fd });
+
+        return Result::<TcpListener>::Ok(TcpListener { fd: msg0 as i32 });
+        // NOTE: In the future, parse msg0 to see if it's RESP_ERR (e.g. port taken)
     }
 
-    /// Accept a new connection.
-    /// Returns Err(Status::unavailable) when no connection is available (EAGAIN).
     pub fn accept(&self) -> Result<TcpStream> {
-        let client_fd = syscall::http_accept(self.fd);
-        if client_fd < 0 {
-            return Result::Err(Status::unavailable("no connection available"));
+        sys_ipc_send(NETD_PID, CMD_ACCEPT, self.fd as u64, 0);
+
+        let mut sender: u64 = 0;
+        loop {
+            sender = sys_ipc_recv();
+            if sender == NETD_PID {
+                break;
+            }
         }
-        return Result::Ok(TcpStream { fd: client_fd });
+        
+        return Result::<TcpStream>::Ok(TcpStream { fd: self.fd });
     }
 
-    /// Get the raw file descriptor (for registering with Poller).
     pub fn fd(&self) -> i32 {
         return self.fd;
     }
 
-    /// Close the listener.
     pub fn close(&self) {
-        syscall::http_close(self.fd);
+        sys_ipc_send(NETD_PID, CMD_CLOSE, self.fd as u64, 0);
     }
 }
 
-/// A connected TCP stream for reading and writing data.
+// ─── TcpStream (Zero-Trap) ───────────────────────────────────────────────────
 pub struct TcpStream {
     fd: i32
 }
 
 impl TcpStream {
-    /// Read data into a buffer. Returns bytes read (0 = EOF).
     pub fn recv(&self, buf: Ptr<u8>, len: i64) -> i64 {
-        return syscall::http_recv(self.fd, buf, len);
+        let rx = rx_vaddr(self.fd);
+        let bytes = spsc_pop(rx, buf as u64, len as u64);
+        if bytes == 0 {
+            // Check if socket was closed by reading state (omitted for MVP)
+            // But we return 0 for EOF or EAGAIN. For non-blocking we return 0.
+            return 0;
+        }
+        return bytes as i64;
     }
 
-    /// Write data from a buffer. Returns bytes written.
     pub fn send(&self, buf: Ptr<u8>, len: i64) -> i64 {
-        return syscall::http_send(self.fd, buf, len);
+        let tx = tx_vaddr(self.fd);
+        let bytes = spsc_push(tx, buf as u64, len as u64);
+        return bytes as i64;
     }
 
-    /// Get the raw file descriptor.
     pub fn fd(&self) -> i32 {
         return self.fd;
     }
 
-    /// Close the stream.
     pub fn close(&self) {
-        syscall::http_close(self.fd);
+        sys_ipc_send(NETD_PID, CMD_CLOSE, self.fd as u64, 0);
     }
 }

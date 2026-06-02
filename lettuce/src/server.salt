@@ -13,12 +13,25 @@ use std.core.str.StringView
 use std.core.result.Result
 use std.net.tcp.{TcpListener, TcpStream}
 use std.net.poller.{Poller, PollFilter}
-use std.collections.string_map.StringMap
+use std.collections.string_map.{StringMap, StringMap_new, StringMap_drop}
 use std.collections.slab.Slab
 use lettuce.store.{execute, ExecResult}
+use lettuce.resp.write_simple_string
+use user.basalt.main.basalt_poll_cycle
 
 extern fn puts(s: Ptr<u8>) -> i32;
 extern fn memmove(dst: Ptr<u8>, src: Ptr<u8>, n: i64) -> Ptr<u8>;
+extern fn malloc(size: i64) -> Ptr<u8>;
+extern fn free(ptr: u64);
+
+fn alloc_ring(capacity: u64) -> u64 {
+    let size = 192 + capacity * 8;
+    let ptr = malloc(size as i64) as u64;
+    *((ptr + 0) as &mut u64) = 0; // head
+    *((ptr + 8) as &mut u64) = capacity;
+    *((ptr + 64) as &mut u64) = 0; // tail
+    return ptr;
+}
 
 // EBR (Epoch-Based Reclamation) interface
 // These are resolved at link time from ebr_arena.o.
@@ -42,6 +55,8 @@ struct ClientSession {
     read_cursor: i64,
     parse_cursor: i64,
     buffer: [u8; 16384],
+    state: i32,
+    generation: i64,
 }
 
 // ============================================================================
@@ -64,16 +79,23 @@ fn main() -> i32 {
         puts("ERROR: Failed to create poller" as Ptr<u8>);
         return 1;
     }
-    let poll = poll_result.unwrap();
+    let mut poll = poll_result.unwrap();
     poll.register(listen_fd, PollFilter::Read);
 
-    let mut smap = StringMap::new();
+    let mut smap = StringMap_new();
     let mut slab = Slab::<ClientSession>::new(MAX_FDS);
+
+    let ai_tx_ring = alloc_ring(64);
+    let ai_rx_ring = alloc_ring(64);
+    let basalt_arena = malloc(65536) as u64;
+    let nvme_addr = malloc(4096) as u64;
+    let rdma_addr = malloc(4096) as u64;
 
     puts("LETTUCE (Slab<T> Reactor) listening on :6379" as Ptr<u8>);
 
     let mut events: [i64; 128] = [0; 128];
     let mut epoch_counter: u64 = 0;
+    let mut next_generation: i64 = 1;
 
     while true {
         // =====================================================================
@@ -100,13 +122,16 @@ fn main() -> i32 {
                     let client_fd = client.fd();
                     if client_fd < MAX_FDS {
                         slab.reset(client_fd);
+                        let session = slab.get(client_fd);
+                        session.generation = next_generation;
+                        next_generation = next_generation + 1;
                         poll.register(client_fd, PollFilter::Read);
                     } else {
                         client.close();
                     }
                 }
             } else if event_fd >= 0 && event_fd < MAX_FDS {
-                handle_client(event_fd, &poll, &mut smap, &mut slab);
+                handle_client(event_fd, &mut poll, &mut smap, &mut slab, ai_rx_ring);
             }
 
             i = i + 1;
@@ -121,9 +146,41 @@ fn main() -> i32 {
             ebr_advance_epoch();
             ebr_reclaim(0);
         }
+
+        // =====================================================================
+        // AI Hardware Integration
+        // =====================================================================
+        basalt_poll_cycle(ai_rx_ring, ai_tx_ring, basalt_arena, 65536, nvme_addr, rdma_addr);
+        
+        let tx_head = *((ai_tx_ring + 0) as &u64);
+        let mut tx_tail = *((ai_tx_ring + 64) as &u64);
+        while tx_tail != tx_head {
+            let tx_cap = *((ai_tx_ring + 8) as &u64);
+            let completed_ctx = *((ai_tx_ring + 192 + tx_tail) as &u64);
+            *((ai_tx_ring + 64) as &mut u64) = (tx_tail + 8) % (tx_cap * 8);
+            
+            let completed_fd = *((completed_ctx) as &i32);
+            let completed_gen = *((completed_ctx + 8) as &i64);
+            
+            if completed_fd >= 0 && completed_fd < MAX_FDS {
+                let c_session = slab.get(completed_fd);
+                if c_session.generation == completed_gen {
+                    c_session.state = 0;
+                    
+                    let mut out_buf: [u8; 64] = [0; 64];
+                    let out_ptr = &out_buf[0] as Ptr<u8>;
+                    let r_len = write_simple_string(out_ptr, "Inference Complete" as StringView);
+                    let mut s = TcpStream { fd: completed_fd };
+                    s.send(out_ptr, r_len);
+                }
+            }
+            free(completed_ctx);
+            
+            tx_tail = *((ai_tx_ring + 64) as &u64);
+        }
     }
 
-    smap.drop();
+    StringMap_drop(smap);
     slab.drop();
     listener.close();
     return 0;
@@ -133,7 +190,7 @@ fn main() -> i32 {
 // Connection Handler — Sliding Window on Slab<ClientSession>
 // ============================================================================
 
-fn handle_client(fd: i32, poll: &Poller, smap: &mut StringMap, slab: &mut Slab<ClientSession>) {
+fn handle_client(fd: i32, poll: &mut Poller, smap: Ptr<StringMap>, slab: &mut Slab<ClientSession>, ai_rx_ring: u64) {
     // Pre-allocate send buffer FIRST to avoid stack corruption on Linux
     let mut send_buf: [u8; 32768] = [0; 32768];
     let send_ptr = &send_buf[0] as Ptr<u8>;
@@ -165,6 +222,10 @@ fn handle_client(fd: i32, poll: &Poller, smap: &mut StringMap, slab: &mut Slab<C
 
     let new_read_cur = read_cur + n;
     session.read_cursor = new_read_cur;
+    
+    if session.state == 1 {
+        return; // WAITING_AI
+    }
 
     // 2. Parse loop (pipelining + fragmentation)
     let mut parse_cur = session.parse_cursor;
@@ -177,6 +238,30 @@ fn handle_client(fd: i32, poll: &Poller, smap: &mut StringMap, slab: &mut Slab<C
 
         if result.input_consumed <= 0 {
             break;
+        }
+        
+        if result.resp_len == -1 {
+            let rx_head = *((ai_rx_ring + 0) as &u64);
+            let rx_cap = *((ai_rx_ring + 8) as &u64);
+            let rx_tail = *((ai_rx_ring + 64) as &u64);
+            let rx_next = (rx_head + 8) % (rx_cap * 8);
+            if rx_next != rx_tail {
+                let ctx_ptr = result.context_ptr as Ptr<u8>;
+                *((ctx_ptr as u64) as &mut i32) = fd;
+                *((ctx_ptr as u64 + 8) as &mut i64) = session.generation;
+                
+                *((ai_rx_ring + 192 + rx_head) as &mut u64) = result.context_ptr;
+                *((ai_rx_ring + 0) as &mut u64) = rx_next;
+                session.state = 1;
+                session.parse_cursor = session.parse_cursor + result.input_consumed;
+                break;
+            } else {
+                free(result.context_ptr);
+                let err_view = "-ERR Basalt ring full\r\n" as StringView;
+                memmove(send_ptr.offset(total_resp), err_view.ptr, err_view.length());
+                total_resp = total_resp + err_view.length();
+                session.parse_cursor = session.parse_cursor + result.input_consumed;
+            }
         }
 
         // Deterministic capacity check BEFORE committing the append.

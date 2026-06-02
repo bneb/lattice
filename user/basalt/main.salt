@@ -103,17 +103,16 @@ pub fn basalt_poll_cycle(
     // Execute zero-trap physical hardware inference!
     let hw_res = execute_hardware_inference(nvme_addr, rdma_addr, arena_base);
     
-    // Free the heap allocated prompt from Lettuce
-    free(prompt);
-
-    // Push completion signal to TX ring
+    // Push completion signal (the context ptr) to TX ring
     let tx_head = *((tx_ring + 0) as &u64);
     let tx_cap = *((tx_ring + 8) as &u64);
     let tx_tail = *((tx_ring + 64) as &u64);
     let tx_next = (tx_head + 8) % (tx_cap * 8);
     if tx_next != tx_tail {
-        *((tx_ring + 192 + tx_head) as &mut u64) = 1; // Signal complete
+        *((tx_ring + 192 + tx_head) as &mut u64) = prompt; // Return full context
         *((tx_ring + 0) as &mut u64) = tx_next;
+    } else {
+        free(prompt);
     }
 
     // O(1) arena reset

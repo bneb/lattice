@@ -29,7 +29,7 @@ impl Group {
     
     // The 'Sovereign' Match Mask: returns bitmask with high bit set for matches
     @inline
-    pub fn match_tag(&self, tag: i8) -> u64 {
+    pub fn match_tag(self, tag: i8) -> u64 {
         let tag_broadcast = 0x0101010101010101 as u64 * (tag as u64 & 0xFF);
         let diff = self.data ^ tag_broadcast;
         return (diff - 0x0101010101010101 as u64) & !diff & 0x8080808080808080 as u64;
@@ -40,7 +40,7 @@ impl Group {
     // DELETED = 0xFE: high bit set, low 7 bits NON-zero.
     // Must distinguish these per-byte without u64-wide NOT (which leaks between bytes).
     @inline
-    pub fn first_empty(&self) -> i64 {
+    pub fn first_empty(self) -> i64 {
         let high = self.data & 0x8080808080808080 as u64;
         let low = self.data & 0x7F7F7F7F7F7F7F7F as u64;
         // Per-byte: if low bits are nonzero, adding 0x7F sets bit 7.
@@ -58,13 +58,13 @@ impl Group {
     
     // Check if any EMPTY exists in this group
     @inline
-    pub fn has_empty(&self) -> bool {
+    pub fn has_empty(self) -> bool {
         return self.first_empty() >= 0;
     }
     
     // Get first matching byte offset (0-7), or -1 if none
     @inline
-    pub fn first_match(&self, tag: i8) -> i64 {
+    pub fn first_match(self, tag: i8) -> i64 {
         let mask = self.match_tag(tag);
         if mask == 0 {
             return -1;
