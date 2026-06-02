@@ -303,25 +303,19 @@ pub fn moe_net_tx_send(pkt: u64, pkt_len: u32) -> bool {
 }
 
 // =============================================================================
-// IRQ Handler
+// Zero-Trap Reactor Polling
 // =============================================================================
-// Acknowledges the VirtIO ISR. Called from IDT vector handler.
+// Replaces the hardware interrupt. The kernel idle loop or reactor polls this.
 
 @no_mangle
-pub fn virtio_net_isr() {
-    // 1. Acknowledge and clear the hardware interrupt
-    let isr = virtio.virtio_read_isr();
-    serial.print("[ISR] VirtIO IRQ, isr=");
-    serial.print_u64(isr as u64);
-    serial.print("\n");
-    
-    // 2. Capture the current receive count
+pub fn net_poll() {
+    // 1. Capture the current receive count
     let rx_before = RX_COUNT;
     
-    // 3. Reclaim completed TX descriptors
+    // 2. Reclaim completed TX descriptors
     tx_reclaim_used();
 
-    // 4. Drain the RX ring and route the packets synchronously
+    // 3. Drain the RX ring and route the packets synchronously
     netcore_poll_all();
     
     // 4. The RX Gate: Only wake the coroutine if new data actually arrived

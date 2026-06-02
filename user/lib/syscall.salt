@@ -88,6 +88,14 @@ pub fn ipc_recv() -> u64 {
     return sys_ipc_recv();
 }
 
+extern fn sys_ipc_get_msg0() -> u64;
+extern fn sys_ipc_get_msg1() -> u64;
+extern fn sys_ipc_get_msg2() -> u64;
+
+pub fn ipc_get_msg0() -> u64 { return sys_ipc_get_msg0(); }
+pub fn ipc_get_msg1() -> u64 { return sys_ipc_get_msg1(); }
+pub fn ipc_get_msg2() -> u64 { return sys_ipc_get_msg2(); }
+
 // =============================================================================
 // Shared Memory — Zero-Copy Bulk Data Transfer
 // =============================================================================

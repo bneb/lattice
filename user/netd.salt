@@ -196,22 +196,19 @@ pub fn netd_main() {
     loop {
         let sender = syscall.ipc_recv();
 
-        // After ipc_recv returns:
-        //   RAX = sender_pid (returned)
-        //   RDI = msg0 (command)
-        //   RSI = msg1 (argument)
-        //   RDX = msg2 (auxiliary)
-        // We need a way to read RDI/RSI/RDX after ipc_recv.
-        // For now, this is a stub — the actual integration requires
-        // a multi-return ABI or register-reading intrinsics.
+        // After ipc_recv returns, read the payload
+        let cmd = syscall.ipc_get_msg0();
+        let arg = syscall.ipc_get_msg1();
 
-        // Stub: the command dispatch would look like:
-        // let cmd = read_rdi();
-        // let arg = read_rsi();
-        // match cmd {
-        //     CMD_BIND   => handle_bind(sender, arg, bindings, &mut next_fd),
-        //     CMD_ACCEPT => handle_accept(sender, arg, bindings),
-        //     CMD_CLOSE  => handle_close(sender, arg, bindings),
-        // }
+        if cmd == socket_protocol.CMD_BIND {
+            handle_bind(sender, arg, bindings, &mut next_fd);
+        } else if cmd == socket_protocol.CMD_ACCEPT {
+            handle_accept(sender, arg, bindings);
+        } else if cmd == socket_protocol.CMD_CLOSE {
+            handle_close(sender, arg, bindings);
+        } else {
+            // Unknown command
+            syscall.ipc_send(sender, socket_protocol.RESP_ERR, 0, 0);
+        }
     }
 }
