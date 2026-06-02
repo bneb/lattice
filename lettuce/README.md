@@ -138,21 +138,20 @@ load/store/branch instructions with full LLVM `-O3` optimizations applied.
 ## Architecture
 
 ```
-lettuce/
-├── src/
-│   └── server.salt      # 567 lines — RESP parser + executor + event loop
-└── tests/
-    └── ...
+user/lettuce/
+├── server.salt          # Event loop + Reactor
+├── store.salt           # Command execution + Database Engine
+└── resp.salt            # RESP Parser
 
 Dependencies (Salt stdlib):
-├── std.collections.string_map   # 452 lines — SwissTable + Arena
+├── std.collections.string_map   # 480 lines — SoA SwissTable + Arena
 ├── std.net.tcp                  # 75 lines  — TcpListener, TcpStream
 ├── std.net.poller               # 64 lines  — kqueue wrapper
 └── std.core.str                 # StringView (zero-copy string slices)
 ```
 
-**Total application code: 567 lines of Salt.**  
-**Total including stdlib networking + data structures: ~1,158 lines.**
+**Total application code: ~567 lines of Salt.**  
+**Total including stdlib networking + data structures: ~1,180 lines.**
 
 ### Supported Commands
 

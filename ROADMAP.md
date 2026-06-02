@@ -36,7 +36,7 @@ Running non-trivial services in Ring 3 with a solidified core ABI.
 
 - **IPC Formalization** — Finalize the SPSC ring buffer contract for userspace process communication.
 - **Memory Allocation** — Implement basic allocation wrappers like `user.alloc` for `sys_brk`.
-- **Service Porting** — Run a read-only version of the Lettuce state engine as a standalone userspace process.
+- **Service Porting** — Run a version of the Lettuce state engine as a standalone userspace process (✅ Database engine and parsing completed).
 
 ---
 

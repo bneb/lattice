@@ -14,7 +14,7 @@ This sprint plan is derived from the comprehensive codebase audit and prioritize
 ## Sprint 2: Safety & Runtime Overhaul
 **Goal:** Eliminate unbounded pointer arithmetic and fix executor deadlocks.
 
-- [ ] **KEU-01**: Refactor `lettuce/src/server.salt` to replace manual `memcpy` sliding windows with bounds-checked slices.
+- [x] **KEU-01**: Refactor `lettuce/src/server.salt` to replace manual `memcpy` sliding windows with bounds-checked slices (Completed via `std.collections.string_map` and RESP refactor).
 - [ ] **KEU-02**: Strip unbounded array loops and struct offsets from `basalt/src/main.salt`.
 - [ ] **KEU-03**: Fix the Chase-Lev deque race condition in `salt/std/async/executor.salt` (prevent non-atomic remote pushes to `bottom`).
 - [ ] **KEU-04**: Inject `intrinsics::m4_sev()` wake sequence across the asynchronous executor state transitions to resolve `WFE` deadlocks.
