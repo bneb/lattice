@@ -593,11 +593,13 @@ pub fn resolve_and_emit_method(
             }
         }
         let is_aggregate = is_aggregate_type(&ty);
+        let is_ref_ssa = matches!(ty, Type::Reference(_, _)) && matches!(_kind, crate::codegen::expr::LValueKind::SSA);
         if is_aggregate {
-
             // Return the pointer directly - wrap type in Reference to signal pointer semantics
             // This ensures downstream coercion logic (lines 2740+) knows we have a pointer
             (addr, Type::Reference(Box::new(ty), false))
+        } else if is_ref_ssa {
+            (addr, ty)
         } else {
             // For non-aggregates (primitives), load as usual
 
