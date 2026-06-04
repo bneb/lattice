@@ -66,16 +66,18 @@ pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall,
                     let args_tys_str = arg_mlir_tys.join(", ");
                     let ret_mlir_ty = ret_ty.to_mlir_type(ctx)?;
 
+                    let mut res_val = String::new();
                     if **ret_ty == Type::Unit {
                         out.push_str(&format!("    llvm.call {}({}) : !llvm.ptr, ({}) -> ()\n",
                             fn_ptr_val, args_str, args_tys_str));
-                        return Ok(("".to_string(), Type::Unit));
                     } else {
-                        let res_val = format!("%indirect_call_{}", ctx.next_id());
+                        res_val = format!("%indirect_call_{}", ctx.next_id());
                         out.push_str(&format!("    {} = llvm.call {}({}) : !llvm.ptr, ({}) -> {}\n",
                             res_val, fn_ptr_val, args_str, args_tys_str, ret_mlir_ty));
-                        return Ok((res_val, *ret_ty.clone()));
                     }
+
+                    ctx.emission.global_lvn.clear();
+                    return Ok((res_val, *ret_ty.clone()));
                 }
             }
             // If evaluation failed or type wasn't Fn, fall through to resolver
@@ -429,6 +431,10 @@ pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall,
              } else {
                  out.push_str(&format!("    {} = func.call @{}({}) : ({}) -> {}\n", res_val, call_name, args_str, args_tys_str, ret_ty.to_mlir_type(ctx)?));
              }
+             
+             // [COMPILER BUG FIX]: Function calls may mutate global variables.
+             // We MUST invalidate the Global Local Value Numbering cache!
+             ctx.emission.global_lvn.clear();
 
              // [SOVEREIGN V5.0] Z3 Ownership Tracking: Allocator Interception
              // When malloc() is called, store a pending allocation marker so that

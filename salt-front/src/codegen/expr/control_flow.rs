@@ -38,7 +38,12 @@ pub fn emit_if_expr(ctx: &mut LoweringContext, out: &mut String, if_expr: &syn::
     let mut then_out = String::new();
     // [v0.9.2] Push branch condition as path constraint for Z3 postcondition verification
     ctx.emission.path_conditions.push((*if_expr.cond).clone());
+    
+    // [COMPILER BUG FIX]: Prevent global loads in then-branch from leaking to merge block
+    ctx.emission.global_lvn.push_snapshot();
     let (then_val, then_actual) = emit_block_expr(ctx, &mut then_out, &if_expr.then_branch, local_vars, expected)?;
+    ctx.emission.global_lvn.pop_snapshot();
+    
     ctx.emission.path_conditions.pop();
     
     let mut else_out = String::new();
@@ -50,11 +55,15 @@ pub fn emit_if_expr(ctx: &mut LoweringContext, out: &mut String, if_expr: &syn::
             expr: Box::new((*if_expr.cond).clone()),
         });
         ctx.emission.path_conditions.push(negated_cond);
+        
+        ctx.emission.global_lvn.push_snapshot();
         let result = match else_branch.as_ref() {
              syn::Expr::Block(b) => emit_block_expr(ctx, &mut else_out, &b.block, local_vars, expected)?,
              syn::Expr::If(i) => emit_if_expr(ctx, &mut else_out, i, local_vars, expected)?,
              _ => return Err("Unsupported else branch".to_string())
         };
+        ctx.emission.global_lvn.pop_snapshot();
+        
         ctx.emission.path_conditions.pop();
         result
     } else {
@@ -322,8 +331,9 @@ pub fn emit_match(ctx: &mut LoweringContext, out: &mut String, m: &syn::ExprMatc
               }
         }
         
+        ctx.emission.global_lvn.push_snapshot();
         let (val, ty) = emit_expr(ctx, out, &arm.body, &mut arm_scope, Some(&ret_ty))?;
-        
+        ctx.emission.global_lvn.pop_snapshot();
         // Handle Return vs Expression result
         if val != "%unreachable" {
              if ret_ty != Type::Unit {

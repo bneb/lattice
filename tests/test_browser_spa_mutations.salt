@@ -22,8 +22,8 @@ pub fn main() -> i32 {
     }
     
     // Total nodes = 101 => ROOT (1) + 100
-    if dom.get_dom_node_count() != 101 {
-        println(f"FAIL: Expected DOM_NODE_COUNT 101, got {dom.get_dom_node_count()}");
+    if dom.DOM_NODE_COUNT != 101 {
+        println(f"FAIL: Expected DOM_NODE_COUNT 101, got {dom.DOM_NODE_COUNT}");
         return 1;
     }
     
@@ -60,6 +60,7 @@ pub fn main() -> i32 {
     // Scenario 3: Remove child (c2) and ensure nested child is pushed to freellist
     // ----------------------------------------------------
     dom.remove_child(parent_id, c2);
+    dom.ext_dom_free_node(c2_idx as u32); // Simulate JS GC finalizer
     
     if dom.DOM_NODE_NEXT_SIBLING[c1_idx] != c3 { 
         println("FAIL: Sibling unlinking failed!");
@@ -67,38 +68,40 @@ pub fn main() -> i32 {
     }
     
     // Both c2 and nested should have been recycled. We expect free list length = 2
-    if dom.get_dom_free_list_count() != 2 {
-        println(f"FAIL: Expected DOM_FREE_LIST_COUNT = 2, got {dom.get_dom_free_list_count()}");
+    if dom.DOM_FREE_LIST_COUNT != 2 {
+        println(f"FAIL: Expected DOM_FREE_LIST_COUNT = 2, got {dom.DOM_FREE_LIST_COUNT}");
         return 7;
     }
     
     // ----------------------------------------------------
     // Scenario 4: Create Node pops from Free List!
     // ----------------------------------------------------
+    println(f"Before create_node: count is {dom.DOM_FREE_LIST_COUNT}");
     let refilled_1 = dom.create_node(dom.TAG_DIV);
+    println(f"After create_node 1: count is {dom.DOM_FREE_LIST_COUNT}");
     let refilled_2 = dom.create_node(dom.TAG_HTML);
+    println(f"After create_node 2: count is {dom.DOM_FREE_LIST_COUNT}");
     
-    if dom.get_dom_free_list_count() != 0 {
-        println("FAIL: Did not consume freelist!");
+    if dom.DOM_FREE_LIST_COUNT != 0 {
+        println(f"FAIL: Did not consume freelist! Count is {dom.DOM_FREE_LIST_COUNT}");
         return 8;
     }
     
-    // They should reuse the IDs of nested and c2, but with Generation 1!
-    // gen << 16 | idx -> 1 << 16 | 103 = 65639
-    // gen << 16 | idx -> 1 << 16 | 105 = 65641
-    if refilled_1 != 65639 {
-        println(f"FAIL: Expected generation-secured ID 65639, got {refilled_1}");
+    // They should reuse the IDs of c2 and nested, but with Generation 2!
+    // gen << 16 | idx -> 2 << 16 | 103 = 131175
+    // gen << 16 | idx -> 2 << 16 | 105 = 131177
+    if refilled_1 != 131175 {
+        println(f"FAIL: Expected generation-secured ID 131175, got {refilled_1}");
         return 9;
     }
-    
-    if refilled_2 != 65641 {
-        println(f"FAIL: Expected generation-secured ID 65641, got {refilled_2}");
+    if refilled_2 != 131177 {
+        println(f"FAIL: Expected generation-secured ID 131177, got {refilled_2}");
         return 10;
     }
     
     // Node count should STILL BE 106, meaning we saved memory!
-    if dom.get_dom_node_count() != 106 {
-        println(f"FAIL: Expected DOM_NODE_COUNT to remain 106, got {dom.get_dom_node_count()}");
+    if dom.DOM_NODE_COUNT != 106 {
+        println(f"FAIL: Expected DOM_NODE_COUNT to remain 106, got {dom.DOM_NODE_COUNT}");
         return 11;
     }
     

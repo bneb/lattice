@@ -532,6 +532,7 @@ pub fn resolve_and_emit_method(
              } else {
                  out.push_str(&format!("    {} = func.call @{}({}) : ({}) -> {}\n", res, mangled, args_str, arg_tys_str, ret_ty.to_mlir_type(ctx)?));
              }
+             ctx.emission.global_lvn.clear();
              return Ok((res, ret_ty));
         }
     }
@@ -1230,6 +1231,7 @@ pub fn resolve_and_emit_method(
             }
         }
         
+        ctx.emission.global_lvn.clear();
         Ok((res, ret_ty))
     } else {
         Err(format!("Method {} not found on type {}", method_name, target_name))
