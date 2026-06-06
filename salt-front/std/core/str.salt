@@ -1,7 +1,7 @@
 
 package std.core.str
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // =============================================================================
 // StringView — Zero-Copy String Slice

@@ -20,7 +20,7 @@
 
 package kernel.core.percpu
 
-use kernel.drivers.serial
+import kernel.drivers.serial
 
 // Assembly FFI for GS base manipulation
 extern fn write_gs_base(val: u64);

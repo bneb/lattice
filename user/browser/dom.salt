@@ -567,6 +567,24 @@ pub fn bind_event_listener(node_idx: u32, sip_idx: u32, target_pc: u32) -> i32 {
     return 0;
 }
 
+@no_mangle
+pub fn ext_dom_get_event_node(idx: u32) -> u32 {
+    if idx >= 1024 { return 0; }
+    return EVENT_NODE[idx as usize];
+}
+
+@no_mangle
+pub fn ext_dom_get_event_sip(idx: u32) -> u32 {
+    if idx >= 1024 { return 0; }
+    return EVENT_SIP[idx as usize];
+}
+
+@no_mangle
+pub fn ext_dom_get_event_pc(idx: u32) -> u32 {
+    if idx >= 1024 { return 0; }
+    return EVENT_PC[idx as usize];
+}
+
 pub global DOM_NODE_FETCH_STATE: [u8; 65536] = [0; 65536];
 pub global DOM_NODE_TEXTURE_ID: [u32; 65536] = [0; 65536];
 pub global DOM_CANVAS_WIDTH: [u32; 65536] = [0; 65536];
@@ -1123,6 +1141,7 @@ pub fn init_arrays() {
     }
 }
 
+@no_mangle
 pub fn resolve_node(id: u64) -> u32 {
     if id == 0 { return 0; }
     let idx = (id & 0xFFFF) as u32;
@@ -1288,7 +1307,7 @@ pub fn create_node(tag: u32) -> u64 {
         DOM_FREE_LIST_COUNT = DOM_FREE_LIST_COUNT - 1;
         idx = DOM_FREE_LIST[DOM_FREE_LIST_COUNT as usize];
         // CRITICAL: Sanitize all legacy data from previous occupant
-        sanitize_node_slot(idx as usize);
+        sanitize_node_slot(idx as usize); println(f"After sanitize count={DOM_FREE_LIST_COUNT}");
     } else {
         idx = DOM_NODE_COUNT;
         if idx >= 65535 { return 0; } // OOM Guard
@@ -1354,6 +1373,10 @@ pub fn ext_salt_create_text_node(text_ptr: u64, len: u32) -> u64 {
         DOM_TEXT_LEN[idx as usize] = len;
     }
     return id;
+}
+
+pub fn create_text_node(text_ptr: u64, len: u32) -> u64 {
+    return ext_salt_create_text_node(text_ptr, len);
 }
 
 @no_mangle
@@ -1609,7 +1632,7 @@ fn reclaim_subtree(idx: u32) {
     ext_events_free_node_callbacks(idx);
 
     // Sanitize all data so ghost properties don't bleed on reuse
-    sanitize_node_slot(idx as usize);
+    sanitize_node_slot(idx as usize); println(f"After sanitize count={DOM_FREE_LIST_COUNT}");
     
     // Push onto free list
     if DOM_FREE_LIST_COUNT < 65536 {
@@ -1789,10 +1812,35 @@ pub fn bind_attribute(node_id: u64, key_ptr: u64, key_len: u32, val_ptr: u64, va
     if idx >= 262144 { return 0; }
     let u_idx = idx as usize;
     ATTR_NODE_ID[u_idx] = node_id;
-    ATTR_KEY_PTR[u_idx] = key_ptr;
-    ATTR_KEY_LEN[u_idx] = key_len;
-    ATTR_VAL_PTR[u_idx] = val_ptr;
-    ATTR_VAL_LEN[u_idx] = val_len;
+    
+    let safe_key = dom_alloc_text(key_len);
+    if safe_key != 0 {
+        let mut i: u32 = 0;
+        while i < key_len {
+            *((safe_key + i as u64) as &mut u8) = *((key_ptr + i as u64) as &u8);
+            i = i + 1;
+        }
+        ATTR_KEY_PTR[u_idx] = safe_key;
+        ATTR_KEY_LEN[u_idx] = key_len;
+    } else {
+        ATTR_KEY_PTR[u_idx] = key_ptr;
+        ATTR_KEY_LEN[u_idx] = key_len;
+    }
+
+    let safe_val = dom_alloc_text(val_len);
+    if safe_val != 0 {
+        let mut i: u32 = 0;
+        while i < val_len {
+            *((safe_val + i as u64) as &mut u8) = *((val_ptr + i as u64) as &u8);
+            i = i + 1;
+        }
+        ATTR_VAL_PTR[u_idx] = safe_val;
+        ATTR_VAL_LEN[u_idx] = val_len;
+    } else {
+        ATTR_VAL_PTR[u_idx] = val_ptr;
+        ATTR_VAL_LEN[u_idx] = val_len;
+    }
+    
     ATTR_COUNT = ATTR_COUNT + 1;
     return idx;
 }
@@ -1816,8 +1864,16 @@ pub fn dom_get_node_count() -> u64 {
     return DOM_NODE_COUNT;
 }
 
+pub fn set_dom_node_count(c: u64) {
+    DOM_NODE_COUNT = c;
+}
+
 pub fn get_event_count() -> u32 {
     return EVENT_COUNT;
+}
+
+pub fn set_event_count(c: u32) {
+    EVENT_COUNT = c;
 }
 
 @no_mangle
@@ -2032,8 +2088,20 @@ pub fn js_set_id(node_id: u64, id_ptr: u64, id_len: u32) {
     let idx = resolve_node(node_id);
     if idx == 0xFFFFFFFF { return; }
     let u_idx = idx as usize;
-    DOM_ID_PTR[u_idx] = id_ptr;
-    DOM_ID_LEN[u_idx] = id_len;
+    
+    let safe_ptr = dom_alloc_text(id_len);
+    if safe_ptr != 0 {
+        let mut i: u32 = 0;
+        while i < id_len {
+            *((safe_ptr + i as u64) as &mut u8) = *((id_ptr + i as u64) as &u8);
+            i = i + 1;
+        }
+        DOM_ID_PTR[u_idx] = safe_ptr;
+        DOM_ID_LEN[u_idx] = id_len;
+    } else {
+        DOM_ID_PTR[u_idx] = id_ptr;
+        DOM_ID_LEN[u_idx] = id_len;
+    }
 }
 
 // Raw-index ID setter for test/C-bridge usage
@@ -2049,8 +2117,20 @@ pub fn js_set_class(node_id: u64, class_ptr: u64, class_len: u32) {
     let idx = resolve_node(node_id);
     if idx == 0xFFFFFFFF { return; }
     let u_idx = idx as usize;
-    DOM_CLASS_PTR[u_idx] = class_ptr;
-    DOM_CLASS_LEN[u_idx] = class_len;
+    
+    let safe_ptr = dom_alloc_text(class_len);
+    if safe_ptr != 0 {
+        let mut i: u32 = 0;
+        while i < class_len {
+            *((safe_ptr + i as u64) as &mut u8) = *((class_ptr + i as u64) as &u8);
+            i = i + 1;
+        }
+        DOM_CLASS_PTR[u_idx] = safe_ptr;
+        DOM_CLASS_LEN[u_idx] = class_len;
+    } else {
+        DOM_CLASS_PTR[u_idx] = class_ptr;
+        DOM_CLASS_LEN[u_idx] = class_len;
+    }
 }
 
 @no_mangle
@@ -2386,6 +2466,7 @@ pub fn js_set_canvas_texture(node_id: u64, tex_id: u32, w: u32, h: u32) {
 
 // Epic 71: Geometric Tree Order
 // Returns -1 if node1 is before node2, 1 if node1 is after node2, 0 if equal.
+@no_mangle
 pub fn compare_document_position(node1: u32, node2: u32) -> i32 {
     if node1 == node2 { return 0; }
     if node1 == 0 || node2 == 0 { return 0; }
@@ -2660,6 +2741,12 @@ pub fn dom_set_style_color(idx: u32, r: u8, g: u8, b: u8) {
     STYLE_COLOR_B[idx as usize] = b;
     STYLE_COLOR_A[idx as usize] = 255;
     invalidate_paint(idx);
+}
+
+@no_mangle
+pub fn dom_get_style_color_b(idx: u32) -> u8 {
+    if idx >= 65536 { return 0; }
+    return STYLE_COLOR_B[idx as usize];
 }
 
 // Specificity getters

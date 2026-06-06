@@ -29,9 +29,9 @@
 
 package benchmarks.slab_reclaim_bench
 
-use kernel.drivers.serial
-use kernel.drivers.vga
-use kernel.core.scheduler
+import kernel.drivers.serial
+import kernel.drivers.vga
+import kernel.core.scheduler
 
 // slab.salt (kernel.mem) — @no_mangle
 extern fn pop_stack() -> u64;

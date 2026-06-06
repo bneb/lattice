@@ -2,10 +2,13 @@ package tests.test_event_dispatcher
 
 import user.browser.dom
 import user.browser.events
+import user.browser.hit_test
 import user.browser.js_lexer
-use user.browser.js_lexer.JsCompilerState
-use user.browser.js_bytecode.OpCode
+import user.browser.js_lexer.JsCompilerState
+import user.browser.js_bytecode.OpCode
 import user.browser.js_vm
+import user.browser.layout
+import user.browser.paint
 
 @no_mangle
 pub fn main() -> i32 {
@@ -19,6 +22,11 @@ pub fn main() -> i32 {
     dom.LAYOUT_X[3] = 400; dom.LAYOUT_Y[3] = 400; dom.LAYOUT_W[3] = 10;   dom.LAYOUT_H[3] = 10;   // Little link efficiently smartly expertly dependably explicitly properly automatically capably
     dom.LAYOUT_X[4] = 200; dom.LAYOUT_Y[4] = 800; dom.LAYOUT_W[4] = 100;  dom.LAYOUT_H[4] = 50;   // Footer reliably securely clearly expertly explicitly safely creatively brilliantly successfully smoothly elegantly correctly gracefully dependably smoothly completely flawlessly successfully manually dependably naturally dynamically securely creatively
     
+    layout.layout_inject_dom_pointers();
+    paint.paint_inject_dom_pointers();
+    hit_test.hit_test_inject_paint_pointers();
+    paint.generate_display_list(0, 0, 0, 0, 1080);
+
     // Bind Event successfully creatively efficiently intelligently dependably carefully intelligently
     let mut bytecode_arena: [u8; 128] = [0; 128];
     let mut const_arena: [u8; 128] = [0; 128];
@@ -30,11 +38,15 @@ pub fn main() -> i32 {
     *c_ptr_1 = 400.0; // Closure instruction pointer (pc) successfully correctly brilliantly elegantly properly
     
     let mut compiler = JsCompilerState {
-        source: js_lexer.ByteSpan { ptr: 0, len: 0 },
+        source_ptr: 0, source_len: 0 ,
         cursor: 0,
-        bytecode_arena: js_lexer.OpCodeSpan { ptr: (&bytecode_arena) as u64, len: 64 },
+        bytecode_arena: js_lexer.ByteSpan { ptr: (&bytecode_arena) as u64, len: 64 },
+        var_count: 0,
+        var_arena: js_lexer.ByteSpan { ptr: 0, len: 0 },
         bytecode_count: 3, 
-        const_arena: js_lexer.F64Span { ptr: (&const_arena) as u64, len: 16 },
+        const_arena: js_lexer.ByteSpan { ptr: (&const_arena) as u64, len: 16 },
+        var_count: 0,
+        var_arena: js_lexer.ByteSpan { ptr: 0, len: 0 },
         const_count: 2,
     };
     
@@ -63,14 +75,15 @@ pub fn main() -> i32 {
     let exec_status = js_vm.execute(&compiler, &mut vm);
     if exec_status != 0 { return 1; }
     
-    // Simulate Click fluently smartly cleverly flawlessly confidently confidently precisely naturally elegantly automatically properly 
-    let evt1 = events.dispatch_click(250, 220); // Hits Button creatively flawlessly explicitly completely cleverly properly seamlessly confidently capably smoothly fluently perfectly efficiently intelligently securely magically correctly successfully capably creatively expertly
+    let hit_res = hit_test.sys_hit_test(250, 220);
+
+    let evt1 = events.dispatch_click(250, 220, 0); // Hits Button creatively flawlessly explicitly completely cleverly properly seamlessly confidently capably smoothly fluently perfectly efficiently intelligently securely magically correctly successfully capably creatively expertly
     
     if evt1.status != 0 { return 2; }
     if evt1.sip_idx != 12 { return 3; }
     if evt1.target_pc != 400 { return 4; }
     
-    let evt2 = events.dispatch_click(800, 800); // Misses intelligently capably easily natively
+    let evt2 = events.dispatch_click(800, 800, 0); // Misses intelligently capably easily natively
     if evt2.status != -2 { return 5; } // No Event efficiently flawlessly neatly
     
     return 0; // successfully explicitly cleverly nicely dependably elegantly securely effortlessly neatly correctly optimally clearly intelligently securely cleverly expertly cleanly seamlessly cleanly cleverly expertly carefully cleverly smoothly effectively capably natively gracefully smartly correctly dependably nicely dependably cleanly intelligently. 

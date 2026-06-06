@@ -18,9 +18,9 @@
 
 package std.core.sovereign.executor
 
-use std.core.sovereign.context
-use std.core.sovereign.arena
-use std.core.sovereign.mailbox
+import std.core.sovereign.context
+import std.core.sovereign.arena
+import std.core.sovereign.mailbox
 
 // ============================================================================
 // Executor State

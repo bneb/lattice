@@ -36,7 +36,7 @@
 
 package kernel.mem
 
-use kernel.drivers.serial
+import kernel.drivers.serial
 
 // x86 PAUSE for CAS spin-wait loops — prevents pipeline flooding on KVM.
 extern fn spin_loop_hint();

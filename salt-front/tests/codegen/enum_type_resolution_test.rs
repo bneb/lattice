@@ -18,7 +18,7 @@ mod tests {
 
     macro_rules! with_ctx {
         ($name:ident, $block:block) => {
-            let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+            let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
             let z3_cfg = z3::Config::new();
             let z3_ctx = z3::Context::new(&z3_cfg);
             #[allow(unused_mut)]

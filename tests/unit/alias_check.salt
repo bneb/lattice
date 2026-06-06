@@ -1,7 +1,0 @@
-fn main() -> f64 {
-    let mut ptr: Owned<f64> = malloc(8);
-    ptr[0] = 42.0;      // Should emit store with exclusive
-    let val = ptr[0];   // Should emit load with exclusive
-    
-    return val;
-}

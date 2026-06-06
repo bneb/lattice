@@ -9,7 +9,7 @@
 
 package main
 
-use std.core.arena.Arena
+import std.core.arena.Arena
 
 struct Secret { val: i64 }
 

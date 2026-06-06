@@ -1,7 +1,7 @@
 
 package std.sys
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // Type alias for clarity
 pub type FileDescriptor = i32

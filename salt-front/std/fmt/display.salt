@@ -3,7 +3,7 @@
 
 package std.fmt
 
-use std.string.String
+import std.string.String
 
 // The Display trait for type-safe formatting
 trait Display {

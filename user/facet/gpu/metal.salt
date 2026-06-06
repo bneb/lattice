@@ -5,7 +5,7 @@
 
 package gpu.metal
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // FFI — facet_gpu.m (Objective-C Metal bridge)
 extern fn facet_gpu_init() -> i64;

@@ -14,9 +14,9 @@
 
 package benchmarks.ring_of_fire_lite
 
-use kernel.core.scheduler
-use kernel.drivers.serial
-use kernel.core.timing
+import kernel.core.scheduler
+import kernel.drivers.serial
+import kernel.core.timing
 extern fn sched_yield();
 
 const NUM_FIBERS: i32 = 4;

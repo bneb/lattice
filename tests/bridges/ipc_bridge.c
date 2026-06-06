@@ -336,7 +336,7 @@ uint64_t sys_mmap_file(uint64_t path_ptr, uint32_t path_len,
   return 0;
 }
 __attribute__((weak)) void sys_sleep_ms(uint32_t ms) { usleep(ms * 1000); }
-void js_resolve_fetch_impl(uint32_t id, uint64_t head_ptr, uint32_t head_len,
+__attribute__((weak)) void js_resolve_fetch_impl(uint32_t id, uint64_t head_ptr, uint32_t head_len,
                            uint64_t bd_ptr, uint32_t bd_len, uint32_t c) {}
 __attribute__((weak)) void sys_atomic_write_u8(uint8_t *ptr, uint8_t val) {}
 float sys_clock_get_ms(void) { return 0.0f; }
@@ -561,3 +561,4 @@ __attribute__((weak)) void sys_jsc_flush_microtasks(void) {}
 __attribute__((weak)) void sys_typography_init(void) {}
 
 
+void sys_ipc_recv_full(unsigned long msg_out) {}

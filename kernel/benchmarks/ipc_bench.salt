@@ -5,9 +5,9 @@
 
 package benchmarks.ipc_bench
 
-use kernel.drivers.serial
-use kernel.drivers.vga
-use kernel.core.timing
+import kernel.drivers.serial
+import kernel.drivers.vga
+import kernel.core.timing
 
 extern fn volatile_read_i32(addr: u64) -> i32;
 extern fn volatile_write_i32(addr: u64, val: i32);

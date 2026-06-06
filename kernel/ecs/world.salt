@@ -39,7 +39,7 @@ import kernel.ecs.sparse_set.{
     epoch_info_set_remove, perf_counters_set_remove
 }
 
-extern fn malloc(size: i64) -> u64;
+extern fn malloc(size: i64) -> Ptr<u8>;
 
 pub struct World {
     // Entity allocator — mint and recycle entity IDs

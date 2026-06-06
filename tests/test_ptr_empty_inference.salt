@@ -5,7 +5,7 @@
 
 package main
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 struct Node {
     val: i64,

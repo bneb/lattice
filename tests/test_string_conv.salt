@@ -10,9 +10,9 @@
 
 package main
 
-use std.core.ptr.Ptr
-use std.core.str.StringView
-use std.string.String
+import std.core.ptr.Ptr
+import std.core.str.StringView
+import std.string.String
 
 extern fn exit(code: i32);
 

@@ -15,9 +15,9 @@
 
 package basalt.model_loader
 
-use std.core.ptr.Ptr
-use std.io.println
-use basalt.transformer.{Config, TransformerWeights}
+import std.core.ptr.Ptr
+import std.io.println
+import basalt.transformer.{Config, TransformerWeights}
 
 // No malloc needed — embeddings stay in q8_0 format in memory
 

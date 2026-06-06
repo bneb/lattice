@@ -18,10 +18,10 @@
 
 package benchmarks.ipc_fastpath_bench
 
-use kernel.core.process
-use kernel.core.timing
-use kernel.drivers.serial
-use kernel.drivers.vga
+import kernel.core.process
+import kernel.core.timing
+import kernel.drivers.serial
+import kernel.drivers.vga
 
 extern fn sys_ipc_send(target_pid: u64, msg0: u64, msg1: u64, msg2: u64) -> u64;
 extern fn sys_ipc_recv() -> u64;

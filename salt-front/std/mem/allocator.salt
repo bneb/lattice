@@ -4,13 +4,13 @@
 
 package std.mem.allocator
 
-use std.core.ptr.Ptr
-use std.core.arena.Arena
+import std.core.ptr.Ptr
+import std.core.arena.Arena
 
 // ---------------------------------------------------------------
 // External C runtime functions
 // ---------------------------------------------------------------
-extern fn malloc(size: i64) -> u64;
+extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn salt_sys_realloc(ptr: u64, new_size: i64) -> u64;
 extern fn salt_sys_free(ptr: u64);
 

@@ -14,7 +14,7 @@
 
 package user.kernel.print
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ============================================================================
 // Port I/O — direct extern (same link target as uart.salt)

@@ -10,11 +10,11 @@
 
 package benchmarks.c10m.arena_exhaustion
 
-use std.core.sovereign.context
-use std.core.sovereign.executor
-use std.core.sovereign.arena
-use std.io
-use std.core.ptr.Ptr
+import std.core.sovereign.context
+import std.core.sovereign.executor
+import std.core.sovereign.arena
+import std.io
+import std.core.ptr.Ptr
 
 // ============================================================================
 // Configuration

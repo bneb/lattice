@@ -11,9 +11,9 @@
 
 package main
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
-extern fn malloc(size: i64) -> u64;
+extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: u64);
 
 const PHASE_LOAD_INPUT: u32 = 0;
@@ -50,7 +50,7 @@ const M_DEC_CALLED: u64 = 32;
 const M_SIZE: u64 = 40;
 
 fn mock_alloc() -> u64 {
-    let m: u64 = malloc(M_SIZE as i64);
+    let m: u64 = (malloc(M_SIZE as i64)) as u64;
     let mut i: u64 = 0;
     while i < M_SIZE { *((m + i) as &mut u8) = 0; i = i + 1; }
     *((m + M_VAL0) as &mut u64) = 10000;
@@ -198,13 +198,13 @@ fn cleanup8(a: u64, b: u64, c: u64, d: u64, e: u64, f: u64, g: u64, h: u64) {
 }
 
 fn main() -> i32 {
-    let input: u64 = malloc(2048);
-    let weights: u64 = malloc(2048);
-    let output: u64 = malloc(2048);
-    let sa: u64 = malloc(S_SIZE as i64);
-    let sb: u64 = malloc(S_SIZE as i64);
-    let bar: u64 = malloc(16);
-    let poll: u64 = malloc(8);
+    let input: u64 = (malloc(2048)) as u64;
+    let weights: u64 = (malloc(2048)) as u64;
+    let output: u64 = (malloc(2048)) as u64;
+    let sa: u64 = (malloc(S_SIZE as i64)) as u64;
+    let sb: u64 = (malloc(S_SIZE as i64)) as u64;
+    let bar: u64 = (malloc(16)) as u64;
+    let poll: u64 = (malloc(8)) as u64;
     let mock: u64 = mock_alloc();
 
     if input == 0 || weights == 0 || output == 0 || sa == 0 ||

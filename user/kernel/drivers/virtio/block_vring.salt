@@ -30,7 +30,7 @@
 
 package user.kernel.drivers.virtio.block_vring
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ============================================================================
 // Request Types

@@ -175,8 +175,8 @@ pub fn hash_bytes(ptr: Ptr<u8>, len: i64) -> u64 {
 // Each lane runs independent FNV-1a, merged at end via XOR reduction.
 // Achieves ~3.2 bytes/cycle on M4 vs 1.4 for scalar unrolled.
 
-use std.simd.u64x2
-use std.simd.load_u64x2
+import std.simd.u64x2
+import std.simd.load_u64x2
 
 @inline
 fn hash_bytes_simd(ptr: Ptr<u8>, len: usize) -> u64 {
@@ -273,8 +273,8 @@ pub fn hash_bytes_fast(ptr: Ptr<u8>, len: usize) -> u64 {
 // String Hash Implementation
 // =============================================================================
 
-use std.string.String
-use std.core.ptr.Ptr
+import std.string.String
+import std.core.ptr.Ptr
 
 impl Hash for String {
     @inline

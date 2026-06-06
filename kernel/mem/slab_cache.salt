@@ -29,12 +29,22 @@ import kernel.core.pmm
 import kernel.core.panic
 import kernel.drivers.serial
 
+// [SEC-17] SMP Safety: disable/enable interrupts for critical sections
+extern fn disable_interrupts();
 // =============================================================================
 // Constants
 // =============================================================================
 const PAGE_SIZE: u64 = 4096;
 pub const MAX_CACHES: u64 = 16;
-pub const REDZONE_MAGIC: u64 = 0xDEADBEEF;
+// Per-CPU accessor
+extern fn get_cpu_id() -> u64;
+
+// Atomic intrinsics for lock-free Treiber stack (CAS)
+extern fn atomic_cas_i64(addr: u64, expected: i64, desired: i64) -> i64;
+extern fn spin_loop_hint();
+
+// Redzone magic to detect buffer overflows
+const REDZONE_MAGIC: u64 = 0xDEADBEEFCAFEBABE;
 
 // ObjectCache descriptor layout (32 bytes per cache, stored in registry page):
 //   offset 0:  is_active     (u64)  — 1 if cache is live, 0 if slot free
@@ -141,16 +151,31 @@ fn grow_cache(cache_id: u64) -> u64 {
             // Point to the next slot in this page
             let next = current + slot_size;
             *(current as &mut u64) = next;
-        } else {
-            // Last slot chains to whatever the old freelist head was
-            *(current as &mut u64) = old_head;
         }
 
         i = i + 1;
     }
 
     // 3. Update cache head to the first slot of the new page
-    *((base + 24) as &mut u64) = page_virt;
+    // We use a CAS loop here to safely append the grown page to the freelist
+    // even if multiple cores concurrently attempt to grow the cache.
+    let head_addr = base + 24;
+    let mut current_head = old_head;
+    let mut success = false;
+    
+    while !success {
+        // Last slot chains to whatever the current freelist head is
+        let last_slot = page_virt + ((objects_per_page - 1) * slot_size);
+        *(last_slot as &mut u64) = current_head;
+        
+        let cas_res = atomic_cas_i64(head_addr, current_head as i64, page_virt as i64) as u64;
+        if cas_res == current_head {
+            success = true;
+        } else {
+            current_head = cas_res;
+            spin_loop_hint();
+        }
+    }
     return 1;
 }
 
@@ -160,25 +185,41 @@ fn grow_cache(cache_id: u64) -> u64 {
 // Security: Zeroes the user region. Does NOT overwrite the Redzone.
 // =============================================================================
 pub fn alloc(cache_id: u64) -> u64 {
+    // [SEC-17] SECURITY FIX: Lock-free atomic Compare-And-Swap (CAS) loop
+    // to protect the freelist from concurrent modification on SMP.
     let base = CACHE_REGISTRY + (cache_id * CACHE_STRIDE);
     let user_obj_size = *((base + 8) as &u64);
+    let head_addr = base + 24;
 
-    // 1. If freelist is empty, grow the cache
-    let head = *((base + 24) as &u64);
-    if head == 0 {
-        let success = grow_cache(cache_id);
-        if success == 0 {
-            return 0;  // OOM
+    let mut allocated: u64 = 0;
+    let mut success = false;
+    
+    while !success {
+        // 1. Check freelist head
+        let mut head = *(head_addr as &u64);
+        if head == 0 {
+            let grown = grow_cache(cache_id);
+            if grown == 0 {
+                return 0;  // OOM
+            }
+            continue;
+        }
+
+        // 2. Pop the head of the Treiber stack using CAS
+        let next = *(head as &u64);
+        let cas_res = atomic_cas_i64(head_addr, head as i64, next as i64) as u64;
+        if cas_res == head {
+            allocated = head;
+            success = true;
+        } else {
+            spin_loop_hint();
         }
     }
 
-    // 2. Pop the head of the Treiber stack
-    let allocated = *((base + 24) as &u64);
-    let next = *(allocated as &u64);
-    *((base + 24) as &mut u64) = next;
-
     // 3. Security zeroing: clear user_obj_size bytes (8-byte aligned)
     //    DO NOT TOUCH THE REDZONE — it must remain intact.
+    //    Note: zeroing happens AFTER re-enabling interrupts since it's safe
+    //    (the object is now exclusively owned by this caller).
     let mut offset: u64 = 0;
     while offset < user_obj_size {
         *((allocated + offset) as &mut u64) = 0;
@@ -197,9 +238,8 @@ pub fn free(cache_id: u64, ptr: u64) {
 
     let base = CACHE_REGISTRY + (cache_id * CACHE_STRIDE);
     let user_obj_size = *((base + 8) as &u64);
-    let old_head = *((base + 24) as &u64);
 
-    // 1. Apple Redzone Validation
+    // 1. Apple Redzone Validation (safe to check outside critical section)
     let redzone_ptr = (ptr + user_obj_size) as &u64;
     if *redzone_ptr != REDZONE_MAGIC {
         serial.print("[slab_cache] FATAL: REDZONE CORRUPTION at 0x");
@@ -208,9 +248,22 @@ pub fn free(cache_id: u64, ptr: u64) {
         panic.panic("slab_cache: BUFFER OVERFLOW DETECTED");
     }
 
-    // 2. Push object back onto the Treiber stack
-    *(ptr as &mut u64) = old_head;
-    *((base + 24) as &mut u64) = ptr;
+    // [SEC-17] SECURITY FIX: Lock-free atomic CAS loop to protect the freelist.
+    let head_addr = base + 24;
+    let mut current_head = *(head_addr as &u64);
+    let mut success = false;
+    
+    while !success {
+        // 2. Push object back onto the Treiber stack
+        *(ptr as &mut u64) = current_head;
+        let cas_res = atomic_cas_i64(head_addr, current_head as i64, ptr as i64) as u64;
+        if cas_res == current_head {
+            success = true;
+        } else {
+            current_head = cas_res;
+            spin_loop_hint();
+        }
+    }
 }
 
 // @no_mangle ABI Wrappers

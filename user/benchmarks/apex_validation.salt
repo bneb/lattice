@@ -22,7 +22,7 @@
 
 package user.benchmarks.apex_validation
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // Hardware cycle counter — llvm.intr.readcyclecounter
 extern fn rdtsc() -> i64;
@@ -31,7 +31,7 @@ extern fn rdtsc() -> i64;
 extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
 
 // Heap allocation for benchmark buffers
-extern fn malloc(size: i64) -> u64;
+extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: u64);
 
 // ============================================================================
@@ -69,14 +69,14 @@ pub struct HardwareProfile {
 //   - How to convert cycles to nanoseconds
 // ============================================================================
 pub fn calibrate_hardware() -> HardwareProfile {
-    let sink_addr: u64 = malloc(64);
+    let sink_addr: u64 = malloc(64) as u64;
     let mut zi: i64 = 0;
     while zi < 64 { *((sink_addr + (zi as u64)) as &mut u8) = 0; zi = zi + 1; }
     let sink: Ptr<i64> = sink_addr as Ptr<i64>;
 
     // --- Matmul 4×4 ---
     let s4: u64 = 128;
-    let a4: u64 = malloc((s4 * 3) as i64);
+    let a4: u64 = malloc((s4 * 3) as i64) as u64;
     fill_matrix(a4, 4, 1.0);
     fill_matrix(a4 + s4, 4, 2.0);
     fill_matrix(a4 + s4 * 2, 4, 0.0);
@@ -85,7 +85,7 @@ pub fn calibrate_hardware() -> HardwareProfile {
 
     // --- Matmul 16×16 ---
     let s16: u64 = 2048;
-    let a16: u64 = malloc((s16 * 3) as i64);
+    let a16: u64 = malloc((s16 * 3) as i64) as u64;
     fill_matrix(a16, 16, 1.0);
     fill_matrix(a16 + s16, 16, 2.0);
     fill_matrix(a16 + s16 * 2, 16, 0.0);
@@ -93,7 +93,7 @@ pub fn calibrate_hardware() -> HardwareProfile {
     free(a16);
 
     // --- Scheduler promotion ---
-    let sched_buf: u64 = malloc(128);
+    let sched_buf: u64 = malloc(128) as u64;
     let mut szi: i64 = 0;
     while szi < 128 { *((sched_buf + (szi as u64)) as &mut u8) = 0; szi = szi + 1; }
     *((sched_buf) as &mut u32) = 2;     // TASK_PENDING

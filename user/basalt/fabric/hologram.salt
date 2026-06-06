@@ -18,7 +18,7 @@
 
 package user.basalt.fabric.hologram
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // Manifest layout offsets (mirrored from manifest.salt)
 const MANIFEST_SUBSTRATE: u64 = 0;

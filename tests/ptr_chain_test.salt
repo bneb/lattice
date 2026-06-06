@@ -3,7 +3,7 @@
 
 package main
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // Test 1: read from a ptr parameter (not self.ptr)
 fn read_byte(ptr: Ptr<u8>, idx: i64) -> u8 {

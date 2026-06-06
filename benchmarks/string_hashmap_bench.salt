@@ -2,11 +2,11 @@
 package basalt
 // Tests FNV-1a hash performance for String keys
 
-use std.collections.hash_map.HashMap
-use std.string.String
-use std.core.arena
-use std.hash.Hash
-use std.eq.Eq
+import std.collections.hash_map.HashMap
+import std.string.String
+import std.core.arena
+import std.hash.Hash
+import std.eq.Eq
 
 fn main() -> i32 {
     let mut checksum: i64 = 0;

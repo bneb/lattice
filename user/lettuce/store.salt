@@ -15,21 +15,21 @@
 
 package user.lettuce.store
 
-use std.core.ptr.Ptr
-use std.core.str.StringView
-use std.collections.string_map.StringMap
-use std.collections.string_map.StringMap_set
-use std.collections.string_map.StringMap_get
-use std.collections.string_map.StringMap_value_at
-use std.collections.string_map.StringMap_del
-use user.lettuce.resp.{
+import std.core.ptr.Ptr
+import std.core.str.StringView
+import std.collections.string_map.StringMap
+import std.collections.string_map.StringMap_set
+import std.collections.string_map.StringMap_get
+import std.collections.string_map.StringMap_value_at
+import std.collections.string_map.StringMap_del
+import user.lettuce.resp.{
     RespValue, resp_parse, resp_nil,
     RESP_ARRAY, RESP_BULK_STRING, RESP_NULL,
     write_simple_string, write_error, write_integer,
     write_bulk_string, write_null_bulk
 }
 
-extern fn malloc(size: i64) -> Ptr<u8>;
+extern fn malloc(size: i64) -> u64;
 
 // EBR disabled
 
@@ -181,11 +181,11 @@ pub fn execute(smap: Ptr<StringMap>, input: StringView, out_buf: Ptr<u8>, out_ca
         let prompt_ptr = malloc(prompt_len);
         let mut i: i64 = 0;
         while i < prompt_len {
-            *((prompt_ptr.offset(i)) as &mut u8) = *((arg2.str_ptr + (i as u64)) as &u8);
+            *((prompt_ptr + (i as u64)) as &mut u8) = *((arg2.str_ptr + (i as u64)) as &u8);
             i = i + 1;
         }
         
-        return ExecResult { resp_len: -1, input_consumed: consumed, prompt_ptr: (prompt_ptr as u64) };
+        return ExecResult { resp_len: -1, input_consumed: consumed, prompt_ptr: prompt_ptr };
     }
     // --- PING ---
     if cmd_eq4(StringView::from_raw(arg0.str_ptr, arg0.str_len), 112, 105, 110, 103) {

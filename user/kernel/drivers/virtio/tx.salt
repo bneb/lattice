@@ -20,7 +20,7 @@
 
 package user.kernel.drivers.virtio.tx
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ============================================================================
 // Vring constants (from vring.salt)

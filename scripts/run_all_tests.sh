@@ -19,6 +19,10 @@ SCRIPT_DIR="${0:A:h}"
 PROJECT_ROOT="${SCRIPT_DIR:h}"
 RUN_TEST="$SCRIPT_DIR/run_test.sh"
 
+echo "🔨 Building external dependencies..."
+"$SCRIPT_DIR/build_cdm.sh" > /dev/null 2>&1 || true
+"$SCRIPT_DIR/build_worker.sh" > /dev/null 2>&1 || true
+
 FILTER="${1:-}"
 [[ "$FILTER" == "--filter" ]] && FILTER="${2:-}" || true
 
@@ -33,14 +37,6 @@ LIB_FAILURES=()
 # Known compiler deficiencies — tracked but not blocking.
 # These remain in the active suite to drive compiler fixes.
 KNOWN_FAILING=(
-    # All previously known-failing tests have been fixed:
-    # - test_traits: compiler healed (i8→i32 clone)
-    # - test_ptr_empty_inference: compiler healed (make_leaf resolution)
-    # - test_sync: compiler healed (salt_atomic_cas_i64 intrinsic link)
-    # - test_channel: compiler healed (numeric promotion)
-    # - test_elf_loader: compiler healed (kernel imports)
-    # - test_file_io: rewrote with local i32 constants
-    # - test_process_heap_boundary: rewrote with mocked process table
     # - test_pulse_queue: rewrote with mocked ring buffer
     # - test_task0_spawn: rewrote with mocked process table
 )

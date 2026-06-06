@@ -23,10 +23,10 @@ import kernel.core.memory
 import kernel.mem.user_paging
 import kernel.drivers.serial
 import kernel.lib.abi
+import kernel.core.ipi
 import kernel.lib.ipc_ring
 
 extern fn invlpg_addr(vaddr: u64);
-extern fn apic_broadcast_tlb_shootdown();
 
 // =============================================================================
 // Capability Table — Fixed-Size Global Array
@@ -224,7 +224,7 @@ pub fn sys_cap_unmap(capability_id: u64) -> u64 {
     // Broadcast fixed interrupt `0xFD` natively via APIC across the execution matrix,
     // pausing all remote logical cores to synchronize the shadow hardware structures
     // against maliciously overlapping cache geometries.
-    apic_broadcast_tlb_shootdown();
+    ipi.initiate_tlb_shootdown();
     
     // 3. Demolish capability ownership state securely
     cap_table_state[capability_id] = abi.CAP_STATE_FREE;

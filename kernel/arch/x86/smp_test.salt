@@ -18,7 +18,7 @@
 
 package kernel.arch.x86.smp_test
 
-use kernel.drivers.serial
+import kernel.drivers.serial
 
 // =============================================================================
 // Assembly FFI

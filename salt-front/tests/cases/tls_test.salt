@@ -8,7 +8,7 @@
 // OUTPUT: test_invalid_server_ctx: PASS
 // OUTPUT: ALL TESTS PASSED
 
-use std.crypto.tls.TlsContext
+import std.crypto.tls.TlsContext
 
 fn main() -> i32 {
     println("=== TLS Tests ===");

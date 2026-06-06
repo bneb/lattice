@@ -15,7 +15,7 @@
 
 package kernel.net.netd_arp
 
-use kernel.drivers.serial
+import kernel.drivers.serial
 
 const ARP_TABLE_SIZE: u64 = 256;
 

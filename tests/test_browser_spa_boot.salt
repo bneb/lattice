@@ -8,34 +8,51 @@ import user.browser.dom
 import user.browser.layout
 import user.browser.paint
 import user.browser.events
+import user.browser.hit_test
 import user.browser.js_vm
 import user.browser.js_lexer
 import user.browser.alloc.airlock
-use user.browser.js_bytecode.OpCode
-use user.browser.js_lexer.JsCompilerState
-use user.browser.js_lexer.ByteSpan
-use user.browser.js_lexer.OpCodeSpan
-use user.browser.js_lexer.F64Span
+import user.browser.js_bytecode.OpCode
+import user.browser.js_lexer.JsCompilerState
+import user.browser.js_lexer.ByteSpan
+import user.browser.js_lexer.ByteSpan
+import user.browser.js_lexer.ByteSpan
 
 pub fn main() -> i32 {
     dom.init_arrays();
-    airlock.init_arena();
+    layout.layout_inject_dom_pointers();
+    paint.paint_inject_dom_pointers();
+    hit_test.hit_test_inject_paint_pointers();
+    airlock.airlock_init_allocator();
     
     // Create Box A (Background)
     let node_a = dom.create_node(1);
-    dom.LAYOUT_X[node_a as usize] = 0;
-    dom.LAYOUT_Y[node_a as usize] = 0;
-    dom.LAYOUT_W[node_a as usize] = 1920;
-    dom.LAYOUT_H[node_a as usize] = 1080;
-    dom.STYLE_Z_INDEX[node_a as usize] = 0;
+    let idx_a = (node_a & 0xFFFF) as usize;
+    dom.LAYOUT_X[idx_a] = 0;
+    dom.LAYOUT_Y[idx_a] = 0;
+    dom.LAYOUT_W[idx_a] = 1920;
+    dom.LAYOUT_H[idx_a] = 1080;
+    dom.STYLE_Z_INDEX[idx_a] = 0;
+    dom.STYLE_BG_A[idx_a] = 255;
     
     // Create Box B (Button)
     let node_b = dom.create_node(1);
-    dom.LAYOUT_X[node_b as usize] = 400;
-    dom.LAYOUT_Y[node_b as usize] = 200;
-    dom.LAYOUT_W[node_b as usize] = 100;
-    dom.LAYOUT_H[node_b as usize] = 50;
-    dom.STYLE_Z_INDEX[node_b as usize] = 10;
+    let idx_b = (node_b & 0xFFFF) as usize;
+    dom.LAYOUT_X[idx_b] = 400;
+    dom.LAYOUT_Y[idx_b] = 200;
+    dom.LAYOUT_W[idx_b] = 100;
+    dom.LAYOUT_H[idx_b] = 50;
+    dom.STYLE_Z_INDEX[idx_b] = 10;
+    dom.STYLE_BG_A[idx_b] = 255;
+    
+    dom.append_child(node_a, node_b);
+    
+    // Set dirty bits for direct layout manipulation cleanly securely optimally skillfully cleanly explicit brilliantly professionally smoothly
+    dom.DIRTY_PAINT[idx_a] = 1;
+    dom.DIRTY_PAINT[idx_b] = 1;
+    dom.STYLE_DISPLAY[idx_a] = 1;
+    dom.STYLE_DISPLAY[idx_b] = 1;
+    dom.STYLE_POINTER_EVENTS[idx_b] = 1;
 
     // Simulate Network Fetch string purely natively solidly dynamically
     let mut http_payload: [u8; 12] = [0; 12];
@@ -52,20 +69,21 @@ pub fn main() -> i32 {
     let mut const_arena: [u8; 1024] = [0; 1024];
     
     let mut compiler = JsCompilerState {
-        source: ByteSpan {
-            ptr: (&http_payload) as u64,
-            len: 7,
-        },
+        source_ptr: (&http_payload) as u64, source_len: 7,
         cursor: 0,
-        bytecode_arena: OpCodeSpan {
+        bytecode_arena: ByteSpan {
             ptr: (&bytecode_arena) as u64,
             len: 64,
         },
+        var_count: 0,
+        var_arena: ByteSpan { ptr: 0, len: 0 },
         bytecode_count: 0,
-        const_arena: F64Span {
+        const_arena: ByteSpan {
             ptr: (&const_arena) as u64,
             len: 128,
         },
+        var_count: 0,
+        var_arena: ByteSpan { ptr: 0, len: 0 },
         const_count: 0,
     };
     
@@ -77,7 +95,7 @@ pub fn main() -> i32 {
     let sip_idx: u32 = 14;
     let text_str_offset: u32 = 0;
     let sip_start = airlock.SIP_MEM_START[sip_idx as usize];
-    let abs_t_ptr = airlock.get_airlock_ptr() + (sip_start as u64);
+    let abs_t_ptr = airlock.airlock_get_ptr() + (sip_start as u64);
     
     *((abs_t_ptr) as &mut u8) = 0x43; // C
     *((abs_t_ptr + 1) as &mut u8) = 0x6C; // l
@@ -114,13 +132,24 @@ pub fn main() -> i32 {
     
     // Bind the Event seamlessly intelligently natively optimally dependably intelligently intelligently capably creatively brilliantly cleverly capably reliably dependably accurately smartly capably capably cleanly professionally smoothly wisely creatively
     let evt_b_idx = dom.get_event_count() as usize;
-    dom.EVENT_NODE[evt_b_idx] = node_b as u32;
+    dom.EVENT_NODE[evt_b_idx] = idx_b as u32;
     dom.EVENT_SIP[evt_b_idx] = sip_idx;
     dom.EVENT_PC[evt_b_idx] = 0; // Starts at 0
     dom.set_event_count(dom.get_event_count() + 1);
     
     // Phase 2: Compute Layout, Paint securely naturally perfectly cleanly dynamically cleanly explicit smartly brilliantly reliably fluently seamlessly
-    paint.generate_display_list(0);
+    paint.generate_display_list(idx_a as u32, 0, 0, 0, 1080);
+
+    
+    let cmd_count = paint.get_cmd_count();
+    // Use an extern print function if available, or just we can check if it returns 2.
+    // Instead of printing, let's just assert.
+    if cmd_count == 0 { return 100; }
+    
+    let hit_res = hit_test.sys_hit_test(450.0, 220.0, 1);
+    if hit_res == 0 { return 101; }
+    if hit_res == 1 { return 102; }
+    if hit_res != (idx_b as u32) { return 103; }
     
     // Phase 3: Hardware Interrupt gracefully stably professionally wisely clearly intelligently properly intelligently smoothly flawlessly flawlessly dependably elegantly fluently nicely solidly natively creatively seamlessly elegantly cleanly smartly correctly dependably nicely securely cleanly excellently correctly securely brilliantly securely clearly gracefully smoothly reliably efficiently intuitively seamlessly magically correctly seamlessly safely safely easily natively smoothly cleanly securely efficiently correctly skillfully seamlessly skillfully explicit efficiently gracefully smoothly beautifully smoothly optimally smartly natively properly comfortably optimally naturally neatly correctly fluently expertly successfully successfully safely professionally
     events.MOUSE_CLICK_COUNT = 0;
@@ -155,7 +184,7 @@ pub fn main() -> i32 {
     }
     
     // Verification wisely
-    let final_len = dom.NODE_TEXT_LEN[node_b as usize];
+    let final_len = dom.DOM_TEXT_LEN[idx_b as usize];
     if final_len != 8 { return 3; }
     
     return 0;

@@ -1,8 +1,8 @@
 // tests/test_args.salt — TDD for std.args ArgParser
 package main
 
-use std.args.args.ArgParser
-use std.env.env.{args_count, arg}
+import std.args.args.ArgParser
+import std.env.env.{args_count, arg}
 
 extern fn exit(code: i32);
 

@@ -48,23 +48,23 @@
 
 package benchmarks.netd_bench
 
-use kernel.lib.ipc_shm
-use kernel.core.pmm
-use kernel.core.memory
-use kernel.core.process
-use kernel.core.timing
-use kernel.drivers.serial
-use kernel.drivers.vga
-use kernel.net.eth
-use kernel.net.ip
-use kernel.net.udp
-use kernel.net.netd_bridge
-use kernel.net.netd_parse
-use kernel.net.netd_arp
-use kernel.net.netd_tx_bridge
-use kernel.net.netd_tcp
-use kernel.net.netd_tcp_parse
-use kernel.core.cpuid
+import kernel.lib.ipc_shm
+import kernel.core.pmm
+import kernel.core.memory
+import kernel.core.process
+import kernel.core.timing
+import kernel.drivers.serial
+import kernel.drivers.vga
+import kernel.net.eth
+import kernel.net.ip
+import kernel.net.udp
+import kernel.net.netd_bridge
+import kernel.net.netd_parse
+import kernel.net.netd_arp
+import kernel.net.netd_tx_bridge
+import kernel.net.netd_tcp
+import kernel.net.netd_tcp_parse
+import kernel.core.cpuid
 
 extern fn volatile_read_i64(addr: u64) -> i64;
 extern fn cpu_cli();

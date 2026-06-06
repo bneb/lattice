@@ -64,7 +64,7 @@ void js_bridge_dispatch_worker_message(uint64_t t, uint32_t l) {}
 void js_bridge_resolve_idb_promise(uint32_t a, uint64_t b, uint32_t c) {}
 void js_execute_worker_jobs() {}
 void js_resolve_fetch_chunk(uint64_t a, uint64_t b, uint32_t c) {}
-void js_resolve_fetch_impl(uint64_t a, uint64_t b, uint32_t c) {}
+__attribute__((weak)) void js_resolve_fetch_impl(uint64_t a, uint64_t b, uint32_t c) {}
 void ext_set_media_head(uint32_t v) {}
 void ext_set_media_tail(uint32_t v) {}
 uint32_t ext_get_media_head() { return 0; }

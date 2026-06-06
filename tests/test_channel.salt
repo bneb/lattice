@@ -2,8 +2,8 @@
 // Tests bounded channel send/recv on a single thread.
 package main
 
-use std.channel.channel.Channel
-use std.core.result.Result
+import std.channel.channel.Channel
+import std.core.result.Result
 
 extern fn exit(code: i32);
 

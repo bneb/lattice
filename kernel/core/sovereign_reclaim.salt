@@ -22,11 +22,11 @@
 
 package kernel.core.sovereign_reclaim
 
-use kernel.core.process
-use kernel.core.reclaim_histogram
-use kernel.core.pmm
-use kernel.mem.page_sweep
-use kernel.drivers.serial
+import kernel.core.process
+import kernel.core.reclaim_histogram
+import kernel.core.pmm
+import kernel.mem.page_sweep
+import kernel.drivers.serial
 
 // =============================================================================
 // Reclamation Result — Instrumented for KPI monitoring

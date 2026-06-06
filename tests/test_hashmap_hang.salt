@@ -1,6 +1,6 @@
 // Comprehensive HashMap test suite V6.2
 // Tests: basic ops, scaling, remove/reinsert, grow, collisions, correctness
-use std.collections.hash_map.HashMap
+import std.collections.hash_map.HashMap
 
 fn main() -> i32 {
     let mut passed: i64 = 0;

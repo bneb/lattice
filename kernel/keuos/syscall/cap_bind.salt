@@ -19,7 +19,7 @@
 
 package kernel.keuos.syscall.cap_bind
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ============================================================================
 // CapabilityRegistry — Secure Mapping Store

@@ -1,6 +1,6 @@
 package std.core.result
 
-use std.status.Status
+import std.status.Status
 
 extern fn exit(code: i32);
 

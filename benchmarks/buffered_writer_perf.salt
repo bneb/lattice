@@ -3,9 +3,9 @@
 
 package benchmarks.buffered_writer_perf
 
-use std.io.buffered_writer::BufferedWriter;
-use std.io.file::*;
-use std.core.result.Result;
+import std.io.buffered_writer::BufferedWriter;
+import std.io.file::*;
+import std.core.result.Result;
 
 const ITERATIONS: i64 = 1000000;
 

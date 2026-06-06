@@ -34,16 +34,49 @@ global UDP_HANDLER_PORT: u16 = 0;   // 0 = no handler registered
 global UDP_PACKETS_HANDLED: u64 = 0;
 
 // =============================================================================
-// Ring 3 RX Notification Mailbox
+// Ring 3 RX Notification SPSC Ring Buffer
 // =============================================================================
-// Generic notification: when any frame arrives, the kernel writes the raw
-// buffer address and length here. Ring 3 owns all protocol parsing.
-// Mailbox layout: [buf_addr: u64, pkt_len: u32, frame_ready: u32]
+// Zero-Trap TCP/IP: The kernel pushes 12-byte packet metadata into the SPSC ring.
+// Each entry: [buf_addr: u64, pkt_len: u32]
 global RX_NOTIFY_PTR: u64 = 0;
 
 @no_mangle
 pub fn netcore_set_rx_notify(ptr: u64) {
     RX_NOTIFY_PTR = ptr;
+}
+
+fn ring_push_u64(ptr: u64, val: u64) -> bool {
+    let head = *((ptr + 0) as &u64);
+    let tail = *((ptr + 64) as &u64);
+    let capacity = *((ptr + 8) as &u64);
+    if (head + 8) - tail > capacity { return false; }
+    
+    let mut i = 0;
+    while i < 8 {
+        let b = ((val >> (i * 8)) & 0xFF) as u8;
+        let idx = (head + i as u64) % capacity;
+        *((ptr + 192 + idx) as &mut u8) = b;
+        i = i + 1;
+    }
+    *((ptr + 0) as &mut u64) = head + 8;
+    return true;
+}
+
+fn ring_push_u32(ptr: u64, val: u32) -> bool {
+    let head = *((ptr + 0) as &u64);
+    let tail = *((ptr + 64) as &u64);
+    let capacity = *((ptr + 8) as &u64);
+    if (head + 4) - tail > capacity { return false; }
+    
+    let mut i = 0;
+    while i < 4 {
+        let b = ((val >> (i * 8)) & 0xFF) as u8;
+        let idx = (head + i as u64) % capacity;
+        *((ptr + 192 + idx) as &mut u8) = b;
+        i = i + 1;
+    }
+    *((ptr + 0) as &mut u64) = head + 4;
+    return true;
 }
 
 // =============================================================================
@@ -97,9 +130,9 @@ pub fn process_one() -> bool {
     if !match_us && !match_bc {
         // Not for us — but still notify Ring 3 (it may accept multicast/custom frames)
         if RX_NOTIFY_PTR != 0 {
-            *((RX_NOTIFY_PTR) as &mut u64) = buf_addr;
-            *((RX_NOTIFY_PTR + 8) as &mut u32) = pkt_len;
-            *((RX_NOTIFY_PTR + 12) as &mut u32) = 1;
+            if ring_push_u64(RX_NOTIFY_PTR, buf_addr) {
+                ring_push_u32(RX_NOTIFY_PTR, pkt_len);
+            }
             // Do NOT repost — Ring 3 owns the buffer until it reposts
             return true;
         }
@@ -124,14 +157,14 @@ pub fn process_one() -> bool {
 
     // Generic Ring 3 notification — kernel does not inspect payload
     if RX_NOTIFY_PTR != 0 {
-        *((RX_NOTIFY_PTR) as &mut u64) = buf_addr;
-        *((RX_NOTIFY_PTR + 8) as &mut u32) = pkt_len;
-        *((RX_NOTIFY_PTR + 12) as &mut u32) = 1;  // frame_ready flag
-        serial.print("[RX] Notified Ring 3: buf=");
-        serial.print_u64(buf_addr);
-        serial.print(" len=");
-        serial.print_u64(pkt_len as u64);
-        serial.print("\n");
+        if ring_push_u64(RX_NOTIFY_PTR, buf_addr) {
+            ring_push_u32(RX_NOTIFY_PTR, pkt_len);
+            serial.print("[RX] Notified Ring 3: buf=");
+            serial.print_u64(buf_addr);
+            serial.print(" len=");
+            serial.print_u64(pkt_len as u64);
+            serial.print("\n");
+        }
         // Do NOT repost — Ring 3 owns the buffer until it reposts
         return true;
     }

@@ -2,8 +2,8 @@ package basalt
 
 // Fannkuch-Redux Benchmark — Ptr<i32> with [] indexing
 
-use std.core.ptr.Ptr
-use std.core.arena
+import std.core.ptr.Ptr
+import std.core.arena
 
 fn fannkuch(n: i32) -> i32 {
     let size = (n * 4) as i64;

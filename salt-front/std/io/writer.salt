@@ -3,7 +3,7 @@
 
 package std.io
 
-use std.core.ptr::Ptr;
+import std.core.ptr::Ptr;
 
 // =============================================================================
 // The Writer Trait - Sovereign Contract for Formatted Output

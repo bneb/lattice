@@ -1,10 +1,10 @@
 // tests/test_json_serde.salt — TDD for JSON serialization
 package main
 
-use std.json.json.{JsonWriter, JsonParser, JsonValue, ToJson}
-use std.json.json.{JSON_NUMBER, JSON_BOOL, JSON_STRING, JSON_NULL}
-use std.core.ptr.Ptr
-use std.core.str.StringView
+import std.json.json.{JsonWriter, JsonParser, JsonValue, ToJson}
+import std.json.json.{JSON_NUMBER, JSON_BOOL, JSON_STRING, JSON_NULL}
+import std.core.ptr.Ptr
+import std.core.str.StringView
 
 extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: Ptr<u8>);

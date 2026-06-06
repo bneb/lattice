@@ -100,6 +100,7 @@ timer_isr_wrapper:
 
 .global tlb_shootdown_wrapper
 .extern apic_send_eoi
+.extern ipi_ack_tlb_shootdown
 
 /*
  * TLB Shootdown IPI Handler
@@ -123,9 +124,8 @@ tlb_shootdown_wrapper:
     push r10
     push r11
 
-    # 1. Reload CR3 to flush TLB
-    mov rax, cr3
-    mov cr3, rax
+    # 1. Handle TLB shootdown (reloads CR3 and decrements ACK count)
+    call ipi_ack_tlb_shootdown
 
     # 2. Handshake with APIC (Send EOI)
     call apic_send_eoi

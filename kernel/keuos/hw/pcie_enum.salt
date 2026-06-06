@@ -16,8 +16,8 @@
 
 package kernel.keuos.hw.pcie_enum
 
-use std.core.ptr.Ptr
-use kernel.drivers.serial
+import std.core.ptr.Ptr
+import kernel.drivers.serial
 
 // ============================================================================
 // HardwareResource — Discovered PCIe Device Info

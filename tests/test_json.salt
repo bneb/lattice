@@ -5,15 +5,15 @@
 
 package main
 
-use std.core.ptr.Ptr
-use std.core.str.StringView
-use std.json.json.JsonParser
-use std.json.json.JsonWriter
-use std.json.json.JsonValue
-use std.json.json.JSON_STRING
-use std.json.json.JSON_NUMBER
-use std.json.json.JSON_BOOL
-use std.json.json.JSON_NULL
+import std.core.ptr.Ptr
+import std.core.str.StringView
+import std.json.json.JsonParser
+import std.json.json.JsonWriter
+import std.json.json.JsonValue
+import std.json.json.JSON_STRING
+import std.json.json.JSON_NUMBER
+import std.json.json.JSON_BOOL
+import std.json.json.JSON_NULL
 
 extern fn exit(code: i32);
 

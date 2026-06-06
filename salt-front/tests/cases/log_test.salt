@@ -8,10 +8,10 @@
 // OUTPUT: [ERROR] something broke
 // OUTPUT: ALL TESTS PASSED
 
-use std.log.log_debug
-use std.log.log_info
-use std.log.log_warn
-use std.log.log_error
+import std.log.log_debug
+import std.log.log_info
+import std.log.log_warn
+import std.log.log_error
 
 fn main() -> i32 {
     println("=== Logging Tests ===");

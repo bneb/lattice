@@ -6,8 +6,8 @@
 
 package main
 
-use std.core.ptr.Ptr
-use std.core.arena
+import std.core.ptr.Ptr
+import std.core.arena
 
 // A simple 2D point
 struct Point {

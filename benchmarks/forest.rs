@@ -1,27 +1,48 @@
 use std::time::Instant;
 
+struct Arena {
+    data: Vec<Node>,
+}
+
+impl Arena {
+    fn new(capacity: usize) -> Self {
+        Arena {
+            data: Vec::with_capacity(capacity),
+        }
+    }
+    fn alloc(&mut self, node: Node) -> u32 {
+        let idx = self.data.len() as u32;
+        self.data.push(node);
+        idx
+    }
+    fn reset(&mut self) {
+        self.data.clear();
+    }
+}
+
 struct Node {
-    left: Option<Box<Node>>,
-    right: Option<Box<Node>>,
+    left: u32,
+    right: u32,
     val: i32,
 }
 
-fn make_tree(depth: i32) -> Option<Box<Node>> {
+const NULL: u32 = u32::MAX;
+
+fn make_tree(arena: &mut Arena, depth: i32) -> u32 {
     if depth == 0 {
-        return None;
+        return NULL;
     }
-    Some(Box::new(Node {
-        val: depth,
-        left: make_tree(depth - 1),
-        right: make_tree(depth - 1),
-    }))
+    let left = make_tree(arena, depth - 1);
+    let right = make_tree(arena, depth - 1);
+    arena.alloc(Node { left, right, val: depth })
 }
 
 fn main() {
     let t0 = Instant::now();
     
     // Depth 22 -> ~4M nodes (2^22 - 1)
-    let root = make_tree(22);
+    let mut arena = Arena::new(4_200_000);
+    let _root = make_tree(&mut arena, 22);
     
     let t1 = Instant::now();
     let build_time = t1.duration_since(t0).as_nanos();
@@ -29,8 +50,8 @@ fn main() {
     
     let t2 = Instant::now();
     
-    // Drop triggers recursive free
-    drop(root);
+    // Drop triggers recursive free (in this case just clear)
+    arena.reset();
     
     let t3 = Instant::now();
     let free_time = t3.duration_since(t2).as_nanos();

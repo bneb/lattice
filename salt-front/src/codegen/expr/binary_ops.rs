@@ -500,7 +500,13 @@ pub fn emit_logic(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBina
     
     // RHS block
     out.push_str(&format!("  ^{}:\n", next_block));
+    
+    // [COMPILER BUG FIX]: RHS is evaluated conditionally.
+    // Any global variables loaded here MUST NOT leak into the merge block's cache!
+    ctx.emission.global_lvn.push_snapshot();
     let (rhs_val, rhs_ty) = emit_expr(ctx, out, &b.right, local_vars, Some(&Type::Bool))?;
+    ctx.emission.global_lvn.pop_snapshot();
+    
     if rhs_ty != Type::Bool {
         return Err(format!("Logical operator requires boolean operands, found {:?}", rhs_ty));
     }
@@ -576,6 +582,9 @@ pub fn emit_assign(ctx: &mut LoweringContext, out: &mut String, a: &syn::ExprAss
                         }
                         crate::codegen::verification::PointerState::Optional => {
                             ctx.pointer_tracker.mark_optional(&var_name);
+                        }
+                        crate::codegen::verification::PointerState::Freed => {
+                            ctx.pointer_tracker.mark_freed(&var_name);
                         }
                     }
                 }
@@ -1135,6 +1144,11 @@ pub fn emit_cast(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCast,
         let mlir_ty = ty.to_mlir_type(ctx)?;
         out.push_str(&format!("    {} = arith.constant 0 : {}\n", zero_const, mlir_ty));
         out.push_str(&format!("    {} = arith.cmpi \"ne\", {}, {} : {}\n", res, val, zero_const, mlir_ty));
+        res
+    } else if ty.k_is_ptr_type() && target_ty.is_integer() {
+        let res = format!("%ptr_to_int_{}", ctx.next_id());
+        let dst_mlir = target_ty.to_mlir_type(ctx)?;
+        out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to {}\n", res, val, dst_mlir));
         res
     } else if (matches!(ty, Type::Reference(_, _) | Type::Concrete(..)) && matches!(target_ty, Type::Reference(_, _) | Type::Concrete(..))) {
          // Check if concrete types are Ptr

@@ -23,7 +23,7 @@ import time
 IMAGE_NAME = "keuos-dev"
 WORKSPACE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# MLIR/LLVM paths inside the Docker container (Debian Trixie, LLVM 19)
+# MLIR/LLVM paths inside the Docker container (Ubuntu 24.04, LLVM 21)
 MLIR_DIR = "/usr/lib/llvm-21/lib/cmake/mlir"
 LLVM_DIR = "/usr/lib/llvm-21/lib/cmake/llvm"
 
@@ -92,14 +92,14 @@ def cmd_build():
 
     This is the primary build verification command. It will:
     1. Build salt-front via cargo build --release
-    2. Build salt-opt via cmake + ninja with LLVM 19/MLIR
+    2. Build salt-opt via cmake + ninja with LLVM 21/MLIR
     3. Report build success or failure with error context
     """
     if not _image_exists():
         print(f"{YELLOW}Docker image '{IMAGE_NAME}' not found — building...{RESET}")
         cmd_image()
 
-    print(f"{GREEN}═══ RED/GREEN Gate: Building in Docker (LLVM 19) ═══{RESET}")
+    print(f"{GREEN}═══ RED/GREEN Gate: Building in Docker (LLVM 21) ═══{RESET}")
 
     script = """
 set -euo pipefail
@@ -111,7 +111,7 @@ echo ""
 echo "✅ salt-front: OK"
 
 echo ""
-echo "══ Step 2/2: Building salt-opt (C++/MLIR/LLVM 19) ══"
+echo "══ Step 2/2: Building salt-opt (C++/MLIR/LLVM 21) ══"
 cd /workspace/salt
 rm -rf build_linux
 mkdir -p build_linux && cd build_linux

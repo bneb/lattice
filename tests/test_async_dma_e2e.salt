@@ -30,9 +30,9 @@
 
 package main
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
-extern fn malloc(size: i64) -> u64;
+extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: u64);
 
 // Doorbell offset
@@ -43,7 +43,7 @@ fn main() -> i32 {
     // Phase 1: CQE Layout Tests
     // =========================================================================
 
-    let cqe_addr: u64 = malloc(32);
+    let cqe_addr: u64 = malloc(32) as u64;
     if cqe_addr == 0 { return 1; }
 
     // Zero fill
@@ -99,7 +99,7 @@ fn main() -> i32 {
     // =========================================================================
 
     let bar_size: i64 = 8192;
-    let bar_addr: u64 = malloc(bar_size);
+    let bar_addr: u64 = malloc(bar_size) as u64;
     if bar_addr == 0 { return 1; }
 
     // Zero the BAR
@@ -146,7 +146,7 @@ fn main() -> i32 {
     // =========================================================================
 
     // Allocate: A tile (128B) + B tile (128B) + C output (128B)
-    let arena_addr: u64 = malloc(384);
+    let arena_addr: u64 = malloc(384) as u64;
     if arena_addr == 0 { return 1; }
 
     let a_addr: u64 = arena_addr;

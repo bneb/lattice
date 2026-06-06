@@ -153,6 +153,9 @@ pub struct EmissionState {
     /// [v0.9.3] Function-level @trusted flag.
     /// When true, bounds verification for raw pointer indexing is skipped.
     pub in_trusted_fn: bool,
+    /// [PHASE 1.5] Tier 3 Temporal Safety: Function-level @dynamic_check flag.
+    /// When true, all pointer dereferences emit runtime epoch validation checks.
+    pub in_dynamic_check_fn: bool,
     pub path_conditions: Vec<syn::Expr>,
 }
 

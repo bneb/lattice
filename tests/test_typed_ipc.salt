@@ -16,8 +16,8 @@
 
 package main
 
-use std.io.ring.{IoRing, SQE, CQE}
-use std.ipc.typed_channel.{TypedChannel, IpcMessage, MSG_PING, MSG_PONG, MSG_DATA, MSG_SHUTDOWN, MSG_CUSTOM}
+import std.io.my_ring.{IoRing, SQE, CQE}
+import std.ipc.typed_channel.{TypedChannel, IpcMessage, MSG_PING, MSG_PONG, MSG_DATA, MSG_SHUTDOWN, MSG_CUSTOM}
 
 fn main() -> i32 {
     println("=== Typed IPC Test ===");
@@ -96,7 +96,7 @@ fn main() -> i32 {
 
     // --- Test 4: TypedChannel::send via ring buffer ---
     let mut ring = IoRing::map();
-    if !ring.is_valid() {
+    if !my_ring.is_valid() {
         println("FAIL: ring map");
         return 14;
     }
@@ -109,7 +109,7 @@ fn main() -> i32 {
         println("FAIL: TypedChannel send");
         return 15;
     }
-    ch.ring.flush();
+    ch.my_ring.flush();
 
     // Reap the result — should have user_data=0 (first sequence number)
     let result1 = ch.reap_result();
@@ -128,7 +128,7 @@ fn main() -> i32 {
         println("FAIL: batch send");
         return 17;
     }
-    ch.ring.flush();
+    ch.my_ring.flush();
 
     // Reap all 3 results
     let mut count: u64 = 0;

@@ -1,6 +1,6 @@
 package std.sync.rcu
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
 extern fn salt_atomic_store_i64(ptr: Ptr<i64>, val: i64);

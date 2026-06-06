@@ -21,8 +21,16 @@ const MOE_PAYLOAD_SIZE: u32 = 2048;  // 16x16 f64 tensor = 2048 bytes
 global MOE_TX_SCRATCH_BUF: [u8; 64] = [0 as u8; 64];
 
 @no_mangle
-pub fn syscall_set_moe_bar_ptr(ptr: u64) {
-    MOE_BAR_PTR = ptr;
+pub fn moe_set_bar_ptr(bar_ptr: u64) {
+    if bar_ptr == 0 {
+        return;
+    }
+    // SEC-05: Only allow kernel-space virtual addresses for the shared mailbox
+    if bar_ptr < 0xFFFF800000000000 {
+        serial.print("SECURITY: Rejecting user-space address for MOE_BAR_PTR\n");
+        return;
+    }
+    MOE_BAR_PTR = bar_ptr;
 }
 
 @no_mangle

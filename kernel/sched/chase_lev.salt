@@ -22,8 +22,8 @@
 
 package kernel.sched.chase_lev
 
-use kernel.drivers.serial
-use std.core.ptr.Ptr
+import kernel.drivers.serial
+import std.core.ptr.Ptr
 
 // Maximum deque capacity (power of 2). Each core gets one of these.
 pub const DEQUE_CAPACITY: i64 = 1024;

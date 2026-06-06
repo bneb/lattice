@@ -15,7 +15,7 @@
 
 package main
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 extern fn puts(s: Ptr<u8>) -> i32;
 extern fn exit(code: i32);

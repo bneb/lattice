@@ -17,9 +17,9 @@
 
 package benchmarks.slab_stress_bench
 
-use kernel.drivers.serial
-use kernel.drivers.vga
-use kernel.core.timing
+import kernel.drivers.serial
+import kernel.drivers.vga
+import kernel.core.timing
 
 extern fn pop_stack() -> u64;
 extern fn push_stack(ptr: u64);

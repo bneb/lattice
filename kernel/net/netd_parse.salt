@@ -14,7 +14,7 @@
 
 package kernel.net.netd_parse
 
-use kernel.drivers.serial
+import kernel.drivers.serial
 
 // =============================================================================
 // Byte-Order Utilities

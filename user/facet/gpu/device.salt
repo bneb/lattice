@@ -14,7 +14,7 @@ pub type BufferHandle = i64;
 pub type PipelineHandle = i64;
 pub type TextureHandle = i64;
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 pub trait GpuDevice {
     // Lifecycle

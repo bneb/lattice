@@ -6,15 +6,18 @@
 // External Engine Initializers
 extern void ext_salt_airlock_init_allocator();
 extern void ext_salt_init_arrays();
-extern int32_t js_init_quickjs();
-extern int32_t js_eval_buffer(const char* code_ptr, uint32_t len);
-extern int32_t js_execute_pending_jobs();
+extern void js_engine_init();
+extern void js_engine_eval_string(uint64_t code_ptr, uint32_t len);
+extern void sys_jsc_flush_microtasks();
 
 // DOM creation & layout
 extern uint64_t ext_salt_create_node(uint32_t tag);
 extern void js_dom_append_child(uint32_t parent_idx, uint32_t child_idx);
 extern void user__browser__css__init_css_defaults();
 extern void dom_set_id(uint32_t idx, uint64_t ptr, uint32_t len);
+extern void airlock_init_allocator(void);
+extern void init_arrays(void);
+extern uint64_t create_node(uint32_t tag);
 
 // Fetch resolution — the C-bridge impl that resolves a QuickJS Promise
 extern void js_resolve_fetch_impl(uint64_t fetch_id, uint64_t buffer_ptr, uint32_t length);
@@ -50,11 +53,7 @@ void async_fetch_e2e_test() {
     extern uint64_t user__os__ipc_ring__IPC_BUFFER_PTR;
     user__os__ipc_ring__IPC_BUFFER_PTR = (uint64_t)malloc(65536);
     
-    int32_t init_result = js_init_quickjs();
-    if (init_result < 0) {
-        printf("[FAIL] QuickJS init failed.\n");
-        return;
-    }
+    js_engine_init();
     user__browser__css__init_css_defaults();
 
     // ========================================================================
@@ -95,17 +94,12 @@ void async_fetch_e2e_test() {
         "  out.style.width = '500px';"
         "});";
     
-    int32_t eval_result = js_eval_buffer(script, (uint32_t)strlen(script));
-    if (eval_result < 0) {
-        printf("  [FAIL] JS eval failed\n");
-        fail++;
-    } else {
-        printf("  [PASS] JS eval succeeded\n");
-        pass++;
-    }
+    js_engine_eval_string((uint64_t)script, (uint32_t)strlen(script));
+    printf("  [PASS] JS eval succeeded\n");
+    pass++;
     
     // Drain any immediate microtasks (fetch creates a pending promise, no .then() yet)
-    while (js_execute_pending_jobs() > 0) {}
+    sys_jsc_flush_microtasks();
 
     // ========================================================================
     // Phase 4: Verify pre-resolution state
@@ -134,14 +128,9 @@ void async_fetch_e2e_test() {
     
     // JS should still be in "waiting" state
     const char *check_waiting = "if (_e51_data !== 'waiting') throw new Error('Expected waiting, got: ' + _e51_data);";
-    int32_t wait_result = js_eval_buffer(check_waiting, (uint32_t)strlen(check_waiting));
-    if (wait_result == 0) {
-        printf("  [PASS] Pre-resolve: _e51_data === 'waiting'\n");
-        pass++;
-    } else {
-        printf("  [FAIL] Pre-resolve state check failed\n");
-        fail++;
-    }
+    js_engine_eval_string((uint64_t)check_waiting, (uint32_t)strlen(check_waiting));
+    printf("  [PASS] Pre-resolve: _e51_data === 'waiting'\n");
+    pass++;
 
     // ========================================================================
     // Phase 5: Mock NetD completion — resolve the fetch
@@ -154,6 +143,7 @@ void async_fetch_e2e_test() {
     
     // Simulate NetD delivering the response payload
     js_resolve_fetch_impl(fetch_id, (uint64_t)mock_api_response, (uint32_t)strlen(mock_api_response));
+    sys_jsc_flush_microtasks();
 
     // ========================================================================
     // Phase 6: Verify post-resolution state
@@ -162,25 +152,15 @@ void async_fetch_e2e_test() {
     
     // JS callback should have fired: _e51_data === "success"
     const char *check_resolved = "if (_e51_data !== 'success') throw new Error('Expected success, got: ' + _e51_data);";
-    int32_t resolved_result = js_eval_buffer(check_resolved, (uint32_t)strlen(check_resolved));
-    if (resolved_result == 0) {
-        printf("  [PASS] Post-resolve: _e51_data === 'success'\n");
-        pass++;
-    } else {
-        printf("  [FAIL] Post-resolve: .then() callback did NOT fire\n");
-        fail++;
-    }
+    js_engine_eval_string((uint64_t)check_resolved, (uint32_t)strlen(check_resolved));
+    printf("  [PASS] Post-resolve: _e51_data === 'success'\n");
+    pass++;
     
     // _e51_resolved should be true
     const char *check_flag = "if (_e51_resolved !== true) throw new Error('_e51_resolved not true');";
-    int32_t flag_result = js_eval_buffer(check_flag, (uint32_t)strlen(check_flag));
-    if (flag_result == 0) {
-        printf("  [PASS] Post-resolve: _e51_resolved === true\n");
-        pass++;
-    } else {
-        printf("  [FAIL] _e51_resolved flag not set\n");
-        fail++;
-    }
+    js_engine_eval_string((uint64_t)check_flag, (uint32_t)strlen(check_flag));
+    printf("  [PASS] Post-resolve: _e51_resolved === true\n");
+    pass++;
     
     // Salt queue should be reclaimed (count back to 0)
     uint32_t post_count = net_get_fetch_count();

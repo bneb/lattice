@@ -25,7 +25,7 @@
 
 package user.kernel.manifest
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ============================================================================
 // Substrate Constants

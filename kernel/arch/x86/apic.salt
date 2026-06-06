@@ -25,8 +25,8 @@
 
 package kernel.arch.x86.apic
 
-use kernel.drivers.serial
-use kernel.arch.x86.acpi
+import kernel.drivers.serial
+import kernel.arch.x86.acpi
 
 // =============================================================================
 // Assembly FFI

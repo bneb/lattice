@@ -10,10 +10,10 @@
 // OUTPUT: post-remove iter count == 4  ... PASS
 // OUTPUT: ALL TESTS PASSED
 
-use std.collections.hash_map.HashMap
-use std.collections.hash_map.Entry
-use std.collections.hash_map.HashMapIter
-use std.core.option.Option
+import std.collections.hash_map.HashMap
+import std.collections.hash_map.Entry
+import std.collections.hash_map.HashMapIter
+import std.core.option.Option
 
 fn main() -> i32 {
     let mut passed: i64 = 0;

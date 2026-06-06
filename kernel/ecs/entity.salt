@@ -18,7 +18,7 @@
 
 package kernel.ecs.entity
 
-extern fn malloc(size: i64) -> u64;
+extern fn malloc(size: i64) -> Ptr<u8>;
 
 pub struct Entity {
     pub id: u32,

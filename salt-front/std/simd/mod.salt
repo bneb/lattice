@@ -1,7 +1,7 @@
 package std.simd
 
-use std.core.ptr.Ptr
-use std.math.ctz_u64
+import std.core.ptr.Ptr
+import std.math.ctz_u64
 
 // Text scanning (SWAR scalar + future NEON backend)
 pub use std.simd.text

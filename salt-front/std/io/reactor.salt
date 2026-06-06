@@ -9,8 +9,8 @@
 
 package std.io.reactor
 
-use std.core.ptr.Ptr
-use std.core.result.Result
+import std.core.ptr.Ptr
+import std.core.result.Result
 
 /// Filter type for event registration.
 pub enum ReactorFilter {

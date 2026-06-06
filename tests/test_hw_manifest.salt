@@ -21,7 +21,7 @@
 
 package main
 
-extern fn malloc(size: i64) -> u64;
+extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: u64);
 
 // Inline HardwareNode (same layout as manifest.salt)

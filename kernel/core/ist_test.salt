@@ -12,7 +12,7 @@
 
 package kernel.core.ist_test
 
-use kernel.drivers.serial
+import kernel.drivers.serial
 
 // TSS accessors (ABI boundary — @no_mangle in tss.salt)
 extern fn tss_get_ist(index: u64) -> u64;

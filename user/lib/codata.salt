@@ -22,7 +22,7 @@ import user.lib.syscall
 // ReactiveStream<T> — A Typed View over an SPSC Ring
 // ============================================================================
 struct ReactiveStream {
-    ring_ref: &mut ring.SpscRing,
+    ring_base: u64,
     // Minimalist duck-typing metadata
     type_hash: u64,       // FNV-1a hash of the element type name
     element_size: u32,    // sizeof(T) in bytes
@@ -32,9 +32,9 @@ struct ReactiveStream {
 // ============================================================================
 // create — Construct a ReactiveStream from a mapped SPSC ring
 // ============================================================================
-pub fn create(r: &mut ring.SpscRing, hash: u64, elem_size: u32, cap: u64) -> ReactiveStream {
+pub fn create(base: u64, hash: u64, elem_size: u32, cap: u64) -> ReactiveStream {
     return ReactiveStream {
-        ring_ref: r,
+        ring_base: base,
         type_hash: hash,
         element_size: elem_size,
         cap_id: cap,
@@ -47,12 +47,12 @@ pub fn create(r: &mut ring.SpscRing, hash: u64, elem_size: u32, cap: u64) -> Rea
 pub fn read_element(stream: &mut ReactiveStream) -> u64 {
     // Spin-wait with IPC signaling fallback
     let mut val: u64 = 0;
-    let mut ok = ring.pop(stream.ring_ref, &mut val);
+    let mut ok = ring.pop(stream.ring_base, (&mut val) as u64, 8);
     
-    while !ok {
+    while ok != 8 {
         // Ring is empty — yield via fast-path IPC await
         syscall.ipc_ring_await(stream.cap_id);
-        ok = ring.pop(stream.ring_ref, &mut val);
+        ok = ring.pop(stream.ring_base, (&mut val) as u64, 8);
     }
     
     return val;
@@ -63,11 +63,12 @@ pub fn read_element(stream: &mut ReactiveStream) -> u64 {
 // ============================================================================
 pub fn write_element(stream: &mut ReactiveStream, val: u64) {
     // Spin until space is available
-    let mut ok = ring.push(stream.ring_ref, val);
+    let mut payload = val;
+    let mut ok = ring.push(stream.ring_base, (&mut payload) as u64, 8);
     
-    while !ok {
+    while ok != 1 {
         // Ring is full — could yield or spin
-        ok = ring.push(stream.ring_ref, val);
+        ok = ring.push(stream.ring_base, (&mut payload) as u64, 8);
     }
 }
 

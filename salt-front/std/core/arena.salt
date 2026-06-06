@@ -9,7 +9,7 @@
 
 package std.core.arena
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // External C runtime functions (implemented in runtime.c)
 extern fn salt_arena_alloc(size: i64) -> i64;

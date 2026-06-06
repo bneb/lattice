@@ -2,8 +2,8 @@ package basalt
 
 // Sieve of Eratosthenes — Using Ptr<T> for typed access
 
-use std.core.ptr.Ptr
-use std.core.arena
+import std.core.ptr.Ptr
+import std.core.arena
 
 fn sieve(limit: i32) -> i32 {
     let n = (limit + 1) as i64;

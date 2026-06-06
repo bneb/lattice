@@ -2,7 +2,7 @@
 // Tests all Type variants for is_numeric, is_unsigned, mangle_suffix, size_of
 
 use salt_front::types::Type;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use salt_front::grammar::SaltFile;
 use salt_front::codegen::context::CodegenContext;
 use salt_front::types::TypeKey;
@@ -333,7 +333,7 @@ fn test_deep_recursion_layout_caching() {
             template_name: None,
             specialization_args: vec![],
         };
-        let key = TypeKey { path: vec![], name: name, specialization: None };
+        let key = TypeKey { path: vec![], name, specialization: None };
         reg.insert(key, info);
     }
     
@@ -441,7 +441,7 @@ fn test_abi_boundary_torture() {
 
 #[test]
 fn test_usize_to_mlir_type_is_index() {
-    let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+    let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -452,10 +452,10 @@ fn test_usize_to_mlir_type_is_index() {
 
 #[test]
 fn test_usize_to_i64_emits_index_cast() {
-    let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+    let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
-    let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
+    let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     
     let mut out = String::new();
     let res = ctx.with_lowering_ctx(|lctx| salt_front::codegen::type_bridge::promote_numeric(
@@ -470,10 +470,10 @@ fn test_usize_to_i64_emits_index_cast() {
 
 #[test]
 fn test_i64_to_usize_emits_index_cast() {
-    let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+    let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
-    let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
+    let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     
     let mut out = String::new();
     let res = ctx.with_lowering_ctx(|lctx| salt_front::codegen::type_bridge::promote_numeric(
@@ -488,10 +488,10 @@ fn test_i64_to_usize_emits_index_cast() {
 
 #[test]
 fn test_usize_to_i32_emits_index_cast_then_trunci() {
-    let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+    let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
-    let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
+    let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     
     let mut out = String::new();
     let res = ctx.with_lowering_ctx(|lctx| salt_front::codegen::type_bridge::cast_numeric(
@@ -511,10 +511,10 @@ fn test_usize_to_i32_emits_index_cast_then_trunci() {
 
 #[test]
 fn test_i32_to_usize_emits_extsi_then_index_cast() {
-    let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+    let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
-    let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
+    let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     
     let mut out = String::new();
     let res = ctx.with_lowering_ctx(|lctx| salt_front::codegen::type_bridge::promote_numeric(
@@ -539,7 +539,7 @@ fn test_i32_to_usize_emits_extsi_then_index_cast() {
 
 #[test]
 fn test_prove_layout_compatibility_primitives() {
-    let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+    let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -567,7 +567,7 @@ fn test_prove_layout_compatibility_primitives() {
 
 #[test]
 fn test_prove_layout_compatibility_self() {
-    let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+    let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -585,7 +585,7 @@ fn test_prove_layout_compatibility_self() {
 
 #[test]
 fn test_prove_layout_compatibility_struct_same_size() {
-    let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+    let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -619,7 +619,7 @@ fn test_prove_layout_compatibility_struct_same_size() {
 
 #[test]
 fn test_prove_layout_compatibility_struct_different_size() {
-    let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+    let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -667,7 +667,7 @@ fn test_prove_layout_compatibility_struct_different_size() {
 
 #[test]
 fn test_struct_cast_rejects_incompatible_layouts() {
-    let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+    let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);

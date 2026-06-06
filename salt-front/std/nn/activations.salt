@@ -7,7 +7,7 @@
 
 package std::nn::activations
 
-use std.math.expf
+import std.math.expf
 
 // ReLU: dst[i] = max(0, dst[i])
 // This is a compiler intrinsic — the call is intercepted and lowered to

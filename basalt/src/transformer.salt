@@ -9,9 +9,9 @@
 
 package basalt.src.transformer
 
-use std.core.ptr.Ptr
-use basalt.src.kernels.{rmsnorm, softmax, mat_mul}
-use basalt.src.quant.{mat_mul_vec_q8, dequant_block_q8}
+import std.core.ptr.Ptr
+import basalt.src.kernels.{rmsnorm, softmax, mat_mul}
+import basalt.src.quant.{mat_mul_vec_q8, dequant_block_q8}
 
 extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: Ptr<u8>);

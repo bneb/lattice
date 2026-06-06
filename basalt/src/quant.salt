@@ -16,7 +16,7 @@
 
 package basalt.src.quant
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // Constants
 // Q8_BLOCK_SIZE: number of weights per block

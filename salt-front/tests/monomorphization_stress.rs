@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use salt_front::types::Type;
 use salt_front::types::TypeKey;
 use salt_front::registry::StructInfo;

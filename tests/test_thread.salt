@@ -6,7 +6,7 @@
 
 package main
 
-use std.thread.Thread
+import std.thread.Thread
 
 extern fn exit(code: i32);
 

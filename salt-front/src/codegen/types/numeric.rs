@@ -117,6 +117,7 @@ pub fn get_comparison_pred(op: &syn::BinOp, ty: &Type) -> String {
 
 pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, from: &Type, to: &Type) -> Result<String, String> {    
     if from == to { return Ok(var.to_string()); }
+    println!("IN_CAST: from={:?} to={:?} is_ptr={} is_int={}", from, to, from.k_is_ptr_type(), to.is_integer());
     
     if let Type::Owned(inner) = to {
         if **inner == *from { 
@@ -315,8 +316,10 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
 
 pub fn cast_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, from: &Type, to: &Type) -> Result<String, String> {
     if from == to { return Ok(var.to_string()); }
+    println!("IN_CAST: from={:?} to={:?} is_ptr={} is_int={}", from, to, from.k_is_ptr_type(), to.is_integer());
     
     // Pointer -> Integer cast (ptrtoint)
+    println!("CAST: from={:?} to={:?} k_is_ptr={}, to_is_int={}", from, to, from.k_is_ptr_type(), to.is_integer());
     if from.k_is_ptr_type() && to.is_integer() {
         let res = format!("%ptr_to_int_{}", ctx.next_id());
         let dst_mlir = to.to_mlir_type(ctx)?;

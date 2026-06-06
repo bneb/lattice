@@ -14,8 +14,8 @@
 // OUTPUT: elapsed >= 0  ... PASS
 // OUTPUT: ALL TESTS PASSED
 
-use std.time.Duration
-use std.time.Instant
+import std.time.Duration
+import std.time.Instant
 
 fn main() -> i32 {
     let mut passed: i64 = 0;

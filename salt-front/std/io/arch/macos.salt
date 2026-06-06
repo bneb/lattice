@@ -3,8 +3,8 @@
 
 package std.io.arch.macos
 
-use std.core.ptr::Ptr;
-use std.core.mem;
+import std.core.ptr::Ptr;
+import std.core.mem;
 
 // macOS Darwin syscall constants
 const SYSCALL_WRITE: i64 = 4;

@@ -1,7 +1,7 @@
 package kernel.drivers.nvme
 
-use std.core.ptr.Ptr
-use kernel.drivers.serial
+import std.core.ptr.Ptr
+import kernel.drivers.serial
 
 extern fn outb(port: u16, val: u8);
 

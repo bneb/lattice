@@ -22,7 +22,7 @@
 
 package user.kernel.net.node
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ============================================================================
 // LOC_ARENA offset for node identity

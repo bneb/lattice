@@ -7,7 +7,7 @@
 
 package test.module_dispatch
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 pub fn mock_outb(port: u32, value: u8) {
     // In production, this would be kernel.core.io.outb

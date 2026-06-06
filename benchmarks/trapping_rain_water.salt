@@ -2,8 +2,8 @@ package basalt.trapping_rain_water
 
 // LeetCode 42: Trapping Rain Water — Ptr<T> with [] indexing
 
-use std.core.ptr.Ptr
-use std.core.arena
+import std.core.ptr.Ptr
+import std.core.arena
 
 fn main() -> i32 {
     let n = 100000 as i64;

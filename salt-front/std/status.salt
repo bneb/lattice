@@ -7,7 +7,7 @@
 
 package std.status
 
-use std.core.str.StringView
+import std.core.str.StringView
 
 // Canonical error codes (gRPC-compatible)
 pub const OK: i32 = 0;

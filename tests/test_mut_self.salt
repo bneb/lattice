@@ -2,7 +2,7 @@
 
 package main
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 struct Counter {
     pub pos: i64,

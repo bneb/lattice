@@ -7,8 +7,8 @@
 
 package test.cross_module
 
-use kernel.core.scheduler
-use kernel.drivers.serial
+import kernel.core.scheduler
+import kernel.drivers.serial
 
 pub fn test_cross_call() {
     // These should emit func.call @kernel__core__scheduler__spawn(...)

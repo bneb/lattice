@@ -2,8 +2,8 @@
 // Demonstrates Point with Hash + Eq methods as HashMap key
 package main
 
-use std.collections.hash_map.HashMap
-use std.hash.wyhash_mix
+import std.collections.hash_map.HashMap
+import std.hash.wyhash_mix
 
 // =============================================================================
 // Point Struct - Custom HashMap Key

@@ -1,7 +1,7 @@
 // test_hashmap_perf.salt - TDD test to isolate HashMap performance issue
 // Minimal benchmark of just insert + get operations
 
-use std.collections.hash_map.HashMap
+import std.collections.hash_map.HashMap
 
 fn main() -> i32 {
     // Simple benchmark: 1000 iterations of insert/get on small map

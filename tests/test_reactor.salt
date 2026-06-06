@@ -10,11 +10,11 @@
 
 package main
 
-use std.core.ptr.Ptr
-use std.core.result.Result
-use std.io.reactor.{Reactor, Filter}
-use std.io.reactor_kqueue.KqueueReactor
-use std.io.reactor_keuos.KeuOSReactor
+import std.core.ptr.Ptr
+import std.core.result.Result
+import std.io.reactor.{Reactor, Filter}
+import std.io.reactor_kqueue.KqueueReactor
+import std.io.reactor_keuos.KeuOSReactor
 
 extern fn exit(code: i32);
 extern fn pipe(fds: Ptr<i32>) -> i32;

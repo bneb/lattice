@@ -115,6 +115,8 @@ mod tests_netd_integration;
 mod tests_sir_ast_extraction;
 #[cfg(test)]
 mod tests_ring_abi;
+#[cfg(test)]
+mod tests_negative_verification;
 use crate::grammar::{SaltFile, Item, SaltFn, SaltImpl, ExternFnDecl, SaltConcept, SaltTrait};
 use crate::codegen::context::{CodegenContext, LocalKind, GenericContextGuard};
 use crate::codegen::stmt::emit_block;
@@ -181,7 +183,7 @@ use std::collections::{HashMap, HashSet};
     
     // Initialize Context
     let mut ctx = CodegenContext::new(file, release_mode, Some(&loader_registry), &z3_ctx);
-    ctx.emit_alias_scopes = false; // !disable_alias_scopes;
+    ctx.emit_alias_scopes = !disable_alias_scopes;
     ctx.no_verify = no_verify;
     ctx.lib_mode = lib_mode;
     ctx.sip_mode = sip_mode;
@@ -364,14 +366,72 @@ impl<'a> CodegenContext<'a> {
             // Library mode: seed from ALL @no_mangle and pub functions
             let mut tasks = Vec::new();
             for item in &self.file.borrow().items {
-                if let Item::Fn(f) = item {
-                    let is_no_mangle = f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" );
-                    let is_pub = f.is_pub;
-                    if is_no_mangle || is_pub {
-                        if let Some(task) = self.create_main_task(&f.name.to_string()) {
-                            tasks.push(task);
+                match item {
+                    Item::Fn(f) => {
+                        let is_no_mangle = f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" );
+                        let is_pub = f.is_pub;
+                        if is_no_mangle || is_pub {
+                            if let Some(task) = self.create_main_task(&f.name.to_string()) {
+                                tasks.push(task);
+                            }
                         }
                     }
+                    Item::Impl(imp) => {
+                        if let SaltImpl::Methods { target_ty, methods, generics } = imp {
+                            if generics.is_none() {
+                                if let Some(parsed_ty) = crate::types::Type::from_syn(target_ty) {
+                                    let target_name_full = self.bridge_resolve_codegen_type(&parsed_ty).mangle_suffix();
+                                    let pkg_path = if let Some(pkg) = &self.file.borrow().package {
+                                        pkg.name.iter().map(|id| id.to_string()).collect()
+                                    } else {
+                                        vec![]
+                                    };
+                                    for m in methods {
+                                        if m.is_pub && m.generics.is_none() {
+                                            let m_name_str = m.name.to_string();
+                                            let mangled_name = Mangler::mangle(&[target_name_full.as_str(), m_name_str.as_str()]);
+                                            tasks.push(crate::codegen::collector::MonomorphizationTask {
+                                                identity: crate::types::TypeKey { path: pkg_path.clone(), name: m_name_str, specialization: None },
+                                                mangled_name,
+                                                func: m.clone(),
+                                                concrete_tys: vec![],
+                                                self_ty: Some(parsed_ty.clone()),
+                                                imports: CodegenContext::compute_full_imports(&self.file.borrow()),
+                                                type_map: std::collections::BTreeMap::new(),
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        } else if let SaltImpl::Trait { trait_name: _, target_ty, methods, generics } = imp {
+                            if generics.is_none() {
+                                if let Some(parsed_ty) = crate::types::Type::from_syn(target_ty) {
+                                    let target_name_full = self.bridge_resolve_codegen_type(&parsed_ty).mangle_suffix();
+                                    let pkg_path = if let Some(pkg) = &self.file.borrow().package {
+                                        pkg.name.iter().map(|id| id.to_string()).collect()
+                                    } else {
+                                        vec![]
+                                    };
+                                    for m in methods {
+                                        if m.generics.is_none() {
+                                            let m_name_str = m.name.to_string();
+                                            let mangled_name = Mangler::mangle(&[target_name_full.as_str(), m_name_str.as_str()]);
+                                            tasks.push(crate::codegen::collector::MonomorphizationTask {
+                                                identity: crate::types::TypeKey { path: pkg_path.clone(), name: m_name_str, specialization: None },
+                                                mangled_name,
+                                                func: m.clone(),
+                                                concrete_tys: vec![],
+                                                self_ty: Some(parsed_ty.clone()),
+                                                imports: CodegenContext::compute_full_imports(&self.file.borrow()),
+                                                type_map: std::collections::BTreeMap::new(),
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
             if tasks.is_empty() {
@@ -1650,10 +1710,15 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
     let old_trusted_fn = ctx.emission.borrow().in_trusted_fn;
     ctx.emission.borrow_mut().in_trusted_fn = has_trusted;
 
+    let has_dynamic_check = func.attributes.iter().any(|a| a.name == "dynamic_check");
+    let old_dynamic_check_fn = ctx.emission.borrow().in_dynamic_check_fn;
+    ctx.emission.borrow_mut().in_dynamic_check_fn = has_dynamic_check;
+
     let terminator = ctx.with_lowering_ctx(|lctx| emit_block(lctx, &mut body_out, &func.body.stmts, &mut local_vars))?;
     
     ctx.emission.borrow_mut().in_fast_math_fn = old_fast_math_fn;
     ctx.emission.borrow_mut().in_trusted_fn = old_trusted_fn;
+    ctx.emission.borrow_mut().in_dynamic_check_fn = old_dynamic_check_fn;
     *ctx.no_yield_mut() = old_no_yield;
     *ctx.current_pulse_mut() = old_pulse;
     

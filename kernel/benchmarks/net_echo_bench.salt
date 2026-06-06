@@ -23,11 +23,11 @@
 
 package benchmarks.net_echo_bench
 
-use kernel.drivers.serial
-use kernel.drivers.vga
-use kernel.drivers.virtio_net
-use kernel.net.netcore
-use kernel.core.scheduler
+import kernel.drivers.serial
+import kernel.drivers.vga
+import kernel.drivers.virtio_net
+import kernel.net.netcore
+import kernel.core.scheduler
 
 @no_mangle
 pub fn run_net_echo() {

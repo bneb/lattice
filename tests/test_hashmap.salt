@@ -2,9 +2,9 @@
 // Tests all methods and edge cases
 package main
 
-use std.collections.hash_map.HashMap
-use std.collections.hash_map.EMPTY
-use std.collections.hash_map.DELETED
+import std.collections.hash_map.HashMap
+import std.collections.hash_map.EMPTY
+import std.collections.hash_map.DELETED
 
 extern fn exit(code: i32);
 

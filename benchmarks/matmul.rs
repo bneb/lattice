@@ -1,11 +1,9 @@
 fn matmul(n: usize, a: &[f64], b: &[f64], c: &mut [f64]) {
     for i in 0..n {
-        for j in 0..n {
-            let mut sum = 0.0;
-            for k in 0..n {
-                sum += a[i * n + k] * b[k * n + j];
+        for k in 0..n {
+            for j in 0..n {
+                c[i * n + j] += a[i * n + k] * b[k * n + j];
             }
-            c[i * n + j] = sum;
         }
     }
 }

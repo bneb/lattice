@@ -16,6 +16,7 @@ const POLL_READY: i64 = 1;
 // Cross-module extern declarations (avoids linker error during standalone compilation)
 extern fn ctz_u64(x: u64) -> u64;
 extern fn stack_init(stack_top: u64, entry: u64) -> u64;
+extern fn spin_loop_hint();
 
 // Slab allocator — lock-free Treiber stack (kernel/mem/slab.salt)
 extern fn pop_stack() -> u64;
@@ -73,7 +74,7 @@ pub struct Fiber {
     pub id: u64,
     pub stack_ptr: u64,
     pub stack_base: u64,
-    pub active: bool,
+    pub active: u64,
     pub step_fn: u64,       // Async: address of compiler-emitted step function (0 = preemptive)
     pub task_frame: u64,    // Async: pointer to slab-allocated TaskFrame
     pub ctx_ptr: u64,       // Unified context pointer: stack_ptr (preemptive) or task_frame (async)
@@ -98,7 +99,7 @@ pub struct SchedulerState {
 // Only SCHED_ARRAY[0] is used on single-core configurations.
 // =============================================================================
 global SCHED_ARRAY: [SchedulerState; 16] = [SchedulerState {
-    fibers: [Fiber { id: 0, stack_ptr: 0, stack_base: 0, active: false, step_fn: 0, task_frame: 0, ctx_ptr: 0, ecs_entity_val: 0 }; 256],
+    fibers: [Fiber { id: 0, stack_ptr: 0, stack_base: 0, active: 0, step_fn: 0, task_frame: 0, ctx_ptr: 0, ecs_entity_val: 0 }; 256],
     current: 0,
     count: 0,
     next_id: 1,
@@ -154,7 +155,7 @@ pub fn init() {
        // Note: Fiber 0 (the main boot thread) is NOT set to active.
        // It acts as a cooperative driver for benchmarks, but cannot be preemptively scheduled
        // by do_dispatch because it bypasses invoke_preemptive_thread and runs on the boot stack.
-       SCHED_ARRAY[cpu].fibers[0].active = false;
+       SCHED_ARRAY[cpu].fibers[0].active = 0;
        SCHED_ARRAY[cpu].fibers[0].id = 0;
        SCHED_ARRAY[cpu].fibers[0].stack_base = 0;
        SCHED_ARRAY[cpu].current = 0;
@@ -243,7 +244,7 @@ pub fn spawn(entry_addr: u64) -> u64 {
         
         if found {
             SCHED_ARRAY[cpu].fibers[slot].id = SCHED_ARRAY[cpu].next_id;
-            SCHED_ARRAY[cpu].fibers[slot].active = true;
+            SCHED_ARRAY[cpu].fibers[slot].active = 1;
             
             // Universal Task Pointer: preemptive fibers use invoke_preemptive_thread
             // as their step_fn. The scheduler calls it exactly like an async step_fn.
@@ -325,7 +326,7 @@ pub fn spawn_async(step_fn_addr: u64, frame_size: u64) -> u64
             *(frame_ptr as &mut i64) = 0;
 
             SCHED_ARRAY[cpu].fibers[slot].id = SCHED_ARRAY[cpu].next_id;
-            SCHED_ARRAY[cpu].fibers[slot].active = true;
+            SCHED_ARRAY[cpu].fibers[slot].active = 1;
             SCHED_ARRAY[cpu].fibers[slot].step_fn = step_fn_addr;
             SCHED_ARRAY[cpu].fibers[slot].task_frame = frame_ptr;
             SCHED_ARRAY[cpu].fibers[slot].stack_ptr = 0;    // No hardware stack needed
@@ -448,7 +449,7 @@ pub fn do_dispatch() {
                 ecs_bridge_destroy_thread(ecs_val);
 
                 // Fiber completed — reclaim resources
-                SCHED_ARRAY[cpu].fibers[next].active = false;
+                SCHED_ARRAY[cpu].fibers[next].active = 0;
                 SCHED_ARRAY[cpu].fibers[next].step_fn = 0;
                 SCHED_ARRAY[cpu].fibers[next].ctx_ptr = 0;
                 SCHED_ARRAY[cpu].fibers[next].ecs_entity_val = 0;
@@ -631,7 +632,7 @@ fn dispatch_stolen(cpu: u64, stolen_word: u64) {
     let victim_slot = stolen_word & 0xFFFF;
 
     // Guard: fiber must still be active (ABA protection)
-    if !SCHED_ARRAY[victim_cpu].fibers[victim_slot].active {
+    if SCHED_ARRAY[victim_cpu].fibers[victim_slot].active == 0 {
         return;  // Stale steal — fiber already completed or was re-stolen
     }
 
@@ -658,7 +659,7 @@ fn dispatch_stolen(cpu: u64, stolen_word: u64) {
             SCHED_ARRAY[cpu].fibers[local_slot].stack_base = SCHED_ARRAY[victim_cpu].fibers[victim_slot].stack_base;
             SCHED_ARRAY[cpu].fibers[local_slot].id         = SCHED_ARRAY[victim_cpu].fibers[victim_slot].id;
             SCHED_ARRAY[cpu].fibers[local_slot].ecs_entity_val = SCHED_ARRAY[victim_cpu].fibers[victim_slot].ecs_entity_val;
-            SCHED_ARRAY[cpu].fibers[local_slot].active     = true;
+            SCHED_ARRAY[cpu].fibers[local_slot].active     = 1;
 
             // Mark runnable in local bitmap
             SCHED_ARRAY[cpu].l1_summary = SCHED_ARRAY[cpu].l1_summary | bit;
@@ -666,19 +667,54 @@ fn dispatch_stolen(cpu: u64, stolen_word: u64) {
 
             // SECURITY FIX: Clear victim's slot using atomic operations to prevent 
             // concurrent corruption when victim_cpu schedules itself.
-            let victim_bit: u64 = (1 as u64) << victim_slot;
-            let victim_inv: u64 = victim_bit ^ 0xFFFFFFFFFFFFFFFF;
+            let v_l1_idx = victim_slot / 64;
+            let v_l2_bit = victim_slot % 64;
+            let v_bit_mask: u64 = (1 as u64) << v_l2_bit;
+            let v_inv_mask: u64 = v_bit_mask ^ 0xFFFFFFFFFFFFFFFF;
+
+            let mut l2_success = false;
+            let mut l2_became_zero = false;
             
-            let mut success = false;
-            while !success {
-                let old_val = SCHED_ARRAY[victim_cpu].l1_summary;
-                let new_val = old_val & victim_inv;
-                let cas_res = atomic_cas_i64(&SCHED_ARRAY[victim_cpu].l1_summary, old_val as i64, new_val as i64);
-                if cas_res == old_val as i64 {
-                    success = true;
+            while !l2_success {
+                let old_l2 = SCHED_ARRAY[victim_cpu].l2_details[v_l1_idx];
+                let new_l2 = old_l2 & v_inv_mask;
+                let cas_res = atomic_cas_i64(&SCHED_ARRAY[victim_cpu].l2_details[v_l1_idx], old_l2 as i64, new_l2 as i64) as u64;
+                if cas_res == old_l2 {
+                    l2_success = true;
+                    if new_l2 == 0 {
+                        l2_became_zero = true;
+                    }
+                } else {
+                    spin_loop_hint();
                 }
             }
-            SCHED_ARRAY[victim_cpu].fibers[victim_slot].active = false;
+            
+            if l2_became_zero {
+                let v_group_mask: u64 = (1 as u64) << v_l1_idx;
+                let v_inv_group: u64 = v_group_mask ^ 0xFFFFFFFFFFFFFFFF;
+                let mut l1_success = false;
+                
+                while !l1_success {
+                    // Double check l2_details before clearing L1
+                    let current_l2 = SCHED_ARRAY[victim_cpu].l2_details[v_l1_idx];
+                    if current_l2 != 0 {
+                        l1_success = true;
+                    } else {
+                        let old_l1 = SCHED_ARRAY[victim_cpu].l1_summary;
+                        let new_l1 = old_l1 & v_inv_group;
+                        let cas_res = atomic_cas_i64(&SCHED_ARRAY[victim_cpu].l1_summary, old_l1 as i64, new_l1 as i64) as u64;
+                        if cas_res == old_l1 {
+                            l1_success = true;
+                        } else {
+                            spin_loop_hint();
+                        }
+                    }
+                }
+            }
+            
+            // Atomically clear the active flag (we know it's currently 1)
+            atomic_cas_i64(&SCHED_ARRAY[victim_cpu].fibers[victim_slot].active, 1 as i64, 0 as i64);
+            
             SCHED_ARRAY[victim_cpu].fibers[victim_slot].ecs_entity_val = 0;
             atomic_add_i64(&SCHED_ARRAY[victim_cpu].count, -1 as i64);
 
@@ -695,7 +731,7 @@ fn dispatch_stolen(cpu: u64, stolen_word: u64) {
                 
                 if status == POLL_READY {
                     ecs_bridge_destroy_thread(ecs_val);
-                    SCHED_ARRAY[cpu].fibers[local_slot].active = false;
+                    SCHED_ARRAY[cpu].fibers[local_slot].active = 0;
                     SCHED_ARRAY[cpu].fibers[local_slot].step_fn = 0;
                     SCHED_ARRAY[cpu].fibers[local_slot].ctx_ptr = 0;
                     SCHED_ARRAY[cpu].fibers[local_slot].ecs_entity_val = 0;
@@ -738,7 +774,7 @@ pub fn enter_idle_loop() {
     let cpu = get_cpu_id();
 
     // Initialize this core's scheduler state (fiber 0 = idle context)
-    SCHED_ARRAY[cpu].fibers[0].active = true;
+    SCHED_ARRAY[cpu].fibers[0].active = 1;
     SCHED_ARRAY[cpu].fibers[0].id = 0;
     SCHED_ARRAY[cpu].fibers[0].stack_base = 0;
     SCHED_ARRAY[cpu].current = 0;

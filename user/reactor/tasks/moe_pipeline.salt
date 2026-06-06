@@ -46,7 +46,7 @@
 
 package user.reactor.tasks.moe_pipeline
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // External telemetry and UART bindings
 extern fn rdtsc() -> u64;
@@ -262,13 +262,15 @@ pub fn execute_moe_pipeline(state: u64, bar_out: u64, poll_out: u64) {
         // =====================================================================
         // Zero-Copy Ring 3 Ethernet Parsing
         // =====================================================================
-        // Read the RX notification mailbox (set by kernel's netcore.salt)
-        let rx_notify_ptr: u64 = *((state + STATE_RX_NOTIFY_PTR) as &u64);
+        // Read the RX notification SPSC Ring (set by kernel's netcore.salt)
+        let rx_notify_ring_vaddr: u64 = *((state + STATE_RX_NOTIFY_PTR) as &u64);
         let rx_pool_vaddr: u64 = *((state + STATE_RX_POOL_VADDR) as &u64);
 
-        // Check if kernel has deposited a frame notification
-        let frame_ready: u32 = *((rx_notify_ptr + 12) as &u32);
-        if frame_ready == 0 {
+        let head = *((rx_notify_ring_vaddr + 0) as &u64);
+        let tail = *((rx_notify_ring_vaddr + 64) as &u64);
+        let capacity = *((rx_notify_ring_vaddr + 8) as &u64);
+        
+        if head == tail {
             // No frame yet. Yield and come back.
             *((poll_out) as &mut u32) = POLL_PENDING;
             let token: u32 = *((state + STATE_TOKEN) as &u32);
@@ -276,12 +278,27 @@ pub fn execute_moe_pipeline(state: u64, bar_out: u64, poll_out: u64) {
             return;
         }
 
-        // Read the kernel buffer address and length from the mailbox
-        let kernel_buf_addr: u64 = *((rx_notify_ptr) as &u64);
-        let pkt_len: u32 = *((rx_notify_ptr + 8) as &u32);
-
-        // Clear the mailbox (acknowledge receipt)
-        *((rx_notify_ptr + 12) as &mut u32) = 0;
+        // Read the kernel buffer address and length from the ring
+        let mut kernel_buf_addr: u64 = 0;
+        let mut pkt_len: u32 = 0;
+        
+        let mut i: u64 = 0;
+        while i < 8 {
+            let idx = (tail + i) % capacity;
+            let b = *((rx_notify_ring_vaddr + 192 + idx) as &u8);
+            kernel_buf_addr = kernel_buf_addr | ((b as u64) << (i * 8));
+            i = i + 1;
+        }
+        
+        let mut j: u64 = 0;
+        while j < 4 {
+            let idx = (tail + 8 + j) % capacity;
+            let b = *((rx_notify_ring_vaddr + 192 + idx) as &u8);
+            pkt_len = pkt_len | ((b as u32) << (j * 8));
+            j = j + 1;
+        }
+        
+        *((rx_notify_ring_vaddr + 64) as &mut u64) = tail + 12;
 
         // Translate: kernel vaddr → offset in RX pool → Ring 3 mapped address
         // kernel_buf_addr = 0xFFFFFFFF80420000 + (desc_id * BUF_SIZE)

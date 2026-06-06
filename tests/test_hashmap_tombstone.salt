@@ -1,7 +1,7 @@
 // TDD: Focused test for tombstone contamination
 package main
 
-use std.collections.hash_map.HashMap
+import std.collections.hash_map.HashMap
 
 extern fn exit(code: i32);
 

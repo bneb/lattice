@@ -15,7 +15,7 @@
 
 package kernel.net.netd_tcp
 
-use kernel.drivers.serial
+import kernel.drivers.serial
 
 // RFC 793 TCP States
 pub const TCP_CLOSED: u8       = 0;

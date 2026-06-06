@@ -22,7 +22,7 @@
 
 package user.basalt.fabric.cqe_wait
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ============================================================================
 // Atomic load builtin — compiler-provided ACQUIRE-semantic load

@@ -8,16 +8,16 @@
 
 package main
 
-use std.core.ptr.Ptr
-use std.core.str.StringView
-use std.core.result.Result
-use std.net.tcp.{TcpListener, TcpStream}
-use std.net.poller.{Poller, PollFilter}
-use std.collections.string_map.{StringMap, StringMap_new, StringMap_drop}
-use std.collections.slab.Slab
-use lettuce.store.{execute, ExecResult}
-use lettuce.resp.write_simple_string
-use user.basalt.main.basalt_poll_cycle
+import std.core.ptr.Ptr
+import std.core.str.StringView
+import std.core.result.Result
+import std.net.tcp.{TcpListener, TcpStream}
+import std.net.poller.{Poller, PollFilter}
+import std.collections.string_map.{StringMap, StringMap_new, StringMap_drop}
+import std.collections.slab.Slab
+import lettuce.store.{execute, ExecResult}
+import lettuce.resp.write_simple_string
+import user.basalt.main.basalt_poll_cycle
 
 extern fn puts(s: Ptr<u8>) -> i32;
 extern fn memmove(dst: Ptr<u8>, src: Ptr<u8>, n: i64) -> Ptr<u8>;

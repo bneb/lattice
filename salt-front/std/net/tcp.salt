@@ -10,10 +10,12 @@
 
 package std.net.tcp
 
-use std.os.syscall
-use std.core.ptr.Ptr
-use std.status.Status
-use std.core.result.Result
+import std.os.syscall
+import std.core.ptr.Ptr
+import std.status.Status
+import std.core.result.Result
+
+extern fn memmove(dst: Ptr<u8>, src: Ptr<u8>, n: i64) -> Ptr<u8>;
 
 // ─── NetD Protocol Constants ─────────────────────────────────────────────────
 const NETD_PID: u64 = 5;
@@ -87,18 +89,14 @@ fn spsc_pop(base: u64, dst: u64, count: u64) -> u64 {
     let seg1_len = cap - start_idx;
     let first = if to_pop < seg1_len { to_pop } else { seg1_len };
 
-    let mut i: u64 = 0;
-    while i < first {
-        *((dst + i) as &mut u8) = *((data + start_idx + i) as &u8);
-        i = i + 1;
+    if first > 0 {
+        memmove((dst) as Ptr<u8>, (data + start_idx) as Ptr<u8>, first as i64);
     }
 
     if to_pop > first {
         let second = to_pop - first;
-        let mut j: u64 = 0;
-        while j < second {
-            *((dst + first + j) as &mut u8) = *((data + j) as &u8);
-            j = j + 1;
+        if second > 0 {
+            memmove((dst + first) as Ptr<u8>, (data) as Ptr<u8>, second as i64);
         }
     }
 
@@ -121,18 +119,14 @@ fn spsc_push(base: u64, src: u64, count: u64) -> u64 {
     let seg1_len = cap - start_idx;
     let first = if to_push < seg1_len { to_push } else { seg1_len };
 
-    let mut i: u64 = 0;
-    while i < first {
-        *((data + start_idx + i) as &mut u8) = *((src + i) as &u8);
-        i = i + 1;
+    if first > 0 {
+        memmove((data + start_idx) as Ptr<u8>, (src) as Ptr<u8>, first as i64);
     }
 
     if to_push > first {
         let second = to_push - first;
-        let mut j: u64 = 0;
-        while j < second {
-            *((data + j) as &mut u8) = *((src + first + j) as &u8);
-            j = j + 1;
+        if second > 0 {
+            memmove((data) as Ptr<u8>, (src + first) as Ptr<u8>, second as i64);
         }
     }
 

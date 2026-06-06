@@ -3,8 +3,8 @@
 
 package test_display
 
-use std.string.String
-use std.fmt.Display
+import std.string.String
+import std.fmt.Display
 
 // ============================================================================
 // Test 1: A struct with manual Display implementation

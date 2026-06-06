@@ -5,8 +5,8 @@ package basalt
 // Comparable to C sprintf and Rust format!
 // [SOVEREIGN V4.0] Uses arena mark/reset for O(1) memory reclamation
 
-use std::string::*;
-use std::core::arena;
+import std::string::*;
+import std::core::arena;
 
 fn main(argc: i32) -> i32 {
     let mut total_len: i64 = 0;

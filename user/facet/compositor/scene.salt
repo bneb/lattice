@@ -1,6 +1,6 @@
 // Facet Compositor Scene Graph
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // Assuming Affine and Path/Canvas are defined (will be concatenated in test)
 

@@ -56,6 +56,41 @@ global SHARDS: [PmmShard; 16] = [PmmShard {
 
 global TOTAL_PAGES: u64 = 0;
 global NUM_CPUS: u64 = 1;
+global MAX_PHYS_ADDR: u64 = 0;
+
+// [SEC-14] SECURITY FIX: Used/Free bitmask to detect double free. 1 = Free, 0 = Used.
+global PMM_USED_BITMAP: [u64; 16384] = [0; 16384];
+
+fn mark_page_free_bitmap(phys: u64) {
+    let page_idx = phys / PAGE_SIZE;
+    let arr_idx = page_idx / 64;
+    let bit_idx = page_idx % 64;
+    if arr_idx >= 16384 { return; }
+    let mask: u64 = (1 as u64) << bit_idx;
+    let mut success = false;
+    while !success {
+        let old_val = PMM_USED_BITMAP[arr_idx];
+        let new_val = old_val | mask;
+        let cas_val = atomic_cas_i64(&PMM_USED_BITMAP[arr_idx], old_val as i64, new_val as i64);
+        if cas_val == old_val as i64 { success = true; }
+    }
+}
+
+fn mark_page_used_bitmap(phys: u64) {
+    let page_idx = phys / PAGE_SIZE;
+    let arr_idx = page_idx / 64;
+    let bit_idx = page_idx % 64;
+    if arr_idx >= 16384 { return; }
+    let mask: u64 = (1 as u64) << bit_idx;
+    let inv_mask: u64 = mask ^ 0xFFFFFFFFFFFFFFFF;
+    let mut success = false;
+    while !success {
+        let old_val = PMM_USED_BITMAP[arr_idx];
+        let new_val = old_val & inv_mask;
+        let cas_val = atomic_cas_i64(&PMM_USED_BITMAP[arr_idx], old_val as i64, new_val as i64);
+        if cas_val == old_val as i64 { success = true; }
+    }
+}
 
 const STEAL_THRESHOLD: u64 = 16;
 
@@ -81,19 +116,23 @@ fn get_next_frame_ptr(phys_head: u64) -> u64 {
 fn set_next_frame_ptr(phys_head: u64, next_phys: u64) {
     let vaddr = memory.phys_to_virt(memory.PhysAddr { val: phys_head }).val;
     *(vaddr as &mut u64) = next_phys;
-    *((vaddr + 8) as &mut u64) = 0xDFDFDFDFDFDFDFDF; // Double-free detection magic
 }
 
 fn check_double_free(phys_head: u64) -> bool {
-    let vaddr = memory.phys_to_virt(memory.PhysAddr { val: phys_head }).val;
-    let magic = *((vaddr + 8) as &u64);
-    return magic == 0xDFDFDFDFDFDFDFDF;
+    // [SEC-14] SECURITY FIX: Use the bitmap to detect double free. 1 = Free.
+    let page_idx = phys_head / PAGE_SIZE;
+    let arr_idx = page_idx / 64;
+    let bit_idx = page_idx % 64;
+    if arr_idx >= 16384 { return false; }
+    let mask: u64 = (1 as u64) << bit_idx;
+    return (PMM_USED_BITMAP[arr_idx] & mask) != 0;
 }
 
 // ============================================================================
 // INIT: Build free page list from physical range
 // ============================================================================
 pub fn init(start: u64, end: u64) {
+    if end > MAX_PHYS_ADDR { MAX_PHYS_ADDR = end; }
     let mut current = (start + 4095) & (0xFFFFFFFFFFFFF000);
     let mut core_idx: u64 = 0;
 
@@ -107,6 +146,7 @@ pub fn init(start: u64, end: u64) {
         SHARDS[target].free_count = SHARDS[target].free_count + 1;
         
         TOTAL_PAGES += 1;
+        mark_page_free_bitmap(current);
         core_idx = core_idx + 1;
         current += PAGE_SIZE;
     }
@@ -138,9 +178,7 @@ pub fn alloc_frame() -> u64 {
         if old_val == current_head as i64 {
             // CAS success
             atomic_add_i64(&SHARDS[core_id].free_count, -1 as i64);
-            // Clear magic
-            let vaddr = memory.phys_to_virt(memory.PhysAddr { val: phys_head }).val;
-            *((vaddr + 8) as &mut u64) = 0;
+            mark_page_used_bitmap(phys_head);
             enable_interrupts();
             return phys_head;
         }
@@ -157,13 +195,21 @@ pub fn alloc_frame() -> u64 {
 // FREE: Push a page back onto THIS core's free stack
 // ============================================================================
 pub fn free_frame(page: u64) {
+    if page == 0 {
+        return;
+    }
     if (page % PAGE_SIZE) != 0 {
+        return;
+    }
+    if page >= MAX_PHYS_ADDR {
         return;
     }
     if check_double_free(page) {
         // Double free detected! Refuse to corrupt the list.
+        serial.print("[PMM] FATAL: Double free detected!\n");
         return;
     }
+    mark_page_free_bitmap(page);
     disable_interrupts();
     let core_id = get_cpu_id();
     
@@ -220,6 +266,7 @@ fn steal_from_remote(thief: u64) -> u64 {
                 let old_val = atomic_cas_i64(&SHARDS[victim].head_frame, victim_head as i64, next_head as i64);
                 if old_val == victim_head as i64 {
                     atomic_add_i64(&SHARDS[victim].free_count, -1 as i64);
+                    mark_page_used_bitmap(phys_head);
                     return phys_head;
                 }
             }

@@ -24,8 +24,8 @@
 
 package kernel.arch.x86.acpi
 
-use kernel.core.memory
-use kernel.drivers.serial
+import kernel.core.memory
+import kernel.drivers.serial
 
 // =============================================================================
 // Constants

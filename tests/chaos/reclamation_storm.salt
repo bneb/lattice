@@ -23,10 +23,10 @@
 
 package tests.chaos.reclamation_storm
 
-use kernel.core.sovereign_reclaim
-use kernel.core.process
-use kernel.core.pmm
-use kernel.drivers.serial
+import kernel.core.sovereign_reclaim
+import kernel.core.process
+import kernel.core.pmm
+import kernel.drivers.serial
 
 // =============================================================================
 // Configuration

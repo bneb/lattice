@@ -576,10 +576,18 @@ pub fn unify_types(
                     }
                 };
                 if !is_equivalent {
-                    // [SOVEREIGN FIX] If a generic is already bound (e.g. via turbofish),
-                    // allow the existing bound type to take precedence over inferred argument types.
-                    // The call-site type checking (e.g. cast_numeric) will handle any coercions.
-                    // Do not fail monomorphization here.
+                    // [SEC-03] Type consistency check: log a diagnostic warning when
+                    // a generic parameter is bound to one type but a subsequent argument
+                    // infers a different type. This catches genuine type confusion
+                    // (e.g., swap(1, "hello") where T binds to Int then sees String)
+                    // while remaining compatible with turbofish patterns where the
+                    // explicit binding is authoritative.
+                    // A genuine type confusion will be caught downstream by the
+                    // type checker during argument emission.
+                    eprintln!(
+                        "[GENERIC WARNING] Type parameter '{}' bound to {:?} but argument has type {:?}",
+                        name, existing, concrete
+                    );
                 }
             } else {
                 map.insert(name.clone(), concrete.clone());

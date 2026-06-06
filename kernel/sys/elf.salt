@@ -25,7 +25,7 @@
 
 package kernel.sys
 
-use kernel.drivers.serial
+import kernel.drivers.serial
 
 // ABI boundary to the kernel scheduler
 extern fn scheduler_spawn(entry_addr: u64) -> u64;

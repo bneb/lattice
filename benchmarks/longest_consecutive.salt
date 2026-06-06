@@ -2,10 +2,10 @@
 
 package basalt
 
-use std.core.ptr.Ptr
-use std.core.arena
+import std.core.ptr.Ptr
+import std.core.arena
 
-use std.collections.hash_map.HashMap
+import std.collections.hash_map.HashMap
 
 fn main() -> i32 {
     let mut total: i64 = 0;

@@ -5,10 +5,10 @@
 
 package main
 
-use std.env.env.args_count
-use std.env.env.arg
-use std.env.env.get_env
-use std.core.option.Option
+import std.env.env.args_count
+import std.env.env.arg
+import std.env.env.get_env
+import std.core.option.Option
 
 extern fn exit(code: i32);
 

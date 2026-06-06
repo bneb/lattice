@@ -7,7 +7,7 @@
 
 package std.os.syscall
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // --- TCP Operations ---
 

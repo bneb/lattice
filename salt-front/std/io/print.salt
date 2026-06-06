@@ -3,8 +3,8 @@
 
 package std.io
 
-use std.fmt.{Display, format}
-use std.string.String
+import std.fmt.{Display, format}
+import std.string.String
 
 // Extern declaration for low-level write (platform specific)
 @no_mangle

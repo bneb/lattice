@@ -2401,6 +2401,95 @@ JSValueRef jsc_window_fetch(JSContextRef ctx, JSObjectRef function,
   return promise;
 }
 
+static JSValueRef jsc_response_json(JSContextRef ctx, JSObjectRef function,
+                                    JSObjectRef thisObject, size_t argc,
+                                    const JSValueRef argv[], JSValueRef *exception) {
+  JSStringRef textProp = JSStringCreateWithUTF8CString("_text");
+  JSValueRef text_val = JSObjectGetProperty(ctx, thisObject, textProp, exception);
+  JSStringRelease(textProp);
+  
+  if (!text_val) return JSValueMakeUndefined(ctx);
+  
+  JSStringRef jsStr = JSValueToStringCopy(ctx, text_val, exception);
+  JSValueRef parsed = JSValueMakeFromJSONString(ctx, jsStr);
+  JSStringRelease(jsStr);
+  if (!parsed) parsed = JSValueMakeUndefined(ctx);
+  
+  JSObjectRef resolve, reject;
+  JSObjectRef promise = JSObjectMakeDeferredPromise(ctx, &resolve, &reject, exception);
+  JSObjectCallAsFunction(ctx, resolve, NULL, 1, &parsed, exception);
+  return promise;
+}
+
+static JSValueRef jsc_response_text(JSContextRef ctx, JSObjectRef function,
+                                    JSObjectRef thisObject, size_t argc,
+                                    const JSValueRef argv[], JSValueRef *exception) {
+  JSStringRef textProp = JSStringCreateWithUTF8CString("_text");
+  JSValueRef text_val = JSObjectGetProperty(ctx, thisObject, textProp, exception);
+  JSStringRelease(textProp);
+  
+  if (!text_val) return JSValueMakeUndefined(ctx);
+  
+  JSObjectRef resolve, reject;
+  JSObjectRef promise = JSObjectMakeDeferredPromise(ctx, &resolve, &reject, exception);
+  JSObjectCallAsFunction(ctx, resolve, NULL, 1, &text_val, exception);
+  return promise;
+}
+
+void js_resolve_fetch_impl(uint64_t fetch_id, uint64_t buffer_ptr, uint32_t length) {
+  extern JSGlobalContextRef global_ctx;
+  if (!global_ctx) return;
+  JSContextRef ctx = global_ctx;
+  
+  for (int i = 0; i < 256; i++) {
+    if (fetch_cache[i].active && fetch_cache[i].fetch_id == fetch_id) {
+      
+      JSObjectRef response_obj = JSObjectMake(ctx, NULL, NULL);
+      
+      char *buf = malloc(length + 1);
+      memcpy(buf, (void*)buffer_ptr, length);
+      buf[length] = '\0';
+      JSStringRef text_str = JSStringCreateWithUTF8CString(buf);
+      free(buf);
+      
+      JSValueRef text_val = JSValueMakeString(ctx, text_str);
+      JSStringRelease(text_str);
+      
+      JSStringRef prop_text = JSStringCreateWithUTF8CString("_text");
+      JSObjectSetProperty(ctx, response_obj, prop_text, text_val, 0, NULL);
+      JSStringRelease(prop_text);
+      
+      JSStringRef prop_json = JSStringCreateWithUTF8CString("json");
+      JSObjectSetProperty(ctx, response_obj, prop_json, JSObjectMakeFunctionWithCallback(ctx, prop_json, jsc_response_json), 0, NULL);
+      JSStringRelease(prop_json);
+      
+      JSStringRef prop_text_m = JSStringCreateWithUTF8CString("text");
+      JSObjectSetProperty(ctx, response_obj, prop_text_m, JSObjectMakeFunctionWithCallback(ctx, prop_text_m, jsc_response_text), 0, NULL);
+      JSStringRelease(prop_text_m);
+      
+      JSObjectCallAsFunction(ctx, fetch_cache[i].resolve_func, NULL, 1, (JSValueRef*)&response_obj, NULL);
+      
+      JSValueUnprotect(ctx, fetch_cache[i].resolve_func);
+      JSValueUnprotect(ctx, fetch_cache[i].reject_func);
+      fetch_cache[i].active = 0;
+      
+      extern void ext_net_complete_fetch(uint64_t fid, uint64_t ptr, uint32_t len);
+      ext_net_complete_fetch(fetch_id, buffer_ptr, length);
+      
+      for (int s = 0; s < 256; s++) {
+        extern uint64_t net_get_fetch_id(uint32_t slot);
+        if (net_get_fetch_id(s) == fetch_id) {
+          extern void ext_net_reclaim_slot(uint32_t slot);
+          ext_net_reclaim_slot(s);
+          break;
+        }
+      }
+      
+      break;
+    }
+  }
+}
+
 // ---- WebSocket, Worker, MediaSource, AudioContext constructors ----
 // Stub — real impl in ws.salt, not linked in test builds
 void ext_ws_connect(uint64_t url_ptr, uint32_t url_len) __attribute__((weak));

@@ -1,9 +1,9 @@
 package main
 
-use std.core.ptr.Ptr
-use std.core.str.StringView
-use std.collections.string_map.StringMap
-use std.collections.string_map.fnv1a
+import std.core.ptr.Ptr
+import std.core.str.StringView
+import std.collections.string_map.StringMap
+import std.collections.string_map.fnv1a
 
 fn main() -> i32 {
     println("=== StringMap Mini Test ===");

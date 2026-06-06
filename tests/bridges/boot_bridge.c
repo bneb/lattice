@@ -6,11 +6,17 @@ extern void ext_salt_airlock_init_allocator();
 extern void ext_salt_init_arrays();
 extern int32_t js_init_quickjs();
 extern int32_t js_eval_buffer(const char* code_ptr, uint32_t len);
+extern int32_t js_execute_pending_jobs();
+
+// Provide weak stubs so that tests linking this bridge without the QuickJS object don't fail at link time
+__attribute__((weak)) int32_t js_init_quickjs() { return 0; }
+__attribute__((weak)) int32_t js_eval_buffer(const char* code_ptr, uint32_t len) { return 0; }
+__attribute__((weak)) int32_t js_execute_pending_jobs() { return 0; }
+
 extern uint64_t ext_salt_create_node(uint32_t tag);
 extern uint32_t ext_salt_resolve_node(uint64_t id);
 extern void sys_js_evaluate_script(uint64_t code_ptr, uint32_t code_len, uint64_t filename_ptr, uint32_t filename_len);
 extern void js_bridge_dispatch_document_event(const char *type_ptr, uint32_t type_len);
-extern int32_t js_execute_pending_jobs();
 extern void sys_js_pump_script_queue();
 extern uint64_t dom_alloc_text(uint32_t len);
 extern void js_lex_html_chunk(uint64_t root_id, uint64_t ptr, uint32_t len, uint8_t can_exec);
@@ -21,7 +27,7 @@ extern uint32_t dom_get_script_src_len(uint32_t idx);
 
 // Stubs for OS-level functions not available in test environment
 void sys_gpu_set_scissor_rect(int32_t x, int32_t y, int32_t w, int32_t h) {}
-uint64_t sys_mmap_file(uint64_t filename_ptr, uint32_t size) { return 0; }
+__attribute__((weak)) uint64_t sys_mmap_file(uint64_t filename_ptr, uint32_t size) { return 0; }
 
 // The IPC ring uses this global pointer for its buffer. In test mode,
 // we point it at a static dummy buffer to prevent null-deref crashes.
@@ -40,15 +46,15 @@ int c_bridge_boot_e2e_test() {
     // Initialize dummy IPC ring to prevent null-deref in push_get_request
     user__os__ipc_ring__IPC_BUFFER_PTR = (uint64_t)dummy_ipc_ring;
     
-    airlock_init_allocator();
-    init_arrays();
+    ext_salt_airlock_init_allocator();
+    ext_salt_init_arrays();
     js_init_quickjs();
     
     // ================================================================
     // Phase 1: Verify the Script Interceptor in the HTML Lexer
     // ================================================================
     // Create a root node
-    uint64_t root = create_node(4); // TAG_DIV as root
+    uint64_t root = ext_salt_create_node(4); // TAG_DIV as root
     
     // Build HTML with an external script tag
     // Use only inline content WITH a <script src="app.js"></script>

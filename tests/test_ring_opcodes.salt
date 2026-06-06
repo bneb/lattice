@@ -15,7 +15,7 @@
 
 package main
 
-use std.io.ring.{IoRing, SQE, CQE}
+import std.io.ring.{IoRing, SQE, CQE}
 
 fn main() -> i32 {
     println("=== Ring Opcodes Test ===");

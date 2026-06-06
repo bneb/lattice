@@ -3,9 +3,9 @@
 
 package test.writer_protocol
 
-use std.io.mod.Console
-use std.io.writer.Writer
-use std.string.String
+import std.io.mod.Console
+import std.io.writer.Writer
+import std.string.String
 
 fn main() -> i64 {
     // Demonstration 1: Direct Console output (no intermediate String)

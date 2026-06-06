@@ -3,6 +3,7 @@
 // =============================================================================
 
 import user.browser.dom
+import user.browser.lexer
 
 fn main() -> i32 {
     let mock_node = dom.create_node(dom.TAG_DIV);
@@ -24,10 +25,10 @@ fn main() -> i32 {
     html[55] = 0x64; html[56] = 0x69; html[57] = 0x73; html[58] = 0x70; html[59] = 0x6C; html[60] = 0x61; html[61] = 0x79; html[62] = 0x3A; 
     html[63] = 0x68; html[64] = 0x68; html[65] = 0x22; html[66] = 0x3E; 
     
-    let _ = dom.parse_w3c_html((&html) as u64, 67, mock_node);
+    let _ = lexer.lex_html((&html) as u64, 67, mock_node as u64, 0);
     
     // Evaluate exact State Object Physics securely natively gracefully implicitly manually inherently efficiently safely structurally!
-    if dom.DOM_NODE_ATTR_COUNT[mock_node] != 3 { 
+    if dom.dom_get_attr_count() != 3 { 
         return 1; // Uncompromising Execution Machine Failed Boundaries
     }
     

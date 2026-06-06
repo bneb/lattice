@@ -3,9 +3,9 @@
 
 package std.io.file
 
-use std.core.ptr.Ptr
-use std.core.result.Result
-use std.status.Status
+import std.core.ptr.Ptr
+import std.core.result.Result
+import std.status.Status
 
 // =============================================================================
 // Memory Protection Flags (Package-Level Constants)

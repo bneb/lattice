@@ -64,6 +64,7 @@ global P_LAYOUT_Y: [u64; 1] = [0];
 global P_LAYOUT_W: [u64; 1] = [0];
 global P_LAYOUT_H: [u64; 1] = [0];
 global P_STYLE_Z_INDEX: u64 = 0;
+global CURRENT_FRAME_COUNT: u64 = 0;
 global P_STYLE_BORDER_WIDTH_TOP: u64 = 0;
 global P_STYLE_BORDER_WIDTH_RIGHT: u64 = 0;
 global P_STYLE_BORDER_WIDTH_BOTTOM: u64 = 0;
@@ -135,6 +136,8 @@ extern fn dom_ptr_CANVAS_SURFACE_IDS() -> u64;
 extern fn dom_ptr_DOM_NODE_TAG() -> u64;
 extern fn dom_ptr_DOM_TEXT_LEN() -> u64;
 extern fn dom_ptr_DOM_TEXT_PTR() -> u64;
+extern fn dom_ptr_PLACEHOLDER_LEN() -> u64;
+extern fn dom_ptr_PLACEHOLDER_PTR() -> u64;
 extern fn dom_ptr_DOM_NODE_NEXT_SIBLING() -> u64;
 extern fn dom_ptr_DOM_SELECTION_START() -> u64;
 extern fn dom_ptr_DOM_SELECTION_END() -> u64;
@@ -817,7 +820,10 @@ pub fn paint_node(n: u32, focus_node: u64, frame_count: u64, scroll_y: i32, view
 
             while i <= clen {
                 if is_focused == 1 && i == dom_get_active_cursor() {
-                    let ms = sys_clock_get_ms();
+                    let mut ms = sys_clock_get_ms();
+                    if CURRENT_FRAME_COUNT > 0 {
+                        ms = CURRENT_FRAME_COUNT * 16;
+                    }
                     if (ms % 1000) < 500 {
                         let final_xc: i32 = x_cursor as i32;
                         emit_solid_rect(final_xc, y_cursor, 2, line_height, 0, 0, 0, 255, n); // Black Caret
@@ -1067,6 +1073,7 @@ pub fn paint_layer(node_id: u32, pass_type: i32, focus: u64, scroll: i32, vh: i3
 
 pub fn generate_display_list(root_node: u32, focus_node: u64, frame_count: u64, scroll_y: i32, viewport_height: i32) -> i32 {
     // Zero-allocation Multi-pass Stacking Context implementation
+    CURRENT_FRAME_COUNT = frame_count;
     
     paint_layer(root_node, 0, focus_node, scroll_y, viewport_height);  // Normal flow
     paint_layer(root_node, -1, focus_node, scroll_y, viewport_height); // Negative Z

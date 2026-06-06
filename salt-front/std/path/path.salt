@@ -8,8 +8,8 @@
 
 package std.path.path
 
-use std.core.ptr.Ptr
-use std.core.str.StringView
+import std.core.ptr.Ptr
+import std.core.str.StringView
 
 // =============================================================================
 // Path — Borrowed view into a path string

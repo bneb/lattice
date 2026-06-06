@@ -422,6 +422,9 @@ pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall,
                          }
                          // [DAG MallocTracker] Also mark freed in the standalone tracker
                          ctx.malloc_tracker.free(&alloc_id);
+                         
+                         // [SALT MEMORY MODEL] Mark pointer state as Freed
+                         ctx.pointer_tracker.mark_freed(&var_name);
                      }
                  }
                  // Emit the actual free() call
@@ -452,8 +455,19 @@ pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall,
              // This fixes the Basalt WASM pattern:
              //   let tokens = malloc(n * 8);
              //   ingest_prompt(es, tokens, n);  // tokens escapes via argument
-             for arg_expr in c.args.iter() {
+             for (i, arg_expr) in c.args.iter().enumerate() {
                  super::mark_expression_escaped(ctx, arg_expr);
+                 
+                 // [SALT MEMORY MODEL] Conservative Aliasing
+                 // Any pointer passed to a function might be freed or mutated.
+                 // Mark its state as Optional (unknown) to require a re-check.
+                 if call_name != "free" {
+                     if let Some(Type::Pointer { .. }) = final_arg_tys.get(i) {
+                         if let Some(var_name) = super::extract_ident_name(arg_expr) {
+                             ctx.pointer_tracker.mark_optional(&var_name);
+                         }
+                     }
+                 }
              }
 
              // [SALT MEMORY MODEL] Pointer State Interception
@@ -469,6 +483,9 @@ pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall,
                  *ctx.pending_pointer_state = 
                      Some(crate::codegen::verification::PointerState::Valid);
              } else if (call_name.contains("__alloc") || call_name.contains("__place")) && call_name.contains("Arena") {
+                 *ctx.pending_pointer_state = 
+                     Some(crate::codegen::verification::PointerState::Valid);
+             } else if call_name == "malloc" || call_name.ends_with("__malloc") {
                  *ctx.pending_pointer_state = 
                      Some(crate::codegen::verification::PointerState::Valid);
              }

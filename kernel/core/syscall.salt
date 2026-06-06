@@ -563,7 +563,20 @@ pub fn sys_ipc_send(target_pid: u64, msg0: u64, msg1: u64, msg2: u64) -> u64 {
         return 0;
     }
     
-    // Target was not blocked or another core unblocked it first
+    // Target was not blocked or another core unblocked it first.
+    // We must atomically buffer the message in the PCB.
+    let sender_addr = process.get_ipc_sender_addr(target_pid);
+    let slot_val = smp_cas_u64(sender_addr, 0, 0xFFFFFFFFFFFFFFFF);
+    if slot_val == 0 {
+        // We successfully locked the mailbox slot.
+        // The sender field is now 0xFFFFFFFFFFFFFFFF, so no one else can write,
+        // and the receiver won't read it yet (it checks for a valid PID > 0 and < MAX_PROCS).
+        // Since PIDs are 1-15, 0xFFFFFFFFFFFFFFFF is an invalid PID acting as a lock.
+        process.set_ipc_msg(target_pid, sender, msg0, msg1, msg2);
+        return 0;
+    }
+    
+    // Mailbox was full or locked by another sender
     return 0 - 1;
 }
 
@@ -735,13 +748,22 @@ pub fn sys_shm_grant(target_pid: u64, src_vaddr: u64, dst_vaddr: u64, num_pages:
             return 0 - 1;
         }
 
-        // C. Inherit PTE_WRITE from source PTE
-        let mut target_flags = user_paging.PTE_PRESENT | user_paging.PTE_USER;
+        // C. Inherit PTE_WRITE from source PTE, and add PTE_SHARED to both
+        let mut target_flags = user_paging.PTE_PRESENT | user_paging.PTE_USER | user_paging.PTE_SHARED;
         if (src_pte & user_paging.PTE_WRITE) != 0 {
             target_flags = target_flags | user_paging.PTE_WRITE;
         }
 
-        // D. Map that exact physical frame into the target's CR3
+        // D. Update source PTE to include PTE_SHARED to prevent UAF / double-free
+        let new_src_flags = (src_pte & 0xFFF) | user_paging.PTE_SHARED;
+        user_paging.map_user_page(
+            src_pml4,
+            curr_src,
+            phys_frame,
+            new_src_flags
+        );
+
+        // E. Map that exact physical frame into the target's CR3
         user_paging.map_user_page(
             target_pml4,
             curr_dst,

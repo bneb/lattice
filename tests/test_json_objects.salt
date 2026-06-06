@@ -1,9 +1,9 @@
 // tests/test_json_objects.salt — TDD for JSON array/object parsing and writing
 package main
 
-use std.core.ptr.Ptr
-use std.json.json.{JsonWriter, JsonParser, JsonValue, JsonArray, JsonObject}
-use std.json.json.{JSON_NUMBER, JSON_BOOL, JSON_STRING, JSON_NULL}
+import std.core.ptr.Ptr
+import std.json.json.{JsonWriter, JsonParser, JsonValue, JsonArray, JsonObject}
+import std.json.json.{JSON_NUMBER, JSON_BOOL, JSON_STRING, JSON_NULL}
 
 extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: Ptr<u8>);

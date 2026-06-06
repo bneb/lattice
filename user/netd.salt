@@ -18,8 +18,8 @@
 
 package user.netd
 
-use user.lib.syscall
-use user.lib.socket_protocol
+import user.lib.syscall
+import user.lib.socket_protocol
 
 // =============================================================================
 // Port Binding Table

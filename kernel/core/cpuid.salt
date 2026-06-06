@@ -12,7 +12,7 @@
 
 package kernel.core.cpuid
 
-use kernel.drivers.serial
+import kernel.drivers.serial
 
 extern fn cpuid_leaf1_ecx() -> u64;
 extern fn cpuid_hypervisor_id() -> u64;

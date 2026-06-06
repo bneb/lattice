@@ -51,6 +51,6 @@ clang -O3 "$TMP_DIR/cdm_merged.ll" \
     "$SALT_FRONT/runtime.c" \
     "$PROJECT_ROOT/user/os/facet_os.c" \
     "$PROJECT_ROOT/user/browser/cdm_bridge.c" \
-    -o "./prisimi_cdm"
+    -o "./cdm_main"
 
-echo "✅ prisimi_cdm built successfully."
+echo "✅ cdm_main built successfully."

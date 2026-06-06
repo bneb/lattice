@@ -32,7 +32,7 @@
 
 package user.kernel.arch.x86.idt
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ============================================================================
 // Constants

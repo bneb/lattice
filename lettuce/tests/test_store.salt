@@ -9,11 +9,11 @@
 
 package main
 
-use std.core.ptr.Ptr
-use std.core.str.StringView
-use std.collections.string_map.StringMap
-use std.collections.string_map.fnv1a
-use std.collections.string_map.{StringMap_new, StringMap_with_capacity, StringMap_get, StringMap_value_at, StringMap_set, StringMap_del, StringMap_length, StringMap_is_empty, StringMap_drop}
+import std.core.ptr.Ptr
+import std.core.str.StringView
+import std.collections.string_map.StringMap
+import std.collections.string_map.fnv1a
+import std.collections.string_map.{StringMap_new, StringMap_with_capacity, StringMap_get, StringMap_value_at, StringMap_set, StringMap_del, StringMap_length, StringMap_is_empty, StringMap_drop}
 
 extern fn exit(code: i32);
 extern fn memcpy(dst: Ptr<u8>, src: Ptr<u8>, n: i64) -> Ptr<u8>;
@@ -53,7 +53,7 @@ fn main() -> i32 {
     println("PASS test_fnv_hash");
 
     // --- Test 2: SET + GET roundtrip ---
-
+    let mut smap = StringMap_new();
     StringMap_set(smap, "foo" as StringView, "bar" as StringView);
     let slot = StringMap_get(smap, "foo" as StringView);
     assert_true(slot >= 0, 2);

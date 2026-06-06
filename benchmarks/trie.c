@@ -1,49 +1,64 @@
-
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 typedef struct TrieNode {
-  struct TrieNode *children[26];
+  uint32_t children[26];
   bool is_word;
 } TrieNode;
 
-TrieNode *create_node() {
-  TrieNode *node = (TrieNode *)malloc(sizeof(TrieNode));
+typedef struct Arena {
+  TrieNode *data;
+  uint32_t size;
+  uint32_t capacity;
+} Arena;
+
+Arena *arena_new(uint32_t capacity) {
+  Arena *a = malloc(sizeof(Arena));
+  a->data = malloc(sizeof(TrieNode) * capacity);
+  a->size = 0;
+  a->capacity = capacity;
+  return a;
+}
+
+uint32_t arena_alloc(Arena *a) {
+  uint32_t idx = a->size++;
   for (int i = 0; i < 26; i++) {
-    node->children[i] = NULL;
+    a->data[idx].children[i] = 0xFFFFFFFF;
   }
-  node->is_word = false;
-  return node;
+  a->data[idx].is_word = false;
+  return idx;
 }
 
-void insert(TrieNode *root, const char *word) {
-  TrieNode *curr = root;
+void insert(Arena *a, uint32_t root, const char *word) {
+  uint32_t curr = root;
   for (int i = 0; word[i] != '\0'; i++) {
     int idx = word[i] - 'a';
-    if (curr->children[idx] == NULL) {
-      curr->children[idx] = create_node();
+    if (a->data[curr].children[idx] == 0xFFFFFFFF) {
+      a->data[curr].children[idx] = arena_alloc(a);
     }
-    curr = curr->children[idx];
+    curr = a->data[curr].children[idx];
   }
-  curr->is_word = true;
+  a->data[curr].is_word = true;
 }
 
-bool search(TrieNode *root, const char *word) {
-  TrieNode *curr = root;
+bool search(Arena *a, uint32_t root, const char *word) {
+  uint32_t curr = root;
   for (int i = 0; word[i] != '\0'; i++) {
     int idx = word[i] - 'a';
-    if (curr->children[idx] == NULL) {
+    if (a->data[curr].children[idx] == 0xFFFFFFFF) {
       return false;
     }
-    curr = curr->children[idx];
+    curr = a->data[curr].children[idx];
   }
-  return curr->is_word;
+  return a->data[curr].is_word;
 }
 
 int main() {
-  TrieNode *root = create_node();
+  Arena *arena = arena_new(3000000);
+  uint32_t root = arena_alloc(arena);
 
   char word[6];
   word[5] = '\0';
@@ -55,7 +70,7 @@ int main() {
     word[2] = ((i / 676) % 26) + 97;
     word[3] = ((i / 17576) % 26) + 97;
     word[4] = (i % 7) + 97;
-    insert(root, word);
+    insert(arena, root, word);
   }
 
   printf("Searching 700k words...\n");
@@ -66,7 +81,7 @@ int main() {
     word[2] = ((i / 676) % 26) + 97;
     word[3] = ((i / 17576) % 26) + 97;
     word[4] = (i % 7) + 97;
-    if (search(root, word)) {
+    if (search(arena, root, word)) {
       found++;
     }
   }

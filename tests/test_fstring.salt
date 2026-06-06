@@ -1,6 +1,6 @@
 package main
 
-use std::string::*;
+import std::string::*;
 
 // Test: F-string standalone linking
 // Verifies that InterpolatedStringHandler::new resolves correctly

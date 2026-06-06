@@ -6,10 +6,10 @@
 
 package basalt
 
-use std.core.str.StringView
-use std.core.ptr.Ptr
-use std.http.parser.parse_request_line
-use std.time.Instant
+import std.core.str.StringView
+import std.core.ptr.Ptr
+import std.http.parser.parse_request_line
+import std.time.Instant
 
 const ITERATIONS: i64 = 1000000;
 
@@ -78,6 +78,7 @@ fn main() -> i32 {
             println("FAIL");
             return 1;
         }
+        let headers = count_headers(buf, r, request_len);
         i = i + 1;
     }
 

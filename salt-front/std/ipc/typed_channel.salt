@@ -27,7 +27,7 @@
 
 package std.ipc.typed_channel
 
-use std.io.ring.{IoRing, SQE, CQE}
+import std.io.ring.{IoRing, SQE, CQE}
 
 // =============================================================================
 // Well-Known Message Types

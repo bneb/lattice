@@ -1,10 +1,10 @@
 package std.core.slab_alloc
 
-use std.core.mem.{Layout, zeroed}
-use std.core.ptr.Ptr
-use std.core.option.Option
-use std.core.result.Result
-use std.status.Status
+import std.core.mem.{Layout, zeroed}
+import std.core.ptr.Ptr
+import std.core.option.Option
+import std.core.result.Result
+import std.status.Status
 
 // The Global Allocator instance resolved in Phase 3
 

@@ -17,12 +17,12 @@
 
 package benchmarks.spsc_bench
 
-use kernel.lib.ipc_shm
-use kernel.core.timing
-use kernel.core.pmm
-use kernel.core.memory
-use kernel.drivers.serial
-use kernel.drivers.vga
+import kernel.lib.ipc_shm
+import kernel.core.timing
+import kernel.core.pmm
+import kernel.core.memory
+import kernel.drivers.serial
+import kernel.drivers.vga
 
 extern fn volatile_read_i64(addr: u64) -> i64;
 

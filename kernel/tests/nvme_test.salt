@@ -1,11 +1,11 @@
 package kernel.tests.nvme_test
 
-use std.core.ptr.Ptr
-use kernel.keuos.hw.pcie_enum
-use kernel.drivers.serial
-use kernel.drivers.nvme
-use kernel.drivers.nvme.SqEntry
-use kernel.drivers.nvme.NvmeController
+import std.core.ptr.Ptr
+import kernel.keuos.hw.pcie_enum
+import kernel.drivers.serial
+import kernel.drivers.nvme
+import kernel.drivers.nvme.SqEntry
+import kernel.drivers.nvme.NvmeController
 
 extern fn outb(port: u16, val: u8);
 

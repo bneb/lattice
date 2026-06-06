@@ -61,7 +61,7 @@ pub struct Commands {
     pub count: u32,
 }
 
-extern fn malloc(size: i64) -> u64;
+extern fn malloc(size: i64) -> Ptr<u8>;
 
 pub fn new_commands() -> Ptr<Commands> {
     let cmd_size = size_of::<Command>();

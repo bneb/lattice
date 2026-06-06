@@ -4,9 +4,9 @@
 
 package basalt
 
-use std.core.ptr.Ptr
-use std.core.arena.Arena
-use std.time.Instant
+import std.core.ptr.Ptr
+import std.core.arena.Arena
+import std.time.Instant
 
 struct Node {
     left: Ptr<Node>,

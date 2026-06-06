@@ -2,8 +2,8 @@ package basalt
 
 // LeetCode 21: Merge Two Sorted Linked Lists — Ptr truthiness + arena allocation
 
-use std.core.ptr.Ptr
-use std.core.arena
+import std.core.ptr.Ptr
+import std.core.arena
 
 struct ListNode {
     val: i32,

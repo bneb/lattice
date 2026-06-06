@@ -8,7 +8,7 @@
 
 package main
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 extern fn exit(code: i32);
 extern fn http_tcp_connect(host: Ptr<u8>, port: i32) -> i32;

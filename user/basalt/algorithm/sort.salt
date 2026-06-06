@@ -15,7 +15,7 @@
 
 package user.basalt.algorithm.sort
 
-extern fn malloc(size: i64) -> u64;
+extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: u64);
 
 // ============================================================================
@@ -30,7 +30,7 @@ pub fn quicksort_i64(arr: u64, initial_low: i64, initial_high: i64) {
 
     // Stack for iterative partition tracking: 128 entries = 64 [low,high] pairs
     // Stack depth of 64 handles arrays up to 2^64 elements (log2 partitions)
-    let stack: u64 = malloc(1024);  // 128 × 8 bytes
+    let stack: u64 = (malloc(1024)) as u64;  // 128 × 8 bytes
     if stack == 0 { return; }
 
     let mut top: i64 = -1;

@@ -359,7 +359,7 @@ pub fn sys_parse_cli_ipc_fd(argc: u32, argv: u64) -> i32 {
                     let val_ptr = *((argv + (((i + 1) as u64) * 8)) as &u64);
                     let mut result: i32 = 0;
                     let mut j: u32 = 0;
-                    while *((val_ptr + (j as u64)) as &u8) != 0 {
+                    while j < 16 && *((val_ptr + (j as u64)) as &u8) != 0 {
                         let digit = *((val_ptr + (j as u64)) as &u8);
                         if digit >= 48 && digit <= 57 {
                             result = result * 10 + ((digit - 48) as i32);

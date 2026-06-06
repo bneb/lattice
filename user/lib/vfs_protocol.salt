@@ -51,3 +51,4 @@ pub const OP_CLOSE: u64  = 4;
 pub const OP_MKDIR: u64  = 5;
 pub const OP_UNLINK: u64 = 6;
 pub const OP_EXISTS: u64 = 7;
+pub const OP_MMAP: u64   = 8;

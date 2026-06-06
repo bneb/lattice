@@ -27,9 +27,9 @@
 
 package main
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
-extern fn malloc(size: i64) -> u64;
+extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: u64);
 extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
 extern fn salt_atomic_cas_i64(ptr: Ptr<i64>, expected: i64, desired: i64) -> i64;

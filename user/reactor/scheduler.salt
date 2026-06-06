@@ -27,7 +27,7 @@ package user.reactor.scheduler
 
 import user.os.process
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // Atomic intrinsics — zero OS overhead
 extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;

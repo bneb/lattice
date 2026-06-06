@@ -1,8 +1,8 @@
 // tests/test_traits.salt — TDD for Clone, Ord
 package main
 
-use std.core.clone.Clone
-use std.ord.{Ord, LESS, EQUAL, GREATER}
+import std.core.clone.Clone
+import std.ord.{Ord, LESS, EQUAL, GREATER}
 
 extern fn exit(code: i32);
 

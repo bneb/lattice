@@ -1,10 +1,10 @@
 package std.io
 
-use std.sys
-use std.core.ptr.Ptr
-use std.core.conv
-use std.core.str.str
-use std.io.writer.Writer
+import std.sys
+import std.core.ptr.Ptr
+import std.core.conv
+import std.core.str.str
+import std.io.writer.Writer
 
 pub struct Console {}
 

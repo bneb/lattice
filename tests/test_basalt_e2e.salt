@@ -28,7 +28,7 @@
 
 package main
 
-extern fn malloc(size: i64) -> u64;
+extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: u64);
 
 // ============================================================================
@@ -121,9 +121,9 @@ fn main() -> i32 {
     // On bare-metal, these addresses would be physical BAR regions.
     let mat_size: i64 = 128;  // 4×4 × 8 bytes per f64
 
-    let a_addr: u64 = malloc(mat_size);
-    let b_addr: u64 = malloc(mat_size);
-    let c_addr: u64 = malloc(mat_size);
+    let a_addr: u64 = malloc(mat_size) as u64;
+    let b_addr: u64 = malloc(mat_size) as u64;
+    let c_addr: u64 = malloc(mat_size) as u64;
 
     if a_addr == 0 { return 1; }
     if b_addr == 0 { free(a_addr); return 1; }

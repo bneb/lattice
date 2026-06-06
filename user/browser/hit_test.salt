@@ -1,20 +1,20 @@
 package user.browser.hit_test
 import user.browser.dom
-import user.browser.event_loop
+import user.browser.layout
 
 // ═══════════════════════════════════════════════════════════════
 // Pointer Injection Matrix — Paint Command Pointers for Hit-Test
 // Initialized ONCE at boot via hit_test_inject_paint_pointers().
 // ═══════════════════════════════════════════════════════════════
 
-global P_CMD_X: u64 = 0;
-global P_CMD_Y: u64 = 0;
-global P_CMD_W: u64 = 0;
-global P_CMD_H: u64 = 0;
-global P_CMD_NODE_ID: u64 = 0;
-global P_CMD_COUNT: u64 = 0;
-global P_Z_SORT_BUF: u64 = 0;
-global P_Z_SORT_COUNT: u64 = 0;
+pub global P_CMD_X: u64 = 0;
+pub global P_CMD_Y: u64 = 0;
+pub global P_CMD_W: u64 = 0;
+pub global P_CMD_H: u64 = 0;
+pub global P_CMD_NODE_ID: u64 = 0;
+pub global P_CMD_COUNT: u64 = 0;
+pub global P_Z_SORT_BUF: u64 = 0;
+pub global P_Z_SORT_COUNT: u64 = 0;
 
 extern fn paint_ptr_CMD_X() -> u64;
 extern fn paint_ptr_CMD_Y() -> u64;

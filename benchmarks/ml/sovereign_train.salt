@@ -9,16 +9,16 @@
 
 package main
 
-use std.io.file.{File, OpenFlags, Prot, MapFlags};
-use std.core.result.Result;
-use std.core.arena.Arena;
-use std.core.slice.Slice;
-use std.core.ptr.Ptr;
-use std.nn.activations.{relu, relu_grad};
-use std.nn.loss.softmax_cross_entropy_grad;
-use std.nn.ops.{add_bias, zeros, argmax};
-use std.time.Instant;
-use std.math.{expf, sqrtf};
+import std.io.file.{File, OpenFlags, Prot, MapFlags};
+import std.core.result.Result;
+import std.core.arena.Arena;
+import std.core.slice.Slice;
+import std.core.ptr.Ptr;
+import std.nn.activations.{relu, relu_grad};
+import std.nn.loss.softmax_cross_entropy_grad;
+import std.nn.ops.{add_bias, zeros, argmax};
+import std.time.Instant;
+import std.math.{expf, sqrtf};
 
 // Constants for MNIST
 const TRAIN_COUNT: i64 = 60000;

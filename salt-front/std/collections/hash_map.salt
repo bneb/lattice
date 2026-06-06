@@ -6,19 +6,20 @@
 
 package std.collections.hash_map
 
-use std.core.ptr.Ptr
-use std.core.mem.size_of
-use std.core.option.Option
-use std.hash.Hash
-use std.math.ctz_u64
-use std.simd.Group
-use std.simd.prefetch_read
-use std.simd.unlikely
-use std.eq.Eq
+import std.core.ptr.Ptr
+import std.core.mem.size_of
+import std.core.option.Option
+import std.hash.Hash
+import std.math.ctz_u64
+import std.simd.Group
+import std.simd.prefetch_read
+import std.simd.unlikely
+import std.eq.Eq
 
 // Memory allocation (userspace — fast-path bump pointer, not kernel mmap)
-extern fn malloc(size: i64) -> u64;
-extern fn free(ptr: u64);
+extern fn malloc(size: i64) -> Ptr<u8>;
+extern fn free(ptr: Ptr<u8>);
+
 
 // =============================================================================
 // Module-Level Constants (Sovereign Pattern)
@@ -335,8 +336,8 @@ impl<K: Hash, V> HashMap<K, V> {
                 }
             }
             
-            free(self.ctrl as u64);
-            free(self.entries as u64);
+            free(self.ctrl as Ptr<u8>);
+            free(self.entries as Ptr<u8>);
         }
         
         self.ctrl = new_ctrl;
@@ -357,8 +358,8 @@ impl<K: Hash, V> HashMap<K, V> {
     
     pub fn drop(&mut self) {
         if self.cap > 0 {
-            free(self.ctrl as u64);
-            free(self.entries as u64);
+            free(self.ctrl as Ptr<u8>);
+            free(self.entries as Ptr<u8>);
             self.cap = 0;
             self.len = 0;
         }

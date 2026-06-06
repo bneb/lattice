@@ -14,9 +14,9 @@
 
 package benchmarks.alloc_bench
 
-use kernel.drivers.serial
-use kernel.drivers.vga
-use kernel.core.timing
+import kernel.drivers.serial
+import kernel.drivers.vga
+import kernel.core.timing
 
 // slab.salt (kernel.mem) — @no_mangle pub fn pop_stack()
 extern fn pop_stack() -> u64;

@@ -4,9 +4,9 @@
 
 package main
 
-use std.io.println
-use std.core.ptr.Ptr
-use std.core.arena.Arena
+import std.io.println
+import std.core.ptr.Ptr
+import std.core.arena.Arena
 
 fn sum_via_ptr(ptr: Ptr<i64>, len: i64) -> i64
     requires len >= 0

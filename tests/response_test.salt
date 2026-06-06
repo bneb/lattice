@@ -2,9 +2,9 @@
 
 package main
 
-use std.core.ptr.Ptr
-use std.core.str.StringView
-use std.http.response.write_response
+import std.core.ptr.Ptr
+import std.core.str.StringView
+import std.http.response.write_response
 
 fn main() -> i32 {
     let mut buf: [u8; 512] = [0; 512];

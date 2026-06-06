@@ -69,7 +69,7 @@ fi
 if [[ "$BASENAME" == *ecs* ]] || [[ "$BASENAME" == *scheduler* ]] || [[ "$BASENAME" == *ipc* ]] || [[ "$BASENAME" == *epoch* ]] || [[ "$SALT_FILE" == *ecs* ]]; then
     is_ecs_test=true
 fi
-if [[ "$BASENAME" == *chase_lev* ]] || [[ "$BASENAME" == *sliding_window* ]]; then
+if [[ "$BASENAME" == *chase_lev* ]] || [[ "$BASENAME" == *sliding_window* ]] || [[ "$BASENAME" == "test_aof" ]]; then
     is_standalone=true
 fi
 if [[ "$BASENAME" == *basalt_kv* ]]; then
@@ -325,11 +325,11 @@ elif [[ "$BENCHMARK_MODE" == true ]]; then
 elif [[ "$is_basalt_test" == true ]]; then
     TEST_DEPS=("std/core/str.salt" "std/time.salt" "basalt/src/transformer.salt" "basalt/src/kernels.salt" "basalt/src/quant.salt")
 elif [[ "$is_lettuce_test" == true ]]; then
-    TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "user/os/process.salt" "user/os/ipc_ring.salt" "user/netd/virtio_bridge.salt" "lettuce/store.salt" "lettuce/resp.salt" "std/simd/mod.salt" "std/collections/string_map.salt")
+    TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "user/os/process.salt" "user/os/ipc_ring.salt" "user/netd/virtio_bridge.salt" "lettuce/store.salt" "lettuce/resp.salt" "lettuce/aof.salt" "std/fs/fs.salt" "std/simd/mod.salt" "std/collections/string_map.salt")
 elif [[ "$is_ecs_test" == true ]]; then
     TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "kernel/ecs/entity.salt" "kernel/ecs/components.salt" "kernel/ecs/sparse_set.salt" "kernel/ecs/world.salt" "kernel/ecs/ecs_bridge.salt" "kernel/ecs/commands.salt" "kernel/ecs/events.salt" "kernel/ecs/ecs_scheduler.salt" "kernel/ecs/ecs_ipc.salt" "kernel/ecs/ecs_epoch.salt")
 else
-    TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "user/os/process.salt" "user/os/ipc_ring.salt" "user/os/worker_ring.salt" "user/netd/virtio_bridge.salt" "user/browser/alloc/airlock.salt" "user/browser/font.salt" "user/browser/css_utils.salt" "user/browser/css.salt" "user/browser/css_lexer.salt" "user/browser/http_lexer.salt" "user/browser/hash.salt" "user/browser/css_arena.salt" "user/browser/style_resolve.salt" "user/browser/dom.salt" "user/browser/observers.salt" "user/browser/typography.salt" "user/browser/ipc_shared.salt" "user/browser/lexer.salt" "user/browser/html_serializer.salt" "user/browser/paint.salt" "user/browser/events.salt" "user/browser/layout.salt" "user/browser/timers.salt" "user/browser/history.salt" "user/browser/js_jsc.salt" "user/browser/websocket.salt" "user/browser/worker.salt" "user/browser/animations.salt" "user/browser/compositor.salt" "user/browser/chrome.salt" "user/browser/media.salt" "user/browser/app_main.salt" "user/browser/telemetry.salt" "user/browser/transpiler.salt" "user/browser/hpack.salt" "user/browser/net.salt" "user/browser/storage.salt" "user/browser/custom_elements.salt" "user/browser/selectors.salt" "user/browser/hit_test.salt" "user/browser/event_loop.salt")
+    TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "user/os/process.salt" "user/os/ipc_ring.salt" "user/os/worker_ring.salt" "user/netd/virtio_bridge.salt" "user/browser/alloc/airlock.salt" "user/browser/font.salt" "user/browser/css_utils.salt" "user/browser/css.salt" "user/browser/css_lexer.salt" "user/browser/http_lexer.salt" "user/browser/hash.salt" "user/browser/css_arena.salt" "user/browser/style_resolve.salt" "user/browser/dom.salt" "user/browser/observers.salt" "user/browser/typography.salt" "user/browser/ipc_shared.salt" "user/browser/lexer.salt" "user/browser/html_serializer.salt" "user/browser/paint.salt" "user/browser/events.salt" "user/browser/layout.salt" "user/browser/timers.salt" "user/browser/history.salt" "user/browser/js_jsc.salt" "user/browser/js_bytecode.salt" "user/browser/js_lexer.salt" "user/browser/js_vm.salt" "user/browser/websocket.salt" "user/browser/worker.salt" "user/browser/animations.salt" "user/browser/compositor.salt" "user/browser/chrome.salt" "user/browser/media.salt" "user/browser/app_main.salt" "user/browser/telemetry.salt" "user/browser/transpiler.salt" "user/browser/hpack.salt" "user/browser/net.salt" "user/browser/storage.salt" "user/browser/custom_elements.salt" "user/browser/selectors.salt" "user/browser/hit_test.salt" "user/browser/event_loop.salt")
 fi
 
 for mod in "${TEST_DEPS[@]}"; do
@@ -347,6 +347,7 @@ for mod in "${TEST_DEPS[@]}"; do
         sed -i '' 's/(0 : f32)/(0. : f32)/g' "${dep_ll}.mlir"
         mlir-opt "${dep_ll}.mlir" --allow-unregistered-dialect \
             --canonicalize --cse --loop-invariant-code-motion --sccp --canonicalize --cse \
+            --convert-linalg-to-loops \
             --lower-affine --convert-scf-to-cf --convert-vector-to-llvm \
             --expand-strided-metadata --finalize-memref-to-llvm \
             --convert-cf-to-llvm --convert-arith-to-llvm --convert-math-to-llvm \
@@ -398,6 +399,7 @@ log "mlir-opt → optimized MLIR"
 mlir-opt "$MLIR_OUT" \
     --allow-unregistered-dialect \
     --canonicalize --cse --loop-invariant-code-motion --sccp --canonicalize --cse \
+    --convert-linalg-to-loops \
     --lower-affine \
     --convert-scf-to-cf \
     --convert-vector-to-llvm \

@@ -3,7 +3,7 @@
 
 package main
 
-use std.io.println
+import std.io.println
 
 fn sum_range(n: i64) -> i64 {
     let mut total: i64 = 0;

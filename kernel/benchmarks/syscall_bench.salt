@@ -32,8 +32,8 @@
 
 package benchmarks.syscall_bench
 
-use kernel.drivers.serial
-use kernel.drivers.vga
+import kernel.drivers.serial
+import kernel.drivers.vga
 
 // Assembly FFI — defined in ring3_bench_trampoline.S
 extern fn drop_to_ring3_and_bench(ring3_func: u64, ring3_stack: u64);

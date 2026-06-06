@@ -17,8 +17,8 @@
 
 package tests.bench.bench_arbiter_latency
 
-use kernel.lib.ipc_arbiter
-use kernel.drivers.serial
+import kernel.lib.ipc_arbiter
+import kernel.drivers.serial
 
 // =============================================================================
 // Configuration

@@ -10,11 +10,11 @@
 
 package benchmarks.c10m
 
-use std.mem.arena.SovereignArena
-use std.mem.arena.DmaArena
-use std.mem.arena.DelayedFreeMailbox
-use std.net.buffer.SovereignBuffer
-use std.net.buffer.find_header_end
+import std.mem.arena.SovereignArena
+import std.mem.arena.DmaArena
+import std.mem.arena.DelayedFreeMailbox
+import std.net.buffer.SovereignBuffer
+import std.net.buffer.find_header_end
 
 // ============================================================================
 // Configuration Constants

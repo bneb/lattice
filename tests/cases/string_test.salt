@@ -1,9 +1,9 @@
 // Test: String - Comprehensive TDD
 // Verifies construction, push, len, byte_at, clear, equality, and hashing
 
-use std.string.String
-use std.hash.Hash
-use std.eq.Eq
+import std.string.String
+import std.hash.Hash
+import std.eq.Eq
 
 fn assert_eq(actual: i64, expected: i64) -> bool {
     return actual == expected;

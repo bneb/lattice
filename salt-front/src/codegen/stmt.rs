@@ -1655,6 +1655,9 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
                             crate::codegen::verification::PointerState::Optional => {
                                 ctx.pointer_tracker.mark_optional(&name);
                             }
+                            crate::codegen::verification::PointerState::Freed => {
+                                ctx.pointer_tracker.mark_freed(&name);
+                            }
                         }
                     }
 

@@ -15,7 +15,7 @@
 
 package kernel.keuos.hw.pcie_ecam
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ============================================================================
 // PcieEcam — Memory-Mapped PCIe Configuration Space

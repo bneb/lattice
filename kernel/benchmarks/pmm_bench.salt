@@ -15,9 +15,9 @@
 
 package benchmarks.pmm_bench
 
-use kernel.drivers.serial
-use kernel.drivers.vga
-use kernel.core.timing
+import kernel.drivers.serial
+import kernel.drivers.vga
+import kernel.core.timing
 
 // pmm.salt benchmark wrappers (@no_mangle)
 extern fn pmm_alloc() -> u64;

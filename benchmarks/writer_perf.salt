@@ -3,9 +3,9 @@
 
 package basalt.writer_perf
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
-use std.string.String
+import std.string.String
 
 const ITERATIONS: i64 = 10000000;
 const BUFFER_SIZE: i64 = 4096;

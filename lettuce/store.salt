@@ -15,10 +15,10 @@
 
 package lettuce.store
 
-use std.core.ptr.Ptr
-use std.core.str.StringView
-use std.collections.string_map.{StringMap, StringMap_set, StringMap_get, StringMap_value_at, StringMap_del}
-use lettuce.resp.{
+import std.core.ptr.Ptr
+import std.core.str.StringView
+import std.collections.string_map.{StringMap, StringMap_set, StringMap_get, StringMap_value_at, StringMap_del}
+import lettuce.resp.{
     RespValue, resp_parse, resp_nil,
     RESP_ARRAY, RESP_BULK_STRING, RESP_NULL,
     write_simple_string, write_error, write_integer,

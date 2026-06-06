@@ -1,7 +1,7 @@
 package user.os.vfs
 
-use std.core.ptr.Ptr
-use user.reactor.scheduler
+import std.core.ptr.Ptr
+import user.reactor.scheduler
 
 pub struct VfsNode {
     pub file_id: u32,

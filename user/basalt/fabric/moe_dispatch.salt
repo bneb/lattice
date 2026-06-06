@@ -18,7 +18,7 @@
 
 package user.basalt.fabric.moe_dispatch
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ============================================================================
 // WQE Opcodes

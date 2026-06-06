@@ -5,8 +5,8 @@
 // established during CMD_BIND.
 
 import user.netd
-use user.lib.socket_protocol
-use user.lib.syscall
+import user.lib.socket_protocol
+import user.lib.syscall
 
 fn main() -> i32 {
     let mut next_fd: u64 = 100;

@@ -131,6 +131,21 @@ pub fn emit_field(
         }
     }
 
+    // [PHASE 1.5] Tier 3: @dynamic_check Epoch Verification
+    if was_ref && ctx.emission.in_dynamic_check_fn {
+        out.push_str(&format!("    llvm.call @salt_verify_epoch({}) : (!llvm.ptr) -> ()\n", current_val));
+        let as_int = format!("%tag_int_{}", ctx.next_id());
+        let mask = format!("%tag_mask_{}", ctx.next_id());
+        let stripped_int = format!("%stripped_int_{}", ctx.next_id());
+        let stripped_ptr = format!("%stripped_ptr_{}", ctx.next_id());
+        out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", as_int, current_val));
+        out.push_str(&format!("    {} = llvm.mlir.constant(281474976710655 : i64) : i64\n", mask));
+        out.push_str(&format!("    {} = llvm.and {}, {} : i64\n", stripped_int, as_int, mask));
+        out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", stripped_ptr, stripped_int));
+        let _ = ctx.ensure_external_declaration("salt_verify_epoch", &[Type::Pointer { element: Box::new(Type::U8), is_mutable: false, provenance: crate::types::Provenance::Naked }], &Type::Unit);
+        current_val = stripped_ptr;
+    }
+
     // 2. Perform Field Access on the resolved Struct/Tuple
     // FIX: Force separate specialization for Concrete types to ensure registry availability
     let current_ty_resolved = if let Type::Concrete(base, args) = &current_ty {
@@ -366,6 +381,14 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
              // [SOVEREIGN V2.0]: Native Pointer Indexing
              // This replaces the legacy "NativePtr" string-matching logic.
              Type::Pointer { ref element, .. } | Type::Reference(ref element, _) => {
+                 // [TEMPORAL SAFETY] Check deref validity
+                 if let syn::Expr::Path(path_expr) = &*i.expr {
+                     if let Some(ident) = path_expr.path.get_ident() {
+                         let var_name = ident.to_string();
+                         ctx.pointer_tracker.check_deref(&var_name)?;
+                     }
+                 }
+
                  // Z3 Bounds Verification Integration
                  let func_name = ctx.current_fn_name().clone();
                  let info = crate::codegen::verification::ptr_bounds_verifier::PtrBoundsInfo::new(&func_name);
@@ -415,6 +438,23 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
                           }
                       }
                   };
+                 
+                 // [PHASE 1.5] Tier 3: @dynamic_check Epoch Verification
+                 let ptr_for_gep = if ctx.emission.in_dynamic_check_fn {
+                     out.push_str(&format!("    llvm.call @salt_verify_epoch({}) : (!llvm.ptr) -> ()\n", ptr_for_gep));
+                     let as_int = format!("%tag_int_{}", ctx.next_id());
+                     let mask = format!("%tag_mask_{}", ctx.next_id());
+                     let stripped_int = format!("%stripped_int_{}", ctx.next_id());
+                     let stripped_ptr = format!("%stripped_ptr_{}", ctx.next_id());
+                     out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", as_int, ptr_for_gep));
+                     out.push_str(&format!("    {} = llvm.mlir.constant(281474976710655 : i64) : i64\n", mask));
+                     out.push_str(&format!("    {} = llvm.and {}, {} : i64\n", stripped_int, as_int, mask));
+                     out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", stripped_ptr, stripped_int));
+                     let _ = ctx.ensure_external_declaration("salt_verify_epoch", &[Type::Pointer { element: Box::new(Type::U8), is_mutable: false, provenance: crate::types::Provenance::Naked }], &Type::Unit);
+                     stripped_ptr
+                 } else {
+                     ptr_for_gep
+                 };
                  
                   // [ARRAY-REF FIX] Handle Reference(Array(T, N)) - read index into array element
                   // When element is Array(I32, 10, false), use [0, idx] GEP and return element type

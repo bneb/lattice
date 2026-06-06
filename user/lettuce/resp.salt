@@ -11,8 +11,8 @@
 
 package user.lettuce.resp
 
-use std.core.ptr.Ptr
-use std.core.str.StringView
+import std.core.ptr.Ptr
+import std.core.str.StringView
 
 extern fn memcpy(dst: Ptr<u8>, src: Ptr<u8>, n: i64) -> Ptr<u8>;
 

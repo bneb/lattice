@@ -8,8 +8,8 @@
 
 package std.http.parser
 
-use std.core.str.StringView
-use std.core.ptr.Ptr
+import std.core.str.StringView
+import std.core.ptr.Ptr
 
 // Parse an HTTP/1.1 request line from `buf` (length `len`).
 // On success, writes method/uri/version into the output StringViews.

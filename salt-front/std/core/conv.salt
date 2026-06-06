@@ -1,7 +1,7 @@
 
 package std.core.conv
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // The Safety Constant: Max digits for i64 (20) + sign (1) + padding
 pub const ITOA_MIN_BUF_SIZE: i64 = 24;

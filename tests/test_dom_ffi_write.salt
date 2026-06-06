@@ -2,8 +2,8 @@ package tests.test_dom_ffi_write
 
 import user.browser.dom
 import user.browser.js_lexer
-use user.browser.js_lexer.JsCompilerState
-use user.browser.js_bytecode.OpCode
+import user.browser.js_lexer.JsCompilerState
+import user.browser.js_bytecode.OpCode
 import user.browser.js_vm
 import user.browser.alloc.airlock
 
@@ -32,11 +32,15 @@ pub fn main() -> i32 {
     *c_ptr_2 = 5.0; 
     
     let mut compiler = JsCompilerState {
-        source: js_lexer.ByteSpan { ptr: 0, len: 0 },
+        source_ptr: 0, source_len: 0 ,
         cursor: 0,
-        bytecode_arena: js_lexer.OpCodeSpan { ptr: (&bytecode_arena) as u64, len: 64 },
+        bytecode_arena: js_lexer.ByteSpan { ptr: (&bytecode_arena) as u64, len: 64 },
+        var_count: 0,
+        var_arena: js_lexer.ByteSpan { ptr: 0, len: 0 },
         bytecode_count: 4, 
-        const_arena: js_lexer.F64Span { ptr: (&const_arena) as u64, len: 32 },
+        const_arena: js_lexer.ByteSpan { ptr: (&const_arena) as u64, len: 32 },
+        var_count: 0,
+        var_arena: js_lexer.ByteSpan { ptr: 0, len: 0 },
         const_count: 3,
     };
     

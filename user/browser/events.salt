@@ -85,6 +85,11 @@ pub fn get_mouse_click_x(i: u32) -> i32 { return MOUSE_CLICK_X[i as usize]; }
 pub fn get_mouse_click_y(i: u32) -> i32 { return MOUSE_CLICK_Y[i as usize]; }
 pub fn clear_mouse_clicks() { MOUSE_CLICK_COUNT = 0; }
 
+@no_mangle
+pub fn enqueue_click(x: i32, y: i32) {
+    process_mouse_click(x, y);
+}
+
 pub fn process_mouse_click(x: i32, y: i32) {
     if MOUSE_CLICK_COUNT < 16 {
         MOUSE_CLICK_X[MOUSE_CLICK_COUNT as usize] = x;
@@ -182,4 +187,31 @@ pub fn sys_events_pump_os_queue() {
         i = i + 1;
     }
     clear_mouse_clicks();
+}
+
+pub struct EventDispatchContext {
+    pub status: i32,
+    pub sip_idx: u32,
+    pub target_pc: u32
+}
+
+extern fn sys_hit_test(x: f32, y: f32, root_node: u32) -> u32;
+
+@no_mangle
+pub fn dispatch_click(x: i32, y: i32, flags: u32) -> EventDispatchContext {
+    let target = sys_hit_test(x as f32, y as f32, 1);
+    
+    let mut i: u32 = 0;
+    while i < dom.get_event_count() {
+        if dom.EVENT_NODE[i as usize] == target {
+            return EventDispatchContext {
+                status: 0,
+                sip_idx: dom.EVENT_SIP[i as usize],
+                target_pc: dom.EVENT_PC[i as usize]
+            };
+        }
+        i = i + 1;
+    }
+    
+    return EventDispatchContext { status: -2, sip_idx: 0, target_pc: 0 };
 }

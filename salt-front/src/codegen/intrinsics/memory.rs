@@ -40,6 +40,7 @@ pub fn emit_memory_intrinsic(
 
                     // Standard path
                     let (val, ty) = emit_expr(ctx, out, arg, local_vars, None)?;
+                    
                     if ty.k_is_ptr_type() && target.k_is_ptr_type() {
                         if matches!(target, Type::Reference(_, _)) {
                             ctx.emission.ephemeral_refs.insert(val.clone());

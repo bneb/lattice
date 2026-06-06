@@ -3,7 +3,7 @@ package main
 // LeetCode 42: Trapping Rain Water - Allocation Lifting Pattern (u64 variant)
 // Scratchpad buffers lifted outside hot loop for cache locality
 
-use std.core.arena
+import std.core.arena
 
 fn read_i32(base: u64, idx: i64) -> i32 {
     let ptr = reinterpret_cast::<&i32>(base + (idx * 4) as u64);

@@ -26,9 +26,9 @@
 
 package benchmarks.sip_ipc_ring
 
-use kernel.drivers.serial
-use kernel.drivers.vga
-use kernel.core.timing
+import kernel.drivers.serial
+import kernel.drivers.vga
+import kernel.core.timing
 
 extern fn get_cpu_id() -> u64;
 

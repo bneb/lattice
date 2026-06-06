@@ -1,9 +1,9 @@
 package local.metrics
 
-use std.io.println
-use std.fmt.format
-use std.collections.vec.Vec
-use std.mem.allocator.HeapAllocator
+import std.io.println
+import std.fmt.format
+import std.collections.vec.Vec
+import std.mem.allocator.HeapAllocator
 
 const NUM_CLASSES: i64 = 10; // MNIST
 

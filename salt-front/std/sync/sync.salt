@@ -4,7 +4,7 @@
 
 package std.sync
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // FFI bridge to runtime.c
 extern fn salt_mutex_create() -> i64;

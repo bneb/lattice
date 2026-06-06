@@ -182,6 +182,51 @@ impl VerificationEngine {
                      }
                  }
                  
+                 // [TEMPORAL SAFETY TIER 2] Inject Pointer State Tokens
+                 // For each argument that is a known variable, map its pointer state into Z3
+                 for (i, p_name) in params.iter().enumerate() {
+                     if let Some(arg_expr) = arg_exprs.get(i) {
+                         if let Some(var_name) = crate::codegen::expr::extract_ident_name(arg_expr) {
+                             if let Some(state) = ctx.pointer_tracker.get_state(&var_name) {
+                                 if let Some(z3_val) = call_vals_z3.get(i) {
+                                     let sort_refs = [&crate::z3_shim::Sort::int(ctx.z3_ctx)];
+                                     
+                                     let valid_func = crate::z3_shim::FuncDecl::new(
+                                         ctx.z3_ctx,
+                                         crate::z3_shim::Symbol::String("valid".to_string()),
+                                         &sort_refs,
+                                         &crate::z3_shim::Sort::bool(ctx.z3_ctx),
+                                     );
+                                     let freed_func = crate::z3_shim::FuncDecl::new(
+                                         ctx.z3_ctx,
+                                         crate::z3_shim::Symbol::String("freed".to_string()),
+                                         &sort_refs,
+                                         &crate::z3_shim::Sort::bool(ctx.z3_ctx),
+                                     );
+                                     
+                                     let arg_refs: Vec<&dyn crate::z3_shim::ast::Ast> = vec![z3_val as &dyn crate::z3_shim::ast::Ast];
+                                     let valid_app = valid_func.apply(&arg_refs).as_bool().unwrap();
+                                     let freed_app = freed_func.apply(&arg_refs).as_bool().unwrap();
+                                     
+                                     
+                                     match state {
+                                         crate::codegen::verification::PointerState::Valid => {
+                                             solver.assert(&valid_app._eq(&crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, true)));
+                                             solver.assert(&freed_app._eq(&crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, false)));
+                                         }
+                                         crate::codegen::verification::PointerState::Freed => {
+                                             solver.assert(&valid_app._eq(&crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, false)));
+                                             solver.assert(&freed_app._eq(&crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, true)));
+                                         }
+                                         _ => {}
+                                     }
+                                 }
+                             } else {
+                             }
+                         }
+                     }
+                 }
+                 
                  solver.assert(&z3_req_subst.not());
                  
                  *ctx.total_checks += 1;
@@ -218,10 +263,12 @@ impl VerificationEngine {
                          return Err(failure.format_error());
                      }
                      crate::z3_shim::SatResult::Unsat => {
+                         println!("DEBUG VERIFY: result UNSAT (proven)");
                          // The negation CANNOT be satisfied → the requirement is PROVEN!
                          *ctx.elided_checks += 1;
                      }
                      crate::z3_shim::SatResult::Unknown => {
+                         println!("DEBUG VERIFY: result UNKNOWN (pass)");
                          // Z3 can't determine → conservative PASS
                          *ctx.elided_checks += 1;
                      }

@@ -31,7 +31,7 @@
 
 package user.kernel.drivers.uart
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ============================================================================
 // Port I/O — mockable extern functions

@@ -19,6 +19,8 @@ pub enum PointerState {
     /// Unknown — could be Valid or Empty. Dereference is a compile error.
     /// Must be narrowed via `if p.addr != 0` to become Valid.
     Optional,
+    /// Has been passed to free(). Dereference is a compile error.
+    Freed,
 }
 
 impl std::fmt::Display for PointerState {
@@ -27,6 +29,7 @@ impl std::fmt::Display for PointerState {
             PointerState::Valid => write!(f, "Valid"),
             PointerState::Empty => write!(f, "Empty"),
             PointerState::Optional => write!(f, "Optional"),
+            PointerState::Freed => write!(f, "Freed"),
         }
     }
 }
@@ -61,6 +64,11 @@ impl PointerStateTracker {
         self.states.insert(name.to_string(), PointerState::Empty);
     }
 
+    /// Mark a variable as Freed (after free()).
+    pub fn mark_freed(&mut self, name: &str) {
+        self.states.insert(name.to_string(), PointerState::Freed);
+    }
+
     /// Mark a variable as Optional (e.g., function arg of type Ptr<T>, or merge point).
     pub fn mark_optional(&mut self, name: &str) {
         self.states.insert(name.to_string(), PointerState::Optional);
@@ -77,6 +85,11 @@ impl PointerStateTracker {
 
         match self.states.get(name) {
             Some(PointerState::Valid) => Ok(()),
+            Some(PointerState::Freed) => Err(format!(
+                "Cannot dereference 'Freed' pointer '{}'. \
+                 It has already been freed.",
+                name
+            )),
             Some(PointerState::Empty) => Err(format!(
                 "Cannot dereference 'Empty' pointer '{}'. \
                  Ptr::empty() is a sentinel — it cannot be read or written.",
@@ -124,6 +137,7 @@ impl PointerStateTracker {
 
             let merged = match (state_a, state_b) {
                 (Some(a), Some(b)) if a == b => a,
+                (Some(PointerState::Freed), _) | (_, Some(PointerState::Freed)) => PointerState::Freed,
                 (Some(_), Some(_)) => PointerState::Optional,
                 (Some(a), None) => a,
                 (None, Some(b)) => b,
@@ -213,6 +227,15 @@ mod tests {
         let err = tracker.check_deref("maybe").unwrap_err();
         assert!(err.contains("Optional"), "Error should mention 'Optional': {}", err);
         assert!(err.contains("maybe"), "Error should mention var name: {}", err);
+    }
+
+    #[test]
+    fn test_deref_freed_error() {
+        let mut tracker = PointerStateTracker::new();
+        tracker.mark_freed("dead");
+        let err = tracker.check_deref("dead").unwrap_err();
+        assert!(err.contains("Freed"), "Error should mention 'Freed': {}", err);
+        assert!(err.contains("dead"), "Error should mention var name: {}", err);
     }
 
     #[test]

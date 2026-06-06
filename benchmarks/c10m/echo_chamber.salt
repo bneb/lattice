@@ -10,10 +10,10 @@
 
 package benchmarks.c10m.echo_chamber
 
-use std.core.sovereign.context
-use std.core.sovereign.executor
-use std.io
-use std.net
+import std.core.sovereign.context
+import std.core.sovereign.executor
+import std.io
+import std.net
 
 // ============================================================================
 // Configuration

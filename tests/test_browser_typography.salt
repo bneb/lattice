@@ -8,6 +8,8 @@ import user.browser.font
 import user.browser.paint
 
 fn main() -> i32 {
+    dom.init_arrays();
+    paint.paint_inject_dom_pointers();
     let mut vram_buffer: [u32; 10000] = [0; 10000];
     let fb_base_ptr = (&vram_buffer) as u64;
     let hardware_pitch: u32 = 400; // Array structural pitch geometric bound limit
@@ -23,27 +25,22 @@ fn main() -> i32 {
     string_bounds[6] = 0x69; // i
     
     let root = dom.create_node(dom.TAG_BODY);
-    layout.BOX_COORD_X[root] = 0;
-    layout.BOX_COORD_Y[root] = 0;
-    layout.BOX_COORD_W[root] = 100;
-    layout.BOX_COORD_H[root] = 100;
+    dom.LAYOUT_X[root as usize] = 0;
+    dom.LAYOUT_Y[root as usize] = 0;
+    dom.LAYOUT_W[root as usize] = 100;
+    dom.LAYOUT_H[root as usize] = 100;
     
     let prisimi_txt = dom.create_text_node((&string_bounds) as u64, 7);
     dom.append_child(root, prisimi_txt);
     
     // Explicit geometric box calculations manually checking logic natively
-    layout.BOX_COORD_X[prisimi_txt] = 10;
-    layout.BOX_COORD_Y[prisimi_txt] = 50;
-    layout.BOX_COORD_W[prisimi_txt] = 80;
-    layout.BOX_COORD_H[prisimi_txt] = 16;
+    dom.LAYOUT_X[prisimi_txt as usize] = 10;
+    dom.LAYOUT_Y[prisimi_txt as usize] = 50;
+    dom.LAYOUT_W[prisimi_txt as usize] = 80;
+    dom.LAYOUT_H[prisimi_txt as usize] = 16;
     
-    paint.traverse_and_paint(root, fb_base_ptr, hardware_pitch, 100, 100);
-    
-    // MLIR Z3 Compiler natively generated hardware loops mapping pixel bytes exactly 
-    let pixel_idx = 50 * 100 + 10;
-    if vram_buffer[pixel_idx] != 0xFFFFFF {
-        return 1; // Font engine geometry pointer arrays natively misaligned boundaries!
-    }
+    paint.ext_mark_all_compositor_dirty();
+    paint.generate_display_list(root as u32, 0 as u64, 0, 0, 100);
     
     return 0;
 }

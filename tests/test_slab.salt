@@ -1,8 +1,8 @@
 // Test: Slab<T> with &mut T return — enables direct field access
 package main
 
-use std.core.ptr.Ptr
-use std.collections.slab.Slab
+import std.core.ptr.Ptr
+import std.collections.slab.Slab
 
 extern fn puts(s: Ptr<u8>) -> i32;
 

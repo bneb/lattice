@@ -13,9 +13,9 @@
 
 package user.stored.host_bridge
 
-use std.core.ptr.Ptr
-use std.core.result.Result
-use std.status.Status
+import std.core.ptr.Ptr
+import std.core.result.Result
+import std.status.Status
 
 // ─── FFI Bridges (POSIX) ─────────────────────────────────────────────────────
 extern fn access(path: Ptr<u8>, mode: i32) -> i32;
@@ -24,6 +24,14 @@ extern fn rename(old: Ptr<u8>, new: Ptr<u8>) -> i32;
 extern fn mkdir(path: Ptr<u8>, mode: i32) -> i32;
 extern fn rmdir(path: Ptr<u8>) -> i32;
 extern fn salt_errno() -> i32;
+
+extern fn salt_open(path: Ptr<u8>, flags: i32) -> i64;
+extern fn salt_read(fd: i64, buf: Ptr<u8>, size: u64) -> i64;
+extern fn salt_write(fd: i64, buf: Ptr<u8>, size: u64) -> i64;
+extern fn salt_close(fd: i64) -> i32;
+extern fn salt_mmap(fd: i64, size: u64, offset: u64) -> u64;
+extern fn salt_munmap(ptr: u64, size: u64) -> i32;
+
 
 // Directory iteration runtime bridges
 extern fn salt_opendir(path: Ptr<u8>) -> i64;
@@ -65,6 +73,67 @@ fn errno_to_status(errno_val: i32) -> Status {
 /// Returns true if the file or directory exists.
 /// This is not fallible — "not found" is a valid boolean answer, not an error.
 @trusted
+
+@trusted
+pub fn open_file(path: &u8, flags: i32) -> Result<i64> {
+    let fd = salt_open(path as Ptr<u8>, flags);
+    if fd < 0 {
+        let e = salt_errno();
+        return Result::Err(errno_to_status(e));
+    }
+    return Result::Ok(fd);
+}
+
+@trusted
+pub fn read_file(fd: i64, buf: Ptr<u8>, size: u64) -> Result<u64> {
+    let res = salt_read(fd, buf, size);
+    if res < 0 {
+        let e = salt_errno();
+        return Result::Err(errno_to_status(e));
+    }
+    return Result::Ok(res as u64);
+}
+
+@trusted
+pub fn write_file(fd: i64, buf: Ptr<u8>, size: u64) -> Result<u64> {
+    let res = salt_write(fd, buf, size);
+    if res < 0 {
+        let e = salt_errno();
+        return Result::Err(errno_to_status(e));
+    }
+    return Result::Ok(res as u64);
+}
+
+@trusted
+pub fn close_file(fd: i64) -> Result<i32> {
+    let res = salt_close(fd);
+    if res < 0 {
+        let e = salt_errno();
+        return Result::Err(errno_to_status(e));
+    }
+    return Result::Ok(0);
+}
+
+@trusted
+pub fn mmap_file(fd: i64, size: u64, offset: u64) -> Result<u64> {
+    let ptr = salt_mmap(fd, size, offset);
+    if ptr == 0 {
+        let e = salt_errno();
+        return Result::Err(errno_to_status(e));
+    }
+    return Result::Ok(ptr);
+}
+
+@trusted
+pub fn munmap_file(ptr: u64, size: u64) -> Result<i32> {
+    let res = salt_munmap(ptr, size);
+    if res < 0 {
+        let e = salt_errno();
+        return Result::Err(errno_to_status(e));
+    }
+    return Result::Ok(0);
+}
+
 pub fn exists(path: &u8) -> bool {
     let result = access(path as Ptr<u8>, 0);  // F_OK = 0
     return result == 0;

@@ -5,10 +5,10 @@
 
 package std.http.client
 
-use std.core.ptr.Ptr
-use std.core.str.StringView
-use std.status.Status
-use std.core.result.Result
+import std.core.ptr.Ptr
+import std.core.str.StringView
+import std.status.Status
+import std.core.result.Result
 
 // FFI bridges in http_bridge.c (internal — raw pointers)
 extern fn http_tcp_connect(host: Ptr<u8>, port: i32) -> i32;

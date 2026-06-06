@@ -10,7 +10,7 @@
 
 package main
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ═══════════════════════════════════════════════════════════════
 // FFI — libc

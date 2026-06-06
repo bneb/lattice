@@ -260,9 +260,10 @@ pub fn get_count() -> u64 {
     return PROC_COUNT;
 }
 
-pub fn dec_count() {
-    PROC_COUNT = PROC_COUNT - 1;
-}
+// [NEW-05] SECURITY FIX: dec_count must be atomic on SMP to prevent race conditions.
+// The canonical atomic implementation is at the bottom of this file (line ~361).
+// This non-atomic version is removed to eliminate the duplicate definition.
+// pub fn dec_count() { PROC_COUNT = PROC_COUNT - 1; }  // REMOVED: non-atomic, SMP-unsafe
 
 // =============================================================================
 // init_slot — Initialize a process table slot with all required fields
@@ -395,6 +396,7 @@ pub fn set_ipc_msg(slot: u64, sender: u64, msg0: u64, msg1: u64, msg2: u64) {
 }
 
 pub fn get_ipc_sender(slot: u64) -> u64 { return PROC_TABLE[slot].ipc_sender; }
+pub fn get_ipc_sender_addr(slot: u64) -> u64 { return (&PROC_TABLE[slot].ipc_sender) as u64; }
 pub fn get_ipc_msg0(slot: u64) -> u64 { return PROC_TABLE[slot].ipc_msg0; }
 pub fn get_ipc_msg1(slot: u64) -> u64 { return PROC_TABLE[slot].ipc_msg1; }
 pub fn get_ipc_msg2(slot: u64) -> u64 { return PROC_TABLE[slot].ipc_msg2; }

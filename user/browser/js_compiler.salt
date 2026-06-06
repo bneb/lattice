@@ -1,11 +1,11 @@
 package user.browser.js_compiler
 
-use user.browser.js_tokens.JsToken
-use user.browser.js_tokens.PunctToken
-use user.browser.js_tokens.TokenSpan
-use user.browser.js_bytecode.OpCode
-use user.browser.js_lexer.JsCompilerState
-use user.browser.js_lexer.next_token
+import user.browser.js_tokens.JsToken
+import user.browser.js_tokens.PunctToken
+import user.browser.js_tokens.TokenSpan
+import user.browser.js_bytecode.OpCode
+import user.browser.js_lexer.JsCompilerState
+import user.browser.js_lexer.next_token
 
 pub fn store_const(state: &mut JsCompilerState, val: f64) -> u32 {
     if state.const_count >= state.const_arena.len {

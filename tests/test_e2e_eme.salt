@@ -18,7 +18,7 @@ pub fn main() {
     println("--- Epic 87: EME Sandbox Multi-Process E2E Test ---");
     
     // 1. Establish POSIX Shared Memory for Decryption Arena
-    let mut shm_name: [u8; 19] = [47, 112, 114, 105, 115, 105, 109, 105, 95, 99, 100, 109, 95, 97, 114, 101, 110, 97, 0];
+    let mut shm_name: [u8; 15] = [47, 112, 114, 105, 115, 105, 109, 105, 95, 99, 100, 109, 95, 49, 0];
     let shm_fd = process.create_shm((&shm_name) as u64, 16777216); // 16MB
 
     if shm_fd < 0 {
@@ -31,6 +31,10 @@ pub fn main() {
         println("[EME Test] FAILURE: Could not map shared memory.");
         return;
     }
+    
+    // Clear ring buffer headers to prevent orphaned processes or previous state from corrupting test
+    *((arena_base) as &mut u32) = 0; // head
+    *((arena_base + 4) as &mut u32) = 0; // tail
     
     ext_media_set_arena_ptr(arena_base);
 

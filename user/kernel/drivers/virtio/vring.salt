@@ -20,7 +20,7 @@
 
 package user.kernel.drivers.virtio.vring
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ============================================================================
 // Descriptor Flags

@@ -8,7 +8,7 @@
 
 package std::nn::loss
 
-use std.math.expf
+import std.math.expf
 
 // Softmax + Cross-Entropy gradient (fused, numerically stable)
 //

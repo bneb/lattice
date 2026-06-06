@@ -7,11 +7,11 @@
 
 package std.io.reactor_kqueue
 
-use std.os.syscall
-use std.core.ptr.Ptr
-use std.core.result.Result
-use std.status.Status
-use std.io.reactor.{Reactor, ReactorFilter}
+import std.os.syscall
+import std.core.ptr.Ptr
+import std.core.result.Result
+import std.status.Status
+import std.io.reactor.{Reactor, ReactorFilter}
 
 /// kqueue-backed I/O reactor for macOS.
 pub struct KqueueReactor {

@@ -21,7 +21,7 @@
 
 package user.basalt.fabric.cqe
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // CQE status codes
 pub const CQE_STATUS_SUCCESS: u32 = 0;

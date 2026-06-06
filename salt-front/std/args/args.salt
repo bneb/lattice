@@ -7,9 +7,9 @@
 
 package std.args.args
 
-use std.env.env.{args_count, arg}
-use std.core.str.StringView
-use std.core.option.Option
+import std.env.env.{args_count, arg}
+import std.core.str.StringView
+import std.core.option.Option
 
 /// ArgParser — zero-allocation CLI argument parser.
 /// Parses argv on demand without heap allocation.

@@ -4,14 +4,14 @@
 
 package main
 
-use std.io.println
-use std.core.ptr.Ptr
+import std.io.println
+import std.core.ptr.Ptr
 
-use basalt.transformer.{Config, TransformerWeights, RunState, alloc_run_state, free_run_state, forward}
-use basalt.kernels.softmax
-use basalt.sampler.{sample_argmax, sample_token, sample_topp}
-use basalt.model_loader.{load_config, get_weights, get_weights_q8, is_model_q8}
-use basalt.tokenizer.{Tokenizer, load_tokenizer, decode_token, decode_token_len}
+import basalt.transformer.{Config, TransformerWeights, RunState, alloc_run_state, free_run_state, forward}
+import basalt.kernels.softmax
+import basalt.sampler.{sample_argmax, sample_token, sample_topp}
+import basalt.model_loader.{load_config, get_weights, get_weights_q8, is_model_q8}
+import basalt.tokenizer.{Tokenizer, load_tokenizer, decode_token, decode_token_len}
 
 // -----------------------------------------------------------------------------
 // Externs (libc / runtime)
@@ -447,8 +447,10 @@ pub fn basalt_engine_free(es_ptr: Ptr<EngineState>) {
         free(w.freq_cis_imag as Ptr<u8>);
     }
 
-    free(es_ptr as Ptr<u8>);
+    // [NEW-02] SECURITY FIX: Use-after-free — must zero the sentinel BEFORE
+    // freeing the struct, not after. Writing to freed memory is undefined behavior.
     es_ptr.initialized = 0;
+    free(es_ptr as Ptr<u8>);
 }
 
 // ── Reset (multi-turn chat: clear KV cache, keep weights) ──────────────────

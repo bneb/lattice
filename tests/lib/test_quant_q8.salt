@@ -7,8 +7,8 @@
 
 package main
 
-use std.io.println
-use std.core.ptr.Ptr
+import std.io.println
+import std.core.ptr.Ptr
 
 extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: Ptr<u8>);

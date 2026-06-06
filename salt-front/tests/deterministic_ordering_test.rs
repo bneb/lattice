@@ -182,7 +182,7 @@ fn test_deterministic_across_multiple_compilations() {
 
     let first_mlir = compile(src).expect("First compilation failed");
     for i in 1..5 {
-        let mlir = compile(src).expect(&format!("Compilation {} failed", i + 1));
+        let mlir = compile(src).unwrap_or_else(|_| panic!("Compilation {} failed", i + 1));
         assert_eq!(
             first_mlir, mlir,
             "Non-deterministic output on compilation {}! Diff in mangled names.",

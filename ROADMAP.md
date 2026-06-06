@@ -1,59 +1,52 @@
-# KeuOS Roadmap
+# KeuOS Roadmap: The Path to 10k Stars
 
-This roadmap outlines the progression of KeuOS from a research kernel to a secure infrastructure for edge AI agents.
-
----
-
-## Phase 1: The Sandbox *(Complete ✅)*
-
-Userspace exploration and ABI fuzzing with a stable build process.
-
-- **Onboarding** — Frictionless build process for Linux and macOS.
-- **Verification** — Documentation on Z3-verified userspace programs.
-- **Test Suites** — Robust set of Ring 3 test cases.
+This roadmap outlines the progression of KeuOS from a vulnerable research kernel to an ironclad, formally verified infrastructure for edge AI agents.
 
 ---
 
-## Phase 2: The Sovereign ABI *(Current — v0.3.0-brutalism)*
-
-Rip out legacy POSIX paradigms. The kernel becomes a pure **Control Plane** for resource multiplexing; the **Data Plane** bypasses the kernel entirely via Z3-verified zero-copy SPSC rings.
-
-- **Hardware Abstraction Layer (HAL)** — Zero-cost compile-time dispatch (`kernel/arch/mod.salt`) ensuring `kernel/core/`, `kernel/mem/`, and `kernel/sched/` never import architecture-specific code. Supports x86_64 and aarch64.
-- **Lock-Free Per-Core PMM** — Cacheline-padded Treiber stack with CAS work-stealing (`kernel/mem/pmm_sharded.salt`).
-- **O(1) Scheduling** — Hierarchical 2-level bitmap with `ctz_u64` intrinsic, supporting 4096 tasks (`kernel/sched/bitmap_disp.salt`).
-- **Fast-Path Register IPC** — Sub-microsecond signaling via CPU register injection (`kernel/ipc/fastpath.salt`).
-- **Sovereign Reclaim** — 4-phase hardware-fenced teardown protocol (`kernel/core/teardown.salt`).
-- **Codata Substrate** — Userspace `ReactiveStream` with functional `map_to` composition (`user/lib/codata.salt`).
-
-> [!NOTE]
-> ABI Status: **Level 0, Experimental.** System calls may change between commits.
+## 🛡️ Red Team Hardening Statement
+*The previous iteration of KeuOS relied heavily on the premise of formal verification. However, a rigorous red-team audit revealed critical failures in the prover integration (Z3 `SAT` inversion) and catastrophic Ring 0/Ring 3 boundary porosity. This roadmap has been hardened. We no longer assume the compiler is infallible. We are introducing defense-in-depth, negative-testing, and adversarial fuzzing as first-class citizens.*
 
 ---
 
-## Phase 3: Service Orchestration *(Medium Term)*
+## Phase 1: The Formal Crucible *(Months 0-6)*
+**Objective:** Eradicate foundational security vulnerabilities. Rebuild trust in the compiler and the kernel boundary.
 
-Running non-trivial services in Ring 3 with a solidified core ABI.
+- **Compiler Integrity:** Fix the Z3 `SAT` vs `UNSAT` logical inversion that renders `@requires` useless. Implement negative-test suites (code that *must* fail to compile).
+- **Ironclad Memory Boundaries:** Enforce KASLR, SMAP/SMEP, and strict `vaddr` validation in `map_user_page` to prevent kernel page table corruption.
+- **Untrusted IPC Hardening:** Treat SPSC ring buffers as hostile territory. Clamp all `capacity` and `tail` reads from shared memory. Fix wrap-around out-of-bounds reads.
+- **Leak Eradication:** Fix the total user memory leak on process exit (`destroy_user_pml4`) and Treiber stack double-frees that cause catastrophic physical memory corruption.
 
-- **IPC Formalization** — Finalize the SPSC ring buffer contract for userspace process communication.
-- **Memory Allocation** — Implement basic allocation wrappers like `user.alloc` for `sys_brk`.
-- **Service Porting** — Run a version of the Lettuce state engine as a standalone userspace process (✅ Database engine and parsing completed).
+## Phase 1.5: Zero-Cost Temporal Safety *(Months 6-8)*
+**Objective:** Eradicate Use-After-Free (UAF) and Double-Free vulnerabilities without introducing Rust's borrow checker friction or sacrificing runtime performance.
 
----
+- **Tier 1: Intraprocedural State Machine:** Implement basic affine type tracking (`Uninitialized → Valid → Freed`) directly in the MLIR generator. Zero developer annotation burden, zero runtime cost. Catch local UAFs instantly.
+- **Tier 2: Interprocedural Z3 Proofs:** Extend `@requires` and `@ensures` decorators to support `valid(ptr)`. Inject memory state tokens into the Z3 context to model temporal transitions across function boundaries without runtime overhead.
+- **Tier 3: Epoch-Tagged Dynamic Checking:** For unprovable concurrent/unstructured paths, introduce the `@dynamic_check` decorator. To preserve 8-byte ABI compatibility and avoid fat pointers, implement Software Memory Tagging by embedding allocation Epoch IDs in the top 16 bits of the pointer. Incurs ~2-5% overhead *only* on explicitly decorated functions.
 
-## Phase 4: The AI Appliance *(Completed ✅)*
+## Phase 2: The Sovereign Network *(Months 6-12)*
+**Objective:** Production-grade Networking and SMP. Moving from proof-of-concept to 10M+ packets/sec.
 
-Realizing the end-to-end agent runtime vision.
+- **SMP Stability:** Implement atomic CAS for slab cache allocations and fix non-atomic Chase-Lev deque victim bitmap modifications.
+- **Zero-Trap TCP/IP:** Finalize the NetD bridge. VirtIO RX to Ring 3 SPSC ring pump without system calls.
+- **Cross-Core Synchronization:** Implement cross-core TLB shootdowns for guard pages to ensure deterministic page faults on stack overflows across all 16 cores.
+- **Adversarial Chaos Testing:** Introduce network fuzzing and connection reset chaos tests against NetD to prove resilience under duress.
 
-- Integrating `basalt` inside `lettuce` via SPSC rings instead of sockets.
-- Exposing zero-trap BAR addresses (`nvme_addr`, `rdma_addr`) to physical hardware.
-- Cooperative reactor loop scheduling.
-- **Full Pipeline** — Run the complete NetD, Basalt, and Lettuce pipeline entirely as verified services.
+## Phase 3: The Edge AI Appliance *(Months 12-18)*
+**Objective:** Realizing the end-to-end agent runtime. The OS is the inference engine.
 
----
+- **Basalt Hardening:** Eliminate OOM leaks in sampling and RoPE rotation. Fix O(N^2) tokenizer pre-scan bottlenecks.
+- **Direct Hardware Access:** Expose zero-trap BAR addresses (`nvme_addr`, `rdma_addr`) securely to physical hardware for zero-copy model loading.
+- **Cooperative Reactor Scheduling:** O(1) hierarchical bitmap scheduling optimized specifically for low-latency AI inference token generation.
+- **Full Pipeline Verification:** Run the complete NetD, Basalt, and Lettuce pipeline entirely as verified, isolated services.
 
-## Phase 5: Open Ecosystem *(Future)*
+## Phase 4: Open Ecosystem & WasmerOS *(Months 18-24+)*
+**Objective:** Scaling to a vibrant 10k-star open-source ecosystem.
 
-General-purpose application development on a stable, formally verified foundation.
+- **Standard Library (`salt-std`):** Release a comprehensive, secure-by-default userspace library.
+- **WebAssembly Sandboxing:** Introduce WASM support in Ring 3 for running untrusted third-party code with mathematical isolation guarantees.
+- **POSIX Compatibility Layer:** Allow porting of existing C/C++ applications via a `musl`-backed shim layer running on top of KeuOS primitives.
+- **Interactive Web IDE:** Deploy the Salt LSP in the browser for frictionless onboarding, featuring zero-I/O Z3 hover and real-time verification visualization.
 
-- **Standard Library** — Release a comprehensive `salt-std` for userspace.
-- **Community Services** — Open the platform for a wider variety of community-submitted applications.
+> [!CAUTION]
+> Phase 2, 3, and 4 cannot commence until Phase 1 is rigorously verified by a secondary independent audit. The foundation must be structurally sound before we scale.

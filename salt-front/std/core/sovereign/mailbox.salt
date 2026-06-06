@@ -16,7 +16,7 @@
 
 package std.core.sovereign.mailbox
 
-use std.core.sovereign.arena
+import std.core.sovereign.arena
 
 // ============================================================================
 // Mailbox Structure

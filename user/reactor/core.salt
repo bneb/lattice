@@ -17,7 +17,7 @@
 
 package user.reactor.core
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // Atomic intrinsics
 extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;

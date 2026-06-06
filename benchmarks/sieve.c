@@ -2,11 +2,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-int sieve(int limit) {
-  long size = (long)limit + 1;
-  uint8_t *is_prime = (uint8_t *)malloc(size);
-  if (!is_prime)
-    return 0;
+typedef struct Arena {
+  uint8_t *data;
+} Arena;
+
+Arena *arena_new(uint32_t capacity) {
+  Arena *a = malloc(sizeof(Arena));
+  a->data = malloc(capacity);
+  return a;
+}
+
+int sieve(int limit, Arena *arena) {
+  uint8_t *is_prime = arena->data;
 
   // Init
   for (int i = 0; i <= limit; i++) {
@@ -36,14 +43,14 @@ int sieve(int limit) {
     }
   }
 
-  free(is_prime);
   return count;
 }
 
 int main() {
+  Arena *arena = arena_new(1000000 + 1);
   long total_primes = 0;
   for (int k = 0; k < 200; k++) {
-    total_primes += sieve(1000000);
+    total_primes += sieve(1000000, arena);
   }
 
   if (total_primes != 15699600) {

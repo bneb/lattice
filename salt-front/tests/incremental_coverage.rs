@@ -3,17 +3,17 @@ use salt_front::grammar::*;
 use salt_front::types::Type;
 use salt_front::codegen::context::{CodegenContext, LocalKind};
 use salt_front::codegen::expr::emit_expr;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use salt_front::registry::EnumInfo;
 use salt_front::types::TypeKey;
 
 macro_rules! with_ctx {
     ($ctx:ident, $block:block) => {
         let code = "fn main() {}";
-        let mut file: SaltFile = syn::parse_str(code).unwrap();
+        let file: SaltFile = syn::parse_str(code).unwrap();
         let z3_cfg = z3::Config::new();
         let z3_ctx = z3::Context::new(&z3_cfg);
-        let mut $ctx = CodegenContext::new(&file, false, None, &z3_ctx);
+        let $ctx = CodegenContext::new(&file, false, None, &z3_ctx);
         $block
     };
 }

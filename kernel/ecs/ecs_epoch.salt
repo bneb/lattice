@@ -9,7 +9,7 @@ import kernel.ecs.world.{World, world_destroy}
 import kernel.ecs.entity.{Entity}
 import kernel.ecs.components.{EpochInfo}
 import kernel.ecs.sparse_set.{
-    epoch_info_set_insert, epoch_info_set_get, epoch_info_set_remove
+    epoch_info_set_insert, epoch_info_set_get, epoch_info_set_remove, EpochInfoSparseSet
 }
 // import std.core.arena
 

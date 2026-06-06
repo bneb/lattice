@@ -30,20 +30,21 @@ pub fn main() -> i32 {
     let mut const_arena: [u8; 1024] = [0; 1024];
     
     let mut state = js_lexer.JsCompilerState {
-        source: js_lexer.ByteSpan {
-            ptr: (&source_buf) as u64,
-            len: source_len,
-        },
+        source_ptr: (&source_buf) as u64, source_len: source_len,
         cursor: 0,
-        bytecode_arena: js_lexer.OpCodeSpan {
+        bytecode_arena: js_lexer.ByteSpan {
             ptr: (&bytecode_arena) as u64,
             len: 64, // (1024 / 16) max opcodes safely
         },
+        var_count: 0,
+        var_arena: js_lexer.ByteSpan { ptr: 0, len: 0 },
         bytecode_count: 0,
-        const_arena: js_lexer.F64Span {
+        const_arena: js_lexer.ByteSpan {
             ptr: (&const_arena) as u64,
             len: 128, // max 128 constants
         },
+        var_count: 0,
+        var_arena: js_lexer.ByteSpan { ptr: 0, len: 0 },
         const_count: 0,
     };
     

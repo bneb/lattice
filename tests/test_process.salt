@@ -5,7 +5,7 @@
 
 package main
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 extern fn exit(code: i32);
 extern fn salt_process_exec(program: Ptr<u8>, arg1: Ptr<u8>, arg2: Ptr<u8>, arg3: Ptr<u8>) -> i32;

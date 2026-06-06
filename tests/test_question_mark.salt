@@ -5,8 +5,8 @@
 
 package main
 
-use std.status.Status
-use std.core.result.Result
+import std.status.Status
+import std.core.result.Result
 
 extern fn exit(code: i32);
 

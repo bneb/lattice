@@ -1,14 +1,14 @@
-package main
+package basalt.test_array_ref_index
 
 // Test: Array-ref indexing (read + write) through references
 // Regression test for "Numeric promotion not supported from Array to I32"
 
 fn array_get(arr: &[i32; 10], idx: i64) -> i32 {
-    return arr[idx];
+    unsafe { return (*arr)[idx]; }
 }
 
 fn array_set(arr: &mut [i32; 10], idx: i64, val: i32) {
-    arr[idx] = val;
+    unsafe { (*arr)[idx] = val; }
 }
 
 fn main() -> i32 {

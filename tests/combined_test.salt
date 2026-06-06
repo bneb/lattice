@@ -2,9 +2,9 @@
 
 package main
 
-use std.core.str.StringView
-use std.core.ptr.Ptr
-use std.http.response.write_response
+import std.core.str.StringView
+import std.core.ptr.Ptr
+import std.http.response.write_response
 
 fn route(recv_buf: Ptr<u8>, n: i64, send_buf: Ptr<u8>) -> i64 {
     let input = StringView::from_raw(recv_buf, n);

@@ -25,9 +25,9 @@
 
 package main
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
-extern fn malloc(size: i64) -> u64;
+extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: u64);
 extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
 
@@ -43,7 +43,7 @@ fn main() -> i32 {
     // =========================================================================
     // Allocate a task slot (status: u32, token: u32, result: u32, 
     //                       state_addr: u64, task_id: u32) = 24 bytes
-    let slot_addr: u64 = malloc(32);
+    let slot_addr: u64 = malloc(32) as u64;
     if slot_addr == 0 { return 1; }
 
     // Zero initialize
@@ -83,7 +83,7 @@ fn main() -> i32 {
     // =========================================================================
     // T2: RunQueue push — active_count tracks slots
     // =========================================================================
-    let rq_addr: u64 = malloc(16);
+    let rq_addr: u64 = malloc(16) as u64;
     if rq_addr == 0 { return 1; }
     *((rq_addr) as &mut u32) = 0;      // active_count
     *((rq_addr + 4) as &mut u32) = 0;  // completed_count
@@ -99,7 +99,7 @@ fn main() -> i32 {
     // T3-T4: poll_cqe_for_token — CQE ring polling
     // =========================================================================
     // Allocate CQE ring: 8 slots × 8 bytes = 64 bytes
-    let cqe_ring_addr: u64 = malloc(64);
+    let cqe_ring_addr: u64 = malloc(64) as u64;
     if cqe_ring_addr == 0 { return 1; }
 
     // Zero init (all tokens incomplete)
@@ -130,7 +130,7 @@ fn main() -> i32 {
     // T5: step_scheduler — PENDING task promoted to RUNNING
     // =========================================================================
     // Create two task slots (24 bytes each = 48 bytes total)
-    let slots_addr: u64 = malloc(64);
+    let slots_addr: u64 = malloc(64) as u64;
     if slots_addr == 0 { free(cqe_ring_addr); return 1; }
 
     // Zero both slots
@@ -255,7 +255,7 @@ fn main() -> i32 {
     // =========================================================================
     // T7: Matmul verification — data arrived via async path, math is correct
     // =========================================================================
-    let arena_addr: u64 = malloc(384);
+    let arena_addr: u64 = malloc(384) as u64;
     if arena_addr == 0 { return 1; }
 
     let a_addr: u64 = arena_addr;

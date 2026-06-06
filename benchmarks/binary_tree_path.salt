@@ -2,8 +2,8 @@ package basalt
 
 // Binary Tree Path Sum — uses Ptr<T> truthiness and arena allocation
 
-use std.core.ptr.Ptr
-use std.core.arena
+import std.core.ptr.Ptr
+import std.core.arena
 
 struct Node {
     val: i32,

@@ -25,9 +25,9 @@
 
 package main
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
-extern fn malloc(size: i64) -> u64;
+extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: u64);
 extern fn rdtsc() -> i64;
 extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
@@ -108,7 +108,7 @@ fn main() -> i32 {
     // =========================================================================
     // T1: deque_init — fresh deque has top=0, bottom=0
     // =========================================================================
-    let d0: u64 = malloc(DEQUE_TOTAL_SIZE as i64);
+    let d0: u64 = malloc(DEQUE_TOTAL_SIZE as i64) as u64;
     if d0 == 0 { return 1; }
     deque_init(d0);
 
@@ -164,7 +164,7 @@ fn main() -> i32 {
     // =========================================================================
     // T5: Contention — pop_bottom and steal_top on single element
     // =========================================================================
-    let d1: u64 = malloc(DEQUE_TOTAL_SIZE as i64);
+    let d1: u64 = malloc(DEQUE_TOTAL_SIZE as i64) as u64;
     if d1 == 0 { return 1; }
     deque_init(d1);
 
@@ -180,7 +180,7 @@ fn main() -> i32 {
     // T6: SMP Simulation — Core 1 steals from Core 0
     // =========================================================================
     // Allocate two deques (simulating 2 cores)
-    let deques: u64 = malloc((DEQUE_TOTAL_SIZE * 2) as i64);
+    let deques: u64 = malloc((DEQUE_TOTAL_SIZE * 2) as i64) as u64;
     if deques == 0 { return 1; }
 
     let core0_deque: u64 = deques;
@@ -229,7 +229,7 @@ fn main() -> i32 {
     // T7: HardwareProfile — calibration probe with valid memory
     // =========================================================================
 
-    let cal_buf: u64 = malloc(8);
+    let cal_buf: u64 = malloc(8) as u64;
     if cal_buf == 0 { return 1; }
     *((cal_buf) as &mut i64) = 0;
     let cal_ptr: Ptr<i64> = cal_buf as Ptr<i64>;

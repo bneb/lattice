@@ -13,15 +13,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-// ---- Mangled→Unmangled Aliases ----
 
-extern void user__browser__dom__init_arrays(void);
-void init_arrays(void) { user__browser__dom__init_arrays(); }
-
-extern int32_t compare_document_position(uint32_t n1, uint32_t n2);
-int32_t user__browser__dom__compare_document_position(uint32_t n1, uint32_t n2) {
-    return compare_document_position(n1, n2);
-}
 
 extern void sys_ipc_send_r2m_command_with_payload(uint32_t cmd, uint64_t a1, uint64_t ptr, uint32_t len);
 void user__browser__ipc_shared__sys_ipc_send_r2m_command_with_payload(uint32_t cmd, uint64_t a1, uint64_t ptr, uint32_t len) {

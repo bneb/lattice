@@ -18,7 +18,7 @@ mod tests {
     // Helper macro for creating test contexts
     macro_rules! with_ctx {
         ($name:ident, $block:block) => {
-            let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+            let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
             let z3_cfg = z3::Config::new();
             let z3_ctx = z3::Context::new(&z3_cfg);
             #[allow(unused_mut)]
@@ -99,7 +99,7 @@ mod tests {
     fn test_concrete_type_to_mlir_includes_specialization() {
         with_ctx!(ctx, {
             use salt_front::registry::StructInfo;
-            use std::collections::{BTreeMap, HashMap};
+            use std::collections::HashMap;
             use salt_front::types::TypeKey;
             
             // Register a generic struct template
@@ -155,7 +155,7 @@ mod tests {
     fn test_concrete_type_distinct_from_reference() {
         with_ctx!(ctx, {
             use salt_front::registry::StructInfo;
-            use std::collections::{BTreeMap, HashMap};
+            use std::collections::HashMap;
             use salt_front::types::TypeKey;
             
             // Register a concrete struct

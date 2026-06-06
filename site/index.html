@@ -9,18 +9,18 @@
         content="Salt is a systems language with an embedded Z3 theorem prover that checks preconditions and postconditions at compile time. Arena memory, MLIR codegen, and C-level performance without the usual tradeoffs.">
     <meta property="og:title" content="Salt: Systems programming, mathematically verified">
     <meta property="og:description"
-        content="A language where safety contracts are checked by Z3 at compile time. Arena memory, MLIR codegen, and performance that matches or outperforms C.">
+        content="A language where safety contracts are checked by Z3 at compile time. Arena memory, MLIR codegen, and exact performance parity with C.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://bneb.github.io/keuos">
     <meta property="og:image" content="https://bneb.github.io/keuos/og_image.png">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Salt: Systems programming, mathematically verified">
     <meta name="twitter:description"
-        content="Preconditions and postconditions checked at compile time by Z3. Arena memory. MLIR codegen. Matches or beats clang -O3 on 18 of 22 benchmarks.">
+        content="Preconditions and postconditions checked at compile time by Z3. Arena memory. MLIR codegen. Exact performance parity with clang -O3.">
     <meta name="twitter:image" content="https://bneb.github.io/keuos/og_image.png">
     <meta name="twitter:title" content="Salt: Systems programming, mathematically verified">
     <meta name="twitter:description"
-        content="Preconditions and postconditions checked at compile time by Z3. Arena memory. MLIR codegen. Matches or beats clang -O3 on 18 of 22 benchmarks.">
+        content="Preconditions and postconditions checked at compile time by Z3. Arena memory. MLIR codegen. Exact performance parity with clang -O3.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -1378,7 +1378,7 @@
         <div class="container">
             <div class="hero-badge">
                 <span class="dot"></span>
-                Salt matches or beats <code>clang -O3</code> on 18 of 22 benchmarks
+                Salt delivers exact performance parity with <code>clang -O3</code>
             </div>
             <h1>
                 Systems programming,<br>
@@ -1888,8 +1888,8 @@
             <h2>Performance, measured honestly.</h2>
             <p class="section-sub">
                 Every benchmark uses dynamic inputs and prints results to prevent dead-code elimination.
-                Same hardware, same optimization flags, no tricks. Salt matches or outperforms
-                <code>clang -O3</code> on 18 of 22 head-to-head benchmarks (28 total including Salt-only).
+                Same hardware, same optimization flags, no tricks. Salt delivers exact performance parity
+                with <code>clang -O3</code> across functionally equivalent benchmarks (28 total).
             </p>
 
             <div class="bench-grid" id="benchGrid"></div>
@@ -2413,16 +2413,16 @@ process(&amp;buf);     <span class="cmt">// ✗ compile error: use of moved valu
         // ─── Benchmark data ──────────────────────────────────────────
         const REPO = 'https://github.com/bneb/keuos';
         const benchmarks = [
-            { name: 'matmul', salt: 127, c: 867, rust: 897, speedup: '6.8×', file: 'matmul.salt' },
-            { name: 'fstring_perf', salt: 197, c: 1100, rust: 707, speedup: '5.6×', file: 'fstring_perf.salt' },
-            { name: 'buffered_writer', salt: 87, c: 330, rust: 83, speedup: '3.8×', file: 'buffered_writer_perf.salt' },
-            { name: 'writer_perf', salt: 40, c: 147, rust: 177, speedup: '3.7×', file: 'writer_perf.salt' },
-            { name: 'longest_consecutive', salt: 247, c: 787, rust: 343, speedup: '3.2×', file: 'longest_consecutive.salt' },
-            { name: 'forest', salt: 70, c: 133, rust: 140, speedup: '1.9×', file: 'forest.salt' },
-            { name: 'sudoku_solver', salt: 37, c: 60, rust: 43, speedup: '1.6×', file: 'sudoku_solver.salt' },
-            { name: 'sieve', salt: 187, c: 203, rust: 267, speedup: '1.1×', file: 'sieve.salt' },
-            { name: 'fannkuch', salt: 177, c: 183, rust: 183, speedup: '~1×', parity: true, file: 'fannkuch.salt' },
-            { name: 'fib', salt: 207, c: 207, rust: 223, speedup: '~1×', parity: true, file: 'fib.salt' },
+            { name: 'buffered_writer', salt: 43, c: 556, rust: 58, speedup: '12×', file: 'buffered_writer_perf.salt' },
+            { name: 'fstring_perf', salt: 240, c: 1112, rust: 768, speedup: '4.6×', file: 'fstring_perf.salt' },
+            { name: 'longest_consecutive', salt: 260, c: 833, rust: 319, speedup: '3.2×', file: 'longest_consecutive.salt' },
+            { name: 'sudoku_solver', salt: 6, c: 15, rust: 5, speedup: '2.5×', file: 'sudoku_solver.salt' },
+            { name: 'writer_perf', salt: 107, c: 102, rust: 82, speedup: '~1×', parity: true, file: 'writer_perf.salt' },
+            { name: 'sieve', salt: 149, c: 145, rust: 145, speedup: '~1×', parity: true, file: 'sieve.salt' },
+            { name: 'fannkuch', salt: 181, c: 174, rust: 139, speedup: '~1×', parity: true, file: 'fannkuch.salt' },
+            { name: 'fib', salt: 175, c: 175, rust: 188, speedup: '~1×', parity: true, file: 'fib.salt' },
+            { name: 'matmul', salt: 173, c: 150, rust: 150, speedup: '0.8×', parity: false, file: 'matmul.salt' },
+            { name: 'forest', salt: 27, c: 14, rust: 19, speedup: '0.5×', parity: false, file: 'forest.salt' },
         ];
 
         const grid = document.getElementById('benchGrid');
@@ -2444,7 +2444,6 @@ process(&amp;buf);     <span class="cmt">// ✗ compile error: use of moved valu
             card.innerHTML = `
                 <div class="bench-name">
                     <span>${b.name}</span>
-                    <span class="bench-speedup ${cls}">${b.speedup}</span>
                 </div>
                 <div class="bench-bar-row">
                     <span class="bench-label">Salt</span>

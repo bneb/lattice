@@ -15,8 +15,8 @@
 
 package kernel.core.ring3_test
 
-use kernel.drivers.serial
-use kernel.core.memory
+import kernel.drivers.serial
+import kernel.core.memory
 
 // =============================================================================
 // Constants — must match gdt.salt and preempt_stub.S

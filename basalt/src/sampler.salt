@@ -137,6 +137,8 @@ pub fn sample_topp(probabilities: Ptr<f32>, n: i64, topp: f32, coin: f32) -> i64
                     prob_buf[j + 1] = pj;
                     idx_buf[j + 1] = idx_buf[j];
                     j = j - 1;
+                } else {
+                    j = -1;
                 }
             }
         }

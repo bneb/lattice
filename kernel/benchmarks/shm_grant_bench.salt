@@ -18,13 +18,13 @@
 
 package benchmarks.shm_grant_bench
 
-use kernel.core.process
-use kernel.core.timing
-use kernel.mem.user_paging
-use kernel.core.pmm
-use kernel.core.memory
-use kernel.drivers.serial
-use kernel.drivers.vga
+import kernel.core.process
+import kernel.core.timing
+import kernel.mem.user_paging
+import kernel.core.pmm
+import kernel.core.memory
+import kernel.drivers.serial
+import kernel.drivers.vga
 
 extern fn sys_shm_grant(target_pid: u64, src_vaddr: u64, dst_vaddr: u64, num_pages: u64) -> u64;
 extern fn read_cr3() -> u64;

@@ -16,9 +16,9 @@
 
 package kernel.mem.page_sweep
 
-use kernel.core.pmm
-use kernel.drivers.serial
-use std.core.ptr.Ptr
+import kernel.core.pmm
+import kernel.drivers.serial
+import std.core.ptr.Ptr
 
 // =============================================================================
 // Page Table Constants

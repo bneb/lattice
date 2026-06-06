@@ -22,6 +22,11 @@ extern fn facet_window_drain_keyboard(target: u64) -> u32;
 extern fn sys_log_info(ptr: u64, len: u32);
 extern fn sys_print_float(f: f64);
 
+// [SEC-21] GPU command buffer capacity: 655360 bytes / 80 bytes per rect = 8192 entries
+pub const GPU_RECT_BUF_MAX_ENTRIES: u32 = 8192;
+pub const GPU_RECT_BUF_STRIDE: u32 = 80;
+pub const GPU_RECT_BUF_SIZE: u32 = 655360;
+
 // Epic 68: IOSurface Multi-Process Mode
 pub global COMPOSITOR_SCROLL_Y: [f32; 1] = [0.0; 1];
 
@@ -237,7 +242,8 @@ pub fn get_gpu_buffer_ptr() -> u64 {
 
 pub fn trigger_hardware_compositor(canvas_ptr: u64, width: i32, height: i32) {
     let mut count = paint.get_z_sort_count();
-    if count > 8192 { count = 8192; }
+    // [SEC-21] Clamp to GPU buffer capacity to prevent overflow
+    if count > GPU_RECT_BUF_MAX_ENTRIES { count = GPU_RECT_BUF_MAX_ENTRIES; }
     
     let mut i: u32 = 0;
     while i < count {
@@ -270,7 +276,9 @@ pub fn trigger_hardware_compositor(canvas_ptr: u64, width: i32, height: i32) {
         let color_u32 = ((r as u32) << 24) | ((g as u32) << 16) | ((b as u32) << 8) | (a as u32);
         let shadow_color_u32 = ((sr as u32) << 24) | ((sg as u32) << 16) | ((sb as u32) << 8) | (sa as u32);
         
-        let offset = i * 80;
+        let offset = i * GPU_RECT_BUF_STRIDE;
+        // [SEC-21] Bounds check: ensure write does not exceed GPU_RECT_BUF
+        if (offset + GPU_RECT_BUF_STRIDE) as u32 > GPU_RECT_BUF_SIZE { break; }
         let buf_ptr = paint_ptr_GPU_RECT_BUF();
         
         *((buf_ptr + (offset as u64)) as &mut f32) = (x as f32);
@@ -308,7 +316,8 @@ pub fn trigger_hardware_compositor(canvas_ptr: u64, width: i32, height: i32) {
 @no_mangle
 pub fn trigger_e2e_compositor(out_buffer_ptr: u64, width: i32, height: i32) {
     let mut count = paint.get_cmd_count();
-    if count > 8192 { count = 8192; }
+    // [SEC-21] Clamp to GPU buffer capacity to prevent overflow
+    if count > GPU_RECT_BUF_MAX_ENTRIES { count = GPU_RECT_BUF_MAX_ENTRIES; }
     let mut i: u32 = 0;
     while i < count {
         let mut x = *((P_CMD_X + (i as u64) * 4) as &i32);
@@ -328,7 +337,9 @@ pub fn trigger_e2e_compositor(out_buffer_ptr: u64, width: i32, height: i32) {
         
         let color_u32 = ((r as u32) << 24) | ((g as u32) << 16) | ((b as u32) << 8) | (a as u32);
         
-        let offset = i * 80;
+        let offset = i * GPU_RECT_BUF_STRIDE;
+        // [SEC-21] Bounds check: ensure write does not exceed GPU_RECT_BUF
+        if (offset + GPU_RECT_BUF_STRIDE) as u32 > GPU_RECT_BUF_SIZE { break; }
         let buf_ptr = paint_ptr_GPU_RECT_BUF();
         
         *((buf_ptr + (offset as u64)) as &mut f32) = (x as f32);
@@ -355,7 +366,8 @@ pub fn trigger_e2e_compositor(out_buffer_ptr: u64, width: i32, height: i32) {
 @no_mangle
 pub fn flush_frame(width: i32, height: i32) {
     let mut count = paint.get_cmd_count();
-    if count > 8192 { count = 8192; }
+    // [SEC-21] Clamp to GPU buffer capacity to prevent overflow
+    if count > GPU_RECT_BUF_MAX_ENTRIES { count = GPU_RECT_BUF_MAX_ENTRIES; }
     
     if count == 0 { return; }
     // Pack SoA paint commands into packed GPU rect buffer
@@ -384,7 +396,9 @@ pub fn flush_frame(width: i32, height: i32) {
         let color_u32 = ((r as u32) << 24) | ((g as u32) << 16) | ((b as u32) << 8) | (a as u32);
         let shadow_color_u32 = ((sr as u32) << 24) | ((sg as u32) << 16) | ((sb as u32) << 8) | (sa as u32);
         
-        let offset = i * 80;
+        let offset = i * GPU_RECT_BUF_STRIDE;
+        // [SEC-21] Bounds check: ensure write does not exceed GPU_RECT_BUF
+        if (offset + GPU_RECT_BUF_STRIDE) as u32 > GPU_RECT_BUF_SIZE { break; }
         let bptr = paint_ptr_GPU_RECT_BUF();
         
         *((bptr + (offset as u64)) as &mut f32) = cx as f32;

@@ -96,7 +96,7 @@ pub fn bind_stream(port: u16, stream_handle: u64, tcb_handle: u64, owner_pid: u6
     PORT_OWNERS[idx]  = owner_pid;
     
     // Finally, commit the state (store-release)
-    PORT_STATES[idx]  = PORT_BOUND;
+    atomic_cas_i64(&PORT_STATES[idx], 99 as i64, PORT_BOUND as i64);
     
     return 0;
 }

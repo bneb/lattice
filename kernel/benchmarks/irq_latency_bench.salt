@@ -21,9 +21,9 @@
 
 package benchmarks.irq_latency_bench
 
-use kernel.drivers.serial
-use kernel.drivers.vga
-use kernel.core.timing
+import kernel.drivers.serial
+import kernel.drivers.vga
+import kernel.core.timing
 
 extern fn enable_interrupts();
 extern fn disable_interrupts();

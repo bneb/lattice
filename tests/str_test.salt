@@ -2,8 +2,8 @@
 
 package main
 
-use std.core.str.StringView
-use std.core.ptr.Ptr
+import std.core.str.StringView
+import std.core.ptr.Ptr
 
 fn main() -> i32 {
     // Use a simple ASCII string without \r

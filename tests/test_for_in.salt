@@ -2,9 +2,9 @@
 // Tests: Vec iteration, Range iteration, chained iterators
 package main
 
-use std.collections.vec.Vec
-use std.mem.allocator.HeapAllocator
-use std.core.option.Option
+import std.collections.vec.Vec
+import std.mem.allocator.HeapAllocator
+import std.core.option.Option
 
 fn main() -> i32 {
     println("=== For-In Iteration Tests ===");

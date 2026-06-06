@@ -1,5 +1,5 @@
-use std.math.popcount_u64
-use std.io.println
+import std.math.popcount_u64
+import std.io.println
 
 pub fn main() -> i32 {
     let mut x: u64 = 0x5555555555555555; // Alternating bits

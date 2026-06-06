@@ -1,8 +1,8 @@
 // tests/test_channel_unbounded.salt — TDD for unbounded channel
 package main
 
-use std.channel.channel.UnboundedChannel
-use std.core.option.Option
+import std.channel.channel.UnboundedChannel
+import std.core.option.Option
 
 extern fn exit(code: i32);
 

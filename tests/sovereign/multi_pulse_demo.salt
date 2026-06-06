@@ -6,9 +6,9 @@
 //
 // The scheduler ensures the 1000Hz pulse is never starved by the 60Hz pulse.
 
-use std::core::sovereign::context
-use std::core::sovereign::executor
-use std::core::sovereign::arena
+import std::core::sovereign::context
+import std::core::sovereign::executor
+import std::core::sovereign::arena
 
 // Shared state between pulses
 struct SensorData {

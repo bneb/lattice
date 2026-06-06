@@ -132,18 +132,24 @@ pub fn alloc(size: u64, align: u64) -> u64
 pub fn alloc_net_buffer(payload_size: u64, align: u64) -> u64
     requires { payload_size > 0 }
 {
-    let total_request = payload_size + NET_HEADROOM;
-
-    // Allocate the full block (headroom + payload)
-    let base_alloc = alloc(total_request, align);
-
-    if base_alloc == 0 {
-        return 0;  // OOM
+    if payload_size > (0xFFFFFFFFFFFFFFFF - NET_HEADROOM) {
+        return 0; // Prevent integer overflow buffer write
     }
 
-    // Return the pointer shifted forward past the headroom
-    // The application writes payload here. NetD walks backwards.
-    return base_alloc + NET_HEADROOM;
+    let total_request = payload_size + NET_HEADROOM;
+    if total_request > 0 {
+        // Allocate the full block (headroom + payload)
+        let base_alloc = alloc(total_request, align);
+
+        if base_alloc == 0 {
+            return 0;  // OOM
+        }
+
+        // Return the pointer shifted forward past the headroom
+        // The application writes payload here. NetD walks backwards.
+        return base_alloc + NET_HEADROOM;
+    }
+    return 0;
 }
 
 // ============================================================================

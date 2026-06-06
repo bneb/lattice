@@ -8,24 +8,28 @@ fn main() -> i32 {
         let mut map = HashMap<i64, i64>::with_capacity(16);
         
         for i in 0..1000 {
-            map.insert(i, i * 7);
+            let key = i as i64;
+            map.insert(key, key * 7);
         }
         
         for i in 0..1000 {
-            checksum += map.get(&i);
+            let key = i as i64;
+            checksum += map.get(&key);
         }
         
         for i in 0..500 {
-            let key = i * 2;
+            let key: i64 = (i as i64) * 2;
             map.remove(&key);
         }
         
         for i in 0..500 {
-            map.insert(i * 2, i * 11);
+            let key = (i as i64) * 2;
+            map.insert(key, (i as i64) * 11);
         }
         
         for i in 0..1000 {
-            checksum += map.get(&i);
+            let key = i as i64;
+            checksum += map.get(&key);
         }
         
         map.drop();

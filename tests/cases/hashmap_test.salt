@@ -6,7 +6,7 @@
 // eventually infer the type from usage context (e.g., HashMap<i64,V>::get(&k)
 // should cause k to be inferred as i64). Filed as: literal type inference.
 
-use std.collections.hash_map.HashMap
+import std.collections.hash_map.HashMap
 
 fn assert_eq(actual: i64, expected: i64) -> bool {
     return actual == expected;

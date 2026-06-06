@@ -169,10 +169,9 @@ impl Type {
                                        }
                                    }
                                }
-                               // Fallback: Tensor with no shape
                                Some(Type::Tensor(Box::new(elem), vec![]))
                            } else {
-                               None
+                               Some(Type::Struct("Tensor".to_string()))
                            }
                        }
                        _ => {

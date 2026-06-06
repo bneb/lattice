@@ -7,10 +7,10 @@
 
 package std.collections.vec
 
-use std.core.ptr.Ptr
-use std.core.mem.{Layout, size_of}
-use std.mem.allocator.HeapAllocator
-use std.core.option.Option
+import std.core.ptr.Ptr
+import std.core.mem.{Layout, size_of}
+import std.mem.allocator.HeapAllocator
+import std.core.option.Option
 
 // =============================================================================
 // Vec<T, A> — The Sovereign Dynamic Array

@@ -118,6 +118,7 @@ fn ext_ipc_send_cdm_decrypt_sync(session_id: u32, arena_ptr: u64, data_len: u32)
     // Barrier: Wait for CDM to signal completion in the chunk prefix header
 
     let mut spin_count: u32 = 0;
+    let mut overall_ms: u32 = 0;
     while true {
         let status = *((status_ptr) as &u32);
         if status == 1 { break; }
@@ -126,6 +127,11 @@ fn ext_ipc_send_cdm_decrypt_sync(session_id: u32, arena_ptr: u64, data_len: u32)
         if spin_count > 10000 {
             sys_sleep_ms(1); // Yield OS thread to prevent thermal runaway
             spin_count = 0;
+            overall_ms = overall_ms + 1;
+            if overall_ms > 3000 {
+                // Abort after 3 seconds of waiting to prevent infinite hang
+                break;
+            }
         }
     }
     // Reset status for next chunk

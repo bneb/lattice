@@ -36,7 +36,7 @@
 
 package user.kernel.drivers.virtio.net
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ============================================================================
 // VirtIO Status Bits

@@ -3,7 +3,7 @@
 
 package std.regex
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // FFI declarations — defined in regex_bridge.c
 pub extern fn salt_regex_compile(pattern: &u8) -> i64;

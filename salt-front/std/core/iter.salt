@@ -1,6 +1,6 @@
 package std.core.iter
 
-use std.core.option.Option
+import std.core.option.Option
 
 /// Range iterator: yields integers from `current` up to (but not including) `end`.
 /// This is a standard struct — not compiler magic. Zero overhead.

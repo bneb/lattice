@@ -6,7 +6,7 @@
 
 package test.extern_priority
 
-use kernel.core.scheduler
+import kernel.core.scheduler
 
 extern fn enable_interrupts();
 extern fn rdtsc() -> i64;

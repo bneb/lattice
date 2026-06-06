@@ -19,7 +19,7 @@ mod hashmap_eq_dispatch_tests {
 
     macro_rules! with_ctx {
         ($name:ident, $block:block) => {
-            let mut file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
+            let file: SaltFile = syn::parse_str("fn main() {}").expect("valid salt file");
             let z3_cfg = z3::Config::new();
             let z3_ctx = z3::Context::new(&z3_cfg);
             #[allow(unused_mut)]
@@ -166,7 +166,7 @@ mod hashmap_eq_dispatch_tests {
     /// substitute() should resolve it to I64.
     #[test]
     fn test_substitute_struct_k_resolves_to_i64() {
-        use std::collections::{BTreeMap, HashMap};
+        use std::collections::BTreeMap;
 
         let mut type_map = BTreeMap::new();
         type_map.insert("K".to_string(), Type::I64);
@@ -181,7 +181,7 @@ mod hashmap_eq_dispatch_tests {
 
     #[test]
     fn test_substitute_reference_struct_k_becomes_reference_i64() {
-        use std::collections::{BTreeMap, HashMap};
+        use std::collections::BTreeMap;
 
         let mut type_map = BTreeMap::new();
         type_map.insert("K".to_string(), Type::I64);
@@ -196,7 +196,7 @@ mod hashmap_eq_dispatch_tests {
     /// Verifying substitute for all primitive types used as generic parameters.
     #[test]
     fn test_substitute_generic_param_to_all_primitives() {
-        use std::collections::{BTreeMap, HashMap};
+        use std::collections::BTreeMap;
 
         let primitives = vec![
             ("i8", Type::I8), ("i16", Type::I16), ("i32", Type::I32), ("i64", Type::I64),

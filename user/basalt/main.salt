@@ -13,9 +13,10 @@
 //
 // ============================================================================
 
-package user.basalt.main
+package main
 
-use user.basalt.app_hw_matmul.execute_hardware_inference
+import user.basalt.app_hw_matmul.execute_hardware_inference
+import std.fs.fs.{VfsConnection, FileHandle}
 
 extern fn free(ptr: u64);
 
@@ -55,15 +56,16 @@ pub fn init_basalt(
     tx_ring: u64,
     router_streams: u64,
     router_states: u64
-) {
+) -> u64 {
     // 1. Register Basalt's RX stream on the PortRouter at port 80
     let port_idx = LISTEN_PORT as u64;
     *((router_streams + port_idx * 8) as &mut u64) = rx_ring;
     *((router_states + port_idx * 8) as &mut u64) = 1;  // PORT_BOUND
 
-    // 2. Store application state for the poll loop
-    //    (In production, this calls basalt_app.init())
-    //    The globals in app.salt are set directly here for v0.1
+    // 2. Memory-map the model weights (v0.1 mock: use malloc)
+    let nvme_addr: u64 = 0x88880000; // Mock pointer
+    
+    return nvme_addr;
 }
 
 // ============================================================================
@@ -118,3 +120,5 @@ pub fn basalt_poll_cycle(
     // O(1) arena reset
     arena_offset = 0;
 }
+
+fn main() -> i32 { return 0; }

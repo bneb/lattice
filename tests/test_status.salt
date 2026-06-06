@@ -3,7 +3,7 @@
 // and that predicates work correctly.
 package main
 
-use std.status.Status
+import std.status.Status
 
 extern fn exit(code: i32);
 

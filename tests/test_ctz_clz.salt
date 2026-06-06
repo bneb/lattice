@@ -2,8 +2,8 @@
 // These use llvm.intr.cttz / llvm.intr.ctlz which must emit exactly 1 operand in MLIR.
 package main
 
-use std.math.ctz_u64
-use std.math.clz_u64
+import std.math.ctz_u64
+import std.math.clz_u64
 
 extern fn exit(code: i32);
 

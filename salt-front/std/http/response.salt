@@ -7,8 +7,8 @@
 
 package std.http.response
 
-use std.core.ptr.Ptr
-use std.core.str.StringView
+import std.core.ptr.Ptr
+import std.core.str.StringView
 
 // Write an HTTP response into `buf` with the given status, content-type,
 // and body. Returns number of bytes written.

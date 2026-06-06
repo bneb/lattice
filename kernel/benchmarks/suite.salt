@@ -5,10 +5,10 @@
 
 package benchmarks.suite
 
-use kernel.drivers.serial
-use kernel.drivers.vga
-use kernel.core.scheduler
-use kernel.core.cpuid
+import kernel.drivers.serial
+import kernel.drivers.vga
+import kernel.core.scheduler
+import kernel.core.cpuid
 
 // Benchmark entry points (@no_mangle in each benchmark file)
 extern fn run();                 // alloc_bench

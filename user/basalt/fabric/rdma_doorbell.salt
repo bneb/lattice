@@ -17,7 +17,7 @@
 
 package user.basalt.fabric.rdma_doorbell
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ============================================================================
 // NIC MMIO Constants

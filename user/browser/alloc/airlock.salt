@@ -10,8 +10,11 @@ pub global BLOCK_OFFSETS: [u32; MAX_BLOCKS] = [0; MAX_BLOCKS];
 pub global BLOCK_IS_FREE: [bool; MAX_BLOCKS] = [true; MAX_BLOCKS];
 pub global BLOCK_COUNT: u32 = 1;
 
+pub const SIP_COUNT: u32 = 1024;
 pub global SIP_MEM_START: [u32; 1024] = [0; 1024];
+pub global SIP_MEM_LEN: [u32; 1024] = [0; 1024];
 
+@no_mangle
 pub fn airlock_init_allocator() {
     BLOCK_SIZES[0] = MAX_AIRLOCK_CAPACITY;
     BLOCK_OFFSETS[0] = 0;

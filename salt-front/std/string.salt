@@ -4,14 +4,14 @@
 
 package std.string
 
-use std.core.ptr.Ptr
-use std.core.str.StringView
+import std.core.ptr.Ptr
+import std.core.str.StringView
 
 // =============================================================================
 // External C Runtime — Direct Memory Sovereignty
 // =============================================================================
 
-extern fn malloc(size: i64) -> u64;
+extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn salt_sys_realloc(ptr: u64, new_size: i64) -> u64;
 extern fn salt_sys_free(ptr: u64);
 extern fn memcpy(dst: i64, src: i64, len: i64) -> i64;
@@ -362,7 +362,7 @@ impl String {
 // Eq Implementation
 // =============================================================================
 
-use std.eq.Eq
+import std.eq.Eq
 
 impl Eq for String {
     fn eq(&self, other: &String) -> bool {
@@ -393,7 +393,7 @@ impl Eq for String {
 // The compiler lowers this to direct write_* calls on the String buffer.
 // =============================================================================
 
-use std.io.writer.Writer;
+import std.io.writer.Writer;
 
 impl Writer for String {
     fn write_bytes(&mut self, data: Ptr<u8>, len: usize) {

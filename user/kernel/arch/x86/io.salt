@@ -17,7 +17,7 @@
 
 package user.kernel.arch.x86.io
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ============================================================================
 // Port I/O via extern functions

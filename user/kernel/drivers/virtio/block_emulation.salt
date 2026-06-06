@@ -25,7 +25,7 @@
 
 package user.kernel.drivers.virtio.block_emulation
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ============================================================================
 // Constants

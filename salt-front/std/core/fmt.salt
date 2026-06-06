@@ -4,7 +4,7 @@
 
 package std.core.fmt
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // =============================================================================
 // The Formatter — Handle passed to user fmt() implementations

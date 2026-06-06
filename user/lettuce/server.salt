@@ -8,16 +8,16 @@
 
 package main
 
-use std.core.ptr.Ptr
-use std.core.str.StringView
-use std.collections.string_map.StringMap
-use std.collections.string_map.StringMap_new
-use std.collections.string_map.StringMap_drop
-use user.lib.socket.{Socket, bind, accept, read, write, close}
-use user.lettuce.store.{execute, ExecResult}
-use user.lettuce.resp.{write_simple_string, write_error}
-use user.reactor.scheduler
-use user.basalt.main.basalt_poll_cycle
+import std.core.ptr.Ptr
+import std.core.str.StringView
+import std.collections.string_map.StringMap
+import std.collections.string_map.StringMap_new
+import std.collections.string_map.StringMap_drop
+import user.lib.socket.{Socket, bind, accept, read, write, close}
+import user.lettuce.store.{execute, ExecResult}
+import user.lettuce.resp.{write_simple_string, write_error}
+import user.reactor.scheduler
+import user.basalt.main.basalt_poll_cycle
 
 const PORT: u64 = 6379;
 const SESSION_BUF_SIZE: i64 = 1048576;
@@ -66,6 +66,9 @@ pub fn client_tick(session: Ptr<ClientSession>) -> bool {
             let cap = *((rx + 8) as &u64);
             let result_val = *((rx + 192 + tail) as &u64);
             *((rx + 64) as &mut u64) = (tail + 8) % (cap * 8);
+            
+            // Fix memory leak: free the prompt pointer when it comes back from Basalt
+            free(result_val);
 
             // Write success response directly
             let w = write_simple_string(sess.send_ptr, "Inference Complete" as StringView);

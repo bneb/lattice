@@ -1,9 +1,9 @@
 package user.browser.js_lexer
 
-use user.browser.js_tokens.JsToken
-use user.browser.js_tokens.PunctToken
-use user.browser.js_tokens.KeywordToken
-use user.browser.js_tokens.TokenSpan
+import user.browser.js_tokens.JsToken
+import user.browser.js_tokens.PunctToken
+import user.browser.js_tokens.KeywordToken
+import user.browser.js_tokens.TokenSpan
 
 pub struct ByteSpan {
     pub ptr: u64,

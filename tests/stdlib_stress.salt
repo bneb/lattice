@@ -4,9 +4,9 @@
 
 package tests.stdlib_stress
 
-use std.collections.vec.Vec
-use std.mem.allocator.HeapAllocator
-use std.string.String
+import std.collections.vec.Vec
+import std.mem.allocator.HeapAllocator
+import std.string.String
 
 // Test 1: Basic Vec operations
 fn test_vec_basic() -> i32 {

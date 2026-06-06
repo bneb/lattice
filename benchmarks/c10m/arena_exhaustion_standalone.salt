@@ -3,7 +3,7 @@
 //
 // This is a self-contained version that can compile and run now.
 
-use std::collections::vec::Vec
+import std::collections::vec::Vec
 
 // Constants matching C/Rust baselines
 const SLAB_64_COUNT: i64 = 8192

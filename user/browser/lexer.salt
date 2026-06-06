@@ -180,6 +180,13 @@ fn match_tag(len: u32) -> i32 {
         if b0 == 99 && b1 == 97 && b2 == 110 && b3 == 118 && b4 == 97 && b5 == 115 { return 27; }
         return 255;
     }
+    
+    let mut i: u32 = 0;
+    while i < len {
+        if get_tag_byte(i) == 45 { return 96; } // '-' means custom element
+        i = i + 1;
+    }
+    
     return 255;
 }
 

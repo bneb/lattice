@@ -20,7 +20,7 @@
 
 package user.basalt.fabric.topology_router
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ============================================================================
 // Constants

@@ -21,7 +21,7 @@
 
 package user.kernel.drivers.virtio.rx
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ============================================================================
 // RX Arena Offsets (relative to LOC_ARENA base)

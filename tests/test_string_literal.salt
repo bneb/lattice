@@ -6,7 +6,7 @@
 
 package main
 
-use std.core.str.StringView
+import std.core.str.StringView
 
 extern fn exit(code: i32);
 

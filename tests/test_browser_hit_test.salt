@@ -17,8 +17,9 @@ import user.browser.compositor
 
 pub fn main() -> i32 {
     airlock.airlock_init_allocator();
+    hit_test.hit_test_inject_paint_pointers();
+    paint.paint_inject_dom_pointers();
     dom.init_arrays();
-    paint.salt_paint_inject_dom_pointers();
     
     // Create Box A (Large background)
     let node_a = dom.create_node(1 as u32);
@@ -28,6 +29,7 @@ pub fn main() -> i32 {
     dom.LAYOUT_W[node_a_idx as usize] = 1920;
     dom.LAYOUT_H[node_a_idx as usize] = 1080;
     dom.STYLE_Z_INDEX[node_a_idx as usize] = 0;
+    dom.STYLE_BG_A[node_a_idx as usize] = 255;
     
     // Create Box B (Small foreground button)
     let node_b = dom.create_node(1); 
@@ -37,6 +39,7 @@ pub fn main() -> i32 {
     dom.LAYOUT_W[node_b_idx as usize] = 100;
     dom.LAYOUT_H[node_b_idx as usize] = 50;
     dom.STYLE_Z_INDEX[node_b_idx as usize] = 10;
+    dom.STYLE_BG_A[node_b_idx as usize] = 255;
     
     let root = dom.create_node(1); // Root node element
     let root_idx = dom.resolve_node(root);
@@ -51,15 +54,22 @@ pub fn main() -> i32 {
 
     
     // Generate Z_SORT_BUF
+    println("Generating display list...");
+    paint.begin_frame();
+    paint.ext_mark_all_compositor_dirty();
     paint.generate_display_list(root_idx, root, 0, 0, 1080);
-    compositor.salt_compositor_sort_display_list();
+    println("Display list generated.");
     
     // Test 1: Click outside Box B but inside Box A
-    let hit_1: u32 = hit_test::sys_hit_test(10.0, 10.0, root_idx); // Raycast at 10,10 starting from root
-    if hit_1 != node_a_idx { return 1; }
+    println("Running Test 1...");
+    let hit_1: u32 = hit_test.sys_hit_test(10.0, 10.0, root_idx); // Raycast at 10,10 starting from root
+    println("Test 1 done.");
+    if hit_1 != node_a_idx { return hit_1 as i32; }
     
     // Test 2: Click inside Box B
-    let hit_2: u32 = hit_test::sys_hit_test(450.0, 220.0, root_idx);
+    println("Running Test 2...");
+    let hit_2: u32 = hit_test.sys_hit_test(450.0, 220.0, root_idx);
+    println("Test 2 done.");
     if hit_2 != node_b_idx { return 2; }
     
     return 0; // Success

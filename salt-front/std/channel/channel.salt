@@ -8,10 +8,10 @@
 
 package std.channel.channel
 
-use std.core.result.Result
-use std.core.option.Option
-use std.core.ptr.Ptr
-use std.status.Status
+import std.core.result.Result
+import std.core.option.Option
+import std.core.ptr.Ptr
+import std.status.Status
 
 extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: Ptr<u8>);

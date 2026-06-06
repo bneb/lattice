@@ -1,6 +1,6 @@
 package main
 
-use std::core::ptr::*;
+import std::core::ptr::*;
 
 // Test: Ptr.write() method resolution
 // This should compile and link correctly.

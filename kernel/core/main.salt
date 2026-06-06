@@ -118,7 +118,7 @@ extern fn process_get_kernel_stack_top(slot: u64) -> u64;
 
 // kernel/core/syscall.salt
 extern fn syscall_set_kernel_pml4(pml4: u64);
-extern fn syscall_set_moe_bar_ptr(ptr: u64);
+extern fn moe_set_bar_ptr(ptr: u64);
 extern fn syscall_set_moe_peer_mac(b0: u8, b1: u8, b2: u8, b3: u8, b4: u8, b5: u8);
 
 // kernel/net/netcore.salt
@@ -190,6 +190,11 @@ pub fn terminal_tx_poll_thread() {
                 }
                 if capacity > 3904 {
                     capacity = 3904;
+                }
+                let tail = *((KERNEL_TX_RING_VIRT + 64) as &u64);
+                if tail >= capacity {
+                    // [SEC-10] Prevent OOB read from user-controlled tail
+                    return;
                 }
                 let idx = tail % capacity;
                 let mut c: u8 = 0;
@@ -516,15 +521,17 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     // Wire the TX/RX Bridge globals
     // =========================================================================
     // TX Bridge: Tell syscall.salt where the WQE mailbox is
-    syscall_set_moe_bar_ptr(bar_ptr);
+    moe_set_bar_ptr(bar_ptr);
 
-    // RX Notification Mailbox: Allocate from the shared page
-    // Layout: [buf_addr: u64 (8), pkt_len: u32 (4), frame_ready: u32 (4)] = 16B
-    let rx_notify_ptr = pb_virt + 640;
-    *((rx_notify_ptr) as &mut u64) = 0;      // buf_addr = 0 (no frame)
-    *((rx_notify_ptr + 8) as &mut u32) = 0;  // pkt_len = 0
-    *((rx_notify_ptr + 12) as &mut u32) = 0; // frame_ready = 0
-    netcore_set_rx_notify(rx_notify_ptr);
+    // RX Notification Ring Buffer: Allocate 1 physical page (4KB)
+    let rx_notify_ring_phys = pmm_alloc();
+    let rx_notify_ring_virt = rx_notify_ring_phys + KERNEL_BASE;
+    *((rx_notify_ring_virt + 0) as &mut u64) = 0;           // head
+    *((rx_notify_ring_virt + 8) as &mut u64) = 3904;        // capacity
+    *((rx_notify_ring_virt + 64) as &mut u64) = 0;          // tail
+    *((rx_notify_ring_virt + 128) as &mut u64) = 0;         // consumer_waiting
+    
+    netcore_set_rx_notify(rx_notify_ring_virt);
 
     // =========================================================================
     // Zero-Copy DMA: Map VirtIO RX buffer pool into Ring 3 address space
@@ -535,23 +542,49 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     let rx_pool_vaddr: u64 = 0x40000000;  // 1GB mark in Ring 3 space
     let rx_pool_pages: u64 = 24;
     let mut pg: u64 = 0;
+    
+    // We map the RX pool into BOTH netd_pml4 and moe_pml4 (the two user processes).
+    // We use 0x207 (PTE_SHARED | PTE_USER | PTE_WRITE | PTE_PRESENT).
+    // This prevents destroy_user_pml4 from freeing the shared VirtIO physical pages.
+    let moe_pml4 = sys_create_user_pml4_kpti(kernel_pml4);
+
     while pg < rx_pool_pages {
         map_user_page_extern(
-            kernel_pml4,
+            netd_pml4,
             rx_pool_vaddr + pg * 4096,
             rx_pool_phys + pg * 4096,
-            0x7  // PRESENT | RW | USER
+            0x207  // PRESENT | RW | USER | SHARED
+        );
+        map_user_page_extern(
+            moe_pml4,
+            rx_pool_vaddr + pg * 4096,
+            rx_pool_phys + pg * 4096,
+            0x207  // PRESENT | RW | USER | SHARED
         );
         pg = pg + 1;
     }
     serial.print("[KeuOS] Mapped VirtIO RX pool at 0x40000000 (24 pages)\n");
 
-    // Store rx_notify_ptr and rx_pool_vaddr in the state struct
+    // Store rx_notify_ring_virt and rx_pool_vaddr in the state struct
     // STATE_RX_NOTIFY_PTR = Offset 72, STATE_RX_POOL_VADDR = Offset 80
-    *((state_ptr + 72) as &mut u64) = rx_notify_ptr;
+    // We must pass the Ring 3 virtual address for the RX ring
+    // Map the RX notification ring into Ring 3 at 0x40004000
+    let rx_notify_ring_user_vaddr: u64 = 0x40004000;
+    map_user_page_extern(
+        netd_pml4,
+        rx_notify_ring_user_vaddr,
+        rx_notify_ring_phys,
+        0x207
+    );
+    map_user_page_extern(
+        moe_pml4,
+        rx_notify_ring_user_vaddr,
+        rx_notify_ring_phys,
+        0x207
+    );
+    *((state_ptr + 72) as &mut u64) = rx_notify_ring_user_vaddr;
     *((state_ptr + 80) as &mut u64) = rx_pool_vaddr;
 
-    let moe_pml4 = sys_create_user_pml4_kpti(kernel_pml4);
     let slot_a = exec_spawn_ring3_coroutine(
             (&sys_moe_init_trampoline) as u64,
             state_ptr,

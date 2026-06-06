@@ -96,12 +96,23 @@ pub fn ipc_ring_push_bytes(multiplex_id: u64, data: u64, len: u32) {
     // 8-byte ID + 4-byte len = 12 bytes header
     let total_len = len + 12;
     
+    // [SEC-11] SECURITY FIX: Pre-check that the ring has enough space for the
+    // ENTIRE frame (header + payload) before writing anything. This prevents
+    // partial frame corruption where the header is written but the payload
+    // doesn't fit, leaving a corrupted frame in the ring.
+    let used = (WRITE_HEAD + RING_SIZE - READ_HEAD) % RING_SIZE;
+    let available_space = RING_SIZE - used - 1;
+    if total_len > available_space {
+        return;
+    }
+    
     // Write header bytes first (just use push_byte since it's small)
     let mut i: u32 = 0;
     while i < 8 {
         let shift = i * 8;
         let v = ((multiplex_id >> shift) & 0xFF) as u8;
-        ipc_push_byte(v);
+        // [SEC-11] Check return value — abort on failure to prevent partial frames
+        if ipc_push_byte(v) == 0 { return; }
         i = i + 1;
     }
 
@@ -109,7 +120,7 @@ pub fn ipc_ring_push_bytes(multiplex_id: u64, data: u64, len: u32) {
     while i < 4 {
         let shift = i * 8;
         let v = ((len >> shift) & 0xFF) as u8;
-        ipc_push_byte(v);
+        if ipc_push_byte(v) == 0 { return; }
         i = i + 1;
     }
 
@@ -120,7 +131,6 @@ pub fn ipc_ring_push_bytes(multiplex_id: u64, data: u64, len: u32) {
 }
 
 pub fn ipc_push_bytes(src_ptr: u64, len: u32) -> u32 {
-    let available = RING_SIZE - (WRITE_HEAD - READ_HEAD); // WRONG LOGIC
     // Proper modulo logic:
     let used = (WRITE_HEAD + RING_SIZE - READ_HEAD) % RING_SIZE;
     let available_space = RING_SIZE - used - 1; // Leave 1 byte to distinguish full/empty

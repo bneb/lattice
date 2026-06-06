@@ -17,10 +17,10 @@
 
 package kernel.net.netd_tx_bridge
 
-use kernel.lib.ipc_shm
-use kernel.core.pmm
-use kernel.core.memory
-use kernel.drivers.serial
+import kernel.lib.ipc_shm
+import kernel.core.pmm
+import kernel.core.memory
+import kernel.drivers.serial
 
 // Control plane signal constants
 pub const CMD_TX_NOTIFY: u64 = 4;

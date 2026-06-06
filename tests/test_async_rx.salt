@@ -23,9 +23,9 @@
 
 package main
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
-extern fn malloc(size: i64) -> u64;
+extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: u64);
 extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
 extern fn salt_atomic_cas_i64(ptr: Ptr<i64>, expected: i64, desired: i64) -> i64;
@@ -39,7 +39,7 @@ const MOCK_IO_SIZE: i64 = 1032;  // 8 + 256*4
 global G_IO: u64 = 0;
 
 fn mock_io_alloc() -> u64 {
-    let buf: u64 = malloc(MOCK_IO_SIZE);
+    let buf: u64 = malloc(MOCK_IO_SIZE) as u64;
     let mut i: i64 = 0;
     while i < MOCK_IO_SIZE { *((buf + (i as u64)) as &mut u8) = 0; i = i + 1; }
     return buf;
@@ -230,11 +230,11 @@ fn main() -> i32 {
     if io == 0 { return 1; }
     G_IO = io;
 
-    let arena: u64 = malloc(ARENA_SIZE);
+    let arena: u64 = malloc(ARENA_SIZE) as u64;
     if arena == 0 { free(io); return 1; }
     zero_init(arena, ARENA_SIZE as u64);
 
-    let ack: u64 = malloc(8);
+    let ack: u64 = malloc(8) as u64;
     if ack == 0 { free(arena); free(io); return 1; }
     zero_init(ack, 8);
 
@@ -329,9 +329,9 @@ fn main() -> i32 {
     // =========================================================================
     // T12: matmul wakeup — CQE strike → 16x16 matmul
     // =========================================================================
-    let mat_a: u64 = malloc(2048);  // 16×16×8 = 2048
-    let mat_b: u64 = malloc(2048);
-    let mat_c: u64 = malloc(2048);
+    let mat_a: u64 = malloc(2048) as u64;  // 16×16×8 = 2048
+    let mat_b: u64 = malloc(2048) as u64;
+    let mat_c: u64 = malloc(2048) as u64;
     if mat_a == 0 || mat_b == 0 || mat_c == 0 { cleanup(io, arena, ack); return 1; }
 
     // Fill A=1.0, B=3.0

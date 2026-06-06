@@ -1,8 +1,8 @@
 // LeetCode 208: Implement Trie (Prefix Tree)
 package basalt
 
-use std.core.ptr.Ptr
-use std.core.arena
+import std.core.ptr.Ptr
+import std.core.arena
 
 struct TrieNode {
     children: [Ptr<TrieNode>; 26],

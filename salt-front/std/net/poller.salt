@@ -11,10 +11,10 @@
 
 package std.net.poller
 
-use std.core.ptr.Ptr
-use std.status.Status
-use std.core.result.Result
-use std.net.tcp
+import std.core.ptr.Ptr
+import std.status.Status
+import std.core.result.Result
+import std.net.tcp
 
 extern fn r3_sys_yield();
 extern fn rdtsc() -> i64;

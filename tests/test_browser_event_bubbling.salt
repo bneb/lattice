@@ -11,8 +11,9 @@ import user.browser.alloc.airlock
 
 pub fn main() -> i32 {
     airlock.airlock_init_allocator();
+    hit_test.hit_test_inject_paint_pointers();
+    paint.paint_inject_dom_pointers();
     dom.init_arrays();
-    paint.salt_paint_inject_dom_pointers();
     paint.begin_frame();
     
     // Core Layout Matrix cleverly elegantly naturally
@@ -33,12 +34,14 @@ pub fn main() -> i32 {
     dom.LAYOUT_W[parent_idx as usize] = 500;
     dom.LAYOUT_H[parent_idx as usize] = 500;
     dom.STYLE_Z_INDEX[parent_idx as usize] = 10;
+    dom.STYLE_BG_A[parent_idx as usize] = 255;
     
     dom.LAYOUT_X[child_idx as usize] = 200;
     dom.LAYOUT_Y[child_idx as usize] = 200;
     dom.LAYOUT_W[child_idx as usize] = 100;
     dom.LAYOUT_H[child_idx as usize] = 50;
     dom.STYLE_Z_INDEX[child_idx as usize] = 20; 
+    dom.STYLE_BG_A[child_idx as usize] = 255;
     dom.STYLE_POINTER_EVENTS[child_idx as usize] = 1;
     dom.STYLE_POINTER_EVENTS[parent_idx as usize] = 1;
     dom.STYLE_DISPLAY[root_idx as usize] = 1;    
@@ -57,8 +60,8 @@ pub fn main() -> i32 {
     dom.EVENT_PC[evt2] = 5555;
     dom.EVENT_COUNT = dom.EVENT_COUNT + 1;
     
+    paint.ext_mark_all_compositor_dirty();
     let _display_elements = paint.generate_display_list(root_idx, 0 as u64, 0, 0, 1080);
-    compositor.salt_compositor_sort_display_list();
     
     // Dispatch Click accurately naturally comfortably perfectly smartly cleanly
     let click_x = 250;
@@ -68,7 +71,7 @@ pub fn main() -> i32 {
     let mut bubble_count: u32 = 0;
     let mut bubble_pc: [u32; 16] = [0; 16];
     
-    let target_idx = hit_test::sys_hit_test(click_x as f32, click_y as f32, parent_idx as u32);
+    let target_idx = hit_test.sys_hit_test(click_x as f32, click_y as f32, parent_idx as u32);
     let mut curr_node = target_idx;
     
     while curr_node != 0 && curr_node != 999999 && bubble_count < 16 {

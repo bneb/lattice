@@ -4,7 +4,7 @@
 
 package std.io.buffered_reader
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // Local extern declarations (externs can't be imported across packages)
 extern fn sys_read(fd: i32, buf: i64, len: i64) -> i64;

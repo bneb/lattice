@@ -9,8 +9,8 @@
 // OUTPUT: Bool false: false
 // OUTPUT: ALL TESTS PASSED
 
-use std.core.fmt.Formatter
-use std.string.String
+import std.core.fmt.Formatter
+import std.string.String
 
 struct Point {
     x: i64,

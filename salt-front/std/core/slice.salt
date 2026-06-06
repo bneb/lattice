@@ -7,7 +7,7 @@
 
 package std.core.slice
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 pub struct Slice<T> {
     data: Ptr<T>,

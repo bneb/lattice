@@ -3,7 +3,7 @@
 
 package std.crypto.tls
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // FFI declarations — defined in tls_bridge.c
 pub extern fn salt_tls_ctx_new() -> i64;

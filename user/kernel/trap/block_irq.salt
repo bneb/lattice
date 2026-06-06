@@ -23,7 +23,7 @@
 
 package user.kernel.trap.block_irq
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
 extern fn salt_atomic_cas_i64(ptr: Ptr<i64>, expected: i64, desired: i64) -> i64;

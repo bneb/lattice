@@ -3,10 +3,10 @@
 
 package std.core.alloc
 
-use std.core.ptr.Ptr
-use std.core.mem.Layout
-use std.core.result.Result
-use std.status.Status
+import std.core.ptr.Ptr
+import std.core.mem.Layout
+import std.core.result.Result
+import std.status.Status
 
 // The core allocator trait
 // Z3 verifies: allocated regions never overlap,

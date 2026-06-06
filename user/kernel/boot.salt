@@ -30,7 +30,7 @@
 
 package user.kernel.boot
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // ============================================================================
 // Multiboot2 Constants

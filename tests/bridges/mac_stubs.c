@@ -60,3 +60,10 @@ __attribute__((weak)) void ext_engine_process_mouse_down(float x, float y) {}
 __attribute__((weak)) uint64_t sovereign_arena_alloc(uint64_t size) {
   return (uint64_t)calloc(1, size);
 }
+
+__attribute__((weak)) int64_t ebr_get_global_epoch() { return 0; }
+__attribute__((weak)) int64_t ebr_get_core_epoch(int64_t core_id) { return 0; }
+__attribute__((weak)) int64_t ebr_get_core_in_epoch(int64_t core_id) { return 0; }
+__attribute__((weak)) uint64_t get_ecs_world_ptr() { return 0; }
+__attribute__((weak)) int32_t js_quickjs_init() { return 0; }
+__attribute__((weak)) void js_quickjs_teardown() {}

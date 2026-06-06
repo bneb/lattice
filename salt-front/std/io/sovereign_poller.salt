@@ -19,7 +19,7 @@
 
 package std.io.sovereign_poller
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // =============================================================================
 // SPSC Ring Buffer Header — Cache-Line Aligned Layout

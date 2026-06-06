@@ -9,7 +9,7 @@
 // OUTPUT: test_invalid_pattern: PASS
 // OUTPUT: ALL TESTS PASSED
 
-use std.regex.Regex
+import std.regex.Regex
 
 fn main() -> i32 {
     println("=== Regex Tests ===");

@@ -13,10 +13,10 @@
 
 package std.net.context
 
-use std.mem.arena.SovereignArena
-use std.mem.arena.DmaArena
-use std.mem.arena.DelayedFreeMailbox
-use std.task.executor
+import std.mem.arena.SovereignArena
+import std.mem.arena.DmaArena
+import std.mem.arena.DelayedFreeMailbox
+import std.task.executor
 
 // ============================================================================
 // Configuration

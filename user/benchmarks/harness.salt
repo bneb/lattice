@@ -20,9 +20,9 @@
 
 package user.benchmarks.harness
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
-extern fn malloc(size: i64) -> u64;
+extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: u64);
 extern fn rdtsc() -> i64;
 
@@ -46,7 +46,7 @@ pub const STATS_P9999:       u64 = 816;
 // alloc_stats — Allocate and zero a BenchmarkStats buffer
 // ============================================================================
 pub fn alloc_stats() -> u64 {
-    let addr: u64 = malloc(STATS_SIZE as i64);
+    let addr: u64 = malloc(STATS_SIZE as i64) as u64;
     if addr == 0 { return 0; }
     let mut i: u64 = 0;
     while i < STATS_SIZE { *((addr + i) as &mut u8) = 0; i = i + 1; }
@@ -57,7 +57,7 @@ pub fn alloc_stats() -> u64 {
 // alloc_samples — Allocate the 10,000-entry sample buffer
 // ============================================================================
 pub fn alloc_samples() -> u64 {
-    let addr: u64 = malloc(SAMPLE_SIZE as i64);
+    let addr: u64 = malloc(SAMPLE_SIZE as i64) as u64;
     if addr == 0 { return 0; }
     let mut i: u64 = 0;
     while i < SAMPLE_SIZE { *((addr + i) as &mut u8) = 0; i = i + 1; }

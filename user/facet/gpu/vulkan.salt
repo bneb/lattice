@@ -6,7 +6,7 @@
 
 package gpu.vulkan
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 pub struct VulkanDevice {
     handle: i64,

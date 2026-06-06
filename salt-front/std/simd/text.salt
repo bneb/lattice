@@ -17,8 +17,8 @@
 
 package std.simd.text
 
-use std.core.ptr.Ptr
-use std.math.ctz_u64
+import std.core.ptr.Ptr
+import std.math.ctz_u64
 
 // =============================================================================
 // Scalar SWAR Text Scanner (Default — All Architectures)

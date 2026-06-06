@@ -3,11 +3,11 @@
 // =============================================================================
 
 import user.lettuce.store
-use std.collections.string_map.StringMap
-use std.collections.string_map.StringMap_new
-use std.collections.string_map.StringMap_drop
-use std.core.str.StringView
-use std.core.ptr.Ptr
+import std.collections.string_map.StringMap
+import std.collections.string_map.StringMap_new
+import std.collections.string_map.StringMap_drop
+import std.core.str.StringView
+import std.core.ptr.Ptr
 
 extern fn memcmp(s1: Ptr<u8>, s2: Ptr<u8>, n: i64) -> i32;
 extern fn printf(fmt: Ptr<u8>, val1: i64, val2: i64) -> i32;

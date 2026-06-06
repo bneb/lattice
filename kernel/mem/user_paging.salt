@@ -221,18 +221,31 @@ pub fn sys_create_user_pml4_kpti(kernel_pml4: u64) -> u64 {
 // =============================================================================
 // walk_or_create -- Walk one level of the page table, allocating if needed
 // =============================================================================
-fn walk_or_create(table_phys: u64, index: u64) -> u64 {
+fn walk_or_create(table_phys: u64, index: u64, flags: u64) -> u64 {
     let table_virt = memory.phys_to_virt(memory.PhysAddr { val: table_phys }).val;
     let entry_addr = table_virt + (index * 8);
     let entry = *(entry_addr as &u64);
 
+    // [SEC-07] SECURITY FIX: Only propagate User and Write flags if the leaf mapping requests them.
+    let allowed_flags = flags & (PTE_USER | PTE_WRITE);
+
     if (entry & PTE_PRESENT) != 0 {
+        let current_flags = entry & (PTE_USER | PTE_WRITE);
+        if (current_flags | allowed_flags) != current_flags {
+            // Upgrade existing table permissions
+            *(entry_addr as &mut u64) = entry | allowed_flags;
+        }
         return entry & ADDR_MASK;
     }
 
     let new_table = pmm.alloc();
+    // [NEW-01] SECURITY FIX: OOM guard — if pmm.alloc() returns 0, we must NOT
+    // write to physical address 0 (corrupts low memory) or install a null PTE.
+    if new_table == 0 {
+        return 0;
+    }
     zero_page(new_table);
-    *(entry_addr as &mut u64) = new_table | USER_TABLE_FLAGS;
+    *(entry_addr as &mut u64) = new_table | PTE_PRESENT | allowed_flags;
     return new_table;
 }
 
@@ -240,16 +253,17 @@ fn walk_or_create(table_phys: u64, index: u64) -> u64 {
 // map_user_page -- Map a single 4KB page with Ring 3 permissions
 // =============================================================================
 pub fn map_user_page(pml4_phys: u64, vaddr: u64, paddr: u64, flags: u64) {
-    // SECURITY FIX: Protect kernel page tables from user-controlled mappings.
-    // The higher half (kernel space) starts at index 256. 
-    // Bit 47 must be 0 for a valid user address.
+    // [SEC-06] Reject kernel-range virtual addresses to prevent PML4 corruption
     if vaddr >= 0x0000800000000000 {
         return;
     }
 
-    let pdp  = walk_or_create(pml4_phys, pml4_index(vaddr));
-    let pd   = walk_or_create(pdp, pdp_index(vaddr));
-    let pt   = walk_or_create(pd, pd_index(vaddr));
+    let pdp  = walk_or_create(pml4_phys, pml4_index(vaddr), flags);
+    if pdp == 0 { return; }
+    let pd   = walk_or_create(pdp, pdp_index(vaddr), flags);
+    if pd == 0 { return; }
+    let pt   = walk_or_create(pd, pd_index(vaddr), flags);
+    if pt == 0 { return; }
 
     let pt_virt = memory.phys_to_virt(memory.PhysAddr { val: pt }).val;
     let pt_entry_addr = pt_virt + (pt_index(vaddr) * 8);
@@ -422,6 +436,11 @@ fn destroy_pd(pd_phys: u64) {
     }
 }
 
+pub const PTE_SHARED: u64    = 0x200;
+
+// =============================================================================
+// destroy_pt -- Free leaf physical pages unless PTE_SHARED is set
+// =============================================================================
 fn destroy_pt(pt_phys: u64) {
     let pt_virt = memory.phys_to_virt(memory.PhysAddr { val: pt_phys }).val;
     let mut i: u64 = 0;
@@ -429,7 +448,9 @@ fn destroy_pt(pt_phys: u64) {
         let entry = *((pt_virt + i * 8) as &u64);
         if (entry & PTE_PRESENT) != 0 {
             let leaf_phys = entry & ADDR_MASK;
-            pmm.free(leaf_phys);
+            if (entry & PTE_SHARED) == 0 {
+                pmm.free(leaf_phys);
+            }
         }
         i = i + 1;
     }

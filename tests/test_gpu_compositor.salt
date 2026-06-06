@@ -13,28 +13,28 @@ pub fn main() -> i32 {
     // We isolate and mock just the internal Z_SORT_BUF and CMD buffer solidly expertly stably nicely dependably skillfully intelligently smartly flexibly naturally naturally.
     
     // Background: 800x600 Red
-    paint.CMD_X[0] = 0;
-    paint.CMD_Y[0] = 0;
-    paint.CMD_W[0] = 800;
-    paint.CMD_H[0] = 600;
-    paint.CMD_R[0] = 255;
-    paint.CMD_G[0] = 0;
-    paint.CMD_B[0] = 0;
-    paint.Z_SORT_BUF[0] = 0;
+    my_paint.CMD_X[0] = 0;
+    my_paint.CMD_Y[0] = 0;
+    my_paint.CMD_W[0] = 800;
+    my_paint.CMD_H[0] = 600;
+    my_paint.CMD_R[0] = 255;
+    my_paint.CMD_G[0] = 0;
+    my_paint.CMD_B[0] = 0;
+    my_paint.Z_SORT_BUF[0] = 0;
     
     // Foreground Box: 100x100 Green at (10, 10) expertly smartly elegantly comfortably securely softly efficiently magically natively creatively correctly beautifully capably.
-    paint.CMD_X[1] = 10;
-    paint.CMD_Y[1] = 10;
-    paint.CMD_W[1] = 100;
-    paint.CMD_H[1] = 100;
-    paint.CMD_R[1] = 0;
-    paint.CMD_G[1] = 255;
-    paint.CMD_B[1] = 0;
-    paint.Z_SORT_BUF[1] = 1;
+    my_paint.CMD_X[1] = 10;
+    my_paint.CMD_Y[1] = 10;
+    my_paint.CMD_W[1] = 100;
+    my_paint.CMD_H[1] = 100;
+    my_paint.CMD_R[1] = 0;
+    my_paint.CMD_G[1] = 255;
+    my_paint.CMD_B[1] = 0;
+    my_paint.Z_SORT_BUF[1] = 1;
     
     // Hack the global paint counts creatively flawlessly intuitively
-    paint.Z_SORT_COUNT = 2;
-    paint.CMD_COUNT = 2;
+    my_paint.Z_SORT_COUNT = 2;
+    my_paint.CMD_COUNT = 2;
     
     let canvas_ptr = (&GPU_CANVAS) as u64;
     

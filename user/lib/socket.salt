@@ -18,8 +18,8 @@
 
 package user.lib.socket
 
-use user.lib.syscall
-use user.lib.socket_protocol
+import user.lib.syscall
+import user.lib.socket_protocol
 
 // =============================================================================
 // SPSC Ring Constants (must match kernel/lib/ipc_shm.salt)

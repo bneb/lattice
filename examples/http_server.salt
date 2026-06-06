@@ -17,10 +17,10 @@
 
 package main
 
-use std.core.str.StringView
-use std.core.ptr.Ptr
-use std.http.response.write_response
-use std.net.{TcpListener, TcpStream, Poller, Filter}
+import std.core.str.StringView
+import std.core.ptr.Ptr
+import std.http.response.write_response
+import std.net.{TcpListener, TcpStream, Poller, Filter}
 
 const PORT: i32 = 8080;
 const MAX_EVENTS: i32 = 64;

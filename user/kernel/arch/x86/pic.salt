@@ -28,7 +28,7 @@
 
 package user.kernel.arch.x86.pic
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 extern fn kernel_outb(port: u16, data: u8);
 extern fn kernel_inb(port: u16) -> u8;

@@ -4,7 +4,7 @@
 // =============================================================================
 package main
 
-use std.fs.fs.VfsConnection
+import std.fs.fs.VfsConnection
 
 extern fn puts(s: &u8) -> i32;
 

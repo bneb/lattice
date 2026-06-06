@@ -10,11 +10,11 @@
 
 package benchmarks.c10m.noisy_neighbor
 
-use std.core.sovereign.context
-use std.core.sovereign.executor
-use std.collections.hash_map
-use std.sync.mutex
-use std.io
+import std.core.sovereign.context
+import std.core.sovereign.executor
+import std.collections.hash_map
+import std.sync.mutex
+import std.io
 
 // ============================================================================
 // Shared State - Accessed by both pulses

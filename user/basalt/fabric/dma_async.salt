@@ -20,7 +20,7 @@
 
 package user.basalt.fabric.dma_async
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // WQE opcodes (from wqe.salt)
 const WQE_OP_READ: u64 = 0x00000002;

@@ -5,7 +5,7 @@ import std.core.mem.size_of
 import kernel.drivers.serial
 import kernel.ecs.components.{ThreadState, SchedulingPriority, MemoryMap, IpcCapability, OpenSocket, CpuAffinity, EpochInfo, PerfCounters, TestComponent}
 
-extern fn malloc(size: i64) -> u64;
+extern fn malloc(size: i64) -> Ptr<u8>;
 
 pub struct ThreadSparseSet {
     pub dense: Ptr<ThreadState>,

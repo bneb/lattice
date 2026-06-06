@@ -1,6 +1,6 @@
 package basalt
 
-use std.time.Instant
+import std.time.Instant
 
 struct Board { cells: [u8; 81] }
 
