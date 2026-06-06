@@ -39,7 +39,7 @@ fn main() -> i32 {
     // We allocate 4MB to be safe (includes bus 0-3).
     // =========================================================================
     let ecam_size: i64 = 4 * 1024 * 1024;
-    let ecam_base: u64 = malloc(ecam_size);
+    let ecam_base: u64 = (malloc(ecam_size) as u64);
 
     if ecam_base == 0 {
         return 1;

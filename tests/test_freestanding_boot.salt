@@ -101,7 +101,7 @@ fn main() -> i32 {
     // =========================================================================
     // T1: Multiboot2 header — write and verify
     // =========================================================================
-    let hdr: u64 = malloc(32);
+    let hdr: u64 = (malloc(32) as u64);
     if hdr == 0 { return 1; }
     zero_init(hdr, 32);
     write_header(hdr);
@@ -135,7 +135,7 @@ fn main() -> i32 {
     // T4: Arena init — 64K region is zeroed
     // =========================================================================
     let arena_size: u64 = 131072;  // 128K for test (enough for all structures)
-    let arena: u64 = malloc(arena_size as i64);
+    let arena: u64 = (malloc(arena_size as i64) as u64);
     if arena == 0 { return 1; }
 
     // Write garbage first

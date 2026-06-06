@@ -94,14 +94,14 @@ fn pulse_get_drop_count(ring: u64) -> u64 {
 }
 
 fn main() -> i32 {
-    let ring: u64 = malloc(TOTAL_SIZE as i64);
+    let ring: u64 = (malloc(TOTAL_SIZE as i64) as u64);
     if ring == 0 { return 1; }
     let mut zi: u64 = 0;
     while zi < TOTAL_SIZE { *((ring + zi) as &mut u8) = 0; zi = zi + 1; }
 
     // Allocate out-ptrs
-    let out_data: u64 = malloc(8);
-    let out_ts: u64 = malloc(8);
+    let out_data: u64 = (malloc(8) as u64);
+    let out_ts: u64 = (malloc(8) as u64);
     if out_data == 0 || out_ts == 0 { free(ring); return 1; }
 
     // =========================================================================

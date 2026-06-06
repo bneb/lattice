@@ -50,7 +50,7 @@ fn main() -> i32 {
     // =========================================================================
     // T2: Verify memory layout — write to malloc'd buffer as two u64s
     // =========================================================================
-    let buf_addr: u64 = malloc(16);
+    let buf_addr: u64 = (malloc(16) as u64);
     if buf_addr == 0 { return 1; }
 
     let buf: Ptr<u64> = buf_addr as Ptr<u64>;
@@ -79,7 +79,7 @@ fn main() -> i32 {
     // T3: Verify layout size — write WQE at offset 0, read byte at offset 16
     //     should NOT overlap (proving exactly 16 bytes)
     // =========================================================================
-    let big_buf: u64 = malloc(32);
+    let big_buf: u64 = (malloc(32) as u64);
     if big_buf == 0 { free(buf_addr); return 1; }
 
     let big: Ptr<u64> = big_buf as Ptr<u64>;

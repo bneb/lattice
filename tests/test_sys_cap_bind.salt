@@ -121,13 +121,13 @@ fn main() -> i32 {
     // Allocate mock ECAM (16MB) + capability registry (8KB = 1024 u64 slots)
     // =========================================================================
     let ecam_size: i64 = 16 * 1024 * 1024;
-    let ecam_base_addr: u64 = malloc(ecam_size);
+    let ecam_base_addr: u64 = (malloc(ecam_size) as u64);
     if ecam_base_addr == 0 {
         return 1;
     }
 
     let reg_size: i64 = 1024 * 8;
-    let reg_addr: u64 = malloc(reg_size);
+    let reg_addr: u64 = (malloc(reg_size) as u64);
     if reg_addr == 0 {
         free(ecam_base_addr);
         return 1;

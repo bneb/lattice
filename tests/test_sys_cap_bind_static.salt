@@ -111,13 +111,13 @@ fn main() -> i32 {
     // Allocate: ECAM (4MB) + Manifest (2 nodes × 16B = 32B) + Registry (16 × 8B)
     // =========================================================================
     let ecam_size: i64 = 4 * 1024 * 1024;
-    let ecam_addr: u64 = malloc(ecam_size);
+    let ecam_addr: u64 = (malloc(ecam_size) as u64);
     if ecam_addr == 0 { return 1; }
 
-    let manifest_addr: u64 = malloc(64);
+    let manifest_addr: u64 = (malloc(64) as u64);
     if manifest_addr == 0 { free(ecam_addr); return 1; }
 
-    let reg_addr: u64 = malloc(128);
+    let reg_addr: u64 = (malloc(128) as u64);
     if reg_addr == 0 { free(ecam_addr); free(manifest_addr); return 1; }
 
     // Fill ECAM with 0xFF (no devices)

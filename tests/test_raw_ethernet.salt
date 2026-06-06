@@ -120,13 +120,13 @@ fn init_node_identity(arena: u64, device_cfg: u64) {
 
 fn main() -> i32 {
     // Allocate test resources
-    let frame1: u64 = malloc(64);
-    let frame2: u64 = malloc(64);
-    let src: u64 = malloc(8);
-    let dest: u64 = malloc(8);
-    let dev_cfg: u64 = malloc(8);
+    let frame1: u64 = (malloc(64) as u64);
+    let frame2: u64 = (malloc(64) as u64);
+    let src: u64 = (malloc(8) as u64);
+    let dest: u64 = (malloc(8) as u64);
+    let dev_cfg: u64 = (malloc(8) as u64);
     // Arena large enough for NODE_ID area
-    let arena: u64 = malloc(0x36000);
+    let arena: u64 = (malloc(0x36000) as u64);
 
     if frame1 == 0 || frame2 == 0 || src == 0 || dest == 0 ||
        dev_cfg == 0 || arena == 0 { return 1; }

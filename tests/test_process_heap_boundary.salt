@@ -77,7 +77,7 @@ fn set_state(table: u64, slot: u64, val: u64) { *((table + slot * SLOT_SIZE + 8)
 
 fn main() -> i32 {
     // Allocate mock process table (16 slots × 128 bytes = 2048)
-    let table: u64 = malloc(2048);
+    let table: u64 = (malloc(2048) as u64);
     if table == 0 { return 1; }
     let mut zi: u64 = 0;
     while zi < 2048 { *((table + zi) as &mut u8) = 0; zi = zi + 1; }

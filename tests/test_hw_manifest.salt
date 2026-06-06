@@ -65,7 +65,7 @@ fn main() -> i32 {
 
     // T3: Allocate manifest array (2 nodes × 16 bytes each = 32 bytes)
     let manifest_size: i64 = 32;
-    let manifest_addr: u64 = malloc(manifest_size);
+    let manifest_addr: u64 = (malloc(manifest_size) as u64);
     if manifest_addr == 0 {
         return 1;
     }

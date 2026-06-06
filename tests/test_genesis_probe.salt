@@ -120,7 +120,7 @@ fn main() -> i32 {
     // We only need bus 0, device 0 and bus 1, device 2 for our tests.
     // Allocate enough for bus 0-1 (2 × 32 × 4KB = 256KB)
     let ecam_size: u64 = 2 * 32 * 4096;
-    let ecam: u64 = malloc(ecam_size as i64);
+    let ecam: u64 = (malloc(ecam_size as i64) as u64);
     if ecam == 0 { return 1; }
 
     // Fill with 0xFF (VENDOR_INVALID for empty slots)
@@ -182,7 +182,7 @@ fn main() -> i32 {
     // =========================================================================
     // T4: Kinetic Substrate Resolution
     // =========================================================================
-    let manifest_k: u64 = malloc(MANIFEST_SIZE as i64);
+    let manifest_k: u64 = (malloc(MANIFEST_SIZE as i64) as u64);
     if manifest_k == 0 { free(ecam); return 1; }
     zero_init(manifest_k, MANIFEST_SIZE);
 
@@ -212,7 +212,7 @@ fn main() -> i32 {
     *((nitro_config + 0x10) as &mut u32) = vbar;
     *((nitro_config + 0x14) as &mut u32) = 0;
 
-    let manifest_s: u64 = malloc(MANIFEST_SIZE as i64);
+    let manifest_s: u64 = (malloc(MANIFEST_SIZE as i64) as u64);
     if manifest_s == 0 { free(manifest_k); free(ecam); return 1; }
     zero_init(manifest_s, MANIFEST_SIZE);
 
@@ -240,8 +240,8 @@ fn main() -> i32 {
     // T7: Holographic Principle — same WQE code on both substrates
     // =========================================================================
     // Allocate two mock BAR regions
-    let bar_kinetic: u64 = malloc(8192);
-    let bar_synthetic: u64 = malloc(8192);
+    let bar_kinetic: u64 = (malloc(8192) as u64);
+    let bar_synthetic: u64 = (malloc(8192) as u64);
     if bar_kinetic == 0 || bar_synthetic == 0 {
         free(manifest_k); free(ecam);
         return 1;
@@ -278,7 +278,7 @@ fn main() -> i32 {
     // T8: Full pipeline — probe → manifest → hologram → doorbell → matmul
     // =========================================================================
     // Use the Kinetic manifest's BAR to allocate a mock NIC region
-    let nic_bar: u64 = malloc(8192);
+    let nic_bar: u64 = (malloc(8192) as u64);
     if nic_bar == 0 { free(manifest_k); free(ecam); return 1; }
     zero_init(nic_bar, 8192);
 
@@ -297,7 +297,7 @@ fn main() -> i32 {
     if wqe_opcode != 2 { free(nic_bar); free(manifest_k); free(ecam); return 8; }
 
     // "DMA complete" — execute matmul
-    let arena: u64 = malloc(384);
+    let arena: u64 = (malloc(384) as u64);
     if arena == 0 { free(nic_bar); free(manifest_k); free(ecam); return 1; }
     let mut mi: u32 = 0;
     while mi < 16 {

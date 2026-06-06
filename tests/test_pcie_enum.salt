@@ -83,7 +83,7 @@ fn discover_device_bar(
 fn main() -> i32 {
     // Allocate 16MB for ECAM (buses 0-3 × 32 devices × 8 funcs × 4KB)
     let ecam_size: i64 = 16 * 1024 * 1024;
-    let ecam_base_addr: u64 = malloc(ecam_size);
+    let ecam_base_addr: u64 = (malloc(ecam_size) as u64);
 
     if ecam_base_addr == 0 {
         return 1;

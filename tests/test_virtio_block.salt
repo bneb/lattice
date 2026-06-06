@@ -195,9 +195,9 @@ fn handle_block_irq(arena: u64, ack: u64) -> u32 {
 fn cleanup(a: u64, b: u64, c: u64) { free(a); free(b); free(c); }
 
 fn main() -> i32 {
-    let arena: u64 = malloc(ARENA_SIZE);
-    let notify: u64 = malloc(8);
-    let ack: u64 = malloc(8);
+    let arena: u64 = (malloc(ARENA_SIZE) as u64);
+    let notify: u64 = (malloc(8) as u64);
+    let ack: u64 = (malloc(8) as u64);
 
     if arena == 0 || notify == 0 || ack == 0 { return 1; }
 

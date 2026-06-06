@@ -17,7 +17,7 @@ fn write_i64(base: u64, idx: i64, val: i64) {
 
 fn main() -> i32 {
     let n: i64 = 10000;  // Smaller: 10K instead of 100K
-    let nums = malloc(n * 8);
+    let nums = (malloc(n * 8) as u64);
     
     // SINGLE ROUND - measure one iteration time
     let mut i: i64 = 0;

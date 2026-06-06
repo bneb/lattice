@@ -42,7 +42,7 @@ fn get_kernel_rsp(t: u64, s: u64) -> u64 { return *((t + s*SLOT_SIZE + 24) as &u
 fn set_kernel_rsp(t: u64, s: u64, v: u64) { *((t + s*SLOT_SIZE + 24) as &mut u64) = v; }
 
 fn main() -> i32 {
-    let table: u64 = malloc(2048);
+    let table: u64 = (malloc(2048) as u64);
     if table == 0 { return 1; }
     let mut zi: u64 = 0;
     while zi < 2048 { *((table + zi) as &mut u8) = 0; zi = zi + 1; }

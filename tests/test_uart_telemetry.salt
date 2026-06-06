@@ -37,7 +37,7 @@ const MOCK_CAP: i32 = 4096;
 const MOCK_SIZE: i64 = 16392;  // 8 + 4096*4
 
 fn mock_alloc() -> u64 {
-    let buf: u64 = malloc(MOCK_SIZE);
+    let buf: u64 = (malloc(MOCK_SIZE) as u64);
     let mut i: i64 = 0;
     while i < MOCK_SIZE { *((buf + (i as u64)) as &mut u8) = 0; i = i + 1; }
     return buf;
@@ -175,7 +175,7 @@ fn main() -> i32 {
     if buf == 0 { return 1; }
     G_BUF = buf;
 
-    let out: u64 = malloc(64);
+    let out: u64 = (malloc(64) as u64);
     if out == 0 { free(buf); return 1; }
 
     // =========================================================================
@@ -240,7 +240,7 @@ fn main() -> i32 {
     // T5: print_str("OK") — 2 bytes
     // =========================================================================
     mock_reset(buf);
-    let ok_buf: u64 = malloc(4);
+    let ok_buf: u64 = (malloc(4) as u64);
     if ok_buf == 0 { free(out); free(buf); return 1; }
     *((ok_buf) as &mut u8) = 79;
     *((ok_buf+1) as &mut u8) = 75;
