@@ -1,0 +1,186 @@
+// std::core::keuos::mailbox - Lock-Free MPSC Cross-Thread Frame Return
+//
+// When a task is stolen by another thread and completes, its frame
+// must be returned to the original owner's arena. This is done via
+// a lock-free mailbox to avoid contention.
+//
+// ## The Atomic Swap Strategy
+// Uses ARMv9 LSE `swp` instruction for O(1) push.
+// No CAS loop = deterministic latency.
+//
+// ## Cache Line Isolation
+// Each mailbox is 128-byte aligned to prevent false sharing
+// between threads on the M4's cache architecture.
+//
+// [KEUOS V2.0] Zero-contention cross-thread memory return
+
+package std.core.keuos.mailbox
+
+import std.core.keuos.arena
+
+// ============================================================================
+// Mailbox Structure
+// ============================================================================
+
+// 128-byte aligned to occupy exactly one cache line
+// Prevents false sharing when multiple threads push to different mailboxes
+@align(128)
+pub struct Mailbox {
+    // Atomic head pointer for the linked list of returned frames
+    // Each frame's "next" pointer is stored in its first 8 bytes
+    head: Ptr<u8>,
+    
+    // Padding to fill the 128-byte cache line
+    // This ensures no other data shares this cache line
+    _padding: [u8; 120],
+}
+
+impl Mailbox {
+    pub fn new() -> Mailbox {
+        return Mailbox {
+            head: null,
+            _padding: [0; 120],
+        };
+    }
+    
+    // ========================================================================
+    // Push (Called by Stealer Thread)
+    // ========================================================================
+    
+    // Push a frame to the mailbox - O(1) atomic swap
+    // This is called when a task completes on a thread different from
+    // where it was allocated.
+    //
+    // Cost on M4: ~5ns (single SWP instruction at L1)
+    @inline(always)
+    pub fn push(self: &Mailbox, frame_ptr: Ptr<u8>) {
+        unsafe {
+            // 1. Point this frame's "next" slot to current head
+            //    We use the first 8 bytes of the frame for the link
+            let next_slot = frame_ptr as Ptr<Ptr<u8>>;
+            
+            // 2. Atomically swap the head with our frame
+            //    On M4, this uses the LSE 'swp' instruction
+            let old_head = intrinsics::atomic_swap_ptr(&self.head, frame_ptr);
+            
+            // 3. Complete the link
+            next_slot.write(old_head);
+        }
+    }
+    
+    // ========================================================================
+    // Drain (Called by Owner Thread)
+    // ========================================================================
+    
+    // Drain all frames from the mailbox and free them
+    // Called at the start of each pulse to reclaim memory
+    pub fn drain_all(self: &Mailbox, arena: &mut arena::ThreadArena) {
+        unsafe {
+            // Atomically steal the entire list
+            let list = intrinsics::atomic_swap_ptr(&self.head, null);
+            
+            // Walk the list and free each frame
+            let mut current = list;
+            while current != null {
+                let next = (current as Ptr<Ptr<u8>>).read();
+                arena.free(current);
+                current = next;
+            }
+        }
+    }
+    
+    // Drain up to N frames (for batched processing)
+    pub fn drain_batch(self: &Mailbox, arena: &mut arena::ThreadArena, max_count: i64) {
+        unsafe {
+            // Atomically steal the entire list
+            let list = intrinsics::atomic_swap_ptr(&self.head, null);
+            
+            // Process up to max_count
+            let mut current = list;
+            let mut count: i64 = 0;
+            let mut last_processed: Ptr<u8> = null;
+            
+            while current != null && count < max_count {
+                last_processed = current;
+                let next = (current as Ptr<Ptr<u8>>).read();
+                arena.free(current);
+                current = next;
+                count = count + 1;
+            }
+            
+            // If we didn't process everything, push remainder back
+            if current != null {
+                self.push_list(current);
+            }
+        }
+    }
+    
+    // Push a list back (for partial drain)
+    fn push_list(self: &Mailbox, list_head: Ptr<u8>) {
+        unsafe {
+            // Find the tail of the list
+            let mut tail = list_head;
+            let mut next = (tail as Ptr<Ptr<u8>>).read();
+            while next != null {
+                tail = next;
+                next = (tail as Ptr<Ptr<u8>>).read();
+            }
+            
+            // Atomic prepend to current head
+            let old_head = intrinsics::atomic_swap_ptr(&self.head, list_head);
+            (tail as Ptr<Ptr<u8>>).write(old_head);
+        }
+    }
+    
+    // ========================================================================
+    // Statistics
+    // ========================================================================
+    
+    // Count items in mailbox (not atomic - for debugging only)
+    pub fn len(self: &Mailbox) -> i64 {
+        let mut count: i64 = 0;
+        let mut current = self.head;
+        while current != null {
+            count = count + 1;
+            current = (current as Ptr<Ptr<u8>>).read();
+            // Safety limit
+            if count > 1000000 {
+                break;
+            }
+        }
+        return count;
+    }
+    
+    // Check if mailbox is empty
+    pub fn is_empty(self: &Mailbox) -> bool {
+        return self.head == null;
+    }
+}
+
+// ============================================================================
+// Low-Level Intrinsic Wrappers
+// ============================================================================
+
+// These map to ARMv9 atomic instructions
+
+// Atomic swap - returns old value, stores new value
+// On M4: LDXR/STXR pair or LSE SWP instruction
+pub fn atomic_swap_ptr_raw(addr: &Ptr<u8>, new_val: Ptr<u8>) -> Ptr<u8> {
+    unsafe {
+        return intrinsics::atomic_swap_ptr(addr, new_val);
+    }
+}
+
+// Atomic compare-and-swap - returns success
+pub fn atomic_cas_ptr_raw(addr: &Ptr<u8>, expected: Ptr<u8>, new_val: Ptr<u8>) -> bool {
+    unsafe {
+        return intrinsics::atomic_cas_ptr(addr, expected, new_val);
+    }
+}
+
+// Atomic load
+pub fn atomic_load_ptr_raw(addr: &Ptr<u8>) -> Ptr<u8> {
+    unsafe {
+        return intrinsics::atomic_load_ptr(addr);
+    }
+}

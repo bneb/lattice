@@ -1,0 +1,17 @@
+// std::core::keuos - KeuOS V2.0 Concurrency Primitives
+//
+// This module provides the Pulsed Capability model:
+// - Context: Zero-Sized Type for deadline enforcement
+// - Executor: Work-stealing scheduler with tiered priority
+// - Arena: Thread-local frame allocator
+// - Mailbox: Lock-free cross-thread frame return
+//
+// [KEUOS V2.0] C10M-scale concurrency without GC
+
+package std.core.keuos
+
+// Re-export all submodules
+pub use context::*;
+pub use executor::*;
+pub use arena::*;
+pub use mailbox::*;

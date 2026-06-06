@@ -1,0 +1,185 @@
+// =============================================================================
+// std.io.KeuOSPoller — Tickless Reactor for the KeuOS Kernel
+// =============================================================================
+//
+// The KeuOS Poller replaces epoll, select, and kqueue for KeuOS.
+// It achieves zero-CPU-overhead blocking via SYS_IPC_AWAIT (vector 14):
+//
+//   1. Cold Path: Binds a capability and maps a zero-copy SPSC ring
+//   2. Hot Path: Checks ring → parks if empty → wakes on IRQ → processes batch
+//
+// When the ring is empty, the process parks with zero CPU utilization.
+// The kernel IRQ handler (kernel/arch/x86_64/irq.salt) translates the
+// hardware MSI-X interrupt directly into a Fast-Path IPC, waking this
+// process in sub-microseconds.
+//
+// No polling. No timers. No syscalls on the hot path.
+//
+// =============================================================================
+
+package std.io.keuos_poller
+
+import std.core.ptr.Ptr
+
+// =============================================================================
+// SPSC Ring Buffer Header — Cache-Line Aligned Layout
+// =============================================================================
+// This struct matches the layout initialized by kernel/core/capability.salt:
+//   Offset 0:   head (u64)      — producer write index
+//   Offset 8:   capacity (u64)  — ring data capacity in bytes
+//   Offset 64:  tail (u64)      — consumer read index (separate cache line)
+//   Offset 128: waiting (u64)   — consumer waiting flag
+//   Offset 192: data[...]       — packet payload bytes
+// =============================================================================
+pub struct SpscRing {
+    head: u64,
+    capacity: u64,
+    _pad0: [u64; 6],       // Align tail to cache line 1
+    tail: u64,
+    _pad1: [u64; 7],       // Align waiting to cache line 2 
+    waiting: u64,
+    _pad2: [u64; 7],       // Align data to cache line 3
+}
+
+// Data region starts at byte offset 192 (3 cache lines)
+const RING_DATA_OFFSET: u64 = 192;
+
+// Packet descriptor in the ring
+pub struct PacketDesc {
+    len: u32,
+    _flags: u32,
+}
+
+const PACKET_HEADER_SIZE: u64 = 8;
+
+// =============================================================================
+// KeuOSPoller — The Tickless Event Loop
+// =============================================================================
+pub struct KeuOSPoller {
+    ring: Ptr<SpscRing>,
+    cap_id: u64,
+}
+
+// Syscall stubs — linked at binary time against the kernel ABI
+extern fn syscall_cap_bind(flags: u64) -> u64;
+extern fn syscall_ring_map(cap_id: u64) -> u64;
+extern fn syscall_ipc_await() -> i64;
+
+impl KeuOSPoller {
+    // =========================================================================
+    // new — Cold Path: Bind Capability and Map SPSC Ring
+    // =========================================================================
+    // Called once during initialization. Allocates a capability handle via
+    // SYS_CAP_BIND and maps the zero-copy SPSC ring via SYS_RING_MAP.
+    //
+    // cap_hash: The compile-time hash of the capability name
+    //           (produced by __builtin_hash!("net.nic.rx"))
+    // =========================================================================
+    pub fn new(cap_hash: u64) -> KeuOSPoller {
+        // 1. Bind a capability handle (cold path syscall)
+        let cap_id = syscall_cap_bind(cap_hash);
+        
+        // 2. Map the zero-copy SPSC ring (cold path syscall)
+        let ring_addr = syscall_ring_map(cap_id);
+        
+        // 3. Cast the mapped address to our ring struct pointer
+        let ring_ptr = ring_addr as Ptr<SpscRing>;
+        
+        return KeuOSPoller {
+            ring: ring_ptr,
+            cap_id: cap_id,
+        };
+    }
+
+    // =========================================================================
+    // poll_once — Single iteration of the event loop
+    // =========================================================================
+    // Returns the number of bytes available in the ring, or 0 if empty.
+    // If the ring is empty, parks the process via SYS_IPC_AWAIT.
+    //
+    // This is the hot path. When data is present: zero syscalls.
+    // When data is absent: one syscall (ipc_await) then instant wake.
+    // =========================================================================
+    pub fn poll_once(&mut self) -> u64 {
+        let head = self.ring.read().head;
+        let tail = self.ring.read().tail;
+        
+        if head == tail {
+            // Ring is empty — park with zero CPU overhead.
+            // The kernel IRQ handler will wake us via Fast-Path IPC
+            // when the NIC DMA engine writes new data.
+            syscall_ipc_await();
+            
+            // Re-read after wake
+            let new_head = self.ring.read().head;
+            let new_tail = self.ring.read().tail;
+            if new_head == new_tail {
+                return 0;
+            }
+            return new_head - new_tail;
+        }
+        
+        return head - tail;
+    }
+
+    // =========================================================================
+    // run_forever — The Tickless Event Loop
+    // =========================================================================
+    // Processes packets from the SPSC ring in a tight loop.
+    // When empty, parks via SYS_IPC_AWAIT with zero CPU cost.
+    // When the NIC fires an MSI-X interrupt, the kernel wakes us instantly.
+    //
+    // handler: User-provided packet processing function
+    //          Receives (data_ptr, length) for each packet
+    //
+    // This function never returns.
+    // =========================================================================
+    pub fn run_forever(&mut self, handler: fn(Ptr<u8>, u32)) {
+        while true {
+            // 1. Check if data is available
+            let head = self.ring.read().head;
+            let tail = self.ring.read().tail;
+            
+            if head == tail {
+                // Ring is empty — park the fiber.
+                // Zero CPU overhead. The kernel IRQ handler
+                // will wake us via Fast-Path IPC.
+                syscall_ipc_await();
+            }
+            
+            // 2. Process all available packets
+            let ring_base = self.ring as Ptr<u8>;
+            let mut current_tail = self.ring.read().tail;
+            let current_head = self.ring.read().head;
+            let capacity = self.ring.read().capacity;
+            
+            while current_tail != current_head {
+                // Read packet descriptor
+                let data_offset = RING_DATA_OFFSET + (current_tail % capacity);
+                let desc_ptr = ring_base.offset(data_offset as i64) as Ptr<PacketDesc>;
+                let pkt_len = desc_ptr.read().len;
+                
+                // Packet data follows the descriptor
+                let pkt_data = ring_base.offset((data_offset + PACKET_HEADER_SIZE) as i64);
+                
+                // Dispatch to user handler
+                handler(pkt_data, pkt_len);
+                
+                // Advance consumer index
+                current_tail = current_tail + PACKET_HEADER_SIZE + (pkt_len as u64);
+            }
+            
+            // 3. Commit reads — advance the tail pointer
+            //    This frees space for the hardware DMA engine.
+            self.ring.write(SpscRing {
+                head: current_head,
+                capacity: capacity,
+                _pad0: [0 as u64; 6],
+                tail: current_tail,
+                _pad1: [0 as u64; 7],
+                waiting: 0,
+                _pad2: [0 as u64; 7],
+            });
+        }
+    }
+}
