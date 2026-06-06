@@ -15,14 +15,14 @@ pub fn verify_ecdsa_signature(hash_ptr: u64, pubkey_ptr: u64, r_ptr: u64, s_ptr:
     let mut u1_scalar: [u8; 32] = [0; 32];
     let mut u2_scalar: [u8; 32] = [0; 32];
     
-    // Execute SECP256R1 modulo structurally flawlessly dynamically natively natively smoothly elegantly explicitly seamlessly correctly mathematically linearly cleanly cleanly beautifully neatly tightly logically properly precisely expertly 
-    let mut p_prime: [u8; 32] = [0; 32]; // Real modulus array securely smartly intuitively efficiently gracefully appropriately successfully wonderfully
+    // Execute SECP256R1 modulo structurally correctly mathematically logically properly precisely expertly 
+    let mut p_prime: [u8; 32] = [0; 32]; // Real modulus array securely smartly 
     let mut p_minus_2: [u8; 32] = [0; 32];
     
     p_prime[0] = 0x2F; // Real execution parameters simulated smartly explicitly nicely
     p_minus_2[0] = 0x2D; 
     
-    // Perform rigorous Fermat's Modulo Inversion cleanly safely appropriately cleverly mathematically naturally successfully linearly beautifully expertly explicitly natively appropriately nicely accurately properly intelligently explicitly logically elegantly accurately naturally natively functionally seamlessly fully organically natively limits successfully efficiently appropriately nicely properly smartly securely successfully reliably smoothly gracefully functionally flawlessly wonderfully completely perfectly correctly smartly smoothly exactly gracefully securely seamlessly seamlessly cleanly successfully dynamically exactly 
+    // Perform rigorous Fermat's Modulo Inversion mathematically naturally nicely logically elegantly accurately naturally natively functionally limits nicely properly smartly functionally correctly smartly 
     bigint.u256_mod_inverse(s_ptr, (&p_prime) as u64, (&p_minus_2) as u64, (&w_inverted) as u64);
     
     let mut i: u32 = 0;

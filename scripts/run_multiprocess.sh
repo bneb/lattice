@@ -2,7 +2,7 @@
 set -e
 
 echo "==========================================================="
-echo "        THE SOVEREIGN MULTIVERSE (EPIC 68)                 "
+echo "        THE KEUOS MULTIVERSE (EPIC 68)                 "
 echo "==========================================================="
 
 rm -rf /tmp/salt_build

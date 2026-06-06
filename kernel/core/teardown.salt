@@ -1,6 +1,6 @@
 // ============================================================================
 // kernel/core/teardown.salt
-// Sovereign Reclaim Protocol — Hardware-Fenced O(1) Process Exits
+// Hardware-Fenced Reclaim Protocol — Hardware-Fenced O(1) Process Exits
 // ============================================================================
 //
 // The 4-Phase Teardown completely eliminates recursive memory walks, lock

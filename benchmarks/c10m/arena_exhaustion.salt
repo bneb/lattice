@@ -6,13 +6,13 @@
 //   - No contention cliff from false sharing
 //   - Delayed Free Mailbox handles cross-thread returns
 //
-// [SOVEREIGN V2.0] Stresses the Sovereign Arena + Mailbox
+// [KEUOS V2.0] Stresses the KeuOS Arena + Mailbox
 
 package benchmarks.c10m.arena_exhaustion
 
-import std.core.sovereign.context
-import std.core.sovereign.executor
-import std.core.sovereign.arena
+import std.core.keuos.context
+import std.core.keuos.executor
+import std.core.keuos.arena
 import std.io
 import std.core.ptr.Ptr
 

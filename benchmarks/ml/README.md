@@ -1,6 +1,6 @@
 # 🧠 Salt ML Training Benchmark
 
-**Sovereign**: A 2-layer neural network trained on MNIST, demonstrating Salt's MLIR-optimized performance.
+**KeuOS**: A 2-layer neural network trained on MNIST, demonstrating Salt's MLIR-optimized performance.
 
 ## Results
 
@@ -66,9 +66,9 @@ LLVM contracts multiply-add patterns into NEON **FMLA** (Fused Multiply-Add) ins
 
 | File | Purpose |
 |------|---------|
-| `sovereign_train.salt` | Salt implementation |
-| `sovereign_train.c` | C baseline |
-| `sovereign_train.py` | PyTorch reference |
+| `keuos_train.salt` | Salt implementation |
+| `keuos_train.c` | C baseline |
+| `keuos_train.py` | PyTorch reference |
 | `ml_bridge.c` | FFI bridge (mmap, timing, printf) |
 | `benchmark.sh` | Build and run script |
 | `prepare_data.py` | MNIST download/preprocessing |
@@ -79,7 +79,7 @@ LLVM contracts multiply-add patterns into NEON **FMLA** (Fused Multiply-Add) ins
 
 **C:**
 ```bash
-clang -O3 -ffast-math -march=native sovereign_train.c -o sovereign_train_c -lm
+clang -O3 -ffast-math -march=native keuos_train.c -o keuos_train_c -lm
 ```
 
 **Salt (Optimized Pipeline):**

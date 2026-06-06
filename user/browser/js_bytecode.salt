@@ -9,9 +9,9 @@ pub enum OpCode {
     Call(u8),       // Number of arguments
     PushVar(u32),   // Index to variable
     PopVar(u32),
-    SyscallDOMQuery, // FFI Hook implicitly natively reliably dependably securely expertly correctly safely seamlessly expertly smoothly neatly explicitly flawlessly smoothly seamlessly
-    SyscallDOMSetText, // Mutation FFI natively explicitly securely dependably fluidly cleanly reliably cleanly appropriately magically brilliantly successfully perfectly comfortably smoothly logically expertly creatively cleanly confidently dependably explicitly intuitively correctly directly natively optimally securely smoothly elegantly successfully cleanly gracefully securely reliably dependably beautifully expertly explicitly safely
-    SyscallDOMBindEvent, // Correctly safely natively smartly comfortably expertly brilliantly effortlessly brilliantly smartly clearly logically smoothly practically cleverly 
+    SyscallDOMQuery, // FFI Hook implicitly correctly 
+    SyscallDOMSetText, // Mutation FFI fluidly logically expertly creatively cleanly confidently correctly 
+    SyscallDOMBindEvent, // Correctly safely natively smartly effortlessly brilliantly smartly clearly logically smoothly practically cleverly 
     SyscallDOMCreateElement,
     SyscallDOMAppendChild,
     SyscallDOMRemoveChild,

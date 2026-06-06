@@ -53,6 +53,6 @@ pub fn main() -> i32 {
         return 2;
     }
     
-    println("PASS: Tested Sovereign Caret Navigation successfully organically dependably flawlessly creatively cleanly!");
+    println("PASS: Tested Sovereign Caret Navigation creatively cleanly!");
     return 0;
 }

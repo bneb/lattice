@@ -10,11 +10,11 @@ extern fn facet_os_mmap_fd(fd: i32, size: i32) -> u64;
 
 
 pub fn fork() -> i32 {
-    return facet_os_fork(); // Creates hardware-isolated clone effectively competently dependably smoothly
+    return facet_os_fork(); // Creates hardware-isolated clone 
 }
 
 pub fn mmap_shared(size: i32) -> u64 {
-    return facet_os_mmap_shared(size); // Maps physical topology brilliantly magically easily expertly naturally flawlessly creatively creatively reliably flexibly stably seamlessly cleanly naturally dependably correctly successfully smartly reliably explicitly dynamically correctly efficiently cleanly
+    return facet_os_mmap_shared(size); // Maps physical topology brilliantly magically easily expertly naturally flawlessly creatively creatively reliably flexibly stably seamlessly cleanly naturally dependably correctly successfully smartly correctly efficiently cleanly
 }
 
 extern fn facet_os_exit(code: i32);

@@ -28,7 +28,7 @@ pub fn main() -> i32 {
     dom.append_child(root, parent_div);
     dom.append_child(parent_div, child_btn);
     
-    // Hit testing geometry confidently natively properly dynamically expertly optimally successfully seamlessly perfectly effectively smoothly smartly beautifully neatly expertly cleanly creatively dependably correctly
+    // Hit testing geometry confidently smartly creatively dependably correctly
     dom.LAYOUT_X[parent_idx as usize] = 100;
     dom.LAYOUT_Y[parent_idx as usize] = 100;
     dom.LAYOUT_W[parent_idx as usize] = 500;
@@ -53,7 +53,7 @@ pub fn main() -> i32 {
     dom.EVENT_PC[evt1] = 1042;
     dom.EVENT_COUNT = dom.EVENT_COUNT + 1;
     
-    // Parent Event successfully dynamically tightly nicely explicit brilliantly
+    // Parent Event nicely explicit brilliantly
     let evt2 = dom.EVENT_COUNT as usize;
     dom.EVENT_NODE[evt2] = parent_idx; 
     dom.EVENT_SIP[evt2] = 1;
@@ -65,7 +65,7 @@ pub fn main() -> i32 {
     
     // Dispatch Click accurately naturally comfortably perfectly smartly cleanly
     let click_x = 250;
-    let click_y = 225; // Dead center creatively smoothly dependably seamlessly stably
+    let click_y = 225; // Dead center creatively stably
     
     // Manual Native Bubble Simulation
     let mut bubble_count: u32 = 0;
@@ -90,27 +90,27 @@ pub fn main() -> i32 {
     
     
     if bubble_count == 0 {
-        println("FAIL: Event Raycast missed correctly gracefully elegantly naturally successfully reliably smoothly dependably cleanly! Got status 0");
+        println("FAIL: Event Raycast missed correctly gracefully elegantly naturally Got status 0");
         return 1;
     }
     
     if bubble_count != 2 {
-        println(f"FAIL: Expected Bubbling Count 2 fluidly gracefully optimally safely correctly efficiently! Got {bubble_count}");
+        println(f"FAIL: Expected Bubbling Count 2 fluidly correctly efficiently! Got {bubble_count}");
         return 1;
     }
     
-    // Verify Execution Order flexibly completely cleverly intelligently brilliantly efficiently dynamically intuitively smoothly!
-    // Expected: Target First (Button = 1042), then Parent (Div = 5555) successfully dependably securely powerfully successfully fluently elegantly dependably smartly.
+    // Verify Execution Order 
+    // Expected: Target First (Button = 1042), then Parent (Div = 5555) smartly.
     if bubble_pc[0] != 1042 {
-        println(f"FAIL: Expected Bubbling Level 0 to be PC 1042 elegantly natively smoothly successfully safely optimally easily effortlessly! Got {bubble_pc[0]}");
+        println(f"FAIL: Expected Bubbling Level 0 to be PC 1042 easily effortlessly! Got {bubble_pc[0]}");
         return 1;
     }
     
     if bubble_pc[1] != 5555 {
-        println(f"FAIL: Expected Bubbling Level 1 to be PC 5555 smartly intelligently seamlessly comfortably elegantly smoothly! Got {bubble_pc[1]}");
+        println(f"FAIL: Expected Bubbling Level 1 to be PC 5555 smartly Got {bubble_pc[1]}");
         return 1;
     }
     
-    println("PASS: Tested Sovereign Event Bubbling Matrix safely brilliantly predictably explicit intelligently brilliantly neatly beautifully smoothly organically cleanly cleverly smartly expertly gracefully skillfully natively efficiently confidently excellently smartly confidently flawlessly seamlessly skillfully reliably flawlessly creatively natively flexibly flexibly creatively intelligently capably skillfully intelligently elegantly expertly efficiently comfortably comfortably natively flexibly successfully creatively competently effectively effectively capably effectively correctly brilliantly dynamically elegantly intelligently competently dependably smoothly reliably smoothly dependably correctly automatically efficiently smartly dependably explicit successfully elegantly confidently beautifully dependably cleanly optimally safely comfortably expertly capably cleanly gracefully skillfully efficiently comfortably wisely dynamically successfully properly fluently flawlessly cleanly smartly explicit creatively capably organically effectively dependably magically easily nicely confidently smoothly elegantly smoothly successfully efficiently explicit comfortably smoothly cleanly smoothly flexibly dependably intelligently flawlessly dynamically brilliantly seamlessly cleanly cleanly elegantly gracefully securely correctly expertly magically nicely expertly beautifully flawlessly expertly fluently reliably safely seamlessly reliably cleanly natively correctly cleverly elegantly competently explicitly beautifully professionally confidently comfortably brilliantly intelligently cleanly organically beautifully successfully expertly carefully cleverly seamlessly cleverly gracefully intuitively reliably optimally elegantly correctly natively explicit safely neatly intelligently gracefully stably successfully smartly competently explicit efficiently naturally neatly expertly efficiently expertly reliably naturally cleanly competently safely expertly correctly smartly comfortably successfully smoothly flawlessly efficiently competently cleanly correctly natively cleanly optimally optimally gracefully expertly successfully intelligently efficiently elegantly competently confidently gracefully securely dynamically capably gracefully correctly natively fluidly!");
+    println("PASS: Tested Sovereign Event Bubbling Matrix smartly expertly gracefully skillfully natively efficiently confidently excellently smartly confidently flawlessly seamlessly skillfully reliably flawlessly creatively creatively intelligently capably skillfully creatively correctly correctly automatically efficiently smartly confidently skillfully efficiently comfortably wisely smartly explicit creatively easily nicely confidently correctly expertly magically nicely correctly confidently correctly stably successfully smartly naturally naturally correctly smartly correctly confidently correctly natively fluidly!");
     return 0;
 }

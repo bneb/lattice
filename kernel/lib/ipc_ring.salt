@@ -94,7 +94,7 @@ struct SpscDescriptor {
 }
 
 // =============================================================================
-// SipHash-2-4 Sovereign Keys — Shared between compiler (Rust) and runtime (Salt)
+// SipHash-2-4 KeuOS Keys — Shared between compiler (Rust) and runtime (Salt)
 // =============================================================================
 // These constants MUST match:
 //   salt-front/src/codegen/verification/proof_hint.rs (SIPHASH_K0, SIPHASH_K1)

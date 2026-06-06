@@ -1,19 +1,19 @@
-// C10M Sovereign Ingest: Entry Point
+// C10M KeuOS Ingest: Entry Point
 //
 // Full lifecycle of a connection request:
 //   NIC → DMA Buffer → NEON Parse → Z3 Slice → Echo → Arena Reset
 //
-// This wires all Sovereign modules into a single ingest pipeline:
-//   - std.mem.arena      (SovereignArena, DmaArena, DelayedFreeMailbox)
-//   - std.net.buffer     (SovereignBuffer, find_header_end)
+// This wires all KeuOS modules into a single ingest pipeline:
+//   - std.mem.arena      (IsolatedArena, DmaArena, DelayedFreeMailbox)
+//   - std.net.buffer     (KeuOSBuffer, find_header_end)
 //   - std.task.executor (LocalQueue, run_worker, reap_completions)
 
 package benchmarks.c10m
 
-import std.mem.arena.SovereignArena
+import std.mem.arena.IsolatedArena
 import std.mem.arena.DmaArena
 import std.mem.arena.DelayedFreeMailbox
-import std.net.buffer.SovereignBuffer
+import std.net.buffer.KeuOSBuffer
 import std.net.buffer.find_header_end
 
 // ============================================================================
@@ -31,7 +31,7 @@ const DMA_PAGES: i64 = 1024;             // 16MB DMA region
 
 struct WorkerContext {
     id: i64,
-    arena: SovereignArena,
+    arena: IsolatedArena,
     dma: DmaArena,
     mailbox: DelayedFreeMailbox,
     connections_handled: i64,
@@ -41,7 +41,7 @@ impl WorkerContext {
     fn new(id: i64) -> WorkerContext {
         return WorkerContext {
             id: id,
-            arena: SovereignArena::new(ARENA_SIZE),
+            arena: IsolatedArena::new(ARENA_SIZE),
             dma: DmaArena::new(DMA_PAGES),
             mailbox: DelayedFreeMailbox::new(),
             connections_handled: 0,
@@ -61,7 +61,7 @@ impl WorkerContext {
 //   5. Release buffer back to NIC ring
 
 @yielding
-fn handle_connection(ctx: &mut WorkerContext, buf: SovereignBuffer) -> i64 {
+fn handle_connection(ctx: &mut WorkerContext, buf: KeuOSBuffer) -> i64 {
     // Step 1: NEON SIMD header scan (32 bytes/cycle via ld1 + cmeq)
     let header_end = find_header_end(&buf);
 

@@ -1,6 +1,6 @@
 // =============================================================================
 // kernel/net/tcp_syn_cookie.salt
-// Sovereign SYN Cookie Generator — Stateless SYN Flood Protection
+// KeuOS SYN Cookie Generator — Stateless SYN Flood Protection
 // =============================================================================
 //
 // Zero-allocation SYN processing. When a SYN arrives, we encode the MSS and

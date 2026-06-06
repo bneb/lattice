@@ -105,7 +105,7 @@ clang -O3 -mllvm -enable-global-merge=false \
     -o /tmp/salt_build/prisimi_engine \
     -e _salt_browser_main
 
-echo "  ✓ Prisimi Sovereign Built Natively: /tmp/salt_build/prisimi_engine"
+echo "  ✓ Prisimi KeuOS Built Natively: /tmp/salt_build/prisimi_engine"
 
 echo ""
 echo "================= INITIATING ENGINE HEARTBEAT ================="

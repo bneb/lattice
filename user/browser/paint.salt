@@ -475,7 +475,7 @@ pub fn emit_glyph(x: i32, y: i32, w: i32, h: i32, uv_x: f32, uv_y: f32, uv_w: f3
     if CMD_COUNT_A[0] >= 8192 { return -1; }
     
     let idx = CMD_COUNT_A[0];
-    CMD_TYPE[idx as usize] = 1; // 1 = GLYPH (SDF) smoothly naturally securely cleanly nicely creatively neatly capably smartly securely properly sensibly gracefully effectively flexibly explicit safely explicitly gracefully intelligently safely cleanly intelligently seamlessly confidently wonderfully flawlessly dependably dependably solidly properly
+    CMD_TYPE[idx as usize] = 1; // 1 = GLYPH (SDF) smoothly naturally securely cleanly nicely creatively neatly capably smartly confidently solidly properly
     CMD_X[idx as usize] = x;
     CMD_Y[idx as usize] = y;
     CMD_W[idx as usize] = w;

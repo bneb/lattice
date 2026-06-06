@@ -6,12 +6,12 @@
 //   - Memory < 1.2KB per connection
 //   - Linear scaling across cores
 //
-// [SOVEREIGN V2.0] Uses @pulse for cooperative scheduling
+// [KEUOS V2.0] Uses @pulse for cooperative scheduling
 
 package benchmarks.c10m.echo_chamber
 
-import std.core.sovereign.context
-import std.core.sovereign.executor
+import std.core.keuos.context
+import std.core.keuos.executor
 import std.io
 import std.net
 
@@ -96,7 +96,7 @@ pub fn main(argc: i32, argv: Ptr<Ptr<u8>>) -> i32 {
     // Start timing
     let start = intrinsics::cycle_counter();
     
-    // Initialize the Sovereign Executor with 8 worker threads
+    // Initialize the KeuOS Executor with 8 worker threads
     executor::init(8);
     
     // Start the echo server on the main pulse

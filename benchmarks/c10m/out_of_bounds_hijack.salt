@@ -16,7 +16,7 @@
 
 package benchmarks.c10m.out_of_bounds_hijack
 
-struct SovereignBuffer {
+struct KeuOSBuffer {
     data: Ptr<u8>,
     capacity: i64,
     length: i64,
@@ -24,7 +24,7 @@ struct SovereignBuffer {
 }
 
 @pulse
-fn dangerous_handler(buf: SovereignBuffer) {
+fn dangerous_handler(buf: KeuOSBuffer) {
     // 1. SIMD finds the end of the headers
     // Returns dynamically: could be 4 (\r\n\r\n min) or up to buf.length
     let end = find_header_end_simd(buf.data, buf.length);
@@ -68,7 +68,7 @@ fn find_header_end_simd(data: Ptr<u8>, length: i64) -> i64 {
 
 fn main() -> i32 {
     println("=== CODE RED: This should NOT compile ===");
-    let buf = SovereignBuffer {
+    let buf = KeuOSBuffer {
         data: 0 as Ptr<u8>,
         capacity: 16384,
         length: 128,

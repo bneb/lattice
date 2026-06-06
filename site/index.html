@@ -1535,7 +1535,7 @@
                     <div>
                         <h2>KeuOS</h2>
                         <p style="color: var(--text-muted); margin-top: 12px; line-height: 1.7;">
-                            A sovereign microkernel that boots on real x86 hardware, written from scratch in Salt.
+                            A keuos microkernel that boots on real x86 hardware, written from scratch in Salt.
                             16-core SMP with Chase-Lev work-stealing, ACPI/APIC,
                             preemptive scheduler with 7-field fiber migration, per-core sharded allocators,
                             a zero-trap socket API where <code>read()</code> and <code>write()</code> are pure
@@ -1630,11 +1630,11 @@
                     style="color: var(--accent);">Full methodology →</a>
             </p>
 
-            <!-- SOVEREIGN TRAIN -->
+            <!-- KEUOS TRAIN -->
             <div class="lettuce-section project-card">
                 <div class="lettuce-grid">
                     <div>
-                        <h2>Sovereign Train</h2>
+                        <h2>KeuOS Train</h2>
                         <p style="color: var(--text-muted); margin-top: 12px; line-height: 1.7;">
                             A neural network that trains on MNIST handwritten digits — entirely in Salt.
                             Weight matrices are arena-allocated, every array access is Z3-verified through
@@ -1659,7 +1659,7 @@
                                 <div class="stat-label">bounds verified</div>
                             </div>
                         </div>
-                        <a href="https://github.com/bneb/keuos/blob/main/benchmarks/ml/sovereign_train.salt"
+                        <a href="https://github.com/bneb/keuos/blob/main/benchmarks/ml/keuos_train.salt"
                             class="project-link" target="_blank" rel="noopener">View source →</a>
                     </div>
                     <div class="code-window">
@@ -1667,7 +1667,7 @@
                             <div class="code-dot r"></div>
                             <div class="code-dot y"></div>
                             <div class="code-dot g"></div>
-                            <span class="code-filename">sovereign_train.salt</span>
+                            <span class="code-filename">keuos_train.salt</span>
                         </div>
                         <pre><span class="cmt">// Arena + Slice — the safety bridge</span>
 <span class="kw">let</span> arena = <span class="ty">Arena</span>::<span class="fn">new</span>(<span class="num">4194304</span>);

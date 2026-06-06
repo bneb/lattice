@@ -5,7 +5,7 @@
 ## Invariants
 
 > [!NOTE]
-> **The Sovereign Invariants**
+> **The KeuOS Invariants**
 > These mathematical laws are enforced by the Salt compiler and verified by Z3.
 
 ### 1. The Fiber Stride

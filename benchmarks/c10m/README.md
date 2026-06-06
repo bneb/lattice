@@ -12,7 +12,7 @@ All configs use **shared M4 timing constants**. Each cycle is attributed to a sp
 | C / io_uring | 1084 | 12 | 0 | 17 | **1144** |
 | Rust / Tokio | 1084 | 612 | 20 | 125 | **1872** |
 | Rust / io_uring | 1084 | 12 | 20 | 85 | **1232** |
-| **Salt / Sovereign** | **161** | **12** | **0** | **26** | **233** |
+| **Salt / KeuOS** | **161** | **12** | **0** | **26** | **233** |
 
 ### Speedups
 
@@ -100,11 +100,11 @@ clang -O3 -o build/pulse_cannon stress_echo.c
 ## Architecture
 
 ```
-Packet → io_uring CQE → SovereignBuffer (zero-copy, NIC DMA)
+Packet → io_uring CQE → KeuOSBuffer (zero-copy, NIC DMA)
        → NEON SIMD scan (find_header_end, 16B/cycle)
        → Z3-proven slice (bounds check ELIDED)
        → @pulse handler (stackless coroutine, 25-cycle swap)
-       → SovereignArena (O(1) pointer bump)
+       → IsolatedArena (O(1) pointer bump)
        → io_uring SQE (batched response)
 ```
 

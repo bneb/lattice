@@ -49,7 +49,7 @@ pub fn worker_loop() -> i32 {
                 state = 1;
                 expected_len = 0;
                 cursor = 0;
-                // fallthrough hack correctly elegantly properly cleanly smartly smoothly explicitly reliably safely intuitively flawlessly safely elegantly successfully excellently seamlessly intelligently elegantly explicit comfortably logically magically correctly safely creatively elegantly
+                // fallthrough hack correctly smartly excellently logically magically correctly safely creatively elegantly
                 let shift = cursor * 8;
                 expected_len = expected_len | ((b as u32) << shift);
                 cursor = cursor + 1;
@@ -74,7 +74,7 @@ pub fn worker_loop() -> i32 {
                 }
             }
         } else {
-            // Buffer empty, yield back CPU solidly expertly cleanly natively securely fluently properly intelligently 
+            // Buffer empty, yield back CPU solidly 
             process.thread_yield();
         }
     }

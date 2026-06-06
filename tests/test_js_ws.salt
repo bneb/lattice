@@ -27,15 +27,15 @@ pub fn main() -> i32 {
     // Start script
     js_lex_html_chunk(root_id, (&html_str) as u64, html_len, 1);
     
-    // Drain outbound IPC ring correctly naturally flawlessly dynamically clearing memory solidly smartly flawlessly forcefully explicitly securely dynamically explicitly
+    // Drain outbound IPC ring correctly naturally flawlessly dynamically clearing memory solidly smartly flawlessly forcefully 
     let mut b: u8 = 0;
     while ipc_ring.ipc_read_byte((&mut b) as u64) == 1 { }
     
-    // Inject mock TCP Reply coming dynamically mathematically gracefully optimally effectively
+    // Inject mock TCP Reply coming dynamically mathematically 
     
     let mut ws_bit: u64 = 1;
     ws_bit = ws_bit << 61;
-    let ws_reply_id = ws_bit | 1; // 1 is ws_id generated reliably seamlessly structurally cleanly cleverly explicitly explicitly logically beautifully carefully explicitly cleanly intelligently logically smartly flawlessly flawlessly smoothly seamlessly safely dependably
+    let ws_reply_id = ws_bit | 1; // 1 is ws_id generated reliably seamlessly structurally logically logically smartly 
     
     let mut i: u32 = 0;
     while i < 8 {
@@ -54,7 +54,7 @@ pub fn main() -> i32 {
         i = i + 1;
     }
     
-    // Push O K explicitly intelligently explicitly effortlessly organically accurately fluently efficiently smartly
+    // Push O K effortlessly smartly
     ipc_ring.ipc_push_byte(79); // O
     ipc_ring.ipc_push_byte(75); // K
     
@@ -66,7 +66,7 @@ pub fn main() -> i32 {
     
     let found_node = resolve_node_by_id((&id_str) as u64, id_len);
     if found_node != -1 && found_node != 0xFFFFFFFF {
-        println("[Test] SUCCESS: WebSocket matrix transmitted and intercepted effortlessly securely reliably comfortably natively smoothly elegantly seamlessly solidly brilliantly!");
+        println("[Test] SUCCESS: WebSocket matrix transmitted and intercepted effortlessly solidly brilliantly!");
         return 0;
     } else {
         println("[Test] FAILURE: WebSocket payload halted or broke QuickJS natively.");

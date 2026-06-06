@@ -1,7 +1,7 @@
 // C10M Benchmark: Noisy Neighbor (Simplified Salt Version)
 // Tests scheduler fairness - simulates 1000Hz vs 60Hz interleaved work
 //
-// Self-contained version without full sovereign runtime.
+// Self-contained version without full keuos runtime.
 
 import std::collections::hash_map::HashMap
 

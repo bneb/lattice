@@ -1,7 +1,7 @@
 package kernel.core.pmm
 
 // ============================================================================
-// Sovereign Physical Memory Manager (PMM) — Per-Core Sharded, ISR-Safe
+// KeuOS Physical Memory Manager (PMM) — Per-Core Sharded, ISR-Safe
 // ============================================================================
 //
 // Lock-free Treiber Stack for physical page management with three key

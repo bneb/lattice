@@ -5,7 +5,7 @@
 //
 // This module defines the architecture-specific execution frame and
 // provides zero-cost intrinsic wrappers for the O(1) Scheduler and
-// Fast-Path IPC, hiding x86-specifics from the Sovereign core.
+// Fast-Path IPC, hiding x86-specifics from the KeuOS core.
 // ============================================================================
 
 package kernel.arch.x86_64.cpu

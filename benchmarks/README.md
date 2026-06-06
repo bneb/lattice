@@ -57,7 +57,7 @@ Key: NEON vectorization and FMLA instructions. See [`ml/`](ml/) for details.
 
 ## 🗂️ HashMap Benchmarks
 
-Salt's Sovereign HashMap implements a **Swiss-Table** with V6 Primitive Trait Lookup:
+Salt's KeuOS HashMap implements a **Swiss-Table** with V6 Primitive Trait Lookup:
 
 ```
 Integer keys (hashmap_bench):
@@ -71,7 +71,7 @@ Salt: 60ms  |  C: 83ms  |  Rust: 73ms  → 1.4x vs C
 | Optimization | Improvement |
 |--------------|-------------|
 | **Bit-Group Probe** | 8 ctrl bytes/probe via XOR + HasZeroByte |
-| **Sovereign Word Init** | 8 bytes/cycle via `Ptr<u64>` |
+| **KeuOS Word Init** | 8 bytes/cycle via `Ptr<u64>` |
 | **Modulo Erasure** | `&` mask vs `%` (1 cycle vs 20+) |
 | **LLVM cttz Intrinsic** | Single-cycle match-to-index |
 
@@ -87,7 +87,7 @@ Cycle-accurate M4 pipeline simulation (V3 — audited, fair comparison):
 | **C / io_uring** | **1144** | **4.9x slower** (fair: same I/O) |
 | Rust / Tokio | 1872 | 8.0x slower |
 | **Rust / io_uring** | **1232** | **5.3x slower** (fair: same I/O) |
-| **Salt / Sovereign** | **233** | — |
+| **Salt / KeuOS** | **233** | — |
 
 Primary advantage: NEON SIMD parsing (11.1x header scan speedup). See [`c10m/`](c10m/) for details.
 

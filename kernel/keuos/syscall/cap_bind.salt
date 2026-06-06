@@ -1,6 +1,6 @@
 // ============================================================================
 // kernel/keuos/syscall/cap_bind.salt
-// SYS_CAP_BIND — Sovereign Capability Binder
+// SYS_CAP_BIND — KeuOS Capability Binder
 // ============================================================================
 //
 // The Ring 0 syscall that bridges Ring 3 hardware requests to physical iron.

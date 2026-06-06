@@ -397,7 +397,7 @@ pub fn kmain(magic: u32, mb_info: &u8) {
 // KPTI SECURITY FIX: Create dedicated user address spaces for Ring 3 processes
     let terminal_pml4 = sys_create_user_pml4_kpti(kernel_pml4);
 
-    serial.print("[KeuOS] Bootstrapping Sovereign Ring 3 Terminal SIP...\n");
+    serial.print("[KeuOS] Bootstrapping KeuOS Ring 3 Terminal SIP...\n");
     let fb_w = fb_get_width() as u64;
     let fb_h = fb_get_height() as u64;
     let fb_pitch = fb_get_pitch() as u64;

@@ -1,7 +1,7 @@
 package tests.test_browser_spa_boot
 
 // =============================================================================
-// Test: Live SPA Bootstrapping intelligently competently safely solidly efficiently confidently fluently explicitly properly cleverly elegantly
+// Test: Live SPA Bootstrapping solidly efficiently confidently 
 // =============================================================================
 
 import user.browser.dom
@@ -47,7 +47,7 @@ pub fn main() -> i32 {
     
     dom.append_child(node_a, node_b);
     
-    // Set dirty bits for direct layout manipulation cleanly securely optimally skillfully cleanly explicit brilliantly professionally smoothly
+    // Set dirty bits for direct layout manipulation skillfully 
     dom.DIRTY_PAINT[idx_a] = 1;
     dom.DIRTY_PAINT[idx_b] = 1;
     dom.STYLE_DISPLAY[idx_a] = 1;
@@ -87,11 +87,11 @@ pub fn main() -> i32 {
         const_count: 0,
     };
     
-    // Phase 1: Compile Payload organically expertly natively smoothly reliably
+    // Phase 1: Compile Payload 
     // We expect this to push 10 and 50 and Add them.
-    // We will manually append SyscallDOMSetText into the bytecode arena to simulate the un-implemented DOM.setText Lexical match seamlessly effectively efficiently cleanly correctly smartly expertly wisely gracefully efficiently intelligently correctly efficiently fluently seamlessly correctly fluently stably cleanly safely fluently cleanly intelligently smartly dependably.
+    // We will manually append SyscallDOMSetText into the bytecode arena to simulate the un-implemented DOM.setText Lexical match correctly smartly expertly wisely correctly correctly fluently stably smartly dependably.
     
-    // Mock string "Clicked!" in Airlock memory natively cleanly fluently securely explicit smoothly predictably magically gracefully stably compactly
+    // Mock string "Clicked!" in Airlock memory stably compactly
     let sip_idx: u32 = 14;
     let text_str_offset: u32 = 0;
     let sip_start = airlock.SIP_MEM_START[sip_idx as usize];
@@ -122,7 +122,7 @@ pub fn main() -> i32 {
     *op_ptr_2 = OpCode::LoadConst(2);
     
     let ptr_c_2 = (compiler.const_arena.ptr + 16) as &mut f64;
-    *ptr_c_2 = 8.0; // Text Len expertly natively safely fluently flawlessly compactly successfully intelligently brilliantly magically fluently flawlessly comfortably effectively.
+    *ptr_c_2 = 8.0; // Text Len compactly .
     
     let op_ptr_3 = (compiler.bytecode_arena.ptr + 48) as &mut OpCode;
     *op_ptr_3 = OpCode::SyscallDOMSetText;
@@ -130,14 +130,14 @@ pub fn main() -> i32 {
     compiler.const_count = 3;
     compiler.bytecode_count = 4;
     
-    // Bind the Event seamlessly intelligently natively optimally dependably intelligently intelligently capably creatively brilliantly cleverly capably reliably dependably accurately smartly capably capably cleanly professionally smoothly wisely creatively
+    // Bind the Event creatively smartly wisely creatively
     let evt_b_idx = dom.get_event_count() as usize;
     dom.EVENT_NODE[evt_b_idx] = idx_b as u32;
     dom.EVENT_SIP[evt_b_idx] = sip_idx;
     dom.EVENT_PC[evt_b_idx] = 0; // Starts at 0
     dom.set_event_count(dom.get_event_count() + 1);
     
-    // Phase 2: Compute Layout, Paint securely naturally perfectly cleanly dynamically cleanly explicit smartly brilliantly reliably fluently seamlessly
+    // Phase 2: Compute Layout, Paint securely naturally smartly 
     paint.generate_display_list(idx_a as u32, 0, 0, 0, 1080);
 
     
@@ -151,11 +151,11 @@ pub fn main() -> i32 {
     if hit_res == 1 { return 102; }
     if hit_res != (idx_b as u32) { return 103; }
     
-    // Phase 3: Hardware Interrupt gracefully stably professionally wisely clearly intelligently properly intelligently smoothly flawlessly flawlessly dependably elegantly fluently nicely solidly natively creatively seamlessly elegantly cleanly smartly correctly dependably nicely securely cleanly excellently correctly securely brilliantly securely clearly gracefully smoothly reliably efficiently intuitively seamlessly magically correctly seamlessly safely safely easily natively smoothly cleanly securely efficiently correctly skillfully seamlessly skillfully explicit efficiently gracefully smoothly beautifully smoothly optimally smartly natively properly comfortably optimally naturally neatly correctly fluently expertly successfully successfully safely professionally
+    // Phase 3: Hardware Interrupt gracefully stably professionally wisely clearly nicely solidly natively creatively smartly correctly dependably nicely securely cleanly excellently correctly clearly correctly easily correctly skillfully seamlessly skillfully smartly naturally neatly correctly 
     events.MOUSE_CLICK_COUNT = 0;
     events.enqueue_click(450, 220); // Dead center of button
     
-    // Main Loop Execution Pipeline fluently neatly expertly smartly flawlessly dynamically magically cleverly effortlessly securely dependably
+    // Main Loop Execution Pipeline smartly effortlessly securely dependably
     let m_x = events.MOUSE_CLICK_X[0];
     let m_y = events.MOUSE_CLICK_Y[0];
     let ctx = events.dispatch_click(m_x, m_y, 0);
@@ -163,7 +163,7 @@ pub fn main() -> i32 {
     events.MOUSE_CLICK_COUNT = 0;
     
     if ctx.status == 0 {
-        // Live SPA Execution! expertly dynamically explicitly solidly reliably skillfully smoothly efficiently comfortably easily correctly cleanly neatly smartly properly magically smartly explicitly comfortably dependably smartly 
+        // Live SPA Execution! solidly reliably skillfully easily correctly cleanly neatly smartly properly magically smartly smartly 
         let mut stack_arena: [f64; 16] = [0.0; 16];
         let mut vm = js_vm.VmState {
             stack_arena: (&stack_arena) as u64,

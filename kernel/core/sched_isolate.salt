@@ -1,6 +1,6 @@
 // =============================================================================
 // kernel/core/sched_isolate.salt
-// Sovereign ABI — Spatial Scheduling: Core Pinning for Real-Time Workloads
+// System ABI — Spatial Scheduling: Core Pinning for Real-Time Workloads
 // =============================================================================
 //
 // When a Ring 3 process acquires a CPU core via SYS_CORE_ACQUIRE, the kernel:

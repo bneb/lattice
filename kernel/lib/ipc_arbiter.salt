@@ -31,7 +31,7 @@
 package kernel.lib.ipc_arbiter
 
 // =============================================================================
-// SipHash-2-4 Sovereign Keys
+// SipHash-2-4 KeuOS Keys
 // =============================================================================
 // These MUST match the values in:
 //   salt-front/src/codegen/verification/proof_hint.rs

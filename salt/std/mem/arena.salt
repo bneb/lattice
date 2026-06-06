@@ -1,23 +1,23 @@
 package std.mem.arena
 
-// SovereignArena: Fast bump allocator for local task frames
-struct SovereignArena {
+// IsolatedArena: Fast bump allocator for local task frames
+struct IsolatedArena {
     base: Ptr<u8>,
     offset: i64,
     capacity: i64,
 }
 
-impl SovereignArena {
-    fn new(size: i64) -> SovereignArena {
+impl IsolatedArena {
+    fn new(size: i64) -> IsolatedArena {
         let ptr = intrinsics::macos_syscall(197, 0, 0, size); // mmap
-        return SovereignArena {
+        return IsolatedArena {
             base: ptr as Ptr<u8>,
             offset: 0,
             capacity: size,
         };
     }
 
-    fn reset(self: &mut SovereignArena) {
+    fn reset(self: &mut IsolatedArena) {
         self.offset = 0;
     }
 }
@@ -56,12 +56,12 @@ impl DelayedFreeMailbox {
         };
     }
 
-    fn drain(self: &mut DelayedFreeMailbox, arena: &mut SovereignArena) {
+    fn drain(self: &mut DelayedFreeMailbox, arena: &mut IsolatedArena) {
         // TODO: Implement actual list draining
         self.head = intrinsics::ptr_null();
     }
 
-    fn drain_treiber(self: &mut DelayedFreeMailbox, arena: &mut SovereignArena) {
+    fn drain_treiber(self: &mut DelayedFreeMailbox, arena: &mut IsolatedArena) {
         // TODO: Implement actual treiber stack draining
         self.head = intrinsics::ptr_null();
     }

@@ -1,7 +1,7 @@
 # Agent Instructions
 
 ## Branding Rules
-- **CRITICAL:** Do NOT use the term "Sovereign" anywhere in this project. This applies to code, documentation, benchmarks, architecture components, and marketing material.
+- **CRITICAL:** Do NOT use the term "KeuOS" anywhere in this project. This applies to code, documentation, benchmarks, architecture components, and marketing material.
 - **CRITICAL:** The term "Lattice" is reserved strictly for the monorepo name. Do NOT use "Lattice" to brand any internal OS components (e.g., do not use "Lattice ECS" or "Lattice Core").
 
 

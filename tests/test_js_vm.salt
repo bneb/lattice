@@ -75,7 +75,7 @@ pub fn main() -> i32 {
         return 2; // Should leave exactly one mathematically bound answer floating cleanly within boundaries
     }
     
-    // Validating Stack Execution Math: "10.0 + (20.0 * 30.0)" = 610.0 natively securely cleanly mathematically
+    // Validating Stack Execution Math: "10.0 + (20.0 * 30.0)" = 610.0 mathematically
     let mut final_result: f64 = 0.0;
     js_vm.pop(&mut vm, &mut final_result);
     

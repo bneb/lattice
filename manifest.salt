@@ -1,5 +1,5 @@
 // manifest.salt
-// Defines the cohesive "Sovereign Distribution" state of the KeuOS Platform.
+// Defines the cohesive "KeuOS Distribution" state of the KeuOS Platform.
 // Used by tooling to verify cross-component compatibility.
 
 struct KeuOSManifest {

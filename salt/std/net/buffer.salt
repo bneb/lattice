@@ -1,32 +1,32 @@
-// Sovereign Buffer: Zero-Copy Network Memory
+// KeuOS Buffer: Zero-Copy Network Memory
 // The DMA-aware buffer for C10M packet processing.
 // Aligned to 64-byte cache lines to prevent false sharing.
 //
 // Ownership Model:
-//   NIC → SovereignBuffer (RX) → TaskFrame → NIC (TX/Release)
+//   NIC → KeuOSBuffer (RX) → TaskFrame → NIC (TX/Release)
 //   No copies. No allocations. Just pointer math.
 
 package std.net.buffer
 
 // ============================================================================
-// SovereignBuffer: The Zero-Copy Primitive
+// KeuOSBuffer: The Zero-Copy Primitive
 // ============================================================================
 
-struct SovereignBuffer {
+struct KeuOSBuffer {
     data: Ptr<u8>,      // Base pointer into DMA Arena memory
     capacity: i64,      // Total buffer capacity (typically 4096 or 16384)
     length: i64,        // Valid data length (set by NIC on RX completion)
     offset: i64,        // Current read cursor position
 }
 
-impl SovereignBuffer {
+impl KeuOSBuffer {
     // Create a view into this buffer (zero-copy slice)
     // Z3 proves: 0 <= start <= end <= self.length
-    fn slice(self: &SovereignBuffer, start: i64, end: i64) -> SovereignBuffer {
+    fn slice(self: &KeuOSBuffer, start: i64, end: i64) -> KeuOSBuffer {
         requires start >= 0;
         requires end >= start;
         requires end <= self.length;
-        return SovereignBuffer {
+        return KeuOSBuffer {
             data: self.data.offset(start),
             capacity: end - start,
             length: end - start,
@@ -36,7 +36,7 @@ impl SovereignBuffer {
 
     // Find the first occurrence of a byte starting from `start`
     // Returns the index relative to buffer base, or -1 if not found
-    fn find(self: &SovereignBuffer, start: i64, needle: u8) -> i64 {
+    fn find(self: &KeuOSBuffer, start: i64, needle: u8) -> i64 {
         requires start >= 0;
         requires start <= self.length;
         let mut i = start;
@@ -52,7 +52,7 @@ impl SovereignBuffer {
 
     // Find the first occurrence of `needle` starting from `start`
     // Stops at the delimiter and returns the position
-    fn find_until(self: &SovereignBuffer, start: i64, delimiter: u8) -> i64 {
+    fn find_until(self: &KeuOSBuffer, start: i64, delimiter: u8) -> i64 {
         requires start >= 0;
         requires start <= self.length;
         return self.find(start, delimiter);
@@ -60,7 +60,7 @@ impl SovereignBuffer {
 
     // Check if the buffer contains the full message
     // For HTTP: checks if we've received the full header block (\r\n\r\n)
-    fn is_incomplete(self: &SovereignBuffer) -> bool {
+    fn is_incomplete(self: &KeuOSBuffer) -> bool {
         if self.length < 4 {
             return true;
         }
@@ -74,7 +74,7 @@ impl SovereignBuffer {
     }
 
     // Check if a specific byte sequence exists at a position
-    fn check_at(self: &SovereignBuffer, pos: i64, pattern: Ptr<u8>, plen: i64) -> bool {
+    fn check_at(self: &KeuOSBuffer, pos: i64, pattern: Ptr<u8>, plen: i64) -> bool {
         requires pos >= 0;
         requires plen >= 0;
         if pos + plen > self.length {
@@ -91,21 +91,21 @@ impl SovereignBuffer {
     }
 
     // Read a single byte at offset (bounds-checked unless Z3 elides it)
-    fn byte_at(self: &SovereignBuffer, idx: i64) -> u8 {
+    fn byte_at(self: &KeuOSBuffer, idx: i64) -> u8 {
         requires idx >= 0;
         requires self.offset + idx < self.length;
         return self.data.read_at(self.offset + idx);
     }
 
     // Advance the read cursor
-    fn advance(self: &mut SovereignBuffer, n: i64) {
+    fn advance(self: &mut KeuOSBuffer, n: i64) {
         requires n >= 0;
         requires self.offset + n <= self.length;
         self.offset = self.offset + n;
     }
 
     // Remaining bytes available for reading
-    fn remaining(self: &SovereignBuffer) -> i64 {
+    fn remaining(self: &KeuOSBuffer) -> i64 {
         return self.length - self.offset;
     }
 }
@@ -117,11 +117,11 @@ impl SovereignBuffer {
 trait DMA_Provider {
     // Acquire a buffer from the DMA ring for receiving data
     // The NIC will write directly into this memory
-    fn acquire_buffer(self: &Self) -> SovereignBuffer;
+    fn acquire_buffer(self: &Self) -> KeuOSBuffer;
 
     // Release a buffer back to the NIC's transmit ring
     // After this call, the buffer memory is owned by the NIC
-    fn release_to_nic(self: &Self, buf: SovereignBuffer);
+    fn release_to_nic(self: &Self, buf: KeuOSBuffer);
 }
 
 // ============================================================================
@@ -129,8 +129,8 @@ trait DMA_Provider {
 // ============================================================================
 
 struct RequestView {
-    method: SovereignBuffer,   // View into the method bytes ("GET", "POST")
-    path: SovereignBuffer,     // View into the path bytes ("/index.html")
+    method: KeuOSBuffer,   // View into the method bytes ("GET", "POST")
+    path: KeuOSBuffer,     // View into the path bytes ("/index.html")
     headers_end: i64,          // Offset where headers end in the original buffer
 }
 
@@ -140,7 +140,7 @@ struct RequestView {
 // ============================================================================
 
 @pulse
-fn find_header_end(buf: &SovereignBuffer) -> i64 {
+fn find_header_end(buf: &KeuOSBuffer) -> i64 {
     let mut cursor = buf.offset;
     let limit = buf.length - 16;
 

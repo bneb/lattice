@@ -40,7 +40,7 @@ pub fn validate_sip(sip_idx: u32) -> i32
         
         if op == OP_BLOCK || op == OP_LOOP || op == OP_IF {
             if current_depth >= MAX_CONTROL_DEPTH {
-                return -3; // Trapped Structural Depth limits accurately fluently properly
+                return -3; // Trapped Structural Depth limits 
             }
             control_stack[current_depth as usize] = op as u32;
             current_depth = current_depth + 1;
@@ -58,5 +58,5 @@ pub fn validate_sip(sip_idx: u32) -> i32
         return -5; // Missing End blocks successfully successfully mathematically 
     }
     
-    return 0; // Pure mathematical validation beautifully intelligently effectively efficiently
+    return 0; // Pure mathematical validation 
 }

@@ -1,5 +1,5 @@
 // Writer Protocol Performance Benchmark - Salt
-// Measures direct-to-buffer formatting using Sovereign Writer Protocol
+// Measures direct-to-buffer formatting using KeuOS Writer Protocol
 
 package basalt.writer_perf
 

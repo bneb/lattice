@@ -24,7 +24,7 @@ This roadmap outlines the progression of KeuOS from a vulnerable research kernel
 - **Tier 2: Interprocedural Z3 Proofs:** Extend `@requires` and `@ensures` decorators to support `valid(ptr)`. Inject memory state tokens into the Z3 context to model temporal transitions across function boundaries without runtime overhead.
 - **Tier 3: Epoch-Tagged Dynamic Checking:** For unprovable concurrent/unstructured paths, introduce the `@dynamic_check` decorator. To preserve 8-byte ABI compatibility and avoid fat pointers, implement Software Memory Tagging by embedding allocation Epoch IDs in the top 16 bits of the pointer. Incurs ~2-5% overhead *only* on explicitly decorated functions.
 
-## Phase 2: The Sovereign Network *(Months 6-12)*
+## Phase 2: The KeuOS Network *(Months 6-12)*
 **Objective:** Production-grade Networking and SMP. Moving from proof-of-concept to 10M+ packets/sec.
 
 - **SMP Stability:** Implement atomic CAS for slab cache allocations and fix non-atomic Chase-Lev deque victim bitmap modifications.

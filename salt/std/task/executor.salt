@@ -1,4 +1,4 @@
-// Sovereign Executor: M4 Work-Stealing Scheduler
+// KeuOS Executor: M4 Work-Stealing Scheduler
 // The heart of the C10M engine.
 //
 // Architecture:

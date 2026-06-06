@@ -1,6 +1,6 @@
 // =============================================================================
 // kernel/mem/slab.salt
-// Sovereign Slab Allocator — 128-bit Lock-Free Treiber Stack
+// KeuOS Slab Allocator — 128-bit Lock-Free Treiber Stack
 // =============================================================================
 //
 // Two-phase O(1) allocator, sharded per-core:

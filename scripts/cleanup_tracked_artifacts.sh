@@ -13,22 +13,22 @@ git rm --cached -f --ignore-unmatch \
   sieve_stdlib.mlir \
   sieve.mlir sieve.ll sieve.o
 
-echo "=== Phase 2: Sovereign train artifacts ==="
+echo "=== Phase 2: KeuOS train artifacts ==="
 git rm --cached -f --ignore-unmatch \
-  sovereign_train.mlir sovereign_train.ll sovereign_train.o \
-  sovereign_train_opt.mlir sovereign_train_scf.mlir \
-  sovereign_train_unrolled.mlir sovereign_train_vec.mlir \
-  sovereign_train_batch.mlir sovereign_train_batch.ll sovereign_train_batch.o \
-  sovereign_train_batch_opt.mlir sovereign_train_batch_unrolled.mlir sovereign_train_batch_vec.mlir \
-  sovereign_train_old.mlir sovereign_train_old.ll sovereign_train_old.o \
-  sovereign_train_old_opt.mlir sovereign_train_old_scf.mlir \
-  sovereign_train_v4.mlir sovereign_train_v4.ll sovereign_train_v4.o \
-  sovereign_train_v4_opt.mlir sovereign_train_v4_scf.mlir \
-  sovereign_train_v4_unrolled.mlir sovereign_train_v4_vec.mlir \
-  sovereign_train_v5.mlir sovereign_train_v5.ll sovereign_train_v5.o \
-  sovereign_train_v5_opt.mlir sovereign_train_v5_scf.mlir \
-  sovereign_train_v6.mlir sovereign_train_v6.ll sovereign_train_v6.o \
-  sovereign_train_v6_opt.mlir sovereign_train_v6_scf.mlir
+  keuos_train.mlir keuos_train.ll keuos_train.o \
+  keuos_train_opt.mlir keuos_train_scf.mlir \
+  keuos_train_unrolled.mlir keuos_train_vec.mlir \
+  keuos_train_batch.mlir keuos_train_batch.ll keuos_train_batch.o \
+  keuos_train_batch_opt.mlir keuos_train_batch_unrolled.mlir keuos_train_batch_vec.mlir \
+  keuos_train_old.mlir keuos_train_old.ll keuos_train_old.o \
+  keuos_train_old_opt.mlir keuos_train_old_scf.mlir \
+  keuos_train_v4.mlir keuos_train_v4.ll keuos_train_v4.o \
+  keuos_train_v4_opt.mlir keuos_train_v4_scf.mlir \
+  keuos_train_v4_unrolled.mlir keuos_train_v4_vec.mlir \
+  keuos_train_v5.mlir keuos_train_v5.ll keuos_train_v5.o \
+  keuos_train_v5_opt.mlir keuos_train_v5_scf.mlir \
+  keuos_train_v6.mlir keuos_train_v6.ll keuos_train_v6.o \
+  keuos_train_v6_opt.mlir keuos_train_v6_scf.mlir
 
 echo "=== Phase 3: Test intermediate outputs ==="
 git rm --cached -f --ignore-unmatch \
@@ -54,7 +54,7 @@ echo "=== Phase 4: Compiled binaries ==="
 git rm --cached -f --ignore-unmatch \
   deep_recursion edge_cases for_loop_test_exe \
   sieve_c sieve_rs sieve_salt \
-  sovereign_train sovereign_train_c sovereign_train_old \
+  keuos_train keuos_train_c keuos_train_old \
   test_arena_alloc_bin test_arena_poison_bin test_debug
 
 echo "=== Phase 5: Object files ==="
@@ -64,7 +64,7 @@ git rm --cached -f --ignore-unmatch \
 echo "=== Phase 6: Logs & profiling ==="
 git rm --cached -f --ignore-unmatch \
   build.log compiler_debug.log compiler_trace.log qemu.log \
-  sovereign_train_debug.log test_arena_alloc_debug.log \
+  keuos_train_debug.log test_arena_alloc_debug.log \
   default.profraw salt-opt.profdata benchmark_results.json
 # verification_run logs
 git rm --cached -f --ignore-unmatch \
@@ -89,7 +89,7 @@ git rm --cached -f --ignore-unmatch \
 
 echo "=== Phase 8: Directories ==="
 git rm --cached -rf --ignore-unmatch \
-  coverage_report/ coverage_artifacts/ sovereign_rt/ qemu_build/
+  coverage_report/ coverage_artifacts/ keuos_rt/ qemu_build/
 
 echo "=== Phase 9: salt-front loose files ==="
 git rm --cached -f --ignore-unmatch \

@@ -23,17 +23,17 @@ pub fn main() -> i32 {
     
     if result != 3 { return result; }
     
-    // CMD 0 should logically be Node 2 (Z = 5) explicitly correctly natively cleanly effectively skillfully naturally gracefully
+    // CMD 0 should logically be Node 2 (Z = 5) explicitly correctly skillfully naturally gracefully
     if paint.CMD_TYPE[0] != 1 { return 2; }
     if paint.CMD_X[0] != 200 { return 8; }
     if paint.CMD_W[0] != 100 { return 9; }
     if paint.CMD_B[0] != 255 { return 10; }
 
-    // CMD 1 should logically be Node 0 (Z = 10) explicitly properly neatly smoothly purely successfully correctly intelligently
+    // CMD 1 should logically be Node 0 (Z = 10) purely successfully correctly intelligently
     if paint.CMD_X[1] != 0 { return 4; }
     if paint.CMD_R[1] != 255 { return 5; }
     
-    // CMD 2 should logically be Node 1 (Z = 50) correctly smoothly gracefully deftly safely capably intelligently reliably intelligently flawlessly securely flexibly smartly gracefully effortlessly safely smoothly dynamically intelligently intuitively expertly securely reliably explicit elegantly brilliantly beautifully successfully reliably cleanly properly securely cleverly successfully successfully dependably peacefully gracefully effortlessly securely magically nicely predictably cleanly smartly successfully beautifully explicitly perfectly precisely organically dependably neatly smoothly creatively naturally explicit safely natively safely explicit smoothly magically gracefully dependably competently dependably properly efficiently powerfully seamlessly dependably natively reliably dependably properly naturally optimally creatively effectively nicely cleanly seamlessly intelligently confidently perfectly elegantly correctly smartly effortlessly fluently correctly effectively properly elegantly smoothly optimally creatively professionally explicitly intelligently cleanly cleanly brilliantly correctly professionally confidently creatively safely dependably capably flexibly effortlessly confidently properly cleanly correctly gracefully comfortably correctly organically brilliantly smoothly correctly intuitively predictably directly cleanly smoothly professionally efficiently beautifully smoothly dependably smartly exactly effectively efficiently smartly perfectly smoothly explicit magically gracefully naturally brilliantly exactly efficiently beautifully magically gracefully elegantly accurately smartly gracefully flawlessly smartly competently magically magically organically competently magically successfully magically dependably flawlessly cleanly effortlessly effectively comfortably effectively
+    // CMD 2 should logically be Node 1 (Z = 50) correctly smoothly gracefully deftly smartly gracefully effortlessly peacefully gracefully effortlessly securely magically nicely predictably cleanly smartly precisely creatively naturally naturally optimally creatively effectively nicely confidently perfectly elegantly correctly smartly effortlessly fluently correctly creatively correctly professionally confidently creatively effortlessly confidently properly cleanly correctly gracefully comfortably correctly correctly smartly smartly naturally smartly gracefully flawlessly smartly effortlessly 
     if paint.CMD_X[2] != 100 { return 6; }
     if paint.CMD_R[2] != 200 { return 7; }
     

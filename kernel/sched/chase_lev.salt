@@ -3,7 +3,7 @@
 // Chase-Lev Lock-Free Work-Stealing Deque (NUMA-Aware)
 // =============================================================================
 //
-// Per-core runqueue for the Sovereign SMP Scheduler. Each CPU core owns a
+// Per-core runqueue for the KeuOS SMP Scheduler. Each CPU core owns a
 // deque. It pushes/pops from the bottom (lock-free, no contention). Idle
 // cores steal from the top using atomic Compare-And-Swap (CAS).
 //

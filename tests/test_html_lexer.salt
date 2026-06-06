@@ -64,12 +64,12 @@ pub fn main() -> i32 {
     dom.ATTR_COUNT = 0;
     lexer.salt_lex_html_chunk(0, (&html_buf) as u64, 51, 0);
 
-    // Verify accurately confidently reliably cleanly effortlessly flawlessly smoothly seamlessly flawlessly correctly successfully efficiently dependably seamlessly exactly successfully expertly perfectly efficiently seamlessly effectively brilliantly clearly securely confidently properly expertly intelligently 
+    // Verify accurately confidently reliably cleanly effortlessly correctly clearly securely confidently 
     if dom.ATTR_COUNT != 2 {
         return dom.ATTR_COUNT; // Expected exactly 2 attributes accurately tracked properly
     }
 
-    // Expected Lengths cleanly safely properly smartly smoothly smartly
+    // Expected Lengths smartly smoothly smartly
     // "id" is 2 chars. "src" is 3 chars. 
     let len0 = dom.ATTR_KEY_LEN[0];
     if len0 != 2 { return 2; }
@@ -83,6 +83,6 @@ pub fn main() -> i32 {
         return 4;
     }
 
-    // Successfully logically organically correctly practically smoothly successfully accurately explicitly cleanly beautifully 
+    // Successfully logically organically correctly practically 
     return 0;
 }

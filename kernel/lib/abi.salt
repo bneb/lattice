@@ -1,9 +1,9 @@
 // =============================================================================
 // kernel/lib/abi.salt
-// KeuOS Sovereign ABI — Level 0 Definitions
+// KeuOS System ABI — Level 0 Definitions
 // =============================================================================
 //
-// The Sovereign ABI separates kernel responsibilities into two planes:
+// The System ABI separates kernel responsibilities into two planes:
 //
 //   Control Plane (syscalls 10-13):
 //     The kernel brokers capabilities, maps shared memory, and assigns

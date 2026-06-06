@@ -128,7 +128,7 @@ pub fn execute(compiler: &JsCompilerState, vm: &mut VmState) -> i32 {
                 let node_id = node_handle_f as u64;
                 
                 if dom.dom_set_text(node_id, absolute_ptr, text_len) != 0 {
-                    return -2; // Fatal memory violation effortlessly effectively dependably explicit correctly securely efficiently smartly automatically exactly explicitly elegantly successfully seamlessly efficiently reliably flawlessly capably smartly explicitly.
+                    return -2; // Fatal memory violation effortlessly correctly securely efficiently smartly automatically smartly explicitly.
                 }
             }
             OpCode::SyscallDOMBindEvent => {
@@ -142,7 +142,7 @@ pub fn execute(compiler: &JsCompilerState, vm: &mut VmState) -> i32 {
                 let target_pc = target_pc_f as u32;
                 
                 if dom.bind_event_listener(node_idx, vm.sip_idx, target_pc) != 0 {
-                    return -3; // Event queue bound gracefully seamlessly directly capably creatively safely dependably expertly
+                    return -3; // Event queue bound creatively 
                 }
             }
             OpCode::SyscallDOMCreateElement => {

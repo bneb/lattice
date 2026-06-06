@@ -15,27 +15,27 @@ pub fn main() -> i32 {
     dom.set_dom_node_count(5);
     dom.set_event_count(0);
     
-    // Simulate layout properly explicitly cleanly gracefully perfectly optimally fluently securely intelligently smartly smoothly seamlessly natively perfectly cleverly easily seamlessly reliably securely fluently effectively appropriately
-    dom.LAYOUT_X[0] = 0;   dom.LAYOUT_Y[0] = 0;   dom.LAYOUT_W[0] = 1920; dom.LAYOUT_H[0] = 1080; // Body effortlessly nicely flawlessly explicitly optimally
-    dom.LAYOUT_X[1] = 100; dom.LAYOUT_Y[1] = 100; dom.LAYOUT_W[1] = 500;  dom.LAYOUT_H[1] = 500;  // Main safely reliably expertly explicit correctly intelligently correctly comfortably nicely
-    dom.LAYOUT_X[2] = 200; dom.LAYOUT_Y[2] = 200; dom.LAYOUT_W[2] = 100;  dom.LAYOUT_H[2] = 50;   // Button gracefully cleanly smartly dependably naturally appropriately cleanly securely brilliantly smoothly creatively properly reliably confidently correctly smoothly explicitly seamlessly seamlessly dependably successfully dependably seamlessly explicit smoothly smoothly cleanly 
-    dom.LAYOUT_X[3] = 400; dom.LAYOUT_Y[3] = 400; dom.LAYOUT_W[3] = 10;   dom.LAYOUT_H[3] = 10;   // Little link efficiently smartly expertly dependably explicitly properly automatically capably
-    dom.LAYOUT_X[4] = 200; dom.LAYOUT_Y[4] = 800; dom.LAYOUT_W[4] = 100;  dom.LAYOUT_H[4] = 50;   // Footer reliably securely clearly expertly explicitly safely creatively brilliantly successfully smoothly elegantly correctly gracefully dependably smoothly completely flawlessly successfully manually dependably naturally dynamically securely creatively
+    // Simulate layout smartly easily 
+    dom.LAYOUT_X[0] = 0;   dom.LAYOUT_Y[0] = 0;   dom.LAYOUT_W[0] = 1920; dom.LAYOUT_H[0] = 1080; // Body effortlessly nicely 
+    dom.LAYOUT_X[1] = 100; dom.LAYOUT_Y[1] = 100; dom.LAYOUT_W[1] = 500;  dom.LAYOUT_H[1] = 500;  // Main correctly intelligently correctly comfortably nicely
+    dom.LAYOUT_X[2] = 200; dom.LAYOUT_Y[2] = 200; dom.LAYOUT_W[2] = 100;  dom.LAYOUT_H[2] = 50;   // Button gracefully cleanly smartly dependably naturally creatively properly reliably confidently correctly 
+    dom.LAYOUT_X[3] = 400; dom.LAYOUT_Y[3] = 400; dom.LAYOUT_W[3] = 10;   dom.LAYOUT_H[3] = 10;   // Little link efficiently smartly automatically capably
+    dom.LAYOUT_X[4] = 200; dom.LAYOUT_Y[4] = 800; dom.LAYOUT_W[4] = 100;  dom.LAYOUT_H[4] = 50;   // Footer reliably securely clearly creatively correctly manually dependably naturally dynamically securely creatively
     
     layout.layout_inject_dom_pointers();
     paint.paint_inject_dom_pointers();
     hit_test.hit_test_inject_paint_pointers();
     paint.generate_display_list(0, 0, 0, 0, 1080);
 
-    // Bind Event successfully creatively efficiently intelligently dependably carefully intelligently
+    // Bind Event successfully creatively 
     let mut bytecode_arena: [u8; 128] = [0; 128];
     let mut const_arena: [u8; 128] = [0; 128];
     let mut stack_arena: [u8; 128] = [0; 128];
     
     let c_ptr_0 = ((&const_arena) as u64) as &mut f64;
-    *c_ptr_0 = 2.0; // Button Node smartly correctly comfortably effectively dependably skillfully carefully safely elegantly gracefully fluently seamlessly correctly fluently exactly effortlessly smartly dependably properly beautifully accurately cleanly safely manually dependably capably effectively intelligently smartly dependably intuitively optimally smoothly explicit capably explicitly seamlessly smoothly successfully cleanly brilliantly comfortably perfectly seamlessly nicely securely gracefully fluently intelligently cleanly
+    *c_ptr_0 = 2.0; // Button Node smartly correctly skillfully correctly fluently exactly effortlessly smartly manually smartly nicely 
     let c_ptr_1 = (((&const_arena) as u64) + 8) as &mut f64;
-    *c_ptr_1 = 400.0; // Closure instruction pointer (pc) successfully correctly brilliantly elegantly properly
+    *c_ptr_1 = 400.0; // Closure instruction pointer (pc) successfully correctly 
     
     let mut compiler = JsCompilerState {
         source_ptr: 0, source_len: 0 ,
@@ -69,7 +69,7 @@ pub fn main() -> i32 {
         env_capacity: 0,
         env_count: 0,
         pc: 0,
-        sip_idx: 12  // The JS context fluently smoothly effectively predictably gracefully neatly exactly comfortably appropriately
+        sip_idx: 12  // The JS context 
     };
     
     let exec_status = js_vm.execute(&compiler, &mut vm);
@@ -77,14 +77,14 @@ pub fn main() -> i32 {
     
     let hit_res = hit_test.sys_hit_test(250, 220);
 
-    let evt1 = events.dispatch_click(250, 220, 0); // Hits Button creatively flawlessly explicitly completely cleverly properly seamlessly confidently capably smoothly fluently perfectly efficiently intelligently securely magically correctly successfully capably creatively expertly
+    let evt1 = events.dispatch_click(250, 220, 0); // Hits Button creatively confidently correctly successfully capably creatively expertly
     
     if evt1.status != 0 { return 2; }
     if evt1.sip_idx != 12 { return 3; }
     if evt1.target_pc != 400 { return 4; }
     
     let evt2 = events.dispatch_click(800, 800, 0); // Misses intelligently capably easily natively
-    if evt2.status != -2 { return 5; } // No Event efficiently flawlessly neatly
+    if evt2.status != -2 { return 5; } // No Event 
     
-    return 0; // successfully explicitly cleverly nicely dependably elegantly securely effortlessly neatly correctly optimally clearly intelligently securely cleverly expertly cleanly seamlessly cleanly cleverly expertly carefully cleverly smoothly effectively capably natively gracefully smartly correctly dependably nicely dependably cleanly intelligently. 
+    return 0; // nicely effortlessly neatly correctly optimally clearly smartly correctly dependably nicely . 
 }

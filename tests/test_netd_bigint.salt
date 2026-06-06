@@ -28,5 +28,5 @@ fn main() -> i32 {
     bigint.u256_mod_add((&a) as u64, (&b) as u64, (&p) as u64, (&res) as u64);
     if res[0] != 6 { return 3; }
     
-    return 0; // Successfully seamlessly gracefully beautifully effortlessly safely limits accurately structurally bounds naturally!
+    return 0; // effortlessly safely limits accurately structurally bounds naturally!
 }

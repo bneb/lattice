@@ -1,16 +1,16 @@
 // C10M Benchmark: Multi-Pulse Demo
-// End-to-end validation of the complete Sovereign async pipeline.
+// End-to-end validation of the complete KeuOS async pipeline.
 //
 // This benchmark exercises:
 //   1. @pulse annotations → Call Graph Analysis → Context Threading
 //   2. NEON SIMD header scanning (m4_neon_load128/cmpeq/movemask)
-//   3. Zero-copy SovereignBuffer → RequestView → Z3 slice elision
+//   3. Zero-copy KeuOSBuffer → RequestView → Z3 slice elision
 //   4. yield → Liveness Analysis → AsyncToState (state machine)
 //   5. Work-stealing executor with M4 WFE adaptive backoff
 //
 // Target: 10M concurrent echo connections with <100μs P99 jitter
 //
-// [SOVEREIGN V2.0] The "First Wire" Benchmark
+// [KEUOS V2.0] The "First Wire" Benchmark
 
 package benchmarks.c10m.multi_pulse_demo
 
@@ -23,10 +23,10 @@ const MAX_CONNECTIONS: i64 = 10000000;
 const BATCH_SIZE: i64 = 256;
 
 // ============================================================================
-// Simulated SovereignBuffer (inline for single-file benchmark)
+// Simulated KeuOSBuffer (inline for single-file benchmark)
 // ============================================================================
 
-struct SovereignBuffer {
+struct KeuOSBuffer {
     data: Ptr<u8>,
     capacity: i64,
     length: i64,
@@ -97,7 +97,7 @@ fn find_header_end_simd(data: Ptr<u8>, length: i64) -> i64 {
 //   3. Yield checks are injected with striped loop optimization
 //   4. AsyncToState transforms this into a stackless coroutine
 @pulse(1000Hz)
-fn echo_handler(buf: SovereignBuffer) -> i64 {
+fn echo_handler(buf: KeuOSBuffer) -> i64 {
     // Step 1: SIMD Header Detection
     // The NEON scanner finds \r\n\r\n in ~2-5ns
     let header_end = find_header_end_simd(buf.data, buf.length);
@@ -187,11 +187,11 @@ impl Metrics {
 // Simulated Packet Generator
 // ============================================================================
 
-fn make_get_buffer(path_len: i64) -> SovereignBuffer {
+fn make_get_buffer(path_len: i64) -> KeuOSBuffer {
     // Simulate a minimal GET request: "GET /xxx HTTP/1.1\r\n\r\n"
     // For benchmarking, we use a fixed-size arena buffer
     let total_len = 4 + path_len + 11 + 4;  // "GET " + path + " HTTP/1.1" + "\r\n\r\n"
-    return SovereignBuffer {
+    return KeuOSBuffer {
         data: 0 as Ptr<u8>,  // In production: pointer into DMA Arena
         capacity: BUFFER_SIZE,
         length: total_len,

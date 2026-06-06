@@ -31,7 +31,7 @@ export DYLD_LIBRARY_PATH="/opt/homebrew/lib:${DYLD_LIBRARY_PATH:-}"
 
 print_header() {
     echo -e "${BLUE}╔═══════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║  ${BOLD}Sovereign Training Benchmark${NC}${BLUE}          ║${NC}"
+    echo -e "${BLUE}║  ${BOLD}KeuOS Training Benchmark${NC}${BLUE}          ║${NC}"
     echo -e "${BLUE}╚═══════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -45,19 +45,19 @@ prepare_data() {
 
 build_c() {
     echo -e "${GREEN}[C] Building...${NC}"
-    clang -O3 -ffast-math -march=native sovereign_train.c -lm -o sovereign_train_c 2>&1
+    clang -O3 -ffast-math -march=native keuos_train.c -lm -o keuos_train_c 2>&1
 }
 
 run_c() {
     echo -e "${GREEN}[C] Running...${NC}"
-    ./sovereign_train_c
+    ./keuos_train_c
 }
 
 build_salt() {
     echo -e "${GREEN}[Salt] Building...${NC}"
-    $SALT_BIN sovereign_train.salt --release 2>/dev/null \
+    $SALT_BIN keuos_train.salt --release 2>/dev/null \
         | grep -v "^DEBUG:" | grep -v "^>" \
-        > sovereign_train_clean.mlir
+        > keuos_train_clean.mlir
     
     mlir-opt --convert-linalg-to-loops \
              --expand-strided-metadata \
@@ -70,19 +70,19 @@ build_salt() {
              --finalize-memref-to-llvm \
              --convert-arith-to-llvm --convert-math-to-llvm --convert-func-to-llvm --convert-cf-to-llvm \
              --reconcile-unrealized-casts \
-             sovereign_train_clean.mlir -o sovereign_train.opt.mlir 2>/dev/null
+             keuos_train_clean.mlir -o keuos_train.opt.mlir 2>/dev/null
 
-    mlir-translate --mlir-to-llvmir sovereign_train.opt.mlir -o sovereign_train.ll 2>/dev/null
+    mlir-translate --mlir-to-llvmir keuos_train.opt.mlir -o keuos_train.ll 2>/dev/null
     
     # LLVM-level optimization (Crucial for vectorization and LICM)
-    opt -O3 sovereign_train.ll -S -o sovereign_train_opt.ll 2>/dev/null
+    opt -O3 keuos_train.ll -S -o keuos_train_opt.ll 2>/dev/null
     
-    clang -O3 -ffast-math -march=native sovereign_train_opt.ll ml_bridge.c $RUNTIME_C -lm -o sovereign_train_salt 2>/dev/null
+    clang -O3 -ffast-math -march=native keuos_train_opt.ll ml_bridge.c $RUNTIME_C -lm -o keuos_train_salt 2>/dev/null
 }
 
 run_salt() {
     echo -e "${GREEN}[Salt] Running...${NC}"
-    ./sovereign_train_salt
+    ./keuos_train_salt
 }
 
 run_python() {
@@ -94,7 +94,7 @@ run_python() {
     else
         source .venv/bin/activate
     fi
-    python3 sovereign_train.py
+    python3 keuos_train.py
 }
 
 # Parse args

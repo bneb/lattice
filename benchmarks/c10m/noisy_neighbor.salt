@@ -6,12 +6,12 @@
 //   - Heavy 60Hz tasks cannot starve the real-time pulse
 //   - Proves yield point injection works at back-edges
 //
-// [SOVEREIGN V2.0] Multi-pulse scheduling with shared state
+// [KEUOS V2.0] Multi-pulse scheduling with shared state
 
 package benchmarks.c10m.noisy_neighbor
 
-import std.core.sovereign.context
-import std.core.sovereign.executor
+import std.core.keuos.context
+import std.core.keuos.executor
 import std.collections.hash_map
 import std.sync.mutex
 import std.io

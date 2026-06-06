@@ -1,6 +1,6 @@
 // =============================================================================
 // kernel/core/capability.salt
-// Sovereign ABI — Control Plane: Capability Table and Ring Mapping
+// System ABI — Control Plane: Capability Table and Ring Mapping
 // =============================================================================
 //
 // The kernel acts as a resource broker. Processes request capabilities via

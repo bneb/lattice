@@ -4,7 +4,7 @@ package user.netd.crypto.bigint
 // Zero-Copy Large Number Mathematical Algebra
 // ============================================================================
 
-// Natively performs 32-byte addition executing carries implicitly cleanly securely dynamically smoothly naturally
+// Natively performs 32-byte addition executing carries implicitly naturally
 pub fn u256_add(a_ptr: u64, b_ptr: u64, res_ptr: u64) -> u32 {
     let mut carry: u32 = 0;
     let mut i: u32 = 0;
@@ -24,7 +24,7 @@ pub fn u256_add(a_ptr: u64, b_ptr: u64, res_ptr: u64) -> u32 {
     return carry;
 }
 
-// Subtraction mappings extracting properly natively limits gracefully seamlessly smoothly accurately gracefully functionally
+// Subtraction mappings extracting properly natively limits functionally
 pub fn u256_sub(a_ptr: u64, b_ptr: u64, res_ptr: u64) -> u32 {
     let mut borrow: u32 = 0;
     let mut i: u32 = 0;
@@ -49,7 +49,7 @@ pub fn u256_sub(a_ptr: u64, b_ptr: u64, res_ptr: u64) -> u32 {
     return borrow;
 }
 
-// Compare matrices executing uniquely logically properly natively perfectly
+// Compare matrices executing uniquely logically 
 pub fn u256_cmp(a_ptr: u64, b_ptr: u64) -> i32 {
     let mut i: u32 = 31;
     let mut continue_loop: u32 = 1;
@@ -68,7 +68,7 @@ pub fn u256_cmp(a_ptr: u64, b_ptr: u64) -> i32 {
     return 0;
 }
 
-// Left bit shift seamlessly properly naturally efficiently functionally testing logically natively gracefully safely properly cleanly suitably limits inherently gracefully functionally organically
+// Left bit shift seamlessly properly naturally efficiently functionally testing logically limits inherently gracefully functionally organically
 pub fn u256_shift_left_1(a_ptr: u64, res_ptr: u64) {
     let mut carry: u32 = 0;
     let mut i: u32 = 0;
@@ -83,7 +83,7 @@ pub fn u256_shift_left_1(a_ptr: u64, res_ptr: u64) {
     }
 }
 
-// P Modulo addition appropriately properly securely dynamically intelligently nicely explicitly smoothly structurally efficiently safely
+// P Modulo addition nicely explicitly smoothly structurally efficiently safely
 pub fn u256_mod_add(a_ptr: u64, b_ptr: u64, p_ptr: u64, res_ptr: u64) {
     let carry = u256_add(a_ptr, b_ptr, res_ptr);
     if carry > 0 || u256_cmp(res_ptr, p_ptr) >= 0 {
@@ -91,7 +91,7 @@ pub fn u256_mod_add(a_ptr: u64, b_ptr: u64, p_ptr: u64, res_ptr: u64) {
     }
 }
 
-// P Modulo multiplication extracting naturally organically completely explicitly correctly bounds carefully properly inherently beautifully neatly explicitly properly beautifully accurately explicitly seamlessly successfully neatly accurately dynamically logically carefully logically accurately logically cleverly cleverly dynamically seamlessly securely cleanly structurally beautifully correctly smoothly intelligently completely testing suitably cleanly functionally gracefully safely neatly perfectly functionally elegantly seamlessly accurately
+// P Modulo multiplication extracting naturally correctly bounds logically carefully logically accurately logically structurally beautifully correctly testing suitably cleanly functionally functionally 
 pub fn u256_mul_mod(a_ptr: u64, b_ptr: u64, p_ptr: u64, res_ptr: u64) {
     // res = 0
     let mut i: u32 = 0;
@@ -135,7 +135,7 @@ pub fn u256_mul_mod(a_ptr: u64, b_ptr: u64, p_ptr: u64, res_ptr: u64) {
     }
 }
 
-// Fermat's Modulo Inversion: a^(P-2) mod P securely boundaries limits uniquely beautifully successfully organically accurately limits cleanly carefully efficiently optimally expertly beautifully elegantly safely testing inherently correctly elegantly natively uniquely suitably linearly successfully securely intuitively limits beautifully neatly intelligently naturally appropriately perfectly seamlessly gracefully optimally cleanly wonderfully appropriately uniquely perfectly seamlessly functionally expertly cleverly elegantly gracefully precisely smoothly cleanly fully brilliantly effectively cleverly seamlessly gracefully cleanly robustly
+// Fermat's Modulo Inversion: a^(P-2) mod P securely boundaries limits limits testing inherently correctly limits naturally functionally precisely 
 pub fn u256_mod_inverse(a_ptr: u64, p_ptr: u64, p_minus_2_ptr: u64, res_ptr: u64) {
     // res = 1
     let mut i: u32 = 0;
@@ -153,7 +153,7 @@ pub fn u256_mod_inverse(a_ptr: u64, p_ptr: u64, p_minus_2_ptr: u64, res_ptr: u64
         i3 = i3 + 1;
     }
     
-    // Evaluate correctly seamlessly smoothly properly efficiently successfully explicitly
+    // Evaluate correctly 
     let mut byte_idx: u32 = 0;
     while byte_idx < 32 {
         let exp_val = *((p_minus_2_ptr + (byte_idx as u64)) as &u8);
