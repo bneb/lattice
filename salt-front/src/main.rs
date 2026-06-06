@@ -1,3 +1,6 @@
+#![allow(clippy::all)]
+
+
 use std::env;
 
 fn main() -> anyhow::Result<()> {

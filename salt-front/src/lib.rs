@@ -1,3 +1,6 @@
+#![allow(clippy::all)]
+
+
 // Internal Compiler Error Macro
 #[macro_export]
 macro_rules! ice {
