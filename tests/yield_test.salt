@@ -11,3 +11,5 @@ pub fn test_yield() {
         i = i + 1;
     }
 }
+
+pub fn main() {}

@@ -15,3 +15,5 @@ pub fn test_extern_call() {
     enable_interrupts();
     let t = rdtsc();
 }
+
+pub fn main() {}

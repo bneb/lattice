@@ -11,3 +11,5 @@ pub fn heavy_work() {
 }
 
 // CHECK: func.call @__salt_yield_check
+
+pub fn main() {}

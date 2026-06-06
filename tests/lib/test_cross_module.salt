@@ -18,3 +18,5 @@ pub fn test_cross_call() {
     // Similarly for serial — should not hydrate serial.init() body.
     serial.init();
 }
+
+pub fn main() {}

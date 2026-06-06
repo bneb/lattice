@@ -6,3 +6,5 @@ fn salt_main() {
     }
     println(f"Sum of 0..10 is: {sum}");
 }
+
+pub fn main() {}

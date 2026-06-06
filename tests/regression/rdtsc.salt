@@ -7,3 +7,5 @@ pub fn get_time() -> u64 {
 }
 
 // CHECK: llvm\.call @llvm\.readcyclecounter
+
+pub fn main() {}

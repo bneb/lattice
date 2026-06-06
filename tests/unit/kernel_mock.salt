@@ -12,3 +12,5 @@ fn init() -> i32 {
     PMM = state;     // Write global
     return 0;
 }
+
+pub fn main() {}

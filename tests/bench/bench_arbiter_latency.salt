@@ -158,3 +158,5 @@ pub fn run_arbiter_latency_bench() {
     serial.print("[bench_arbiter] KPI Target: < 12 cycles per validation.\n");
     serial.print("[bench_arbiter] ================================\n");
 }
+
+pub fn main() {}

@@ -174,3 +174,5 @@ fn spawn_and_kill_actor() -> sovereign_reclaim.ReclaimResult {
         kpi_violated: 0,
     };
 }
+
+pub fn main() {}

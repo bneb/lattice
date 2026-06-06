@@ -160,3 +160,5 @@ fn compute_percentile(hist: JitterHistogram, percentile_mill: u64) -> u64 {
 
     return (BUCKET_COUNT - 1) * BUCKET_WIDTH_NS;  // Overflow
 }
+
+pub fn main() {}
