@@ -165,3 +165,5 @@ pub fn tests_e2e_multiprocess_run() -> i32 {
     
     return 0; // Success! Parent survives child SIGKILL perfectly
 }
+
+pub fn main() {}

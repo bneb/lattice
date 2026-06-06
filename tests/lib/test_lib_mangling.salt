@@ -13,3 +13,5 @@ pub fn init() {
 pub fn bare_init() {
     // This should export as bare_init (no mangling)
 }
+
+pub fn main() {}

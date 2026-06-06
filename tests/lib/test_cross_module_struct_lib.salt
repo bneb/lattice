@@ -24,3 +24,5 @@ pub fn phys_to_virt(p: PhysAddr) -> VirtAddr {
 pub fn make_phys(raw: u64) -> PhysAddr {
     return PhysAddr { val: raw };
 }
+
+pub fn main() {}

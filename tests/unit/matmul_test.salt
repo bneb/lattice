@@ -4,3 +4,5 @@ fn matmul_test() {
     let c = a * b; // matmul
     let d = a + b; // addition
 }
+
+pub fn main() {}

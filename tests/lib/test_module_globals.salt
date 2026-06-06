@@ -15,3 +15,5 @@ pub fn test_globals() {
     increment();
     // COUNTER should be 2
 }
+
+pub fn main() {}

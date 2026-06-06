@@ -10,3 +10,5 @@ fn test_fat_ptr(s: Window<u8>) -> u64 {
 // CHECK: !llvm\.struct<\(!llvm\.ptr, i64\)>
 // CHECK: llvm\.getelementptr .*\[0, 1\] : \(!llvm\.ptr\) -> !llvm\.ptr, !llvm\.struct<\(!llvm\.ptr, i64\)>
 // CHECK: llvm\.load .* : !llvm\.ptr -> i64
+
+pub fn main() {}

@@ -19,3 +19,5 @@ pub fn test_dispatch() {
     // Module-namespace call (not method-on-struct)
     mock_outb(0x3F8, 0x41);
 }
+
+pub fn main() {}

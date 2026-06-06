@@ -28,3 +28,5 @@ pub fn xmod_get_flag() -> u32 {
 pub fn xmod_get_flag_ptr() -> u64 {
     return (&SHARED_FLAG) as u64;
 }
+
+pub fn main() {}

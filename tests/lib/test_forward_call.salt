@@ -14,3 +14,5 @@ pub fn foo() -> u64 {
 pub fn bar() {
     return;
 }
+
+pub fn main() {}
