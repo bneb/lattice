@@ -11,7 +11,7 @@ extern fn free(ptr: u64);
 
 fn main() -> i32 {
     // Allocate 16 bytes
-    let raw = malloc(16);
+    let raw = (malloc(16) as u64);
     let buf = raw as Ptr<u8>;
 
     // Test 1: memset to 0 (the original bug - 0 emitted as i32)

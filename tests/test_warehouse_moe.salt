@@ -175,10 +175,10 @@ fn main() -> i32 {
     // =========================================================================
     // Allocate shared resources
     // =========================================================================
-    let rt_addr: u64 = malloc(1536);    // Routing table: 64 × 24
-    let bar_buf: u64 = malloc(8192);    // Mock PCIe BAR (sufficient for doorbell)
-    let token_ctr: u64 = malloc(8);     // Token counter
-    let manifest: u64 = malloc(MANIFEST_SIZE as i64);
+    let rt_addr: u64 = (malloc(1536) as u64);    // Routing table: 64 × 24
+    let bar_buf: u64 = (malloc(8192) as u64);    // Mock PCIe BAR (sufficient for doorbell)
+    let token_ctr: u64 = (malloc(8) as u64);     // Token counter
+    let manifest: u64 = (malloc(MANIFEST_SIZE as i64) as u64);
     if rt_addr == 0 || bar_buf == 0 || token_ctr == 0 || manifest == 0 { return 1; }
     zero_init(rt_addr, 1536);
     zero_init(bar_buf, 8192);
@@ -227,8 +227,8 @@ fn main() -> i32 {
     // T4-T6: Coroutine — INIT fires doorbell, yields PENDING
     // =========================================================================
     // Allocate arena for 16×16 tensors: A+B+C = 3 × 256 × 8 = 6144 bytes
-    let arena0: u64 = malloc(6144);
-    let state0: u64 = malloc(MOE_STATE_SIZE as i64);
+    let arena0: u64 = (malloc(6144) as u64);
+    let state0: u64 = (malloc(MOE_STATE_SIZE as i64) as u64);
     if arena0 == 0 || state0 == 0 { free(rt_addr); free(bar_buf); free(token_ctr); free(manifest); return 1; }
     zero_init(state0, MOE_STATE_SIZE);
 
@@ -302,10 +302,10 @@ fn main() -> i32 {
     // =========================================================================
     // T9-T11: Two-expert pipeline — concurrent coroutines
     // =========================================================================
-    let state_a: u64 = malloc(MOE_STATE_SIZE as i64);
-    let state_b: u64 = malloc(MOE_STATE_SIZE as i64);
-    let arena_a: u64 = malloc(6144);  // Expert A: 16×16
-    let arena_b: u64 = malloc(6144);  // Expert B: 16×16
+    let state_a: u64 = (malloc(MOE_STATE_SIZE as i64) as u64);
+    let state_b: u64 = (malloc(MOE_STATE_SIZE as i64) as u64);
+    let arena_a: u64 = (malloc(6144) as u64);  // Expert A: 16×16
+    let arena_b: u64 = (malloc(6144) as u64);  // Expert B: 16×16
     if state_a == 0 || state_b == 0 || arena_a == 0 || arena_b == 0 { return 1; }
     zero_init(state_a, MOE_STATE_SIZE);
     zero_init(state_b, MOE_STATE_SIZE);
@@ -385,8 +385,8 @@ fn main() -> i32 {
     // =========================================================================
     // T12: WorkDeque — push MoE task IDs, steal across cores
     // =========================================================================
-    let deque0: u64 = malloc(DEQUE_TOTAL_SIZE as i64);
-    let deque1: u64 = malloc(DEQUE_TOTAL_SIZE as i64);
+    let deque0: u64 = (malloc(DEQUE_TOTAL_SIZE as i64) as u64);
+    let deque1: u64 = (malloc(DEQUE_TOTAL_SIZE as i64) as u64);
     if deque0 == 0 || deque1 == 0 { free(rt_addr); free(bar_buf); free(token_ctr); free(manifest); return 1; }
     deque_init(deque0);
     deque_init(deque1);

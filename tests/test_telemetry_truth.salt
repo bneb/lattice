@@ -42,7 +42,7 @@ extern fn rdtsc() -> i64;
 fn qsort(arr: u64, initial_low: i64, initial_high: i64) {
     if initial_high <= initial_low { return; }
 
-    let stack: u64 = malloc(1024);
+    let stack: u64 = (malloc(1024) as u64);
     if stack == 0 { return; }
     let mut top: i64 = -1;
 
@@ -167,7 +167,7 @@ fn main() -> i32 {
     // =========================================================================
     // T1: Quicksort unit test — 20-element unsorted → exact ascending
     // =========================================================================
-    let qa: u64 = malloc(160);  // 20 × 8
+    let qa: u64 = (malloc(160) as u64);  // 20 × 8
     if qa == 0 { return 1; }
 
     let vals: [i64; 20] = [20, 3, 15, 1, 8, 17, 2, 19, 6, 12, 10, 4, 18, 7, 14, 5, 16, 9, 11, 13];
@@ -191,7 +191,7 @@ fn main() -> i32 {
     // =========================================================================
     // T2: Already sorted [1..10] stays sorted
     // =========================================================================
-    let qb: u64 = malloc(80);
+    let qb: u64 = (malloc(80) as u64);
     if qb == 0 { return 1; }
     let mut si: i32 = 0;
     while si < 10 {
@@ -224,7 +224,7 @@ fn main() -> i32 {
     // =========================================================================
     // T4: Single element [42] → [42]
     // =========================================================================
-    let qs: u64 = malloc(8);
+    let qs: u64 = (malloc(8) as u64);
     if qs == 0 { return 1; }
     *((qs) as &mut i64) = 42;
     qsort(qs, 0, 0);
@@ -234,7 +234,7 @@ fn main() -> i32 {
     // =========================================================================
     // T5: Static 4×4 matmul — A=1, B=2, C[i,j]=8.0
     // =========================================================================
-    let mat: u64 = malloc(6144);
+    let mat: u64 = (malloc(6144) as u64);
     if mat == 0 { return 1; }
     let a4: u64 = mat;
     let b4: u64 = mat + 128;
@@ -262,8 +262,8 @@ fn main() -> i32 {
     // =========================================================================
     // T7: 10K harness with quicksort CDF
     // =========================================================================
-    let samples: u64 = malloc(80000);
-    let stats: u64 = malloc(824);   // 103 × 8
+    let samples: u64 = (malloc(80000) as u64);
+    let stats: u64 = (malloc(824) as u64);   // 103 × 8
     if samples == 0 || stats == 0 { free(mat); return 1; }
 
     // Warmup: 1000 unmeasured
@@ -322,8 +322,8 @@ fn main() -> i32 {
     // =========================================================================
     // T10: CPE scaling — 16×16 / 4×4
     // =========================================================================
-    let samples16: u64 = malloc(80000);
-    let stats16: u64 = malloc(824);
+    let samples16: u64 = (malloc(80000) as u64);
+    let stats16: u64 = (malloc(824) as u64);
     if samples16 == 0 || stats16 == 0 { free(samples); free(stats); free(mat); return 1; }
 
     fill(a16, 16, 1.0);

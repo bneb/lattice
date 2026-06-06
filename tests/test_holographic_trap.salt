@@ -143,14 +143,14 @@ fn cleanup(a: u64, b: u64, c: u64, d: u64, e: u64, f: u64, g: u64, h: u64) {
 }
 
 fn main() -> i32 {
-    let idt: u64 = malloc(4096);
-    let manifest: u64 = malloc(32);
-    let frame: u64 = malloc(FRAME_SIZE as i64);
-    let desc_table: u64 = malloc(DESC_TABLE_SIZE as i64);
-    let avail_ring: u64 = malloc(AVAIL_SIZE as i64);
-    let tx_state: u64 = malloc(TX_STATE_SIZE as i64);
-    let notify: u64 = malloc(8);
-    let cfg: u64 = malloc(CFG_SIZE as i64);
+    let idt: u64 = (malloc(4096) as u64);
+    let manifest: u64 = (malloc(32) as u64);
+    let frame: u64 = (malloc(FRAME_SIZE as i64) as u64);
+    let desc_table: u64 = (malloc(DESC_TABLE_SIZE as i64) as u64);
+    let avail_ring: u64 = (malloc(AVAIL_SIZE as i64) as u64);
+    let tx_state: u64 = (malloc(TX_STATE_SIZE as i64) as u64);
+    let notify: u64 = (malloc(8) as u64);
+    let cfg: u64 = (malloc(CFG_SIZE as i64) as u64);
 
     if idt == 0 || manifest == 0 || frame == 0 || desc_table == 0 ||
        avail_ring == 0 || tx_state == 0 || notify == 0 || cfg == 0 { return 1; }
@@ -223,7 +223,7 @@ fn main() -> i32 {
     if panic_result != TRAP_PANIC { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 9; }
 
     // T12: Manifest unlocked
-    let um: u64 = malloc(32);
+    let um: u64 = (malloc(32) as u64);
     if um == 0 { cleanup(idt, manifest, frame, desc_table, avail_ring, tx_state, notify, cfg); return 1; }
     mock_manifest(um, TEST_BAR, 0);
     let ur: u32 = handle_page_fault(frame, cr2, um, desc_table, avail_ring, tx_state, notify);

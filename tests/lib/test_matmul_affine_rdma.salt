@@ -54,9 +54,9 @@ fn fabric_write(addr: u64, locality: u32, offset: u64, val: f64) {
 
 fn main() -> i32 {
     let size: i64 = 128;
-    let a_addr: u64 = malloc(size);
-    let b_addr: u64 = malloc(size);
-    let c_addr: u64 = malloc(size);
+    let a_addr: u64 = (malloc(size) as u64);
+    let b_addr: u64 = (malloc(size) as u64);
+    let c_addr: u64 = (malloc(size) as u64);
 
     // Initialize with RDMA locality (stubbed)
     let loc: u32 = LOC_RDMA;

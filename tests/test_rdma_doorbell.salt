@@ -36,7 +36,7 @@ fn main() -> i32 {
     // Allocate mock NIC BAR (8KB to cover BAR base + doorbell at +0x1000)
     // =========================================================================
     let bar_size: i64 = 8192;
-    let bar_addr: u64 = malloc(bar_size);
+    let bar_addr: u64 = (malloc(bar_size) as u64);
     if bar_addr == 0 { return 1; }
 
     // Zero-fill

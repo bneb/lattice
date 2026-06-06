@@ -29,9 +29,9 @@ extern fn free(ptr: u64);
 fn main() -> i32 {
     // Allocate three 4×4 f64 matrices (128 bytes each)
     let size: i64 = 128;
-    let a_addr: u64 = malloc(size);
-    let b_addr: u64 = malloc(size);
-    let c_addr: u64 = malloc(size);
+    let a_addr: u64 = (malloc(size) as u64);
+    let b_addr: u64 = (malloc(size) as u64);
+    let c_addr: u64 = (malloc(size) as u64);
 
     if a_addr == 0 {
         return 1;

@@ -99,9 +99,9 @@ fn matmul_rdma(
 // Main — instantiate RDMA tensors and call matmul
 fn main() -> i32 {
     let size: i64 = 128;
-    let a_addr: u64 = malloc(size);
-    let b_addr: u64 = malloc(size);
-    let c_addr: u64 = malloc(size);
+    let a_addr: u64 = (malloc(size) as u64);
+    let b_addr: u64 = (malloc(size) as u64);
+    let c_addr: u64 = (malloc(size) as u64);
 
     // Call matmul with LOC_RDMA for all tensors
     // This proves the compiler can lower the RDMA path
