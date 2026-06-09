@@ -1438,10 +1438,7 @@
             <div class="projects-header">
                 <h2>Built with Salt.</h2>
                 <p class="section-sub centered">
-                    Salt was developed to solve foundational challenges in high-performance computing.
-                    From optimizing LLM inference loops to structuring bare-metal unikernels, the language has been
-                    refined through application in critical systems. The following projects demonstrate Salt’s
-                    capability to handle complex, resource-constrained environments.
+                    Salt is built alongside real systems to validate its compiler guarantees in practice. Here is what we've written with it so far.
                 </p>
             </div>
 
@@ -2413,6 +2410,7 @@ process(&amp;buf);     <span class="cmt">// ✗ compile error: use of moved valu
         // ─── Benchmark data ──────────────────────────────────────────
         const REPO = 'https://github.com/bneb/keuos';
         const benchmarks = [
+            { name: 'C10M TCP Echo', salt: 27.2, c: 29.5, rust: 26.4, unit: 'k rps', speedup: '~1×', parity: true, file: 'c10m/echo_salt.salt' },
             { name: 'buffered_writer', salt: 43, c: 556, rust: 58, speedup: '12×', file: 'buffered_writer_perf.salt' },
             { name: 'fstring_perf', salt: 240, c: 1112, rust: 768, speedup: '4.6×', file: 'fstring_perf.salt' },
             { name: 'longest_consecutive', salt: 260, c: 833, rust: 319, speedup: '3.2×', file: 'longest_consecutive.salt' },
@@ -2432,6 +2430,7 @@ process(&amp;buf);     <span class="cmt">// ✗ compile error: use of moved valu
             const pct = v => Math.max(8, (v / max) * 100);
             const cls = b.parity ? 'parity' : 'fast';
             const href = `${REPO}/blob/main/benchmarks/${b.file}`;
+            const unit = b.unit || 'ms';
 
             const link = document.createElement('a');
             link.className = 'bench-card-link';
@@ -2448,19 +2447,19 @@ process(&amp;buf);     <span class="cmt">// ✗ compile error: use of moved valu
                 <div class="bench-bar-row">
                     <span class="bench-label">Salt</span>
                     <div class="bench-bar-bg">
-                        <div class="bench-bar salt" data-width="${pct(b.salt)}" style="width: 0%">${b.salt}ms</div>
+                        <div class="bench-bar salt" data-width="${pct(b.salt)}" style="width: 0%">${b.salt}${unit}</div>
                     </div>
                 </div>
                 <div class="bench-bar-row">
                     <span class="bench-label">C</span>
                     <div class="bench-bar-bg">
-                        <div class="bench-bar c-lang" data-width="${pct(b.c)}" style="width: 0%">${b.c}ms</div>
+                        <div class="bench-bar c-lang" data-width="${pct(b.c)}" style="width: 0%">${b.c}${unit}</div>
                     </div>
                 </div>
                 <div class="bench-bar-row">
                     <span class="bench-label">Rust</span>
                     <div class="bench-bar-bg">
-                        <div class="bench-bar rust" data-width="${pct(b.rust)}" style="width: 0%">${b.rust}ms</div>
+                        <div class="bench-bar rust" data-width="${pct(b.rust)}" style="width: 0%">${b.rust}${unit}</div>
                     </div>
                 </div>
             `;
