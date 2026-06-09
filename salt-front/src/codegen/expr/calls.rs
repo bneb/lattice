@@ -458,13 +458,17 @@ pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall,
              for (i, arg_expr) in c.args.iter().enumerate() {
                  super::mark_expression_escaped(ctx, arg_expr);
                  
-                 // [SALT MEMORY MODEL] Conservative Aliasing
-                 // Any pointer passed to a function might be freed or mutated.
-                 // Mark its state as Optional (unknown) to require a re-check.
-                 if call_name != "free" {
-                     if let Some(Type::Pointer { .. }) = final_arg_tys.get(i) {
-                         if let Some(var_name) = super::extract_ident_name(arg_expr) {
-                             ctx.pointer_tracker.mark_optional(&var_name);
+                 // [SALT MEMORY MODEL] Conservative Aliasing (Interprocedural Purity + Arena-Immunity)
+                 // If the function calls `free` transitively OR it's an opaque external function,
+                 // we conservatively alias pointers. Otherwise, it cannot invalidate the pointer.
+                 let unmangled = super::extract_ident_name(&c.func).unwrap_or(call_name.clone());
+                 if unmangled != "free" && unmangled != "drop" {
+                     let is_extern = ctx.external_decls().contains(&unmangled);
+                     if is_extern || ctx.config.freeing_functions.contains(&unmangled) {
+                         if let Some(Type::Pointer { .. }) = final_arg_tys.get(i) {
+                             if let Some(var_name) = super::extract_ident_name(arg_expr) {
+                                 ctx.pointer_tracker.mark_optional(&var_name);
+                             }
                          }
                      }
                  }

@@ -1,7 +1,5 @@
 // Writer Protocol Performance Benchmark - C baseline
-// Measures direct-to-buffer formatting using byte-by-byte loops
-// Matches Salt's current loop-based write_str implementation for fair
-// comparison
+// Matches Salt's memcpy and direct pointer write implementation
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,79 +8,58 @@
 #define ITERATIONS 10000000
 #define BUFFER_SIZE 4096
 
-// Simulate a "Writer" that accumulates to a buffer
 typedef struct {
   char *data;
   size_t len;
   size_t capacity;
 } Buffer;
 
-// Byte-by-byte push (matches Salt's push_byte approach)
-static inline void buffer_push_byte(Buffer *b, char c) {
-  if (b->len < b->capacity) {
-    b->data[b->len++] = c;
+static inline int write_i32_to_ptr(char *base, int val) {
+  if (val == 0) {
+    base[0] = '0';
+    return 1;
   }
-}
-
-// Loop-based write_str (matches Salt's current approach)
-static inline void buffer_write_str(Buffer *b, const char *s, size_t slen) {
-  for (size_t i = 0; i < slen; i++) {
-    buffer_push_byte(b, s[i]);
-  }
-}
-
-// Inlined integer formatting (digit extraction + byte-by-byte push)
-static inline void buffer_write_i32(Buffer *b, int val) {
   char tmp[16];
   int len = 0;
   int n = val;
   int neg = n < 0;
-  if (neg)
-    n = -n;
-
-  if (n == 0) {
-    buffer_push_byte(b, '0');
-    return;
-  }
-
+  if (neg) n = -n;
+  
   while (n > 0) {
     tmp[len++] = '0' + (n % 10);
     n /= 10;
   }
-
-  if (neg)
-    buffer_push_byte(b, '-');
-
+  
+  int offset = 0;
+  if (neg) base[offset++] = '-';
   for (int i = len - 1; i >= 0; i--) {
-    buffer_push_byte(b, tmp[i]);
+    base[offset++] = tmp[i];
   }
+  return offset;
 }
 
-// Inlined i64 formatting (matches Salt's write_i64)
-static inline void buffer_write_i64(Buffer *b, long val) {
+static inline int write_i64_to_ptr(char *base, long val) {
+  if (val == 0) {
+    base[0] = '0';
+    return 1;
+  }
   char tmp[24];
   int len = 0;
   long n = val;
   int neg = n < 0;
-  if (neg)
-    n = -n;
-
-  if (n == 0) {
-    buffer_push_byte(b, '0');
-    return;
-  }
-
+  if (neg) n = -n;
+  
   while (n > 0) {
     tmp[len++] = '0' + (n % 10);
     n /= 10;
   }
-
-  if (neg)
-    buffer_push_byte(b, '-');
-
+  
+  int offset = 0;
+  if (neg) base[offset++] = '-';
   for (int i = len - 1; i >= 0; i--) {
-    buffer_push_byte(b, tmp[i]);
+    base[offset++] = tmp[i];
   }
+  return offset;
 }
 
 int main(int argc, char **argv) {
@@ -90,22 +67,30 @@ int main(int argc, char **argv) {
   Buffer buf = {.data = storage, .len = 0, .capacity = BUFFER_SIZE};
 
   long total_len = 0;
+  char checksum = 0;
 
   for (int i = 0; i < ITERATIONS; i++) {
-    // Reset buffer each iteration
     buf.len = 0;
+    int offset = 0;
 
-    // Direct write calls using byte-by-byte approach
-    buffer_write_str(&buf, "Item ", 5);
-    buffer_write_i32(&buf, i);
-    buffer_write_str(&buf, ": val = ", 8);
-    buffer_write_i64(&buf, (long)i * 1000);
+    memcpy(buf.data + offset, "Item ", 5);
+    offset += 5;
+    
+    offset += write_i32_to_ptr(buf.data + offset, i);
+    
+    memcpy(buf.data + offset, ": val = ", 8);
+    offset += 8;
+    
+    offset += write_i64_to_ptr(buf.data + offset, (long)i * 1000);
 
+    buf.len = offset;
     total_len += buf.len;
+    
+    checksum ^= buf.data[0];
+    checksum ^= buf.data[buf.len - 1];
   }
 
-  // Prevent DCE
-  if (total_len == 0)
+  if (total_len == 0 || checksum == (char)255)
     return 1;
   return 0;
 }

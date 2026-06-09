@@ -6,40 +6,43 @@ import std.core.ptr.Ptr
 import std.core.arena
 
 fn fannkuch(n: i32) -> i32 {
-    let size = (n * 4) as i64;
-    let perm: Ptr<i32> = arena::alloc(size) as Ptr<i32>;
-    let perm1: Ptr<i32> = arena::alloc(size) as Ptr<i32>;
-    let count: Ptr<i32> = arena::alloc(size) as Ptr<i32>;
+    let size = (n * 8) as i64;
+    let perm: Ptr<i64> = arena::alloc(size) as Ptr<i64>;
+    let perm1: Ptr<i64> = arena::alloc(size) as Ptr<i64>;
+    let count: Ptr<i64> = arena::alloc(size) as Ptr<i64>;
     
     let mut max_flips = 0;
     let mut checksum = 0;
     let mut perm_count = 0;
     
     unsafe {
-        for i in 0..n { perm1[i as i64] = i; }
+        for i in 0..n { perm1[i] = i as i64; }
     }
-    let mut r = n;
+    let mut r = n as i64;
     
     while true {
         unsafe {
             while r != 1 {
-                count[(r - 1) as i64] = r;
+                count[r - 1] = r;
                 r -= 1;
             }
             
-            for i in 0..n { perm[i as i64] = perm1[i as i64]; }
+            for i in 0..n { perm[i] = perm1[i]; }
             
             let mut flips = 0;
-            let mut k = perm[0 as i64];
+            let mut k = perm[0];
             while k != 0 {
-                let k2 = (k + 1) / 2;
-                for i in 0..k2 {
-                    let temp = perm[i as i64];
-                    perm[i as i64] = perm[(k - i) as i64];
-                    perm[(k - i) as i64] = temp;
+                let mut i = 0 as i64;
+                let mut j = k;
+                while i < j {
+                    let temp = perm[i];
+                    perm[i] = perm[j];
+                    perm[j] = temp;
+                    i += 1;
+                    j -= 1;
                 }
                 flips += 1;
-                k = perm[0 as i64];
+                k = perm[0];
             }
             
             if flips > max_flips { max_flips = flips; }
@@ -48,14 +51,14 @@ fn fannkuch(n: i32) -> i32 {
             
             // Generate next permutation
             while true {
-                if r == n {
+                if r == (n as i64) {
                     return checksum * 1000 + max_flips;
                 }
-                let perm0 = perm1[0 as i64];
-                for i in 0..r { perm1[i as i64] = perm1[(i + 1) as i64]; }
-                perm1[r as i64] = perm0;
-                let cnt = count[r as i64] - 1;
-                count[r as i64] = cnt;
+                let perm0 = perm1[0];
+                for i in 0..r { perm1[i] = perm1[i + 1]; }
+                perm1[r] = perm0;
+                let cnt = count[r] - 1;
+                count[r] = cnt;
                 if cnt > 0 { break; }
                 r += 1;
             }

@@ -159,6 +159,10 @@ pub struct CodegenContext<'a> {
     /// Each entry is ("StructName_FieldName", hash_combine(struct_id, offset, align)).
     /// Emitted as `salt.proof_hints` attribute on the MLIR module.
     pub proof_hints: RefCell<Vec<(String, u64)>>,
+
+    // === Interprocedural Free Analysis ===
+    /// Set of function names that call `free` (directly or transitively)
+    pub freeing_functions: HashSet<String>,
 }
 
 /// Type alias to canonical TensorLayout in phases module
@@ -180,6 +184,7 @@ pub struct CodegenConfig<'a> {
     pub sip_mode: bool,
     pub debug_info: bool,
     pub source_file: &'a str,
+    pub freeing_functions: &'a std::collections::HashSet<String>,
 }
 
 /// LoweringContext: A "view struct" holding direct &mut references to phase structs.
@@ -1561,6 +1566,7 @@ impl<'a> CodegenContext<'a> {
                 sip_mode: self.sip_mode,
                 debug_info: self.debug_info,
                 source_file: &self.source_file,
+                freeing_functions: &self.freeing_functions,
             },
         };
 
@@ -1600,6 +1606,7 @@ impl<'a> CodegenContext<'a> {
             sip_mode: false,
             debug_info: false,
             source_file: String::new(),
+            freeing_functions: HashSet::new(),
             
             // Per-function state
             evaluator: RefCell::new(Evaluator::new()),

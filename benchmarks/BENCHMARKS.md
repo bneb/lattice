@@ -13,15 +13,17 @@ All benchmarks use runtime-dynamic inputs to prevent constant folding. Measureme
 
 | Benchmark | C (`clang -O3`) | Salt | % of C | Status | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `fib` | 175ms | 175ms | 100% | Parity | Pure arithmetic loop. MLIR lowers identically to LLVM. |
-| `sieve` | 145ms | 149ms | 102% | Parity | Memory-bound bit/byte manipulation. |
-| `http_parser` | 17ms | 16ms | 94% | Parity | Uses verified `intrin_find_byte` mapping directly to LLVM `memchr` for SIMD speed. |
-| `matmul` | 150ms | 173ms | 115% | Parity | Affine tiling optimizations keep it competitive. |
-| `hashmap_bench` | 21ms | 19ms | 90% | Parity | Salt uses Swiss-tables by default; C baseline uses standard hashing. |
-| `vector_add` | 107ms | 83ms | 77% | Salt is faster | LLVM auto-vectorization (NEON) applies more aggressively on Salt's strongly-typed buffers. |
-| `lru_cache` | 24ms | 11ms | 45% | Salt is faster | Salt uses zero-overhead Arena allocation; C relies on `malloc`/`free`. |
-| `buffered_writer` | 556ms | 43ms | 7% | Salt is faster | C uses standard `stdio` (which locks); Salt's I/O uses unlocked SPSC ring buffers natively. |
-| `sudoku_solver` | 28ms | 34ms | 121% | Salt is slower | Array-of-structs boundary checking adds slight overhead in tight recursive loops. |
+| `fib` | 184ms | 183ms | 99% | Parity | Pure arithmetic loop. MLIR lowers identically to LLVM. |
+| `sieve` | 146ms | 150ms | 102% | Parity | Memory-bound bit/byte manipulation. |
+| `http_parser` | 26ms | 25ms | 96% | Parity | Uses verified `intrin_find_byte` mapping directly to LLVM `memchr` for SIMD speed. |
+| `matmul` | 157ms | 161ms | 102% | Parity | Affine tiling optimizations keep it competitive. |
+| `hashmap_bench` | 24ms | 18ms | 75% | Salt is faster | Salt uses Swiss-tables by default; C baseline uses standard hashing. |
+| `vector_add` | 112ms | 94ms | 83% | Parity | LLVM auto-vectorization (NEON) applies more aggressively on Salt's strongly-typed buffers. |
+| `lru_cache` | 17ms | 10ms | 58% | Salt is faster | Salt uses zero-overhead Arena allocation; C relies on `malloc`/`free`. |
+| `buffered_writer` | 316ms | 23ms | 7% | Salt is faster | C uses standard `stdio` (which locks); Salt's I/O uses unlocked SPSC ring buffers natively. |
+| `sudoku_solver` | 21ms | 29ms | 138% | Salt is slower | Array-of-structs boundary checking adds slight overhead in tight recursive loops. |
+| `fstring_perf` | 1142ms | 199ms | 17% | Salt is faster | Salt's `InterpolatedStringHandler` paired with global arena tracking out-performs `snprintf`. |
+| `longest_consecutive` | 832ms | 262ms | 31% | Salt is faster | Salt's Swiss-table operations provide huge advantages for contiguous range lookups. |
 
 ### The "Faster Than C" Caveat
 

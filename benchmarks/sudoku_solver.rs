@@ -37,17 +37,17 @@ fn main() {
     let mut total_solved = 0;
     
     for _ in 0..600 {
-        let mut board: [u8; 81] = [0; 81];
-        
-        for idx in 0..81 {
-            let r = idx / 9;
-            let c = idx % 9;
-            let val = ((((r % 3) * 3 + (r / 3) + c) % 9) + 1) as u8;
-            board[idx] = val;
-        }
-        board[72] = 0;
-        board[73] = 0;
-        board[74] = 0;
+        let mut board: [u8; 81] = [
+            3, 0, 6, 5, 0, 8, 4, 0, 0,
+            5, 2, 0, 0, 0, 0, 0, 0, 0,
+            0, 8, 7, 0, 0, 0, 0, 3, 1,
+            0, 0, 3, 0, 1, 0, 0, 8, 0,
+            9, 0, 0, 8, 6, 3, 0, 0, 5,
+            0, 5, 0, 0, 9, 0, 6, 0, 0,
+            1, 3, 0, 0, 0, 0, 2, 5, 0,
+            0, 0, 0, 0, 0, 0, 0, 7, 4,
+            0, 0, 5, 2, 0, 6, 3, 0, 0
+        ];
         
         if solve(&mut board) {
             total_solved += 1;

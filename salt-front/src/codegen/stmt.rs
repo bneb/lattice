@@ -2414,6 +2414,7 @@ fn get_narrowing_target(cond: &syn::Expr) -> Option<(String, bool)> {
     // [POINTER TRUTHINESS] Bare pointer: `if ptr { ... }` => narrowing target = ptr, is_neq=true
     if let syn::Expr::Path(p) = cond {
         if let Some(ident) = p.path.get_ident() {
+            println!("DEBUG get_narrowing_target: matched Expr::Path {}", ident);
             return Some((ident.to_string(), true));
         }
     }
@@ -2482,6 +2483,7 @@ pub fn emit_salt_if(
 
     // Apply narrowing for Then
     if let Some((var, is_neq)) = &narrowing {
+        println!("DEBUG narrowing applying for Then: {} {}", var, is_neq);
         if *is_neq { 
             // p != 0 -> Valid in Then
             ctx.pointer_tracker.mark_valid(var); 
@@ -2489,6 +2491,8 @@ pub fn emit_salt_if(
             // p == 0 -> Empty in Then
             ctx.pointer_tracker.mark_empty(var); 
         }
+    } else {
+        println!("DEBUG narrowing is None for cond");
     }
 
     let loc = ctx.loc_tag(cond.span());

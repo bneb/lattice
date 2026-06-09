@@ -183,6 +183,15 @@ use std::collections::{HashMap, HashSet};
     
     // Initialize Context
     let mut ctx = CodegenContext::new(file, release_mode, Some(&loader_registry), &z3_ctx);
+
+    // [SALT MEMORY MODEL] Pre-compute Interprocedural Call Graph Purity
+    let mut all_files = Vec::new();
+    for (_, ast) in &loader.loaded_files {
+        all_files.push(ast);
+    }
+    all_files.push(file);
+    ctx.freeing_functions = crate::codegen::phases::purity::PurityAnalyzer::analyze(&all_files);
+
     ctx.emit_alias_scopes = !disable_alias_scopes;
     ctx.no_verify = no_verify;
     ctx.lib_mode = lib_mode;

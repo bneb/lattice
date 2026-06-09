@@ -13,6 +13,7 @@ pub mod emission;
 pub mod verification;
 pub mod control_flow;
 pub mod resolution;
+pub mod purity;
 
 pub use discovery::DiscoveryState;
 pub use expansion::{ExpansionState, MonomorphizerState, SpecializationTask};

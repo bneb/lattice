@@ -27,7 +27,7 @@ pub fn native_fstring_expand_impl(_ctx: &CodegenContext, content: &str) -> Strin
     }
 
     let mut code = String::new();
-    code.push_str("{ let mut __h = std::string::InterpolatedStringHandler::new(");
+    code.push_str("{ let mut __h = std.string.InterpolatedStringHandler::new(");
     code.push_str(&format!("{}, {}); ", literal_len, interp_count));
     for seg in segments {
         match seg {

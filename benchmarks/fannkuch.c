@@ -37,11 +37,14 @@ int fannkuch(int n) {
     int k;
     while ((k = perm[0]) != 0) {
       // Reverse first k+1 elements
-      int k2 = (k + 1) >> 1;
-      for (int i = 0; i < k2; i++) {
+      int i = 0;
+      int j = k;
+      while (i < j) {
         int temp = perm[i];
-        perm[i] = perm[k - i];
-        perm[k - i] = temp;
+        perm[i] = perm[j];
+        perm[j] = temp;
+        i++;
+        j--;
       }
       flips++;
     }

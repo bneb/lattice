@@ -1,123 +1,96 @@
 // Writer Protocol Performance Benchmark - Rust
-// Measures direct-to-buffer formatting using byte-by-byte loops
-// Matches Salt's current loop-based write_str implementation for fair comparison
+// Matches Salt's memcpy and direct pointer write implementation
 
 const ITERATIONS: usize = 10_000_000;
 const BUFFER_SIZE: usize = 4096;
 
-struct Buffer {
-    data: Vec<u8>,
-    len: usize,
+#[inline(always)]
+fn write_i32_to_ptr(base: &mut [u8], mut offset: usize, val: i32) -> usize {
+    if val == 0 {
+        base[offset] = b'0';
+        return offset + 1;
+    }
+    
+    let mut tmp = [0u8; 16];
+    let mut len = 0;
+    let mut n = val;
+    let neg = n < 0;
+    if neg { n = -n; }
+    
+    while n > 0 {
+        tmp[len] = b'0' + (n % 10) as u8;
+        len += 1;
+        n /= 10;
+    }
+    
+    if neg {
+        base[offset] = b'-';
+        offset += 1;
+    }
+    
+    for i in (0..len).rev() {
+        base[offset] = tmp[i];
+        offset += 1;
+    }
+    offset
 }
 
-impl Buffer {
-    fn new(capacity: usize) -> Self {
-        Buffer {
-            data: vec![0u8; capacity],
-            len: 0,
-        }
+#[inline(always)]
+fn write_i64_to_ptr(base: &mut [u8], mut offset: usize, val: i64) -> usize {
+    if val == 0 {
+        base[offset] = b'0';
+        return offset + 1;
     }
     
-    fn clear(&mut self) {
-        self.len = 0;
+    let mut tmp = [0u8; 24];
+    let mut len = 0;
+    let mut n = val;
+    let neg = n < 0;
+    if neg { n = -n; }
+    
+    while n > 0 {
+        tmp[len] = b'0' + (n % 10) as u8;
+        len += 1;
+        n /= 10;
     }
     
-    // Byte-by-byte push (matches Salt's push_byte)
-    fn push_byte(&mut self, b: u8) {
-        if self.len < self.data.len() {
-            self.data[self.len] = b;
-            self.len += 1;
-        }
+    if neg {
+        base[offset] = b'-';
+        offset += 1;
     }
     
-    // Loop-based write_str (matches Salt's approach)
-    fn write_str(&mut self, s: &[u8]) {
-        for &b in s {
-            self.push_byte(b);
-        }
+    for i in (0..len).rev() {
+        base[offset] = tmp[i];
+        offset += 1;
     }
-    
-    // Integer formatting with byte-by-byte push
-    fn write_i32(&mut self, val: i32) {
-        if val == 0 {
-            self.push_byte(b'0');
-            return;
-        }
-        
-        let mut tmp = [0u8; 12];
-        let mut count = 0;
-        let mut n = val;
-        let neg = n < 0;
-        if neg { n = -n; }
-        
-        while n > 0 {
-            tmp[count] = b'0' + (n % 10) as u8;
-            count += 1;
-            n /= 10;
-        }
-        
-        if neg { self.push_byte(b'-'); }
-        
-        for i in (0..count).rev() {
-            self.push_byte(tmp[i]);
-        }
-    }
-    
-    fn write_i64(&mut self, val: i64) {
-        if val == 0 {
-            self.push_byte(b'0');
-            return;
-        }
-        
-        let mut tmp = [0u8; 20];
-        let mut count = 0;
-        let mut n = val;
-        let neg = n < 0;
-        if neg { n = -n; }
-        
-        while n > 0 {
-            tmp[count] = b'0' + (n % 10) as u8;
-            count += 1;
-            n /= 10;
-        }
-        
-        if neg { self.push_byte(b'-'); }
-        
-        for i in (0..count).rev() {
-            self.push_byte(tmp[i]);
-        }
-    }
-    
-    fn len(&self) -> usize {
-        self.len
-    }
+    offset
 }
 
 fn main() {
-    let mut buf = Buffer::new(BUFFER_SIZE);
+    let mut buf = vec![0u8; BUFFER_SIZE];
     let mut total_len: i64 = 0;
     let mut checksum: u8 = 0;
     
     for i in 0..ITERATIONS {
-        buf.clear();
+        let mut offset = 0;
         
-        // Direct write calls using byte-by-byte approach
-        buf.write_str(b"Item ");
-        buf.write_i32(i as i32);
-        buf.write_str(b": val = ");
-        buf.write_i64((i as i64) * 1000);
+        buf[offset..offset+5].copy_from_slice(b"Item ");
+        offset += 5;
         
-        total_len += buf.len() as i64;
+        offset = write_i32_to_ptr(&mut buf, offset, i as i32);
         
-        // [FAIR COMPARISON] XOR first AND last byte to prevent Dead Store Elimination
-        // This creates a data dependency forcing ALL buffer writes including integer formatting
-        checksum ^= buf.data[0];
-        checksum ^= buf.data[buf.len - 1];
+        buf[offset..offset+8].copy_from_slice(b": val = ");
+        offset += 8;
+        
+        offset = write_i64_to_ptr(&mut buf, offset, (i as i64) * 1000);
+        
+        total_len += offset as i64;
+        
+        checksum ^= buf[0];
+        checksum ^= buf[offset - 1];
     }
     
-    // Prevent DCE - use both length and checksum
     if total_len == 0 || checksum == 255 {
         std::process::exit(1);
     }
 }
-

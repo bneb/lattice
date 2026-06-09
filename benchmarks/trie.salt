@@ -5,54 +5,71 @@ import std.core.ptr.Ptr
 import std.core.arena
 
 struct TrieNode {
-    children: [Ptr<TrieNode>; 26],
+    children: [u32; 26],
     is_word: u8
 }
 
-fn create_node() -> Ptr<TrieNode> {
-    let node = arena::alloc(216) as Ptr<TrieNode>;
-    for i in 0..26 {
-        node.children[i as i64] = Ptr::empty();
-    }
-    node.is_word = 0;
-    return node;
+struct Arena {
+    data: Ptr<TrieNode>,
+    size: u32,
+    capacity: u32
 }
 
-fn insert(root: Ptr<TrieNode>, word: Ptr<u8>, len: i64) {
+fn arena_new(capacity: u32) -> Ptr<Arena> {
+    let a = arena::alloc(16) as Ptr<Arena>;
+    // 26 * 4 = 104 + 1 = 105. Padded to 108.
+    a.data = arena::alloc((capacity as i64) * 108) as Ptr<TrieNode>;
+    a.size = 0;
+    a.capacity = capacity;
+    return a;
+}
+
+fn arena_alloc(a: Ptr<Arena>) -> u32 {
+    let idx = a.size;
+    a.size = idx + 1;
+    unsafe {
+        for i in 0..26 {
+            a.data[idx as i64].children[i] = 4294967295 as u32; // u32::MAX
+        }
+        a.data[idx as i64].is_word = 0;
+    }
+    return idx;
+}
+
+fn insert(a: Ptr<Arena>, root: u32, word: Ptr<u8>, len: i64) {
     let mut curr = root;
     for i in 0..len {
         unsafe {
             let idx = (word[i] as i32) - 97;
-            let child = curr.children[idx as i64];
-            if child {
-                curr = child;
-            } else {
-                let new_child = create_node();
-                curr.children[idx as i64] = new_child;
-                curr = new_child;
+            let mut child = a.data[curr as i64].children[idx as i64];
+            if child == 4294967295 {
+                let new_child = arena_alloc(a);
+                a.data[curr as i64].children[idx as i64] = new_child;
+                child = new_child;
             }
+            curr = child;
         }
     }
-    curr.is_word = 1;
+    unsafe {
+        a.data[curr as i64].is_word = 1;
+    }
 }
 
-fn search(root: Ptr<TrieNode>, word: Ptr<u8>, len: i64) -> bool {
-    if root {
-        let mut curr = root;
-        for i in 0..len {
-            unsafe {
-                let idx = (word[i] as i32) - 97;
-                let child = curr.children[idx as i64];
-                if child {
-                    curr = child;
-                } else {
-                    return false;
-                }
+fn search(a: Ptr<Arena>, root: u32, word: Ptr<u8>, len: i64) -> bool {
+    let mut curr = root;
+    for i in 0..len {
+        unsafe {
+            let idx = (word[i] as i32) - 97;
+            let child = a.data[curr as i64].children[idx as i64];
+            if child == 4294967295 {
+                return false;
             }
+            curr = child;
         }
-        return curr.is_word != 0;
     }
-    return false;
+    unsafe {
+        return a.data[curr as i64].is_word != 0;
+    }
 }
 
 fn fill_word(word: Ptr<u8>, i: i32) {
@@ -66,19 +83,20 @@ fn fill_word(word: Ptr<u8>, i: i32) {
 }
 
 fn main() -> i32 {
-    let root = create_node();
+    let arena = arena_new(3000000);
+    let root = arena_alloc(arena);
     let word: [u8; 6];
 
     for i in 0..700000 {
         fill_word(word as Ptr<u8>, i);
-        insert(root, word as Ptr<u8>, 5);
+        insert(arena, root, word as Ptr<u8>, 5);
     }
 
     println("Searching 700k words...");
     let mut found = 0;
     for i in 0..700000 {
         fill_word(word as Ptr<u8>, i);
-        if search(root, word as Ptr<u8>, 5) { found += 1; }
+        if search(arena, root, word as Ptr<u8>, 5) { found += 1; }
     }
 
     println(f"Found: {found as i64}");

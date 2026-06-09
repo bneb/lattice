@@ -532,6 +532,23 @@ pub fn resolve_and_emit_method(
              } else {
                  out.push_str(&format!("    {} = func.call @{}({}) : ({}) -> {}\n", res, mangled, args_str, arg_tys_str, ret_ty.to_mlir_type(ctx)?));
              }
+
+             // [SALT MEMORY MODEL] Conservative Aliasing for methods
+             let method_name = m.method.to_string();
+             if method_name != "free" && method_name != "drop" {
+                 let is_extern = ctx.external_decls().contains(&method_name);
+                 if is_extern || ctx.config.freeing_functions.contains(&method_name) {
+                     if let Some(var_name) = super::extract_ident_name(&m.receiver) {
+                         ctx.pointer_tracker.mark_optional(&var_name);
+                     }
+                     for arg in &m.args {
+                         if let Some(var_name) = super::extract_ident_name(arg) {
+                             ctx.pointer_tracker.mark_optional(&var_name);
+                         }
+                     }
+                 }
+             }
+
              ctx.emission.global_lvn.clear();
              return Ok((res, ret_ty));
         }
@@ -1231,6 +1248,22 @@ pub fn resolve_and_emit_method(
             }
         }
         
+        // [SALT MEMORY MODEL] Conservative Aliasing for methods
+        let method_name = m.method.to_string();
+        if method_name != "free" && method_name != "drop" {
+            let is_extern = ctx.external_decls().contains(&method_name);
+            if is_extern || ctx.config.freeing_functions.contains(&method_name) {
+                if let Some(var_name) = super::extract_ident_name(&m.receiver) {
+                    ctx.pointer_tracker.mark_optional(&var_name);
+                }
+                for arg in &m.args {
+                    if let Some(var_name) = super::extract_ident_name(arg) {
+                        ctx.pointer_tracker.mark_optional(&var_name);
+                    }
+                }
+            }
+        }
+
         ctx.emission.global_lvn.clear();
         Ok((res, ret_ty))
     } else {

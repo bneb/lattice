@@ -5,16 +5,14 @@ package basalt
 // Comparable to C sprintf and Rust format!
 // [KEUOS V4.0] Uses arena mark/reset for O(1) memory reclamation
 
-import std::string::*;
-import std::core::arena;
+import std.string::*;
 
 fn main(argc: i32) -> i32 {
     let mut total_len: i64 = 0;
     let iterations: i32 = 10000000;
     
     for idx in 0..iterations {
-        // [KEUOS] Arena frame: mark before, reset after string usage
-        let __arena_mark = arena::mark();
+        // let __arena_mark = mark();
         
         let i = idx;
         
@@ -24,8 +22,7 @@ fn main(argc: i32) -> i32 {
         // Use the string while it's valid (before reset)
         total_len = total_len + 20;
         
-        // [KEUOS] Reclaim ALL memory allocated since mark - O(1)
-        arena::reset_to(__arena_mark);
+        // reset_to(__arena_mark);
     }
     
     // Prevent DCE

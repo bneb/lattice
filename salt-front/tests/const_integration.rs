@@ -17,6 +17,7 @@ fn test_const_global_compilation() {
     
     assert!(res.is_ok(), "Compilation failed: {:?}", res.err());
     let mlir_output = res.unwrap();
+    println!("{}", mlir_output);
     
     // Assertions
     
@@ -27,10 +28,10 @@ fn test_const_global_compilation() {
     assert!(mlir_output.contains("@TEST_FLOAT("), "TEST_FLOAT emission missing");
     
     // 2. Global emission (Explicit and implicit zero)
-    // "global counter: u32 = 0" -> "llvm.mlir.global external @counter(0 : i32) : i32"
-    assert!(mlir_output.contains("llvm.mlir.global external @counter(0 : i32) : i32"), "counter emission missing");
-    // "global threshold: u32 = 100" -> "llvm.mlir.global external @threshold(100 : i32) : i32"
-    assert!(mlir_output.contains("llvm.mlir.global external @threshold(100 : i32) : i32"), "threshold emission missing");
+    // "global counter: u32 = 0" -> "llvm.mlir.global internal @counter(0 : i32) : i32"
+    assert!(mlir_output.contains("llvm.mlir.global internal @counter(0 : i32) : i32"), "counter emission missing");
+    // "global threshold: u32 = 100" -> "llvm.mlir.global internal @threshold(100 : i32) : i32"
+    assert!(mlir_output.contains("llvm.mlir.global internal @threshold(100 : i32) : i32"), "threshold emission missing");
     
     // 3. Const usage (immediate value)
     // "while x < TEST_INT" -> "arith.constant 42"

@@ -1,18 +1,18 @@
 // Buffered Writer Performance Benchmark - Salt
 // Tests BufferedWriter throughput with formatted output
 
-package benchmarks.buffered_writer_perf
+package main
 
-import std.io.buffered_writer::BufferedWriter;
-import std.io.file::*;
-import std.core.result.Result;
+import std.io.buffered_writer.{BufferedWriter};
+import std.io.file.{File, OpenFlags};
 
 const ITERATIONS: i64 = 1000000;
 
-fn run() -> Result<i64> {
+fn run() -> i64 {
     // Open output file (O_WRONLY | O_CREAT | O_TRUNC = 1 | 64 | 512 = 577)
     let flags = OpenFlags { bits: 577 };
-    let file = File::open("/tmp/salt_writer_test.txt\0", flags)?;
+    let file_res = File::open("/tmp/salt_writer_test.txt\0", flags);
+    let file = file_res.unwrap();
     let mut writer = BufferedWriter::new(file.fd());
     
     // Write formatted output
@@ -30,10 +30,9 @@ fn run() -> Result<i64> {
     // Close file
     file.close();
     
-    return Result::Ok(0);
+    return 0;
 }
 
 fn main() -> i64 {
-    let r = run();
-    return r.unwrap();
+    return run();
 }

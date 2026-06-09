@@ -21,20 +21,20 @@ impl Arena {
 }
 
 struct Node {
-    left: u32,
-    right: u32,
+    left: usize,
+    right: usize,
     val: i32,
 }
 
-const NULL: u32 = u32::MAX;
+const NULL: usize = usize::MAX;
 
-fn make_tree(arena: &mut Arena, depth: i32) -> u32 {
+fn make_tree(arena: &mut Arena, depth: i32) -> usize {
     if depth == 0 {
         return NULL;
     }
     let left = make_tree(arena, depth - 1);
     let right = make_tree(arena, depth - 1);
-    arena.alloc(Node { left, right, val: depth })
+    arena.alloc(Node { left, right, val: depth }) as usize
 }
 
 fn main() {

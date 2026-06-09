@@ -1,40 +1,65 @@
 // Forest Benchmark: Arena-allocated binary tree build + reset
-// Demonstrates Salt's O(1) bump allocation and O(1) mark/reset reclamation.
-// Tree depth 22 requires ~100MB; the 64MB global arena will OOM gracefully.
+// Demonstrates array-backed tree allocation matching C/Rust benchmarks.
+// Tree depth 22 requires ~100MB
 
 package basalt
 
 import std.core.ptr.Ptr
-import std.core.arena.Arena
+import std.core.arena
 import std.time.Instant
 
 struct Node {
-    left: Ptr<Node>,
-    right: Ptr<Node>,
+    left: u64,
+    right: u64,
     val: i32
 }
 
-fn make_tree(arena: Arena, depth: i32) -> Ptr<Node> {
-    if depth == 0 { return Ptr::empty(); }
-    let left = make_tree(arena, depth - 1);
-    let right = make_tree(arena, depth - 1);
-    let p = arena.alloc_bytes(24);
-    if p.is_null() { return Ptr::empty(); }
-    let node = p as Ptr<Node>;
-    node.left = left;
-    node.right = right;
-    node.val = depth;
-    return node;
+struct NodeArena {
+    data: Ptr<Node>,
+    size: u64,
+    capacity: u64
+}
+
+fn arena_new(capacity: u64) -> Ptr<NodeArena> {
+    let a = arena::alloc(24) as Ptr<NodeArena>;
+    a.data = arena::alloc((capacity as i64) * 24) as Ptr<Node>;
+    a.size = 0;
+    a.capacity = capacity;
+    return a;
+}
+
+fn arena_alloc(a: Ptr<NodeArena>, left: u64, right: u64, val: i32) -> u64 {
+    let idx = a.size;
+    a.size = idx + 1;
+    unsafe {
+        a.data[idx as i64].left = left;
+        a.data[idx as i64].right = right;
+        a.data[idx as i64].val = val;
+    }
+    return idx;
+}
+
+fn arena_reset(a: Ptr<NodeArena>) {
+    a.size = 0;
+}
+
+fn make_tree(a: Ptr<NodeArena>, depth: i32) -> u64 {
+    if depth == 0 { return 18446744073709551615 as u64; } // u64::MAX
+    let left = make_tree(a, depth - 1);
+    let right = make_tree(a, depth - 1);
+    return arena_alloc(a, left, right, depth);
 }
 
 fn main() -> i32 {
     println("Forest Benchmark");
-    let arena = Arena::new(64 * 1024 * 1024);
-    let m = arena.mark();
+    let arena = arena_new(4200000);
+    
     let start = Instant::now();
     let root = make_tree(arena, 22);
     let build_time = start.elapsed();
-    arena.reset_to(m);
+    
+    arena_reset(arena);
+    
     let total_time = start.elapsed();
     let drop_time = total_time.as_nanos() - build_time.as_nanos();
     println(f"Build Time: {build_time.as_nanos()} ns");

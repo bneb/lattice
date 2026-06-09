@@ -28,7 +28,7 @@ fn test_alias_invalidated_across_call() {
     let src = r#"
         package kernel.test;
         extern fn malloc(size: i64) -> Ptr<u8>;
-        fn unknown(p: Ptr<u8>) {}
+        extern fn unknown(p: Ptr<u8>);
         fn main() {
             let p = malloc(8);
             unknown(p); // Conservative aliasing should mark `p` as Optional

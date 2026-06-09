@@ -13,8 +13,10 @@ fn main(argc: i32) -> i32 {
     let mut scratch_ptr: Ptr<i32> = raw_addr as Ptr<i32>;
     
     // Initialization
-    for i in 0..n {
-        scratch_ptr[i] = (i as i32) + argc;
+    unsafe {
+        for i in 0..n {
+            scratch_ptr[i] = (i as i32) + argc;
+        }
     }
     
     // --- THE SHADOW PIVOT ---
@@ -24,15 +26,17 @@ fn main(argc: i32) -> i32 {
     // 2. THE HOT LOOP (Register-Pinned)
     for iter in 0..iterations {
         let idx = (local_counter & 255) as i64;
-        let scratch_val = scratch_ptr[idx];
-        local_counter = local_counter + scratch_val;
-        scratch_ptr[idx] = local_counter;
+        let mut scratch_val = 0;
+        unsafe {
+            scratch_val = scratch_ptr[idx];
+            local_counter = local_counter + scratch_val;
+            scratch_ptr[idx] = local_counter;
+        }
     }
     
     // 3. Commit Local to Global (Demotion)
     COUNTER = local_counter;
 
-    // Return 1 for success parity check
-    if COUNTER != 0 { return 1; }
-    return 0;
+    if COUNTER != 0 { return 0; }
+    return 1;
 }

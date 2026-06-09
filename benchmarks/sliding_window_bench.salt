@@ -1,8 +1,10 @@
 package benchmarks.sliding_window
 
-extern fn puts(s: std.core.ptr.Ptr<u8>) -> i32;
+import std.core.ptr.Ptr;
+
+extern fn puts(s: Ptr<u8>) -> i32;
 
 pub fn main() -> i32 {
-    puts("Sliding window Salt benchmark complete.\n" as std.core.ptr.Ptr<u8>);
+    puts("Sliding window Salt benchmark complete.\n" as Ptr<u8>);
     return 0;
 }

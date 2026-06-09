@@ -82,7 +82,7 @@ impl PointerStateTracker {
     /// Check if a dereference is allowed. Returns Ok(()) if Valid, Err with
     /// a diagnostic message if Empty or Optional.
     pub fn check_deref(&self, name: &str) -> Result<(), String> {
-
+        println!("DEBUG check_deref: {} has state {:?}", name, self.states.get(name));
         match self.states.get(name) {
             Some(PointerState::Valid) => Ok(()),
             Some(PointerState::Freed) => Err(format!(

@@ -4,8 +4,8 @@
 #include <stdint.h>
 
 typedef struct Node {
-  uint32_t left;
-  uint32_t right;
+  uint64_t left;
+  uint64_t right;
   int val;
 } Node;
 
@@ -33,14 +33,14 @@ void arena_reset(Arena *a) {
   a->size = 0;
 }
 
-#define NULL_NODE 0xFFFFFFFF
+#define NULL_NODE 0xFFFFFFFFFFFFFFFFULL
 
-uint32_t make_tree(Arena *a, int depth) {
+uint64_t make_tree(Arena *a, int depth) {
   if (depth == 0) {
     return NULL_NODE;
   }
-  uint32_t left = make_tree(a, depth - 1);
-  uint32_t right = make_tree(a, depth - 1);
+  uint64_t left = make_tree(a, depth - 1);
+  uint64_t right = make_tree(a, depth - 1);
   Node n = {left, right, depth};
   return arena_alloc(a, n);
 }
