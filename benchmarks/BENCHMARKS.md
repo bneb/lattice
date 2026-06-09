@@ -17,6 +17,7 @@ All benchmarks use runtime-dynamic inputs to prevent constant folding. Measureme
 | `sieve` | 146ms | 150ms | 102% | Parity | Memory-bound bit/byte manipulation. |
 | `http_parser` | 26ms | 25ms | 96% | Parity | Uses verified `intrin_find_byte` mapping directly to LLVM `memchr` for SIMD speed. |
 | `matmul` | 157ms | 161ms | 102% | Parity | Affine tiling optimizations keep it competitive. |
+| `C10M TCP Echo` | 29.5k RPS | 27.2k RPS | 108% | Parity | Salt natively batches 256 events per kevent poll in userspace. Within 7.5% of bare-metal C throughput, beats Rust/Tokio async (26.4k rps). |
 | `hashmap_bench` | 24ms | 18ms | 75% | Salt is faster | Salt uses Swiss-tables by default; C baseline uses standard hashing. |
 | `vector_add` | 112ms | 94ms | 83% | Parity | LLVM auto-vectorization (NEON) applies more aggressively on Salt's strongly-typed buffers. |
 | `lru_cache` | 17ms | 10ms | 58% | Salt is faster | Salt uses zero-overhead Arena allocation; C relies on `malloc`/`free`. |
