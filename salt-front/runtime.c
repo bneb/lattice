@@ -149,60 +149,135 @@ int64_t salt_munmap(int64_t addr, int64_t size) {
 // [KEUOS V4.0] Arena Allocator - O(1) bump allocation with mark/reset
 // =============================================================================
 // Global arena state - 256MB for benchmark workloads
-#define ARENA_SIZE (256 * 1024 * 1024)
+#define CHUNK_SIZE (2 * 1024 * 1024) // 2MB
 
-static int64_t arena_base = 0;
-static int64_t arena_current = 0;
-static int64_t arena_end = 0;
+typedef struct ArenaChunk {
+    struct ArenaChunk* next;
+    int64_t base;
+    int64_t current;
+    int64_t end;
+} ArenaChunk;
 
-// Initialize: allocate 64MB arena via mmap
-static void arena_init() {
-  if (arena_base == 0) {
-    void *result = mmap(NULL, ARENA_SIZE, PROT_READ | PROT_WRITE,
-                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (result == MAP_FAILED) {
-      arena_base = 0;
-    } else {
-      arena_base = (int64_t)result;
-      arena_current = arena_base;
-      arena_end = arena_base + ARENA_SIZE;
+// Thread-local state for lock-free, zero-jitter concurrency
+static __thread ArenaChunk* tl_head_chunk = NULL;
+static __thread ArenaChunk* tl_current_chunk = NULL;
+static __thread ArenaChunk* tl_free_chunks = NULL;
+
+static ArenaChunk* alloc_chunk(int64_t required_size) {
+    int64_t alloc_size = CHUNK_SIZE;
+    if (required_size + sizeof(ArenaChunk) > alloc_size) {
+        alloc_size = required_size + sizeof(ArenaChunk);
     }
-  }
+    
+    // Reuse from thread-local free list if standard size
+    if (alloc_size == CHUNK_SIZE && tl_free_chunks) {
+        ArenaChunk* chunk = tl_free_chunks;
+        tl_free_chunks = chunk->next;
+        chunk->next = NULL;
+        chunk->current = chunk->base;
+        return chunk;
+    }
+    
+    void* result = mmap(NULL, alloc_size, PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (result == MAP_FAILED) return NULL;
+    ArenaChunk* chunk = (ArenaChunk*)result;
+    chunk->base = (int64_t)result + sizeof(ArenaChunk);
+    chunk->end = (int64_t)result + alloc_size;
+    chunk->current = chunk->base;
+    chunk->next = NULL;
+    return chunk;
 }
 
 // Allocate from arena with 8-byte alignment (bump allocator - O(1))
-// Returns 0 (null) if arena is exhausted.
 int64_t salt_arena_alloc(int64_t size) {
-  arena_init();
-  // Align to 8 bytes using KeuOS Bitmask pattern
-  int64_t aligned_addr = (arena_current + 7) & ~7;
-  int64_t next = aligned_addr + size;
-  if (next > arena_end)
-    return 0; // OOM: return null
-  arena_current = next;
-  return aligned_addr;
+    int64_t aligned_size = (size + 7) & ~7;
+    
+    if (__builtin_expect(!tl_current_chunk, 0)) {
+        tl_head_chunk = alloc_chunk(aligned_size);
+        tl_current_chunk = tl_head_chunk;
+        if (!tl_current_chunk) return 0;
+    }
+    
+    int64_t aligned_addr = (tl_current_chunk->current + 7) & ~7;
+    int64_t next = aligned_addr + aligned_size;
+    
+    if (__builtin_expect(next > tl_current_chunk->end, 0)) {
+        ArenaChunk* new_chunk = alloc_chunk(aligned_size);
+        if (!new_chunk) return 0; // OOM
+        tl_current_chunk->next = new_chunk;
+        tl_current_chunk = new_chunk;
+        aligned_addr = (tl_current_chunk->current + 7) & ~7;
+        tl_current_chunk->current = aligned_addr + aligned_size;
+        return aligned_addr;
+    }
+    
+    tl_current_chunk->current = next;
+    return aligned_addr;
 }
 
 // Mark current position for later reset
 int64_t salt_arena_mark() {
-  arena_init();
-  return arena_current;
+    if (!tl_current_chunk) return 0;
+    return tl_current_chunk->current;
 }
 
 // Reset to a previous mark (O(1) memory reclamation)
-// In debug mode (SALT_DEBUG), poison freed memory with 0xDD to catch UAF.
 void salt_arena_reset_to(int64_t mark) {
+    if (__builtin_expect(!tl_head_chunk, 0)) return;
+    
+    ArenaChunk* curr = tl_head_chunk;
+    int found = 0;
+    
+    while (curr) {
+        if (__builtin_expect(mark >= curr->base && mark <= curr->end, 1)) {
+            found = 1;
+            break;
+        }
+        curr = curr->next;
+    }
+    
+    if (__builtin_expect(!found, 0)) {
+        if (mark == 0) {
+            curr = NULL;
+        } else {
+            return; // Invalid mark
+        }
+    }
+    
+    ArenaChunk* to_free = curr ? curr->next : tl_head_chunk;
+    if (curr) {
 #ifdef SALT_DEBUG
-  // Poison the region being freed: fill with 0xDD ("Dead Data")
-  // Any dangling pointer dereference will read 0xDDDDDDDDDDDDDDDD
-  // instead of stale valid data, converting silent corruption into
-  // immediate, debuggable garbage.
-  if (arena_current > mark) {
-    size_t poison_size = (size_t)(arena_current - mark);
-    memset((void *)mark, 0xDD, poison_size);
-  }
+        if (curr->current > mark) {
+            size_t poison_size = (size_t)(curr->current - mark);
+            memset((void*)mark, 0xDD, poison_size);
+        }
 #endif
-  arena_current = mark;
+        curr->next = NULL;
+        curr->current = mark;
+        tl_current_chunk = curr;
+    } else {
+        tl_head_chunk = NULL;
+        tl_current_chunk = NULL;
+    }
+    
+    while (to_free) {
+        ArenaChunk* next_free = to_free->next;
+        int64_t chunk_size = to_free->end - (to_free->base - sizeof(ArenaChunk));
+        
+#ifdef SALT_DEBUG
+        size_t poison_size = (size_t)(to_free->current - to_free->base);
+        memset((void*)to_free->base, 0xDD, poison_size);
+#endif
+        
+        if (chunk_size == CHUNK_SIZE) {
+            to_free->next = tl_free_chunks;
+            tl_free_chunks = to_free;
+        } else {
+            munmap(to_free, chunk_size);
+        }
+        to_free = next_free;
+    }
 }
 
 // High-resolution monotonic clock — returns nanoseconds
