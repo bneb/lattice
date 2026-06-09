@@ -18,7 +18,7 @@ from benchmarks.e2e.suites.c10m_bench import C10MSuite
 from benchmarks.e2e.suites.basalt_bench import BasaltSuite
 
 def main():
-    parser = argparse.ArgumentParser(description="Lattice E2E Benchmark Runner")
+    parser = argparse.ArgumentParser(description="KeuOS E2E Benchmark Runner")
     parser.add_argument("--suite", action="append", help="Specific suite to run (micro, lettuce, http, c10m, basalt). Can be specified multiple times. If omitted, runs all suites.")
     args = parser.parse_args()
 

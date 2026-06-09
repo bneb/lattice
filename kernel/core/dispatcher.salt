@@ -22,7 +22,7 @@ import kernel.core.pulse
 import kernel.drivers.serial
 
 extern fn idle_halt();
-extern fn sched_yield();
+extern fn schedule_next();
 
 // =============================================================================
 // kernel_event_loop — Immortal event drain loop (Task 0 entry point)
@@ -67,7 +67,7 @@ pub fn kernel_event_loop() {
         // Without a timer interrupt (bench suite bypassed), idle_halt()
         // would sleep forever. sched_yield() cooperatively hands the
         // baton to the MoE coroutine so its yield-poll loop can spin.
-        sched_yield();
+        schedule_next();
 
         // When rescheduled, we resume right here and drain again.
     }

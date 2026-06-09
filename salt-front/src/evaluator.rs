@@ -9,6 +9,7 @@ pub enum ConstValue {
     Float(f64),
     Bool(bool),
     String(String),
+    Array(Vec<ConstValue>),
     Complex, 
 }
 
@@ -52,7 +53,23 @@ impl Evaluator {
         }
 
         match expr {
-            Expr::Struct(_) | Expr::Array(_) | Expr::Repeat(_) => Ok(ConstValue::Complex),
+            Expr::Struct(_) => Ok(ConstValue::Complex),
+            Expr::Array(expr_array) => {
+                let mut elements = Vec::new();
+                for elem in &expr_array.elems {
+                    elements.push(self.eval_expr_depth(elem, depth + 1)?);
+                }
+                Ok(ConstValue::Array(elements))
+            }
+            Expr::Repeat(expr_repeat) => {
+                let elem = self.eval_expr_depth(&expr_repeat.expr, depth + 1)?;
+                let len_val = self.eval_expr_depth(&expr_repeat.len, depth + 1)?;
+                if let ConstValue::Integer(len) = len_val {
+                    Ok(ConstValue::Array(vec![elem; len as usize]))
+                } else {
+                    Err(EvalError::TypeMismatch("Array length must be integer".to_string()))
+                }
+            }
             Expr::Lit(expr_lit) => self.eval_literal(&expr_lit.lit),
             Expr::Binary(expr_binary) => {
                 let left = self.eval_expr_depth(&expr_binary.left, depth + 1)?;

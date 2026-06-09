@@ -32,8 +32,8 @@ struct HttpRequest<'a> {
     uri: Slice<'a>,
     version: Slice<'a>,
     header_count: usize,
-    header_names: [Slice<'a>; MAX_HEADERS],
-    header_values: [Slice<'a>; MAX_HEADERS],
+    last_header_name: Slice<'a>,
+    last_header_value: Slice<'a>,
 }
 
 fn parse_request(buf: &[u8]) -> Option<HttpRequest> {
@@ -53,8 +53,8 @@ fn parse_request(buf: &[u8]) -> Option<HttpRequest> {
 
     // Parse headers
     let empty = Slice::new(&[]);
-    let mut header_names = [empty; MAX_HEADERS];
-    let mut header_values = [empty; MAX_HEADERS];
+    let mut last_header_name = empty;
+    let mut last_header_value = empty;
     let mut header_count = 0;
 
     let mut cursor = line_end + 2; // skip \r\n
@@ -73,14 +73,14 @@ fn parse_request(buf: &[u8]) -> Option<HttpRequest> {
 
         // Split on ':'
         if let Some(colon_pos) = header_line.iter().position(|&b| b == b':') {
-            header_names[header_count] = Slice::new(&header_line[..colon_pos]);
+            last_header_name = Slice::new(&header_line[..colon_pos]);
 
             // Trim leading whitespace from value
             let mut val_start = colon_pos + 1;
             while val_start < header_line.len() && header_line[val_start] == b' ' {
                 val_start += 1;
             }
-            header_values[header_count] = Slice::new(&header_line[val_start..]);
+            last_header_value = Slice::new(&header_line[val_start..]);
             header_count += 1;
         }
 
@@ -92,8 +92,8 @@ fn parse_request(buf: &[u8]) -> Option<HttpRequest> {
         uri,
         version,
         header_count,
-        header_names,
-        header_values,
+        last_header_name,
+        last_header_value,
     })
 }
 

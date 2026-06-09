@@ -183,7 +183,7 @@ pub fn emit_field(
         }
 
         if let Some((idx, raw_field_ty)) = info.fields.get(&field_name) {
-            // [SOVEREIGN V4.0] CHAINED RESOLUTION FIX: Build specialization map from parent struct
+            // [KEUOS V4.0] CHAINED RESOLUTION FIX: Build specialization map from parent struct
             // When accessing a field on a specialized struct (e.g., Vec<u8>), we need to map
             // the template's generic parameters (T) to concrete types (u8) for proper substitution.
             let mut local_spec_map = ctx.current_type_map().clone();
@@ -217,7 +217,7 @@ pub fn emit_field(
                 return Ok((current_val, field_ty.clone()));
             }
             
-            // [SOVEREIGN V1.0] Pointer .addr shim
+            // [KEUOS V1.0] Pointer .addr shim
             if let Type::Pointer { .. } = current_ty {
                  if field_name == "addr" {
                      let addr_val = format!("%ptr_addr_{}", ctx.next_id());
@@ -242,7 +242,7 @@ pub fn emit_field(
                         || current_val.contains("alloca");
                     
                     let ptr_val = if is_lvalue {
-                        // V12.4 SOVEREIGN CORRECTION: current_val is a pointer TO the NativePtr
+                        // V12.4 KEUOS CORRECTION: current_val is a pointer TO the NativePtr
                         // Load the actual heap address before casting to integer
                         let loaded = format!("%nativeptr_loaded_{}", ctx.next_id());
                         out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> !llvm.ptr\n", loaded, current_val));
@@ -378,7 +378,7 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
     // Correct logic:
     if let Ok((base_ptr, base_ty, kind)) = emit_lvalue(ctx, out, &i.expr, local_vars) {
          match base_ty {
-             // [SOVEREIGN V2.0]: Native Pointer Indexing
+             // [KEUOS V2.0]: Native Pointer Indexing
              // This replaces the legacy "NativePtr" string-matching logic.
              Type::Pointer { ref element, .. } | Type::Reference(ref element, _) => {
                  // [TEMPORAL SAFETY] Check deref validity
@@ -419,7 +419,7 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
                                 // [SPILL SLOT FIX V2] Use LValueKind to determine if we need to load.
                   // If kind is Ptr or Local, base_ptr is an alloca containing the pointer - must load first.
                   // If kind is SSA, base_ptr IS the pointer value (no load needed).
-                  // [SOVEREIGN FIX V3] For Reference types, the SSA value IS the pointer - don't load!
+                  // [KEUOS FIX V3] For Reference types, the SSA value IS the pointer - don't load!
                   // A &u8 parameter like %arg_s is already the pointer to the data, not a pointer-to-pointer.
                   let ptr_for_gep = if matches!(base_ty, Type::Reference(_, _)) {
                       // For references, base_ptr IS the address of the data (even if kind is Ptr)
@@ -554,7 +554,7 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
                      }
                  };
                  
-                 // Z3 Bounds Check Elision [SOVEREIGN V4 - ACTIVATED]
+                 // Z3 Bounds Check Elision [KEUOS V4 - ACTIVATED]
                  // Attempts to prove bounds are safe at compile time using Z3.
                  // If proven safe, emits no runtime check. Otherwise, falls through to memref.load
                  // which has implicit bounds checking in debug mode.
@@ -785,7 +785,7 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
              ctx.emit_load_logical(out, &res, &elem_ptr, elem_ty.as_ref())?;
              Ok((res, *elem_ty.clone()))
         }
-        // [SOVEREIGN V2.0]: First-Class Pointer Indexing (Fallback Path)
+        // [KEUOS V2.0]: First-Class Pointer Indexing (Fallback Path)
         // This handles Ptr<T> when emit_lvalue didn't catch it
         Type::Pointer { ref element, .. } => {
              // Z3 Bounds Verification Integration
@@ -812,7 +812,7 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
              let elem_mlir = element.to_mlir_storage_type(ctx)?;
              let res_ptr = format!("%ptr_idx_{}", ctx.next_id());
 
-             // Emit Sovereign GEP (No indirection, just register offset)
+             // Emit KeuOS GEP (No indirection, just register offset)
              ctx.emit_gep(out, &res_ptr, &base_val, &idx_prom, &elem_mlir);
              
              // Load the value directly into a scalar register
@@ -865,7 +865,7 @@ pub fn translate_to_z3<'a, 'ctx>(
         syn::Expr::Paren(p) => translate_to_z3(ctx, &p.expr, local_vars),
         syn::Expr::Field(f) => {
             let base_z3 = translate_to_z3(ctx, &f.base, local_vars)?;
-            // [SOVEREIGN V4.0] Model field access as Z3 uninterpreted function: field(base) → Int
+            // [KEUOS V4.0] Model field access as Z3 uninterpreted function: field(base) → Int
             if let syn::Member::Named(id) = &f.member {
                 let field_name = id.to_string();
                 let func = crate::z3_shim::FuncDecl::new(
@@ -889,7 +889,7 @@ pub fn translate_to_z3<'a, 'ctx>(
                  _ => Err(format!("Unsupported symbolic unary operator: {:?}", u.op)),
              }
         }
-        // [SOVEREIGN V4.0] @pure function calls → Z3 uninterpreted functions
+        // [KEUOS V4.0] @pure function calls → Z3 uninterpreted functions
         syn::Expr::Call(call) => {
             // Extract function name from the call expression
             let func_name = if let syn::Expr::Path(p) = &*call.func {
@@ -992,7 +992,7 @@ pub fn translate_bool_to_z3<'a, 'ctx>(
         syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Bool(b), .. }) => {
             Ok(crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, b.value))
         }
-        // [SOVEREIGN V4.0] @pure function calls returning bool → Z3 uninterpreted Bool functions
+        // [KEUOS V4.0] @pure function calls returning bool → Z3 uninterpreted Bool functions
         syn::Expr::Call(call) => {
             let func_name = if let syn::Expr::Path(p) = &*call.func {
                 p.path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("_")

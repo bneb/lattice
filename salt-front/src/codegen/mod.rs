@@ -15,7 +15,7 @@ pub mod struct_deriver;
 pub mod trait_registry;  // V4.0: Signature-aware method resolution
 pub mod types;
 pub mod interleaved_gen;  // V2.0 FFB: Fused Forward-Backward codegen
-pub mod passes;           // V2.0 Sovereign: Pulse injection, yield injection, sync verification
+pub mod passes;           // V2.0 KeuOS: Pulse injection, yield injection, sync verification
 pub mod generic_resolver; // Consolidated generic type resolution
 pub mod shader;           // [FACET L1] Metal Shading Language codegen for @shader functions
 pub mod emit_hir;         // [PHASE 11] HIR-to-MLIR emitter for async lowering Items
@@ -213,7 +213,7 @@ use std::collections::{HashMap, HashSet};
     ctx.scan_defs_from_file(file, true)?;
     
     // =========================================================================
-    // [SOVEREIGN V2.0] Call Graph Analysis Phase
+    // [KEUOS V2.0] Call Graph Analysis Phase
     // Fixed-point propagation of @blocking and @pulse attributes through
     // the call graph. Replaces heuristic I/O detection.
     // =========================================================================
@@ -230,14 +230,14 @@ use std::collections::{HashMap, HashSet};
                 .map(|(n, _)| n.as_str())
                 .collect();
             if !blocking.is_empty() {
-                eprintln!("[Sovereign] Blocking functions detected: {:?}", blocking);
+                eprintln!("[KeuOS] Blocking functions detected: {:?}", blocking);
             }
         }
 
         // Report safety violations (pulse calling blocking without spawn)
         for v in &call_graph_analysis.violations {
             eprintln!(
-                "[Sovereign] WARNING: @pulse function '{}' transitively calls blocking '{}'\n  chain: {}",
+                "[KeuOS] WARNING: @pulse function '{}' transitively calls blocking '{}'\n  chain: {}",
                 v.pulse_fn, v.blocking_fn, v.call_chain.join(" → ")
             );
         }
@@ -246,7 +246,7 @@ use std::collections::{HashMap, HashSet};
     }
 
     // =========================================================================
-    // [SOVEREIGN V2.0] Pulse Analysis Phase (now uses Call Graph)
+    // [KEUOS V2.0] Pulse Analysis Phase (now uses Call Graph)
     // Analyze @pulse functions before code generation to:
     // 1. Identify pulse frequencies and priority tiers
     // 2. Mark functions that need Context injection (via call graph)
@@ -259,7 +259,7 @@ use std::collections::{HashMap, HashSet};
         
         // Log pulse functions found (debug mode only)
         if !release_mode && !pulse_ctx.pulse_info.is_empty() {
-            eprintln!("[Sovereign] Found {} @pulse functions:", pulse_ctx.pulse_info.len());
+            eprintln!("[KeuOS] Found {} @pulse functions:", pulse_ctx.pulse_info.len());
             for info in &pulse_ctx.pulse_info {
                 eprintln!("  - {} @ {}Hz (Tier {})", info.name, info.frequency_hz, info.tier);
             }
@@ -273,7 +273,7 @@ use std::collections::{HashMap, HashSet};
     }
 
     // =========================================================================
-    // [SOVEREIGN V2.0] Cross-Yield Liveness Analysis Phase
+    // [KEUOS V2.0] Cross-Yield Liveness Analysis Phase
     // Run liveness analysis on @yielding/@pulse functions before codegen.
     // Results stored for use during function emission.
     // =========================================================================
@@ -289,7 +289,7 @@ use std::collections::{HashMap, HashSet};
                     let name = func.name.to_string();
                     if !release_mode {
                         eprintln!(
-                            "[Sovereign] @yielding function '{}': {} yield points, {} frame members",
+                            "[KeuOS] @yielding function '{}': {} yield points, {} frame members",
                             name, result.yield_points.len(), result.frame_members.len()
                         );
                     }
@@ -434,19 +434,7 @@ impl<'a> CodegenContext<'a> {
                     _ => {}
                 }
             }
-            if tasks.is_empty() {
-                // [Directive 2.1] Include proof_hints even for struct-only lib compilations
-                let proof_hints = self.proof_hints.borrow();
-                let proof_hints_attr = if proof_hints.is_empty() {
-                    String::new()
-                } else {
-                    let entries: Vec<String> = proof_hints.iter()
-                        .map(|(key, val)| format!("\"{}\" = {}", key, val))
-                        .collect();
-                    format!(", \"salt.proof_hints\" = {{{}}}", entries.join(", "))
-                };
-                return Ok(format!("module attributes {{llvm.data_layout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\", llvm.target_triple = \"x86_64-unknown-none-elf\"{}}} {{}}\n", proof_hints_attr));
-            }
+
             for task in tasks {
                 self.hydrate_specialization(task)?;
             }
@@ -607,7 +595,7 @@ impl<'a> CodegenContext<'a> {
             out.push_str(&format!("  func.func private @{}{}\n", hook, sig));
         }
         
-        // [SOVEREIGN FIX] Extern function declarations are now emitted by register_signatures.
+        // [KEUOS FIX] Extern function declarations are now emitted by register_signatures.
         // This avoids duplicate emissions and ensures all externs (including transitive ones from
         // library modules) are declared exactly once in the MLIR output.
         // Previously: loop over external_decls to emit func.func private declarations
@@ -619,7 +607,7 @@ impl<'a> CodegenContext<'a> {
             // Escape special characters for MLIR string literal syntax
             let escaped = content
                 .replace('\\', "\\\\")
-                .replace('\0', "\\00")  // [SOVEREIGN FIX] Escape embedded null bytes
+                .replace('\0', "\\00")  // [KEUOS FIX] Escape embedded null bytes
                 .replace('\n', "\\n")
                 .replace('\r', "\\0D")
                 .replace('\t', "\\t")
@@ -926,11 +914,11 @@ impl<'a> CodegenContext<'a> {
                         vec![]
                     };
                     
-                    // [SOVEREIGN FIX] In lib mode, mangle function names with package prefix
+                    // [KEUOS FIX] In lib mode, mangle function names with package prefix
                     // to avoid symbol collisions between modules (e.g., multiple `init` functions).
                     // @no_mangle functions retain their bare names.
                     let is_no_mangle = f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" );
-                    // TODO: Remove `main_salt` hardcode once sovereign_train.salt uses
+                    // TODO: Remove `main_salt` hardcode once keuos_train.salt uses
                     // `@no_mangle fn main_salt()`. The @no_mangle attribute already exists
                     // in the grammar and handles this generically for any FFI boundary.
                     let mangled = if name == "main" || name == "main_salt" {
@@ -1247,7 +1235,7 @@ pub fn emit_extern_fn(ctx: &CodegenContext, decl: &ExternFnDecl) -> Result<Strin
     Ok(format!("  func.func private @{}({}) -> {}\n", name, args_code.join(", "), ret_part))
 }
 
-/// [SOVEREIGN V2.0] Emit a @yielding function as a state machine.
+/// [KEUOS V2.0] Emit a @yielding function as a state machine.
 /// Splits the function body at yield points, emits each segment via emit_block(),
 /// and wraps them in state machine infrastructure (TaskFrame, jump table, dispatch hub).
 fn emit_async_fn(
@@ -1334,7 +1322,7 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
         return crate::codegen::emit_hir::emit_hir_items(&hir_items);
     }
 
-    // [SOVEREIGN V2.0] Async Gate: @yielding/@pulse functions emit state machines
+    // [KEUOS V2.0] Async Gate: @yielding/@pulse functions emit state machines
     if let Some(liveness) = ctx.get_liveness(&func.name.to_string()) {
         return emit_async_fn(ctx, func, &liveness);
     }
@@ -1344,7 +1332,7 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
         return ctx.with_lowering_ctx(|lctx| shader::emit_shader_fn(lctx, func));
     }
     
-    // [SOVEREIGN FIX] Extern Gate: extern functions arriving via hydration
+    // [KEUOS FIX] Extern Gate: extern functions arriving via hydration
     // (e.g., salt_arena_alloc from std/core/arena.salt) must emit as declarations
     // only, not definitions with stub bodies. runtime.c provides their implementations.
     // Note: `extern fn` is a syntactic form (ExternFnDecl), not an @extern attribute.
@@ -1416,10 +1404,10 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
     // GlobalLVN uses (func_name, symbol) as key, so each function has its own
     // cache entries. This prevents cross-function SSA value reuse while preserving
     // per-function LVN optimization (constants loaded once per function).
-    // [SOVEREIGN FIX] Save previous function name to restore after nested compilation
+    // [KEUOS FIX] Save previous function name to restore after nested compilation
     let prev_func_lvn = ctx.emission.borrow_mut().global_lvn.set_current_function(fn_name.clone());
     
-    // [SOVEREIGN FIX] Clear cache for this function to prevent stale values from previous passes
+    // [KEUOS FIX] Clear cache for this function to prevent stale values from previous passes
     ctx.emission.borrow_mut().global_lvn.clear_current_func_cache();
     
     for arg in &func.args {
@@ -1484,7 +1472,7 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
     let has_noinline = func.attributes.iter().any(|a| a.name == "noinline");
     let is_no_mangle = func.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" );
     
-    // [SOVEREIGN V2.0: EAGER LEAF INLINER]
+    // [KEUOS V2.0: EAGER LEAF INLINER]
     // Automatically detect small pure functions that should be inlined for vectorization.
     // Criteria: single statement body (if-else or single return), scalar types, no I/O.
     // This enables LLVM to vectorize loops containing these functions.
@@ -1511,7 +1499,7 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
         is_small && is_small_return && has_no_io && is_not_main
     };
     
-    // [SOVEREIGN FIX] Explicitly set visibility to prevent internalization/dead-code stripping
+    // [KEUOS FIX] Explicitly set visibility to prevent internalization/dead-code stripping
     // MLIR requires visibility keyword in syntax, not attribute dictionary
     // ENTRY POINT: `fn main` must always be public for the C linker to find `_main`.
     let is_main = fn_name == "main";
@@ -1609,7 +1597,7 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
         }
     }
 
-    // [SOVEREIGN V5.0] Save ownership and malloc tracker state for parent function.
+    // [KEUOS V5.0] Save ownership and malloc tracker state for parent function.
     // When emit_fn is called recursively (via hydrate_specialization), the child
     // function gets its own fresh tracker state. This prevents cross-function
     // contamination where child's verify_leak_free would see parent's allocations.
@@ -1619,7 +1607,7 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
     let saved_malloc_tracker = ctx.malloc_tracker.replace(crate::codegen::verification::MallocTracker::new());
     let saved_arena_escape = ctx.arena_escape_tracker.replace(crate::codegen::verification::ArenaEscapeTracker::new());
 
-    // [SOVEREIGN V5.1] Clear stale pending_malloc_result to prevent cross-function contamination.
+    // [KEUOS V5.1] Clear stale pending_malloc_result to prevent cross-function contamination.
     // When a function like `alloc_u8` does `return malloc(count)`, the pending flag is set by
     // the malloc call but never consumed (no let-binding in the function body). Without this
     // reset, the stale flag leaks to the next function compiled, falsely tagging its first
@@ -1767,7 +1755,7 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
         ctx.malloc_tracker.borrow().verify()?;
     }
     
-    // [SOVEREIGN V5.0] Restore parent function's ownership and malloc tracker state.
+    // [KEUOS V5.0] Restore parent function's ownership and malloc tracker state.
     ctx.ownership_tracker.replace(saved_ownership);
     ctx.malloc_tracker.replace(saved_malloc_tracker);
     ctx.arena_escape_tracker.replace(saved_arena_escape);
@@ -1775,7 +1763,7 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
     // Restore state
     *ctx.alloca_out_mut() = saved_alloca;
 
-    // [SOVEREIGN FIX] Restore previous GlobalLVN function context
+    // [KEUOS FIX] Restore previous GlobalLVN function context
     if let Some(prev) = prev_func_lvn {
         ctx.emission.borrow_mut().global_lvn.set_current_function(prev);
     } else {
@@ -1806,7 +1794,7 @@ fn emit_impl(ctx: &CodegenContext, imp: &SaltImpl) -> Result<String, String> {
             
             for m in methods {
                 let key = parsed_ty.to_key().ok_or_else(|| format!("Failed to derive TypeKey for impl target {}", target_name_full))?;
-                // [V4.0 SOVEREIGN] Register via TraitRegistry with signature extraction
+                // [V4.0 KEUOS] Register via TraitRegistry with signature extraction
                 ctx.trait_registry_mut().register_simple(key, m.clone(), Some(parsed_ty.clone()), ctx.imports().clone());
                 // Only emit immediately if NOT a generic struct/enum and NOT a generic method
                 if (parsed_ty.is_numeric() || matches!(parsed_ty, Type::Bool | Type::Unit)) || (!matches!(parsed_ty, Type::Concrete(..)) && m.generics.is_none()) {
@@ -1912,7 +1900,7 @@ fn register_templates(ctx: &CodegenContext, file: &SaltFile) -> Result<(), Strin
         String::new()
     };
 
-    // [SOVEREIGN V7.0] Derive the module package for Home registration
+    // [KEUOS V7.0] Derive the module package for Home registration
     let module_package = if let Some(pkg) = &file.package {
         pkg.name.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(".")
     } else {
@@ -1926,7 +1914,7 @@ fn register_templates(ctx: &CodegenContext, file: &SaltFile) -> Result<(), Strin
                 let mut s_mangled = s.clone();
                 s_mangled.name = syn::Ident::new(&mangled, s.name.span());
                 ctx.struct_templates_mut().insert(mangled.clone(), s_mangled);
-                // [SOVEREIGN V7.0] Register this struct's Sovereign Home
+                // [KEUOS V7.0] Register this struct's KeuOS Home
                 ctx.register_type_home(mangled, module_package.clone());
             }
             Item::Enum(e) => {
@@ -1934,11 +1922,11 @@ fn register_templates(ctx: &CodegenContext, file: &SaltFile) -> Result<(), Strin
                 let mut e_mangled = e.clone();
                 e_mangled.name = syn::Ident::new(&mangled, e.name.span());
                 ctx.enum_templates_mut().insert(mangled.clone(), e_mangled);
-                // [SOVEREIGN V7.0] Register this enum's Sovereign Home
+                // [KEUOS V7.0] Register this enum's KeuOS Home
                 ctx.register_type_home(mangled, module_package.clone());
             }
             Item::Trait(t) => {
-                // [SOVEREIGN V7.0] Register this trait's Sovereign Home
+                // [KEUOS V7.0] Register this trait's KeuOS Home
                 let trait_mangled = if pkg_name.is_empty() { t.name.to_string() } else { Mangler::mangle(&[&pkg_name, &t.name.to_string()]) };
                 ctx.register_trait_home(trait_mangled, module_package.clone());
             }
@@ -1992,7 +1980,7 @@ fn register_signatures(ctx: &CodegenContext, file: &SaltFile) -> Result<(), Stri
                 let name = ef.name.to_string();
                 let mangled = name.clone(); // Externs are C-ABI, never mangle them.
                 
-                // [SOVEREIGN FIX] Skip if already registered (dedupe across modules)
+                // [KEUOS FIX] Skip if already registered (dedupe across modules)
                 if ctx.external_decls().contains(&name) {
                     continue;
                 }
@@ -2005,7 +1993,7 @@ fn register_signatures(ctx: &CodegenContext, file: &SaltFile) -> Result<(), Stri
                 let args: Vec<Type> = ef.args.iter().map(|a| resolve_type_safe(ctx, a.ty.as_ref().unwrap_or(&unknown_ty))).collect();
                 ctx.globals_mut().insert(mangled.clone(), Type::Fn(args.clone(), Box::new(ret.clone())));
 
-                // [SOVEREIGN FIX] Emit MLIR declaration to decl_out
+                // [KEUOS FIX] Emit MLIR declaration to decl_out
                 // This ensures the func.func private declaration is emitted alongside registration
                 let mut args_mlir = Vec::new();
                 for arg in &args {
@@ -2064,7 +2052,7 @@ fn register_signatures(ctx: &CodegenContext, file: &SaltFile) -> Result<(), Stri
                 let ty = resolve_type_safe(ctx, &c.ty);
                 ctx.globals_mut().insert(mangled.clone(), ty.clone());
                 
-                // [SOVEREIGN FIX] Cross-Module Constant Inlining
+                // [KEUOS FIX] Cross-Module Constant Inlining
                 // Evaluate the constant value and insert into evaluator.constant_table
                 // using the mangled FQN. This allows expr resolution (expr/mod.rs:110) to
                 // inline dependency constants as arith.constant instead of falling
@@ -2110,12 +2098,12 @@ fn register_signatures(ctx: &CodegenContext, file: &SaltFile) -> Result<(), Stri
                      }
 
                      for m in methods {
-                         // [V4.0 SOVEREIGN] Register via TraitRegistry with signature extraction
+                         // [V4.0 KEUOS] Register via TraitRegistry with signature extraction
                          let current_imports = ctx.imports().clone();
                          ctx.trait_registry_mut().register_simple(key.clone(), m.clone(), Some(parsed_ty.clone()), current_imports);
                      }
                 }
-                // [SOVEREIGN V7.0] Handle `impl Trait for Type` during signature pre-scanning
+                // [KEUOS V7.0] Handle `impl Trait for Type` during signature pre-scanning
                 else if let SaltImpl::Trait { trait_name: _, target_ty, methods, generics } = imp {
                      let parsed_ty = resolve_type_safe(ctx, target_ty);
                      
@@ -2496,7 +2484,7 @@ fn scan_expr(ctx: &CodegenContext, expr: &syn::Expr) -> Result<(), String> {
                              };
                              let key_obj = crate::types::TypeKey { path: b_path, name: b_name, specialization: None };
                              
-                             // [V4.0 SOVEREIGN] Lookup method via TraitRegistry
+                             // [V4.0 KEUOS] Lookup method via TraitRegistry
                              let fn_item_opt = ctx.trait_registry().get_legacy(&key_obj, &method_name);
                              
                              if let Some((f, _, _)) = fn_item_opt {
@@ -2585,7 +2573,7 @@ fn scan_expr(ctx: &CodegenContext, expr: &syn::Expr) -> Result<(), String> {
                                      }
                                      
                                      // 3. Request Specialization
-                                     // [SOVEREIGN FIX] Check if method generics are fully satisfied by turbofish/path args
+                                     // [KEUOS FIX] Check if method generics are fully satisfied by turbofish/path args
                                      let method_generic_count = f.generics.as_ref().map(|g| g.params.len()).unwrap_or(0);
                                      let turbofish_count = if let syn::PathArguments::AngleBracketed(args) = &method_seg.arguments {
                                          args.args.len()
@@ -2657,7 +2645,7 @@ fn scan_expr(ctx: &CodegenContext, expr: &syn::Expr) -> Result<(), String> {
                 }
 
                 // 2. Resolve Method via Context
-                // [V4.0 SOVEREIGN] Use TraitRegistry for method lookup with receiver type matching
+                // [V4.0 KEUOS] Use TraitRegistry for method lookup with receiver type matching
                 let method_result: Option<(crate::grammar::SaltFn, Option<crate::types::Type>, Vec<crate::grammar::ImportDecl>)> = {
                     // Try to resolve via TraitRegistry using the receiver type
                     if let Some(recv_key) = recv_ty.to_key() {
@@ -2688,7 +2676,7 @@ fn scan_expr(ctx: &CodegenContext, expr: &syn::Expr) -> Result<(), String> {
                      // B. Method Args
                      concrete_tys.extend(method_generics);
                      
-                     // [SOVEREIGN FIX] Check if method generics are fully satisfied by turbofish.
+                     // [KEUOS FIX] Check if method generics are fully satisfied by turbofish.
                      // scan_expr cannot do argument inference. If inference is needed, we SKIP creating the task.
                      // emit_method_call will create the correct task with inference later.
                      let method_generic_count = func_def.generics.as_ref().map(|g| g.params.len()).unwrap_or(0);

@@ -11,7 +11,7 @@ pub enum Scalar {
     Index, // MLIR index type for affine loop inductives
     F32,
     F64,
-    Ptr,   // [SOVEREIGN V2.0] First-class Register Pointer
+    Ptr,   // [KEUOS V2.0] First-class Register Pointer
 }
 
 impl Scalar {
@@ -97,7 +97,7 @@ impl Layout {
     }
 
     pub fn compute(ctx: &mut LoweringContext, ty: &Type) -> Self {
-        // [SOVEREIGN V2.0 POINTER REALIGNMENT]
+        // [KEUOS V2.0 POINTER REALIGNMENT]
         // We check k_is_ptr_type() FIRST. 
         // This ensures Ptr<T> and Reference(&T) are immediately flattened to scalars.
         if ty.k_is_ptr_type() {

@@ -9,7 +9,7 @@
 // ============================================================================
 
 /// Test that a generic static method can be called twice in the same function.
-/// This is the core reproduction of the sovereign_train.salt failure.
+/// This is the core reproduction of the keuos_train.salt failure.
 ///
 /// The bug manifests when:
 /// 1. A generic struct (e.g., Slice<T>) is defined in a package

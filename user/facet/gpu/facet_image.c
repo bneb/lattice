@@ -1,5 +1,5 @@
 // =============================================================================
-// Prisimi Image Decoder Bridge (Platform-Agnostic)
+// KeuOS Image Decoder Bridge (Platform-Agnostic)
 // =============================================================================
 // Wraps stb_image.h to provide C-ABI functions callable from Salt.
 // Pure C — no OS dependencies. Compiles on macOS, Linux, KeuOS.

@@ -11,7 +11,7 @@ pub struct Console {}
 // =============================================================================
 // Writer Implementation for Console
 // =============================================================================
-// Enables the Sovereign Writer Protocol for stdout:
+// Enables the KeuOS Writer Protocol for stdout:
 //   let console = Console {};
 //   console.f"Hello {name}!";
 //

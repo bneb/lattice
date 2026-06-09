@@ -39,7 +39,7 @@ fn main() -> i32 {
     // --- Test 7: Embedded newline in string ---
     println("\n--- section ---");
 
-    // --- Test 8: Real-world pattern (sovereign_train style) ---
+    // --- Test 8: Real-world pattern (keuos_train style) ---
     let epoch_ms: i64 = 1234;
     let acc: i64 = 95;
     println(f"Epoch {epoch}: {acc}% accuracy ({epoch_ms} ms)");

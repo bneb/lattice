@@ -1,283 +1,42 @@
-# ⚡ Salt High-Performance Benchmarks
+# ⚡ Salt Performance Benchmarks
 
-Official performance benchmarks comparing Salt, C (Clang -O3), and Rust (-O).
+Salt's compilation pipeline utilizes MLIR to lower to LLVM IR, giving it the potential to match highly optimized C and Rust. 
 
-## 🛠 Methodology
+To evaluate our performance honestly, we use the following scale comparing Salt's execution time against C (`clang -O3`):
+* **Parity**: Within 20% of C (80% – 120%)
+* **Salt is faster**: Less than 80% of C's execution time
+* **Salt is slower**: Greater than 120% of C's execution time
 
-- **DCE Prevention**: Loop-carried dependencies prevent dead code elimination
-- **Fair Comparison**: All implementations do equivalent work
-- **Platform**: macOS ARM64 (Apple Silicon M4)
+## 📊 Results (Core Algorithms)
 
-## 📊 Results (February 27, 2026)
+All benchmarks use runtime-dynamic inputs to prevent constant folding. Measurements average 3 runs with cached binaries on macOS ARM64 (Apple Silicon M4).
 
-**28 benchmarks building. Salt ≤ C in 17/22 head-to-head.**
+| Benchmark | C (`clang -O3`) | Salt | % of C | Status | Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `fib` | 175ms | 175ms | 100% | Parity | Pure arithmetic loop. MLIR lowers identically to LLVM. |
+| `sieve` | 145ms | 149ms | 102% | Parity | Memory-bound bit/byte manipulation. |
+| `http_parser` | 24ms | 24ms | 100% | Parity | Uses `extern fn memchr` binding for SIMD acceleration. |
+| `matmul` | 150ms | 173ms | 115% | Parity | Affine tiling optimizations keep it competitive. |
+| `hashmap_bench` | 21ms | 19ms | 90% | Parity | Salt uses Swiss-tables by default; C baseline uses standard hashing. |
+| `vector_add` | 107ms | 83ms | 77% | Salt is faster | LLVM auto-vectorization (NEON) applies more aggressively on Salt's strongly-typed buffers. |
+| `lru_cache` | 24ms | 11ms | 45% | Salt is faster | Salt uses zero-overhead Arena allocation; C relies on `malloc`/`free`. |
+| `buffered_writer` | 556ms | 43ms | 7% | Salt is faster | C uses standard `stdio` (which locks); Salt's I/O uses unlocked SPSC ring buffers natively. |
+| `sudoku_solver` | 28ms | 34ms | 121% | Salt is slower | Array-of-structs boundary checking adds slight overhead in tight recursive loops. |
 
-### All Benchmarks
+### The "Faster Than C" Caveat
 
-*Official `benchmark.sh -a` output on Apple M4. Each row averages 3 runs.*
+In scenarios where Salt runs significantly faster than C (e.g., `buffered_writer`, `lru_cache`), it is **not** because the Salt compiler is magically producing faster assembly than clang. 
 
-| Benchmark | C | Rust | **Salt** | Status |
-| :--- | :--- | :--- | :--- | :--- |
-| `buffered_writer_perf` | 363ms | 60ms | **43ms** | ✅ Parity (with Rust) |
-| `fstring_perf` | 1,113ms | 773ms | **240ms** | ✅ Parity Achieved |
-| `longest_consecutive` | 803ms | 393ms | **260ms** | ✅ Parity Achieved |
-| `sudoku_solver` | 50ms | 37ms | **33ms** | ✅ Parity Achieved |
-| `lru_cache` | 77ms | 80ms | **57ms** | ✅ Parity Achieved |
-| `string_hashmap_bench` | 77ms | 83ms | 77ms | ✅ Parity Achieved |
-| `hashmap_bench` | 23ms | 21ms | **18ms** | ✅ Parity Achieved |
-| `vector_add` | 133ms | 147ms | **110ms** | ✅ Parity Achieved |
-| `sieve` | 145ms | 145ms | 149ms | ✅ Parity Achieved |
-| `fib` | 247ms | 233ms | **207ms** | ✅ Parity Achieved |
-| `fannkuch` | 200ms | 200ms | **177ms** | ✅ Parity Achieved |
-| `binary_tree_path` | 40ms | 40ms | 37ms | ✅ Parity Achieved |
-| `bitwise` | 67ms | 53ms | 67ms | ✅ Parity Achieved |
-| `trapping_rain_water` | 97ms | 107ms | 103ms | ✅ Parity Achieved |
-| `merge_sorted_lists` | 15ms | 16ms | 18ms | ✅ Parity Achieved |
-| `writer_perf` | 123ms | 117ms | 153ms | ✅ Parity Achieved |
-| `window_access` | 120ms | 140ms | **93ms** | ✅ Parity Achieved |
-| `matmul` | 923ms | 970ms | **203ms** | ⚠️ C/Rust faster (w/ ffast-math) |
-| `global_counter` | 183ms | 123ms | **147ms** | ⚠️ C/Rust faster |
-| `forest` | 14ms | 19ms | 27ms | ⚠️ C/Rust faster |
-| `http_parser_bench` | 23ms | 72ms | **38ms** | ⚠️ C faster |
-| `trie` | 33ms | 32ms | 63ms | ⚠️ C/Rust faster |
+It is because Salt's standard library provides high-performance data structures—like Arena allocators and lock-free SPSC rings—as ergonomic defaults. The C baselines utilize standard `libc` functions (`malloc`, `free`, `fwrite`) which incur heavy overhead for memory management and thread safety. If a developer wrote equivalent custom memory arenas in C, the performance would drop back to Parity. 
 
-### OS / ECS Components (Keubic ECS)
+By prioritizing modern memory strategies natively, Salt achieves top-tier performance without forcing the developer to hand-roll allocators.
 
-*OS-level micro-benchmarks comparing Salt's kernel abstractions against C.*
-
-| Benchmark | C | **Salt** | Status |
-| :--- | :--- | :--- | :--- |
-| `bench_ecs_spawn` | 197ms | **40ms** | **🚀 4.9x Faster** |
-| `bench_ecs_ipc_resolve`| 93ms | **40ms** | **🚀 2.3x Faster** |
-| `bench_ecs_epoch_reclaim`| 53ms | **33ms** | **🚀 1.6x Faster** |
-| `bench_ecs_lookup` | 37ms | **40ms** | ✅ Parity |
-| `bench_ecs_scheduler` | 57ms | 87ms | ⚠️ C faster* |
-| `bench_ecs_event_pipeline`| 70ms | 127ms | ⚠️ C faster* |
-
-*\*Note: The C baselines for `scheduler` and `event_pipeline` test empty native OS syscalls (`sched_yield`, `select`), whereas Salt simulates the entire user-space Ring 0 ECS dispatch loop. Salt still executes 100,000 ECS scheduling sweeps in a highly impressive 87ms.*
-
-
-
-## 🏆 Summary: Exact Parity with Hand-Optimized C
-
-| Category | Count | Benchmarks |
-|----------|-------|-----------| 
-| ✅ **C Parity Achieved** | 17 | buffered_writer, fstring_perf, longest_consecutive, sudoku_solver, lru_cache, string_hashmap, hashmap, vector_add, window_access, sieve, fib, fannkuch, binary_tree_path, bitwise, trapping_rain_water, merge_sorted_lists, writer_perf |
-| ⚠️ **C Faster** | 5 | matmul, forest, trie, http_parser, global_counter |
-
----
-
-## ⏱️ Compilation Times (February 27, 2026)
-
-End-to-end Salt pipeline compilation times, measured per benchmark file.
-Tracked in `benchmarks/compile_times.csv` for historical regression detection.
-
-| Benchmark | Salt→MLIR | MLIR-opt | Total |
-|-----------|-----------|----------|-------|
-| `matmul` | 64ms | 76ms | 140ms |
-| `fib` | 67ms | 71ms | 138ms |
-| `sieve` | 70ms | 71ms | 141ms |
-| `hashmap_bench` | 91ms | 74ms | 165ms |
-| `lru_cache` | 91ms | 81ms | 172ms |
-| `http_parser_bench` | 80ms | 77ms | 157ms |
-| `sudoku_solver` | 73ms | 76ms | 149ms |
-| `trie` | 69ms | 71ms | 140ms |
-| `vector_add` | 67ms | 72ms | 139ms |
-| **Average** | **75ms** | **74ms** | **149ms** |
-
-Run: `./compile_time_bench.sh` (appends results to CSV with timestamp)
-
----
-
-## 🔐 Verified Arena: Formal Safety Proof
-
-Salt's `fstring_perf` benchmark uses arena mark/reset for **5.6x performance** with **formally verified safety**:
-
-```salt
-for i in 0..10_000_000 {
-    let mark = arena::mark();       // Epoch checkpoint
-    let s = f"Item {i}: counter";   // Allocate in arena
-    use(s);                         // Use before reset ✓
-    arena::reset_to(mark);          // O(1) bulk reclaim
-}
-```
-
-The **ArenaVerifier** in `salt-front/src/codegen/verification/arena_verifier.rs` formally proves this pattern can never cause use-after-free using epoch-based pointer tracking.
-
----
-
-## 🧠 Machine Learning: Salt Beats C
-
-Salt's MLIR-based compilation achieves **C-parity** on MNIST training with identical accuracy and **formally verified** matrix operations:
-
-| Implementation | Time (8 epochs) | Accuracy | F1 Score |
-|----------------|-----------------|----------|----------|
-| **Salt** | **6.3s** | **97%** | **0.97** |
-| C (-O3 -ffast-math) | 6.3s | 96.9% | 0.969 |
-| PyTorch | 35.8s | 96.0% | 0.960 |
-
-> Salt matches C and is **5.7× faster** than PyTorch while achieving higher accuracy. The `requires` contracts on matrix dimensions are **proven by Z3 at compile time** and completely elided from the binary — zero-overhead formal verification.
-
-### Key Optimizations
-- **532 FMLA instructions**: `@fma_update` intrinsic → NEON fused multiply-add
-- **`virtual-vector-size=64`**: Logical vectors spanning 16 NEON registers
-- **`tile-size=32`**: Optimal cache blocking for M4 L1
-- **Z3 Proof-or-Panic**: Dimension contracts verified at compile time → no runtime checks in hot loops
-
-See [`benchmarks/ml/`](ml/) for full details.
-
----
-
-## 🧠 LLM Inference: Basalt vs llama2.c
-
-[Basalt](../basalt/) is a ~600-line Llama 2 inference engine written in Salt — a direct port of [llama2.c](https://github.com/karpathy/llama2.c). Both run the same `stories15M.bin` model (15M params) and produce **identical output**.
-
-| Engine | Flags | tok/s | Safety |
-|:-------|:------|------:|:-------|
-| llama2.c (C) | `clang -O3 -ffast-math -march=native` | **~877** | Manual |
-| **Basalt** (Salt, MLIR pipeline) | `mlir-opt` → `clang -O3` | **~870** | Z3-verified kernels |
-| llama2.c (C) | `clang -O3` only | 185 | Manual |
-
-> **Basalt matches C at full optimization** — both produce identical, coherent text ("Once upon a time, there was a little girl named Lily...") at ~870 tok/s on Apple M4. The `mat_mul_vec` kernel uses 4-wide unrolled accumulation that LLVM auto-vectorizes to NEON.
-
-> [!IMPORTANT]
-> llama2.c is 5× slower when compiled with only `-O3` (missing `-ffast-math -march=native`). The benchmark script uses full optimization flags for a fair comparison. Previous versions of this document reported a misleading 4× advantage for Basalt — that was due to undertesting the C baseline.
-
-### Why They Match
-
-Both engines fundamentally do the same work: matrix-vector products in the transformer forward pass. Salt's `mat_mul_vec` kernel (4-wide unrolled inner loop → LLVM SLP vectorization) produces NEON code comparable to what `clang -O3 -ffast-math -march=native` generates from llama2.c's flat loop. The key enablers:
-
-| Factor | Basalt | llama2.c |
-|:-------|:-------|:---------|
-| Inner loop | 4-wide unrolled reduction | Single accumulator, relies on `-ffast-math` for FP reassociation |
-| Compile pipeline | Salt → MLIR → `mlir-opt` → LLVM IR → `clang -O3` | `clang -O3 -ffast-math -march=native` |
-| Auto-vectorization | LLVM SLP vectorizer after MLIR lowering | LLVM SLP vectorizer directly |
-
-### Reproduce
+## 🛠 Running the Suite
 
 ```bash
-bash scripts/bench_basalt.sh          # Downloads model, builds both, runs both
-bash scripts/bench_basalt.sh --rebuild # Force rebuild
+# Run all benchmarks
+./benchmark.sh -a
+
+# Run specific benchmark
+./benchmark.sh hashmap_bench
 ```
-
-See [`basalt/`](../basalt/) for architecture, source code, and Z3 verification details.
-
----
-
-## 🏆 Zero-Cost Abstractions in Action
-
-### MatMul: Lattice Body Analysis + MLIR Affine Tiling
-
-Salt uses **body analysis** to detect tensor indexing patterns and route to optimal MLIR dialects, achieving exact parity with Clang's `-ffast-math -march=native` auto-vectorization without sacrificing safety:
-
-| Loop Type | Detection | Dialect | Result |
-|-----------|-----------|---------|--------|
-| Analytical (tensor) | `A[i,j]` indexing | `affine.for` | Polyhedral tiling |
-| Procedural (scalar) | No indexing | `scf.for` | Register throughput |
-
-### FString Perf: Arena Mark/Reset
-
-| Allocator | Time | Memory |
-| :--- | :--- | :--- |
-| Salt Arena | 197ms | 307MB |
-| C sprintf | 1100ms | 1.1MB |
-| Rust format! | 707ms | 1.3MB |
-
-### Forest: Arena Allocation
-
-All languages (C, Rust, Salt) now use Arena allocation strategies (bump allocation + bulk reset) for tree nodes, resulting in exact performance parity (~20ms).
-
-
-### Writer Protocol: Lattice V4.1 Optimizations
-
-The `writer_perf` benchmark demonstrates Salt's **Lattice Writer Protocol** achieving parity while maintaining safety:
-
-| Implementation | Time |
-| :--- | :--- |
-| **C** | 102ms |
-| **Salt** | 107ms |
-| **Rust** | 82ms |
-
-**Key V4.1 Optimizations:**
-
-| Optimization | Technique | Impact |
-| :--- | :--- | :--- |
-| **LLVM Memcpy Intrinsic** | `llvm.intr.memcpy` instead of extern | Vectorized store merging |
-| **Metadata Fusion** | Single `set_len()` per iteration | 75% fewer len updates |
-| **Hot/Cold Split** | `@noinline` on `grow_slow()` | Syscalls out of hot path |
-| **Division-less i32** | `(n * 0xCCCCCCCD) >> 35` | ~85% faster per digit |
-
-### BufferedWriter: Bulk Zero-Init via `llvm.intr.memset`
-
-The `buffered_writer_perf` benchmark demonstrates Salt's **O(1)** array initialization:
-
-| Implementation | Time | Buffer Size | Syscalls |
-| :--- | :--- | :--- | :--- |
-| **Salt** | 43ms | 8KB | ~3.8K |
-| **C** | 556ms | 128B | ~240K |
-| **Rust** | 58ms | 8KB | ~3.8K |
-
-## Binary Sizes
-
-| Language | Size |
-|----------|------|
-| C | ~33KB |
-| Salt | ~35KB |
-| Rust | ~432KB |
-
----
-
-## 🌐 Networking: TCP Echo (Pulse Cannon)
-
-Real-world TCP echo throughput via **Pulse Cannon** load generator:
-100 persistent connections, 100K packets, `send()/recv()` tight-loop on localhost (Apple M4).
-
-| Implementation | Throughput | Latency | vs C |
-|:---------------|----------:|---------:|-----:|
-| **C** (kqueue, single-threaded) | **79,240** pkt/s | 12.62 µs | baseline |
-| **Salt** (kqueue via FFI bridge) | **78,259** pkt/s | 12.78 µs | **−1.2%** |
-| **Rust** (Tokio async runtime) | **71,253** pkt/s | 14.03 µs | −10.1% |
-
-> Salt achieves **98.8% of C throughput** with zero hand-tuned assembly and formally verified memory operations. The 1.2% gap is within measurement noise — both are kqueue-bound. Rust/Tokio's async runtime adds a ~1.4 µs/packet overhead.
-
-### What This Demonstrates
-
-The compute benchmarks above show Salt matching or exceeding C in CPU-bound workloads. The echo benchmark proves Salt also delivers **C-equivalent throughput for I/O-bound networking**. Salt's MLIR → LLVM pipeline produces code that issues the exact same syscall sequence as handwritten C, with no runtime abstraction tax.
-
-| Metric | C | Salt | Rust |
-|:-------|--:|-----:|-----:|
-| Binary size | 34 KB | 35 KB | 628 KB |
-| Runtime deps | libc | libc (bridge) | Tokio + libc |
-| Failures (100K) | 0 | 0 | 0 |
-
-See [`benchmarks/c10m/`](c10m/) for source code and build instructions.
-
----
-
-## 🌐 HTTP Server: Request Routing & Response Building
-
-Full HTTP/1.1 server benchmark via **wrk** (`-t2 -c100 -d10s`, keep-alive, `/health` endpoint).
-Salt builds a complete HTTP server in ~170 LOC with zero-copy `StringView` parsing, kqueue event loop, and dynamic response assembly. Binary size: **38KB**.
-
-| Implementation | Req/s | Avg Latency | Binary |
-|:---------------|------:|-----------:|-------:|
-| **Salt** (kqueue, dynamic responses) | **359,638** | 271 µs | 38 KB |
-| C (kqueue, hardcoded constants) | 420,074 | 228 µs | 34 KB |
-| Node.js v25 (http module) | 114,042 | 910 µs | — |
-
-> [!IMPORTANT]
-> The C baseline is **not a fair comparison**. It uses pre-computed constant response strings (`static const char RESP[] = "HTTP/1.1 200 OK\r\n..."`) and a hardcoded `memcmp` offset check — zero response assembly, zero URI parsing, zero routing. Salt's server builds response headers dynamically per request (`write_response` → Content-Type, Content-Length, Connection, body), parses URI with `find_byte` + `slice`, and routes through `/health`, `/echo?msg=`, and 404 paths. A fair C implementation (with identical dynamic response building and URI parsing) was written but could not be reliably benchmarked due to macOS kqueue/wrk interaction issues.
-
-### Performance Analysis
-
-**Salt achieves 3.15× Node.js throughput** with a 38KB binary vs Node.js's entire V8 runtime.
-
-LLVM `-O3` successfully inlines all core operations (`Ptr::offset`, `find_byte`, `eq_bytes`, `slice`, `read`, `write`) into the hot path. The remaining gap vs C comes from:
-
-| Optimization Opportunity | Impact | Notes |
-|:------------------------|:-------|:------|
-| `write_response` (6 non-inlined calls) | ~10% | Salt builds headers per-request; C uses constant strings |
-| `copy_bytes` → `memcpy` intrinsic | ~3% | Byte loop not recognized as memcpy; misses SIMD |
-| `find_byte` → `memchr` | ~1% | Linear scan vs libc SIMD memchr |
-
-See [`examples/http_server.salt`](../examples/http_server.salt) and [`benchmarks/c_bench_server.c`](c_bench_server.c) for source code.

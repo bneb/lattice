@@ -7,19 +7,13 @@
 
 package user.ring3_test_b
 
-extern fn sys_write(fd: u64, buf: u64, len: u64);
-extern fn sys_exit(code: u64);
-extern fn sys_str_data(sv: &u64) -> u64;
+import user.lib.syscall
+import user.std.stdio
 
 pub fn main() {
-    let msg = "[B] Hello from Process B!\n";
-    // Formal boundary: extract data pointer through extern hardware helper.
-    let data_ptr = sys_str_data(&msg);
-    let len: u64 = 26;
-
     let mut i: u64 = 0;
     while i < 10 {
-        sys_write(1, data_ptr, len);
+        stdio.print("[B] Hello from Process B!\n");
 
         // Spin to stay alive longer than the PIT tick (~714µs)
         let mut spin: u64 = 0;
@@ -30,5 +24,5 @@ pub fn main() {
         i = i + 1;
     }
 
-    sys_exit(0);
+    syscall.exit(0);
 }

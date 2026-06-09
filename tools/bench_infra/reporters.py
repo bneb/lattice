@@ -13,7 +13,7 @@ class Reporter:
         lines = [
             "# Rigorous E2E Benchmarks",
             "",
-            "Automated, multi-iteration, high-fidelity benchmarks across the Lattice macro-applications.",
+            "Automated, multi-iteration, high-fidelity benchmarks across the KeuOS macro-applications.",
             "",
             "## Microbenchmarks (Algorithms & Data Structures)",
             "",

@@ -11,6 +11,8 @@ package std.http.parser
 import std.core.str.StringView
 import std.core.ptr.Ptr
 
+extern fn memchr(s: Ptr<u8>, c: i32, n: i64) -> Ptr<u8>;
+
 // Parse an HTTP/1.1 request line from `buf` (length `len`).
 // On success, writes method/uri/version into the output StringViews.
 // Returns bytes consumed on success, or -1 on failure.
@@ -67,36 +69,17 @@ pub fn parse_request_line(
 
 // Find first \n in the buffer. Returns index or -1.
 fn find_newline(buf: Ptr<u8>, len: i64) -> i64 {
-    let mut i: i64 = 0;
-    while i < len {
-        let p = buf.offset(i);
-        let b = p.read();
-        if b == 10 {
-            return i;
-        }
-        if b == 13 {
-            // Check for \r\n
-            if i + 1 < len {
-                let next = buf.offset(i + 1);
-                if next.read() == 10 {
-                    return i;
-                }
-            }
-            return i;
-        }
-        i = i + 1;
+    let p = memchr(buf, 10, len);
+    if p.is_null() {
+        return -1;
     }
-    return -1;
+    return (p.addr() - buf.addr()) as i64;
 }
 
 fn find_byte_raw(buf: Ptr<u8>, len: i64, needle: u8) -> i64 {
-    let mut i: i64 = 0;
-    while i < len {
-        let p = buf.offset(i);
-        if p.read() == needle {
-            return i;
-        }
-        i = i + 1;
+    let p = memchr(buf, needle as i32, len);
+    if p.is_null() {
+        return -1;
     }
-    return -1;
+    return (p.addr() - buf.addr()) as i64;
 }

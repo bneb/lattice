@@ -14,6 +14,11 @@ package kernel.arch.x86_64.cpu
 // Lowers to x86_64 TZCNT or BSF
 extern fn ctz_u64(val: u64) -> u64;
 
+// Memory Barriers
+extern fn cpu_mfence();
+extern fn cpu_lfence();
+extern fn cpu_sfence();
+
 // ============================================================================
 // CpuContext — x86_64 IRETQ Frame + GPRs
 // ============================================================================

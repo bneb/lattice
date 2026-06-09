@@ -4,7 +4,7 @@
 // Tests that generic enum variant constructors are correctly generated
 // when called from within generic method contexts.
 //
-// Root Cause (sovereign_train): File::mmap<T> calls Result::Err(IOError)
+// Root Cause (keuos_train): File::mmap<T> calls Result::Err(IOError)
 // but emit_fn emits the body with empty type_map, leaving T unresolved.
 // resolve_path_to_enum then rejects the enum variant construction.
 // ============================================================================
@@ -35,7 +35,7 @@ fn check_compiles(name: &str, source: &str, expected_error: Option<&str>) {
 }
 
 /// Tests that a generic method returning Result<T, E> can construct Ok/Err variants.
-/// This is the minimal reproduction of the sovereign_train mmap<T> failure.
+/// This is the minimal reproduction of the keuos_train mmap<T> failure.
 #[test]
 fn test_generic_method_result_ok_construction() {
     let source = r#"

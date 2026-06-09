@@ -36,8 +36,8 @@ mod identity_routing_test;
 #[path = "codegen/hex_prefix_test.rs"]
 mod hex_prefix_test;
 
-#[path = "codegen/sovereign_authority_test.rs"]
-mod sovereign_authority_test;
+#[path = "codegen/keuos_authority_test.rs"]
+mod keuos_authority_test;
 
 #[path = "codegen/hashmap_eq_dispatch_test.rs"]
 mod hashmap_eq_dispatch_test;

@@ -65,7 +65,7 @@ pub fn swap<T>(a: &mut T, b: &mut T) {
 }
 
 // =============================================================================
-// SALT MEMORY ARCHITECTURE V4.0 - "Memory Sovereignty"
+// SALT MEMORY ARCHITECTURE V4.0 - "Memory KeuOSty"
 // =============================================================================
 
 // [TEMPORARILY DISABLED - Parser doesn't support &self in trait methods]

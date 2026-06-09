@@ -2,7 +2,7 @@
 
 **A ~700-line LLM inference engine** that compiles to native code through Salt's MLIR pipeline — and to **WASM for browser-side inference**. Runs [Karpathy's TinyLlama](https://github.com/karpathy/llama2.c) models with BPE tokenization, zero-copy weight loading, Z3-verified compute kernels, and **q8_0 weight quantization** for 3.77× memory reduction.
 
-**C-parity performance** on `stories15M.bin` (~920 tok/s, matching `clang -O3 -ffast-math -march=native` on Apple M4). q8_0 quantized models run at ~300 tok/s with 3.77× smaller footprint.
+**Strong performance** on `stories15M.bin` (~920 tok/s, matching `clang -O3 -ffast-math -march=native` on Apple M4). q8_0 quantized models run at ~300 tok/s with 3.77× smaller footprint.
 
 Basalt exists to prove one claim: **Salt can replace C in performance-critical ML workloads while providing compile-time safety guarantees that C cannot.**
 

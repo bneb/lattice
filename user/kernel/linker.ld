@@ -65,7 +65,7 @@ SECTIONS {
         KERNEL_STACK_TOP = .;
 
         /* ============================================================
-         * LOC_ARENA — 64MB, the sovereign memory substrate
+         * LOC_ARENA — 64MB, the keuos memory substrate
          *
          * All zero-allocation data structures live here:
          *   - HardwareManifest (32 bytes)

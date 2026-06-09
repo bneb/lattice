@@ -336,30 +336,30 @@ pub fn generate_budget_yield_check_mlir(budget_cycles: u64) -> String {
 }
 
 // =============================================================================
-// SOVEREIGN INTRINSICS - Register-Pinned Deadline
+// KEUOS INTRINSICS - Register-Pinned Deadline
 // =============================================================================
 
 /// [PARETO V2.0] LLVM IR for reading the register-pinned deadline
 /// On Apple M4 (AArch64): x19 is a callee-saved register used as the
-/// Sovereign Deadline Register. This avoids TLS pointer chase entirely.
+/// KeuOS Deadline Register. This avoids TLS pointer chase entirely.
 ///
 /// Lowers to: `cmp x19, x20` (1 cycle vs ~12 cycles for TLS)
 pub fn generate_pinned_deadline_intrinsic_llir() -> String {
     r#"
-; [SOVEREIGN V2.0] Register-pinned deadline read
-; x19 = Sovereign Deadline Register (callee-saved, ABI-safe)
+; [KEUOS V2.0] Register-pinned deadline read
+; x19 = KeuOS Deadline Register (callee-saved, ABI-safe)
 define i64 @salt.get_pinned_deadline() {
 entry:
-  %deadline = call i64 @llvm.read_register.i64(metadata !sovereign_deadline_reg)
+  %deadline = call i64 @llvm.read_register.i64(metadata !keuos_deadline_reg)
   ret i64 %deadline
 }
 
-!sovereign_deadline_reg = !{!"x19"}
+!keuos_deadline_reg = !{!"x19"}
 
 ; Set the deadline (called by executor at task start)
 define void @salt.set_pinned_deadline(i64 %deadline) {
 entry:
-  call void @llvm.write_register.i64(metadata !sovereign_deadline_reg, i64 %deadline)
+  call void @llvm.write_register.i64(metadata !keuos_deadline_reg, i64 %deadline)
   ret void
 }
     "#.to_string()
@@ -369,7 +369,7 @@ entry:
 /// On AArch64: reads CNTVCT_EL0 (virtual timer counter)
 pub fn generate_cycle_counter_intrinsic_llir() -> String {
     r#"
-; [SOVEREIGN V2.0] Cycle counter (AArch64 CNTVCT_EL0)
+; [KEUOS V2.0] Cycle counter (AArch64 CNTVCT_EL0)
 define i64 @salt.cycle_counter() {
 entry:
   %cycles = call i64 @llvm.readcyclecounter()
@@ -522,7 +522,7 @@ mod tests {
         let llir = generate_pinned_deadline_intrinsic_llir();
         assert!(llir.contains("llvm.read_register.i64"));
         assert!(llir.contains("x19"));
-        assert!(llir.contains("sovereign_deadline_reg"));
+        assert!(llir.contains("keuos_deadline_reg"));
     }
 
     // =========================================================================

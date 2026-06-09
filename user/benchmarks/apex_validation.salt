@@ -1,11 +1,11 @@
 // ============================================================================
 // user/benchmarks/apex_validation.salt
-// Sovereign Silicon Characterization — Boot-Time Hardware Primitives
+// KeuOS Silicon Characterization — Boot-Time Hardware Primitives
 // ============================================================================
 //
 // These are NOT CI-only benchmarks. They are runtime architectural primitives.
 //
-// When a KeuOS node boots on unknown silicon, the Sovereign Reactor calls
+// When a KeuOS node boots on unknown silicon, the KeuOS Reactor calls
 // these functions to calibrate:
 //   - Clock frequency:  How fast is CNTVCT_EL0 relative to wall-clock?
 //   - Doorbell latency: How many cycles does a PCIe MMIO push take?
@@ -37,7 +37,7 @@ extern fn free(ptr: u64);
 // ============================================================================
 // HardwareProfile — Boot-Time Silicon Characterization
 // ============================================================================
-// Returned by calibrate_hardware(). The Sovereign Reactor uses these
+// Returned by calibrate_hardware(). The KeuOS Reactor uses these
 // measurements to calibrate tile sizes, yield thresholds, and CQE
 // poll frequencies at boot time.
 // ============================================================================
@@ -57,7 +57,7 @@ pub struct HardwareProfile {
 }
 
 // ============================================================================
-// calibrate_hardware — Boot-Time Sovereign Initialization
+// calibrate_hardware — Boot-Time KeuOS Initialization
 // ============================================================================
 // Runs the full Apex benchmark suite and returns a HardwareProfile
 // the reactor uses to make scheduling decisions. This is called once
@@ -248,7 +248,7 @@ pub fn benchmark_matmul(a_addr: u64, b_addr: u64, c_addr: u64, n: u32, sink: Ptr
 //   2. Atomic CQE poll (salt_atomic_load_i64 with ACQUIRE)
 //   3. State transition write (PENDING → RUNNING)
 //
-// This is the per-task, per-tick cost of the Sovereign Reactor.
+// This is the per-task, per-tick cost of the KeuOS Reactor.
 // The CQE token is pre-completed to measure the promotion fast-path.
 // ============================================================================
 pub fn benchmark_scheduler_promotion(

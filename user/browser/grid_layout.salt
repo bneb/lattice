@@ -1,5 +1,0 @@
-package user.browser.grid_layout
-import user.browser.dom
-
-// Will test the ast compilation
-pub fn place_grid_children() {}

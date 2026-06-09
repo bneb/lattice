@@ -14,6 +14,7 @@
 
 // virtio_isr_wrapper — real ISR that calls virtio_net_isr() and sends EOI
 // Handles SWAPGS for Ring 3 interrupts. No fiber preemption needed.
+.section .kpti_trampoline_text, "ax"
 .global virtio_isr_wrapper
 .extern apic_send_eoi
 virtio_isr_wrapper:
@@ -21,6 +22,14 @@ virtio_isr_wrapper:
     test qword ptr [rsp + 8], 3
     jz .L_virtio_from_kernel
     swapgs
+    /* KPTI CR3 Switch to Kernel PML4 */
+    push rax
+    mov rax, cr3
+    mov gs:[128], rax
+    mov rax, gs:[64]
+    /* bts rax, 63 removed for QEMU TCG compatibility */
+    mov cr3, rax
+    pop rax
 .L_virtio_from_kernel:
 
     // Save caller-saved registers
@@ -54,8 +63,127 @@ virtio_isr_wrapper:
     // SWAPGS return check
     test qword ptr [rsp + 8], 3
     jz .L_virtio_return_to_kernel
+    /* KPTI CR3 Switch to User PML4 */
+    push rax
+    mov rax, gs:[128]
+    /* bts rax, 63 removed for QEMU TCG compatibility */
+    mov cr3, rax
+    pop rax
     swapgs
 .L_virtio_return_to_kernel:
+    iretq
+
+// ps2_isr_wrapper — ISR for PS/2 Keyboard RX
+.global ps2_isr_wrapper
+.extern ps2_kbd_irq_handler
+
+ps2_isr_wrapper:
+    test qword ptr [rsp + 8], 3
+    jz .L_ps2_from_kernel
+    swapgs
+    /* KPTI CR3 Switch to Kernel PML4 */
+    push rax
+    mov rax, cr3
+    mov gs:[128], rax
+    mov rax, gs:[64]
+    /* bts rax, 63 removed for QEMU TCG compatibility */
+    mov cr3, rax
+    pop rax
+.L_ps2_from_kernel:
+    push rax
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push r8
+    push r9
+    push r10
+    push r11
+
+    call ps2_kbd_irq_handler
+
+    // The Salt implementation of ps2_kbd_irq_handler handles PIC EOI: outb(0x20, 0x20)
+    // We also send LAPIC EOI just in case APIC is routing it
+    call apic_send_eoi
+
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rax
+
+    test qword ptr [rsp + 8], 3
+    jz .L_ps2_return_to_kernel
+    /* KPTI CR3 Switch to User PML4 */
+    push rax
+    mov rax, gs:[128]
+    /* bts rax, 63 removed for QEMU TCG compatibility */
+    mov cr3, rax
+    pop rax
+    swapgs
+.L_ps2_return_to_kernel:
+    iretq
+
+// serial_isr_wrapper — ISR for COM1 Serial RX
+.global serial_isr_wrapper
+.extern serial_irq_handler
+
+serial_isr_wrapper:
+    test qword ptr [rsp + 8], 3
+    jz .L_serial_from_kernel
+    swapgs
+    /* KPTI CR3 Switch to Kernel PML4 */
+    push rax
+    mov rax, cr3
+    mov gs:[128], rax
+    mov rax, gs:[64]
+    /* bts rax, 63 removed for QEMU TCG compatibility */
+    mov cr3, rax
+    pop rax
+.L_serial_from_kernel:
+    push rax
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push r8
+    push r9
+    push r10
+    push r11
+
+    call serial_irq_handler
+
+    // Send LAPIC EOI
+    call apic_send_eoi
+
+    // Also send PIC EOI since it's IRQ4
+    mov al, 0x20
+    out 0x20, al
+
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rax
+
+    test qword ptr [rsp + 8], 3
+    jz .L_serial_return_to_kernel
+    /* KPTI CR3 Switch to User PML4 */
+    push rax
+    mov rax, gs:[128]
+    /* bts rax, 63 removed for QEMU TCG compatibility */
+    mov cr3, rax
+    pop rax
+    swapgs
+.L_serial_return_to_kernel:
     iretq
 
 // handle_syscall(syscall_nr: u64, a1: u64, a2: u64, a3: u64) -> u64
@@ -137,11 +265,11 @@ __salt_contract_violation:
     jmp __salt_contract_violation
 
 // =============================================================================
-// disable_nic_rings — Sovereign Reclaim NIC Stub
+// disable_nic_rings — KeuOS Reclaim NIC Stub
 // =============================================================================
-// Called by sovereign_reclaim.salt Phase 2. The Salt compiler DCE's the
-// empty function body but leaves the call site, requiring a linker stub.
-// =============================================================================
-.weak kernel__core__sovereign_reclaim__disable_nic_rings
-kernel__core__sovereign_reclaim__disable_nic_rings:
+// Called by keuos_reclaim.salt Phase 2. The Salt compiler DCE's the
+// implementation if VirtIO is not linked, so we provide an empty stub here
+// to satisfy the linker for bare-metal/non-virtio test targets.
+.weak kernel__core__keuos_reclaim__disable_nic_rings
+kernel__core__keuos_reclaim__disable_nic_rings:
     ret

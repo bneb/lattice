@@ -1,6 +1,6 @@
 // ============================================================================
 // user/kernel/boot.salt
-// Multiboot2 Header — Sovereign Boot Announcement
+// Multiboot2 Header — KeuOS Boot Announcement
 // ============================================================================
 //
 // The first bytes the bootloader reads from our ELF binary. Without this

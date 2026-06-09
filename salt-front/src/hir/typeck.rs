@@ -2325,7 +2325,7 @@ mod tests {
     }
 
     // ═════════════════════════════════════════════════════════════════════
-    // Linear Type Consumption Tests (Sovereign ABI Phase 4)
+    // Linear Type Consumption Tests (KeuOS ABI Phase 4)
     // ═════════════════════════════════════════════════════════════════════
 
     /// Helper: register a function where specific params are marked `consume`.

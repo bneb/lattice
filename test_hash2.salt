@@ -1,0 +1,8 @@
+import std.hash.Hash
+
+fn main() -> i32 {
+    let x: i64 = 42;
+    let y = &x;
+    let z: i64 = y as i64;
+    return 0;
+}

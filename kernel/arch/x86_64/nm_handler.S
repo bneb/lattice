@@ -19,6 +19,7 @@
 #   CURRENT_FIBER  — current fiber ID (from scheduler)
 # =============================================================================
 
+.section .kpti_trampoline_text, "ax"
 .global nm_isr_wrapper
 .extern nm_handler_c
 
@@ -28,6 +29,14 @@ nm_isr_wrapper:
     test qword ptr [rsp + 8], 3
     jz .L_nm_from_kernel
     swapgs
+    /* KPTI CR3 Switch to Kernel PML4 */
+    push rax
+    mov rax, cr3
+    mov gs:[128], rax
+    mov rax, gs:[64]
+    /* bts rax, 63 removed for QEMU TCG compatibility */
+    mov cr3, rax
+    pop rax
 .L_nm_from_kernel:
 
     # Save scratch registers (interrupt context)

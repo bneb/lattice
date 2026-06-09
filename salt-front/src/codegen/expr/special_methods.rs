@@ -64,10 +64,10 @@ pub fn try_emit_special_method(
         }
     }
     
-    // [SOVEREIGN V1.0] Clean Break: Removed NativePtr method interception (get/set/at/offset)
+    // [KEUOS V1.0] Clean Break: Removed NativePtr method interception (get/set/at/offset)
     // These are now handled by standard library intrinsics or unified syntax.
 
-    // [SOVEREIGN FLUENT-MATH] Matrix multiplication: receiver.matmul(other)
+    // [KEUOS FLUENT-MATH] Matrix multiplication: receiver.matmul(other)
     // Called via A @ B syntax (preprocessor converts to A.matmul(B))
     // Supports:
     //   - Type::Tensor (rank 2 @ rank 2) -> linalg.matmul
@@ -122,7 +122,7 @@ pub fn try_emit_special_method(
         let elem_mlir = a_elem.to_mlir_type(ctx)?;
         
         // Matrix-Vector: A[M,K] @ B[K] = C[M]
-        // [SOVEREIGN PHASE 3] linalg.matvec with JIT memref casting for M4 optimization
+        // [KEUOS PHASE 3] linalg.matvec with JIT memref casting for M4 optimization
         if b_rank == 1 {
             if b_shape[0] != k_dim {
                 return Err(format!("matvec dimension mismatch: A is {}x{}, B is {}", 
@@ -184,7 +184,7 @@ pub fn try_emit_special_method(
         }
         
         // Matrix-Matrix: A[M,K] @ B[K,N] = C[M,N]
-        // [SOVEREIGN PHASE 3] linalg.matmul with JIT memref casting
+        // [KEUOS PHASE 3] linalg.matmul with JIT memref casting
         if b_rank == 2 {
             let n_dim = b_shape[1];
             
@@ -244,7 +244,7 @@ pub fn try_emit_special_method(
         return Err(format!("matmul: unsupported operand ranks: {} @ {}", a_rank, b_rank));
     }
     
-    // [SOVEREIGN FLUENT-MATH / UFCS] Universal Function Call Syntax
+    // [KEUOS FLUENT-MATH / UFCS] Universal Function Call Syntax
     // Syntax: receiver.method(_, arg2, arg3) where _ is replaced by receiver pointer
     // This enables fluent chains: (w1 @ input).add_bias(_, HIDDEN, b1).relu(_, HIDDEN)
     // 

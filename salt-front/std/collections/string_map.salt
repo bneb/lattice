@@ -1,4 +1,4 @@
-// std/collections/string_map - Sovereign String SwissTable V1.0
+// std/collections/string_map - KeuOS String SwissTable V1.0
 // Data-Oriented StringView→StringView map using SoA layout + Arena storage.
 //
 // Decouples the Search Index (ctrl bytes + metadata arrays) from

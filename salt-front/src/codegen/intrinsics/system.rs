@@ -12,7 +12,7 @@ pub fn emit_system_intrinsic(
     expected_ty: Option<&Type>,
 ) -> Result<Option<(String, Type)>, String> {
     match name {
-        "read_tls_deadline" | "sovereign__read_tls_deadline" => {
+        "read_tls_deadline" | "keuos__read_tls_deadline" => {
             if !args.is_empty() {
                 return Err("read_tls_deadline() takes no arguments".to_string());
             }
@@ -25,21 +25,21 @@ pub fn emit_system_intrinsic(
             ));
             Ok(Some((res, Type::I64)))
         }
-        "m4_wfe" | "sovereign__wfe" => {
+        "m4_wfe" | "keuos__wfe" => {
             if !args.is_empty() {
                 return Err("Intrinsic 'm4_wfe' expects 0 arguments".to_string());
             }
             out.push_str("    \"llvm.intr.aarch64.hint\"() {hint = 2 : i32} : () -> ()\n");
             Ok(Some(("".to_string(), Type::Unit)))
         }
-        "m4_sev" | "sovereign__sev" => {
+        "m4_sev" | "keuos__sev" => {
             if !args.is_empty() {
                 return Err("Intrinsic 'm4_sev' expects 0 arguments".to_string());
             }
             out.push_str("    \"llvm.intr.aarch64.hint\"() {hint = 4 : i32} : () -> ()\n");
             Ok(Some(("".to_string(), Type::Unit)))
         }
-        "m4_dmb_ish" | "sovereign__dmb_ish" => {
+        "m4_dmb_ish" | "keuos__dmb_ish" => {
             if !args.is_empty() {
                 return Err("Intrinsic 'm4_dmb_ish' expects 0 arguments".to_string());
             }
@@ -150,7 +150,7 @@ pub fn emit_system_intrinsic(
                 res, syscall_num, fd, ptr_i64, len));
             Ok(Some((res, Type::I64)))
         }
-        "pulse_io_submit" | "sovereign__io_submit" => {
+        "pulse_io_submit" | "keuos__io_submit" => {
             if args.len() != 2 { return Err("pulse_io_submit expects 2 args: (ring, batch)".to_string()); }
             let (ring, _) = emit_expr(ctx, out, &args[0], local_vars, None)?;
             let (batch, _) = emit_expr(ctx, out, &args[1], local_vars, None)?;
@@ -161,7 +161,7 @@ pub fn emit_system_intrinsic(
                 res, ring, batch));
             Ok(Some((res, Type::I64)))
         }
-        "pulse_io_reap" | "sovereign__io_reap" => {
+        "pulse_io_reap" | "keuos__io_reap" => {
             if args.len() != 3 { return Err("pulse_io_reap expects 3 args: (ring, batch, timeout)".to_string()); }
             let (ring, _) = emit_expr(ctx, out, &args[0], local_vars, None)?;
             let (batch, _) = emit_expr(ctx, out, &args[1], local_vars, None)?;
@@ -173,7 +173,7 @@ pub fn emit_system_intrinsic(
                 res, ring, batch, timeout));
             Ok(Some((res, Type::I64)))
         }
-        "pulse_io_teardown" | "sovereign__io_teardown" => {
+        "pulse_io_teardown" | "keuos__io_teardown" => {
             if args.len() != 1 { return Err("pulse_io_teardown expects 1 arg: (ring)".to_string()); }
             let (ring, _) = emit_expr(ctx, out, &args[0], local_vars, None)?;
             

@@ -1,0 +1,344 @@
+// std::core::keuos::arena - Thread-Local Tiered Frame Arena
+//
+// High-performance memory allocation for coroutine frames.
+// Designed for C10M scale: ~2ns allocation, zero contention.
+//
+// ## Tiered Strategy
+// - Tier 1 (64-512B): Bitmask slab - O(1) via bit scan
+// - Tier 2 (512B-8KB): Reserve slab pool
+// - Tier 3 (>8KB): System heap fallback
+//
+// ## The Slab Layout
+// Each 64KB slab is divided into fixed-size blocks.
+// A 64-bit bitmask tracks availability (1 = free, 0 = used).
+//
+// [KEUOS V2.0] Zero-contention frame allocation
+
+package std.core.keuos.arena
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const SLAB_SIZE: i64 = 65536;         // 64KB per slab
+const TIER1_MAX_SIZE: i64 = 512;      // Up to 512B uses tier 1
+const TIER2_MAX_SIZE: i64 = 8192;     // Up to 8KB uses tier 2
+const MAX_SLABS_PER_TIER: i64 = 16;   // Max slabs before spillway
+
+// Tier 1 block sizes (power of 2 for alignment)
+const BLOCK_64: i64 = 64;
+const BLOCK_128: i64 = 128;
+const BLOCK_256: i64 = 256;
+const BLOCK_512: i64 = 512;
+
+// ============================================================================
+// Slab Structure
+// ============================================================================
+
+struct Slab {
+    // Base address of the 64KB region
+    base: Ptr<u8>,
+    
+    // Block size for this slab
+    block_size: i64,
+    
+    // Number of blocks in this slab
+    num_blocks: i64,
+    
+    // Bitmask: 1 = free, 0 = allocated
+    // Up to 64 blocks per primary mask (for 1024B+ blocks)
+    // For smaller blocks, we use multiple masks
+    free_mask: [i64; 16],  // 16 * 64 = 1024 blocks max
+    
+    // Next slab in chain
+    next: Ptr<Slab>,
+}
+
+impl Slab {
+    pub fn new(block_size: i64) -> Slab {
+        // Allocate 64KB from system
+        let base = unsafe { intrinsics::mmap(SLAB_SIZE) };
+        let num_blocks = SLAB_SIZE / block_size;
+        
+        // Initialize all blocks as free (all 1s)
+        let mut free_mask: [i64; 16] = [0xFFFFFFFFFFFFFFFF; 16];
+        
+        // Mask out blocks beyond capacity
+        let full_masks = num_blocks / 64;
+        let remainder = num_blocks % 64;
+        
+        for i in (full_masks + 1)..16 {
+            free_mask[i] = 0;
+        }
+        if remainder > 0 && full_masks < 16 {
+            free_mask[full_masks] = (1 << remainder) - 1;
+        }
+        
+        return Slab {
+            base: base,
+            block_size: block_size,
+            num_blocks: num_blocks,
+            free_mask: free_mask,
+            next: null,
+        };
+    }
+    
+    // Allocate a block - O(1) via CTZ (count trailing zeros)
+    @inline(always)
+    pub fn alloc(self: &mut Slab) -> Ptr<u8> {
+        // Find first mask with a free block
+        for i in 0..16 {
+            if self.free_mask[i] != 0 {
+                // Find first set bit (free block)
+                let bit = unsafe { intrinsics::cttz(self.free_mask[i]) };
+                
+                // Clear the bit (mark as allocated)
+                self.free_mask[i] = self.free_mask[i] & ~(1 << bit);
+                
+                // Calculate block address
+                let block_index = i * 64 + bit;
+                let offset = block_index * self.block_size;
+                
+                return self.base.offset(offset);
+            }
+        }
+        
+        // Slab exhausted
+        return null;
+    }
+    
+    // Free a block - O(1) via address arithmetic
+    @inline(always)
+    pub fn free(self: &mut Slab, ptr: Ptr<u8>) {
+        let offset = (ptr as i64) - (self.base as i64);
+        let block_index = offset / self.block_size;
+        let mask_index = block_index / 64;
+        let bit = block_index % 64;
+        
+        // Set the bit (mark as free)
+        self.free_mask[mask_index] = self.free_mask[mask_index] | (1 << bit);
+    }
+    
+    // Check if pointer belongs to this slab
+    @inline(always)
+    pub fn contains(self: &Slab, ptr: Ptr<u8>) -> bool {
+        let addr = ptr as i64;
+        let base = self.base as i64;
+        return addr >= base && addr < (base + SLAB_SIZE);
+    }
+    
+    // Check if slab has any free blocks
+    @inline(always)
+    pub fn has_free(self: &Slab) -> bool {
+        for i in 0..16 {
+            if self.free_mask[i] != 0 {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+// ============================================================================
+// Thread-Local Arena
+// ============================================================================
+
+pub struct ThreadArena {
+    // Tier 1 slabs by block size
+    slabs_64: Ptr<Slab>,
+    slabs_128: Ptr<Slab>,
+    slabs_256: Ptr<Slab>,
+    slabs_512: Ptr<Slab>,
+    
+    // Tier 2: larger allocations (512B - 8KB)
+    tier2_slabs: Ptr<Slab>,
+    
+    // Statistics
+    pub total_allocated: i64,
+    pub total_freed: i64,
+    pub tier3_fallbacks: i64,
+}
+
+impl ThreadArena {
+    pub fn new() -> ThreadArena {
+        return ThreadArena {
+            slabs_64: null,
+            slabs_128: null,
+            slabs_256: null,
+            slabs_512: null,
+            tier2_slabs: null,
+            total_allocated: 0,
+            total_freed: 0,
+            tier3_fallbacks: 0,
+        };
+    }
+    
+    pub fn init(self: &mut ThreadArena) {
+        // Pre-allocate one slab for each common size
+        self.slabs_64 = alloc_slab_metadata(64);
+        self.slabs_128 = alloc_slab_metadata(128);
+        self.slabs_256 = alloc_slab_metadata(256);
+        self.slabs_512 = alloc_slab_metadata(512);
+    }
+    
+    // ========================================================================
+    // Allocation
+    // ========================================================================
+    
+    // Allocate memory for a frame - routes to appropriate tier
+    @inline(always)
+    pub fn alloc(self: &mut ThreadArena, size: i64) -> Ptr<u8> {
+        self.total_allocated = self.total_allocated + size;
+        
+        // Tier 1: Small allocations (fast path)
+        if size <= 64 {
+            return self.alloc_tier1(&self.slabs_64, 64);
+        } else if size <= 128 {
+            return self.alloc_tier1(&self.slabs_128, 128);
+        } else if size <= 256 {
+            return self.alloc_tier1(&self.slabs_256, 256);
+        } else if size <= 512 {
+            return self.alloc_tier1(&self.slabs_512, 512);
+        }
+        
+        // Tier 2: Medium allocations
+        else if size <= TIER2_MAX_SIZE {
+            return self.alloc_tier2(size);
+        }
+        
+        // Tier 3: Large allocations (system heap)
+        else {
+            self.tier3_fallbacks = self.tier3_fallbacks + 1;
+            return unsafe { intrinsics::malloc(size) };
+        }
+    }
+    
+    fn alloc_tier1(self: &mut ThreadArena, slab_ptr: &mut Ptr<Slab>, block_size: i64) -> Ptr<u8> {
+        // Try current slab first
+        if *slab_ptr != null {
+            let result = (*slab_ptr).alloc();
+            if result != null {
+                return result;
+            }
+        }
+        
+        // Current slab exhausted - allocate new one
+        let new_slab = alloc_slab_metadata(block_size);
+        new_slab.next = *slab_ptr;
+        *slab_ptr = new_slab;
+        
+        return new_slab.alloc();
+    }
+    
+    fn alloc_tier2(self: &mut ThreadArena, size: i64) -> Ptr<u8> {
+        // Round up to power of 2
+        let block_size = next_power_of_2(size);
+        
+        // Find or create appropriate slab
+        let mut slab = self.tier2_slabs;
+        while slab != null {
+            if slab.block_size == block_size && slab.has_free() {
+                return slab.alloc();
+            }
+            slab = slab.next;
+        }
+        
+        // No suitable slab - create new one
+        let new_slab = alloc_slab_metadata(block_size);
+        new_slab.next = self.tier2_slabs;
+        self.tier2_slabs = new_slab;
+        
+        return new_slab.alloc();
+    }
+    
+    // ========================================================================
+    // Deallocation
+    // ========================================================================
+    
+    pub fn free(self: &mut ThreadArena, ptr: Ptr<u8>) {
+        // Check Tier 1 slabs
+        if self.free_in_slab_chain(self.slabs_64, ptr) { return; }
+        if self.free_in_slab_chain(self.slabs_128, ptr) { return; }
+        if self.free_in_slab_chain(self.slabs_256, ptr) { return; }
+        if self.free_in_slab_chain(self.slabs_512, ptr) { return; }
+        
+        // Check Tier 2 slabs
+        if self.free_in_slab_chain(self.tier2_slabs, ptr) { return; }
+        
+        // Must be Tier 3 (system heap)
+        unsafe { intrinsics::free(ptr); }
+        
+        self.total_freed = self.total_freed + 1;
+    }
+    
+    fn free_in_slab_chain(self: &mut ThreadArena, slab: Ptr<Slab>, ptr: Ptr<u8>) -> bool {
+        let mut current = slab;
+        while current != null {
+            if current.contains(ptr) {
+                current.free(ptr);
+                self.total_freed = self.total_freed + 1;
+                return true;
+            }
+            current = current.next;
+        }
+        return false;
+    }
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+fn alloc_slab_metadata(block_size: i64) -> Ptr<Slab> {
+    let slab = Slab::new(block_size);
+    // Allocate metadata struct from system (small - ~200 bytes)
+    let meta_ptr = unsafe { intrinsics::malloc(intrinsics::size_of::<Slab>()) } as Ptr<Slab>;
+    meta_ptr.write(slab);
+    return meta_ptr;
+}
+
+fn next_power_of_2(n: i64) -> i64 {
+    let mut p = 1;
+    while p < n {
+        p = p * 2;
+    }
+    return p;
+}
+
+// ============================================================================
+// Global Functions (for benchmark API)
+// ============================================================================
+
+// Initialize tiered arenas (called at startup)
+pub fn init_tiered() {
+    // Per-thread initialization happens in executor::init
+}
+
+// Allocate a frame (routes to current thread's arena)
+pub fn alloc_frame(size: i64) -> Ptr<u8> {
+    // This will be wired to the executor's thread-local arena
+    unsafe {
+        let arena_ptr = intrinsics::read_tls_arena();
+        let arena = arena_ptr as Ptr<ThreadArena>;
+        return arena.alloc(size);
+    }
+}
+
+// Free a frame (returns true if cross-thread)
+pub fn free_frame(ptr: Ptr<u8>, size: i64) -> bool {
+    unsafe {
+        let arena_ptr = intrinsics::read_tls_arena();
+        let arena = arena_ptr as Ptr<ThreadArena>;
+        arena.free(ptr);
+        return false;  // Cross-thread detection not yet implemented.
+    }
+}
+
+// Get arena statistics
+pub fn stats() -> ThreadArena {
+    unsafe {
+        let arena_ptr = intrinsics::read_tls_arena();
+        let arena = arena_ptr as Ptr<ThreadArena>;
+        return *arena;
+    }
+}

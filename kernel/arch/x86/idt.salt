@@ -68,6 +68,12 @@ extern fn tlb_shootdown_wrapper();
 @no_mangle
 extern fn virtio_isr_wrapper();
 
+@no_mangle
+extern fn serial_isr_wrapper();
+
+@no_mangle
+extern fn ps2_isr_wrapper();
+
 // NMI and Double Fault handlers (IST-based)
 @no_mangle
 extern fn nmi_isr_wrapper();
@@ -134,9 +140,17 @@ pub fn init() {
         let syscall_handler = (&syscall_entry) as u64;
         register_gate(0x80, syscall_handler);
 
+        // 0x21: PS/2 Keyboard IRQ (IRQ1 = PIC offset 0x20 + 1)
+        let ps2_handler = (&ps2_isr_wrapper) as u64;
+        register_gate(0x21, ps2_handler);
+
         // 0x2B: VirtIO-Net IRQ (IRQ11 = PIC offset 0x20 + 11)
         let virtio_handler = (&virtio_isr_wrapper) as u64;
         register_gate(0x2B, virtio_handler);
+        
+        // 0x24: COM1 Serial IRQ (IRQ4 = PIC offset 0x20 + 4)
+        let serial_handler = (&serial_isr_wrapper) as u64;
+        register_gate(0x24, serial_handler);
         
         // 0xFD: TLB Shootdown IPI
         let shootdown_handler = (&tlb_shootdown_wrapper) as u64;
@@ -179,3 +193,5 @@ pub fn init_ist_gates() {
 @no_mangle
 pub fn idt_init_ist_gates() { init_ist_gates(); }
 
+@no_mangle
+pub fn get_idt_base() -> u64 { return (&GLOBAL_IDT) as u64; }

@@ -263,12 +263,12 @@ impl VerificationEngine {
                          return Err(failure.format_error());
                      }
                      crate::z3_shim::SatResult::Unsat => {
-                         println!("DEBUG VERIFY: result UNSAT (proven)");
+                         eprintln!("DEBUG VERIFY: result UNSAT (proven)");
                          // The negation CANNOT be satisfied → the requirement is PROVEN!
                          *ctx.elided_checks += 1;
                      }
                      crate::z3_shim::SatResult::Unknown => {
-                         println!("DEBUG VERIFY: result UNKNOWN (pass)");
+                         eprintln!("DEBUG VERIFY: result UNKNOWN (pass)");
                          // Z3 can't determine → conservative PASS
                          *ctx.elided_checks += 1;
                      }

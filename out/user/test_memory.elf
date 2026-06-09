@@ -1,0 +1,137 @@
+
+#salt_domain = #llvm.alias_scope_domain<id = distinct[0]<>, description = "salt_mem">
+#scope_local = #llvm.alias_scope<id = distinct[1]<>, domain = #salt_domain, description = "local">
+#scope_global = #llvm.alias_scope<id = distinct[2]<>, domain = #salt_domain, description = "global">
+#scope_arg_0 = #llvm.alias_scope<id = distinct[10]<>, domain = #salt_domain, description = "arg0">
+#scope_arg_1 = #llvm.alias_scope<id = distinct[11]<>, domain = #salt_domain, description = "arg1">
+#scope_arg_2 = #llvm.alias_scope<id = distinct[12]<>, domain = #salt_domain, description = "arg2">
+#scope_arg_3 = #llvm.alias_scope<id = distinct[13]<>, domain = #salt_domain, description = "arg3">
+#scope_arg_4 = #llvm.alias_scope<id = distinct[14]<>, domain = #salt_domain, description = "arg4">
+#scope_arg_5 = #llvm.alias_scope<id = distinct[15]<>, domain = #salt_domain, description = "arg5">
+#scope_arg_6 = #llvm.alias_scope<id = distinct[16]<>, domain = #salt_domain, description = "arg6">
+#scope_arg_7 = #llvm.alias_scope<id = distinct[17]<>, domain = #salt_domain, description = "arg7">
+#scope_arg_8 = #llvm.alias_scope<id = distinct[18]<>, domain = #salt_domain, description = "arg8">
+#scope_arg_9 = #llvm.alias_scope<id = distinct[19]<>, domain = #salt_domain, description = "arg9">
+!struct_std__core__str__StringView = !llvm.struct<"std__core__str__StringView", (!llvm.ptr, i64)>
+module attributes {llvm.data_layout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128", llvm.target_triple = "x86_64-unknown-none-elf"} {
+  llvm.mlir.global internal constant @user__test_memory__STDOUT(1 : i64) : i64
+  llvm.mlir.global internal constant @user__test_memory__PROT_READ(1 : i64) : i64
+  llvm.mlir.global internal constant @user__test_memory__PROT_WRITE(2 : i64) : i64
+  llvm.mlir.global internal constant @user__test_memory__PROT_RW(3 : i64) : i64
+  func.func private @sys_brk(i64) -> i64
+  func.func private @sys_cap_bind(i64) -> i64
+  func.func private @sys_core_acquire(i64) -> i64
+  func.func private @sys_exit(i64) -> ()
+  func.func private @sys_ipc_get_msg0() -> i64
+  func.func private @sys_ipc_get_msg1() -> i64
+  func.func private @sys_ipc_get_msg2() -> i64
+  func.func private @sys_ipc_recv() -> i64
+  func.func private @sys_ipc_reg_send(i64, i64, i64) -> i64
+  func.func private @sys_ipc_ring_await(i64) -> i64
+  func.func private @sys_ipc_send(i64, i64, i64, i64) -> i64
+  func.func private @sys_mmap(i64, i64) -> i64
+  func.func private @sys_ring_map(i64) -> i64
+  func.func private @sys_shm_grant(i64, i64, i64, i64) -> i64
+  func.func private @sys_str_data(!llvm.ptr) -> i64
+  func.func private @sys_write(i64, i64, i64) -> ()
+  func.func private @user__lib__syscall__brk(i64) -> i64
+  func.func private @user__lib__syscall__exit(i64) -> ()
+  func.func private @user__lib__syscall__mmap(i64, i64) -> i64
+  func.func private @user__std__stdio__print_str(i64, i64) -> ()
+  llvm.mlir.global internal constant @str_22("T1 PASS: sys_brk heap write OK\n\00") {addr_space = 0 : i32} : !llvm.array<32 x i8>
+  llvm.mlir.global internal constant @str_56("T2 PASS: sys_mmap island write OK\n\00") {addr_space = 0 : i32} : !llvm.array<35 x i8>
+  llvm.mlir.global internal constant @str_70("ALL TESTS PASSED: Memory subsystem verified\n\00") {addr_space = 0 : i32} : !llvm.array<45 x i8>
+  func.func public @main() {
+    %c0 = arith.constant 0 : i32
+    %c1_i64 = arith.constant 1 : i64
+    %local_msg_28 = llvm.alloca %c1_i64 x !struct_std__core__str__StringView : (i64) -> !llvm.ptr
+    %local_msg_62 = llvm.alloca %c1_i64 x !struct_std__core__str__StringView : (i64) -> !llvm.ptr
+    %local_msg_76 = llvm.alloca %c1_i64 x !struct_std__core__str__StringView : (i64) -> !llvm.ptr
+    %c1 = arith.constant 0 : i32
+    %prom_2 = arith.extsi %c1 : i32 to i64
+    %mcall_res_3 = func.call @user__lib__syscall__brk(%prom_2) : (i64) -> i64
+    %c4 = arith.constant 4096 : i64
+    %bin_5 = arith.addi %mcall_res_3, %c4 : i64
+    %mcall_res_6 = func.call @user__lib__syscall__brk(%bin_5) : (i64) -> i64
+    %bin_10 = arith.cmpi "ugt", %mcall_res_6, %mcall_res_3 : i64
+    cf.cond_br %bin_10, ^then_7, ^merge_9
+  ^then_7:
+    %c11 = arith.constant 8 : i64
+    %bin_12 = arith.addi %mcall_res_3, %c11 : i64
+    %inttoptr_ref_13 = llvm.inttoptr %bin_12 : i64 to !llvm.ptr
+    %c14 = arith.constant 3405691582 : i64
+    llvm.store %c14 , %inttoptr_ref_13 : i64, !llvm.ptr
+    %deref_raw_16 = llvm.load %inttoptr_ref_13 { alias_scopes = [#scope_local], noalias = [#scope_global] } : !llvm.ptr -> i64
+    %c20 = arith.constant 3405691582 : i64
+    %bin_21 = arith.cmpi "eq", %deref_raw_16, %c20 : i64
+    cf.cond_br %bin_21, ^then_17, ^merge_19
+  ^then_17:
+    %slit_ptr_23 = llvm.mlir.addressof @str_22 : !llvm.ptr
+    %slit_len_24 = arith.constant 31 : i64
+    %slit_undef_25 = llvm.mlir.undef : !struct_std__core__str__StringView
+    %slit_wptr_26 = llvm.insertvalue %slit_ptr_23, %slit_undef_25[0] : !struct_std__core__str__StringView
+    %slit_27 = llvm.insertvalue %slit_len_24, %slit_wptr_26[1] : !struct_std__core__str__StringView
+    llvm.store %slit_27 , %local_msg_28 : !struct_std__core__str__StringView, !llvm.ptr
+    %cast_30 = llvm.ptrtoint %local_msg_28 : !llvm.ptr to i64
+    %inttoptr_ref_31 = llvm.inttoptr %cast_30 : i64 to !llvm.ptr
+    %deref_raw_33 = llvm.load %inttoptr_ref_31 { alias_scopes = [#scope_local], noalias = [#scope_global] } : !llvm.ptr -> i64
+    %c34 = arith.constant 31 : i32
+    %prom_35 = arith.extsi %c34 : i32 to i64
+    func.call @user__std__stdio__print_str(%deref_raw_33, %prom_35) : (i64, i64) -> ()
+    cf.br ^merge_19
+  ^merge_19:
+    cf.br ^merge_9
+  ^merge_9:
+    %c36 = arith.constant 16384 : i32
+    %const_resolved_37 = arith.constant 3 : i64
+    %prom_38 = arith.extsi %c36 : i32 to i64
+    %mcall_res_39 = func.call @user__lib__syscall__mmap(%prom_38, %const_resolved_37) : (i64, i64) -> i64
+    %c43 = arith.constant 0 : i64
+    %bin_44 = arith.cmpi "ne", %mcall_res_39, %c43 : i64
+    cf.cond_br %bin_44, ^then_40, ^merge_42
+  ^then_40:
+    %c45 = arith.constant 8192 : i64
+    %bin_46 = arith.addi %mcall_res_39, %c45 : i64
+    %inttoptr_ref_47 = llvm.inttoptr %bin_46 : i64 to !llvm.ptr
+    %c48 = arith.constant 3735928559 : i64
+    llvm.store %c48 , %inttoptr_ref_47 : i64, !llvm.ptr
+    %deref_raw_50 = llvm.load %inttoptr_ref_47 { alias_scopes = [#scope_local], noalias = [#scope_global] } : !llvm.ptr -> i64
+    %c54 = arith.constant 3735928559 : i64
+    %bin_55 = arith.cmpi "eq", %deref_raw_50, %c54 : i64
+    cf.cond_br %bin_55, ^then_51, ^merge_53
+  ^then_51:
+    %slit_ptr_57 = llvm.mlir.addressof @str_56 : !llvm.ptr
+    %slit_len_58 = arith.constant 34 : i64
+    %slit_undef_59 = llvm.mlir.undef : !struct_std__core__str__StringView
+    %slit_wptr_60 = llvm.insertvalue %slit_ptr_57, %slit_undef_59[0] : !struct_std__core__str__StringView
+    %slit_61 = llvm.insertvalue %slit_len_58, %slit_wptr_60[1] : !struct_std__core__str__StringView
+    llvm.store %slit_61 , %local_msg_62 : !struct_std__core__str__StringView, !llvm.ptr
+    %cast_64 = llvm.ptrtoint %local_msg_62 : !llvm.ptr to i64
+    %inttoptr_ref_65 = llvm.inttoptr %cast_64 : i64 to !llvm.ptr
+    %deref_raw_67 = llvm.load %inttoptr_ref_65 { alias_scopes = [#scope_local], noalias = [#scope_global] } : !llvm.ptr -> i64
+    %c68 = arith.constant 34 : i32
+    %prom_69 = arith.extsi %c68 : i32 to i64
+    func.call @user__std__stdio__print_str(%deref_raw_67, %prom_69) : (i64, i64) -> ()
+    cf.br ^merge_53
+  ^merge_53:
+    cf.br ^merge_42
+  ^merge_42:
+    %slit_ptr_71 = llvm.mlir.addressof @str_70 : !llvm.ptr
+    %slit_len_72 = arith.constant 44 : i64
+    %slit_undef_73 = llvm.mlir.undef : !struct_std__core__str__StringView
+    %slit_wptr_74 = llvm.insertvalue %slit_ptr_71, %slit_undef_73[0] : !struct_std__core__str__StringView
+    %slit_75 = llvm.insertvalue %slit_len_72, %slit_wptr_74[1] : !struct_std__core__str__StringView
+    llvm.store %slit_75 , %local_msg_76 : !struct_std__core__str__StringView, !llvm.ptr
+    %cast_78 = llvm.ptrtoint %local_msg_76 : !llvm.ptr to i64
+    %inttoptr_ref_79 = llvm.inttoptr %cast_78 : i64 to !llvm.ptr
+    %deref_raw_81 = llvm.load %inttoptr_ref_79 { alias_scopes = [#scope_local], noalias = [#scope_global] } : !llvm.ptr -> i64
+    %c82 = arith.constant 45 : i32
+    %prom_83 = arith.extsi %c82 : i32 to i64
+    func.call @user__std__stdio__print_str(%deref_raw_81, %prom_83) : (i64, i64) -> ()
+    %c84 = arith.constant 0 : i32
+    %prom_85 = arith.extsi %c84 : i32 to i64
+    func.call @user__lib__syscall__exit(%prom_85) : (i64) -> ()
+    func.return
+  }
+
+}

@@ -17,7 +17,6 @@ mod unification_tests {
 
     /// Helper to create a simple CallSiteResolver context for testing
     /// Note: This is a simplified version that only tests unify_types logic
-    
     /// Direct test of unify_types behavior by pattern-matching expected outcomes
     macro_rules! test_unification {
         ($name:ident, $pattern:expr, $concrete:expr, $expected_ok:expr, $reason:expr) => {

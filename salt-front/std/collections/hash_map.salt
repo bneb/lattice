@@ -1,4 +1,4 @@
-// std/collections/hash_map - Sovereign Swiss-Table HashMap V6.0 (Generic)
+// std/collections/hash_map - KeuOS Swiss-Table HashMap V6.0 (Generic)
 // Featuring: Hash Trait, Group Abstraction, Prefetch, Branch Hints
 // 
 // This is the fully generic HashMap<K: Hash, V> implementation.
@@ -22,7 +22,7 @@ extern fn free(ptr: Ptr<u8>);
 
 
 // =============================================================================
-// Module-Level Constants (Sovereign Pattern)
+// Module-Level Constants (KeuOS Pattern)
 // =============================================================================
 
 @inline
@@ -31,7 +31,7 @@ pub fn EMPTY() -> i8 { return -128; }
 @inline
 pub fn DELETED() -> i8 { return -2; }
 
-// Sovereign Word: 8 EMPTY bytes broadcasted into u64
+// KeuOS Word: 8 EMPTY bytes broadcasted into u64
 @inline
 fn EMPTY_WORD() -> u64 { return 0x8080808080808080; }
 
@@ -44,7 +44,7 @@ pub struct Entry<K, V> {
     pub val: V
 }
 
-// The Sovereign HashMap V6.0 (Generic)
+// The KeuOS HashMap V6.0 (Generic)
 pub struct HashMap<K, V> {
     ctrl: Ptr<i8>,
     entries: Ptr<Entry<K, V>>,

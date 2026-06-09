@@ -28,6 +28,7 @@ import kernel.core.memory
 import kernel.core.pmm
 import kernel.core.panic
 import kernel.drivers.serial
+import kernel.core.percpu
 
 // [SEC-17] SMP Safety: disable/enable interrupts for critical sections
 extern fn disable_interrupts();
@@ -37,7 +38,7 @@ extern fn disable_interrupts();
 const PAGE_SIZE: u64 = 4096;
 pub const MAX_CACHES: u64 = 16;
 // Per-CPU accessor
-extern fn get_cpu_id() -> u64;
+
 
 // Atomic intrinsics for lock-free Treiber stack (CAS)
 extern fn atomic_cas_i64(addr: u64, expected: i64, desired: i64) -> i64;

@@ -81,22 +81,11 @@ pub fn push_frame(buf: u64, frame_len: u64) -> bool {
         return false;
     }
 
-    let total_needed = frame_len + 2;
-    let free = ipc_shm.spsc_free_space(TX_RING_BASE);
-
-    if free < total_needed {
+    let success = ipc_shm.spsc_push_frame(TX_RING_BASE, buf, frame_len);
+    if !success {
         TX_FRAMES_DROPPED = TX_FRAMES_DROPPED + 1;
         return false;
     }
-
-    // Push 2-byte length prefix (little-endian)
-    let len_lo = (frame_len & 0xFF) as u8;
-    let len_hi = ((frame_len >> 8) & 0xFF) as u8;
-    ipc_shm.spsc_push(TX_RING_BASE, len_lo);
-    ipc_shm.spsc_push(TX_RING_BASE, len_hi);
-
-    // Push the raw frame bytes
-    ipc_shm.spsc_push_bulk(TX_RING_BASE, buf, frame_len);
 
     TX_FRAMES_SENT = TX_FRAMES_SENT + 1;
     return true;
@@ -106,19 +95,7 @@ pub fn push_frame(buf: u64, frame_len: u64) -> bool {
 // pop_frame_len — Kernel drains: pop the 2-byte length prefix
 // =============================================================================
 pub fn pop_frame_len() -> u64 {
-    let avail = ipc_shm.spsc_available(TX_RING_BASE);
-    if avail < 2 {
-        return 0;
-    }
-
-    let lo = ipc_shm.spsc_pop(TX_RING_BASE);
-    let hi = ipc_shm.spsc_pop(TX_RING_BASE);
-
-    if lo < 0 || hi < 0 {
-        return 0;
-    }
-
-    return (lo as u64) | ((hi as u64) << 8);
+    return ipc_shm.spsc_pop_frame_len(TX_RING_BASE);
 }
 
 // =============================================================================

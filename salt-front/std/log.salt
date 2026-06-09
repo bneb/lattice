@@ -1,4 +1,4 @@
-// std/log.salt - Sovereign Structured Logging
+// std/log.salt - KeuOS Structured Logging
 // Level-prefixed output for structured observability
 
 package std.log

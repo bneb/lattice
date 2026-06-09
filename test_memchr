@@ -1,0 +1,86 @@
+
+#salt_domain = #llvm.alias_scope_domain<id = distinct[0]<>, description = "salt_mem">
+#scope_local = #llvm.alias_scope<id = distinct[1]<>, domain = #salt_domain, description = "local">
+#scope_global = #llvm.alias_scope<id = distinct[2]<>, domain = #salt_domain, description = "global">
+#scope_arg_0 = #llvm.alias_scope<id = distinct[10]<>, domain = #salt_domain, description = "arg0">
+#scope_arg_1 = #llvm.alias_scope<id = distinct[11]<>, domain = #salt_domain, description = "arg1">
+#scope_arg_2 = #llvm.alias_scope<id = distinct[12]<>, domain = #salt_domain, description = "arg2">
+#scope_arg_3 = #llvm.alias_scope<id = distinct[13]<>, domain = #salt_domain, description = "arg3">
+#scope_arg_4 = #llvm.alias_scope<id = distinct[14]<>, domain = #salt_domain, description = "arg4">
+#scope_arg_5 = #llvm.alias_scope<id = distinct[15]<>, domain = #salt_domain, description = "arg5">
+#scope_arg_6 = #llvm.alias_scope<id = distinct[16]<>, domain = #salt_domain, description = "arg6">
+#scope_arg_7 = #llvm.alias_scope<id = distinct[17]<>, domain = #salt_domain, description = "arg7">
+#scope_arg_8 = #llvm.alias_scope<id = distinct[18]<>, domain = #salt_domain, description = "arg8">
+#scope_arg_9 = #llvm.alias_scope<id = distinct[19]<>, domain = #salt_domain, description = "arg9">
+!struct_std__core__ptr__Ptr = !llvm.struct<"std__core__ptr__Ptr", ()>
+!struct_std__core__str__StringView = !llvm.struct<"std__core__str__StringView", (!llvm.ptr, i64)>
+module attributes {llvm.data_layout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128", llvm.target_triple = "x86_64-unknown-none-elf"} {
+  func.func private @memchr(!llvm.ptr, i32, i64) -> !llvm.ptr
+  func.func private @__salt_print_i64(i64) -> ()
+  func.func private @__salt_print_literal(!llvm.ptr, i64) -> ()
+  func.func private @putchar(i32) -> i32
+  llvm.mlir.global internal constant @str_2("Hello, world!\n\00") {addr_space = 0 : i32} : !llvm.array<15 x i8>
+  llvm.mlir.global internal constant @__str_literal_21("Not found\00") {addr_space = 0 : i32} : !llvm.array<10 x i8>
+  llvm.mlir.global internal constant @__str_literal_37("Found at: \00") {addr_space = 0 : i32} : !llvm.array<11 x i8>
+  func.func public @main() -> i32 {
+    %c0 = arith.constant 0 : i32
+    %c1_i64 = arith.constant 1 : i64
+    %local_len_1 = llvm.alloca %c1_i64 x i64 : (i64) -> !llvm.ptr
+    %local_request_8 = llvm.alloca %c1_i64 x !struct_std__core__str__StringView : (i64) -> !llvm.ptr
+    %spill_p_26 = llvm.alloca %c1_i64 x !llvm.ptr : (i64) -> !llvm.ptr
+    %spill_p_27 = llvm.alloca %c1_i64 x !llvm.ptr : (i64) -> !llvm.ptr
+    %spill_buf_30 = llvm.alloca %c1_i64 x !llvm.ptr : (i64) -> !llvm.ptr
+    %spill_buf_31 = llvm.alloca %c1_i64 x !llvm.ptr : (i64) -> !llvm.ptr
+    %slit_ptr_3 = llvm.mlir.addressof @str_2 : !llvm.ptr
+    %slit_len_4 = arith.constant 14 : i64
+    %slit_undef_5 = llvm.mlir.undef : !struct_std__core__str__StringView
+    %slit_wptr_6 = llvm.insertvalue %slit_ptr_3, %slit_undef_5[0] : !struct_std__core__str__StringView
+    %slit_7 = llvm.insertvalue %slit_len_4, %slit_wptr_6[1] : !struct_std__core__str__StringView
+    llvm.store %slit_7 , %local_request_8 : !struct_std__core__str__StringView, !llvm.ptr
+    %load_request_9 = llvm.load %local_request_8 { alias_scopes = [#scope_local], noalias = [#scope_global] } : !llvm.ptr -> !struct_std__core__str__StringView
+    %load_request_10 = llvm.load %local_request_8 { alias_scopes = [#scope_local], noalias = [#scope_global] } : !llvm.ptr -> !struct_std__core__str__StringView
+    %sv_extract_ptr_11 = llvm.extractvalue %load_request_10[0] : !struct_std__core__str__StringView
+    %c12 = arith.constant 14 : i64
+    llvm.store %c12 , %local_len_1 : i64, !llvm.ptr
+    %c13 = arith.constant 119 : i32
+    %load_len_14 = llvm.load %local_len_1 { alias_scopes = [#scope_local], noalias = [#scope_global] } : !llvm.ptr -> i64
+    %call_memchr_15 = func.call @memchr(%sv_extract_ptr_11, %c13, %load_len_14) : (!llvm.ptr, i32, i64) -> !llvm.ptr
+    %null_ptr_19 = llvm.mlir.zero : !llvm.ptr
+    %is_null_res_20 = llvm.icmp "eq" %call_memchr_15, %null_ptr_19 : !llvm.ptr
+    cf.cond_br %is_null_res_20, ^then_16, ^merge_18
+  ^then_16:
+    %str_ptr_22 = llvm.mlir.addressof @__str_literal_21 : !llvm.ptr
+    %str_len_23 = arith.constant 9 : i64
+    func.call @__salt_print_literal(%str_ptr_22, %str_len_23) : (!llvm.ptr, i64) -> ()
+    %putchar_arg_24 = arith.constant 10 : i32
+    func.call @putchar(%putchar_arg_24) : (i32) -> i32
+    %c25 = arith.constant 1 : i32
+    func.return %c25 : i32
+  ^merge_18:
+    llvm.store %call_memchr_15, %spill_p_26 : !llvm.ptr, !llvm.ptr
+    llvm.store %call_memchr_15, %spill_p_27 : !llvm.ptr, !llvm.ptr
+    %recv_load_28 = llvm.load %spill_p_27 : !llvm.ptr -> !llvm.ptr
+    %mcall_res_29 = func.call @std__core__ptr__Ptr__addr_u8(%recv_load_28) : (!llvm.ptr) -> i64
+    llvm.store %sv_extract_ptr_11, %spill_buf_30 : !llvm.ptr, !llvm.ptr
+    llvm.store %sv_extract_ptr_11, %spill_buf_31 : !llvm.ptr, !llvm.ptr
+    %recv_load_32 = llvm.load %spill_buf_31 : !llvm.ptr -> !llvm.ptr
+    %mcall_res_33 = func.call @std__core__ptr__Ptr__addr_u8(%recv_load_32) : (!llvm.ptr) -> i64
+    %bin_36 = arith.subi %mcall_res_29, %mcall_res_33 : i64
+    %str_ptr_38 = llvm.mlir.addressof @__str_literal_37 : !llvm.ptr
+    %str_len_39 = arith.constant 10 : i64
+    func.call @__salt_print_literal(%str_ptr_38, %str_len_39) : (!llvm.ptr, i64) -> ()
+    func.call @__salt_print_i64(%bin_36) : (i64) -> ()
+    %putchar_arg_40 = arith.constant 10 : i32
+    func.call @putchar(%putchar_arg_40) : (i32) -> i32
+    %c41 = arith.constant 0 : i32
+    func.return %c41 : i32
+  }
+
+  func.func public @std__core__ptr__Ptr__addr_u8(%arg_self: !llvm.ptr {llvm.noalias}) -> i64 attributes { linkage = #llvm.linkage<internal>, passthrough = [ "alwaysinline" ] } {
+    %c0 = arith.constant 0 : i32
+    %c1_i64 = arith.constant 1 : i64
+    %ptr_to_int_42 = llvm.ptrtoint %arg_self : !llvm.ptr to i64
+    func.return %ptr_to_int_42 : i64
+  }
+
+}

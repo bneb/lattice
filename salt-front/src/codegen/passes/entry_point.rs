@@ -1,19 +1,19 @@
 // =============================================================================
-// [SOVEREIGN V2.0] Entry Point Synthesis
+// [KEUOS V2.0] Entry Point Synthesis
 //
-// Generates the _salt_main entry point MLIR that bootstraps the Sovereign
+// Generates the _salt_main entry point MLIR that bootstraps the KeuOS
 // runtime. Replaces crt0 initialization with a direct jump into the
-// Sovereign executor loop.
+// KeuOS executor loop.
 //
 // Synthesis steps:
 // 1. Initialize x19 (deadline register) to max value
-// 2. Allocate DMA arena via sovereign_arena_alloc
+// 2. Allocate DMA arena via keuos_arena_alloc
 // 3. Launch State 0 of the primary @pulse function
 // =============================================================================
 
 use super::io_backend::TargetPlatform;
 
-/// Entry point configuration for Sovereign binary synthesis.
+/// Entry point configuration for KeuOS binary synthesis.
 pub struct EntryPointConfig {
     /// Name of the primary @pulse function to launch
     pub pulse_fn_name: String,
@@ -34,11 +34,11 @@ impl Default for EntryPointConfig {
 }
 
 /// Synthesize the `_salt_main` entry point MLIR.
-/// This function is the Sovereign equivalent of `_start` / `main`.
+/// This function is the KeuOS equivalent of `_start` / `main`.
 pub fn emit_entry_point(config: &EntryPointConfig) -> String {
     let mut out = String::new();
 
-    out.push_str("    // [SOVEREIGN] Synthesized entry point: _salt_main\n");
+    out.push_str("    // [KEUOS] Synthesized entry point: _salt_main\n");
     out.push_str("    // Bypasses crt0 initialization for zero-overhead startup\n");
 
     // Target-specific I/O init comment
@@ -71,7 +71,7 @@ pub fn emit_entry_point(config: &EntryPointConfig) -> String {
         "      %arena_size = arith.constant {} : i64\n",
         config.arena_size_bytes
     ));
-    out.push_str("      %arena_ptr = func.call @sovereign_arena_alloc(%arena_size) : (i64) -> !llvm.ptr\n");
+    out.push_str("      %arena_ptr = func.call @keuos_arena_alloc(%arena_size) : (i64) -> !llvm.ptr\n");
 
     // Step 3: Launch State 0 of the primary @pulse function
     out.push_str("      // Step 3: Launch State 0\n");
@@ -81,7 +81,7 @@ pub fn emit_entry_point(config: &EntryPointConfig) -> String {
     ));
 
     // Step 4: Enter the executor loop (platform-specific)
-    out.push_str("      // Step 4: Enter Sovereign executor loop\n");
+    out.push_str("      // Step 4: Enter KeuOS executor loop\n");
     match config.target {
         TargetPlatform::Darwin => {
             out.push_str("      func.call @salt_kqueue_executor_loop(%arena_ptr) : (!llvm.ptr) -> ()\n");
@@ -121,7 +121,7 @@ mod tests {
         let config = EntryPointConfig::default();
         let mlir = emit_entry_point(&config);
 
-        assert!(mlir.contains("sovereign_arena_alloc"),
+        assert!(mlir.contains("keuos_arena_alloc"),
             "Entry point must allocate DMA arena");
         assert!(mlir.contains("arena_size"),
             "Entry point must specify arena size");

@@ -1,0 +1,5 @@
+package user_paging_test
+extern fn kernel__arch__x86__idt__GLOBAL_IDT();
+pub fn test() -> u64 {
+    return (&kernel__arch__x86__idt__GLOBAL_IDT) as u64;
+}

@@ -6,8 +6,8 @@
 
 | Metric | Salt | C | Notes |
 |--------|------|---|-------|
-| **Training Time** | **6.3s** | 6.3s | **C-parity** |
-| **Test Accuracy** | 97% | 97% | Full parity |
+| **Training Time** | **6.3s** | 6.3s | |
+| **Test Accuracy** | 97% | 97% | |
 | **Macro F1** | 0.97 | 0.97 | |
 | **Lines of Code** | 235 | 345 | 32% less |
 
@@ -47,7 +47,7 @@ Input (784) → Dense(128) → ReLU → Dense(10) → Softmax → Class
 
 ---
 
-## How Salt Achieves C-Parity
+## How Salt Optimizes the Pipeline
 
 Salt uses three key MLIR-level optimizations, paired with aggressive LLVM vectorization:
 

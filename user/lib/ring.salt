@@ -1,6 +1,6 @@
 // =============================================================================
 // user/lib/ring.salt
-// Sovereign ABI — Userspace Data Plane: Z3-Verified SPSC Ring Operations
+// KeuOS ABI — Userspace Data Plane: Z3-Verified SPSC Ring Operations
 // =============================================================================
 //
 // Once a ring is mapped via SYS_RING_MAP, all push/pop operations happen
@@ -41,6 +41,9 @@ fn read_u64(base: u64, offset: u64) -> u64 {
     let ptr = (base + offset) as &u64;
     return *ptr;
 }
+
+extern fn memcpy(dst: u64, src: u64, len: u64);
+
 
 fn write_u64(base: u64, offset: u64, val: u64) {
     let ptr = (base + offset) as &mut u64;
@@ -84,13 +87,16 @@ pub fn push(ring_base: u64, payload: u64, len: u64) -> u64
     }
 
     // Raw memory copy into the ring's data region with wrap-around support
-    let mut i: u64 = 0;
-    while i < len {
-        let src_byte = *((payload + i) as &u8);
-        let dst_idx = (head + i) % capacity;
-        *((ring_base + DATA_OFFSET + dst_idx) as &mut u8) = src_byte;
-        i = i + 1;
+    let start_idx = head % capacity;
+    let seg1_len = capacity - start_idx;
+    
+    if len <= seg1_len {
+        memcpy(ring_base + DATA_OFFSET + start_idx, payload, len);
+    } else {
+        memcpy(ring_base + DATA_OFFSET + start_idx, payload, seg1_len);
+        memcpy(ring_base + DATA_OFFSET, payload + seg1_len, len - seg1_len);
     }
+
 
     // Atomic head update (visible to consumer)
     write_u64(ring_base, HEAD_OFFSET, head + len);
@@ -138,13 +144,16 @@ pub fn pop(ring_base: u64, buf: u64, max_len: u64) -> u64
     }
 
     // Raw memory copy from the ring's data region with wrap-around support
-    let mut i: u64 = 0;
-    while i < read_len {
-        let src_idx = (tail + i) % capacity;
-        let src_byte = *((ring_base + DATA_OFFSET + src_idx) as &u8);
-        *((buf + i) as &mut u8) = src_byte;
-        i = i + 1;
+    let start_idx = tail % capacity;
+    let seg1_len = capacity - start_idx;
+    
+    if read_len <= seg1_len {
+        memcpy(buf, ring_base + DATA_OFFSET + start_idx, read_len);
+    } else {
+        memcpy(buf, ring_base + DATA_OFFSET + start_idx, seg1_len);
+        memcpy(buf + seg1_len, ring_base + DATA_OFFSET, read_len - seg1_len);
     }
+
 
     // Atomic tail update (visible to producer)
     write_u64(ring_base, TAIL_OFFSET, tail + read_len);

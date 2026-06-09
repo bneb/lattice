@@ -25,10 +25,25 @@
 #   emit for memory operations inside df_handler_c.
 # =============================================================================
 
+.section .kpti_trampoline_text, "ax"
 .global df_isr_wrapper
 .extern df_handler_c
 
 df_isr_wrapper:
+    # ─── SWAPGS and CR3 Switch ───
+    # Hardware pushed Error Code at RSP+0, RIP at RSP+8, CS at RSP+16
+    test qword ptr [rsp + 16], 3
+    jz .L_df_from_kernel
+    swapgs
+    /* KPTI CR3 Switch to Kernel PML4 */
+    push rax
+    mov rax, cr3
+    mov gs:[128], rax
+    mov rax, gs:[64]
+    /* bts rax, 63 removed for QEMU TCG compatibility */
+    mov cr3, rax
+    pop rax
+.L_df_from_kernel:
     # --- RAW HARDWARE TRACE --- (Proof of Life)
     mov dx, 0x3F8
     mov al, 0x41      # 'A'

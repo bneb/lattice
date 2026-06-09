@@ -1,6 +1,7 @@
 package kernel.core.preempt_test
 
 import kernel.drivers.serial
+import kernel.core.percpu
 
 // =============================================================================
 // Preemptive Unification Test Suite — Bottom-Up TDD
@@ -15,7 +16,7 @@ import kernel.drivers.serial
 // =============================================================================
 
 // Cross-module externs
-extern fn get_cpu_id() -> u64;
+
 extern fn sched_spawn(entry_addr: u64) -> u64;
 extern fn sched_yield();
 extern fn fiber_count() -> u64;

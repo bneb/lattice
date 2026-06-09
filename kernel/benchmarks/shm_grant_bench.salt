@@ -121,8 +121,9 @@ pub fn run_shm_grant_bench() {
 
     for i in 0..NUM_SAMPLES {
         let t0 = timing.get_cycles() as i64;
+        let iter_dst_vaddr = DST_USER_VADDR + ((i as u64) * 4096);
 
-        let result = sys_shm_grant(DST_SLOT, SRC_USER_VADDR, DST_USER_VADDR, 1);
+        let result = sys_shm_grant(DST_SLOT, SRC_USER_VADDR, iter_dst_vaddr, 1);
 
         let t1 = timing.get_cycles() as i64;
         let elapsed = t1 - t0;
@@ -155,7 +156,8 @@ pub fn run_shm_grant_bench() {
     // page as the source's SRC_USER_VADDR. Verify via page table walk.
     // ═════════════════════════════════════════════════════════════════
 
-    let dst_phys = user_paging.translate_user_addr(dst_pml4, DST_USER_VADDR);
+    let last_dst_vaddr = DST_USER_VADDR + (((NUM_SAMPLES - 1) as u64) * 4096);
+    let dst_phys = user_paging.translate_user_addr(dst_pml4, last_dst_vaddr);
     if dst_phys == test_page_phys {
         serial.print("BENCH:shm_grant:VERIFY OK (phys frames match)\n");
     } else {

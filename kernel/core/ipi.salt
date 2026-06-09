@@ -1,0 +1,100 @@
+// =============================================================================
+// kernel/core/ipi.salt
+// Synchronous Inter-Processor Interrupt (IPI) Management
+// =============================================================================
+//
+// Handles cross-core synchronization mechanisms, such as synchronous TLB
+// shootdowns.
+// =============================================================================
+
+package kernel.core.ipi
+
+import kernel.arch.x86.apic
+import kernel.arch.x86.smp
+import kernel.core.percpu
+
+// =============================================================================
+// TLB Shootdown State
+// =============================================================================
+// We use a simple global spinlock to ensure only one TLB shootdown happens
+// at a time. The ACK count ensures the initiator waits for all other online
+// cores to acknowledge the flush.
+// =============================================================================
+
+global TLB_SHOOTDOWN_LOCK: u64 = 0;
+global TLB_SHOOTDOWN_ACK_COUNT: i64 = 0;
+
+// =============================================================================
+// Assembly FFI
+// =============================================================================
+extern fn spin_loop_hint();
+extern fn read_cr3() -> u64;
+extern fn switch_cr3(val: u64);
+
+extern fn atomic_cas_i64(addr: &u64, expected: i64, desired: i64) -> i64;
+extern fn atomic_add_i64(addr: &i64, val: i64) -> i64;
+
+// =============================================================================
+// ipi_initiate_tlb_shootdown — Broadcast and Wait
+// =============================================================================
+// Called by any core when it unmaps or modifies a present page table entry.
+// 1. Acquires the shootdown lock.
+// 2. Sets the ACK count to (online_cpus - 1).
+// 3. Broadcasts the IPI (vector 253).
+// 4. Spins until ACK count reaches 0.
+// 5. Releases the lock.
+// =============================================================================
+pub fn initiate_tlb_shootdown() {
+    let online_cpus = smp.get_online_cpus();
+    if online_cpus <= 1 {
+        return;
+    }
+
+    let target_acks = online_cpus - 1;
+
+    // Acquire lock (CAS 0 -> 1)
+    loop {
+        let old = atomic_cas_i64(&TLB_SHOOTDOWN_LOCK, 0, 1);
+        if old == 0 {
+            break;
+        }
+        spin_loop_hint();
+    }
+
+    // Set target ACKs
+    TLB_SHOOTDOWN_ACK_COUNT = target_acks as i64;
+
+    // Broadcast IPI
+    apic.broadcast_tlb_shootdown();
+
+    // Wait for all other cores to ACK
+    loop {
+        let count = TLB_SHOOTDOWN_ACK_COUNT;
+        if count <= 0 {
+            break;
+        }
+        spin_loop_hint();
+    }
+
+    // Release lock
+    TLB_SHOOTDOWN_LOCK = 0;
+}
+
+// =============================================================================
+// ipi_ack_tlb_shootdown — Called by AP from ISR
+// =============================================================================
+// 1. Reloads CR3 to flush the TLB.
+// 2. Atomically decrements the ACK count.
+// =============================================================================
+@no_mangle
+pub fn ipi_ack_tlb_shootdown() {
+    // Reload CR3
+    let cr3 = read_cr3();
+    let flush_cr3 = cr3 & 0x7FFFFFFFFFFFFFFF; // Strip NOFLUSH just in case
+    switch_cr3(flush_cr3);
+
+    // Decrement ACK count
+    // Salt's atomic_add_i64 with -1 to decrement
+    let minus_one: i64 = -1;
+    atomic_add_i64(&TLB_SHOOTDOWN_ACK_COUNT, minus_one);
+}

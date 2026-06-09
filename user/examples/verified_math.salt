@@ -1,0 +1,48 @@
+// =============================================================================
+// user/examples/verified_math.salt
+// 
+// Formal Verification Example for KeuOS Userspace
+// =============================================================================
+//
+// This file demonstrates how to write formally verified userspace code in Salt
+// using Z3-backed contracts (`requires` and `ensures`).
+//
+// The Salt compiler automatically translates these constraints to SMT queries 
+// and attempts to prove them at compile-time. If it cannot prove them, the 
+// build fails — guaranteeing memory safety and bounds enforcement without 
+// runtime overhead.
+
+package user.examples
+
+/// Returns the absolute value of an integer.
+/// - `requires`: Pre-condition (input must be valid).
+/// - `ensures`: Post-condition (guarantees on the return value).
+fn abs(x: i64) -> i64 
+    ensures result >= 0
+{
+    if x < 0 {
+        salt_return -x;
+    }
+    salt_return x;
+}
+
+/// A verified division function that guarantees no division-by-zero.
+/// The compiler proves that callers can NEVER pass y = 0.
+fn safe_divide(x: i64, y: i64) -> i64 
+    requires y != 0
+{
+    salt_return x / y;
+}
+
+/// Example usage proving correctness.
+fn main() -> i32 {
+    let a = -42;
+    let b = abs(a); // Compiler proves b >= 0
+
+    // Because b >= 0, and if we know b > 0, we can safely divide:
+    if b > 0 {
+        let _c = safe_divide(100, b);
+    }
+    
+    return 0;
+}

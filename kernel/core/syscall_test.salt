@@ -1,0 +1,97 @@
+package kernel.core.syscall_test
+
+import kernel.drivers.serial
+import kernel.core.process
+import kernel.core.syscall
+import kernel.core.scheduler
+
+import kernel.core.panic
+
+fn assert(condition: bool, msg: &u8) {
+    if !condition {
+        serial.print("\n[syscall_test] ASSERTION FAILED: ");
+        serial.print(msg);
+        serial.print("\n");
+        panic.panic(msg);
+    }
+}
+
+@no_mangle
+pub fn run_syscall_tests() {
+    serial.print("  [test] syscall_test: start\n");
+
+    let msg1 = "Expected rejection: src in kernel space";
+    let msg2 = "Expected rejection: dst in kernel space";
+    let msg3 = "Expected rejection: overflow bounds";
+    let msg4 = "Valid pointer check failed";
+    let msg5 = "Invalid pointer check failed (overflow)";
+    let msg6 = "Invalid pointer check failed (kernel space)";
+
+    serial.print("  [test] syscall_test: A\n");
+
+    // 1. sys_shm_grant tests
+    // Boundary checks and invalid mappings
+    let current_pid = process.current();
+    
+    serial.print("  [test] syscall_test: B\n");
+
+    // Create a dummy process to test boundary rejection
+    let dummy_target = process.alloc_pid();
+    
+    serial.print("  [test] syscall_test: C\n");
+
+    process.set_pml4(dummy_target, 0x1000); // fake PML4
+
+    serial.print("  [test] syscall_test: D\n");
+
+    // A. src_vaddr in kernel space
+    let res1 = syscall.sys_shm_grant(dummy_target, 0xFFFF800000000000, 0x4000, 1);
+    
+    serial.print("  [test] syscall_test: E\n");
+
+    assert(res1 == (0 - 1), (&msg1) as &u8);
+
+    // B. dst_vaddr in kernel space
+    let res2 = syscall.sys_shm_grant(dummy_target, 0x4000, 0xFFFF800000000000, 1);
+    
+    serial.print("  [test] syscall_test: F\n");
+
+    assert(res2 == (0 - 1), (&msg2) as &u8);
+
+    // C. Bounds overflow
+    // src_end wrapped around
+    let res3 = syscall.sys_shm_grant(dummy_target, 0x7FFFFFFFFFFFF000, 0x4000, 16);
+    
+    serial.print("  [test] syscall_test: G\n");
+
+    assert(res3 == (0 - 1), (&msg3) as &u8);
+
+    process.set_state(dummy_target, process.PROC_FREE);
+
+    serial.print("  [test] syscall_test: H\n");
+
+    // 2. sys_mmap bounds checks
+    // Mmap requests over the user limit should fail
+    // We mock the mmap boundary via process
+    let dummy2 = process.alloc_pid();
+    process.set_current(dummy2);
+    process.set_pml4(dummy2, 0x1000);
+
+    serial.print("  [test] syscall_test: I\n");
+
+    let valid1 = syscall.is_valid_user_ptr(0x4000, 4096);
+    assert(valid1, (&msg4) as &u8);
+
+    let valid2 = syscall.is_valid_user_ptr(0x7FFFFFFFFFFFF000, 0x2000);
+    assert(!valid2, (&msg5) as &u8);
+
+    let valid3 = syscall.is_valid_user_ptr(0xFFFF800000000000, 4096);
+    assert(!valid3, (&msg6) as &u8);
+
+    serial.print("  [test] syscall_test: J\n");
+
+    process.set_current(current_pid);
+    process.set_state(dummy2, process.PROC_FREE);
+
+    serial.print("  [test] syscall_test: PASS\n");
+}

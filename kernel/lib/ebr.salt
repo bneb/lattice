@@ -24,8 +24,9 @@
 package kernel.lib.ebr
 
 import kernel.drivers.serial
+import kernel.core.percpu
 
-extern fn get_cpu_id() -> u64;
+
 extern fn push_stack(ptr: u64);
 
 const MAX_CPUS: u64 = 16;

@@ -1,6 +1,6 @@
 // ============================================================================
 // user/basalt/tensor/topology.salt
-// Sovereign Memory Topology — Compile-Time Locality Tags
+// KeuOS Memory Topology — Compile-Time Locality Tags
 // ============================================================================
 //
 // These constants define where in the physical universe a block of
@@ -20,7 +20,7 @@
 package user.basalt.tensor.topology
 
 // ============================================================================
-// Sovereign Memory Tiers
+// KeuOS Memory Tiers
 // ============================================================================
 
 /// Local L1/L2/L3 cache or DRAM — standard CPU load/store

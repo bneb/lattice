@@ -1,0 +1,103 @@
+// =============================================================================
+// user/std/stdio.salt
+// Standard I/O Library
+// =============================================================================
+
+package user.std.stdio
+
+import user.lib.syscall
+
+extern fn sys_str_data(sv: &u64) -> u64;
+
+/// Print a null-terminated string to stdout.
+/// Currently relies on syscall.write, which writes to the kernel serial port
+/// or VGA console buffer.
+pub fn print_str(s_ptr: u64, len: u64) {
+    syscall.write(s_ptr, len);
+}
+
+/// Print a string view to stdout. Automatically computes length via null terminator.
+pub fn print(msg: &u8) {
+    let s_ptr = msg as u64;
+    let mut len: u64 = 0;
+    while *((s_ptr + len) as &u8) != 0 {
+        len = len + 1;
+    }
+    syscall.write(s_ptr, len);
+}
+
+/// Read a single byte from an SPSC ring buffer without blocking (returns 0 if empty)
+pub fn read_ring_byte_nonblock(ring_vaddr: u64) -> u8 {
+    let head = *((ring_vaddr + 0) as &u64);
+    let tail = *((ring_vaddr + 64) as &u64);
+    if head == tail {
+        return 0; // Empty
+    }
+    let capacity = *((ring_vaddr + 8) as &u64);
+    let raw_byte = *((ring_vaddr + 192 + tail) as &u8);
+    let new_tail = (tail + 1) % capacity;
+    *((ring_vaddr + 64) as &mut u64) = new_tail;
+    return raw_byte;
+}
+
+/// Write a single byte to an SPSC ring buffer without blocking (returns false if full)
+pub fn write_ring_byte_nonblock(ring_vaddr: u64, c: u8) -> bool {
+    let capacity = *((ring_vaddr + 8) as &u64);
+    let mut head = *((ring_vaddr + 0) as &u64);
+    let tail = *((ring_vaddr + 64) as &u64);
+    let next_head = (head + 1) % capacity;
+    
+    if next_head == tail {
+        return false; // Full
+    }
+    *((ring_vaddr + 192 + head) as &mut u8) = c;
+    *((ring_vaddr + 0) as &mut u64) = next_head;
+    return true;
+}
+
+/// Print a u64 integer to stdout.
+pub fn print_u64(val: u64) {
+    if val == 0 {
+        let zero = "0";
+        let zero_ptr = sys_str_data(&zero);
+        syscall.write(zero_ptr, 1);
+        return;
+    }
+
+    let mut buf: [u8; 20] = [0; 20];
+    let mut i: u64 = 0;
+    let mut temp = val;
+
+    while temp > 0 {
+        let digit = (temp % 10) as u8;
+        buf[(19 - i) as u64] = 48 + digit; // '0' = 48
+        temp = temp / 10;
+        i = i + 1;
+    }
+
+    let start_idx = 20 - i;
+    let ptr = (&buf[start_idx as u64]) as u64;
+    syscall.write(ptr, i);
+}
+
+pub fn print_hex(val: u64) {
+    let mut buf: [u8; 18] = [0; 18];
+    buf[0] = 48; // '0'
+    buf[1] = 120; // 'x'
+    
+    let mut i: u64 = 0;
+    let mut temp = val;
+    let hex_chars = "0123456789ABCDEF";
+    let hex_ptr = sys_str_data(&hex_chars);
+    
+    // We print 16 digits
+    while i < 16 {
+        let nibble = (temp >> (60 - (i * 4))) & 0xF;
+        let c = *((hex_ptr + nibble) as &u8);
+        buf[(2 + i) as u64] = c;
+        i = i + 1;
+    }
+    
+    let ptr = (&buf[0]) as u64;
+    syscall.write(ptr, 18);
+}

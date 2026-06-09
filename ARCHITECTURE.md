@@ -49,7 +49,7 @@ The key insight is that Salt's compile-time formal verification eliminates the n
 | **VirtIO** | `kernel/drivers/virtio.salt` | NIC and block device (DMA) |
 | **NetD Bridge** | `kernel/net/netd_bridge.salt` | VirtIO RX → SPSC ring pump |
 | **SMP** | `kernel/arch/x86/smp.salt` | AP bootstrap, per-CPU state |
-| **Keubic Reclaim** | `kernel/core/lattice_reclaim.salt` | 5-phase hardware-fenced process teardown |
+| **Process Reclaim** | `kernel/core/keuos_reclaim.salt` | 5-phase hardware-fenced process teardown |
 | **Chase-Lev Deque** | `kernel/sched/chase_lev.salt` | Per-core lock-free work-stealing deque, static `DEQUE_BUFFERS[16][1024]` |
 | **Epoch-Based Reclamation** | `kernel/lib/ebr_arena.salt` | Zero-pause concurrent memory compaction via `ebr_enter_epoch`/`exit_epoch` |
 | **SIR Boundary** | `salt-front/src/codegen/sir/` | Versioned AST extraction: types, contracts, spans → SirModule JSON/Flatbuffer |
@@ -151,10 +151,10 @@ python3 tools/runner_qemu.py kernel/build/keuos.elf
 
 | Version | Codename | Achievement |
 |---------|----------|-------------|
-| v0.9.0 | *Keubic Networking* | Ring 3 NetD, zero-trap sockets, SPSC IPC |
-| v0.9.1 | *Keubic Foundation* | `@align(64)` cache-line isolation, proof-carrying IPC, SipHash-2-4 hardening, lattice reclaim, chaos testing |
+| v0.9.0 | *Core Networking* | Ring 3 NetD, zero-trap sockets, SPSC IPC |
+| v0.9.1 | *Core Foundation* | `@align(64)` cache-line isolation, proof-carrying IPC, SipHash-2-4 hardening, lattice reclaim, chaos testing |
 | v0.9.2 | *Postcondition Pivot* | Z3-backed `ensures` for pure functions — path-sensitive WP verification, implicit guard negation, incompleteness gate (6/6 GREEN) |
-| v0.9.3 | *Keubic Authority* | Chase-Lev work-stealing SMP, stateless SYN cookie hardening (SipHash-2-4), Epoch-Based Reclamation, SIR boundary decoupling (194/194 tests) |
-| v1.0.0 | *KeuOS Architecture* | Salt LSP v0.2.0 (zero-I/O, Z3 hover, Go-to-Definition), full 16-core SMP scale-out, adversarial NetD, 32/32 LSP tests |
+| v0.9.3 | *Core Authority* | Chase-Lev work-stealing SMP, stateless SYN cookie hardening (SipHash-2-4), Epoch-Based Reclamation, SIR boundary decoupling (194/194 tests) |
+| v1.0.0 | *Kernel Architecture* | Salt LSP v0.2.0 (zero-I/O, Z3 hover, Go-to-Definition), full 16-core SMP scale-out, adversarial NetD, 32/32 LSP tests |
 | v1.1.0 | *Loop Validation* | `invariant` keyword, Z3 induction-based verification, havoc semantics (Completed) |
 | v1.2.0 | *Persistence Pillar* | PCIe ECAM enumeration, NVMe MMIO CAP/VS extraction (Completed), Block-VMO storage, NVMe SPSC bridge (planned) |

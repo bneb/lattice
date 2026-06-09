@@ -7,7 +7,7 @@ import std.math.ctz_u64
 pub use std.simd.text
 
 // =============================================================================
-// Swiss-Table Group Abstraction (V5.0 - Sovereign Gold)
+// Swiss-Table Group Abstraction (V5.0 - KeuOS Gold)
 // =============================================================================
 // 
 // Group wraps architecture-specific SIMD matching.
@@ -27,7 +27,7 @@ impl Group {
         return Group { data: (ptr as Ptr<u64>).read() };
     }
     
-    // The 'Sovereign' Match Mask: returns bitmask with high bit set for matches
+    // The 'KeuOS' Match Mask: returns bitmask with high bit set for matches
     @inline
     pub fn match_tag(self, tag: i8) -> u64 {
         let tag_broadcast = 0x0101010101010101 as u64 * (tag as u64 & 0xFF);

@@ -1,4 +1,4 @@
-// Sovereign Writer Protocol - Test Demonstration
+// KeuOS Writer Protocol - Test Demonstration
 // This file demonstrates the target.f"..." syntax for zero-allocation streaming output
 
 package test.writer_protocol
@@ -14,7 +14,7 @@ fn main() -> i64 {
     let x = 42;
     let name = "Salt";
     
-    // Sovereign Writer Protocol: decomposed directly to write_* calls
+    // KeuOS Writer Protocol: decomposed directly to write_* calls
     // console.f"Hello from {name}! The answer is {x}.\n";
     
     // This expands to:

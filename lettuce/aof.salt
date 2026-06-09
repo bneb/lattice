@@ -1,0 +1,133 @@
+// =============================================================================
+// LETTUCE — Append-Only File (AOF) Persistence
+// =============================================================================
+package lettuce.aof
+
+
+
+
+import std.core.ptr.Ptr
+import std.core.str.StringView
+import std.core.result.Result
+import std.fs.fs.{VfsConnection, FileHandle}
+import std.status.Status
+import std.collections.string_map.{StringMap, StringMap_set, StringMap_del}
+
+extern fn malloc(size: i64) -> Ptr<u8>;
+
+extern fn memmove(dst: Ptr<u8>, src: Ptr<u8>, n: i64) -> Ptr<u8>;
+extern fn r3_sys_yield();
+
+pub struct AofContext {
+    pub conn_ptr: u64,
+    pub fd: u64
+}
+
+pub fn Aof_init(ctx: Ptr<AofContext>) -> i64 {
+    let mut conn = VfsConnection::connect();
+    
+    let res = conn.open("lettuce.aof\0" as &u8);
+    if res.is_ok() {
+        let fd = res.unwrap().fd;
+        
+        let heap_conn = malloc(32) as Ptr<VfsConnection>;
+        heap_conn.write(conn);
+        ctx.write(AofContext { conn_ptr: heap_conn as u64, fd: fd });
+        return 0;
+    }
+    return -1; // Error
+}
+
+fn write_all(ctx: Ptr<AofContext>, buf: Ptr<u8>, size: u64) {
+    if ctx.read().conn_ptr == 0 || ctx.read().fd == 0 {
+        return;
+    }
+    let conn_ptr = ctx.read().conn_ptr as Ptr<VfsConnection>;
+    let fh = FileHandle { fd: ctx.read().fd };
+    let mut written: u64 = 0;
+    while written < size {
+        let mut conn = conn_ptr.read();
+        let res = conn.write(&fh, buf.offset(written as i64), size - written);
+        conn_ptr.write(conn);
+        
+        if res.is_ok() {
+            written = written + res.unwrap();
+        } else {
+            break;
+        }
+    }
+}
+
+pub fn Aof_append_set(ctx: Ptr<AofContext>, key: StringView, val: StringView) {
+    if ctx.read().conn_ptr == 0 { return; }
+    let total_size = 1 + 4 + 4 + key.length() + val.length();
+    let buf = malloc(total_size);
+    
+    buf.write(1); // SET
+    *((buf.offset(1) as u64) as &mut u32) = key.length() as u32;
+    *((buf.offset(5) as u64) as &mut u32) = val.length() as u32;
+    
+    memmove(buf.offset(9), key.ptr, key.length());
+    memmove(buf.offset(9 + key.length()), val.ptr, val.length());
+    
+    write_all(ctx, buf, total_size as u64);
+}
+
+pub fn Aof_append_del(ctx: Ptr<AofContext>, key: StringView) {
+    if ctx.read().conn_ptr == 0 { return; }
+    let total_size = 1 + 4 + key.length();
+    let buf = malloc(total_size);
+    
+    buf.write(2); // DEL
+    *((buf.offset(1) as u64) as &mut u32) = key.length() as u32;
+    
+    memmove(buf.offset(5), key.ptr, key.length());
+    
+    write_all(ctx, buf, total_size as u64);
+}
+
+pub fn Aof_replay(ctx: Ptr<AofContext>, smap: Ptr<StringMap>) {
+    if ctx.read().conn_ptr == 0 || ctx.read().fd == 0 {
+        return;
+    }
+    let conn_ptr = ctx.read().conn_ptr as Ptr<VfsConnection>;
+    let fh = FileHandle { fd: ctx.read().fd };
+    
+    let buf = malloc(1024 * 1024 * 10);
+    let mut conn = conn_ptr.read();
+    let res = conn.read(&fh, buf, 1024 * 1024 * 10);
+    conn_ptr.write(conn);
+    
+    if res.is_err() { return; }
+    
+    let total_read = res.unwrap();
+
+    let mut cursor: u64 = 0;
+    
+    while cursor < total_read {
+        let op = buf.offset(cursor as i64).read();
+        if op == 1 { // SET
+            let klen = *((buf.offset((cursor + 1) as i64) as u64) as &u32) as i64;
+            let vlen = *((buf.offset((cursor + 5) as i64) as u64) as &u32) as i64;
+            let key_ptr = buf.offset((cursor + 9) as i64);
+            let val_ptr = buf.offset((cursor + 9 + klen as u64) as i64);
+            
+            let key_sv = StringView::from_raw(key_ptr, klen);
+            let val_sv = StringView::from_raw(val_ptr, vlen);
+            
+            StringMap_set(smap, key_sv, val_sv);
+            
+            cursor = cursor + 9 + (klen as u64) + (vlen as u64);
+        } else if op == 2 { // DEL
+            let klen = *((buf.offset((cursor + 1) as i64) as u64) as &u32) as i64;
+            let key_ptr = buf.offset((cursor + 5) as i64);
+            
+            let key_sv = StringView::from_raw(key_ptr, klen);
+            StringMap_del(smap, key_sv);
+            
+            cursor = cursor + 5 + (klen as u64);
+        } else {
+            break;
+        }
+    }
+}extern fn printf(fmt: Ptr<u8>, val1: i64, val2: i64) -> i32;

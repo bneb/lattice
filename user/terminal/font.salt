@@ -14,6 +14,7 @@ pub fn init(fb_ptr: u64, pitch: u32, bpp: u32) {
 
 pub fn plot_pixel(x: u32, y: u32, color_rgb: u32) {
     if FB_VIRT == 0 { return; }
+    if FB_PITCH == 0 { return; }
     
     let bytes_per_pixel = FB_BPP / 8;
     let offset = (y * FB_PITCH) + (x * bytes_per_pixel);

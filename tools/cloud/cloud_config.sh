@@ -23,8 +23,8 @@ EC2_SECURITY_GROUP="keuos-bench-sg"
 EC2_INSTANCE_TYPE="z1d.metal"
 
 # AMI — Ubuntu 24.04 LTS x86_64 (us-east-1). Update if using a different region.
-# Find AMIs: aws ec2 describe-images --owners 099720109477 --filters "Name=name,Values=ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*" --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' --output text
-EC2_AMI="ami-0136735c2bb5cf5bf"
+# Find AMIs: aws ec2 describe-images --owners 099720109477 --filters "Name=name,Values=ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*" --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId'# Use our Custom pre-baked KeuOS Benchmark AMI (which has LLVM 18 and Rust built in)
+export EC2_AMI="ami-02a2520b7abf5f39e"
 
 # SSH user for Ubuntu AMIs
 EC2_USER="ubuntu"

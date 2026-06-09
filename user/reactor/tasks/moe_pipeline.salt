@@ -50,16 +50,14 @@ import std.core.ptr.Ptr
 
 // External telemetry and UART bindings
 extern fn rdtsc() -> u64;
-extern fn r3_sys_write(fd: u64, buf: u64, len: u64);
-extern fn r3_sys_shutdown();
-extern fn r3_sys_yield();
+extern fn salt_yield_check();
+extern fn do_serial_print(s: u64, len: u64);
 
 pub fn print_str(s: u64, len: u64) {
-    r3_sys_write(1, s, len);
+    do_serial_print(s, len);
 }
 
 pub fn print_dec(val: u64) {
-    // Basic hex printing
     let buf: [u8; 16] = [0 as u8; 16];
     let hex: [u8; 16] = [48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 65, 66, 67, 68, 69, 70];
     let mut v = val;
@@ -69,10 +67,10 @@ pub fn print_dec(val: u64) {
         buf[i] = hex[(v & 0xF) as u64];
         v = v >> 4;
     }
-    r3_sys_write(1, (&buf) as u64, 16);
+    do_serial_print((&buf) as u64, 16);
     let nl = "\n";
     let nl_ptr = (&nl) as u64;
-    r3_sys_write(1, *(nl_ptr as &u64), 1);
+    do_serial_print(*(nl_ptr as &u64), 1);
 }
 
 // ============================================================================
@@ -132,14 +130,13 @@ pub fn moe_init_trampoline(state_ptr: u64, bar_out: u64, poll_out: u64) {
         // Read the poll result from the capability buffer
         let poll: u32 = *((poll_out) as &u32);
         if poll == POLL_READY {
-            // Convergence verified. Trigger the ACPI Guillotine.
             let msg = "  [TRAMPOLINE] PHASE_DONE -> Triggering SYS_SHUTDOWN\n";
             let msg_ptr = (&msg) as u64;
             print_str(*(msg_ptr as &u64), 53);
-            r3_sys_shutdown();
+            loop {}
         } else {
             // Yield CPU back to dispatcher
-            r3_sys_yield();
+            salt_yield_check();
         }
     }
 }
@@ -329,7 +326,7 @@ pub fn execute_moe_pipeline(state: u64, bar_out: u64, poll_out: u64) {
             print_dec(dispatch_tsc);
             print_dec(end_tsc);
 
-            r3_sys_shutdown();
+            loop {}
         }
 
         // Non-MoE frame (ARP, IPv6 multicast, etc.) — ignore and continue polling
@@ -377,4 +374,9 @@ pub fn init_pipeline_state(
 }
 
 @no_mangle
-pub fn sys_moe_init_trampoline(state_ptr: u64, bar_out: u64, poll_out: u64) { moe_init_trampoline(state_ptr, bar_out, poll_out); }
+pub fn sys_moe_init_trampoline(state_ptr: u64, bar_out: u64, poll_out: u64) {
+    loop {
+        moe_init_trampoline(state_ptr, bar_out, poll_out);
+        salt_yield_check();
+    }
+}

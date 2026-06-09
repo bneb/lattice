@@ -18,14 +18,13 @@
 package user.hello
 
 import user.lib.syscall
+import user.std.stdio
 
-extern fn sys_str_data(sv: &u64) -> u64;
+// extern fn sys_str_data(sv: &u64) -> u64;
 
 pub fn main() {
     // ─── Phase 1: Announce ──────────────────────────────────────────────
-    let hello_msg = "[C] Hello from Process C!\n";
-    let hello_ptr = sys_str_data(&hello_msg);
-    syscall.write(hello_ptr, 26);
+    stdio.print("[C] Hello from Process C!\n");
 
     // ─── Phase 2: sys_brk Fire Test ─────────────────────────────────────
     // Query current heap boundary
@@ -44,9 +43,7 @@ pub fn main() {
         // Verify the write stuck
         let readback = *(heap_ptr as &u64);
         if readback == 0xC0FFEE42 {
-            let pass_msg = "PROC:C:BRK_PASS\n";
-            let pass_ptr = sys_str_data(&pass_msg);
-            syscall.write(pass_ptr, 17);
+            stdio.print("PROC:C:BRK_PASS\n");
         }
     }
 
@@ -55,9 +52,7 @@ pub fn main() {
     // proving round-robin scheduling with PCID-tagged CR3 switches.
     let mut i: u64 = 0;
     while i < 3 {
-        let tick_msg = "[C] tick\n";
-        let tick_ptr = sys_str_data(&tick_msg);
-        syscall.write(tick_ptr, 9);
+        stdio.print("[C] tick\n");
 
         let mut spin: u64 = 0;
         while spin < 5000000 {
@@ -68,9 +63,7 @@ pub fn main() {
     }
 
     // ─── Phase 4: Clean Exit ────────────────────────────────────────────
-    let done_msg = "PROC:C:LIFECYCLE_PASS\n";
-    let done_ptr = sys_str_data(&done_msg);
-    syscall.write(done_ptr, 22);
+    stdio.print("PROC:C:LIFECYCLE_PASS\n");
 
     syscall.exit(0);
 }

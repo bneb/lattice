@@ -1,5 +1,5 @@
 // =============================================================================
-// Test: Prisimi Z3 BigInt Module testing natively seamlessly implicitly smoothly
+// Test: KeuOS Z3 BigInt Module testing natively seamlessly implicitly smoothly
 // =============================================================================
 
 import user.netd.crypto.bigint

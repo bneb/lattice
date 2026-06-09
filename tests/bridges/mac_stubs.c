@@ -57,7 +57,7 @@ __attribute__((weak)) void css_arena_inc_count(void) {}
 __attribute__((weak)) void css_arena_set_hash(uint32_t slot, uint32_t hash) {}
 __attribute__((weak)) void ext_engine_process_mouse_down(float x, float y) {}
 
-__attribute__((weak)) uint64_t sovereign_arena_alloc(uint64_t size) {
+__attribute__((weak)) uint64_t keuos_arena_alloc(uint64_t size) {
   return (uint64_t)calloc(1, size);
 }
 

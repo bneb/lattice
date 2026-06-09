@@ -4,7 +4,7 @@ package tests.test_e2e_render
 extern fn e2e_execute_pipeline();
 
 pub fn main() -> i32 {
-    println("--- Epic 38: Sovereign E2E Headless Verification ---");
+    println("--- Epic 38: KeuOS E2E Headless Verification ---");
     e2e_execute_pipeline();
     return 0;
 }

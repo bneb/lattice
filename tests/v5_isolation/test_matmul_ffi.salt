@@ -18,7 +18,7 @@ fn read_f32(base_ptr: u64, idx: u64) -> f32 {
 
 @no_mangle
 fn main_salt() -> i32 {
-    println("Starting V5.1 Sovereign FFI MatMul Test...");
+    println("Starting V5.1 KeuOS FFI MatMul Test...");
     
     // Allocate raw buffers (4x4 = 16 floats = 64 bytes each)
     let i_ptr = alloc(64);

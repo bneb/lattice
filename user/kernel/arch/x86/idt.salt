@@ -1,6 +1,6 @@
 // ============================================================================
 // user/kernel/arch/x86/idt.salt
-// Interrupt Descriptor Table — Sovereign Exception Vectors
+// Interrupt Descriptor Table — KeuOS Exception Vectors
 // ============================================================================
 //
 // The IDT maps x86 interrupt/exception vectors (0-255) to handler addresses.

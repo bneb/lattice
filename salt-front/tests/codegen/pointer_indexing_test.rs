@@ -135,7 +135,7 @@ fn test_promote_numeric_rejects_integer_to_pointer() {
         assert!(result.is_err(), "promote_numeric should reject Usize to Pointer promotion");
         
         let err_msg = result.unwrap_err();
-        assert!(err_msg.contains("Sovereign Type Error") || err_msg.contains("Cannot promote"),
+        assert!(err_msg.contains("KeuOS Type Error") || err_msg.contains("Cannot promote"),
             "Error message should indicate type safety violation: {}", err_msg);
     });
 }
@@ -209,7 +209,7 @@ fn test_pointer_read_in_loop_compiles() {
 
 #[test]
 fn test_init_xavier_pattern_compiles() {
-    // This is the exact pattern from sovereign_train.salt init_xavier
+    // This is the exact pattern from keuos_train.salt init_xavier
     let code = r#"
         fn init_xavier(w: Ptr<f32>, size: i64) {
             for i in 0..size {

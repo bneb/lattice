@@ -258,7 +258,7 @@ impl TraitRegistry {
             return Some(method);
         }
         
-        // [V4.0 SOVEREIGN] Path-agnostic fallback: when lookup key has empty path but
+        // [V4.0 KEUOS] Path-agnostic fallback: when lookup key has empty path but
         // registration used full path (e.g., trait method flattening), match by name only
         if receiver.path.is_empty() {
             for ((reg_key, method_name), method_keys) in &self.legacy_index {
@@ -333,7 +333,7 @@ impl TraitRegistry {
     }
     
     // =========================================================================
-    // V4.0 SOVEREIGN: Convenience methods for migration from legacy method_registry
+    // V4.0 KEUOS: Convenience methods for migration from legacy method_registry
     // =========================================================================
     
     /// Register a method using simple parameters (convenience wrapper).

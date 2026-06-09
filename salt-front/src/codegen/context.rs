@@ -1705,7 +1705,7 @@ impl<'a> CodegenContext<'a> {
                 && info.variants.iter().any(|(v, _, _)| v == "None")
         }).cloned()
     }
-    // [V4.0 SOVEREIGN] Signature-aware method resolution - the ONLY method lookup path
+    // [V4.0 KEUOS] Signature-aware method resolution - the ONLY method lookup path
     pub fn trait_registry(&self) -> std::cell::Ref<'_, crate::codegen::trait_registry::TraitRegistry> {
         std::cell::Ref::map(self.discovery.borrow(), |d| &d.trait_registry)
     }
@@ -1730,57 +1730,57 @@ impl<'a> CodegenContext<'a> {
         self.discovery.borrow_mut().comptime_ready = true;
     }
     
-    /// [SOVEREIGN V2.0] Register a pulse function discovered during analysis
+    /// [KEUOS V2.0] Register a pulse function discovered during analysis
     pub fn register_pulse_function(&self, name: &str, frequency_hz: u32, tier: u8) {
         self.discovery.borrow_mut().pulse_functions.insert(name.to_string(), (frequency_hz, tier));
     }
     
-    /// [SOVEREIGN V2.0] Check if a function is a pulse function and get its tier
+    /// [KEUOS V2.0] Check if a function is a pulse function and get its tier
     pub fn get_pulse_info(&self, name: &str) -> Option<(u32, u8)> {
         self.discovery.borrow().pulse_functions.get(name).copied()
     }
     
-    /// [SOVEREIGN V2.0] Check if a function requires yield injection (is pulse function)
+    /// [KEUOS V2.0] Check if a function requires yield injection (is pulse function)
     pub fn is_pulse_function(&self, name: &str) -> bool {
         self.discovery.borrow().pulse_functions.contains_key(name)
     }
 
-    /// [SOVEREIGN V7.0] Register a type's Sovereign Home module.
+    /// [KEUOS V7.0] Register a type's KeuOS Home module.
     pub fn register_type_home(&self, type_name: String, module_package: String) {
         self.discovery.borrow_mut().register_type_home(type_name, module_package);
     }
 
-    /// [SOVEREIGN V7.0] Register a trait's home module.
+    /// [KEUOS V7.0] Register a trait's home module.
     pub fn register_trait_home(&self, trait_name: String, module_package: String) {
         self.discovery.borrow_mut().register_trait_home(trait_name, module_package);
     }
 
-    /// [SOVEREIGN V7.0] Check if this module owns the type.
+    /// [KEUOS V7.0] Check if this module owns the type.
     pub fn is_type_home(&self, type_name: &str, current_module: &str) -> bool {
         self.discovery.borrow().is_type_home(type_name, current_module)
     }
 
-    /// [SOVEREIGN V7.0] Check if this module owns the trait.
+    /// [KEUOS V7.0] Check if this module owns the trait.
     pub fn is_trait_home(&self, trait_name: &str, current_module: &str) -> bool {
         self.discovery.borrow().is_trait_home(trait_name, current_module)
     }
 
-    /// [SOVEREIGN V7.0] Register a trait impl and check for duplicates.
+    /// [KEUOS V7.0] Register a trait impl and check for duplicates.
     pub fn register_trait_impl(&self, type_name: String, trait_name: String, module_package: String) -> Result<(), String> {
         self.discovery.borrow_mut().register_trait_impl(type_name, trait_name, module_package)
     }
 
-    /// [SOVEREIGN V7.0] Validate coherence of all trait implementations.
+    /// [KEUOS V7.0] Validate coherence of all trait implementations.
     pub fn validate_coherence(&self) -> Result<(), String> {
         self.discovery.borrow().validate_coherence()
     }
 
-    /// [SOVEREIGN V2.0] Register liveness analysis result for a @yielding function
+    /// [KEUOS V2.0] Register liveness analysis result for a @yielding function
     pub fn register_liveness(&self, fn_name: String, result: crate::codegen::passes::liveness::LivenessResult) {
         self.discovery.borrow_mut().liveness_results.insert(fn_name, result);
     }
 
-    /// [SOVEREIGN V2.0] Get liveness result for a function (None if synchronous)
+    /// [KEUOS V2.0] Get liveness result for a function (None if synchronous)
     pub fn get_liveness(&self, fn_name: &str) -> Option<crate::codegen::passes::liveness::LivenessResult> {
         self.discovery.borrow().liveness_results.get(fn_name).cloned()
     }
@@ -1797,7 +1797,7 @@ impl<'a> CodegenContext<'a> {
         self.discovery.borrow().hir_async_items.get(fn_name).cloned()
     }
 
-    /// [SOVEREIGN V2.0] Get the I/O backend for the current target platform.
+    /// [KEUOS V2.0] Get the I/O backend for the current target platform.
     /// Returns a boxed trait object implementing platform-specific I/O MLIR emission.
     pub fn io_backend(&self) -> Box<dyn crate::codegen::passes::io_backend::IoBackend> {
         crate::codegen::passes::io_backend::backend_for_target(self.target_platform)
@@ -1817,7 +1817,7 @@ impl<'a> CodegenContext<'a> {
             return Some(self.native_fstring_expand(content));
         }
         
-        // [V4.0 LIBRARY SOVEREIGNTY] Native hex string expansion
+        // [V4.0 LIBRARY KEUOSTY] Native hex string expansion
         // hex"DEADBEEF" → Vec::<u8>::from_array([0xDE, 0xAD, 0xBE, 0xEF])
         if prefix == "hex" {
             return Some(self.native_hex_expand(content));
@@ -2051,7 +2051,7 @@ impl<'a> CodegenContext<'a> {
         s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\r', "\\0D")
     }
     
-    /// [V4.0 LIBRARY SOVEREIGNTY] Native Hex Expansion
+    /// [V4.0 LIBRARY KEUOSTY] Native Hex Expansion
     /// Converts hex"DEADBEEF" → Vec::<u8>::from_array([0xDE, 0xAD, 0xBE, 0xEF])
     /// Allows whitespace separators: hex"DE AD BE EF" is valid
     pub fn native_hex_expand(&self, content: &str) -> String {
@@ -2084,7 +2084,7 @@ impl<'a> CodegenContext<'a> {
         format!("Vec::<u8>::from_array([{}])", bytes.join(", "))
     }
     
-    /// [SOVEREIGN WRITER PROTOCOL] Native Target F-String Expansion
+    /// [KEUOS WRITER PROTOCOL] Native Target F-String Expansion
     /// Converts target.f"Hello {x}" → { target.write_str("Hello ", 6); target.write_i32(x); }
     /// This implements zero-allocation streaming by decomposing the f-string into direct
     /// write_* calls on the target Writer, avoiding intermediate String allocation.
@@ -2129,7 +2129,7 @@ impl<'a> CodegenContext<'a> {
         code
     }
     
-    /// [SOVEREIGN WRITER PROTOCOL] Determine the appropriate write_* method for an interpolated expression
+    /// [KEUOS WRITER PROTOCOL] Determine the appropriate write_* method for an interpolated expression
     /// Returns (method_name, formatted_expression)
     fn determine_write_method(&self, expr: &str, spec: Option<&str>) -> (String, String) {
         // Check format spec first - it overrides type inference
@@ -2806,11 +2806,11 @@ impl<'a> CodegenContext<'a> {
     }
 
     pub fn find_methods_for_template(&self, template_name: &str) -> Vec<String> {
-        // [V4.0 SOVEREIGN] Delegate to TraitRegistry
+        // [V4.0 KEUOS] Delegate to TraitRegistry
         self.trait_registry().find_methods_for_type(template_name)
     }
 
-    /// SOVEREIGN RESOLUTION: Unified Pointer Peeling
+    /// KEUOS RESOLUTION: Unified Pointer Peeling
     /// Instead of checking Reference/Owned/NativePtr separately, we peel the 
     /// first-class Type::Pointer variant.
     pub fn resolve_method(&self, receiver_ty: &Type, method_name: &str) -> Result<(SaltFn, Option<Type>, Vec<ImportDecl>), String> {
@@ -2821,7 +2821,7 @@ impl<'a> CodegenContext<'a> {
             if depth > 10 { break; }
             depth += 1;
 
-            // [V4.0 SOVEREIGN] Lookup via TraitRegistry signature-aware resolution
+            // [V4.0 KEUOS] Lookup via TraitRegistry signature-aware resolution
             if let Some(key) = current_ty.to_key() {
 
                 // Try exact key lookup
@@ -2836,7 +2836,7 @@ impl<'a> CodegenContext<'a> {
                 }
             }
 
-            // 2. UNIFIED DEREF: Peeling the Sovereign Pointer
+            // 2. UNIFIED DEREF: Peeling the KeuOS Pointer
             // This replaces legacy Reference/Owned/NativePtr branches.
             if let Type::Pointer { element, .. } = current_ty {
                 current_ty = (*element).clone();
@@ -3749,7 +3749,7 @@ impl<'a> CodegenContext<'a> {
                 }
 
                 // ======================================================================
-                // [SOVEREIGN FIX] Transitive Extern Collection
+                // [KEUOS FIX] Transitive Extern Collection
                 // Collects extern fn declarations from ALL Registry modules.
                 // This fixes the visibility hole where externs in library modules
                 // (e.g., sys_write in BufferedWriter) weren't being emitted to MLIR.
@@ -3763,7 +3763,7 @@ impl<'a> CodegenContext<'a> {
                                 continue;
                             }
                             
-                            // [SOVEREIGN FIX] Register in globals for type resolution
+                            // [KEUOS FIX] Register in globals for type resolution
                             self.globals_mut().insert(
                                 name.clone(),
                                 crate::types::Type::Fn(args.clone(), Box::new(ret.clone()))
@@ -3772,7 +3772,7 @@ impl<'a> CodegenContext<'a> {
                             // Mark as external declaration
                             self.external_decls_mut().insert(name.clone());
                             
-                            // [SOVEREIGN FIX] Emit MLIR declaration to decl_out
+                            // [KEUOS FIX] Emit MLIR declaration to decl_out
                             // This is critical - without this, the extern is registered but
                             // the func.func private declaration never makes it to MLIR
                             let mut args_mlir = Vec::new();
@@ -3921,7 +3921,7 @@ impl<'a> CodegenContext<'a> {
                                  let current_imports = self.imports().clone();
                                  self.generic_impls_mut().insert(name.clone(), (m_clone.clone(), current_imports.clone()));
                                  
-                                 // [V4.0 SOVEREIGN] Register via TraitRegistry with signature extraction
+                                 // [V4.0 KEUOS] Register via TraitRegistry with signature extraction
                                  self.trait_registry_mut().register_simple(impl_key.clone(), m_clone, Some(resolved.clone()), current_imports);
                             }
                             *self.current_self_ty_mut() = None;
@@ -3930,7 +3930,7 @@ impl<'a> CodegenContext<'a> {
                         *self.imports_mut() = saved_imports;
                         *self.current_type_map_mut() = saved_map;
                     }
-                    // [V4.0 SOVEREIGN] Handle trait impl blocks: `impl Trait for Type { ... }`
+                    // [V4.0 KEUOS] Handle trait impl blocks: `impl Trait for Type { ... }`
                     // Flatten trait methods into the implementing type's method table
                     else if let crate::grammar::SaltImpl::Trait { trait_name: _, target_ty, methods, generics } = impl_item {
                         let saved_imports = self.imports().clone();
@@ -4200,7 +4200,7 @@ impl<'a> CodegenContext<'a> {
                              // Capture imports before mutating (both borrow discovery)
                              let current_imports = self.imports().clone();
                              self.generic_impls_mut().insert(name.clone(), (m_clone.clone(), current_imports.clone()));
-                             // [V4.0 SOVEREIGN] Register via TraitRegistry with signature extraction
+                             // [V4.0 KEUOS] Register via TraitRegistry with signature extraction
                              self.trait_registry_mut().register_simple(impl_key.clone(), m_clone, Some(resolved.clone()), current_imports);
 
 
@@ -4210,8 +4210,8 @@ impl<'a> CodegenContext<'a> {
                         *self.current_self_ty_mut() = None;
                     }
                 }
-                // [SOVEREIGN V7.0] Handle `impl Trait for Type` blocks
-                // The Sovereign Authority Rule: register these methods exactly like
+                // [KEUOS V7.0] Handle `impl Trait for Type` blocks
+                // The KeuOS Authority Rule: register these methods exactly like
                 // SaltImpl::Methods, so they're available for demand-driven hydration.
                 else if let crate::grammar::SaltImpl::Trait { trait_name, target_ty, methods, generics } = i {
                     let _saved_map = self.current_type_map().clone();
@@ -4243,7 +4243,7 @@ impl<'a> CodegenContext<'a> {
                              impl_key.specialization = None;
                         }
 
-                        // [SOVEREIGN V7.0] Register trait impl for coherence tracking
+                        // [KEUOS V7.0] Register trait impl for coherence tracking
                         if let Err(e) = self.register_trait_impl(
                             target_mangled.clone(),
                             trait_name.to_string(),
@@ -4281,7 +4281,7 @@ impl<'a> CodegenContext<'a> {
                              // Capture imports before mutating (both borrow discovery)
                              let current_imports = self.imports().clone();
                              self.generic_impls_mut().insert(name.clone(), (m_clone.clone(), current_imports.clone()));
-                             // [V4.0 SOVEREIGN] Register via TraitRegistry with signature extraction
+                             // [V4.0 KEUOS] Register via TraitRegistry with signature extraction
                              self.trait_registry_mut().register_simple(impl_key.clone(), m_clone, Some(resolved.clone()), current_imports);
 
                              // LAZY REVOLUTION: Do NOT mark as defined here.
@@ -4294,7 +4294,7 @@ impl<'a> CodegenContext<'a> {
                 // Extern functions always use their C symbol name (never mangle)
                 let mangled_name = e.name.to_string();
 
-                // [SOVEREIGN FIX] Extern declaration emission is now handled by register_signatures.
+                // [KEUOS FIX] Extern declaration emission is now handled by register_signatures.
                 // This function only needs to ensure globals and defined_functions are populated.
                 // Skip if already registered (handles dedupe across modules)
                 if self.external_decls().contains(&mangled_name) {
@@ -4971,7 +4971,7 @@ impl<'a> CodegenContext<'a> {
     // Verification & Symbolic Analysis
     // =========================================================================
 
-    /* [SOVEREIGN V3] Disabled Z3 methods
+    /* [KEUOS V3] Disabled Z3 methods
     pub fn mk_int(&self, val: i64) -> crate::z3_shim::ast::Int<'a> {
         crate::z3_shim::ast::Int::from_i64(self.z3_ctx, val)
     }

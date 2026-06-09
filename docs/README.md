@@ -9,7 +9,7 @@ Salt is a systems programming language with Z3-verified safety, arena-based memo
 1. **Z3 Verification**: `requires()` and `ensures()` contracts proven at compile time
 2. **Arena Memory**: O(1) bulk free via mark/reset — no GC, no borrow checker
 3. **MLIR Pipeline**: Source → MLIR → LLVM → binary, with affine tiling for tensor ops
-4. **C-Parity Performance**: 19/22 benchmarks at C-parity or better
+4. **Performance**: Close to baseline C without sacrificing safety.
 
 ## Documentation Index
 
@@ -43,22 +43,31 @@ Salt is a systems programming language with Z3-verified safety, arena-based memo
 | Doc | Description |
 |-----|-------------|
 | [Arena Safety](deep-dives/arena-safety.md) | Compile-time arena escape analysis (the repo's best doc) |
-| [Performance](deep-dives/performance.md) | Why Salt beats C — MLIR multi-dialect strategy |
 | [Stand-up](deep-dives/stand-up.md) | Technology stack overview |
+| [Universal ABI](deep-dives/universal-abi.md) | KeuOS Universal ABI design |
+| [VirtIO MOE Convergence](deep-dives/virtio-moe-convergence.md) | Network stack convergence and Virtue Driver |
+
+### KeuOS Kernel & OS
+
+| Doc | Description |
+|-----|-------------|
+| [System ABI](abi/KEUOS_ABI.md) | Definitive ABI specification for targeting KeuOS |
+| [Driver Model](keuos_driver_model.md) | Device drivers in KeuOS |
+
 
 ### Real-World Systems
 
 | Project | Description |
 |---------|-------------|
-| [LETTUCE](../lettuce/) | Redis-compatible server — 2× Redis throughput in 567 lines |
+| [LETTUCE](../lettuce/) | Redis-compatible server exploring memory performance |
 | [Basalt](../basalt/) | Llama 2 inference — Z3-verified kernels, mmap loading |
-| [Facet](../user/facet/) | GPU 2D compositor — rasterizer, Metal compute, **Salt matches C at -O3** |
+| [Facet](../user/facet/) | GPU 2D compositor — rasterizer, Metal compute |
 
 ### Benchmarks & Measurement
 
 | Doc | Description |
 |-----|-------------|
-| [Benchmarks](../benchmarks/BENCHMARKS.md) | Official performance results (22 benchmarks) |
+| [Benchmarks](../benchmarks/BENCHMARKS.md) | Official performance results |
 | [Measurement](benchmarks/science-of-measurement.md) | Benchmarking methodology |
 
 ### Tutorials

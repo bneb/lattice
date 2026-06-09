@@ -1,6 +1,6 @@
 # Test Suite
 
-**The Mission:** Ensure the compiler and standard library strictly adhere to the Sovereign Invariants.
+**The Mission:** Ensure the compiler and standard library strictly adhere to the KeuOS Invariants.
 
 ## Structure
 
@@ -10,7 +10,7 @@
 | [`unit/`](./unit) | **Unit tests.** Focused tests for individual language features (20 test files). |
 | [`regression/`](./regression) | **Bug fixes.** Tests reproducing specific, fixed bugs to prevent regression. |
 | [`cases/`](./cases) | **Test cases.** Grouped test scenarios. |
-| [`sovereign/`](./sovereign) | **Sovereign runtime tests.** Tests for the sovereign compilation model. |
+| [`keuos/`](./keuos) | **KeuOS runtime tests.** Tests for the keuos compilation model. |
 | [`v5_isolation/`](./v5_isolation) | **V5 isolation tests.** Module isolation and linking tests. |
 | [`v6_vector/`](./v6_vector) | **V6 vector tests.** SIMD and vectorization tests. |
 | [`snapshots/`](./snapshots) | **Golden outputs.** Validated compiler output for "known good" states. |

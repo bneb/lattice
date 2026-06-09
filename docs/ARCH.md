@@ -310,7 +310,7 @@ kernel/
 │   ├── memory.salt       # Memory subsystem init + verification
 │   ├── region.salt       # Region allocator
 │   ├── ring3_test.salt   # Ring 3 TDD tests (IRETQ frame, KPTI CR3, end-to-end SYSCALL)
-│   ├── sovereign_reclaim.salt # Sovereign Reclamation: 5-phase hardware-fenced teardown
+│   ├── keuos_reclaim.salt # KeuOS Reclamation: 5-phase hardware-fenced teardown
 │   ├── reclaim_histogram.salt # P99 reclamation telemetry (1024-entry circular buffer)
 │   └── panic.salt        # Kernel panic with serial diagnostics
 ├── drivers/
@@ -595,7 +595,7 @@ After `build_cfg()` constructs the `BasicBlock` graph, the verifier DFS-enumerat
 Preemptive fibers do not need `@pulse` verification. The APIC timer enforces yield boundaries in hardware.
 
 > [!TIP]
-> This is the Sovereign Synthesis: async fibers are yield-verified by the compiler (Z3 `@pulse`), preemptive fibers are yield-enforced by hardware (APIC timer), and the scheduler cannot distinguish between the two. Cooperative speed with preemptive safety.
+> Async fibers are yield-verified by the compiler (Z3 `@pulse`), preemptive fibers are yield-enforced by hardware (APIC timer), and the scheduler cannot distinguish between the two. Cooperative speed with preemptive safety.
 
 ### State Machine
 
@@ -658,22 +658,9 @@ pub fn spawn_async(step_fn_addr: u64, frame_size: u64) -> u64
 ```
 Z3 proves at every call site that no null function pointer or zero-byte frame can be spawned.
 
-### Performance (KVM — Intel Xeon 8151, Feb 2026)
+### Performance (KVM — Intel Xeon)
 
-| Metric | KeuOS | Linux 6.x | Speedup |
-|--------|---------|-----------|--------:|
-| Null syscall (Ring 3→0→3, SWAPGS) | **102 cy** | ~760 cy | 7.4× |
-| Slab alloc+free (128-bit CAS) | **103 cy** | ~1,200 cy | 11.7× |
-| Arena allocation | **60 cy** | ~200 cy | 3.3× |
-| PMM alloc/free pair | **78 cy** | — | — |
-| IPC ping-pong | **284 cy** | ~12,000 cy | 42× |
-| Context switch (4 fibers) | **494 cy** | ~5,200 cy | 10.5× |
-| Fiber slots | 256 per core (bitmap-indexed) | — | — |
-| Stack per fiber | 16KB (slab-backed, per-core sharded) | — | — |
-| SIP IPC ring (4-SPSC) | **188 cy** | ~400 cy (seL4) | 2.1× |
-| Online CPUs | 4 (1 BSP + 3 APs) | — | — |
-
-Linux numbers: `getpid()` on Skylake-X (191ns), `malloc`/`free` pair via glibc (300ns), pipe IPC (~3µs), context switch with CPU pinning (~1.3µs). Full methodology and comparison notes in [KEUOS_BENCHMARKS.md](KEUOS_BENCHMARKS.md).
+KeuOS uses highly optimized, lock-free, per-core sharded data structures. Actual cycle counts will vary significantly by hardware and KVM configuration, but the architecture aims to minimize overhead on critical paths such as IPC, context switching, and memory allocation.
 
 ---
 
@@ -779,7 +766,7 @@ cd benchmarks && ./benchmark.sh -a
 # Run compilation time benchmarks
 cd benchmarks && ./compile_time_bench.sh
 
-# Run Sovereign Train (MNIST neural network)
+# Run KeuOS Train (MNIST neural network)
 cd benchmarks/ml && ./benchmark.sh --salt
 ```
 

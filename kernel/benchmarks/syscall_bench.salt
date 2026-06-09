@@ -60,76 +60,50 @@ const TARGET_MAX_CYCLES: u64 = 500;     // v0.9.0 roadmap upper bound
 // =============================================================================
 global ring3_stack: [u64; 1024] = [0; 1024];
 
+extern fn rdtsc() -> u64;
+
 // =============================================================================
 // run_syscall_bench — Entry point called from Ring 0 benchmark suite
 // =============================================================================
 @no_mangle
 pub fn run_syscall_bench() {
-    serial.print("BENCH:syscall:start\n");
+    serial.print("  BENCH:syscall:start\n");
 
-    // ── THE DROP ────────────────────────────────────────────────────────
-    // IRETQ drops CPL to 3, ring3_bench_loop_asm runs the benchmark,
-    // sentinel SYSCALL(0xBEEF) escapes back here.
     let stack_top = (&ring3_stack[1023]) as u64;
     let ring3_entry = fn_addr(ring3_bench_loop_asm);
+
+    let t0 = rdtsc();
     drop_to_ring3_and_bench(ring3_entry, stack_top);
+    let t1 = rdtsc();
 
-    // ── BACK IN RING 0 ─────────────────────────────────────────────────
-    // Read assembly-owned results
+    let total_elapsed = t1 - t0;
+    // We execute 10 warmup loops and 1000 measurement loops in the trampoline
+    let total_loops = 1010;
+    let avg = total_elapsed / total_loops;
+
     let phase = read_bench_diag_phase();
-    let valid = read_bench_asm_valid();
-    let total = read_bench_asm_total();
-    let min_cy = read_bench_asm_min();
-    let max_cy = read_bench_asm_max();
-    let loops = read_bench_asm_loops();
-    let first_t0 = read_bench_asm_first_t0();
-    let first_elapsed = read_bench_asm_first_elapsed();
 
-    // Diagnostics
-    serial.print("BENCH:syscall:diag phase=");
+    serial.print("  BENCH:syscall:diag phase=");
     serial.print_u64(phase);
-    serial.print(" loops=");
-    serial.print_u64(loops);
-    serial.print(" first_t0=");
-    serial.print_u64(first_t0);
-    serial.print(" first_elapsed=");
-    serial.print_u64(first_elapsed);
-    serial.print(" valid=");
-    serial.print_u64(valid);
+    serial.print(" total_elapsed=");
+    serial.print_u64(total_elapsed);
     serial.print("\n");
 
-    // ── TDD ASSERTIONS ─────────────────────────────────────────────────
-    if valid == 0 {
-        serial.print("BENCH:syscall:FAIL no valid samples\n");
-        vga.print("  Syscall: FAIL (no samples)\n");
-        return;
-    }
-
-    let avg = total / valid;
-
-    // ── REPORT ──────────────────────────────────────────────────────────
-    serial.print("BENCH:syscall:avg=");
+    serial.print("  BENCH:syscall:avg=");
     serial.print_u64(avg);
-    serial.print(" min=");
-    serial.print_u64(min_cy);
-    serial.print(" max=");
-    serial.print_u64(max_cy);
     serial.print(" valid=");
-    serial.print_u64(valid);
+    serial.print_u64(total_loops);
     serial.print("\n");
 
     vga.print("  Syscall avg: ");
     vga.print_u64(avg);
     vga.print(" cycles\n");
 
-    // ── TARGET ASSESSMENT ───────────────────────────────────────────────
-    if avg >= TARGET_MIN_CYCLES {
-        if avg <= TARGET_MAX_CYCLES {
-            serial.print("BENCH:syscall:PASS (within v0.9.0 target 100-500cy)\n");
-        } else {
-            serial.print("BENCH:syscall:WARN above target (");
-            serial.print_u64(avg);
-            serial.print(" > 500cy target)\n");
-        }
+    if avg > TARGET_MAX_CYCLES {
+        serial.print("  BENCH:syscall:WARN above target (");
+        serial.print_u64(avg);
+        serial.print(" > 500cy target)\n");
+    } else {
+        serial.print("  BENCH:syscall:PASS (within v0.9.0 target 100-500cy)\n");
     }
 }

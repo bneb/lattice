@@ -3,7 +3,7 @@
 // Basalt v0.1 — Ring 3 Streaming LLM Application
 // ============================================================================
 //
-// The first Ring 3 application on the KeuOS Sovereign I/O Fabric.
+// The first Ring 3 application on the KeuOS KeuOS I/O Fabric.
 // Basalt sits between NetD's RX and TX Codata streams, consuming
 // incoming prompt pointers and producing zero-copy response frames.
 //
@@ -68,7 +68,7 @@ pub fn init(rx_ring: u64, tx_ring: u64, arena_base: u64, arena_cap: u64) {
 // ============================================================================
 // poll — Hot Path: Process One Inbound Request
 // ============================================================================
-// Called by the SovereignPoller on each wake event. Checks for an
+// Called by the KeuOSPoller on each wake event. Checks for an
 // incoming prompt, streams the mock response, and resets the arena.
 //
 // This function is the beating heart of Basalt v0.1.

@@ -21,20 +21,26 @@ echo -e "${GREEN}═════════════════════
 
 # ─── System packages ──────────────────────────────────────────────
 echo -e "${YELLOW}[1/5]${NC} Installing system packages..."
-sudo apt-get update -qq
-sudo apt-get install -y -qq \
+if ! command -v clang-21 &>/dev/null; then
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq software-properties-common wget gnupg
+    echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" | sudo tee /etc/apt/sources.list.d/llvm-21.list > /dev/null
+    wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc > /dev/null
+    sudo apt-get update -qq
+    
+    sudo apt-get install -y -qq \
     build-essential \
     cmake \
     ninja-build \
     python3 \
     git \
     qemu-system-x86 \
-    llvm-18 \
-    llvm-18-dev \
-    libmlir-18-dev \
-    mlir-18-tools \
-    clang-18 \
-    lld-18 \
+    llvm-21 \
+    llvm-21-dev \
+    libmlir-21-dev \
+    mlir-21-tools \
+    clang-21 \
+    lld-21 \
     libz3-dev \
     z3 \
     zlib1g-dev \
@@ -47,12 +53,15 @@ sudo apt-get install -y -qq \
     2>&1 | tail -5
 
 # Create symlinks so tools are on PATH without version suffix
-sudo ln -sf /usr/bin/llc-18 /usr/local/bin/llc 2>/dev/null || true
-sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang 2>/dev/null || true
-sudo ln -sf /usr/bin/lld-18 /usr/local/bin/lld 2>/dev/null || true
-sudo ln -sf /usr/bin/clang++-18 /usr/local/bin/clang++ 2>/dev/null || true
+sudo ln -sf /usr/bin/llc-21 /usr/local/bin/llc 2>/dev/null || true
+sudo ln -sf /usr/bin/clang-21 /usr/local/bin/clang 2>/dev/null || true
+sudo ln -sf /usr/bin/lld-21 /usr/local/bin/lld 2>/dev/null || true
+sudo ln -sf /usr/bin/clang++-21 /usr/local/bin/clang++ 2>/dev/null || true
 
-echo -e "${GREEN}  ✓ System packages installed${NC}"
+    echo -e "${GREEN}  ✓ System packages installed${NC}"
+else
+    echo -e "${GREEN}  ✓ System packages already installed${NC}"
+fi
 
 # ─── Rust ──────────────────────────────────────────────────────────
 echo -e "${YELLOW}[2/5]${NC} Installing Rust toolchain..."
@@ -81,15 +90,10 @@ export Z3_SYS_Z3_HEADER="/usr/include/z3.h"
 export LIBRARY_PATH="/usr/lib/x86_64-linux-gnu"
 export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu"
 
-SALT_BIN="salt-front/target/release/salt-front"
-if [ -f "$SALT_BIN" ]; then
-    echo -e "${GREEN}  ✓ salt-front already built${NC}"
-else
     cd salt-front
     cargo build --release 2>&1 | tail -3
     cd ..
     echo -e "${GREEN}  ✓ salt-front built${NC}"
-fi
 
 # ─── Build salt-opt (MLIR optimizer) ────────────────────────────────
 echo -e "${YELLOW}[4/6]${NC} Building salt-opt..."
@@ -98,17 +102,17 @@ if [ -f "$SALT_OPT" ]; then
     echo -e "${GREEN}  ✓ salt-opt already built${NC}"
 else
     # Discover MLIR/LLVM CMake config paths
-    MLIR_CMAKE_DIR=$(find /usr/lib/llvm-18 -name "MLIRConfig.cmake" -printf '%h' 2>/dev/null | head -1)
-    LLVM_CMAKE_DIR=$(find /usr/lib/llvm-18 -name "LLVMConfig.cmake" -printf '%h' 2>/dev/null | head -1)
+    MLIR_CMAKE_DIR=$(find /usr/lib/llvm-21 -name "MLIRConfig.cmake" -printf '%h' 2>/dev/null | head -1)
+    LLVM_CMAKE_DIR=$(find /usr/lib/llvm-21 -name "LLVMConfig.cmake" -printf '%h' 2>/dev/null | head -1)
 
     if [ -z "$MLIR_CMAKE_DIR" ]; then
-        echo -e "${RED}  ✗ MLIRConfig.cmake not found. Is libmlir-18-dev installed?${NC}"
-        echo "  Try: sudo apt-get install -y libmlir-18-dev"
+        echo -e "${RED}  ✗ MLIRConfig.cmake not found. Is libmlir-21-dev installed?${NC}"
+        echo "  Try: sudo apt-get install -y libmlir-21-dev"
         echo "  Search: find /usr -name 'MLIRConfig.cmake' 2>/dev/null"
         exit 1
     fi
     if [ -z "$LLVM_CMAKE_DIR" ]; then
-        echo -e "${RED}  ✗ LLVMConfig.cmake not found. Is llvm-18-dev installed?${NC}"
+        echo -e "${RED}  ✗ LLVMConfig.cmake not found. Is llvm-21-dev installed?${NC}"
         exit 1
     fi
 
@@ -116,24 +120,28 @@ else
     echo "  LLVM_DIR=$LLVM_CMAKE_DIR"
 
     cd salt
-    rm -rf build
-    mkdir -p build && cd build
-    CMAKE_OUTPUT=$(cmake -G Ninja .. \
-        -DMLIR_DIR="$MLIR_CMAKE_DIR" \
-        -DLLVM_DIR="$LLVM_CMAKE_DIR" \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_C_COMPILER=clang-18 \
-        -DCMAKE_CXX_COMPILER=clang++-18 2>&1) || CMAKE_EXIT=$?
-    CMAKE_EXIT=${CMAKE_EXIT:-0}
-    
-    if [ $CMAKE_EXIT -ne 0 ]; then
-        echo -e "${RED}  ✗ CMake configuration failed (exit $CMAKE_EXIT):${NC}"
-        echo "$CMAKE_OUTPUT"
-        exit 1
+    if [ ! -f "build/CMakeCache.txt" ]; then
+        rm -rf build
+        mkdir -p build && cd build
+        CMAKE_OUTPUT=$(cmake -G Ninja .. \
+            -DMLIR_DIR="$MLIR_CMAKE_DIR" \
+            -DLLVM_DIR="$LLVM_CMAKE_DIR" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-21 \
+            -DCMAKE_CXX_COMPILER=clang++-21 2>&1) || CMAKE_EXIT=$?
+        CMAKE_EXIT=${CMAKE_EXIT:-0}
+        
+        if [ $CMAKE_EXIT -ne 0 ]; then
+            echo -e "${RED}  ✗ CMake configuration failed (exit $CMAKE_EXIT):${NC}"
+            echo "$CMAKE_OUTPUT"
+            exit 1
+        fi
+        echo "$CMAKE_OUTPUT" | tail -3
+    else
+        cd build
+        echo "  ✓ CMake configuration already exists"
     fi
-    
-    echo "$CMAKE_OUTPUT" | tail -3
-    ninja salt-opt 2>&1 | tail -5
+    ninja clean && ninja salt-opt 2>&1 | tail -5
     cd ../..
     echo -e "${GREEN}  ✓ salt-opt built${NC}"
 fi

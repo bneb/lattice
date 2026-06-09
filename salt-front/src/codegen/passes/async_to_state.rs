@@ -1,7 +1,7 @@
 //! Coroutine-to-State-Machine Transformation (AsyncToState)
 //!
 //! Transforms `@yielding` functions into stackless state machines that can
-//! be suspended and resumed by the Sovereign executor. Each yield point
+//! be suspended and resumed by the KeuOS executor. Each yield point
 //! becomes a state transition with variables captured in a heap-allocated
 //! TaskFrame.
 //!
@@ -13,7 +13,7 @@
 //! ```
 //!
 //! ## Key Invariants
-//! - TaskFrame is allocated from the Sovereign Arena (O(1), pointer-bump)
+//! - TaskFrame is allocated from the KeuOS Arena (O(1), pointer-bump)
 //! - resume_state = 0 means "initial entry"
 //! - resume_state = -1 means "completed"
 //! - ZST variables (Context) are never stored in the frame
@@ -35,8 +35,8 @@ impl Default for StateMachineConfig {
     fn default() -> Self {
         Self {
             fn_name: "unknown".to_string(),
-            arena_alloc: "sovereign_arena_alloc".to_string(),
-            arena_free: "sovereign_arena_free".to_string(),
+            arena_alloc: "keuos_arena_alloc".to_string(),
+            arena_free: "keuos_arena_free".to_string(),
         }
     }
 }
@@ -57,7 +57,7 @@ impl StateMachineEmitter {
         let frame_name = format!("TaskFrame_{}", self.config.fn_name);
 
         out.push_str(&format!(
-            "    // [SOVEREIGN] TaskFrame for '{}' ({} captured vars, {} yield points)\n",
+            "    // [KEUOS] TaskFrame for '{}' ({} captured vars, {} yield points)\n",
             self.config.fn_name,
             liveness.frame_members.len(),
             liveness.yield_points.len(),
@@ -97,7 +97,7 @@ impl StateMachineEmitter {
         let num_states = liveness.yield_points.len() + 1; // +1 for initial state
 
         out.push_str(&format!(
-            "    // [SOVEREIGN] Dispatch hub for '{}' ({})\n",
+            "    // [KEUOS] Dispatch hub for '{}' ({})\n",
             self.config.fn_name, num_states,
         ));
 
@@ -139,7 +139,7 @@ impl StateMachineEmitter {
         let next_state = yield_point.index + 1;
 
         out.push_str(&format!(
-            "    // [SOVEREIGN] Suspension at {} (→ state {})\n",
+            "    // [KEUOS] Suspension at {} (→ state {})\n",
             yield_point.label, next_state,
         ));
 
@@ -184,7 +184,7 @@ impl StateMachineEmitter {
         let frame_name = format!("TaskFrame_{}", self.config.fn_name);
 
         out.push_str(&format!(
-            "    // [SOVEREIGN] Launcher for '{}'\n",
+            "    // [KEUOS] Launcher for '{}'\n",
             self.config.fn_name,
         ));
 
@@ -196,7 +196,7 @@ impl StateMachineEmitter {
             field_count * 8, // Conservative: 8 bytes per field
         ));
 
-        // Allocate from sovereign arena
+        // Allocate from keuos arena
         let frame_size_bytes = field_count * 8;
         out.push_str(&format!(
             "    %frame_size = arith.constant {} : i64\n",
@@ -230,7 +230,7 @@ impl StateMachineEmitter {
         let mut out = String::new();
 
         out.push_str(&format!(
-            "    // [SOVEREIGN] Completion for '{}'\n",
+            "    // [KEUOS] Completion for '{}'\n",
             self.config.fn_name,
         ));
 
@@ -256,7 +256,7 @@ impl StateMachineEmitter {
     }
 
     // =========================================================================
-    // Jump Table Dispatch (Sovereign V2.0)
+    // Jump Table Dispatch (KeuOS V2.0)
     // =========================================================================
     //
     // O(1) dispatch via a global array of function pointers, replacing the
@@ -271,7 +271,7 @@ impl StateMachineEmitter {
         let num_states = liveness.yield_points.len() + 1; // +1 for initial state
 
         out.push_str(&format!(
-            "    // [SOVEREIGN] Jump table for '{}' ({} states, O(1) dispatch)\n",
+            "    // [KEUOS] Jump table for '{}' ({} states, O(1) dispatch)\n",
             self.config.fn_name, num_states,
         ));
 
@@ -310,7 +310,7 @@ impl StateMachineEmitter {
         let num_states = liveness.yield_points.len() + 1;
 
         out.push_str(&format!(
-            "    // [SOVEREIGN] Indirect dispatch for '{}' (GEP + br)\n",
+            "    // [KEUOS] Indirect dispatch for '{}' (GEP + br)\n",
             self.config.fn_name,
         ));
 
@@ -374,7 +374,7 @@ impl StateMachineEmitter {
             let fn_name = format!("{}_state_{}", self.config.fn_name, state_idx);
 
             out.push_str(&format!(
-                "    // [SOVEREIGN] State {} entry point\n",
+                "    // [KEUOS] State {} entry point\n",
                 state_idx,
             ));
             out.push_str(&format!(
@@ -421,7 +421,7 @@ impl StateMachineEmitter {
     }
 
     // =========================================================================
-    // Spill/Reload (Sovereign V2.0 — Codegen Wiring)
+    // Spill/Reload (KeuOS V2.0 — Codegen Wiring)
     // =========================================================================
     //
     // Spill: store live variables from SSA registers into the TaskFrame via GEP.
@@ -435,7 +435,7 @@ impl StateMachineEmitter {
         let next_state = state_idx + 1;
 
         out.push_str(&format!(
-            "      // [SOVEREIGN] Spill: save live vars before yield (state {} → {})\n",
+            "      // [KEUOS] Spill: save live vars before yield (state {} → {})\n",
             state_idx, next_state,
         ));
 
@@ -475,7 +475,7 @@ impl StateMachineEmitter {
         let mut out = String::new();
 
         out.push_str(&format!(
-            "      // [SOVEREIGN] Reload: restore live vars for state {}\n",
+            "      // [KEUOS] Reload: restore live vars for state {}\n",
             state_idx,
         ));
 
@@ -631,7 +631,7 @@ mod tests {
         let emitter = StateMachineEmitter::new(test_config());
         let mlir = emitter.generate_launcher(&test_liveness());
 
-        assert!(mlir.contains("sovereign_arena_alloc"), "Must use arena allocator");
+        assert!(mlir.contains("keuos_arena_alloc"), "Must use arena allocator");
         assert!(mlir.contains("arith.constant 0 : i32"), "Initial state must be 0");
         assert!(mlir.contains("llvm.insertvalue"), "Must initialize frame");
         assert!(mlir.contains("llvm.return %task_frame"), "Must return frame pointer");
@@ -643,7 +643,7 @@ mod tests {
         let mlir = emitter.generate_completion();
 
         assert!(mlir.contains("arith.constant -1 : i32"), "Completion sentinel = -1");
-        assert!(mlir.contains("sovereign_arena_free"), "Must free frame");
+        assert!(mlir.contains("keuos_arena_free"), "Must free frame");
         assert!(mlir.contains("llvm.return"), "Must return after cleanup");
     }
 
@@ -671,8 +671,8 @@ mod tests {
     #[test]
     fn test_default_config() {
         let cfg = StateMachineConfig::default();
-        assert_eq!(cfg.arena_alloc, "sovereign_arena_alloc");
-        assert_eq!(cfg.arena_free, "sovereign_arena_free");
+        assert_eq!(cfg.arena_alloc, "keuos_arena_alloc");
+        assert_eq!(cfg.arena_free, "keuos_arena_free");
     }
 
     // =========================================================================
@@ -875,9 +875,9 @@ mod tests {
             "Full pipeline must emit state 2 function");
         assert!(mlir.contains("llvm.getelementptr"),
             "Full pipeline must emit GEP for dispatch");
-        assert!(mlir.contains("sovereign_arena_alloc"),
+        assert!(mlir.contains("keuos_arena_alloc"),
             "Full pipeline must emit launcher");
-        assert!(mlir.contains("sovereign_arena_free"),
+        assert!(mlir.contains("keuos_arena_free"),
             "Full pipeline must emit completion");
 
         // Verify reload appears in resume states (state 1, 2) but not state 0
@@ -985,7 +985,7 @@ mod tests {
             "Must still emit TaskFrame struct");
         assert!(mlir.contains("L_dispatch_table_handler"),
             "Must still emit jump table");
-        assert!(mlir.contains("sovereign_arena_alloc"),
+        assert!(mlir.contains("keuos_arena_alloc"),
             "Must still emit launcher");
     }
 }

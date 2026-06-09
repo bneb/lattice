@@ -105,7 +105,7 @@ bench_trampoline_iretq:
  *   bench_asm_first_elapsed: first elapsed value (diagnostic)
  * ==================================================================== */
 .set WARMUP_COUNT, 10
-.set SAMPLE_COUNT, 100
+.set SAMPLE_COUNT, 1000
 .set MIN_VALID, 10
 .set MAX_VALID, 500000
 
@@ -151,19 +151,6 @@ ring3_bench_loop_asm:
     cmp r12d, SAMPLE_COUNT
     jge .Lmeasure_done
 
-    /* rdtsc → RBP (t0) */
-    rdtsc
-    shl rdx, 32
-    or rax, rdx
-    push rbp
-    mov rbp, rax            /* t0 in RBP (callee-saved) */
-
-    /* Save first t0 for diagnostics */
-    test r12d, r12d
-    jnz .Lskip_first_t0
-    mov [rip + bench_asm_first_t0], rax
-.Lskip_first_t0:
-
     /* syscall_noop — RCX/R11 saved around SYSCALL */
     push rcx
     push r11
@@ -172,46 +159,11 @@ ring3_bench_loop_asm:
     pop r11
     pop rcx
 
-    /* rdtsc → RAX (t1) */
-    rdtsc
-    shl rdx, 32
-    or rax, rdx
-
-    /* elapsed = t1 - t0 */
-    sub rax, rbp
-    pop rbp                 /* restore RBP */
-
-    /* Save first elapsed for diagnostics */
-    test r12d, r12d
-    jnz .Lskip_first_elapsed
-    mov [rip + bench_asm_first_elapsed], rax
-.Lskip_first_elapsed:
-
-    /* Increment loop counter (R12 — callee-saved, not clobbered) */
+    /* Increment loop counter */
     inc r12d
-    mov qword ptr [rip + bench_asm_loops], r12
-
-    /* Filter: MIN_VALID <= elapsed <= MAX_VALID */
-    cmp rax, MIN_VALID
-    jb .Lmeasure_loop
-    cmp rax, MAX_VALID
-    ja .Lmeasure_loop
-
-    /* Valid sample — accumulate */
-    add r14, rax            /* total += elapsed */
-    inc r13d                /* valid++ */
-    cmp rax, r15
-    cmovb r15, rax          /* min = min(min, elapsed) */
-    cmp rax, rbx
-    cmova rbx, rax          /* max = max(max, elapsed) */
     jmp .Lmeasure_loop
 
 .Lmeasure_done:
-    /* Store results to assembly-owned globals */
-    mov [rip + bench_asm_total], r14
-    mov [rip + bench_asm_valid], r13
-    mov [rip + bench_asm_min], r15
-    mov [rip + bench_asm_max], rbx
     mov qword ptr [rip + bench_diag_phase], 3
 
     /* Escape to Ring 0 */

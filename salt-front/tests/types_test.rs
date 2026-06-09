@@ -176,7 +176,7 @@ fn test_size_of_wrappers() {
     assert_eq!(Type::Owned(Box::new(Type::I32)).size_of(&reg), 8);
     assert_eq!(Type::Reference(Box::new(Type::I32), false).size_of(&reg), 8);
     assert_eq!(Type::Reference(Box::new(Type::I32), true).size_of(&reg), 8);
-    // [SOVEREIGN FIX] Atomic<T> storage matches T, not a pointer
+    // [KEUOS FIX] Atomic<T> storage matches T, not a pointer
     assert_eq!(Type::Atomic(Box::new(Type::I32)).size_of(&reg), 4);
     
     // Window is 16 bytes (ptr + len)
@@ -718,7 +718,7 @@ fn test_struct_cast_rejects_incompatible_layouts() {
 }
 
 // =============================================================================
-// PTR TYPE TESTS (SOVEREIGN V2.0 - Type::Pointer First-Class Variant)
+// PTR TYPE TESTS (KEUOS V2.0 - Type::Pointer First-Class Variant)
 // Guards for the unified Type::Pointer representation
 // =============================================================================
 

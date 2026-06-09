@@ -46,7 +46,7 @@ fn process_syn_stmt(stmt: &mut syn::Stmt, evaluator: &mut Evaluator) -> Result<(
                     match evaluator.eval_expr(&init.expr) {
                         Ok(val) => {
                             // It evaluated!
-                            if let ConstValue::Complex = val {
+                            if matches!(val, ConstValue::Complex | ConstValue::Array(_)) {
                                 // Skip optimization for complex types as we can't convert them back to AST easily
                             } else {
                                 // 1. Register so future uses can see it
@@ -69,7 +69,9 @@ fn process_syn_stmt(stmt: &mut syn::Stmt, evaluator: &mut Evaluator) -> Result<(
             syn::Stmt::Expr(expr, _) => {
                  // Try to fold expressions too
                  if let Ok(val) = evaluator.eval_expr(expr) {
-                     *expr = value_to_expr(val);
+                     if !matches!(val, ConstValue::Complex | ConstValue::Array(_)) {
+                         *expr = value_to_expr(val);
+                     }
                  }
             }
             _ => {}
@@ -96,5 +98,6 @@ fn value_to_expr(val: ConstValue) -> Expr {
             lit: Lit::Str(syn::LitStr::new(&s, proc_macro2::Span::call_site())),
         }),
         ConstValue::Complex => panic!("Cannot convert complex constant back to expression"),
+        ConstValue::Array(_) => panic!("Cannot convert array constant back to expression"),
     }
 }

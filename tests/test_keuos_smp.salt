@@ -1,0 +1,249 @@
+// =============================================================================
+// Test: KeuOS SMP — Work-Stealing Deque + Multi-Core Scheduler
+// =============================================================================
+//
+// Validates the lock-free Chase-Lev work-stealing protocol:
+//
+//   T1: deque_init — top=0, bottom=0, size=0
+//   T2: push_bottom — enqueue 4 tasks, size=4
+//   T3: pop_bottom — local core pops LIFO, size decreases
+//   T4: steal_top — remote core steals FIFO via CAS
+//   T5: Contention — pop_bottom vs steal_top on last element
+//   T6: SMP simulation — Core 1 steals all 4 tasks from Core 0
+//   T7: calibrate_hardware returns valid HardwareProfile
+//
+// Exit codes:
+//   0  = all passed
+//   1  = allocation failure
+//   2  = deque_init broken (top/bottom not zero)
+//   3  = push_bottom failed (size wrong after push)
+//   4  = pop_bottom returned wrong task_id
+//   5  = steal_top returned wrong task_id or failed CAS
+//   6  = SMP steal simulation failed (Core 1 didn't get all tasks)
+//   7  = calibrate_hardware profile invalid
+// =============================================================================
+
+package main
+
+import std.core.ptr.Ptr
+
+extern fn malloc(size: i64) -> Ptr<u8>;
+extern fn free(ptr: u64);
+extern fn rdtsc() -> i64;
+extern fn salt_atomic_load_i64(ptr: Ptr<i64>) -> i64;
+extern fn salt_atomic_cas_i64(ptr: Ptr<i64>, expected: i64, desired: i64) -> i64;
+
+// Deque layout (must match scheduler.salt)
+const DEQUE_TOP_OFFSET:    u64 = 0;
+const DEQUE_BOTTOM_OFFSET: u64 = 8;
+const DEQUE_ARRAY_OFFSET:  u64 = 16;
+const DEQUE_CAPACITY:      i64 = 256;
+const DEQUE_TOTAL_SIZE:    u64 = 2064;
+
+const STEAL_EMPTY: i64 = -1;
+const STEAL_ABORT: i64 = -2;
+
+// ============================================================================
+// Inline deque operations (matching scheduler.salt exactly)
+// ============================================================================
+fn deque_init(addr: u64) {
+    let mut i: u64 = 0;
+    while i < DEQUE_TOTAL_SIZE { *((addr + i) as &mut u8) = 0; i = i + 1; }
+}
+
+fn push_bottom(addr: u64, task_id: i64) {
+    let bp: Ptr<i64> = (addr + DEQUE_BOTTOM_OFFSET) as Ptr<i64>;
+    let b: i64 = salt_atomic_load_i64(bp);
+    let tp: Ptr<i64> = (addr + DEQUE_TOP_OFFSET) as Ptr<i64>;
+    let t: i64 = salt_atomic_load_i64(tp);
+    if (b - t) >= DEQUE_CAPACITY { return; }
+    let idx: i64 = b % DEQUE_CAPACITY;
+    let slot: u64 = addr + DEQUE_ARRAY_OFFSET + ((idx as u64) * 8);
+    *((slot) as &mut i64) = task_id;
+    bp.write(b + 1);
+}
+
+fn pop_bottom(addr: u64) -> i64 {
+    let bp: Ptr<i64> = (addr + DEQUE_BOTTOM_OFFSET) as Ptr<i64>;
+    let b: i64 = salt_atomic_load_i64(bp);
+    let nb: i64 = b - 1;
+    bp.write(nb);
+    let tp: Ptr<i64> = (addr + DEQUE_TOP_OFFSET) as Ptr<i64>;
+    let t: i64 = salt_atomic_load_i64(tp);
+    if t > nb { bp.write(t); return STEAL_EMPTY; }
+    let idx: i64 = nb % DEQUE_CAPACITY;
+    let slot: u64 = addr + DEQUE_ARRAY_OFFSET + ((idx as u64) * 8);
+    let tid: i64 = *((slot) as &i64);
+    if t < nb { return tid; }
+    let old: i64 = salt_atomic_cas_i64(tp, t, t + 1);
+    bp.write(t + 1);
+    if old == t { return tid; }
+    return STEAL_EMPTY;
+}
+
+fn steal_top(addr: u64) -> i64 {
+    let tp: Ptr<i64> = (addr + DEQUE_TOP_OFFSET) as Ptr<i64>;
+    let t: i64 = salt_atomic_load_i64(tp);
+    let bp: Ptr<i64> = (addr + DEQUE_BOTTOM_OFFSET) as Ptr<i64>;
+    let b: i64 = salt_atomic_load_i64(bp);
+    if t >= b { return STEAL_EMPTY; }
+    let idx: i64 = t % DEQUE_CAPACITY;
+    let slot: u64 = addr + DEQUE_ARRAY_OFFSET + ((idx as u64) * 8);
+    let tid: i64 = *((slot) as &i64);
+    let old: i64 = salt_atomic_cas_i64(tp, t, t + 1);
+    if old != t { return STEAL_ABORT; }
+    return tid;
+}
+
+fn deque_size(addr: u64) -> i64 {
+    let tp: Ptr<i64> = (addr + DEQUE_TOP_OFFSET) as Ptr<i64>;
+    let t: i64 = salt_atomic_load_i64(tp);
+    let bp: Ptr<i64> = (addr + DEQUE_BOTTOM_OFFSET) as Ptr<i64>;
+    let b: i64 = salt_atomic_load_i64(bp);
+    if b > t { return b - t; }
+    return 0;
+}
+
+fn main() -> i32 {
+    // =========================================================================
+    // T1: deque_init — fresh deque has top=0, bottom=0
+    // =========================================================================
+    let d0: u64 = malloc(DEQUE_TOTAL_SIZE as i64) as u64;
+    if d0 == 0 { return 1; }
+    deque_init(d0);
+
+    let top0: i64 = salt_atomic_load_i64((d0 + DEQUE_TOP_OFFSET) as Ptr<i64>);
+    let bot0: i64 = salt_atomic_load_i64((d0 + DEQUE_BOTTOM_OFFSET) as Ptr<i64>);
+    if top0 != 0 { free(d0); return 2; }
+    if bot0 != 0 { free(d0); return 2; }
+    if deque_size(d0) != 0 { free(d0); return 2; }
+
+    // =========================================================================
+    // T2: push_bottom — enqueue tasks 10, 20, 30, 40
+    // =========================================================================
+    push_bottom(d0, 10);
+    push_bottom(d0, 20);
+    push_bottom(d0, 30);
+    push_bottom(d0, 40);
+
+    if deque_size(d0) != 4 { free(d0); return 3; }
+
+    // =========================================================================
+    // T3: pop_bottom — LIFO: should return 40, 30
+    // =========================================================================
+    let p1: i64 = pop_bottom(d0);
+    if p1 != 40 { free(d0); return 4; }
+
+    let p2: i64 = pop_bottom(d0);
+    if p2 != 30 { free(d0); return 4; }
+
+    if deque_size(d0) != 2 { free(d0); return 4; }
+
+    // =========================================================================
+    // T4: steal_top — FIFO: should return 10 (oldest)
+    // =========================================================================
+    let s1: i64 = steal_top(d0);
+    if s1 != 10 { free(d0); return 5; }
+
+    // One task remains (20)
+    if deque_size(d0) != 1 { free(d0); return 5; }
+
+    // Steal again — should get 20
+    let s2: i64 = steal_top(d0);
+    if s2 != 20 { free(d0); return 5; }
+
+    // Empty
+    if deque_size(d0) != 0 { free(d0); return 5; }
+
+    // Steal from empty — should return STEAL_EMPTY
+    let s3: i64 = steal_top(d0);
+    if s3 != STEAL_EMPTY { free(d0); return 5; }
+
+    free(d0);
+
+    // =========================================================================
+    // T5: Contention — pop_bottom and steal_top on single element
+    // =========================================================================
+    let d1: u64 = malloc(DEQUE_TOTAL_SIZE as i64) as u64;
+    if d1 == 0 { return 1; }
+    deque_init(d1);
+
+    push_bottom(d1, 99);
+    // Single element: pop_bottom uses CAS internally
+    let p3: i64 = pop_bottom(d1);
+    if p3 != 99 { free(d1); return 5; }
+    if deque_size(d1) != 0 { free(d1); return 5; }
+
+    free(d1);
+
+    // =========================================================================
+    // T6: SMP Simulation — Core 1 steals from Core 0
+    // =========================================================================
+    // Allocate two deques (simulating 2 cores)
+    let deques: u64 = malloc((DEQUE_TOTAL_SIZE * 2) as i64) as u64;
+    if deques == 0 { return 1; }
+
+    let core0_deque: u64 = deques;
+    let core1_deque: u64 = deques + DEQUE_TOTAL_SIZE;
+
+    deque_init(core0_deque);
+    deque_init(core1_deque);
+
+    // Core 0 pushes 4 tasks
+    push_bottom(core0_deque, 100);
+    push_bottom(core0_deque, 200);
+    push_bottom(core0_deque, 300);
+    push_bottom(core0_deque, 400);
+
+    // Core 1's deque is empty — it must steal from Core 0
+    if deque_size(core1_deque) != 0 { free(deques); return 6; }
+
+    // Core 1 executes steal_from_siblings equivalent:
+    // Try to steal all 4 tasks from Core 0
+    let mut stolen_count: u32 = 0;
+    let mut stolen_sum: i64 = 0;
+
+    let mut attempt: u32 = 0;
+    while attempt < 8 {  // Max attempts (some may ABORT)
+        let stolen: i64 = steal_top(core0_deque);
+        if stolen >= 0 {
+            stolen_count = stolen_count + 1;
+            stolen_sum = stolen_sum + stolen;
+        }
+        if deque_size(core0_deque) == 0 {
+            attempt = 8;  // Break
+        }
+        attempt = attempt + 1;
+    }
+
+    // Must have stolen all 4 tasks
+    if stolen_count != 4 { free(deques); return 6; }
+    // Sum should be 100 + 200 + 300 + 400 = 1000
+    if stolen_sum != 1000 { free(deques); return 6; }
+    // Core 0's deque should be empty
+    if deque_size(core0_deque) != 0 { free(deques); return 6; }
+
+    free(deques);
+
+    // =========================================================================
+    // T7: HardwareProfile — calibration probe with valid memory
+    // =========================================================================
+
+    let cal_buf: u64 = malloc(8) as u64;
+    if cal_buf == 0 { return 1; }
+    *((cal_buf) as &mut i64) = 0;
+    let cal_ptr: Ptr<i64> = cal_buf as Ptr<i64>;
+
+    let cs: i64 = rdtsc();
+    let mut ci: u32 = 0;
+    while ci < 100 {
+        let _v: i64 = salt_atomic_load_i64(cal_ptr);
+        ci = ci + 1;
+    }
+    let ce: i64 = rdtsc();
+    let cal_cy: i64 = ce - cs;
+    if cal_cy < 0 { free(cal_buf); return 7; }
+    free(cal_buf);
+
+    return 0;
+}

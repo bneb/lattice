@@ -1,6 +1,6 @@
 // ============================================================================
 // user/reactor/core.salt
-// Sovereign Event Loop — Multi-Core Work-Stealing Multiplexer
+// KeuOS Event Loop — Multi-Core Work-Stealing Multiplexer
 // ============================================================================
 //
 // The apex event loop with SMP work-stealing. Each core owns a WorkDeque.

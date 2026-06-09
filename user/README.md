@@ -1,9 +1,9 @@
 # User Space
 
-**The Mission:** The "Ring 3" applications that give KeuOS its personality.
+Ring 3 applications that run on KeuOS.
 
 ## Overview
-KeuOS user space is unique: it is built using the same language and primitives (`Region`, `Channel`) as the kernel, but runs with restricted privileges.
+KeuOS user space is built using the same language and primitives (`Region`, `Channel`) as the kernel, but runs with restricted privileges.
 
 ## Components
 

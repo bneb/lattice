@@ -382,7 +382,7 @@ const char *mock_http =
     "</style></head>"
     "<body>"
     "<div class=\"container\">"
-    "<h1>Prisimi Sovereign Matrix</h1>"
+    "<h1>KeuOS Matrix</h1>"
     "<h2>Multiprocess Engine Active • Hardware VSync 60fps • No DOM Polyfill "
     "Loaded</h2>"
     "<div class=\"ring\"></div>"

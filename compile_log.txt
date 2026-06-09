@@ -1,0 +1,157 @@
+🔧 [LLVM] Compiling std/core/str.salt...
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u8
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u8
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u8
+🔧 [LLVM] Compiling std/time.salt...
+🔧 [LLVM] Compiling std/thread/thread.salt...
+🔧 [LLVM] Compiling user/os/process.salt...
+🔧 [LLVM] Compiling user/os/ipc_ring.salt...
+🔧 [LLVM] Compiling user/os/worker_ring.salt...
+🔧 [LLVM] Compiling user/netd/virtio_bridge.salt...
+🔧 [LLVM] Compiling user/browser/alloc/airlock.salt...
+🔧 [LLVM] Compiling user/browser/font.salt...
+🔧 [LLVM] Compiling user/browser/css_utils.salt...
+🔧 [LLVM] Compiling user/browser/css.salt...
+🔧 [LLVM] Compiling user/browser/css_lexer.salt...
+🔧 [LLVM] Compiling user/browser/http_lexer.salt...
+🔧 [LLVM] Compiling user/browser/dom.salt...
+🔧 [LLVM] Compiling user/browser/observers.salt...
+🔧 [LLVM] Compiling user/browser/typography.salt...
+🔧 [LLVM] Compiling user/browser/ipc_shared.salt...
+🔧 [LLVM] Compiling user/browser/lexer.salt...
+🔧 [LLVM] Compiling user/browser/html_serializer.salt...
+🔧 [LLVM] Compiling user/browser/paint.salt...
+🔧 [LLVM] Compiling user/browser/events.salt...
+🔧 [LLVM] Compiling user/browser/layout.salt...
+🔧 [LLVM] Compiling user/browser/timers.salt...
+🔧 [LLVM] Compiling user/browser/history.salt...
+🔧 [LLVM] Compiling user/browser/js_jsc.salt...
+🔧 [LLVM] Compiling user/browser/websocket.salt...
+🔧 [LLVM] Compiling user/browser/worker.salt...
+🔧 [LLVM] Compiling user/browser/animations.salt...
+🔧 [LLVM] Compiling user/browser/compositor.salt...
+🔧 [LLVM] Compiling user/browser/chrome.salt...
+🔧 [LLVM] Compiling user/browser/media.salt...
+🔧 [LLVM] Compiling user/browser/app_main.salt...
+🔧 [LLVM] Compiling user/browser/telemetry.salt...
+🔧 [LLVM] Compiling user/browser/transpiler.salt...
+🔧 [LLVM] Compiling user/browser/hpack.salt...
+🔧 [LLVM] Compiling user/browser/net.salt...
+🔧 [LLVM] Compiling user/browser/storage.salt...
+🔧 [LLVM] Compiling user/browser/custom_elements.salt...
+🔧 [LLVM] Compiling user/browser/selectors.salt...
+🔧 [LLVM] Compiling user/browser/hit_test.salt...
+🔧 [LLVM] Compiling user/browser/main.salt...
+  ✓ MLIR generated
+  ✓ MLIR optimized
+  ✓ LLVM IR generated
+MERGING 41 FILES
+warning: overriding the module target triple with arm64-apple-macosx15.0.0 [-Woverride-module]
+'x86-64' is not a recognized processor for this target (ignoring processor)
+'x86-64' is not a recognized processor for this target (ignoring processor)
+'x86-64' is not a recognized processor for this target (ignoring processor)
+'x86-64' is not a recognized processor for this target (ignoring processor)
+1 warning generated.
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[176](b_tgamma.c.o)' has malformed LC_DYSYMTAB, expected 8 undefined symbols to start at index 4, found 7 undefined symbols starting at index 4
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[171](s_clog.c.o)' has malformed LC_DYSYMTAB, expected 7 undefined symbols to start at index 3, found 6 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[45](e_sqrt.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 4, found 1 undefined symbols starting at index 4
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[169](s_catanh.c.o)' has malformed LC_DYSYMTAB, expected 4 undefined symbols to start at index 3, found 3 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[43](e_sinh.c.o)' has malformed LC_DYSYMTAB, expected 6 undefined symbols to start at index 3, found 5 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[167](s_catan.c.o)' has malformed LC_DYSYMTAB, expected 6 undefined symbols to start at index 3, found 5 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[165](s_casinh.c.o)' has malformed LC_DYSYMTAB, expected 4 undefined symbols to start at index 3, found 3 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[39](e_remainder.c.o)' has malformed LC_DYSYMTAB, expected 4 undefined symbols to start at index 3, found 3 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[163](s_casin.c.o)' has malformed LC_DYSYMTAB, expected 9 undefined symbols to start at index 5, found 8 undefined symbols starting at index 5
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[37](e_pow.c.o)' has malformed LC_DYSYMTAB, expected 5 undefined symbols to start at index 7, found 4 undefined symbols starting at index 7
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[161](s_cacosh.c.o)' has malformed LC_DYSYMTAB, expected 4 undefined symbols to start at index 3, found 3 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[159](s_cacos.c.o)' has malformed LC_DYSYMTAB, expected 5 undefined symbols to start at index 3, found 4 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[34](e_log2.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[32](e_log10.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[31](e_log.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[142](s_nan.c.o)' has malformed LC_DYSYMTAB, expected 5 undefined symbols to start at index 5, found 4 undefined symbols starting at index 5
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[131](s_fma.c.o)' has malformed LC_DYSYMTAB, expected 9 undefined symbols to start at index 4, found 8 undefined symbols starting at index 4
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[129](w_cabs.c.o)' has malformed LC_DYSYMTAB, expected 5 undefined symbols to start at index 3, found 4 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[19](e_hypot.c.o)' has malformed LC_DYSYMTAB, expected 4 undefined symbols to start at index 3, found 3 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[127](s_cpow.c.o)' has malformed LC_DYSYMTAB, expected 11 undefined symbols to start at index 3, found 10 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[15](e_exp.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 9, found 1 undefined symbols starting at index 9
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[13](e_cosh.c.o)' has malformed LC_DYSYMTAB, expected 6 undefined symbols to start at index 3, found 5 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[125](s_trunc.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[11](e_atanh.c.o)' has malformed LC_DYSYMTAB, expected 3 undefined symbols to start at index 3, found 2 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[122](s_tanh.c.o)' has malformed LC_DYSYMTAB, expected 4 undefined symbols to start at index 3, found 3 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[9](e_atan2.c.o)' has malformed LC_DYSYMTAB, expected 4 undefined symbols to start at index 5, found 3 undefined symbols starting at index 5
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[120](s_tan.c.o)' has malformed LC_DYSYMTAB, expected 6 undefined symbols to start at index 3, found 5 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[7](e_asin.c.o)' has malformed LC_DYSYMTAB, expected 4 undefined symbols to start at index 3, found 3 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[5](e_acosh.c.o)' has malformed LC_DYSYMTAB, expected 5 undefined symbols to start at index 3, found 4 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[117](s_sincos.c.o)' has malformed LC_DYSYMTAB, expected 5 undefined symbols to start at index 3, found 4 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[116](s_sin.c.o)' has malformed LC_DYSYMTAB, expected 7 undefined symbols to start at index 3, found 6 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[3](e_acos.c.o)' has malformed LC_DYSYMTAB, expected 3 undefined symbols to start at index 5, found 2 undefined symbols starting at index 5
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[113](s_scalbnf.c.o)' has malformed LC_DYSYMTAB, expected 3 undefined symbols to start at index 3, found 2 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[112](s_scalbn.c.o)' has malformed LC_DYSYMTAB, expected 5 undefined symbols to start at index 3, found 2 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[107](s_rint.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 5, found 1 undefined symbols starting at index 5
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[105](s_remquo.c.o)' has malformed LC_DYSYMTAB, expected 3 undefined symbols to start at index 5, found 2 undefined symbols starting at index 5
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[102](s_nextafter.c.o)' has malformed LC_DYSYMTAB, expected 4 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[98](s_logb.c.o)' has malformed LC_DYSYMTAB, expected 3 undefined symbols to start at index 3, found 2 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[96](s_log1p.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[95](s_isnan.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 5, found 1 undefined symbols starting at index 5
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[92](s_isinf.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 5, found 1 undefined symbols starting at index 5
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[88](s_frexp.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[81](s_floor.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[76](s_expm1.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[74](s_exp2.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 7, found 1 undefined symbols starting at index 7
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[72](s_erf.c.o)' has malformed LC_DYSYMTAB, expected 6 undefined symbols to start at index 35, found 4 undefined symbols starting at index 35
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[70](s_csqrt.c.o)' has malformed LC_DYSYMTAB, expected 11 undefined symbols to start at index 3, found 10 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[68](s_cos.c.o)' has malformed LC_DYSYMTAB, expected 7 undefined symbols to start at index 3, found 6 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[64](s_ceil.c.o)' has malformed LC_DYSYMTAB, expected 2 undefined symbols to start at index 3, found 1 undefined symbols starting at index 3
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[58](s_atan.c.o)' has malformed LC_DYSYMTAB, expected 3 undefined symbols to start at index 6, found 2 undefined symbols starting at index 6
+ld: warning: '/Users/kevin/projects/lattice/vendor/openlibm/libopenlibm.a[56](s_asinh.c.o)' has malformed LC_DYSYMTAB, expected 6 undefined symbols to start at index 3, found 5 undefined symbols starting at index 3
+Undefined symbols for architecture arm64:
+  "_user__browser__js_vm__execute", referenced from:
+      _main in test_browser_spa_boot_merged-be0270.o
+ld: symbol(s) not found for architecture arm64
+clang: error: linker command failed with exit code 1 (use -v to see invocation)

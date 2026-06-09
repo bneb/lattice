@@ -1,8 +1,8 @@
 // =============================================================================
-// [SOVEREIGN V2.0] C10M Validator
+// [KEUOS V2.0] C10M Validator
 //
 // Validates whether a hardware target can sustain 10 million concurrent
-// connections using the Sovereign architecture. Checks three invariants:
+// connections using the KeuOS architecture. Checks three invariants:
 //
 // 1. Throughput: packets/sec ≥ target (default 10M)
 // 2. Memory: L1D TaskFrame capacity ≥ effective batch size

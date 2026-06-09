@@ -1,0 +1,114 @@
+package user.grit.shell
+
+import user.terminal.console
+import std.core.str
+import user.std.stdio
+
+const TX_RING: u64 = 0x40003000;
+
+global LINE_BUFFER: [u8; 256] = [0; 256];
+global LINE_LEN: u32 = 0;
+
+pub fn prompt() {
+    let msg = "grit> ";
+    console.print(msg.ptr as u64, 6);
+    tx_print(msg.ptr as u64, 6);
+}
+
+pub fn tx_print(s_ptr: u64, len: u32) {
+    let capacity = *((TX_RING + 8) as &u64);
+    if capacity == 0 { return; }
+    let mut head = *((TX_RING + 0) as &u64);
+    let tail = *((TX_RING + 64) as &u64);
+    
+    let mut i: u32 = 0;
+    while i < len {
+        let next_head = (head + 1) % capacity;
+        if next_head != tail {
+            *((TX_RING + 192 + head) as &mut u8) = *((s_ptr + (i as u64)) as &u8);
+            head = next_head;
+        }
+        i = i + 1;
+    }
+    
+    *((TX_RING + 0) as &mut u64) = head;
+}
+
+fn strcmp(s1_ptr: u64, len1: u32, s2_ptr: u64, len2: u32) -> bool {
+    if len1 != len2 { return false; }
+    let mut i: u32 = 0;
+    while i < len1 {
+        let c1 = *((s1_ptr + (i as u64)) as &u8);
+        let c2 = *((s2_ptr + (i as u64)) as &u8);
+        if c1 != c2 { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+pub fn parse_command() {
+    console.putc(10); // newline
+    let nl = "\n";
+    tx_print(nl.ptr as u64, 1);
+    
+    let help_cmd = "help";
+    let clear_cmd = "clear";
+    let hello_cmd = "hello";
+    
+    if LINE_LEN == 0 {
+        // Do nothing
+    } else if strcmp((&LINE_BUFFER) as u64, LINE_LEN, help_cmd.ptr as u64, 4) {
+        let msg = "\x1B[36mKeuOS Terminal Help\x1B[0m\n  clear : Clear the screen\n  help  : Show this help\n  hello : Say hello\n";
+        console.print(msg.ptr as u64, 94);
+        tx_print(msg.ptr as u64, 94);
+    } else if strcmp((&LINE_BUFFER) as u64, LINE_LEN, hello_cmd.ptr as u64, 5) {
+        let msg = "Hello, KeuOS!\n";
+        console.print(msg.ptr as u64, 14);
+        tx_print(msg.ptr as u64, 14);
+    } else if strcmp((&LINE_BUFFER) as u64, LINE_LEN, clear_cmd.ptr as u64, 5) {
+        console.clear();
+    } else {
+        // Unknown command
+        let msg = "Command not found.\n";
+        console.print(msg.ptr as u64, 19);
+        tx_print(msg.ptr as u64, 19);
+    }
+    
+    LINE_LEN = 0;
+    prompt();
+}
+
+pub fn handle_key(c: u8) {
+    if c == 128 { // Left Arrow mapped from translated E0 vector
+        console.move_cursor(-1);
+    } else if c == 129 { // Right Arrow
+        console.move_cursor(1);
+    } else if c == 10 || c == 13 {
+        // Enter key
+        parse_command();
+    } else if c == 8 {
+        // Backspace
+        if LINE_LEN > 0 {
+            LINE_LEN = LINE_LEN - 1;
+            console.putc(8); // Backspace removes char visually
+        }
+    } else {
+        if LINE_LEN < 255 {
+            LINE_BUFFER[(LINE_LEN as u64)] = c;
+            LINE_LEN = LINE_LEN + 1;
+            console.putc(c); // Echo locally
+            
+            // Also echo to serial TX
+            let capacity = *((TX_RING + 8) as &u64);
+            if capacity > 0 {
+                let mut head = *((TX_RING + 0) as &u64);
+                let tail = *((TX_RING + 64) as &u64);
+                let next_head = (head + 1) % capacity;
+                if next_head != tail {
+                    *((TX_RING + 192 + head) as &mut u8) = c;
+                    *((TX_RING + 0) as &mut u64) = next_head;
+                }
+            }
+        }
+    }
+}

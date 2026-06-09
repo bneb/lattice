@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unified E2E Benchmark Harness for Salt / Lattice
+Unified E2E Benchmark Harness for Salt / KeuOS
 
 This framework automates the execution of rigorous, high-fidelity end-to-end macro benchmarks
 across the Salt project (HTTP Server, TCP Echo, Lettuce, Basalt).
@@ -140,7 +140,7 @@ class BenchmarkRunner:
         out_path = os.path.join(self.workspace_root, "benchmarks", "BENCHMARKS_E2E.md")
         with open(out_path, "w") as f:
             f.write("# Rigorous E2E Benchmarks\n\n")
-            f.write("Automated, multi-iteration, high-fidelity benchmarks across the Lattice macro-applications.\n\n")
+            f.write("Automated, multi-iteration, high-fidelity benchmarks across the KeuOS macro-applications.\n\n")
             
             for suite_name, targets in results.items():
                 f.write(f"## {suite_name}\n\n")

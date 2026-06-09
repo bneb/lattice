@@ -1,7 +1,7 @@
 // =============================================================================
-// [SOVEREIGN V2.0] Hardware Target Abstraction
+// [KEUOS V2.0] Hardware Target Abstraction
 //
-// Hardware-agnostic trait modeling per-phase cycle costs for Sovereign packet
+// Hardware-agnostic trait modeling per-phase cycle costs for KeuOS packet
 // processing. Each hardware target implements the trait with its specific
 // microarchitecture timings. The C10M validator uses this interface to
 // determine if a target can sustain 10M concurrent connections.
@@ -13,9 +13,9 @@
 
 use super::silicon_ingest::m4_timing;
 
-/// Hardware-agnostic trait for Sovereign packet flow cycle modeling.
+/// Hardware-agnostic trait for KeuOS packet flow cycle modeling.
 ///
-/// Each method returns the cycle cost for one phase of the Sovereign
+/// Each method returns the cycle cost for one phase of the KeuOS
 /// packet pipeline on the implementing hardware target.
 pub trait HardwareTarget {
     /// Human-readable name of the hardware target.

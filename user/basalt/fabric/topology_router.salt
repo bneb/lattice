@@ -1,6 +1,6 @@
 // ============================================================================
 // user/basalt/fabric/topology_router.salt
-// Sovereign Topology Router — O(1) Expert-to-BAR Resolution
+// KeuOS Topology Router — O(1) Expert-to-BAR Resolution
 // ============================================================================
 //
 // Maps logical Mixture-of-Experts identifiers to physical RDMA capabilities.

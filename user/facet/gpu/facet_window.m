@@ -7,10 +7,10 @@ static CAMetalLayer* global_metal_layer = nil;
 extern id<MTLDevice> facet_gpu_get_device(void); // Defined securely in facet_gpu.m 
 extern void ext_salt_update_viewport(float w, float h); // Salt FFI Boundary
 
-@interface PrisimiWindowDelegate : NSObject <NSWindowDelegate>
+@interface KeuOSWindowDelegate : NSObject <NSWindowDelegate>
 @end
 
-@implementation PrisimiWindowDelegate
+@implementation KeuOSWindowDelegate
 - (BOOL)windowShouldClose:(id)sender {
     [NSApp terminate:nil];
     return YES;
@@ -37,10 +37,10 @@ void facet_window_init(int width, int height) {
                                                     styleMask:style
                                                       backing:NSBackingStoreBuffered
                                                         defer:NO];
-        [global_window setTitle:@"Prisimi Sovereign SPA Environment"];
+        [global_window setTitle:@"KeuOS SPA Environment"];
         [global_window center];
         
-        PrisimiWindowDelegate* delegate = [[PrisimiWindowDelegate alloc] init];
+        KeuOSWindowDelegate* delegate = [[KeuOSWindowDelegate alloc] init];
         [global_window setDelegate:delegate];
         
         id<MTLDevice> device = facet_gpu_get_device();

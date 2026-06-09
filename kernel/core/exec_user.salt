@@ -41,6 +41,7 @@ const USER_STACK_SIZE: u64 = 0x4000;          // 16KB (4 pages)
 const PAGE_SIZE: u64       = 4096;
 const USER_PAGE_FLAGS: u64 = 0x7;             // PRESENT | WRITE | USER
 const PT_LOAD: u32         = 1;
+const USER_ADDR_LIMIT: u64 = 0x0000800000000000;
 
 const MAX_PROCS: u64   = 16;
 const KSTACK_PAGES: u64 = 1;
@@ -101,7 +102,7 @@ pub fn spawn_process(elf_base: u64, kernel_pml4: u64) -> u64 {
     let kstack_top_virt = memory.phys_to_virt(memory.PhysAddr { val: kstack_top_phys }).val;
 
     // Step 5: Create user address space
-    let user_pml4 = user_paging.create_user_pml4_kpti(kernel_pml4);
+    let user_pml4 = user_paging.create_user_pml4(kernel_pml4);
     if user_pml4 == 0 {
         serial.print("[spawn] FATAL: OOM for PML4\n");
         process.free_kernel_stack(kstack_base_phys);
@@ -122,8 +123,23 @@ pub fn spawn_process(elf_base: u64, kernel_pml4: u64) -> u64 {
             let p_filesz = *((phdr_addr + 32) as &u64);
             let p_memsz  = *((phdr_addr + 40) as &u64);
 
-            // Track the end of this segment for heap boundary calculation
+            // [RED TEAM FIX] Validate segment boundary and prevent kernel half intrusion
             let segment_end = p_vaddr + p_memsz;
+            if segment_end < p_vaddr || segment_end >= USER_ADDR_LIMIT {
+                serial.print("[spawn] FATAL: ELF segment out of bounds or overflows\n");
+                process.free_kernel_stack(kstack_base_phys);
+                user_paging.destroy_user_pml4(user_pml4);
+                return MAX_PROCS;
+            }
+
+            if p_filesz > p_memsz {
+                serial.print("[spawn] FATAL: ELF segment filesz > memsz\n");
+                process.free_kernel_stack(kstack_base_phys);
+                user_paging.destroy_user_pml4(user_pml4);
+                return MAX_PROCS;
+            }
+
+            // Track the end of this segment for heap boundary calculation
             if segment_end > highest_elf_vaddr {
                 highest_elf_vaddr = segment_end;
             }
@@ -248,6 +264,17 @@ pub fn spawn_process(elf_base: u64, kernel_pml4: u64) -> u64 {
 
     // Step 9: Register in process table (virtual addresses for stack)
     process.init_slot(slot, user_pml4, kstack_base_virt, kstack_top_virt, entry, USER_STACK_TOP);
+
+    // Map Kernel Stack in User PML4 as Supervisor-Only (PTE_PRESENT | PTE_WRITE)
+    // Hardware interrupts (e.g. Timer) use TSS.RSP0 and push 5 words to this
+    // stack BEFORE executing the ISR wrapper in Ring 0.
+    let mut cur_kpage = kstack_base_phys;
+    while cur_kpage < kstack_top_phys {
+        let page_virt = memory.phys_to_virt_raw(cur_kpage);
+        user_paging.map_kpti_page(user_pml4, page_virt, cur_kpage, user_paging.PTE_PRESENT | user_paging.PTE_WRITE);
+        cur_kpage = cur_kpage + PAGE_SIZE;
+    }
+
     process.set_kernel_rsp(slot, saved_rsp_virt);
 
     // Step 10: Calculate Heap Boundary
@@ -346,6 +373,13 @@ pub fn spawn_ring3_coroutine(entry_fn: u64, arg1: u64, arg2: u64, arg3: u64, pml
     }
     user_paging.map_user_page(pml4, stack_virt_base, user_stack_phys, USER_PAGE_FLAGS);
 
+    let mut cur_kpage = kstack_base_phys;
+    while cur_kpage < kstack_top_phys {
+        let page_virt = memory.phys_to_virt_raw(cur_kpage);
+        user_paging.map_kpti_page(pml4, page_virt, cur_kpage, user_paging.PTE_PRESENT | user_paging.PTE_WRITE);
+        cur_kpage = cur_kpage + PAGE_SIZE;
+    }
+
     process.init_slot(slot, pml4, kstack_base_virt, kstack_top_virt, entry_fn, USER_STACK_TOP);
     process.set_kernel_rsp(slot, saved_rsp_virt);
 
@@ -376,7 +410,7 @@ pub fn spawn_ring3_coroutine(entry_fn: u64, arg1: u64, arg2: u64, arg3: u64, pml
 //
 // The entry function should never return.
 // =============================================================================
-pub fn spawn_kernel_thread(entry_fn: u64, kernel_pml4: u64) -> u64 {
+pub fn spawn_kernel_thread(entry_fn: u64, arg1: u64, arg2: u64, arg3: u64, kernel_pml4: u64) -> u64 {
     // Allocate a process slot
     let slot = process.alloc_pid();
     if slot >= MAX_PROCS {
@@ -399,31 +433,37 @@ pub fn spawn_kernel_thread(entry_fn: u64, kernel_pml4: u64) -> u64 {
     //
     // Stack layout (from kstack_top, growing down):
     //   sp - 8:  entry_fn address  (popped by kernel_trampoline)
-    //   sp - 16: return addr → kernel_trampoline (popped by `ret`)
-    //   sp - 24: RBP (0)
-    //   sp - 32: RBX (0)
-    //   sp - 40: R12 (0)
-    //   sp - 48: R13 (0)
-    //   sp - 56: R14 (0)
-    //   sp - 64: R15 (0) ← saved_rsp points here
+    //   sp - 16: arg3 (RDX)
+    //   sp - 24: arg2 (RSI)
+    //   sp - 32: arg1 (RDI)
+    //   sp - 40: return addr → kernel_trampoline (popped by `ret`)
+    //   sp - 48: RBP (0)
+    //   sp - 56: RBX (0)
+    //   sp - 64: R12 (0)
+    //   sp - 72: R13 (0)
+    //   sp - 80: R14 (0)
+    //   sp - 88: R15 (0) ← saved_rsp points here
     let sp = kstack_top_virt;
 
     // Entry function address (kernel_trampoline will pop and call this)
     *((sp - 8) as &mut u64) = entry_fn;
+    *((sp - 16) as &mut u64) = arg3;
+    *((sp - 24) as &mut u64) = arg2;
+    *((sp - 32) as &mut u64) = arg1;
 
     // Return address for proc_context_switch's `ret`
     let trampoline_addr = get_kernel_trampoline_addr();
-    *((sp - 16) as &mut u64) = trampoline_addr;
+    *((sp - 40) as &mut u64) = trampoline_addr;
 
     // Callee-saved regs (zeroed)
-    *((sp - 24) as &mut u64) = 0;   // RBP
-    *((sp - 32) as &mut u64) = 0;   // RBX
-    *((sp - 40) as &mut u64) = 0;   // R12
-    *((sp - 48) as &mut u64) = 0;   // R13
-    *((sp - 56) as &mut u64) = 0;   // R14
-    *((sp - 64) as &mut u64) = 0;   // R15
+    *((sp - 48) as &mut u64) = 0;   // RBP
+    *((sp - 56) as &mut u64) = 0;   // RBX
+    *((sp - 64) as &mut u64) = 0;   // R12
+    *((sp - 72) as &mut u64) = 0;   // R13
+    *((sp - 80) as &mut u64) = 0;   // R14
+    *((sp - 88) as &mut u64) = 0;   // R15
 
-    let saved_rsp_virt = kstack_top_virt - 64;
+    let saved_rsp_virt = kstack_top_virt - 88;
 
     // Register in process table
     // user_pml4 = kernel_pml4 (stays in kernel address space)
@@ -444,7 +484,7 @@ pub fn spawn_kernel_thread(entry_fn: u64, kernel_pml4: u64) -> u64 {
 
 // @no_mangle ABI Wrappers
 @no_mangle
-pub fn exec_spawn_kernel_thread(entry: u64, pml4: u64) -> u64 { return spawn_kernel_thread(entry, pml4); }
+pub fn exec_spawn_kernel_thread(entry: u64, arg1: u64, arg2: u64, arg3: u64, pml4: u64) -> u64 { return spawn_kernel_thread(entry, arg1, arg2, arg3, pml4); }
 
 @no_mangle
 pub fn exec_spawn_process(elf_addr: u64, pml4: u64) -> u64 { return spawn_process(elf_addr, pml4); }

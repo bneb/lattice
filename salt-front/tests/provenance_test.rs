@@ -236,7 +236,7 @@ fn test_loop_with_provenance_emits_hoistable_inttoptr() {
 #[test]
 fn test_pointer_to_pointer_cast_no_ptrtoint() {
     // Test: reinterpret_cast::<&f32>(ptr_u8) should NOT emit ptrtoint
-    // This is the exact pattern that broke sovereign_train
+    // This is the exact pattern that broke keuos_train
     let src = r#"
         package test::provenance::ptr_to_ptr;
         extern fn alloc(size: u64) -> &u8;

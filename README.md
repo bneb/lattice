@@ -1,13 +1,10 @@
 # Salt + KeuOS
 
-**A KeuOS Microkernel for High-Performance Distributed Workloads,**
-**built in a systems language with embedded formal verification.**
+**An experimental systems language with MLIR lowering and Z3 embedded formal verification.**
 
-Salt is an ahead-of-time compiled systems language that combines the performance of C with compile-time safety through an embedded Z3 theorem prover. KeuOS is a microkernel operating system written entirely in Salt, achieving unikernel-level latency while maintaining hardware-enforced Ring 0 / Ring 3 isolation.
+Salt is an ahead-of-time compiled toy systems language exploring the intersection of MLIR lowering and Z3-based safety. KeuOS is a proof-of-concept microkernel written in Salt.
 
-Together, they form a single system where the language's core capabilities (formal verification and MLIR-based lowering) become the operating system's capabilities: zero-trap IPC, proof-carrying descriptors, and cache-line-deterministic data planes.
-
-[![Benchmarks](https://img.shields.io/badge/Performance-C_Parity_Achieved-brightgreen?style=flat-square)](benchmarks/BENCHMARKS.md)
+[![Experimental](https://img.shields.io/badge/Status-Experimental-orange?style=flat-square)]()
 [![Z3 Verified](https://img.shields.io/badge/Safety-Z3_Verified-blue?style=flat-square)](docs/ARCH.md)
 [![70+ Stdlib Modules](https://img.shields.io/badge/Stdlib-70%2B_Modules-orange?style=flat-square)](salt-front/std/README.md)
 [![KeuOS Kernel](https://img.shields.io/badge/Kernel-KeuOS_Microkernel-purple?style=flat-square)](kernel/)
@@ -34,63 +31,20 @@ fn main() {
 
 ## Why Salt + KeuOS?
 
-Most operating systems are written in C (Linux, Xv6) or C++ (Fuchsia, seL4). They rely on extensive runtime checks, POSIX syscall conventions, and manual memory management. Salt replaces all three with **compile-time proofs**, **zero-trap shared memory**, and **arena-based allocation**, giving KeuOS the performance of a unikernel with the isolation guarantees of a microkernel.
+Salt is an experimental systems language that replaces traditional runtime checks and manual memory management with **compile-time proofs** and **arena-based allocation**. 
 
 ### The Three Pillars
 
-#### 🔥 Pillar A: Zero-Trap Data Plane (SPSC + Shared Memory)
+#### 1. Fast Enough (Targeting within 10% of C)
+Salt relies on MLIR to lower code into highly optimized native machine code. It does not aim to magically beat C, but rather to achieve performance within 10% of highly optimized C code, allowing systems to be fast without sacrificing safety.
 
-**Salt:** High-performance, low-level memory control with MLIR-optimized lowering.
+#### 2. Supremely Ergonomic
+Salt avoids the cognitive overhead of lifetime annotations and complex borrow checkers. Memory is managed via Arena allocators, allowing developers to write high-performance code with a simple mental model.
 
-**KeuOS:** Instead of legacy POSIX syscalls (`read`/`write`) that trap into the kernel on every packet, KeuOS uses Shared Memory SPSC (Single-Producer, Single-Consumer) Rings. The networking stack (NetD) and storage stack (KeuOSStore) run as Ring 3 "System Daemons" that communicate with the kernel through lock-free ring buffers in shared pages.
+#### 3. Formally Verified (Z3)
+Salt uses an embedded Z3 theorem prover to verify array bounds, alignment, and custom preconditions at compile time.
 
-```
-Traditional OS:  App → syscall → trap → kernel copy → return    (~1000 cycles)
-KeuOS:         App → SPSC write → shared memory → NetD reads  (~150 cycles)
-```
-
-The kernel's **only** role in the data plane is pushing raw Ethernet frames into the SPSC ring and firing a wake notification. All protocol parsing (ARP, TCP, IP) happens in Ring 3, isolating the kernel from packet-parsing RCE vulnerabilities.
-
-#### 🔒 Pillar B: The Formal Shadow (Z3-Verified KeuOSty)
-
-**Salt:** A built-in Z3 verification gate that proves memory safety and alignment at compile time.
-
-**KeuOS:** Proof-Carrying IPC. The compiler "seals" a Z3 proof into a 64-bit `proof_hint` embedded in every SPSC descriptor. The NetD arbiter verifies this hint in *O(1)* time (two CPU instructions: alignment mask + bitwise compare).
-
-```salt
-// At compile time, Z3 proves @align(64) fields are on separate cache lines.
-// The compiler seals this proof:
-//   proof_hint = hash_combine(struct_id, field_offset, alignment)
-// The arbiter validates the seal before touching any shared memory.
-
-struct SpscDescriptor {
-    ptr: u64,           // Must be 64-byte aligned (mechanical check)
-    len: u32,
-    proof_hint: u64,    // Z3-sealed "Right to Access" token
-}
-```
-
-This eliminates the "Security Tax." We don't need expensive runtime bounds checks because the hardware (MMU page tables) and the math (Z3 SMT solver) have already validated the memory access before the binary is even loaded.
-
-#### ⚡ Pillar C: Mechanical Sympathy (The Cache-Line Guarantee)
-
-**Salt:** First-class support for physical memory layout via the `@align(N)` attribute with Z3-verified struct padding.
-
-**KeuOS:** False-sharing elimination. KeuOS SPSC rings are formally proven to isolate Producer and Consumer indexes on separate L3 cache lines:
-
-```salt
-struct SpscRing {
-    @align(64)
-    head: u64,         // Producer-owned (cache line 0)
-    capacity: u64,
-
-    @align(64)
-    tail: u64,         // Consumer-owned (cache line 1)
-}
-// Z3 PROVED: head at offset 0, tail at offset 64 (z3_align_verified)
-```
-
-This targets the **Cycles per Packet (Cpp)** KPI. We aren't just fast; we are *deterministic*. No cache-line "ping-pong" between cores, no prefetcher-induced jitter, no false-sharing invalidation storms.
+### KeuOS Architecture
 
 ---
 
@@ -144,9 +98,7 @@ All benchmarks use runtime-dynamic inputs to prevent constant folding, and resul
 | http_parser | 44ms | 24ms | 75ms |
 | trie | 63ms | 33ms | 32ms |
 
-**Salt achieves exact performance parity with C** across all equivalently-optimized benchmarks. Where Salt appears to "win" significantly (e.g. `buffered_writer` or `fstring_perf`), it is because Salt's standard library utilizes highly optimized data structures like Arena allocators and Swiss-tables, whereas the C baseline uses standard libc functions. If the same data structures are ported to C, C matches Salt perfectly.
-
-The true achievement is **Zero-Cost Abstraction**: Salt provides formally verified safety, rich generics, and arena memory without paying any runtime penalty. The Z3 proofs discharge at compile time, the arenas free in O(1), and the MLIR backend optimizes precisely like LLVM.
+**Salt targets performance within 10% of highly optimized C**. Where Salt shines is not in magically beating C, but in achieving C-like performance while maintaining **Zero-Cost Abstraction**: Salt provides formally verified safety, rich generics, and arena memory without paying any runtime penalty. The Z3 proofs discharge at compile time, the arenas free in O(1), and the MLIR backend optimizes precisely like LLVM.
 
 
 ## Verified Safety
@@ -220,7 +172,7 @@ The `ArenaVerifier` checks at compile time that no reference escapes its arena. 
 
 ## KeuOS Kernel Architecture
 
-KeuOS is a **KeuOS Microkernel**: the kernel provides only memory management (PMM, VMO), scheduling (16-core SMP, preemptive, Chase-Lev work-stealing), and IPC (SPSC rings via `sys_shm_grant`). Everything else — networking, storage, device drivers — runs in Ring 3 as isolated System Daemons.
+KeuOS is a **Microkernel**: the kernel provides only memory management (PMM, VMO), scheduling (16-core SMP, preemptive, Chase-Lev work-stealing), and IPC (SPSC rings via `sys_shm_grant`). Everything else — networking, storage, device drivers — runs in Ring 3 as isolated System Daemons.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -268,11 +220,10 @@ A compromised Ring 3 process cannot corrupt the kernel because:
 
 | Metric | LETTUCE (Salt) | Redis (C) |
 |--------|---------------|-----------|
-| **Throughput** | **234,000 ops/sec** | 115,000 ops/sec |
 | **Source** | 567 lines | ~100,000 lines |
 | **Memory model** | Arena + Swiss-table | jemalloc + dict |
 
-2× Redis throughput at 0.6% of the code size. [Architecture →](lettuce/)
+An experimental proof-of-concept showing how to build a safe, fast data store using Arenas and Z3 verification without lifetime annotations. [Architecture →](lettuce/)
 
 ### Basalt: Llama 2 inference
 
@@ -280,11 +231,11 @@ A compromised Ring 3 process cannot corrupt the kernel because:
 
 | Metric | Basalt (Salt) | llama2.c (C) |
 |--------|--------------| -------------|
-| **tok/s** (stories15M, M4) | **~870** | ~877 |
+| **Performance** | Strong performance | Baseline |
 | **Source** | ~600 lines | ~700 lines |
 | **Safety** | Z3-verified kernels | Manual |
 
-C-parity inference speed with compile-time proofs on every matrix operation. [Architecture →](basalt/)
+Strong inference speed with compile-time proofs on every matrix operation. [Architecture →](basalt/)
 
 ### Facet: GPU-accelerated 2D compositor
 
@@ -292,10 +243,9 @@ C-parity inference speed with compile-time proofs on every matrix operation. [Ar
 
 | Metric | Salt (MLIR) | C (`clang -O3`) |
 |--------|-------------|-----------------|
-| **Per frame** (512×512 tiger) | 2,186 μs | 2,214 μs |
-| **Throughput** | 457 fps | 451 fps |
+| **Performance** | Strong performance | Baseline |
 
-Salt's MLIR codegen matches `clang -O3` on a real rendering pipeline with ~160 cubic Bézier curves. [Architecture →](user/facet/)
+Salt's MLIR codegen aims to match `clang -O3` on a real rendering pipeline with ~160 cubic Bézier curves. [Architecture →](user/facet/)
 
 ## Syntax
 
@@ -402,7 +352,7 @@ DYLD_LIBRARY_PATH=/opt/homebrew/lib ./hello
 keuos/
 ├── salt-front/           # Compiler: parser → typechecker → Z3 verifier → MLIR emitter
 │   └── std/              # Standard library (70+ modules, written in Salt)
-├── kernel/               # KeuOS KeuOS Microkernel
+├── kernel/               # KeuOS Microkernel
 │   ├── core/             #   Scheduler, syscalls, process mgmt, teardown (100% arch-agnostic)
 │   ├── sched/            #   O(1) bitmap dispatcher, Chase-Lev deque, fiber migration
 │   ├── ipc/              #   Fast-path register IPC (sub-μs signaling)
@@ -494,27 +444,27 @@ keuos/
 
 ## Status
 
-KeuOS is at **v0.9.2 "Postcondition Pivot"**, with Z3-backed `ensures` verification, 16-core SMP scheduling, adversarial network hardening, and a zero-I/O developer toolchain.
+KeuOS is at **v0.9.2 "Postcondition Pivot"**, with Z3-backed `ensures` verification, 16-core SMP scheduling, network hardening, and a zero-I/O developer toolchain.
 
 | Component | Version | Milestone |
 | :--- | :--- | :--- |
 | **Salt Compiler / Stdlib** | `v0.8.0` | Z3 Verification (requires + ensures), Multi-Dialect Codegen, Path-Sensitive WP |
 | **KeuOS Platform** (OS) | `v0.9.2` | Postcondition Pivot — Cache-Line IPC, SipHash-2-4 Proof Hints, EBR |
 | **KeuOS Kernel** | `v0.9.2` | 16-Core SMP, Chase-Lev Work-Stealing, Preemptive Scheduler, Ring 3 Isolation |
-| **Basalt** (LLM Inference) | `v0.3.0` | Proof-of-Concept (C-parity inference speed) |
+| **Basalt** (LLM Inference) | `v0.3.0` | Proof-of-Concept (Strong inference speed) |
 | **Facet** (2D Compositor) | `v0.3.0` | Proof-of-Concept (Metal compute & verified rasterizer) |
-| **Lettuce** (KV Store) | `v0.1.0` | Proof-of-Concept (234K ops/sec — 2x Redis throughput) |
+| **Lettuce** (KV Store) | `v0.1.0` | Proof-of-Concept |
 | **Tooling** (LSP & `sp` Build) | `v0.2.0` | Zero-I/O in-memory compilation, Z3 semantic hover, Go-to-Definition |
 
 ### Architecture Milestones
 
 | Sprint | Objective | KPI |
 |--------|-----------|-----|
-| **v0.9.1** ✅ | KeuOS Foundation — Cache-line isolation, Proof-Carrying IPC, SipHash-2-4 Hardening, Hardware-Fenced Reclaim | Salt ≤ C 17/22, Reclamation < 1ms |
+| **v0.9.1** ✅ | Kernel Foundation — Cache-line isolation, Proof-Carrying IPC, SipHash-2-4 Hardening, Hardware-Fenced Reclaim | Salt ≤ C 17/22, Reclamation < 1ms |
 | **v0.9.2** ✅ | Postcondition Pivot — Z3-backed `ensures` for pure functions (Weakest Precondition generation, path-sensitive verification) | 6/6 postcondition tests GREEN |
 | **v0.3.0-brutalism** ✅ | Universal ABI Redesign — HAL (x86_64 + aarch64), O(1) bitmap scheduler, lock-free per-core PMM, fast-path register IPC, Hardware-Fenced Reclaim, Codata substrate | 0 regressions, HAL portability |
 | **v0.9.3** | Phase 1 Sandbox — LLVM 21 toolchain, Docker build, userspace verification onboarding, Ring 3 test suite | CI green, frictionless contributor build |
-| **v1.0.0** | KeuOS Architecture — Loop invariants, full SMP scale-out, stable ABI | No unbounded loops in kernel |
+| **v1.0.0** | Kernel Architecture — Loop invariants, full SMP scale-out, stable ABI | No unbounded loops in kernel |
 
 ## License
 

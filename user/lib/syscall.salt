@@ -26,6 +26,7 @@ extern fn sys_write(fd: u64, buf: u64, len: u64);
 extern fn sys_exit(code: u64);
 extern fn sys_brk(new_brk: u64) -> u64;
 extern fn sys_mmap(length: u64, prot: u64) -> u64;
+extern fn sys_yield();
 
 // =============================================================================
 // Syscall Constants
@@ -47,6 +48,11 @@ pub fn write(buf: u64, len: u64) {
 /// Terminate the process with the given exit code. Never returns.
 pub fn exit(code: u64) {
     sys_exit(code);
+}
+
+/// Voluntarily yield the CPU to the scheduler.
+pub fn sys_yield_thread() {
+    sys_yield();
 }
 
 // =============================================================================
@@ -111,7 +117,7 @@ pub fn shm_grant(target: u64, src: u64, dst: u64, flags: u64) -> u64 {
 }
 
 // =============================================================================
-// Sovereign ABI — Control Plane Syscalls
+// KeuOS ABI — Control Plane Syscalls
 // =============================================================================
 // These syscalls broker capabilities and resources. Once a ring is mapped,
 // all data plane operations (push/pop) happen in Ring 3 via user/lib/ring.salt.

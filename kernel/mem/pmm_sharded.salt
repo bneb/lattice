@@ -22,9 +22,8 @@
 package kernel.mem.pmm_sharded
 
 import kernel.core.memory
-
-// get_cpu_id is @no_mangle in percpu.salt — use extern to match unmangled symbol
-extern fn get_cpu_id() -> u64;
+import kernel.core.percpu
+import kernel.drivers.serial
 
 // Architecture-agnostic external helpers (provided by the kernel HAL)
 extern fn disable_interrupts();
@@ -163,7 +162,7 @@ pub fn init_cpu_count(n: u64) {
 // ============================================================================
 pub fn alloc_frame() -> u64 {
     disable_interrupts();
-    let core_id = get_cpu_id();
+    let core_id = percpu.get_cpu_id();
     
     // Lock-free pop via intrinsic atomic CAS
     let mut current_head = SHARDS[core_id].head_frame;
@@ -211,7 +210,7 @@ pub fn free_frame(page: u64) {
     }
     mark_page_free_bitmap(page);
     disable_interrupts();
-    let core_id = get_cpu_id();
+    let core_id = percpu.get_cpu_id();
     
     // Lock-free push via intrinsic atomic CAS
     let mut current_head = SHARDS[core_id].head_frame;
@@ -280,7 +279,7 @@ fn steal_from_remote(thief: u64) -> u64 {
 // QUERY
 // ============================================================================
 pub fn available() -> u64 {
-    let core_id = get_cpu_id();
+    let core_id = percpu.get_cpu_id();
     return SHARDS[core_id].free_count;
 }
 

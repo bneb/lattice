@@ -16,6 +16,7 @@
 package user.test_memory
 
 import user.lib.syscall
+import user.std.stdio
 
 pub fn main() {
     // =========================================================================
@@ -41,7 +42,7 @@ pub fn main() {
             let msg = "T1 PASS: sys_brk heap write OK\n";
             let slice_addr = (&msg) as u64;
             let data_ptr = *(slice_addr as &u64);
-            syscall.write(data_ptr, 31);
+            stdio.print_str(data_ptr, 31);
         }
     }
 
@@ -65,7 +66,7 @@ pub fn main() {
             let msg = "T2 PASS: sys_mmap island write OK\n";
             let slice_addr = (&msg) as u64;
             let data_ptr = *(slice_addr as &u64);
-            syscall.write(data_ptr, 34);
+            stdio.print_str(data_ptr, 34);
         }
     }
 
@@ -75,7 +76,7 @@ pub fn main() {
     let msg = "ALL TESTS PASSED: Memory subsystem verified\n";
     let slice_addr = (&msg) as u64;
     let data_ptr = *(slice_addr as &u64);
-    syscall.write(data_ptr, 45);
+    stdio.print_str(data_ptr, 45);
 
     syscall.exit(0);
 }

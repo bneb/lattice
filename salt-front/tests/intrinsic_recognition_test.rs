@@ -48,11 +48,10 @@ fn test_intrinsic_recognition_all_core_intrinsics() {
         // Basic test: intrinsic name should be recognized as-is
         // (Actual compilation may fail due to missing args, but it shouldn't be
         // mangled as a user function)
-        let is_recognized = match intrinsic {
+        let is_recognized = matches!(intrinsic,
             "size_of" | "align_of" | "zeroed" | "popcount" | "ctpop" | 
-            "println" | "print" | "reinterpret_cast" | "ref_to_addr" => true,
-            _ => false,
-        };
+            "println" | "print" | "reinterpret_cast" | "ref_to_addr"
+        );
         assert!(is_recognized, 
             "Intrinsic '{}' should be in the recognized list", intrinsic);
     }

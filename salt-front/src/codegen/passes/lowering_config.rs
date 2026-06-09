@@ -1,7 +1,7 @@
 // =============================================================================
-// [SOVEREIGN V2.0] LLVM Lowering Configuration
+// [KEUOS V2.0] LLVM Lowering Configuration
 //
-// Generates llc flags and MLIR function attributes for Sovereign binaries.
+// Generates llc flags and MLIR function attributes for KeuOS binaries.
 // Ensures x19 is reserved (hardware deadline register), LSE atomics are
 // enabled, and state functions are marked noinline to prevent register
 // allocator interference.
@@ -9,7 +9,7 @@
 
 use super::io_backend::TargetPlatform;
 
-/// LLVM lowering configuration for Sovereign binary production.
+/// LLVM lowering configuration for KeuOS binary production.
 /// Holds target-specific settings that control register reservation,
 /// feature flags, and function attributes during MLIR → native lowering.
 #[derive(Debug, Clone)]
@@ -22,7 +22,7 @@ impl LoweringConfig {
         Self { target }
     }
 
-    /// Generate `llc` command-line flags for Sovereign binary lowering.
+    /// Generate `llc` command-line flags for KeuOS binary lowering.
     /// Critical flags:
     /// - `-reserved-reg=aarch64:x19`: Protects the hardware deadline register
     /// - `--mattr=+lse`: Enables FEAT_LSE atomics (CAS, LDADD) for M4
@@ -37,7 +37,7 @@ impl LoweringConfig {
         };
         flags.push(format!("-mtriple={}", triple));
 
-        // Reserve x19 — the Sovereign deadline register
+        // Reserve x19 — the KeuOS deadline register
         flags.push("-reserved-reg=aarch64:x19".to_string());
 
         // Enable LSE atomics (FEAT_LSE: CAS, LDADD, SWP)

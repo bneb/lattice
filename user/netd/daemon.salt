@@ -3,7 +3,7 @@
 // NetDaemon — Zero-Copy DMA Ingestion Pipeline
 // ============================================================================
 //
-// NetD reads raw Ethernet frames from the SovereignPoller's SPSC ring,
+// NetD reads raw Ethernet frames from the KeuOSPoller's SPSC ring,
 // parses headers in-place, and pushes payload pointers directly into
 // application Codata streams. No memory copies. No buffer allocation.
 //

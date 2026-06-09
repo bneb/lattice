@@ -37,12 +37,13 @@
 package kernel.mem
 
 import kernel.drivers.serial
+import kernel.core.percpu
 
 // x86 PAUSE for CAS spin-wait loops — prevents pipeline flooding on KVM.
 extern fn spin_loop_hint();
 
 // Per-CPU accessor
-extern fn get_cpu_id() -> u64;
+
 
 // Atomic intrinsics — required for ISR reentrancy safety.
 extern fn atomic_fetch_add_i32(ptr: u64, val: i32) -> i32;
@@ -123,7 +124,7 @@ pub fn init_cores(num_cpus: u64) {
 // =============================================================================
 @no_mangle
 pub fn pop_stack() -> u64 {
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
 
     // Torn-read healing: We read the 128-bit struct normally.
     // If an interrupt fires between reading .ptr and .gen, the subsequent
@@ -178,7 +179,7 @@ pub fn pop_stack() -> u64 {
 pub fn push_stack(ptr: u64) {
     if ptr == 0 || ptr < SLAB_BASE || ptr >= SLAB_END { return; }
 
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
     let link = ptr as &mut u64;
 
     let mut current_ptr = SLAB_SHARDS[cpu].head_ptr;
@@ -210,7 +211,7 @@ pub fn push_stack(ptr: u64) {
 // =============================================================================
 @no_mangle
 pub fn slab_watermark() -> i32 {
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
     let count_ptr = (&SLAB_SHARDS[cpu].fresh_count) as u64;
     return atomic_load_i32(count_ptr);
 }

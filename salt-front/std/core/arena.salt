@@ -1,5 +1,5 @@
 // std::core::arena - Global Arena Allocator for Temporary Allocations
-// [SOVEREIGN V4.0] Memory Sovereignty via Mark/Reset Pattern
+// [KEUOS V4.0] Memory KeuOSty via Mark/Reset Pattern
 //
 // This provides O(1) memory reclamation for high-performance loops.
 // Instead of individual free() calls, we "rewind" the entire arena.

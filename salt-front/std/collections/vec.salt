@@ -1,5 +1,5 @@
 // std/collections/vec - Vec<T, A> with Pluggable Allocator
-// Phase 5: Dynamic Collections with Memory Sovereignty
+// Phase 5: Dynamic Collections with Memory KeuOSty
 //
 // Vec<T, A> delegates all memory operations to allocator A.
 // HeapAllocator: malloc/realloc/free (Linus's Choice)
@@ -13,7 +13,7 @@ import std.mem.allocator.HeapAllocator
 import std.core.option.Option
 
 // =============================================================================
-// Vec<T, A> — The Sovereign Dynamic Array
+// Vec<T, A> — The KeuOS Dynamic Array
 // =============================================================================
 
 pub struct Vec<T, A> {

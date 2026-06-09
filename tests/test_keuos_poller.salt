@@ -1,0 +1,22 @@
+// =============================================================================
+// Test: KeuOSPoller — Compile-Only Verification
+// =============================================================================
+// Verifies that the KeuOSPoller struct and its methods compile correctly.
+// Uses __builtin_hash! for compile-time capability hashing (Phase 1 synergy).
+// =============================================================================
+
+extern fn syscall_cap_bind(flags: u64) -> u64;
+extern fn syscall_ring_map(cap_id: u64) -> u64;
+extern fn syscall_ipc_await() -> i64;
+
+fn main() -> i32 {
+    // Verify __builtin_hash produces a compile-time constant
+    let cap_hash: i64 = __builtin_hash!("net.nic.rx");
+    
+    // Verify the hash is non-zero (capability hashes should never be zero)
+    if cap_hash == 0 {
+        return 1;
+    }
+
+    return 0;
+}

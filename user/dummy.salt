@@ -1,0 +1,1 @@
+package user.dummy; pub fn main() { let s = "hello"; let p = s.ptr; let l = s.len; }

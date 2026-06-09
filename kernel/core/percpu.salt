@@ -113,7 +113,6 @@ pub fn init_ap(logical_id: u64, apic_id: u64, stack_top: u64) {
 // =============================================================================
 // This is the hot-path function. A single mov instruction.
 // =============================================================================
-@no_mangle
 pub fn get_cpu_id() -> u64 {
     return read_gs_u64(0);  // GS:[0] = cpu_id field
 }
@@ -121,7 +120,6 @@ pub fn get_cpu_id() -> u64 {
 // =============================================================================
 // get_apic_id — Read current CPU's APIC ID via GS segment
 // =============================================================================
-@no_mangle
 pub fn get_apic_id() -> u64 {
     return read_gs_u64(8);  // GS:[8] = apic_id field
 }

@@ -107,7 +107,47 @@ pub fn df_handler_c(rip: u64, rsp: u64) {
     outb(0x3F8, 0x21); // '!'
     outb(0x3F8, 0x0A); // '\n'
 
-    serial.print("[FATAL] DOUBLE FAULT (#DF)\n");
+    // Print RIP in hex
+    outb(0x3F8, 0x52); // 'R'
+    outb(0x3F8, 0x49); // 'I'
+    outb(0x3F8, 0x50); // 'P'
+    outb(0x3F8, 0x3D); // '='
+    let mut i: u64 = 60;
+    loop {
+        let nibble: u64 = (rip >> i) & 0xF;
+        if nibble < 10 {
+            outb(0x3F8, (48 + nibble) as u8);
+        } else {
+            outb(0x3F8, (55 + nibble) as u8);
+        }
+        if i == 0 {
+            break;
+        }
+        i = i - 4;
+    }
+    outb(0x3F8, 0x0A); // '\n'
+
+    // Print RSP in hex
+    outb(0x3F8, 0x52); // 'R'
+    outb(0x3F8, 0x53); // 'S'
+    outb(0x3F8, 0x50); // 'P'
+    outb(0x3F8, 0x3D); // '='
+    i = 60;
+    loop {
+        let nibble: u64 = (rsp >> i) & 0xF;
+        if nibble < 10 {
+            outb(0x3F8, (48 + nibble) as u8);
+        } else {
+            outb(0x3F8, (55 + nibble) as u8);
+        }
+        if i == 0 {
+            break;
+        }
+        i = i - 4;
+    }
+    outb(0x3F8, 0x0A); // '\n'
+    
+    loop {}
     serial.print("[FATAL]   RIP=");
     serial.print_u64(rip);
     serial.print("\n");

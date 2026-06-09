@@ -91,7 +91,7 @@ pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall,
         resolver::CallKind::Intrinsic(name, explicit_generics) => {
             let args_vec: Vec<syn::Expr> = c.args.iter().cloned().collect();
             
-            // [SOVEREIGN V3] Intrinsic Return Type Lookup
+            // [KEUOS V3] Intrinsic Return Type Lookup
             // If no explicit generic or expected type is provided, check if specific function exists (e.g. extern decl)
             // This is critical for explicit allocators like tensor_alloc_weights() -> Tensor<...>
             let lookup_ret_ty = if explicit_generics.is_empty() && _expected.is_none() {
@@ -283,7 +283,7 @@ pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall,
              let _arg_tys_ref = &arg_tys;
              let use_fallback_inference = arg_tys.is_empty() && !c.args.is_empty();
 
-             // [SOVEREIGN V4.0] Verify Preconditions at Call Site
+             // [KEUOS V4.0] Verify Preconditions at Call Site
              // translate_to_z3 is pure Z3 — no MLIR emitted. Safe to call before arg emission.
              if !requires.is_empty() {
                  if let Err(e) = crate::codegen::verification::VerificationEngine::verify(ctx, &requires, &param_names, &args_vec, local_vars) {
@@ -294,7 +294,7 @@ pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall,
 
              // Emit Args
              for (i, arg_expr) in args_vec.iter().enumerate() {
-                 // [SOVEREIGN V25.0]: Domain-Isolated Argument Evaluation
+                 // [KEUOS V25.0]: Domain-Isolated Argument Evaluation
                  // We pass None as the hint to prevent "Type Osmosis" (Pointer hints bleeding into indices).
                  // This ensures the Pointer base and the Usize index never share a type-hint context.
                  let (mut val, mut ty) = emit_expr(ctx, out, arg_expr, local_vars, None)?;
@@ -321,7 +321,7 @@ pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall,
                      ty = target.clone();
                  }
 
-                 // [SOVEREIGN PHASE 3] Strict Affine Memory Safety
+                 // [KEUOS PHASE 3] Strict Affine Memory Safety
                  // Mark variable as consumed if it is passed by value (target is affine, not a reference)
                  if ty.is_affine() {
                      if let Some(var_name) = crate::codegen::expr::extract_ident_name(arg_expr) {
@@ -356,7 +356,7 @@ pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall,
                  "".to_string() 
              };
 
-             // [SOVEREIGN V4.1] LLVM Intrinsic Interception
+             // [KEUOS V4.1] LLVM Intrinsic Interception
              // Intercept memcpy calls and emit LLVM intrinsic for vectorized store optimization.
              // The llvm.intr.memcpy allows LLVM to merge small constant stores into SIMD instructions.
              if call_name == "memcpy" && args_vals.len() == 3 {
@@ -404,7 +404,7 @@ pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall,
                  
                  return Ok((ret_val, ret_ty.clone()));
              } else if call_name == "free" && !args_vals.is_empty() {
-                 // [SOVEREIGN V5.0] Z3 Ownership Tracking: Deallocator Interception
+                 // [KEUOS V5.0] Z3 Ownership Tracking: Deallocator Interception
                  // When free(var) is called, extract the source variable name from the
                  // argument expression and mark the corresponding malloc allocation as released.
                  if let Some(first_arg) = args_vec.first() {
@@ -439,7 +439,7 @@ pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall,
              // We MUST invalidate the Global Local Value Numbering cache!
              ctx.emission.global_lvn.clear();
 
-             // [SOVEREIGN V5.0] Z3 Ownership Tracking: Allocator Interception
+             // [KEUOS V5.0] Z3 Ownership Tracking: Allocator Interception
              // When malloc() is called, store a pending allocation marker so that
              // the let-binding in stmt.rs can register it with the Z3 tracker.
              if call_name == "malloc" && !res_val.is_empty() {
@@ -493,7 +493,7 @@ pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall,
              let mut final_res = res_val;
              let mut final_ret_ty = ret_ty.clone();
 
-             // [SOVEREIGN V3] Tensor Dehydration: Removed (Type::Tensor is !llvm.ptr now)
+             // [KEUOS V3] Tensor Dehydration: Removed (Type::Tensor is !llvm.ptr now)
 
              // Post-Call Promotion (e.g. if we expected something else)
              if let Some(exp) = _expected {
@@ -653,7 +653,7 @@ pub fn emit_method_call(ctx: &mut LoweringContext, out: &mut String, m: &syn::Ex
             }
         };
         
-    // [SOVEREIGN FIX] Substitute generics in cached receiver type at the source
+    // [KEUOS FIX] Substitute generics in cached receiver type at the source
     let mut cached_receiver_ty = cached_receiver_ty.substitute(&ctx.current_type_map());
     // [CANONICAL RESOLUTION] Canonicalize receiver type to prevent raw Struct("Node")
     cached_receiver_ty = crate::codegen::type_bridge::resolve_codegen_type(ctx, &cached_receiver_ty);

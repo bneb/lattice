@@ -30,7 +30,7 @@ use control_flow::{emit_if_expr, emit_block_expr, emit_match};
 use memory::{emit_field, emit_index};
 pub(crate) use memory::{translate_to_z3, translate_bool_to_z3};
 
-/// [SOVEREIGN WRITER PROTOCOL] Parse __target_fstring__!(target, "content") macro arguments
+/// [KEUOS WRITER PROTOCOL] Parse __target_fstring__!(target, "content") macro arguments
 /// Returns (target_expression, fstring_content)
 fn parse_target_fstring_args(tokens_str: &str) -> Result<(String, String), String> {
     // Format: target , "content"
@@ -467,14 +467,14 @@ pub fn emit_expr(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, 
                     emit_expr(ctx, out, &expanded_expr, local_vars, expected_ty)
                 }
                 "__target_fstring__" => {
-                    // [SOVEREIGN WRITER PROTOCOL] Handle target.f"..." syntax
+                    // [KEUOS WRITER PROTOCOL] Handle target.f"..." syntax
                     // The macro receives: target, "content"
                     // We decompose into direct write_* calls on the target
                     
                     // Parse the macro arguments: target, "content"
                     let (target_expr, fstring_content) = parse_target_fstring_args(&tokens_str)?;
                     
-                    // Generate the expanded code using Sovereign Decomposition
+                    // Generate the expanded code using KeuOS Decomposition
                     let expanded = ctx.native_target_fstring_expand(&target_expr, &fstring_content);
                     
                     // Parse and emit
@@ -517,7 +517,7 @@ pub fn emit_expr(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, 
                     emit_expr(ctx, out, &parsed, local_vars, expected_ty)
                 }
                 "__force_unwrap__" => {
-                    // [SOVEREIGN] Force-unwrap operator (~)
+                    // [KEUOS] Force-unwrap operator (~)
                     // Performance: happy path is one i32 cmp + branch + extractvalue — zero call overhead
                     // Error path: exit(status.code) for Result, exit(1) for Option
                     let inner_str = tokens_str.trim();
@@ -692,7 +692,7 @@ pub fn emit_expr(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, 
                     emit_expr(ctx, out, &append_parsed, local_vars, None)
                 }
                 "__builtin_hash" => {
-                    // [SOVEREIGN I/O FABRIC] Compile-time SipHash-2-4 evaluation.
+                    // [KEUOS I/O FABRIC] Compile-time SipHash-2-4 evaluation.
                     // __builtin_hash!("capability.name") emits a pure arith.constant i64.
                     // Zero runtime cost — the hash is computed during compilation.
                     use std::collections::hash_map::DefaultHasher;
@@ -729,7 +729,7 @@ pub fn emit_expr(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, 
 
 // Extracted helpers
 
-/// [SOVEREIGN V5.0] Extract the source-level identifier name from a syn::Expr.
+/// [KEUOS V5.0] Extract the source-level identifier name from a syn::Expr.
 /// Used by the malloc/free tracking system to identify which variable is being freed.
 /// Returns None if the expression is not a simple identifier (e.g., it's a complex expression).
 pub(crate) fn extract_ident_name(expr: &syn::Expr) -> Option<String> {
@@ -991,7 +991,7 @@ pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr
                  }));
              }
              
-             // [SOVEREIGN V2.0]: First-Class Pointer Indexing for LValue
+             // [KEUOS V2.0]: First-Class Pointer Indexing for LValue
              // Handle Ptr<T> BEFORE generic index evaluation (which uses Usize hint)
              // This enables ptr[i] = value on the left-hand side of assignment
              if let Type::Pointer { ref element, .. } = base_ty {
@@ -1148,7 +1148,7 @@ pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr
                   },
                  // Note: Tensor and Pointer are handled above before the match, so won't reach here
                  
-                 // [SOVEREIGN V9.0] Struct/Concrete indexing via `data: Ptr<T>` field
+                 // [KEUOS V9.0] Struct/Concrete indexing via `data: Ptr<T>` field
                  // Enables: slice[i] = val, slice[i] += expr
                  // Resolves Slice<T>[i] by loading the `data` field (Ptr<T>) and GEP with index.
                  Type::Struct(_) | Type::Concrete(..) => {
@@ -1231,7 +1231,7 @@ pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr
                         let info = info_opt.ok_or_else(|| format!("Struct info missing for '{}' (available: {:?})", sn, ctx.struct_registry().iter().map(|(k, v)| (k.name.clone(), v.fields.len())).collect::<Vec<_>>()))?;
 
                        if let Some((idx, raw_field_ty)) = info.fields.get(&field_name) {
-                            // [SOVEREIGN V4.0] CHAINED RESOLUTION FIX: Build local specialization map
+                            // [KEUOS V4.0] CHAINED RESOLUTION FIX: Build local specialization map
                             let mut local_spec_map = ctx.current_type_map().clone();
                             if !info.specialization_args.is_empty() {
                                 if let Some(ref template_name) = info.template_name {
@@ -1250,7 +1250,7 @@ pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr
                             }
                             let field_ty = raw_field_ty.substitute(&local_spec_map);
                             let gep_var = format!("%gep_f_{}", ctx.next_id());
-                           // [SOVEREIGN FIX] Use to_mlir_type for consistent struct alias naming
+                           // [KEUOS FIX] Use to_mlir_type for consistent struct alias naming
                            let mlir_struct = Type::Struct(info.name.clone()).to_mlir_type(ctx)?;
 
                            // SCALAR WRAPPER OPTIMIZATION
@@ -1289,7 +1289,7 @@ pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr
                                 let info = info_opt.expect("Struct info missing");
 
                                 if let Some((idx, raw_field_ty)) = info.fields.get(&field_name) {
-                                     // [SOVEREIGN V4.0] CHAINED RESOLUTION FIX: Build local specialization map
+                                     // [KEUOS V4.0] CHAINED RESOLUTION FIX: Build local specialization map
                                      let mut local_spec_map = ctx.current_type_map().clone();
                                      if !info.specialization_args.is_empty() {
                                          if let Some(ref template_name) = info.template_name {
@@ -1348,7 +1348,7 @@ pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr
                        Ok((gep_var, field_ty.clone(), LValueKind::Ptr))
                   }
                   crate::types::Type::Reference(ref inner, _) => {
-                      // [SOVEREIGN FIX] For reference types (like &mut self), the base_addr
+                      // [KEUOS FIX] For reference types (like &mut self), the base_addr
                       // is a pointer to the struct. If it's an SSA value, it is the pointer itself.
                       // If it's a Local variable (e.g., promoted mutable argument), we must load it.
                       let loaded_ptr = if kind == LValueKind::SSA {
@@ -1389,7 +1389,7 @@ pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr
 
                                if let Some((idx, field_ty)) = info.fields.get(&field_name) {
                                    let gep_var = format!("%gep_f_{}", ctx.next_id());
-                                   // [SOVEREIGN FIX] Use to_mlir_type for consistent struct alias naming
+                                   // [KEUOS FIX] Use to_mlir_type for consistent struct alias naming
                                    // This ensures fully-qualified names are used
                                    let struct_mlir_ty = Type::Struct(info.name.clone()).to_mlir_type(ctx)?;
                                    let phys_idx = ctx.get_physical_index(&info.field_order, *idx);

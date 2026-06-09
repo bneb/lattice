@@ -135,7 +135,7 @@ fn expr_has_if(expr: &syn::Expr) -> bool {
     }
 }
 
-/// [V25.8] Sovereign Body Analysis: Detect if statements contain tensor indexing
+/// [V25.8] KeuOS Body Analysis: Detect if statements contain tensor indexing
 /// Returns true if any statement uses tensor/array indexing (A[i,j] pattern)
 /// This indicates the loop benefits from polyhedral optimization (affine.for)
 fn has_tensor_indexing(stmts: &[Stmt]) -> bool {
@@ -212,7 +212,7 @@ fn expr_has_tensor_indexing(expr: &syn::Expr) -> bool {
     }
 }
 
-/// Emit an scf.for loop with Sovereign Narrowing for constant-bound loops.
+/// Emit an scf.for loop with KeuOS Narrowing for constant-bound loops.
 /// [V25.8] Source-Level IV Narrowing: Use i32 when bounds fit, eliminating index_cast overhead.
 /// This maintains LLVM's ability to optimize while reducing per-iteration instruction count.
 fn emit_affine_for(
@@ -239,7 +239,7 @@ fn emit_affine_for(
         return emit_affine_for_reduction(ctx, out, f, lb, ub, local_vars, &var_name, reduction_info);
     }
     
-    // [V25.8] Sovereign Body Analysis: Detect loop intent from body contents
+    // [V25.8] KeuOS Body Analysis: Detect loop intent from body contents
     // - Tensor indexing (A[i,j]) -> Use affine.for + Usize for polyhedral optimization
     // - Pointer arithmetic (ptr + offset) -> Use scf.for + i32 for instruction density
     let uses_tensor_indexing = has_tensor_indexing(&f.body.stmts);
@@ -655,7 +655,7 @@ fn emit_affine_for_reduction(
         reduction.init_ssa.clone()
     };
     
-    // [V25.8] Sovereign Narrowing: Determine if we can use i32 for the body
+    // [V25.8] KeuOS Narrowing: Determine if we can use i32 for the body
     // scf.for requires index type for bounds
     let can_narrow = ub < 2_147_483_647 && lb >= 0;
     
@@ -1529,7 +1529,7 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
                             let hint = if ty.k_is_ptr_type() { None } else { Some(&ty) };
                             let (val, init_ty) = emit_expr(ctx, out, &init.expr, local_vars, hint)?;
                             
-                            // [SOVEREIGN PHASE 3] Strict Affine Memory Safety
+                            // [KEUOS PHASE 3] Strict Affine Memory Safety
                             if ty.is_affine() {
                                 if let Some(rhs_var_name) = crate::codegen::expr::extract_ident_name(&init.expr) {
                                     ctx.consumed_vars_mut().insert(rhs_var_name);
@@ -1567,7 +1567,7 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
                     let (val, actual_ty) = if let Some(init) = &local.init {
                         let (v, t) = emit_expr(ctx, out, &init.expr, local_vars, type_hint.as_ref())?;
                         
-                        // [SOVEREIGN PHASE 3] Strict Affine Memory Safety (unhoisted)
+                        // [KEUOS PHASE 3] Strict Affine Memory Safety (unhoisted)
                         if t.is_affine() {
                             if let Some(rhs_var_name) = crate::codegen::expr::extract_ident_name(&init.expr) {
                                 ctx.consumed_vars_mut().insert(rhs_var_name);
@@ -1602,7 +1602,7 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
                     }
                 }
                 
-                // [SOVEREIGN V5.0] Malloc tracking via DAG-based MallocTracker.
+                // [KEUOS V5.0] Malloc tracking via DAG-based MallocTracker.
                 // If the RHS was a malloc() call, pending_malloc_result was set by expr/mod.rs.
                 // Register the allocation with the MallocTracker DAG.
                 if !name.is_empty() {
@@ -2094,7 +2094,7 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
         Stmt::Return(opt_expr) => {
             emit_cleanup_for_return(ctx, out, local_vars)?;
             if let Some(e) = opt_expr {
-                // [SOVEREIGN FIX] Substitute generics in return type (T -> u8 etc.)
+                // [KEUOS FIX] Substitute generics in return type (T -> u8 etc.)
                 let expected_ret = ctx.current_ret_ty().clone().map(|t| t.substitute(&ctx.current_type_map()));
                 let (val_raw, ty) = emit_expr(ctx, out, e, local_vars, expected_ret.as_ref())?;
 

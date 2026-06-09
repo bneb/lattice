@@ -18,7 +18,7 @@ fn test_pmm_compilation() {
     
     let mlir = result.unwrap();
     
-    // Verify Key Characteristics of Sovereign PMM
+    // Verify Key Characteristics of KeuOS PMM
     
     // 1. Check for FreePageNode struct usage
     // It should be defined as a type, or at least used in logic.

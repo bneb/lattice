@@ -394,3 +394,70 @@ pub fn spsc_get_consumer_waiting(base_addr: u64) -> u64 {
 pub fn spsc_set_consumer_waiting(base_addr: u64, val: u64) {
     volatile_write_i64(base_addr + CONSUMER_WAITING_OFFSET, val as i64);
 }
+
+// =============================================================================
+// spsc_push_frame — Producer writes a 2-byte length + frame (ERMS-accelerated)
+// =============================================================================
+pub fn spsc_push_frame(base_addr: u64, src: u64, len: u64) -> bool {
+    let head = volatile_read_i64(base_addr + HEAD_OFFSET) as u64;
+    let tail = volatile_read_i64(base_addr + TAIL_OFFSET) as u64;
+    let mut cap = volatile_read_i64(base_addr + CAPACITY_OFFSET) as u64;
+
+    if cap == 0 { return false; }
+    if cap > DATA_CAPACITY { cap = DATA_CAPACITY; }
+
+    let total_len = len + 2;
+    let avail = cap - (head - tail);
+    if avail < total_len { return false; }
+
+    let start_idx = head % cap;
+    let len_lo = (len & 0xFF) as u8;
+    *((base_addr + DATA_OFFSET + start_idx) as &mut u8) = len_lo;
+    
+    let mut next_idx = start_idx + 1;
+    if next_idx >= cap { next_idx = 0; }
+    let len_hi = ((len >> 8) & 0xFF) as u8;
+    *((base_addr + DATA_OFFSET + next_idx) as &mut u8) = len_hi;
+
+    let mut data_start = next_idx + 1;
+    if data_start >= cap { data_start = 0; }
+
+    let seg1_len = cap - data_start;
+    let first = if len < seg1_len { len } else { seg1_len };
+
+    fast_memcpy(base_addr + DATA_OFFSET + data_start, src, first);
+
+    let second = len - first;
+    if second > 0 {
+        fast_memcpy(base_addr + DATA_OFFSET, src + first, second);
+    }
+
+    volatile_write_i64(base_addr + HEAD_OFFSET, (head + total_len) as i64);
+    return true;
+}
+
+// =============================================================================
+// spsc_pop_frame_len — Consumer reads the 2-byte length prefix
+// =============================================================================
+pub fn spsc_pop_frame_len(base_addr: u64) -> u64 {
+    let head = volatile_read_i64(base_addr + HEAD_OFFSET) as u64;
+    let tail = volatile_read_i64(base_addr + TAIL_OFFSET) as u64;
+    let mut cap = volatile_read_i64(base_addr + CAPACITY_OFFSET) as u64;
+
+    if cap == 0 { return 0; }
+    if cap > DATA_CAPACITY { cap = DATA_CAPACITY; }
+
+    let avail = head - tail;
+    if avail < 2 { return 0; }
+
+    let start_idx = tail % cap;
+    let lo = *((base_addr + DATA_OFFSET + start_idx) as &u8);
+    
+    let mut next_idx = start_idx + 1;
+    if next_idx >= cap { next_idx = 0; }
+    let hi = *((base_addr + DATA_OFFSET + next_idx) as &u8);
+
+    volatile_write_i64(base_addr + TAIL_OFFSET, (tail + 2) as i64);
+    
+    return (lo as u64) | ((hi as u64) << 8);
+}

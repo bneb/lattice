@@ -131,12 +131,15 @@ extern fn moe_net_init() -> bool;
 extern fn moe_enable_rx_interrupts();
 
 // kernel/core/exec_user.salt
-extern fn exec_spawn_kernel_thread(entry: u64, pml4: u64) -> u64;
+extern fn exec_spawn_kernel_thread(entry: u64, arg1: u64, arg2: u64, arg3: u64, pml4: u64) -> u64;
 extern fn exec_spawn_process(elf_addr: u64, pml4: u64) -> u64;
 extern fn exec_spawn_ring3_coroutine(entry: u64, arg1: u64, arg2: u64, arg3: u64, pml4: u64) -> u64;
 
 // kernel/drivers/virtio_net.salt
 extern fn virtio_net_get_mac_byte(idx: u64) -> u8;
+
+// kernel/drivers/pci.salt
+extern fn pci_enumerate();
 
 // user/reactor/tasks/moe_pipeline.salt
 // extern fn declared above
@@ -154,6 +157,7 @@ extern fn fb_get_pitch() -> u32;
 extern fn fb_get_phys() -> u64;
 extern fn ps2_kbd_irq_handler();
 extern fn ps2_set_rx_ring(ptr: u64);
+extern fn serial_set_rx_ring(ptr: u64);
 
 global KERNEL_TX_RING_VIRT: u64 = 0;
 global KERNEL_ECS_WORLD: u64 = 0;
@@ -163,6 +167,7 @@ pub fn get_ecs_world_ptr() -> u64 {
     return KERNEL_ECS_WORLD;
 }
 global KERNEL_LINE_BUFFER: [u8; 64] = [0; 64];
+global DISCARD_RSP: [u64; 1] = [0];
 global KERNEL_LINE_LEN: u32 = 0;
 
 fn strcmp(s1_ptr: u64, len1: u32, s2_ptr: u64, len2: u32) -> bool {
@@ -390,14 +395,14 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     // SPAWN TASK 0: Immortal Ring 0 Dispatcher Thread
     // =========================================================================
     let task0_entry = get_kernel_event_loop_addr();
-    let slot_task0 = exec_spawn_kernel_thread(task0_entry, kernel_pml4);
+    let slot_task0 = exec_spawn_kernel_thread(task0_entry, 0, 0, 0, kernel_pml4);
     process_set_state(slot_task0, PROC_READY);
     serial.print("[KeuOS] Task 0 (dispatcher) spawned\n");
 
 // KPTI SECURITY FIX: Create dedicated user address spaces for Ring 3 processes
-    let terminal_pml4 = sys_create_user_pml4_kpti(kernel_pml4);
+    // Terminal SIP, NetD, and MoE are Kernel Threads for now.
 
-    serial.print("[KeuOS] Bootstrapping KeuOS Ring 3 Terminal SIP...\n");
+    serial.print("[KeuOS] Bootstrapping Sovereign Ring 3 Terminal SIP...\n");
     let fb_w = fb_get_width() as u64;
     let fb_h = fb_get_height() as u64;
     let fb_pitch = fb_get_pitch() as u64;
@@ -406,18 +411,19 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     // Map 1024 pages of Framebuffer (1024 * 4KB = 4MB) to 0x40002000
     let mut fb_idx: u64 = 0;
     while fb_idx < 1024 {
-        map_user_page_extern(terminal_pml4, 0x40002000 + (fb_idx * 4096), fb_phys + (fb_idx * 4096), 0x7);
+        map_user_page_extern(kernel_pml4, 0x40002000 + (fb_idx * 4096), fb_phys + (fb_idx * 4096), 0x7);
         fb_idx = fb_idx + 1;
     }
 
     // Allocate 1 page for SPSC Ring Buffer at 0x40001000
     // This establishes the secure IPC boundary between Kernel (Producer) and SIP (Consumer)
     let rx_ring_phys = pmm_alloc();
-    map_user_page_extern(terminal_pml4, 0x40001000, rx_ring_phys, 0x7);
+    map_user_page_extern(kernel_pml4, 0x40001000, rx_ring_phys, 0x7);
     
     // Wire the physical SPSC Ring to the PS/2 Kernel Module
     let rx_ring_kern = rx_ring_phys + KERNEL_BASE;
     ps2_set_rx_ring(rx_ring_kern);
+    serial_set_rx_ring(rx_ring_kern);
 
     *((rx_ring_kern + 0) as &mut u64) = 0;           // head
     *((rx_ring_kern + 8) as &mut u64) = 3904;        // capacity
@@ -428,7 +434,7 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     // Allocate 1 page for TX_RING at 0x40003000
     // ------------------------------------------------------------------------
     let tx_ring_phys = pmm_alloc();
-    map_user_page_extern(terminal_pml4, 0x40003000, tx_ring_phys, 0x7);
+    map_user_page_extern(kernel_pml4, 0x40003000, tx_ring_phys, 0x7);
     
     let tx_ring_kern = tx_ring_phys + KERNEL_BASE;
     *((tx_ring_kern + 0) as &mut u64) = 0;           // head
@@ -442,36 +448,37 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     let mut cp_idx: u64 = 0;
     while cp_idx < 16 {
         let cp_phys = pmm_alloc();
-        map_user_page_extern(terminal_pml4, 0x40402000 + (cp_idx * 4096), cp_phys, 0x7);
+        map_user_page_extern(kernel_pml4, 0x40402000 + (cp_idx * 4096), cp_phys, 0x7);
         cp_idx = cp_idx + 1;
     }
 
-    let slot_terminal = exec_spawn_ring3_coroutine(
+    let slot_terminal = exec_spawn_kernel_thread(
             (&sys_terminal_main) as u64,
             fb_w, fb_h, fb_pitch,
-            terminal_pml4
+            kernel_pml4
         );
     process_set_state(slot_terminal, PROC_READY);
     serial.print("[KeuOS] Terminal SIP coroutine spawned\n");
 
-    let tx_poll_entry = (&terminal_tx_poll_thread) as u64;
-    let slot_tx = exec_spawn_kernel_thread(tx_poll_entry, kernel_pml4);
+    let slot_tx = exec_spawn_kernel_thread((&terminal_tx_poll_thread) as u64, 0, 0, 0, kernel_pml4);
     process_set_state(slot_tx, PROC_READY);
     serial.print("[KeuOS] TX_RING Supervisor C2 Thread spawned\n");
 
-    let netd_pml4 = sys_create_user_pml4_kpti(kernel_pml4);
-    let slot_netd = exec_spawn_ring3_coroutine(
+    let slot_netd = exec_spawn_kernel_thread(
             (&sys_netd_main) as u64,
             0, 0, 0,
-            netd_pml4
+            kernel_pml4
         );
     process_set_state(slot_netd, PROC_READY);
-    serial.print("[KeuOS] NetD Ring 3 SIP spawned (Fastpath Handoff Target)\n");
+    serial.print("[KeuOS] NetD Ring 0 SIP spawned (Fastpath Handoff Target)\n");
 
     // =========================================================================
     // SPAWN MOE PIPELINE
     // =========================================================================
     serial.print("[KeuOS] SPAWNING MOE PIPELINE\n");
+
+    serial.print("[KeuOS] Enumerating PCI Bus...\n");
+    pci_enumerate();
 
     // =========================================================================
     // Initialize VirtIO network driver FIRST — we need the MAC to determine identity
@@ -543,20 +550,12 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     let rx_pool_pages: u64 = 24;
     let mut pg: u64 = 0;
     
-    // We map the RX pool into BOTH netd_pml4 and moe_pml4 (the two user processes).
-    // We use 0x207 (PTE_SHARED | PTE_USER | PTE_WRITE | PTE_PRESENT).
-    // This prevents destroy_user_pml4 from freeing the shared VirtIO physical pages.
-    let moe_pml4 = sys_create_user_pml4_kpti(kernel_pml4);
+    // We map the RX pool into BOTH kernel_pml4 and kernel_pml4 (the two user processes).
+    // Actually, they run as Kernel Threads, so they are shared globally on kernel_pml4.
 
     while pg < rx_pool_pages {
         map_user_page_extern(
-            netd_pml4,
-            rx_pool_vaddr + pg * 4096,
-            rx_pool_phys + pg * 4096,
-            0x207  // PRESENT | RW | USER | SHARED
-        );
-        map_user_page_extern(
-            moe_pml4,
+            kernel_pml4,
             rx_pool_vaddr + pg * 4096,
             rx_pool_phys + pg * 4096,
             0x207  // PRESENT | RW | USER | SHARED
@@ -571,13 +570,13 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     // Map the RX notification ring into Ring 3 at 0x40004000
     let rx_notify_ring_user_vaddr: u64 = 0x40004000;
     map_user_page_extern(
-        netd_pml4,
+        kernel_pml4,
         rx_notify_ring_user_vaddr,
         rx_notify_ring_phys,
         0x207
     );
     map_user_page_extern(
-        moe_pml4,
+        kernel_pml4,
         rx_notify_ring_user_vaddr,
         rx_notify_ring_phys,
         0x207
@@ -585,12 +584,12 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     *((state_ptr + 72) as &mut u64) = rx_notify_ring_user_vaddr;
     *((state_ptr + 80) as &mut u64) = rx_pool_vaddr;
 
-    let slot_a = exec_spawn_ring3_coroutine(
+    let slot_a = exec_spawn_kernel_thread(
             (&sys_moe_init_trampoline) as u64,
             state_ptr,
             bar_ptr,
             poll_ptr,
-            moe_pml4
+            kernel_pml4
         );
     serial.print("[KeuOS] MoE Pipeline spawned\n");
 
@@ -610,9 +609,8 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     tss_set_rsp0(new_rsp0);
     set_syscall_kernel_rsp0(new_rsp0);
 
-    let dummy: u64 = 0;
     serial.print("[KeuOS] Switching to first process...\n");
-    proc_context_switch((&dummy) as u64, new_rsp, new_cr3, new_rsp0);
+    proc_context_switch(0, new_rsp, new_cr3, new_rsp0);
 
     // proc_context_switch never returns — execution continues in user process.
     // Safety net: halt if we somehow get here.

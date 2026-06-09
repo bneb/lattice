@@ -80,7 +80,7 @@ extern fn sys_write(fd: i32, buf: &u8, len: i64) -> i64;
 extern fn sys_mmap(addr: u64, len: u64, prot: i32, flags: i32, fd: i32, offset: i64) -> u64;
 extern fn sys_munmap(addr: u64, len: u64) -> i32;
 
-// SOVEREIGN FIX V10.2: Direct mmap helper bypasses method ABI issues
+// KEUOS FIX V10.2: Direct mmap helper bypasses method ABI issues
 pub fn mmap_raw(fd: i32, len: u64, prot: i32, flags: i32) -> u64 {
     return sys_mmap(0, len, prot, flags, fd, 0);
 }
@@ -92,7 +92,7 @@ pub fn mmap_raw(fd: i32, len: u64, prot: i32, flags: i32) -> u64 {
 impl File {
     // Open a file - returns Result<File>
     pub fn open(path: &u8, flags: OpenFlags) -> Result<File> {
-        // SOVEREIGN FIX V10.1: Access bits field directly to avoid method call ABI issue
+        // KEUOS FIX V10.1: Access bits field directly to avoid method call ABI issue
         let fd = sys_open(path, flags.bits, 420);
         if fd < 0 {
             return Result::Err(Status::with_detail(13, 0 - fd));
@@ -107,7 +107,7 @@ impl File {
 
     // Memory-map the file - returns Result<Ptr<T>>
     pub fn mmap<T>(&self, len: u64, prot: Prot, flags: MapFlags) -> Result<Ptr<T>> {
-        // SOVEREIGN FIX V10.1: Access bits fields directly to avoid method call ABI issue
+        // KEUOS FIX V10.1: Access bits fields directly to avoid method call ABI issue
         let addr = sys_mmap(0, len, prot.bits, flags.bits, self.fd, 0);
         // MAP_FAILED = -1 (0xFFFFFFFFFFFFFFFF)
         if addr == 18446744073709551615 {

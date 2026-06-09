@@ -143,6 +143,11 @@ extern fn user_data_start();
 extern fn user_data_end();
 extern fn read_gs_base() -> u64;
 
+extern fn get_idt_base() -> u64;
+extern fn get_gdt_base() -> u64;
+extern fn tss_get_tss_addr() -> u64;
+extern fn tss_get_ist(index: u64) -> u64;
+
 pub fn create_user_pml4_kpti(kernel_pml4: u64) -> u64 {
     let user_pml4 = pmm.alloc();
     if user_pml4 == 0 {
@@ -168,7 +173,7 @@ pub fn create_user_pml4_kpti(kernel_pml4: u64) -> u64 {
     let mut vaddr = text_start;
     while vaddr < text_end {
         let paddr = memory.virt_to_phys_raw(vaddr);
-        map_user_page(user_pml4, vaddr, paddr, PTE_PRESENT); // User=0, Write=0
+        map_kpti_page(user_pml4, vaddr, paddr, PTE_PRESENT); // User=0, Write=0
         vaddr = vaddr + PAGE_SIZE;
     }
 
@@ -179,7 +184,7 @@ pub fn create_user_pml4_kpti(kernel_pml4: u64) -> u64 {
     vaddr = data_start;
     while vaddr < data_end {
         let paddr = memory.virt_to_phys_raw(vaddr);
-        map_user_page(user_pml4, vaddr, paddr, PTE_PRESENT | PTE_WRITE); // Supervisor-only
+        map_kpti_page(user_pml4, vaddr, paddr, PTE_PRESENT | PTE_WRITE); // Supervisor-only
         vaddr = vaddr + PAGE_SIZE;
     }
 
@@ -188,9 +193,39 @@ pub fn create_user_pml4_kpti(kernel_pml4: u64) -> u64 {
     let percpu_virt = read_gs_base();
     let percpu_page_virt = percpu_virt & 0xFFFFFFFFFFFFF000;
     let percpu_paddr = memory.virt_to_phys_raw(percpu_page_virt);
-    map_user_page(user_pml4, percpu_page_virt, percpu_paddr, PTE_PRESENT | PTE_WRITE);
+    map_kpti_page(user_pml4, percpu_page_virt, percpu_paddr, PTE_PRESENT | PTE_WRITE);
 
-    // 4. Map the Ring 3 Test Framework Payloads (User, Read-Only/Read-Write)
+    // 5. Map the Global IDT, GDT, and TSS (Supervisor, Read-Only, Present)
+    // The CPU must be able to read these structures to deliver interrupts/exceptions
+    // (e.g. Timer, #PF) while executing in Ring 3 BEFORE switching CR3.
+    let idt_base = get_idt_base();
+    let idt_page = idt_base & 0xFFFFFFFFFFFFF000;
+    map_kpti_page(user_pml4, idt_page, memory.virt_to_phys_raw(idt_page), PTE_PRESENT);
+
+    let gdt_base = get_gdt_base();
+    let gdt_page = gdt_base & 0xFFFFFFFFFFFFF000;
+    map_kpti_page(user_pml4, gdt_page, memory.virt_to_phys_raw(gdt_page), PTE_PRESENT);
+
+    let tss_base = tss_get_tss_addr();
+    let tss_page = tss_base & 0xFFFFFFFFFFFFF000;
+    map_kpti_page(user_pml4, tss_page, memory.virt_to_phys_raw(tss_page), PTE_PRESENT);
+
+    // 6. Map NMI and Double Fault IST Stacks (Supervisor, Read-Write, Present)
+    // If a #DF occurs while in Ring 3, the CPU must be able to push to the IST2
+    // stack BEFORE executing the df_isr_wrapper.
+    let nmi_stack_top = tss_get_ist(1);
+    if nmi_stack_top != 0 {
+        let nmi_page = nmi_stack_top - PAGE_SIZE;
+        map_kpti_page(user_pml4, nmi_page, memory.virt_to_phys_raw(nmi_page), PTE_PRESENT | PTE_WRITE);
+    }
+
+    let df_stack_top = tss_get_ist(2);
+    if df_stack_top != 0 {
+        let df_page = df_stack_top - PAGE_SIZE;
+        map_kpti_page(user_pml4, df_page, memory.virt_to_phys_raw(df_page), PTE_PRESENT | PTE_WRITE);
+    }
+
+    // 7. Map the Ring 3 Test Framework Payloads (User, Read-Only/Read-Write)
     // This allows the QEMU E2E and SWAPGS tests to execute inside Ring 3 safely.
     let utext_start = (&user_text_start) as u64;
     let utext_end   = (&user_text_end) as u64;
@@ -257,7 +292,14 @@ pub fn map_user_page(pml4_phys: u64, vaddr: u64, paddr: u64, flags: u64) {
     if vaddr >= 0x0000800000000000 {
         return;
     }
+    map_kpti_page(pml4_phys, vaddr, paddr, flags);
+}
 
+// =============================================================================
+// map_kpti_page -- Map a page into the address space WITHOUT kernel range checks.
+// Used internally by the KPTI builder to map the trampoline and IST stacks.
+// =============================================================================
+pub fn map_kpti_page(pml4_phys: u64, vaddr: u64, paddr: u64, flags: u64) {
     let pdp  = walk_or_create(pml4_phys, pml4_index(vaddr), flags);
     if pdp == 0 { return; }
     let pd   = walk_or_create(pdp, pdp_index(vaddr), flags);
@@ -439,7 +481,7 @@ fn destroy_pd(pd_phys: u64) {
 pub const PTE_SHARED: u64    = 0x200;
 
 // =============================================================================
-// destroy_pt -- Free leaf physical pages unless PTE_SHARED is set
+// destroy_pt -- Free leaf physical pages
 // =============================================================================
 fn destroy_pt(pt_phys: u64) {
     let pt_virt = memory.phys_to_virt(memory.PhysAddr { val: pt_phys }).val;
@@ -447,8 +489,8 @@ fn destroy_pt(pt_phys: u64) {
     while i < ENTRIES {
         let entry = *((pt_virt + i * 8) as &u64);
         if (entry & PTE_PRESENT) != 0 {
-            let leaf_phys = entry & ADDR_MASK;
             if (entry & PTE_SHARED) == 0 {
+                let leaf_phys = entry & ADDR_MASK;
                 pmm.free(leaf_phys);
             }
         }

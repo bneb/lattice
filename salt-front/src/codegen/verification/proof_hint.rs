@@ -7,7 +7,7 @@
 // that is embedded in the binary's data plane as a constant.
 //
 // The NetD arbiter verifies this hint in O(1) cycles via bitwise comparison,
-// completing the Sovereignty Gap bridge between compile-time Z3 verification
+// completing the KeuOSty Gap bridge between compile-time Z3 verification
 // and runtime trust.
 //
 // Algorithm: SipHash-2-4 — industry-standard keyed hash, collision-resistant,
@@ -17,7 +17,7 @@
 // collision resistance and resistance to hash-flooding attacks.
 // =============================================================================
 
-/// SipHash-2-4 key derived from the KeuOS sovereign identity.
+/// SipHash-2-4 key derived from the KeuOS keuos identity.
 /// These keys are compile-time constants shared between the compiler and
 /// the Salt runtime. Changing them invalidates all existing proof_hints.
 const SIPHASH_K0: u64 = 0x4c61747469636521; // "KeuOS!" in ASCII
@@ -45,7 +45,7 @@ fn sip_round(v0: &mut u64, v1: &mut u64, v2: &mut u64, v3: &mut u64) {
 /// SipHash-2-4 for a single 64-bit message word.
 ///
 /// This is the primitive used for proof-hint generation. It hashes a single
-/// u64 message `m` with the sovereign key pair (K0, K1) to produce a 64-bit
+/// u64 message `m` with the keuos key pair (K0, K1) to produce a 64-bit
 /// hash with strong collision resistance.
 ///
 /// 2 compression rounds + 4 finalization rounds.

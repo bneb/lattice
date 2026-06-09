@@ -1,4 +1,4 @@
-// std/core/slice — Slice<T>: The Sovereign Fat Pointer
+// std/core/slice — Slice<T>: The KeuOS Fat Pointer
 // A non-owning view over contiguous memory: (Ptr<T>, len).
 // Does NOT own memory — no alloc, no free. Just a safe view.
 //

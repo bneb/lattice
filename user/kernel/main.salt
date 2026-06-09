@@ -1,6 +1,6 @@
 // ============================================================================
 // user/kernel/main.salt
-// Sovereign Entry Point — The First Instruction
+// KeuOS Entry Point — The First Instruction
 // ============================================================================
 //
 // This is the function the CPU executes after the Multiboot2 bootloader
@@ -124,7 +124,7 @@ pub fn create_boot_task(
 }
 
 // ============================================================================
-// boot_sequence — The full sovereign boot protocol
+// boot_sequence — The full keuos boot protocol
 // ============================================================================
 // Called by _start (or by the test harness in hosted mode).
 // Returns 0 on success, non-zero on failure.

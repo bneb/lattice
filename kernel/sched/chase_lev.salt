@@ -22,6 +22,8 @@
 
 package kernel.sched.chase_lev
 
+import kernel.core.percpu
+
 import kernel.drivers.serial
 import std.core.ptr.Ptr
 
@@ -35,7 +37,7 @@ pub const DEQUE_MASK: i64 = 1023;  // DEQUE_CAPACITY - 1
 // infrastructure. The scheduler must be operable before the slab.
 global DEQUE_BUFFERS: [[Ptr<u8>; 1024]; 16] = [[0 as Ptr<u8>; 1024]; 16];
 
-extern fn get_cpu_id() -> u64;
+// Extern declarations
 
 // =============================================================================
 // WorkDeque — The Lock-Free Structure
@@ -207,20 +209,26 @@ fn steal(q: Ptr<WorkDeque>) -> Ptr<u8>
 // size — Current number of tasks in the deque (approximate for cross-core)
 // =============================================================================
 pub fn size(q: Ptr<WorkDeque>) -> i64 {
-    let b = q.bottom;
-    let t = q.top;
-    let s = b - t;
-    if s < 0 {
-        return 0;
+    if q != 0 as Ptr<WorkDeque> {
+        let b = q.bottom;
+        let t = q.top;
+        let s = b - t;
+        if s < 0 {
+            return 0;
+        }
+        return s;
     }
-    return s;
+    return 0;
 }
 
 // =============================================================================
 // is_empty — Quick check for steal loop decision
 // =============================================================================
 pub fn is_empty(q: Ptr<WorkDeque>) -> bool {
-    return size(q) <= 0;
+    if q != 0 as Ptr<WorkDeque> {
+        return size(q) <= 0;
+    }
+    return true;
 }
 
 // =============================================================================
@@ -253,7 +261,7 @@ pub fn init_deques() {
 // local_push / local_pop — Owner-side operations on THIS core's deque
 // =============================================================================
 pub fn local_push(task: Ptr<u8>) {
-    let cpu = get_cpu_id() as i64;
+    let cpu = percpu.get_cpu_id() as i64;
     let q = &DEQUES[cpu] as Ptr<WorkDeque>;
     if q != 0 as Ptr<WorkDeque> {
         push(q, task);
@@ -261,7 +269,7 @@ pub fn local_push(task: Ptr<u8>) {
 }
 
 pub fn local_pop() -> Ptr<u8> {
-    let cpu = get_cpu_id() as i64;
+    let cpu = percpu.get_cpu_id() as i64;
     let q = &DEQUES[cpu] as Ptr<WorkDeque>;
     if q != 0 as Ptr<WorkDeque> {
         return pop(q);
@@ -292,7 +300,7 @@ pub fn try_steal_from(target_cpu: i64) -> Ptr<u8> {
 // Returns null if no work available on any core.
 // =============================================================================
 pub fn steal_scan(max_cores: i64) -> Ptr<u8> {
-    let my_cpu = get_cpu_id() as i64;
+    let my_cpu = percpu.get_cpu_id() as i64;
     let mut offset: i64 = 1;
 
     while offset < max_cores {

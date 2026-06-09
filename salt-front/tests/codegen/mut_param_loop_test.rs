@@ -24,7 +24,7 @@ use salt_front::compile;
 
 #[test]
 fn test_mut_param_promoted_to_alloca() {
-    // This is the exact pattern from the Prisimi browser engine's
+    // This is the exact pattern from the KeuOS engine's
     // invalidate_layout function that triggered the bug.
     // `mut node_id` must be stored in an alloca so that `node_id = sentinel`
     // is visible to the while loop condition on the next iteration.

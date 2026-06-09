@@ -300,8 +300,8 @@ pub struct TensorStats {
 }
 
 #[cfg(test)]
-mod sovereign_intrinsic_tests {
+mod keuos_intrinsic_tests {
     #[test]
-    fn test_sovereign_intrinsic_names_registered() {
+    fn test_keuos_intrinsic_names_registered() {
     }
 }

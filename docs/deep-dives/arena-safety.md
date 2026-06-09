@@ -198,8 +198,8 @@ The analysis is implemented in 5 files across the compiler:
 | `codegen/mod.rs` | Function arg registration, tracker save/restore |
 | `codegen/context.rs` | `arena_escape_tracker` field on `CodegenContext` |
 
-**Test Results** (February 2026):
-- 1,011 compiler unit tests pass
-- 22/22 tracked benchmarks build and run, 19/22 Salt ≤ C
+**Test Results**:
+- Compiler unit tests pass
+- Benchmarks build and run
 - Arena escape tests pass (including Vec<T, A> provenance chain)
 - 0 false positives on real-world code

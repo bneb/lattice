@@ -1,5 +1,5 @@
 // =============================================================================
-// Test: Prisimi ECDHE Signature MLIR Validation Matrices Limits Test safely 
+// Test: KeuOS ECDHE Signature MLIR Validation Matrices Limits Test safely 
 // =============================================================================
 
 import user.netd.crypto.ecdsa

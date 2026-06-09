@@ -41,3 +41,18 @@ salt_atomic_load_i64:
 salt_atomic_store_i64:
     movq %rsi, (%rdi)
     ret
+
+.global cpu_mfence
+cpu_mfence:
+    mfence
+    ret
+
+.global cpu_lfence
+cpu_lfence:
+    lfence
+    ret
+
+.global cpu_sfence
+cpu_sfence:
+    sfence
+    ret

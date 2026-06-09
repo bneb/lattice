@@ -461,12 +461,12 @@ mod tests {
 
     // ========================================================================
     // V5.1 CAST-RETURN ESCAPE ANALYSIS (TDD for the "Chain of Custody" gap)
-    // Tests the exact pattern that caused sovereign_train memory leak:
+    // Tests the exact pattern that caused keuos_train memory leak:
     //   fn alloc_f32() -> Ptr<f32> { let p = malloc(size); return p as Ptr<f32>; }
     // ========================================================================
 
     /// Integration Test I: `return p as Ptr<T>` must escape malloc:p.
-    /// This is the EXACT pattern from sovereign_train's alloc_f32/alloc_i32.
+    /// This is the EXACT pattern from keuos_train's alloc_f32/alloc_i32.
     /// Before the fix, the tracker saw the cast result escaping but didn't
     /// realize it IS p, so it flagged p as leaked.
     #[test]

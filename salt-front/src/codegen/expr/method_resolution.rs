@@ -29,7 +29,7 @@ pub fn resolve_and_emit_method(
             // but will add the specialization suffix separately
             Some(name.clone())
         },
-        // [SOVEREIGN FIX] Handle Type::Pointer for Ptr<T> method calls with fully-qualified name
+        // [KEUOS FIX] Handle Type::Pointer for Ptr<T> method calls with fully-qualified name
         Type::Pointer { .. } => Some("std__core__ptr__Ptr".to_string()),
         _ => None,
     };
@@ -61,7 +61,7 @@ pub fn resolve_and_emit_method(
         Type::Concrete(_, args) if !args.is_empty() => {
             Some(args.iter().map(|t| t.mangle_suffix()).collect::<Vec<_>>().join("_"))
         },
-        // [SOVEREIGN FIX] Extract element type from Type::Pointer for method specialization suffix
+        // [KEUOS FIX] Extract element type from Type::Pointer for method specialization suffix
         Type::Pointer { element, .. } => {
             Some(element.mangle_suffix())
         },
@@ -124,7 +124,7 @@ pub fn resolve_and_emit_method(
                      Type::Concrete(_, args) => args.clone(),
                      Type::Reference(inner, _) => match inner.as_ref() {
                          Type::Concrete(_, args) => args.clone(),
-                         // [SOVEREIGN FIX] Extract from Reference(Pointer)
+                         // [KEUOS FIX] Extract from Reference(Pointer)
                          Type::Pointer { element, .. } => {
                              let canonical_element = crate::codegen::type_bridge::resolve_codegen_type(ctx, &(**element));
                              vec![canonical_element]
@@ -231,7 +231,7 @@ pub fn resolve_and_emit_method(
                   
 
                   
-                  // [V4.0 SOVEREIGN] Use TraitRegistry for method lookup  
+                  // [V4.0 KEUOS] Use TraitRegistry for method lookup  
                   let mut registry_result = ctx.trait_registry().get_legacy(&base_type_key, &method);
                   
                   // If exact match fails, try matching via find_method_by_name which matches on path and name
@@ -268,7 +268,7 @@ pub fn resolve_and_emit_method(
                       };
                       subst_map.insert("Self".to_string(), effective_receiver_ty.clone());
                       
-                      // SOVEREIGN FIX: Extract receiver_concrete_args again for mapping generics!
+                      // KEUOS FIX: Extract receiver_concrete_args again for mapping generics!
                       let receiver_concrete_args: Vec<Type> = match &receiver_ty {
                           Type::Concrete(_, args) => args.clone(),
                           Type::Reference(inner, _) => match inner.as_ref() {
@@ -580,12 +580,12 @@ pub fn resolve_and_emit_method(
     // [ABI FIX] Use emit_lvalue for receivers to get address directly without loading 1KB+ structs
     // This is the core fix for the "Fat Receiver" bug - we pass pointers, not values
     let (receiver_ptr, receiver_ty) = if let Ok((addr, raw_ty, _kind)) = emit_lvalue(ctx, out, &m.receiver, local_vars) {
-        // [SOVEREIGN FIX] Apply current type_map to resolve generics in lvalue types
+        // [KEUOS FIX] Apply current type_map to resolve generics in lvalue types
         let ty = raw_ty.substitute(&ctx.current_type_map());
 
         // Success: we have the address of the receiver
         // Determine if this is an aggregate type that should be passed by reference
-        // [SOVEREIGN FIX] Recursively check through Type::Owned, Type::Reference wrappers
+        // [KEUOS FIX] Recursively check through Type::Owned, Type::Reference wrappers
         fn is_aggregate_type(ty: &Type) -> bool {
             match ty {
                 Type::Struct(_) | Type::Concrete(_, _) | Type::Array(_, _, _) => true,
@@ -614,7 +614,7 @@ pub fn resolve_and_emit_method(
         // For computed receivers like function results, we already emitted above
         if let Some(ref val) = cached_receiver_val {
 
-            // [SOVEREIGN FIX] Apply substitution to cached receiver type too
+            // [KEUOS FIX] Apply substitution to cached receiver type too
             (val.clone(), cached_receiver_ty.substitute(&ctx.current_type_map()))
         } else {
             return Err(format!("Method call '{}' requires a receiver value", method_name));
@@ -623,13 +623,13 @@ pub fn resolve_and_emit_method(
     let receiver_val = receiver_ptr.clone();
     // Extract inner type for method resolution (strip the Reference wrapper we added)
     let raw_lookup_ty = if let Type::Reference(inner, _) = &receiver_ty { *inner.clone() } else { receiver_ty.clone() };
-    // SOVEREIGN FIX: Apply current type_map substitution to resolve generics like T -> F32
+    // KEUOS FIX: Apply current type_map substitution to resolve generics like T -> F32
     // This ensures that method calls inside generic functions use concrete types
     let current_map = ctx.current_type_map().clone();
 
     let method_lookup_ty = resolve_codegen_type(ctx, &raw_lookup_ty.substitute(&current_map));
 
-    // [SOVEREIGN FIX] Use fully-qualified TEMPLATE name for target_name (without specialization suffix)
+    // [KEUOS FIX] Use fully-qualified TEMPLATE name for target_name (without specialization suffix)
     // The specialization suffix is added separately via request_specialization
     // Example: Type::Pointer { element: U8 } -> "std__core__ptr__Ptr" (not "std__core__ptr__Ptr_u8")
     let target_name = match &method_lookup_ty {
@@ -724,7 +724,7 @@ pub fn resolve_and_emit_method(
         } else if let Type::Concrete(name, args) = &peeled_ty {
              concrete_tys.extend(args.iter().cloned());
              template_name_opt = Some(name.clone());
-        // [SOVEREIGN FIX] Handle Type::Pointer for Ptr<T> method specialization
+        // [KEUOS FIX] Handle Type::Pointer for Ptr<T> method specialization
         // Extract element type as concrete_ty and use std__core__ptr__Ptr as template
         } else if let Type::Pointer { element, .. } = &peeled_ty {
              // [CANONICAL RESOLUTION] Canonicalize element type before it enters specialization.
@@ -775,7 +775,7 @@ pub fn resolve_and_emit_method(
              }
         }
 
-        // [SOVEREIGN FIX] Insert method generic names into type_map BEFORE calling resolve_type
+        // [KEUOS FIX] Insert method generic names into type_map BEFORE calling resolve_type
         // so that they are resolved as Type::Generic instead of Type::Struct.
         if let Some(generics) = &func.generics {
             for param in &generics.params {
@@ -811,7 +811,7 @@ pub fn resolve_and_emit_method(
         };
         let signature_ret_raw_unsubst = if let Some(rt) = &func.ret_type { resolve_type(ctx, rt) } else { Type::Unit };
         
-        // [SOVEREIGN FIX] Remove the method generics we temporarily added to ctx.current_type_map()
+        // [KEUOS FIX] Remove the method generics we temporarily added to ctx.current_type_map()
         // so that GenericResolver can infer them properly and substitute doesn't infinite loop.
         if let Some(generics) = &func.generics {
             for param in &generics.params {
@@ -823,7 +823,7 @@ pub fn resolve_and_emit_method(
             }
         }
 
-        // SOVEREIGN FIX V9.10: Build method-level generic mapping
+        // KEUOS FIX V9.10: Build method-level generic mapping
         // Start with struct-level generics from context, then layer method-level on top
         let mut method_generic_map = ctx.current_type_map().clone();
         
@@ -909,7 +909,7 @@ pub fn resolve_and_emit_method(
 
         
         let mut final_receiver_val = receiver_val;
-        // [SOVEREIGN FIX] Use substituted receiver_ty to preserve Type::Reference wrapper
+        // [KEUOS FIX] Use substituted receiver_ty to preserve Type::Reference wrapper
         // method_lookup_ty strips the Reference, which causes invalid struct allocations!
         let mut final_receiver_ty = receiver_ty.substitute(&ctx.current_type_map());
         
@@ -927,7 +927,7 @@ pub fn resolve_and_emit_method(
         
 
         
-        // [SOVEREIGN FIX] Check if receiver is ALREADY a pointer (from alloca/local variable/GEP)
+        // [KEUOS FIX] Check if receiver is ALREADY a pointer (from alloca/local variable/GEP)
         // These are identified by SSA name patterns: %local_, %alloca, %spill, %gep_f_, %field_ptr_
         let is_already_pointer = final_receiver_val.starts_with("%local_") 
             || final_receiver_val.starts_with("%alloca")
@@ -1019,7 +1019,7 @@ pub fn resolve_and_emit_method(
             // (not from turbofish, but from bidirectional inference), inject them into concrete_tys
             // so the specialization path generates the correct mangled name.
             // Example: mmap<T> with inferred T=f32 => concrete_tys = [f32]
-            // [SOVEREIGN V4.1] Method-Level Generic Injection (Robust)
+            // [KEUOS V4.1] Method-Level Generic Injection (Robust)
             if let Some(fn_generics) = &func.generics {
                 let turbofish_count = if let Some(tf) = &m.turbofish { tf.args.len() } else { 0 };
                 
@@ -1103,7 +1103,7 @@ pub fn resolve_and_emit_method(
                      
                      // We want to force the name to "Ptr_u8__method", but keep concrete_tys for logic.
                      if specialized_mangled != *t_name {
-                          // [SOVEREIGN FIX] Use fully-qualified specialized name for Type::Pointer
+                          // [KEUOS FIX] Use fully-qualified specialized name for Type::Pointer
                           // get_mangled returns short name "Ptr_u8", but we need "std__core__ptr__Ptr_u8"
                           // CRITICAL: Method name format must be template__method_suffix (e.g., Ptr__addr_u8)
                           // NOT template_suffix__method (e.g., Ptr_u8__addr)

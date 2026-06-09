@@ -49,7 +49,7 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
             // Benchmark mode (release implied)
             release_mode = true; 
         } else if arg == "--binary" {
-            // Sovereign binary mode: full MLIR → native pipeline
+            // KeuOS binary mode: full MLIR → native pipeline
             binary_mode = true;
             release_mode = true; // Binary mode implies release
         } else if arg == "-c" {
@@ -181,7 +181,7 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
             }
             if binary_mode {
                 // ============================================================
-                // SOVEREIGN BINARY MODE — Full MLIR → Native Pipeline
+                // KEUOS BINARY MODE — Full MLIR → Native Pipeline
                 // ============================================================
                 let basename = std::path::Path::new(&path)
                     .file_stem()
@@ -201,7 +201,7 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
                     );
                 }
                 
-                eprintln!("🏛️  [Sovereign] Driving MLIR → native binary...");
+                eprintln!("🏛️  [KeuOS] Driving MLIR → native binary...");
                 eprintln!("    Target: {:?}", driver.target);
                 
                 let is_keuos = matches!(driver.target,
@@ -226,17 +226,17 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
                             })?;
                         }
                         
-                        // Post-compilation Sovereignty Audit
-                        eprintln!("⚖️  [Sovereign] Running Sovereignty Audit...");
+                        // Post-compilation KeuOSty Audit
+                        eprintln!("⚖️  [KeuOS] Running KeuOSty Audit...");
                         // TODO: Run full disassembly-based audit via binary_audit::check_pattern()
                         // Requires: otool -tV <binary> | check NoX19Spill + HasTailCall + HasIoSyscall
-                        eprintln!("✅  [Sovereign] Binary synthesized: {:?}", output_bin);
+                        eprintln!("✅  [KeuOS] Binary synthesized: {:?}", output_bin);
                         eprintln!("    Pipeline: mlir-opt → mlir-translate → llc (x19 reserved) → clang (-nostdlib)");
                     }
                     Err(e) => {
-                        eprintln!("❌  [Sovereign] Binary synthesis failed: {}", e);
+                        eprintln!("❌  [KeuOS] Binary synthesis failed: {}", e);
                         eprintln!("    Ensure LLVM tools are installed at /opt/homebrew/opt/llvm/bin/");
-                        eprintln!("    Ensure sovereign_rt.o is built (cd sovereign_rt && make)");
+                        eprintln!("    Ensure keuos_rt.o is built (cd keuos_rt && make)");
                         std::process::exit(1);
                     }
                 }

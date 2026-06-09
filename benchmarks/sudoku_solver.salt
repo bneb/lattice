@@ -39,19 +39,28 @@ fn solve(b: &mut Board) -> i32 {
 }
 
 fn main() -> i32 {
-    let mut board = Board([0; 81]);
-    for idx in 0..81 {
-        let (r, c) = ((idx / 9) as i32, (idx % 9) as i32);
-        board.cells[idx] = ((((r % 3) * 3 + (r / 3) + c) % 9) + 1) as u8;
-    }
-    board.cells[72] = 0; board.cells[73] = 0; board.cells[74] = 0;
+    let mut total_solved = 0;
 
-    let start = Instant::now();
-    if solve(&mut board) == STATUS_FOUND {
-        let elapsed = start.elapsed();
-        println(f"Solved! Time: {elapsed.as_nanos()} ns");
-    } else {
-        println("No solution.");
+    for k in 0..600 {
+        let mut board = Board([
+            3, 0, 6, 5, 0, 8, 4, 0, 0,
+            5, 2, 0, 0, 0, 0, 0, 0, 0,
+            0, 8, 7, 0, 0, 0, 0, 3, 1,
+            0, 0, 3, 0, 1, 0, 0, 8, 0,
+            9, 0, 0, 8, 6, 3, 0, 0, 5,
+            0, 5, 0, 0, 9, 0, 6, 0, 0,
+            1, 3, 0, 0, 0, 0, 2, 5, 0,
+            0, 0, 0, 0, 0, 0, 0, 7, 4,
+            0, 0, 5, 2, 0, 6, 3, 0, 0
+        ]);
+
+        if solve(&mut board) == STATUS_FOUND {
+            total_solved += 1;
+        }
+    }
+
+    if total_solved != 600 {
+        return 1;
     }
     return 0;
 }

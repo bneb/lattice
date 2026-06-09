@@ -1,5 +1,5 @@
 // =============================================================================
-// Prisimi Facet Display Contract (Platform-Agnostic C-ABI)
+// KeuOS Facet Display Contract (Platform-Agnostic C-ABI)
 // =============================================================================
 //
 // The Salt engine (compositor.salt) communicates with the display hardware
@@ -29,7 +29,7 @@ void facet_window_init(int width, int height);
 void* facet_window_next_drawable(void);
 
 // Drain the OS event queue (mouse, keyboard, scroll, close).
-// Must be called once per frame from the sovereign main loop.
+// Must be called once per frame from the keuos main loop.
 void facet_window_pump_events(void);
 
 // Returns accumulated scroll wheel delta since last call, then resets to 0.

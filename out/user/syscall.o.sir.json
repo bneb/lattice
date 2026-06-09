@@ -1,0 +1,23 @@
+{
+  "name": "syscall",
+  "version": 1,
+  "structs": [
+  ],
+  "functions": [
+    {"name": "write", "params": 2, "return_type": "Void", "is_pub": true, "blocks": 0, "contracts": 0},
+    {"name": "exit", "params": 1, "return_type": "Void", "is_pub": true, "blocks": 0, "contracts": 0},
+    {"name": "brk", "params": 1, "return_type": "U64", "is_pub": true, "blocks": 0, "contracts": 0},
+    {"name": "mmap", "params": 2, "return_type": "U64", "is_pub": true, "blocks": 0, "contracts": 0},
+    {"name": "ipc_send", "params": 4, "return_type": "U64", "is_pub": true, "blocks": 0, "contracts": 0},
+    {"name": "ipc_recv", "params": 0, "return_type": "U64", "is_pub": true, "blocks": 0, "contracts": 0},
+    {"name": "ipc_get_msg0", "params": 0, "return_type": "U64", "is_pub": true, "blocks": 0, "contracts": 0},
+    {"name": "ipc_get_msg1", "params": 0, "return_type": "U64", "is_pub": true, "blocks": 0, "contracts": 0},
+    {"name": "ipc_get_msg2", "params": 0, "return_type": "U64", "is_pub": true, "blocks": 0, "contracts": 0},
+    {"name": "shm_grant", "params": 4, "return_type": "U64", "is_pub": true, "blocks": 0, "contracts": 0},
+    {"name": "cap_bind", "params": 1, "return_type": "U64", "is_pub": true, "blocks": 0, "contracts": 0},
+    {"name": "ring_map", "params": 1, "return_type": "U64", "is_pub": true, "blocks": 0, "contracts": 0},
+    {"name": "core_acquire", "params": 1, "return_type": "U64", "is_pub": true, "blocks": 0, "contracts": 0},
+    {"name": "ipc_reg_send", "params": 3, "return_type": "I64", "is_pub": true, "blocks": 0, "contracts": 0},
+    {"name": "ipc_ring_await", "params": 1, "return_type": "I64", "is_pub": true, "blocks": 0, "contracts": 0}
+  ]
+}

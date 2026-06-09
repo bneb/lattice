@@ -26,14 +26,14 @@ package kernel.core.percpu_test
 import kernel.drivers.serial
 import kernel.core.pmm
 import kernel.core.scheduler
+import kernel.core.percpu
 
 // Slab allocator functions (extern since slab.salt uses flat package)
 extern fn pop_stack() -> u64;
 extern fn push_stack(ptr: u64);
 extern fn slab_watermark() -> i32;
 
-// Per-CPU accessor
-extern fn get_cpu_id() -> u64;
+// Per-CPU accessor imported via percpu
 
 // =============================================================================
 // Test Infrastructure
@@ -71,7 +71,7 @@ fn test_value(name: &u8, val: u64) {
 
 fn test_bsp_gs() {
     serial.print("[TEST] BSP GS Segment\n");
-    let cpu_id = get_cpu_id();
+    let cpu_id = percpu.get_cpu_id();
     test_value("bsp_gs_cpu_id", cpu_id);
     if cpu_id == 0 {
         test_pass("bsp_gs_valid");
@@ -93,7 +93,7 @@ fn test_bsp_gs() {
 fn test_pmm_sharding() {
     serial.print("[TEST] PMM Sharding (core 0)\n");
 
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
     test_value("pmm_cpu_id", cpu);
 
     // Snapshot initial state
@@ -361,9 +361,9 @@ fn test_scheduler_sharding() {
     test_pass("sched_current_valid");
 
     // Test 5.3: cpu_id is consistent during scheduler operations
-    let cpu_before = get_cpu_id();
+    let cpu_before = percpu.get_cpu_id();
     scheduler.yield_now();
-    let cpu_after = get_cpu_id();
+    let cpu_after = percpu.get_cpu_id();
     if cpu_before == cpu_after {
         test_pass("sched_yield_cpu_stable");
     } else {

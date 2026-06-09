@@ -1,26 +1,40 @@
 package user.terminal.main
 
 import user.terminal.console
-import user.terminal.shell
+import user.grit.shell
+import std.core.str
+extern fn sys_yield();
 
-const FB_VIRT: u64 = 0x40002000;
-const RX_RING: u64 = 0x40001000;
-const CONSOLE_MEM: u64 = 0x40402000;
+global FB_VIRT: u64 = 0;
+global RX_RING: u64 = 0;
+global FB_W: u32 = 0;
+global FB_H: u32 = 0;
+global FB_PITCH: u32 = 0;
 
-pub fn terminal_main(w: u64, h: u64, pitch: u64) {
-    console.init(FB_VIRT, w as u32, h as u32, pitch as u32, 32, CONSOLE_MEM);
+@no_mangle
+pub fn sys_terminal_init_config(fb: u64, rx: u64, w: u32, h: u32, pitch: u32) {
+    FB_VIRT = fb;
+    RX_RING = rx;
+    FB_W = w;
+    FB_H = h;
+    FB_PITCH = pitch;
+}
+
+pub fn terminal_main() {
+    console.init(FB_VIRT, FB_W, FB_H, FB_PITCH, 32);
     console.clear();
     
     // Test ANSI color codes immediately
     let msg = "\x1B[32mKeuOS Terminal Ready!\x1B[0m\n\n";
-    console.print((&msg) as u64, 33);
+    console.print(msg.ptr as u64, 33);
+    shell.tx_print(msg.ptr as u64, 33);
     
     shell.prompt();
     
     let mut TICK_COUNTER: u32 = 0;
 
     loop {
-        // Fast-path polling the SPSC Ring Buffer from Ring 3
+        // Fast-path polling the SPSC Ring Buffer directly from Kernel space
         let head = *((RX_RING + 0) as &u64);
         let tail = *((RX_RING + 64) as &u64);
         
@@ -35,14 +49,13 @@ pub fn terminal_main(w: u64, h: u64, pitch: u64) {
             shell.handle_key(raw_byte);
             TICK_COUNTER = 0; // immediate redraw ensures crisp keystroke
         } else {
-            // Hot yield or just spin for bare metal latency MVP
-            let mut x: u32 = 0;
-            while x < 100 { x = x + 1; }
+            sys_yield();
             
             TICK_COUNTER = TICK_COUNTER + 1;
-            if TICK_COUNTER == 25000 {
+            // Since we yield, we don't need huge numbers here for the cursor blink
+            if TICK_COUNTER == 50 {
                 console.invert_cursor();
-            } else if TICK_COUNTER >= 50000 {
+            } else if TICK_COUNTER >= 100 {
                 console.invert_cursor();
                 TICK_COUNTER = 0;
             }
@@ -51,4 +64,4 @@ pub fn terminal_main(w: u64, h: u64, pitch: u64) {
 }
 
 @no_mangle
-pub fn sys_terminal_main(w: u64, h: u64, pitch: u64) { terminal_main(w, h, pitch); }
+pub fn sys_terminal_main(arg1: u64, arg2: u64, arg3: u64) { terminal_main(); }

@@ -2,11 +2,12 @@ package kernel.core.panic
 
 import kernel.drivers.serial
 import kernel.core.flight_recorder
+import kernel.core.percpu
 
 // Assembly stubs defined in kernel/arch/x86/boot.S and proc_helpers.S
 extern fn kernel_halt();
 extern fn disable_interrupts();
-extern fn get_cpu_id() -> u64;
+
 extern fn get_cycles_asm() -> u64;
 
 // =============================================================================
@@ -45,7 +46,7 @@ pub fn kernel_panic(msg: &u8) {
     broadcast_nmi_halt();
 
     // 3. Gather panic context
-    let cpu_id = get_cpu_id();
+    let cpu_id = percpu.get_cpu_id();
     let timestamp = get_cycles_asm();
 
     // Compute a simple hash of the panic reason for the header

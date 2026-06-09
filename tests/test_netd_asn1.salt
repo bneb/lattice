@@ -1,5 +1,5 @@
 // =============================================================================
-// Test: Prisimi TLS ASN.1 Logical State Math Evaluation Sequences
+// Test: KeuOS TLS ASN.1 Logical State Math Evaluation Sequences
 // =============================================================================
 
 import user.netd.tls.asn1

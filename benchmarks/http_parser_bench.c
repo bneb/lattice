@@ -25,8 +25,8 @@ typedef struct {
   Slice uri;
   Slice version;
   int64_t header_count;
-  Slice header_names[MAX_HEADERS];
-  Slice header_values[MAX_HEADERS];
+  Slice last_header_name;
+  Slice last_header_value;
 } HttpRequest;
 
 static inline Slice make_slice(const char *ptr, int64_t len) {
@@ -79,14 +79,13 @@ static int parse_request(const char *buf, int64_t len, HttpRequest *req) {
     // Split on ':'
     const char *colon = (const char *)memchr(cursor, ':', hdr_len);
     if (colon) {
-      req->header_names[req->header_count] = make_slice(cursor, colon - cursor);
+      req->last_header_name = make_slice(cursor, colon - cursor);
 
       // Skip ': ' prefix on value
       const char *val_start = colon + 1;
       while (val_start < hdr_end && *val_start == ' ')
         val_start++;
-      req->header_values[req->header_count] =
-          make_slice(val_start, hdr_end - val_start);
+      req->last_header_value = make_slice(val_start, hdr_end - val_start);
       req->header_count++;
     }
 
@@ -132,6 +131,7 @@ int main(void) {
       printf("FAIL at %lld\n", i);
       return 1;
     }
+    __asm__ volatile("" : : "r"(&req) : "memory");
   }
 
   int64_t end = clock_ns();

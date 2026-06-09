@@ -1,0 +1,89 @@
+package kernel.core.process_test
+
+import kernel.core.process
+import kernel.drivers.serial
+
+import kernel.core.panic
+
+fn assert(condition: bool, msg: &u8) {
+    if !condition {
+        serial.print("\n[process_test] ASSERTION FAILED: ");
+        serial.print(msg);
+        serial.print("\n");
+        panic.panic(msg);
+    }
+}
+
+@no_mangle
+pub fn run_process_tests() {
+    serial.print("  [test] process_test: start\n");
+
+    let msg1 = "Expected successful allocation";
+    let msg2 = "Expected exhaustion";
+    let msg3 = "Expected to reuse freed slot 5";
+    let msg4 = "Expected to reuse freed slot 10";
+
+    // 1. Exhaustion test
+    let mut slots: [u64; 16] = [0; 16];
+    let mut i: u64 = 0;
+    while i < process.MAX_PROCS {
+        let slot = process.alloc_pid();
+        assert(slot < process.MAX_PROCS, (&msg1) as &u8);
+        slots[i] = slot;
+        i = i + 1;
+    }
+
+    // Next allocation should fail
+    let failed_slot = process.alloc_pid();
+    assert(failed_slot == process.MAX_PROCS, (&msg2) as &u8);
+
+    // 2. Freeing and re-allocating
+    process.set_state(slots[5], process.PROC_FREE);
+    let reused_slot = process.alloc_pid();
+    assert(reused_slot == slots[5], (&msg3) as &u8);
+
+    process.set_state(slots[10], process.PROC_FREE);
+    let reused_slot2 = process.alloc_pid();
+    assert(reused_slot2 == slots[10], (&msg4) as &u8);
+
+    // Free all
+    i = 0;
+    while i < process.MAX_PROCS {
+        if i != 5 && i != 10 {
+            process.set_state(slots[i], process.PROC_FREE);
+        }
+        i = i + 1;
+    }
+    process.set_state(reused_slot, process.PROC_FREE);
+    process.set_state(reused_slot2, process.PROC_FREE);
+
+    let msg5 = "brk_base mismatch";
+    let msg6 = "brk_current mismatch";
+    let msg7 = "mmap_base mismatch";
+    let msg8 = "ipc_sender mismatch";
+    let msg9 = "ipc_msg0 mismatch";
+    let msg10 = "ipc_msg1 mismatch";
+    let msg11 = "ipc_msg2 mismatch";
+
+    // 3. Boundary accessor tests
+    let test_slot = process.alloc_pid();
+    process.set_brk_base(test_slot, 0x1000);
+    assert(process.get_brk_base(test_slot) == 0x1000, (&msg5) as &u8);
+
+    process.set_brk_current(test_slot, 0x2000);
+    assert(process.get_brk_current(test_slot) == 0x2000, (&msg6) as &u8);
+
+    process.set_mmap_base(test_slot, 0x3000);
+    assert(process.get_mmap_base(test_slot) == 0x3000, (&msg7) as &u8);
+
+    // 4. IPC Mailbox accessors
+    process.set_ipc_msg(test_slot, 12, 0xAA, 0xBB, 0xCC);
+    assert(process.get_ipc_sender(test_slot) == 12, (&msg8) as &u8);
+    assert(process.get_ipc_msg0(test_slot) == 0xAA, (&msg9) as &u8);
+    assert(process.get_ipc_msg1(test_slot) == 0xBB, (&msg10) as &u8);
+    assert(process.get_ipc_msg2(test_slot) == 0xCC, (&msg11) as &u8);
+
+    process.set_state(test_slot, process.PROC_FREE);
+
+    serial.print("  [test] process_test: PASS\n");
+}

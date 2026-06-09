@@ -151,7 +151,7 @@ pub fn scan_defs_from_file_impl(ctx: &mut LoweringContext, file: &SaltFile, is_m
                     }
                     SaltImpl::Concept { .. } => {
                         // Concepts are used for verification, not direct emission.
-                        // [SOVEREIGN V7.0] For now, just skip during scanning.
+                        // [KEUOS V7.0] For now, just skip during scanning.
                     }
                 }
             }

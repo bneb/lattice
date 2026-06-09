@@ -1,4 +1,5 @@
 #![allow(clippy::all)]
+#![allow(warnings)]
 
 
 // Internal Compiler Error Macro
@@ -78,11 +79,11 @@ pub fn preprocess(source: &str) -> String {
             // so that syn can parse it (syn requires turbofish in expression position)
             let line = convert_generic_call_syntax(&line);
             
-            // [SOVEREIGN PHASE 3] Convert tensor shape syntax to parseable form
+            // [KEUOS PHASE 3] Convert tensor shape syntax to parseable form
             // `Tensor<f32, {2, 128, 784}>` -> `Tensor<f32, __Shape_2_128_784__>`
             let line = convert_tensor_shape_syntax(&line);
             
-            // [SOVEREIGN FLUENT-MATH] Convert @ operator to .matmul() method
+            // [KEUOS FLUENT-MATH] Convert @ operator to .matmul() method
             // Pattern: A @ B becomes A.matmul(B)
             // This is done via simple regex-like replacement for now
             let line = convert_matmul_operator(&line);
@@ -100,7 +101,7 @@ pub fn preprocess(source: &str) -> String {
             // hex"DEADBEEF" -> __hex__!("DEADBEEF")
             let line = convert_prefixed_string_syntax(&line);
             
-            // [SOVEREIGN] Convert postfix ~ (force-unwrap) to __force_unwrap__! macro
+            // [KEUOS] Convert postfix ~ (force-unwrap) to __force_unwrap__! macro
             // val~ -> __force_unwrap__!(val)
             let line = convert_force_unwrap(&line);
             
@@ -280,7 +281,7 @@ fn expand_derive_annotations(source: &str) -> String {
 /// [V4.0 SCORCHED EARTH] Convert prefixed string literals to macro calls
 /// `f"Hello {name}"` -> `__fstring__!("Hello {name}")`
 /// `hex"DEADBEEF"` -> `__hex__!("DEADBEEF")`
-/// [SOVEREIGN WRITER PROTOCOL] Also converts target expressions:
+/// [KEUOS WRITER PROTOCOL] Also converts target expressions:
 /// `console.f"Hello {x}"` -> `__target_fstring__!(console, "Hello {x}")`
 /// This converts the syntax to something syn can parse as a macro invocation,
 /// which codegen then intercepts and expands via native_fstring_expand/native_hex_expand.
@@ -330,7 +331,7 @@ fn convert_prefixed_string_syntax(line: &str) -> String {
             continue;
         }
         
-        // [SOVEREIGN WRITER PROTOCOL] Check for '.f"' pattern (target.f"...")
+        // [KEUOS WRITER PROTOCOL] Check for '.f"' pattern (target.f"...")
         // This is the target expression syntax for streaming to Writers
         if c == '.' && chars.peek() == Some(&'f') {
             // Peek ahead to verify pattern: .f"
@@ -404,7 +405,7 @@ fn convert_prefixed_string_syntax(line: &str) -> String {
     result
 }
 
-/// [SOVEREIGN WRITER PROTOCOL] Extract the target expression for target.f"..." syntax
+/// [KEUOS WRITER PROTOCOL] Extract the target expression for target.f"..." syntax
 /// Scans backwards from the current position to find the complete expression
 fn extract_target_expression(buffer: &str) -> String {
     let mut depth = 0;
@@ -596,7 +597,7 @@ fn convert_generic_call_syntax(line: &str) -> String {
     result
 }
 
-/// [SOVEREIGN PHASE 3] Convert tensor shape syntax to syn-parseable form with AUTO-RANK
+/// [KEUOS PHASE 3] Convert tensor shape syntax to syn-parseable form with AUTO-RANK
 /// `Tensor<f32, {128, 784}>` -> `Tensor<f32, __Shape_2_128_784__>` (2 dims = rank 2)
 /// `Tensor<f32, {784}>` -> `Tensor<f32, __Shape_1_784__>` (1 dim = rank 1)
 /// Only converts `{...}` that appear to be in type position (after comma in generics)
@@ -1008,7 +1009,7 @@ fn convert_railway_operator(line: &str) -> String {
     result
 }
 
-/// [SOVEREIGN] Convert postfix force-unwrap operator.
+/// [KEUOS] Convert postfix force-unwrap operator.
 /// `expr~` -> `__force_unwrap__!(expr)` when ~ follows an expression-ending char.
 /// Prefix `~x` (bitwise NOT) is preserved unchanged.
 fn convert_force_unwrap(line: &str) -> String {
@@ -1528,7 +1529,7 @@ mod tests {
     // Tests for f-string expansion are now in codegen context tests
     
     // ============================================================
-    // SOVEREIGN WRITER PROTOCOL TESTS (target.f"..." syntax)
+    // KEUOS WRITER PROTOCOL TESTS (target.f"..." syntax)
     // ============================================================
 
     #[test]

@@ -7,21 +7,13 @@
 
 package user.ring3_test_a
 
-extern fn sys_write(fd: u64, buf: u64, len: u64);
-extern fn sys_exit(code: u64);
-extern fn sys_str_data(sv: &u64) -> u64;
+import user.lib.syscall
+import user.std.stdio
 
 pub fn main() {
-    let msg = "[A] Hello from Process A!\n";
-    // Formal boundary: extract data pointer through extern hardware helper.
-    // sys_str_data reads the first field of the StringView struct (the ptr).
-    // This satisfies the Z3 SIP safety verifier — no integer-to-pointer casts.
-    let data_ptr = sys_str_data(&msg);
-    let len: u64 = 26;
-
     let mut i: u64 = 0;
     while i < 10 {
-        sys_write(1, data_ptr, len);
+        stdio.print("[A] Hello from Process A!\n");
 
         // Spin to stay alive longer than the PIT tick (~714µs)
         let mut spin: u64 = 0;
@@ -32,5 +24,5 @@ pub fn main() {
         i = i + 1;
     }
 
-    sys_exit(0);
+    syscall.exit(0);
 }

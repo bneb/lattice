@@ -22,7 +22,7 @@ def get_benchmarks(specific_bench=None):
     ]
 
 def main():
-    parser = argparse.ArgumentParser(description="Lattice Benchmark Infrastructure")
+    parser = argparse.ArgumentParser(description="KeuOS Benchmark Infrastructure")
     parser.add_argument('--bench', type=str, help='Specific benchmark to run')
     parser.add_argument('--all', action='store_true', help='Run all benchmarks')
     parser.add_argument('--iterations', type=int, default=3)

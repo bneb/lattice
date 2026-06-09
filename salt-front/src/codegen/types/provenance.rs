@@ -130,12 +130,12 @@ impl GlobalLVN {
         self.current_function = None;
     }
 
-    /// [SOVEREIGN FIX] Get the current function name (for debugging).
+    /// [KEUOS FIX] Get the current function name (for debugging).
     pub fn get_current_function(&self) -> Option<String> {
         self.current_function.clone()
     }
     
-    /// [SOVEREIGN FIX] Clear all cached values for the current function.
+    /// [KEUOS FIX] Clear all cached values for the current function.
     /// Must be called at the start of emit_fn to prevent stale SSA reuse
     /// if the function is re-compiled (e.g. during re-hydration phases).
     pub fn clear_current_func_cache(&mut self) {

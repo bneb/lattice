@@ -1,4 +1,4 @@
-// std/time.salt — Sovereign Time Library
+// std/time.salt — KeuOS Time Library
 // Portable monotonic clock backed by runtime.c (mach_absolute_time on macOS).
 
 package std.time

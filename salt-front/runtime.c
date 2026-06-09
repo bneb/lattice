@@ -133,7 +133,7 @@ int64_t salt_memcpy_impl(int64_t dst, int64_t src, int64_t len) {
   return dst;
 }
 
-// [SOVEREIGN FIX] Salt allocator interfaces - simple mmap/munmap wrappers
+// [KEUOS FIX] Salt allocator interfaces - simple mmap/munmap wrappers
 // Called by std/core/mem.salt Alloc functions via MLIR extern declarations
 int64_t salt_mmap(int64_t size) {
   void *result = mmap(NULL, (size_t)size, PROT_READ | PROT_WRITE,
@@ -146,7 +146,7 @@ int64_t salt_munmap(int64_t addr, int64_t size) {
 }
 
 // =============================================================================
-// [SOVEREIGN V4.0] Arena Allocator - O(1) bump allocation with mark/reset
+// [KEUOS V4.0] Arena Allocator - O(1) bump allocation with mark/reset
 // =============================================================================
 // Global arena state - 256MB for benchmark workloads
 #define ARENA_SIZE (256 * 1024 * 1024)
@@ -174,7 +174,7 @@ static void arena_init() {
 // Returns 0 (null) if arena is exhausted.
 int64_t salt_arena_alloc(int64_t size) {
   arena_init();
-  // Align to 8 bytes using Sovereign Bitmask pattern
+  // Align to 8 bytes using KeuOS Bitmask pattern
   int64_t aligned_addr = (arena_current + 7) & ~7;
   int64_t next = aligned_addr + size;
   if (next > arena_end)
@@ -308,7 +308,7 @@ int64_t __salt_fmt_f64_to_buf(char *buf, double val, int64_t precision) {
 }
 
 // =============================================================================
-// SALT MEMORY ARCHITECTURE V4.0 - "Memory Sovereignty"
+// SALT MEMORY ARCHITECTURE V4.0 - "Memory KeuOSty"
 // =============================================================================
 
 /**

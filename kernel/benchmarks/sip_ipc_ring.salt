@@ -29,8 +29,9 @@ package benchmarks.sip_ipc_ring
 import kernel.drivers.serial
 import kernel.drivers.vga
 import kernel.core.timing
+import kernel.core.percpu
 
-extern fn get_cpu_id() -> u64;
+
 
 // Volatile assembly helpers (volatile_mem.S) — prevent load hoisting
 extern fn volatile_read_i32(addr: u64) -> i32;

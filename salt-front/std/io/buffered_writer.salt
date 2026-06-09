@@ -1,5 +1,5 @@
 // std.io.buffered_writer - Batched I/O with Z3-Verified Bounds
-// [SOVEREIGN V4.1] Implements Writer concept for efficient file output
+// [KEUOS V4.1] Implements Writer concept for efficient file output
 
 package std.io.buffered_writer
 
@@ -41,7 +41,7 @@ impl BufferedWriter {
     pub fn write_bytes(&mut self, data: &u8, len: i64) {
         // Fast path: fits in remaining buffer
         if self.pos + len <= BUFFER_SIZE {
-            // [SOVEREIGN V4.1] Use memcpy intrinsic for vectorized stores
+            // [KEUOS V4.1] Use memcpy intrinsic for vectorized stores
             let dst = &self.buf[self.pos];
             let src_addr = reinterpret_cast::<i64>(data);
             let dst_addr = reinterpret_cast::<i64>(dst);
@@ -75,7 +75,7 @@ impl BufferedWriter {
     }
     
     // ==========================================================================
-    // Unchecked Write Methods (Sovereign Protocol)
+    // Unchecked Write Methods (KeuOS Protocol)
     // ==========================================================================
     // For use when caller has verified capacity via prior reserve check.
     // Enables LLVM to fully optimize multi-part f-string writes.

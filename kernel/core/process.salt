@@ -109,23 +109,37 @@ pub fn alloc_pid() -> u64 {
         let mut success = false;
         while !success {
             let old = PID_BITMAP[group];
-            let free_mask = old ^ 0xFFFFFFFFFFFFFFFF;
+            let mut free_mask = old ^ 0xFFFFFFFFFFFFFFFF;
+            
+            // Mask out bits beyond MAX_PROCS
+            if group * 64 >= MAX_PROCS {
+                free_mask = 0;
+            } else if group * 64 + 64 > MAX_PROCS {
+                let valid_bits = MAX_PROCS - (group * 64);
+                let valid_mask = ((1 as u64) << valid_bits) - 1;
+                free_mask = free_mask & valid_mask;
+            }
+            
             if free_mask == 0 {
-                // Group is full
+                // Group is full or beyond MAX_PROCS
                 success = true; // break inner loop to advance group
             } else {
                 let bit = ctz_u64(free_mask);
-                let mask = (1 as u64) << bit;
-                let new = old | mask;
-                let old_val = atomic_cas_i64(&PID_BITMAP[group], old as i64, new as i64);
-                if old_val == old as i64 {
-                    // Successfully claimed the slot
-                    let slot = group * 64 + bit;
-                    let pid = atomic_add_i64(&NEXT_PID, 1 as i64);
-                    PROC_TABLE[slot].pid = pid as u64;
-                    PROC_TABLE[slot].state = PROC_READY;
-                    atomic_add_i64(&PROC_COUNT, 1 as i64);
-                    return slot;
+                let slot = group * 64 + bit;
+                if slot >= MAX_PROCS {
+                    success = true;
+                } else {
+                    let mask = (1 as u64) << bit;
+                    let new = old | mask;
+                    let old_val = atomic_cas_i64(&PID_BITMAP[group], old as i64, new as i64);
+                    if old_val == old as i64 {
+                        // Successfully claimed the slot
+                        let pid = atomic_add_i64(&NEXT_PID, 1 as i64);
+                        PROC_TABLE[slot].pid = pid as u64;
+                        PROC_TABLE[slot].state = PROC_READY;
+                        atomic_add_i64(&PROC_COUNT, 1 as i64);
+                        return slot;
+                    }
                 }
             }
         }

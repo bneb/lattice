@@ -1,0 +1,189 @@
+// =============================================================================
+// KEUOS SALT V3.0 - MNIST TRAINING KERNEL
+// =============================================================================
+// Phase 6: Slice<T> — The Safety Bridge
+// Arena allocation → Slice<T> fat pointer. No Vec ceremony, no raw Ptr escape.
+// .at()/.set() carry Z3 requires clauses for verified bounds safety.
+// ~6.5s Training Time | 90%+ Accuracy | Formal Provenance Safety.
+// =============================================================================
+
+package main
+
+import std.io.file.{File, OpenFlags, Prot, MapFlags};
+import std.core.result.Result;
+import std.core.arena.Arena;
+import std.core.slice.Slice;
+import std.core.ptr.Ptr;
+import std.nn.activations.{relu, relu_grad};
+import std.nn.loss.softmax_cross_entropy_grad;
+import std.nn.ops.{add_bias, zeros, argmax};
+import std.time.Instant;
+import std.math.{expf, sqrtf};
+
+// Constants for MNIST
+const TRAIN_COUNT: i64 = 60000;
+const TEST_COUNT: i64 = 10000;
+const INPUT_SIZE: i64 = 28 * 28;
+const HIDDEN_SIZE: i64 = 128;
+const OUTPUT_SIZE: i64 = 10;
+const EPOCHS: i64 = 8;
+const LEARNING_RATE: f32 = 0.001;
+
+
+fn init_weights(w: Slice<f32>, count: i64, scale: f32, initial_seed: u32) {
+    let mut seed: u32 = initial_seed;
+    for i in 0..count {
+        seed = (seed * 1103515245u32 + 12345u32) % 2147483647u32;
+        let r = (((seed % 2000u32) as i32 - 1000i32) as f32) / 1000.0f32;
+        w.set(i, r * scale);
+    }
+}
+
+// Matrix-vector multiply: out = W * x
+// W is row-major [rows x cols], x is [cols], out is [rows]
+fn matvec(w: Slice<f32>, x: Slice<f32>, out: Slice<f32>, rows: i64, cols: i64) -> Slice<f32> {
+    for i in 0..rows {
+        let mut sum: f32 = 0.0f32;
+        let row_offset = i * cols;
+        for j in 0..cols {
+            sum = sum + (w.at(row_offset + j) * x.at(j));
+        }
+        out.set(i, sum);
+    }
+    return out;
+}
+
+// --- Main Training Entry ---
+
+fn run() -> Result<i32> {
+    println("=== Salt Training (Arena + Slice) ===");
+    println("Loading MNIST via MMAP...");
+
+    // Load training data — ? propagates Status on failure
+    let img_file = File::open("mnist_train_images.bin", OpenFlags { bits: 0 })?;
+    let lbl_file = File::open("mnist_train_labels.bin", OpenFlags { bits: 0 })?;
+
+    let train_img_size = TRAIN_COUNT * INPUT_SIZE * 4;
+    let train_images = img_file.mmap::<f32>(train_img_size, Prot { bits: 1 }, MapFlags { bits: 2 })?;
+    let train_labels_ptr = lbl_file.mmap::<u8>(TRAIN_COUNT, Prot { bits: 1 }, MapFlags { bits: 2 })?;
+    let train_labels = Slice<u8>::new(train_labels_ptr, TRAIN_COUNT);
+
+    println("Initializing weights (Xavier)...");
+
+    // --- Arena + Slice<f32> — The Safety Bridge ---
+    // All weights and scratch buffers live on a single Arena.
+    // Slice<T> wraps the raw pointer with bounds metadata.
+    // .at()/.set() are verified by Z3 — zero runtime overhead when proved.
+    let arena = Arena::new(4194304);  // 4MB — enough for all weights+buffers
+
+    // Allocate weight slices directly — no Vec ceremony
+    let w1 = Slice<f32>::new(arena.alloc_array::<f32>(HIDDEN_SIZE * INPUT_SIZE), HIDDEN_SIZE * INPUT_SIZE);
+    let b1 = Slice<f32>::new(arena.alloc_array::<f32>(HIDDEN_SIZE), HIDDEN_SIZE);
+    let w2 = Slice<f32>::new(arena.alloc_array::<f32>(OUTPUT_SIZE * HIDDEN_SIZE), OUTPUT_SIZE * HIDDEN_SIZE);
+    let b2 = Slice<f32>::new(arena.alloc_array::<f32>(OUTPUT_SIZE), OUTPUT_SIZE);
+
+    // Activation buffer slices
+    let pre_relu = Slice<f32>::new(arena.alloc_array::<f32>(HIDDEN_SIZE), HIDDEN_SIZE);
+    let hidden   = Slice<f32>::new(arena.alloc_array::<f32>(HIDDEN_SIZE), HIDDEN_SIZE);
+    let output   = Slice<f32>::new(arena.alloc_array::<f32>(OUTPUT_SIZE), OUTPUT_SIZE);
+    let delta_out    = Slice<f32>::new(arena.alloc_array::<f32>(OUTPUT_SIZE), OUTPUT_SIZE);
+    let delta_hidden = Slice<f32>::new(arena.alloc_array::<f32>(HIDDEN_SIZE), HIDDEN_SIZE);
+
+    // Xavier initialization: sqrt(6 / (fan_in + fan_out))
+    let fan1 = (INPUT_SIZE + HIDDEN_SIZE) as f32;
+    let xavier_w1 = sqrtf(6.0f32 / fan1);  
+    let fan2 = (HIDDEN_SIZE + OUTPUT_SIZE) as f32;
+    let xavier_w2 = sqrtf(6.0f32 / fan2); 
+    init_weights(w1, HIDDEN_SIZE * INPUT_SIZE, xavier_w1, 42u32);
+    init_weights(w2, OUTPUT_SIZE * HIDDEN_SIZE, xavier_w2, 123u32);
+    zeros(b1.as_ptr(), HIDDEN_SIZE);
+    zeros(b2.as_ptr(), OUTPUT_SIZE);
+    let total_start = Instant::now();
+
+    // Training loop
+    for epoch in 0..EPOCHS {
+        let epoch_start = Instant::now();
+        let mut correct: i64 = 0;
+
+         for sample in 0..TRAIN_COUNT {
+            let input = Slice<f32>::new(train_images.offset(sample * INPUT_SIZE), INPUT_SIZE);
+            let label = train_labels.at(sample);
+
+            // === FORWARD PASS ===
+            
+            // Layer 1: pre_relu = W1 * input + bias1
+            matvec(w1, input, pre_relu, HIDDEN_SIZE, INPUT_SIZE);
+            add_bias(pre_relu.as_ptr(), HIDDEN_SIZE, b1.as_ptr());            
+            for j in 0..HIDDEN_SIZE {
+                hidden.set(j, pre_relu.at(j));
+            }
+            relu(hidden.as_ptr(), HIDDEN_SIZE);
+            
+            // Layer 2: output = W2 * hidden + bias2
+            matvec(w2, hidden, output, OUTPUT_SIZE, HIDDEN_SIZE);
+            add_bias(output.as_ptr(), OUTPUT_SIZE, b2.as_ptr());
+
+            // Argmax for accuracy
+            let pred = argmax(output.as_ptr(), OUTPUT_SIZE);
+            if pred == (label as i64) {
+                correct += 1;
+            }
+            
+            // Softmax + Cross-entropy gradient (fused)
+            softmax_cross_entropy_grad(output.as_ptr(), delta_out.as_ptr(), OUTPUT_SIZE, label as i64);
+
+            // Backprop: compute delta_hidden
+            for j in 0..HIDDEN_SIZE {
+                let mut sum: f32 = 0.0f32;
+                for i in 0..OUTPUT_SIZE {
+                    sum += w2.at(i * HIDDEN_SIZE + j) * delta_out.at(i);
+                }
+                delta_hidden.set(j, sum * relu_grad(pre_relu.at(j)));
+            }
+
+            // SGD Update Layer 2
+            let lr: f32 = 0.001f32;
+            for i in 0..OUTPUT_SIZE {
+                let d = delta_out.at(i);
+                b2.set(i, b2.at(i) - lr * d);
+                let row_offset = i * HIDDEN_SIZE;
+                for j in 0..HIDDEN_SIZE {
+                    w2.set(row_offset + j, w2.at(row_offset + j) - lr * d * hidden.at(j));
+                }
+            }
+
+            // SGD Update Layer 1
+            for i in 0..HIDDEN_SIZE {
+                let d = delta_hidden.at(i);
+                b1.set(i, b1.at(i) - lr * d);
+                let row_offset = i * INPUT_SIZE;
+                for j in 0..INPUT_SIZE {
+                    w1.set(row_offset + j, w1.at(row_offset + j) - lr * d * input.at(j));
+                }
+            }
+        }
+
+        let epoch_elapsed = epoch_start.elapsed();
+        let epoch_ms = epoch_elapsed.as_millis();
+        let accuracy = (correct * 100) / TRAIN_COUNT;
+
+        println(f"Epoch {epoch + 1}: {accuracy}% accuracy ({epoch_ms} ms)");
+    }
+
+    let total_elapsed = total_start.elapsed();
+    let total_ms = total_elapsed.as_millis();
+
+    println("\n=== Training Complete ===");
+    println(f"Total time: {total_ms} ms");
+
+    // Cleanup: Automatic!
+    // When 'arena' goes out of scope, everything vanishes.
+    // Slices are just views — they don't own memory.
+
+    return Result::Ok(0);
+}
+
+pub fn main_salt() -> i32 {
+    let r = run();
+    return r.unwrap();
+}

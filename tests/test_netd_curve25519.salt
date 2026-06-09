@@ -1,5 +1,5 @@
 // =============================================================================
-// Test: Prisimi ECDHE Cryptographic Curve25519 Mechanical Sympathy Bounds
+// Test: KeuOS ECDHE Cryptographic Curve25519 Mechanical Sympathy Bounds
 // =============================================================================
 
 import user.netd.crypto.curve25519

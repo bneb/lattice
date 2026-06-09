@@ -28,8 +28,9 @@ package kernel.core.pmm
 
 import kernel.core.memory
 import kernel.drivers.serial
+import kernel.core.percpu
 
-extern fn get_cpu_id() -> u64;
+
 extern fn disable_interrupts();
 extern fn enable_interrupts();
 // atomic_cas_i64 is a salt-front built-in intrinsic (emits llvm.cmpxchg directly)
@@ -76,6 +77,8 @@ global PMM_RESOURCE: PmmResource = PmmResource {
     }; 16],
     total_pages: 0,
 };
+
+global PMM_REFCOUNTS: [u8; 32768] = [0 as u8; 32768];
 
 // Number of online CPUs (set during init, default 1 for BSP-only)
 global NUM_CPUS: u64 = 1;
@@ -154,14 +157,21 @@ fn release_lock(core: u64) {
 // ============================================================================
 pub fn alloc() -> u64 {
     disable_interrupts();
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
     acquire_lock(cpu);
     let head = PMM_RESOURCE.shards[cpu].head;
     if head == 0 {
         release_lock(cpu);
         enable_interrupts();
         // Local list empty — try stealing from a remote core
-        return steal_from_remote();
+        let stolen = steal_from_remote();
+        if stolen != 0 {
+            let index = stolen / PAGE_SIZE;
+            if index < 32768 {
+                PMM_REFCOUNTS[index] = 1;
+            }
+        }
+        return stolen;
     }
     let vaddr = memory.phys_to_virt(memory.PhysAddr { val: head }).val;
     let next = *(vaddr as &u64);
@@ -169,6 +179,12 @@ pub fn alloc() -> u64 {
     PMM_RESOURCE.shards[cpu].count = PMM_RESOURCE.shards[cpu].count - 1;
     release_lock(cpu);
     enable_interrupts();
+
+    let index = head / PAGE_SIZE;
+    if index < 32768 {
+        PMM_REFCOUNTS[index] = 1;
+    }
+
     return head;
 }
 
@@ -181,8 +197,24 @@ pub fn free(page: u64) {
     if (page % PAGE_SIZE) != 0 {
         return;
     }
+
+    let index = page / PAGE_SIZE;
+    if index < 32768 {
+        disable_interrupts();
+        let ref_count = PMM_REFCOUNTS[index];
+        if ref_count > 0 {
+            PMM_REFCOUNTS[index] = ref_count - 1;
+        }
+        let new_count = PMM_REFCOUNTS[index];
+        enable_interrupts();
+        if new_count > 0 {
+            // Memory is still shared with another process
+            return;
+        }
+    }
+
     disable_interrupts();
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
     acquire_lock(cpu);
     let vaddr = memory.phys_to_virt(memory.PhysAddr { val: page }).val;
     *(vaddr as &mut u64) = PMM_RESOURCE.shards[cpu].head;
@@ -193,10 +225,25 @@ pub fn free(page: u64) {
 }
 
 // ============================================================================
+// RETAIN: Increment the reference count of a physical page
+// ============================================================================
+pub fn retain(page: u64) {
+    if (page % PAGE_SIZE) != 0 {
+        return;
+    }
+    let index = page / PAGE_SIZE;
+    if index < 32768 {
+        disable_interrupts();
+        PMM_REFCOUNTS[index] = PMM_REFCOUNTS[index] + 1;
+        enable_interrupts();
+    }
+}
+
+// ============================================================================
 // steal_from_remote — Cross-core page stealing with spinlocks
 // ============================================================================
 fn steal_from_remote() -> u64 {
-    let thief = get_cpu_id();
+    let thief = percpu.get_cpu_id();
     let mut victim: u64 = 0;
 
     while victim < NUM_CPUS {
@@ -227,7 +274,7 @@ fn steal_from_remote() -> u64 {
 // QUERY
 // ============================================================================
 pub fn available() -> u64 {
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
     return PMM_RESOURCE.shards[cpu].count;
 }
 
@@ -265,3 +312,6 @@ pub fn pmm_add_region(start: u64, end: u64) { add_region(start, end); }
 
 @no_mangle
 pub fn pmm_init_cpu_count(count: u64) { init_cpu_count(count); }
+
+@no_mangle
+pub fn pmm_retain(page: u64) { retain(page); }

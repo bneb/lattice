@@ -1,4 +1,4 @@
-// std/hash - Sovereign Hash Functions with Hash Trait
+// std/hash - KeuOS Hash Functions with Hash Trait
 // WyHash-inspired 64-bit hash for maximum entropy
 
 package std.hash
@@ -133,7 +133,7 @@ impl Hash for f32 {
 }
 
 // =============================================================================
-// Byte Sequence Hasher (FNV-1a) - Sovereign Optimized
+// Byte Sequence Hasher (FNV-1a) - KeuOS Optimized
 // =============================================================================
 // FNV-1a with @unroll(4) for M4 pipeline saturation.
 // Main loop processes 4 bytes per jump; epilogue handles remainder.
@@ -149,7 +149,7 @@ pub fn hash_bytes(ptr: Ptr<u8>, len: i64) -> u64 {
         let unroll_factor: i64 = 4;
         let main_len: i64 = len - (len % unroll_factor);
         
-        // THE SOVEREIGN CORE: Unrolled Block (4 bytes per iteration)
+        // THE KEUOS CORE: Unrolled Block (4 bytes per iteration)
         let mut i: i64 = 0;
         while i < main_len {
             h = h ^ (ptr.index(i) as u64);

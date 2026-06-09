@@ -26,7 +26,7 @@ pub fn emit_if_expr(ctx: &mut LoweringContext, out: &mut String, if_expr: &syn::
     let then_block = format!("then_{}", ctx.next_id());
     let else_block = format!("else_{}", ctx.next_id());
 
-    // Sovereign Heuristic Removed. We must unify.
+    // KeuOS Heuristic Removed. We must unify.
     // To do this, we need to know types of branches.
     // We can't emit alloc for result yet because we don't know the type.
     // We will assume that if we are in a block that returns, we allocate result ptr?

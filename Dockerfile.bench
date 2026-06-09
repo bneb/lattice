@@ -1,0 +1,53 @@
+# syntax=docker/dockerfile:1.4
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install core dependencies mirroring setup_instance.sh
+RUN apt-get update -qq && apt-get install -y -qq software-properties-common wget gnupg && \
+    echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" > /etc/apt/sources.list.d/llvm-21.list && \
+    wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc > /dev/null && \
+    apt-get update -qq && apt-get install -y -qq \
+    build-essential \
+    cmake \
+    ninja-build \
+    python3 \
+    git \
+    qemu-system-x86 \
+    llvm-21 \
+    llvm-21-dev \
+    libmlir-21-dev \
+    mlir-21-tools \
+    clang-21 \
+    lld-21 \
+    libz3-dev \
+    z3 \
+    zlib1g-dev \
+    libzstd-dev \
+    libcurl4-openssl-dev \
+    libedit-dev \
+    pkg-config \
+    libssl-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create symlinks so tools are on PATH without version suffix
+RUN ln -sf /usr/bin/llc-21 /usr/local/bin/llc && \
+    ln -sf /usr/bin/clang-21 /usr/local/bin/clang && \
+    ln -sf /usr/bin/lld-21 /usr/local/bin/lld && \
+    ln -sf /usr/bin/clang++-21 /usr/local/bin/clang++
+
+ENV MLIR_DIR=/usr/lib/llvm-21/lib/cmake/mlir
+ENV LLVM_DIR=/usr/lib/llvm-21/lib/cmake/llvm
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --quiet
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Set specific environmental variables for the compiler 
+ENV Z3_SYS_Z3_HEADER="/usr/include/z3.h"
+ENV LIBRARY_PATH="/usr/lib/x86_64-linux-gnu"
+ENV LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu"
+
+# Setup the workspace 
+WORKDIR /keuos

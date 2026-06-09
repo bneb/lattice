@@ -25,7 +25,7 @@ pub fn ext_mac_update_omnibox(ptr: u64, len: u32) {
 
 @no_mangle
 pub fn main() -> i32 {
-    // 1. Boot the Sovereign Engine
+    // 1. Boot the KeuOS Engine
     set_max_test_frames(1);
     
     airlock_init_allocator();
@@ -91,7 +91,7 @@ pub fn main() -> i32 {
     let v1 = *((OMNIBOX_URL_PTR + 1) as &u8); // 'v'
     if v1 != 118 { return 1; }
     
-    println("[Test] SUCCESS: Sovereign History Integration Validated!");
+    println("[Test] SUCCESS: KeuOS History Integration Validated!");
     
     return 0;
 }

@@ -8,7 +8,7 @@ pub fn main() -> i32 {
     // 1. Setup Root and Parent
     let body = dom.create_node(dom.TAG_BODY);
     
-    // 2. Setup initial text node: "The Sovereign Engine" (Total 20 chars)
+    // 2. Setup initial text node: "The KeuOS Engine" (Total 20 chars)
     let arena_ptr = dom.dom_alloc_text(20);
     let text_node_id = dom.create_text_node(arena_ptr, 20);
     let text_node_idx = (text_node_id & 0xFFFF) as u32;
@@ -17,7 +17,7 @@ pub fn main() -> i32 {
     // 3. Execute Mutation: ext_dom_wrap_text_range(node_id, 4, 13, TAG_B)
     // Split logic: 
     // "The " (chars 0-3, len 4) -> Prefix (Original Node)
-    // "Sovereign" (chars 4-12, len 9) -> Target (Nested in Bold Wrapper)
+    // "KeuOS" (chars 4-12, len 9) -> Target (Nested in Bold Wrapper)
     // " Engine" (chars 13-19, len 7) -> Suffix
     
     let wrapper_idx_res = dom.ext_dom_wrap_text_range(text_node_idx, 4, 13, dom.TAG_B as u8);

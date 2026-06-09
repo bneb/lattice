@@ -2,7 +2,7 @@
 // HTTP Parser Benchmark — Salt
 // =============================================================================
 // Uses std.http.parser.parse_request_line with out-parameters.
-// Parses request line + counts headers by scanning for \r\n pairs.
+// Parses request line + fully parses headers to match C/Rust behavior.
 
 package basalt
 
@@ -11,36 +11,65 @@ import std.core.ptr.Ptr
 import std.http.parser.parse_request_line
 import std.time.Instant
 
-const ITERATIONS: i64 = 1000000;
+extern fn memchr(s: Ptr<u8>, c: i32, n: i64) -> Ptr<u8>;
 
-fn count_headers(buf: Ptr<u8>, start: i64, len: i64) -> i64 {
+const ITERATIONS: i64 = 1000000;
+const MAX_HEADERS: i64 = 32;
+
+struct HttpRequest {
+    method: StringView,
+    uri: StringView,
+    version: StringView,
+    header_count: i64,
+    last_header_name: StringView,
+    last_header_value: StringView,
+}
+
+fn parse_headers(buf: Ptr<u8>, start: i64, len: i64, req: &mut HttpRequest) {
+    let mut cursor: i64 = start;
     let mut count: i64 = 0;
-    if buf.addr() != 0 {
-        let mut i: i64 = start;
-        while i < len - 1 {
-            let p = buf.offset(i);
-            let b = p.read();
-            if b == 13 {
-                let next = buf.offset(i + 1);
-                if next.read() == 10 {
-                    if i + 3 < len {
-                        let p2 = buf.offset(i + 2);
-                        let p3 = buf.offset(i + 3);
-                        if p2.read() == 13 && p3.read() == 10 {
-                            return count;
-                        }
-                    }
-                    count = count + 1;
-                    i = i + 2;
-                } else {
-                    i = i + 1;
-                }
-            } else {
-                i = i + 1;
+
+    while cursor < len && count < MAX_HEADERS {
+        // Check for empty line (end of headers)
+        if cursor + 1 < len {
+            let p1 = buf.offset(cursor);
+            let p2 = buf.offset(cursor + 1);
+            if p1.read() == 13 && p2.read() == 10 {
+                break;
             }
         }
+
+        // Find end of header line
+        let p_cr = memchr(buf.offset(cursor), 13, len - cursor);
+        if p_cr.is_null() {
+            break;
+        }
+        let hdr_end = (p_cr.addr() - buf.addr()) as i64;
+
+        let hdr_len = hdr_end - cursor;
+
+        // Split on ':'
+        let p_colon = memchr(buf.offset(cursor), 58, hdr_len);
+        if !p_colon.is_null() {
+            let colon = (p_colon.addr() - buf.addr()) as i64;
+            let sv_input = StringView::from_raw(buf, len);
+            req.last_header_name = sv_input.slice(cursor, colon);
+
+            let mut val_start = colon + 1;
+            while val_start < hdr_end {
+                if buf.offset(val_start).read() == 32 { // ' '
+                    val_start = val_start + 1;
+                } else {
+                    break;
+                }
+            }
+            req.last_header_value = sv_input.slice(val_start, hdr_end);
+            count = count + 1;
+        }
+
+        cursor = hdr_end + 2; // skip \r\n
     }
-    return count;
+    req.header_count = count;
 }
 
 fn main() -> i32 {
@@ -48,38 +77,41 @@ fn main() -> i32 {
     let request_len: i64 = 132;
     let buf = request as Ptr<u8>;
 
-    // Parse with out-parameters
-    let mut method = StringView::empty();
-    let mut uri = StringView::empty();
-    let mut version = StringView::empty();
+    let mut req = HttpRequest {
+        method: StringView::empty(),
+        uri: StringView::empty(),
+        version: StringView::empty(),
+        header_count: 0,
+        last_header_name: StringView::empty(),
+        last_header_value: StringView::empty(),
+    };
 
-    let consumed = parse_request_line(buf, request_len, &mut method, &mut uri, &mut version);
+    let consumed = parse_request_line(buf, request_len, &mut req.method, &mut req.uri, &mut req.version);
     if consumed < 0 {
         println("ERROR: parse failed");
         return 1;
     }
 
-    let headers = count_headers(buf, consumed, request_len);
+    parse_headers(buf, consumed, request_len, &mut req);
 
-    println(f"Method len: {method.length()}");
-    println(f"URI len: {uri.length()}");
-    println(f"Version len: {version.length()}");
-    println(f"Headers: {headers}");
+    println(f"Method len: {req.method.length()}");
+    println(f"URI len: {req.uri.length()}");
+    println(f"Version len: {req.version.length()}");
+    println(f"Headers: {req.header_count}");
 
     let start = Instant::now();
 
-    let mut i: i64 = 0;
-    while i < ITERATIONS {
-        let mut m = StringView::empty();
-        let mut u = StringView::empty();
-        let mut v = StringView::empty();
-        let r = parse_request_line(buf, request_len, &mut m, &mut u, &mut v);
-        if r < 0 {
+    let mut it: i64 = 0;
+    let mut total_headers: i64 = 0;
+    while it < ITERATIONS {
+        let consumed = parse_request_line(buf, request_len, &mut req.method, &mut req.uri, &mut req.version);
+        if consumed < 0 {
             println("FAIL");
             return 1;
         }
-        let headers = count_headers(buf, r, request_len);
-        i = i + 1;
+        parse_headers(buf, consumed, request_len, &mut req);
+        total_headers = total_headers + req.header_count;
+        it = it + 1;
     }
 
     let elapsed = start.elapsed();
@@ -91,6 +123,7 @@ fn main() -> i32 {
     println(f"Iterations: {ITERATIONS}");
     println(f"Time: {elapsed_ms} ms");
     println(f"Throughput: {req_per_sec} req/s");
+    println(f"Total Headers (Anti-Opt): {total_headers}");
 
     return 0;
 }

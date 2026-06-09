@@ -1,5 +1,6 @@
 .intel_syntax noprefix
 .code64
+.section .kpti_trampoline_text, "ax"
 .global timer_isr_wrapper
 .extern kernel__core__scheduler__notify_timer_tick
 .extern preempt_return_to_scheduler
@@ -24,6 +25,14 @@ timer_isr_wrapper:
     test qword ptr [rsp + 8], 3
     jz .L_timer_from_kernel
     swapgs
+    /* KPTI CR3 Switch to Kernel PML4 */
+    push rax
+    mov rax, cr3
+    mov gs:[128], rax
+    mov rax, gs:[64]
+    /* bts rax, 63 removed */
+    mov cr3, rax
+    pop rax
 .L_timer_from_kernel:
 
     # 0. Unified fiber sentinel check.
@@ -93,6 +102,12 @@ timer_isr_wrapper:
     # Check if we are returning to Ring 3 (CS & 3 == 3)
     test qword ptr [rsp + 8], 3
     jz .L_timer_return_to_kernel
+    /* KPTI CR3 Switch to User PML4 */
+    push rax
+    mov rax, gs:[128]
+    /* bts rax, 63 removed */
+    mov cr3, rax
+    pop rax
     swapgs
 .L_timer_return_to_kernel:
     iretq
@@ -111,6 +126,14 @@ tlb_shootdown_wrapper:
     test qword ptr [rsp + 8], 3
     jz .L_tlb_from_kernel
     swapgs
+    /* KPTI CR3 Switch to Kernel PML4 */
+    push rax
+    mov rax, cr3
+    mov gs:[128], rax
+    mov rax, gs:[64]
+    /* bts rax, 63 removed */
+    mov cr3, rax
+    pop rax
 .L_tlb_from_kernel:
 
     # Save caller-saved registers before any C calls or register clobbering
@@ -143,6 +166,12 @@ tlb_shootdown_wrapper:
     # ─── SWAPGS Return Check ───
     test qword ptr [rsp + 8], 3
     jz .L_tlb_return_to_kernel
+    /* KPTI CR3 Switch to User PML4 */
+    push rax
+    mov rax, gs:[128]
+    /* bts rax, 63 removed */
+    mov cr3, rax
+    pop rax
     swapgs
 .L_tlb_return_to_kernel:
     iretq

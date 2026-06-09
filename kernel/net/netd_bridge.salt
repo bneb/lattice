@@ -105,23 +105,11 @@ pub fn push_frame(buf: u64, frame_len: u64) -> bool {
         return false;
     }
 
-    // Need 2 bytes for length prefix + frame_len bytes for the frame
-    let total_needed = frame_len + 2;
-    let available_space = ipc_shm.spsc_free_space(RX_RING_BASE);
-
-    if available_space < total_needed {
+    let success = ipc_shm.spsc_push_frame(RX_RING_BASE, buf, frame_len);
+    if !success {
         FRAMES_DROPPED = FRAMES_DROPPED + 1;
         return false;
     }
-
-    // Push 2-byte length prefix (little-endian)
-    let len_lo = (frame_len & 0xFF) as u8;
-    let len_hi = ((frame_len >> 8) & 0xFF) as u8;
-    ipc_shm.spsc_push(RX_RING_BASE, len_lo);
-    ipc_shm.spsc_push(RX_RING_BASE, len_hi);
-
-    // Push the raw frame bytes
-    ipc_shm.spsc_push_bulk(RX_RING_BASE, buf, frame_len);
 
     FRAMES_PUSHED = FRAMES_PUSHED + 1;
     return true;
@@ -132,19 +120,7 @@ pub fn push_frame(buf: u64, frame_len: u64) -> bool {
 // =============================================================================
 // Returns the frame length, or 0 if ring has < 2 bytes available.
 pub fn pop_frame_len(ring_base: u64) -> u64 {
-    let avail = ipc_shm.spsc_available(ring_base);
-    if avail < 2 {
-        return 0;
-    }
-
-    let lo = ipc_shm.spsc_pop(ring_base);
-    let hi = ipc_shm.spsc_pop(ring_base);
-
-    if lo < 0 || hi < 0 {
-        return 0;
-    }
-
-    return (lo as u64) | ((hi as u64) << 8);
+    return ipc_shm.spsc_pop_frame_len(ring_base);
 }
 
 // =============================================================================

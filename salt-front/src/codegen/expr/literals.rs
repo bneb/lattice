@@ -259,6 +259,7 @@ pub fn emit_path(ctx: &mut LoweringContext, out: &mut String, p: &syn::ExprPath,
                 crate::evaluator::ConstValue::Bool(_) => Type::Bool,
                 crate::evaluator::ConstValue::Float(_) => Type::F64,
                 crate::evaluator::ConstValue::String(_) => Type::Reference(Box::new(Type::U8), false),
+                crate::evaluator::ConstValue::Array(_) => Type::Array(Box::new(Type::I64), 0, false), // Hack: dynamic array type is hard here
                 crate::evaluator::ConstValue::Complex => panic!("Complex constants not supported in codegen"),
             }
         });
@@ -289,10 +290,10 @@ pub fn emit_path(ctx: &mut LoweringContext, out: &mut String, p: &syn::ExprPath,
                  return Ok((res, Type::F64));
             }
             crate::evaluator::ConstValue::String(_s) => {
-                 // String constant emission already handled in emit_lit_str but we need to resolve global pointer here?
-                 // No, constants in table shouldn't be strings usually, those are globals.
-                 // But if they are...
                  return Err("String constants not supported in this path yet.".to_string());
+            }
+            crate::evaluator::ConstValue::Array(_) => {
+                 return Err("Array constants not supported in this path yet.".to_string());
             }
             crate::evaluator::ConstValue::Complex => return Err("Complex constants not supported".to_string()),
         }
@@ -512,7 +513,7 @@ pub fn emit_path(ctx: &mut LoweringContext, out: &mut String, p: &syn::ExprPath,
                      }
                  }
             }
-            // [SOVEREIGN] Function-as-value resolution: If name resolves to a function
+            // [KEUOS] Function-as-value resolution: If name resolves to a function
             // in the current file, register it as Type::Fn global and restart resolution.
             // This enables `let f: fn(u64) -> u64 = add_one;`
             if segments.len() == 1 {
@@ -680,7 +681,7 @@ pub fn emit_repeat(ctx: &mut LoweringContext, out: &mut String, r: &syn::ExprRep
     let array_ty = Type::Array(Box::new(ty.clone()), len, false);
     let mlir_array_ty = array_ty.to_mlir_type(ctx)?;
     
-    // [SOVEREIGN V4.2] BULK INIT FAST PATH
+    // [KEUOS V4.2] BULK INIT FAST PATH
     // Detect zero-initialization pattern [0; N] for large arrays
     let is_zero_init = match &*r.expr {
         syn::Expr::Lit(l) => match &l.lit {
@@ -761,11 +762,11 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
     let path_ty = syn::Type::Path(syn::TypePath { qself: None, path: s.path.clone() });
     let syn_ty = crate::grammar::SynType::from_std(path_ty).map_err(|e| e.to_string())?;
     let raw_resolved_ty = resolve_type(ctx, &syn_ty);
-    // [SOVEREIGN FIX] Apply generic substitution for struct literals in specialized method contexts
+    // [KEUOS FIX] Apply generic substitution for struct literals in specialized method contexts
     // This ensures RawVec in RawVec<T>::new() resolves to RawVec_u8 when T=u8
     let resolved_ty = raw_resolved_ty.substitute(&ctx.current_type_map());
     
-    // [SOVEREIGN FIX] Check if this struct literal matches the current impl context
+    // [KEUOS FIX] Check if this struct literal matches the current impl context
     // If we're inside RawVec<T>::new() and the struct literal is RawVec { ... }, 
     // we should apply the current generic arguments (T=u8) to produce RawVec_u8
     let resolved_ty_with_context = match &resolved_ty {
@@ -838,7 +839,7 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
                 resolved_ty.clone()
             }
         }
-        // [SOVEREIGN FIX] Handle Concrete types with empty args in specialized method context
+        // [KEUOS FIX] Handle Concrete types with empty args in specialized method context
         // If we have Concrete(RawVec, []) inside RawVec<T>::new() with T=u8, produce Concrete(RawVec, [u8])
         Type::Concrete(base, args) if args.is_empty() && !ctx.current_type_map().is_empty() => {
             // [ORDERING FIX] Build args in template's declared generic parameter order,
@@ -1020,7 +1021,7 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
         // This ensures Concrete(Vec, [u8]) becomes Struct(Vec_u8) for MLIR emission.
         let struct_ty = Type::Struct(mangled_name.clone());
 
-        // [SOVEREIGN FIX] Use resolved_ty_with_context for MLIR type generation to include impl context specialization.
+        // [KEUOS FIX] Use resolved_ty_with_context for MLIR type generation to include impl context specialization.
         // This ensures Concrete(Vec, [u8]) becomes Struct(Vec_u8) for MLIR emission, and
         // RawVec inside RawVec<T>::new() becomes RawVec_u8 when T=u8.
         let mlir_ty = resolved_ty_with_context.to_mlir_type(ctx)?;
@@ -1037,7 +1038,7 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
 
         }
         
-        // [SOVEREIGN V1.0] Clean Break: Removed NativePtr struct construction intercept
+        // [KEUOS V1.0] Clean Break: Removed NativePtr struct construction intercept
         // NativePtr is now Type::Pointer and cannot be constructed via struct syntax.
         
         let mut current_struct = format!("%struct_init_{}", ctx.next_id());

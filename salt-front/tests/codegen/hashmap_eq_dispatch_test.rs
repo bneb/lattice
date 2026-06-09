@@ -1,3 +1,4 @@
+#![allow(warnings)]
 // ============================================================================
 // HashMap Eq Dispatch Tests
 // Validates that equality comparisons on generic key references in HashMap

@@ -3,7 +3,7 @@
 // Ring 3 Arena Memory Manager — O(1) Lock-Free Bump Allocator
 // ============================================================================
 //
-// The Sovereign Arena is NOT malloc. It is a bump allocator that provides:
+// The KeuOS Arena is NOT malloc. It is a bump allocator that provides:
 //
 //   - O(1) allocation: single pointer increment
 //   - Hardware alignment: modulo-based padding (no ~ operator)
@@ -153,7 +153,7 @@ pub fn alloc_net_buffer(payload_size: u64, align: u64) -> u64
 }
 
 // ============================================================================
-// reset_all — O(1) Bulk Reclaim (The Sovereign Reset)
+// reset_all — O(1) Bulk Reclaim (The KeuOS Reset)
 // ============================================================================
 // Reclaims ALL arena memory in a single CPU instruction.
 // No traversal. No free-list. No reference counting.

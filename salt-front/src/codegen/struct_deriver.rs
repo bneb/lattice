@@ -152,7 +152,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             Type::Reference(_, _) => true,
             // Structs need derivation unless manually implemented
             Type::Struct(_name) | Type::Concrete(_name, _) => {
-                // [V4.0 SOVEREIGN] Check TraitRegistry for custom write_to
+                // [V4.0 KEUOS] Check TraitRegistry for custom write_to
                 let type_key = crate::codegen::type_bridge::type_to_type_key(ty);
                 self.trait_registry().contains_method(&type_key, "write_to")
             }

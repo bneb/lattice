@@ -76,7 +76,7 @@ pub enum Type {
     Atomic(Box<Type>),
     Window(Box<Type>, String),
 
-    /// THE SOVEREIGN POINTER: Register-Native primitive
+    /// THE KEUOS POINTER: Register-Native primitive
     Pointer {
         element: Box<Type>,
         provenance: Provenance,
@@ -91,7 +91,7 @@ pub enum Type {
 }
 
 impl Type {
-    /// [SOVEREIGN V2.0] Direct mapping from Parser to Compiler Primitives
+    /// [KEUOS V2.0] Direct mapping from Parser to Compiler Primitives
     pub fn from_syn(ty: &SynType) -> Option<Self> {
         // Delegate to the context-aware version with an empty set (preserves legacy single-char heuristic)
         Self::from_syn_with_generics(ty, &std::collections::HashSet::new())
@@ -101,7 +101,7 @@ impl Type {
     /// When `generic_names` is empty, falls back to the legacy single-char uppercase heuristic.
     pub fn from_syn_with_generics(ty: &SynType, generic_names: &std::collections::HashSet<String>) -> Option<Self> {
         match ty {
-             // Ptr<T> (Sovereign Keyword) -> Type::Pointer
+             // Ptr<T> (KeuOS Keyword) -> Type::Pointer
              SynType::Pointer(inner) => {
                  let element = Type::from_syn_with_generics(inner, generic_names)?;
                  Some(Type::Pointer {
@@ -140,7 +140,7 @@ impl Type {
                            provenance: Provenance::Naked,
                            is_mutable: true,
                        }),
-                       // [SOVEREIGN PHASE 3] Tensor<T, __Shape_R_D1_D2__> -> Type::Tensor (AUTO-RANK)
+                       // [KEUOS PHASE 3] Tensor<T, __Shape_R_D1_D2__> -> Type::Tensor (AUTO-RANK)
                        // Preprocessor auto-computes rank: {128,784} -> __Shape_2_128_784__
                        // Format: first value is auto-rank (skipped), rest are dimensions
                        "Tensor" => {
@@ -175,7 +175,7 @@ impl Type {
                            }
                        }
                        _ => {
-                           // [SOVEREIGN FIX] Context-aware generic detection
+                           // [KEUOS FIX] Context-aware generic detection
                            if generic_names.contains(&name) {
                                Some(Type::Generic(name))
                            } else if generic_names.is_empty() && name.len() == 1 && name.chars().all(|c| c.is_uppercase()) {
@@ -201,7 +201,7 @@ impl Type {
                      Some(Type::Tuple(elems))
                  }
              }
-             // [SOVEREIGN PHASE 3] ShapedTensor -> Pointer with embedded shape
+             // [KEUOS PHASE 3] ShapedTensor -> Pointer with embedded shape
              // Tensor<T, {Rank, D1, D2...}> becomes a shaped Ptr for @ dispatch
              SynType::ShapedTensor { element, rank, dims } => {
                  use crate::grammar::TensorDim;
@@ -415,7 +415,7 @@ impl Type {
             },
             Type::Reference(inner, is_mut) => Type::Reference(Box::new(inner.substitute(mapping)), *is_mut),
             Type::Concrete(name, params) => {
-                 // [SOVEREIGN FIX] Handle Concrete types that are actually generic placeholders (e.g. F2)
+                 // [KEUOS FIX] Handle Concrete types that are actually generic placeholders (e.g. F2)
                  if params.is_empty() {
                       if let Some(mapped) = mapping.get(name) {
                            return mapped.clone();
@@ -615,7 +615,7 @@ impl Type {
             Type::I32 | Type::U32 | Type::F32 => 4,
             Type::I64 | Type::U64 | Type::Usize | Type::F64 => 8,
             Type::Pointer { .. } | Type::Reference(_, _) | Type::Owned(_) | Type::Fn(_, _) | Type::Generic(_) | Type::SelfType | Type::Unit => 8,
-            // [SOVEREIGN FIX] Atomic<T> storage is T, not a pointer. Delegate to inner type.
+            // [KEUOS FIX] Atomic<T> storage is T, not a pointer. Delegate to inner type.
             Type::Atomic(inner) => inner.internal_size_of(struct_registry, depth + 1),
             Type::Array(inner, len, _) => inner.internal_size_of(struct_registry, depth + 1) * len,
             Type::Tensor(inner, dims) => inner.internal_size_of(struct_registry, depth + 1) * dims.iter().product::<usize>(),
@@ -669,7 +669,7 @@ impl Type {
             Type::I32 | Type::U32 | Type::F32 => 4,
             Type::I64 | Type::U64 | Type::Usize | Type::F64 => 8,
             Type::Pointer { .. } | Type::Reference(_, _) | Type::Owned(_) | Type::Fn(_, _) | Type::Generic(_) | Type::SelfType => 8,
-            // [SOVEREIGN FIX] Atomic<T> alignment follows inner type T.
+            // [KEUOS FIX] Atomic<T> alignment follows inner type T.
             Type::Atomic(inner) => inner.internal_align_of(struct_registry, depth + 1),
             Type::Array(inner, _, _) | Type::Tensor(inner, _) => inner.internal_align_of(struct_registry, depth + 1),
             Type::Tuple(elems) => {

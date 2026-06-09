@@ -107,7 +107,7 @@ impl Type {
     // Mutability/ownership are access permissions, not changes to storage layout
     match self {
         Type::Owned(inner) => return inner.to_mlir_storage_type(ctx),
-        // [SOVEREIGN FIX] Atomic<T> storage is just T — atomicrmw/cmpxchg operate
+        // [KEUOS FIX] Atomic<T> storage is just T — atomicrmw/cmpxchg operate
         // on the address of the scalar value, not an opaque pointer.
         Type::Atomic(inner) => return inner.to_mlir_storage_type(ctx),
         _ => {}
@@ -121,15 +121,15 @@ impl Type {
         return Ok("!llvm.ptr".to_string());
     }
 
-    // [SOVEREIGN V3] Tensor Lowering: Tensor<T, [D]> -> memref<D x T>
-    // This formalizes the "Sovereign Rule" - types carry their shape bounds.
+    // [KEUOS V3] Tensor Lowering: Tensor<T, [D]> -> memref<D x T>
+    // This formalizes the "KeuOS Rule" - types carry their shape bounds.
     if let Type::Tensor(_inner, _shape) = self {
-         // [SOVEREIGN V3] Tensor Storage (Opaque Handle)
+         // [KEUOS V3] Tensor Storage (Opaque Handle)
          // We store the base pointer on the stack. The MemRef descriptor is hydrated at use sites.
          return Ok("!llvm.ptr".to_string());
     }
 
-    // [SOVEREIGN V3] Universal Simd Lowering
+    // [KEUOS V3] Universal Simd Lowering
     if let Type::Concrete(base, args) = self {
        if (base.contains("Simd") && !base.contains("ptr")) || base == "Simd" {
            // Check args: [T, N]
@@ -149,7 +149,7 @@ impl Type {
            }
        }
        
-     // [SOVEREIGN V6] Vector Intrinsic Types
+     // [KEUOS V6] Vector Intrinsic Types
        // These are used for portable SIMD operations
        if base == "Vector4f32" {
            return Ok("vector<4xf32>".to_string());
@@ -178,7 +178,7 @@ impl Type {
                 "Vector16f32" => return Ok("vector<16xf32>".to_string()),
                 _ => {}
             }
-            // [SOVEREIGN FIX] Look up the fully-qualified struct name from struct_registry
+            // [KEUOS FIX] Look up the fully-qualified struct name from struct_registry
             // This ensures consistency between header alias declarations and body usage.
             // The registry stores structs with their full package-qualified names.
             let full_name = {
@@ -209,7 +209,7 @@ impl Type {
                     _ => {}
                 }
             }
-            // [SOVEREIGN FIX] Look up the fully-qualified template name from struct_templates
+            // [KEUOS FIX] Look up the fully-qualified template name from struct_templates
             // This ensures consistency between header alias declarations and body usage.
             let full_base = {
                 let templates = ctx.struct_templates();
@@ -390,7 +390,7 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
     // ═══════════════════════════════════════════════════════════════════
     if from.is_integer() && to.k_is_ptr_type() {
         return Err(format!(
-            "Sovereign Type Error: Cannot promote integer {:?} to pointer {:?}. \
+            "KeuOS Type Error: Cannot promote integer {:?} to pointer {:?}. \
              var={} - This indicates Context Contamination in the loop engine.", 
             from, to, var
         ));
@@ -545,7 +545,7 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
                  return Ok(res);
              }
         },
-        // [SOVEREIGN V25.6] Integer -> Float Promotion (Parity with C)
+        // [KEUOS V25.6] Integer -> Float Promotion (Parity with C)
         (from, to) if from.is_integer() && to.is_float() => {
              let op = if from.is_unsigned() { "arith.uitofp" } else { "arith.sitofp" };
              let src_str = from.to_mlir_type(ctx)?;
@@ -565,7 +565,7 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
         
         (Type::Reference(_, _), Type::Reference(_, _)) => return Ok(var.to_string()),
         
-        // [SOVEREIGN ABI FIX] Large aggregates (>64 bytes) are returned as Reference(T)
+        // [KEUOS ABI FIX] Large aggregates (>64 bytes) are returned as Reference(T)
         // from struct field access (in emit_field) to prevent massive value copies. 
         // If passed to a function that explicitly expects the value T itself, 
         // we must emit the deferred llvm.load here.
@@ -657,7 +657,7 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
         return Ok(var.to_string()); // No promotion needed - types are canonically identical
     }
 
-    // [SOVEREIGN V2.0] MLIR Identity Check
+    // [KEUOS V2.0] MLIR Identity Check
     // If both types lower to the same MLIR type (e.g. i64 vs u64, or Ptr<T> vs Ptr<U> in simplified ABI),
     // and they have the same size/align, we can treat this as a no-op promotion (bit-verification only).
     if let (Ok(mlir_from), Ok(mlir_to)) = (from.to_mlir_type(ctx), to.to_mlir_type(ctx)) {
@@ -709,7 +709,7 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // [SOVEREIGN FIX] Raw pointer promotion cases for kernel !llvm.ptr usage
+    // [KEUOS FIX] Raw pointer promotion cases for kernel !llvm.ptr usage
     // Handles: Pointer{I8} ↔ Pointer{I8} (identity), Pointer → integer (ptrtoint)
     // ═══════════════════════════════════════════════════════════════════
     if from.k_is_ptr_type() && to.k_is_ptr_type() {
@@ -737,7 +737,7 @@ pub fn cast_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, from
         return Ok(var.to_string());
     }
 
-    // 2. Machine-Width Identity (Sovereign Fix)
+    // 2. Machine-Width Identity (KeuOS Fix)
     // If both are integers and have the same bit-width, it's a zero-cost bitwise cast.
     // EXCEPTION: Usize (MLIR `index`) requires arith.index_cast even though it's 64-bit.
     // The MLIR type system treats `index` and `i64` as fundamentally different types.
@@ -879,7 +879,7 @@ pub fn cast_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, from
             return Ok(res);
         }
 
-        // [SOVEREIGN FIX] Pointer to Integer cast (ptrtoint) - enables self as u64 in Ptr::addr
+        // [KEUOS FIX] Pointer to Integer cast (ptrtoint) - enables self as u64 in Ptr::addr
         (Type::Pointer { .. }, Type::U64 | Type::Usize | Type::I64) => {
             out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", res, var));
             return Ok(res);
@@ -1172,7 +1172,7 @@ pub fn to_mlir_type(ctx: &mut LoweringContext, ty: &Type) -> Result<String, Stri
                 return to_mlir_type(ctx, &concrete);
             }
             
-            // [SOVEREIGN FIX] Look up the fully-qualified struct name from struct_registry
+            // [KEUOS FIX] Look up the fully-qualified struct name from struct_registry
             // Use shortest-match disambiguation to prefer main__ListNode over
             // std__core__boxed__Box_main__ListNode (both end with __ListNode).
             let full_name = {
@@ -1222,7 +1222,7 @@ pub fn to_mlir_type(ctx: &mut LoweringContext, ty: &Type) -> Result<String, Stri
                 return Ok("!llvm.ptr".to_string());
             }
             
-            // [SOVEREIGN FIX] Look up the fully-qualified template name from struct_templates
+            // [KEUOS FIX] Look up the fully-qualified template name from struct_templates
             // This ensures consistency between header alias declarations and body usage.
             let full_base = {
                 let templates = ctx.struct_templates();
@@ -1495,7 +1495,7 @@ pub fn resolve_codegen_type(ctx: &mut LoweringContext, ty: &Type) -> Type {
         },
 
         Type::Concrete(base_name, target_params) => {
-            // [SOVEREIGN FIX] Level 2 Safety Net: Catch misclassified generics.
+            // [KEUOS FIX] Level 2 Safety Net: Catch misclassified generics.
             // If Concrete(name, []) and name is in the type_map, it's actually a generic placeholder
             // (e.g. "F2" parsed without context by from_syn). Resolve it like Type::Generic.
             if target_params.is_empty() {
@@ -1609,7 +1609,7 @@ pub fn resolve_codegen_type(ctx: &mut LoweringContext, ty: &Type) -> Type {
 
 /// Bridges the gap between Rust's syn::Type (legacy/helper) and Salt's Type system.
 pub fn resolve_type(ctx: &mut LoweringContext, ty: &crate::grammar::SynType) -> Type {
-    // [SOVEREIGN V2.0] Type Resolution Hardening
+    // [KEUOS V2.0] Type Resolution Hardening
     // Handle context-dependent types (Array, Tensor) here.
     
     if let crate::grammar::SynType::Array(inner, len_expr) = ty {
@@ -1629,7 +1629,7 @@ pub fn resolve_type(ctx: &mut LoweringContext, ty: &crate::grammar::SynType) -> 
                      let inner = resolve_type(ctx, inner_syn);
                      let mut shape = Vec::new();
                      
-                     // [SOVEREIGN PHASE 3] Check for __Shape_X_Y_Z__ marker (AUTO-RANK)
+                     // [KEUOS PHASE 3] Check for __Shape_X_Y_Z__ marker (AUTO-RANK)
                      // Preprocessor prepends auto-computed rank: {128,784} -> __Shape_2_128_784__
                      // Format: __Shape_Rank_D1_D2_...__ where first element is auto-rank (skipped)
                      if let crate::grammar::SynType::Path(shape_path) = &seg.args[1] {
@@ -1940,13 +1940,13 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                  self.struct_registry().values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
              } else if let Type::Enum(name) = st {
                  self.enum_registry().values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
-             // [SOVEREIGN FIX] Handle Type::Pointer method lookup with fully-qualified template name
+             // [KEUOS FIX] Handle Type::Pointer method lookup with fully-qualified template name
              } else if let Type::Pointer { .. } = st {
                  "std__core__ptr__Ptr".to_string()
              } else {
                  st_base
              };
-             // [V4.0 SOVEREIGN] Use TraitRegistry for method lookup
+             // [V4.0 KEUOS] Use TraitRegistry for method lookup
              self.trait_registry().find_method_by_name(&template_name, &method_name, st)
         } else {
              file.items.iter().find_map(|item| {
@@ -1978,7 +1978,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                         self.enum_registry().values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
                     } else if let Type::Concrete(name, _) = st {
                         name.clone()
-                    // [SOVEREIGN FIX] Handle Type::Pointer for type_map population
+                    // [KEUOS FIX] Handle Type::Pointer for type_map population
                     } else if let Type::Pointer { .. } = st {
                         "std__core__ptr__Ptr".to_string()
                     } else {
@@ -2004,7 +2004,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                                         if let Some(arg) = args.get(i) {
                                             self.current_type_map_mut().insert(pname, arg.clone());
                                         }
-                                   // [SOVEREIGN FIX] Handle Type::Pointer - extract element type for T
+                                   // [KEUOS FIX] Handle Type::Pointer - extract element type for T
                                    } else if let Type::Pointer { element, .. } = &st {
                                         if i == 0 {  // Ptr<T> has one generic param T
                                             self.current_type_map_mut().insert(pname, (**element).clone());
@@ -2017,7 +2017,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                      }
                 }
                 
-                // [SOVEREIGN FIX v2] Map method-level generics (e.g. map<F2, T>)
+                // [KEUOS FIX v2] Map method-level generics (e.g. map<F2, T>)
                 // CRITICAL: fn_generics.params may contain EITHER:
                 //   (a) merged impl+method params [I, F, F2, T] (from some trait_registry paths)
                 //   (b) method-only params [F2, T] (from find_method_by_name)
@@ -2234,7 +2234,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
              } else {
                  st_base
              };
-             // [V4.0 SOVEREIGN] Use TraitRegistry for method lookup
+             // [V4.0 KEUOS] Use TraitRegistry for method lookup
              self.trait_registry().find_method_by_name(&template_name, &method_name, st)
         } else {
              // Function lookup
@@ -2308,7 +2308,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                     }
                 }
                 
-                // SOVEREIGN FIX: Method-level generics (e.g., mmap<T> on File struct)
+                // KEUOS FIX: Method-level generics (e.g., mmap<T> on File struct)
                 // CRITICAL: func.generics.params includes BOTH impl-level and method-level params.
                 // We must only map method-level ones (skip struct_generic_count from func.generics).
                 if let Some(fn_generics) = &func.generics {
@@ -2830,7 +2830,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         // Phase B: API Surface Discovery (Eager Method Registration)
         let methods = self.find_methods_for_template(template_name);
         for method_name in methods {
-             // [SOVEREIGN FIX] Skip generic methods. They require inference/turbofish at call site.
+             // [KEUOS FIX] Skip generic methods. They require inference/turbofish at call site.
              // Registry stores full mangled name in 'name' field with empty path for Struct types.
              let key = crate::types::TypeKey { path: vec![], name: template_name.to_string(), specialization: None };
              
@@ -2921,7 +2921,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         // Phase B: API Surface Discovery
         let methods = self.find_methods_for_template(template_name);
         for method_name in methods {
-             // [SOVEREIGN FIX] Skip generic methods. They require inference/turbofish at call site.
+             // [KEUOS FIX] Skip generic methods. They require inference/turbofish at call site.
              // Registry stores full mangled name in 'name' field with empty path for Struct types.
              let key = crate::types::TypeKey { path: vec![], name: template_name.to_string(), specialization: None };
              
@@ -3039,7 +3039,7 @@ pub fn emit_const(ctx: &mut LoweringContext, _out: &mut String, c: &crate::gramm
 
 pub fn emit_global_def(ctx: &mut LoweringContext, _out: &mut String, g: &crate::grammar::GlobalDef) -> Result<(), String> {
     let ty_raw = resolve_type(ctx, &g.ty);
-    // [SOVEREIGN FIX] Atomic<T> is a semantic wrapper — storage is just T.
+    // [KEUOS FIX] Atomic<T> is a semantic wrapper — storage is just T.
     // Unwrap for MLIR emission (type + init_val), but keep Atomic<T> in globals table
     // so method dispatch (fetch_add, compare_exchange, load, store) still works.
     let ty_storage = match &ty_raw {
@@ -3081,11 +3081,34 @@ pub fn emit_global_def(ctx: &mut LoweringContext, _out: &mut String, g: &crate::
             Ok(crate::evaluator::ConstValue::Bool(b)) => {
                 format!("{} : i1", if b { 1 } else { 0 })
             }
+            Ok(crate::evaluator::ConstValue::Array(elements)) => {
+                let inner_mlir_ty = if let Type::Array(inner_ty, _, _) = &ty_storage {
+                    inner_ty.to_mlir_storage_type(ctx).unwrap_or_else(|_| "i64".to_string())
+                } else {
+                    "i64".to_string()
+                };
+                if inner_mlir_ty.contains("struct") {
+                    "".to_string()
+                } else {
+                    let mut elem_strs = Vec::new();
+                    for e in elements {
+                        match e {
+                            crate::evaluator::ConstValue::Integer(i) => elem_strs.push(i.to_string()),
+                            crate::evaluator::ConstValue::Float(f) => elem_strs.push(f.to_string()),
+                            crate::evaluator::ConstValue::Bool(b) => elem_strs.push(if b { "1".to_string() } else { "0".to_string() }),
+                            _ => elem_strs.push("0".to_string()),
+                        }
+                    }
+                    format!("dense<[{}]> : tensor<{}x{}>", elem_strs.join(", "), elem_strs.len(), inner_mlir_ty)
+                }
+            }
             _ => "".to_string(), // Complex types: still zero-init for now
         }
     } else {
         "".to_string()
     };
+    
+    let linkage = if g.is_pub { "external" } else { "internal" };
     
     if init_val.is_empty() {
         // [ALIGNMENT ENFORCER] Calculate mandatory alignment based on type size
@@ -3096,12 +3119,12 @@ pub fn emit_global_def(ctx: &mut LoweringContext, _out: &mut String, g: &crate::
         };
         
         // Use region-based zero initialization which works for all types (scalars, pointers, aggregates)
-        ctx.decl_out_mut().push_str(&format!("  llvm.mlir.global external @{}() {{alignment = {}}} : {} {{\n", name, alignment, mlir_ty));
+        ctx.decl_out_mut().push_str(&format!("  llvm.mlir.global {} @{}() {{alignment = {}}} : {} {{\n", linkage, name, alignment, mlir_ty));
         ctx.decl_out_mut().push_str(&format!("    %0 = llvm.mlir.zero : {}\n", mlir_ty));
         ctx.decl_out_mut().push_str(&format!("    llvm.return %0 : {}\n", mlir_ty));
         ctx.decl_out_mut().push_str("  }\n");
     } else {
-        ctx.decl_out_mut().push_str(&format!("  llvm.mlir.global external @{}({}) : {}\n", name, init_val, mlir_ty));
+        ctx.decl_out_mut().push_str(&format!("  llvm.mlir.global {} @{}({}) : {}\n", linkage, name, init_val, mlir_ty));
     }
     Ok(())
 }
@@ -3116,7 +3139,7 @@ pub fn zero_attr(ctx: &mut LoweringContext<'_, '_>, ty: &Type) -> Result<String,
         Type::F32 => Ok("0.0 : f32".to_string()),
         Type::F64 => Ok("0.0 : f64".to_string()),
         Type::Owned(_) | Type::Reference(_, _) | Type::Fn(_, _) => Ok("null : !llvm.ptr".to_string()),
-        // [SOVEREIGN FIX] Atomic<T> storage is the inner type T, not a pointer.
+        // [KEUOS FIX] Atomic<T> storage is the inner type T, not a pointer.
         // Recurse to get the correct zero value (e.g., Atomic<i32> → "0 : i32").
         Type::Atomic(inner) => zero_attr(ctx, inner),
         

@@ -18,6 +18,8 @@ extern fn outw(port: u64, val: u64);
 
 
 extern fn proc_context_switch(old_rsp_ptr: u64, new_rsp: u64, new_cr3: u64, new_rsp0: u64);
+
+global DISCARD_RSP: [u64; 1] = [0];
 extern fn switch_cr3(pml4_phys: u64);
 extern fn idle_halt();
 extern fn invlpg_addr(vaddr: u64);
@@ -239,19 +241,20 @@ pub fn process_exit(exit_code: u64) {
                 let state = process.get_state(next);
                 if state == PROC_READY || state == PROC_RUNNING {
                     process.set_state(next, PROC_RUNNING);
-                    process.set_current(next);
-
-                    let new_rsp  = process.get_kernel_rsp(next);
+                    let old_rsp_ptr = 0;
+                    let new_rsp = process.get_kernel_rsp(next);
                     let new_pml4 = process.get_pml4(next);
                     let new_pcid = process.get_pcid(next);
-                    let new_cr3  = new_pml4 | new_pcid;
+                    let new_cr3 = new_pml4 | new_pcid;
                     let new_rsp0 = process.get_kernel_stack_top(next);
 
                     tss.set_rsp0(new_rsp0);
                     set_syscall_kernel_rsp0(new_rsp0);
 
-                    let dummy: u64 = 0;
-                    proc_context_switch((&dummy) as u64, new_rsp, new_cr3, new_rsp0);
+                    process.set_current(next);
+                    process.set_state(next, PROC_RUNNING);
+                    
+                    proc_context_switch(old_rsp_ptr, new_rsp, new_cr3, new_rsp0);
                     return;
                 }
             }
@@ -273,8 +276,7 @@ pub fn process_exit(exit_code: u64) {
             tss.set_rsp0(new_rsp0);
             set_syscall_kernel_rsp0(new_rsp0);
 
-            let dummy: u64 = 0;
-            proc_context_switch((&dummy) as u64, new_rsp, new_cr3, new_rsp0);
+            proc_context_switch(0, new_rsp, new_cr3, new_rsp0);
             return;
         }
     }

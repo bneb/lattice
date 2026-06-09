@@ -1,0 +1,7 @@
+fn do_math(a: i64) @requires { a > 0 } {
+}
+
+fn main() {
+    do_math(5); // Valid
+    do_math(-5); // Invalid
+}

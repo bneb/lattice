@@ -1,4 +1,4 @@
-// Comprehensive Unit Tests for Sovereign HashMap
+// Comprehensive Unit Tests for KeuOS HashMap
 // Tests all methods and edge cases
 package main
 

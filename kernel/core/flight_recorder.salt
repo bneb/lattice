@@ -24,8 +24,9 @@
 package kernel.core.flight_recorder
 
 import kernel.drivers.serial
+import kernel.core.percpu
 
-extern fn get_cpu_id() -> u64;
+
 extern fn get_cycles_asm() -> u64;
 
 // =============================================================================
@@ -81,7 +82,7 @@ global TRACE_INDICES: [u64; 16] = [0 as u64; 16];
 // No atomics. No branches. No LOCK prefix.
 // =============================================================================
 pub fn log_trace(fiber_id: u64, event: u64) {
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
     let idx = TRACE_INDICES[cpu];
     let buf_offset = cpu * TRACE_CAPACITY + idx;
 

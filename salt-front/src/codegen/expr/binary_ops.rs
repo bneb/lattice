@@ -54,7 +54,7 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
         }
     }
 
-    // [SOVEREIGN V5.2] Type-Aware Pointer Addition
+    // [KEUOS V5.2] Type-Aware Pointer Addition
     // Enables: let next = ptr + offset; (Native GEP Lowering)
     if matches!(b.op, syn::BinOp::Add(_)) {
         // Check Pointer/Reference + Integer pattern
@@ -167,7 +167,7 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
                         let k = shape1[1] as i64;
                         let n = shape2[1] as i64;
 
-                        // [SOVEREIGN V5] Pure FFI Strategy: Direct C Call
+                        // [KEUOS V5] Pure FFI Strategy: Direct C Call
                         // Avoids MLIR MemRef descriptor complexity entirely.
                         // salt_matmul(lhs, rhs, res, m, k, n) in ml_bridge.c
                         
@@ -212,7 +212,7 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
                         let m = shape1[0] as i64;
                         let k = shape1[1] as i64;
                         
-                        // [SOVEREIGN V5.1] Pure FFI Strategy: Direct C Call
+                        // [KEUOS V5.1] Pure FFI Strategy: Direct C Call
                         // salt_matvec(lhs, rhs, res, m, k) in ml_bridge.c
                         
                         // 1. Calculate Sizes & Allocate Result
@@ -293,7 +293,7 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
 
     if op.contains("cmp") {
         if matches!(common_ty, Type::Struct(_) | Type::Concrete(..) | Type::Tuple(_) | Type::Array(..) | Type::Enum(_)) {
-            // [SOVEREIGN V7.0] Check for trait-based eq before structural comparison
+            // [KEUOS V7.0] Check for trait-based eq before structural comparison
             // Handles both Type::Struct("name") and Type::Concrete("name", []) —
             // String values resolve as Concrete("std__string__String", [])
             let struct_name_opt = match &common_ty {
@@ -366,7 +366,7 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
         }
 
         if let Type::Reference(inner, _) = &common_ty {
-            // [SOVEREIGN V7.0] General Trait Dispatch for Equality
+            // [KEUOS V7.0] General Trait Dispatch for Equality
             // For Reference types, check if the inner type requires trait-based eq.
             // CRITICAL: Primitives (i64, i32, u8, etc.) MUST skip trait dispatch and
             // fall through to the hardware comparison path (arith.cmpi). Dispatching
@@ -524,11 +524,11 @@ pub fn emit_logic(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBina
 pub fn emit_assign(ctx: &mut LoweringContext, out: &mut String, a: &syn::ExprAssign, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<(String, Type), String> {
 
     let (ptr, raw_ptr_ty, kind) = emit_lvalue(ctx, out, &a.left, local_vars)?;
-    // [SOVEREIGN FIX] Substitute generics in lvalue type (T -> u8 etc.)
+    // [KEUOS FIX] Substitute generics in lvalue type (T -> u8 etc.)
     let ptr_ty = raw_ptr_ty.substitute(&ctx.current_type_map());
 
     
-    // [SOVEREIGN V2.1]: Conditional Hint Purification
+    // [KEUOS V2.1]: Conditional Hint Purification
     // For indexed pointer access (ptr[i] = val), the LHS type is Pointer<element>
     // and we need to peel to get the element type.
     // For struct field access (self.ptr = val), the field IS the type to assign.
@@ -539,7 +539,7 @@ pub fn emit_assign(ctx: &mut LoweringContext, out: &mut String, a: &syn::ExprAss
         (LValueKind::Tensor { .. }, _) => ptr_ty.clone(),
         // For regular struct field ptr access, use the field type directly
         (LValueKind::Ptr, Type::Pointer { .. }) => ptr_ty.clone(),
-        // [SOVEREIGN FIX] For local variable assignments to Pointer-typed vars
+        // [KEUOS FIX] For local variable assignments to Pointer-typed vars
         // (e.g., `curr = n.next` where curr: Ptr<ListNode>), use the type directly.
         // We are storing a Pointer value into the alloca, NOT dereferencing.
         (LValueKind::Local, _) => ptr_ty.clone(),
@@ -555,7 +555,7 @@ pub fn emit_assign(ctx: &mut LoweringContext, out: &mut String, a: &syn::ExprAss
     // Evaluate RHS with the appropriate hint
     let (rhs_val, rhs_ty) = emit_expr(ctx, out, &a.right, local_vars, Some(&element_ty))?;
 
-    // [SOVEREIGN PHASE 3] Strict Affine Memory Safety (assignments)
+    // [KEUOS PHASE 3] Strict Affine Memory Safety (assignments)
     if rhs_ty.is_affine() {
         if let Some(rhs_var_name) = crate::codegen::expr::extract_ident_name(&a.right) {
             ctx.consumed_vars_mut().insert(rhs_var_name);
@@ -1002,7 +1002,7 @@ pub fn emit_cast(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCast,
     let syn_ty = crate::grammar::SynType::from_std(*c.ty.clone())
         .map_err(|e| format!("Invalid cast target type: {}", e))?;
     let raw_target_ty = resolve_type(ctx, &syn_ty);
-    // [SOVEREIGN FIX] Apply current type_map to resolve generics like T -> u8 in cast expressions
+    // [KEUOS FIX] Apply current type_map to resolve generics like T -> u8 in cast expressions
     let target_ty = raw_target_ty.substitute(&ctx.current_type_map());
 
     // [STRING→STRINGVIEW CAST] "hello" as StringView → synthesize { ptr, len } at compile time

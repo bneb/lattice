@@ -30,6 +30,10 @@ const KERNEL_BASE: u64 = 0xFFFFFFFF80000000;
 extern fn outb(port: u16, val: u8);
 extern fn inb(port: u16) -> u8;
 
+extern fn fast_memcpy(dst: u64, src: u64, count: u64);
+extern fn fast_memset(dst: u64, val: u8, count: u64);
+
+
 // =============================================================================
 // VirtIO-Net Header (Legacy, no MRG_RXBUF)
 // =============================================================================
@@ -125,11 +129,7 @@ pub fn init() -> bool {
         let buf_virt = RX_BUF_VIRT + (i as u64) * (BUF_SIZE as u64);
 
         // Zero the virtio-net header at the start of the buffer (CPU access → virtual)
-        let mut h: u32 = 0;
-        while h < VIRTIO_NET_HDR_SIZE {
-            *((buf_virt + h as u64) as &mut u8) = 0;
-            h = h + 1;
-        }
+        fast_memset(buf_virt, 0, VIRTIO_NET_HDR_SIZE as u64);
 
         // Post as device-writable buffer (DMA address → physical)
         virtio.rx_add_buf(buf_phys, BUF_SIZE, true);
@@ -273,19 +273,10 @@ pub fn net_tx_send(pkt: u64, pkt_len: u32) -> bool {
     let buf_phys = TX_BUF_PHYS + slot * (BUF_SIZE as u64);
 
     // Write a zeroed virtio-net header (no offload) — CPU access → virtual
-    let mut h: u32 = 0;
-    while h < VIRTIO_NET_HDR_SIZE {
-        *((buf_virt + h as u64) as &mut u8) = 0;
-        h = h + 1;
-    }
+    fast_memset(buf_virt, 0, VIRTIO_NET_HDR_SIZE as u64);
 
     // Copy the Ethernet frame after the header — CPU access → virtual
-    let mut c: u32 = 0;
-    while c < pkt_len {
-        let src_byte = *((pkt + c as u64) as &u8);
-        *((buf_virt + VIRTIO_NET_HDR_SIZE as u64 + c as u64) as &mut u8) = src_byte;
-        c = c + 1;
-    }
+    fast_memcpy(buf_virt + VIRTIO_NET_HDR_SIZE as u64, pkt, pkt_len as u64);
 
     let total_len = VIRTIO_NET_HDR_SIZE + pkt_len;
 
@@ -323,6 +314,15 @@ pub fn net_poll() {
     if RX_COUNT > rx_before {
         // Data is here and parsed. Wake the MoE Pipeline (Slot 1).
         process.set_state(1, 1); // 1 = PROC_READY
+    }
+}
+
+@no_mangle
+pub fn virtio_net_isr() {
+    // Read ISR Status to ACK the interrupt (required for legacy VirtIO)
+    let isr_status = virtio.virtio_read_isr();
+    if (isr_status & 1) != 0 {
+        net_poll();
     }
 }
 

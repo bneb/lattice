@@ -229,7 +229,7 @@ pub fn tokenize(prefix: String, content: String) -> TokenStream {
 }
 
 // ============================================================================
-// [V4.0 LIBRARY SOVEREIGNTY] Hex String Prefix Handler
+// [V4.0 LIBRARY KEUOSTY] Hex String Prefix Handler
 // This demonstrates that the compiler now asks the Standard Library for help
 // instead of hardcoding magic text transformations.
 //

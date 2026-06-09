@@ -1,0 +1,374 @@
+// =============================================================================
+// kernel/drivers/rtl8125.salt
+// Realtek RTL8125 2.5GbE Polling Driver
+// =============================================================================
+
+package kernel.drivers.rtl8125
+
+import kernel.drivers.pci
+import kernel.drivers.serial
+import kernel.core.pmm
+import kernel.core.panic
+import kernel.arch.x86_64.cpu
+
+const KERNEL_BASE: u64 = 0xFFFFFFFF80000000;
+
+const RTL_VENDOR_ID: u16 = 0x10EC;
+const RTL_DEVICE_ID: u16 = 0x8125;
+
+// MMIO Register Offsets
+const MAC0: u16 = 0x00;
+const MAC4: u16 = 0x04;
+const CR: u16 = 0x37; // Command Register
+const TCR: u16 = 0x40; // Transmit Configuration Register
+const RCR: u16 = 0x44; // Receive Configuration Register
+const RDSAR: u16 = 0xE4; // Receive Descriptor Start Address
+const RDSAR_HIGH: u16 = 0xE8;
+const TNPDSAR: u16 = 0x20; // Transmit Normal Priority Descriptor Start Address
+const TNPDSAR_HIGH: u16 = 0x24;
+const IMR: u16 = 0x3C; // Interrupt Mask Register
+const ISR: u16 = 0x3E; // Interrupt Status Register
+const TPPOLL: u16 = 0x38; // Transmit Priority Polling
+const RMS: u16 = 0xDA; // Receive Maximum Size
+
+// Command Register Bits
+const CR_RST: u8 = 0x10;
+const CR_RE: u8 = 0x08;
+const CR_TE: u8 = 0x04;
+
+// Descriptor size
+const DESC_SIZE: u64 = 16;
+// Number of descriptors (must be ring size)
+const NUM_RX_DESC: u64 = 256;
+const NUM_TX_DESC: u64 = 256;
+
+// Ring bounds (must be 256-byte aligned per RTL8125 specs)
+global RX_RING_PHYS: u64 = 0;
+global TX_RING_PHYS: u64 = 0;
+global RX_RING_VIRT: u64 = 0;
+global TX_RING_VIRT: u64 = 0;
+
+global RX_CUR: u64 = 0;
+global TX_CUR: u64 = 0;
+global TX_RECLAIM_CUR: u64 = 0;
+
+global BAR5_PHYS: u64 = 0;
+global BAR5_VIRT: u64 = 0;
+
+// Descriptor bit flags
+const DESC_OWN: u32 = 0x80000000; // Ownership bit (1 = NIC, 0 = Host)
+const DESC_EOR: u32 = 0x40000000; // End of Ring
+const DESC_FS:  u32 = 0x20000000; // First Segment
+const DESC_LS:  u32 = 0x10000000; // Last Segment
+
+global MAC_ADDR: [u8; 6] = [0 as u8; 6];
+
+// =============================================================================
+// MMIO Access
+// =============================================================================
+
+fn mmio_read8(offset: u16) -> u8 {
+    return *((BAR5_VIRT + offset as u64) as &u8);
+}
+
+fn mmio_write8(offset: u16, val: u8) {
+    *((BAR5_VIRT + offset as u64) as &mut u8) = val;
+}
+
+fn mmio_read16(offset: u16) -> u16 {
+    return *((BAR5_VIRT + offset as u64) as &u16);
+}
+
+fn mmio_write16(offset: u16, val: u16) {
+    *((BAR5_VIRT + offset as u64) as &mut u16) = val;
+}
+
+fn mmio_read32(offset: u16) -> u32 {
+    return *((BAR5_VIRT + offset as u64) as &u32);
+}
+
+fn mmio_write32(offset: u16, val: u32) {
+    *((BAR5_VIRT + offset as u64) as &mut u32) = val;
+}
+
+// =============================================================================
+// Initialization
+// =============================================================================
+
+pub fn init() -> bool {
+    serial.print("RTL8125: Initializing...\n");
+
+    let mut found = false;
+    let mut target_bus: u8 = 0;
+    let mut target_dev: u8 = 0;
+    let mut target_func: u8 = 0;
+
+    // Scan PCI
+    let mut bus: u32 = 0;
+    while bus < 256 {
+        let mut dev: u32 = 0;
+        while dev < 32 {
+            let mut func: u32 = 0;
+            while func < 8 {
+                let id = pci.pci_read32(bus as u8, dev as u8, func as u8, 0);
+                if id != 0xFFFFFFFF {
+                    let vendor = (id & 0xFFFF) as u16;
+                    let device = ((id >> 16) & 0xFFFF) as u16;
+                    if vendor == RTL_VENDOR_ID && device == RTL_DEVICE_ID {
+                        target_bus = bus as u8;
+                        target_dev = dev as u8;
+                        target_func = func as u8;
+                        found = true;
+                        break;
+                    }
+                }
+                func = func + 1;
+            }
+            if found { break; }
+            dev = dev + 1;
+        }
+        if found { break; }
+        bus = bus + 1;
+    }
+
+    if !found {
+        serial.print("RTL8125: Device not found on PCI bus.\n");
+        return false;
+    }
+
+    // Enable Bus Mastering
+    let cmd = pci.pci_read16(target_bus, target_dev, target_func, 0x04);
+    pci.pci_write32(target_bus, target_dev, target_func, 0x04, (cmd | 0x0004) as u32);
+
+    // Read BAR5 (MMIO)
+    let bar5_low = pci.pci_read32(target_bus, target_dev, target_func, 0x24); // BAR5 is at 0x24
+    let bar5_high = pci.pci_read32(target_bus, target_dev, target_func, 0x28); // BAR5 upper 32 bits
+    let bar5_phys = ((bar5_high as u64) << 32) | (bar5_low as u64 & 0xFFFFFFF0);
+    
+    BAR5_PHYS = bar5_phys;
+    BAR5_VIRT = bar5_phys + KERNEL_BASE; // Assume physical memory is identity mapped in higher half for MMIO.
+    
+    serial.print("RTL8125: MMIO mapped at ");
+    serial.print_u64(BAR5_VIRT);
+    serial.print("\n");
+
+    // Software Reset
+    mmio_write8(CR, CR_RST);
+    let mut timeout = 10000;
+    while (mmio_read8(CR) & CR_RST) != 0 {
+        timeout = timeout - 1;
+        if timeout == 0 {
+            serial.print("RTL8125: Reset timeout!\n");
+            return false;
+        }
+    }
+
+    // Read MAC
+    let mac0 = mmio_read32(MAC0);
+    let mac4 = mmio_read16(MAC4);
+    MAC_ADDR[0] = (mac0 & 0xFF) as u8;
+    MAC_ADDR[1] = ((mac0 >> 8) & 0xFF) as u8;
+    MAC_ADDR[2] = ((mac0 >> 16) & 0xFF) as u8;
+    MAC_ADDR[3] = ((mac0 >> 24) & 0xFF) as u8;
+    MAC_ADDR[4] = (mac4 & 0xFF) as u8;
+    MAC_ADDR[5] = ((mac4 >> 8) & 0xFF) as u8;
+
+    serial.print("RTL8125: MAC Address: ");
+    let mut i = 0;
+    while i < 6 {
+        serial.print_u64(MAC_ADDR[i] as u64);
+        if i < 5 { serial.print(":"); }
+        i = i + 1;
+    }
+    serial.print("\n");
+
+    // Allocate Descriptor Rings (256-byte aligned)
+    // pmm.alloc_pages() returns 4KB aligned physical pages, which implies 256-byte alignment.
+    RX_RING_PHYS = pmm.alloc_pages(1); 
+    TX_RING_PHYS = pmm.alloc_pages(1);
+    RX_RING_VIRT = RX_RING_PHYS + KERNEL_BASE;
+    TX_RING_VIRT = TX_RING_PHYS + KERNEL_BASE;
+
+    // Initialize RX Ring
+    let mut idx: u64 = 0;
+    while idx < NUM_RX_DESC {
+        let desc_ptr = RX_RING_VIRT + idx * DESC_SIZE;
+        let buf_phys = pmm.alloc_pages(1); // 4KB buf
+        
+        let mut flags = DESC_OWN | 1514; // NIC owns it, MTU=1514
+        if idx == NUM_RX_DESC - 1 {
+            flags = flags | DESC_EOR; // End of Ring
+        }
+        
+        *((desc_ptr + 0) as &mut u32) = flags;
+        *((desc_ptr + 4) as &mut u32) = 0; // VLAN tag
+        *((desc_ptr + 8) as &mut u32) = (buf_phys & 0xFFFFFFFF) as u32;
+        *((desc_ptr + 12) as &mut u32) = ((buf_phys >> 32) & 0xFFFFFFFF) as u32;
+        
+        idx = idx + 1;
+    }
+
+    // Initialize TX Ring
+    idx = 0;
+    while idx < NUM_TX_DESC {
+        let desc_ptr = TX_RING_VIRT + idx * DESC_SIZE;
+        let mut flags: u32 = 0;
+        if idx == NUM_TX_DESC - 1 {
+            flags = DESC_EOR;
+        }
+        *((desc_ptr + 0) as &mut u32) = flags;
+        idx = idx + 1;
+    }
+
+    // Set Ring Addresses in Hardware
+    mmio_write32(RDSAR, (RX_RING_PHYS & 0xFFFFFFFF) as u32);
+    mmio_write32(RDSAR_HIGH, ((RX_RING_PHYS >> 32) & 0xFFFFFFFF) as u32);
+    
+    mmio_write32(TNPDSAR, (TX_RING_PHYS & 0xFFFFFFFF) as u32);
+    mmio_write32(TNPDSAR_HIGH, ((TX_RING_PHYS >> 32) & 0xFFFFFFFF) as u32);
+
+    // Disable Interrupts (we are a polling driver)
+    mmio_write16(IMR, 0x0000);
+
+    // Configure RX (Accept Broadcast, Multicast, Physical Match, wrap)
+    // 0x0F = Accept all
+    mmio_write32(RCR, 0xE70F | (0x7 << 8)); // Max DMA burst size
+    mmio_write16(RMS, 1514); // Max RX packet size
+
+    // Configure TX (Max DMA burst size)
+    mmio_write32(TCR, (0x7 << 8) | 0x03000000); // Interframe gap time
+
+    // Enable RX and TX
+    mmio_write8(CR, CR_RE | CR_TE);
+
+    serial.print("RTL8125: Ready for C10M (or ~3.7M PPS) Polling!\n");
+    return true;
+}
+
+// =============================================================================
+// Polling Data Path
+// =============================================================================
+
+pub fn rx_poll(out_buf: &mut u64, out_len: &mut u32) -> bool {
+    let desc_ptr = RX_RING_VIRT + RX_CUR * DESC_SIZE;
+    let flags = *((desc_ptr + 0) as &u32);
+
+    if (flags & DESC_OWN) != 0 {
+        return false; // NIC still owns it
+    }
+
+    // Red-Team: Speculative Execution Barrier
+    // Prevent the CPU from speculatively reading the packet buffer before
+    // the DESC_OWN check is genuinely resolved.
+    cpu.cpu_lfence();
+
+    let pkt_len = flags & 0x3FFF;
+    let buf_phys_low = *((desc_ptr + 8) as &u32);
+    let buf_phys_high = *((desc_ptr + 12) as &u32);
+    let buf_phys = ((buf_phys_high as u64) << 32) | (buf_phys_low as u64);
+    let buf_virt = buf_phys + KERNEL_BASE;
+
+    *out_buf = buf_virt;
+    *out_len = pkt_len;
+
+    RX_CUR = (RX_CUR + 1) % NUM_RX_DESC;
+    return true;
+}
+
+pub fn rx_repost(buf_virt: u64) {
+    // Determine which descriptor index this belongs to.
+    // In DPDK style, we should probably keep track of the descriptor we just read,
+    // but for simplicity we assume we repost strictly in order.
+    // Let's repost the descriptor immediately behind RX_CUR.
+    let target_idx = (RX_CUR + NUM_RX_DESC - 1) % NUM_RX_DESC;
+    let desc_ptr = RX_RING_VIRT + target_idx * DESC_SIZE;
+    
+    let buf_phys = buf_virt - KERNEL_BASE;
+    
+    *((desc_ptr + 8) as &mut u32) = (buf_phys & 0xFFFFFFFF) as u32;
+    *((desc_ptr + 12) as &mut u32) = ((buf_phys >> 32) & 0xFFFFFFFF) as u32;
+    
+    // Red-Team: Store fence before giving ownership back
+    cpu.cpu_sfence();
+
+    let mut flags = DESC_OWN | 1514;
+    if target_idx == NUM_RX_DESC - 1 {
+        flags = flags | DESC_EOR;
+    }
+    *((desc_ptr + 0) as &mut u32) = flags;
+}
+
+pub fn tx_reclaim() {
+    while TX_RECLAIM_CUR != TX_CUR {
+        let desc_ptr = TX_RING_VIRT + TX_RECLAIM_CUR * DESC_SIZE;
+        let flags = *((desc_ptr + 0) as &u32);
+
+        if (flags & DESC_OWN) != 0 {
+            break; // NIC still sending this
+        }
+
+        // It has been sent. Reclaim the physical buffer.
+        let buf_phys_low = *((desc_ptr + 8) as &u32);
+        let buf_phys_high = *((desc_ptr + 12) as &u32);
+        let buf_phys = ((buf_phys_high as u64) << 32) | (buf_phys_low as u64);
+        
+        if buf_phys != 0 {
+            // Free page to PMM
+            pmm.free_pages(buf_phys, 1);
+            
+            // Clear ptr
+            *((desc_ptr + 8) as &mut u32) = 0;
+            *((desc_ptr + 12) as &mut u32) = 0;
+        }
+
+        TX_RECLAIM_CUR = (TX_RECLAIM_CUR + 1) % NUM_TX_DESC;
+    }
+}
+
+pub fn tx_send(pkt: u64, pkt_len: u32) -> bool {
+    let desc_ptr = TX_RING_VIRT + TX_CUR * DESC_SIZE;
+    let flags = *((desc_ptr + 0) as &u32);
+
+    if (flags & DESC_OWN) != 0 {
+        serial.print("RTL8125 TX: Ring full\n");
+        return false;
+    }
+
+    // We must copy the packet to a DMA-able physical page, because the caller might
+    // provide a temporary stack buffer or non-contiguous virtual memory.
+    let buf_phys = pmm.alloc_pages(1);
+    let buf_virt = buf_phys + KERNEL_BASE;
+    
+    // extern fn fast_memcpy(dst: u64, src: u64, count: u64);
+    // Well, we don't have fast_memcpy in this module. We can import it or use a loop.
+    // Or we expect the caller to give us a phys page? No, virtio_net.salt has fast_memcpy 
+    // imported. Let's do a basic loop or declare extern.
+    
+    let mut i: u32 = 0;
+    while i < pkt_len {
+        *((buf_virt + i as u64) as &mut u8) = *((pkt + i as u64) as &u8);
+        i = i + 1;
+    }
+
+    // Setup Desc
+    *((desc_ptr + 8) as &mut u32) = (buf_phys & 0xFFFFFFFF) as u32;
+    *((desc_ptr + 12) as &mut u32) = ((buf_phys >> 32) & 0xFFFFFFFF) as u32;
+    
+    // Red-Team: Store Fence to commit the packet payload
+    cpu.cpu_sfence();
+
+    let mut new_flags = DESC_OWN | DESC_FS | DESC_LS | pkt_len;
+    if TX_CUR == NUM_TX_DESC - 1 {
+        new_flags = new_flags | DESC_EOR;
+    }
+    *((desc_ptr + 0) as &mut u32) = new_flags;
+
+    // Red-Team: Store Fence to commit the descriptor before doorbell
+    cpu.cpu_sfence();
+
+    // Ring Doorbell
+    mmio_write16(TPPOLL, 0x0040); // Normal Priority Queue polling
+
+    TX_CUR = (TX_CUR + 1) % NUM_TX_DESC;
+    return true;
+}

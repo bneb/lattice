@@ -157,6 +157,19 @@ extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: Ptr<u8>);
 ```
 
+## Common Traps & Debugging
+
+### Cross-Module `@no_mangle` Calls
+Functions annotated with `@no_mangle` drop their module namespace during MLIR codegen. If you call an `@no_mangle` function from a *different* module:
+1. **Wrong way**: `my_func()` (Compiler generates a mangled call `caller__module__my_func` and linking fails).
+2. **Right way (Option A)**: Use the fully qualified module path (e.g., `target_module.my_func()`), which correctly resolves to the mangled symbol `target__module__my_func` IF the target actually exported it normally. Wait, if it has `@no_mangle`, this will *still* fail because the target module exported the un-mangled name `my_func`.
+3. **Right way (Option B)**: Declare it via `extern fn my_func();` in the caller module, and call it directly. This tells the compiler to emit an un-mangled call `my_func` matching the linker symbol.
+
+### Stale Object File Caches
+The Salt build system (`tools/runner_qemu.py build`) uses aggressive file-level hashing to cache `.o` object files. 
+- **The Trap**: If you delete or rename a function that is heavily referenced across modules, the compiler may successfully rebuild the *modified* files, but use stale cached object files for untouched modules, resulting in confusing `rust-lld: error: undefined symbol:` errors that don't seem to match the current source code.
+- **The Fix**: Always run `python3 tools/runner_qemu.py build --clean` immediately after renaming, deleting, or altering cross-module function signatures.
+
 ## Key Architecture Notes
 
 - **Compiler**: `salt-front/` (Rust crate using syn for parsing, MLIR for codegen)

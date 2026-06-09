@@ -22,7 +22,21 @@ import kernel.net.arp
 import kernel.net.ip
 import kernel.net.udp
 
+import kernel.drivers.rtl8125
+
 const VIRTIO_NET_HDR_SIZE: u32 = 10;
+
+extern fn fast_memcpy(dst: u64, src: u64, count: u64);
+
+// =============================================================================
+// Active Driver Selection
+// =============================================================================
+global USING_RTL8125: bool = false;
+
+@no_mangle
+pub fn netcore_set_rtl8125_mode(enabled: bool) {
+    USING_RTL8125 = enabled;
+}
 
 // =============================================================================
 // UDP Callback Registration
@@ -88,18 +102,32 @@ pub fn process_one() -> bool {
     let mut buf_addr: u64 = 0;
     let mut pkt_len: u32 = 0;
 
-    let got = virtio_net.net_rx_poll(&mut buf_addr, &mut pkt_len);
+    let mut got = false;
+    if USING_RTL8125 {
+        got = rtl8125.rx_poll(&mut buf_addr, &mut pkt_len);
+    } else {
+        got = virtio_net.net_rx_poll(&mut buf_addr, &mut pkt_len);
+    }
     if !got {
         return false;
     }
 
-    // Skip the 10-byte VirtIO header to get to the Ethernet frame
-    let eth_start = buf_addr + VIRTIO_NET_HDR_SIZE as u64;
-    let eth_len = pkt_len - VIRTIO_NET_HDR_SIZE;
+    let mut eth_start = buf_addr;
+    let mut eth_len = pkt_len;
+
+    if !USING_RTL8125 {
+        // Skip the 10-byte VirtIO header to get to the Ethernet frame
+        eth_start = buf_addr + VIRTIO_NET_HDR_SIZE as u64;
+        eth_len = pkt_len - VIRTIO_NET_HDR_SIZE;
+    }
 
     if eth_len < 14 {
         // Too short for an Ethernet header
-        virtio_net.net_rx_repost(buf_addr);
+        if USING_RTL8125 {
+            rtl8125.rx_repost(buf_addr);
+        } else {
+            virtio_net.net_rx_repost(buf_addr);
+        }
         return true;
     }
 
@@ -110,7 +138,18 @@ pub fn process_one() -> bool {
     serial.print_u64(eth_hdr.ethertype as u64);
     serial.print("\n");
 
-    let our_mac = virtio_net.get_mac();
+    // Get MAC address
+    let mut our_mac: [u8; 6] = [0 as u8; 6];
+    if USING_RTL8125 {
+        our_mac[0] = rtl8125.MAC_ADDR[0];
+        our_mac[1] = rtl8125.MAC_ADDR[1];
+        our_mac[2] = rtl8125.MAC_ADDR[2];
+        our_mac[3] = rtl8125.MAC_ADDR[3];
+        our_mac[4] = rtl8125.MAC_ADDR[4];
+        our_mac[5] = rtl8125.MAC_ADDR[5];
+    } else {
+        our_mac = virtio_net.get_mac();
+    }
 
     // Copy MAC fields into local arrays (Salt struct field access returns
     // a reference; functions expect by-value arrays)
@@ -136,7 +175,11 @@ pub fn process_one() -> bool {
             // Do NOT repost — Ring 3 owns the buffer until it reposts
             return true;
         }
-        virtio_net.net_rx_repost(buf_addr);
+        if USING_RTL8125 {
+            rtl8125.rx_repost(buf_addr);
+        } else {
+            virtio_net.net_rx_repost(buf_addr);
+        }
         return true;
     }
 
@@ -170,7 +213,11 @@ pub fn process_one() -> bool {
     }
 
     // Re-post the buffer back to the RX ring
-    virtio_net.net_rx_repost(buf_addr);
+    if USING_RTL8125 {
+        rtl8125.rx_repost(buf_addr);
+    } else {
+        virtio_net.net_rx_repost(buf_addr);
+    }
     return true;
 }
 
@@ -238,7 +285,19 @@ global TX_SCRATCH: [u8; 2048] = [0 as u8; 2048];
 fn send_udp_reply(dst_ip: u32, dst_mac: [u8; 6], dst_port: u16, src_port: u16, payload: u64, payload_len: u32) {
     // Build frame at scratch buffer (CPU access → virtual address)
     let frame_buf: u64 = (&TX_SCRATCH) as u64;
-    let our_mac = virtio_net.get_mac();
+    
+    let mut our_mac: [u8; 6] = [0 as u8; 6];
+    if USING_RTL8125 {
+        our_mac[0] = rtl8125.MAC_ADDR[0];
+        our_mac[1] = rtl8125.MAC_ADDR[1];
+        our_mac[2] = rtl8125.MAC_ADDR[2];
+        our_mac[3] = rtl8125.MAC_ADDR[3];
+        our_mac[4] = rtl8125.MAC_ADDR[4];
+        our_mac[5] = rtl8125.MAC_ADDR[5];
+    } else {
+        our_mac = virtio_net.get_mac();
+    }
+    
     let our_ip: u32 = 0x0A00020F;
 
     // 1. Ethernet header (14 bytes)
@@ -255,15 +314,16 @@ fn send_udp_reply(dst_ip: u32, dst_mac: [u8; 6], dst_port: u16, src_port: u16, p
 
     // 4. Copy payload
     let payload_offset = udp_offset + udp_sz;
-    let mut c: u32 = 0;
-    while c < payload_len {
-        let byte = *((payload + c as u64) as &u8);
-        *((frame_buf + payload_offset as u64 + c as u64) as &mut u8) = byte;
-        c = c + 1;
-    }
+    fast_memcpy(frame_buf + payload_offset as u64, payload, payload_len as u64);
 
     let total = payload_offset + payload_len;
-    virtio_net.net_tx_send(frame_buf, total);
+    
+    if USING_RTL8125 {
+        rtl8125.tx_send(frame_buf, total);
+        rtl8125.tx_reclaim();
+    } else {
+        virtio_net.net_tx_send(frame_buf, total);
+    }
 }
 
 // =============================================================================

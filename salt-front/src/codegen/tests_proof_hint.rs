@@ -206,12 +206,12 @@ mod tests {
     // =========================================================================
     // LAYER 7: SipHash-2-4 — Reference Vectors [RED → GREEN]
     // =========================================================================
-    // Verify that SipHash-2-4 with the KeuOS sovereign keys produces
+    // Verify that SipHash-2-4 with the KeuOS keuos keys produces
     // consistent, non-degenerate output.
 
     #[test]
     fn test_siphash24_nondegenerate() {
-        // SipHash with sovereign keys must produce non-zero, non-trivial output
+        // SipHash with keuos keys must produce non-zero, non-trivial output
         let h0 = siphash24(K0, K1, 0);
         let h1 = siphash24(K0, K1, 1);
         let h2 = siphash24(K0, K1, u64::MAX);
@@ -228,12 +228,12 @@ mod tests {
     #[test]
     fn test_siphash24_key_sensitivity() {
         // Different keys must produce different hashes for same message
-        let h_sovereign = siphash24(K0, K1, 42);
+        let h_keuos = siphash24(K0, K1, 42);
         let h_zero_key = siphash24(0, 0, 42);
         let h_swapped = siphash24(K1, K0, 42);
 
-        assert_ne!(h_sovereign, h_zero_key, "Sovereign keys vs zero keys must differ");
-        assert_ne!(h_sovereign, h_swapped, "Key order must matter");
+        assert_ne!(h_keuos, h_zero_key, "KeuOS keys vs zero keys must differ");
+        assert_ne!(h_keuos, h_swapped, "Key order must matter");
     }
 
     #[test]

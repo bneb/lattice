@@ -1,0 +1,123 @@
+// std::core::keuos::context - Zero-Sized Context for Pulsed Capability
+//
+// The Context is the "Key" that unlocks I/O and async operations.
+// Without a Context, functions are guaranteed synchronous (Z3 verified).
+//
+// ## The ZST Optimization
+// At compile time, Context carries deadline and ownership information.
+// At runtime, Context is erased to zero bytes - the deadline lives in TLS.
+//
+// [KEUOS V2.0] The "Capability Token" pattern
+
+package std.core.keuos.context
+
+// ============================================================================
+// Context Type (Zero-Sized)
+// ============================================================================
+
+// Context is a phantom type - it carries no runtime data.
+// The compiler uses it for:
+// 1. Tracking which functions can perform I/O
+// 2. Injecting yield points at function calls
+// 3. Z3 verification of sync/async boundaries
+//
+// At MLIR->LLVM lowering, Context parameters are erased.
+pub struct Context {
+    // Phantom field to prevent direct construction
+    // Only the executor can create Contexts
+    _phantom: (),
+}
+
+impl Context {
+    // ========================================================================
+    // Deadline Checking (The Heartbeat)
+    // ========================================================================
+    
+    // Check if we've exceeded our time budget.
+    // This is injected by the compiler at:
+    // 1. Loop back-edges (for/while/loop)
+    // 2. Function calls that require Context
+    //
+    // Inlined to a single comparison + conditional branch.
+    // ~3 cycles on M4 when not yielding.
+    @inline(always)
+    pub fn check_deadline(self: &Context) {
+        unsafe {
+            // Read cycle counter (M4: single cycle via CNTVCT_EL0)
+            let now = intrinsics::cycle_counter();
+            
+            // Read deadline from Thread-Local Storage
+            // This is set by the executor when the task starts
+            let deadline = intrinsics::read_tls_deadline();
+            
+            if now > deadline {
+                // We've exceeded our time budget - yield to executor
+                intrinsics::yield_to_executor();
+            }
+        }
+    }
+    
+    // ========================================================================
+    // Time Budget Queries
+    // ========================================================================
+    
+    // Returns remaining cycles before deadline
+    @inline(always)
+    pub fn remaining_budget(self: &Context) -> i64 {
+        unsafe {
+            let now = intrinsics::cycle_counter();
+            let deadline = intrinsics::read_tls_deadline();
+            if deadline > now {
+                return deadline - now;
+            } else {
+                return 0;
+            }
+        }
+    }
+    
+    // Returns remaining microseconds before deadline (M4 @ 4GHz)
+    @inline(always)
+    pub fn remaining_us(self: &Context) -> i64 {
+        return self.remaining_budget() / 4000;
+    }
+    
+    // ========================================================================
+    // Explicit Yield
+    // ========================================================================
+    
+    // Voluntarily yield to the executor, even if deadline not reached.
+    // Use sparingly - the compiler inserts automatic yields.
+    pub fn yield_now(self: &Context) {
+        unsafe {
+            intrinsics::yield_to_executor();
+        }
+    }
+}
+
+// ============================================================================
+// Context Creation (Executor Only)
+// ============================================================================
+
+// This is only callable from the executor module.
+// User code cannot create Contexts directly.
+pub(crate) fn create_context() -> Context {
+    return Context { _phantom: () };
+}
+
+// ============================================================================
+// Deadline TLS Management
+// ============================================================================
+
+// Set the deadline for the current thread (called by executor)
+pub(crate) fn set_deadline(deadline_cycles: i64) {
+    unsafe {
+        intrinsics::write_tls_deadline(deadline_cycles);
+    }
+}
+
+// Get the deadline for the current thread
+pub(crate) fn get_deadline() -> i64 {
+    unsafe {
+        return intrinsics::read_tls_deadline();
+    }
+}

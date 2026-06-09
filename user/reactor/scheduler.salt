@@ -1,6 +1,6 @@
 // ============================================================================
 // user/reactor/scheduler.salt
-// Sovereign SMP Scheduler — Chase-Lev Work-Stealing Deque
+// KeuOS SMP Scheduler — Chase-Lev Work-Stealing Deque
 // ============================================================================
 //
 // A lock-free, zero-allocation concurrent deque for Ring 3 SMP.

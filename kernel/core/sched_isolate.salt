@@ -23,10 +23,11 @@ package kernel.core.sched_isolate
 import kernel.drivers.serial
 import kernel.core.process
 import kernel.core.scheduler
+import kernel.core.percpu
 
 extern fn apic_mask_timer();
 extern fn apic_ioapic_mask_irq0();
-extern fn get_cpu_id() -> u64;
+
 
 // =============================================================================
 // Core Isolation Bitmap
@@ -56,7 +57,7 @@ pub fn sys_core_acquire(target_core_id: u64) -> u64
     requires { target_core_id < MAX_CPUS }
 {
     let pid = process.current();
-    let current_cpu = get_cpu_id();
+    let current_cpu = percpu.get_cpu_id();
 
     // 1. Bounds check (runtime fallback for Z3 — belt and suspenders)
     if target_core_id >= MAX_CPUS {

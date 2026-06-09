@@ -14,7 +14,7 @@
 //! | C/io_uring | io_uring+zero-copy | scalar | manual (0 cost) | event loop |
 //! | Rust/Tokio | epoll via mio | scalar | runtime checks | async/await |
 //! | Rust/io_uring | io_uring+zero-copy | scalar | runtime checks | async/await |
-//! | Salt/Sovereign | io_uring+zero-copy | NEON SIMD | Z3 formal (0 cost) | stackless coroutine |
+//! | Salt/KeuOS | io_uring+zero-copy | NEON SIMD | Z3 formal (0 cost) | stackless coroutine |
 
 // =============================================================================
 // M4 Timing Constants (shared across all configurations)
@@ -391,7 +391,7 @@ pub fn simulate_rust_iouring(params: &WorkloadParams) -> ConfigResult {
     }
 }
 
-pub fn simulate_salt_sovereign(params: &WorkloadParams) -> ConfigResult {
+pub fn simulate_salt_keuos(params: &WorkloadParams) -> ConfigResult {
     // NEON SIMD parsing (Salt's unique advantage)
     let parsing = simd_header_scan(params.header_bytes)
         + path_extraction(params.path_bytes)
@@ -426,7 +426,7 @@ pub fn simulate_salt_sovereign(params: &WorkloadParams) -> ConfigResult {
     let total = parsing + io + safety + scheduling + memory + func + yield_cost + spill;
 
     ConfigResult {
-        name: "Salt / Sovereign",
+        name: "Salt / KeuOS",
         io_model: "io_uring + zero-copy",
         parsing_cycles: parsing,
         io_cycles: io,
@@ -448,7 +448,7 @@ pub fn run_full_comparison(params: &WorkloadParams) -> Vec<ConfigResult> {
         simulate_c_iouring(params),
         simulate_rust_tokio(params),
         simulate_rust_iouring(params),
-        simulate_salt_sovereign(params),
+        simulate_salt_keuos(params),
     ]
 }
 
@@ -469,7 +469,7 @@ mod tests {
         let params = WorkloadParams::typical();
         let c_io = simulate_c_iouring(&params);
         let rust_io = simulate_rust_iouring(&params);
-        let salt = simulate_salt_sovereign(&params);
+        let salt = simulate_salt_keuos(&params);
 
         // All io_uring configs must have the same I/O cost
         assert_eq!(c_io.io_cycles, salt.io_cycles,
@@ -483,7 +483,7 @@ mod tests {
         // Path extraction is scalar for ALL configs
         let params = WorkloadParams::typical();
         let c_io = simulate_c_iouring(&params);
-        let salt = simulate_salt_sovereign(&params);
+        let salt = simulate_salt_keuos(&params);
 
         // Path extraction portion should be identical
         let path_cost = path_extraction(params.path_bytes);
@@ -495,7 +495,7 @@ mod tests {
     #[test]
     fn test_io_uring_not_free() {
         let params = WorkloadParams::typical();
-        let salt = simulate_salt_sovereign(&params);
+        let salt = simulate_salt_keuos(&params);
         assert!(
             salt.io_cycles >= 10,
             "io_uring I/O must cost >= 10 cycles, got {}",
@@ -552,7 +552,7 @@ mod tests {
     fn test_safety_cost_breakdown() {
         let params = WorkloadParams::typical();
         let rust = simulate_rust_iouring(&params);
-        let salt = simulate_salt_sovereign(&params);
+        let salt = simulate_salt_keuos(&params);
         let c = simulate_c_iouring(&params);
 
         assert_eq!(c.safety_cycles, 0, "C: no bounds checks");
@@ -570,7 +570,7 @@ mod tests {
         let params = WorkloadParams::typical();
         let c = simulate_c_iouring(&params);
         let rust = simulate_rust_iouring(&params);
-        let salt = simulate_salt_sovereign(&params);
+        let salt = simulate_salt_keuos(&params);
 
         // Event loop < stackless < async/await
         assert!(
@@ -698,7 +698,7 @@ mod tests {
         // HONEST: C's event loop dispatch is lighter than Salt's coroutine swap
         let params = WorkloadParams::typical();
         let c = simulate_c_iouring(&params);
-        let salt = simulate_salt_sovereign(&params);
+        let salt = simulate_salt_keuos(&params);
 
         assert!(
             c.scheduling_cycles < salt.scheduling_cycles,

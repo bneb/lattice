@@ -35,11 +35,27 @@ pub fn fastpath_handoff_syscall(cap_id: u64, payload_offset: u32, payload_len: u
     FASTPATH_STATE[(cap_id as u64)] = BORROW_STATE_KERNEL;
     
     // RED TEAM MITIGATION: BOUNDS CHECK
-    // Prevent malicious NetD structs from supplying DMA overlays outside the 4KB boundaries!
-    if payload_offset + payload_len > 4096 {
+    // Cast to u64 to prevent u32 addition overflow, preventing 4GB arbitrary kernel reads!
+    let offset64 = payload_offset as u64;
+    let len64 = payload_len as u64;
+    if offset64 + len64 > 4096 {
         serial.print("=================================================================\n");
         serial.print("[Fastpath] SECURITY FAULT: Malicious Zero-Copy Memory Trapped!\n");
         serial.print("[Fastpath] FATAL: Requested DMA topology exceeds bounded page table limit.\n");
+        serial.print("[Fastpath] Triggering native hardware garbage collection...\n");
+        serial.print("=================================================================\n");
+        pmm.free(phys_addr);
+        FASTPATH_STATE[(cap_id as u64)] = BORROW_STATE_IDLE;
+        return;
+    }
+    
+    // RED TEAM MITIGATION: MINIMUM LENGTH CHECK
+    // Ensure the payload is large enough to contain an Ethernet Header (14 bytes)
+    // before we arbitrarily read offset 12 and 13.
+    if len64 < 14 {
+        serial.print("=================================================================\n");
+        serial.print("[Fastpath] SECURITY FAULT: Malicious Zero-Copy Memory Trapped!\n");
+        serial.print("[Fastpath] FATAL: Payload length too small for Ethernet topology.\n");
         serial.print("[Fastpath] Triggering native hardware garbage collection...\n");
         serial.print("=================================================================\n");
         pmm.free(phys_addr);

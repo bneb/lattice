@@ -132,7 +132,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                     .map(|resolved| (resolved.func.clone(), resolved.self_ty.clone(), resolved.imports.clone()))
             };
             
-            // [V4.0 SOVEREIGN] Signature-First: TraitRegistry is the ONLY path
+            // [V4.0 KEUOS] Signature-First: TraitRegistry is the ONLY path
             // No Tier 2 fallback - if method not in TraitRegistry, it's not found
             let method_info: Option<(SaltFn, Option<Type>, Vec<crate::grammar::ImportDecl>)> = 
                 if let Some(resolved) = trait_result {
@@ -336,7 +336,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
             }
         }
         
-        // 0e. [SOVEREIGN FIX V3] EARLY MODULE FUNCTION INTERCEPT
+        // 0e. [KEUOS FIX V3] EARLY MODULE FUNCTION INTERCEPT
         // Check for module-level functions BEFORE resolve_path mangles them.
         // This prevents EMPTY() -> HashMap::EMPTY() transformation inside impl blocks.
         // V3: Check imports list since current_package is None during hydration.
@@ -348,7 +348,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                 // Imports contain entries like "std__collections__hash_map__EMPTY" with alias="EMPTY"
                 let imports = self.ctx.imports();
                 for imp in imports.iter() {
-                    // [SOVEREIGN V3.1] Handle self-imports with aliases
+                    // [KEUOS V3.1] Handle self-imports with aliases
                     // e.g., name=["std__collections__hash_map__EMPTY"], alias=Some("EMPTY")
                     if imp.name.len() == 1 && imp.group.is_none() {
                         // Check if alias matches our raw_name
@@ -685,24 +685,24 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         // [FIX] Bit manipulation intrinsics used by kernel scheduler (std.math.* aliases)
         name == "ctz_u64" || name == "clz_u64" || name == "popcount_u64" ||
         name == "reinterpret_cast" || name == "ref_to_addr" || name == "is_null" ||
-        // [SOVEREIGN OPTIMIZATION] Bulk memory intrinsics
+        // [KEUOS OPTIMIZATION] Bulk memory intrinsics
         name == "memset" || name == "memcpy" ||
         // V1.6 Refined Intrinsics (Phase 4A/4B)
         name == "fused_cross_entropy" || name == "ml__fused_cross_entropy" ||
         name == "read_vector" ||
         // V2.2 Shadow Reduction: Register-resident tensor updates
         name == "update_tensor" || name == "fma_update" ||
-        // [SOVEREIGN V3] ML Intrinsics
+        // [KEUOS V3] ML Intrinsics
         name == "matmul" || name.starts_with("matmul_into") || name == "update_weights" || name == "v_fma" || name == "v_add" || name == "v_mul" || name == "v_max" || name == "v_sum" || name == "v_hsum" || name == "v_relu" || name == "v_broadcast" || name == "v_load" || name == "v_store" ||
         name == "__internal_dispatch_matmul" || name == "__internal_fma_update" ||
         name == "mmap_view" || name == "cast_view" ||
         name.contains("macos_syscall") ||
         name.starts_with("intrin_") || name.starts_with("tensor_alloc") || name.contains("ptr_offset") || name.contains("ptr_read") || name.contains("ptr_write") ||
-        // [SOVEREIGN PHASE 3] Shaped tensor allocation
+        // [KEUOS PHASE 3] Shaped tensor allocation
         name == "alloc_tensor" ||
-        // [SOVEREIGN V6] Vector Intrinsics
+        // [KEUOS V6] Vector Intrinsics
         name == "vector_load" || name == "vector_store" || name == "vector_fma" || name == "vector_reduce_add" || name == "vector_splat" ||
-        // [SOVEREIGN V6] Target Feature Detection
+        // [KEUOS V6] Target Feature Detection
         name.starts_with("target__") ||
         // [std.nn] Neural network building blocks
         name == "add_bias" ||
@@ -710,7 +710,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         name.starts_with("std__math__") ||
         name == "expf" || name == "logf" || name == "sqrtf" || name == "powf" ||
         name == "sinf" || name == "cosf" || name == "fabsf" || name == "floorf" || name == "ceilf" ||
-        // [SOVEREIGN FIX] Atomic intrinsics for kernel lock-free data structures
+        // [KEUOS FIX] Atomic intrinsics for kernel lock-free data structures
         name == "cmpxchg" || name.contains("atomic_cas") || name.contains("ptr_is_null") ||
         // [salt.atomic] Concurrency primitives — must bypass package mangling
         // so they route to the intrinsic handler in intrinsics.rs
@@ -796,7 +796,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
              });
         }
         
-        // 2.5 [SOVEREIGN FIX] Hierarchical Scope Resolution
+        // 2.5 [KEUOS FIX] Hierarchical Scope Resolution
         // Check Registry for module-level functions in current package.
         // This enables EMPTY(), DELETED() etc. to be visible from impl blocks.
 
@@ -818,7 +818,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                         });
                     }
                     
-                    // [SOVEREIGN V2] Also try the simple name from canonical_name's last segment
+                    // [KEUOS V2] Also try the simple name from canonical_name's last segment
                     // This handles cases where name was already mangled (e.g., HashMap__DELETED -> DELETED)
                     let simple_name = canonical_name.rsplit("__").next().unwrap_or(&canonical_name);
                     if simple_name != name {
@@ -837,7 +837,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
             }
         }
         
-        // 2.6 [SOVEREIGN V4] Direct Registry Probing for Module-Level Functions  
+        // 2.6 [KEUOS V4] Direct Registry Probing for Module-Level Functions  
         // When the canonical_name looks like HashMap__DELETED but the actual function is
         // at module level (hash_map__DELETED), we extract the simple name and search
         // ALL registry modules for it. This handles hydration context where imports are lost.
@@ -888,7 +888,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                      specialization: None 
                  };
                  
-                 // [V4.0 SOVEREIGN] Use TraitRegistry for method lookup
+                 // [V4.0 KEUOS] Use TraitRegistry for method lookup
                  if let Some((func, self_ty, imports)) = self.ctx.trait_registry().get_legacy(&template_key, method) {
                      return Some(ResolutionTarget {
                          template: func.clone(),
@@ -905,7 +905,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
              // Fallback: Try "path=[] name=Base" (Old Logic)
              let base = Mangler::mangle(&parts[..parts.len()-1]);
              let template_key = TypeKey { path: vec![], name: base.clone(), specialization: None };
-             // [V4.0 SOVEREIGN] Use TraitRegistry for method lookup
+             // [V4.0 KEUOS] Use TraitRegistry for method lookup
              if let Some((func, self_ty, imports)) = self.ctx.trait_registry().get_legacy(&template_key, method) {
                  return Some(ResolutionTarget {
                      template: func.clone(),

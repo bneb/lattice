@@ -12,9 +12,8 @@
 ## Invariants
 
 > [!CAUTION]
-> **C-Parity Performance Limit**
+> **Performance Limits**
 > The context switch mechanism defined here must compete with optimized C (switch_to.s) and Rust (context_switch.rs) implementations.
-> Current Target: ~1,586 cycles.
 
 ### The ABI Boundary
 Code in this directory is the *only* place where the Salt ABI interacts with the raw hardware ABI (System V AMD64).

@@ -4,7 +4,7 @@ use crate::grammar::{SynType, SynPath, SynPathSegment, SynTuple, TensorDim};
 impl ToTokens for SynType {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         match self {
-            // [SOVEREIGN V2.0]: Emit the first-class Pointer primitive
+            // [KEUOS V2.0]: Emit the first-class Pointer primitive
             SynType::Pointer(inner) => {
                 let p = quote::format_ident!("Ptr");
                 tokens.append(p);
@@ -12,7 +12,7 @@ impl ToTokens for SynType {
                 inner.to_tokens(tokens);
                 tokens.append(proc_macro2::Punct::new('>', proc_macro2::Spacing::Alone));
             }
-            // [SOVEREIGN V2.0]: Emit the Safe Reference
+            // [KEUOS V2.0]: Emit the Safe Reference
             SynType::Reference(inner, is_mut) => {
                 tokens.append(proc_macro2::Punct::new('&', proc_macro2::Spacing::Joint));
                 if *is_mut {
@@ -20,7 +20,7 @@ impl ToTokens for SynType {
                 }
                 inner.to_tokens(tokens);
             }
-            // [SOVEREIGN PHASE 3]: Emit ShapedTensor as Tensor<T, {Rank, D1...}>
+            // [KEUOS PHASE 3]: Emit ShapedTensor as Tensor<T, {Rank, D1...}>
             SynType::ShapedTensor { element, rank, dims } => {
                 let t = quote::format_ident!("Tensor");
                 tokens.append(t);

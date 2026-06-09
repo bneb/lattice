@@ -12,7 +12,7 @@ pub fn emit_atomic_intrinsic(
     _expected_ty: Option<&Type>,
 ) -> Result<Option<(String, Type)>, String> {
     match name {
-        "cycle_counter" | "sovereign__cycle_counter" => {
+        "cycle_counter" | "keuos__cycle_counter" => {
             if !args.is_empty() {
                 return Err("cycle_counter() takes no arguments".to_string());
             }
@@ -20,7 +20,7 @@ pub fn emit_atomic_intrinsic(
             out.push_str(&format!("    {} = \"llvm.intr.readcyclecounter\"() : () -> i64\n", res));
             Ok(Some((res, Type::I64)))
         }
-        "atomic_cas_ptr" | "sovereign__atomic_cas_ptr" => {
+        "atomic_cas_ptr" | "keuos__atomic_cas_ptr" => {
             if args.len() != 3 {
                 return Err("atomic_cas_ptr expects 3 arguments: (addr, old, new)".to_string());
             }
@@ -47,11 +47,20 @@ pub fn emit_atomic_intrinsic(
                 is_mutable: true,
             })))
         }
-        "atomic_add_i64" | "sovereign__atomic_add_i64" => {
+        "atomic_add_i64" | "keuos__atomic_add_i64" => {
             if args.len() != 2 {
                 return Err("atomic_add_i64 expects 2 arguments: (addr, delta)".to_string());
             }
-            let (addr_val, _) = emit_expr(ctx, out, &args[0], local_vars, None)?;
+            let (raw_addr_val, addr_ty) = emit_expr(ctx, out, &args[0], local_vars, None)?;
+            
+            let addr_val = if matches!(addr_ty, Type::I64 | Type::U64 | Type::Usize) {
+                let ptr_cast = format!("%add_ptr_{}", ctx.next_id());
+                out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", ptr_cast, raw_addr_val));
+                ptr_cast
+            } else {
+                raw_addr_val
+            };
+            
             let (delta_val, _) = emit_expr(ctx, out, &args[1], local_vars, Some(&Type::I64))?;
 
             let res = format!("%atomic_add_{}", ctx.next_id());
@@ -64,11 +73,20 @@ pub fn emit_atomic_intrinsic(
             ));
             Ok(Some((res, Type::I64)))
         }
-        "salt_atomic_cas_i64" | "atomic_cas_i64" | "sovereign__atomic_cas_i64" => {
+        "salt_atomic_cas_i64" | "atomic_cas_i64" | "keuos__atomic_cas_i64" => {
             if args.len() != 3 {
                 return Err("atomic_cas_i64 expects 3 arguments: (addr, expected, desired)".to_string());
             }
-            let (addr_val, _) = emit_expr(ctx, out, &args[0], local_vars, None)?;
+            let (raw_addr_val, addr_ty) = emit_expr(ctx, out, &args[0], local_vars, None)?;
+            
+            let addr_val = if matches!(addr_ty, Type::I64 | Type::U64 | Type::Usize) {
+                let ptr_cast = format!("%cas_ptr_{}", ctx.next_id());
+                out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", ptr_cast, raw_addr_val));
+                ptr_cast
+            } else {
+                raw_addr_val
+            };
+            
             let (old_val, _) = emit_expr(ctx, out, &args[1], local_vars, Some(&Type::I64))?;
             let (new_val, _) = emit_expr(ctx, out, &args[2], local_vars, Some(&Type::I64))?;
 
@@ -84,11 +102,18 @@ pub fn emit_atomic_intrinsic(
             ));
             Ok(Some((cas_val, Type::I64)))
         }
-        "atomic_load_i64" | "sovereign__atomic_load_i64" => {
+        "atomic_load_i64" | "keuos__atomic_load_i64" => {
             if args.len() != 1 {
                 return Err("Intrinsic 'atomic_load_i64' expects 1 argument (ptr)".to_string());
             }
-            let (ptr_var, _) = emit_expr(ctx, out, &args[0], local_vars, None)?;
+            let (raw_ptr_var, ptr_ty) = emit_expr(ctx, out, &args[0], local_vars, None)?;
+            let ptr_var = if matches!(ptr_ty, Type::I64 | Type::U64 | Type::Usize) {
+                let ptr_cast = format!("%load_ptr_{}", ctx.next_id());
+                out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", ptr_cast, raw_ptr_var));
+                ptr_cast
+            } else {
+                raw_ptr_var
+            };
             let res = format!("%atomic_load_{}", ctx.next_id());
             out.push_str(&format!(
                 "    {} = \"llvm.load\"({}) {{alignment = 8 : i64, ordering = 4 : i64}} : (!llvm.ptr) -> i64\n",
@@ -96,11 +121,18 @@ pub fn emit_atomic_intrinsic(
             ));
             Ok(Some((res, Type::I64)))
         }
-        "atomic_store_i64" | "sovereign__atomic_store_i64" => {
+        "atomic_store_i64" | "keuos__atomic_store_i64" => {
             if args.len() != 2 {
                 return Err("Intrinsic 'atomic_store_i64' expects 2 arguments (ptr, val)".to_string());
             }
-            let (ptr_var, _) = emit_expr(ctx, out, &args[0], local_vars, None)?;
+            let (raw_ptr_var, ptr_ty) = emit_expr(ctx, out, &args[0], local_vars, None)?;
+            let ptr_var = if matches!(ptr_ty, Type::I64 | Type::U64 | Type::Usize) {
+                let ptr_cast = format!("%store_ptr_{}", ctx.next_id());
+                out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", ptr_cast, raw_ptr_var));
+                ptr_cast
+            } else {
+                raw_ptr_var
+            };
             let (val_var, _) = emit_expr(ctx, out, &args[1], local_vars, None)?;
             out.push_str(&format!(
                 "    \"llvm.store\"({}, {}) {{alignment = 8 : i64, ordering = 5 : i64}} : (i64, !llvm.ptr) -> ()\n",
@@ -108,7 +140,7 @@ pub fn emit_atomic_intrinsic(
             ));
             Ok(Some(("".to_string(), Type::Unit)))
         }
-        "atomic_cas_128" | "sovereign__atomic_cas_128" => {
+        "atomic_cas_128" | "keuos__atomic_cas_128" => {
             if args.len() != 5 {
                 return Err("atomic_cas_128 expects 5 arguments: (addr, exp_lo, exp_hi, des_lo, des_hi)".to_string());
             }

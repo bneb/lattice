@@ -22,7 +22,7 @@
 //! The Context parameter is erased during MLIR→LLVM lowering.
 //! At runtime, the deadline lives in Thread-Local Storage.
 //!
-//! ## Call Graph Integration (Sovereign V2.0)
+//! ## Call Graph Integration (KeuOS V2.0)
 //! The `analyze_with_call_graph()` method replaces the fragile string-matching
 //! heuristic with deep-context fixed-point analysis from `CallGraphAnalyzer`.
 //! This ensures @pulse safety is enforced transitively across all library calls.

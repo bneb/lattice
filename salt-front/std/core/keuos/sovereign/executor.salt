@@ -1,0 +1,429 @@
+// std::core::keuos::executor - Lock-Free Work-Stealing Scheduler
+//
+// The KeuOS Executor manages "Salt-lets" (stackless coroutines) across
+// multiple CPU cores with tiered priority scheduling.
+//
+// ## Priority Tiers
+// - Tier 0 (Real-Time): > 500Hz - pinned to performance cores
+// - Tier 1 (Interactive): 30-500Hz - general work-stealing
+// - Tier 2 (Background): < 30Hz - efficiency cores
+//
+// ## The 50ns Dispatch Target
+// Context switch must complete in ~50 M4 cycles:
+// - Save frame: 12-20 cycles
+// - Pick next task: 10-15 cycles
+// - Restore frame: 12-20 cycles
+//
+// [KEUOS V2.0] C10M-scale task management
+
+package std.core.keuos.executor
+
+import std.core.keuos.context
+import std.core.keuos.arena
+import std.core.keuos.mailbox
+
+// ============================================================================
+// Executor State
+// ============================================================================
+
+// Priority tier definitions (cycles between pulses at 4GHz)
+const TIER_0_THRESHOLD_HZ: i64 = 500;    // >= 500Hz = Real-Time
+const TIER_1_THRESHOLD_HZ: i64 = 30;     // >= 30Hz = Interactive
+// Anything below is Tier 2 (Background)
+
+// Per-thread work queue
+struct ThreadState {
+    // Thread ID (0-indexed)
+    id: i64,
+    
+    // Local run queue (head of task list)
+    run_queue_head: Ptr<TaskFrame>,
+    run_queue_tail: Ptr<TaskFrame>,
+    run_queue_len: i64,
+    
+    // Tiered priority queues
+    tier0_queue: Ptr<TaskFrame>,
+    tier1_queue: Ptr<TaskFrame>,
+    tier2_queue: Ptr<TaskFrame>,
+    
+    // Delayed free mailbox for cross-thread frame returns
+    mailbox: Mailbox,
+    
+    // Thread-local arena
+    arena: arena::ThreadArena,
+    
+    // Statistics
+    tasks_run: i64,
+    tasks_stolen: i64,
+    yields: i64,
+}
+
+// Global executor state
+struct ExecutorState {
+    // Worker thread states (one per core)
+    threads: [ThreadState; 16],  // Max 16 cores
+    num_threads: i64,
+    
+    // Shutdown flag
+    shutdown_requested: bool,
+    
+    // Global task counter for load balancing
+    total_pending: i64,
+}
+
+static EXECUTOR: ExecutorState = ExecutorState {
+    threads: uninitialized,
+    num_threads: 0,
+    shutdown_requested: false,
+    total_pending: 0,
+};
+
+// ============================================================================
+// Task Frame (Stackless Coroutine State)
+// ============================================================================
+
+// Represents a suspended task's state
+struct TaskFrame {
+    // Resume function pointer
+    resume_fn: fn(Ptr<TaskFrame>),
+    
+    // Current state (for state machine)
+    state: i64,
+    
+    // Owner thread ID (for delayed free)
+    owner_tid: i64,
+    
+    // Priority tier
+    tier: i64,
+    
+    // Deadline (absolute cycle count)
+    deadline: i64,
+    
+    // Next frame in queue (intrusive linked list)
+    next: Ptr<TaskFrame>,
+    
+    // Task-specific data follows (variable size)
+    // Layout determined by compiler based on live variables
+}
+
+// ============================================================================
+// Initialization
+// ============================================================================
+
+// Initialize the executor with the specified number of worker threads
+pub fn init(num_threads: i64) {
+    if num_threads > 16 {
+        panic("Executor: max 16 threads supported");
+    }
+    
+    EXECUTOR.num_threads = num_threads;
+    EXECUTOR.shutdown_requested = false;
+    EXECUTOR.total_pending = 0;
+    
+    for i in 0..num_threads {
+        EXECUTOR.threads[i] = ThreadState {
+            id: i,
+            run_queue_head: null,
+            run_queue_tail: null,
+            run_queue_len: 0,
+            tier0_queue: null,
+            tier1_queue: null,
+            tier2_queue: null,
+            mailbox: Mailbox::new(),
+            arena: arena::ThreadArena::new(),
+            tasks_run: 0,
+            tasks_stolen: 0,
+            yields: 0,
+        };
+    }
+    
+    // Initialize arenas for each thread
+    for i in 0..num_threads {
+        EXECUTOR.threads[i].arena.init();
+    }
+}
+
+// Shutdown the executor and wait for all tasks
+pub fn shutdown() {
+    EXECUTOR.shutdown_requested = true;
+    
+    // Drain all mailboxes
+    for i in 0..EXECUTOR.num_threads {
+        EXECUTOR.threads[i].mailbox.drain_all(&EXECUTOR.threads[i].arena);
+    }
+}
+
+// ============================================================================
+// Task Spawning
+// ============================================================================
+
+// Spawn a new task with inherited context
+pub fn spawn<F, A>(func: F, arg: A) {
+    let current_tid = get_current_thread_id();
+    let thread = &mut EXECUTOR.threads[current_tid];
+    
+    // Allocate frame from thread-local arena
+    let frame_size = intrinsics::size_of::<TaskFrame>() + intrinsics::size_of::<A>();
+    let frame_ptr = thread.arena.alloc(frame_size);
+    let frame = frame_ptr as Ptr<TaskFrame>;
+    
+    // Initialize frame
+    frame.resume_fn = intrinsics::coroutine_entry::<F, A>;
+    frame.state = 0;
+    frame.owner_tid = current_tid;
+    frame.tier = 1; // Default to interactive tier
+    frame.deadline = 0; // Will be set on first resume
+    frame.next = null;
+    
+    // Copy argument into frame
+    let arg_ptr = (frame_ptr + intrinsics::size_of::<TaskFrame>()) as Ptr<A>;
+    arg_ptr.write(arg);
+    
+    // Enqueue to local run queue
+    enqueue_task(thread, frame);
+    
+    EXECUTOR.total_pending = EXECUTOR.total_pending + 1;
+}
+
+// Spawn a pulsed task at specific frequency
+pub fn spawn_pulse<F, A>(func: F, arg: A, frequency_hz: i64) {
+    let current_tid = get_current_thread_id();
+    let thread = &mut EXECUTOR.threads[current_tid];
+    
+    // Determine tier based on frequency
+    let tier = if frequency_hz >= TIER_0_THRESHOLD_HZ {
+        0  // Real-Time
+    } else if frequency_hz >= TIER_1_THRESHOLD_HZ {
+        1  // Interactive
+    } else {
+        2  // Background
+    };
+    
+    // Calculate deadline budget (cycles per pulse at 4GHz)
+    let cycles_per_pulse = 4_000_000_000 / frequency_hz;
+    
+    // Allocate and initialize frame
+    let frame_size = intrinsics::size_of::<TaskFrame>() + intrinsics::size_of::<A>();
+    let frame_ptr = thread.arena.alloc(frame_size);
+    let frame = frame_ptr as Ptr<TaskFrame>;
+    
+    frame.resume_fn = intrinsics::coroutine_entry::<F, A>;
+    frame.state = 0;
+    frame.owner_tid = current_tid;
+    frame.tier = tier;
+    frame.deadline = intrinsics::cycle_counter() + cycles_per_pulse;
+    frame.next = null;
+    
+    // Copy argument
+    let arg_ptr = (frame_ptr + intrinsics::size_of::<TaskFrame>()) as Ptr<A>;
+    arg_ptr.write(arg);
+    
+    // Enqueue to appropriate tier queue
+    match tier {
+        0 => enqueue_tier0(thread, frame),
+        1 => enqueue_tier1(thread, frame),
+        2 => enqueue_tier2(thread, frame),
+    }
+    
+    EXECUTOR.total_pending = EXECUTOR.total_pending + 1;
+}
+
+// ============================================================================
+// Execution Loop
+// ============================================================================
+
+// Process one round of tasks (call from main loop)
+pub fn tick() {
+    let current_tid = get_current_thread_id();
+    let thread = &mut EXECUTOR.threads[current_tid];
+    
+    // 1. Drain delayed free mailbox first
+    thread.mailbox.drain_batch(&thread.arena, 64);
+    
+    // 2. Check for Tier 0 tasks (highest priority)
+    if thread.tier0_queue != null {
+        let task = dequeue_tier0(thread);
+        run_task(thread, task);
+        return;
+    }
+    
+    // 3. Check local Tier 1 queue
+    if thread.tier1_queue != null {
+        let task = dequeue_tier1(thread);
+        run_task(thread, task);
+        return;
+    }
+    
+    // 4. Try to steal from other threads
+    let stolen = try_steal(thread);
+    if stolen != null {
+        thread.tasks_stolen = thread.tasks_stolen + 1;
+        run_task(thread, stolen);
+        return;
+    }
+    
+    // 5. Check Tier 2 (background) if nothing else
+    if thread.tier2_queue != null {
+        let task = dequeue_tier2(thread);
+        run_task(thread, task);
+        return;
+    }
+    
+    // Nothing to do - could spin or park thread
+}
+
+// Run until no tasks remain
+pub fn run_until_complete() {
+    while EXECUTOR.total_pending > 0 && !EXECUTOR.shutdown_requested {
+        tick();
+    }
+}
+
+// ============================================================================
+// Task Execution
+// ============================================================================
+
+fn run_task(thread: &mut ThreadState, task: Ptr<TaskFrame>) {
+    // Set deadline for this task
+    context::set_deadline(task.deadline);
+    
+    // Create context for the task
+    let ctx = context::create_context();
+    
+    // Resume the coroutine
+    (task.resume_fn)(task);
+    
+    thread.tasks_run = thread.tasks_run + 1;
+    
+    // If task completed, free the frame
+    if task.state == -1 {  // -1 = completed
+        free_task_frame(thread, task);
+        EXECUTOR.total_pending = EXECUTOR.total_pending - 1;
+    } else {
+        // Task yielded - re-enqueue with updated deadline
+        enqueue_task(thread, task);
+    }
+}
+
+// ============================================================================
+// Queue Operations
+// ============================================================================
+
+fn enqueue_task(thread: &mut ThreadState, task: Ptr<TaskFrame>) {
+    task.next = null;
+    if thread.run_queue_tail != null {
+        thread.run_queue_tail.next = task;
+    } else {
+        thread.run_queue_head = task;
+    }
+    thread.run_queue_tail = task;
+    thread.run_queue_len = thread.run_queue_len + 1;
+}
+
+fn enqueue_tier0(thread: &mut ThreadState, task: Ptr<TaskFrame>) {
+    task.next = thread.tier0_queue;
+    thread.tier0_queue = task;
+}
+
+fn enqueue_tier1(thread: &mut ThreadState, task: Ptr<TaskFrame>) {
+    task.next = thread.tier1_queue;
+    thread.tier1_queue = task;
+}
+
+fn enqueue_tier2(thread: &mut ThreadState, task: Ptr<TaskFrame>) {
+    task.next = thread.tier2_queue;
+    thread.tier2_queue = task;
+}
+
+fn dequeue_tier0(thread: &mut ThreadState) -> Ptr<TaskFrame> {
+    let task = thread.tier0_queue;
+    if task != null {
+        thread.tier0_queue = task.next;
+    }
+    return task;
+}
+
+fn dequeue_tier1(thread: &mut ThreadState) -> Ptr<TaskFrame> {
+    let task = thread.tier1_queue;
+    if task != null {
+        thread.tier1_queue = task.next;
+    }
+    return task;
+}
+
+fn dequeue_tier2(thread: &mut ThreadState) -> Ptr<TaskFrame> {
+    let task = thread.tier2_queue;
+    if task != null {
+        thread.tier2_queue = task.next;
+    }
+    return task;
+}
+
+// ============================================================================
+// Work Stealing
+// ============================================================================
+
+fn try_steal(thread: &mut ThreadState) -> Ptr<TaskFrame> {
+    let my_id = thread.id;
+    
+    // Round-robin steal attempt from other threads
+    for offset in 1..EXECUTOR.num_threads {
+        let target_id = (my_id + offset) % EXECUTOR.num_threads;
+        let target = &mut EXECUTOR.threads[target_id];
+        
+        // Try to steal from tier1 queue (don't steal tier0 - they're pinned)
+        if target.tier1_queue != null {
+            // Atomic steal (CAS on queue head)
+            let stolen = atomic_steal_one(&target.tier1_queue);
+            if stolen != null {
+                return stolen;
+            }
+        }
+    }
+    
+    return null;
+}
+
+fn atomic_steal_one(queue_head: &mut Ptr<TaskFrame>) -> Ptr<TaskFrame> {
+    unsafe {
+        let current = intrinsics::atomic_load_ptr(queue_head);
+        if current == null {
+            return null;
+        }
+        let next = current.next;
+        let success = intrinsics::atomic_cas_ptr(queue_head, current, next);
+        if success {
+            current.next = null;
+            return current;
+        }
+        return null;
+    }
+}
+
+// ============================================================================
+// Frame Lifecycle
+// ============================================================================
+
+fn free_task_frame(thread: &mut ThreadState, task: Ptr<TaskFrame>) {
+    let owner_tid = task.owner_tid;
+    let current_tid = thread.id;
+    
+    if owner_tid == current_tid {
+        // Fast path: local free
+        thread.arena.free(task as Ptr<u8>);
+    } else {
+        // Slow path: cross-thread return via mailbox
+        let owner_mailbox = &EXECUTOR.threads[owner_tid].mailbox;
+        owner_mailbox.push(task as Ptr<u8>);
+    }
+}
+
+// ============================================================================
+// Thread ID Management
+// ============================================================================
+
+fn get_current_thread_id() -> i64 {
+    unsafe {
+        return intrinsics::read_tls_thread_id();
+    }
+}

@@ -150,7 +150,7 @@ else
         --security-group-ids "$SG_ID" \
         --region "$AWS_REGION" \
         --instance-market-options '{"MarketType":"spot","SpotOptions":{"MaxPrice":"'"$EC2_MAX_SPOT_PRICE"'","SpotInstanceType":"one-time"}}' \
-        --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":30,"VolumeType":"gp3"}}]' \
+        --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":32,"VolumeType":"gp3"}}]' \
         --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=keuos-benchmark}]' \
         --query 'Instances[0].InstanceId' \
         --output text 2>/dev/null || echo "SPOT_FAILED")
@@ -163,7 +163,7 @@ else
             --key-name "$EC2_KEY_NAME" \
             --security-group-ids "$SG_ID" \
             --region "$AWS_REGION" \
-            --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":30,"VolumeType":"gp3"}}]' \
+            --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":32,"VolumeType":"gp3"}}]' \
             --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=keuos-benchmark}]' \
             --query 'Instances[0].InstanceId' \
             --output text)
@@ -213,6 +213,8 @@ else
         --exclude 'target' \
         --exclude 'salt/build' \
         --exclude 'node_modules' \
+        --exclude '.venv' \
+        --exclude '.obj' \
         --exclude '.DS_Store' \
         --exclude 'qemu_build' \
         --exclude '*.log' \

@@ -1,11 +1,11 @@
 // =============================================================================
-// [SOVEREIGN V2.0] Iron Driver — MLIR → Native Binary Pipeline
+// [KEUOS V2.0] Iron Driver — MLIR → Native Binary Pipeline
 //
-// Orchestrates the 4-step LLVM toolchain to produce Sovereign binaries:
+// Orchestrates the 4-step LLVM toolchain to produce KeuOS binaries:
 //   1. mlir-opt:       MLIR → LLVM dialect
 //   2. mlir-translate: LLVM dialect → LLVM IR (.ll)
 //   3. llc:            LLVM IR → Object code (.o) with x19 reservation
-//   4. clang:          Link with sovereign_rt.o → Mach-O/ELF binary
+//   4. clang:          Link with keuos_rt.o → Mach-O/ELF binary
 //
 // The driver is testable via dry-run: `build_pipeline()` returns the steps
 // without executing them, so TDD tests can verify flag correctness.
@@ -107,9 +107,9 @@ pub struct SaltDriver {
     pub toolchain: ToolchainPaths,
     pub runtime_obj: PathBuf,
     pub debug_info: bool,
-    /// When true, adds -reserved-reg=aarch64:x19 for Sovereign kernel builds.
+    /// When true, adds -reserved-reg=aarch64:x19 for KeuOS kernel builds.
     /// Requires a custom LLVM build; standard llvm@18 does not support this flag.
-    pub sovereign_mode: bool,
+    pub keuos_mode: bool,
 }
 
 impl SaltDriver {
@@ -118,9 +118,9 @@ impl SaltDriver {
             target: DriverTarget::default(),
             build_dir: build_dir.clone(),
             toolchain: ToolchainPaths::default(),
-            runtime_obj: build_dir.join("sovereign_rt.o"),
+            runtime_obj: build_dir.join("keuos_rt.o"),
             debug_info: false,
-            sovereign_mode: false,
+            keuos_mode: false,
         }
     }
 
@@ -217,7 +217,7 @@ impl SaltDriver {
                     }
                     llc_args.push("--frame-pointer=none".into());
                     llc_args.push("-filetype=obj".into());
-                    if self.sovereign_mode {
+                    if self.keuos_mode {
                         llc_args.push("-reserved-reg=aarch64:x19".into());
                     }
                     llc_args
@@ -225,7 +225,7 @@ impl SaltDriver {
                 input: ll_file,
                 output: obj_file.clone(),
             },
-            // Step 4: clang — link with sovereign_rt.o, no libc
+            // Step 4: clang — link with keuos_rt.o, no libc
             PipelineStep {
                 name: "link",
                 tool: self.toolchain.clang.clone(),
@@ -431,7 +431,7 @@ mod tests {
     }
 
     #[test]
-    fn test_llc_step_reserves_x19_in_sovereign_mode() {
+    fn test_llc_step_reserves_x19_in_keuos_mode() {
         let driver = test_driver();
         let steps = driver.build_pipeline("echo_test");
         let llc = &steps[2];
@@ -439,15 +439,15 @@ mod tests {
         assert!(!llc.has_flag("-reserved-reg=aarch64:x19"),
             "llc step must NOT reserve x19 by default (requires custom LLVM)");
 
-        // Sovereign mode enables x19 reservation
+        // KeuOS mode enables x19 reservation
         let sov_driver = SaltDriver::new(PathBuf::from("/tmp/salt-build"));
-        // Can't use with_sovereign_mode yet, set directly
+        // Can't use with_keuos_mode yet, set directly
         let mut sov = sov_driver;
-        sov.sovereign_mode = true;
+        sov.keuos_mode = true;
         let sov_steps = sov.build_pipeline("echo_test");
         let sov_llc = &sov_steps[2];
         assert!(sov_llc.has_flag("-reserved-reg=aarch64:x19"),
-            "llc step MUST reserve x19 in sovereign mode");
+            "llc step MUST reserve x19 in keuos mode");
     }
 
     #[test]
@@ -476,8 +476,8 @@ mod tests {
         let steps = driver.build_pipeline("echo_test");
         let link = &steps[3];
 
-        assert!(link.has_flag("sovereign_rt.o"),
-            "Link step MUST include sovereign_rt.o runtime object");
+        assert!(link.has_flag("keuos_rt.o"),
+            "Link step MUST include keuos_rt.o runtime object");
     }
 
     #[test]

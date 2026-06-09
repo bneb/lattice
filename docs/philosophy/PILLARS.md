@@ -12,7 +12,7 @@ Salt is built on three non-negotiable pillars. Every design decision is weighed 
 
 Salt proves that safety and speed are not mutually exclusive. Through MLIR's optimization infrastructure and careful codegen, Salt achieves C-competitive performance without sacrificing ergonomics.
 
-### Evidence: Sovereign Benchmark (February 2026)
+### Evidence: KeuOS Benchmark (February 2026)
 
 | Implementation | Time | Factor |
 |----------------|------|--------|
@@ -28,9 +28,9 @@ Salt proves that safety and speed are not mutually exclusive. Through MLIR's opt
 
 ---
 
-## 2. Supremely Ergonomic
+## 2. Ergonomics
 
-**Goal**: Best features from loved languages, with improvements.
+**Goal**: Best features from modern languages.
 
 Salt draws from Rust's safety model, Kotlin's syntax clarity, and functional programming's compositional power, while fixing the rough edges.
 
@@ -66,7 +66,7 @@ fn safe_div(a: i32, b: i32) -> i32
 
 ### The 140-LOC Neural Network
 
-The Sovereign benchmark implements a complete 2-layer neural network training loop in **140 lines of Salt**, compared to 200+ lines in C. The high-level syntax doesn't sacrifice performance.
+The KeuOS benchmark implements a complete 2-layer neural network training loop in **140 lines of Salt**, compared to 200+ lines in C. The high-level syntax doesn't sacrifice performance.
 
 ---
 
@@ -129,25 +129,6 @@ The V1.0 loop-carried value optimization isn't just about speed—it enables ver
 
 ---
 
-## The Triangle of Tradeoffs
-
-Traditional languages force you to choose two:
-
-```
-       Fast
-        /\
-       /  \
-      /    \
-     /      \
-    /________\
- Safe        Easy
-```
-
-Salt chooses all three by:
-1. Using **MLIR** for aggressive optimization without GC overhead
-2. Using **Rust-like syntax** without lifetime annotation burden
-3. Using **Z3** for zero-overhead safety: proven contracts are elided entirely
-
 ---
 
-*Salt: Fast enough. Supremely ergonomic. Formally verified.*
+*Salt: Fast enough. Ergonomic. Formally verified.*

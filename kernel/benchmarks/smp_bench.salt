@@ -25,9 +25,10 @@ package benchmarks.smp_bench
 import kernel.drivers.serial
 import kernel.drivers.vga
 import kernel.core.timing
+import kernel.core.percpu
 
 // Per-CPU accessor
-extern fn get_cpu_id() -> u64;
+
 extern fn get_online_cpus() -> u64;
 
 // Slab functions
@@ -52,7 +53,7 @@ fn bench_ap_count() {
     serial.print("BENCH:smp_boot:start\n");
 
     let online = get_online_cpus();
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
 
     serial.print("BENCH:smp_boot:online=");
     serial.print_u64(online);

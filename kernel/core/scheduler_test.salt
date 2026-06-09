@@ -1,0 +1,78 @@
+package kernel.core.scheduler_test
+
+import kernel.core.scheduler
+import kernel.drivers.serial
+import kernel.core.percpu
+
+import kernel.core.panic
+
+fn assert(condition: bool, msg: &u8) {
+    if !condition {
+        serial.print("\n[scheduler_test] ASSERTION FAILED: ");
+        serial.print(msg);
+        serial.print("\n");
+        panic.panic(msg);
+    }
+}
+
+pub fn dummy_step(state: u64) -> i64 {
+    return 1; // POLL_READY
+}
+
+extern fn test_free_slot(slot: u64);
+
+@no_mangle
+pub fn run_scheduler_tests() {
+    serial.print("  [test] scheduler_test: start\n");
+
+    let msg1 = "Expected successful async spawn";
+    let msg2 = "Expected scheduler slot exhaustion";
+
+    // 1. Fiber Exhaustion Test
+    // scheduler.salt supports 256 fibers (MAX_FIBERS=256) per core.
+    let cpu = percpu.get_cpu_id();
+    let initial_count = scheduler.get_fiber_count();
+    
+    serial.print("  [test] scheduler_test: A\n");
+
+    // We will spawn async fibers until exhaustion.
+    // Since slot 0 is reserved for the boot fiber, there are at most 255 slots available.
+    let mut i: u64 = 0;
+    let limit = 255 - initial_count;
+    
+    // We don't use a large array here because it seems to trigger a compiler bug 
+    // that causes a triple fault on return.
+    // Since we allocate sequentially, we know slot = i + 1 (assuming initial_count == 0).
+
+    while i < limit {
+        let slot = scheduler.spawn_async(fn_addr(dummy_step), 8);
+        if slot >= 256 {
+            serial.print("FAIL: spawn_async returned ");
+            serial.print_u64(slot);
+            serial.print("\n");
+        }
+        assert(slot < 256, (&msg1) as &u8);
+        i = i + 1;
+    }
+
+    serial.print("  [test] scheduler_test: B\n");
+
+    let failed_slot = scheduler.spawn_async(fn_addr(dummy_step), 8);
+    if failed_slot != 9999 {
+        serial.print("FAIL: expected 9999, got ");
+        serial.print_u64(failed_slot);
+        serial.print("\n");
+    }
+    assert(failed_slot == 9999, (&msg2) as &u8);
+
+    serial.print("  [test] scheduler_test: C\n");
+
+    // Free the slots so we don't crash real fibers
+    i = 0;
+    while i < limit {
+        test_free_slot(i + 1 + initial_count);
+        i = i + 1;
+    }
+
+    serial.print("  [test] scheduler_test: PASS\n");
+}

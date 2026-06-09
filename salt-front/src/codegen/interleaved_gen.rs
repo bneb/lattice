@@ -35,7 +35,7 @@ impl<'a> CodegenContext<'a> {
     ) {
         let id = self.next_id();
         
-        writeln!(out, "    // --- SOVEREIGN FFB MATMUL (M={}, K={}) ---", m, k).unwrap();
+        writeln!(out, "    // --- KEUOS FFB MATMUL (M={}, K={}) ---", m, k).unwrap();
         
         // Single unified affine loop for Forward + Backward
         writeln!(out, "    affine.for %ffb_i_{} = 0 to {} {{", id, m).unwrap();
@@ -88,7 +88,7 @@ impl<'a> CodegenContext<'a> {
     ) {
         let id = self.next_id();
         
-        writeln!(out, "    // === SOVEREIGN PURE AFFINE MATMUL (M={}, K={}) ===", m, k).unwrap();
+        writeln!(out, "    // === KEUOS PURE AFFINE MATMUL (M={}, K={}) ===", m, k).unwrap();
         writeln!(out, "    // Register-resident accumulation via iter_args").unwrap();
         writeln!(out, "    %c0_{} = arith.constant 0.0 : f32", id).unwrap();
         
@@ -139,7 +139,7 @@ impl<'a> CodegenContext<'a> {
     ) {
         let id = self.next_id();
         
-        writeln!(out, "    // --- SOVEREIGN FFB RELU (Size={}) ---", size).unwrap();
+        writeln!(out, "    // --- KEUOS FFB RELU (Size={}) ---", size).unwrap();
 
         writeln!(out, "    affine.for %relu_i_{} = 0 to {} {{", id, size).unwrap();
         
@@ -185,7 +185,7 @@ impl<'a> CodegenContext<'a> {
     ) {
         let id = self.next_id();
         
-        writeln!(out, "    // === SOVEREIGN FFB LAYER ({} → {}) ===", in_size, out_size).unwrap();
+        writeln!(out, "    // === KEUOS FFB LAYER ({} → {}) ===", in_size, out_size).unwrap();
         
         // Unified loop over output neurons
         writeln!(out, "    affine.for %layer_i_{} = 0 to {} {{", id, out_size).unwrap();

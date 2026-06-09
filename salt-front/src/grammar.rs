@@ -149,7 +149,7 @@ pub enum Item {
     Const(ConstDef),
 }
 
-// [SOVEREIGN V2.0] Grammar Lockdown
+// [KEUOS V2.0] Grammar Lockdown
 // First-class SynType used by the parser to enforce pointer safety semantics.
 // This replaces direct usage of syn::Type in the Salt AST.
 #[derive(Clone, Debug, PartialEq)]
@@ -159,7 +159,7 @@ pub enum SynType {
     Pointer(Box<SynType>),
     /// First-class Reference: &T
     Reference(Box<SynType>, bool),
-    /// [SOVEREIGN PHASE 3] Shaped Tensor: Tensor<T, {Rank, D1, D2...}>
+    /// [KEUOS PHASE 3] Shaped Tensor: Tensor<T, {Rank, D1, D2...}>
     /// Carries compile-time shape metadata for @ operator dispatch.
     /// Example: Tensor<f32, {2, 128, 784}> -> 2D matrix [128 x 784]
     ShapedTensor {
@@ -211,7 +211,7 @@ pub struct SynTuple {
 
 impl Parse for SynType {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        // [GRAMMAR CHECK]: Peek for Explicit Ptr<T> (Sovereign Syntax)
+        // [GRAMMAR CHECK]: Peek for Explicit Ptr<T> (KeuOS Syntax)
         if input.peek(Ident) {
             let fork = input.fork();
             let id: Ident = fork.parse()?;
@@ -223,7 +223,7 @@ impl Parse for SynType {
                 return Ok(SynType::Pointer(Box::new(inner)));
             }
             
-            // [SOVEREIGN PHASE 3]: Tensor<T, {Rank, D1, D2...}> shaped tensor
+            // [KEUOS PHASE 3]: Tensor<T, {Rank, D1, D2...}> shaped tensor
             if id == "Tensor" && fork.peek(Token![<]) {
                 input.parse::<Ident>()?; // eat Tensor
                 input.parse::<Token![<]>()?;
@@ -400,7 +400,7 @@ impl SynType {
             },
              syn::Type::Ptr(tp) => {
                  // Raw pointer *const T / *mut T -> Map to Pointer (Naked) effectively
-                 // Or keep distinct? User said "Ptr<T>" is the sovereign syntax.
+                 // Or keep distinct? User said "Ptr<T>" is the keuos syntax.
                  // We map *T to Ptr<T> (Naked).
                  let inner = Self::from_std(*tp.elem)?;
                  // We don't distinguish const/mut in Ptr<T> generic yet (it is_mutable by default in our model)
@@ -412,7 +412,7 @@ impl SynType {
                  Ok(SynType::Reference(Box::new(inner), tr.mutability.is_some()))
              },
              syn::Type::BareFn(bf) => {
-                 // [SOVEREIGN] First-class function pointer types
+                 // [KEUOS] First-class function pointer types
                  let mut args = Vec::new();
                  for arg in &bf.inputs {
                      args.push(Self::from_std(arg.ty.clone())?);
@@ -442,6 +442,7 @@ pub struct ImportDecl {
 
 #[derive(Clone, Debug)]
 pub struct GlobalDef {
+    pub is_pub: bool,
     pub name: Ident,
     pub colon_token: Token![:],
     pub ty: SynType,
@@ -606,7 +607,7 @@ impl Parse for SaltFile {
                  }
              } else if input.peek(Token![struct]) || (input.peek(Token![@]) && fork.peek(Token![struct])) {
                  items.push(Item::Struct(input.parse()?));
-             } else if input.peek(global) || input.peek(var) {
+             } else if fork.peek(global) || fork.peek(var) {
                  items.push(Item::Global(input.parse()?));
              } else if input.peek(concept) {
                  items.push(Item::Concept(input.parse()?));
@@ -678,6 +679,12 @@ impl Parse for ImportDecl {
 
 impl Parse for GlobalDef {
     fn parse(input: ParseStream) -> syn::Result<Self> {
+        let is_pub = if input.peek(Token![pub]) {
+            input.parse::<Token![pub]>()?;
+            true
+        } else {
+            false
+        };
         if input.peek(global) {
             input.parse::<global>()?;
         } else {
@@ -697,7 +704,7 @@ impl Parse for GlobalDef {
         if input.peek(Token![;]) {
             input.parse::<Token![;]>()?;
         }
-        Ok(GlobalDef { name, colon_token, ty, init })
+        Ok(GlobalDef { is_pub, name, colon_token, ty, init })
     }
 }
 

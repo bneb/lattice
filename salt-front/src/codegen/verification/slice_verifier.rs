@@ -1,4 +1,4 @@
-//! Slice Verifier: Z3-based bounds check elision for SovereignBuffer slices
+//! Slice Verifier: Z3-based bounds check elision for KeuOSBuffer slices
 //!
 //! When Salt code creates a `buf.slice(start, end)` view, this pass uses
 //! the Z3 solver to prove the slice bounds are valid at compile time.

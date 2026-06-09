@@ -35,7 +35,7 @@ impl<'a> TypeTracer for CodegenContext<'a> {
                      return Ok(ty.clone());
                 }
 
-                Err(format!("Sovereign Tracer: Unknown local or path: {}", name))
+                Err(format!("KeuOS Tracer: Unknown local or path: {}", name))
             },
             
             Expr::Field(f) => {
@@ -43,7 +43,7 @@ impl<'a> TypeTracer for CodegenContext<'a> {
                 if let syn::Member::Named(ident) = &f.member {
                     self.resolve_field_type(&receiver_ty, &ident.to_string())
                 } else {
-                    Err("Sovereign Tracer: Tuple indexing not implemented in tracer.".to_string())
+                    Err("KeuOS Tracer: Tuple indexing not implemented in tracer.".to_string())
                 }
             },
 
@@ -63,7 +63,7 @@ impl<'a> TypeTracer for CodegenContext<'a> {
                                 crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
                             };
                             if let Some(syn::GenericArgument::Type(ty)) = turbofish.args.iter().nth(i) {
-                                // SOVEREIGN FIX: Use the Ptr-aware from_std bridge
+                                // KEUOS FIX: Use the Ptr-aware from_std bridge
                                 let syn_ty = crate::grammar::SynType::from_std(ty.clone()).map_err(|e| e.to_string())?;
                                 let concrete = Type::from_syn(&syn_ty).unwrap_or(Type::Unit);
                                 type_map.insert(p_name, concrete);
@@ -296,14 +296,14 @@ impl<'a, 'ctx> TypeTracer for crate::codegen::context::LoweringContext<'a, 'ctx>
                 if let Some(ty) = self.discovery.globals.get(name) {
                     return Ok(ty.clone());
                 }
-                Err(format!("Sovereign Tracer: Unknown local or path: {}", name))
+                Err(format!("KeuOS Tracer: Unknown local or path: {}", name))
             },
             Expr::Field(f) => {
                 let receiver_ty = self.trace_expr_type(&f.base, locals)?;
                 if let syn::Member::Named(ident) = &f.member {
                     self.resolve_field_type(&receiver_ty, &ident.to_string())
                 } else {
-                    Err("Sovereign Tracer: Tuple indexing not implemented in tracer.".to_string())
+                    Err("KeuOS Tracer: Tuple indexing not implemented in tracer.".to_string())
                 }
             },
             Expr::MethodCall(m) => {

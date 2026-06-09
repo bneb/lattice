@@ -152,28 +152,9 @@ These contracts are checked by Z3 at every call site — if any caller could vio
 
 The `@pulse` verifier extends this to async functions: every path through a state machine must reach a yield point within a cycle budget. Unbounded loops without yields are rejected at compile time.
 
-## Performance (KVM — Intel Xeon 8151, Feb 2026)
+## Performance
 
-| Metric | Result | Notes |
-|--------|--------|-------|
-| **Arena Alloc** | 59 cycles (~15 ns) | Bump pointer, L1 cache resident |
-| **PMM Alloc/Free** | 73 cycles (~18 ns) | Lock-free CAS (Treiber stack) |
-| **UTP invoke_task** | 29 cycles (~7 ns) | Zero-branch dispatch to any fiber type |
-| **UTP Async Yield** | 111 cycles (~28 ns) | Full cooperative sched_yield round-trip |
-| **UTP Spawn (async)** | 99 cycles (~25 ns) | Bitmap scan + slab alloc + frame init |
-| **UTP Spawn (preempt)** | 116 cycles (~29 ns) | + IRETQ frame setup |
-| **UTP Preempt Dispatch** | 430 cycles (~108 ns) | Full IRETQ chain with GPR save/restore |
-| **IPC Ping-Pong** | 297 cycles (~74 ns) | Fiber-to-fiber zero-copy yield |
-| **Context Switch** | 487 cycles (~122 ns) | Full GPR + 512B FXSAVE/FXRSTOR |
-| **Slab Alloc** | O(1) | Treiber stack with `lock cmpxchgq` |
-| **SIP IPC Ring** | 188 cycles (~47 ns) | 4-SPSC mailbox token pass (2.1× faster than seL4) |
-| **NetD RX throughput** | ~43 cy/pkt (KVM est.) | SPSC bridge push+pop, 47B UDP frame |
-| **NetD TX throughput** | ~46 cy/pkt (KVM est.) | SPSC bridge push+drain, 47B UDP frame |
-| **NetD C10M PPS** | ~60M+ PPS (KVM est.) | **6× C10M threshold** (10M PPS) |
-| **Socket Data Plane** | 136 cycles (~45 ns) | 64-byte push+pop round-trip, zero kernel traps |
-| **Socket Throughput** | 22M ops/sec | Data plane read+write at 3.0 GHz |
-
-See [KEUOS_BENCHMARKS.md](../docs/KEUOS_BENCHMARKS.md) for full methodology.
+KeuOS targets high performance by minimizing kernel traps and relying on lock-free structures. Precise benchmarks are a work in progress.
 
 ## Build System
 

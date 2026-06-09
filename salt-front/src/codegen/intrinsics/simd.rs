@@ -12,7 +12,7 @@ pub fn emit_simd_intrinsic(
     _expected_ty: Option<&Type>,
 ) -> Result<Option<(String, Type)>, String> {
     match name {
-        "m4_neon_load128" | "sovereign__neon_load128" => {
+        "m4_neon_load128" | "keuos__neon_load128" => {
             if args.len() != 1 {
                 return Err("Intrinsic 'm4_neon_load128' expects 1 argument (ptr)".to_string());
             }
@@ -27,7 +27,7 @@ pub fn emit_simd_intrinsic(
             out.push_str(&format!("    {} = llvm.extractvalue {}[0] : !llvm.array<2 x i64>\n", lo, cast));
             Ok(Some((lo, Type::I64)))
         }
-        "m4_neon_cmpeq_i8" | "sovereign__neon_cmpeq" => {
+        "m4_neon_cmpeq_i8" | "keuos__neon_cmpeq" => {
             if args.len() != 2 {
                 return Err("Intrinsic 'm4_neon_cmpeq_i8' expects 2 arguments (vec, char)".to_string());
             }
@@ -47,7 +47,7 @@ pub fn emit_simd_intrinsic(
             out.push_str(&format!("    {} = arith.extui {} : i8 to i64\n", ext, reduced));
             Ok(Some((ext, Type::I64)))
         }
-        "m4_neon_movemask" | "sovereign__neon_movemask" => {
+        "m4_neon_movemask" | "keuos__neon_movemask" => {
             if args.len() != 1 {
                 return Err("Intrinsic 'm4_neon_movemask' expects 1 argument (vec)".to_string());
             }

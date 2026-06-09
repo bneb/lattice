@@ -1,11 +1,11 @@
 // =============================================================================
-// Test: Topology — Sovereign Memory Tier Constants
+// Test: Topology — KeuOS Memory Tier Constants
 // =============================================================================
 // Verifies that the three locality tiers are distinct and correctly valued.
 // =============================================================================
 
 fn main() -> i32 {
-    // Sovereign Memory Tiers
+    // KeuOS Memory Tiers
     let loc_arena: u32 = 0;  // Local L1/L2/L3 / RAM
     let loc_nvme: u32 = 1;   // PCIe SSD
     let loc_rdma: u32 = 2;   // Remote RAM via Ultra Ethernet / RoCE

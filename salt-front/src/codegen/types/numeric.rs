@@ -185,7 +185,7 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
 
     if from.is_integer() && to.k_is_ptr_type() {
         return Err(format!(
-            "Sovereign Type Error: Cannot promote integer {:?} to pointer {:?}. \
+            "KeuOS Type Error: Cannot promote integer {:?} to pointer {:?}. \
              var={} - This indicates Context Contamination in the loop engine.", 
             from, to, var
         ));

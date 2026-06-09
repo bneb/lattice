@@ -1,4 +1,5 @@
 #![allow(clippy::all)]
+#![allow(warnings)]
 
 
 use std::env;

@@ -181,3 +181,8 @@ pub fn gdt_load_ring3() {
     lgdt_wrapper(63, (&GDT_ENTRIES) as u64);
     ltr_wrapper(0x30);
 }
+
+@no_mangle
+pub fn get_gdt_base() -> u64 {
+    return (&GDT_ENTRIES) as u64;
+}

@@ -1,8 +1,8 @@
 // =============================================================================
-// [SOVEREIGN V2.0] Post-Compilation Binary Audit
+// [KEUOS V2.0] Post-Compilation Binary Audit
 //
 // Verification rules for the resulting object file. After MLIR → LLVM → native
-// lowering, we audit the disassembly to ensure the compiler respected Sovereign
+// lowering, we audit the disassembly to ensure the compiler respected KeuOS
 // invariants:
 //   1. x19 must never be spilled to stack (stp x19 = FAIL)
 //   2. Dispatch hub must use tail calls (br xN = PASS)
@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn test_run_audit_all_rules() {
         let config = BinaryAuditConfig::standard(TargetPlatform::Darwin);
-        // A "perfect" sovereign binary disassembly
+        // A "perfect" keuos binary disassembly
         let perfect_disasm = "ldr x3, [x0]\nbr x3\nmov x16, #0x50\nsvc #0x80\nret";
         let results = run_audit(&config, perfect_disasm);
 

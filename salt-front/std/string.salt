@@ -8,7 +8,7 @@ import std.core.ptr.Ptr
 import std.core.str.StringView
 
 // =============================================================================
-// External C Runtime — Direct Memory Sovereignty
+// External C Runtime — Direct Memory KeuOSty
 // =============================================================================
 
 extern fn malloc(size: i64) -> Ptr<u8>;
@@ -49,7 +49,7 @@ impl String {
         return String { data: p, len: 0, cap: cap };
     }
 
-    // [SOVEREIGN V4.0] Create with capacity for f-string hot paths
+    // [KEUOS V4.0] Create with capacity for f-string hot paths
     pub fn with_arena_capacity(cap: i64) -> String {
         if cap == 0 {
             return String::new();
@@ -181,7 +181,7 @@ impl String {
 
 
     // ==========================================================================
-    // [SOVEREIGN V4.0] Bulk Reserve for Writer Protocol
+    // [KEUOS V4.0] Bulk Reserve for Writer Protocol
     // ==========================================================================
     // The key insight: By checking capacity ONCE before a series of writes,
     // LLVM can hoist this check out of loops and prove the growth path is dead.
@@ -189,7 +189,7 @@ impl String {
     // ==========================================================================
 
     // Reserve additional capacity (single O(1) check)
-    // [SOVEREIGN V4.1] Hot/Cold Split Pattern
+    // [KEUOS V4.1] Hot/Cold Split Pattern
     // - Hot path: 3-4 assembly instructions (add, cmp, jle)
     // - Cold path: Opaque syscall interaction in grow_slow
     // LLVM can hoist this out of loops since 'additional' is constant
@@ -240,7 +240,7 @@ impl String {
     }
 
     // ==========================================================================
-    // [SOVEREIGN V4.0] Unchecked Write Primitives
+    // [KEUOS V4.0] Unchecked Write Primitives
     // ==========================================================================
     // These functions write directly without capacity checks.
     // SAFETY: Caller must ensure reserve() was called with sufficient capacity.
@@ -249,7 +249,7 @@ impl String {
 
     // Write raw bytes without bounds checking
     // SAFETY: Caller guarantees capacity is sufficient (via prior reserve)
-    // [SOVEREIGN V4.1] Uses LLVM memcpy intrinsic for vectorized store optimization
+    // [KEUOS V4.1] Uses LLVM memcpy intrinsic for vectorized store optimization
     // LLVM will lower "Item " to a single 64-bit store instruction via store merging
     @inline
     pub fn write_str_unchecked(&mut self, src: &u8, len: i64) {
@@ -386,7 +386,7 @@ impl Eq for String {
 // =============================================================================
 // Writer Implementation for String
 // =============================================================================
-// Enables the Sovereign Writer Protocol for string accumulation:
+// Enables the KeuOS Writer Protocol for string accumulation:
 //   let mut buf = String::with_capacity(64);
 //   buf.f"Value: {x}, Result: {y:.2f}";
 //
@@ -409,7 +409,7 @@ impl Writer for String {
     }
 
     // Override: reuse optimized i32 logic
-    // [SOVEREIGN V4.0] Division-less formatting via fixed-point reciprocal multiplication
+    // [KEUOS V4.0] Division-less formatting via fixed-point reciprocal multiplication
     // Instead of val / 10 (15-40 cycles), we use (val * 0xCCCCCCCD) >> 35 (~3 cycles)
     @inline
     fn write_i32(&mut self, val: i32) {
@@ -519,7 +519,7 @@ impl Writer for String {
         salt_fmt_f64_to_handler_prec(self, val, precision);
     }
 
-    // [SOVEREIGN V4.0] Bulk String Write with Reserve
+    // [KEUOS V4.0] Bulk String Write with Reserve
     // 1. Single capacity check (hoistable by LLVM)
     // 2. Hardware memcpy (uses widest SIMD registers)
     // 3. Direct length update
@@ -567,7 +567,7 @@ pub fn from_literal(s: &u8, len: i64) -> String
 // =============================================================================
 // InterpolatedStringHandler - Ghost-Inlined F-String Builder
 // =============================================================================
-// This is the "Sovereign Pattern" for zero-overhead string interpolation.
+// This is the "KeuOS Pattern" for zero-overhead string interpolation.
 // The compiler converts f"..." syntax into a sequence of append calls:
 //
 //   let mut __h = InterpolatedStringHandler::new(literal_len, interpolation_count);
@@ -589,7 +589,7 @@ impl InterpolatedStringHandler {
     // Create handler with pre-calculated capacity
     // literal_len: total length of all static segments
     // interpolation_count: number of {expr} segments (for capacity estimation)
-    // [SOVEREIGN V4.0] Uses arena allocation for O(1) reclamation via mark/reset
+    // [KEUOS V4.0] Uses arena allocation for O(1) reclamation via mark/reset
     pub fn new(literal_len: i64, interpolation_count: i64) -> InterpolatedStringHandler {
         // Estimate: literals + 16 bytes per interpolation (reasonable average)
         let estimated_capacity = literal_len + (interpolation_count * 16);
@@ -609,7 +609,7 @@ impl InterpolatedStringHandler {
     }
 
     // Append formatted i32 value
-    // [SOVEREIGN V4.0] Division-less formatting via fixed-point reciprocal
+    // [KEUOS V4.0] Division-less formatting via fixed-point reciprocal
     @inline
     pub fn append_i32(&mut self, val: i32) {
         if val == 0 {
@@ -704,7 +704,7 @@ impl InterpolatedStringHandler {
     }
 
     // =========================================================================
-    // [SOVEREIGN V4.0] Unchecked Append — For Fused F-String Lowering
+    // [KEUOS V4.0] Unchecked Append — For Fused F-String Lowering
     // =========================================================================
     // These methods write directly to a base pointer + offset.
     // The compiler calls reserve(total_worst_case) once at f-string start,

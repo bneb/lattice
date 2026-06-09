@@ -1,5 +1,5 @@
 // =============================================================================
-// [SOVEREIGN V2.0] Stack Stability Z3 Proof
+// [KEUOS V2.0] Stack Stability Z3 Proof
 //
 // Z3 Proof #8: MustTail dispatch guarantees constant stack depth.
 //

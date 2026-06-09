@@ -1,0 +1,863 @@
+{
+  "tests/test_tls_pipeline.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_sprint5_keyboard.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_js_canvas.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_scheduler_steal.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_js_dom.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_sync_rcu.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_json_objects.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_loop_invariant.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_turbofish_only.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_raw_ethernet.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_mut_self.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_elf_loader.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_css_lexer.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_chronos.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_boot_sequence.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_fabric_tcp.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_traits.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_js_fetch.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_rdma_doorbell.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_combinators.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_http_lexer_diff.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_browser_css_tokenizer.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_reflow.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_paint_traverser.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_ffi_typography_pipeline.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_parse.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_reactor_exhaustion.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_lexer_diff.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_f32_math.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_convergence.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_topology.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_netd_bigint.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_string_literal.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_string_conv.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_pcie_ecam.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_render.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_netd_daemon.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_events.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_genesis_probe.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_warehouse_moe.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_virtio_block.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_static_if.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_json.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_f32_dynamic.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_css_lexer_diff.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_ipc_await.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_framework.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_derive.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_html_lexer.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_hashmap_hang.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_http_lexer.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_js_nav.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_file_io.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_browser_hit_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/pos_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/str_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_js_events.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_sync_ring_buffer.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_proof_witness_integration.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_netd_curve25519.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_service_worker.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_fabric_monomorphization.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_netd_hijack.salt": {
+    "status": "PASSED"
+  },
+  "tests/combined_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_pcie_enum.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_blinded_time.salt": {
+    "status": "PASSED"
+  },
+  "tests/mismatch_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_async_dma_e2e.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_browser_flexbox.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_async_fetch.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_ctz_clz.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_js_dom_mutation.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_page_flags.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_freestanding_boot.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_js_ws.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_tcp_state.salt": {
+    "status": "PASSED"
+  },
+  "tests/response_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_websockets.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_spsc_adaptive.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_components.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_ptr_to_ref.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_arp_table.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_drop.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_arena_reset.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_grid.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_uart_telemetry.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_ebr_arena.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_netd_chaos.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_netd_tx_daemon.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_mode_b_elf.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_range_mutator.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_ecs_vectorization.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_sprint6_form_submit.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_f32_cast.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_js_worker.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_observers.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_hashmap.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_keuos_scheduler.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_process.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_syn_cookie.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_arena_headroom.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_cache_coherent_yield.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_js_vm.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_http2.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_sprint1_js_apis.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_let_if_else.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_holographic_trap.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_pulse_queue.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_hashmap_point.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_browser_keystroke_input.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_ptr_write.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_kernel_cast.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_bridge_port.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_arena_core.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_thread.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_browser_typography.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_hashmap_tombstone.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_mse.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_fiber_migration.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_dom_ffi_read.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_ecs_entity.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_storage.salt": {
+    "status": "PASSED"
+  },
+  "tests/yield_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/ptr_chain_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_eme.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_debug.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_gc.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_components.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_ebr_integration.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_overflow.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_positioning.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_multiprocess.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_array_field.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_integration.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_cssom.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_struct_fmt.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_ptr_empty_inference.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_basalt_e2e.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_google_unblock.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_ecs_ipc_latency.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_std_io_ring.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_matmul_affine.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_keuos_poller.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_args.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_ecs_epoch_reclaim.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_json_serde.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_framework_crucible.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_tuples.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_process_heap_boundary.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_browser_paint.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_basalt_main.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_irq_bridge.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_global_init.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_channel_unbounded.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_path.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_loop.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_target_feature.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_jit_tier.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_fabric_rdma.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_browser_spa_mutations.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_flight_recorder_dump.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_event_dispatcher.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_render_pipeline.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_sprint8_search_e2e.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_js_compiler.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_css_opacity.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_netd_ecdsa.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_task0_spawn.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_wqe_layout.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_css_hierarchy.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_port_router.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_netd_syn_integration.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_placeholder.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_css_cascade.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_caret_paint.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_iterator.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_rdma_doorbell_atomic.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_browser_spa_boot.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_question_mark.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_html_script_queue.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_for_in.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_memset.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_status.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_browser_event_bubbling.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_telemetry_truth.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_netd_asn1.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_hpack_diff.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_ring_abi.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_ebr_live_wiring.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_netd_encap.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_char_literal.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_layout_engine.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_netd_tls.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_fabric_ptr_read.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_basalt_app.salt": {
+    "status": "PASSED"
+  },
+  "tests/stdlib_stress.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_sprint9_polish_e2e.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_ring3_entry.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_animations.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_arena_poison.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_css_transform.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_browser_dom_w3c_tokenizer.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_arena_alloc.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_netd_checksum.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_sys_cap_bind_static.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_ring_opcodes.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_matmul_fabric.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_chase_lev.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_interaction.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_channel.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_netd_http.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_display.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_keuos_smp.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_browser_dom_attributes.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_gdt_tss.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_hashmap_perf.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_basalt_mock.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_selection.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_sprint7_table.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_js_raf.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_http_stringview.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_mock_render_pipeline.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_hw_manifest.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_http_client.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_fabric_ptr_init.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_image_decode.salt": {
+    "status": "PASSED"
+  },
+  "tests/result_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_sprint3_layout.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_addr_types.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_array_ref_index.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_sync.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_builtin_hash.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_sys_cap_bind.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_font_baker.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_async_rx.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_shadow_dom.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_slab.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_env.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_ffi_js_bridge.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_history.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_println_fstring.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_fabric_trait.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_bare_metal.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_user_paging.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_e2e_webcomponents.salt": {
+    "status": "PASSED"
+  },
+  "tests/test_lexer_tree.salt": {
+    "status": "PASSED"
+  },
+  "tests/bench/bench_arbiter_latency.salt": {
+    "status": "PASSED"
+  },
+  "tests/bench/jitter_isolation.salt": {
+    "status": "PASSED"
+  },
+  "tests/unit/clean_loop_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/unit/bitwise_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/unit/generics_multi.salt": {
+    "status": "PASSED"
+  },
+  "tests/unit/minimal_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/unit/leak_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/unit/kernel_mock.salt": {
+    "status": "PASSED"
+  },
+  "tests/unit/happy_path.salt": {
+    "status": "PASSED"
+  },
+  "tests/unit/methods_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/unit/generic_struct_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/unit/loop_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/unit/comprehensive_bitwise_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/unit/args_check.salt": {
+    "status": "PASSED"
+  },
+  "tests/unit/dual_model_mock.salt": {
+    "status": "PASSED"
+  },
+  "tests/unit/ssa_check.salt": {
+    "status": "PASSED"
+  },
+  "tests/unit/struct_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/unit/matmul_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/unit/for_loop_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/unit/generics_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/cases/result_unified.salt": {
+    "status": "PASSED"
+  },
+  "tests/cases/hashmap_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/cases/string_test.salt": {
+    "status": "PASSED"
+  },
+  "tests/v6_vector/simd_verify.salt": {
+    "status": "PASSED"
+  },
+  "tests/lib/test_lib_mangling.salt": {
+    "status": "PASSED"
+  },
+  "tests/lib/test_typed_addr_loop.salt": {
+    "status": "PASSED"
+  },
+  "tests/lib/test_module_globals.salt": {
+    "status": "PASSED"
+  },
+  "tests/lib/test_backward_call.salt": {
+    "status": "PASSED"
+  },
+  "tests/lib/test_matmul_fabric_rdma.salt": {
+    "status": "PASSED"
+  },
+  "tests/lib/test_cross_module_struct_lib.salt": {
+    "status": "PASSED"
+  },
+  "tests/lib/test_cross_module.salt": {
+    "status": "PASSED"
+  },
+  "tests/lib/test_matmul_affine_rdma.salt": {
+    "status": "PASSED"
+  },
+  "tests/lib/test_extern_priority.salt": {
+    "status": "PASSED"
+  },
+  "tests/lib/test_module_dispatch.salt": {
+    "status": "PASSED"
+  },
+  "tests/lib/test_xmod_global.salt": {
+    "status": "PASSED"
+  },
+  "tests/lib/test_xmod_global_lib.salt": {
+    "status": "PASSED"
+  },
+  "tests/lib/test_cross_module_struct.salt": {
+    "status": "PASSED"
+  },
+  "tests/lib/test_forward_call.salt": {
+    "status": "PASSED"
+  },
+  "tests/v5_isolation/test_matmul_ffi.salt": {
+    "status": "PASSED"
+  },
+  "tests/v5_isolation/test_alias_scope.salt": {
+    "status": "PASSED"
+  },
+  "tests/chaos/reclamation_storm.salt": {
+    "status": "PASSED"
+  }
+}

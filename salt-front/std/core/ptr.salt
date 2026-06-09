@@ -1,16 +1,16 @@
-// std/core/ptr.salt - SALT 2.0 SOVEREIGN EDITION
+// std/core/ptr.salt - SALT 2.0 KEUOS EDITION
 // No backward compatibility. Clean break.
 
 package std.core.ptr
 
-/// The Sovereign Pointer
+/// The KeuOS Pointer
 /// Becomes a raw !llvm.ptr in the Apple M4 registers.
 pub struct Ptr<T> { _phantom: i64 }
 
 impl<T> Ptr<T> {
-    // === Sovereign Constructors ===
+    // === KeuOS Constructors ===
     
-    /// The "Sovereign" Constructor.
+    /// The "KeuOS" Constructor.
     /// Returns a non-null, non-dereferenceable sentinel (0x1).
     /// Zero cycles, zero memory - technically "dangling" until initialized.
     @inline

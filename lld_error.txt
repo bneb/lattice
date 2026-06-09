@@ -1,0 +1,1742 @@
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG VERIFY: result UNSAT (proven)
+DEBUG VERIFY: result UNSAT (proven)
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u32
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_u32
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u32
+[GENERIC WARNING] Type parameter 'T' bound to U32 but argument has type I32
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_u32
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_u32
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_u32
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_u32
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_u32
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u32
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_u32
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__SqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u8
+[GENERIC WARNING] Type parameter 'T' bound to U8 but argument has type I64
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__SqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+[GENERIC WARNING] Type parameter 'T' bound to U32 but argument has type Generic("T")
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__CqEntry
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_kernel__drivers__nvme__NvmeController
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_u32
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_u32
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+[Formal Shadow] Z3 PROVED: @atomic struct 'SlabCoreState' has size 64 bytes, which is 16-byte stride-safe for cmpxchg16b arrays (z3_stride_aligned)
+[Formal Shadow] Z3 PROVED: @packed struct 'SlabCoreState' has 64 bytes with ZERO implicit padding (z3_packed_verified)
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+[Formal Shadow] Z3 PROVED: @align(64) field 'head_frame' in struct 'PmmShard' is 64-byte aligned at offset 0 (z3_align_verified)
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u64
+[GENERIC WARNING] Type parameter 'T' bound to U64 but argument has type I64
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_u64
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u64
+[GENERIC WARNING] Type parameter 'T' bound to U64 but argument has type I64
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_u64
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u64
+[GENERIC WARNING] Type parameter 'T' bound to U64 but argument has type I64
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_u64
+request_explicit_specialization: std__core__ptr__Ptr__read -> std__core__ptr__Ptr__read_u64
+[GENERIC WARNING] Type parameter 'T' bound to U64 but argument has type I64
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_u64
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG VERIFY: result UNSAT (proven)
+DEBUG VERIFY: result UNSAT (proven)
+DEBUG VERIFY: result UNSAT (proven)
+DEBUG VERIFY: result UNSAT (proven)
+DEBUG VERIFY: result UNSAT (proven)
+DEBUG VERIFY: result UNSAT (proven)
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_Ptr_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_Ptr_u8
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_Ptr_u8
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+[Z3 POSTCONDITION] ✓ ensures verified for 'kernel__net__netd_tcp__handle_syn' (UNSAT — proven)
+[Z3 POSTCONDITION] ✓ ensures verified for 'kernel__net__netd_tcp__handle_syn' (UNSAT — proven)
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+[Z3 POSTCONDITION] ✓ ensures verified for 'kernel__net__tcp_syn_cookie__generate_syn_cookie' (UNSAT — proven)
+[Z3 POSTCONDITION] ✓ ensures verified for 'kernel__net__tcp_syn_cookie__generate_syn_cookie' (UNSAT — proven)
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+[Formal Shadow] Z3 PROVED: @align(64) field 'head' in struct 'SpscRing' is 64-byte aligned at offset 0 (z3_align_verified)
+[Formal Shadow] Z3 PROVED: @align(64) field 'tail' in struct 'SpscRing' is 64-byte aligned at offset 64 (z3_align_verified)
+[Formal Shadow] Z3 PROVED: @align(64) field 'consumer_waiting' in struct 'SpscRing' is 64-byte aligned at offset 128 (z3_align_verified)
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__ecs__events__NetworkPacketEvent
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__ecs__events__NetworkPacketEvent
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__ecs__events__TimerEvent
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__ecs__events__TimerEvent
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__ecs__events__ProcessExitEvent
+request_explicit_specialization: std__core__ptr__Ptr__offset -> std__core__ptr__Ptr__offset_kernel__ecs__events__ProcessExitEvent
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+request_explicit_specialization: std__core__ptr__Ptr__write -> std__core__ptr__Ptr__write_Array_u64_2
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+DEBUG: Starting Optimization Pipeline
+DEBUG: Starting Lowering Pipeline
+DEBUG: Building Lowering Pipeline
+DEBUG: Using kernel fast-path (no tensor/linalg ops detected)
+DEBUG: Lowering Complete
+DEBUG: Starting LLVM Translation
+DEBUG: LLVM Translation Complete
+rust-lld: error: undefined symbol: bench_suite_run
+>>> referenced by kernel_core_main.ll
+>>>               qemu_build/kernel_core_main.o:(kmain)
+  [VALIDATE] Checking toolchain for x86_64-none-elf...
+    - LLC: FOUND (/opt/homebrew/opt/llvm/bin/llc)
+    - CLANG: FOUND (/usr/bin/clang)
+    - RUST_LLD: FOUND (/Users/kevin/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/rust-lld)
+[92m== Building Mode B SIP ==[0m
+  [SIP]  salt-front → MLIR
+  [SIP]  salt-opt → LLVM IR
+  [SIP]  llc → Object
+  [SIP]  rust-lld → PIE ELF
+  [SIP]  Copied to /tmp/sip_app (2000 bytes)
+[92m== Building Ring 3 User Programs ==[0m
+  [ASM]  Assembling /Users/kevin/projects/lattice/user/syscall_stubs.S → user_syscall_stubs.o
+  [92m── Building user/test_memory ──[0m
+  [SALT] Compiling /Users/kevin/projects/lattice/user/test_memory.salt → user_test_memory.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front /Users/kevin/projects/lattice/user/test_memory.salt --lib --disable-alias-scopes > qemu_build/user_test_memory.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/user_test_memory.mlir > qemu_build/user_test_memory.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/user_test_memory.ll -filetype=obj -o qemu_build/user_test_memory.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling /Users/kevin/projects/lattice/user/lib/syscall.salt → user_lib_syscall.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front /Users/kevin/projects/lattice/user/lib/syscall.salt --lib --disable-alias-scopes > qemu_build/user_lib_syscall.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/user_lib_syscall.mlir > qemu_build/user_lib_syscall.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/user_lib_syscall.ll -filetype=obj -o qemu_build/user_lib_syscall.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling /Users/kevin/projects/lattice/user/std/stdio.salt → user_std_stdio.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front /Users/kevin/projects/lattice/user/std/stdio.salt --lib --disable-alias-scopes > qemu_build/user_std_stdio.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/user_std_stdio.mlir > qemu_build/user_std_stdio.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/user_std_stdio.ll -filetype=obj -o qemu_build/user_std_stdio.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+    [LINK] user_syscall_stubs.o user_test_memory.o user_lib_syscall.o user_std_stdio.o → test_memory.elf
+    [DONE] /tmp/test_memory (16352 bytes)
+  [92m── Building user/ring3_test_b ──[0m
+  [SALT] Compiling /Users/kevin/projects/lattice/user/ring3_test_b.salt → user_ring3_test_b.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front /Users/kevin/projects/lattice/user/ring3_test_b.salt --lib --disable-alias-scopes > qemu_build/user_ring3_test_b.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/user_ring3_test_b.mlir > qemu_build/user_ring3_test_b.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/user_ring3_test_b.ll -filetype=obj -o qemu_build/user_ring3_test_b.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [CACHED] /Users/kevin/projects/lattice/user/lib/syscall.salt (unchanged)
+  [CACHED] /Users/kevin/projects/lattice/user/std/stdio.salt (unchanged)
+    [LINK] user_syscall_stubs.o user_ring3_test_b.o user_lib_syscall.o user_std_stdio.o → ring3_test_b.elf
+    [DONE] /tmp/ring3_test_b (16288 bytes)
+  [92m── Building user/hello ──[0m
+  [SALT] Compiling /Users/kevin/projects/lattice/user/hello.salt → user_hello.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front /Users/kevin/projects/lattice/user/hello.salt --lib --disable-alias-scopes > qemu_build/user_hello.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/user_hello.mlir > qemu_build/user_hello.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/user_hello.ll -filetype=obj -o qemu_build/user_hello.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [CACHED] /Users/kevin/projects/lattice/user/lib/syscall.salt (unchanged)
+  [CACHED] /Users/kevin/projects/lattice/user/std/stdio.salt (unchanged)
+    [LINK] user_syscall_stubs.o user_hello.o user_lib_syscall.o user_std_stdio.o → hello.elf
+    [DONE] /tmp/hello (16344 bytes)
+[92m== Building Kernel ==[0m
+  [SALT] Compiling kernel/core/sched_isolate.salt → kernel_core_sched_isolate.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/sched_isolate.salt --lib --disable-alias-scopes > qemu_build/kernel_core_sched_isolate.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_sched_isolate.mlir > qemu_build/kernel_core_sched_isolate.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_sched_isolate.ll -filetype=obj -o qemu_build/kernel_core_sched_isolate.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/scheduler_test.salt → kernel_core_scheduler_test.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/scheduler_test.salt --lib --disable-alias-scopes > qemu_build/kernel_core_scheduler_test.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_scheduler_test.mlir > qemu_build/kernel_core_scheduler_test.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_scheduler_test.ll -filetype=obj -o qemu_build/kernel_core_scheduler_test.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/cpuid.salt → kernel_core_cpuid.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/cpuid.salt --lib --disable-alias-scopes > qemu_build/kernel_core_cpuid.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_cpuid.mlir > qemu_build/kernel_core_cpuid.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_cpuid.ll -filetype=obj -o qemu_build/kernel_core_cpuid.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/moe.salt → kernel_core_moe.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/moe.salt --lib --disable-alias-scopes > qemu_build/kernel_core_moe.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_moe.mlir > qemu_build/kernel_core_moe.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_moe.ll -filetype=obj -o qemu_build/kernel_core_moe.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/process_test.salt → kernel_core_process_test.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/process_test.salt --lib --disable-alias-scopes > qemu_build/kernel_core_process_test.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_process_test.mlir > qemu_build/kernel_core_process_test.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_process_test.ll -filetype=obj -o qemu_build/kernel_core_process_test.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/dispatcher.salt → kernel_core_dispatcher.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/dispatcher.salt --lib --disable-alias-scopes > qemu_build/kernel_core_dispatcher.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_dispatcher.mlir > qemu_build/kernel_core_dispatcher.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_dispatcher.ll -filetype=obj -o qemu_build/kernel_core_dispatcher.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/vmm.salt → kernel_core_vmm.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/vmm.salt --lib --disable-alias-scopes > qemu_build/kernel_core_vmm.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_vmm.mlir > qemu_build/kernel_core_vmm.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_vmm.ll -filetype=obj -o qemu_build/kernel_core_vmm.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/timing.salt → kernel_core_timing.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/timing.salt --lib --disable-alias-scopes > qemu_build/kernel_core_timing.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_timing.mlir > qemu_build/kernel_core_timing.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_timing.ll -filetype=obj -o qemu_build/kernel_core_timing.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/vma.salt → kernel_core_vma.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/vma.salt --lib --disable-alias-scopes > qemu_build/kernel_core_vma.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_vma.mlir > qemu_build/kernel_core_vma.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_vma.ll -filetype=obj -o qemu_build/kernel_core_vma.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/ist_test.salt → kernel_core_ist_test.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/ist_test.salt --lib --disable-alias-scopes > qemu_build/kernel_core_ist_test.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_ist_test.mlir > qemu_build/kernel_core_ist_test.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_ist_test.ll -filetype=obj -o qemu_build/kernel_core_ist_test.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/main.salt → kernel_core_main.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/main.salt --lib --disable-alias-scopes > qemu_build/kernel_core_main.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_main.mlir > qemu_build/kernel_core_main.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_main.ll -filetype=obj -o qemu_build/kernel_core_main.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/memory.salt → kernel_core_memory.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/memory.salt --lib --disable-alias-scopes > qemu_build/kernel_core_memory.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_memory.mlir > qemu_build/kernel_core_memory.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_memory.ll -filetype=obj -o qemu_build/kernel_core_memory.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/pulse.salt → kernel_core_pulse.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/pulse.salt --lib --disable-alias-scopes > qemu_build/kernel_core_pulse.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_pulse.mlir > qemu_build/kernel_core_pulse.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_pulse.ll -filetype=obj -o qemu_build/kernel_core_pulse.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/panic.salt → kernel_core_panic.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/panic.salt --lib --disable-alias-scopes > qemu_build/kernel_core_panic.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_panic.mlir > qemu_build/kernel_core_panic.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_panic.ll -filetype=obj -o qemu_build/kernel_core_panic.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/ipi.salt → kernel_core_ipi.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/ipi.salt --lib --disable-alias-scopes > qemu_build/kernel_core_ipi.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_ipi.mlir > qemu_build/kernel_core_ipi.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_ipi.ll -filetype=obj -o qemu_build/kernel_core_ipi.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/ring_abi.salt → kernel_core_ring_abi.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/ring_abi.salt --lib --disable-alias-scopes > qemu_build/kernel_core_ring_abi.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_ring_abi.mlir > qemu_build/kernel_core_ring_abi.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_ring_abi.ll -filetype=obj -o qemu_build/kernel_core_ring_abi.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/preempt_test.salt → kernel_core_preempt_test.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/preempt_test.salt --lib --disable-alias-scopes > qemu_build/kernel_core_preempt_test.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_preempt_test.mlir > qemu_build/kernel_core_preempt_test.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_preempt_test.ll -filetype=obj -o qemu_build/kernel_core_preempt_test.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/reclaim_histogram.salt → kernel_core_reclaim_histogram.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/reclaim_histogram.salt --lib --disable-alias-scopes > qemu_build/kernel_core_reclaim_histogram.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_reclaim_histogram.mlir > qemu_build/kernel_core_reclaim_histogram.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_reclaim_histogram.ll -filetype=obj -o qemu_build/kernel_core_reclaim_histogram.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/capability.salt → kernel_core_capability.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/capability.salt --lib --disable-alias-scopes > qemu_build/kernel_core_capability.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_capability.mlir > qemu_build/kernel_core_capability.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_capability.ll -filetype=obj -o qemu_build/kernel_core_capability.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/pmm.salt → kernel_core_pmm.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/pmm.salt --lib --disable-alias-scopes > qemu_build/kernel_core_pmm.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_pmm.mlir > qemu_build/kernel_core_pmm.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_pmm.ll -filetype=obj -o qemu_build/kernel_core_pmm.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/context_switch.salt → kernel_core_context_switch.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/context_switch.salt --lib --disable-alias-scopes > qemu_build/kernel_core_context_switch.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_context_switch.mlir > qemu_build/kernel_core_context_switch.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_context_switch.ll -filetype=obj -o qemu_build/kernel_core_context_switch.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/async_test.salt → kernel_core_async_test.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/async_test.salt --lib --disable-alias-scopes > qemu_build/kernel_core_async_test.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_async_test.mlir > qemu_build/kernel_core_async_test.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_async_test.ll -filetype=obj -o qemu_build/kernel_core_async_test.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/time.salt → kernel_core_time.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/time.salt --lib --disable-alias-scopes > qemu_build/kernel_core_time.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_time.mlir > qemu_build/kernel_core_time.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_time.ll -filetype=obj -o qemu_build/kernel_core_time.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/syscall.salt → kernel_core_syscall.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/syscall.salt --lib --disable-alias-scopes > qemu_build/kernel_core_syscall.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_syscall.mlir > qemu_build/kernel_core_syscall.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_syscall.ll -filetype=obj -o qemu_build/kernel_core_syscall.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/percpu_test.salt → kernel_core_percpu_test.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/percpu_test.salt --lib --disable-alias-scopes > qemu_build/kernel_core_percpu_test.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_percpu_test.mlir > qemu_build/kernel_core_percpu_test.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_percpu_test.ll -filetype=obj -o qemu_build/kernel_core_percpu_test.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/io.salt → kernel_core_io.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/io.salt --lib --disable-alias-scopes > qemu_build/kernel_core_io.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_io.mlir > qemu_build/kernel_core_io.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_io.ll -filetype=obj -o qemu_build/kernel_core_io.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/scheduler.salt → kernel_core_scheduler.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/scheduler.salt --lib --disable-alias-scopes > qemu_build/kernel_core_scheduler.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_scheduler.mlir > qemu_build/kernel_core_scheduler.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_scheduler.ll -filetype=obj -o qemu_build/kernel_core_scheduler.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/context.salt → kernel_core_context.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/context.salt --lib --disable-alias-scopes > qemu_build/kernel_core_context.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_context.mlir > qemu_build/kernel_core_context.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_context.ll -filetype=obj -o qemu_build/kernel_core_context.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/keuos_reclaim.salt → kernel_core_keuos_reclaim.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/keuos_reclaim.salt --lib --disable-alias-scopes > qemu_build/kernel_core_keuos_reclaim.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_keuos_reclaim.mlir > qemu_build/kernel_core_keuos_reclaim.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_keuos_reclaim.ll -filetype=obj -o qemu_build/kernel_core_keuos_reclaim.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/nm_fpu.salt → kernel_core_nm_fpu.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/nm_fpu.salt --lib --disable-alias-scopes > qemu_build/kernel_core_nm_fpu.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_nm_fpu.mlir > qemu_build/kernel_core_nm_fpu.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_nm_fpu.ll -filetype=obj -o qemu_build/kernel_core_nm_fpu.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/flight_recorder.salt → kernel_core_flight_recorder.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/flight_recorder.salt --lib --disable-alias-scopes > qemu_build/kernel_core_flight_recorder.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_flight_recorder.mlir > qemu_build/kernel_core_flight_recorder.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_flight_recorder.ll -filetype=obj -o qemu_build/kernel_core_flight_recorder.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/ring3_test.salt → kernel_core_ring3_test.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/ring3_test.salt --lib --disable-alias-scopes > qemu_build/kernel_core_ring3_test.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_ring3_test.mlir > qemu_build/kernel_core_ring3_test.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_ring3_test.ll -filetype=obj -o qemu_build/kernel_core_ring3_test.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/exec_user.salt → kernel_core_exec_user.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/exec_user.salt --lib --disable-alias-scopes > qemu_build/kernel_core_exec_user.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_exec_user.mlir > qemu_build/kernel_core_exec_user.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_exec_user.ll -filetype=obj -o qemu_build/kernel_core_exec_user.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/region.salt → kernel_core_region.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/region.salt --lib --disable-alias-scopes > qemu_build/kernel_core_region.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_region.mlir > qemu_build/kernel_core_region.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_region.ll -filetype=obj -o qemu_build/kernel_core_region.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/process.salt → kernel_core_process.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/process.salt --lib --disable-alias-scopes > qemu_build/kernel_core_process.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_process.mlir > qemu_build/kernel_core_process.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_process.ll -filetype=obj -o qemu_build/kernel_core_process.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/elf_loader.salt → kernel_core_elf_loader.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/elf_loader.salt --lib --disable-alias-scopes > qemu_build/kernel_core_elf_loader.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_elf_loader.mlir > qemu_build/kernel_core_elf_loader.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_elf_loader.ll -filetype=obj -o qemu_build/kernel_core_elf_loader.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/syscall_test.salt → kernel_core_syscall_test.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/syscall_test.salt --lib --disable-alias-scopes > qemu_build/kernel_core_syscall_test.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_syscall_test.mlir > qemu_build/kernel_core_syscall_test.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_syscall_test.ll -filetype=obj -o qemu_build/kernel_core_syscall_test.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/core/percpu.salt → kernel_core_percpu.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/core/percpu.salt --lib --disable-alias-scopes > qemu_build/kernel_core_percpu.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_core_percpu.mlir > qemu_build/kernel_core_percpu.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_core_percpu.ll -filetype=obj -o qemu_build/kernel_core_percpu.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/drivers/pit.salt → kernel_drivers_pit.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/drivers/pit.salt --lib --disable-alias-scopes > qemu_build/kernel_drivers_pit.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_drivers_pit.mlir > qemu_build/kernel_drivers_pit.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_drivers_pit.ll -filetype=obj -o qemu_build/kernel_drivers_pit.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/drivers/framebuffer.salt → kernel_drivers_framebuffer.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/drivers/framebuffer.salt --lib --disable-alias-scopes > qemu_build/kernel_drivers_framebuffer.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_drivers_framebuffer.mlir > qemu_build/kernel_drivers_framebuffer.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_drivers_framebuffer.ll -filetype=obj -o qemu_build/kernel_drivers_framebuffer.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/drivers/serial.salt → kernel_drivers_serial.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/drivers/serial.salt --lib --disable-alias-scopes > qemu_build/kernel_drivers_serial.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_drivers_serial.mlir > qemu_build/kernel_drivers_serial.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_drivers_serial.ll -filetype=obj -o qemu_build/kernel_drivers_serial.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/drivers/ps2_translation.salt → kernel_drivers_ps2_translation.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/drivers/ps2_translation.salt --lib --disable-alias-scopes > qemu_build/kernel_drivers_ps2_translation.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_drivers_ps2_translation.mlir > qemu_build/kernel_drivers_ps2_translation.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_drivers_ps2_translation.ll -filetype=obj -o qemu_build/kernel_drivers_ps2_translation.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/drivers/virtio_net.salt → kernel_drivers_virtio_net.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/drivers/virtio_net.salt --lib --disable-alias-scopes > qemu_build/kernel_drivers_virtio_net.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_drivers_virtio_net.mlir > qemu_build/kernel_drivers_virtio_net.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_drivers_virtio_net.ll -filetype=obj -o qemu_build/kernel_drivers_virtio_net.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/drivers/vga.salt → kernel_drivers_vga.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/drivers/vga.salt --lib --disable-alias-scopes > qemu_build/kernel_drivers_vga.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_drivers_vga.mlir > qemu_build/kernel_drivers_vga.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_drivers_vga.ll -filetype=obj -o qemu_build/kernel_drivers_vga.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/drivers/virtio.salt → kernel_drivers_virtio.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/drivers/virtio.salt --lib --disable-alias-scopes > qemu_build/kernel_drivers_virtio.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_drivers_virtio.mlir > qemu_build/kernel_drivers_virtio.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_drivers_virtio.ll -filetype=obj -o qemu_build/kernel_drivers_virtio.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/drivers/ps2_kbd.salt → kernel_drivers_ps2_kbd.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/drivers/ps2_kbd.salt --lib --disable-alias-scopes > qemu_build/kernel_drivers_ps2_kbd.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_drivers_ps2_kbd.mlir > qemu_build/kernel_drivers_ps2_kbd.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_drivers_ps2_kbd.ll -filetype=obj -o qemu_build/kernel_drivers_ps2_kbd.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/drivers/nvme.salt → kernel_drivers_nvme.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/drivers/nvme.salt --lib --disable-alias-scopes > qemu_build/kernel_drivers_nvme.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_drivers_nvme.mlir > qemu_build/kernel_drivers_nvme.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_drivers_nvme.ll -filetype=obj -o qemu_build/kernel_drivers_nvme.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/mem/mm_layout.salt → kernel_mem_mm_layout.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/mem/mm_layout.salt --lib --disable-alias-scopes > qemu_build/kernel_mem_mm_layout.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_mem_mm_layout.mlir > qemu_build/kernel_mem_mm_layout.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_mem_mm_layout.ll -filetype=obj -o qemu_build/kernel_mem_mm_layout.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/mem/slab.salt → kernel_mem_slab.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/mem/slab.salt --lib --disable-alias-scopes > qemu_build/kernel_mem_slab.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_mem_slab.mlir > qemu_build/kernel_mem_slab.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_mem_slab.ll -filetype=obj -o qemu_build/kernel_mem_slab.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/mem/slab_cache.salt → kernel_mem_slab_cache.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/mem/slab_cache.salt --lib --disable-alias-scopes > qemu_build/kernel_mem_slab_cache.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_mem_slab_cache.mlir > qemu_build/kernel_mem_slab_cache.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_mem_slab_cache.ll -filetype=obj -o qemu_build/kernel_mem_slab_cache.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/mem/pmm_sharded.salt → kernel_mem_pmm_sharded.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/mem/pmm_sharded.salt --lib --disable-alias-scopes > qemu_build/kernel_mem_pmm_sharded.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_mem_pmm_sharded.mlir > qemu_build/kernel_mem_pmm_sharded.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_mem_pmm_sharded.ll -filetype=obj -o qemu_build/kernel_mem_pmm_sharded.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/mem/page_sweep.salt → kernel_mem_page_sweep.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/mem/page_sweep.salt --lib --disable-alias-scopes > qemu_build/kernel_mem_page_sweep.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_mem_page_sweep.mlir > qemu_build/kernel_mem_page_sweep.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_mem_page_sweep.ll -filetype=obj -o qemu_build/kernel_mem_page_sweep.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/mem/user_paging.salt → kernel_mem_user_paging.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/mem/user_paging.salt --lib --disable-alias-scopes > qemu_build/kernel_mem_user_paging.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_mem_user_paging.mlir > qemu_build/kernel_mem_user_paging.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_mem_user_paging.ll -filetype=obj -o qemu_build/kernel_mem_user_paging.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/mem/page.salt → kernel_mem_page.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/mem/page.salt --lib --disable-alias-scopes > qemu_build/kernel_mem_page.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_mem_page.mlir > qemu_build/kernel_mem_page.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_mem_page.ll -filetype=obj -o qemu_build/kernel_mem_page.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/sched/affinity.salt → kernel_sched_affinity.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/sched/affinity.salt --lib --disable-alias-scopes > qemu_build/kernel_sched_affinity.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_sched_affinity.mlir > qemu_build/kernel_sched_affinity.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_sched_affinity.ll -filetype=obj -o qemu_build/kernel_sched_affinity.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/sched/chase_lev.salt → kernel_sched_chase_lev.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/sched/chase_lev.salt --lib --disable-alias-scopes > qemu_build/kernel_sched_chase_lev.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_sched_chase_lev.mlir > qemu_build/kernel_sched_chase_lev.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_sched_chase_lev.ll -filetype=obj -o qemu_build/kernel_sched_chase_lev.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/net/netd_arp.salt → kernel_net_netd_arp.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/net/netd_arp.salt --lib --disable-alias-scopes > qemu_build/kernel_net_netd_arp.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_net_netd_arp.mlir > qemu_build/kernel_net_netd_arp.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_net_netd_arp.ll -filetype=obj -o qemu_build/kernel_net_netd_arp.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/net/arp.salt → kernel_net_arp.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/net/arp.salt --lib --disable-alias-scopes > qemu_build/kernel_net_arp.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_net_arp.mlir > qemu_build/kernel_net_arp.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_net_arp.ll -filetype=obj -o qemu_build/kernel_net_arp.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/net/netcore.salt → kernel_net_netcore.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/net/netcore.salt --lib --disable-alias-scopes > qemu_build/kernel_net_netcore.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_net_netcore.mlir > qemu_build/kernel_net_netcore.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_net_netcore.ll -filetype=obj -o qemu_build/kernel_net_netcore.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/net/eth.salt → kernel_net_eth.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/net/eth.salt --lib --disable-alias-scopes > qemu_build/kernel_net_eth.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_net_eth.mlir > qemu_build/kernel_net_eth.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_net_eth.ll -filetype=obj -o qemu_build/kernel_net_eth.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/net/netd_tx_bridge.salt → kernel_net_netd_tx_bridge.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/net/netd_tx_bridge.salt --lib --disable-alias-scopes > qemu_build/kernel_net_netd_tx_bridge.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_net_netd_tx_bridge.mlir > qemu_build/kernel_net_netd_tx_bridge.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_net_netd_tx_bridge.ll -filetype=obj -o qemu_build/kernel_net_netd_tx_bridge.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/net/netd_tcp.salt → kernel_net_netd_tcp.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/net/netd_tcp.salt --lib --disable-alias-scopes > qemu_build/kernel_net_netd_tcp.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_net_netd_tcp.mlir > qemu_build/kernel_net_netd_tcp.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_net_netd_tcp.ll -filetype=obj -o qemu_build/kernel_net_netd_tcp.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/net/udp.salt → kernel_net_udp.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/net/udp.salt --lib --disable-alias-scopes > qemu_build/kernel_net_udp.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_net_udp.mlir > qemu_build/kernel_net_udp.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_net_udp.ll -filetype=obj -o qemu_build/kernel_net_udp.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/net/netd_parse.salt → kernel_net_netd_parse.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/net/netd_parse.salt --lib --disable-alias-scopes > qemu_build/kernel_net_netd_parse.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_net_netd_parse.mlir > qemu_build/kernel_net_netd_parse.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_net_netd_parse.ll -filetype=obj -o qemu_build/kernel_net_netd_parse.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/net/netd_bridge.salt → kernel_net_netd_bridge.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/net/netd_bridge.salt --lib --disable-alias-scopes > qemu_build/kernel_net_netd_bridge.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_net_netd_bridge.mlir > qemu_build/kernel_net_netd_bridge.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_net_netd_bridge.ll -filetype=obj -o qemu_build/kernel_net_netd_bridge.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/net/netd_tcp_parse.salt → kernel_net_netd_tcp_parse.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/net/netd_tcp_parse.salt --lib --disable-alias-scopes > qemu_build/kernel_net_netd_tcp_parse.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_net_netd_tcp_parse.mlir > qemu_build/kernel_net_netd_tcp_parse.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_net_netd_tcp_parse.ll -filetype=obj -o qemu_build/kernel_net_netd_tcp_parse.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/net/tcp_syn_cookie.salt → kernel_net_tcp_syn_cookie.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/net/tcp_syn_cookie.salt --lib --disable-alias-scopes > qemu_build/kernel_net_tcp_syn_cookie.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_net_tcp_syn_cookie.mlir > qemu_build/kernel_net_tcp_syn_cookie.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_net_tcp_syn_cookie.ll -filetype=obj -o qemu_build/kernel_net_tcp_syn_cookie.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/net/ip.salt → kernel_net_ip.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/net/ip.salt --lib --disable-alias-scopes > qemu_build/kernel_net_ip.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_net_ip.mlir > qemu_build/kernel_net_ip.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_net_ip.ll -filetype=obj -o qemu_build/kernel_net_ip.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/sys/sip.salt → kernel_sys_sip.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/sys/sip.salt --lib --disable-alias-scopes > qemu_build/kernel_sys_sip.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_sys_sip.mlir > qemu_build/kernel_sys_sip.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_sys_sip.ll -filetype=obj -o qemu_build/kernel_sys_sip.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/sys/elf.salt → kernel_sys_elf.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/sys/elf.salt --lib --disable-alias-scopes > qemu_build/kernel_sys_elf.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_sys_elf.mlir > qemu_build/kernel_sys_elf.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_sys_elf.ll -filetype=obj -o qemu_build/kernel_sys_elf.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/lib/ebr.salt → kernel_lib_ebr.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/lib/ebr.salt --lib --disable-alias-scopes > qemu_build/kernel_lib_ebr.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_lib_ebr.mlir > qemu_build/kernel_lib_ebr.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_lib_ebr.ll -filetype=obj -o qemu_build/kernel_lib_ebr.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/lib/ipc_arbiter.salt → kernel_lib_ipc_arbiter.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/lib/ipc_arbiter.salt --lib --disable-alias-scopes > qemu_build/kernel_lib_ipc_arbiter.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_lib_ipc_arbiter.mlir > qemu_build/kernel_lib_ipc_arbiter.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_lib_ipc_arbiter.ll -filetype=obj -o qemu_build/kernel_lib_ipc_arbiter.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/lib/abi.salt → kernel_lib_abi.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/lib/abi.salt --lib --disable-alias-scopes > qemu_build/kernel_lib_abi.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_lib_abi.mlir > qemu_build/kernel_lib_abi.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_lib_abi.ll -filetype=obj -o qemu_build/kernel_lib_abi.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/lib/malloc.salt → kernel_lib_malloc.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/lib/malloc.salt --lib --disable-alias-scopes > qemu_build/kernel_lib_malloc.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_lib_malloc.mlir > qemu_build/kernel_lib_malloc.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_lib_malloc.ll -filetype=obj -o qemu_build/kernel_lib_malloc.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/lib/ipc_ring.salt → kernel_lib_ipc_ring.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/lib/ipc_ring.salt --lib --disable-alias-scopes > qemu_build/kernel_lib_ipc_ring.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_lib_ipc_ring.mlir > qemu_build/kernel_lib_ipc_ring.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_lib_ipc_ring.ll -filetype=obj -o qemu_build/kernel_lib_ipc_ring.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/lib/ipc_shm.salt → kernel_lib_ipc_shm.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/lib/ipc_shm.salt --lib --disable-alias-scopes > qemu_build/kernel_lib_ipc_shm.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_lib_ipc_shm.mlir > qemu_build/kernel_lib_ipc_shm.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_lib_ipc_shm.ll -filetype=obj -o qemu_build/kernel_lib_ipc_shm.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/ecs/events.salt → kernel_ecs_events.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/ecs/events.salt --lib --disable-alias-scopes > qemu_build/kernel_ecs_events.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_ecs_events.mlir > qemu_build/kernel_ecs_events.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_ecs_events.ll -filetype=obj -o qemu_build/kernel_ecs_events.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/ecs/entity.salt → kernel_ecs_entity.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/ecs/entity.salt --lib --disable-alias-scopes > qemu_build/kernel_ecs_entity.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_ecs_entity.mlir > qemu_build/kernel_ecs_entity.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_ecs_entity.ll -filetype=obj -o qemu_build/kernel_ecs_entity.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/ecs/ecs_ipc.salt → kernel_ecs_ecs_ipc.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/ecs/ecs_ipc.salt --lib --disable-alias-scopes > qemu_build/kernel_ecs_ecs_ipc.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_ecs_ecs_ipc.mlir > qemu_build/kernel_ecs_ecs_ipc.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_ecs_ecs_ipc.ll -filetype=obj -o qemu_build/kernel_ecs_ecs_ipc.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/ecs/ecs_scheduler.salt → kernel_ecs_ecs_scheduler.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/ecs/ecs_scheduler.salt --lib --disable-alias-scopes > qemu_build/kernel_ecs_ecs_scheduler.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_ecs_ecs_scheduler.mlir > qemu_build/kernel_ecs_ecs_scheduler.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_ecs_ecs_scheduler.ll -filetype=obj -o qemu_build/kernel_ecs_ecs_scheduler.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/ecs/commands.salt → kernel_ecs_commands.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/ecs/commands.salt --lib --disable-alias-scopes > qemu_build/kernel_ecs_commands.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_ecs_commands.mlir > qemu_build/kernel_ecs_commands.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_ecs_commands.ll -filetype=obj -o qemu_build/kernel_ecs_commands.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/ecs/sparse_set.salt → kernel_ecs_sparse_set.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/ecs/sparse_set.salt --lib --disable-alias-scopes > qemu_build/kernel_ecs_sparse_set.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_ecs_sparse_set.mlir > qemu_build/kernel_ecs_sparse_set.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_ecs_sparse_set.ll -filetype=obj -o qemu_build/kernel_ecs_sparse_set.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/ecs/ecs_bridge.salt → kernel_ecs_ecs_bridge.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/ecs/ecs_bridge.salt --lib --disable-alias-scopes > qemu_build/kernel_ecs_ecs_bridge.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_ecs_ecs_bridge.mlir > qemu_build/kernel_ecs_ecs_bridge.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_ecs_ecs_bridge.ll -filetype=obj -o qemu_build/kernel_ecs_ecs_bridge.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/ecs/components.salt → kernel_ecs_components.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/ecs/components.salt --lib --disable-alias-scopes > qemu_build/kernel_ecs_components.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_ecs_components.mlir > qemu_build/kernel_ecs_components.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_ecs_components.ll -filetype=obj -o qemu_build/kernel_ecs_components.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/ecs/world.salt → kernel_ecs_world.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/ecs/world.salt --lib --disable-alias-scopes > qemu_build/kernel_ecs_world.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_ecs_world.mlir > qemu_build/kernel_ecs_world.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_ecs_world.ll -filetype=obj -o qemu_build/kernel_ecs_world.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/ecs/ecs_epoch.salt → kernel_ecs_ecs_epoch.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/ecs/ecs_epoch.salt --lib --disable-alias-scopes > qemu_build/kernel_ecs_ecs_epoch.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_ecs_ecs_epoch.mlir > qemu_build/kernel_ecs_ecs_epoch.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_ecs_ecs_epoch.ll -filetype=obj -o qemu_build/kernel_ecs_ecs_epoch.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/arch/x86/tss.salt → kernel_arch_x86_tss.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/arch/x86/tss.salt --lib --disable-alias-scopes > qemu_build/kernel_arch_x86_tss.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_arch_x86_tss.mlir > qemu_build/kernel_arch_x86_tss.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_arch_x86_tss.ll -filetype=obj -o qemu_build/kernel_arch_x86_tss.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/arch/x86/smp.salt → kernel_arch_x86_smp.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/arch/x86/smp.salt --lib --disable-alias-scopes > qemu_build/kernel_arch_x86_smp.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_arch_x86_smp.mlir > qemu_build/kernel_arch_x86_smp.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_arch_x86_smp.ll -filetype=obj -o qemu_build/kernel_arch_x86_smp.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/arch/x86/gdt.salt → kernel_arch_x86_gdt.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/arch/x86/gdt.salt --lib --disable-alias-scopes > qemu_build/kernel_arch_x86_gdt.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_arch_x86_gdt.mlir > qemu_build/kernel_arch_x86_gdt.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_arch_x86_gdt.ll -filetype=obj -o qemu_build/kernel_arch_x86_gdt.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/arch/x86/idt.salt → kernel_arch_x86_idt.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/arch/x86/idt.salt --lib --disable-alias-scopes > qemu_build/kernel_arch_x86_idt.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_arch_x86_idt.mlir > qemu_build/kernel_arch_x86_idt.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_arch_x86_idt.ll -filetype=obj -o qemu_build/kernel_arch_x86_idt.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/arch/x86/apic.salt → kernel_arch_x86_apic.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/arch/x86/apic.salt --lib --disable-alias-scopes > qemu_build/kernel_arch_x86_apic.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_arch_x86_apic.mlir > qemu_build/kernel_arch_x86_apic.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_arch_x86_apic.ll -filetype=obj -o qemu_build/kernel_arch_x86_apic.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/arch/x86/smp_test.salt → kernel_arch_x86_smp_test.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/arch/x86/smp_test.salt --lib --disable-alias-scopes > qemu_build/kernel_arch_x86_smp_test.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_arch_x86_smp_test.mlir > qemu_build/kernel_arch_x86_smp_test.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_arch_x86_smp_test.ll -filetype=obj -o qemu_build/kernel_arch_x86_smp_test.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/arch/x86/acpi.salt → kernel_arch_x86_acpi.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/arch/x86/acpi.salt --lib --disable-alias-scopes > qemu_build/kernel_arch_x86_acpi.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_arch_x86_acpi.mlir > qemu_build/kernel_arch_x86_acpi.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_arch_x86_acpi.ll -filetype=obj -o qemu_build/kernel_arch_x86_acpi.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling kernel/boot/multiboot.salt → kernel_boot_multiboot.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/boot/multiboot.salt --lib --disable-alias-scopes > qemu_build/kernel_boot_multiboot.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_boot_multiboot.mlir > qemu_build/kernel_boot_multiboot.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_boot_multiboot.ll -filetype=obj -o qemu_build/kernel_boot_multiboot.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling /Users/kevin/projects/lattice/user/reactor/tasks/moe_task.salt → user_reactor_tasks_moe_task.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front /Users/kevin/projects/lattice/user/reactor/tasks/moe_task.salt --lib --disable-alias-scopes > qemu_build/user_reactor_tasks_moe_task.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/user_reactor_tasks_moe_task.mlir > qemu_build/user_reactor_tasks_moe_task.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/user_reactor_tasks_moe_task.ll -filetype=obj -o qemu_build/user_reactor_tasks_moe_task.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling /Users/kevin/projects/lattice/user/reactor/tasks/moe_pipeline.salt → user_reactor_tasks_moe_pipeline.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front /Users/kevin/projects/lattice/user/reactor/tasks/moe_pipeline.salt --lib --disable-alias-scopes > qemu_build/user_reactor_tasks_moe_pipeline.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/user_reactor_tasks_moe_pipeline.mlir > qemu_build/user_reactor_tasks_moe_pipeline.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/user_reactor_tasks_moe_pipeline.ll -filetype=obj -o qemu_build/user_reactor_tasks_moe_pipeline.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling /Users/kevin/projects/lattice/user/terminal/main.salt → user_terminal_main.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front /Users/kevin/projects/lattice/user/terminal/main.salt --lib --disable-alias-scopes > qemu_build/user_terminal_main.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/user_terminal_main.mlir > qemu_build/user_terminal_main.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/user_terminal_main.ll -filetype=obj -o qemu_build/user_terminal_main.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling /Users/kevin/projects/lattice/user/terminal/console.salt → user_terminal_console.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front /Users/kevin/projects/lattice/user/terminal/console.salt --lib --disable-alias-scopes > qemu_build/user_terminal_console.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/user_terminal_console.mlir > qemu_build/user_terminal_console.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/user_terminal_console.ll -filetype=obj -o qemu_build/user_terminal_console.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling /Users/kevin/projects/lattice/user/terminal/font.salt → user_terminal_font.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front /Users/kevin/projects/lattice/user/terminal/font.salt --lib --disable-alias-scopes > qemu_build/user_terminal_font.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/user_terminal_font.mlir > qemu_build/user_terminal_font.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/user_terminal_font.ll -filetype=obj -o qemu_build/user_terminal_font.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling /Users/kevin/projects/lattice/user/terminal/font_data.salt → user_terminal_font_data.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front /Users/kevin/projects/lattice/user/terminal/font_data.salt --lib --disable-alias-scopes > qemu_build/user_terminal_font_data.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/user_terminal_font_data.mlir > qemu_build/user_terminal_font_data.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/user_terminal_font_data.ll -filetype=obj -o qemu_build/user_terminal_font_data.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [SALT] Compiling /Users/kevin/projects/lattice/user/grit/shell.salt → user_grit_shell.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front /Users/kevin/projects/lattice/user/grit/shell.salt --lib --disable-alias-scopes > qemu_build/user_grit_shell.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/user_grit_shell.mlir > qemu_build/user_grit_shell.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/user_grit_shell.ll -filetype=obj -o qemu_build/user_grit_shell.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+  [ASM]  Assembling kernel/arch/x86/isr_wrapper.S → kernel_arch_x86_isr_wrapper.o
+  [ASM]  Assembling kernel/arch/x86/io_stubs.S → kernel_arch_x86_io_stubs.o
+  [ASM]  Assembling kernel/arch/x86/embedded_user.S → kernel_arch_x86_embedded_user.o
+  [ASM]  Assembling kernel/arch/x86/ap_trampoline.S → kernel_arch_x86_ap_trampoline.o
+  [ASM]  Assembling kernel/arch/x86/smp_helpers.S → kernel_arch_x86_smp_helpers.o
+  [ASM]  Assembling kernel/arch/x86/boot.S → kernel_arch_x86_boot.o
+  [ASM]  Assembling kernel/arch/x86/ring3_entry.S → kernel_arch_x86_ring3_entry.o
+  [ASM]  Assembling kernel/arch/x86/cr3_helpers.S → kernel_arch_x86_cr3_helpers.o
+  [ASM]  Assembling kernel/arch/x86/missing_stubs.S → kernel_arch_x86_missing_stubs.o
+  [ASM]  Assembling kernel/arch/x86/syscall_entry.S → kernel_arch_x86_syscall_entry.o
+  [ASM]  Assembling kernel/arch/x86_64/syscall_msr_init.S → kernel_arch_x86_64_syscall_msr_init.o
+  [ASM]  Assembling kernel/arch/x86_64/ring3_bench_trampoline.S → kernel_arch_x86_64_ring3_bench_trampoline.o
+  [ASM]  Assembling kernel/arch/x86_64/async_call.S → kernel_arch_x86_64_async_call.o
+  [ASM]  Assembling kernel/arch/x86_64/preempt_stub.S → kernel_arch_x86_64_preempt_stub.o
+  [ASM]  Assembling kernel/arch/x86_64/rdtsc.S → kernel_arch_x86_64_rdtsc.o
+  [ASM]  Assembling kernel/arch/x86_64/volatile_mem.S → kernel_arch_x86_64_volatile_mem.o
+  [ASM]  Assembling kernel/arch/x86_64/fiber_loop.S → kernel_arch_x86_64_fiber_loop.o
+  [ASM]  Assembling kernel/arch/x86_64/cpuid_stubs.S → kernel_arch_x86_64_cpuid_stubs.o
+  [ASM]  Assembling kernel/arch/x86_64/fast_mem.S → kernel_arch_x86_64_fast_mem.o
+  [ASM]  Assembling kernel/arch/x86_64/proc_switch.S → kernel_arch_x86_64_proc_switch.o
+  [ASM]  Assembling kernel/arch/x86_64/syscall_entry_fast.S → kernel_arch_x86_64_syscall_entry_fast.o
+  [ASM]  Assembling kernel/arch/x86_64/nm_handler.S → kernel_arch_x86_64_nm_handler.o
+  [ASM]  Assembling kernel/arch/x86_64/context_switch_asm.S → kernel_arch_x86_64_context_switch_asm.o
+  [ASM]  Assembling kernel/arch/x86_64/proc_helpers.S → kernel_arch_x86_64_proc_helpers.o
+  [ASM]  Assembling kernel/arch/x86_64/df_handler.S → kernel_arch_x86_64_df_handler.o
+  [ASM]  Assembling kernel/arch/x86_64/nmi_handler.S → kernel_arch_x86_64_nmi_handler.o
+[92m== Building Benchmarks ==[0m
+[92m== Building Benchmark: kernel/benchmarks/ctx_switch_bench.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/ctx_switch_bench.salt → kernel_benchmarks_ctx_switch_bench.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/ctx_switch_bench.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_ctx_switch_bench.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_ctx_switch_bench.mlir > qemu_build/kernel_benchmarks_ctx_switch_bench.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_ctx_switch_bench.ll -filetype=obj -o qemu_build/kernel_benchmarks_ctx_switch_bench.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+[92m== Building Benchmark: kernel/benchmarks/ring_of_fire_lite.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/ring_of_fire_lite.salt → kernel_benchmarks_ring_of_fire_lite.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/ring_of_fire_lite.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_ring_of_fire_lite.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_ring_of_fire_lite.mlir > qemu_build/kernel_benchmarks_ring_of_fire_lite.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_ring_of_fire_lite.ll -filetype=obj -o qemu_build/kernel_benchmarks_ring_of_fire_lite.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+[92m== Building Benchmark: kernel/benchmarks/syscall_bench.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/syscall_bench.salt → kernel_benchmarks_syscall_bench.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/syscall_bench.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_syscall_bench.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_syscall_bench.mlir > qemu_build/kernel_benchmarks_syscall_bench.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_syscall_bench.ll -filetype=obj -o qemu_build/kernel_benchmarks_syscall_bench.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+[92m== Building Benchmark: kernel/benchmarks/ipc_bench.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/ipc_bench.salt → kernel_benchmarks_ipc_bench.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/ipc_bench.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_ipc_bench.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_ipc_bench.mlir > qemu_build/kernel_benchmarks_ipc_bench.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_ipc_bench.ll -filetype=obj -o qemu_build/kernel_benchmarks_ipc_bench.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+[92m== Building Benchmark: kernel/benchmarks/alloc_bench.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/alloc_bench.salt → kernel_benchmarks_alloc_bench.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/alloc_bench.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_alloc_bench.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_alloc_bench.mlir > qemu_build/kernel_benchmarks_alloc_bench.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_alloc_bench.ll -filetype=obj -o qemu_build/kernel_benchmarks_alloc_bench.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+[92m== Building Benchmark: kernel/benchmarks/slab_reclaim_bench.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/slab_reclaim_bench.salt → kernel_benchmarks_slab_reclaim_bench.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/slab_reclaim_bench.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_slab_reclaim_bench.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_slab_reclaim_bench.mlir > qemu_build/kernel_benchmarks_slab_reclaim_bench.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_slab_reclaim_bench.ll -filetype=obj -o qemu_build/kernel_benchmarks_slab_reclaim_bench.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+[92m== Building Benchmark: kernel/benchmarks/net_echo_bench.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/net_echo_bench.salt → kernel_benchmarks_net_echo_bench.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/net_echo_bench.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_net_echo_bench.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_net_echo_bench.mlir > qemu_build/kernel_benchmarks_net_echo_bench.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_net_echo_bench.ll -filetype=obj -o qemu_build/kernel_benchmarks_net_echo_bench.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+[92m== Building Benchmark: kernel/benchmarks/irq_latency_bench.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/irq_latency_bench.salt → kernel_benchmarks_irq_latency_bench.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/irq_latency_bench.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_irq_latency_bench.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_irq_latency_bench.mlir > qemu_build/kernel_benchmarks_irq_latency_bench.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_irq_latency_bench.ll -filetype=obj -o qemu_build/kernel_benchmarks_irq_latency_bench.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+[92m== Building Benchmark: kernel/benchmarks/pmm_bench.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/pmm_bench.salt → kernel_benchmarks_pmm_bench.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/pmm_bench.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_pmm_bench.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_pmm_bench.mlir > qemu_build/kernel_benchmarks_pmm_bench.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_pmm_bench.ll -filetype=obj -o qemu_build/kernel_benchmarks_pmm_bench.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+[92m== Building Benchmark: kernel/benchmarks/slab_stress_bench.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/slab_stress_bench.salt → kernel_benchmarks_slab_stress_bench.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/slab_stress_bench.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_slab_stress_bench.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_slab_stress_bench.mlir > qemu_build/kernel_benchmarks_slab_stress_bench.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_slab_stress_bench.ll -filetype=obj -o qemu_build/kernel_benchmarks_slab_stress_bench.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+[92m== Building Benchmark: kernel/benchmarks/smp_bench.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/smp_bench.salt → kernel_benchmarks_smp_bench.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/smp_bench.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_smp_bench.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_smp_bench.mlir > qemu_build/kernel_benchmarks_smp_bench.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_smp_bench.ll -filetype=obj -o qemu_build/kernel_benchmarks_smp_bench.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+[92m== Building Benchmark: kernel/benchmarks/utp_async_bench.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/utp_async_bench.salt → kernel_benchmarks_utp_async_bench.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/utp_async_bench.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_utp_async_bench.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_utp_async_bench.mlir > qemu_build/kernel_benchmarks_utp_async_bench.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_utp_async_bench.ll -filetype=obj -o qemu_build/kernel_benchmarks_utp_async_bench.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+[92m== Building Benchmark: kernel/benchmarks/utp_preempt_bench.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/utp_preempt_bench.salt → kernel_benchmarks_utp_preempt_bench.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/utp_preempt_bench.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_utp_preempt_bench.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_utp_preempt_bench.mlir > qemu_build/kernel_benchmarks_utp_preempt_bench.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_utp_preempt_bench.ll -filetype=obj -o qemu_build/kernel_benchmarks_utp_preempt_bench.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+[92m== Building Benchmark: kernel/benchmarks/utp_spawn_bench.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/utp_spawn_bench.salt → kernel_benchmarks_utp_spawn_bench.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/utp_spawn_bench.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_utp_spawn_bench.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_utp_spawn_bench.mlir > qemu_build/kernel_benchmarks_utp_spawn_bench.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_utp_spawn_bench.ll -filetype=obj -o qemu_build/kernel_benchmarks_utp_spawn_bench.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+[92m== Building Benchmark: kernel/benchmarks/sip_ipc_ring.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/sip_ipc_ring.salt → kernel_benchmarks_sip_ipc_ring.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/sip_ipc_ring.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_sip_ipc_ring.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_sip_ipc_ring.mlir > qemu_build/kernel_benchmarks_sip_ipc_ring.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_sip_ipc_ring.ll -filetype=obj -o qemu_build/kernel_benchmarks_sip_ipc_ring.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+[92m== Building Benchmark: kernel/benchmarks/ipc_fastpath_bench.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/ipc_fastpath_bench.salt → kernel_benchmarks_ipc_fastpath_bench.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/ipc_fastpath_bench.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_ipc_fastpath_bench.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_ipc_fastpath_bench.mlir > qemu_build/kernel_benchmarks_ipc_fastpath_bench.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_ipc_fastpath_bench.ll -filetype=obj -o qemu_build/kernel_benchmarks_ipc_fastpath_bench.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+[92m== Building Benchmark: kernel/benchmarks/shm_grant_bench.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/shm_grant_bench.salt → kernel_benchmarks_shm_grant_bench.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/shm_grant_bench.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_shm_grant_bench.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_shm_grant_bench.mlir > qemu_build/kernel_benchmarks_shm_grant_bench.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_shm_grant_bench.ll -filetype=obj -o qemu_build/kernel_benchmarks_shm_grant_bench.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+[92m== Building Benchmark: kernel/benchmarks/spsc_bench.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/spsc_bench.salt → kernel_benchmarks_spsc_bench.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/spsc_bench.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_spsc_bench.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_spsc_bench.mlir > qemu_build/kernel_benchmarks_spsc_bench.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_spsc_bench.ll -filetype=obj -o qemu_build/kernel_benchmarks_spsc_bench.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+[92m== Building Benchmark: kernel/benchmarks/netd_bench.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/netd_bench.salt → kernel_benchmarks_netd_bench.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/netd_bench.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_netd_bench.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_netd_bench.mlir > qemu_build/kernel_benchmarks_netd_bench.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_netd_bench.ll -filetype=obj -o qemu_build/kernel_benchmarks_netd_bench.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+[92m== Building Benchmark: kernel/benchmarks/socket_bench.salt ==[0m
+  [SALT] Compiling kernel/benchmarks/socket_bench.salt → kernel_benchmarks_socket_bench.o
+    Running: /Users/kevin/projects/lattice/salt-front/target/release/salt-front kernel/benchmarks/socket_bench.salt --lib --disable-alias-scopes > qemu_build/kernel_benchmarks_socket_bench.mlir
+    Running: /Users/kevin/projects/lattice/salt/build/salt-opt --emit-llvm --verify=false < qemu_build/kernel_benchmarks_socket_bench.mlir > qemu_build/kernel_benchmarks_socket_bench.ll
+    Running: /opt/homebrew/opt/llvm/bin/llc qemu_build/kernel_benchmarks_socket_bench.ll -filetype=obj -o qemu_build/kernel_benchmarks_socket_bench.o -relocation-model=pic -mtriple=x86_64-none-elf -mcpu=x86-64 -mattr=+cx16
+LINKING OBJS: ['qemu_build/kernel_core_sched_isolate.o', 'qemu_build/kernel_core_scheduler_test.o', 'qemu_build/kernel_core_cpuid.o', 'qemu_build/kernel_core_moe.o', 'qemu_build/kernel_core_process_test.o', 'qemu_build/kernel_core_dispatcher.o', 'qemu_build/kernel_core_vmm.o', 'qemu_build/kernel_core_timing.o', 'qemu_build/kernel_core_vma.o', 'qemu_build/kernel_core_ist_test.o', 'qemu_build/kernel_core_main.o', 'qemu_build/kernel_core_memory.o', 'qemu_build/kernel_core_pulse.o', 'qemu_build/kernel_core_panic.o', 'qemu_build/kernel_core_ipi.o', 'qemu_build/kernel_core_ring_abi.o', 'qemu_build/kernel_core_preempt_test.o', 'qemu_build/kernel_core_reclaim_histogram.o', 'qemu_build/kernel_core_capability.o', 'qemu_build/kernel_core_pmm.o', 'qemu_build/kernel_core_context_switch.o', 'qemu_build/kernel_core_async_test.o', 'qemu_build/kernel_core_time.o', 'qemu_build/kernel_core_syscall.o', 'qemu_build/kernel_core_percpu_test.o', 'qemu_build/kernel_core_io.o', 'qemu_build/kernel_core_scheduler.o', 'qemu_build/kernel_core_context.o', 'qemu_build/kernel_core_keuos_reclaim.o', 'qemu_build/kernel_core_nm_fpu.o', 'qemu_build/kernel_core_flight_recorder.o', 'qemu_build/kernel_core_ring3_test.o', 'qemu_build/kernel_core_exec_user.o', 'qemu_build/kernel_core_region.o', 'qemu_build/kernel_core_process.o', 'qemu_build/kernel_core_elf_loader.o', 'qemu_build/kernel_core_syscall_test.o', 'qemu_build/kernel_core_percpu.o', 'qemu_build/kernel_drivers_pit.o', 'qemu_build/kernel_drivers_framebuffer.o', 'qemu_build/kernel_drivers_serial.o', 'qemu_build/kernel_drivers_ps2_translation.o', 'qemu_build/kernel_drivers_virtio_net.o', 'qemu_build/kernel_drivers_vga.o', 'qemu_build/kernel_drivers_virtio.o', 'qemu_build/kernel_drivers_ps2_kbd.o', 'qemu_build/kernel_drivers_nvme.o', 'qemu_build/kernel_mem_mm_layout.o', 'qemu_build/kernel_mem_slab.o', 'qemu_build/kernel_mem_slab_cache.o', 'qemu_build/kernel_mem_pmm_sharded.o', 'qemu_build/kernel_mem_page_sweep.o', 'qemu_build/kernel_mem_user_paging.o', 'qemu_build/kernel_mem_page.o', 'qemu_build/kernel_sched_affinity.o', 'qemu_build/kernel_sched_chase_lev.o', 'qemu_build/kernel_net_netd_arp.o', 'qemu_build/kernel_net_arp.o', 'qemu_build/kernel_net_netcore.o', 'qemu_build/kernel_net_eth.o', 'qemu_build/kernel_net_netd_tx_bridge.o', 'qemu_build/kernel_net_netd_tcp.o', 'qemu_build/kernel_net_udp.o', 'qemu_build/kernel_net_netd_parse.o', 'qemu_build/kernel_net_netd_bridge.o', 'qemu_build/kernel_net_netd_tcp_parse.o', 'qemu_build/kernel_net_tcp_syn_cookie.o', 'qemu_build/kernel_net_ip.o', 'qemu_build/kernel_sys_sip.o', 'qemu_build/kernel_sys_elf.o', 'qemu_build/kernel_lib_ebr.o', 'qemu_build/kernel_lib_ipc_arbiter.o', 'qemu_build/kernel_lib_abi.o', 'qemu_build/kernel_lib_malloc.o', 'qemu_build/kernel_lib_ipc_ring.o', 'qemu_build/kernel_lib_ipc_shm.o', 'qemu_build/kernel_ecs_events.o', 'qemu_build/kernel_ecs_entity.o', 'qemu_build/kernel_ecs_ecs_ipc.o', 'qemu_build/kernel_ecs_ecs_scheduler.o', 'qemu_build/kernel_ecs_commands.o', 'qemu_build/kernel_ecs_sparse_set.o', 'qemu_build/kernel_ecs_ecs_bridge.o', 'qemu_build/kernel_ecs_components.o', 'qemu_build/kernel_ecs_world.o', 'qemu_build/kernel_ecs_ecs_epoch.o', 'qemu_build/kernel_arch_x86_tss.o', 'qemu_build/kernel_arch_x86_smp.o', 'qemu_build/kernel_arch_x86_gdt.o', 'qemu_build/kernel_arch_x86_idt.o', 'qemu_build/kernel_arch_x86_apic.o', 'qemu_build/kernel_arch_x86_smp_test.o', 'qemu_build/kernel_arch_x86_acpi.o', 'qemu_build/kernel_boot_multiboot.o', 'qemu_build/user_reactor_tasks_moe_task.o', 'qemu_build/user_reactor_tasks_moe_pipeline.o', 'qemu_build/user_terminal_main.o', 'qemu_build/user_terminal_console.o', 'qemu_build/user_terminal_font.o', 'qemu_build/user_terminal_font_data.o', 'qemu_build/user_grit_shell.o', 'qemu_build/kernel_arch_x86_isr_wrapper.o', 'qemu_build/kernel_arch_x86_io_stubs.o', 'qemu_build/kernel_arch_x86_embedded_user.o', 'qemu_build/kernel_arch_x86_ap_trampoline.o', 'qemu_build/kernel_arch_x86_smp_helpers.o', 'qemu_build/kernel_arch_x86_boot.o', 'qemu_build/kernel_arch_x86_ring3_entry.o', 'qemu_build/kernel_arch_x86_cr3_helpers.o', 'qemu_build/kernel_arch_x86_missing_stubs.o', 'qemu_build/kernel_arch_x86_syscall_entry.o', 'qemu_build/kernel_arch_x86_64_syscall_msr_init.o', 'qemu_build/kernel_arch_x86_64_ring3_bench_trampoline.o', 'qemu_build/kernel_arch_x86_64_async_call.o', 'qemu_build/kernel_arch_x86_64_preempt_stub.o', 'qemu_build/kernel_arch_x86_64_rdtsc.o', 'qemu_build/kernel_arch_x86_64_volatile_mem.o', 'qemu_build/kernel_arch_x86_64_fiber_loop.o', 'qemu_build/kernel_arch_x86_64_cpuid_stubs.o', 'qemu_build/kernel_arch_x86_64_fast_mem.o', 'qemu_build/kernel_arch_x86_64_proc_switch.o', 'qemu_build/kernel_arch_x86_64_syscall_entry_fast.o', 'qemu_build/kernel_arch_x86_64_nm_handler.o', 'qemu_build/kernel_arch_x86_64_context_switch_asm.o', 'qemu_build/kernel_arch_x86_64_proc_helpers.o', 'qemu_build/kernel_arch_x86_64_df_handler.o', 'qemu_build/kernel_arch_x86_64_nmi_handler.o', 'qemu_build/kernel_benchmarks_ctx_switch_bench.o', 'qemu_build/kernel_benchmarks_ring_of_fire_lite.o', 'qemu_build/kernel_benchmarks_syscall_bench.o', 'qemu_build/kernel_benchmarks_ipc_bench.o', 'qemu_build/kernel_benchmarks_alloc_bench.o', 'qemu_build/kernel_benchmarks_slab_reclaim_bench.o', 'qemu_build/kernel_benchmarks_net_echo_bench.o', 'qemu_build/kernel_benchmarks_irq_latency_bench.o', 'qemu_build/kernel_benchmarks_pmm_bench.o', 'qemu_build/kernel_benchmarks_slab_stress_bench.o', 'qemu_build/kernel_benchmarks_smp_bench.o', 'qemu_build/kernel_benchmarks_utp_async_bench.o', 'qemu_build/kernel_benchmarks_utp_preempt_bench.o', 'qemu_build/kernel_benchmarks_utp_spawn_bench.o', 'qemu_build/kernel_benchmarks_sip_ipc_ring.o', 'qemu_build/kernel_benchmarks_ipc_fastpath_bench.o', 'qemu_build/kernel_benchmarks_shm_grant_bench.o', 'qemu_build/kernel_benchmarks_spsc_bench.o', 'qemu_build/kernel_benchmarks_netd_bench.o', 'qemu_build/kernel_benchmarks_socket_bench.o']
+[91mBUILD FAILED: Command '['/Users/kevin/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/rust-lld', '-flavor', 'gnu', '-T', 'kernel/arch/x86/linker.ld', '-o', 'qemu_build/kernel.elf', '-z', 'max-page-size=0x1000', 'qemu_build/kernel_core_sched_isolate.o', 'qemu_build/kernel_core_scheduler_test.o', 'qemu_build/kernel_core_cpuid.o', 'qemu_build/kernel_core_moe.o', 'qemu_build/kernel_core_process_test.o', 'qemu_build/kernel_core_dispatcher.o', 'qemu_build/kernel_core_vmm.o', 'qemu_build/kernel_core_timing.o', 'qemu_build/kernel_core_vma.o', 'qemu_build/kernel_core_ist_test.o', 'qemu_build/kernel_core_main.o', 'qemu_build/kernel_core_memory.o', 'qemu_build/kernel_core_pulse.o', 'qemu_build/kernel_core_panic.o', 'qemu_build/kernel_core_ipi.o', 'qemu_build/kernel_core_ring_abi.o', 'qemu_build/kernel_core_preempt_test.o', 'qemu_build/kernel_core_reclaim_histogram.o', 'qemu_build/kernel_core_capability.o', 'qemu_build/kernel_core_pmm.o', 'qemu_build/kernel_core_context_switch.o', 'qemu_build/kernel_core_async_test.o', 'qemu_build/kernel_core_time.o', 'qemu_build/kernel_core_syscall.o', 'qemu_build/kernel_core_percpu_test.o', 'qemu_build/kernel_core_io.o', 'qemu_build/kernel_core_scheduler.o', 'qemu_build/kernel_core_context.o', 'qemu_build/kernel_core_keuos_reclaim.o', 'qemu_build/kernel_core_nm_fpu.o', 'qemu_build/kernel_core_flight_recorder.o', 'qemu_build/kernel_core_ring3_test.o', 'qemu_build/kernel_core_exec_user.o', 'qemu_build/kernel_core_region.o', 'qemu_build/kernel_core_process.o', 'qemu_build/kernel_core_elf_loader.o', 'qemu_build/kernel_core_syscall_test.o', 'qemu_build/kernel_core_percpu.o', 'qemu_build/kernel_drivers_pit.o', 'qemu_build/kernel_drivers_framebuffer.o', 'qemu_build/kernel_drivers_serial.o', 'qemu_build/kernel_drivers_ps2_translation.o', 'qemu_build/kernel_drivers_virtio_net.o', 'qemu_build/kernel_drivers_vga.o', 'qemu_build/kernel_drivers_virtio.o', 'qemu_build/kernel_drivers_ps2_kbd.o', 'qemu_build/kernel_drivers_nvme.o', 'qemu_build/kernel_mem_mm_layout.o', 'qemu_build/kernel_mem_slab.o', 'qemu_build/kernel_mem_slab_cache.o', 'qemu_build/kernel_mem_pmm_sharded.o', 'qemu_build/kernel_mem_page_sweep.o', 'qemu_build/kernel_mem_user_paging.o', 'qemu_build/kernel_mem_page.o', 'qemu_build/kernel_sched_affinity.o', 'qemu_build/kernel_sched_chase_lev.o', 'qemu_build/kernel_net_netd_arp.o', 'qemu_build/kernel_net_arp.o', 'qemu_build/kernel_net_netcore.o', 'qemu_build/kernel_net_eth.o', 'qemu_build/kernel_net_netd_tx_bridge.o', 'qemu_build/kernel_net_netd_tcp.o', 'qemu_build/kernel_net_udp.o', 'qemu_build/kernel_net_netd_parse.o', 'qemu_build/kernel_net_netd_bridge.o', 'qemu_build/kernel_net_netd_tcp_parse.o', 'qemu_build/kernel_net_tcp_syn_cookie.o', 'qemu_build/kernel_net_ip.o', 'qemu_build/kernel_sys_sip.o', 'qemu_build/kernel_sys_elf.o', 'qemu_build/kernel_lib_ebr.o', 'qemu_build/kernel_lib_ipc_arbiter.o', 'qemu_build/kernel_lib_abi.o', 'qemu_build/kernel_lib_malloc.o', 'qemu_build/kernel_lib_ipc_ring.o', 'qemu_build/kernel_lib_ipc_shm.o', 'qemu_build/kernel_ecs_events.o', 'qemu_build/kernel_ecs_entity.o', 'qemu_build/kernel_ecs_ecs_ipc.o', 'qemu_build/kernel_ecs_ecs_scheduler.o', 'qemu_build/kernel_ecs_commands.o', 'qemu_build/kernel_ecs_sparse_set.o', 'qemu_build/kernel_ecs_ecs_bridge.o', 'qemu_build/kernel_ecs_components.o', 'qemu_build/kernel_ecs_world.o', 'qemu_build/kernel_ecs_ecs_epoch.o', 'qemu_build/kernel_arch_x86_tss.o', 'qemu_build/kernel_arch_x86_smp.o', 'qemu_build/kernel_arch_x86_gdt.o', 'qemu_build/kernel_arch_x86_idt.o', 'qemu_build/kernel_arch_x86_apic.o', 'qemu_build/kernel_arch_x86_smp_test.o', 'qemu_build/kernel_arch_x86_acpi.o', 'qemu_build/kernel_boot_multiboot.o', 'qemu_build/user_reactor_tasks_moe_task.o', 'qemu_build/user_reactor_tasks_moe_pipeline.o', 'qemu_build/user_terminal_main.o', 'qemu_build/user_terminal_console.o', 'qemu_build/user_terminal_font.o', 'qemu_build/user_terminal_font_data.o', 'qemu_build/user_grit_shell.o', 'qemu_build/kernel_arch_x86_isr_wrapper.o', 'qemu_build/kernel_arch_x86_io_stubs.o', 'qemu_build/kernel_arch_x86_embedded_user.o', 'qemu_build/kernel_arch_x86_ap_trampoline.o', 'qemu_build/kernel_arch_x86_smp_helpers.o', 'qemu_build/kernel_arch_x86_boot.o', 'qemu_build/kernel_arch_x86_ring3_entry.o', 'qemu_build/kernel_arch_x86_cr3_helpers.o', 'qemu_build/kernel_arch_x86_missing_stubs.o', 'qemu_build/kernel_arch_x86_syscall_entry.o', 'qemu_build/kernel_arch_x86_64_syscall_msr_init.o', 'qemu_build/kernel_arch_x86_64_ring3_bench_trampoline.o', 'qemu_build/kernel_arch_x86_64_async_call.o', 'qemu_build/kernel_arch_x86_64_preempt_stub.o', 'qemu_build/kernel_arch_x86_64_rdtsc.o', 'qemu_build/kernel_arch_x86_64_volatile_mem.o', 'qemu_build/kernel_arch_x86_64_fiber_loop.o', 'qemu_build/kernel_arch_x86_64_cpuid_stubs.o', 'qemu_build/kernel_arch_x86_64_fast_mem.o', 'qemu_build/kernel_arch_x86_64_proc_switch.o', 'qemu_build/kernel_arch_x86_64_syscall_entry_fast.o', 'qemu_build/kernel_arch_x86_64_nm_handler.o', 'qemu_build/kernel_arch_x86_64_context_switch_asm.o', 'qemu_build/kernel_arch_x86_64_proc_helpers.o', 'qemu_build/kernel_arch_x86_64_df_handler.o', 'qemu_build/kernel_arch_x86_64_nmi_handler.o', 'qemu_build/kernel_benchmarks_ctx_switch_bench.o', 'qemu_build/kernel_benchmarks_ring_of_fire_lite.o', 'qemu_build/kernel_benchmarks_syscall_bench.o', 'qemu_build/kernel_benchmarks_ipc_bench.o', 'qemu_build/kernel_benchmarks_alloc_bench.o', 'qemu_build/kernel_benchmarks_slab_reclaim_bench.o', 'qemu_build/kernel_benchmarks_net_echo_bench.o', 'qemu_build/kernel_benchmarks_irq_latency_bench.o', 'qemu_build/kernel_benchmarks_pmm_bench.o', 'qemu_build/kernel_benchmarks_slab_stress_bench.o', 'qemu_build/kernel_benchmarks_smp_bench.o', 'qemu_build/kernel_benchmarks_utp_async_bench.o', 'qemu_build/kernel_benchmarks_utp_preempt_bench.o', 'qemu_build/kernel_benchmarks_utp_spawn_bench.o', 'qemu_build/kernel_benchmarks_sip_ipc_ring.o', 'qemu_build/kernel_benchmarks_ipc_fastpath_bench.o', 'qemu_build/kernel_benchmarks_shm_grant_bench.o', 'qemu_build/kernel_benchmarks_spsc_bench.o', 'qemu_build/kernel_benchmarks_netd_bench.o', 'qemu_build/kernel_benchmarks_socket_bench.o']' returned non-zero exit status 1.[0m

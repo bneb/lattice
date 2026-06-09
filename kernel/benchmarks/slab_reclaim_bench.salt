@@ -32,6 +32,7 @@ package benchmarks.slab_reclaim_bench
 import kernel.drivers.serial
 import kernel.drivers.vga
 import kernel.core.scheduler
+import kernel.core.percpu
 
 // slab.salt (kernel.mem) — @no_mangle
 extern fn pop_stack() -> u64;
@@ -44,7 +45,7 @@ extern fn ebr_exit_epoch(cpu: u64);
 extern fn ebr_advance_epoch();
 extern fn ebr_retire(cpu: u64, ptr: u64);
 extern fn ebr_reclaim(cpu: u64);
-extern fn get_cpu_id() -> u64;
+
 
 // =============================================================================
 // Ephemeral Fiber Entry Point
@@ -157,7 +158,7 @@ fn phase2() -> bool {
     let baseline_count = scheduler.get_fiber_count();
 
     // EBR: Enter an epoch for this core's reclamation tracking
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
     ebr_enter_epoch(cpu);
 
     for gen in 0..num_generations {

@@ -25,7 +25,7 @@ NetDTLSConnection global_tls_connections[MAX_CONCURRENT_TLS_SOCKETS];
 // ============================================================================
 // Minimal Trust Anchor — Let's Encrypt ISRG Root X1
 // ============================================================================
-// For a sovereign browser, we embed the root CA directly.
+// For a keuos browser, we embed the root CA directly.
 // This is the ISRG Root X1 (Let's Encrypt) DN and public key.
 // In production, this would be expanded with Mozilla's CA bundle.
 // ============================================================================

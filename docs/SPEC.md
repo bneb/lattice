@@ -42,7 +42,7 @@
 - **Generics**: Full monomorphization with multi-parameter support (`Vec<T, A>`)
 - **Function Pointers**: `fn(u64, u64) -> u64` — first-class types for dispatch tables, IDT vectors, and indirect calls
 
-### 1.5 Verification (The "High Ground")
+### 1.5 Verification
 
 ```salt
 fn safe_div(a: i32, b: i32) -> i32

@@ -16,10 +16,15 @@
  */
 
 .intel_syntax noprefix
+.section .kpti_trampoline_text, "ax"
 .global proc_context_switch
 .global proc_trampoline
 
 proc_context_switch:
+    mov dx, 0x3F8
+    mov al, 0x30  /* '0' */
+    out dx, al
+
     /* RDI = old_rsp_ptr, RSI = new_rsp, RDX = new_cr3, RCX = new_rsp0 */
 
     /* Save callee-saved registers */
@@ -30,14 +35,24 @@ proc_context_switch:
     push r14
     push r15
 
-    /* Store current RSP to *old_rsp_ptr */
+    /* Store current RSP to *old_rsp_ptr if old_rsp_ptr != 0 */
+    test rdi, rdi
+    jz 1f
     mov [rdi], rsp
-
+1:
     /* Switch to new kernel stack */
     mov rsp, rsi
 
+    mov dx, 0x3F8
+    mov al, 0x31  /* '1' */
+    out dx, al
+
     /* Switch CR3 (address space) */
     mov cr3, rdx
+
+    mov dx, 0x3F8
+    mov al, 0x32  /* '2' */
+    out dx, al
 
     /* Update kernel_rsp0_scratch for SYSCALL entry path (Per-CPU) */
     mov gs:[96], rcx
@@ -69,11 +84,25 @@ proc_context_switch:
  * Stack has IRETQ frame: RIP, CS(0x1B), RFLAGS(0x202), RSP, SS(0x23)
  * ============================================================================= */
 proc_trampoline:
+    mov dx, 0x3F8
+    mov al, 0x54  /* 'T' */
+    out dx, al
+
     mov ax, 0x23
     mov ds, ax
     mov es, ax
     mov fs, ax
+
+    mov dx, 0x3F8
+    mov al, 0x53  /* 'S' */
+    out dx, al
+
     swapgs
+
+    mov dx, 0x3F8
+    mov al, 0x49  /* 'I' */
+    out dx, al
+
 .global proc_trampoline_iretq
 proc_trampoline_iretq:
     iretq
@@ -112,7 +141,19 @@ moe_trampoline_iretq:
 .global kernel_trampoline
 
 kernel_trampoline:
-    sti                     /* Enable interrupts — Task 0 runs with IF=1 */
-    pop rax                 /* Pop the entry function address from the stack */
-    call rax                /* Call kernel_event_loop (never returns) */
+    mov dx, 0x3F8
+    mov al, 0x33  /* '3' */
+    out dx, al
+    pop rdi
+    pop rsi
+    pop rdx
+    mov dx, 0x3F8
+    mov al, 0x34  /* '4' */
+    out dx, al
+    sti
+    mov dx, 0x3F8
+    mov al, 0x35  /* '5' */
+    out dx, al
+    pop rax
+    call rax
     ud2                     /* Should never reach here */

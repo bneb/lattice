@@ -1,4 +1,4 @@
-// std::io::writer - Sovereign Writer Protocol
+// std::io::writer - KeuOS Writer Protocol
 // The core trait enabling unified target.f"..." syntax for zero-allocation I/O
 
 package std.io
@@ -6,7 +6,7 @@ package std.io
 import std.core.ptr::Ptr;
 
 // =============================================================================
-// The Writer Trait - Sovereign Contract for Formatted Output
+// The Writer Trait - KeuOS Contract for Formatted Output
 // =============================================================================
 // Any type implementing Writer can serve as a target for the f-string syntax:
 //   console.f"Value: {x}"
@@ -29,7 +29,7 @@ pub concept Writer {
     fn flush(&mut self);
     
     // =========================================================================
-    // Type-Specialized Write Methods (Sovereign Protocol)
+    // Type-Specialized Write Methods (KeuOS Protocol)
     // =========================================================================
     // These methods enable the "Intrinsic Lowering" optimization where the
     // compiler emits direct calls to write_i32/write_f64/etc instead of

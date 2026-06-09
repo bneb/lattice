@@ -1,0 +1,57 @@
+package main
+
+import std.collections.string_map.{StringMap_new, StringMap_get, StringMap_value_at}
+import std.core.str.StringView
+import std.core.ptr.Ptr
+import std.fs.fs.{VfsConnection, FileHandle}
+import lettuce.aof.{AofContext, Aof_init, Aof_append_set, Aof_append_del, Aof_replay}
+
+extern fn puts(s: Ptr<u8>);
+extern fn malloc(size: i64) -> Ptr<u8>;
+extern fn assert_eq(a: i64, b: i64);
+
+fn main() -> i32 {
+    puts("=== LETTUCE AOF Tests ===" as Ptr<u8>);
+    
+    // First, let's write to the AOF.
+    let aof_ctx = malloc(16) as Ptr<AofContext>;
+    let aof_res = Aof_init(aof_ctx);
+    if aof_res < 0 {
+        puts("Failed to init AOF" as Ptr<u8>);
+        return 1;
+    }
+    
+    let key1 = StringView::from_raw("key1" as Ptr<u8>, 4);
+    let val1 = StringView::from_raw("value1" as Ptr<u8>, 6);
+    let key2 = StringView::from_raw("key2" as Ptr<u8>, 4);
+    let val2 = StringView::from_raw("value2" as Ptr<u8>, 6);
+    
+    Aof_append_set(aof_ctx, key1, val1);
+    Aof_append_set(aof_ctx, key2, val2);
+    Aof_append_del(aof_ctx, key1);
+    
+    // Now replay into a fresh StringMap
+    let mut smap = StringMap_new();
+    Aof_replay(aof_ctx, smap);
+    
+    // Check results
+    let slot1 = StringMap_get(smap, key1);
+    assert_eq(slot1, -1); // key1 was deleted
+    
+    let slot2 = StringMap_get(smap, key2);
+    // slot2 should be >= 0
+    if slot2 < 0 {
+        puts("Failed to find key2" as Ptr<u8>);
+        return 1;
+    }
+    
+    let val2 = StringMap_value_at(smap, slot2);
+    if val2.length() != 6 || val2.byte_at(0) != 118 { // 'v'
+        puts("Value mismatch for key2" as Ptr<u8>);
+        return 1;
+    }
+    
+    puts("PASS test_aof" as Ptr<u8>);
+    puts("=== All AOF tests passed ===" as Ptr<u8>);
+    return 0;
+}

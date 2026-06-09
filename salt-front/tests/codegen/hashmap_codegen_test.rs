@@ -1,3 +1,4 @@
+#![allow(warnings)]
 // ============================================================================
 // HashMap Codegen Tests — Parameterized by Key/Value Types
 // Guards against type-specific codegen failures in HashMap operations:

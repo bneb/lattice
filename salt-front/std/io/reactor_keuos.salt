@@ -2,15 +2,15 @@
 // std.io.KeuOSReactor — KeuOS kernel backend for the Reactor trait
 // =============================================================================
 // DEPRECATED STUB: This VirtIO-based implementation is superseded by
-// std.io.sovereign_poller.SovereignPoller, which provides tickless
+// std.io.keuos_poller.KeuOSPoller, which provides tickless
 // zero-CPU-overhead blocking via SYS_IPC_AWAIT (syscall vector 14)
 // and translates hardware MSI-X interrupts directly to Fast-Path IPCs.
 //
 // This file is retained for API compatibility with the Reactor trait.
-// New code should use SovereignPoller::new() + run_forever() instead.
+// New code should use KeuOSPoller::new() + run_forever() instead.
 //
 // When the Kernel Worktree completes the VirtIO net driver, this file
-// can implement the Reactor trait by delegating to SovereignPoller.
+// can implement the Reactor trait by delegating to KeuOSPoller.
 
 package std.io.reactor_keuos
 

@@ -6,6 +6,7 @@ import std.test
 import kernel.drivers.serial
 import kernel.core.pulse
 import kernel.core.vmm
+import kernel.core.percpu
 
 // Poll ABI — matches MLIR-emitted async state machine return values.
 // These constants define the contract between compiler-generated step
@@ -23,7 +24,7 @@ extern fn pop_stack() -> u64;
 extern fn push_stack(ptr: u64);
 
 // Per-CPU accessor (kernel/core/percpu.salt)
-extern fn get_cpu_id() -> u64;
+
 
 // Flight recorder (kernel/core/flight_recorder.salt)
 extern fn flight_log_trace(fiber_id: u64, event: u64);
@@ -140,7 +141,7 @@ pub fn timer_isr() {
         pulse.push(pulse.PULSE_TIMER, pulse.get_tick());
 
         // Flight recorder: log timer ISR event
-        let cpu = get_cpu_id();
+        let cpu = percpu.get_cpu_id();
         let current_fiber = SCHED_ARRAY[cpu].current;
         flight_log_trace(current_fiber, 3);  // EVENT_TIMER_ISR = 3
 
@@ -151,7 +152,7 @@ pub fn timer_isr() {
 
 pub fn init() {
     region("sched_init") {
-       let cpu = get_cpu_id();
+       let cpu = percpu.get_cpu_id();
        // Note: Fiber 0 (the main boot thread) is NOT set to active.
        // It acts as a cooperative driver for benchmarks, but cannot be preemptively scheduled
        // by do_dispatch because it bypasses invoke_preemptive_thread and runs on the boot stack.
@@ -168,7 +169,7 @@ pub fn init() {
 
 // Mark a fiber as READY in the bitmap (uses cpu_id internally)
 fn bitmap_set(fiber_id: u64) {
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
     let l1_idx = fiber_id / 64;
     let l2_bit = fiber_id % 64;
     let bit_mask: u64 = (1 as u64) << l2_bit;
@@ -183,7 +184,7 @@ fn bitmap_set(fiber_id: u64) {
 
 // Mark a fiber as BLOCKED/EMPTY in the bitmap
 fn bitmap_clear(fiber_id: u64) {
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
     let l1_idx = fiber_id / 64;
     let l2_bit = fiber_id % 64;
     let bit_mask: u64 = (1 as u64) << l2_bit;
@@ -221,7 +222,7 @@ fn mask_below_bit(bit: u64) -> u64 {
 
 pub fn spawn(entry_addr: u64) -> u64 {
     region("sched_spawn") {
-        let cpu = get_cpu_id();
+        let cpu = percpu.get_cpu_id();
 
         // O(1) free slot lookup via inverted bitmap
         let mut group: u64 = 0;
@@ -230,7 +231,11 @@ pub fn spawn(entry_addr: u64) -> u64 {
 
         while group < L2_GROUPS {
             let l2_val = SCHED_ARRAY[cpu].l2_details[group];
-            let free_mask = l2_val ^ ALL_ONES;
+            let mut free_mask = l2_val ^ ALL_ONES;
+            if group == 0 {
+                // Prevent allocating slot 0 (the boot fiber)
+                free_mask = free_mask & (ALL_ONES ^ 1);
+            }
             if free_mask != 0 {
                 let bit = ctz_u64(free_mask);
                 slot = group * 64 + bit;
@@ -281,6 +286,16 @@ pub fn spawn(entry_addr: u64) -> u64 {
     return 0;
 }
 
+@no_mangle
+pub fn test_free_slot(slot: u64) {
+    let cpu = percpu.get_cpu_id();
+    SCHED_ARRAY[cpu].fibers[slot].active = 0;
+    SCHED_ARRAY[cpu].fibers[slot].step_fn = 0;
+    SCHED_ARRAY[cpu].fibers[slot].ctx_ptr = 0;
+    SCHED_ARRAY[cpu].count = SCHED_ARRAY[cpu].count - 1;
+    bitmap_clear(slot);
+}
+
 // =============================================================================
 // spawn_async — Spawn an Async State Machine Fiber
 // =============================================================================
@@ -297,7 +312,7 @@ pub fn spawn_async(step_fn_addr: u64, frame_size: u64) -> u64
     requires(frame_size > 0)
 {
     region("spawn_async") {
-        let cpu = get_cpu_id();
+        let cpu = percpu.get_cpu_id();
 
         // O(1) free slot lookup via inverted bitmap (same as spawn)
         let mut group: u64 = 0;
@@ -306,7 +321,11 @@ pub fn spawn_async(step_fn_addr: u64, frame_size: u64) -> u64
 
         while group < L2_GROUPS {
             let l2_val = SCHED_ARRAY[cpu].l2_details[group];
-            let free_mask = l2_val ^ ALL_ONES;
+            let mut free_mask = l2_val ^ ALL_ONES;
+            if group == 0 {
+                // Prevent allocating slot 0 (the boot fiber)
+                free_mask = free_mask & (ALL_ONES ^ 1);
+            }
             if free_mask != 0 {
                 let bit = ctz_u64(free_mask);
                 slot = group * 64 + bit;
@@ -371,7 +390,7 @@ pub fn start() {
 // =============================================================================
 @no_mangle
 pub fn fiber_count() -> u64 {
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
     return SCHED_ARRAY[cpu].count;
 }
 
@@ -379,7 +398,7 @@ pub fn fiber_count() -> u64 {
 @no_mangle
 pub fn do_dispatch() {
     region("sched_yield") {
-        let cpu = get_cpu_id();
+        let cpu = percpu.get_cpu_id();
         let current = SCHED_ARRAY[cpu].current;
         let current_group = current / 64;
         let current_bit = current % 64;
@@ -496,7 +515,7 @@ pub fn do_dispatch() {
 }
 
 pub fn get_id() -> u64 {
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
     return SCHED_ARRAY[cpu].fibers[SCHED_ARRAY[cpu].current].id;
 }
 
@@ -512,7 +531,7 @@ pub fn get_fiber_count() -> u64 {
 
 @no_mangle
 pub fn get_current_fiber() -> u64 {
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
     return SCHED_ARRAY[cpu].current;
 }
 
@@ -557,25 +576,25 @@ pub fn sched_spawn_async(step_fn_addr: u64, frame_size: u64) -> u64 {
 // Test getters for fiber fields
 @no_mangle
 pub fn fiber_step_fn(slot: u64) -> u64 {
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
     return SCHED_ARRAY[cpu].fibers[slot].step_fn;
 }
 
 @no_mangle
 pub fn fiber_stack_ptr(slot: u64) -> u64 {
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
     return SCHED_ARRAY[cpu].fibers[slot].stack_ptr;
 }
 
 @no_mangle
 pub fn fiber_task_frame(slot: u64) -> u64 {
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
     return SCHED_ARRAY[cpu].fibers[slot].task_frame;
 }
 
 @no_mangle
 pub fn fiber_ctx_ptr(slot: u64) -> u64 {
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
     return SCHED_ARRAY[cpu].fibers[slot].ctx_ptr;
 }
 
@@ -771,7 +790,7 @@ fn dispatch_stolen(cpu: u64, stolen_word: u64) {
 }
 
 pub fn enter_idle_loop() {
-    let cpu = get_cpu_id();
+    let cpu = percpu.get_cpu_id();
 
     // Initialize this core's scheduler state (fiber 0 = idle context)
     SCHED_ARRAY[cpu].fibers[0].active = 1;
