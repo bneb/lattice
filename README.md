@@ -83,6 +83,7 @@ All benchmarks use runtime-dynamic inputs to prevent constant folding, and resul
 | **string_hashmap** | **17ms** | 32ms | 23ms |
 | **hashmap_bench** | **19ms** | 27ms | 22ms |
 | **vector_add** | **83ms** | 107ms | 107ms |
+| C10M TCP Echo | 27.2k rps | 29.5k rps | 26.4k rps |
 | sieve (10M) | 149ms | 145ms | 145ms |
 | fib | 175ms | 175ms | 188ms |
 | fannkuch | 181ms | 174ms | 139ms |
