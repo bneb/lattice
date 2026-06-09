@@ -11,7 +11,7 @@ package std.http.parser
 import std.core.str.StringView
 import std.core.ptr.Ptr
 
-extern fn memchr(s: Ptr<u8>, c: i32, n: i64) -> Ptr<u8>;
+
 
 // Parse an HTTP/1.1 request line from `buf` (length `len`).
 // On success, writes method/uri/version into the output StringViews.
@@ -25,7 +25,7 @@ pub fn parse_request_line(
     let input = StringView::from_raw(buf, len);
 
     // Find end of request line (\n or \r\n)
-    let line_end = find_newline(buf, len);
+    let line_end = intrin_find_byte(buf, len, 10); // \n is 10
     if line_end < 0 {
         return -1;
     }
@@ -33,7 +33,7 @@ pub fn parse_request_line(
     let request_line = input.slice(0, line_end);
 
     // Parse: METHOD SP URI SP VERSION
-    let sp1 = find_byte_raw(buf, line_end, 32);
+    let sp1 = intrin_find_byte(buf, line_end, 32); // ' ' is 32
     if sp1 < 0 {
         return -1;
     }
@@ -41,7 +41,7 @@ pub fn parse_request_line(
 
     let rest_start = sp1 + 1;
     let rest_ptr = buf.offset(rest_start);
-    let sp2_rel = find_byte_raw(rest_ptr, line_end - rest_start, 32);
+    let sp2_rel = intrin_find_byte(rest_ptr, line_end - rest_start, 32); // ' ' is 32
     if sp2_rel < 0 {
         return -1;
     }
@@ -67,19 +67,4 @@ pub fn parse_request_line(
     return body_offset;
 }
 
-// Find first \n in the buffer. Returns index or -1.
-fn find_newline(buf: Ptr<u8>, len: i64) -> i64 {
-    let p = memchr(buf, 10, len);
-    if p.is_null() {
-        return -1;
-    }
-    return (p.addr() - buf.addr()) as i64;
-}
 
-fn find_byte_raw(buf: Ptr<u8>, len: i64, needle: u8) -> i64 {
-    let p = memchr(buf, needle as i32, len);
-    if p.is_null() {
-        return -1;
-    }
-    return (p.addr() - buf.addr()) as i64;
-}

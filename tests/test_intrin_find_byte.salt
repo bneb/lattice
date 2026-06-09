@@ -1,0 +1,33 @@
+import std.core.str.StringView
+
+fn test_find_byte(buf: Ptr<u8>, len: i64, needle: u8) -> i64
+    requires { len >= 0 }
+    ensures { result >= -1 }
+    ensures { result < 0 || result < len }
+{
+    return intrin_find_byte(buf, len, needle);
+}
+
+fn main() -> i32 {
+    let s = "hello world";
+    let p = s.ptr;
+    let len = s.len;
+    
+    if len < 0 {
+        return 1;
+    }
+
+    // find 'w' -> index 6
+    let idx_w = test_find_byte(p, len, 119 as u8); // 'w'
+    if idx_w != 6 {
+        return 2;
+    }
+
+    // find 'z' -> not found -> -1
+    let idx_z = test_find_byte(p, len, 122 as u8); // 'z'
+    if idx_z != -1 {
+        return 3;
+    }
+
+    return 0; // Success!
+}

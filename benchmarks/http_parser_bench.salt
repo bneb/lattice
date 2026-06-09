@@ -11,7 +11,7 @@ import std.core.ptr.Ptr
 import std.http.parser.parse_request_line
 import std.time.Instant
 
-extern fn memchr(s: Ptr<u8>, c: i32, n: i64) -> Ptr<u8>;
+
 
 const ITERATIONS: i64 = 1000000;
 const MAX_HEADERS: i64 = 32;
@@ -40,18 +40,18 @@ fn parse_headers(buf: Ptr<u8>, start: i64, len: i64, req: &mut HttpRequest) {
         }
 
         // Find end of header line
-        let p_cr = memchr(buf.offset(cursor), 13, len - cursor);
-        if p_cr.is_null() {
+        let cr_rel = intrin_find_byte(buf.offset(cursor), len - cursor, 13);
+        if cr_rel < 0 {
             break;
         }
-        let hdr_end = (p_cr.addr() - buf.addr()) as i64;
+        let hdr_end = cursor + cr_rel;
 
         let hdr_len = hdr_end - cursor;
 
         // Split on ':'
-        let p_colon = memchr(buf.offset(cursor), 58, hdr_len);
-        if !p_colon.is_null() {
-            let colon = (p_colon.addr() - buf.addr()) as i64;
+        let colon_rel = intrin_find_byte(buf.offset(cursor), hdr_len, 58);
+        if colon_rel >= 0 {
+            let colon = cursor + colon_rel;
             let sv_input = StringView::from_raw(buf, len);
             req.last_header_name = sv_input.slice(cursor, colon);
 

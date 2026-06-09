@@ -360,6 +360,9 @@ impl VerificationEngine {
             }
         }
 
+        // 2c. [v4.0] Axiomatize intrinsics in the return expression
+        Self::axiomatize_intrin_find_byte(ctx, return_expr, &solver, &z3_locals);
+        
         // 3. Translate the return value expression to Z3
         let z3_return_val = crate::codegen::expr::translate_to_z3(ctx, return_expr, &z3_locals);
 
@@ -469,6 +472,56 @@ impl VerificationEngine {
             syn::Expr::Paren(p) => Self::expr_uses_untracked_local(&p.expr, params),
             syn::Expr::Lit(_) => false,
             _ => false,
+        }
+    }
+
+    fn axiomatize_intrin_find_byte<'a, 'ctx>(
+        ctx: &mut LoweringContext<'a, 'ctx>,
+        expr: &syn::Expr,
+        solver: &crate::z3_shim::Solver<'ctx>,
+        local_vars: &HashMap<String, (Type, crate::codegen::context::LocalKind)>
+    ) {
+        match expr {
+            syn::Expr::Call(call) => {
+                let func_name = if let syn::Expr::Path(p) = &*call.func {
+                    p.path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("_")
+                } else {
+                    "".to_string()
+                };
+                if func_name == "intrin_find_byte" && call.args.len() == 3 {
+                    if let Ok(res_val) = crate::codegen::expr::translate_to_z3(ctx, expr, local_vars) {
+                        if let Ok(len_val) = crate::codegen::expr::translate_to_z3(ctx, &call.args[1], local_vars) {
+                            use crate::z3_shim::ast::Ast;
+                            let minus_one = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, -1);
+                            let zero = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 0);
+                            
+                            // res >= -1
+                            solver.assert(&res_val.ge(&minus_one));
+                            // res >= 0 => res < len
+                            let is_pos = res_val.ge(&zero);
+                            let is_less = res_val.lt(&len_val);
+                            solver.assert(&is_pos.implies(&is_less));
+                        }
+                    }
+                }
+                for arg in &call.args {
+                    Self::axiomatize_intrin_find_byte(ctx, arg, solver, local_vars);
+                }
+            }
+            syn::Expr::Binary(b) => {
+                Self::axiomatize_intrin_find_byte(ctx, &b.left, solver, local_vars);
+                Self::axiomatize_intrin_find_byte(ctx, &b.right, solver, local_vars);
+            }
+            syn::Expr::Unary(u) => Self::axiomatize_intrin_find_byte(ctx, &u.expr, solver, local_vars),
+            syn::Expr::Paren(p) => Self::axiomatize_intrin_find_byte(ctx, &p.expr, solver, local_vars),
+            syn::Expr::Field(f) => Self::axiomatize_intrin_find_byte(ctx, &f.base, solver, local_vars),
+            syn::Expr::MethodCall(mc) => {
+                Self::axiomatize_intrin_find_byte(ctx, &mc.receiver, solver, local_vars);
+                for arg in &mc.args {
+                    Self::axiomatize_intrin_find_byte(ctx, arg, solver, local_vars);
+                }
+            }
+            _ => {}
         }
     }
 }

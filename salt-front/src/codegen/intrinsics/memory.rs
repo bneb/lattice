@@ -198,6 +198,62 @@ pub fn emit_memory_intrinsic(
                 Err("memcpy(dst, src, len) requires 3 arguments".to_string())
             }
         }
+        "find_byte" | "intrin__find_byte" | "intrin_find_byte" => {
+            if args.len() == 3 {
+                let (ptr_val, ptr_ty) = emit_expr(ctx, out, &args[0], local_vars, None)?;
+                let (len_val, len_ty) = emit_expr(ctx, out, &args[1], local_vars, None)?;
+                let (needle_val, needle_ty) = emit_expr(ctx, out, &args[2], local_vars, None)?;
+                
+                let ptr_llvm = if ptr_ty.to_mlir_storage_type(ctx)? == "!llvm.ptr" {
+                    ptr_val
+                } else {
+                    let p = format!("%find_ptr_{}", ctx.next_id());
+                    ctx.emit_inttoptr(out, &p, &ptr_val, "i64");
+                    p
+                };
+                
+                let len_i64 = if len_ty.to_mlir_type(ctx)? != "i64" {
+                    let ext = format!("%find_len_{}", ctx.next_id());
+                    out.push_str(&format!("    {} = arith.extsi {} : {} to i64\n", ext, len_val, len_ty.to_mlir_type(ctx)?));
+                    ext
+                } else { len_val };
+                
+                let needle_i32 = if needle_ty.to_mlir_type(ctx)? != "i32" {
+                    let ext = format!("%find_needle_{}", ctx.next_id());
+                    out.push_str(&format!("    {} = arith.extui {} : {} to i32\n", ext, needle_val, needle_ty.to_mlir_type(ctx)?));
+                    ext
+                } else { needle_val };
+                
+                ctx.entity_registry_mut().register_hook("memchr");
+                let memchr_res = format!("%memchr_res_{}", ctx.next_id());
+                out.push_str(&format!("    {} = func.call @memchr({}, {}, {}) : (!llvm.ptr, i32, i64) -> !llvm.ptr\n", 
+                    memchr_res, ptr_llvm, needle_i32, len_i64));
+                    
+                let null_ptr = format!("%null_ptr_{}", ctx.next_id());
+                out.push_str(&format!("    {} = llvm.mlir.zero : !llvm.ptr\n", null_ptr));
+                let is_null = format!("%is_null_{}", ctx.next_id());
+                out.push_str(&format!("    {} = llvm.icmp \"eq\" {}, {} : !llvm.ptr\n", is_null, memchr_res, null_ptr));
+                
+                let final_res = format!("%find_byte_res_{}", ctx.next_id());
+                out.push_str(&format!("    {} = scf.if {} -> (i64) {{\n", final_res, is_null));
+                let minus_one = format!("%minus_one_{}", ctx.next_id());
+                out.push_str(&format!("        {} = arith.constant -1 : i64\n", minus_one));
+                out.push_str(&format!("        scf.yield {} : i64\n", minus_one));
+                out.push_str("    } else {\n");
+                let orig_int = format!("%orig_int_{}", ctx.next_id());
+                out.push_str(&format!("        {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", orig_int, ptr_llvm));
+                let res_int = format!("%res_int_{}", ctx.next_id());
+                out.push_str(&format!("        {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", res_int, memchr_res));
+                let diff = format!("%diff_{}", ctx.next_id());
+                out.push_str(&format!("        {} = arith.subi {}, {} : i64\n", diff, res_int, orig_int));
+                out.push_str(&format!("        scf.yield {} : i64\n", diff));
+                out.push_str("    }\n");
+                
+                Ok(Some((final_res, Type::I64)))
+            } else {
+                Err("find_byte expects 3 arguments: (ptr, len, needle)".to_string())
+            }
+        }
         "unreachable" | "intrin__unreachable" => {
             let ret_ty = expected_ty.cloned().unwrap_or(Type::Unit);
             if ret_ty != Type::Unit {

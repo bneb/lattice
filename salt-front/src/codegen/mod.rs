@@ -590,6 +590,7 @@ impl<'a> CodegenContext<'a> {
                 // Memory management hooks (used by Display trait buffer cleanup)
                 "free" => "(!llvm.ptr) -> ()",
                 "malloc" => "(i64) -> !llvm.ptr",
+                "memchr" => "(!llvm.ptr, i32, i64) -> !llvm.ptr",
                 _ => "() -> ()",
             };
             out.push_str(&format!("  func.func private @{}{}\n", hook, sig));
