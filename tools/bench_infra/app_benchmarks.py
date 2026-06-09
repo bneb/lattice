@@ -13,6 +13,9 @@ def run_ml_benchmark(workspace_root):
 def run_echo_benchmark(workspace_root):
     print("Running TCP Echo Benchmark...")
     script_path = os.path.join(workspace_root, "benchmarks", "c10m", "benchmark_echo.sh")
+    if not os.path.exists(script_path):
+        print(f"Skipping TCP Echo Benchmark: {script_path} not found.")
+        return "N/A"
     # Use small duration and conns for standard run, e.g. 9000 2 100
     res = subprocess.run([script_path, "9000", "2", "100"], capture_output=True, text=True, env=os.environ.copy())
     if res.returncode != 0:
