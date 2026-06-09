@@ -15,7 +15,7 @@ All benchmarks use runtime-dynamic inputs to prevent constant folding. Measureme
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `fib` | 175ms | 175ms | 100% | Parity | Pure arithmetic loop. MLIR lowers identically to LLVM. |
 | `sieve` | 145ms | 149ms | 102% | Parity | Memory-bound bit/byte manipulation. |
-| `http_parser` | 24ms | 24ms | 100% | Parity | Uses `extern fn memchr` binding for SIMD acceleration. |
+| `http_parser` | 17ms | 16ms | 94% | Parity | Uses verified `intrin_find_byte` mapping directly to LLVM `memchr` for SIMD speed. |
 | `matmul` | 150ms | 173ms | 115% | Parity | Affine tiling optimizations keep it competitive. |
 | `hashmap_bench` | 21ms | 19ms | 90% | Parity | Salt uses Swiss-tables by default; C baseline uses standard hashing. |
 | `vector_add` | 107ms | 83ms | 77% | Salt is faster | LLVM auto-vectorization (NEON) applies more aggressively on Salt's strongly-typed buffers. |
