@@ -99,58 +99,49 @@ fn parse_int_from_view(input: StringView, start: i64, end: i64) -> i64 {
 // ============================================================================
 // RespParser: parse a single RESP value from a StringView
 // ============================================================================
-fn resp_parse(input: StringView) -> RespValue {
-    let len = input.length();
-    if len == 0 {
-        return resp_nil();
-    }
+fn parse_resp_simple_string(input: StringView, crlf: i64) -> RespValue {
+    let sv = input.slice(1, crlf);
+    return RespValue {
+        type_tag: RESP_SIMPLE_STRING,
+        int_val: 0,
+        str_ptr: sv.ptr,
+        str_len: sv.length(),
+        array_count: 0,
+        bytes_consumed: crlf + 2,
+    };
+}
 
-    let prefix = input.byte_at(0);
+fn parse_resp_error(input: StringView, crlf: i64) -> RespValue {
+    let sv = input.slice(1, crlf);
+    return RespValue {
+        type_tag: RESP_ERROR,
+        int_val: 0,
+        str_ptr: sv.ptr,
+        str_len: sv.length(),
+        array_count: 0,
+        bytes_consumed: crlf + 2,
+    };
+}
 
-    // +OK\r\n → Simple String
-    if prefix == 43 {
-        let crlf = find_crlf(input, 1);
-        if crlf < 0 {
-            return resp_nil();
-        }
-        let sv = input.slice(1, crlf);
+fn parse_resp_integer(input: StringView, crlf: i64) -> RespValue {
+    let val = parse_int_from_view(input, 1, crlf);
+    return RespValue {
+        type_tag: RESP_INTEGER,
+        int_val: val,
+        str_ptr: 0 as Ptr<u8>,
+        str_len: 0,
+        array_count: 0,
+        bytes_consumed: crlf + 2,
+    };
+}
+
+fn parse_resp_bulk_string(input: StringView, crlf: i64) -> RespValue {
+    let str_len = parse_int_from_view(input, 1, crlf);
+
+    if str_len < 0 {
         return RespValue {
-            type_tag: RESP_SIMPLE_STRING,
+            type_tag: RESP_NULL,
             int_val: 0,
-            str_ptr: sv.ptr,
-            str_len: sv.length(),
-            array_count: 0,
-            bytes_consumed: crlf + 2,
-        };
-    }
-
-    // -ERR message\r\n → Error
-    if prefix == 45 {
-        let crlf = find_crlf(input, 1);
-        if crlf < 0 {
-            return resp_nil();
-        }
-        let sv = input.slice(1, crlf);
-        return RespValue {
-            type_tag: RESP_ERROR,
-            int_val: 0,
-            str_ptr: sv.ptr,
-            str_len: sv.length(),
-            array_count: 0,
-            bytes_consumed: crlf + 2,
-        };
-    }
-
-    // :1000\r\n → Integer
-    if prefix == 58 {
-        let crlf = find_crlf(input, 1);
-        if crlf < 0 {
-            return resp_nil();
-        }
-        let val = parse_int_from_view(input, 1, crlf);
-        return RespValue {
-            type_tag: RESP_INTEGER,
-            int_val: val,
             str_ptr: 0 as Ptr<u8>,
             str_len: 0,
             array_count: 0,
@@ -158,79 +149,79 @@ fn resp_parse(input: StringView) -> RespValue {
         };
     }
 
-    // $6\r\nfoobar\r\n → Bulk String   or   $-1\r\n → Null
-    if prefix == 36 {
-        let crlf = find_crlf(input, 1);
-        if crlf < 0 {
-            return resp_nil();
-        }
-        let str_len = parse_int_from_view(input, 1, crlf);
+    let data_start = crlf + 2;
+    let data_end = data_start + str_len;
+    let sv = input.slice(data_start, data_end);
+    return RespValue {
+        type_tag: RESP_BULK_STRING,
+        int_val: 0,
+        str_ptr: sv.ptr,
+        str_len: sv.length(),
+        array_count: 0,
+        bytes_consumed: data_end + 2,
+    };
+}
 
-        // Null bulk string: $-1\r\n
-        if str_len < 0 {
-            return RespValue {
-                type_tag: RESP_NULL,
-                int_val: 0,
-                str_ptr: 0 as Ptr<u8>,
-                str_len: 0,
-                array_count: 0,
-                bytes_consumed: crlf + 2,
-            };
-        }
+fn parse_resp_array(input: StringView, crlf: i64, len: i64) -> RespValue {
+    let count = parse_int_from_view(input, 1, crlf);
 
-        let data_start = crlf + 2;
-        let data_end = data_start + str_len;
-        let sv = input.slice(data_start, data_end);
+    if count < 0 {
         return RespValue {
-            type_tag: RESP_BULK_STRING,
+            type_tag: RESP_NULL,
             int_val: 0,
-            str_ptr: sv.ptr,
-            str_len: sv.length(),
+            str_ptr: 0 as Ptr<u8>,
+            str_len: 0,
             array_count: 0,
-            bytes_consumed: data_end + 2,
+            bytes_consumed: crlf + 2,
         };
     }
 
-    // *2\r\n... → Array
+    let mut offset = crlf + 2;
+    let mut i: i64 = 0;
+    while i < count {
+        let remaining = input.slice(offset, len);
+        let elem = resp_parse(remaining);
+        offset = offset + elem.bytes_consumed;
+        i = i + 1;
+    }
+
+    let elems_start = crlf + 2;
+    return RespValue {
+        type_tag: RESP_ARRAY,
+        int_val: 0,
+        str_ptr: input.slice(elems_start, offset).ptr,
+        str_len: offset - elems_start,
+        array_count: count,
+        bytes_consumed: offset,
+    };
+}
+
+fn resp_parse(input: StringView) -> RespValue {
+    let len = input.length();
+    if len == 0 {
+        return resp_nil();
+    }
+
+    let prefix = input.byte_at(0);
+    let crlf = find_crlf(input, 1);
+    if crlf < 0 {
+        return resp_nil();
+    }
+
+    if prefix == 43 {
+        return parse_resp_simple_string(input, crlf);
+    }
+    if prefix == 45 {
+        return parse_resp_error(input, crlf);
+    }
+    if prefix == 58 {
+        return parse_resp_integer(input, crlf);
+    }
+    if prefix == 36 {
+        return parse_resp_bulk_string(input, crlf);
+    }
     if prefix == 42 {
-        let crlf = find_crlf(input, 1);
-        if crlf < 0 {
-            return resp_nil();
-        }
-        let count = parse_int_from_view(input, 1, crlf);
-
-        // Null array
-        if count < 0 {
-            return RespValue {
-                type_tag: RESP_NULL,
-                int_val: 0,
-                str_ptr: 0 as Ptr<u8>,
-                str_len: 0,
-                array_count: 0,
-                bytes_consumed: crlf + 2,
-            };
-        }
-
-        // Parse each element to compute total bytes consumed
-        let mut offset = crlf + 2;
-        let mut i: i64 = 0;
-        while i < count {
-            let remaining = input.slice(offset, len);
-            let elem = resp_parse(remaining);
-            offset = offset + elem.bytes_consumed;
-            i = i + 1;
-        }
-
-        // For arrays, str_ptr points to the start of elements data
-        let elems_start = crlf + 2;
-        return RespValue {
-            type_tag: RESP_ARRAY,
-            int_val: 0,
-            str_ptr: input.slice(elems_start, offset).ptr,
-            str_len: offset - elems_start,
-            array_count: count,
-            bytes_consumed: offset,
-        };
+        return parse_resp_array(input, crlf, len);
     }
 
     return resp_nil();

@@ -1182,7 +1182,7 @@ impl Parse for SaltBlock {
 }
 
 impl Parse for Stmt {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
+fn parse(input: ParseStream) -> syn::Result<Self> {
         let fork = input.fork();
         if fork.parse::<crate::keywords::salt_return>().is_ok() {
              input.parse::<crate::keywords::salt_return>()?;
@@ -1203,9 +1203,6 @@ impl Parse for Stmt {
             return Ok(Stmt::Invariant(expr));
         }
 
-
-        // Check for @decorator or [attribute]
-        // Check for @decorator
         if input.peek(Token![@]) {
             input.parse::<Token![@]>()?;
             let ident: syn::Ident = input.parse()?;
@@ -1213,8 +1210,6 @@ impl Parse for Stmt {
                 let block: SaltBlock = input.parse()?;
                 return Ok(Stmt::DynamicCheck(block));
             } else {
-                // V2.0: Loop-level decorators removed (@pulse eliminated)
-                // @yielding is now function-level only
                 return Err(input.error("Loop-level decorators removed in V2.0. Use @yielding on functions instead."));
             }
         }
@@ -1225,28 +1220,14 @@ impl Parse for Stmt {
             return Ok(Stmt::Loop(body));
         }
 
-        if input.peek(Token![while]) {
-            return Ok(Stmt::While(input.parse()?));
-        }
-
-        if input.peek(Token![for]) {
-            return Ok(Stmt::For(input.parse()?));
-        }
-
-
-        if input.peek(Token![if]) {
-            return Ok(Stmt::If(input.parse()?));
-        }
-
-        // Match expression: match expr { pattern => body, ... }
-        if input.peek(Token![match]) {
-            return Ok(Stmt::Match(input.parse()?));
-        }
+        if input.peek(Token![while]) { return Ok(Stmt::While(input.parse()?)); }
+        if input.peek(Token![for]) { return Ok(Stmt::For(input.parse()?)); }
+        if input.peek(Token![if]) { return Ok(Stmt::If(input.parse()?)); }
+        if input.peek(Token![match]) { return Ok(Stmt::Match(input.parse()?)); }
 
         if input.peek(Token![move]) {
              input.parse::<Token![move]>()?;
              let expr: Expr = input.parse()?;
-             // Consume semicolon
              input.parse::<Token![;]>()?;
              return Ok(Stmt::Move(expr));
         }
@@ -1277,95 +1258,17 @@ impl Parse for Stmt {
          }
 
          if input.peek(crate::keywords::region) {
-             input.parse::<crate::keywords::region>()?;
-             
-             if input.peek(syn::token::Paren) {
-                  // Form: region("name") { ... }
-                  let content;
-                  parenthesized!(content in input);
-                  let _name: Expr = content.parse()?;
-                  let body: SaltBlock = input.parse()?;
-                  // Map to WithRegion for now
-                  let dummy = Ident::new("region_block", proc_macro2::Span::call_site());
-                  return Ok(Stmt::WithRegion { region: dummy, body });
-             } else {
-                  // Form: region name(addr, size) { ... }
-                  let region: Ident = input.parse()?;
-                  let content;
-                  parenthesized!(content in input);
-                  let addr: Expr = content.parse()?;
-                  content.parse::<Token![,]>()?;
-                  let size: Expr = content.parse()?;
-                  let body: SaltBlock = input.parse()?;
-                  return Ok(Stmt::MapWindow { addr, size, region, body });
-             }
+             return parse_region_stmt(input);
          }
 
          if input.peek(crate::keywords::map_window) {
-             input.parse::<crate::keywords::map_window>()?;
-             let content;
-             parenthesized!(content in input);
-             let addr: Expr = content.parse()?;
-             content.parse::<Token![,]>()?;
-             let size: Expr = content.parse()?;
-             content.parse::<Token![,]>()?;
-             let region: Ident = content.parse()?;
-             input.parse::<Token![;]>()?;
-             return Ok(Stmt::MapWindow { addr, size, region, body: SaltBlock { stmts: vec![] } });
+             return parse_map_window_stmt(input);
         }
 
-         // Let statement (handles both regular let and let-else)
          if input.peek(Token![let]) {
-              // Try to parse as let-else first using lookahead
-              let fork = input.fork();
-              fork.parse::<Token![let]>()?;
-              
-              // Check if this could be a pattern by looking for `=` followed by `else`
-              // Skip tokens until we find `=`
-              let mut depth = 0;
-              let mut could_be_let_else = false;
-              while !fork.is_empty() {
-                  if fork.peek(Token![<]) { depth += 1; }
-                  if fork.peek(Token![>]) && depth > 0 { depth -= 1; }
-                  if depth == 0 && fork.peek(Token![=]) {
-                       fork.parse::<Token![=]>()?;
-                       // KEY FIX: If the RHS starts with `if`, this is `let x = if ... { ... } else { ... }`
-                       // which is a regular let with an if-else *expression* initializer, NOT a let-else.
-                       // The `else` belongs to the if-expression, not to a destructuring let-else pattern.
-                       if fork.peek(Token![if]) {
-                           break; // Not a let-else, skip to syn parsing
-                       }
-                       // Now skip the expression until we find `else` or `;`
-                       let mut expr_depth = 0;
-                       while !fork.is_empty() {
-                           if fork.peek(syn::token::Paren) || fork.peek(syn::token::Brace) || fork.peek(Token![<]) {
-                               expr_depth += 1;
-                           }
-                           if (fork.peek(Token![>]) || fork.peek(syn::token::Paren) || fork.peek(syn::token::Brace)) && expr_depth > 0 {
-                               expr_depth -= 1;
-                           }
-                           if expr_depth == 0 && fork.peek(Token![else]) {
-                               could_be_let_else = true;
-                               break;
-                           }
-                           if fork.peek(Token![;]) {
-                               break;
-                           }
-                           let _ = fork.parse::<TokenTree>()?;
-                       }
-                       break;
-                  }
-                  let _ = fork.parse::<TokenTree>();
-              }
-              
-              if could_be_let_else {
-                  return Ok(Stmt::LetElse(input.parse()?));
-              }
-              
-              return Ok(Stmt::Syn(input.parse()?));
+              return parse_let_stmt(input);
          }
 
-         // Fallback to Expr + Optional Semicolon
          let expr: Expr = input.parse()?;
          let mut has_semi = false;
          if input.peek(Token![;]) {
@@ -1374,6 +1277,7 @@ impl Parse for Stmt {
          }
          Ok(Stmt::Expr(expr, has_semi))
     }
+
 }
 
 impl Parse for SaltWhile {
@@ -1607,5 +1511,83 @@ impl Parse for LetElse {
         }
         
         Ok(LetElse { pattern, init, else_block })
+    }
+}
+
+
+fn parse_region_stmt(input: ParseStream) -> syn::Result<Stmt> {
+    input.parse::<crate::keywords::region>()?;
+    if input.peek(syn::token::Paren) {
+        let content;
+        parenthesized!(content in input);
+        let _name: Expr = content.parse()?;
+        let body: SaltBlock = input.parse()?;
+        let dummy = Ident::new("region_block", proc_macro2::Span::call_site());
+        return Ok(Stmt::WithRegion { region: dummy, body });
+    } else {
+        let region: Ident = input.parse()?;
+        let content;
+        parenthesized!(content in input);
+        let addr: Expr = content.parse()?;
+        content.parse::<Token![,]>()?;
+        let size: Expr = content.parse()?;
+        let body: SaltBlock = input.parse()?;
+        return Ok(Stmt::MapWindow { addr, size, region, body });
+    }
+}
+
+fn parse_map_window_stmt(input: ParseStream) -> syn::Result<Stmt> {
+    input.parse::<crate::keywords::map_window>()?;
+    let content;
+    parenthesized!(content in input);
+    let addr: Expr = content.parse()?;
+    content.parse::<Token![,]>()?;
+    let size: Expr = content.parse()?;
+    content.parse::<Token![,]>()?;
+    let region: Ident = content.parse()?;
+    input.parse::<Token![;]>()?;
+    Ok(Stmt::MapWindow { addr, size, region, body: SaltBlock { stmts: vec![] } })
+}
+
+fn parse_let_stmt(input: ParseStream) -> syn::Result<Stmt> {
+    let fork = input.fork();
+    fork.parse::<Token![let]>()?;
+    
+    let mut depth = 0;
+    let mut could_be_let_else = false;
+    while !fork.is_empty() {
+        if fork.peek(Token![<]) { depth += 1; }
+        if fork.peek(Token![>]) && depth > 0 { depth -= 1; }
+        if depth == 0 && fork.peek(Token![=]) {
+            fork.parse::<Token![=]>()?;
+            if fork.peek(Token![if]) {
+                break;
+            }
+            let mut expr_depth = 0;
+            while !fork.is_empty() {
+                if fork.peek(syn::token::Paren) || fork.peek(syn::token::Brace) || fork.peek(Token![<]) {
+                    expr_depth += 1;
+                }
+                if (fork.peek(Token![>]) || fork.peek(syn::token::Paren) || fork.peek(syn::token::Brace)) && expr_depth > 0 {
+                    expr_depth -= 1;
+                }
+                if expr_depth == 0 && fork.peek(Token![else]) {
+                    could_be_let_else = true;
+                    break;
+                }
+                if fork.peek(Token![;]) {
+                    break;
+                }
+                let _ = fork.parse::<TokenTree>()?;
+            }
+            break;
+        }
+        let _ = fork.parse::<TokenTree>();
+    }
+    
+    if could_be_let_else {
+        Ok(Stmt::LetElse(input.parse()?))
+    } else {
+        Ok(Stmt::Syn(input.parse()?))
     }
 }

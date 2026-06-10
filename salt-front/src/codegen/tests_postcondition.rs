@@ -20,8 +20,6 @@
 //! Layer 3: Postcondition violation (Z3 must reject with counterexample)
 //! Layer 4: Z3 timeout watchdog (deferred to runtime on complex proofs)
 
-#[cfg(test)]
-use crate::z3_shim as z3;
 mod tests {
     use crate::grammar::SaltFile;
     use crate::codegen::context::CodegenContext;

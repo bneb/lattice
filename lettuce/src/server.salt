@@ -63,6 +63,58 @@ struct ClientSession {
 // Event Loop
 // ============================================================================
 
+fn accept_client(
+    listener: &TcpListener, 
+    slab: &mut Slab<ClientSession>, 
+    poll: &mut Poller, 
+    next_generation: i64
+) -> i64 {
+    let client_result = listener.accept();
+    if client_result.is_ok() {
+        let client = client_result.unwrap();
+        let client_fd = client.fd();
+        if client_fd < MAX_FDS {
+            slab.reset(client_fd);
+            let session = slab.get(client_fd);
+            session.generation = next_generation;
+            poll.register(client_fd, PollFilter::Read);
+            return next_generation + 1;
+        } else {
+            client.close();
+        }
+    }
+    return next_generation;
+}
+
+fn process_ai_tx_ring(ai_tx_ring: u64, slab: &mut Slab<ClientSession>) {
+    let tx_head = *((ai_tx_ring + 0) as &u64);
+    let mut tx_tail = *((ai_tx_ring + 64) as &u64);
+    while tx_tail != tx_head {
+        let tx_cap = *((ai_tx_ring + 8) as &u64);
+        let completed_ctx = *((ai_tx_ring + 192 + tx_tail) as &u64);
+        *((ai_tx_ring + 64) as &mut u64) = (tx_tail + 8) % (tx_cap * 8);
+        
+        let completed_fd = *((completed_ctx) as &i32);
+        let completed_gen = *((completed_ctx + 8) as &i64);
+        
+        if completed_fd >= 0 && completed_fd < MAX_FDS {
+            let c_session = slab.get(completed_fd);
+            if c_session.generation == completed_gen {
+                c_session.state = 0;
+                
+                let mut out_buf: [u8; 64] = [0; 64];
+                let out_ptr = &out_buf[0] as Ptr<u8>;
+                let r_len = write_simple_string(out_ptr, "Inference Complete" as StringView);
+                let mut s = TcpStream { fd: completed_fd };
+                s.send(out_ptr, r_len);
+            }
+        }
+        free(completed_ctx);
+        
+        tx_tail = *((ai_tx_ring + 64) as &u64);
+    }
+}
+
 fn main() -> i32 {
     puts("LETTUCE starting on port 6379..." as Ptr<u8>);
 
@@ -98,16 +150,7 @@ fn main() -> i32 {
     let mut next_generation: i64 = 1;
 
     while true {
-        // =====================================================================
-        // CRITICAL: exit_epoch(0) is guaranteed BEFORE poll.wait() blocks.
-        // The epoch is entered at the TOP of event processing and exited
-        // at the BOTTOM — no matter which path handle_client takes.
-        // This prevents any core from anchoring the global epoch during
-        // the blocking kqueue/epoll syscall.
-        // =====================================================================
         let nev = poll.wait(&events[0] as Ptr<i64>, MAX_EVENTS, -1);
-
-        // Enter epoch — signals this core is actively processing
         ebr_enter_epoch(0);
 
         let mut i: i32 = 0;
@@ -116,20 +159,7 @@ fn main() -> i32 {
             let event_fd = events[idx] as i32;
 
             if event_fd == listen_fd {
-                let client_result = listener.accept();
-                if client_result.is_ok() {
-                    let client = client_result.unwrap();
-                    let client_fd = client.fd();
-                    if client_fd < MAX_FDS {
-                        slab.reset(client_fd);
-                        let session = slab.get(client_fd);
-                        session.generation = next_generation;
-                        next_generation = next_generation + 1;
-                        poll.register(client_fd, PollFilter::Read);
-                    } else {
-                        client.close();
-                    }
-                }
+                next_generation = accept_client(&listener, &mut slab, &mut poll, next_generation);
             } else if event_fd >= 0 && event_fd < MAX_FDS {
                 handle_client(event_fd, &mut poll, &mut smap, &mut slab, ai_rx_ring);
             }
@@ -137,47 +167,16 @@ fn main() -> i32 {
             i = i + 1;
         }
 
-        // Exit epoch BEFORE yielding back to poll.wait()
         ebr_exit_epoch(0);
 
-        // Periodic reclamation: advance epoch and reclaim every 64 batches
         epoch_counter = epoch_counter + 1;
         if (epoch_counter & 63) == 0 {
             ebr_advance_epoch();
             ebr_reclaim(0);
         }
 
-        // =====================================================================
-        // AI Hardware Integration
-        // =====================================================================
         basalt_poll_cycle(ai_rx_ring, ai_tx_ring, basalt_arena, 65536, nvme_addr, rdma_addr);
-        
-        let tx_head = *((ai_tx_ring + 0) as &u64);
-        let mut tx_tail = *((ai_tx_ring + 64) as &u64);
-        while tx_tail != tx_head {
-            let tx_cap = *((ai_tx_ring + 8) as &u64);
-            let completed_ctx = *((ai_tx_ring + 192 + tx_tail) as &u64);
-            *((ai_tx_ring + 64) as &mut u64) = (tx_tail + 8) % (tx_cap * 8);
-            
-            let completed_fd = *((completed_ctx) as &i32);
-            let completed_gen = *((completed_ctx + 8) as &i64);
-            
-            if completed_fd >= 0 && completed_fd < MAX_FDS {
-                let c_session = slab.get(completed_fd);
-                if c_session.generation == completed_gen {
-                    c_session.state = 0;
-                    
-                    let mut out_buf: [u8; 64] = [0; 64];
-                    let out_ptr = &out_buf[0] as Ptr<u8>;
-                    let r_len = write_simple_string(out_ptr, "Inference Complete" as StringView);
-                    let mut s = TcpStream { fd: completed_fd };
-                    s.send(out_ptr, r_len);
-                }
-            }
-            free(completed_ctx);
-            
-            tx_tail = *((ai_tx_ring + 64) as &u64);
-        }
+        process_ai_tx_ring(ai_tx_ring, &mut slab);
     }
 
     StringMap_drop(smap);

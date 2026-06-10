@@ -57,7 +57,8 @@ pub fn try_emit_special_method(
              // Enforce validity on tracked variables
              if let syn::Expr::Path(path) = &*m.receiver {
                  if let Some(ident) = path.path.get_ident() {
-                      if !*ctx.is_dynamic_check_block() {
+                      let is_dynamic = *ctx.is_dynamic_check_block() || ctx.emission.in_dynamic_check_fn;
+                    if !is_dynamic {
                           ctx.pointer_tracker.check_deref(&ident.to_string())?;
                       }
                  }
@@ -75,6 +76,71 @@ pub fn try_emit_special_method(
     //   - Type::Tensor (rank 2 @ rank 1) -> linalg.matvec
     //   - Type::Pointer with Tensor element -> extracts shape from Tensor
     if method_name == "matmul" {
+        return emit_matmul_method(ctx, out, m, local_vars, cached_receiver_val, &cached_receiver_ty);
+    }
+
+    // [KEUOS FLUENT-MATH / UFCS] Universal Function Call Syntax
+    // Syntax: receiver.method(_, arg2, arg3) where _ is replaced by receiver pointer
+    // This enables fluent chains: (w1 @ input).add_bias(_, HIDDEN, b1).relu(_, HIDDEN)
+    // 
+    // KEY FIX: We use the ALREADY-EMITTED receiver SSA value (cached_receiver_val)
+    // instead of re-emitting the receiver expression, which would cause double
+    // evaluation for chained method calls.
+    let has_placeholder = m.args.iter().any(|arg| {
+        matches!(arg, syn::Expr::Infer(_))
+    });
+    
+    if has_placeholder {
+        if let Some(res) = emit_ufcs_method(ctx, out, m, local_vars, expected_ty, cached_receiver_val, &cached_receiver_ty, &method_name)? {
+            return Ok(Some(res));
+        }
+    }
+    // NOTE: as_ptr() is handled by normal monomorphized method dispatch.
+    // The @inline as_ptr method generates correct MLIR with fully-qualified type aliases.
+    
+
+
+    // RAWPTR TRANSPARENT INTRINSIC INTERCEPT (Native Ptr + GEP for Vectorization)
+    // Uses !llvm.ptr + llvm.getelementptr instead of i64 + inttoptr to preserve
+    // pointer provenance and enable LLVM loop vectorization.
+    let method_name = m.method.to_string();
+    if method_name == "read_at" || method_name == "write_at" {
+        if let Some(res) = emit_rawptr_method(ctx, out, m, local_vars, cached_receiver_val, &cached_receiver_ty, &method_name)? {
+            return Ok(Some(res));
+        }
+    }
+    // TRANSPARENT VEC ACCESSOR INTERCEPT (Zero-Overhead Path)
+    if method_name == "get_unchecked" || method_name == "set_unchecked" {
+        if let Some(res) = emit_vec_unchecked_method(ctx, out, m, local_vars, cached_receiver_val, &cached_receiver_ty, &method_name)? {
+            return Ok(Some(res));
+        }
+    }
+    // Use cached receiver type for Tensor and other type-based dispatch
+    // (Memoization already done at function entry)
+    let receiver_ty = cached_receiver_ty.clone();
+
+    if let Type::Tensor(..) = &receiver_ty {
+        if let Some(res) = emit_tensor_method(ctx, out, m, local_vars, cached_receiver_val, &cached_receiver_ty)? {
+            return Ok(Some(res));
+        }
+    }
+    // 1. Use receiver TYPE for method mangling (critical for allocator recursion fix)
+    // If receiver is a struct/concrete type, use its type name (e.g., GlobalSlabAlloc)
+
+    // If not a special method, return Ok(None) so dispatch continues
+    Ok(None)
+}
+
+
+fn emit_matmul_method(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    m: &syn::ExprMethodCall,
+    local_vars: &mut HashMap<String, (Type, LocalKind)>,
+    cached_receiver_val: &Option<String>,
+    cached_receiver_ty: &Type,
+) -> Result<Option<(String, Type)>, String> {
+
         if m.args.len() != 1 {
             return Err("matmul requires exactly one argument: A.matmul(B)".to_string());
         }
@@ -245,18 +311,19 @@ pub fn try_emit_special_method(
         return Err(format!("matmul: unsupported operand ranks: {} @ {}", a_rank, b_rank));
     }
     
-    // [KEUOS FLUENT-MATH / UFCS] Universal Function Call Syntax
-    // Syntax: receiver.method(_, arg2, arg3) where _ is replaced by receiver pointer
-    // This enables fluent chains: (w1 @ input).add_bias(_, HIDDEN, b1).relu(_, HIDDEN)
-    // 
-    // KEY FIX: We use the ALREADY-EMITTED receiver SSA value (cached_receiver_val)
-    // instead of re-emitting the receiver expression, which would cause double
-    // evaluation for chained method calls.
-    let has_placeholder = m.args.iter().any(|arg| {
-        matches!(arg, syn::Expr::Infer(_))
-    });
-    
-    if has_placeholder {
+
+
+fn emit_ufcs_method(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    m: &syn::ExprMethodCall,
+    local_vars: &mut HashMap<String, (Type, LocalKind)>,
+    expected_ty: Option<&Type>,
+    cached_receiver_val: &Option<String>,
+    cached_receiver_ty: &Type,
+    method_name: &str,
+) -> Result<Option<(String, Type)>, String> {
+
         // Get the receiver value - must be pre-emitted for chaining to work
         let (receiver_val, receiver_ty) = if let Some(ref val) = cached_receiver_val {
             (val.clone(), cached_receiver_ty.clone())
@@ -283,7 +350,7 @@ pub fn try_emit_special_method(
         
         // Try intrinsic dispatch with pre-emitted values
         // We need a special path that takes already-emitted SSA values
-        match method_name.as_str() {
+        match method_name {
             "add_bias" => {
                 // add_bias(dst, size, bias) - in-place addition
                 if emitted_args.len() != 3 {
@@ -440,18 +507,20 @@ pub fn try_emit_special_method(
                 return emit_method_call(ctx, out, &modified, local_vars, expected_ty).map(Some);
             }
         }
-    }
-
-    // NOTE: as_ptr() is handled by normal monomorphized method dispatch.
-    // The @inline as_ptr method generates correct MLIR with fully-qualified type aliases.
-    
+        Ok(None)
+}
 
 
-    // RAWPTR TRANSPARENT INTRINSIC INTERCEPT (Native Ptr + GEP for Vectorization)
-    // Uses !llvm.ptr + llvm.getelementptr instead of i64 + inttoptr to preserve
-    // pointer provenance and enable LLVM loop vectorization.
-    let method_name = m.method.to_string();
-    if method_name == "read_at" || method_name == "write_at" {
+fn emit_rawptr_method(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    m: &syn::ExprMethodCall,
+    local_vars: &mut HashMap<String, (Type, LocalKind)>,
+    cached_receiver_val: &Option<String>,
+    cached_receiver_ty: &Type,
+    method_name: &str,
+) -> Result<Option<(String, Type)>, String> {
+
         // Use cached receiver (MEMOIZATION FIX - no duplicate emission)
         if let Some(ref recv_val) = cached_receiver_val {
             let recv_ty = cached_receiver_ty.clone();
@@ -522,10 +591,20 @@ pub fn try_emit_special_method(
                 }
             }
         }
-    }
-    
-    // TRANSPARENT VEC ACCESSOR INTERCEPT (Zero-Overhead Path)
-    if method_name == "get_unchecked" || method_name == "set_unchecked" {
+        Ok(None)
+}
+
+
+fn emit_vec_unchecked_method(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    m: &syn::ExprMethodCall,
+    local_vars: &mut HashMap<String, (Type, LocalKind)>,
+    cached_receiver_val: &Option<String>,
+    cached_receiver_ty: &Type,
+    method_name: &str,
+) -> Result<Option<(String, Type)>, String> {
+
         // Check if receiver is a local variable pointing to a Vec on the stack
         if let syn::Expr::Path(p) = &*m.receiver {
             if let Some(ident) = p.path.get_ident() {
@@ -685,13 +764,20 @@ pub fn try_emit_special_method(
                 }
             }
         }
-    }
-    
-    // Use cached receiver type for Tensor and other type-based dispatch
-    // (Memoization already done at function entry)
-    let receiver_ty = cached_receiver_ty.clone();
+        Ok(None)
+}
 
-    if let Type::Tensor(inner, _shape) = &receiver_ty {
+
+fn emit_tensor_method(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    m: &syn::ExprMethodCall,
+    local_vars: &mut HashMap<String, (Type, LocalKind)>,
+    cached_receiver_val: &Option<String>,
+    receiver_ty: &Type,
+) -> Result<Option<(String, Type)>, String> {
+    let Type::Tensor(inner, _shape) = receiver_ty else { return Ok(None); };
+
         let method = m.method.to_string();
         if method == "zeros" {
             let res = format!("%zeros_{}", ctx.next_id());
@@ -745,11 +831,5 @@ pub fn try_emit_special_method(
                  red_res, elem_mlir, receiver_ty.to_mlir_type(ctx)?, elem_mlir));
              return Ok(Some((res, *inner.clone())));
         }
-    }
-
-    // 1. Use receiver TYPE for method mangling (critical for allocator recursion fix)
-    // If receiver is a struct/concrete type, use its type name (e.g., GlobalSlabAlloc)
-
-    // If not a special method, return Ok(None) so dispatch continues
-    Ok(None)
+        Ok(None)
 }

@@ -55,149 +55,185 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         };
         
         if let Some((func, s_ty, imports)) = found {
-            let spec_map;
-            {
-                let old_imports = self.discovery.imports.clone();
-                self.discovery.imports = imports.clone();
-                let old_map = self.expansion.current_type_map.clone();
-                let old_args = self.expansion.current_generic_args.clone();
-                let old_self = self.expansion.current_self_ty.clone();
-                let mut old_const_vals = Vec::new();
-                
-                self.expansion.current_generic_args = concrete_tys.clone();
-                self.expansion.current_self_ty = s_ty.clone();
-
-                if let Some(st) = &s_ty {
-                    let template_name = if let Type::Struct(name) = st {
-                        self.discovery.struct_registry.values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
-                    } else if let Type::Enum(name) = st {
-                        self.discovery.enum_registry.values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
-                    } else if let Type::Concrete(name, _) = st {
-                        name.clone()
-                    } else if let Type::Pointer { .. } = st {
-                        "std__core__ptr__Ptr".to_string()
-                    } else {
-                        "".to_string()
-                    };
-                    
-                     if !template_name.is_empty() {
-                         let gen_params = if let Some(s) = self.discovery.struct_templates.get(&template_name) {
-                             s.generics.as_ref().map(|g| g.params.clone())
-                         } else if let Some(e) = self.discovery.enum_templates.get(&template_name) {
-                             e.generics.as_ref().map(|g| g.params.clone())
-                         } else if template_name == "std__core__ptr__Ptr" {
-                             let mut p = syn::punctuated::Punctuated::new();
-                             p.push(crate::grammar::GenericParam::Type { 
-                                 name: syn::Ident::new("T", proc_macro2::Span::call_site()), 
-                                 constraint: None 
-                             });
-                             Some(p)
-                         } else { None };
-                         
-                         if let Some(params) = gen_params {
-                              for (i, param) in params.iter().enumerate() {
-                                   let pname = match param { crate::grammar::GenericParam::Type { name, .. } => name.to_string(), crate::grammar::GenericParam::Const { name, .. } => name.to_string() };
-                                   if let Type::Concrete(_, args) = &st {
-                                        if let Some(arg) = args.get(i) {
-                                            self.expansion.current_type_map.insert(pname, arg.clone());
-                                        }
-                                   } else if let Type::Pointer { element, .. } = &st {
-                                        if i == 0 {
-                                            self.expansion.current_type_map.insert(pname, (**element).clone());
-                                        }
-                                   } else if let Some(arg) = concrete_tys.get(i) {
-                                       self.expansion.current_type_map.insert(pname, arg.clone());
-                                   }
-                              }
-                         }
-                     }
-                }
-                
-                if let Some(fn_generics) = &func.generics {
-                    let mut struct_generic_names = std::collections::HashSet::new();
-                    if let Some(t) = self_ty.as_ref() {
-                        let type_name = match t {
-                            Type::Struct(name) | Type::Concrete(name, _) => Some(name.clone()),
-                            _ => None
-                        };
-                        if let Some(ref tname) = type_name {
-                            let gen_params = if let Some(s) = self.discovery.struct_templates.get(tname) {
-                                s.generics.as_ref().map(|g| g.params.clone())
-                            } else {
-                                self.discovery.enum_templates.get(tname).and_then(|e| e.generics.as_ref()).map(|g| g.params.clone())
-                            };
-                            if let Some(params) = gen_params {
-                                for p in &params {
-                                    let name = match p {
-                                        crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                                        crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                                    };
-                                    struct_generic_names.insert(name);
-                                }
-                            }
-                        }
-                    }
-                    
-                    let struct_generic_count = struct_generic_names.len();
-                    let method_args: Vec<Type> = concrete_tys.iter().skip(struct_generic_count).cloned().collect();
-                    
-                    if !method_args.is_empty() {
-                        let method_only_params: syn::punctuated::Punctuated<_, syn::token::Comma> = fn_generics.params.iter()
-                            .filter(|p| {
-                                let name = match p {
-                                    crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                                    crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                                };
-                                !struct_generic_names.contains(&name)
-                            })
-                            .cloned()
-                            .collect();
-                        
-                        let method_only_generics = crate::grammar::Generics {
-                            params: method_only_params,
-                        };
-                        self.map_generics(&Some(method_only_generics), &method_args, &func.name.to_string(), &mut old_const_vals);
-                    }
-                }
-
-                spec_map = self.expansion.current_type_map.clone();
-
-                self.expansion.current_type_map = old_map;
-                self.expansion.current_generic_args = old_args;
-                self.expansion.current_self_ty = old_self;
-                self.discovery.imports = old_imports;
-            }
-
-            let path_segments: Vec<String> = if func_name.contains("__") {
-                 func_name.split("__").map(|s| s.to_string()).collect()
-            } else {
-                 vec![]
-            };
-            let pkg_path = if path_segments.len() > 1 {
-                path_segments[0..path_segments.len()-1].to_vec()
-            } else {
-                vec![]
-            };
-
-            let task = crate::codegen::collector::MonomorphizationTask {
-                identity: crate::types::TypeKey { 
-                    path: pkg_path, 
-                    name: func.name.to_string(), 
-                    specialization: None 
-                },
-                mangled_name: mangled.clone(),
-                func: func.clone(),
-                concrete_tys: concrete_tys.clone(),
-                self_ty: s_ty.clone(),
-                imports: imports.clone(),
-                type_map: spec_map,
-            };
-
+            self.prepare_and_enqueue_specialization(func_name, &mangled, func, concrete_tys, s_ty, imports, self_ty);
         } else {
              eprintln!("Error: Function '{}' not found for specialization.", func_name);
         }
         
         mangled
+    }
+
+    fn prepare_and_enqueue_specialization(
+        &mut self,
+        func_name: &str,
+        mangled: &str,
+        func: crate::grammar::SaltFn,
+        concrete_tys: Vec<Type>,
+        s_ty: Option<Type>,
+        imports: Vec<crate::grammar::ImportDecl>,
+        self_ty: Option<Type>,
+    ) {
+        let spec_map = self.prepare_explicit_specialized_context(&func, &s_ty, &concrete_tys, &imports, &self_ty);
+        self.enqueue_monomorphization_task(func_name, mangled, func, concrete_tys, s_ty, imports, spec_map);
+    }
+
+    fn prepare_explicit_specialized_context(
+        &mut self,
+        func: &crate::grammar::SaltFn,
+        s_ty: &Option<Type>,
+        concrete_tys: &[Type],
+        imports: &[crate::grammar::ImportDecl],
+        self_ty: &Option<Type>,
+    ) -> std::collections::BTreeMap<String, Type> {
+        let old_imports = self.discovery.imports.clone();
+        self.discovery.imports = imports.to_vec();
+        let old_map = self.expansion.current_type_map.clone();
+        let old_args = self.expansion.current_generic_args.clone();
+        let old_self = self.expansion.current_self_ty.clone();
+        let mut old_const_vals = Vec::new();
+        
+        self.expansion.current_generic_args = concrete_tys.to_vec();
+        self.expansion.current_self_ty = s_ty.clone();
+
+        if let Some(st) = &s_ty {
+            let template_name = if let Type::Struct(name) = st {
+                self.discovery.struct_registry.values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
+            } else if let Type::Enum(name) = st {
+                self.discovery.enum_registry.values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
+            } else if let Type::Concrete(name, _) = st {
+                name.clone()
+            } else if let Type::Pointer { .. } = st {
+                "std__core__ptr__Ptr".to_string()
+            } else {
+                "".to_string()
+            };
+            
+             if !template_name.is_empty() {
+                 let gen_params = if let Some(s) = self.discovery.struct_templates.get(&template_name) {
+                     s.generics.as_ref().map(|g| g.params.clone())
+                 } else if let Some(e) = self.discovery.enum_templates.get(&template_name) {
+                     e.generics.as_ref().map(|g| g.params.clone())
+                 } else if template_name == "std__core__ptr__Ptr" {
+                     let mut p = syn::punctuated::Punctuated::new();
+                     p.push(crate::grammar::GenericParam::Type { 
+                         name: syn::Ident::new("T", proc_macro2::Span::call_site()), 
+                         constraint: None 
+                     });
+                     Some(p)
+                 } else { None };
+                 
+                 if let Some(params) = gen_params {
+                      for (i, param) in params.iter().enumerate() {
+                           let pname = match param { crate::grammar::GenericParam::Type { name, .. } => name.to_string(), crate::grammar::GenericParam::Const { name, .. } => name.to_string() };
+                           if let Type::Concrete(_, args) = &st {
+                                if let Some(arg) = args.get(i) {
+                                    self.expansion.current_type_map.insert(pname, arg.clone());
+                                }
+                           } else if let Type::Pointer { element, .. } = &st {
+                                if i == 0 {
+                                    self.expansion.current_type_map.insert(pname, (**element).clone());
+                                }
+                           } else if let Some(arg) = concrete_tys.get(i) {
+                               self.expansion.current_type_map.insert(pname, arg.clone());
+                           }
+                      }
+                 }
+             }
+        }
+        
+        if let Some(fn_generics) = &func.generics {
+            let mut struct_generic_names = std::collections::HashSet::new();
+            if let Some(t) = self_ty.as_ref() {
+                let type_name = match t {
+                    Type::Struct(name) | Type::Concrete(name, _) => Some(name.clone()),
+                    _ => None
+                };
+                if let Some(ref tname) = type_name {
+                    let gen_params = if let Some(s) = self.discovery.struct_templates.get(tname) {
+                        s.generics.as_ref().map(|g| g.params.clone())
+                    } else {
+                        self.discovery.enum_templates.get(tname).and_then(|e| e.generics.as_ref()).map(|g| g.params.clone())
+                    };
+                    if let Some(params) = gen_params {
+                        for p in &params {
+                            let name = match p {
+                                crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                                crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+                            };
+                            struct_generic_names.insert(name);
+                        }
+                    }
+                }
+            }
+            
+            let struct_generic_count = struct_generic_names.len();
+            let method_args: Vec<Type> = concrete_tys.iter().skip(struct_generic_count).cloned().collect();
+            
+            if !method_args.is_empty() {
+                let method_only_params: syn::punctuated::Punctuated<_, syn::token::Comma> = fn_generics.params.iter()
+                    .filter(|p| {
+                        let name = match p {
+                            crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                            crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+                        };
+                        !struct_generic_names.contains(&name)
+                    })
+                    .cloned()
+                    .collect();
+                
+                let method_only_generics = crate::grammar::Generics {
+                    params: method_only_params,
+                };
+                self.map_generics(&Some(method_only_generics), &method_args, &func.name.to_string(), &mut old_const_vals);
+            }
+        }
+
+        let spec_map = self.expansion.current_type_map.clone();
+
+        self.expansion.current_type_map = old_map;
+        self.expansion.current_generic_args = old_args;
+        self.expansion.current_self_ty = old_self;
+        self.discovery.imports = old_imports;
+        
+        spec_map
+    }
+
+    fn enqueue_monomorphization_task(
+        &mut self,
+        func_name: &str,
+        mangled: &str,
+        func: crate::grammar::SaltFn,
+        concrete_tys: Vec<Type>,
+        s_ty: Option<Type>,
+        imports: Vec<crate::grammar::ImportDecl>,
+        spec_map: std::collections::BTreeMap<String, Type>,
+    ) {
+        let path_segments: Vec<String> = if func_name.contains("__") {
+             func_name.split("__").map(|s| s.to_string()).collect()
+        } else {
+             vec![]
+        };
+        let pkg_path = if path_segments.len() > 1 {
+            path_segments[0..path_segments.len()-1].to_vec()
+        } else {
+            vec![]
+        };
+
+        let task = crate::codegen::collector::MonomorphizationTask {
+            identity: crate::types::TypeKey { 
+                path: pkg_path, 
+                name: func.name.to_string(), 
+                specialization: None 
+            },
+            mangled_name: mangled.to_string(),
+            func,
+            concrete_tys,
+            self_ty: s_ty,
+            imports,
+            type_map: spec_map,
+        };
+        
+        self.expansion.pending_generations.push_back(task);
     }
 
     pub fn request_specialization(&mut self, func_name: &str, concrete_tys: Vec<Type>, self_ty: Option<Type>) -> String {

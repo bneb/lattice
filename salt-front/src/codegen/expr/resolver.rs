@@ -54,510 +54,19 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
     ) -> Result<CallKind, String> {
         
         // 0a. Field-Based Method Call Detection (FIXES RECURSION BUG)
-        // If call.func is Expr::Field (e.g., GLOBAL_ALLOC.alloc), this is a method call on a receiver.
-        // We must resolve via method_registry, NOT as a free function.
         if let syn::Expr::Field(field_expr) = &*call.func {
-            let method_name = match &field_expr.member {
-                syn::Member::Named(ident) => ident.to_string(),
-                syn::Member::Unnamed(idx) => format!("{}", idx.index),
-            };
-
-            
-            // Infer the receiver type
-            let receiver_ty = crate::codegen::type_bridge::infer_expr_type(self.ctx, &field_expr.base, local_vars)?;
-            // Infer the receiver type
-            
-            // TRANSPARENT VEC ACCESSOR INTERCEPT (Zero-Overhead Path)
-            // For Vec<T>::get_unchecked and Vec<T>::set_unchecked, bypass normal method resolution
-            // and emit direct MLIR llvm.load/llvm.store at the call site.
-            if method_name == "get_unchecked" || method_name == "set_unchecked" {
-                // Check if receiver is Vec<T> or &Vec<T> or &mut Vec<T>
-                let inner_ty = match &receiver_ty {
-                    Type::Reference(inner, _) => inner.as_ref().clone(),
-                    Type::Concrete(_, _) => receiver_ty.clone(),
-                    Type::Struct(name) if name.contains("Vec") => receiver_ty.clone(),
-                    _ => receiver_ty.clone(),
-                };
-                
-                // Extract element type from Vec<T>
-                let element_ty = match &inner_ty {
-                    Type::Concrete(name, args) if name.contains("Vec") && !args.is_empty() => {
-
-                        args[0].clone()
-                    },
-                    Type::Struct(name) if name.contains("Vec_") => {
-                        // Extract type from mangled name like "std__collections__vec__Vec_i32"
-                        let suffix = name.rsplit('_').next().unwrap_or("i64");
-
-                        match suffix {
-                            "i32" => Type::I32,
-                            "i64" => Type::I64,
-                            "u8" => Type::U8,
-                            "f32" => Type::F32,
-                            "f64" => Type::F64,
-                            _ => Type::I64, // Default fallback
-                        }
-                    },
-                    _ => Type::I64, // Fallback - will be refined in handler
-                };
-                
-                return Ok(CallKind::TransparentVecAccess {
-                    method: method_name.clone(),
-                    element_ty,
-                    receiver: Box::new((*field_expr.base).clone()),
-                    args: call.args.iter().cloned().collect(),
-            });
-            }
-            
-            // Construct the method key for method lookup
-            let type_key = crate::codegen::type_bridge::type_to_type_key(&receiver_ty);
-            
-            // [V4.0 TRAIT SOLVER] Two-Tier Dispatch System
-            // Tier 1: Try signature-aware overload resolution (TraitRegistry)
-            // Tier 2: Fall back to legacy name-based lookup (MethodRegistry)
-            
-            // STEP 1: Infer Argument Types for Overload Resolution
-            let args_vec: Vec<syn::Expr> = call.args.iter().cloned().collect();
-            let arg_types: Vec<Type> = args_vec.iter()
-                .filter_map(|expr| {
-                    crate::codegen::type_bridge::infer_expr_type(self.ctx, expr, local_vars).ok()
-                })
-                .collect();
-            
-            // STEP 2: Try Trait-Based Overload Resolution (Tier 1 - V4.0 Path)
-            // Clone the result inside the borrow scope to satisfy Rust's borrow checker
-            let trait_result: Option<(SaltFn, Option<Type>, Vec<crate::grammar::ImportDecl>)> = {
-                let registry = self.ctx.trait_registry();
-                registry.resolve_overload(&type_key, &method_name, &arg_types)
-                    .map(|resolved| (resolved.func.clone(), resolved.self_ty.clone(), resolved.imports.clone()))
-            };
-            
-            // [V4.0 KEUOS] Signature-First: TraitRegistry is the ONLY path
-            // No Tier 2 fallback - if method not in TraitRegistry, it's not found
-            let method_info: Option<(SaltFn, Option<Type>, Vec<crate::grammar::ImportDecl>)> = 
-                if let Some(resolved) = trait_result {
-
-                    Some(resolved)
-                } else {
-                    // [V4.0] Try legacy-style lookup via TraitRegistry (for unregistered methods)
-                    self.ctx.trait_registry().get_legacy(&type_key, &method_name)
-                };
-            
-            // STEP 4: Dispatch
-            // [LAZY HYDRATION FIX] If TraitRegistry doesn't have the method,
-            // try resolve_method which scans generic_impls and triggers lazy discovery.
-            // This fixes Ptr.write() and other methods not found in large files
-            // where impl blocks haven't been hydrated into the TraitRegistry yet.
-            let method_info = method_info.or_else(|| {
-                self.ctx.resolve_method(&receiver_ty, &method_name).ok()
-            });
-
-            if let Some((func, self_ty, imports)) = method_info {
-
-                
-                // Prepare target for unification and mangling
-                let target = ResolutionTarget {
-                    template: func.clone(),
-                    base_name: format!("{}__{}",  crate::common::mangling::Mangler::mangle_type_key(&type_key), method_name),
-                    self_ty: self_ty.clone(),
-                    imports: imports.clone(),
-                };
-                
-                // Unify generics based on receiver and arguments
-                // For instance method calls, extract concrete type args from receiver
-                // e.g., for map.get() where map: HashMap<i64, i64>, extract [i64, i64]
-                let receiver_generics: Vec<Type> = match &self_ty {
-                    Some(Type::Concrete(_, args)) => args.clone(),
-                    _ => vec![],
-                };
-
-                let spec_map = self.unify_generics(&target, &receiver_generics, &args_vec, local_vars, expected_ty)?;
-                
-                // Calculate mangled name
-                let mangled_name = self.mangle_specialization(&target.base_name, &spec_map, &target.template);
-                
-                // Resolve signature
-                let (ret_ty, arg_tys) = self.resolve_signature(&target.template, &spec_map)?;
-                
-                // Package LazyTask
-                // [DETERMINISTIC ORDERING] Use struct template's parameter order for concrete_tys.
-                // The function template's generics may be in non-deterministic order.
-                let concrete_tys: Vec<Type> = {
-                    let mut tys = Vec::new();
-                    let mut used_struct_order = false;
-                    // Try struct template order first
-                    if let Some(st) = &self_ty {
-                        let struct_name = match st {
-                            Type::Struct(n) | Type::Concrete(n, _) => Some(n.clone()),
-                            _ => None,
-                        };
-                        if let Some(name) = struct_name {
-                            if let Some(tmpl) = self.ctx.struct_templates().get(&name) {
-                                if let Some(sg) = &tmpl.generics {
-                                    tys = sg.params.iter().map(|p| {
-                                        let pn = match p {
-                                            crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                                            crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                                        };
-                                        spec_map.get(&pn).cloned().unwrap_or(Type::Unit)
-                                    }).collect();
-                                    used_struct_order = true;
-                                }
-                            }
-                        }
-                    }
-                    // Fall back to function template generics (for free functions)
-                    if !used_struct_order {
-                        if let Some(g) = &target.template.generics {
-                            tys = g.params.iter().map(|p| {
-                                let name = match p {
-                                    crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                                    crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                                };
-                                spec_map.get(&name).cloned().unwrap_or(Type::Unit)
-                            }).collect();
-                        }
-                    }
-                    tys
-                };
-
-                let resolved_self = self_ty.as_ref().map(|st| st.substitute(&spec_map));
-                
-                let lazy_task = Box::new(crate::codegen::collector::MonomorphizationTask {
-                    identity: TypeKey { path: vec![], name: mangled_name.clone(), specialization: None },
-                    mangled_name: mangled_name.clone(),
-                    func: target.template.clone(),
-                    concrete_tys,
-                    self_ty: resolved_self,
-                    imports: target.imports,
-                    type_map: spec_map,
-                });
-
-                return Ok(CallKind::Function(mangled_name, ret_ty, arg_tys, Some(lazy_task)));
-            } else {
-
+            if let Some(res) = self.resolve_field_method_call(field_expr, call, local_vars, expected_ty)? {
+                return Ok(res);
             }
         }
         
-        // 0c. EARLY INTRINSIC INTERCEPT (Fixes "Lookup Trap")
-        // Check for protected intrinsic names BEFORE resolve_path mangles them.
-        // This prevents println → test__println transformation.
         if let syn::Expr::Path(path_expr) = &*call.func {
-            if path_expr.path.segments.len() == 1 {
-                let raw_name = path_expr.path.segments[0].ident.to_string();
-                if self.is_intrinsic(&raw_name) {
-                    // Extract explicit generics from the path segment
-                    let explicit_generics = self.extract_generics_from_segment(&path_expr.path.segments[0])?;
-                    return Ok(CallKind::Intrinsic(raw_name, explicit_generics));
-                }
-                
-                // 0d. EARLY STRUCT LITERAL INTERCEPT
-                // Check if raw_name (or mangled version) is a struct type
-                // This prevents Board(...) from being resolved as a function call
-                let mangled_name = self.ctx.mangle_fn_name(&raw_name);
-                
-                // TOP MINDS: Ensure struct exists before checking registry
-                // This handles cross-function hydration where struct isn't in registry yet
-                let _ = self.ctx.ensure_struct_exists(&mangled_name, &[]);
-                let _ = self.ctx.ensure_struct_exists(&raw_name, &[]);
-                
-                {
-                    let struct_reg = self.ctx.struct_registry();
-                    // Try mangled name first (e.g., main__Board)
-                    if let Some(info) = struct_reg.values().find(|i| i.name == mangled_name.to_string()) {
-                        let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
-                            .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
-                            .collect::<Vec<_>>();
-                        fields_with_idx.sort_by_key(|(_, offset, _)| *offset);
-                        let fields: Vec<(String, Type)> = fields_with_idx.into_iter().map(|(n, _, t)| (n, t)).collect();
-                        return Ok(CallKind::StructLiteral(mangled_name.to_string(), fields));
-                    }
-                    // Also try raw name (for unmangled structs)
-                    if let Some(info) = struct_reg.values().find(|i| i.name == raw_name) {
-                        let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
-                            .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
-                            .collect::<Vec<_>>();
-                        fields_with_idx.sort_by_key(|(_, offset, _)| *offset);
-                        let fields: Vec<(String, Type)> = fields_with_idx.into_iter().map(|(n, _, t)| (n, t)).collect();
-                        return Ok(CallKind::StructLiteral(raw_name, fields));
-                    }
-                    // [VERIFIED METAL] Phase 5: Use centralized struct lookup
-                    if let Some(info) = self.ctx.find_struct_by_name(&raw_name) {
-                        let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
-                            .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
-                            .collect::<Vec<_>>();
-                        fields_with_idx.sort_by_key(|(_, offset, _)| *offset);
-                        let fields: Vec<(String, Type)> = fields_with_idx.into_iter().map(|(n, _, t)| (n, t)).collect();
-                        return Ok(CallKind::StructLiteral(info.name.clone(), fields));
-                    }
-                }
-                
-                // TOP MINDS: Template-based fallback - the struct might be in templates but not registry yet
-                // Try to find in struct_templates and trigger instantiation
-                {
-                    // [VERIFIED METAL] Phase 5: Use centralized template lookup
-                    let (has_exact, suffix_match) = {
-                        let templates = self.ctx.struct_templates();
-                        let exact = templates.contains_key(&mangled_name.to_string());
-                        let suffix_m = self.ctx.find_struct_template_by_name(&raw_name);
-                        (exact, suffix_m)
-                    };
-                    
-                    // Try exact match first
-                    if has_exact {
-                        let _ = self.ctx.ensure_struct_exists(&mangled_name, &[]);
-                        // Re-check registry after instantiation
-                        let struct_reg = self.ctx.struct_registry();
-                        if let Some(info) = struct_reg.values().find(|i| i.name == mangled_name.to_string()) {
-                            let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
-                                .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
-                                .collect::<Vec<_>>();
-                            fields_with_idx.sort_by_key(|(_, offset, _)| *offset);
-                            let fields: Vec<(String, Type)> = fields_with_idx.into_iter().map(|(n, _, t)| (n, t)).collect();
-                            return Ok(CallKind::StructLiteral(mangled_name.to_string(), fields));
-                        }
-                    }
-                    
-                    // Try suffix match
-                    if let Some(template_name) = suffix_match {
-                        let _ = self.ctx.ensure_struct_exists(&template_name, &[]);
-                        // Re-check registry after instantiation
-                        let struct_reg = self.ctx.struct_registry();
-                        if let Some(info) = struct_reg.values().find(|i| i.name == template_name) {
-                            let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
-                                .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
-                                .collect::<Vec<_>>();
-                            fields_with_idx.sort_by_key(|(_, offset, _)| *offset);
-                            let fields: Vec<(String, Type)> = fields_with_idx.into_iter().map(|(n, _, t)| (n, t)).collect();
-                            return Ok(CallKind::StructLiteral(info.name.clone(), fields));
-                        }
-                    }
-                }
+            if let Some(res) = self.resolve_early_intercepts(path_expr)? {
+                return Ok(res);
             }
         }
         
-        // 0e. [KEUOS FIX V3] EARLY MODULE FUNCTION INTERCEPT
-        // Check for module-level functions BEFORE resolve_path mangles them.
-        // This prevents EMPTY() -> HashMap::EMPTY() transformation inside impl blocks.
-        // V3: Check imports list since current_package is None during hydration.
-        if let syn::Expr::Path(path_expr) = &*call.func {
-            if path_expr.path.segments.len() == 1 {
-                let raw_name = path_expr.path.segments[0].ident.to_string();
-                
-                // Check if raw_name matches the suffix of any import
-                // Imports contain entries like "std__collections__hash_map__EMPTY" with alias="EMPTY"
-                let imports = self.ctx.imports();
-                for imp in imports.iter() {
-                    // [KEUOS V3.1] Handle self-imports with aliases
-                    // e.g., name=["std__collections__hash_map__EMPTY"], alias=Some("EMPTY")
-                    if imp.name.len() == 1 && imp.group.is_none() {
-                        // Check if alias matches our raw_name
-                        let alias_matches = imp.alias.as_ref().map_or(false, |a| a.to_string() == raw_name);
-                        if alias_matches {
-                            let single_str = imp.name[0].to_string();
-
-                            
-                            // Extract package path from the import (strip the __raw_name suffix)
-                            if single_str.contains("__") {
-                                let pkg_mangled = &single_str[..single_str.len() - raw_name.len() - 2]; // -2 for "__"
-                                let pkg_path = pkg_mangled.replace("__", ".");
-                                
-                                // Look up in registry
-                                if let Some(registry) = self.ctx.config.registry {
-                                    if let Some(mod_info) = registry.modules.get(&pkg_path) {
-                                        if let Some(func) = mod_info.function_templates.get(&raw_name) {
-
-                                            
-                                            let empty_map = std::collections::BTreeMap::new();
-                                            let (ret_ty, arg_tys) = self.resolve_signature(func, &empty_map)?;
-                                            
-                                            let lazy_task = Box::new(crate::codegen::collector::MonomorphizationTask {
-                                                identity: TypeKey { path: vec![], name: single_str.clone(), specialization: None },
-                                                mangled_name: single_str.clone(),
-                                                func: func.clone(),
-                                                concrete_tys: vec![],
-                                                self_ty: None,
-                                                imports: mod_info.imports.clone(),
-                                                type_map: std::collections::BTreeMap::new(),
-                                            });
-                                            
-                                            return Ok(CallKind::Function(single_str, ret_ty, arg_tys, Some(lazy_task)));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        // 0b. Pre-Phase: Resolve Path and Explicit Generics (original flow)
-        let (func_name, explicit_generics) = self.resolve_path(&call.func)?;
-        
-        // 1. Intrinsic Check (Fast Path) - for qualified paths like intrin::macos_syscall
-        if self.is_intrinsic(&func_name) {
-             return Ok(CallKind::Intrinsic(func_name, explicit_generics));
-        }
-        
-        // 2. Enum Variant Check (Constructor)
-        // 2. Enum Variant Check (Constructor)
-        if let Some(res) = resolve_path_to_enum(self.ctx, &func_name, &explicit_generics, expected_ty) {
-
-            return Ok(CallKind::EnumConstructor(res));
-        }
-
-
-        // 2.5 Struct Literal Check (In-Place Constructor)
-        // Check if func_name matches a known struct type - emit direct initialization instead of function call
-        {
-            let struct_reg = self.ctx.struct_registry();
-            if let Some(info) = struct_reg.values().find(|i| i.name == func_name) {
-                let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
-                    .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
-                    .collect::<Vec<_>>();
-                fields_with_idx.sort_by_key(|(_, offset, _)| *offset);
-                let fields: Vec<(String, Type)> = fields_with_idx.into_iter().map(|(n, _, t)| (n, t)).collect();
-                return Ok(CallKind::StructLiteral(func_name, fields));
-            }
-        }
-
-        // 3. Identify Target (Local / Global / Method)
-        let target = self.identify_target(&func_name, &explicit_generics, &call.args, local_vars)
-            .ok_or_else(|| {
-                format!("Undefined function or symbol: '{}'", func_name)
-            })?;
-
-
-        // 4. Unify Generics (Interface for Inference)
-        // Map T -> Concrete based on (Explicit Args + Inference from Call Args)
-        // 4. Unify Generics (Interface for Inference)
-        // Map T -> Concrete based on (Explicit Args + Inference from Call Args + Context)
-        let args_vec: Vec<syn::Expr> = call.args.iter().cloned().collect();
-        let spec_map = self.unify_generics(&target, &explicit_generics, &args_vec, local_vars, expected_ty)?;
-
-        // 5. Calculate Mangled Name (Identity)
-        let mangled_name = self.mangle_specialization(&target.base_name, &spec_map, &target.template);
-
-        // 6. Resolve Signature (Return Type & Arg Types)
-        // We must substitute the generics in the signature with our concrete map.
-        let (ret_ty, arg_tys) = self.resolve_signature(&target.template, &spec_map)?;
-
-        // 7. Package LazyTask
-        // If the function is generic OR we are in a generic context that specializes it,
-        // we create a task. even non-generic functions are packaged as tasks for "Lazy Discovery".
-        // [DETERMINISTIC ORDERING] Always prefer struct template's parameter order for concrete_tys.
-        let concrete_tys: Vec<Type> = {
-            let mut tys = Vec::new();
-            let mut used_struct_order = false;
-            // Priority 1: Use struct template parameter order (deterministic)
-            if let Some(self_ty) = &target.self_ty {
-                let struct_name = match self_ty {
-                    Type::Struct(n) | Type::Concrete(n, _) => Some(n.clone()),
-                    _ => None,
-                };
-                if let Some(name) = struct_name {
-                    if let Some(tmpl) = self.ctx.struct_templates().get(&name) {
-                        if let Some(sg) = &tmpl.generics {
-                            tys = sg.params.iter().map(|p| {
-                                let pn = match p {
-                                    crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                                    crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                                };
-                                spec_map.get(&pn).cloned().unwrap_or(Type::Unit)
-                            }).collect();
-                            // Also add any method-level generics not in struct template
-                            if let Some(g) = &target.template.generics {
-                                for param in &g.params {
-                                    let fn_name = match param {
-                                        crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                                        crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                                    };
-                                    let already_in_struct = sg.params.iter().any(|sp| {
-                                        let sn = match sp {
-                                            crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                                            crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                                        };
-                                        sn == fn_name
-                                    });
-                                    if !already_in_struct {
-                                        if let Some(ty) = spec_map.get(&fn_name) {
-                                            tys.push(ty.clone());
-                                        }
-                                    }
-                                }
-                            }
-                            used_struct_order = true;
-                        }
-                    }
-                }
-            }
-            // Priority 2: Function template generics (for free functions)
-            if !used_struct_order {
-                if let Some(g) = &target.template.generics {
-                    tys = g.params.iter().map(|p| {
-                        let name = match p {
-                            crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                            crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                        };
-                        spec_map.get(&name).cloned().unwrap_or(Type::Unit)
-                    }).collect();
-                } else if !spec_map.is_empty() {
-                    // [PHASE 3.5] Function has no function-level generics, but inference
-                    // bound struct-level generics. Use struct's generic params.
-                    if let Some(self_ty) = &target.self_ty {
-                        let struct_name = match self_ty {
-                            Type::Struct(n) | Type::Concrete(n, _) => Some(n.clone()),
-                            _ => None,
-                        };
-                        if let Some(name) = struct_name {
-                            if let Some(tmpl) = self.ctx.struct_templates().get(&name) {
-                                if let Some(sg) = &tmpl.generics {
-                                    tys = sg.params.iter().map(|p| {
-                                        let pn = match p {
-                                            crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                                            crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                                        };
-                                        spec_map.get(&pn).cloned().unwrap_or(Type::Unit)
-                                    }).collect();
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            tys
-        };
-
-        let type_key = TypeKey {
-            path: vec![],
-            name: mangled_name.clone(),
-            specialization: None,
-        };
-        
-        // Resolve self type if method
-        let resolved_self = if let Some(st) = &target.self_ty {
-             Some(st.substitute(&spec_map))
-        } else {
-             None
-        };
-
-        let lazy_task = Box::new(crate::codegen::collector::MonomorphizationTask {
-            identity: type_key,
-            mangled_name: mangled_name.clone(),
-            func: target.template.clone(),
-            concrete_tys,
-            self_ty: resolved_self,
-            imports: target.imports, // Use captured imports from definition site
-            type_map: spec_map,
-        });
-
-        Ok(CallKind::Function(
-            mangled_name, 
-            ret_ty, 
-            arg_tys, 
-            Some(lazy_task)
-        ))
+        self.resolve_standard_call(call, local_vars, expected_ty)
     }
     
     // --- Helper Logic ---
@@ -1394,5 +903,406 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
          
          Ok((ret, args))
     }
-}
 
+    fn resolve_field_method_call(
+        &mut self,
+        field_expr: &syn::ExprField,
+        call: &syn::ExprCall,
+        local_vars: &HashMap<String, (Type, crate::codegen::context::LocalKind)>,
+        expected_ty: Option<&Type>,
+    ) -> Result<Option<CallKind>, String> {
+        let method_name = match &field_expr.member {
+            syn::Member::Named(ident) => ident.to_string(),
+            syn::Member::Unnamed(idx) => format!("{}", idx.index),
+        };
+
+        let receiver_ty = crate::codegen::type_bridge::infer_expr_type(self.ctx, &field_expr.base, local_vars)?;
+        
+        if method_name == "get_unchecked" || method_name == "set_unchecked" {
+            let inner_ty = match &receiver_ty {
+                Type::Reference(inner, _) => inner.as_ref().clone(),
+                Type::Concrete(_, _) => receiver_ty.clone(),
+                Type::Struct(name) if name.contains("Vec") => receiver_ty.clone(),
+                _ => receiver_ty.clone(),
+            };
+            
+            let element_ty = match &inner_ty {
+                Type::Concrete(name, args) if name.contains("Vec") && !args.is_empty() => args[0].clone(),
+                Type::Struct(name) if name.contains("Vec_") => {
+                    let suffix = name.rsplit('_').next().unwrap_or("i64");
+                    match suffix {
+                        "i32" => Type::I32,
+                        "i64" => Type::I64,
+                        "u8" => Type::U8,
+                        "f32" => Type::F32,
+                        "f64" => Type::F64,
+                        _ => Type::I64,
+                    }
+                },
+                _ => Type::I64,
+            };
+            
+            return Ok(Some(CallKind::TransparentVecAccess {
+                method: method_name,
+                element_ty,
+                receiver: Box::new((*field_expr.base).clone()),
+                args: call.args.iter().cloned().collect(),
+            }));
+        }
+        
+        let type_key = crate::codegen::type_bridge::type_to_type_key(&receiver_ty);
+        
+        let args_vec: Vec<syn::Expr> = call.args.iter().cloned().collect();
+        let arg_types: Vec<Type> = args_vec.iter()
+            .filter_map(|expr| crate::codegen::type_bridge::infer_expr_type(self.ctx, expr, local_vars).ok())
+            .collect();
+        
+        let trait_result = {
+            let registry = self.ctx.trait_registry();
+            registry.resolve_overload(&type_key, &method_name, &arg_types)
+                .map(|resolved| (resolved.func.clone(), resolved.self_ty.clone(), resolved.imports.clone()))
+        };
+        
+        let method_info = trait_result.or_else(|| {
+            self.ctx.trait_registry().get_legacy(&type_key, &method_name)
+        }).or_else(|| {
+            self.ctx.resolve_method(&receiver_ty, &method_name).ok()
+        });
+
+        if let Some((func, self_ty, imports)) = method_info {
+            let target = ResolutionTarget {
+                template: func.clone(),
+                base_name: format!("{}__{}", crate::common::mangling::Mangler::mangle_type_key(&type_key), method_name),
+                self_ty: self_ty.clone(),
+                imports,
+            };
+            
+            let receiver_generics: Vec<Type> = match &self_ty {
+                Some(Type::Concrete(_, args)) => args.clone(),
+                _ => vec![],
+            };
+
+            let spec_map = self.unify_generics(&target, &receiver_generics, &args_vec, local_vars, expected_ty)?;
+            let mangled_name = self.mangle_specialization(&target.base_name, &spec_map, &target.template);
+            let (ret_ty, arg_tys) = self.resolve_signature(&target.template, &spec_map)?;
+            
+            let concrete_tys: Vec<Type> = {
+                let mut tys = Vec::new();
+                let mut used_struct_order = false;
+                if let Some(st) = &self_ty {
+                    let struct_name = match st {
+                        Type::Struct(n) | Type::Concrete(n, _) => Some(n.clone()),
+                        _ => None,
+                    };
+                    if let Some(name) = struct_name {
+                        if let Some(tmpl) = self.ctx.struct_templates().get(&name) {
+                            if let Some(sg) = &tmpl.generics {
+                                tys = sg.params.iter().map(|p| {
+                                    let pn = match p {
+                                        crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                                        crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+                                    };
+                                    spec_map.get(&pn).cloned().unwrap_or(Type::Unit)
+                                }).collect();
+                                used_struct_order = true;
+                            }
+                        }
+                    }
+                }
+                if !used_struct_order {
+                    if let Some(g) = &target.template.generics {
+                        tys = g.params.iter().map(|p| {
+                            let name = match p {
+                                crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                                crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+                            };
+                            spec_map.get(&name).cloned().unwrap_or(Type::Unit)
+                        }).collect();
+                    }
+                }
+                tys
+            };
+
+            let resolved_self = self_ty.as_ref().map(|st| st.substitute(&spec_map));
+            
+            let lazy_task = Box::new(crate::codegen::collector::MonomorphizationTask {
+                identity: TypeKey { path: vec![], name: mangled_name.clone(), specialization: None },
+                mangled_name: mangled_name.clone(),
+                func: target.template.clone(),
+                concrete_tys,
+                self_ty: resolved_self,
+                imports: target.imports,
+                type_map: spec_map,
+            });
+
+            Ok(Some(CallKind::Function(mangled_name, ret_ty, arg_tys, Some(lazy_task))))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn resolve_early_intercepts(
+        &mut self,
+        path_expr: &syn::ExprPath,
+    ) -> Result<Option<CallKind>, String> {
+        if path_expr.path.segments.len() == 1 {
+            let raw_name = path_expr.path.segments[0].ident.to_string();
+            
+            if self.is_intrinsic(&raw_name) {
+                let explicit_generics = self.extract_generics_from_segment(&path_expr.path.segments[0])?;
+                return Ok(Some(CallKind::Intrinsic(raw_name, explicit_generics)));
+            }
+            
+            let mangled_name = self.ctx.mangle_fn_name(&raw_name);
+            
+            let _ = self.ctx.ensure_struct_exists(&mangled_name, &[]);
+            let _ = self.ctx.ensure_struct_exists(&raw_name, &[]);
+            
+            {
+                let struct_reg = self.ctx.struct_registry();
+                if let Some(info) = struct_reg.values().find(|i| i.name == mangled_name.to_string()) {
+                    let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
+                        .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
+                        .collect::<Vec<_>>();
+                    fields_with_idx.sort_by_key(|(_, offset, _)| *offset);
+                    let fields: Vec<(String, Type)> = fields_with_idx.into_iter().map(|(n, _, t)| (n, t)).collect();
+                    return Ok(Some(CallKind::StructLiteral(mangled_name.to_string(), fields)));
+                }
+                if let Some(info) = struct_reg.values().find(|i| i.name == raw_name) {
+                    let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
+                        .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
+                        .collect::<Vec<_>>();
+                    fields_with_idx.sort_by_key(|(_, offset, _)| *offset);
+                    let fields: Vec<(String, Type)> = fields_with_idx.into_iter().map(|(n, _, t)| (n, t)).collect();
+                    return Ok(Some(CallKind::StructLiteral(raw_name, fields)));
+                }
+                if let Some(info) = self.ctx.find_struct_by_name(&raw_name) {
+                    let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
+                        .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
+                        .collect::<Vec<_>>();
+                    fields_with_idx.sort_by_key(|(_, offset, _)| *offset);
+                    let fields: Vec<(String, Type)> = fields_with_idx.into_iter().map(|(n, _, t)| (n, t)).collect();
+                    return Ok(Some(CallKind::StructLiteral(info.name.clone(), fields)));
+                }
+            }
+            
+            {
+                let (has_exact, suffix_match) = {
+                    let templates = self.ctx.struct_templates();
+                    let exact = templates.contains_key(&mangled_name.to_string());
+                    let suffix_m = self.ctx.find_struct_template_by_name(&raw_name);
+                    (exact, suffix_m)
+                };
+                
+                if has_exact {
+                    let _ = self.ctx.ensure_struct_exists(&mangled_name, &[]);
+                    let struct_reg = self.ctx.struct_registry();
+                    if let Some(info) = struct_reg.values().find(|i| i.name == mangled_name.to_string()) {
+                        let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
+                            .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
+                            .collect::<Vec<_>>();
+                        fields_with_idx.sort_by_key(|(_, offset, _)| *offset);
+                        let fields: Vec<(String, Type)> = fields_with_idx.into_iter().map(|(n, _, t)| (n, t)).collect();
+                        return Ok(Some(CallKind::StructLiteral(mangled_name.to_string(), fields)));
+                    }
+                }
+                
+                if let Some(template_name) = suffix_match {
+                    let _ = self.ctx.ensure_struct_exists(&template_name, &[]);
+                    let struct_reg = self.ctx.struct_registry();
+                    if let Some(info) = struct_reg.values().find(|i| i.name == template_name) {
+                        let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
+                            .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
+                            .collect::<Vec<_>>();
+                        fields_with_idx.sort_by_key(|(_, offset, _)| *offset);
+                        let fields: Vec<(String, Type)> = fields_with_idx.into_iter().map(|(n, _, t)| (n, t)).collect();
+                        return Ok(Some(CallKind::StructLiteral(info.name.clone(), fields)));
+                    }
+                }
+            }
+            
+            let imports = self.ctx.imports();
+            for imp in imports.iter() {
+                if imp.name.len() == 1 && imp.group.is_none() {
+                    let alias_matches = imp.alias.as_ref().map_or(false, |a| a.to_string() == raw_name);
+                    if alias_matches {
+                        let single_str = imp.name[0].to_string();
+                        if single_str.contains("__") {
+                            let pkg_mangled = &single_str[..single_str.len() - raw_name.len() - 2];
+                            let pkg_path = pkg_mangled.replace("__", ".");
+                            
+                            if let Some(registry) = self.ctx.config.registry {
+                                if let Some(mod_info) = registry.modules.get(&pkg_path) {
+                                    if let Some(func) = mod_info.function_templates.get(&raw_name) {
+                                        let empty_map = std::collections::BTreeMap::new();
+                                        let (ret_ty, arg_tys) = self.resolve_signature(func, &empty_map)?;
+                                        
+                                        let lazy_task = Box::new(crate::codegen::collector::MonomorphizationTask {
+                                            identity: TypeKey { path: vec![], name: single_str.clone(), specialization: None },
+                                            mangled_name: single_str.clone(),
+                                            func: func.clone(),
+                                            concrete_tys: vec![],
+                                            self_ty: None,
+                                            imports: mod_info.imports.clone(),
+                                            type_map: std::collections::BTreeMap::new(),
+                                        });
+                                        
+                                        return Ok(Some(CallKind::Function(single_str, ret_ty, arg_tys, Some(lazy_task))));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    fn resolve_standard_call(
+        &mut self,
+        call: &syn::ExprCall,
+        local_vars: &HashMap<String, (Type, crate::codegen::context::LocalKind)>,
+        expected_ty: Option<&Type>,
+    ) -> Result<CallKind, String> {
+        let (func_name, explicit_generics) = self.resolve_path(&call.func)?;
+        
+        if self.is_intrinsic(&func_name) {
+             return Ok(CallKind::Intrinsic(func_name, explicit_generics));
+        }
+        
+        if let Some(res) = resolve_path_to_enum(self.ctx, &func_name, &explicit_generics, expected_ty) {
+            return Ok(CallKind::EnumConstructor(res));
+        }
+
+        {
+            let struct_reg = self.ctx.struct_registry();
+            if let Some(info) = struct_reg.values().find(|i| i.name == func_name) {
+                let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
+                    .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
+                    .collect::<Vec<_>>();
+                fields_with_idx.sort_by_key(|(_, offset, _)| *offset);
+                let fields: Vec<(String, Type)> = fields_with_idx.into_iter().map(|(n, _, t)| (n, t)).collect();
+                return Ok(CallKind::StructLiteral(func_name, fields));
+            }
+        }
+
+        let target = self.identify_target(&func_name, &explicit_generics, &call.args, local_vars)
+            .ok_or_else(|| {
+                format!("Undefined function or symbol: '{}'", func_name)
+            })?;
+
+        let args_vec: Vec<syn::Expr> = call.args.iter().cloned().collect();
+        let spec_map = self.unify_generics(&target, &explicit_generics, &args_vec, local_vars, expected_ty)?;
+
+        let mangled_name = self.mangle_specialization(&target.base_name, &spec_map, &target.template);
+
+        let (ret_ty, arg_tys) = self.resolve_signature(&target.template, &spec_map)?;
+
+        let concrete_tys: Vec<Type> = {
+            let mut tys = Vec::new();
+            let mut used_struct_order = false;
+            if let Some(self_ty) = &target.self_ty {
+                let struct_name = match self_ty {
+                    Type::Struct(n) | Type::Concrete(n, _) => Some(n.clone()),
+                    _ => None,
+                };
+                if let Some(name) = struct_name {
+                    if let Some(tmpl) = self.ctx.struct_templates().get(&name) {
+                        if let Some(sg) = &tmpl.generics {
+                            tys = sg.params.iter().map(|p| {
+                                let pn = match p {
+                                    crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                                    crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+                                };
+                                spec_map.get(&pn).cloned().unwrap_or(Type::Unit)
+                            }).collect();
+                            if let Some(g) = &target.template.generics {
+                                for param in &g.params {
+                                    let fn_name = match param {
+                                        crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                                        crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+                                    };
+                                    let already_in_struct = sg.params.iter().any(|sp| {
+                                        let sn = match sp {
+                                            crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                                            crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+                                        };
+                                        sn == fn_name
+                                    });
+                                    if !already_in_struct {
+                                        if let Some(ty) = spec_map.get(&fn_name) {
+                                            tys.push(ty.clone());
+                                        }
+                                    }
+                                }
+                            }
+                            used_struct_order = true;
+                        }
+                    }
+                }
+            }
+            if !used_struct_order {
+                if let Some(g) = &target.template.generics {
+                    tys = g.params.iter().map(|p| {
+                        let name = match p {
+                            crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                            crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+                        };
+                        spec_map.get(&name).cloned().unwrap_or(Type::Unit)
+                    }).collect();
+                } else if !spec_map.is_empty() {
+                    if let Some(self_ty) = &target.self_ty {
+                        let struct_name = match self_ty {
+                            Type::Struct(n) | Type::Concrete(n, _) => Some(n.clone()),
+                            _ => None,
+                        };
+                        if let Some(name) = struct_name {
+                            if let Some(tmpl) = self.ctx.struct_templates().get(&name) {
+                                if let Some(sg) = &tmpl.generics {
+                                    tys = sg.params.iter().map(|p| {
+                                        let pn = match p {
+                                            crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                                            crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+                                        };
+                                        spec_map.get(&pn).cloned().unwrap_or(Type::Unit)
+                                    }).collect();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            tys
+        };
+
+        let type_key = TypeKey {
+            path: vec![],
+            name: mangled_name.clone(),
+            specialization: None,
+        };
+        
+        let resolved_self = if let Some(st) = &target.self_ty {
+             Some(st.substitute(&spec_map))
+        } else {
+             None
+        };
+
+        let lazy_task = Box::new(crate::codegen::collector::MonomorphizationTask {
+            identity: type_key,
+            mangled_name: mangled_name.clone(),
+            func: target.template.clone(),
+            concrete_tys,
+            self_ty: resolved_self,
+            imports: target.imports,
+            type_map: spec_map,
+        });
+
+        Ok(CallKind::Function(
+            mangled_name, 
+            ret_ty, 
+            arg_tys, 
+            Some(lazy_task)
+        ))
+    }
+}

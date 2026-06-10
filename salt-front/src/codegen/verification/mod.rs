@@ -184,7 +184,7 @@ impl VerificationEngine {
                  
                  // [TEMPORAL SAFETY TIER 2] Inject Pointer State Tokens
                  // For each argument that is a known variable, map its pointer state into Z3
-                 for (i, p_name) in params.iter().enumerate() {
+                 for (i, _p_name) in params.iter().enumerate() {
                      if let Some(arg_expr) = arg_exprs.get(i) {
                          if let Some(var_name) = crate::codegen::expr::extract_ident_name(arg_expr) {
                              if let Some(state) = ctx.pointer_tracker.get_state(&var_name) {
@@ -427,7 +427,7 @@ impl VerificationEngine {
         }
 
         // [TEMPORAL SAFETY TIER 2] Inject Pointer State Tokens for ensures
-        for (i, p_name) in params.iter().enumerate() {
+        for (_i, p_name) in params.iter().enumerate() {
             if let Some(state) = ctx.pointer_tracker.get_state(p_name) {
                 if let Some((_, sym)) = param_symbols.iter().find(|(n, _)| n == p_name) {
                     let sort_refs = [&crate::z3_shim::Sort::int(ctx.z3_ctx)];
@@ -593,7 +593,7 @@ impl VerificationEngine {
                 if func_name == "intrin_find_byte" && call.args.len() == 3 {
                     if let Ok(res_val) = crate::codegen::expr::translate_to_z3(ctx, expr, local_vars) {
                         if let Ok(len_val) = crate::codegen::expr::translate_to_z3(ctx, &call.args[1], local_vars) {
-                            use crate::z3_shim::ast::Ast;
+                            
                             let minus_one = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, -1);
                             let zero = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 0);
                             

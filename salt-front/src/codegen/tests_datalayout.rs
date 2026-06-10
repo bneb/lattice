@@ -9,8 +9,6 @@
 //! uses ABI-aligned 24-byte stride — causing a 4-byte-per-element drift
 //! that corrupts struct arrays and triggers Triple Faults in the kernel.
 
-#[cfg(test)]
-use crate::z3_shim as z3;
 mod tests {
     use crate::grammar::SaltFile;
     use crate::codegen::context::CodegenContext;

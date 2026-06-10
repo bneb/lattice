@@ -1518,198 +1518,7 @@ fn hoist_allocas_in_block(ctx: &mut LoweringContext, stmts: &[Stmt], local_vars:
 pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<bool, String> {
     match stmt {
         Stmt::Syn(s) => match s {
-            syn::Stmt::Local(local) => {
-                let pat = match &local.pat {
-                    syn::Pat::Type(pt) => &pt.pat,
-                    p => p,
-                };
-                let name = if let syn::Pat::Ident(id) = pat { id.ident.to_string() } else { "".to_string() };
-                if !name.is_empty() && local_vars.contains_key(&name) {
-                    // Variable was hoisted as a Ptr.
-                    let (ty, kind) = local_vars.get(&name).ok_or_else(|| format!("Local variable {} lost during emission", name))?.clone();
-                        if let Some(init) = &local.init {
-                            // [V25.2] Domain Isolation: Don't pass Pointer hints to RHS
-                            // This prevents Type Osmosis in expressions like train_images + (i * INPUT_SIZE)
-                            let hint = if ty.k_is_ptr_type() { None } else { Some(&ty) };
-                            let (val, init_ty) = emit_expr(ctx, out, &init.expr, local_vars, hint)?;
-                            
-                            // [KEUOS PHASE 3] Strict Affine Memory Safety
-                            if ty.is_affine() {
-                                if let Some(rhs_var_name) = crate::codegen::expr::extract_ident_name(&init.expr) {
-                                    ctx.consumed_vars_mut().insert(rhs_var_name);
-                                }
-                            }
-                            
-                            let val_prom = crate::codegen::type_bridge::promote_numeric(ctx, out, &val, &init_ty, &ty)?;
-                            if let LocalKind::Ptr(ptr) = kind {
-                                 ctx.emit_store_logical(out, &val_prom, &ptr, &ty)?;
-                            }
-
-                            // [Z3 REGISTRATION] Register variable = init_expr in Z3.
-                            // Translate the init expression AST directly to a Z3 value.
-                            // This enables loop invariant base-case proofs: Z3 knows
-                            // `i = 0` from `let mut i: i64 = 0`.
-                            if !ctx.config.no_verify && ty.is_integer() {
-                                if let Ok(z3_val) = crate::codegen::expr::translate_to_z3(
-                                    ctx, &init.expr, local_vars
-                                ) {
-                                    use crate::z3_shim::ast::Ast;
-                                    let z3_var = ctx.mk_var(&name);
-                                    ctx.z3_solver.assert(&z3_var._eq(&z3_val));
-                                }
-                            }
-                        }
-                } else {
-                    // [PHASE 7: Bidirectional Type Inference]
-                    // Extract type annotation FIRST to use as hint for emit_expr
-                    // This enables turbofish elimination: `let x: Vec<u8> = Vec::new()`
-                    let type_hint: Option<Type> = match &local.pat {
-                        syn::Pat::Type(pt) => Some(resolve_type(ctx, &crate::grammar::SynType::from_std(*pt.ty.clone()).map_err(|e| e.to_string())?)),
-                        _ => None,
-                    };
-                    
-                    let (val, actual_ty) = if let Some(init) = &local.init {
-                        let (v, t) = emit_expr(ctx, out, &init.expr, local_vars, type_hint.as_ref())?;
-                        
-                        // [KEUOS PHASE 3] Strict Affine Memory Safety (unhoisted)
-                        if t.is_affine() {
-                            if let Some(rhs_var_name) = crate::codegen::expr::extract_ident_name(&init.expr) {
-                                ctx.consumed_vars_mut().insert(rhs_var_name);
-                            }
-                        }
-                        
-                        (v, t)
-                    } else {
-                        ("%c0".to_string(), Type::I32)
-                    };
-                    
-                    
-                    // Use type hint if provided, otherwise use inferred type
-                    let target_ty = type_hint.unwrap_or_else(|| actual_ty.clone());
-                    
-                    emit_pattern(ctx, out, &local.pat, val, actual_ty, target_ty.clone(), local_vars)?;
-
-                    // [Z3 REGISTRATION] Register integer literal let-bindings with Z3
-                    // This enables the loop invariant base-case checker to know
-                    // variable values at the point of the while loop.
-                    if !ctx.config.no_verify && !name.is_empty() && target_ty.is_integer() {
-                        if let Some(init) = &local.init {
-                            if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(li), .. }) = &*init.expr {
-                                if let Ok(int_val) = li.base10_parse::<i64>() {
-                                    use crate::z3_shim::ast::Ast;
-                                    let z3_var = ctx.mk_var(&name);
-                                    let z3_val = ctx.mk_int(int_val);
-                                    ctx.z3_solver.assert(&z3_var._eq(&z3_val));
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // [KEUOS V5.0] Malloc tracking via DAG-based MallocTracker.
-                // If the RHS was a malloc() call, pending_malloc_result was set by expr/mod.rs.
-                // Register the allocation with the MallocTracker DAG.
-                if !name.is_empty() {
-                    let pending = ctx.pending_malloc_result.take();
-                    if pending.is_some() {
-                        let alloc_id = format!("malloc:{}", name);
-                        ctx.malloc_tracker.track(
-                            alloc_id,
-                            format!("malloc at {}", name),
-                        );
-                    }
-
-                    // [ESCAPE ANALYSIS] Cast propagation: `let ctrl = ctrl_addr as Ptr<i8>`
-                    // If the RHS is a cast over a malloc-tracked variable, propagate via
-                    // link_dependency: the cast result depends on the source allocation.
-                    if let Some(init) = &local.init {
-                        if let syn::Expr::Cast(c) = &*init.expr {
-                            if let syn::Expr::Path(p) = &*c.expr {
-                                if p.path.segments.len() == 1 {
-                                    let src = p.path.segments[0].ident.to_string();
-                                    let src_alloc_id = format!("malloc:{}", src);
-                                    if ctx.malloc_tracker.contains_alloc(&src_alloc_id) {
-                                        ctx.malloc_tracker.link_dependency(
-                                            name.clone(),
-                                            src_alloc_id,
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // [ESCAPE ANALYSIS] Consume pending struct dependencies.
-                    // If the RHS was a struct construction, __pending_struct edges were
-                    // created by emit_struct. Migrate them to this variable name.
-                    ctx.malloc_tracker.drain_pending_to(&name);
-
-                    // [SALT MEMORY MODEL] Consume pending pointer state.
-                    // If the RHS was a Ptr::empty(), Box::new(), or Arena::alloc(),
-                    // register the pointer state for this variable.
-                    let pending_state = ctx.pending_pointer_state.take();
-                    if let Some(state) = pending_state {
-                        match state {
-                            crate::codegen::verification::PointerState::Empty => {
-                                ctx.pointer_tracker.mark_empty(&name);
-                            }
-                            crate::codegen::verification::PointerState::Valid => {
-                                ctx.pointer_tracker.mark_valid(&name);
-                            }
-                            crate::codegen::verification::PointerState::Optional => {
-                                ctx.pointer_tracker.mark_optional(&name);
-                            }
-                            crate::codegen::verification::PointerState::Freed => {
-                                ctx.pointer_tracker.mark_freed(&name);
-                            }
-                            crate::codegen::verification::PointerState::Uninitialized => {
-                                ctx.pointer_tracker.mark_uninitialized(&name);
-                            }
-                        }
-                    } else if local.init.is_none() {
-                        if let Some((ty, _)) = local_vars.get(&name) {
-                            if ty.k_is_ptr_type() {
-                                // TS-01: Basic affine type tracking. A pointer without init is Uninitialized.
-                                ctx.pointer_tracker.mark_uninitialized(&name);
-                            }
-                        }
-                    }
-
-                    // [ARENA ESCAPE ANALYSIS] Scope Ladder — Depth-based taint tracking.
-                    // Detect Arena variable declarations and Arena::alloc calls.
-                    if let Some(init) = &local.init {
-                        // Hook 1: Arena Registration
-                        // If the RHS constructs an Arena (Arena::new(...)), register
-                        // this variable as an arena at the current scope depth.
-                        if is_arena_constructor(&init.expr) {
-                            ctx.arena_escape_tracker.register_arena(&name);
-                        }
-
-                        // Hook 2: Alloc Provenance
-                        // If the RHS is arena.alloc(...) or arena.alloc_array(...),
-                        // the result pointer inherits the arena's depth.
-                        if let Some(arena_name) = extract_arena_alloc_receiver(&init.expr) {
-                            ctx.arena_escape_tracker.register_alloc(&name, &arena_name);
-                        }
-
-                        // Hook 3: ArenaAllocator Provenance
-                        // If the RHS is `ArenaAllocator { arena: my_arena }`, the allocator
-                        // inherits the arena's depth. This bridges Arena → ArenaAllocator.
-                        if let Some(arena_name) = extract_arena_allocator_source(&init.expr) {
-                            ctx.arena_escape_tracker.register_arena_allocator(&name, &arena_name);
-                        }
-
-                        // Hook 4: Vec Allocator Provenance
-                        // If the RHS is `Vec::new(alloc, cap)`, the Vec inherits the
-                        // allocator's depth. This bridges ArenaAllocator → Vec.
-                        if let Some(alloc_name) = extract_vec_new_allocator(&init.expr) {
-                            ctx.arena_escape_tracker.register_vec_from_allocator(&name, &alloc_name);
-                        }
-                    }
-                }
-                
-                Ok(false)
-            }
+            syn::Stmt::Local(local) => emit_local_stmt(ctx, out, local, local_vars),
             syn::Stmt::Expr(e, semi) => {
                 let (val, _) = emit_expr(ctx, out, e, local_vars, None)?;
                 let is_return = matches!(e, syn::Expr::Return(_));
@@ -1729,7 +1538,231 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
             }
             _ => Ok(false),
         },
-        Stmt::While(w) => {
+        Stmt::While(w) => emit_while_stmt(ctx, out, w, local_vars),
+        Stmt::If(f) => {
+            emit_salt_if(ctx, out, &f.cond, &f.then_branch, &f.else_branch, local_vars)
+        }
+        Stmt::For(f) => emit_for_stmt(ctx, out, f, local_vars),
+        Stmt::MapWindow { addr, size: _, region, body } => {
+            let (_addr_val, _addr_ty) = emit_expr(ctx, out, addr, local_vars, None)?;
+            let packed_win_var = format!("%packed_win_{}", ctx.next_id());
+            
+            let mut inner_vars = local_vars.clone();
+            let win_ty = Type::Window(Box::new(Type::U8), region.to_string());
+            inner_vars.insert(region.to_string(), (win_ty, LocalKind::SSA(packed_win_var)));
+
+            ctx.region_stack_mut().push(region.to_string());
+            emit_block(ctx, out, &body.stmts, &mut inner_vars)?;
+            ctx.region_stack_mut().pop();
+            Ok(false)
+        }
+        Stmt::Move(expr) => {
+             if let syn::Expr::Path(p) = expr {
+                 let name = p.path.get_ident().map(|id| id.to_string()).unwrap_or_default();
+                 ctx.consumed_vars_mut().insert(name.clone());
+                 ctx.consumption_locs_mut().insert(name, "explicit move".to_string());
+             }
+             Ok(false)
+        }
+        Stmt::Return(opt_expr) => emit_return_stmt(ctx, out, opt_expr, local_vars),
+        Stmt::Expr(expr, _) => {
+            let (val, _) = emit_expr(ctx, out, expr, local_vars, None)?;
+            Ok(val == "%unreachable")
+        }
+        Stmt::Invariant(e) => {
+            let (cond, _) = emit_expr(ctx, out, e, local_vars, None)?;
+            // Lower loop invariant to standard MLIR runtime assertion.
+            // Uses scf.if (not cf.cond_br) because invariants live inside
+            // loop bodies that may use affine.for or scf.for.
+            let true_const = format!("%inv_true_{}", ctx.next_id());
+            let violated = format!("%inv_violated_{}", ctx.next_id());
+            out.push_str(&format!("    {} = arith.constant true\n", true_const));
+            out.push_str(&format!("    {} = arith.xori {}, {} : i1\n", violated, cond, true_const));
+            ctx.ensure_external_declaration("__salt_contract_violation", &[], &Type::Unit)?;
+            out.push_str(&format!("    scf.if {} {{\n", violated));
+            out.push_str("      func.call @__salt_contract_violation() : () -> ()\n");
+            out.push_str("      scf.yield\n");
+            out.push_str("    }\n");
+            Ok(false)
+        }
+        Stmt::Unsafe(block) => emit_unsafe_stmt(ctx, out, block, local_vars),
+        Stmt::DynamicCheck(block) => emit_dynamic_check_stmt(ctx, out, block, local_vars),
+        Stmt::WithRegion { region, body } => {
+            ctx.region_stack_mut().push(region.to_string());
+            let mut inner_vars = local_vars.clone();
+            let res = emit_block(ctx, out, &body.stmts, &mut inner_vars)?;
+            ctx.region_stack_mut().pop();
+            Ok(res)
+        }
+        Stmt::Break => {
+            let label = ctx.break_labels().last().ok_or("Break outside of loop")?.clone();
+            out.push_str(&format!("    cf.br ^{}\n", label));
+            Ok(true)
+        }
+        Stmt::Continue => {
+            let label = ctx.continue_labels().last().ok_or("Continue outside of loop")?.clone();
+            out.push_str(&format!("    cf.br ^{}\n", label));
+            Ok(true)
+        }
+        Stmt::Match(match_expr) => {
+            emit_match(ctx, out, match_expr, local_vars)
+        }
+        Stmt::LetElse(let_else) => {
+            emit_let_else(ctx, out, let_else, local_vars)
+        }
+        Stmt::Loop(body) => emit_loop_stmt(ctx, out, body, local_vars),
+    }
+}
+
+fn emit_local_stmt(ctx: &mut LoweringContext, out: &mut String, local: &syn::Local, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<bool, String>  {
+    let pat = match &local.pat {
+        syn::Pat::Type(pt) => &pt.pat,
+        p => p,
+    };
+    let name = if let syn::Pat::Ident(id) = pat { id.ident.to_string() } else { "".to_string() };
+    
+    if !name.is_empty() && local_vars.contains_key(&name) {
+        emit_hoisted_local_init(ctx, out, local, &name, local_vars)?;
+    } else {
+        emit_unhoisted_local_init(ctx, out, local, &name, local_vars)?;
+    }
+    
+    if !name.is_empty() {
+        emit_local_malloc_tracking(ctx, local, &name);
+        emit_local_pointer_tracking(ctx, local, &name, local_vars);
+        emit_local_arena_tracking(ctx, local, &name);
+    }
+    
+    Ok(false)
+}
+
+fn emit_hoisted_local_init(ctx: &mut LoweringContext, out: &mut String, local: &syn::Local, name: &str, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<(), String> {
+    let (ty, kind) = local_vars.get(name).ok_or_else(|| format!("Local variable {} lost during emission", name))?.clone();
+    if let Some(init) = &local.init {
+        let hint = if ty.k_is_ptr_type() { None } else { Some(&ty) };
+        let (val, init_ty) = emit_expr(ctx, out, &init.expr, local_vars, hint)?;
+        
+        if ty.is_affine() {
+            if let Some(rhs_var_name) = crate::codegen::expr::extract_ident_name(&init.expr) {
+                ctx.consumed_vars_mut().insert(rhs_var_name);
+            }
+        }
+        
+        let val_prom = crate::codegen::type_bridge::promote_numeric(ctx, out, &val, &init_ty, &ty)?;
+        if let LocalKind::Ptr(ptr) = kind {
+             ctx.emit_store_logical(out, &val_prom, &ptr, &ty)?;
+        }
+
+        if !ctx.config.no_verify && ty.is_integer() {
+            if let Ok(z3_val) = crate::codegen::expr::translate_to_z3(ctx, &init.expr, local_vars) {
+                use crate::z3_shim::ast::Ast;
+                let z3_var = ctx.mk_var(name);
+                ctx.z3_solver.assert(&z3_var._eq(&z3_val));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn emit_unhoisted_local_init(ctx: &mut LoweringContext, out: &mut String, local: &syn::Local, name: &str, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<(), String> {
+    let type_hint: Option<Type> = match &local.pat {
+        syn::Pat::Type(pt) => Some(resolve_type(ctx, &crate::grammar::SynType::from_std(*pt.ty.clone()).map_err(|e| e.to_string())?)),
+        _ => None,
+    };
+    
+    let (val, actual_ty) = if let Some(init) = &local.init {
+        let (v, t) = emit_expr(ctx, out, &init.expr, local_vars, type_hint.as_ref())?;
+        
+        if t.is_affine() {
+            if let Some(rhs_var_name) = crate::codegen::expr::extract_ident_name(&init.expr) {
+                ctx.consumed_vars_mut().insert(rhs_var_name);
+            }
+        }
+        (v, t)
+    } else {
+        ("%c0".to_string(), Type::I32)
+    };
+    
+    let target_ty = type_hint.unwrap_or_else(|| actual_ty.clone());
+    emit_pattern(ctx, out, &local.pat, val, actual_ty, target_ty.clone(), local_vars)?;
+
+    if !ctx.config.no_verify && !name.is_empty() && target_ty.is_integer() {
+        if let Some(init) = &local.init {
+            if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(li), .. }) = &*init.expr {
+                if let Ok(int_val) = li.base10_parse::<i64>() {
+                    use crate::z3_shim::ast::Ast;
+                    let z3_var = ctx.mk_var(name);
+                    let z3_val = ctx.mk_int(int_val);
+                    ctx.z3_solver.assert(&z3_var._eq(&z3_val));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn emit_local_malloc_tracking(ctx: &mut LoweringContext, local: &syn::Local, name: &str) {
+    let pending = ctx.pending_malloc_result.take();
+    if pending.is_some() {
+        let alloc_id = format!("malloc:{}", name);
+        ctx.malloc_tracker.track(alloc_id, format!("malloc at {}", name));
+    }
+
+    if let Some(init) = &local.init {
+        if let syn::Expr::Cast(c) = &*init.expr {
+            if let syn::Expr::Path(p) = &*c.expr {
+                if p.path.segments.len() == 1 {
+                    let src = p.path.segments[0].ident.to_string();
+                    let src_alloc_id = format!("malloc:{}", src);
+                    if ctx.malloc_tracker.contains_alloc(&src_alloc_id) {
+                        ctx.malloc_tracker.link_dependency(name.to_string(), src_alloc_id);
+                    }
+                }
+            }
+        }
+    }
+
+    ctx.malloc_tracker.drain_pending_to(name);
+}
+
+fn emit_local_pointer_tracking(ctx: &mut LoweringContext, local: &syn::Local, name: &str, local_vars: &HashMap<String, (Type, LocalKind)>) {
+    let pending_state = ctx.pending_pointer_state.take();
+    if let Some(state) = pending_state {
+        match state {
+            crate::codegen::verification::PointerState::Empty => ctx.pointer_tracker.mark_empty(name),
+            crate::codegen::verification::PointerState::Valid => ctx.pointer_tracker.mark_valid(name),
+            crate::codegen::verification::PointerState::Optional => ctx.pointer_tracker.mark_optional(name),
+            crate::codegen::verification::PointerState::Freed => ctx.pointer_tracker.mark_freed(name),
+            crate::codegen::verification::PointerState::Uninitialized => ctx.pointer_tracker.mark_uninitialized(name),
+        }
+    } else if local.init.is_none() {
+        if let Some((ty, _)) = local_vars.get(name) {
+            if ty.k_is_ptr_type() {
+                ctx.pointer_tracker.mark_uninitialized(name);
+            }
+        }
+    }
+}
+
+fn emit_local_arena_tracking(ctx: &mut LoweringContext, local: &syn::Local, name: &str) {
+    if let Some(init) = &local.init {
+        if is_arena_constructor(&init.expr) {
+            ctx.arena_escape_tracker.register_arena(name);
+        }
+        if let Some(arena_name) = extract_arena_alloc_receiver(&init.expr) {
+            ctx.arena_escape_tracker.register_alloc(name, &arena_name);
+        }
+        if let Some(arena_name) = extract_arena_allocator_source(&init.expr) {
+            ctx.arena_escape_tracker.register_arena_allocator(name, &arena_name);
+        }
+        if let Some(alloc_name) = extract_vec_new_allocator(&init.expr) {
+            ctx.arena_escape_tracker.register_vec_from_allocator(name, &alloc_name);
+        }
+    }
+}
+
+
+fn emit_while_stmt(ctx: &mut LoweringContext, out: &mut String, w: &crate::grammar::SaltWhile, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<bool, String>  {
             let label_header = format!("while_header_{}", ctx.next_id());
             let label_body = format!("while_body_{}", ctx.next_id());
             let label_exit = format!("while_exit_{}", ctx.next_id());
@@ -1894,218 +1927,148 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
             out.push_str(&format!("  ^{}:\n", label_exit));
             Ok(false)
         }
-        Stmt::If(f) => {
-            emit_salt_if(ctx, out, &f.cond, &f.then_branch, &f.else_branch, local_vars)
+
+fn emit_for_stmt(ctx: &mut LoweringContext, out: &mut String, f: &crate::grammar::SaltFor, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<bool, String>  {
+    let (start_expr, end_expr) = match &f.iter {
+        syn::Expr::Range(r) => (&r.start, &r.end),
+        _ => return emit_iterator_for_loop(ctx, out, f, local_vars),
+    };
+    
+    let const_start = start_expr.as_ref().and_then(|e| try_extract_const_int(e));
+    let const_end = end_expr.as_ref().and_then(|e| try_extract_const_int(e));
+    let is_simple_ident = matches!(&f.pat, syn::Pat::Ident(_));
+    let body_has_cf = block_has_control_flow(&f.body.stmts);
+    
+    if is_simple_ident {
+        if let (Some(lb), Some(ub)) = (const_start, const_end) {
+            if !body_has_cf {
+                return emit_affine_for(ctx, out, f, lb, ub, local_vars);
+            }
         }
-        Stmt::For(f) => {
-            // 1. Extract range bounds
-             let (start_expr, end_expr) = match &f.iter {
-                 syn::Expr::Range(r) => (&r.start, &r.end),
-                 _ => {
-                     // Iterator protocol: emit while-loop with .next() calls
-                     return emit_iterator_for_loop(ctx, out, f, local_vars);
-                 }
-             };
-            
-            // 2. Try to extract constant bounds for affine.for optimization
-            let const_start = start_expr.as_ref().and_then(|e| try_extract_const_int(e));
-            let const_end = end_expr.as_ref().and_then(|e| try_extract_const_int(e));
-            
-            // Use affine.for when:
-            // 1. Pattern is Pat::Ident (NOT Pat::Wild - wildcards use Regular engine for RAII-Lite)
-            // 2. Both bounds are constant
-            // 3. Body has no control flow (affine.for requires single-block bodies)
-            let is_simple_ident = matches!(&f.pat, syn::Pat::Ident(_));
-            let body_has_cf = block_has_control_flow(&f.body.stmts);
-            
-            if is_simple_ident {
-                if let (Some(lb), Some(ub)) = (const_start, const_end) {
-                    if !body_has_cf {
-                        return emit_affine_for(ctx, out, f, lb, ub, local_vars);
-                    }
-                }
-            }
-            
-            // [V7.4] Check for reduction pattern in runtime-bound loops
-            // This enables scf.for iter_args for dynamic bounds like `for j in 0..cols`
-            let is_simple_ident_rt = matches!(&f.pat, syn::Pat::Ident(_));
-            let body_has_cf_rt = block_has_control_flow(&f.body.stmts);
-            
-            if is_simple_ident_rt && !body_has_cf_rt {
-                if let Some(reduction_info) = detect_reduction_pattern(&f.body.stmts, local_vars) {
-                    // Extract loop variable name
-                    if let syn::Pat::Ident(id) = &f.pat {
-                        let var_name = id.ident.to_string();
-                        return emit_scf_for_runtime_reduction(
-                            ctx, out, f, local_vars, &var_name, reduction_info
-                        );
-                    }
-                }
-                
-                // [V8] Non-reduction simple loop: still use scf.for for structured control flow
-                // This handles write loops like `for i in 0..size { out[i] = expr }`
-                return emit_scf_for_simple(ctx, out, f, local_vars);
-            }
-            
-            // FALLBACK: Standard cf.br loop for dynamic bounds without reduction pattern
-            let label_header = format!("for_header_{}", ctx.next_id());
-            let label_body = format!("for_body_{}", ctx.next_id());
-            let label_exit = format!("for_exit_{}", ctx.next_id());
-
-            let (start_val_raw, start_ty) = if let Some(start) = start_expr {
-                emit_expr(ctx, out, start, local_vars, None)?
-            } else {
-                let v = format!("%c0_{}", ctx.next_id());
-                ctx.emit_const_int(out, &v, 0, "i32");
-                (v, Type::I32)
-            };
-            
-            let (end_val_raw, end_ty) = if let Some(end) = end_expr {
-                emit_expr(ctx, out, end, local_vars, None)?
-            } else {
-                return Err("Infinite for-loops not supported yet".to_string());
-            };
-
-            // Infer Loop Type
-            let loop_ty = if start_ty == Type::I64 || end_ty == Type::I64 || start_ty == Type::Usize || end_ty == Type::Usize {
-                Type::I64 
-            } else {
-                Type::I32
-            };
-
-            let start_val = promote_numeric(ctx, out, &start_val_raw, &start_ty, &loop_ty)?;
-            let end_val = promote_numeric(ctx, out, &end_val_raw, &end_ty, &loop_ty)?;
-            let mlir_loop_ty = loop_ty.to_mlir_type(ctx)?;
-
-            // 2. Setup loop variable (alloca for mutability/consistency)
-            let loop_var_ptr = format!("%for_var_ptr_{}", ctx.next_id());
-            ctx.emit_alloca(out, &loop_var_ptr, &mlir_loop_ty);
-            ctx.emit_store(out, &start_val, &loop_var_ptr, &mlir_loop_ty);
-
-
-            out.push_str(&format!("    cf.br ^{}\n", label_header));
-            out.push_str(&format!("  ^{}:\n", label_header));
-            
-            let current_i = format!("%i_{}", ctx.next_id());
-            ctx.emit_load(out, &current_i, &loop_var_ptr, &mlir_loop_ty);
-            
-            let cond_i1 = format!("%for_cond_{}", ctx.next_id());
-            ctx.emit_cmp(out, &cond_i1, "arith.cmpi", "slt", &current_i, &end_val, &mlir_loop_ty);
-            let loc = ctx.loc_tag(f.iter.span());
-            out.push_str(&format!("    cf.cond_br {}, ^{}, ^{}{}\n", cond_i1, label_body, label_exit, loc));
-            
-            out.push_str(&format!("  ^{}:\n", label_body));
-            
-            // [PILLAR 2: Global LVN] Clear cache at loop body entry
-            // Each iteration starts fresh - cached values from previous iteration are stale
-            ctx.emission.global_lvn.clear();
-            
-            // Heartbeat Injection (V2.0: simplified, uses @yielding at function level)
-            if !*ctx.no_yield() {
-                ctx.emit_lto_hook(out, "__salt_yield_check", &[], local_vars, None)?;
-            }
-            // Add loop variable to local_vars
-            let mut body_vars = local_vars.clone();
-            let _has_named_pattern = matches!(&f.pat, syn::Pat::Ident(_));
-            
+    }
+    
+    if is_simple_ident && !body_has_cf {
+        if let Some(reduction_info) = detect_reduction_pattern(&f.body.stmts, local_vars) {
             if let syn::Pat::Ident(id) = &f.pat {
-                let name = id.ident.to_string();
-                body_vars.insert(name, (loop_ty.clone(), LocalKind::SSA(current_i.clone())));
+                return emit_scf_for_runtime_reduction(ctx, out, f, local_vars, &id.ident.to_string(), reduction_info);
             }
-            
-            // === Z3 HOARE LOGIC: For Loop Induction Variable Bounds ===
-            // Register the induction variable with Z3 and assert domain constraints:
-            //   start <= i < end
-            // This enables Z3 to prove array bounds checks inside the loop body.
-            let _z3_for_loop_active = if !ctx.config.no_verify && (matches!(&f.pat, syn::Pat::Ident(_)) || matches!(&f.pat, syn::Pat::Wild(_))) {
-                let z3_i = ctx.mk_var(&current_i);
-                ctx.symbolic_tracker.insert(current_i.clone(), z3_i.clone());
-                
-                ctx.z3_solver.push();
-                
-                // Assert: i >= 0 (or i >= start if start is not 0)
-                let z3_zero = ctx.mk_int(0);
-                ctx.z3_solver.assert(&z3_i.ge(&z3_zero));
-                
-                // Assert upper bound from range expression
-                if let syn::Expr::Range(r) = &f.iter {
-                    if let Some(end_expr) = &r.end {
-                        if let Ok(z3_end) = crate::codegen::expr::translate_to_z3(ctx, end_expr, local_vars) {
-                             ctx.z3_solver.assert(&z3_i.lt(&z3_end));
-                        }
-                    }
-                    // Assert lower bound from range start (if explicit)
-                    if let Some(start_expr) = &r.start {
-                        if let Ok(z3_start) = crate::codegen::expr::translate_to_z3(ctx, start_expr, local_vars) {
-                            ctx.z3_solver.assert(&z3_i.ge(&z3_start));
-                        }
-                    }
+        }
+        return emit_scf_for_simple(ctx, out, f, local_vars);
+    }
+    
+    emit_cf_br_for_loop(ctx, out, f, start_expr.as_deref(), end_expr.as_deref(), local_vars)
+}
+
+fn emit_cf_br_for_loop(ctx: &mut LoweringContext, out: &mut String, f: &crate::grammar::SaltFor, start_expr: Option<&syn::Expr>, end_expr: Option<&syn::Expr>, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<bool, String> {
+    let label_header = format!("for_header_{}", ctx.next_id());
+    let label_body = format!("for_body_{}", ctx.next_id());
+    let label_exit = format!("for_exit_{}", ctx.next_id());
+
+    let (start_val_raw, start_ty) = if let Some(start) = start_expr {
+        emit_expr(ctx, out, start, local_vars, None)?
+    } else {
+        let v = format!("%c0_{}", ctx.next_id());
+        ctx.emit_const_int(out, &v, 0, "i32");
+        (v, Type::I32)
+    };
+    
+    let (end_val_raw, end_ty) = if let Some(end) = end_expr {
+        emit_expr(ctx, out, end, local_vars, None)?
+    } else {
+        return Err("Infinite for-loops not supported yet".to_string());
+    };
+
+    let loop_ty = if start_ty == Type::I64 || end_ty == Type::I64 || start_ty == Type::Usize || end_ty == Type::Usize {
+        Type::I64 
+    } else {
+        Type::I32
+    };
+
+    let start_val = promote_numeric(ctx, out, &start_val_raw, &start_ty, &loop_ty)?;
+    let end_val = promote_numeric(ctx, out, &end_val_raw, &end_ty, &loop_ty)?;
+    let mlir_loop_ty = loop_ty.to_mlir_type(ctx)?;
+
+    let loop_var_ptr = format!("%for_var_ptr_{}", ctx.next_id());
+    ctx.emit_alloca(out, &loop_var_ptr, &mlir_loop_ty);
+    ctx.emit_store(out, &start_val, &loop_var_ptr, &mlir_loop_ty);
+
+    out.push_str(&format!("    cf.br ^{}\n", label_header));
+    out.push_str(&format!("  ^{}:\n", label_header));
+    
+    let current_i = format!("%i_{}", ctx.next_id());
+    ctx.emit_load(out, &current_i, &loop_var_ptr, &mlir_loop_ty);
+    
+    let cond_i1 = format!("%for_cond_{}", ctx.next_id());
+    ctx.emit_cmp(out, &cond_i1, "arith.cmpi", "slt", &current_i, &end_val, &mlir_loop_ty);
+    let loc = ctx.loc_tag(f.iter.span());
+    out.push_str(&format!("    cf.cond_br {}, ^{}, ^{}{}\n", cond_i1, label_body, label_exit, loc));
+    
+    out.push_str(&format!("  ^{}:\n", label_body));
+    
+    ctx.emission.global_lvn.clear();
+    if !*ctx.no_yield() {
+        ctx.emit_lto_hook(out, "__salt_yield_check", &[], local_vars, None)?;
+    }
+    
+    let mut body_vars = local_vars.clone();
+    if let syn::Pat::Ident(id) = &f.pat {
+        body_vars.insert(id.ident.to_string(), (loop_ty.clone(), LocalKind::SSA(current_i.clone())));
+    }
+    
+    let _z3_for_loop_active = if !ctx.config.no_verify && (matches!(&f.pat, syn::Pat::Ident(_)) || matches!(&f.pat, syn::Pat::Wild(_))) {
+        let z3_i = ctx.mk_var(&current_i);
+        ctx.symbolic_tracker.insert(current_i.clone(), z3_i.clone());
+        ctx.z3_solver.push();
+        let z3_zero = ctx.mk_int(0);
+        ctx.z3_solver.assert(&z3_i.ge(&z3_zero));
+        if let syn::Expr::Range(r) = &f.iter {
+            if let Some(end_expr) = &r.end {
+                if let Ok(z3_end) = crate::codegen::expr::translate_to_z3(ctx, end_expr, local_vars) {
+                     ctx.z3_solver.assert(&z3_i.lt(&z3_end));
                 }
-                true
-            } else {
-                false
-            };
-            
-            ctx.break_labels_mut().push(label_exit.clone());
-            ctx.continue_labels_mut().push(label_header.clone());
-            
-            // [V1.1] RAII-Lite: Push cleanup scope for loop body
-            ctx.push_cleanup_scope();
-            
-            let body_diverges = emit_block(ctx, out, &f.body.stmts, &mut body_vars)?;
-            ctx.break_labels_mut().pop();
-            ctx.continue_labels_mut().pop();
-
-            // === Z3 HOARE LOGIC: Pop for-loop solver scope ===
-            if _z3_for_loop_active {
-                ctx.z3_solver.pop(1);
             }
-            
-            if !body_diverges {
-                 // [V1.1] RAII-Lite: Emit cleanup before looping back
-                 ctx.pop_and_emit_cleanup(out)?;
-                 
-                 let next_i = format!("%next_i_{}", ctx.next_id());
-                 let c1 = format!("%c1_{}", ctx.next_id());
-                 ctx.emit_const_int(out, &c1, 1, &mlir_loop_ty);
-                 ctx.emit_binop(out, &next_i, "arith.addi", &current_i, &c1, &mlir_loop_ty);
-                 ctx.emit_store(out, &next_i, &loop_var_ptr, &mlir_loop_ty);
-                 out.push_str(&format!("    cf.br ^{}\n", label_header));
-            } else {
-                 // If body diverges (has return/break), still need to pop the scope
-                 let _ = ctx.cleanup_stack_mut().pop();
+            if let Some(start_expr) = &r.start {
+                if let Ok(z3_start) = crate::codegen::expr::translate_to_z3(ctx, start_expr, local_vars) {
+                    ctx.z3_solver.assert(&z3_i.ge(&z3_start));
+                }
             }
+        }
+        true
+    } else {
+        false
+    };
+    
+    ctx.break_labels_mut().push(label_exit.clone());
+    ctx.continue_labels_mut().push(label_header.clone());
+    ctx.push_cleanup_scope();
+    
+    let body_diverges = emit_block(ctx, out, &f.body.stmts, &mut body_vars)?;
+    ctx.break_labels_mut().pop();
+    ctx.continue_labels_mut().pop();
 
-            
-            // [PILLAR 2: SSA Dominance Fix] Clear global LVN at loop exit
-            // Cached values from inside this loop don't dominate code after it
-            ctx.emission.global_lvn.clear();
-            
-            out.push_str(&format!("  ^{}:\n", label_exit));
-            Ok(false)
-        }
-        Stmt::MapWindow { addr, size: _, region, body } => {
-            let (_addr_val, _addr_ty) = emit_expr(ctx, out, addr, local_vars, None)?;
-            let packed_win_var = format!("%packed_win_{}", ctx.next_id());
-            
-            let mut inner_vars = local_vars.clone();
-            let win_ty = Type::Window(Box::new(Type::U8), region.to_string());
-            inner_vars.insert(region.to_string(), (win_ty, LocalKind::SSA(packed_win_var)));
+    if _z3_for_loop_active {
+        ctx.z3_solver.pop(1);
+    }
+    
+    if !body_diverges {
+         ctx.pop_and_emit_cleanup(out)?;
+         let next_i = format!("%next_i_{}", ctx.next_id());
+         let c1 = format!("%c1_{}", ctx.next_id());
+         ctx.emit_const_int(out, &c1, 1, &mlir_loop_ty);
+         ctx.emit_binop(out, &next_i, "arith.addi", &current_i, &c1, &mlir_loop_ty);
+         ctx.emit_store(out, &next_i, &loop_var_ptr, &mlir_loop_ty);
+         out.push_str(&format!("    cf.br ^{}\n", label_header));
+    } else {
+         let _ = ctx.cleanup_stack_mut().pop();
+    }
+    
+    ctx.emission.global_lvn.clear();
+    out.push_str(&format!("  ^{}:\n", label_exit));
+    Ok(false)
+}
 
-            ctx.region_stack_mut().push(region.to_string());
-            emit_block(ctx, out, &body.stmts, &mut inner_vars)?;
-            ctx.region_stack_mut().pop();
-            Ok(false)
-        }
-        Stmt::Move(expr) => {
-             if let syn::Expr::Path(p) = expr {
-                 let name = p.path.get_ident().map(|id| id.to_string()).unwrap_or_default();
-                 ctx.consumed_vars_mut().insert(name.clone());
-                 ctx.consumption_locs_mut().insert(name, "explicit move".to_string());
-             }
-             Ok(false)
-        }
-        Stmt::Return(opt_expr) => {
+
+fn emit_return_stmt(ctx: &mut LoweringContext, out: &mut String, opt_expr: &Option<syn::Expr>, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<bool, String>  {
             emit_cleanup_for_return(ctx, out, local_vars)?;
             if let Some(e) = opt_expr {
                 // [KEUOS FIX] Substitute generics in return type (T -> u8 etc.)
@@ -2182,81 +2145,8 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
             }
             Ok(true)
         }
-        Stmt::Expr(expr, _) => {
-            let (val, _) = emit_expr(ctx, out, expr, local_vars, None)?;
-            Ok(val == "%unreachable")
-        }
-        Stmt::Invariant(e) => {
-            let (cond, _) = emit_expr(ctx, out, e, local_vars, None)?;
-            // Lower loop invariant to standard MLIR runtime assertion.
-            // Uses scf.if (not cf.cond_br) because invariants live inside
-            // loop bodies that may use affine.for or scf.for.
-            let true_const = format!("%inv_true_{}", ctx.next_id());
-            let violated = format!("%inv_violated_{}", ctx.next_id());
-            out.push_str(&format!("    {} = arith.constant true\n", true_const));
-            out.push_str(&format!("    {} = arith.xori {}, {} : i1\n", violated, cond, true_const));
-            ctx.ensure_external_declaration("__salt_contract_violation", &[], &Type::Unit)?;
-            out.push_str(&format!("    scf.if {} {{\n", violated));
-            out.push_str("      func.call @__salt_contract_violation() : () -> ()\n");
-            out.push_str("      scf.yield\n");
-            out.push_str("    }\n");
-            Ok(false)
-        }
-        Stmt::Unsafe(block) => {
-            // [SAFETY GATE] Only allow unsafe blocks in privileged packages
-            // (std.* and kernel.*). All other packages are rejected.
-            // Uses config.file.package as fallback when current_package is None.
-            let first_seg = ctx.current_package.as_ref()
-                .or_else(|| ctx.config.file.package.as_ref())
-                .and_then(|pkg| pkg.name.iter().next().map(|id| id.to_string()));
 
-            let fn_name = ctx.current_fn_name();
-            let is_privileged = matches!(first_seg.as_deref(), Some("std") | Some("kernel") | Some("basalt"))
-                || fn_name.starts_with("std__") || fn_name.starts_with("kernel__") || fn_name.starts_with("basalt__");
-
-            if !is_privileged {
-                return Err("unsafe blocks are not allowed in user code. All unsafe operations must go through the standard library's safe abstractions or be placed in kernel.* or basalt packages. See docs/UNSAFE.md.".to_string());
-            }
-
-            let was_unsafe = *ctx.is_unsafe_block();
-            *ctx.is_unsafe_block_mut() = true;
-            let mut inner_vars = local_vars.clone();
-            let res = emit_block(ctx, out, &block.stmts, &mut inner_vars)?;
-            *ctx.is_unsafe_block_mut() = was_unsafe;
-            Ok(res)
-        }
-        Stmt::DynamicCheck(block) => {
-            let was_dynamic = *ctx.is_dynamic_check_block();
-            *ctx.is_dynamic_check_block_mut() = true;
-            let mut inner_vars = local_vars.clone();
-            let res = emit_block(ctx, out, &block.stmts, &mut inner_vars)?;
-            *ctx.is_dynamic_check_block_mut() = was_dynamic;
-            Ok(res)
-        }
-        Stmt::WithRegion { region, body } => {
-            ctx.region_stack_mut().push(region.to_string());
-            let mut inner_vars = local_vars.clone();
-            let res = emit_block(ctx, out, &body.stmts, &mut inner_vars)?;
-            ctx.region_stack_mut().pop();
-            Ok(res)
-        }
-        Stmt::Break => {
-            let label = ctx.break_labels().last().ok_or("Break outside of loop")?.clone();
-            out.push_str(&format!("    cf.br ^{}\n", label));
-            Ok(true)
-        }
-        Stmt::Continue => {
-            let label = ctx.continue_labels().last().ok_or("Continue outside of loop")?.clone();
-            out.push_str(&format!("    cf.br ^{}\n", label));
-            Ok(true)
-        }
-        Stmt::Match(match_expr) => {
-            emit_match(ctx, out, match_expr, local_vars)
-        }
-        Stmt::LetElse(let_else) => {
-            emit_let_else(ctx, out, let_else, local_vars)
-        }
-        Stmt::Loop(body) => {
+fn emit_loop_stmt(ctx: &mut LoweringContext, out: &mut String, body: &crate::grammar::SaltBlock, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<bool, String>  {
             let label_body = format!("loop_body_{}", ctx.next_id());
             let label_exit = format!("loop_exit_{}", ctx.next_id());
             
@@ -2292,8 +2182,40 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
                 Ok(true)
             }
         }
-    }
-}
+
+fn emit_unsafe_stmt(ctx: &mut LoweringContext, out: &mut String, block: &crate::grammar::SaltBlock, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<bool, String>  {
+            // [SAFETY GATE] Only allow unsafe blocks in privileged packages
+            // (std.* and kernel.*). All other packages are rejected.
+            // Uses config.file.package as fallback when current_package is None.
+            let first_seg = ctx.current_package.as_ref()
+                .or_else(|| ctx.config.file.package.as_ref())
+                .and_then(|pkg| pkg.name.iter().next().map(|id| id.to_string()));
+
+            let fn_name = ctx.current_fn_name();
+            let is_privileged = matches!(first_seg.as_deref(), Some("std") | Some("kernel") | Some("basalt"))
+                || fn_name.starts_with("std__") || fn_name.starts_with("kernel__") || fn_name.starts_with("basalt__");
+
+            if !is_privileged {
+                return Err("unsafe blocks are not allowed in user code. All unsafe operations must go through the standard library's safe abstractions or be placed in kernel.* or basalt packages. See docs/UNSAFE.md.".to_string());
+            }
+
+            let was_unsafe = *ctx.is_unsafe_block();
+            *ctx.is_unsafe_block_mut() = true;
+            let mut inner_vars = local_vars.clone();
+            let res = emit_block(ctx, out, &block.stmts, &mut inner_vars)?;
+            *ctx.is_unsafe_block_mut() = was_unsafe;
+            Ok(res)
+        }
+
+fn emit_dynamic_check_stmt(ctx: &mut LoweringContext, out: &mut String, block: &crate::grammar::SaltBlock, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<bool, String>  {
+            let was_dynamic = *ctx.is_dynamic_check_block();
+            *ctx.is_dynamic_check_block_mut() = true;
+            let mut inner_vars = local_vars.clone();
+            let res = emit_block(ctx, out, &block.stmts, &mut inner_vars)?;
+            *ctx.is_dynamic_check_block_mut() = was_dynamic;
+            Ok(res)
+        }
+
 
 pub fn emit_pattern(
     ctx: &mut LoweringContext,

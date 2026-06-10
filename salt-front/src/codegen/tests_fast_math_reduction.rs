@@ -10,8 +10,6 @@
 //! update, causing LLVM to emit scalar lane extraction instead of vectorized
 //! fmla.4s (NEON) or vfmadd (x86) instructions.
 
-#[cfg(test)]
-use crate::z3_shim as z3;
 mod tests {
     use crate::grammar::SaltFile;
     use crate::codegen::context::CodegenContext;

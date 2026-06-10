@@ -1,8 +1,0 @@
---- lettuce/tests/dummy_ebr.c
-+++ lettuce/tests/dummy_ebr.c
-@@ -46,7 +46,6 @@
-                 *(uint64_t*)(comp_base + comp_slot + 16) = read_len;
-             } else if (op == 3) { // OP_WRITE
--                printf("dummy_ebr: OP_WRITE, pos=%llu, ptr=%llu, size=%llu\n", fake_file_pos, arg_ptr, arg_size);
-                 memcpy(fake_file_buf + fake_file_pos, (void*)arg_ptr, arg_size);
-                 fake_file_pos += arg_size;

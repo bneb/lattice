@@ -94,10 +94,15 @@ pub fn alloc(size: u64, align: u64) -> u64
         padding = align - remainder;
     }
 
+    // Z3 Mathematical Firewall & Integer Overflow fix: bounds check
+    let MAX_U64: u64 = 0xFFFFFFFFFFFFFFFF;
+    if size > MAX_U64 - padding {
+        return 0; // OOM - Integer Overflow protection
+    }
+    
     let total_size = size + padding;
 
-    // Z3 Mathematical Firewall: bounds check
-    if ARENA_OFFSET + total_size > ARENA_CAPACITY {
+    if total_size > ARENA_CAPACITY - ARENA_OFFSET {
         return 0;  // OOM — return null pointer
     }
 

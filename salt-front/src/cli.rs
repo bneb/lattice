@@ -1,7 +1,25 @@
 use std::fs;
 use std::path::PathBuf;
 
-pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
+
+pub struct CliConfig {
+    pub path: String,
+    pub output_path: Option<String>,
+    pub release_mode: bool,
+    pub skip_scan: bool,
+    pub vverify: bool,
+    pub binary_mode: bool,
+    pub object_mode: bool,
+    pub disable_alias_scopes: bool,
+    pub no_verify: bool,
+    pub lib_mode: bool,
+    pub sip_mode: bool,
+    pub debug_info: bool,
+    pub emit_sir: bool,
+    pub target_name: Option<String>,
+}
+
+pub fn parse_args(args: Vec<String>) -> anyhow::Result<Option<CliConfig>> {
     let mut path_opt: Option<String> = None;
     let mut output_path: Option<String> = None;
     let mut release_mode = false;
@@ -40,21 +58,19 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
             println!("  --emit-sir  Emit SIR (Salt Intermediate Representation) as JSON alongside MLIR");
             println!("  --danger-no-verify  Skip ALL Z3/ownership verification (NOT for production)");
             println!("  -o <path>    Output path (MLIR or binary)");
-            return Ok(());
+            return Ok(None);
         } else if arg == "--skip-scan" {
             skip_scan = true;
         } else if arg == "--vverify" || arg == "--verify" {
             vverify = true;
         } else if arg == "--bench" {
-            // Benchmark mode (release implied)
             release_mode = true; 
         } else if arg == "--binary" {
-            // KeuOS binary mode: full MLIR → native pipeline
             binary_mode = true;
-            release_mode = true; // Binary mode implies release
+            release_mode = true;
         } else if arg == "-c" {
             object_mode = true;
-            release_mode = true; // Object mode implies release
+            release_mode = true;
         } else if arg == "--target" {
             if i + 1 < args.len() {
                 target_name = Some(args[i+1].clone());
@@ -88,7 +104,7 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
             lib_mode = true;
         } else if arg == "--sip" {
             sip_mode = true;
-            lib_mode = true; // SIPs are always libraries (no kernel main)
+            lib_mode = true;
         } else if arg == "--emit-sir" {
             emit_sir = true;
         } else if arg == "-g" || arg == "--debug-info" {
@@ -112,207 +128,226 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
         Some(p) => p,
         None => {
             println!("Usage: salt-front <file.salt> [-o output] [--release] [--binary] [-c] [--target <target>] [--lib] [-g] [--skip-scan] [--verify] [--no-verify] [--disable-alias-scopes]");
-            return Ok(());
+            return Ok(None);
         }
     };
 
-    let code = fs::read_to_string(&path).map_err(|e| {
-        anyhow::anyhow!("Failed to read source file '{}': {}", path, e)
+    Ok(Some(CliConfig {
+        path,
+        output_path,
+        release_mode,
+        skip_scan,
+        vverify,
+        binary_mode,
+        object_mode,
+        disable_alias_scopes,
+        no_verify,
+        lib_mode,
+        sip_mode,
+        debug_info,
+        emit_sir,
+        target_name,
+    }))
+}
+
+fn emit_sir_file(file: &crate::grammar::SaltFile, module_name: &str, output_path: Option<&str>) {
+    use crate::codegen::sir::types::*;
+    use crate::codegen::sir::sir_emit::*;
+
+    let sir_module = extract_sir_from_ast(file, module_name);
+    let sir_json = sir_module.to_json();
+    let sir_path = output_path
+        .map(|p| format!("{}.sir.json", p.trim_end_matches(".mlir")))
+        .unwrap_or_else(|| format!("{}.sir.json", module_name));
+
+    if let Err(e) = std::fs::write(&sir_path, &sir_json) {
+        eprintln!("⚠️  SIR emission failed: {}", e);
+    } else {
+        eprintln!("📋 SIR emitted: {} ({} structs, {} functions, v{})",
+            sir_path, sir_module.structs.len(), sir_module.functions.len(), SIR_VERSION);
+    }
+}
+
+fn handle_binary_synthesis(mlir: &str, basename: &str, config: &CliConfig) {
+    let output_bin = config.output_path
+        .as_ref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(basename));
+    
+    let build_dir = std::env::temp_dir().join("salt-build");
+    let mut driver = crate::driver::SaltDriver::new(build_dir);
+    if let Some(ref t) = config.target_name {
+        let t_parsed = crate::driver::DriverTarget::from_str(t)
+            .unwrap_or_else(|| {
+                eprintln!("❌ Unknown target: '{}'. Valid: macos, linux-arm64, keuos, keuos-x86_64", t);
+                std::process::exit(1);
+            });
+        driver = driver.with_target(t_parsed);
+    }
+    
+    eprintln!("🏛️  [KeuOS] Driving MLIR → native binary...");
+    eprintln!("    Target: {:?}", driver.target);
+    
+    let is_keuos = matches!(driver.target,
+        crate::driver::DriverTarget::KeuOSArm64 |
+        crate::driver::DriverTarget::KeuOSX86_64
+    );
+
+    let compile_result = if is_keuos {
+        eprintln!("    Linker: ld.lld (freestanding ELF)");
+        driver.compile_keuos_binary(mlir, basename)
+    } else {
+        eprintln!("    Runtime: {:?}", driver.runtime_obj);
+        driver.compile(mlir, basename)
+    };
+
+    match compile_result {
+        Ok(produced_path) => {
+            if produced_path != output_bin {
+                if let Err(e) = std::fs::copy(&produced_path, &output_bin) {
+                    eprintln!("❌ Failed to copy binary to {:?}: {}", output_bin, e);
+                    std::process::exit(1);
+                }
+            }
+            
+            eprintln!("⚖️  [KeuOS] Running KeuOS Audit...");
+            if let Ok(output) = std::process::Command::new("otool").arg("-tV").arg(&output_bin).output() {
+                let disasm = String::from_utf8_lossy(&output.stdout);
+                let audit_config = crate::codegen::passes::binary_audit::BinaryAuditConfig::standard(
+                    crate::codegen::passes::io_backend::TargetPlatform::Darwin
+                );
+                let results = crate::codegen::passes::binary_audit::run_audit(&audit_config, &disasm);
+                let mut all_passed = true;
+                for res in results {
+                    if !res.passed {
+                        all_passed = false;
+                        eprintln!("    ❌ Rule failed: {:?}", res.rule);
+                        eprintln!("       {}", res.detail);
+                    }
+                }
+                if all_passed {
+                    eprintln!("    ✅ Audit passed.");
+                } else {
+                    eprintln!("    ⚠️ Audit found violations.");
+                }
+            } else {
+                eprintln!("    ⚠️ Could not run otool to audit binary.");
+            }
+            eprintln!("✅  [KeuOS] Binary synthesized: {:?}", output_bin);
+            eprintln!("    Pipeline: mlir-opt → mlir-translate → llc (x19 reserved) → clang (-nostdlib)");
+        }
+        Err(e) => {
+            eprintln!("❌  [KeuOS] Binary synthesis failed: {}", e);
+            eprintln!("    Ensure LLVM tools are installed at /opt/homebrew/opt/llvm/bin/");
+            eprintln!("    Ensure keuos_rt.o is built (cd keuos_rt && make)");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn handle_object_synthesis(mlir: &str, basename: &str, config: &CliConfig) {
+    let output_obj = config.output_path
+        .as_ref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(format!("{}.o", basename)));
+
+    let build_dir = std::env::temp_dir().join("salt-build");
+    let mut driver = crate::driver::SaltDriver::new(build_dir)
+        .with_debug_info(config.debug_info);
+    if let Some(ref t) = config.target_name {
+        let t_parsed = crate::driver::DriverTarget::from_str(t)
+            .unwrap_or_else(|| {
+                eprintln!("❌ Unknown target: '{}'. Valid: macos, linux-arm64, keuos, keuos-x86_64", t);
+                std::process::exit(1);
+            });
+        driver = driver.with_target(t_parsed);
+    }
+
+    eprintln!("🔧 [Object] Compiling to .o...");
+
+    match driver.compile_object(mlir, basename) {
+        Ok(produced_path) => {
+            if produced_path != output_obj {
+                if let Err(e) = std::fs::copy(&produced_path, &output_obj) {
+                    eprintln!("❌ Failed to copy object to {:?}: {}", output_obj, e);
+                    std::process::exit(1);
+                }
+            }
+            eprintln!("✅ Object file: {:?}", output_obj);
+        }
+        Err(e) => {
+            eprintln!("❌ Object compilation failed: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+
+pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
+    let config = match parse_args(args)? {
+        Some(c) => c,
+        None => return Ok(()),
+    };
+
+    let code = fs::read_to_string(&config.path).map_err(|e| {
+        anyhow::anyhow!("Failed to read source file '{}': {}", config.path, e)
     })?;
 
     let processed = crate::preprocess(&code);
     let mut file: crate::grammar::SaltFile = syn::parse_str(&processed)?;
 
-    // Load dependencies
     let mut registry = crate::registry::Registry::new();
-    
-    // Pre-register main to avoid infinite recursion if any dependencies import it
     let main_pkg = if let Some(pkg) = &file.package {
         pkg.name.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(".")
     } else {
         "main".to_string()
     };
-    
     registry.register(crate::registry::ModuleInfo::new(&main_pkg));
 
-    // [PRELUDE] Inject implicit stdlib imports for built-in types.
-    // Ptr<T> is a built-in type whose methods (write, read, offset) live in std/core/ptr.salt.
-    // Without this import, standalone files can use Ptr<T> but can't call its methods.
-    // This acts as Salt's implicit prelude, similar to Rust's std::prelude.
-    {
-        let prelude_imports = [
-            "use std::core::ptr::*;",
-        ];
-        for import_str in &prelude_imports {
-            let processed = crate::preprocess(import_str);
-            if let Ok(parsed) = syn::parse_str::<crate::grammar::SaltFile>(&processed) {
-                file.imports.extend(parsed.imports);
-            }
+    let prelude_imports = [
+        "use std::core::ptr::*;",
+    ];
+    for import_str in &prelude_imports {
+        let processed = crate::preprocess(import_str);
+        if let Ok(parsed) = syn::parse_str::<crate::grammar::SaltFile>(&processed) {
+            file.imports.extend(parsed.imports);
         }
     }
 
     load_imports(&file, &mut registry);
 
-    match crate::compile_ast(&mut file, release_mode, Some(&registry), skip_scan, vverify, disable_alias_scopes, no_verify, lib_mode, sip_mode, debug_info, &path) {
+    match crate::compile_ast(&mut file, config.release_mode, Some(&registry), config.skip_scan, config.vverify, config.disable_alias_scopes, config.no_verify, config.lib_mode, config.sip_mode, config.debug_info, &config.path) {
         Ok(mlir) => {
-            // SIR emission (if requested)
-            if emit_sir {
-                use crate::codegen::sir::types::*;
-                use crate::codegen::sir::sir_emit::*;
+            let basename = std::path::Path::new(&config.path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("output");
 
-                let module_name = std::path::Path::new(&path)
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("module");
-
-                let sir_module = extract_sir_from_ast(&file, module_name);
-
-                let sir_json = sir_module.to_json();
-                let sir_path = output_path.as_deref()
-                    .map(|p| format!("{}.sir.json", p.trim_end_matches(".mlir")))
-                    .unwrap_or_else(|| format!("{}.sir.json", module_name));
-
-                if let Err(e) = fs::write(&sir_path, &sir_json) {
-                    eprintln!("⚠️  SIR emission failed: {}", e);
-                } else {
-                    eprintln!("📋 SIR emitted: {} ({} structs, {} functions, v{})",
-                        sir_path, sir_module.structs.len(), sir_module.functions.len(), SIR_VERSION);
-                }
+            if config.emit_sir {
+                emit_sir_file(&file, basename, config.output_path.as_deref());
             }
-            if binary_mode {
-                // ============================================================
-                // KEUOS BINARY MODE — Full MLIR → Native Pipeline
-                // ============================================================
-                let basename = std::path::Path::new(&path)
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("output");
-                
-                let output_bin = output_path
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| PathBuf::from(basename));
-                
-                let build_dir = std::env::temp_dir().join("salt-build");
-                let mut driver = crate::driver::SaltDriver::new(build_dir);
-                if let Some(ref t) = target_name {
-                    driver = driver.with_target(
-                        crate::driver::DriverTarget::from_str(t)
-                            .ok_or_else(|| anyhow::anyhow!("Unknown target: '{}'. Valid: macos, linux-arm64, keuos, keuos-x86_64", t))?
-                    );
-                }
-                
-                eprintln!("🏛️  [KeuOS] Driving MLIR → native binary...");
-                eprintln!("    Target: {:?}", driver.target);
-                
-                let is_keuos = matches!(driver.target,
-                    crate::driver::DriverTarget::KeuOSArm64 |
-                    crate::driver::DriverTarget::KeuOSX86_64
-                );
 
-                let compile_result = if is_keuos {
-                    eprintln!("    Linker: ld.lld (freestanding ELF)");
-                    driver.compile_keuos_binary(&mlir, basename)
-                } else {
-                    eprintln!("    Runtime: {:?}", driver.runtime_obj);
-                    driver.compile(&mlir, basename)
-                };
-
-                match compile_result {
-                    Ok(produced_path) => {
-                        // Copy to requested output path if different
-                        if produced_path != output_bin {
-                            fs::copy(&produced_path, &output_bin).map_err(|e| {
-                                anyhow::anyhow!("Failed to copy binary to {:?}: {}", output_bin, e)
-                            })?;
-                        }
-                        
-                        // Post-compilation KeuOS Audit
-                        eprintln!("⚖️  [KeuOS] Running KeuOS Audit...");
-                        if let Ok(output) = std::process::Command::new("otool").arg("-tV").arg(&output_bin).output() {
-                            let disasm = String::from_utf8_lossy(&output.stdout);
-                            let config = crate::codegen::passes::binary_audit::BinaryAuditConfig::standard(
-                                crate::codegen::passes::io_backend::TargetPlatform::Darwin
-                            );
-                            let results = crate::codegen::passes::binary_audit::run_audit(&config, &disasm);
-                            let mut all_passed = true;
-                            for res in results {
-                                if !res.passed {
-                                    all_passed = false;
-                                    eprintln!("    ❌ Rule failed: {:?}", res.rule);
-                                    eprintln!("       {}", res.detail);
-                                }
-                            }
-                            if all_passed {
-                                eprintln!("    ✅ Audit passed.");
-                            } else {
-                                eprintln!("    ⚠️ Audit found violations.");
-                            }
-                        } else {
-                            eprintln!("    ⚠️ Could not run otool to audit binary.");
-                        }
-                        eprintln!("✅  [KeuOS] Binary synthesized: {:?}", output_bin);
-                        eprintln!("    Pipeline: mlir-opt → mlir-translate → llc (x19 reserved) → clang (-nostdlib)");
-                    }
-                    Err(e) => {
-                        eprintln!("❌  [KeuOS] Binary synthesis failed: {}", e);
-                        eprintln!("    Ensure LLVM tools are installed at /opt/homebrew/opt/llvm/bin/");
-                        eprintln!("    Ensure keuos_rt.o is built (cd keuos_rt && make)");
-                        std::process::exit(1);
-                    }
-                }
-            } else if object_mode {
-                // ============================================================
-                // OBJECT MODE — MLIR → .o (like clang -c)
-                // ============================================================
-                let basename = std::path::Path::new(&path)
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("output");
-
-                let output_obj = output_path
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| PathBuf::from(format!("{}.o", basename)));
-
-                let build_dir = std::env::temp_dir().join("salt-build");
-                let mut driver = crate::driver::SaltDriver::new(build_dir)
-                    .with_debug_info(debug_info);
-                if let Some(ref t) = target_name {
-                    driver = driver.with_target(
-                        crate::driver::DriverTarget::from_str(t)
-                            .ok_or_else(|| anyhow::anyhow!("Unknown target: '{}'. Valid: macos, linux-arm64, keuos, keuos-x86_64", t))?
-                    );
-                }
-
-                eprintln!("🔧 [Object] Compiling to .o...");
-
-                match driver.compile_object(&mlir, basename) {
-                    Ok(produced_path) => {
-                        if produced_path != output_obj {
-                            fs::copy(&produced_path, &output_obj).map_err(|e| {
-                                anyhow::anyhow!("Failed to copy object to {:?}: {}", output_obj, e)
-                            })?;
-                        }
-                        eprintln!("✅ Object file: {:?}", output_obj);
-                    }
-                    Err(e) => {
-                        eprintln!("❌ Object compilation failed: {}", e);
-                        std::process::exit(1);
-                    }
-                }
-            } else if let Some(out_p) = output_path {
-                fs::write(out_p, mlir)?;
+            if config.binary_mode {
+                handle_binary_synthesis(&mlir, basename, &config);
+            } else if config.object_mode {
+                handle_object_synthesis(&mlir, basename, &config);
             } else {
-                println!("{}", mlir);
+                let out_p = config.output_path.clone().unwrap_or_else(|| "out.mlir".to_string());
+                fs::write(&out_p, &mlir).map_err(|e| anyhow::anyhow!("Failed to write MLIR: {}", e))?;
+                eprintln!("✅ MLIR compiled successfully.");
+                eprintln!("📄 Wrote MLIR to: {}", out_p);
             }
-        },
+        }
         Err(e) => {
-            eprintln!("Error: {}", e);
+            eprintln!("❌ Compilation failed:");
+            eprintln!("{}", e);
             std::process::exit(1);
         }
     }
 
     Ok(())
 }
+
 
 pub fn load_imports(file: &crate::grammar::SaltFile, registry: &mut crate::registry::Registry) {
     use crate::grammar::Item;

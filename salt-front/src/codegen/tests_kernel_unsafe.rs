@@ -4,8 +4,6 @@
 //! verification. This ticket extends unsafe block permission to kernel.*
 //! packages (in addition to std.*) and renames --no-verify.
 
-#[cfg(test)]
-use crate::z3_shim as z3;
 mod tests {
     use crate::grammar::SaltFile;
     use crate::codegen::context::CodegenContext;

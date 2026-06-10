@@ -641,148 +641,135 @@ pub const DEQUE_EMPTY: u64 = 0;
 // cores is safe — the stolen fiber's TLS-free context runs identically on
 // any core.
 // =============================================================================
-fn dispatch_stolen(cpu: u64, stolen_word: u64) {
-    // Decode: stolen_word encodes (victim_cpu << 32 | victim_slot)
-    // For the initial single-deque-per-core model, stolen_word IS the
-    // fiber slot index from the victim. The victim identity comes from
-    // steal_scan's iteration order. For now, we use a simplified encoding
-    // where the deque push stores (cpu << 16 | slot).
-    let victim_cpu = (stolen_word >> 16) & 0xFFFF;
-    let victim_slot = stolen_word & 0xFFFF;
+fn copy_fiber_context(cpu: u64, local_slot: u64, victim_cpu: u64, victim_slot: u64, bit: u64) {
+    SCHED_ARRAY[cpu].fibers[local_slot].step_fn    = SCHED_ARRAY[victim_cpu].fibers[victim_slot].step_fn;
+    SCHED_ARRAY[cpu].fibers[local_slot].ctx_ptr    = SCHED_ARRAY[victim_cpu].fibers[victim_slot].ctx_ptr;
+    SCHED_ARRAY[cpu].fibers[local_slot].task_frame = SCHED_ARRAY[victim_cpu].fibers[victim_slot].task_frame;
+    SCHED_ARRAY[cpu].fibers[local_slot].stack_ptr  = SCHED_ARRAY[victim_cpu].fibers[victim_slot].stack_ptr;
+    SCHED_ARRAY[cpu].fibers[local_slot].stack_base = SCHED_ARRAY[victim_cpu].fibers[victim_slot].stack_base;
+    SCHED_ARRAY[cpu].fibers[local_slot].id         = SCHED_ARRAY[victim_cpu].fibers[victim_slot].id;
+    SCHED_ARRAY[cpu].fibers[local_slot].ecs_entity_val = SCHED_ARRAY[victim_cpu].fibers[victim_slot].ecs_entity_val;
+    SCHED_ARRAY[cpu].fibers[local_slot].active     = 1;
 
-    // Guard: fiber must still be active (ABA protection)
-    if SCHED_ARRAY[victim_cpu].fibers[victim_slot].active == 0 {
-        return;  // Stale steal — fiber already completed or was re-stolen
+    SCHED_ARRAY[cpu].l1_summary = SCHED_ARRAY[cpu].l1_summary | bit;
+    SCHED_ARRAY[cpu].count = SCHED_ARRAY[cpu].count + 1;
+}
+
+fn clear_victim_slot(victim_cpu: u64, victim_slot: u64) {
+    let v_l1_idx = victim_slot / 64;
+    let v_l2_bit = victim_slot % 64;
+    let v_bit_mask: u64 = (1 as u64) << v_l2_bit;
+    let v_inv_mask: u64 = v_bit_mask ^ 0xFFFFFFFFFFFFFFFF;
+
+    let mut l2_success = false;
+    let mut l2_became_zero = false;
+    
+    while !l2_success {
+        let old_l2 = SCHED_ARRAY[victim_cpu].l2_details[v_l1_idx];
+        let new_l2 = old_l2 & v_inv_mask;
+        let cas_res = atomic_cas_i64(&SCHED_ARRAY[victim_cpu].l2_details[v_l1_idx], old_l2 as i64, new_l2 as i64) as u64;
+        if cas_res == old_l2 {
+            l2_success = true;
+            if new_l2 == 0 {
+                l2_became_zero = true;
+            }
+        } else {
+            spin_loop_hint();
+        }
     }
-
-    // Find a free local slot via inverted bitmap scan
-    let inv_bitmap = SCHED_ARRAY[cpu].l1_summary ^ 0xFFFFFFFFFFFFFFFF;
-    if inv_bitmap == 0 {
-        return;  // Local runqueue full — drop the steal
-    }
-    // Linear scan for first free bit (slot 0 reserved for idle)
-    let mut local_slot: u64 = 1;
-    let mut found: bool = false;
-    while local_slot < 64 {
-        let bit: u64 = (1 as u64) << local_slot;
-        if (SCHED_ARRAY[cpu].l1_summary & bit) == 0 {
-            found = true;
-            // break out by setting local_slot to exit value
-            // (Salt doesn't have break yet, use a flag)
-            let _done = true;
-            // Copy ALL fiber context fields
-            SCHED_ARRAY[cpu].fibers[local_slot].step_fn    = SCHED_ARRAY[victim_cpu].fibers[victim_slot].step_fn;
-            SCHED_ARRAY[cpu].fibers[local_slot].ctx_ptr    = SCHED_ARRAY[victim_cpu].fibers[victim_slot].ctx_ptr;
-            SCHED_ARRAY[cpu].fibers[local_slot].task_frame = SCHED_ARRAY[victim_cpu].fibers[victim_slot].task_frame;
-            SCHED_ARRAY[cpu].fibers[local_slot].stack_ptr  = SCHED_ARRAY[victim_cpu].fibers[victim_slot].stack_ptr;
-            SCHED_ARRAY[cpu].fibers[local_slot].stack_base = SCHED_ARRAY[victim_cpu].fibers[victim_slot].stack_base;
-            SCHED_ARRAY[cpu].fibers[local_slot].id         = SCHED_ARRAY[victim_cpu].fibers[victim_slot].id;
-            SCHED_ARRAY[cpu].fibers[local_slot].ecs_entity_val = SCHED_ARRAY[victim_cpu].fibers[victim_slot].ecs_entity_val;
-            SCHED_ARRAY[cpu].fibers[local_slot].active     = 1;
-
-            // Mark runnable in local bitmap
-            SCHED_ARRAY[cpu].l1_summary = SCHED_ARRAY[cpu].l1_summary | bit;
-            SCHED_ARRAY[cpu].count = SCHED_ARRAY[cpu].count + 1;
-
-            // SECURITY FIX: Clear victim's slot using atomic operations to prevent 
-            // concurrent corruption when victim_cpu schedules itself.
-            let v_l1_idx = victim_slot / 64;
-            let v_l2_bit = victim_slot % 64;
-            let v_bit_mask: u64 = (1 as u64) << v_l2_bit;
-            let v_inv_mask: u64 = v_bit_mask ^ 0xFFFFFFFFFFFFFFFF;
-
-            let mut l2_success = false;
-            let mut l2_became_zero = false;
-            
-            while !l2_success {
-                let old_l2 = SCHED_ARRAY[victim_cpu].l2_details[v_l1_idx];
-                let new_l2 = old_l2 & v_inv_mask;
-                let cas_res = atomic_cas_i64(&SCHED_ARRAY[victim_cpu].l2_details[v_l1_idx], old_l2 as i64, new_l2 as i64) as u64;
-                if cas_res == old_l2 {
-                    l2_success = true;
-                    if new_l2 == 0 {
-                        l2_became_zero = true;
-                    }
+    
+    if l2_became_zero {
+        let v_group_mask: u64 = (1 as u64) << v_l1_idx;
+        let v_inv_group: u64 = v_group_mask ^ 0xFFFFFFFFFFFFFFFF;
+        let mut l1_success = false;
+        
+        while !l1_success {
+            let current_l2 = SCHED_ARRAY[victim_cpu].l2_details[v_l1_idx];
+            if current_l2 != 0 {
+                l1_success = true;
+            } else {
+                let old_l1 = SCHED_ARRAY[victim_cpu].l1_summary;
+                let new_l1 = old_l1 & v_inv_group;
+                let cas_res = atomic_cas_i64(&SCHED_ARRAY[victim_cpu].l1_summary, old_l1 as i64, new_l1 as i64) as u64;
+                if cas_res == old_l1 {
+                    l1_success = true;
                 } else {
                     spin_loop_hint();
                 }
             }
-            
-            if l2_became_zero {
-                let v_group_mask: u64 = (1 as u64) << v_l1_idx;
-                let v_inv_group: u64 = v_group_mask ^ 0xFFFFFFFFFFFFFFFF;
-                let mut l1_success = false;
-                
-                while !l1_success {
-                    // Double check l2_details before clearing L1
-                    let current_l2 = SCHED_ARRAY[victim_cpu].l2_details[v_l1_idx];
-                    if current_l2 != 0 {
-                        l1_success = true;
-                    } else {
-                        let old_l1 = SCHED_ARRAY[victim_cpu].l1_summary;
-                        let new_l1 = old_l1 & v_inv_group;
-                        let cas_res = atomic_cas_i64(&SCHED_ARRAY[victim_cpu].l1_summary, old_l1 as i64, new_l1 as i64) as u64;
-                        if cas_res == old_l1 {
-                            l1_success = true;
-                        } else {
-                            spin_loop_hint();
-                        }
-                    }
-                }
-            }
-            
-            // Atomically clear the active flag (we know it's currently 1)
-            atomic_cas_i64(&SCHED_ARRAY[victim_cpu].fibers[victim_slot].active, 1 as i64, 0 as i64);
-            
-            SCHED_ARRAY[victim_cpu].fibers[victim_slot].ecs_entity_val = 0;
-            atomic_add_i64(&SCHED_ARRAY[victim_cpu].count, -1 as i64);
+        }
+    }
+    
+    atomic_cas_i64(&SCHED_ARRAY[victim_cpu].fibers[victim_slot].active, 1 as i64, 0 as i64);
+    SCHED_ARRAY[victim_cpu].fibers[victim_slot].ecs_entity_val = 0;
+    atomic_add_i64(&SCHED_ARRAY[victim_cpu].count, -1 as i64);
+}
 
-            // Dispatch: invoke the stolen fiber via its step_fn
-            // The step_fn is the compiler-emitted async step function.
-            // ctx_ptr is the unified context (task_frame for async, stack_ptr for preemptive).
-            let step = SCHED_ARRAY[cpu].fibers[local_slot].step_fn;
-            let ctx = SCHED_ARRAY[cpu].fibers[local_slot].ctx_ptr;
-            let ecs_val = SCHED_ARRAY[cpu].fibers[local_slot].ecs_entity_val;
-            
-            if step != 0 {
-                ecs_bridge_set_thread_status(ecs_val, 2); // THREAD_RUNNING
-                let status = invoke_task(step, ctx);
-                
-                if status == POLL_READY {
-                    ecs_bridge_destroy_thread(ecs_val);
-                    SCHED_ARRAY[cpu].fibers[local_slot].active = 0;
-                    SCHED_ARRAY[cpu].fibers[local_slot].step_fn = 0;
-                    SCHED_ARRAY[cpu].fibers[local_slot].ctx_ptr = 0;
-                    SCHED_ARRAY[cpu].fibers[local_slot].ecs_entity_val = 0;
+fn execute_stolen_fiber(cpu: u64, local_slot: u64, bit: u64) {
+    let step = SCHED_ARRAY[cpu].fibers[local_slot].step_fn;
+    let ctx = SCHED_ARRAY[cpu].fibers[local_slot].ctx_ptr;
+    let ecs_val = SCHED_ARRAY[cpu].fibers[local_slot].ecs_entity_val;
+    
+    if step == 0 { return; }
+    
+    ecs_bridge_set_thread_status(ecs_val, 2); // THREAD_RUNNING
+    let status = invoke_task(step, ctx);
+    
+    if status == POLL_READY {
+        ecs_bridge_destroy_thread(ecs_val);
+        SCHED_ARRAY[cpu].fibers[local_slot].active = 0;
+        SCHED_ARRAY[cpu].fibers[local_slot].step_fn = 0;
+        SCHED_ARRAY[cpu].fibers[local_slot].ctx_ptr = 0;
+        SCHED_ARRAY[cpu].fibers[local_slot].ecs_entity_val = 0;
 
-                    let tf = SCHED_ARRAY[cpu].fibers[local_slot].task_frame;
-                    if tf != 0 {
-                        SCHED_ARRAY[cpu].fibers[local_slot].task_frame = 0;
-                        vmm.vmm_set_present(tf);
-                        push_stack(tf);
-                    }
-                    let sb = SCHED_ARRAY[cpu].fibers[local_slot].stack_base;
-                    if sb != 0 {
-                        SCHED_ARRAY[cpu].fibers[local_slot].stack_base = 0;
-                        SCHED_ARRAY[cpu].fibers[local_slot].stack_ptr = 0;
-                        vmm.vmm_set_present(sb);
-                        push_stack(sb);
-                    }
-                    
-                    let inv_bit: u64 = bit ^ 0xFFFFFFFFFFFFFFFF;
-                    SCHED_ARRAY[cpu].l1_summary = SCHED_ARRAY[cpu].l1_summary & inv_bit;
-                    SCHED_ARRAY[cpu].count = SCHED_ARRAY[cpu].count - 1;
-                } else {
-                    ecs_bridge_set_thread_status(ecs_val, 1); // THREAD_RUNNABLE
-                    let saved_rsp = read_gs_u64(56);
-                    if saved_rsp != 0 {
-                        SCHED_ARRAY[cpu].fibers[local_slot].stack_ptr = saved_rsp;
-                        SCHED_ARRAY[cpu].fibers[local_slot].ctx_ptr = saved_rsp;
-                        write_gs_u64(56, 0); // CLEAR IT here too
-                    }
-                }
-            }
+        let tf = SCHED_ARRAY[cpu].fibers[local_slot].task_frame;
+        if tf != 0 {
+            SCHED_ARRAY[cpu].fibers[local_slot].task_frame = 0;
+            vmm.vmm_set_present(tf);
+            push_stack(tf);
+        }
+        let sb = SCHED_ARRAY[cpu].fibers[local_slot].stack_base;
+        if sb != 0 {
+            SCHED_ARRAY[cpu].fibers[local_slot].stack_base = 0;
+            SCHED_ARRAY[cpu].fibers[local_slot].stack_ptr = 0;
+            vmm.vmm_set_present(sb);
+            push_stack(sb);
+        }
+        
+        let inv_bit: u64 = bit ^ 0xFFFFFFFFFFFFFFFF;
+        SCHED_ARRAY[cpu].l1_summary = SCHED_ARRAY[cpu].l1_summary & inv_bit;
+        SCHED_ARRAY[cpu].count = SCHED_ARRAY[cpu].count - 1;
+    } else {
+        ecs_bridge_set_thread_status(ecs_val, 1); // THREAD_RUNNABLE
+        let saved_rsp = read_gs_u64(56);
+        if saved_rsp != 0 {
+            SCHED_ARRAY[cpu].fibers[local_slot].stack_ptr = saved_rsp;
+            SCHED_ARRAY[cpu].fibers[local_slot].ctx_ptr = saved_rsp;
+            write_gs_u64(56, 0); // CLEAR IT here too
+        }
+    }
+}
 
+fn dispatch_stolen(cpu: u64, stolen_word: u64) {
+    let victim_cpu = (stolen_word >> 16) & 0xFFFF;
+    let victim_slot = stolen_word & 0xFFFF;
+
+    if SCHED_ARRAY[victim_cpu].fibers[victim_slot].active == 0 {
+        return;
+    }
+
+    let inv_bitmap = SCHED_ARRAY[cpu].l1_summary ^ 0xFFFFFFFFFFFFFFFF;
+    if inv_bitmap == 0 {
+        return;
+    }
+
+    let mut local_slot: u64 = 1;
+    while local_slot < 64 {
+        let bit: u64 = (1 as u64) << local_slot;
+        if (SCHED_ARRAY[cpu].l1_summary & bit) == 0 {
+            copy_fiber_context(cpu, local_slot, victim_cpu, victim_slot, bit);
+            clear_victim_slot(victim_cpu, victim_slot);
+            execute_stolen_fiber(cpu, local_slot, bit);
             return;
         }
         local_slot = local_slot + 1;

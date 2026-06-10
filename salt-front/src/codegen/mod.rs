@@ -118,7 +118,7 @@ mod tests_ring_abi;
 #[cfg(test)]
 mod tests_negative_verification;
 use crate::grammar::{SaltFile, Item, SaltFn, SaltImpl, ExternFnDecl, SaltConcept, SaltTrait};
-use crate::codegen::context::{CodegenContext, LocalKind, GenericContextGuard};
+use crate::codegen::context::{CodegenContext, GenericContextGuard};
 use crate::codegen::stmt::emit_block;
 use crate::codegen::module_loader::ModuleLoader;
 use crate::common::mangling::Mangler;
@@ -127,111 +127,130 @@ use crate::types::Type;
 use crate::registry::Registry;
 use std::collections::{HashMap, HashSet};
     pub fn emit_mlir(file: &mut SaltFile, release_mode: bool, _registry: Option<&Registry>, _skip_scan: bool, no_verify: bool, disable_alias_scopes: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> Result<String, String> {
-    // 1. Recursive Module Loading
-    let mut loader_registry = Registry::new();
-    let mut loader = ModuleLoader::new(vec![
-        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
-        std::path::PathBuf::from("."),
-        std::path::PathBuf::from(".."),
-        std::path::PathBuf::from("../std"),
-        std::path::PathBuf::from("../../std"),
-    ]);
-    for imp in &file.get_use_namespaces() {
-        if let Err(e) = loader.load_module(imp, &mut loader_registry) {
-            eprintln!("Warning: Failed to load module '{}': {}", imp, e);
-        }
+        let (mut loader, loader_registry) = load_modules(file)?;
+        
+        resolve_names(file, &mut loader)?;
+
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
+        
+        let mut ctx = CodegenContext::new(file, release_mode, Some(&loader_registry), &z3_ctx);
+
+        initialize_context(&mut ctx, file, &loader, no_verify, disable_alias_scopes, lib_mode, sip_mode, debug_info, source_file);
+
+        register_all_templates_and_signatures(&ctx, file, &loader)?;
+
+        scan_definitions(&mut ctx, file, &loader)?;
+
+        let call_graph_analyzer = run_call_graph_analysis(file, release_mode);
+
+        run_pulse_analysis(&mut ctx, file, &call_graph_analyzer, release_mode);
+
+        run_liveness_analysis(&mut ctx, file, release_mode);
+
+        lower_state_machines(&mut ctx, file);
+
+        ctx.drive_codegen()
     }
-    
-    
 
-
-    // 1.5. AST-to-HIR Name Resolution Pass
-    let mut global_types = HashSet::new();
-    let collect_globals = |f: &SaltFile, globals: &mut HashSet<String>| {
-        let pkg_prefix = if let Some(pkg) = &f.package {
-            Mangler::mangle(&pkg.name.iter().map(|id| id.to_string()).collect::<Vec<_>>())
-        } else {
-            String::new()
-        };
-        for item in &f.items {
-            let name = match item {
-                Item::Struct(s) => Some(&s.name),
-                Item::Enum(e) => Some(&e.name),
-                Item::Trait(t) => Some(&t.name),
-                Item::Concept(c) => Some(&c.name),
-                _ => None,
-            };
-            if let Some(id) = name {
-                let fqn = if pkg_prefix.is_empty() { id.to_string() } else { format!("{}__{}", pkg_prefix, id) };
-                globals.insert(fqn);
+    fn load_modules(file: &SaltFile) -> Result<(ModuleLoader, Registry), String> {
+        let mut loader_registry = Registry::new();
+        let mut loader = ModuleLoader::new(vec![
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+            std::path::PathBuf::from("."),
+            std::path::PathBuf::from(".."),
+            std::path::PathBuf::from("../std"),
+            std::path::PathBuf::from("../../std"),
+        ]);
+        for imp in &file.get_use_namespaces() {
+            if let Err(e) = loader.load_module(imp, &mut loader_registry) {
+                eprintln!("Warning: Failed to load module '{}': {}", imp, e);
             }
         }
-    };
-    
-    for (_, ast) in &loader.loaded_files {
-        collect_globals(ast, &mut global_types);
+        Ok((loader, loader_registry))
     }
-    collect_globals(file, &mut global_types);
 
-    for (_, ast) in loader.loaded_files.iter_mut() {
-        crate::codegen::phases::resolution::name_resolver::NameResolver::resolve_file(ast, &global_types);
-    }
-    crate::codegen::phases::resolution::name_resolver::NameResolver::resolve_file(file, &global_types);
-
-    let z3_cfg = crate::z3_shim::Config::new();
-    let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
-    
-    // Initialize Context
-    let mut ctx = CodegenContext::new(file, release_mode, Some(&loader_registry), &z3_ctx);
-
-    // [SALT MEMORY MODEL] Pre-compute Interprocedural Call Graph Purity
-    let mut all_files = Vec::new();
-    for (_, ast) in &loader.loaded_files {
-        all_files.push(ast);
-    }
-    all_files.push(file);
-    ctx.freeing_functions = crate::codegen::phases::purity::PurityAnalyzer::analyze(&all_files);
-
-    ctx.emit_alias_scopes = !disable_alias_scopes;
-    ctx.no_verify = no_verify;
-    ctx.lib_mode = lib_mode;
-    ctx.sip_mode = sip_mode;
-    ctx.debug_info = debug_info;
-    ctx.source_file = source_file.to_string();
-    ctx.register_builtins();
-    
-    // 0. Pre-Scanning & Registration Phase (Multi-module awareness)
-    for (_, ast) in &loader.loaded_files {
-        register_templates(&ctx, ast)?;
-    }
-    register_templates(&ctx, file)?;
-
-    for (_, ast) in &loader.loaded_files {
-        register_signatures(&ctx, ast)?;
-    }
-    register_signatures(&ctx, file)?;
-    
-    // Init Definition Check
-    let dep_order = loader.get_compilation_order().map_err(|e| e)?;
-    ctx.init_registry_definitions();
-    for ns in &dep_order {
-        if let Some(f) = loader.loaded_files.get(ns) {
-             ctx.scan_defs_from_file(f, false)?;
+    fn resolve_names(file: &mut SaltFile, loader: &mut ModuleLoader) -> Result<(), String> {
+        let mut global_types = HashSet::new();
+        let collect_globals = |f: &SaltFile, globals: &mut HashSet<String>| {
+            let pkg_prefix = if let Some(pkg) = &f.package {
+                Mangler::mangle(&pkg.name.iter().map(|id| id.to_string()).collect::<Vec<_>>())
+            } else {
+                String::new()
+            };
+            for item in &f.items {
+                let name = match item {
+                    Item::Struct(s) => Some(&s.name),
+                    Item::Enum(e) => Some(&e.name),
+                    Item::Trait(t) => Some(&t.name),
+                    Item::Concept(c) => Some(&c.name),
+                    _ => None,
+                };
+                if let Some(id) = name {
+                    let fqn = if pkg_prefix.is_empty() { id.to_string() } else { format!("{}__{}", pkg_prefix, id) };
+                    globals.insert(fqn);
+                }
+            }
+        };
+        
+        for (_, ast) in &loader.loaded_files {
+            collect_globals(ast, &mut global_types);
         }
+        collect_globals(file, &mut global_types);
+
+        for (_, ast) in loader.loaded_files.iter_mut() {
+            crate::codegen::phases::resolution::name_resolver::NameResolver::resolve_file(ast, &global_types);
+        }
+        crate::codegen::phases::resolution::name_resolver::NameResolver::resolve_file(file, &global_types);
+        Ok(())
     }
-    ctx.scan_defs_from_file(file, true)?;
-    
-    // =========================================================================
-    // [KEUOS V2.0] Call Graph Analysis Phase
-    // Fixed-point propagation of @blocking and @pulse attributes through
-    // the call graph. Replaces heuristic I/O detection.
-    // =========================================================================
-    let call_graph_analysis;
-    let call_graph_analyzer;
-    {
+
+    fn initialize_context<'a>(ctx: &mut CodegenContext<'a>, file: &SaltFile, loader: &ModuleLoader, no_verify: bool, disable_alias_scopes: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) {
+        let mut all_files = Vec::new();
+        for (_, ast) in &loader.loaded_files {
+            all_files.push(ast);
+        }
+        all_files.push(file);
+        ctx.freeing_functions = crate::codegen::phases::purity::PurityAnalyzer::analyze(&all_files);
+
+        ctx.emit_alias_scopes = !disable_alias_scopes;
+        ctx.no_verify = no_verify;
+        ctx.lib_mode = lib_mode;
+        ctx.sip_mode = sip_mode;
+        ctx.debug_info = debug_info;
+        ctx.source_file = source_file.to_string();
+        ctx.register_builtins();
+    }
+
+    fn register_all_templates_and_signatures(ctx: &CodegenContext, file: &SaltFile, loader: &ModuleLoader) -> Result<(), String> {
+        for (_, ast) in &loader.loaded_files {
+            register_templates(ctx, ast)?;
+        }
+        register_templates(ctx, file)?;
+
+        for (_, ast) in &loader.loaded_files {
+            register_signatures(ctx, ast)?;
+        }
+        register_signatures(ctx, file)?;
+        Ok(())
+    }
+
+    fn scan_definitions(ctx: &mut CodegenContext, file: &SaltFile, loader: &ModuleLoader) -> Result<(), String> {
+        let dep_order = loader.get_compilation_order().map_err(|e| e)?;
+        ctx.init_registry_definitions();
+        for ns in &dep_order {
+            if let Some(f) = loader.loaded_files.get(ns) {
+                 ctx.scan_defs_from_file(f, false)?;
+            }
+        }
+        ctx.scan_defs_from_file(file, true)?;
+        Ok(())
+    }
+
+    fn run_call_graph_analysis(file: &SaltFile, release_mode: bool) -> passes::call_graph::CallGraphAnalyzer {
         use passes::call_graph::CallGraphAnalyzer;
         let mut cg = CallGraphAnalyzer::new();
-        call_graph_analysis = cg.analyze(file);
+        let call_graph_analysis = cg.analyze(file);
 
         if !release_mode {
             let blocking: Vec<&str> = call_graph_analysis.fn_attributes.iter()
@@ -243,30 +262,20 @@ use std::collections::{HashMap, HashSet};
             }
         }
 
-        // Report safety violations (pulse calling blocking without spawn)
         for v in &call_graph_analysis.violations {
             eprintln!(
                 "[KeuOS] WARNING: @pulse function '{}' transitively calls blocking '{}'\n  chain: {}",
                 v.pulse_fn, v.blocking_fn, v.call_chain.join(" → ")
             );
         }
-
-        call_graph_analyzer = cg;
+        cg
     }
 
-    // =========================================================================
-    // [KEUOS V2.0] Pulse Analysis Phase (now uses Call Graph)
-    // Analyze @pulse functions before code generation to:
-    // 1. Identify pulse frequencies and priority tiers
-    // 2. Mark functions that need Context injection (via call graph)
-    // 3. Detect blocking violations transitively
-    // =========================================================================
-    {
+    fn run_pulse_analysis(ctx: &mut CodegenContext, file: &SaltFile, call_graph_analyzer: &passes::call_graph::CallGraphAnalyzer, release_mode: bool) {
         use passes::pulse_injection::PulseInjectionContext;
         let mut pulse_ctx = PulseInjectionContext::new();
-        pulse_ctx.analyze_with_call_graph(file, &call_graph_analyzer);
+        pulse_ctx.analyze_with_call_graph(file, call_graph_analyzer);
         
-        // Log pulse functions found (debug mode only)
         if !release_mode && !pulse_ctx.pulse_info.is_empty() {
             eprintln!("[KeuOS] Found {} @pulse functions:", pulse_ctx.pulse_info.len());
             for info in &pulse_ctx.pulse_info {
@@ -274,20 +283,12 @@ use std::collections::{HashMap, HashSet};
             }
         }
         
-        // Store pulse context in codegen context for later use
-        // (The pulse_info is used during function emission for yield injection)
         for info in pulse_ctx.pulse_info {
             ctx.register_pulse_function(&info.name, info.frequency_hz, info.tier);
         }
     }
 
-    // =========================================================================
-    // [KEUOS V2.0] Cross-Yield Liveness Analysis Phase
-    // Run liveness analysis on @yielding/@pulse functions before codegen.
-    // Results stored for use during function emission.
-    // =========================================================================
-    {
-        use crate::grammar::Item;
+    fn run_liveness_analysis(ctx: &mut CodegenContext, file: &SaltFile, release_mode: bool) {
         use passes::liveness::CrossYieldAnalyzer;
 
         for item in &file.items {
@@ -308,12 +309,7 @@ use std::collections::{HashMap, HashSet};
         }
     }
 
-    // =========================================================================
-    // [PHASE 11] State Machine Lowering
-    // Convert @yielding functions into fully expanded state machines via HIR.
-    // =========================================================================
-    {
-        use crate::grammar::Item;
+    fn lower_state_machines(ctx: &mut CodegenContext, file: &SaltFile) {
         use crate::hir::lower::LoweringContext;
         use crate::hir::async_lower::{lower_async_fn_cfg, VarInfo};
 
@@ -321,26 +317,22 @@ use std::collections::{HashMap, HashSet};
             if let Item::Fn(func) = item {
                 let name = func.name.to_string();
                 
-                // Only process functions that need transformation
                 if let Some(liveness) = ctx.get_liveness(&name) {
                     if liveness.needs_transform {
-                        // 1. Lower AST -> HIR
                         let mut lctx = LoweringContext::new();
                         if let Some(crate::hir::items::Item { kind: crate::hir::items::ItemKind::Fn(hir_func), .. }) = lctx.lower_item(item) {
                             
-                            // 2. Extract crossing variables
                             let mut crossing_var_infos = Vec::new();
                             for frame_member in &liveness.frame_members {
                                 if let Some(&var_id) = lctx.var_name_map.get(&frame_member.name) {
                                     crossing_var_infos.push(VarInfo {
                                         var_id,
                                         name: frame_member.name.clone(),
-                                        ty: crate::hir::types::Type::I64, // Matches LivenessResult default
+                                        ty: crate::hir::types::Type::I64,
                                     });
                                 }
                             }
 
-                            // 3. Lower to state machine
                             let next_var_id = (lctx.var_name_map.len() + 100) as u32;
                             let lowered_items = lower_async_fn_cfg(
                                 &name,
@@ -349,7 +341,6 @@ use std::collections::{HashMap, HashSet};
                                 next_var_id,
                             );
 
-                            // 4. Register for bypass gate
                             ctx.register_hir_async(&name, lowered_items);
                         }
                     }
@@ -357,104 +348,111 @@ use std::collections::{HashMap, HashSet};
             }
         }
     }
-    
-    // =========================================================================
-    // UNIFIED DRIVER: DEMAND DRIVEN EXECUTION
-    // =========================================================================
-    ctx.drive_codegen()
-}
 
 impl<'a> CodegenContext<'a> {
+
     pub fn drive_codegen(&mut self) -> Result<String, String> {
-        // [FORMAL SHADOW] Verify struct alignment constraints before any emission
         self.verify_struct_alignments()?;
 
-        // State 1 (Discovery): Seeding Lazy Recursion
-        
         if self.lib_mode {
-            // Library mode: seed from ALL @no_mangle and pub functions
-            let mut tasks = Vec::new();
-            for item in &self.file.borrow().items {
-                match item {
-                    Item::Fn(f) => {
-                        let is_no_mangle = f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" );
-                        let is_pub = f.is_pub;
-                        if is_no_mangle || is_pub {
-                            if let Some(task) = self.create_main_task(&f.name.to_string()) {
-                                tasks.push(task);
-                            }
-                        }
-                    }
-                    Item::Impl(imp) => {
-                        if let SaltImpl::Methods { target_ty, methods, generics } = imp {
-                            if generics.is_none() {
-                                if let Some(parsed_ty) = crate::types::Type::from_syn(target_ty) {
-                                    let target_name_full = self.bridge_resolve_codegen_type(&parsed_ty).mangle_suffix();
-                                    let pkg_path = if let Some(pkg) = &self.file.borrow().package {
-                                        pkg.name.iter().map(|id| id.to_string()).collect()
-                                    } else {
-                                        vec![]
-                                    };
-                                    for m in methods {
-                                        if m.is_pub && m.generics.is_none() {
-                                            let m_name_str = m.name.to_string();
-                                            let mangled_name = Mangler::mangle(&[target_name_full.as_str(), m_name_str.as_str()]);
-                                            tasks.push(crate::codegen::collector::MonomorphizationTask {
-                                                identity: crate::types::TypeKey { path: pkg_path.clone(), name: m_name_str, specialization: None },
-                                                mangled_name,
-                                                func: m.clone(),
-                                                concrete_tys: vec![],
-                                                self_ty: Some(parsed_ty.clone()),
-                                                imports: CodegenContext::compute_full_imports(&self.file.borrow()),
-                                                type_map: std::collections::BTreeMap::new(),
-                                            });
-                                        }
-                                    }
-                                }
-                            }
-                        } else if let SaltImpl::Trait { trait_name: _, target_ty, methods, generics } = imp {
-                            if generics.is_none() {
-                                if let Some(parsed_ty) = crate::types::Type::from_syn(target_ty) {
-                                    let target_name_full = self.bridge_resolve_codegen_type(&parsed_ty).mangle_suffix();
-                                    let pkg_path = if let Some(pkg) = &self.file.borrow().package {
-                                        pkg.name.iter().map(|id| id.to_string()).collect()
-                                    } else {
-                                        vec![]
-                                    };
-                                    for m in methods {
-                                        if m.generics.is_none() {
-                                            let m_name_str = m.name.to_string();
-                                            let mangled_name = Mangler::mangle(&[target_name_full.as_str(), m_name_str.as_str()]);
-                                            tasks.push(crate::codegen::collector::MonomorphizationTask {
-                                                identity: crate::types::TypeKey { path: pkg_path.clone(), name: m_name_str, specialization: None },
-                                                mangled_name,
-                                                func: m.clone(),
-                                                concrete_tys: vec![],
-                                                self_ty: Some(parsed_ty.clone()),
-                                                imports: CodegenContext::compute_full_imports(&self.file.borrow()),
-                                                type_map: std::collections::BTreeMap::new(),
-                                            });
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            for task in tasks {
-                self.hydrate_specialization(task)?;
-            }
+            self.seed_library_mode()?;
         } else {
-            let main_task = self.create_main_task("main")
-                .or_else(|| self.create_main_task("main_salt"))
-                .or_else(|| self.create_main_task("kmain"))
-                .ok_or_else(|| "Entry point 'main', 'main_salt', or 'kmain' not found in root file.".to_string())?;
-            self.hydrate_specialization(main_task)?;
+            self.seed_executable_mode()?;
         }
         
+        self.hydrate_all()?;
+
+        self.assemble_module()
+    }
+
+    fn seed_library_mode(&mut self) -> Result<(), String> {
+        let mut tasks = Vec::new();
+        for item in &self.file.borrow().items {
+            match item {
+                Item::Fn(f) => {
+                    let is_no_mangle = f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" );
+                    let is_pub = f.is_pub;
+                    if is_no_mangle || is_pub {
+                        if let Some(task) = self.create_main_task(&f.name.to_string()) {
+                            tasks.push(task);
+                        }
+                    }
+                }
+                Item::Impl(imp) => {
+                    if let SaltImpl::Methods { target_ty, methods, generics } = imp {
+                        if generics.is_none() {
+                            if let Some(parsed_ty) = crate::types::Type::from_syn(target_ty) {
+                                let target_name_full = self.bridge_resolve_codegen_type(&parsed_ty).mangle_suffix();
+                                let pkg_path = if let Some(pkg) = &self.file.borrow().package {
+                                    pkg.name.iter().map(|id| id.to_string()).collect()
+                                } else {
+                                    vec![]
+                                };
+                                for m in methods {
+                                    if m.is_pub && m.generics.is_none() {
+                                        let m_name_str = m.name.to_string();
+                                        let mangled_name = Mangler::mangle(&[target_name_full.as_str(), m_name_str.as_str()]);
+                                        tasks.push(crate::codegen::collector::MonomorphizationTask {
+                                            identity: crate::types::TypeKey { path: pkg_path.clone(), name: m_name_str, specialization: None },
+                                            mangled_name,
+                                            func: m.clone(),
+                                            concrete_tys: vec![],
+                                            self_ty: Some(parsed_ty.clone()),
+                                            imports: CodegenContext::compute_full_imports(&self.file.borrow()),
+                                            type_map: std::collections::BTreeMap::new(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    } else if let SaltImpl::Trait { trait_name: _, target_ty, methods, generics } = imp {
+                        if generics.is_none() {
+                            if let Some(parsed_ty) = crate::types::Type::from_syn(target_ty) {
+                                let target_name_full = self.bridge_resolve_codegen_type(&parsed_ty).mangle_suffix();
+                                let pkg_path = if let Some(pkg) = &self.file.borrow().package {
+                                    pkg.name.iter().map(|id| id.to_string()).collect()
+                                } else {
+                                    vec![]
+                                };
+                                for m in methods {
+                                    if m.generics.is_none() {
+                                        let m_name_str = m.name.to_string();
+                                        let mangled_name = Mangler::mangle(&[target_name_full.as_str(), m_name_str.as_str()]);
+                                        tasks.push(crate::codegen::collector::MonomorphizationTask {
+                                            identity: crate::types::TypeKey { path: pkg_path.clone(), name: m_name_str, specialization: None },
+                                            mangled_name,
+                                            func: m.clone(),
+                                            concrete_tys: vec![],
+                                            self_ty: Some(parsed_ty.clone()),
+                                            imports: CodegenContext::compute_full_imports(&self.file.borrow()),
+                                            type_map: std::collections::BTreeMap::new(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        for task in tasks {
+            self.hydrate_specialization(task)?;
+        }
+        Ok(())
+    }
+
+    fn seed_executable_mode(&mut self) -> Result<(), String> {
+        let main_task = self.create_main_task("main")
+            .or_else(|| self.create_main_task("main_salt"))
+            .or_else(|| self.create_main_task("kmain"))
+            .ok_or_else(|| "Entry point 'main', 'main_salt', or 'kmain' not found in root file.".to_string())?;
+        self.hydrate_specialization(main_task)?;
+        Ok(())
+    }
+
+    fn hydrate_all(&mut self) -> Result<(), String> {
         loop {
             let task = {
                 let mut q = self.pending_generations_mut();
@@ -467,11 +465,10 @@ impl<'a> CodegenContext<'a> {
                  break;
             }
         }
+        Ok(())
+    }
 
-        // --- Phase 3: Assembly ---
-        // State 3 (Emission): Finalizing Module
-        
-        // Emit Structure Definitions (Type Aliasing Strategy)
+    fn assemble_module(&mut self) -> Result<String, String> {
         self.emitted_types_mut().clear();
         self.mlir_type_cache_mut().clear();
         
@@ -481,50 +478,12 @@ impl<'a> CodegenContext<'a> {
         let mut out = String::new();
         out.push_str(&structure_defs);
 
-        // [P1 DWARF] Emit debug info attribute aliases when -g is active
         if self.debug_info && !self.source_file.is_empty() {
-            let source_path = std::path::Path::new(&self.source_file);
-            let filename = source_path.file_name()
-                .map(|f| f.to_string_lossy().to_string())
-                .unwrap_or_else(|| self.source_file.clone());
-            let directory = source_path.parent()
-                .map(|d| d.to_string_lossy().to_string())
-                .unwrap_or_else(|| ".".to_string());
-            out.push_str(&format!(
-                "#di_file = #llvm.di_file<\"{}\" in \"{}\">\n",
-                filename, directory
-            ));
-            out.push_str(
-                "#di_compile_unit = #llvm.di_compile_unit<id = distinct[100]<>, sourceLanguage = DW_LANG_C, file = #di_file, producer = \"Salt Compiler\", isOptimized = true, emissionKind = Full>\n"
-            );
-            out.push_str(
-                "#di_subroutine_type = #llvm.di_subroutine_type<>\n"
-            );
+            self.assemble_debug_info(&mut out);
         }
 
-        // [SIP SAFETY] Emit salt.sip_verified marker only for Mode B SIP compilations.
-        // MLIR requires dialect-prefixed attributes on builtin.module ops.
-        // Kernel code (lib_mode without sip_mode) does NOT get this marker.
-        let sip_attr = if self.sip_mode { ", \"salt.sip_verified\" = true" } else { "" };
+        self.assemble_module_attributes(&mut out);
         
-        // [Directive 2.1] Emit salt.proof_hints if any @align(N) fields were verified
-        let proof_hints = self.proof_hints.borrow();
-        let proof_hints_attr = if proof_hints.is_empty() {
-            String::new()
-        } else {
-            let entries: Vec<String> = proof_hints.iter()
-                .map(|(key, val)| format!("\"{}\" = {}", key, val))
-                .collect();
-            format!(", \"salt.proof_hints\" = {{{}}}", entries.join(", "))
-        };
-        drop(proof_hints); // Release borrow
-        out.push_str(&format!("module attributes {{llvm.data_layout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\", llvm.target_triple = \"x86_64-unknown-none-elf\"{}{}}} {{\n", sip_attr, proof_hints_attr));
-        
-        // Standard Declarations (Structs, Enums, Globals - captured in decl_out during scan/emit)
-        // Also emit pending function declarations, but ONLY for functions that were never defined.
-        // This prevents the "redefinition of symbol" MLIR error that occurs when a forward
-        // declaration (from ensure_func_declared during call emission) coexists with a full
-        // definition (from hydrate_specialization / emit_fn).
         {
             let emission = self.emission.borrow();
             out.push_str(&emission.decl_out);
@@ -535,35 +494,73 @@ impl<'a> CodegenContext<'a> {
             }
         }
         
-        // Emit Bootstrap Runtime (Warm Boot) if there are patches to apply
+        self.assemble_bootstrap_patches(&mut out);
+        self.assemble_externals(&mut out);
+        self.assemble_string_literals(&mut out);
+        
+        let bodies = self.definitions_buffer();
+        out.push_str(&bodies);
+        
+        out.push_str("}\n");
+        Ok(out)
+    }
+
+    fn assemble_debug_info(&self, out: &mut String) {
+        let source_path = std::path::Path::new(&self.source_file);
+        let filename = source_path.file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_else(|| self.source_file.clone());
+        let directory = source_path.parent()
+            .map(|d| d.to_string_lossy().to_string())
+            .unwrap_or_else(|| ".".to_string());
+        out.push_str(&format!(
+            "#di_file = #llvm.di_file<\"{}\" in \"{}\">\n",
+            filename, directory
+        ));
+        out.push_str(
+            "#di_compile_unit = #llvm.di_compile_unit<id = distinct[100]<>, sourceLanguage = DW_LANG_C, file = #di_file, producer = \"Salt Compiler\", isOptimized = true, emissionKind = Full>\n"
+        );
+        out.push_str(
+            "#di_subroutine_type = #llvm.di_subroutine_type<>\n"
+        );
+    }
+
+    fn assemble_module_attributes(&self, out: &mut String) {
+        let sip_attr = if self.sip_mode { ", \"salt.sip_verified\" = true" } else { "" };
+        let proof_hints = self.proof_hints.borrow();
+        let proof_hints_attr = if proof_hints.is_empty() {
+            String::new()
+        } else {
+            let entries: Vec<String> = proof_hints.iter()
+                .map(|(key, val)| format!("\"{}\" = {}", key, val))
+                .collect();
+            format!(", \"salt.proof_hints\" = {{{}}}", entries.join(", "))
+        };
+        out.push_str(&format!("module attributes {{llvm.data_layout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\", llvm.target_triple = \"x86_64-unknown-none-elf\"{}{}}} {{\n", sip_attr, proof_hints_attr));
+    }
+
+    fn assemble_bootstrap_patches(&mut self, out: &mut String) {
         let patches = self.pending_bootstrap_patches();
         if !patches.is_empty() {
             out.push_str("  // Salt Bootstrap Runtime - patches global initializers\n");
             out.push_str("  func.func @__salt_bootstrap_runtime() {\n");
             
             for (patch_idx, patch) in patches.iter().enumerate() {
-                // Create string version of field path for SSA naming
                 let patch_id = format!("p{}", patch_idx);
                 
-                // Load address of target symbol (e.g., RESERVOIR)
                 let target_ptr = format!("%target_{}", patch_id);
                 out.push_str(&format!("    {} = llvm.mlir.addressof @{} : !llvm.ptr\n", 
                     target_ptr, patch.target_symbol));
                 
-                // Load address of global being patched
                 let mut current_ptr = format!("%global_{}", patch_id);
                 out.push_str(&format!("    {} = llvm.mlir.addressof @{} : !llvm.ptr\n",
                     current_ptr, patch.global_name));
                 
-                // Emit sequential GEPs for each level of nesting
-                // For path [3, 0]: first GEP to field 3, then GEP to field 0
                 for (level, idx) in patch.field_path.iter().enumerate() {
                     let next_ptr = format!("%field_{}_{}", patch_id, level);
-                    // Get the struct type for this level (if available)
                     let struct_ty = patch.struct_types.get(level)
                         .map(|s| s.as_str())
                         .unwrap_or("!llvm.struct<()>");
-                    // Format: llvm.getelementptr %ptr[0, idx] : (!llvm.ptr) -> !llvm.ptr, STRUCT_TYPE
                     out.push_str(&format!("    {} = llvm.getelementptr {}[0, {}] : (!llvm.ptr) -> !llvm.ptr, {}\n",
                         next_ptr, current_ptr, idx, struct_ty));
                     current_ptr = next_ptr;
@@ -582,11 +579,11 @@ impl<'a> CodegenContext<'a> {
             out.push_str("  }\n");
         }
         drop(patches);
-        
-        // Externals (intrinsics, hooks)
+    }
+
+    fn assemble_externals(&self, out: &mut String) {
         let hooks = self.entity_registry().get_active_hooks();
         for hook in &hooks {
-            // Emit with proper signature based on hook name
             let sig = match hook.as_str() {
                 "__salt_print_literal" => "(!llvm.ptr, i64) -> ()",
                 "__salt_print_i64" | "__salt_print_u64" | "__salt_print_ptr" => "(i64) -> ()",
@@ -594,9 +591,7 @@ impl<'a> CodegenContext<'a> {
                 "__salt_print_bool" => "(i8) -> ()",
                 "__salt_print_char" => "(i32) -> ()",
                 "putchar" => "(i32) -> i32",
-                // F-string formatting hooks
                 "__salt_fmt_f64_to_buf" => "(!llvm.ptr, f64, i64) -> i64",
-                // Memory management hooks (used by Display trait buffer cleanup)
                 "free" => "(!llvm.ptr) -> ()",
                 "malloc" => "(i64) -> !llvm.ptr",
                 "memchr" => "(!llvm.ptr, i32, i64) -> !llvm.ptr",
@@ -604,36 +599,22 @@ impl<'a> CodegenContext<'a> {
             };
             out.push_str(&format!("  func.func private @{}{}\n", hook, sig));
         }
-        
-        // [KEUOS FIX] Extern function declarations are now emitted by register_signatures.
-        // This avoids duplicate emissions and ensures all externs (including transitive ones from
-        // library modules) are declared exactly once in the MLIR output.
-        // Previously: loop over external_decls to emit func.func private declarations
-        // Now: register_signatures handles this during the registration phase
-        
-        // Emit String Literals (from println format strings)
+    }
+
+    fn assemble_string_literals(&self, out: &mut String) {
         let string_lits = self.string_literals();
         for (name, content, _len) in string_lits.iter() {
-            // Escape special characters for MLIR string literal syntax
             let escaped = content
                 .replace('\\', "\\\\")
-                .replace('\0', "\\00")  // [KEUOS FIX] Escape embedded null bytes
+                .replace('\0', "\\00")
                 .replace('\n', "\\n")
                 .replace('\r', "\\0D")
                 .replace('\t', "\\t")
                 .replace('"', "\\\"");
-            // Emit as null-terminated array for LLVM compatibility
             out.push_str(&format!("  llvm.mlir.global internal constant @{}(\"{}\\00\") {{addr_space = 0 : i32}} : !llvm.array<{} x i8>\n", 
                 name, escaped, content.len() + 1));
         }
         drop(string_lits);
-        
-        // Emit accumulated Lazy Definitions (including main)
-        let bodies = self.definitions_buffer();
-        out.push_str(&bodies);
-        
-        out.push_str("}\n");
-        Ok(out)
     }
 
     /// [FORMAL SHADOW] Verify all struct alignment constraints:
@@ -642,11 +623,9 @@ impl<'a> CodegenContext<'a> {
     ///   - @atomic structs: stride alignment (sizeof % 16 == 0)
     ///   - @packed structs: zero implicit padding
     /// Uses Z3 integer modular arithmetic to prove alignment is invariant.
-    fn verify_struct_alignments(&self) -> Result<(), String> {
-        use crate::z3_shim::ast::Ast;
 
-        // Extract struct definitions first to avoid RefCell borrow conflict
-        // (bridge_resolve_type needs to borrow discovery state)
+
+    fn verify_struct_alignments(&self) -> Result<(), String> {
         let structs: Vec<_> = {
             let file = self.file.borrow();
             file.items.iter().filter_map(|item| {
@@ -658,259 +637,164 @@ impl<'a> CodegenContext<'a> {
                 None
             }).collect()
         };
-        // file borrow dropped here
 
         for s in &structs {
             let mut byte_offset: usize = 0;
+            let s_name_str = s.name.to_string();
             
             for f in &s.fields {
-                let has_atomic = f.attributes.iter().any(|a| a.name == "atomic");
-                
-                if has_atomic {
-                    let z3_cfg = crate::z3_shim::Config::new();
-                    let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
-                    let solver = crate::z3_shim::Solver::new(&z3_ctx);
+                self.verify_field_atomic(&s_name_str, f, byte_offset)?;
+                byte_offset = self.verify_field_align(&s_name_str, f, byte_offset)?;
 
-                    let base = crate::z3_shim::ast::Int::new_const(&z3_ctx, "base_addr");
-                    let sixteen = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 16);
-                    let zero = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 0);
-
-                    solver.assert(&base.ge(&zero));
-                    solver.assert(&base.modulo(&sixteen)._eq(&zero));
-
-                    let offset_val = crate::z3_shim::ast::Int::from_i64(&z3_ctx, byte_offset as i64);
-                    let field_addr = crate::z3_shim::ast::Int::add(&z3_ctx, &[&base, &offset_val]);
-
-                    solver.assert(&field_addr.modulo(&sixteen)._eq(&zero).not());
-
-                    match solver.check() {
-                        crate::z3_shim::SatResult::Unsat => {
-                            eprintln!(
-                                "[Formal Shadow] Z3 PROVED: @atomic field '{}' in struct '{}' \
-                                 is 16-byte aligned at offset {} (z3_aligned)",
-                                f.name, s.name, byte_offset
-                            );
-                        }
-                        _ => {
-                            return Err(format!(
-                                "[Formal Shadow] ALIGNMENT VIOLATION: @atomic field '{}' \
-                                 in struct '{}' is at byte offset {}, which is NOT \
-                                 16-byte aligned. The Z3 SMT solver proved this layout \
-                                 violates the hardware alignment contract for cmpxchg16b. \
-                                 Fix: reorder fields or add padding so @atomic fields \
-                                 start at offsets that are multiples of 16.",
-                                f.name, s.name, byte_offset
-                            ));
-                        }
-                    }
-                }
-
-                // =====================================================================
-                // FIELD-LEVEL @align(N): Z3 Cache-Line Isolation Proof
-                // =====================================================================
-                // When @align(N) is on a field, the compiler must:
-                //   1. Validate N is a power of 2 (architectural requirement)
-                //   2. Pad byte_offset to the next N-byte boundary
-                //   3. Use Z3 to prove: (base + padded_offset) % N == 0,
-                //      given base % N == 0
-                // This is the formal foundation for Directive 1.1 (Mechanical Sympathy).
-                // =====================================================================
-                let align_value = crate::grammar::attr::extract_align(&f.attributes);
-                if let Some(n) = align_value {
-                    // Gate 1: Power-of-two validation
-                    if n == 0 || (n & (n - 1)) != 0 {
-                        return Err(format!(
-                            "[Formal Shadow] ALIGNMENT ERROR: @align({}) on field '{}' \
-                             in struct '{}' is not a power of 2. \
-                             Alignment values must be powers of 2 (e.g., 1, 2, 4, 8, 16, 32, 64).",
-                            n, f.name, s.name
-                        ));
-                    }
-
-                    // Pad byte_offset to N-byte boundary (mirrors Type::size_of logic)
-                    let align_n = n as usize;
-                    byte_offset = (byte_offset + align_n - 1) & !(align_n - 1);
-
-                    // Gate 2: Z3 formal proof of alignment
-                    let z3_cfg = crate::z3_shim::Config::new();
-                    let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
-                    let solver = crate::z3_shim::Solver::new(&z3_ctx);
-
-                    let base = crate::z3_shim::ast::Int::new_const(&z3_ctx, "base_addr");
-                    let align_const = crate::z3_shim::ast::Int::from_i64(&z3_ctx, n as i64);
-                    let zero = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 0);
-
-                    // Assume base_addr is N-byte aligned (struct allocation contract)
-                    solver.assert(&base.ge(&zero));
-                    solver.assert(&base.modulo(&align_const)._eq(&zero));
-
-                    let offset_val = crate::z3_shim::ast::Int::from_i64(&z3_ctx, byte_offset as i64);
-                    let field_addr = crate::z3_shim::ast::Int::add(&z3_ctx, &[&base, &offset_val]);
-
-                    // Assert negation: (base + offset) % N != 0
-                    // If UNSAT → alignment is guaranteed (proof by contradiction)
-                    solver.assert(&field_addr.modulo(&align_const)._eq(&zero).not());
-
-                    match solver.check() {
-                        crate::z3_shim::SatResult::Unsat => {
-                            eprintln!(
-                                "[Formal Shadow] Z3 PROVED: @align({}) field '{}' in struct '{}' \
-                                 is {}-byte aligned at offset {} (z3_align_verified)",
-                                n, f.name, s.name, n, byte_offset
-                            );
-                            // [Directive 2.1] Seal the Z3 proof into a 64-bit hint
-                            let struct_id = crate::codegen::verification::proof_hint::struct_name_to_id(&s.name.to_string());
-                            let hint = crate::codegen::verification::proof_hint::hash_combine(
-                                struct_id, byte_offset as u64, n as u64
-                            );
-                            self.proof_hints.borrow_mut().push((
-                                format!("{}_{}", s.name, f.name), hint
-                            ));
-                        }
-                        _ => {
-                            return Err(format!(
-                                "[Formal Shadow] ALIGNMENT VIOLATION: @align({}) field '{}' \
-                                 in struct '{}' is at byte offset {}, which is NOT \
-                                 {}-byte aligned. The Z3 SMT solver proved this layout \
-                                 violates the cache-line isolation contract. \
-                                 Fix: reorder fields or adjust alignment so @align({}) fields \
-                                 start at offsets that are multiples of {}.",
-                                n, f.name, s.name, byte_offset, n, n, n
-                            ));
-                        }
-                    }
-                }
-
-                // Advance byte offset by field size
                 let field_ty = self.bridge_resolve_type(&f.ty);
                 let struct_reg = self.struct_registry();
                 byte_offset += field_ty.size_of(&*struct_reg);
             }
 
-            // =====================================================================
-            // STRUCT-LEVEL @atomic: Z3 Stride Alignment Proof
-            // =====================================================================
-            // When @atomic is on the struct itself, Z3 must prove:
-            //   sizeof(struct) % 16 == 0
-            // This guarantees that in an array [Struct; N], every element
-            // sits on a 16-byte boundary (required for cmpxchg16b).
-            // =====================================================================
-            let has_struct_atomic = s.attributes.iter().any(|a| a.name == "atomic");
-            if has_struct_atomic {
-                let total_size = byte_offset; // byte_offset == total size after all fields
+            self.verify_struct_atomic(&s_name_str, &s.attributes, byte_offset)?;
+            self.verify_struct_packed(&s_name_str, &s.attributes, byte_offset, &s.fields)?;
+        }
+        Ok(())
+    }
 
-                let z3_cfg = crate::z3_shim::Config::new();
-                let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
-                let solver = crate::z3_shim::Solver::new(&z3_ctx);
+    fn verify_field_atomic(&self, s_name: &str, f: &crate::grammar::FieldDef, byte_offset: usize) -> Result<(), String> {
+        use crate::z3_shim::ast::Ast;
+        let has_atomic = f.attributes.iter().any(|a| a.name == "atomic");
+        if !has_atomic { return Ok(()); }
 
-                let size = crate::z3_shim::ast::Int::from_i64(&z3_ctx, total_size as i64);
-                let sixteen = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 16);
-                let zero = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 0);
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
+        let solver = crate::z3_shim::Solver::new(&z3_ctx);
 
-                // Assert the negation: size % 16 != 0
-                // If UNSAT, the stride is guaranteed safe.
-                solver.assert(&size.modulo(&sixteen)._eq(&zero).not());
+        let base = crate::z3_shim::ast::Int::new_const(&z3_ctx, "base_addr");
+        let sixteen = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 16);
+        let zero = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 0);
 
-                match solver.check() {
-                    crate::z3_shim::SatResult::Unsat => {
-                        eprintln!(
-                            "[Formal Shadow] Z3 PROVED: @atomic struct '{}' has size {} bytes, \
-                             which is 16-byte stride-safe for cmpxchg16b arrays (z3_stride_aligned)",
-                            s.name, total_size
-                        );
-                    }
-                    _ => {
-                        return Err(format!(
-                            "[Formal Shadow] STRIDE VIOLATION: @atomic struct '{}' has size {} bytes. \
-                             {} % 16 != 0, so array elements would NOT be 16-byte aligned. \
-                             The Z3 SMT solver proved this layout violates the hardware \
-                             alignment contract for cmpxchg16b. Fix: ensure sizeof(@atomic struct) \
-                             is a multiple of 16 bytes.",
-                            s.name, total_size, total_size
-                        ));
-                    }
-                }
+        solver.assert(&base.ge(&zero));
+        solver.assert(&base.modulo(&sixteen)._eq(&zero));
+
+        let offset_val = crate::z3_shim::ast::Int::from_i64(&z3_ctx, byte_offset as i64);
+        let field_addr = crate::z3_shim::ast::Int::add(&z3_ctx, &[&base, &offset_val]);
+
+        solver.assert(&field_addr.modulo(&sixteen)._eq(&zero).not());
+
+        match solver.check() {
+            crate::z3_shim::SatResult::Unsat => {
+                eprintln!("[Formal Shadow] Z3 PROVED: @atomic field '{}' in struct '{}' is 16-byte aligned at offset {} (z3_aligned)", f.name, s_name, byte_offset);
+                Ok(())
+            }
+            _ => Err(format!("[Formal Shadow] ALIGNMENT VIOLATION: @atomic field '{}' in struct '{}' is at byte offset {}, which is NOT 16-byte aligned. The Z3 SMT solver proved this layout violates the hardware alignment contract for cmpxchg16b. Fix: reorder fields or add padding so @atomic fields start at offsets that are multiples of 16.", f.name, s_name, byte_offset))
+        }
+    }
+
+    fn verify_field_align(&self, s_name: &str, f: &crate::grammar::FieldDef, mut byte_offset: usize) -> Result<usize, String> {
+        use crate::z3_shim::ast::Ast;
+        let align_value = crate::grammar::attr::extract_align(&f.attributes);
+        if let Some(n) = align_value {
+            if n == 0 || (n & (n - 1)) != 0 {
+                return Err(format!("[Formal Shadow] ALIGNMENT ERROR: @align({}) on field '{}' in struct '{}' is not a power of 2. Alignment values must be powers of 2 (e.g., 1, 2, 4, 8, 16, 32, 64).", n, f.name, s_name));
             }
 
-            // =====================================================================
-            // STRUCT-LEVEL @packed: Z3 Zero-Padding Proof
-            // =====================================================================
-            // When @packed is on a struct, Z3 must prove:
-            //   ABI_layout_size == sum(field_natural_sizes)
-            // This guarantees zero implicit padding between fields, so the
-            // struct layout in MLIR/LLVM exactly matches the hardware-facing
-            // byte offsets (critical for SMP mailbox protocols, MMIO structs).
-            // =====================================================================
-            let has_packed = s.attributes.iter().any(|a| a.name == "packed");
-            if has_packed {
-                let unpadded_sum = byte_offset; // sum of natural field sizes
-                
-                // Pre-compute field sizes in two phases to avoid RefCell conflicts
-                // Phase 1: resolve types (borrows self for bridge_resolve_type)
-                let resolved_types: Vec<_> = s.fields.iter()
-                    .map(|f| self.bridge_resolve_type(&f.ty))
-                    .collect();
-                // Phase 2: get sizes (borrows struct_registry)
-                let field_sizes: Vec<usize> = {
-                    let struct_reg = self.struct_registry();
-                    resolved_types.iter().map(|ty| ty.size_of(&*struct_reg)).collect()
-                };
-                
-                // Simulate LLVM struct layout rules to detect implicit padding
-                let mut abi_offset: usize = 0;
-                let mut max_align: usize = 1;
-                
-                for &field_size in &field_sizes {
-                    // Natural alignment: min(size, 8) for primitives
-                    let field_align = field_size.min(8).max(1);
-                    
-                    // Align to field's natural alignment
-                    let padding = (field_align - (abi_offset % field_align)) % field_align;
-                    abi_offset += padding;
-                    abi_offset += field_size;
-                    
-                    if field_align > max_align {
-                        max_align = field_align;
-                    }
+            let align_n = n as usize;
+            byte_offset = (byte_offset + align_n - 1) & !(align_n - 1);
+
+            let z3_cfg = crate::z3_shim::Config::new();
+            let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
+            let solver = crate::z3_shim::Solver::new(&z3_ctx);
+
+            let base = crate::z3_shim::ast::Int::new_const(&z3_ctx, "base_addr");
+            let align_const = crate::z3_shim::ast::Int::from_i64(&z3_ctx, n as i64);
+            let zero = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 0);
+
+            solver.assert(&base.ge(&zero));
+            solver.assert(&base.modulo(&align_const)._eq(&zero));
+
+            let offset_val = crate::z3_shim::ast::Int::from_i64(&z3_ctx, byte_offset as i64);
+            let field_addr = crate::z3_shim::ast::Int::add(&z3_ctx, &[&base, &offset_val]);
+
+            solver.assert(&field_addr.modulo(&align_const)._eq(&zero).not());
+
+            match solver.check() {
+                crate::z3_shim::SatResult::Unsat => {
+                    eprintln!("[Formal Shadow] Z3 PROVED: @align({}) field '{}' in struct '{}' is {}-byte aligned at offset {} (z3_align_verified)", n, f.name, s_name, n, byte_offset);
+                    let struct_id = crate::codegen::verification::proof_hint::struct_name_to_id(s_name);
+                    let hint = crate::codegen::verification::proof_hint::hash_combine(struct_id, byte_offset as u64, n as u64);
+                    self.proof_hints.borrow_mut().push((format!("{}_{}", s_name, f.name), hint));
                 }
-                
-                // LLVM also pads the struct to its overall alignment
-                let tail_padding = (max_align - (abi_offset % max_align)) % max_align;
-                let abi_total = abi_offset + tail_padding;
-                
-                let z3_cfg = crate::z3_shim::Config::new();
-                let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
-                let solver = crate::z3_shim::Solver::new(&z3_ctx);
-
-                let abi_size = crate::z3_shim::ast::Int::from_i64(&z3_ctx, abi_total as i64);
-                let raw_sum = crate::z3_shim::ast::Int::from_i64(&z3_ctx, unpadded_sum as i64);
-
-                // Assert the negation: ABI_size != raw_sum
-                // If UNSAT, the struct has zero padding (guaranteed).
-                solver.assert(&abi_size._eq(&raw_sum).not());
-
-                match solver.check() {
-                    crate::z3_shim::SatResult::Unsat => {
-                        eprintln!(
-                            "[Formal Shadow] Z3 PROVED: @packed struct '{}' has {} bytes \
-                             with ZERO implicit padding (z3_packed_verified)",
-                            s.name, abi_total
-                        );
-                    }
-                    _ => {
-                        return Err(format!(
-                            "[Formal Shadow] PACKED VIOLATION: @packed struct '{}' has implicit \
-                             padding. ABI layout = {} bytes, but raw field sum = {} bytes \
-                             ({} bytes of hidden padding). The Z3 SMT solver proved this \
-                             layout violates the zero-padding contract. Fix: reorder fields \
-                             or add explicit padding fields to eliminate gaps.",
-                            s.name, abi_total, unpadded_sum, abi_total - unpadded_sum
-                        ));
-                    }
+                _ => {
+                    return Err(format!("[Formal Shadow] ALIGNMENT VIOLATION: @align({}) field '{}' in struct '{}' is at byte offset {}, which is NOT {}-byte aligned. The Z3 SMT solver proved this layout violates the cache-line isolation contract. Fix: reorder fields or adjust alignment so @align({}) fields start at offsets that are multiples of {}.", n, f.name, s_name, byte_offset, n, n, n));
                 }
             }
         }
-        Ok(())
+        Ok(byte_offset)
+    }
+
+    fn verify_struct_atomic(&self, s_name: &str, attributes: &[crate::grammar::attr::Attribute], byte_offset: usize) -> Result<(), String> {
+        use crate::z3_shim::ast::Ast;
+        let has_struct_atomic = attributes.iter().any(|a| a.name == "atomic");
+        if !has_struct_atomic { return Ok(()); }
+
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
+        let solver = crate::z3_shim::Solver::new(&z3_ctx);
+
+        let size = crate::z3_shim::ast::Int::from_i64(&z3_ctx, byte_offset as i64);
+        let sixteen = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 16);
+        let zero = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 0);
+
+        solver.assert(&size.modulo(&sixteen)._eq(&zero).not());
+
+        match solver.check() {
+            crate::z3_shim::SatResult::Unsat => {
+                eprintln!("[Formal Shadow] Z3 PROVED: @atomic struct '{}' has size {} bytes, which is 16-byte stride-safe for cmpxchg16b arrays (z3_stride_aligned)", s_name, byte_offset);
+                Ok(())
+            }
+            _ => Err(format!("[Formal Shadow] STRIDE VIOLATION: @atomic struct '{}' has size {} bytes. {} % 16 != 0, so array elements would NOT be 16-byte aligned. The Z3 SMT solver proved this layout violates the hardware alignment contract for cmpxchg16b. Fix: ensure sizeof(@atomic struct) is a multiple of 16 bytes.", s_name, byte_offset, byte_offset))
+        }
+    }
+
+    fn verify_struct_packed(&self, s_name: &str, attributes: &[crate::grammar::attr::Attribute], byte_offset: usize, fields: &[crate::grammar::FieldDef]) -> Result<(), String> {
+        use crate::z3_shim::ast::Ast;
+        let has_packed = attributes.iter().any(|a| a.name == "packed");
+        if !has_packed { return Ok(()); }
+
+        let unpadded_sum = byte_offset;
+        let resolved_types: Vec<_> = fields.iter().map(|f| self.bridge_resolve_type(&f.ty)).collect();
+        let field_sizes: Vec<usize> = {
+            let struct_reg = self.struct_registry();
+            resolved_types.iter().map(|ty: &crate::types::Type| ty.size_of(&*struct_reg)).collect()
+        };
+
+        let mut abi_offset: usize = 0;
+        let mut max_align: usize = 1;
+
+        for &field_size in &field_sizes {
+            let field_align = field_size.min(8).max(1);
+            let padding = (field_align - (abi_offset % field_align)) % field_align;
+            abi_offset += padding;
+            abi_offset += field_size;
+            if field_align > max_align { max_align = field_align; }
+        }
+
+        let tail_padding = (max_align - (abi_offset % max_align)) % max_align;
+        let abi_total = abi_offset + tail_padding;
+
+        let z3_cfg = crate::z3_shim::Config::new();
+        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
+        let solver = crate::z3_shim::Solver::new(&z3_ctx);
+
+        let abi_size = crate::z3_shim::ast::Int::from_i64(&z3_ctx, abi_total as i64);
+        let raw_sum = crate::z3_shim::ast::Int::from_i64(&z3_ctx, unpadded_sum as i64);
+
+        solver.assert(&abi_size._eq(&raw_sum).not());
+
+        match solver.check() {
+            crate::z3_shim::SatResult::Unsat => {
+                eprintln!("[Formal Shadow] Z3 PROVED: @packed struct '{}' has {} bytes with ZERO implicit padding (z3_packed_verified)", s_name, abi_total);
+                Ok(())
+            }
+            _ => Err(format!("[Formal Shadow] PACKED VIOLATION: @packed struct '{}' has implicit padding. ABI layout = {} bytes, but raw field sum = {} bytes ({} bytes of hidden padding). The Z3 SMT solver proved this layout violates the zero-padding contract. Fix: reorder fields or add explicit padding fields to eliminate gaps.", s_name, abi_total, unpadded_sum, abi_total - unpadded_sum))
+        }
     }
     
     fn create_main_task(&self, name: &str) -> Option<crate::codegen::collector::MonomorphizationTask> {
@@ -1324,37 +1208,10 @@ fn emit_async_fn(
     Ok(emitter.emit_full_async_mlir_with_bodies(liveness, &state_bodies))
 }
 
-pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String>) -> Result<String, String> {
-    // [PHASE 11] HIR Async Gate: bypass AST codegen for fully lowered state machines.
-    // If lower_async_fn_cfg has already produced HIR items for this function,
-    // delegate directly to emit_hir_items — no AST visitor needed.
-    if let Some(hir_items) = ctx.get_hir_async_items(&func.name.to_string()) {
-        return crate::codegen::emit_hir::emit_hir_items(&hir_items);
-    }
 
-    // [KEUOS V2.0] Async Gate: @yielding/@pulse functions emit state machines
-    if let Some(liveness) = ctx.get_liveness(&func.name.to_string()) {
-        return emit_async_fn(ctx, func, &liveness);
-    }
-
-    // [FACET L1] Shader Gate: @shader functions emit MSL text
-    if crate::grammar::attr::has_attribute(&func.attributes, "shader") {
-        return ctx.with_lowering_ctx(|lctx| shader::emit_shader_fn(lctx, func));
-    }
-    
-    // [KEUOS FIX] Extern Gate: extern functions arriving via hydration
-    // (e.g., salt_arena_alloc from std/core/arena.salt) must emit as declarations
-    // only, not definitions with stub bodies. runtime.c provides their implementations.
-    // Note: `extern fn` is a syntactic form (ExternFnDecl), not an @extern attribute.
-    // When converted to SaltFn wrappers during module registration, the extern-ness
-    // is tracked in `external_decls`, not in attributes.
-    //
-    // [FORWARD REFERENCE FIX] ensure_func_declared adds local @no_mangle functions
-    // to external_decls when they are called before their definition. These functions
-    // have NON-EMPTY bodies and must be emitted. True externs have empty bodies
-    // (set by register_signatures). Only skip emission for truly empty-bodied externs.
-    if ctx.external_decls().contains(&func.name.to_string()) && func.body.stmts.is_empty() {
-        return Ok(String::new());
+pub fn emit_fn(ctx: &CodegenContext, func: &crate::grammar::SaltFn, override_name: Option<String>) -> Result<String, String> {
+    if let Some(early_ret) = check_early_returns(ctx, func)? {
+        return Ok(early_ret);
     }
 
     let fn_name = override_name.unwrap_or_else(|| {
@@ -1365,67 +1222,164 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
         }
     });
     
-    // [V25.6] Ghost of Monomorphization Guard: Skip unspecialized generic templates
-    // Generic templates like `unwrap_T_E` should never be emitted; only their 
-    // specialized versions like `unwrap_File_IOError` should exist in final MLIR.
-    // Detect by checking for common generic placeholder patterns in function name.
-    let has_unresolved_generics = fn_name.ends_with("_T_E") 
-        || fn_name.ends_with("_T")
-        || fn_name.contains("_T_") && !fn_name.contains("_Tensor_")  // T but not Tensor
-        || fn_name.contains("_Ptr_T")                                  // Nested generic Ptr<T>
-        || fn_name.contains("_E_") && fn_name.contains("Result");     // E in Result context
-    
-    if has_unresolved_generics {
-        // Skip emission - this template will be emitted via its specialized call sites
+    if check_generic_guards(ctx, func, &fn_name)? {
         return Ok(String::new());
     }
     
-    // [PHASE 4.1] Structural Generic Guard: Skip emission of methods with generic params
-    // when the type_map is empty. This catches cases the name-based guard misses
-    // (e.g., File::mmap<T> where "mmap" doesn't contain "_T" in its mangled name).
-    // These functions will be emitted during hydration with concrete type arguments.
-    if let Some(ref generics) = func.generics {
-        if !generics.params.is_empty() && ctx.current_type_map().is_empty() {
-
-            return Ok(String::new());
-        }
-    }
-    
-    // Emitting function
     *ctx.current_fn_name_mut() = fn_name.clone();
     ctx.defined_functions_mut().insert(fn_name.clone());
     
-    // Snapshot external state that might be clobbered by re-entrant calls
     let saved_alloca = ctx.alloca_out().clone();
     
-    // Clear per-function linear state
     ctx.consumed_vars_mut().clear();
     ctx.consumption_locs_mut().clear();
     ctx.devoured_vars_mut().clear();
     *ctx.mutated_vars_mut() = crate::codegen::stmt::collect_mutations(&func.body.stmts);
     
-    let mut local_vars = HashMap::new();
+    let mut local_vars = std::collections::HashMap::new();
     let mut args_code = Vec::new();
     
-    // [V7.3] Clear per-function argument alias scopes
     ctx.control_flow.borrow_mut().clear_arg_scopes();
-    
-    // [SSA SCOPE FIX] Set current function for composite-keyed LVN cache
-    // GlobalLVN uses (func_name, symbol) as key, so each function has its own
-    // cache entries. This prevents cross-function SSA value reuse while preserving
-    // per-function LVN optimization (constants loaded once per function).
-    // [KEUOS FIX] Save previous function name to restore after nested compilation
     let prev_func_lvn = ctx.emission.borrow_mut().global_lvn.set_current_function(fn_name.clone());
-    
-    // [KEUOS FIX] Clear cache for this function to prevent stale values from previous passes
     ctx.emission.borrow_mut().global_lvn.clear_current_func_cache();
     
+    process_fn_arguments(ctx, func, &mut local_vars, &mut args_code)?;
+
+    let ret_ty_raw = if let Some(rt) = &func.ret_type { ctx.bridge_resolve_type(rt) } else { Type::Unit };
+    let ret_ty = ret_ty_raw.substitute(&ctx.current_type_map());
+    *ctx.current_ret_ty_mut() = Some(ret_ty.clone());
+    *ctx.current_ensures_mut() = func.ensures.clone();
+    let ret_part = if ret_ty == Type::Unit { "".to_string() } else { format!(" -> {}", ctx.resolve_mlir_type(&ret_ty)?) };
+    
+    let fn_attrs = build_fn_attributes(ctx, func, &fn_name, &ret_ty);
+    let loc_annotation = build_loc_annotation(ctx, func, &fn_name);
+
+    let is_main = fn_name == "main";
+    let is_no_mangle = func.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" );
+    let visibility_keyword = if func.is_pub || is_no_mangle || is_main { "public" } else { "private" };
+
+    let mut out = format!("  func.func {} @{}({}){}{} {{\n", visibility_keyword, fn_name, args_code.join(", "), ret_part, fn_attrs);
+    out.push_str("    %c0 = arith.constant 0 : i32\n");
+    out.push_str("    %c1_i64 = arith.constant 1 : i64\n");
+    
+    if is_main && !ctx.pending_bootstrap_patches().is_empty() {
+        out.push_str("    // Warm boot: initialize global allocators\n");
+        out.push_str("    func.call @__salt_bootstrap_runtime() : () -> ()\n");
+    }
+    
+    ctx.alloca_out_mut().clear();
+    let mut body_out = String::new();
+    
+    promote_mutated_args(ctx, func, &mut body_out, &mut local_vars)?;
+
+    let saved_ownership = ctx.ownership_tracker.replace(crate::codegen::verification::Z3StateTracker::new(ctx.z3_ctx));
+    let saved_malloc_tracker = ctx.malloc_tracker.replace(crate::codegen::verification::MallocTracker::new());
+    let saved_arena_escape = ctx.arena_escape_tracker.replace(crate::codegen::verification::ArenaEscapeTracker::new());
+
+    *ctx.pending_malloc_result.borrow_mut() = None;
+
+    for arg in &func.args {
+        ctx.arena_escape_tracker.borrow_mut().register_arg(&arg.name.to_string());
+    }
+
+    ctx.push_solver();
+    
+    emit_requires_verification(ctx, func, &mut body_out, &mut local_vars)?;
+
+    let old_no_yield = *ctx.no_yield();
+    let old_pulse = ctx.current_pulse().clone();
+    let pulse = crate::grammar::attr::extract_yielding_pulse(&func.attributes);
+    *ctx.no_yield_mut() = pulse.is_none();
+    *ctx.current_pulse_mut() = pulse;
+
+    ctx.push_cleanup_scope();
+
+    let has_fast_math = crate::grammar::attr::is_fast_math(&func.attributes);
+    let old_fast_math_fn = ctx.emission.borrow().in_fast_math_fn;
+    ctx.emission.borrow_mut().in_fast_math_fn = has_fast_math;
+
+    let has_trusted = func.attributes.iter().any(|a| a.name == "trusted");
+    let old_trusted_fn = ctx.emission.borrow().in_trusted_fn;
+    ctx.emission.borrow_mut().in_trusted_fn = has_trusted;
+
+    let has_dynamic_check = func.attributes.iter().any(|a| a.name == "dynamic_check");
+    let old_dynamic_check_fn = ctx.emission.borrow().in_dynamic_check_fn;
+    ctx.emission.borrow_mut().in_dynamic_check_fn = has_dynamic_check;
+
+    let terminator = ctx.with_lowering_ctx(|lctx| crate::codegen::stmt::emit_block(lctx, &mut body_out, &func.body.stmts, &mut local_vars))?;
+    
+    ctx.emission.borrow_mut().in_fast_math_fn = old_fast_math_fn;
+    ctx.emission.borrow_mut().in_trusted_fn = old_trusted_fn;
+    ctx.emission.borrow_mut().in_dynamic_check_fn = old_dynamic_check_fn;
+    *ctx.no_yield_mut() = old_no_yield;
+    *ctx.current_pulse_mut() = old_pulse;
+    
+    out.push_str(&ctx.alloca_out());
+    out.push_str(&body_out);
+    
+    emit_fn_cleanup(ctx, func, &mut out, &local_vars, terminator, &ret_ty)?;
+    
+    if !ctx.no_verify {
+        ctx.ownership_tracker.borrow().verify_leak_free(&ctx.z3_solver.borrow())?;
+        ctx.malloc_tracker.borrow().verify()?;
+    }
+    
+    ctx.ownership_tracker.replace(saved_ownership);
+    ctx.malloc_tracker.replace(saved_malloc_tracker);
+    ctx.arena_escape_tracker.replace(saved_arena_escape);
+    
+    *ctx.alloca_out_mut() = saved_alloca;
+
+    if let Some(prev) = prev_func_lvn {
+        ctx.emission.borrow_mut().global_lvn.set_current_function(prev);
+    } else {
+        ctx.emission.borrow_mut().global_lvn.clear_current_function();
+    }
+    
+    out.push_str(&format!("  }}{}\n\n", loc_annotation));
+    ctx.pop_solver();
+    Ok(out)
+}
+
+fn check_early_returns(ctx: &CodegenContext, func: &crate::grammar::SaltFn) -> Result<Option<String>, String> {
+    if let Some(hir_items) = ctx.get_hir_async_items(&func.name.to_string()) {
+        return Ok(Some(crate::codegen::emit_hir::emit_hir_items(&hir_items)?));
+    }
+    if let Some(liveness) = ctx.get_liveness(&func.name.to_string()) {
+        return Ok(Some(emit_async_fn(ctx, func, &liveness)?));
+    }
+    if crate::grammar::attr::has_attribute(&func.attributes, "shader") {
+        return Ok(Some(ctx.with_lowering_ctx(|lctx| crate::codegen::shader::emit_shader_fn(lctx, func))?));
+    }
+    if ctx.external_decls().contains(&func.name.to_string()) && func.body.stmts.is_empty() {
+        return Ok(Some(String::new()));
+    }
+    Ok(None)
+}
+
+fn check_generic_guards(ctx: &CodegenContext, func: &crate::grammar::SaltFn, fn_name: &str) -> Result<bool, String> {
+    let has_unresolved_generics = fn_name.ends_with("_T_E") 
+        || fn_name.ends_with("_T")
+        || fn_name.contains("_T_") && !fn_name.contains("_Tensor_")
+        || fn_name.contains("_Ptr_T")
+        || fn_name.contains("_E_") && fn_name.contains("Result");
+    
+    if has_unresolved_generics {
+        return Ok(true);
+    }
+    
+    if let Some(ref generics) = func.generics {
+        if !generics.params.is_empty() && ctx.current_type_map().is_empty() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn process_fn_arguments(ctx: &CodegenContext, func: &crate::grammar::SaltFn, local_vars: &mut std::collections::HashMap<String, (Type, crate::codegen::context::LocalKind)>, args_code: &mut Vec<String>) -> Result<(), String> {
     for arg in &func.args {
         let ty = if let Some(t) = &arg.ty {
-            let res = ctx.bridge_resolve_type(t);
-            if arg.name.to_string() == "self" {
-            }
-            res
+            ctx.bridge_resolve_type(t)
         } else if arg.name.to_string() == "self" {
              if let Some(self_ty) = &*ctx.current_self_ty() {
                  self_ty.clone()
@@ -1440,68 +1394,41 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
         let mlir_ty = ctx.resolve_mlir_type(&ty)?;
         let ssa_name = format!("%arg_{}", arg_name);
         
-        // [V7.3] Register unique alias scope for pointer arguments
         let is_ptr = matches!(ty, Type::Reference(..) | Type::Owned(..) | Type::Fn(..) | Type::Pointer { .. });
         if is_ptr {
             ctx.control_flow.borrow_mut().register_arg_scope(&ssa_name);
         }
         
         let attrs = if is_ptr { " {llvm.noalias}" } else { "" };
-        
         args_code.push(format!("%arg_{}: {}{}", arg_name, mlir_ty, attrs));
-        local_vars.insert(arg_name.clone(), (ty.clone(), LocalKind::SSA(ssa_name.clone())));
-        // [Z3 ELISION] Register argument as symbolic integer for Z3 proofs.
-        // This lets Z3 prove `requires` contracts at compile time, eliding
-        // them entirely — zero-overhead formal verification.
+        local_vars.insert(arg_name.clone(), (ty.clone(), crate::codegen::context::LocalKind::SSA(ssa_name.clone())));
+        
         if matches!(ty, Type::I32 | Type::I64 | Type::Usize) {
             let z3_var = ctx.mk_var(&arg_name);
             ctx.register_symbolic_int(ssa_name.clone(), z3_var);
         }
         
-        // [POINTER SAFETY] Register pointer arguments
-        // - Type::Pointer (Ptr<T>) args are Valid (caller-guarantees-validity contract)
-        // - Type::Reference (&T) and Type::Owned (Box<T>) are non-nullable -> Valid
-        // Optional state is assigned at merge points and Ptr::empty() sources, not function args.
         if matches!(ty, Type::Pointer { .. } | Type::Reference(..) | Type::Owned(..)) {
             ctx.pointer_tracker.borrow_mut().mark_valid(&arg_name);
         }
     }
+    Ok(())
+}
 
-    // [V25.8] Apply type substitution to return type for specialized generic functions
-    // This fixes mmap<T> -> mmap_f32 where Result<Ptr<T>,..> must become Result<Ptr<f32>,..>
-    let ret_ty_raw = if let Some(rt) = &func.ret_type { ctx.bridge_resolve_type(rt) } else { Type::Unit };
-    let ret_ty = ret_ty_raw.substitute(&ctx.current_type_map());
-    *ctx.current_ret_ty_mut() = Some(ret_ty.clone());
-    // [v0.9.2 POSTCONDITION PIVOT] Store ensures clauses for Z3 verification at return sites
-    *ctx.current_ensures_mut() = func.ensures.clone();
-    let ret_part = if ret_ty == Type::Unit { "".to_string() } else { format!(" -> {}", ctx.resolve_mlir_type(&ret_ty)?) };
-    
-    // V1.1 OPTIMIZATION: Check for @inline attribute
-    // When present, emit LLVM passthrough for alwaysinline to force inlining
+fn build_fn_attributes(ctx: &CodegenContext, func: &crate::grammar::SaltFn, _fn_name: &str, ret_ty: &Type) -> String {
     let has_inline = func.attributes.iter().any(|a| a.name == "inline");
     let has_noinline = func.attributes.iter().any(|a| a.name == "noinline");
     let is_no_mangle = func.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" );
     
-    // [KEUOS V2.0: EAGER LEAF INLINER]
-    // Automatically detect small pure functions that should be inlined for vectorization.
-    // Criteria: single statement body (if-else or single return), scalar types, no I/O.
-    // This enables LLVM to vectorize loops containing these functions.
-    // EXCEPTION: @noinline explicitly disables auto-inlining (for cold paths)
     let is_auto_leaf = !has_noinline && {
         let stmt_count = func.body.stmts.len();
-        let is_small = stmt_count <= 2; // Max 2 statements (common for relu-like functions)
-        
-        // Check if return type is a scalar or simple pointer (F32, F64, I32, I64, Bool, Unit, Ptr, Ref)
-        // Unit is included because void-returning setters should also be inlined
-        // Pointers/Refs are included for linked structures (LRU, trie, tree traversal)
+        let is_small = stmt_count <= 2;
         let is_small_return = matches!(ret_ty, 
             Type::F32 | Type::F64 | Type::I8 | Type::I16 | Type::I32 | Type::I64 |
             Type::U8 | Type::U16 | Type::U32 | Type::U64 | Type::Bool | Type::Usize | Type::Unit |
             Type::Reference(..) | Type::Owned(..) | Type::Pointer { .. }
         );
-        
         let has_no_io = !func.body.stmts.iter().any(|s| {
-            // Check for I/O operations that prevent inlining
             let s_str = format!("{:?}", s);
             s_str.contains("print") || s_str.contains("open") || s_str.contains("write") || s_str.contains("mmap")
         });
@@ -1509,17 +1436,7 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
         is_small && is_small_return && has_no_io && is_not_main
     };
     
-    // [KEUOS FIX] Explicitly set visibility to prevent internalization/dead-code stripping
-    // MLIR requires visibility keyword in syntax, not attribute dictionary
-    // ENTRY POINT: `fn main` must always be public for the C linker to find `_main`.
-    let is_main = fn_name == "main";
     let is_generic_instantiation = !ctx.current_type_map().is_empty() || !ctx.current_generic_args().is_empty();
-    let visibility_keyword = if func.is_pub || is_no_mangle || is_main {
-        "public" 
-    } else {
-        "private"
-    };
-
     let mut attr_dict = Vec::new();
     
     if is_generic_instantiation {
@@ -1532,11 +1449,7 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
         if has_noinline { pt_items.push("\"noinline\"".to_string()); }
         if is_no_mangle {
              pt_items.push("[\"frame-pointer\", \"non-leaf\"]".to_string());
-             let target_cpu = if ctx.lib_mode {
-                 "x86-64"
-             } else {
-                 "apple-m4"
-             };
+             let target_cpu = if ctx.lib_mode { "x86-64" } else { "apple-m4" };
              pt_items.push(format!("[\"target-cpu\", \"{}\"]", target_cpu));
              pt_items.push("[\"stack-alignment\", \"16\"]".to_string());
         }
@@ -1545,15 +1458,15 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
         }
     }
     
-    let fn_attrs = if !attr_dict.is_empty() {
+    if !attr_dict.is_empty() {
         format!(" attributes {{ {} }}", attr_dict.join(", "))
     } else {
         "".to_string()
-    };
-    
-    let loc_annotation = if ctx.debug_info && !ctx.source_file.is_empty() {
-        // MLIR fused loc with di_subprogram: gives LLVM the compile_unit -> subprogram
-        // hierarchy needed for DWARF DW_TAG_subprogram entries.
+    }
+}
+
+fn build_loc_annotation(ctx: &CodegenContext, func: &crate::grammar::SaltFn, fn_name: &str) -> String {
+    if ctx.debug_info && !ctx.source_file.is_empty() {
         let span = func.name.span();
         let line = span.start().line;
         let col = span.start().column;
@@ -1567,96 +1480,43 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
         )
     } else {
         String::new()
-    };
-
-    let mut out = format!("  func.func {} @{}({}){}{} {{\n", visibility_keyword, fn_name, args_code.join(", "), ret_part, fn_attrs);
-    out.push_str("    %c0 = arith.constant 0 : i32\n");
-    out.push_str("    %c1_i64 = arith.constant 1 : i64\n");
-    
-    // Inject bootstrap runtime call at the start of main
-    if func.name.to_string() == "main" && !ctx.pending_bootstrap_patches().is_empty() {
-        out.push_str("    // Warm boot: initialize global allocators\n");
-        out.push_str("    func.call @__salt_bootstrap_runtime() : () -> ()\n");
     }
-    
-    ctx.alloca_out_mut().clear();
-    let mut body_out = String::new();
-    
-    // [MUT PARAM FIX] Promote mutated function parameters from SSA to alloca.
-    // When a parameter is declared `mut` or is assigned in the function body,
-    // it must be stored in memory (alloca) so that reads after assignment
-    // see the updated value. Without this, the SSA register holds the original
-    // argument value forever, causing while-loop conditions to never change.
-    {
-        let mutated = ctx.mutated_vars().clone();
-        let mut promotions = Vec::new();
-        for arg in &func.args {
-            let arg_name = arg.name.to_string();
-            if arg.is_mut || mutated.contains(&arg_name) {
-                if let Some((ty, LocalKind::SSA(ssa_name))) = local_vars.get(&arg_name).cloned() {
-                    promotions.push((arg_name, ty, ssa_name));
-                }
-            }
-        }
-        for (arg_name, ty, ssa_name) in promotions {
-            let mlir_ty = ctx.resolve_mlir_type(&ty)?;
-            let alloca_name = format!("%mut_arg_{}", arg_name);
-            ctx.emit_alloca(&mut body_out, &alloca_name, &mlir_ty);
-            body_out.push_str(&format!("    llvm.store {}, {} : {}, !llvm.ptr\n", ssa_name, alloca_name, mlir_ty));
-            local_vars.insert(arg_name, (ty, LocalKind::Ptr(alloca_name)));
-        }
-    }
+}
 
-    // [KEUOS V5.0] Save ownership and malloc tracker state for parent function.
-    // When emit_fn is called recursively (via hydrate_specialization), the child
-    // function gets its own fresh tracker state. This prevents cross-function
-    // contamination where child's verify_leak_free would see parent's allocations.
-    let saved_ownership = ctx.ownership_tracker.replace(
-        crate::codegen::verification::Z3StateTracker::new(ctx.z3_ctx)
-    );
-    let saved_malloc_tracker = ctx.malloc_tracker.replace(crate::codegen::verification::MallocTracker::new());
-    let saved_arena_escape = ctx.arena_escape_tracker.replace(crate::codegen::verification::ArenaEscapeTracker::new());
-
-    // [KEUOS V5.1] Clear stale pending_malloc_result to prevent cross-function contamination.
-    // When a function like `alloc_u8` does `return malloc(count)`, the pending flag is set by
-    // the malloc call but never consumed (no let-binding in the function body). Without this
-    // reset, the stale flag leaks to the next function compiled, falsely tagging its first
-    // let-binding as a malloc'd allocation (e.g., `malloc:entry` for `let entry = tok.vocab[i]`).
-    *ctx.pending_malloc_result.borrow_mut() = None;
-
-    // [ARENA ESCAPE ANALYSIS] Register function arguments at depth 1.
-    // MUST happen AFTER the tracker is replaced with a fresh one (above).
-    // Arguments outlive the function body — their depth is Caller-owned.
+fn promote_mutated_args(ctx: &CodegenContext, func: &crate::grammar::SaltFn, body_out: &mut String, local_vars: &mut std::collections::HashMap<String, (Type, crate::codegen::context::LocalKind)>) -> Result<(), String> {
+    let mutated = ctx.mutated_vars().clone();
+    let mut promotions = Vec::new();
     for arg in &func.args {
         let arg_name = arg.name.to_string();
-        ctx.arena_escape_tracker.borrow_mut().register_arg(&arg_name);
+        if arg.is_mut || mutated.contains(&arg_name) {
+            if let Some((ty, crate::codegen::context::LocalKind::SSA(ssa_name))) = local_vars.get(&arg_name).cloned() {
+                promotions.push((arg_name, ty, ssa_name));
+            }
+        }
     }
+    for (arg_name, ty, ssa_name) in promotions {
+        let mlir_ty = ctx.resolve_mlir_type(&ty)?;
+        let alloca_name = format!("%mut_arg_{}", arg_name);
+        ctx.emit_alloca(body_out, &alloca_name, &mlir_ty);
+        body_out.push_str(&format!("    llvm.store {}, {} : {}, !llvm.ptr\n", ssa_name, alloca_name, mlir_ty));
+        local_vars.insert(arg_name, (ty, crate::codegen::context::LocalKind::Ptr(alloca_name)));
+    }
+    Ok(())
+}
 
-    // Push symbolic context for the function
-    ctx.push_solver();
-    
-    // [COUNCIL FIX] @trusted: skip verification for FFI wrappers
-    // Functions marked @trusted bypass Z3 and salt.verify emission
-    // while still generating normal executable code.
+fn emit_requires_verification(ctx: &CodegenContext, func: &crate::grammar::SaltFn, body_out: &mut String, local_vars: &mut std::collections::HashMap<String, (Type, crate::codegen::context::LocalKind)>) -> Result<(), String> {
     let has_trusted = func.attributes.iter().any(|a| a.name == "trusted");
-    
-    // Add assertions from 'requires' clause (skip if @trusted)
-    let _sym_ctx = crate::codegen::verification::SymbolicContext::new(ctx.z3_ctx);
     if !has_trusted {
         for req in &func.requires {
-            // Step 1+2+3: Z3 translation, proof check, and assertion registration
-            // All Z3 operations must stay inside the closure because both LoweringContext
-            // and SymbolicContext lifetimes are tied to the closure scope.
             let proven = ctx.with_lowering_ctx(|lctx| {
                 let sym_ctx = crate::codegen::verification::SymbolicContext::new(lctx.z3_ctx);
-                let z3_result = crate::codegen::expr::translate_bool_to_z3(lctx, req, &local_vars, &sym_ctx);
+                let z3_result = crate::codegen::expr::translate_bool_to_z3(lctx, req, local_vars, &sym_ctx);
                 if let Ok(z3_req) = z3_result {
                     lctx.z3_solver.push();
                     lctx.z3_solver.assert(&z3_req.not());
                     let result = lctx.z3_solver.check();
                     lctx.z3_solver.pop(1);
                     let is_proven = matches!(result, crate::z3_shim::SatResult::Unsat);
-                    // Register as assumption for downstream Z3 proofs
                     lctx.z3_solver.assert(&z3_req);
                     is_proven
                 } else {
@@ -1664,14 +1524,8 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
                 }
             });
             
-            if proven {
-                // Z3 ELISION: Mathematically proven. Emit nothing.
-                // This is Zero-Overhead Formal Verification.
-            } else if !ctx.no_verify {
-                // UNPROVEN FALLBACK: Emit standard MLIR runtime assertion.
-                // Uses scf.if (not cf.cond_br) to avoid the structured-region trap
-                // — cf.cond_br with block labels is illegal inside affine.for/scf.for.
-                let (req_val, _) = ctx.with_lowering_ctx(|lctx| crate::codegen::expr::emit_expr(lctx, &mut body_out, req, &mut local_vars, Some(&Type::Bool)))?;
+            if !proven && !ctx.no_verify {
+                let (req_val, _) = ctx.with_lowering_ctx(|lctx| crate::codegen::expr::emit_expr(lctx, body_out, req, local_vars, Some(&Type::Bool)))?;
                 let true_const = format!("%contract_true_{}", ctx.next_id());
                 let violated = format!("%contract_violated_{}", ctx.next_id());
                 body_out.push_str(&format!("    {} = arith.constant true\n", true_const));
@@ -1682,108 +1536,31 @@ pub fn emit_fn(ctx: &CodegenContext, func: &SaltFn, override_name: Option<String
                 body_out.push_str("      scf.yield\n");
                 body_out.push_str("    }\n");
             }
-            
         }
     }
+    Ok(())
+}
 
-    // Handle @yielding attribute (V2.0: Pulse-Aware Yielding)
-    // Default: no_yield = true (non-yielding by default for DX)
-    // @yielding on a function enables yield checks with configurable pulse
-    let old_no_yield = *ctx.no_yield();
-    let old_pulse = ctx.current_pulse().clone();
-    
-    let pulse = crate::grammar::attr::extract_yielding_pulse(&func.attributes);
-    *ctx.no_yield_mut() = pulse.is_none();
-    *ctx.current_pulse_mut() = pulse;
-
-    // [V1.1] RAII-Lite: Push cleanup scope for function body
-    ctx.push_cleanup_scope();
-
-    // [V8] @fast_math: enable fast-math on all FP ops in this function
-    // This allows LLVM to vectorize and reassociate FP arithmetic for max throughput
-    let has_fast_math = crate::grammar::attr::is_fast_math(&func.attributes);
-    let old_fast_math_fn = ctx.emission.borrow().in_fast_math_fn;
-    ctx.emission.borrow_mut().in_fast_math_fn = has_fast_math;
-
-    let old_trusted_fn = ctx.emission.borrow().in_trusted_fn;
-    ctx.emission.borrow_mut().in_trusted_fn = has_trusted;
-
-    let has_dynamic_check = func.attributes.iter().any(|a| a.name == "dynamic_check");
-    let old_dynamic_check_fn = ctx.emission.borrow().in_dynamic_check_fn;
-    ctx.emission.borrow_mut().in_dynamic_check_fn = has_dynamic_check;
-
-    let terminator = ctx.with_lowering_ctx(|lctx| emit_block(lctx, &mut body_out, &func.body.stmts, &mut local_vars))?;
-    
-    ctx.emission.borrow_mut().in_fast_math_fn = old_fast_math_fn;
-    ctx.emission.borrow_mut().in_trusted_fn = old_trusted_fn;
-    ctx.emission.borrow_mut().in_dynamic_check_fn = old_dynamic_check_fn;
-    *ctx.no_yield_mut() = old_no_yield;
-    *ctx.current_pulse_mut() = old_pulse;
-    
-    out.push_str(&ctx.alloca_out());
-    out.push_str(&body_out);
-    
+fn emit_fn_cleanup(ctx: &CodegenContext, func: &crate::grammar::SaltFn, out: &mut String, local_vars: &std::collections::HashMap<String, (Type, crate::codegen::context::LocalKind)>, terminator: bool, ret_ty: &Type) -> Result<(), String> {
     if !terminator {
-        // [V1.1] RAII-Lite: Emit cleanup for owned resources before implicit return
-        ctx.pop_and_emit_cleanup(&mut out)?;
+        ctx.pop_and_emit_cleanup(out)?;
+        ctx.with_lowering_ctx(|lctx| crate::codegen::stmt::emit_cleanup_for_return(lctx, out, local_vars))?;
         
-        // [QoL V1.0] Drop Trait: Emit drop() calls at implicit function end
-        ctx.with_lowering_ctx(|lctx| crate::codegen::stmt::emit_cleanup_for_return(lctx, &mut out, &local_vars))?;
-        
-        if ret_ty == Type::Unit {
+        if *ret_ty == Type::Unit {
             out.push_str("    func.return\n");
-        } else if func.name.to_string() == "main" && ret_ty == Type::I32 {
+        } else if func.name.to_string() == "main" && *ret_ty == Type::I32 {
             let c0 = format!("%c0_{}", ctx.next_id());
             out.push_str(&format!("    {} = arith.constant 0 : i32\n", c0));
             out.push_str(&format!("    func.return {} : i32\n", c0));
         } else {
-            // Non-unit function without explicit return on all paths.
-            // This can happen when a match arm calls a noreturn function
-            // like exit() without an explicit return. Emit llvm.unreachable
-            // to tell LLVM this code path is never reached at runtime.
-            //
-            // NOTE: Z3 verification (verify_leak_free) still runs at line ~891,
-            // so this does NOT bypass ownership analysis. Future work: track
-            // known-noreturn functions (exit, abort, sys_exit) so Z3 can
-            // prove path infeasibility rather than relying on this fallback.
             out.push_str("    llvm.unreachable\n");
         }
     } else {
-        // [V1.1] Still need to pop the scope (cleanup was emitted at each return)
         let _ = ctx.cleanup_stack_mut().pop();
     }
-    
-    // [V1.1] Z3 Ownership Ledger: Final Invariant Check (The Coroner's Audit)
-    // Verify that no resource remains in Owned state at function exit.
-    // If Z3 finds a path where a variable is still Owned, this is a hard error.
-    if !ctx.no_verify {
-        ctx.ownership_tracker.borrow().verify_leak_free(&ctx.z3_solver.borrow())?;
-    }
-    
-    // [DAG Malloc Tracker] Verify no malloc'd pointer leaked.
-    if !ctx.no_verify {
-        ctx.malloc_tracker.borrow().verify()?;
-    }
-    
-    // [KEUOS V5.0] Restore parent function's ownership and malloc tracker state.
-    ctx.ownership_tracker.replace(saved_ownership);
-    ctx.malloc_tracker.replace(saved_malloc_tracker);
-    ctx.arena_escape_tracker.replace(saved_arena_escape);
-    
-    // Restore state
-    *ctx.alloca_out_mut() = saved_alloca;
-
-    // [KEUOS FIX] Restore previous GlobalLVN function context
-    if let Some(prev) = prev_func_lvn {
-        ctx.emission.borrow_mut().global_lvn.set_current_function(prev);
-    } else {
-        ctx.emission.borrow_mut().global_lvn.clear_current_function();
-    }
-    
-    out.push_str(&format!("  }}{}\n\n", loc_annotation));
-    ctx.pop_solver();
-    Ok(out)
+    Ok(())
 }
+
 
 #[allow(dead_code)]
 fn emit_impl(ctx: &CodegenContext, imp: &SaltImpl) -> Result<String, String> {
@@ -1956,189 +1733,177 @@ fn register_signatures(ctx: &CodegenContext, file: &SaltFile) -> Result<(), Stri
     let old_pkg = ctx.current_package.borrow().clone();
     *ctx.current_package.borrow_mut() = file.package.clone();
 
-    // Temporarily swap imports to match the file being scanned
     let old_imports = ctx.imports().clone();
     *ctx.imports_mut() = file.imports.clone();
-    // Fix: We MUST inject self-imports so that types defined in this file (e.g. GlobalSlabAlloc)
-    // can be resolved to FQNs by resolve_type_safe via resolve_package_prefix.
     ctx.inject_self_imports(file);
 
     for item in &file.items {
         match item {
-            Item::Fn(f) => {
-                let name = f.name.to_string();
-                let mangled = if name == "main" { "main".to_string() }
-                             else if pkg_name.is_empty() { name.clone() }
-                             else { Mangler::mangle(&[&pkg_name, &name]) };
-                
-                // [V4.0] Check for @string_prefix attribute and register handler
-                for attr in &f.attributes {
-                    if attr.name == "string_prefix" {
-                        if let Some(prefix) = &attr.string_arg {
-                            ctx.string_prefix_handlers_mut().insert(prefix.clone(), mangled.clone());
-                        }
-                    }
-                }
-                
-                // Use a safe wrapper for signature resolution during pre-scan
-                let ret = if let Some(rt) = &f.ret_type { resolve_type_safe(ctx, rt) } else { Type::Unit };
-                let unknown_ty = crate::grammar::SynType::Other("UnknownSelf".to_string());
-                let args = f.args.iter().map(|a| resolve_type_safe(ctx, a.ty.as_ref().unwrap_or(&unknown_ty))).collect();
-                ctx.globals_mut().insert(mangled, Type::Fn(args, Box::new(ret)));
-            }
-            Item::ExternFn(ef) => {
-                let name = ef.name.to_string();
-                let mangled = name.clone(); // Externs are C-ABI, never mangle them.
-                
-                // [KEUOS FIX] Skip if already registered (dedupe across modules)
-                if ctx.external_decls().contains(&name) {
-                    continue;
-                }
-                
-                // Register as external declaration so resolver knows not to mangle lookups
-                ctx.external_decls_mut().insert(name.clone());
-                             
-                let ret = if let Some(rt) = &ef.ret_type { resolve_type_safe(ctx, rt) } else { Type::Unit };
-                let unknown_ty = crate::grammar::SynType::Other("UnknownSelf".to_string());
-                let args: Vec<Type> = ef.args.iter().map(|a| resolve_type_safe(ctx, a.ty.as_ref().unwrap_or(&unknown_ty))).collect();
-                ctx.globals_mut().insert(mangled.clone(), Type::Fn(args.clone(), Box::new(ret.clone())));
+            Item::Fn(f) => register_fn_signature(ctx, f, &pkg_name)?,
+            Item::ExternFn(ef) => register_extern_fn_signature(ctx, ef)?,
+            Item::Concept(c) => register_concept_signature(ctx, c, &pkg_name)?,
+            Item::Global(g) => register_global_signature(ctx, g, &pkg_name)?,
+            Item::Const(c) => register_const_signature(ctx, c, &pkg_name)?,
+            Item::Impl(imp) => register_impl_signatures(ctx, imp)?,
+            _ => {}
+        }
+    }
 
-                // [KEUOS FIX] Emit MLIR declaration to decl_out
-                // This ensures the func.func private declaration is emitted alongside registration
-                let mut args_mlir = Vec::new();
-                for arg in &args {
-                    if let Ok(mlir_ty) = ctx.resolve_mlir_type(&arg) {
-                        args_mlir.push(mlir_ty);
-                    }
-                }
-                let ret_mlir = if ret == Type::Unit {
-                    "()".to_string()
-                } else if let Ok(mlir_ty) = ctx.resolve_mlir_type(&ret) {
-                    mlir_ty
-                } else {
-                    "()".to_string()
-                };
-                let decl_str = format!("  func.func private @{}({}) -> {}\n", 
-                    name, args_mlir.join(", "), ret_mlir);
-                ctx.pending_func_decls_mut().insert(name.clone(), decl_str);
+    *ctx.imports_mut() = old_imports;
+    *ctx.current_package.borrow_mut() = old_pkg;
 
-                // TOP MINDS: Register externs in generic_impls so they are visible to identify_target across modules
-                // Convert ExternFnDecl to SaltFn representation
-                let wrapper = crate::grammar::SaltFn {
-                    attributes: ef.attributes.clone(),
-                    is_pub: ef.is_pub,
-                    name: syn::Ident::new(&name, proc_macro2::Span::call_site()),
-                    generics: None,
-                    args: ef.args.clone(),
-                    ret_type: ef.ret_type.clone(),
-                    body: crate::grammar::SaltBlock { stmts: vec![] }, // Empty body for extern
-                    requires: ef.requires.clone(),
-                    ensures: ef.ensures.clone(),
-                };
-                // Capture current imports? Externs don't need imports usually.
-                // Extern functions are never mangled in C-ABI! Use the raw name.
-                ctx.generic_impls_mut().insert(name.clone(), (wrapper, vec![]));
-            }
-            Item::Concept(c) => {
-                 if c.generics.is_none() {
-                     let name = c.name.to_string();
-                     let mangled = if pkg_name.is_empty() { name } else { Mangler::mangle(&[&pkg_name, &name]) };
-                     
-                     let arg_ty = resolve_type_safe(ctx, &c.param_ty);
-                     let sig = Type::Fn(vec![arg_ty], Box::new(Type::Bool));
-                     ctx.globals_mut().insert(mangled, sig);
-                 }
-            }
-            Item::Global(g) => {
-                let name = g.name.to_string();
-                let mangled = if pkg_name.is_empty() { name }
-                             else { format!("{}__{}", pkg_name, name) };
-                let ty = resolve_type_safe(ctx, &g.ty);
-                ctx.globals_mut().insert(mangled, ty);
-            }
-            Item::Const(c) => {
-                let name = c.name.to_string();
-                let mangled = if pkg_name.is_empty() { name.clone() }
-                             else { format!("{}__{}", pkg_name, name) };
-                let ty = resolve_type_safe(ctx, &c.ty);
-                ctx.globals_mut().insert(mangled.clone(), ty.clone());
-                
-                // [KEUOS FIX] Cross-Module Constant Inlining
-                // Evaluate the constant value and insert into evaluator.constant_table
-                // using the mangled FQN. This allows expr resolution (expr/mod.rs:110) to
-                // inline dependency constants as arith.constant instead of falling
-                // through to llvm.mlir.addressof (which requires a global declaration).
-                //
-                // [PHASE 4a] Only insert scalar constants (Integer/Bool/Float/String).
-                // Complex values (structs like OpenFlags { bits: 0 }) cannot be inlined
-                // as arith.constant — they must go through the global load path which
-                // preserves their struct type. Without this guard, Complex values hit the
-                // catch-all `_ => (Type::I64, "0")` in expr/mod.rs:115, erasing the
-                // struct type and causing promotion failures.
-                {
-                    let mut eval = ctx.evaluator.borrow_mut();
-                    if let Ok(val) = eval.eval_expr(&c.value) {
-                        match &val {
-                            crate::evaluator::ConstValue::Integer(_) |
-                            crate::evaluator::ConstValue::Bool(_) |
-                            crate::evaluator::ConstValue::Float(_) |
-                            crate::evaluator::ConstValue::String(_) => {
-                                eval.constant_table.insert(mangled.clone(), val);
-                            }
-                            _ => {
-                                // Complex/struct constants: skip inlining, handled via global load
-                            }
-                        }
-                    }
-                }
-            }
-            Item::Impl(imp) => {
-                if let SaltImpl::Methods { target_ty, methods, generics } = imp {
-                     // FIX: Use resolve_type_safe to ensure FQN for the target type (e.g. std.core.slab_alloc.GlobalSlabAlloc)
-                     let parsed_ty = resolve_type_safe(ctx, target_ty);
-                     let _target_name = match &parsed_ty {
-                         Type::Struct(name) | Type::Enum(name) => name.clone(),
-                         Type::Concrete(name, _) => name.clone(),
-                         _ => parsed_ty.mangle_suffix(),
-                     };
-                     
-                     let mut key = parsed_ty.to_key().ok_or_else(|| format!("Failed to derive TypeKey for impl target {}", _target_name))?;
-                     // Fix: If this is a generic impl, we must register it as the Template Key (spec = None)
-                     if generics.is_some() {
-                         key.specialization = None;
-                     }
+    Ok(())
+}
 
-                     for m in methods {
-                         // [V4.0 KEUOS] Register via TraitRegistry with signature extraction
-                         let current_imports = ctx.imports().clone();
-                         ctx.trait_registry_mut().register_simple(key.clone(), m.clone(), Some(parsed_ty.clone()), current_imports);
-                     }
-                }
-                // [KEUOS V7.0] Handle `impl Trait for Type` during signature pre-scanning
-                else if let SaltImpl::Trait { trait_name: _, target_ty, methods, generics } = imp {
-                     let parsed_ty = resolve_type_safe(ctx, target_ty);
-                     
-                     let mut key = parsed_ty.to_key().unwrap_or_else(|| {
-                         crate::types::TypeKey { path: vec![], name: parsed_ty.mangle_suffix(), specialization: None }
-                     });
-                     if generics.is_some() {
-                         key.specialization = None;
-                     }
+fn register_fn_signature(ctx: &CodegenContext, f: &crate::grammar::SaltFn, pkg_name: &str) -> Result<(), String> {
+    let name = f.name.to_string();
+    let mangled = if name == "main" { "main".to_string() }
+                 else if pkg_name.is_empty() { name.clone() }
+                 else { Mangler::mangle(&[pkg_name, &name]) };
+    
+    for attr in &f.attributes {
+        if attr.name == "string_prefix" {
+            if let Some(prefix) = &attr.string_arg {
+                ctx.string_prefix_handlers_mut().insert(prefix.clone(), mangled.clone());
+            }
+        }
+    }
+    
+    let ret = if let Some(rt) = &f.ret_type { resolve_type_safe(ctx, rt) } else { Type::Unit };
+    let unknown_ty = crate::grammar::SynType::Other("UnknownSelf".to_string());
+    let args = f.args.iter().map(|a| resolve_type_safe(ctx, a.ty.as_ref().unwrap_or(&unknown_ty))).collect();
+    ctx.globals_mut().insert(mangled, Type::Fn(args, Box::new(ret)));
+    Ok(())
+}
 
-                     for m in methods {
-                         let current_imports = ctx.imports().clone();
-                         ctx.trait_registry_mut().register_simple(key.clone(), m.clone(), Some(parsed_ty.clone()), current_imports);
-                     }
-                }
+fn register_extern_fn_signature(ctx: &CodegenContext, ef: &crate::grammar::ExternFnDecl) -> Result<(), String> {
+    let name = ef.name.to_string();
+    let mangled = name.clone();
+    
+    if ctx.external_decls().contains(&name) {
+        return Ok(());
+    }
+    
+    ctx.external_decls_mut().insert(name.clone());
+                 
+    let ret = if let Some(rt) = &ef.ret_type { resolve_type_safe(ctx, rt) } else { Type::Unit };
+    let unknown_ty = crate::grammar::SynType::Other("UnknownSelf".to_string());
+    let args: Vec<Type> = ef.args.iter().map(|a| resolve_type_safe(ctx, a.ty.as_ref().unwrap_or(&unknown_ty))).collect();
+    ctx.globals_mut().insert(mangled.clone(), Type::Fn(args.clone(), Box::new(ret.clone())));
+
+    let mut args_mlir = Vec::new();
+    for arg in &args {
+        if let Ok(mlir_ty) = ctx.resolve_mlir_type(&arg) {
+            args_mlir.push(mlir_ty);
+        }
+    }
+    let ret_mlir = if ret == Type::Unit {
+        "()".to_string()
+    } else if let Ok(mlir_ty) = ctx.resolve_mlir_type(&ret) {
+        mlir_ty
+    } else {
+        "()".to_string()
+    };
+    let decl_str = format!("  func.func private @{}({}) -> {}\n", 
+        name, args_mlir.join(", "), ret_mlir);
+    ctx.pending_func_decls_mut().insert(name.clone(), decl_str);
+
+    let wrapper = crate::grammar::SaltFn {
+        attributes: ef.attributes.clone(),
+        is_pub: ef.is_pub,
+        name: syn::Ident::new(&name, proc_macro2::Span::call_site()),
+        generics: None,
+        args: ef.args.clone(),
+        ret_type: ef.ret_type.clone(),
+        body: crate::grammar::SaltBlock { stmts: vec![] },
+        requires: ef.requires.clone(),
+        ensures: ef.ensures.clone(),
+    };
+    ctx.generic_impls_mut().insert(name.clone(), (wrapper, vec![]));
+    Ok(())
+}
+
+fn register_concept_signature(ctx: &CodegenContext, c: &crate::grammar::SaltConcept, pkg_name: &str) -> Result<(), String> {
+    if c.generics.is_none() {
+        let name = c.name.to_string();
+        let mangled = if pkg_name.is_empty() { name } else { Mangler::mangle(&[pkg_name, &name]) };
+        
+        let arg_ty = resolve_type_safe(ctx, &c.param_ty);
+        let sig = Type::Fn(vec![arg_ty], Box::new(Type::Bool));
+        ctx.globals_mut().insert(mangled, sig);
+    }
+    Ok(())
+}
+
+fn register_global_signature(ctx: &CodegenContext, g: &crate::grammar::GlobalDef, pkg_name: &str) -> Result<(), String> {
+    let name = g.name.to_string();
+    let mangled = if pkg_name.is_empty() { name }
+                 else { format!("{}__{}", pkg_name, name) };
+    let ty = resolve_type_safe(ctx, &g.ty);
+    ctx.globals_mut().insert(mangled, ty);
+    Ok(())
+}
+
+fn register_const_signature(ctx: &CodegenContext, c: &crate::grammar::ConstDef, pkg_name: &str) -> Result<(), String> {
+    let name = c.name.to_string();
+    let mangled = if pkg_name.is_empty() { name.clone() }
+                 else { format!("{}__{}", pkg_name, name) };
+    let ty = resolve_type_safe(ctx, &c.ty);
+    ctx.globals_mut().insert(mangled.clone(), ty.clone());
+    
+    let mut eval = ctx.evaluator.borrow_mut();
+    if let Ok(val) = eval.eval_expr(&c.value) {
+        match &val {
+            crate::evaluator::ConstValue::Integer(_) |
+            crate::evaluator::ConstValue::Bool(_) |
+            crate::evaluator::ConstValue::Float(_) |
+            crate::evaluator::ConstValue::String(_) => {
+                eval.constant_table.insert(mangled.clone(), val);
             }
             _ => {}
         }
     }
-    // Restore
-    *ctx.imports_mut() = old_imports;
-    *ctx.current_package.borrow_mut() = old_pkg;
     Ok(())
 }
+
+fn register_impl_signatures(ctx: &CodegenContext, imp: &SaltImpl) -> Result<(), String> {
+    if let SaltImpl::Methods { target_ty, methods, generics } = imp {
+        let parsed_ty = resolve_type_safe(ctx, target_ty);
+        let _target_name = match &parsed_ty {
+            Type::Struct(name) | Type::Enum(name) => name.clone(),
+            Type::Concrete(name, _) => name.clone(),
+            _ => parsed_ty.mangle_suffix(),
+        };
+        
+        let mut key = parsed_ty.to_key().ok_or_else(|| format!("Failed to derive TypeKey for impl target {}", _target_name))?;
+        if generics.is_some() {
+            key.specialization = None;
+        }
+
+        for m in methods {
+            let current_imports = ctx.imports().clone();
+            ctx.trait_registry_mut().register_simple(key.clone(), m.clone(), Some(parsed_ty.clone()), current_imports);
+        }
+    } else if let SaltImpl::Trait { trait_name: _, target_ty, methods, generics } = imp {
+        let parsed_ty = resolve_type_safe(ctx, target_ty);
+        
+        let mut key = parsed_ty.to_key().unwrap_or_else(|| {
+            crate::types::TypeKey { path: vec![], name: parsed_ty.mangle_suffix(), specialization: None }
+        });
+        
+        if generics.is_some() {
+            key.specialization = None;
+        }
+
+        for m in methods {
+            let current_imports = ctx.imports().clone();
+            ctx.trait_registry_mut().register_simple(key.clone(), m.clone(), Some(parsed_ty.clone()), current_imports);
+        }
+    }
+    Ok(())
+}
+
+
 
 /// A non-panicking version of resolve_type for pre-scanning.
 /// This version avoids any logic that triggers specialization (ensure_struct_exists).
@@ -2431,7 +2196,164 @@ fn scan_stmt(ctx: &CodegenContext, stmt: &crate::grammar::Stmt) -> Result<(), St
 
 fn scan_expr(ctx: &CodegenContext, expr: &syn::Expr) -> Result<(), String> {
     match expr {
-        syn::Expr::Call(c) => {
+        syn::Expr::Call(c) => scan_expr_call(ctx, c),
+
+        syn::Expr::Struct(s) => {
+             // Check if it is a specialized struct instantiation
+            // Resolve the path type!
+             let ty_syn = syn::Type::Path(syn::TypePath { qself: None, path: s.path.clone() });
+             ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(ty_syn).map_err(|e| e.to_string())?);
+             
+             for f in &s.fields { scan_expr(ctx, &f.expr)?; }
+             Ok(())
+        }
+        syn::Expr::Cast(c) => {
+            scan_expr(ctx, &c.expr)?;
+            ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(*c.ty.clone()).map_err(|e| e.to_string())?);
+            Ok(())
+        }
+        syn::Expr::Binary(b) => {
+            scan_expr(ctx, &b.left)?;
+            scan_expr(ctx, &b.right)?;
+            Ok(())
+        }
+        syn::Expr::Unary(u) => scan_expr(ctx, &u.expr),
+        syn::Expr::Paren(p) => scan_expr(ctx, &p.expr),
+        syn::Expr::MethodCall(m) => scan_expr_method_call(ctx, m),
+        syn::Expr::Block(b) => {
+            for s in &b.block.stmts { scan_stmt(ctx, &crate::grammar::Stmt::Syn(s.clone()))?; }
+            Ok(())
+        }
+        _ => Ok(())
+    }
+}
+
+
+fn resolve_scan_expr_call_fqn(ctx: &CodegenContext, p: &syn::ExprPath, target_key: &crate::types::TypeKey, generic_args: &[crate::types::Type]) -> Result<(), String> {
+    let full_mangled = target_key.mangle();
+
+    let parts: Vec<&str> = full_mangled.split("__").collect();
+    if parts.len() >= 2 {
+         let base_name = Mangler::mangle(&parts[..parts.len()-1]);
+         let method_name = parts.last().ok_or_else(|| "Failed to get method name from mangled path".to_string())?;
+         
+         if ctx.struct_templates().contains_key(&base_name) || ctx.enum_templates().contains_key(&base_name) {
+             let template_key = base_name.clone();
+             let is_generic_struct = {
+                 if let Some(t) = ctx.struct_templates().get(&template_key) {
+                     t.generics.as_ref().map_or(false, |g| !g.params.is_empty())
+                 } else if let Some(e) = ctx.enum_templates().get(&template_key) {
+                     e.generics.as_ref().map_or(false, |g| !g.params.is_empty())
+                 } else { false }
+             };
+             
+             let base_parts: Vec<&str> = base_name.split("__").collect();
+             let (b_path, b_name) = if base_parts.len() > 1 {
+                 (base_parts[..base_parts.len()-1].iter().map(|s| s.to_string()).collect::<Vec<_>>(), base_parts.last().ok_or_else(|| "Failed to get base name".to_string())?.to_string())
+             } else {
+                 (vec![], base_name.clone())
+             };
+             let key_obj = crate::types::TypeKey { path: b_path, name: b_name, specialization: None };
+             
+             let fn_item_opt = ctx.trait_registry().get_legacy(&key_obj, &method_name);
+             
+             if let Some((f, _, _)) = fn_item_opt {
+                 let old_map = ctx.current_type_map().clone();
+                 
+                 if is_generic_struct {
+                     let map_params = |params: &syn::punctuated::Punctuated<crate::grammar::GenericParam, syn::Token![,]>| {
+                          for (i, param) in params.iter().enumerate() {
+                              let name = match param {
+                                  crate::grammar::GenericParam::Type { name, .. } => name,
+                                  crate::grammar::GenericParam::Const { name, .. } => name,
+                              };
+                              if let Some(arg) = generic_args.get(i) {
+                                  let val: crate::types::Type = arg.clone();
+                                ctx.current_type_map_mut().insert(name.to_string(), val);
+                              }
+                          }
+                     };
+                     if let Some(template) = ctx.struct_templates().get(&template_key) {
+                          if let Some(generics) = &template.generics { map_params(&generics.params); }
+                     } else if let Some(template) = ctx.enum_templates().get(&template_key) {
+                          if let Some(generics) = &template.generics { map_params(&generics.params); } 
+                     }
+                 } else {
+                      if let Some(generics) = &f.generics {
+                         for (i, param) in generics.params.iter().enumerate() {
+                              let name = match param {
+                                  crate::grammar::GenericParam::Type { name, .. } => name,
+                                  crate::grammar::GenericParam::Const { name, .. } => name,
+                              };
+                              if let Some(arg) = generic_args.get(i) {
+                                  let val: crate::types::Type = arg.clone();
+                                ctx.current_type_map_mut().insert(name.to_string(), val);
+                              }
+                         }
+                      }
+                 }
+
+                 if let Some(rt) = &f.ret_type { let _ = ctx.bridge_resolve_type(rt); }
+                 let unknown_ty = crate::grammar::SynType::Other("UnknownSelf".to_string());
+                 for a in &f.args { let _ = ctx.bridge_resolve_type(a.ty.as_ref().unwrap_or(&unknown_ty)); }
+                 
+                 *ctx.current_type_map_mut() = old_map;
+                 
+                 let segments_len = p.path.segments.len();
+                 if segments_len >= 2 {
+                     let mut base_path = p.path.clone();
+                     let method_seg = base_path.segments.pop().ok_or_else(|| "Failed to pop method segment".to_string())?.into_value();
+                     
+                     let base_ty_syn = syn::Type::Path(syn::TypePath { qself: None, path: base_path });
+                     let self_ty = ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(base_ty_syn).map_err(|e| e.to_string())?);
+                     
+                     let mut concrete_tys = Vec::new();
+                     
+                     if let crate::types::Type::Concrete(_, args) = &self_ty {
+                         concrete_tys.extend(args.clone());
+                     } 
+                     
+                     if let syn::PathArguments::AngleBracketed(args) = &method_seg.arguments {
+                         for arg in &args.args {
+                             match arg {
+                                 syn::GenericArgument::Type(ty) => {
+                                     concrete_tys.push(ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(ty.clone()).map_err(|e| e.to_string())?));
+                                 }
+                                 syn::GenericArgument::Const(expr) => {
+                                      if let Ok(crate::evaluator::ConstValue::Integer(val)) = ctx.evaluator.borrow_mut().eval_expr(expr) {
+                                          concrete_tys.push(crate::types::Type::Struct(val.to_string()));
+                                      } else {
+                                          concrete_tys.push(crate::types::Type::Struct("0".to_string()));
+                                      }
+                                 }
+                                 _ => {}
+                             }
+                         }
+                     }
+                     
+                     let method_generic_count = f.generics.as_ref().map(|g| g.params.len()).unwrap_or(0);
+                     let turbofish_count = if let syn::PathArguments::AngleBracketed(args) = &method_seg.arguments {
+                         args.args.len()
+                     } else { 0 };
+                     
+                     if turbofish_count >= method_generic_count {
+                          let _ = ctx.request_specialization(&full_mangled, concrete_tys, Some(self_ty));
+                     }
+                 }
+             }
+         }
+    } 
+    
+    if let Some((_, ret_ty)) = ctx.resolve_global_signature(&full_mangled) { 
+         if let crate::types::Type::Fn(_, box_ret) = ret_ty {
+             let _ = ctx.bridge_resolve_codegen_type(&box_ret);
+         }
+    }
+    
+    Ok(())
+}
+
+fn scan_expr_call(ctx: &CodegenContext, c: &syn::ExprCall) -> Result<(), String>  {
             scan_expr(ctx, &c.func)?;
             for a in &c.args { scan_expr(ctx, a)?; }
             
@@ -2461,183 +2383,13 @@ fn scan_expr(ctx: &CodegenContext, expr: &syn::Expr) -> Result<(), String> {
                 
                 // 2. Resolve to FQN Identity
                 if let Ok(target_key) = ctx.resolve_path_to_fqn(&p.path) {
-                    let full_mangled = target_key.mangle();
-
-
-                    // 1. Check Static Method on Struct Template
-                    // The path might include the method name as the last segment, which resolve_path_to_fqn included in the key name.
-                    // We need to peel it off to find the template base.
-                    // e.g. std__collections__vec__Vec__new -> Base: std__collections__vec__Vec, Method: new
-                    
-                    let parts: Vec<&str> = full_mangled.split("__").collect();
-                    if parts.len() >= 2 {
-                         let base_name = Mangler::mangle(&parts[..parts.len()-1]);
-                         let method_name = parts.last().ok_or_else(|| "Failed to get method name from mangled path".to_string())?;
-                         
-                         // Check if base_name is a known template
-                         if ctx.struct_templates().contains_key(&base_name) || ctx.enum_templates().contains_key(&base_name) {
-                             let template_key = base_name.clone();
-                             let is_generic_struct = {
-                                 if let Some(t) = ctx.struct_templates().get(&template_key) {
-                                     t.generics.as_ref().map_or(false, |g| !g.params.is_empty())
-                                 } else if let Some(e) = ctx.enum_templates().get(&template_key) {
-                                     e.generics.as_ref().map_or(false, |g| !g.params.is_empty())
-                                 } else { false }
-                             };
-                             
-                             // Calculate TypeKey for the Impl Lookup
-                             // Reconstruct key from base_name string
-                             let base_parts: Vec<&str> = base_name.split("__").collect();
-                             let (b_path, b_name) = if base_parts.len() > 1 {
-                                 (base_parts[..base_parts.len()-1].iter().map(|s| s.to_string()).collect::<Vec<_>>(), base_parts.last().ok_or_else(|| "Failed to get base name".to_string())?.to_string())
-                             } else {
-                                 (vec![], base_name.clone())
-                             };
-                             let key_obj = crate::types::TypeKey { path: b_path, name: b_name, specialization: None };
-                             
-                             // [V4.0 KEUOS] Lookup method via TraitRegistry
-                             let fn_item_opt = ctx.trait_registry().get_legacy(&key_obj, &method_name);
-                             
-                             if let Some((f, _, _)) = fn_item_opt {
-                                 // e.g. Vec::new() -> Ret type is Vec<T>
-                                 // We need to map generic_args from call site to the template params
-                                 let old_map = ctx.current_type_map().clone();
-                                 
-                                 if is_generic_struct {
-                                     // Map Class Generics
-                                     let map_params = |params: &syn::punctuated::Punctuated<crate::grammar::GenericParam, syn::Token![,]>| {
-                                          for (i, param) in params.iter().enumerate() {
-                                              let name = match param {
-                                                  crate::grammar::GenericParam::Type { name, .. } => name,
-                                                  crate::grammar::GenericParam::Const { name, .. } => name,
-                                              };
-                                              if let Some(arg) = generic_args.get(i) {
-                                                  let val: crate::types::Type = arg.clone();
-                                                ctx.current_type_map_mut().insert(name.to_string(), val);
-                                              }
-                                          }
-                                     };
-                                     if let Some(template) = ctx.struct_templates().get(&template_key) {
-                                          if let Some(generics) = &template.generics { map_params(&generics.params); }
-                                     } else if let Some(template) = ctx.enum_templates().get(&template_key) {
-                                          if let Some(generics) = &template.generics { map_params(&generics.params); } 
-                                     }
-                                 } else {
-                                      // Map Method Generics
-                                      if let Some(generics) = &f.generics {
-                                         for (i, param) in generics.params.iter().enumerate() {
-                                              let name = match param {
-                                                  crate::grammar::GenericParam::Type { name, .. } => name,
-                                                  crate::grammar::GenericParam::Const { name, .. } => name,
-                                              };
-                                              if let Some(arg) = generic_args.get(i) {
-                                                  let val: crate::types::Type = arg.clone();
-                                                ctx.current_type_map_mut().insert(name.to_string(), val);
-                                              }
-                                         }
-                                      }
-                                 }
-
-                                 // Resolve Ret Type to trigger instantiation
-                                 if let Some(rt) = &f.ret_type { let _ = ctx.bridge_resolve_type(rt); }
-                                 let unknown_ty = crate::grammar::SynType::Other("UnknownSelf".to_string());
-                                 for a in &f.args { let _ = ctx.bridge_resolve_type(a.ty.as_ref().unwrap_or(&unknown_ty)); }
-                                 
-                                 *ctx.current_type_map_mut() = old_map;
-                                 
-                                 // FIX: Explicitly request specialization for the static method (Path Call)
-                                 // 1. Determine Self Type from Path Prefix (all segments except last)
-                                 let segments_len = p.path.segments.len();
-                                 if segments_len >= 2 {
-                                     let mut base_path = p.path.clone();
-                                     let method_seg = base_path.segments.pop().ok_or_else(|| "Failed to pop method segment".to_string())?.into_value();
-                                     
-                                     // Resolve Base Type (Self)
-                                     let base_ty_syn = syn::Type::Path(syn::TypePath { qself: None, path: base_path });
-                                     let self_ty = ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(base_ty_syn).map_err(|e| e.to_string())?);
-                                     
-                                     // 2. Extract Generic Arguments
-                                     let mut concrete_tys = Vec::new();
-                                     
-                                     // A. Struct/Impl Generics
-                                     if let crate::types::Type::Concrete(_, args) = &self_ty {
-                                         concrete_tys.extend(args.clone());
-                                     } 
-                                     
-                                     // B. Method Generics (from last segment)
-                                     if let syn::PathArguments::AngleBracketed(args) = &method_seg.arguments {
-                                         for arg in &args.args {
-                                             match arg {
-                                                 syn::GenericArgument::Type(ty) => {
-                                                     concrete_tys.push(ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(ty.clone()).map_err(|e| e.to_string())?));
-                                                 }
-                                                 syn::GenericArgument::Const(expr) => {
-                                                      if let Ok(crate::evaluator::ConstValue::Integer(val)) = ctx.evaluator.borrow_mut().eval_expr(expr) {
-                                                          concrete_tys.push(crate::types::Type::Struct(val.to_string()));
-                                                      } else {
-                                                          concrete_tys.push(crate::types::Type::Struct("0".to_string()));
-                                                      }
-                                                 }
-                                                 _ => {}
-                                             }
-                                         }
-                                     }
-                                     
-                                     // 3. Request Specialization
-                                     // [KEUOS FIX] Check if method generics are fully satisfied by turbofish/path args
-                                     let method_generic_count = f.generics.as_ref().map(|g| g.params.len()).unwrap_or(0);
-                                     let turbofish_count = if let syn::PathArguments::AngleBracketed(args) = &method_seg.arguments {
-                                         args.args.len()
-                                     } else { 0 };
-                                     
-                                     if turbofish_count < method_generic_count {
-
-                                     } else {
-                                          let _ = ctx.request_specialization(&full_mangled, concrete_tys, Some(self_ty));
-                                     }
-                                 }
-                             }
-                         }
-                    } // end parts check
-                    
-                    // 2. Check Global Function (Registry)
-                    // resolve_path_to_fqn handles the package prefix, so the key name is the mangled global name
-                    // But we might need to separate package from function name if logic requires it?
-                    // CodegenContext.resolve_global expects mangled name.
-                    if let Some((_, ret_ty)) = ctx.resolve_global_signature(&full_mangled) { 
-                         // Note: resolve_global_signature needs to follow `resolve_global` logic but return signature
-                         // Assuming `resolve_global` returns Type::Fn which has ret type
-                         if let crate::types::Type::Fn(_, box_ret) = ret_ty {
-                             let _ = ctx.bridge_resolve_codegen_type(&box_ret);
-                         }
-                    }
-                } // end FQN success
+                    let _ = resolve_scan_expr_call_fqn(ctx, p, &target_key, &generic_args);
+                }
             }
             Ok(())
         }
 
-        syn::Expr::Struct(s) => {
-             // Check if it is a specialized struct instantiation
-            // Resolve the path type!
-             let ty_syn = syn::Type::Path(syn::TypePath { qself: None, path: s.path.clone() });
-             ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(ty_syn).map_err(|e| e.to_string())?);
-             
-             for f in &s.fields { scan_expr(ctx, &f.expr)?; }
-             Ok(())
-        }
-        syn::Expr::Cast(c) => {
-            scan_expr(ctx, &c.expr)?;
-            ctx.bridge_resolve_type(&crate::grammar::SynType::from_std(*c.ty.clone()).map_err(|e| e.to_string())?);
-            Ok(())
-        }
-        syn::Expr::Binary(b) => {
-            scan_expr(ctx, &b.left)?;
-            scan_expr(ctx, &b.right)?;
-            Ok(())
-        }
-        syn::Expr::Unary(u) => scan_expr(ctx, &u.expr),
-        syn::Expr::Paren(p) => scan_expr(ctx, &p.expr),
-        syn::Expr::MethodCall(m) => {
+fn scan_expr_method_call(ctx: &CodegenContext, m: &syn::ExprMethodCall) -> Result<(), String>  {
             scan_expr(ctx, &m.receiver)?;
             for a in &m.args { scan_expr(ctx, a)?; }
             
@@ -2734,13 +2486,7 @@ fn scan_expr(ctx: &CodegenContext, expr: &syn::Expr) -> Result<(), String> {
             } // Close if let Some(recv_ty)
             Ok(())
         }
-        syn::Expr::Block(b) => {
-            for s in &b.block.stmts { scan_stmt(ctx, &crate::grammar::Stmt::Syn(s.clone()))?; }
-            Ok(())
-        }
-        _ => Ok(())
-    }
-}
+
 
 // Helper to resolve simple receiver chains like `self.field` or `Struct::new()` to trigger Lazy Specialization
 fn resolve_receiver_scan_helper(ctx: &CodegenContext, expr: &syn::Expr) -> Option<crate::types::Type> {
@@ -2817,6 +2563,83 @@ fn resolve_receiver_scan_helper(ctx: &CodegenContext, expr: &syn::Expr) -> Optio
      }
 }
 
+
+fn resolve_localized_self_ty<'a>(
+    ctx: &CodegenContext<'a>,
+    st: &Type,
+    concrete_tys: &[Type],
+    new_type_map: &mut std::collections::BTreeMap<String, Type>,
+    old_const_vals: &mut Vec<(String, Option<crate::evaluator::ConstValue>)>,
+    arg_idx: &mut usize
+) -> Option<Type> {
+        let base_name = match st {
+            Type::Struct(name) | Type::Enum(name) => Some(name.clone()),
+            Type::Concrete(name, _) => Some(name.clone()),
+            _ => None,
+        };
+
+        if let Some(base) = base_name {
+             let mut template_key = base.clone();
+             if !ctx.struct_templates().contains_key(&base) && !ctx.enum_templates().contains_key(&base) {
+                  if let Some(info) = ctx.struct_registry().values().find(|i| i.name == base).cloned() {
+                      if let Some(tn) = &info.template_name { template_key = tn.clone(); }
+                  } else if let Some(info) = ctx.enum_registry().values().find(|i| i.name == base).cloned() {
+                      if let Some(tn) = &info.template_name { template_key = tn.clone(); }
+                  }
+             }
+
+             let gen_params = if let Some(s) = ctx.struct_templates().get(&template_key) {
+                 s.generics.as_ref().map(|g| g.params.clone())
+             } else if let Some(e) = ctx.enum_templates().get(&template_key) {
+                 e.generics.as_ref().map(|g| g.params.clone())
+             } else { None };
+
+             if let Some(params) = gen_params {
+                  let source_args = if let Type::Concrete(_, c_args) = st { c_args } else { concrete_tys };
+                  let use_shared_idx = !matches!(st, Type::Concrete(..));
+
+                  for (i, param) in params.iter().enumerate() {
+                      let current_arg = if use_shared_idx { concrete_tys.get(*arg_idx) } else { source_args.get(i) };
+                      
+                      if let Some(arg) = current_arg {
+                          let name = match param {
+                              crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                              crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+                          };
+                          new_type_map.insert(name.clone(), arg.clone());
+                          
+                          if let Type::Struct(val_str) = &arg {
+                              if let Ok(int_val) = val_str.parse::<i64>() {
+                                  use crate::evaluator::ConstValue;
+                                  let old = ctx.evaluator.borrow_mut().constant_table.insert(name.clone(), ConstValue::Integer(int_val));
+                                  old_const_vals.push((name, old));
+                              }
+                          }
+                          if use_shared_idx { *arg_idx += 1; }
+                      }
+                  }
+             }
+
+             if !concrete_tys.is_empty() && (ctx.struct_templates().contains_key(&template_key) || ctx.enum_templates().contains_key(&template_key)) {
+                 let specialized_key = crate::types::TypeKey {
+                     path: vec![],
+                     name: template_key.clone(),
+                     specialization: Some(concrete_tys.to_vec()), 
+                 };
+                 let mangled_type = specialized_key.mangle();
+                 if ctx.enum_templates().contains_key(&template_key) {
+                     Some(Type::Enum(mangled_type))
+                 } else {
+                     Some(Type::Struct(mangled_type))
+                 }
+             } else {
+                 Some(st.clone())
+             }
+        } else {
+            Some(st.clone())
+        }
+}
+
 #[allow(dead_code)]
 fn emit_specialized_generation(
     ctx: &CodegenContext, 
@@ -2835,88 +2658,7 @@ fn emit_specialized_generation(
     let mut arg_idx = 0;
 
     let localized_self_ty = if let Some(st) = &self_ty {
-        let base_name = match st {
-            Type::Struct(name) | Type::Enum(name) => Some(name.clone()),
-            Type::Concrete(name, _) => Some(name.clone()),
-            _ => None,
-        };
-
-        if let Some(base) = base_name {
-             // ... (Lookup Logic for template_key preserved from previous step logic if needed, 
-             // ... but simpler: we just need to know if it's a template to resolve generics)
-             
-             // [Optimization] We can rely on type_bridge helper or just manual as here.
-             // Manual lookup logic for brevity in this patch context...
-             // (Assuming the full logic is similar to what was viewed: determining template_key and getting params)
-             // For strict correctness with RAII, we assume the map preparation happens BEFORE the guard.
-             
-             // ... [Logic to populate new_type_map and old_const_vals] ...
-             // (Assuming we keep the logic that was read in previous `view_file` which populated `new_type_map`)
-             // I will paste the logic block for populating new_type_map as I saw it in the file.
-             
-             // Resolve template key
-             let mut template_key = base.clone();
-             if !ctx.struct_templates().contains_key(&base) && !ctx.enum_templates().contains_key(&base) {
-                  if let Some(info) = ctx.struct_registry().values().find(|i| i.name == base).cloned() {
-                      if let Some(tn) = &info.template_name { template_key = tn.clone(); }
-                  } else if let Some(info) = ctx.enum_registry().values().find(|i| i.name == base).cloned() {
-                      if let Some(tn) = &info.template_name { template_key = tn.clone(); }
-                  }
-             }
-
-             let gen_params = if let Some(s) = ctx.struct_templates().get(&template_key) {
-                 s.generics.as_ref().map(|g| g.params.clone())
-             } else if let Some(e) = ctx.enum_templates().get(&template_key) {
-                 e.generics.as_ref().map(|g| g.params.clone())
-             } else { None };
-
-             if let Some(params) = gen_params {
-                  // FIX: Use args from self_ty if available (for nested/split tasks), else fallback to concrete_tys
-                  let source_args = if let Type::Concrete(_, c_args) = st { c_args } else { &concrete_tys };
-                  let use_shared_idx = !matches!(st, Type::Concrete(..));
-
-                  for (i, param) in params.iter().enumerate() {
-                      // If using self args, use 'i'. If using shared flat args, use 'arg_idx'.
-                      let current_arg = if use_shared_idx { concrete_tys.get(arg_idx) } else { source_args.get(i) };
-                      
-                      if let Some(arg) = current_arg {
-                          let name = match param {
-                              crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                              crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                          };
-                          new_type_map.insert(name.clone(), arg.clone());
-                          
-                          if let Type::Struct(val_str) = &arg {
-                              if let Ok(int_val) = val_str.parse::<i64>() {
-                                  use crate::evaluator::ConstValue;
-                                  let old = ctx.evaluator.borrow_mut().constant_table.insert(name.clone(), ConstValue::Integer(int_val));
-                                  old_const_vals.push((name, old));
-                              }
-                          }
-                          if use_shared_idx { arg_idx += 1; }
-                      }
-                  }
-             }
-
-             // Re-mangle to ensure we have the concrete identifier
-             if !concrete_tys.is_empty() && (ctx.struct_templates().contains_key(&template_key) || ctx.enum_templates().contains_key(&template_key)) {
-                 let specialized_key = crate::types::TypeKey {
-                     path: vec![], // simplified
-                     name: template_key.clone(),
-                     specialization: Some(concrete_tys.clone()), 
-                 };
-                 let mangled_type = specialized_key.mangle();
-                 if ctx.enum_templates().contains_key(&template_key) {
-                     Some(Type::Enum(mangled_type))
-                 } else {
-                     Some(Type::Struct(mangled_type))
-                 }
-             } else {
-                 Some(st.clone())
-             }
-        } else {
-            Some(st.clone())
-        }
+        resolve_localized_self_ty(ctx, st, &concrete_tys, &mut new_type_map, &mut old_const_vals, &mut arg_idx)
     } else {
         None
     };

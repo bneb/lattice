@@ -1,9 +1,0 @@
-package main
-extern fn atomic_cas_i64(ptr: u64, old: i64, new: i64) -> i64;
-fn main() -> i32 {
-    let ptr: u64 = 0x1000;
-    let old: i64 = 0;
-    let new: i64 = 1;
-    let res = atomic_cas_i64(ptr, old, new);
-    return res as i32;
-}

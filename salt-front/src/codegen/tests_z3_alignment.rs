@@ -13,8 +13,6 @@
 //! Layer 3: Z3 rejects misaligned @atomic fields with diagnostic
 //! Layer 4: Proven alignment elides runtime assertions from MLIR
 
-#[cfg(test)]
-use crate::z3_shim as z3;
 mod tests {
     use crate::grammar::SaltFile;
     use crate::codegen::context::CodegenContext;

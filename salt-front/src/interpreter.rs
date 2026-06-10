@@ -372,10 +372,10 @@ impl Interpreter {
         }
     }
 
+
     fn eval_expr(&mut self, expr: &syn::Expr, scope: &mut HashMap<String, Value>) -> Result<Value, String> {
         self.check_steps()?;
         match expr {
-            // ─── Literals ────────────────────────────────
             syn::Expr::Lit(lit) => match &lit.lit {
                 syn::Lit::Int(i) => {
                     let val: i64 = i.base10_parse().unwrap_or(0);
@@ -389,8 +389,6 @@ impl Interpreter {
                 syn::Lit::Str(s) => Ok(Value::Str(s.value())),
                 _ => Ok(Value::Unit),
             },
-
-            // ─── Variables ───────────────────────────────
             syn::Expr::Path(p) => {
                 if let Some(ident) = p.path.get_ident() {
                     let name = ident.to_string();
@@ -405,183 +403,14 @@ impl Interpreter {
                     Ok(Value::Unit)
                 }
             }
-
-            // ─── Binary Operations ───────────────────────
-            syn::Expr::Binary(bin) => {
-                // Handle compound assignment first
-                match &bin.op {
-                    syn::BinOp::AddAssign(_) | syn::BinOp::SubAssign(_) |
-                    syn::BinOp::MulAssign(_) | syn::BinOp::DivAssign(_) |
-                    syn::BinOp::RemAssign(_) => {
-                        let right = self.eval_expr(&bin.right, scope)?;
-                        if right.is_return() { return Ok(right); }
-                        if let syn::Expr::Path(p) = &*bin.left {
-                            if let Some(ident) = p.path.get_ident() {
-                                let name = ident.to_string();
-                                let current = scope.get(&name).cloned().unwrap_or(Value::I64(0));
-                                let l = current.as_i64();
-                                let r = right.as_i64();
-                                let new_val = match &bin.op {
-                                    syn::BinOp::AddAssign(_) => Value::I64(l.wrapping_add(r)),
-                                    syn::BinOp::SubAssign(_) => Value::I64(l.wrapping_sub(r)),
-                                    syn::BinOp::MulAssign(_) => Value::I64(l.wrapping_mul(r)),
-                                    syn::BinOp::DivAssign(_) => if r != 0 { Value::I64(l / r) } else { return Err("Division by zero".into()); },
-                                    syn::BinOp::RemAssign(_) => if r != 0 { Value::I64(l % r) } else { return Err("Modulo by zero".into()); },
-                                    _ => unreachable!(),
-                                };
-                                scope.insert(name, new_val);
-                                return Ok(Value::Unit);
-                            }
-                        }
-                        return Ok(Value::Unit);
-                    }
-                    _ => {}
-                }
-
-                let left = self.eval_expr(&bin.left, scope)?;
-                if left.is_return() { return Ok(left); }
-
-                // Short-circuit
-                match &bin.op {
-                    syn::BinOp::And(_) => {
-                        if !left.as_bool() { return Ok(Value::Bool(false)); }
-                        let right = self.eval_expr(&bin.right, scope)?;
-                        return Ok(Value::Bool(right.as_bool()));
-                    }
-                    syn::BinOp::Or(_) => {
-                        if left.as_bool() { return Ok(Value::Bool(true)); }
-                        let right = self.eval_expr(&bin.right, scope)?;
-                        return Ok(Value::Bool(right.as_bool()));
-                    }
-                    _ => {}
-                }
-
-                let right = self.eval_expr(&bin.right, scope)?;
-                if right.is_return() { return Ok(right); }
-
-                let l = left.as_i64();
-                let r = right.as_i64();
-
-                match &bin.op {
-                    syn::BinOp::Add(_) => Ok(Value::I64(l.wrapping_add(r))),
-                    syn::BinOp::Sub(_) => Ok(Value::I64(l.wrapping_sub(r))),
-                    syn::BinOp::Mul(_) => Ok(Value::I64(l.wrapping_mul(r))),
-                    syn::BinOp::Div(_) => { if r == 0 { return Err("Division by zero".into()); } Ok(Value::I64(l / r)) }
-                    syn::BinOp::Rem(_) => { if r == 0 { return Err("Modulo by zero".into()); } Ok(Value::I64(l % r)) }
-                    syn::BinOp::Eq(_) => Ok(Value::Bool(l == r)),
-                    syn::BinOp::Ne(_) => Ok(Value::Bool(l != r)),
-                    syn::BinOp::Lt(_) => Ok(Value::Bool(l < r)),
-                    syn::BinOp::Le(_) => Ok(Value::Bool(l <= r)),
-                    syn::BinOp::Gt(_) => Ok(Value::Bool(l > r)),
-                    syn::BinOp::Ge(_) => Ok(Value::Bool(l >= r)),
-                    syn::BinOp::BitAnd(_) => Ok(Value::I64(l & r)),
-                    syn::BinOp::BitOr(_) => Ok(Value::I64(l | r)),
-                    syn::BinOp::BitXor(_) => Ok(Value::I64(l ^ r)),
-                    syn::BinOp::Shl(_) => Ok(Value::I64(l << r)),
-                    syn::BinOp::Shr(_) => Ok(Value::I64(l >> r)),
-                    _ => Ok(Value::Unit),
-                }
-            }
-
-            // ─── Unary ───────────────────────────────────
-            syn::Expr::Unary(un) => {
-                let val = self.eval_expr(&un.expr, scope)?;
-                if val.is_return() { return Ok(val); }
-                match un.op {
-                    syn::UnOp::Neg(_) => Ok(Value::I64(-val.as_i64())),
-                    syn::UnOp::Not(_) => Ok(Value::Bool(!val.as_bool())),
-                    _ => Ok(val),
-                }
-            }
-
-            // ─── Assignment ──────────────────────────────
-            syn::Expr::Assign(assign) => {
-                let val = self.eval_expr(&assign.right, scope)?;
-                if val.is_return() { return Ok(val); }
-                if let syn::Expr::Path(p) = &*assign.left {
-                    if let Some(ident) = p.path.get_ident() {
-                        scope.insert(ident.to_string(), val);
-                    }
-                }
-                Ok(Value::Unit)
-            }
-
-            // ─── Function Calls ──────────────────────────
-            syn::Expr::Call(call) => {
-                let mut args = Vec::new();
-                for arg in &call.args {
-                    let val = self.eval_expr(arg, scope)?;
-                    if val.is_return() { return Ok(val); }
-                    args.push(val);
-                }
-
-                let fn_name = match &*call.func {
-                    syn::Expr::Path(p) => {
-                        p.path.segments.iter()
-                            .map(|s| s.ident.to_string())
-                            .collect::<Vec<_>>()
-                            .join("::")
-                    }
-                    _ => return Err("Unsupported call target".into()),
-                };
-
-                self.call_function(&fn_name, &args)
-            }
-
-            // ─── Method Calls ────────────────────────────
-            syn::Expr::MethodCall(mc) => {
-                let receiver = self.eval_expr(&mc.receiver, scope)?;
-                if receiver.is_return() { return Ok(receiver); }
-                let method = mc.method.to_string();
-                match method.as_str() {
-                    "abs" => Ok(Value::I64(receiver.as_i64().abs())),
-                    _ => Ok(receiver),
-                }
-            }
-
-            // ─── If/Else (syn-level) ─────────────────────
-            syn::Expr::If(if_expr) => {
-                let cond = self.eval_expr(&if_expr.cond, scope)?;
-                if cond.is_return() { return Ok(cond); }
-                if cond.as_bool() {
-                    self.exec_syn_block(&if_expr.then_branch, scope)
-                } else if let Some((_, else_branch)) = &if_expr.else_branch {
-                    self.eval_expr(else_branch, scope)
-                } else {
-                    Ok(Value::Unit)
-                }
-            }
-
-            // ─── While (syn-level) ───────────────────────
-            syn::Expr::While(while_expr) => {
-                loop {
-                    let cond = self.eval_expr(&while_expr.cond, scope)?;
-                    if cond.is_return() { return Ok(cond); }
-                    if !cond.as_bool() { break; }
-                    let result = self.exec_syn_block(&while_expr.body, scope)?;
-                    if result.is_return() { return Ok(result); }
-                }
-                Ok(Value::Unit)
-            }
-
-            // ─── For..In Range (syn-level) ───────────────
-            syn::Expr::ForLoop(for_loop) => {
-                let iter_name = self.extract_pat_name(&for_loop.pat);
-                if let syn::Expr::Range(range) = &*for_loop.expr {
-                    let start = if let Some(s) = &range.start { self.eval_expr(s, scope)?.as_i64() } else { 0 };
-                    let end = if let Some(e) = &range.end { self.eval_expr(e, scope)?.as_i64() } else { return Err("Unbounded range".into()); };
-                    for i in start..end {
-                        scope.insert(iter_name.clone(), Value::I64(i));
-                        let result = self.exec_syn_block(&for_loop.body, scope)?;
-                        if result.is_return() { return Ok(result); }
-                    }
-                    Ok(Value::Unit)
-                } else {
-                    Err("Only range-based for loops supported".into())
-                }
-            }
-
-            // ─── Return ──────────────────────────────────
+            syn::Expr::Binary(bin) => self.eval_expr_binary(bin, scope),
+            syn::Expr::Unary(un) => self.eval_expr_unary(un, scope),
+            syn::Expr::Assign(assign) => self.eval_expr_assign(assign, scope),
+            syn::Expr::Call(call) => self.eval_expr_call(call, scope),
+            syn::Expr::MethodCall(mc) => self.eval_expr_method_call(mc, scope),
+            syn::Expr::If(if_expr) => self.eval_expr_if(if_expr, scope),
+            syn::Expr::While(while_expr) => self.eval_expr_while(while_expr, scope),
+            syn::Expr::ForLoop(for_loop) => self.eval_expr_for_loop(for_loop, scope),
             syn::Expr::Return(ret) => {
                 let val = if let Some(expr) = &ret.expr {
                     self.eval_expr(expr, scope)?
@@ -590,31 +419,9 @@ impl Interpreter {
                 };
                 Ok(Value::Return(Box::new(val.unwrap_return())))
             }
-
-            // ─── Block ───────────────────────────────────
             syn::Expr::Block(block) => self.exec_syn_block(&block.block, scope),
-
-            // ─── Paren ───────────────────────────────────
             syn::Expr::Paren(p) => self.eval_expr(&p.expr, scope),
-
-            // ─── Cast (as) ───────────────────────────────
-            syn::Expr::Cast(cast) => {
-                let val = self.eval_expr(&cast.expr, scope)?;
-                if val.is_return() { return Ok(val); }
-                if let syn::Type::Path(tp) = &*cast.ty {
-                    if let Some(seg) = tp.path.segments.last() {
-                        match seg.ident.to_string().as_str() {
-                            "i32" => return Ok(Value::I32(val.as_i64() as i32)),
-                            "i64" => return Ok(Value::I64(val.as_i64())),
-                            "bool" => return Ok(Value::Bool(val.as_bool())),
-                            _ => {}
-                        }
-                    }
-                }
-                Ok(val)
-            }
-
-            // ─── Macro calls ─────────────────────────────
+            syn::Expr::Cast(cast) => self.eval_expr_cast(cast, scope),
             syn::Expr::Macro(m) => {
                 let macro_name = m.mac.path.segments.iter()
                     .map(|s| s.ident.to_string())
@@ -627,17 +434,193 @@ impl Interpreter {
                 }
                 Ok(Value::Unit)
             }
-
-            // ─── Range (as expr) ─────────────────────────
             syn::Expr::Range(_) => Ok(Value::Unit),
-
-            // ─── Tuple ───────────────────────────────────
             syn::Expr::Tuple(t) => {
                 if let Some(last) = t.elems.last() { self.eval_expr(last, scope) } else { Ok(Value::Unit) }
             }
-
             _ => Ok(Value::Unit),
         }
+    }
+
+    fn eval_expr_binary(&mut self, bin: &syn::ExprBinary, scope: &mut HashMap<String, Value>) -> Result<Value, String> {
+        match &bin.op {
+            syn::BinOp::AddAssign(_) | syn::BinOp::SubAssign(_) |
+            syn::BinOp::MulAssign(_) | syn::BinOp::DivAssign(_) |
+            syn::BinOp::RemAssign(_) => {
+                let right = self.eval_expr(&bin.right, scope)?;
+                if right.is_return() { return Ok(right); }
+                if let syn::Expr::Path(p) = &*bin.left {
+                    if let Some(ident) = p.path.get_ident() {
+                        let name = ident.to_string();
+                        let current = scope.get(&name).cloned().unwrap_or(Value::I64(0));
+                        let l = current.as_i64();
+                        let r = right.as_i64();
+                        let new_val = match &bin.op {
+                            syn::BinOp::AddAssign(_) => Value::I64(l.wrapping_add(r)),
+                            syn::BinOp::SubAssign(_) => Value::I64(l.wrapping_sub(r)),
+                            syn::BinOp::MulAssign(_) => Value::I64(l.wrapping_mul(r)),
+                            syn::BinOp::DivAssign(_) => if r != 0 { Value::I64(l / r) } else { return Err("Division by zero".into()); },
+                            syn::BinOp::RemAssign(_) => if r != 0 { Value::I64(l % r) } else { return Err("Modulo by zero".into()); },
+                            _ => unreachable!(),
+                        };
+                        scope.insert(name, new_val);
+                        return Ok(Value::Unit);
+                    }
+                }
+                return Ok(Value::Unit);
+            }
+            _ => {}
+        }
+
+        let left = self.eval_expr(&bin.left, scope)?;
+        if left.is_return() { return Ok(left); }
+
+        match &bin.op {
+            syn::BinOp::And(_) => {
+                if !left.as_bool() { return Ok(Value::Bool(false)); }
+                let right = self.eval_expr(&bin.right, scope)?;
+                return Ok(Value::Bool(right.as_bool()));
+            }
+            syn::BinOp::Or(_) => {
+                if left.as_bool() { return Ok(Value::Bool(true)); }
+                let right = self.eval_expr(&bin.right, scope)?;
+                return Ok(Value::Bool(right.as_bool()));
+            }
+            _ => {}
+        }
+
+        let right = self.eval_expr(&bin.right, scope)?;
+        if right.is_return() { return Ok(right); }
+
+        let l = left.as_i64();
+        let r = right.as_i64();
+
+        match &bin.op {
+            syn::BinOp::Add(_) => Ok(Value::I64(l.wrapping_add(r))),
+            syn::BinOp::Sub(_) => Ok(Value::I64(l.wrapping_sub(r))),
+            syn::BinOp::Mul(_) => Ok(Value::I64(l.wrapping_mul(r))),
+            syn::BinOp::Div(_) => { if r == 0 { return Err("Division by zero".into()); } Ok(Value::I64(l / r)) },
+            syn::BinOp::Rem(_) => { if r == 0 { return Err("Modulo by zero".into()); } Ok(Value::I64(l % r)) },
+            syn::BinOp::Eq(_) => Ok(Value::Bool(l == r)),
+            syn::BinOp::Ne(_) => Ok(Value::Bool(l != r)),
+            syn::BinOp::Lt(_) => Ok(Value::Bool(l < r)),
+            syn::BinOp::Le(_) => Ok(Value::Bool(l <= r)),
+            syn::BinOp::Gt(_) => Ok(Value::Bool(l > r)),
+            syn::BinOp::Ge(_) => Ok(Value::Bool(l >= r)),
+            syn::BinOp::BitAnd(_) => Ok(Value::I64(l & r)),
+            syn::BinOp::BitOr(_) => Ok(Value::I64(l | r)),
+            syn::BinOp::BitXor(_) => Ok(Value::I64(l ^ r)),
+            syn::BinOp::Shl(_) => Ok(Value::I64(l << r)),
+            syn::BinOp::Shr(_) => Ok(Value::I64(l >> r)),
+            _ => Ok(Value::Unit),
+        }
+    }
+
+    fn eval_expr_unary(&mut self, un: &syn::ExprUnary, scope: &mut HashMap<String, Value>) -> Result<Value, String> {
+        let val = self.eval_expr(&un.expr, scope)?;
+        if val.is_return() { return Ok(val); }
+        match un.op {
+            syn::UnOp::Neg(_) => Ok(Value::I64(-val.as_i64())),
+            syn::UnOp::Not(_) => Ok(Value::Bool(!val.as_bool())),
+            _ => Ok(val),
+        }
+    }
+
+    fn eval_expr_assign(&mut self, assign: &syn::ExprAssign, scope: &mut HashMap<String, Value>) -> Result<Value, String> {
+        let val = self.eval_expr(&assign.right, scope)?;
+        if val.is_return() { return Ok(val); }
+        if let syn::Expr::Path(p) = &*assign.left {
+            if let Some(ident) = p.path.get_ident() {
+                scope.insert(ident.to_string(), val);
+            }
+        }
+        Ok(Value::Unit)
+    }
+
+    fn eval_expr_call(&mut self, call: &syn::ExprCall, scope: &mut HashMap<String, Value>) -> Result<Value, String> {
+        let mut args = Vec::new();
+        for arg in &call.args {
+            let val = self.eval_expr(arg, scope)?;
+            if val.is_return() { return Ok(val); }
+            args.push(val);
+        }
+
+        let fn_name = match &*call.func {
+            syn::Expr::Path(p) => {
+                p.path.segments.iter()
+                    .map(|s| s.ident.to_string())
+                    .collect::<Vec<_>>()
+                    .join("::")
+            }
+            _ => return Err("Unsupported call target".into()),
+        };
+
+        self.call_function(&fn_name, &args)
+    }
+
+    fn eval_expr_method_call(&mut self, mc: &syn::ExprMethodCall, scope: &mut HashMap<String, Value>) -> Result<Value, String> {
+        let receiver = self.eval_expr(&mc.receiver, scope)?;
+        if receiver.is_return() { return Ok(receiver); }
+        let method = mc.method.to_string();
+        match method.as_str() {
+            "abs" => Ok(Value::I64(receiver.as_i64().abs())),
+            _ => Ok(receiver),
+        }
+    }
+
+    fn eval_expr_if(&mut self, if_expr: &syn::ExprIf, scope: &mut HashMap<String, Value>) -> Result<Value, String> {
+        let cond = self.eval_expr(&if_expr.cond, scope)?;
+        if cond.is_return() { return Ok(cond); }
+        if cond.as_bool() {
+            self.exec_syn_block(&if_expr.then_branch, scope)
+        } else if let Some((_, else_branch)) = &if_expr.else_branch {
+            self.eval_expr(else_branch, scope)
+        } else {
+            Ok(Value::Unit)
+        }
+    }
+
+    fn eval_expr_while(&mut self, while_expr: &syn::ExprWhile, scope: &mut HashMap<String, Value>) -> Result<Value, String> {
+        loop {
+            let cond = self.eval_expr(&while_expr.cond, scope)?;
+            if cond.is_return() { return Ok(cond); }
+            if !cond.as_bool() { break; }
+            let result = self.exec_syn_block(&while_expr.body, scope)?;
+            if result.is_return() { return Ok(result); }
+        }
+        Ok(Value::Unit)
+    }
+
+    fn eval_expr_for_loop(&mut self, for_loop: &syn::ExprForLoop, scope: &mut HashMap<String, Value>) -> Result<Value, String> {
+        let iter_name = self.extract_pat_name(&for_loop.pat);
+        if let syn::Expr::Range(range) = &*for_loop.expr {
+            let start = if let Some(s) = &range.start { self.eval_expr(s, scope)?.as_i64() } else { 0 };
+            let end = if let Some(e) = &range.end { self.eval_expr(e, scope)?.as_i64() } else { return Err("Unbounded range".into()); };
+            for i in start..end {
+                scope.insert(iter_name.clone(), Value::I64(i));
+                let result = self.exec_syn_block(&for_loop.body, scope)?;
+                if result.is_return() { return Ok(result); }
+            }
+            Ok(Value::Unit)
+        } else {
+            Err("Only range-based for loops supported".into())
+        }
+    }
+
+    fn eval_expr_cast(&mut self, cast: &syn::ExprCast, scope: &mut HashMap<String, Value>) -> Result<Value, String> {
+        let val = self.eval_expr(&cast.expr, scope)?;
+        if val.is_return() { return Ok(val); }
+        if let syn::Type::Path(tp) = &*cast.ty {
+            if let Some(seg) = tp.path.segments.last() {
+                match seg.ident.to_string().as_str() {
+                    "i32" => return Ok(Value::I32(val.as_i64() as i32)),
+                    "i64" => return Ok(Value::I64(val.as_i64())),
+                    "bool" => return Ok(Value::Bool(val.as_bool())),
+                    _ => {}
+                }
+            }
+        }
+        Ok(val)
     }
 
     fn exec_syn_block(&mut self, block: &syn::Block, scope: &mut HashMap<String, Value>) -> Result<Value, String> {

@@ -1,3 +1,106 @@
+
+fn infer_struct_generics(ctx: &mut LoweringContext, s: &syn::ExprStruct, full_name: &str, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Vec<Type> {
+    let template_data = ctx.struct_templates().get(full_name).map(|template| {
+        let generics = template.generics.clone();
+        let field_raw_types: Vec<(String, Option<String>)> = template.fields.iter().map(|f| {
+            let raw_name = if let crate::grammar::SynType::Path(sp) = &f.ty {
+                if sp.segments.len() == 1 && sp.segments[0].args.is_empty() {
+                    Some(sp.segments[0].ident.to_string())
+                } else { None }
+            } else { None };
+            (f.name.to_string(), raw_name)
+        }).collect();
+        (generics, field_raw_types)
+    });
+    
+    if let Some((Some(generics), field_raw_types)) = template_data {
+        let type_map = ctx.current_type_map().clone();
+        let param_names: Vec<String> = generics.params.iter().map(|param| {
+            match param {
+                crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+            }
+        }).collect();
+        
+        let mut inferred_map = type_map;
+        for field in &s.fields {
+            if let syn::Member::Named(id) = &field.member {
+                let field_name = id.to_string();
+                if let Some((_, Some(ref gname))) = field_raw_types.iter().find(|(n, _)| n == &field_name) {
+                    if param_names.contains(gname) {
+                        if let Ok(actual_ty) = emit_expr(ctx, &mut String::new(), &field.expr, local_vars, None) {
+                            inferred_map.insert(gname.clone(), actual_ty.1);
+                        }
+                    }
+                }
+            }
+        }
+
+        infer_phantom_generics(&param_names, &mut inferred_map);
+        
+        param_names.iter().filter_map(|pname| {
+            inferred_map.get(pname).cloned()
+        }).collect()
+    } else {
+        ctx.current_type_map().values().cloned().collect()
+    }
+}
+
+fn eval_struct_fields(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    s: &syn::ExprStruct,
+    info: &crate::registry::StructInfo,
+    mangled_name: &str,
+    local_vars: &mut HashMap<String, (Type, LocalKind)>
+) -> Result<HashMap<String, (String, Type)>, String> {
+    let mut field_vals = HashMap::new();
+    for field in &s.fields {
+        if let syn::Member::Named(id) = &field.member {
+            let name = id.to_string();
+            *ctx.pending_pointer_state = None;
+
+            let f_ty = if let Some(template_name) = &info.template_name {
+                 let field_ty_owned = ctx.struct_templates().get(template_name)
+                     .and_then(|t| t.fields.iter().find(|f| f.name == name).map(|tf| tf.ty.clone()));
+                 if let Some(field_ty_ast) = field_ty_owned {
+                     crate::codegen::type_bridge::resolve_type(ctx, &field_ty_ast)
+                 } else {
+                     info.fields.get(&name).map(|(_, ty)| ty).cloned().unwrap_or(Type::Unit)
+                 }
+            } else {
+                info.fields.get(&name).map(|(_, ty)| ty).cloned().unwrap_or(Type::Unit)
+            };
+
+            let (val, actual_ty) = emit_expr(ctx, out, &field.expr, local_vars, Some(&f_ty))?;
+            *ctx.pending_pointer_state = None;
+
+            if f_ty == Type::Unit && actual_ty == Type::I64 {
+                crate::ice!("Type Poisoning Detected: Field '{}' resolved to Unit but assigned I64. \nGeneric substitution failed during monomorphization. \nStructure: {}\nArg Type: {:?}", name, mangled_name, actual_ty);
+            }
+
+            field_vals.insert(name, (val, actual_ty));
+
+            let mut field_expr = &field.expr;
+            while let syn::Expr::Cast(c) = field_expr {
+                field_expr = &c.expr;
+            }
+            if let syn::Expr::Path(p) = field_expr {
+                if p.path.segments.len() == 1 {
+                    let var_name = p.path.segments[0].ident.to_string();
+                    let alloc_id = format!("malloc:{}", var_name);
+                    if ctx.malloc_tracker.contains_alloc(&alloc_id) {
+                        ctx.malloc_tracker.link_dependency("__pending_struct", alloc_id);
+                    }
+                    if ctx.malloc_tracker.has_dependencies(&var_name) {
+                        ctx.malloc_tracker.link_dependency("__pending_struct", var_name);
+                    }
+                }
+            }
+        }
+    }
+    Ok(field_vals)
+}
 use crate::types::Type;
 use crate::codegen::context::{LoweringContext, LocalKind};
 use crate::codegen::type_bridge::*;
@@ -143,193 +246,118 @@ pub fn emit_lit(ctx: &mut LoweringContext, out: &mut String, lit: &syn::ExprLit,
     }
 }
 
-pub fn emit_path(ctx: &mut LoweringContext, out: &mut String, p: &syn::ExprPath, local_vars: &mut HashMap<String, (Type, LocalKind)>, _expected: Option<&Type>) -> Result<(String, Type), String> {
-    let segments: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
-    let name = segments[0].clone();
-    
-    // Namespace Lookahead: Package Root Guard
-    // Namespace Lookahead: Package Root Guard - DISABLED
-    // This proved too aggressive, flagging imported Enum variants as packages.
-    // We let normal resolution proceed; if it fails, it will error anyway.
-    /*
-    if segments.len() == 1 && ctx.imports().iter().any(|imp| {
-        if let Some(alias) = &imp.alias { alias == &name }
-        else if let Some(first_id) = imp.name.first() { 
-            let f_id: &syn::Ident = first_id;
-            f_id.to_string() == name 
-        }
-        else { false }
-    }) {
-        return Err(format!("Package or module '{}' used as value (are you missing a function call or global access?)", name));
-    }
-    */
 
-    if segments.len() == 1 {
-        if let Some((ty, kind)) = local_vars.get(&name) {
-            if ctx.consumed_vars().contains(&name) {
-                return Err(format!("Use of moved value: {}", name));
+fn resolve_local_variable_path(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    name: &str,
+    local_vars: &HashMap<String, (Type, LocalKind)>,
+    expected_ty: Option<&Type>,
+) -> Result<Option<(String, Type)>, String> {
+    if let Some((ty, kind)) = local_vars.get(name) {
+        if ctx.consumed_vars().contains(name) {
+            return Err(format!("Use of moved value: {}", name));
+        }
+        if let Some(state) = ctx.pointer_tracker.get_state(name) {
+            if state == crate::codegen::verification::PointerState::Uninitialized {
+                return Err(format!("Use of uninitialized pointer variable: {}", name));
             }
-            if let Some(state) = ctx.pointer_tracker.get_state(&name) {
-                if state == crate::codegen::verification::PointerState::Uninitialized {
-                    return Err(format!("Use of uninitialized pointer variable: {}", name));
+            let is_dynamic = *ctx.is_dynamic_check_block() || ctx.emission.in_dynamic_check_fn;
+                    if !is_dynamic {
+                if state == crate::codegen::verification::PointerState::Freed {
+                    return Err(format!("Use of freed pointer variable: {}", name));
                 }
-                if !*ctx.is_dynamic_check_block() {
-                    if state == crate::codegen::verification::PointerState::Freed {
-                        return Err(format!("Use of freed pointer variable: {}", name));
+            }
+        }
+        match kind {
+            LocalKind::SSA(val) => return Ok(Some((val.clone(), ty.clone()))),
+            LocalKind::Ptr(ptr) => {
+                if let Some(exp) = expected_ty {
+                    if matches!(exp, Type::Owned(..)) {
+                        return Ok(Some((ptr.clone(), Type::Owned(Box::new(ty.clone())))));
                     }
                 }
-            }
-            match kind {
-                LocalKind::SSA(val) => return Ok((val.clone(), ty.clone())),
-                LocalKind::Ptr(ptr) => {
-                    if let Some(exp) = _expected {
-                        if matches!(exp, Type::Owned(..)) {
-                            return Ok((ptr.clone(), Type::Owned(Box::new(ty.clone()))));
-                        }
-                    }
-                    let res = format!("%load_{}_{}", name, ctx.next_id());
-                    // Local Scope #scope_local, NoAlias Global #scope_global
-                    let scopes = Some(("#scope_local", "#scope_global"));
-                    ctx.emit_load_logical_with_scope(out, &res, ptr, ty, scopes)?;
-                    return Ok((res, ty.clone()));
-                }
+                let res = format!("%load_{}_{}", name, ctx.next_id());
+                let scopes = Some(("#scope_local", "#scope_global"));
+                ctx.emit_load_logical_with_scope(out, &res, ptr, ty, scopes)?;
+                return Ok(Some((res, ty.clone())));
             }
         }
     }
+    Ok(None)
+}
 
-    // Attempt to resolve as global or constant
-    let mut mangled = Mangler::mangle(&segments);
-    
-    // Try package-local prefix for single segment paths
-    if segments.len() == 1 {
-        if let Some(pkg) = &*ctx.current_package {
-            let pkg_mangled = Mangler::mangle(&pkg.name.iter().map(|id: &syn::Ident| id.to_string()).collect::<Vec<_>>());
-            let local_mangled = Mangler::mangle(&[&pkg_mangled, &mangled]);
-            if name == "GLOBAL_ALLOC" {
-                 let _resol = ctx.resolve_global(&local_mangled);
-            }
-            if ctx.resolve_global(&local_mangled).is_some() || ctx.evaluator.constant_table.contains_key(&local_mangled) {
-                mangled = local_mangled;
-            }
-        }
-    }
-
-    // ENUM VARIANT SUFFIX MATCH FALLBACK
-    // If exact match failed, try to find a variant in the EnumRegistry ending with "__{name}"
-    if !ctx.globals().contains_key(&mangled) && !ctx.evaluator.constant_table.contains_key(&mangled) {
-        let _suffix = format!("__{}", name); // e.g. "__OutOfMemory"
-        let mut found_variant = None; // (EnumName, Discriminant, IsUnit)
-
-        for info in ctx.enum_registry().values() {
-             for (var_name, payload, disc) in &info.variants {
-                 // Check if valid suffix match:
-                 // Either the variant name IS the name (most likely)
-                 // Or the full mangled name ends with it.
-                 // Actually, we are looking for `AllocError::OutOfMemory` used as `OutOfMemory`.
-                 // So we check if `var_name == name`.
-                 if var_name == &name {
-                     found_variant = Some((info.name.clone(), *disc, payload.is_none()));
-                     break;
-                 }
-             }
-             if found_variant.is_some() { break; }
-        }
-
-        if let Some((enum_name, disc, is_unit)) = found_variant {
-             if is_unit {
-                 // Emit Unit Variant Construction
-                 let enum_ty = Type::Enum(enum_name.clone());
-                 let mlir_ty = enum_ty.to_mlir_type(ctx)?;
-                 
-                 let res = format!("%enum_val_{}", ctx.next_id());
-                 let undef = format!("{}_undef", res);
-                 
-                 out.push_str(&format!("    {} = llvm.mlir.undef : {}\n", undef, mlir_ty));
-                 
-                 let tag_val = format!("{}_tag", res);
-                 ctx.emit_const_int(out, &tag_val, disc as i64, "i32");
-                 
-                 out.push_str(&format!("    {} = llvm.insertvalue {}, {}[0] : {}\n", 
-                     res, tag_val, undef, mlir_ty));
-                 
-                 return Ok((res, enum_ty));
-             } else {
-                 // Tuple Variant used as value -> expecting function pointer/constructor?
-                 // Not supported via implicit suffix match yet, usually requires explicit call.
-                 return Err(format!("Cannot use tuple variant '{}' as value without arguments", name));
-             }
-        }
-    }
-
-    // 1. Precise Constant Lookup
-    if let Some(val) = ctx.evaluator.constant_table.get(&mangled).cloned() {
-        let ty = ctx.resolve_global(&mangled).unwrap_or_else(|| {
+fn resolve_constant_path(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    mangled: &str,
+) -> Result<Option<(String, Type)>, String> {
+    if let Some(val) = ctx.evaluator.constant_table.get(mangled).cloned() {
+        let ty = ctx.resolve_global(mangled).unwrap_or_else(|| {
             match val {
                 crate::evaluator::ConstValue::Integer(_) => Type::I64,
                 crate::evaluator::ConstValue::Bool(_) => Type::Bool,
                 crate::evaluator::ConstValue::Float(_) => Type::F64,
                 crate::evaluator::ConstValue::String(_) => Type::Reference(Box::new(Type::U8), false),
-                crate::evaluator::ConstValue::Array(_) => Type::Array(Box::new(Type::I64), 0, false), // Hack: dynamic array type is hard here
-                crate::evaluator::ConstValue::Complex => panic!("Complex constants not supported in codegen"),
+                crate::evaluator::ConstValue::Array(_) => Type::Array(Box::new(Type::I64), 0, false),
+                crate::evaluator::ConstValue::Complex => panic!("Complex constants not supported"),
             }
         });
         
         match val {
             crate::evaluator::ConstValue::Integer(i) => {
                 let res = format!("%const_{}_{}", mangled, ctx.next_id());
-                // Use i1 for bool constant context, but evaluator stores as int/bool
                 if matches!(ty, Type::Bool) {
                      ctx.emit_const_int(out, &res, i, "i1");
                 } else if ty.is_float() {
-                     // Should not match loop here ideally
                      ctx.emit_const_float(out, &res, i as f64, "f64");
                 } else {
                      let ty_str = ty.to_mlir_type(ctx)?;
                      ctx.emit_const_int(out, &res, i, &ty_str);
                 }
-                return Ok((res, ty));
+                return Ok(Some((res, ty)));
             }
             crate::evaluator::ConstValue::Bool(b) => {
                  let res = format!("%const_bool_{}_{}", mangled, ctx.next_id());
                  ctx.emit_const_int(out, &res, if b { 1 } else { 0 }, "i1");
-                 return Ok((res, Type::Bool));
+                 return Ok(Some((res, Type::Bool)));
             }
             crate::evaluator::ConstValue::Float(f) => {
                  let res = format!("%const_float_{}_{}", mangled, ctx.next_id());
                  ctx.emit_const_float(out, &res, f, "f64");
-                 return Ok((res, Type::F64));
+                 return Ok(Some((res, Type::F64)));
             }
-            crate::evaluator::ConstValue::String(_s) => {
-                 return Err("String constants not supported in this path yet.".to_string());
+            crate::evaluator::ConstValue::String(_) => {
+                 return Err("String constants not supported".to_string());
             }
             crate::evaluator::ConstValue::Array(_) => {
-                 return Err("Array constants not supported in this path yet.".to_string());
+                 return Err("Array constants not supported".to_string());
             }
             crate::evaluator::ConstValue::Complex => return Err("Complex constants not supported".to_string()),
         }
     }
+    Ok(None)
+}
 
-    // 2. Global Variable Lookup
-    let mut global_ty = ctx.resolve_global(&mangled);
-    // [STATIC METHOD RESOLUTION] Fallback for Struct::method (e.g. Range::new)
-    // If simple lookup failed, try resolving the struct FQN and checking for the method.
-    // This allows static methods to be used as first-class function values.
-    let mut valid_mangled = mangled.clone();
+fn resolve_global_variable_path(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    p: &syn::ExprPath,
+    mangled: &str,
+) -> Result<Option<(String, Type)>, String> {
+    let mut global_ty = ctx.resolve_global(mangled);
+    let mut valid_mangled = mangled.to_string();
     
-    // Check p.path directly as 'path' is not defined; 'p' is the ExprPath argument
     if global_ty.is_none() && p.path.segments.len() == 2 {
         let type_name = p.path.segments[0].ident.to_string();
         let method_name = p.path.segments[1].ident.to_string();
         
-        // Resolve Struct Name -> FQN (e.g. Range -> std__core__iter__Range)
         let struct_ty = crate::types::Type::Struct(type_name);
         let resolved = crate::codegen::type_bridge::resolve_codegen_type(ctx, &struct_ty);
         
         if let crate::types::Type::Struct(fqn) = resolved {
-             // Construct candidate: package_Struct_method
              let candidate = format!("{}__{}", fqn, method_name);
              if let Some(ty) = ctx.resolve_global(&candidate) {
-                  // Found it! Use this as the valid global
                   valid_mangled = candidate;
                   global_ty = Some(ty);
              }
@@ -338,20 +366,11 @@ pub fn emit_path(ctx: &mut LoweringContext, out: &mut String, p: &syn::ExprPath,
 
     match global_ty {
         Some(ty) => {
-            // Use the resolved name (valid_mangled) for all checks below
             let mangled = valid_mangled;
-            // Global Scope #scope_global, NoAlias Local #scope_local
             let scopes = Some(("#scope_global", "#scope_local"));
             
-             // [FIRST-CLASS FUNCTIONS] Materialize function reference as an SSA !llvm.ptr.
-             // Two-step: func.constant produces a typed reference, then
-             // unrealized_conversion_cast bridges to !llvm.ptr (Salt's canonical fn ptr type).
-             // During --convert-func-to-llvm, func.constant → llvm.mlir.addressof (already !llvm.ptr)
-             // and --reconcile-unrealized-casts cleans up the bridge.
              if let Type::Fn(ref param_tys, ref ret_ty) = ty {
-                 // [FIX] Ensure the function is actually generated (demand-driven)
                  let is_local = ctx.require_local_function(&mangled);
-
                  if !is_local {
                      ctx.ensure_func_declared(&mangled, param_tys, ret_ty)?;
                  }
@@ -371,222 +390,296 @@ pub fn emit_path(ctx: &mut LoweringContext, out: &mut String, p: &syn::ExprPath,
                  } else {
                      format!("({}) -> {}", arg_tys_mlir.join(", "), ret_ty_mlir)
                  };
-                 // Step 1: Get typed function reference
                  out.push_str(&format!("    {} = func.constant @{} : {}\n",
                      typed_ref, mangled, fn_type_str));
-                 // Step 2: Cast to !llvm.ptr for Salt's uniform pointer representation
-                 // During --convert-func-to-llvm, func.constant → llvm.mlir.addressof
-                 // and --reconcile-unrealized-casts cleans up the bridge.
                  out.push_str(&format!("    {} = builtin.unrealized_conversion_cast {} : {} to !llvm.ptr\n",
                      ptr_var, typed_ref, fn_type_str));
-                 return Ok((ptr_var, ty.clone()));
+                 return Ok(Some((ptr_var, ty.clone())));
              }
              
-             // For globals, we load the value
              ctx.ensure_global_declared(&mangled, &ty)?;
              let ptr = format!("%global_ptr_{}", ctx.next_id());
              ctx.emit_addressof(out, &ptr, &mangled)?;
              
-             // If expected type is reference or array decay, we might want the pointer?
-             // But Salt semantics: 'val' loads the value. '&val' takes address.
-             if let Some(exp) = _expected {
-                  if matches!(exp, Type::Owned(..)) {
-                       // Move semantics for global? Globals usually Copy or Ref.
-                       // Returning Owned of global is dangerous unless Copied.
-                  }
-             }
-
              let val_loaded = format!("%global_val_{}", ctx.next_id());
              ctx.emit_load_logical_with_scope(out, &val_loaded, &ptr, &ty, scopes)?;
              
-             return Ok((val_loaded, ty.clone()));
+             return Ok(Some((val_loaded, ty.clone())));
         },
-        None => { /* Fall through to Enum Variant Lookup */ }
+        None => Ok(None)
     }
+}
 
-    // 3. Enum Variant Lookup (without payload)
-    if segments.len() >= 2 {
-        let enum_name = &segments[0];
-        let variant_name = segments.last().ok_or_else(|| "Empty segments in Enum Variant Lookup".to_string())?;
-        
-        // Fix: Resolve enum name via imports (e.g. Option -> std__core__option__Option)
-        let mut resolved_enum_name = enum_name.clone();
-        for imp in &*ctx.imports() {
-             if let Some(alias) = &imp.alias {
-                 if alias.to_string() == *enum_name {
-                     resolved_enum_name = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
+fn resolve_enum_variant_suffix(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    name: &str,
+    mangled: &str,
+) -> Result<Option<(String, Type)>, String> {
+    if !ctx.globals().contains_key(mangled) && !ctx.evaluator.constant_table.contains_key(mangled) {
+        let mut found_variant = None;
+
+        for info in ctx.enum_registry().values() {
+             for (var_name, payload, disc) in &info.variants {
+                 if var_name == name {
+                     found_variant = Some((info.name.clone(), *disc, payload.is_none()));
                      break;
-                 }
-             } else if let Some(group) = &imp.group {
-                 // Group import: use std.net.poller.{Poller, Filter}
-                 // Check if enum_name is in the group, and resolve to base_path__enum_name
-                 if group.iter().any(|id| id.to_string() == *enum_name) {
-                     let mut parts: Vec<String> = imp.name.iter().map(|id| id.to_string()).collect();
-                     parts.push(enum_name.clone());
-                     resolved_enum_name = Mangler::mangle(&parts);
-                     break;
-                 }
-             } else if let Some(last) = imp.name.last() {
-                 if last.to_string() == *enum_name {
-                      resolved_enum_name = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
-                      break;
                  }
              }
+             if found_variant.is_some() { break; }
         }
-        
-        
-        let mut generic_args = Vec::new();
-        if let Some(seg) = p.path.segments.first() {
-            if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
-                for arg in &args.args {
-                    if let syn::GenericArgument::Type(ty) = arg {
-                        let syn_ty = crate::grammar::SynType::from_std(ty.clone()).map_err(|e| e.to_string())?;
-                        generic_args.push(resolve_type(ctx, &syn_ty));
-                    }
+
+        if let Some((enum_name, disc, is_unit)) = found_variant {
+             if is_unit {
+                 let enum_ty = Type::Enum(enum_name.clone());
+                 let mlir_ty = enum_ty.to_mlir_type(ctx)?;
+                 
+                 let res = format!("%enum_val_{}", ctx.next_id());
+                 let undef = format!("{}_undef", res);
+                 
+                 out.push_str(&format!("    {} = llvm.mlir.undef : {}\n", undef, mlir_ty));
+                 
+                 let tag_val = format!("{}_tag", res);
+                 ctx.emit_const_int(out, &tag_val, disc as i64, "i32");
+                 
+                 out.push_str(&format!("    {} = llvm.insertvalue {}, {}[0] : {}\n", 
+                     res, tag_val, undef, mlir_ty));
+                 
+                 return Ok(Some((res, enum_ty)));
+             } else {
+                 return Err(format!("Cannot use tuple variant '{}' as value without arguments", name));
+             }
+        }
+    }
+    Ok(None)
+}
+
+fn resolve_enum_variant_full(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    p: &syn::ExprPath,
+    segments: &[String],
+    expected_ty: Option<&Type>,
+) -> Result<Option<(String, Type)>, String> {
+    if segments.len() < 2 {
+        return Ok(None);
+    }
+    let enum_name = &segments[0];
+    let variant_name = segments.last().ok_or_else(|| "Empty segments in Enum Variant Lookup".to_string())?;
+    
+    let mut resolved_enum_name = enum_name.clone();
+    for imp in &*ctx.imports() {
+         if let Some(alias) = &imp.alias {
+             if alias.to_string() == *enum_name {
+                 resolved_enum_name = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
+                 break;
+             }
+         } else if let Some(group) = &imp.group {
+             if group.iter().any(|id| id.to_string() == *enum_name) {
+                 let mut parts: Vec<String> = imp.name.iter().map(|id| id.to_string()).collect();
+                 parts.push(enum_name.clone());
+                 resolved_enum_name = Mangler::mangle(&parts);
+                 break;
+             }
+         } else if let Some(last) = imp.name.last() {
+             if last.to_string() == *enum_name {
+                  resolved_enum_name = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
+                  break;
+             }
+         }
+    }
+    
+    let mut generic_args = Vec::new();
+    if let Some(seg) = p.path.segments.first() {
+        if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+            for arg in &args.args {
+                if let syn::GenericArgument::Type(ty) = arg {
+                    let syn_ty = crate::grammar::SynType::from_std(ty.clone()).map_err(|e| e.to_string())?;
+                    generic_args.push(crate::codegen::type_bridge::resolve_type(ctx, &syn_ty));
                 }
             }
         }
+    }
 
-        let found_enum = if let Some(_) = ctx.enum_registry().values().find(|i| i.name == resolved_enum_name) {
-             Some(Type::Enum(resolved_enum_name.clone()))
-        } else if let Some(_) = ctx.enum_templates().get(&resolved_enum_name) {
-             if !generic_args.is_empty() {
-                 Some(Type::Concrete(resolved_enum_name.clone(), generic_args))
-             } else {
-                 // Fix: Try to infer from expected type
-                 let inferred = if let Some(exp) = _expected {
-                     if let Type::Concrete(exp_name, exp_args) = exp {
-                         if exp_name == &resolved_enum_name {
-                             Some(Type::Concrete(resolved_enum_name.clone(), exp_args.clone()))
-                         } else { None }
-                     } else if let Type::Enum(exp_name) = exp {
-                          if exp_name.starts_with(&resolved_enum_name) {
-                              Some(Type::Enum(exp_name.clone()))
-                          } else { None }
+    let found_enum = if let Some(_) = ctx.enum_registry().values().find(|i| i.name == resolved_enum_name) {
+         Some(Type::Enum(resolved_enum_name.clone()))
+    } else if let Some(_) = ctx.enum_templates().get(&resolved_enum_name) {
+         if !generic_args.is_empty() {
+             Some(Type::Concrete(resolved_enum_name.clone(), generic_args))
+         } else {
+             let inferred = if let Some(exp) = expected_ty {
+                 if let Type::Concrete(exp_name, exp_args) = exp {
+                     if exp_name == &resolved_enum_name {
+                         Some(Type::Concrete(resolved_enum_name.clone(), exp_args.clone()))
                      } else { None }
-                 } else { None };
-                 
-                 inferred.or(Some(Type::Enum(resolved_enum_name.clone())))
-             }
+                 } else if let Type::Enum(exp_name) = exp {
+                      if exp_name.starts_with(&resolved_enum_name) {
+                          Some(Type::Enum(exp_name.clone()))
+                      } else { None }
+                 } else { None }
+             } else { None };
+             
+             inferred.or(Some(Type::Enum(resolved_enum_name.clone())))
+         }
+    } else { None };
+
+    if let Some(base_ty) = found_enum {
+        let resolved = crate::codegen::type_bridge::resolve_codegen_type(ctx, &base_ty);
+        
+        let mangled_enum_opt = if let Type::Enum(n) = &resolved {
+            Some(n.clone())
+        } else if let Type::Concrete(base, args) = &resolved {
+            let suffix = args.iter().map(|t| t.mangle_suffix()).collect::<Vec<_>>().join("_");
+            Some(format!("{}_{}", base, suffix))
         } else { None };
 
-        if let Some(base_ty) = found_enum {
-            let resolved = resolve_codegen_type(ctx, &base_ty);
-            
-            let mangled_enum_opt = if let Type::Enum(n) = &resolved {
-                Some(n.clone())
-            } else if let Type::Concrete(base, args) = &resolved {
-                let suffix = args.iter().map(|t| t.mangle_suffix()).collect::<Vec<_>>().join("_");
-                Some(format!("{}_{}", base, suffix))
-            } else { None };
-
-            if let Some(mangled_enum) = mangled_enum_opt {
-                if let Some(info) = ctx.enum_registry().values().find(|i| i.name == mangled_enum).cloned() {
-                    if let Some((_idx, payload, disc)) = info.variants.iter().enumerate().find(|(_, (n, _, _))| n == variant_name).map(|(i, v)| (i, v.1.as_ref(), v.2)) {
-                        let payload_opt: Option<&Type> = payload;
-                        if payload_opt.is_none() {
-                             // Zero-payload variant: just a tag
-                             let res = format!("%variant_{}", ctx.next_id());
-                             let mlir_ty = resolved.to_mlir_type(ctx)?;
-                             out.push_str(&format!("    {} = llvm.mlir.undef : {}\n", res, mlir_ty));
-                             
-                             let tag_val = format!("%tag_{}", ctx.next_id());
-                             ctx.emit_const_int(out, &tag_val, disc as i64, "i32");
-                             
-                             let final_res = format!("%variant_final_{}", ctx.next_id());
-                             ctx.emit_insertvalue(out, &final_res, &tag_val, &res, 0, &mlir_ty);
-                             return Ok((final_res, resolved)); // Return resolved (Concrete is fine)
-                        }
+        if let Some(mangled_enum) = mangled_enum_opt {
+            if let Some(info) = ctx.enum_registry().values().find(|i| i.name == mangled_enum).cloned() {
+                if let Some((_idx, payload, disc)) = info.variants.iter().enumerate().find(|(_, (n, _, _))| n == variant_name).map(|(i, v)| (i, v.1.as_ref(), v.2)) {
+                    let payload_opt: Option<&Type> = payload;
+                    if payload_opt.is_none() {
+                         let res = format!("%variant_{}", ctx.next_id());
+                         let mlir_ty = resolved.to_mlir_type(ctx)?;
+                         out.push_str(&format!("    {} = llvm.mlir.undef : {}\n", res, mlir_ty));
+                         
+                         let tag_val = format!("%tag_{}", ctx.next_id());
+                         ctx.emit_const_int(out, &tag_val, disc as i64, "i32");
+                         
+                         let final_res = format!("%variant_final_{}", ctx.next_id());
+                         ctx.emit_insertvalue(out, &final_res, &tag_val, &res, 0, &mlir_ty);
+                         return Ok(Some((final_res, resolved)));
                     }
                 }
             }
-
         }
-            }
-        
-            // Check Generics (Const)
-            if segments.len() == 1 {
-                 let name = &segments[0];
-                 if let Some(val_ty) = ctx.current_type_map().get(name) {
-                     if let Type::Struct(s) = val_ty {
-                         if let Ok(i) = s.parse::<i64>() {
-                             let res = format!("%const_gen_{}", ctx.next_id());
-                             ctx.emit_const_int(out, &res, i, "i64");
-                             return Ok((res, Type::I64));
-                         } else {
-                             // Unspecialized template param (e.g. SIZE map to "SIZE")
-                             // Emit undef to allow compilation of abstract template
-                             let res = format!("%undef_const_{}", ctx.next_id());
-                             out.push_str(&format!("    {} = llvm.mlir.undef : i64\n", res));
-                             return Ok((res, Type::I64));
-                         }
-                     }
-                 }
-            }
-            // [KEUOS] Function-as-value resolution: If name resolves to a function
-            // in the current file, register it as Type::Fn global and restart resolution.
-            // This enables `let f: fn(u64) -> u64 = add_one;`
-            if segments.len() == 1 {
-                let name = &segments[0];
-                let current_pkg_prefix = ctx.package_prefix();
-                let mangled_fn = format!("{}{}", current_pkg_prefix, name);
-
-                // Scan source file for a matching function declaration
-                let fn_sig = ctx.config.file.items.iter().find_map(|item| {
-                    if let crate::grammar::Item::Fn(f) = item {
-                        let my_mangled = if f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" ) {
-                            f.name.to_string()
-                        } else {
-                            format!("{}{}", current_pkg_prefix, f.name)
-                        };
-                        if my_mangled == mangled_fn {
-                            // Build Type::Fn from the function signature
-                            let arg_types: Vec<Type> = f.args.iter().filter_map(|arg| {
-                                arg.ty.as_ref().and_then(|t| Type::from_syn(t))
-                            }).collect();
-                            let ret_type = f.ret_type.as_ref()
-                                .and_then(|t| Type::from_syn(t))
-                                .unwrap_or(Type::Unit);
-                            Some((mangled_fn.clone(), Type::Fn(arg_types, Box::new(ret_type))))
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                });
-
-                if let Some((fn_mangled, fn_ty)) = fn_sig {
-                    // Register as global so future lookups find it directly
-                    ctx.globals_mut().insert(fn_mangled.clone(), fn_ty.clone());
-                    // Emit func.constant + unrealized_conversion_cast
-                    if let Type::Fn(ref param_tys, ref ret_ty) = fn_ty {
-                        let typed_ref = format!("%fn_typed_{}", ctx.next_id());
-                        let ptr_var = format!("%fn_ref_{}", ctx.next_id());
-                        let arg_tys_mlir: Vec<String> = param_tys.iter()
-                            .map(|t| t.to_mlir_type(ctx).unwrap_or("!llvm.ptr".to_string()))
-                            .collect();
-                        let ret_ty_mlir = if **ret_ty == Type::Unit {
-                            "()".to_string()
-                        } else {
-                            ret_ty.to_mlir_type(ctx).unwrap_or("!llvm.ptr".to_string())
-                        };
-                        let fn_type_str = if **ret_ty == Type::Unit {
-                            format!("({}) -> ()", arg_tys_mlir.join(", "))
-                        } else {
-                            format!("({}) -> {}", arg_tys_mlir.join(", "), ret_ty_mlir)
-                        };
-                        out.push_str(&format!("    {} = func.constant @{} : {}\n",
-                            typed_ref, fn_mangled, fn_type_str));
-                        out.push_str(&format!("    {} = builtin.unrealized_conversion_cast {} : {} to !llvm.ptr\n",
-                            ptr_var, typed_ref, fn_type_str));
-                        return Ok((ptr_var, fn_ty));
-                    }
-                }
-            }
-
-        Err(format!("Undefined variable or constant: {}", segments.join(".")))
     }
+    Ok(None)
+}
+
+fn resolve_generics_and_functions(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    segments: &[String],
+) -> Result<Option<(String, Type)>, String> {
+    if segments.len() == 1 {
+         let name = &segments[0];
+         if let Some(val_ty) = ctx.current_type_map().get(name) {
+             if let Type::Struct(s) = val_ty {
+                 if let Ok(i) = s.parse::<i64>() {
+                     let res = format!("%const_gen_{}", ctx.next_id());
+                     ctx.emit_const_int(out, &res, i, "i64");
+                     return Ok(Some((res, Type::I64)));
+                 } else {
+                     let res = format!("%undef_const_{}", ctx.next_id());
+                     out.push_str(&format!("    {} = llvm.mlir.undef : i64\n", res));
+                     return Ok(Some((res, Type::I64)));
+                 }
+             }
+         }
+    }
+    if segments.len() == 1 {
+        let name = &segments[0];
+        let current_pkg_prefix = ctx.package_prefix();
+        let mangled_fn = format!("{}{}", current_pkg_prefix, name);
+
+        let fn_sig = ctx.config.file.items.iter().find_map(|item| {
+            if let crate::grammar::Item::Fn(f) = item {
+                let my_mangled = if f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" ) {
+                    f.name.to_string()
+                } else {
+                    format!("{}{}", current_pkg_prefix, f.name)
+                };
+                if my_mangled == mangled_fn {
+                    let arg_types: Vec<Type> = f.args.iter().filter_map(|arg| {
+                        arg.ty.as_ref().and_then(|t| Type::from_syn(t))
+                    }).collect();
+                    let ret_type = f.ret_type.as_ref()
+                        .and_then(|t| Type::from_syn(t))
+                        .unwrap_or(Type::Unit);
+                    Some((mangled_fn.clone(), Type::Fn(arg_types, Box::new(ret_type))))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
+
+        if let Some((fn_mangled, fn_ty)) = fn_sig {
+            ctx.globals_mut().insert(fn_mangled.clone(), fn_ty.clone());
+            if let Type::Fn(ref param_tys, ref ret_ty) = fn_ty {
+                let typed_ref = format!("%fn_typed_{}", ctx.next_id());
+                let ptr_var = format!("%fn_ref_{}", ctx.next_id());
+                let arg_tys_mlir: Vec<String> = param_tys.iter()
+                    .map(|t| t.to_mlir_type(ctx).unwrap_or("!llvm.ptr".to_string()))
+                    .collect();
+                let ret_ty_mlir = if **ret_ty == Type::Unit {
+                    "()".to_string()
+                } else {
+                    ret_ty.to_mlir_type(ctx).unwrap_or("!llvm.ptr".to_string())
+                };
+                let fn_type_str = if **ret_ty == Type::Unit {
+                    format!("({}) -> ()", arg_tys_mlir.join(", "))
+                } else {
+                    format!("({}) -> {}", arg_tys_mlir.join(", "), ret_ty_mlir)
+                };
+                out.push_str(&format!("    {} = func.constant @{} : {}\n",
+                    typed_ref, fn_mangled, fn_type_str));
+                out.push_str(&format!("    {} = builtin.unrealized_conversion_cast {} : {} to !llvm.ptr\n",
+                    ptr_var, typed_ref, fn_type_str));
+                return Ok(Some((ptr_var, fn_ty)));
+            }
+        }
+    }
+    Ok(None)
+}
+
+pub fn emit_path(ctx: &mut LoweringContext, out: &mut String, p: &syn::ExprPath, local_vars: &mut HashMap<String, (Type, LocalKind)>, _expected: Option<&Type>) -> Result<(String, Type), String> {
+    let segments: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
+    let name = segments[0].clone();
+    
+    if segments.len() == 1 {
+        if let Some(res) = resolve_local_variable_path(ctx, out, &name, local_vars, _expected)? {
+            return Ok(res);
+        }
+    }
+
+    let mut mangled = Mangler::mangle(&segments);
+    if segments.len() == 1 {
+        if let Some(pkg) = &*ctx.current_package {
+            let pkg_mangled = Mangler::mangle(&pkg.name.iter().map(|id: &syn::Ident| id.to_string()).collect::<Vec<_>>());
+            let local_mangled = Mangler::mangle(&[&pkg_mangled, &mangled]);
+            if name == "GLOBAL_ALLOC" {
+                 let _resol = ctx.resolve_global(&local_mangled);
+            }
+            if ctx.resolve_global(&local_mangled).is_some() || ctx.evaluator.constant_table.contains_key(&local_mangled) {
+                mangled = local_mangled;
+            }
+        }
+    }
+
+    if let Some(res) = resolve_enum_variant_suffix(ctx, out, &name, &mangled)? {
+        return Ok(res);
+    }
+
+    if let Some(res) = resolve_constant_path(ctx, out, &mangled)? {
+        return Ok(res);
+    }
+
+    if let Some(res) = resolve_global_variable_path(ctx, out, p, &mangled)? {
+        return Ok(res);
+    }
+
+    if let Some(res) = resolve_enum_variant_full(ctx, out, p, &segments, _expected)? {
+        return Ok(res);
+    }
+
+    if let Some(res) = resolve_generics_and_functions(ctx, out, &segments)? {
+        return Ok(res);
+    }
+
+    Err(format!("Undefined variable or constant: {}", segments.join(".")))
+}
 
 pub fn emit_array(ctx: &mut LoweringContext, out: &mut String, a: &syn::ExprArray, local_vars: &mut HashMap<String, (Type, LocalKind)>, expected_ty: Option<&Type>) -> Result<(String, Type), String> {
     if a.elems.is_empty() {
@@ -791,55 +884,7 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
                 // NOT HashMap::values() order which is non-deterministic.
                 // Without this, Vec<T, A> with {T: I64, A: HeapAllocator} could produce
                 // [HeapAllocator, I64] instead of [I64, HeapAllocator].
-                let args: Vec<Type> = {
-                    // Scope the immutable borrows of ctx
-                    let template_data = ctx.struct_templates().get(&full_name).map(|template| {
-                        let generics = template.generics.clone();
-                        let field_raw_types: Vec<(String, Option<String>)> = template.fields.iter().map(|f| {
-                            let raw_name = if let crate::grammar::SynType::Path(sp) = &f.ty {
-                                if sp.segments.len() == 1 && sp.segments[0].args.is_empty() {
-                                    Some(sp.segments[0].ident.to_string())
-                                } else { None }
-                            } else { None };
-                            (f.name.to_string(), raw_name)
-                        }).collect();
-                        (generics, field_raw_types)
-                    });
-                    
-                    if let Some((Some(generics), field_raw_types)) = template_data {
-                        let type_map = ctx.current_type_map().clone();
-                        let param_names: Vec<String> = generics.params.iter().map(|param| {
-                            match param {
-                                crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                                crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                            }
-                        }).collect();
-                        
-                        // Build inference map from field values
-                        let mut inferred_map = type_map;
-                        for field in &s.fields {
-                            if let syn::Member::Named(id) = &field.member {
-                                let field_name = id.to_string();
-                                if let Some((_, Some(ref gname))) = field_raw_types.iter().find(|(n, _)| n == &field_name) {
-                                    if param_names.contains(gname) {
-                                        if let Ok(actual_ty) = emit_expr(ctx, &mut String::new(), &field.expr, local_vars, None) {
-                                            inferred_map.insert(gname.clone(), actual_ty.1);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // [PHANTOM FIX] Infer phantom generics from Fn return types
-                        infer_phantom_generics(&param_names, &mut inferred_map);
-                        
-                        param_names.iter().filter_map(|pname| {
-                            inferred_map.get(pname).cloned()
-                        }).collect()
-                    } else {
-                        ctx.current_type_map().values().cloned().collect()
-                    }
-                };
+                let args: Vec<Type> = infer_struct_generics(ctx, s, &full_name, local_vars);
                 if !args.is_empty() {
                     Type::Concrete(full_name, args)
                 } else {
@@ -854,54 +899,7 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
         Type::Concrete(base, args) if args.is_empty() && !ctx.current_type_map().is_empty() => {
             // [ORDERING FIX] Build args in template's declared generic parameter order,
             // NOT HashMap::values() order which is non-deterministic.
-            let type_map_args: Vec<Type> = {
-                let template_data = ctx.struct_templates().get(base).map(|template| {
-                    let generics = template.generics.clone();
-                    let field_raw_types: Vec<(String, Option<String>)> = template.fields.iter().map(|f| {
-                        let raw_name = if let crate::grammar::SynType::Path(sp) = &f.ty {
-                            if sp.segments.len() == 1 && sp.segments[0].args.is_empty() {
-                                Some(sp.segments[0].ident.to_string())
-                            } else { None }
-                        } else { None };
-                        (f.name.to_string(), raw_name)
-                    }).collect();
-                    (generics, field_raw_types)
-                });
-                
-                if let Some((Some(generics), field_raw_types)) = template_data {
-                    let type_map = ctx.current_type_map().clone();
-                    let param_names: Vec<String> = generics.params.iter().map(|param| {
-                        match param {
-                            crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                            crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                        }
-                    }).collect();
-                    
-                    // Build inference map from field values
-                    let mut inferred_map = type_map;
-                    for field in &s.fields {
-                        if let syn::Member::Named(id) = &field.member {
-                            let field_name = id.to_string();
-                            if let Some((_, Some(ref gname))) = field_raw_types.iter().find(|(n, _)| n == &field_name) {
-                                if param_names.contains(gname) {
-                                    if let Ok(actual_ty) = emit_expr(ctx, &mut String::new(), &field.expr, local_vars, None) {
-                                        inferred_map.insert(gname.clone(), actual_ty.1);
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // [PHANTOM FIX] Infer phantom generics from Fn return types
-                    infer_phantom_generics(&param_names, &mut inferred_map);
-                    
-                    param_names.iter().filter_map(|pname| {
-                        inferred_map.get(pname).cloned()
-                    }).collect()
-                } else {
-                    ctx.current_type_map().values().cloned().collect()
-                }
-            };
+            let type_map_args: Vec<Type> = infer_struct_generics(ctx, s, base, local_vars);
             Type::Concrete(base.clone(), type_map_args)
         }
         _ => resolved_ty.clone(),
@@ -950,81 +948,7 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
             }
         }
 
-        let mut field_vals = HashMap::new();
-        for field in &s.fields {
-            if let syn::Member::Named(id) = &field.member {
-                let name = id.to_string();
-                
-                // Clear any pending pointer state before evaluating the field,
-                // and clear it again after, so inner calls like Ptr::empty()
-                // don't leak their pointer state to the outer struct variable.
-                *ctx.pending_pointer_state = None;
-
-                
-                // CRITICAL FIX: Re-resolve field type using active Generic Context
-                // Accessing via registry 'info' might yield Unit if the registry was populated
-                // during a phase where the generic parameter was unknown.
-                let f_ty = if let Some(template_name) = &info.template_name {
-                     // Clone field type from template to release immutable borrow before resolve_type
-                     let field_ty_owned = ctx.struct_templates().get(template_name)
-                         .and_then(|t| t.fields.iter().find(|f| f.name == name).map(|tf| tf.ty.clone()));
-                     if let Some(field_ty_ast) = field_ty_owned {
-                         crate::codegen::type_bridge::resolve_type(ctx, &field_ty_ast)
-                     } else {
-                         info.fields.get(&name).map(|(_, ty)| ty).cloned().unwrap_or(Type::Unit)
-                     }
-                } else {
-                    info.fields.get(&name).map(|(_, ty)| ty).cloned().unwrap_or(Type::Unit)
-                };
-
-                if name == "size" {
-                }
-                
-                let (val, actual_ty) = emit_expr(ctx, out, &field.expr, local_vars, Some(&f_ty))?;
-                
-                // Clear state again after evaluating the field
-                *ctx.pending_pointer_state = None;
-
-                // TYPE POISONING GUARD
-                if f_ty == Type::Unit && actual_ty == Type::I64 {
-                    // Check if expression was a constant
-                    // This indicates SIZE generic resolved to Unit
-                    crate::ice!("Type Poisoning Detected: Field '{}' resolved to Unit but assigned I64. \nGeneric substitution failed during monomorphization. \nStructure: {}\nArg Type: {:?}", name, mangled_name, actual_ty);
-                }
-
-                field_vals.insert(name, (val, actual_ty));
-
-                // [ESCAPE ANALYSIS] Taint tracking: if field expression is a variable
-                // that matches a malloc'd allocation, link it in the MallocTracker DAG.
-                // Uses __pending_struct sentinel; renamed to actual var in let-binding.
-                // Also peels through Expr::Cast to handle `data: ptr as Ptr<u8>` patterns.
-                let mut field_expr = &field.expr;
-                while let syn::Expr::Cast(c) = field_expr {
-                    field_expr = &c.expr;
-                }
-                if let syn::Expr::Path(p) = field_expr {
-                    if p.path.segments.len() == 1 {
-                        let var_name = p.path.segments[0].ident.to_string();
-                        let alloc_id = format!("malloc:{}", var_name);
-                        if ctx.malloc_tracker.contains_alloc(&alloc_id) {
-                            // Direct malloc var used as field
-                            ctx.malloc_tracker.link_dependency(
-                                "__pending_struct",
-                                alloc_id,
-                            );
-                        }
-                        // Also check cast aliases: var_name itself may have dependencies
-                        // (e.g., `ctrl` linked to `malloc:ctrl_addr` via cast propagation)
-                        if ctx.malloc_tracker.has_dependencies(&var_name) {
-                            ctx.malloc_tracker.link_dependency(
-                                "__pending_struct",
-                                var_name,
-                            );
-                        }
-                    }
-                }
-            }
-        }
+        let field_vals = eval_struct_fields(ctx, out, s, &info, &mangled_name, local_vars)?;
         
         
         // Fix: Use the computed mangled name (specialized) instead of the original resolved type

@@ -3,8 +3,6 @@
 //! Tests verify that `@shader` Salt functions compile correctly to MSL text
 //! and that the host glue LLVM IR is properly generated.
 
-#[cfg(test)]
-use crate::z3_shim as z3;
 mod tests {
     use crate::grammar::SaltFile;
     use crate::codegen::context::CodegenContext;
@@ -241,7 +239,7 @@ mod tests {
 
         let z3_cfg = crate::z3_shim::Config::new();
         let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
-        let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
+        let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
         
         let glue = ctx.with_lowering_ctx(|lctx| emit_shader_fn(lctx, shader_fn)).unwrap();
         

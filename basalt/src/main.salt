@@ -154,93 +154,66 @@ fn run_mock() -> i32 {
     return 0;
 }
 
+fn generate_tokens(cfg: &Config, w: &TransformerWeights, state: &RunState, tok: &Tokenizer, steps: i64, n_prompt_tokens: i64) -> i64 {
+    let mut token: i64 = 1;
+    let mut pos: i64 = 0;
+    
+    let t_start = salt_clock_now();
+    for pi in 0..n_prompt_tokens {
+        forward(cfg, w, state, token, pos);
+        token = salt_get_prompt_token(pi);
+        pos = pos + 1;
+    }
+    
+    for gp in pos..steps {
+        forward(cfg, w, state, token, gp);
+        token = sample_argmax(state.logits, cfg.vocab_size);
+        
+        if tok.vocab_size > 0 {
+            let text = decode_token(tok[0], token);
+            let text_len = decode_token_len(tok[0], token);
+            write(1, text, text_len as i64);
+        }
+    }
+    return salt_clock_now() - t_start;
+}
+
 fn run_inference(model_path: Ptr<u8>, tok_path: Ptr<u8>) -> i32 {
     println("Loading model...");
-    
     let model_data = mmap_file(model_path);
-    if (model_data as i64) == 0 {
-        println("Failed to open model file.");
-        return 1;
-    }
-
+    if (model_data as i64) == 0 { println("Failed to open model file."); return 1; }
+    
     let cfg = load_config(model_data);
     let q8: i32 = is_model_q8(model_data);
     println("Config: dim={}, layers={}, heads={}, vocab={}", cfg.dim, cfg.n_layers, cfg.n_heads, cfg.vocab_size);
-    if q8 == 1 {
-        println("Model format: q8_0");
-    }
+    if q8 == 1 { println("Model format: q8_0"); }
     
-    let mut w = if q8 == 1 {
-        get_weights_q8(model_data, &cfg)
-    } else {
-        get_weights(model_data, &cfg)
-    };
-    
+    let mut w = if q8 == 1 { get_weights_q8(model_data, &cfg) } else { get_weights(model_data, &cfg) };
     let rope_w = build_freq_cis(&cfg);
-    w.freq_cis_real = rope_w.freq_cis_real;
-    w.freq_cis_imag = rope_w.freq_cis_imag;
+    w.freq_cis_real = rope_w.freq_cis_real; w.freq_cis_imag = rope_w.freq_cis_imag;
     
     let tok_data = mmap_file(tok_path);
-    let has_tok = (tok_data as i64) != 0;
-    let mut tok = Tokenizer {
-        vocab: 0 as Ptr<TokenizerEntry>,
-        vocab_size: 0,
-        max_token_length: 0,
-        text_arena: 0 as Ptr<u8>,
-    };
-    if has_tok {
+    let mut tok = Tokenizer { vocab: 0 as Ptr<TokenizerEntry>, vocab_size: 0, max_token_length: 0, text_arena: 0 as Ptr<u8>, special_tokens: 0 as Ptr<SpecialToken>, n_special: 0, special_capacity: 0, token_hash: 0 as Ptr<i64>, hash_size: 0 };
+    if (tok_data as i64) != 0 {
         tok = load_tokenizer(tok_data, cfg.vocab_size);
         println("Tokenizer loaded ({} entries).", tok.vocab_size);
     }
     
     let n_prompt_tokens = salt_get_prompt_count();
     println("Prompt tokens: {}", n_prompt_tokens);
-
     let state = alloc_run_state(&cfg);
     let steps: i64 = cfg.seq_len;
-    
     println("Generating {} tokens...", steps);
-    let mut token: i64 = 1;
-    let mut pos: i64 = 0;
     
-    let t_start = salt_clock_now();
-
-    for pi in 0..n_prompt_tokens {
-        forward(&cfg, &w, &state, token, pos);
-        token = salt_get_prompt_token(pi);
-        pos = pos + 1;
-    }
-
-    for gp in pos..steps {
-        forward(&cfg, &w, &state, token, gp);
-        token = sample_argmax(state.logits, cfg.vocab_size);
-        
-        if has_tok {
-            let text = decode_token(tok, token);
-            let text_len = decode_token_len(tok, token);
-            write(1, text, text_len as i64);
-        }
-    }
+    let elapsed_ns = generate_tokens(&cfg, &w, &state, &tok, steps, n_prompt_tokens);
     
-    let t_end = salt_clock_now();
-    let elapsed_ns = t_end - t_start;
     let elapsed_ms = elapsed_ns / 1000000;
     let toks_per_sec = (steps * 1000000000) / elapsed_ns;
-    
-    println("");
-    println("---");
-    println("tokens: {}", steps);
-    println("elapsed: {}ms", elapsed_ms);
-    println("tok/s: {}", toks_per_sec);
+    println("\n---\ntokens: {}\nelapsed: {}ms\ntok/s: {}", steps, elapsed_ms, toks_per_sec);
     
     free_run_state(state);
-    if rope_w.freq_cis_real as i64 != 0 {
-        free(rope_w.freq_cis_real as Ptr<u8>);
-    }
-    if rope_w.freq_cis_imag as i64 != 0 {
-        free(rope_w.freq_cis_imag as Ptr<u8>);
-    }
-    
+    if rope_w.freq_cis_real as i64 != 0 { free(rope_w.freq_cis_real as Ptr<u8>); }
+    if rope_w.freq_cis_imag as i64 != 0 { free(rope_w.freq_cis_imag as Ptr<u8>); }
     return 0;
 }
 

@@ -70,6 +70,34 @@ fn print_hex(val: u32, digits: u32) {
     }
 }
 
+fn check_nvme_function(bus: u8, dev: u8, func: u8) -> u64 {
+    let id = pci_read32(bus, dev, func, 0);
+    if id == 0xFFFFFFFF { return 0; }
+    
+    let vendor = (id & 0xFFFF);
+    let device = ((id >> 16) & 0xFFFF);
+    
+    if vendor != 0x1B36 || device != 0x0010 { return 0; }
+
+    let bar0_low = pci_read32(bus, dev, func, 0x10);
+    let type_bits = (bar0_low & 0x06) >> 1;
+    
+    let mut phys_high: u64 = 0;
+    if type_bits == 2 {
+        let bar0_high = pci_read32(bus, dev, func, 0x14);
+        phys_high = (bar0_high as u64) << 32;
+    }
+    
+    let phys_low: u64 = (bar0_low & 0xFFFFFFF0) as u64;
+    let physical_addr: u64 = phys_high | phys_low;
+
+    let mut cmd = pci_read32(bus, dev, func, 0x04);
+    cmd = cmd | 0x00000006;
+    pci_write32(bus, dev, func, 0x04, cmd);
+
+    return physical_addr;
+}
+
 @no_mangle
 pub fn sys_discover_nvme_bar(ecam_base: u64, max_bus: u32) -> u64 {
     let mut bus: u32 = 0;
@@ -78,42 +106,66 @@ pub fn sys_discover_nvme_bar(ecam_base: u64, max_bus: u32) -> u64 {
         while dev < 32 {
             let mut func: u32 = 0;
             while func < 8 {
-                let id = pci_read32(bus as u8, dev as u8, func as u8, 0);
-                if id != 0xFFFFFFFF {
-                    let vendor = (id & 0xFFFF);
-                    let device = ((id >> 16) & 0xFFFF);
-                    
-                    // QEMU NVMe Controller: Vendor 0x1B36, Device 0x0010
-                    if vendor == 0x1B36 {
-                        if device == 0x0010 {
-                            // Extract BAR0 (offset 0x10)
-                            let bar0_low = pci_read32(bus as u8, dev as u8, func as u8, 0x10);
-                            let type_bits = (bar0_low & 0x06) >> 1;
-                            
-                            let mut phys_high: u64 = 0;
-                            if type_bits == 2 {
-                                // 64-bit BAR
-                                let bar0_high = pci_read32(bus as u8, dev as u8, func as u8, 0x14);
-                                phys_high = (bar0_high as u64) << 32;
-                            }
-                            
-                            let phys_low: u64 = (bar0_low & 0xFFFFFFF0) as u64;
-                            let physical_addr: u64 = phys_high | phys_low;
-
-                            // Enable Bus Master & Memory Space (Command Register at 0x04)
-                            let mut cmd = pci_read32(bus as u8, dev as u8, func as u8, 0x04);
-                            cmd = cmd | 0x00000006;
-                            pci_write32(bus as u8, dev as u8, func as u8, 0x04, cmd);
-
-                            return physical_addr;
-                        }
-                    }
-                }
+                let addr = check_nvme_function(bus as u8, dev as u8, func as u8);
+                if addr != 0 { return addr; }
                 func = func + 1;
             }
             dev = dev + 1;
         }
         bus = bus + 1;
+    }
+    return 0;
+}
+
+fn print_bars(bus: u8, dev: u8, func: u8, header_type: u8) {
+    let max_bars = if (header_type & 0x7F) == 0 { 6 } else { 2 };
+    let mut bar: u32 = 0;
+    while bar < max_bars {
+        let offset = 0x10 + bar * 4;
+        let bar_val = pci_read32(bus, dev, func, offset as u8);
+        if bar_val != 0 {
+            serial.print(" BAR");
+            print_hex(bar, 1);
+            serial.print("=");
+            print_hex(bar_val, 8);
+        }
+        bar = bar + 1;
+    }
+    serial.print("\n");
+}
+
+fn enumerate_function(bus: u8, dev: u8, func: u8) -> u64 {
+    let id = pci_read32(bus, dev, func, 0);
+    if id == 0xFFFFFFFF { return 0; }
+
+    let vendor = (id & 0xFFFF);
+    let device = ((id >> 16) & 0xFFFF);
+    let header_type = pci_read8(bus, dev, func, 0x0E);
+    let class_reg = pci_read32(bus, dev, func, 0x08);
+    let base_class = (class_reg >> 24) & 0xFF;
+    let sub_class = (class_reg >> 16) & 0xFF;
+
+    serial.print("PCI: ");
+    print_hex(bus as u32, 2);
+    serial.print(":");
+    print_hex(dev as u32, 2);
+    serial.print(".");
+    print_hex(func as u32, 1);
+    serial.print(" [");
+    print_hex(vendor, 4);
+    serial.print(":");
+    print_hex(device, 4);
+    serial.print("] Class ");
+    print_hex(base_class, 2);
+    serial.print(":");
+    print_hex(sub_class, 2);
+
+    print_bars(bus, dev, func, header_type);
+
+    if func == 0 {
+        if (header_type & 0x80) == 0 {
+            return 1;
+        }
     }
     return 0;
 }
@@ -127,53 +179,8 @@ pub fn pci_enumerate() {
         while dev < 32 {
             let mut func: u32 = 0;
             while func < 8 {
-                let id = pci_read32(bus as u8, dev as u8, func as u8, 0);
-                if id != 0xFFFFFFFF {
-                    let vendor = (id & 0xFFFF);
-                    let device = ((id >> 16) & 0xFFFF);
-                    
-                    let header_type = pci_read8(bus as u8, dev as u8, func as u8, 0x0E);
-                    let class_reg = pci_read32(bus as u8, dev as u8, func as u8, 0x08);
-                    let base_class = (class_reg >> 24) & 0xFF;
-                    let sub_class = (class_reg >> 16) & 0xFF;
-                    let prog_if = (class_reg >> 8) & 0xFF;
-
-                    serial.print("PCI: ");
-                    print_hex(bus, 2);
-                    serial.print(":");
-                    print_hex(dev, 2);
-                    serial.print(".");
-                    print_hex(func, 1);
-                    serial.print(" [");
-                    print_hex(vendor, 4);
-                    serial.print(":");
-                    print_hex(device, 4);
-                    serial.print("] Class ");
-                    print_hex(base_class, 2);
-                    serial.print(":");
-                    print_hex(sub_class, 2);
-
-                    // Print BARs
-                    let max_bars = if (header_type & 0x7F) == 0 { 6 } else { 2 };
-                    let mut bar: u32 = 0;
-                    while bar < max_bars {
-                        let offset = 0x10 + bar * 4;
-                        let bar_val = pci_read32(bus as u8, dev as u8, func as u8, offset as u8);
-                        if bar_val != 0 {
-                            serial.print(" BAR");
-                            print_hex(bar, 1);
-                            serial.print("=");
-                            print_hex(bar_val, 8);
-                        }
-                        bar = bar + 1;
-                    }
-                    serial.print("\n");
-
-                    // Stop checking functions if not a multi-function device
-                    if func == 0 && (header_type & 0x80) == 0 {
-                        break;
-                    }
-                }
+                let stop = enumerate_function(bus as u8, dev as u8, func as u8);
+                if stop != 0 { break; }
                 func = func + 1;
             }
             dev = dev + 1;

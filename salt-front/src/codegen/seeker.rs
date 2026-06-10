@@ -110,7 +110,95 @@ impl<'a, 'ctx, 'b> Seeker<'a, 'ctx, 'b> {
             }
 
             // THE CALL PIVOT: Every call is a specialization request.
-            Expr::Call(c) => {
+            Expr::Call(c) => self.discover_call_requirements(c, tasks, locals)?,
+
+             Expr::MethodCall(m) => self.discover_method_call_requirements(m, tasks, locals)?,
+
+            // THE MEMORY PIVOT: Indexing implies array/pointer layout knowledge.
+            Expr::Index(i) => {
+                self.discover_requirements(&i.expr, tasks, locals)?;
+                self.discover_requirements(&i.index, tasks, locals)?;
+            }
+
+            // RECURSIVE COMPLETENESS (Missing from original implementation)
+            Expr::If(i) => {
+                self.discover_requirements(&i.cond, tasks, locals)?;
+                // Recurse into block statements
+                for s in &i.then_branch.stmts { 
+                    self.walk_stmt(&Stmt::Syn(s.clone()), tasks, locals)?;
+                }
+                
+                if let Some((_, else_br)) = &i.else_branch {
+                    self.discover_requirements(else_br, tasks, locals)?;
+                }
+            }
+
+            Expr::Array(a) => {
+                 for elem in &a.elems { self.discover_requirements(elem, tasks, locals)?; }
+            }
+            Expr::Assign(a) => {
+                self.discover_requirements(&a.left, tasks, locals)?;
+                self.discover_requirements(&a.right, tasks, locals)?;
+            }
+            Expr::Binary(b) => {
+                self.discover_requirements(&b.left, tasks, locals)?;
+                self.discover_requirements(&b.right, tasks, locals)?;
+            }
+            Expr::Unary(u) => {
+                self.discover_requirements(&u.expr, tasks, locals)?;
+            }
+            Expr::Cast(c) => {
+                self.discover_requirements(&c.expr, tasks, locals)?;
+                // Cast type might be struct? Usually primitive.
+                // If it's a struct (reinterpret_cast via turbofish often), the type resolution happens there.
+                // But Expr::Cast in Rust is `expr as Type`. Salt allows `as Type`.
+                // resolve_type handles struct existence if we parse it.
+                // We should check the type `c.ty`.
+                let ty = crate::codegen::type_bridge::resolve_type(self.ctx, &crate::grammar::SynType::from_std(*c.ty.clone()).map_err(|e| e.to_string())?);
+                if let Type::Struct(name) = &ty {
+                     self.ctx.ensure_struct_exists(name, &[])?;
+                } else if let Type::Concrete(base, args) = &ty {
+                     self.ctx.ensure_struct_exists(base, args)?;
+                }
+            }
+            Expr::Field(f) => {
+                self.discover_requirements(&f.base, tasks, locals)?;
+            }
+            Expr::Paren(p) => {
+                self.discover_requirements(&p.expr, tasks, locals)?;
+            }
+            Expr::Reference(r) => {
+                self.discover_requirements(&r.expr, tasks, locals)?;
+            }
+            Expr::Tuple(t) => {
+                for elem in &t.elems { self.discover_requirements(elem, tasks, locals)?; }
+            }
+            Expr::Match(m) => {
+                self.discover_requirements(&m.expr, tasks, locals)?;
+                for arm in &m.arms {
+                    self.discover_requirements(&arm.body, tasks, locals)?;
+                }
+            }
+            Expr::Return(r) => {
+                if let Some(e) = &r.expr { self.discover_requirements(e, tasks, locals)?; }
+            }
+             Expr::Block(b) => {
+                let mut sub_locals = locals.clone();
+                for stmt in &b.block.stmts {
+                    self.walk_stmt(&Stmt::Syn(stmt.clone()), tasks, &mut sub_locals)?;
+                }
+            },
+            
+            Expr::Break(_) | Expr::Continue(_) | Expr::Lit(_) | Expr::Path(_) => {}
+            
+            _ => {
+                // Catch-all for others
+            }
+        }
+        Ok(())
+    }
+
+pub fn discover_call_requirements(&mut self, c: &syn::ExprCall, tasks: &mut Vec<MonomorphizationTask>, locals: &mut BTreeMap<String, Type>) -> Result<(), String>  {
                 // Existing call logic from walk_expr_for_calls
                  // 1. Static Calls & Global Functions: e.g., Vec::with_capacity(10) OR dealloc(...)
                 if let Expr::Path(path) = &*c.func {
@@ -212,9 +300,11 @@ impl<'a, 'ctx, 'b> Seeker<'a, 'ctx, 'b> {
                     }
                 }
                 for arg in &c.args { self.discover_requirements(arg, tasks, locals)?; }
-            }
+            
+Ok(())
+}
 
-             Expr::MethodCall(m) => {
+pub fn discover_method_call_requirements(&mut self, m: &syn::ExprMethodCall, tasks: &mut Vec<MonomorphizationTask>, locals: &mut BTreeMap<String, Type>) -> Result<(), String>  {
                 let receiver_ty = self.resolve_receiver_type(&m.receiver, locals).unwrap_or(Type::Unit);
                 if let Type::Struct(_) | Type::Concrete(..) | Type::Reference(..) = receiver_ty {
                       let generics = {
@@ -247,91 +337,10 @@ impl<'a, 'ctx, 'b> Seeker<'a, 'ctx, 'b> {
                 }
                 self.discover_requirements(&m.receiver, tasks, locals)?;
                 for arg in &m.args { self.discover_requirements(arg, tasks, locals)?; }
-            },
-
-            // THE MEMORY PIVOT: Indexing implies array/pointer layout knowledge.
-            Expr::Index(i) => {
-                self.discover_requirements(&i.expr, tasks, locals)?;
-                self.discover_requirements(&i.index, tasks, locals)?;
-            }
-
-            // RECURSIVE COMPLETENESS (Missing from original implementation)
-            Expr::If(i) => {
-                self.discover_requirements(&i.cond, tasks, locals)?;
-                // Recurse into block statements
-                for s in &i.then_branch.stmts { 
-                    self.walk_stmt(&Stmt::Syn(s.clone()), tasks, locals)?;
-                }
-                
-                if let Some((_, else_br)) = &i.else_branch {
-                    self.discover_requirements(else_br, tasks, locals)?;
-                }
-            }
-
-            Expr::Array(a) => {
-                 for elem in &a.elems { self.discover_requirements(elem, tasks, locals)?; }
-            }
-            Expr::Assign(a) => {
-                self.discover_requirements(&a.left, tasks, locals)?;
-                self.discover_requirements(&a.right, tasks, locals)?;
-            }
-            Expr::Binary(b) => {
-                self.discover_requirements(&b.left, tasks, locals)?;
-                self.discover_requirements(&b.right, tasks, locals)?;
-            }
-            Expr::Unary(u) => {
-                self.discover_requirements(&u.expr, tasks, locals)?;
-            }
-            Expr::Cast(c) => {
-                self.discover_requirements(&c.expr, tasks, locals)?;
-                // Cast type might be struct? Usually primitive.
-                // If it's a struct (reinterpret_cast via turbofish often), the type resolution happens there.
-                // But Expr::Cast in Rust is `expr as Type`. Salt allows `as Type`.
-                // resolve_type handles struct existence if we parse it.
-                // We should check the type `c.ty`.
-                let ty = crate::codegen::type_bridge::resolve_type(self.ctx, &crate::grammar::SynType::from_std(*c.ty.clone()).map_err(|e| e.to_string())?);
-                if let Type::Struct(name) = &ty {
-                     self.ctx.ensure_struct_exists(name, &[])?;
-                } else if let Type::Concrete(base, args) = &ty {
-                     self.ctx.ensure_struct_exists(base, args)?;
-                }
-            }
-            Expr::Field(f) => {
-                self.discover_requirements(&f.base, tasks, locals)?;
-            }
-            Expr::Paren(p) => {
-                self.discover_requirements(&p.expr, tasks, locals)?;
-            }
-            Expr::Reference(r) => {
-                self.discover_requirements(&r.expr, tasks, locals)?;
-            }
-            Expr::Tuple(t) => {
-                for elem in &t.elems { self.discover_requirements(elem, tasks, locals)?; }
-            }
-            Expr::Match(m) => {
-                self.discover_requirements(&m.expr, tasks, locals)?;
-                for arm in &m.arms {
-                    self.discover_requirements(&arm.body, tasks, locals)?;
-                }
-            }
-            Expr::Return(r) => {
-                if let Some(e) = &r.expr { self.discover_requirements(e, tasks, locals)?; }
-            }
-             Expr::Block(b) => {
-                let mut sub_locals = locals.clone();
-                for stmt in &b.block.stmts {
-                    self.walk_stmt(&Stmt::Syn(stmt.clone()), tasks, &mut sub_locals)?;
-                }
-            },
             
-            Expr::Break(_) | Expr::Continue(_) | Expr::Lit(_) | Expr::Path(_) => {}
-            
-            _ => {
-                // Catch-all for others
-            }
-        }
-        Ok(())
-    }
+Ok(())
+}
+
 
     pub fn walk_stmt(&mut self, stmt: &Stmt, tasks: &mut Vec<MonomorphizationTask>, locals: &mut BTreeMap<String, Type>) -> Result<(), String> {
          match stmt {

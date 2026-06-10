@@ -386,80 +386,8 @@ impl TypeckContext {
 
     /// Evaluate an expression bottom-up, enforce type rules,
     /// and ATTACH the resolved type to the HIR node.
-    pub fn typeck_expr(&mut self, expr: &mut Expr) -> Result<Type, String> {
-        let resolved_type = match &mut expr.kind {
 
-            // ── Leaves: Literals ──────────────────────────────────────
-            ExprKind::Literal(lit) => match lit {
-                Literal::Int(_) => Type::I64,
-                Literal::Float(_) => Type::F64,
-                Literal::Bool(_) => Type::Bool,
-                Literal::String(_) => Type::Struct("String".into()),
-            },
-
-            // ── Leaves: Variables ─────────────────────────────────────
-            ExprKind::Var(var_id) => {
-                // Linear type enforcement: reject use of consumed variables
-                if self.consumed_vars.contains(var_id) {
-                    return Err(format!(
-                        "Use after consume: VarId({}) has been consumed by a linear parameter",
-                        var_id.0
-                    ));
-                }
-                self.local_env.get(var_id)
-                    .cloned()
-                    .ok_or_else(|| format!("Typeck: VarId({}) has no known type", var_id.0))?
-            }
-
-            // ── Branches: Binary Operations (bottom-up) ──────────────
-            ExprKind::Binary { op, lhs, rhs } => {
-                let lhs_ty = self.typeck_expr(lhs)?;
-                let rhs_ty = self.typeck_expr(rhs)?;
-
-                if lhs_ty != rhs_ty {
-                    return Err(format!(
-                        "Type mismatch: cannot apply '{:?}' to {:?} and {:?}",
-                        op, lhs_ty, rhs_ty
-                    ));
-                }
-
-                if op.is_relational() { Type::Bool } else { lhs_ty }
-            }
-
-            // ── Branches: Unary Operations ───────────────────────────
-            ExprKind::Unary { op, expr: inner } => {
-                let inner_ty = self.typeck_expr(inner)?;
-                match op {
-                    crate::hir::expr::UnOp::Not => {
-                        if inner_ty != Type::Bool {
-                            return Err(format!("Cannot apply '!' to {:?}", inner_ty));
-                        }
-                        Type::Bool
-                    }
-                    crate::hir::expr::UnOp::Neg => inner_ty,
-                    crate::hir::expr::UnOp::Deref => {
-                        // STRICT: Only unwrap Reference or Pointer.
-                        // *5 is a fatal error — prevents treating integers as addresses.
-                        match inner_ty {
-                            Type::Reference(inner, _) => *inner,
-                            Type::Pointer { element, .. } => *element,
-                            other => return Err(format!(
-                                "Cannot dereference non-pointer type: {:?}",
-                                other
-                            )),
-                        }
-                    }
-                }
-            }
-
-            // ── Branches: Address-Of (&expr) ─────────────────────────
-            ExprKind::Ref(inner) => {
-                let inner_ty = self.typeck_expr(inner)?;
-                Type::Reference(Box::new(inner_ty), false)
-            }
-
-            // ── Branches: Method Call ─────────────────────────────────
-            ExprKind::MethodCall { receiver, method, args } => {
+    fn typeck_method_call(&mut self, receiver: &mut Expr, method: &str, args: &mut [Expr]) -> Result<Type, String> {
                 // 1. Evaluate the receiver
                 let receiver_ty = self.typeck_expr(receiver)?;
 
@@ -529,11 +457,10 @@ impl TypeckContext {
                 }
 
                 // 7. Return the method's return type
-                sig.return_type
-            }
+                Ok(sig.return_type)
+    }
 
-            // ── Branches: Function Call Resolution ───────────────────
-            ExprKind::Call { callee, args } => {
+    fn typeck_call(&mut self, callee: &mut Expr, args: &mut [Expr]) -> Result<Type, String> {
                 // 1. Extract the function name from the callee
                 let fn_name = match &callee.kind {
                     ExprKind::UnresolvedIdent(name) => name.clone(),
@@ -586,57 +513,10 @@ impl TypeckContext {
                 }
 
                 // 6. The call expression's type IS the function's return type
-                sig.return_type
-            }
+                Ok(sig.return_type)
+    }
 
-            // ── Branches: Assignment ─────────────────────────────────
-            ExprKind::Assign { lhs, rhs } => {
-                let lhs_ty = self.typeck_expr(lhs)?;
-                let rhs_ty = self.typeck_expr(rhs)?;
-                if lhs_ty != rhs_ty {
-                    return Err(format!(
-                        "Assignment type mismatch: expected {:?}, found {:?}",
-                        lhs_ty, rhs_ty
-                    ));
-                }
-                Type::Unit
-            }
-
-            // ── Branches: Return ─────────────────────────────────────
-            ExprKind::Return(Some(inner)) => {
-                self.typeck_expr(inner)?;
-                Type::Never
-            }
-            ExprKind::Return(None) => Type::Never,
-
-            // ── Branches: Block ──────────────────────────────────────
-            ExprKind::Block(block) => {
-                self.typeck_block(block)?
-            }
-
-            // ── Branches: If ─────────────────────────────────────────
-            ExprKind::If { cond, then_branch, else_branch } => {
-                let cond_ty = self.typeck_expr(cond)?;
-                if cond_ty != Type::Bool {
-                    return Err(format!("If condition must be Bool, found {:?}", cond_ty));
-                }
-                let then_ty = self.typeck_block(then_branch)?;
-                if let Some(else_expr) = else_branch {
-                    let else_ty = self.typeck_expr(else_expr)?;
-                    if then_ty != else_ty {
-                        return Err(format!(
-                            "If/else branch type mismatch: then={:?}, else={:?}",
-                            then_ty, else_ty
-                        ));
-                    }
-                    then_ty
-                } else {
-                    Type::Unit
-                }
-            }
-
-            // ── Branches: Struct Literal ─────────────────────────────
-            ExprKind::StructLit { name, type_args, fields } => {
+    fn typeck_struct_lit(&mut self, name: &String, type_args: &Vec<Type>, fields: &mut Vec<(String, Expr)>) -> Result<Type, String> {
                 // 1. If generic type_args are provided, monomorphize first
                 let effective_name = if !type_args.is_empty() {
                     self.monomorphize_struct(name, type_args)?
@@ -677,75 +557,129 @@ impl TypeckContext {
                 }
 
                 // 5. The struct literal's type is the (possibly monomorphized) struct
-                Type::Struct(effective_name)
-            }
-
-            // ── Branches: Field Access ───────────────────────────────
-            ExprKind::Field { base, field } => {
-                // 1. Evaluate the base expression
-                let base_ty = self.typeck_expr(base)?;
-
-                // 2. Ensure the base is a struct type
-                let struct_name = match &base_ty {
-                    Type::Struct(name) => name.clone(),
-                    _ => return Err(format!(
-                        "Cannot access field '{}' on non-struct type {:?}",
-                        field, base_ty
-                    )),
-                };
-
-                // 3. Look up the struct definition
-                let struct_def = self.structs.get(&struct_name)
-                    .ok_or_else(|| format!(
-                        "Compiler bug: struct '{}' not found in registry",
-                        struct_name
-                    ))?;
-
-                // 4. Resolve the field's type
-                struct_def.fields.iter()
-                    .find(|(n, _)| n == field)
-                    .map(|(_, ty)| ty.clone())
-                    .ok_or_else(|| format!(
-                        "Struct '{}' has no field named '{}'",
-                        struct_name, field
-                    ))?
-            }
-
-            // ── Branches: Contract Nodes ──────────────────────────────
-            ExprKind::Requires(cond) | ExprKind::Ensures(cond) => {
-                let cond_ty = self.typeck_expr(cond)?;
-                if cond_ty != Type::Bool {
-                    return Err(format!(
-                        "Contract condition must be Bool, found {:?}", cond_ty
-                    ));
+                Ok(Type::Struct(effective_name))
+    }
+pub fn typeck_expr(&mut self, expr: &mut Expr) -> Result<Type, String> {
+        let resolved_type = match &mut expr.kind {
+            ExprKind::Literal(lit) => match lit {
+                Literal::Int(_) => Type::I64,
+                Literal::Float(_) => Type::F64,
+                Literal::Bool(_) => Type::Bool,
+                Literal::String(_) => Type::Struct("String".into()),
+            },
+            ExprKind::Var(var_id) => self.typeck_var(*var_id)?,
+            ExprKind::Binary { op, lhs, rhs } => self.typeck_binary_op(op.clone(), lhs, rhs)?,
+            ExprKind::Unary { op, expr: inner } => self.typeck_unary_op(op.clone(), inner)?,
+            ExprKind::Ref(inner) => Type::Reference(Box::new(self.typeck_expr(inner)?), false),
+            ExprKind::MethodCall { receiver, method, args } => self.typeck_method_call(receiver, method, args)?,
+            ExprKind::Call { callee, args } => self.typeck_call(callee, args)?,
+            ExprKind::Assign { lhs, rhs } => {
+                let lhs_ty = self.typeck_expr(lhs)?;
+                let rhs_ty = self.typeck_expr(rhs)?;
+                if lhs_ty != rhs_ty {
+                    return Err(format!("Assignment type mismatch: expected {:?}, found {:?}", lhs_ty, rhs_ty));
                 }
                 Type::Unit
             }
-
-            // ── Branches: Yield (coroutine suspension) ──────────────────
+            ExprKind::Return(Some(inner)) => {
+                self.typeck_expr(inner)?;
+                Type::Never
+            }
+            ExprKind::Return(None) => Type::Never,
+            ExprKind::Block(block) => self.typeck_block(block)?,
+            ExprKind::If { cond, then_branch, else_branch } => self.typeck_if(cond, then_branch, else_branch.as_deref_mut())?,
+            ExprKind::StructLit { name, type_args, fields } => self.typeck_struct_lit(name, type_args, fields)?,
+            ExprKind::Field { base, field } => self.typeck_field_access(base, field)?,
+            ExprKind::Requires(cond) | ExprKind::Ensures(cond) => {
+                let cond_ty = self.typeck_expr(cond)?;
+                if cond_ty != Type::Bool {
+                    return Err(format!("Contract condition must be Bool, found {:?}", cond_ty));
+                }
+                Type::Unit
+            }
             ExprKind::Yield(maybe_val) => {
                 if let Some(val) = maybe_val {
                     self.typeck_expr(val)?;
                 }
-                // Yield always produces Unit from the perspective of the
-                // suspending function. The yielded value is consumed by the
-                // scheduler/caller, not by the next statement.
                 Type::Unit
             }
-
-            // ── Unresolved identifiers (standalone, not in Call) ──────
-            ExprKind::UnresolvedIdent(name) => {
-                return Err(format!("Unresolved identifier: '{}'", name));
-            }
-
-            _ => {
-                return Err(format!("Typeck not yet implemented for: {:?}", expr.kind));
-            }
+            ExprKind::UnresolvedIdent(name) => return Err(format!("Unresolved identifier: '{}'", name)),
+            _ => return Err(format!("Typeck not yet implemented for: {:?}", expr.kind)),
         };
 
         expr.ty = resolved_type.clone();
         Ok(resolved_type)
     }
+
+    fn typeck_var(&self, var_id: crate::hir::ids::VarId) -> Result<Type, String> {
+        if self.consumed_vars.contains(&var_id) {
+            return Err(format!("Use after consume: VarId({}) has been consumed by a linear parameter", var_id.0));
+        }
+        self.local_env.get(&var_id)
+            .cloned()
+            .ok_or_else(|| format!("Typeck: VarId({}) has no known type", var_id.0))
+    }
+
+    fn typeck_binary_op(&mut self, op: crate::hir::expr::BinOp, lhs: &mut Expr, rhs: &mut Expr) -> Result<Type, String> {
+        let lhs_ty = self.typeck_expr(lhs)?;
+        let rhs_ty = self.typeck_expr(rhs)?;
+        if lhs_ty != rhs_ty {
+            return Err(format!("Type mismatch: cannot apply '{:?}' to {:?} and {:?}", op, lhs_ty, rhs_ty));
+        }
+        Ok(if op.is_relational() { Type::Bool } else { lhs_ty })
+    }
+
+    fn typeck_unary_op(&mut self, op: crate::hir::expr::UnOp, inner: &mut Expr) -> Result<Type, String> {
+        let inner_ty = self.typeck_expr(inner)?;
+        match op {
+            crate::hir::expr::UnOp::Not => {
+                if inner_ty != Type::Bool {
+                    return Err(format!("Cannot apply '!' to {:?}", inner_ty));
+                }
+                Ok(Type::Bool)
+            }
+            crate::hir::expr::UnOp::Neg => Ok(inner_ty),
+            crate::hir::expr::UnOp::Deref => {
+                match inner_ty {
+                    Type::Reference(inner_ty, _) => Ok(*inner_ty),
+                    Type::Pointer { element, .. } => Ok(*element),
+                    other => Err(format!("Cannot dereference non-pointer type: {:?}", other)),
+                }
+            }
+        }
+    }
+
+    fn typeck_if(&mut self, cond: &mut Expr, then_branch: &mut crate::hir::expr::Block, else_branch: Option<&mut Expr>) -> Result<Type, String> {
+        let cond_ty = self.typeck_expr(cond)?;
+        if cond_ty != Type::Bool {
+            return Err(format!("If condition must be Bool, found {:?}", cond_ty));
+        }
+        let then_ty = self.typeck_block(then_branch)?;
+        if let Some(else_expr) = else_branch {
+            let else_ty = self.typeck_expr(else_expr)?;
+            if then_ty != else_ty {
+                return Err(format!("If/else branch type mismatch: then={:?}, else={:?}", then_ty, else_ty));
+            }
+            Ok(then_ty)
+        } else {
+            Ok(Type::Unit)
+        }
+    }
+
+    fn typeck_field_access(&mut self, base: &mut Expr, field: &str) -> Result<Type, String> {
+        let base_ty = self.typeck_expr(base)?;
+        let struct_name = match &base_ty {
+            Type::Struct(name) => name.clone(),
+            _ => return Err(format!("Cannot access field '{}' on non-struct type {:?}", field, base_ty)),
+        };
+        let struct_def = self.structs.get(&struct_name)
+            .ok_or_else(|| format!("Compiler bug: struct '{}' not found in registry", struct_name))?;
+        struct_def.fields.iter()
+            .find(|(n, _)| n == field)
+            .map(|(_, ty)| ty.clone())
+            .ok_or_else(|| format!("Struct '{}' has no field named '{}'", struct_name, field))
+    }
+
 
     // ─── Statement Type-Checking ──────────────────────────────────────────
 

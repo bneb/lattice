@@ -1,0 +1,36 @@
+package tests.test_arena_overflow
+
+import user.alloc.arena
+import std.core.ptr.Ptr
+
+extern fn malloc(size: i64) -> u64;
+extern fn free(ptr: u64);
+
+pub fn main() -> i32 {
+    let capacity = 4096;
+    let base_ptr = malloc(capacity);
+    arena.init(base_ptr, capacity as u64);
+
+    // Normal alloc
+    let ptr1 = arena.alloc(16, 8);
+    if ptr1 == 0 {
+        return 1;
+    }
+
+    // Try an overflow alloc
+    let MAX_U64: u64 = 0xFFFFFFFFFFFFFFFF;
+    let ptr_overflow = arena.alloc(MAX_U64 - 8, 8);
+    if ptr_overflow != 0 {
+        // If it succeeds, the overflow bypass is present!
+        return 2;
+    }
+
+    // Try another overflow that would exactly wrap to bypass capacity
+    let ptr_overflow2 = arena.alloc(MAX_U64, 8);
+    if ptr_overflow2 != 0 {
+        return 3;
+    }
+
+    free(base_ptr);
+    return 0;
+}

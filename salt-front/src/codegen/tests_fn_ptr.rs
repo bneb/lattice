@@ -12,8 +12,6 @@
 //!
 //! TDD: all tests written BEFORE implementation.
 
-#[cfg(test)]
-use crate::z3_shim as z3;
 mod tests {
     use crate::grammar::{SaltFile, SynType};
     use crate::codegen::context::CodegenContext;

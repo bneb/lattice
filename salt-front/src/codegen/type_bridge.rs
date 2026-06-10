@@ -288,114 +288,83 @@ pub fn get_comparison_pred(op: &syn::BinOp, ty: &Type) -> String {
 }
 
 pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, from: &Type, to: &Type) -> Result<String, String> {    
-
-    
     if from == to { return Ok(var.to_string()); }
-    
-    // ═══════════════════════════════════════════════════════════════════
-    // LINEAR TYPE PROMOTIONS (checked BEFORE the integer→pointer guard)
-    // Boxing a value into Owned<T> or taking a reference &T is a
-    // legitimate linear type operation, not context contamination.
-    // ═══════════════════════════════════════════════════════════════════
-    
-    // Promotion: Value T -> Owned<T> (Auto-box/allocate)
+
+    if let Some(res) = promote_numeric_linear(ctx, out, var, from, to)? {
+        return Ok(res);
+    }
+
+    if from.is_integer() && to.k_is_ptr_type() {
+        return Err(format!(
+            "KeuOS Type Error: Cannot promote integer {:?} to pointer {:?}. var={} - This indicates Context Contamination in the loop engine.", 
+            from, to, var
+        ));
+    }
+
+    promote_numeric_cast(ctx, out, var, from, to)
+}
+
+fn promote_numeric_linear(ctx: &mut LoweringContext, out: &mut String, var: &str, from: &Type, to: &Type) -> Result<Option<String>, String> {
     if let Type::Owned(inner) = to {
         if **inner == *from { 
             let temp_ptr = format!("%auto_box_{}", ctx.next_id());
             let mlir_ty = inner.to_mlir_storage_type(ctx).map_err(|e| format!("Failed to get storage type for auto-box: {}", e))?;
             ctx.emit_alloca(out, &temp_ptr, &mlir_ty);
             ctx.emit_store(out, var, &temp_ptr, &mlir_ty);
-            return Ok(temp_ptr);
+            return Ok(Some(temp_ptr));
         }
     }
-    // Promotion: Value T -> Reference<T> (Auto-ref)
     if let Type::Reference(inner, _) = to {
          if inner.structural_eq(from) {
              let temp_ptr = format!("%auto_ref_{}", ctx.next_id());
              let mlir_ty = from.to_mlir_storage_type(ctx).map_err(|e| format!("Auto-ref storage type error: {}", e))?;
              ctx.emit_alloca(out, &temp_ptr, &mlir_ty);
              ctx.emit_store(out, var, &temp_ptr, &mlir_ty);
-             return Ok(temp_ptr);
+             return Ok(Some(temp_ptr));
          }
     }
-    // Demotion: Owned<T> -> Value T (Auto-unbox/load)
     if let Type::Owned(inner) = from {
         if **inner == *to { 
             let val_res = format!("%auto_unbox_{}", ctx.next_id());
             let mlir_ty = to.to_mlir_storage_type(ctx).map_err(|e| format!("Failed to get storage type for auto-unbox: {}", e))?;
             ctx.emit_load(out, &val_res, var, &mlir_ty);
-            return Ok(val_res);
+            return Ok(Some(val_res));
         }
     }
-    // [HARDENED] Structural Equivalence Check (replaces mangle_suffix string matching)
-    // Uses Type::structural_eq() for robust comparison handling:
-    // - Namespace prefixes (Ptr ≡ std__core__ptr__Ptr)
-    // - Struct↔Concrete unification (Vec_i32 ≡ Concrete("Vec", [I32]))
     if from.structural_eq(to) {
-        return Ok(var.to_string());
+        return Ok(Some(var.to_string()));
     }
     
-    // Fallback: Base name comparison for aliased types
     match (from, to) {
-        (Type::Struct(n1), Type::Concrete(n2, _)) |
-        (Type::Concrete(n2, _), Type::Struct(n1)) => {
-            if Type::base_names_equal(n1, n2) {
-                return Ok(var.to_string());
-            }
+        (Type::Struct(n1), Type::Concrete(n2, _)) | (Type::Concrete(n2, _), Type::Struct(n1)) => {
+            if Type::base_names_equal(n1, n2) { return Ok(Some(var.to_string())); }
         },
         (Type::Concrete(n1, args1), Type::Concrete(n2, args2)) => {
-            if Type::base_names_equal(n1, n2) && args1.len() == args2.len() {
-                return Ok(var.to_string());
-            }
+            if Type::base_names_equal(n1, n2) && args1.len() == args2.len() { return Ok(Some(var.to_string())); }
         },
         _ => {}
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // [COUNCIL FIX] Auto Fn→i64 coercion at call sites
-    // Function references are already !llvm.ptr (from func.constant + cast).
-    // When the callee expects i64 (e.g. Thread::spawn), auto-emit ptrtoint.
-    // Eliminates: Thread::spawn(worker as i64) → Thread::spawn(worker)
-    // ═══════════════════════════════════════════════════════════════════
     if matches!(from, Type::Fn(_, _)) && matches!(to, Type::I64 | Type::U64) {
         let res = format!("%fn_to_int_{}", ctx.next_id());
         out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", res, var));
-        return Ok(res);
+        return Ok(Some(res));
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // [COUNCIL FIX] StringView → Ptr<u8>/&u8 auto-extraction
-    // String literals are now StringView { ptr, len }. When FFI or casts
-    // expect a raw pointer, extract field[0] (the ptr) automatically.
-    // Enables: println("hello") — auto-extracts ptr from StringView.
-    // ═══════════════════════════════════════════════════════════════════
-    {
-        let is_stringview_from = match from {
-            Type::Struct(name) | Type::Concrete(name, _) => name.contains("StringView"),
-            _ => false,
-        };
-        if is_stringview_from && (to.k_is_ptr_type() || matches!(to, Type::Reference(..))) {
-            let res = format!("%sv_extract_ptr_{}", ctx.next_id());
-            let sv_mlir = from.to_mlir_type(ctx).unwrap_or("!llvm.struct<(ptr, i64)>".to_string());
-            out.push_str(&format!("    {} = llvm.extractvalue {}[0] : {}\n", res, var, sv_mlir));
-            return Ok(res);
-        }
+    let is_stringview_from = match from {
+        Type::Struct(name) | Type::Concrete(name, _) => name.contains("StringView"),
+        _ => false,
+    };
+    if is_stringview_from && (to.k_is_ptr_type() || matches!(to, Type::Reference(..))) {
+        let res = format!("%sv_extract_ptr_{}", ctx.next_id());
+        let sv_mlir = from.to_mlir_type(ctx).unwrap_or("!llvm.struct<(ptr, i64)>".to_string());
+        out.push_str(&format!("    {} = llvm.extractvalue {}[0] : {}\n", res, var, sv_mlir));
+        return Ok(Some(res));
     }
+    Ok(None)
+}
 
-    // ═══════════════════════════════════════════════════════════════════
-    // [CONSTITUTIONAL GUARD V22.0]: Prevent Integer→Pointer Promotion
-    // Placed AFTER linear type checks so auto-box (I32→Owned<I32>) and
-    // auto-ref (I32→&I32) pass through correctly. Only fires for raw
-    // integer→pointer casts that indicate actual context contamination.
-    // ═══════════════════════════════════════════════════════════════════
-    if from.is_integer() && to.k_is_ptr_type() {
-        return Err(format!(
-            "KeuOS Type Error: Cannot promote integer {:?} to pointer {:?}. \
-             var={} - This indicates Context Contamination in the loop engine.", 
-            from, to, var
-        ));
-    }
-
+fn promote_numeric_cast(ctx: &mut LoweringContext, out: &mut String, var: &str, from: &Type, to: &Type) -> Result<String, String> {
     let res = format!("%prom_{}", ctx.next_id());
     let mut emit = |op: &str, src_ty: &str, dst_ty: &str| {
         out.push_str(&format!("    {} = {} {} : {} to {}\n", res, op, var, src_ty, dst_ty));
@@ -412,9 +381,7 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
         (Type::I32, Type::U32) | (Type::U32, Type::I32) | (Type::I32, Type::I32) | (Type::U32, Type::U32) => return Ok(var.to_string()),
         (Type::I64, Type::U64) | (Type::U64, Type::I64) | (Type::I64, Type::I64) | (Type::U64, Type::U64) | (Type::Usize, Type::Usize) => return Ok(var.to_string()),
         
-        // Usize (MLIR index) <-> I64/U64 requires arith.index_cast
         (Type::Usize, Type::I64) | (Type::Usize, Type::U64) => {
-
             out.push_str(&format!("    {} = arith.index_cast {} : index to i64\n", res, var));
             return Ok(res);
         },
@@ -423,7 +390,6 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
             return Ok(res);
         },
         
-        // I32/U32 -> Usize: extend to i64, then index_cast to index
         (Type::I32, Type::Usize) => {
             let intermediate = format!("%ext_i64_{}", ctx.next_id());
             out.push_str(&format!("    {} = arith.extsi {} : i32 to i64\n", intermediate, var));
@@ -436,7 +402,6 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
             out.push_str(&format!("    {} = arith.index_cast {} : i64 to index\n", res, intermediate));
             return Ok(res);
         },
-        // I16/U16 -> Usize
         (Type::I16, Type::Usize) => {
             let intermediate = format!("%ext_i64_{}", ctx.next_id());
             out.push_str(&format!("    {} = arith.extsi {} : i16 to i64\n", intermediate, var));
@@ -449,7 +414,6 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
             out.push_str(&format!("    {} = arith.index_cast {} : i64 to index\n", res, intermediate));
             return Ok(res);
         },
-        // I8/U8 -> Usize
         (Type::I8, Type::Usize) => {
             let intermediate = format!("%ext_i64_{}", ctx.next_id());
             out.push_str(&format!("    {} = arith.extsi {} : i8 to i64\n", intermediate, var));
@@ -463,64 +427,14 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
             return Ok(res);
         },
         
-        // Array Packing: [Bool; N] (unpacked) -> [Bool; N] (packed)
         (Type::Array(from_inner, f_len, false), Type::Array(to_inner, t_len, true)) 
             if f_len == t_len && **from_inner == Type::Bool && **to_inner == Type::Bool => {
-             
-             let packed_storage_ty = to.to_mlir_storage_type(ctx).map_err(|e| e)?;
-             let mut current_packed = format!("%packed_prom_{}", ctx.next_id());
-             // Initialize with zeros (false)
-             out.push_str(&format!("    {} = llvm.mlir.zero : {}\n", current_packed, packed_storage_ty));
-             
-             // Unroll packing loop
-             let unpacked_storage_ty = from.to_mlir_storage_type(ctx).map_err(|e| e)?;
-             
-             // We can optimize by accumulating 64 bits then inserting.
-             // Given promotion is linear code, we use SSA updates.
-             let mut current_word_ssa = String::new();
-             
-             for i in 0..*f_len {
-                 let bit_idx = i % 64;
-                 
-                 if bit_idx == 0 {
-                     let zero = format!("%zero_w_{}", ctx.next_id());
-                     ctx.emit_const_int(out, &zero, 0, "i64");
-                     current_word_ssa = zero;
-                 }
-                 
-                 // Calculate bit contribution
-                 let elem = format!("%elem_{}_{}", i, ctx.next_id());
-                 out.push_str(&format!("    {} = llvm.extractvalue {}[{}] : {}\n", elem, var, i, unpacked_storage_ty));
-                 
-                 let elem_ext = format!("%elem_ext_{}", ctx.next_id());
-                 ctx.emit_cast(out, &elem_ext, "arith.extui", &elem, "i8", "i64");
-                 
-                 let shifted = format!("%shifted_{}", ctx.next_id());
-                 let shift_amt = format!("%sh_amt_{}", ctx.next_id());
-                 ctx.emit_const_int(out, &shift_amt, bit_idx as i64, "i64");
-                 ctx.emit_binop(out, &shifted, "arith.shli", &elem_ext, &shift_amt, "i64");
-                 
-                 let new_word = format!("%accum_w_{}_{}", i, ctx.next_id());
-                 ctx.emit_binop(out, &new_word, "arith.ori", &current_word_ssa, &shifted, "i64");
-                 current_word_ssa = new_word;
-                 
-                 if bit_idx == 63 || i == f_len - 1 {
-                     // Flush word
-                     let word_idx = i / 64;
-                     let inserted = format!("%packed_insert_{}", ctx.next_id());
-                     out.push_str(&format!("    {} = llvm.insertvalue {}, {}[{}] : {}\n", inserted, current_word_ssa, current_packed, word_idx, packed_storage_ty));
-                     current_packed = inserted;
-                 }
-             }
-             return Ok(current_packed);
+             return promote_array_packing(ctx, out, var, *f_len, to);
         },
         (from, to) if from.is_integer() && to.is_integer() => {
-             // Special handling for Usize (MLIR index type) - must convert via i64
              if *from == Type::Usize {
                  let intermediate = format!("%idx_i64_{}", ctx.next_id());
                  out.push_str(&format!("    {} = arith.index_cast {} : index to i64\n", intermediate, var));
-                 
-                 // Now truncate from i64 to target type if needed
                  let dst_width = get_bit_width(to);
                  if dst_width < 64 {
                      out.push_str(&format!("    {} = arith.trunci {} : i64 to {}\n", res, intermediate, to.to_mlir_type(ctx)?));
@@ -529,11 +443,8 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
                      return Ok(intermediate);
                  }
              }
-             
-             // Standard integer promotion/truncation
              let src_width = get_bit_width(from);
              let dst_width = get_bit_width(to);
-             
              if src_width == dst_width {
                  return Ok(var.to_string());
              } else if src_width > dst_width {
@@ -545,7 +456,6 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
                  return Ok(res);
              }
         },
-        // [KEUOS V25.6] Integer -> Float Promotion (Parity with C)
         (from, to) if from.is_integer() && to.is_float() => {
              let op = if from.is_unsigned() { "arith.uitofp" } else { "arith.sitofp" };
              let src_str = from.to_mlir_type(ctx)?;
@@ -553,22 +463,11 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
              emit(op, &src_str, &dst_str);
              return Ok(res);
         },
-        // Float -> Float Promotion/Narrowing
-        (Type::F32, Type::F64) => {
-             emit("arith.extf", "f32", "f64");
-             return Ok(res);
-        },
-        (Type::F64, Type::F32) => {
-             emit("arith.truncf", "f64", "f32");
-             return Ok(res);
-        },
+        (Type::F32, Type::F64) => { emit("arith.extf", "f32", "f64"); return Ok(res); },
+        (Type::F64, Type::F32) => { emit("arith.truncf", "f64", "f32"); return Ok(res); },
         
         (Type::Reference(_, _), Type::Reference(_, _)) => return Ok(var.to_string()),
         
-        // [KEUOS ABI FIX] Large aggregates (>64 bytes) are returned as Reference(T)
-        // from struct field access (in emit_field) to prevent massive value copies. 
-        // If passed to a function that explicitly expects the value T itself, 
-        // we must emit the deferred llvm.load here.
         (Type::Reference(inner_from, _), to) if inner_from.as_ref() == to => {
             let mlir_to = to.to_mlir_type(ctx).map_err(|e| e)?;
             out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> {}\n", res, var, mlir_to));
@@ -594,72 +493,34 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
         },
         (Type::Bool, to) if to.is_integer() => {
              let dst_ty = to.to_mlir_type(ctx).map_err(|e| e)?;
-             // Bool (i1) -> Integer (iX) is zero extension
              emit("arith.extui", "i1", &dst_ty);
              return Ok(res);
         }
         (Type::Tuple(fs), Type::Tuple(ts)) if fs.len() == ts.len() => {
-             let target_mlir = to.to_mlir_storage_type(ctx).map_err(|e| e)?;
-             let src_mlir = from.to_mlir_storage_type(ctx).map_err(|e| e)?;
-             
-             // Create undefined struct as base
-             let first_init = format!("{}_init", res.replace("%", ""));
-             out.push_str(&format!("    %{} = llvm.mlir.undef : {}\n", first_init, target_mlir));
-             
-             let mut current_struct_ssa = format!("%{}", first_init);
-             
-             for (i, (f_ty, t_ty)) in fs.iter().zip(ts.iter()).enumerate() {
-                let elem_val = format!("%{}_elem_{}", res.replace("%", ""), i);
-                 ctx.emit_extractvalue(out, &elem_val, var, i, &src_mlir);
-                 
-                 let prom_elem = match promote_numeric(ctx, out, &elem_val, f_ty, t_ty) {
-                     Ok(r) => r,
-                     Err(_) => match cast_numeric(ctx, out, &elem_val, f_ty, t_ty) {
-                         Ok(r) => r,
-                         Err(e) => return Err(e),
-                     }
-                 };
-                 
-                 // Chain insertvalue. The last one must define 'res'.
-                 // We can't easily force the last one to be 'res' without conditional logic 
-                 // because 'res' includes the %.
-                 // So we use temporary names, and finally bind 'res' ? 
-                 // MLIR has no "assign alias".
-                 
-                 // Alternative: Use 'res' for the LAST one.
-                 let target_name = if i == fs.len() - 1 {
-                     res.clone()
-                 } else {
-                     format!("{}_chain_{}", res, i)
-                 };
-                 
-                 out.push_str(&format!("    {} = llvm.insertvalue {}, {}[{}] : {}\n", 
-                     target_name, prom_elem, current_struct_ssa, i, target_mlir));
-                 
-                 current_struct_ssa = target_name;
-             }
-             return Ok(res);
+             return promote_tuple(ctx, out, var, fs, ts, from, to, &res);
         }
         _ => {}
     }
 
+    promote_numeric_fallback(ctx, out, var, from, to, &res)
+}
+
+fn promote_numeric_fallback(ctx: &mut LoweringContext, out: &mut String, var: &str, from: &Type, to: &Type, res: &str) -> Result<String, String> {
+    let mut emit = |op: &str, src_ty: &str, dst_ty: &str| {
+        out.push_str(&format!("    {} = {} {} : {} to {}\n", res, op, var, src_ty, dst_ty));
+    };
+
     if let (Some(f_idx), Some(t_idx)) = (get_numeric_idx(from), get_numeric_idx(to)) {
         if let Some((op, src_ty, dst_ty)) = PROMOTION_OPS[f_idx][t_idx] {
             emit(op, src_ty, dst_ty);
-            return Ok(res);
+            return Ok(res.to_string());
         }
     }
 
-    // [CANONICAL IDENTITY MAP] Check if types are canonically equivalent
-    // This resolves the "_TrieNode vs __TrieNode" underscore mismatch
     if from.canonical_eq(to) {
-
-        return Ok(var.to_string()); // No promotion needed - types are canonically identical
+        return Ok(var.to_string());
     }
 
-    // [KEUOS V2.0] MLIR Identity Check
-    // If both types lower to the same MLIR type (e.g. i64 vs u64, or Ptr<T> vs Ptr<U> in simplified ABI),
-    // and they have the same size/align, we can treat this as a no-op promotion (bit-verification only).
     if let (Ok(mlir_from), Ok(mlir_to)) = (from.to_mlir_type(ctx), to.to_mlir_type(ctx)) {
         if mlir_from == mlir_to {
              let registry = ctx.struct_registry();
@@ -669,28 +530,14 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
         }
     }
 
-    // [PHASE 5] Struct↔Concrete Equivalence: normalize FQN prefixes
-    // Handles cases like Struct("Vec_i64_ArenaAllocator") vs
-    // Concrete("Vec", [I64, Concrete("std__mem__allocator__ArenaAllocator", [])]).
-    // The mangled names differ only in package prefix depth.
     match (from, to) {
         (Type::Struct(n), Type::Concrete(..)) | (Type::Concrete(..), Type::Struct(n)) => {
             let other = if matches!(from, Type::Struct(_)) { to } else { from };
-            // Normalize FQN: strip package prefixes from double-underscore paths.
-            // "std__collections__vec__Vec_i64_std__mem__allocator__ArenaAllocator"
-            // becomes "Vec_i64_ArenaAllocator"
-            //
-            // Strategy: split on single `_` (type param separator), but NOT on `__`.
-            // For each resulting token, if it contains `__`, take the last segment.
             fn normalize_fqn(s: &str) -> String {
-                // First, protect `__` by replacing with a unique placeholder
                 let protected = s.replace("__", "\x01");
-                // Split on single `_` to get type parameter components
                 let parts: Vec<&str> = protected.split('_').collect();
-                // Reassemble, replacing placeholder back to `__` and stripping prefix
                 let normalized: Vec<String> = parts.iter().map(|part| {
                     let restored = part.replace('\x01', "__");
-                    // If it contains `__`, it's a FQN — take the last segment
                     if restored.contains("__") {
                         restored.rsplit("__").next().unwrap_or(&restored).to_string()
                     } else {
@@ -708,26 +555,159 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
         _ => {}
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // [KEUOS FIX] Raw pointer promotion cases for kernel !llvm.ptr usage
-    // Handles: Pointer{I8} ↔ Pointer{I8} (identity), Pointer → integer (ptrtoint)
-    // ═══════════════════════════════════════════════════════════════════
     if from.k_is_ptr_type() && to.k_is_ptr_type() {
-        // Both are pointer-like types — identity at MLIR level (!llvm.ptr)
         return Ok(var.to_string());
     }
-    // [CONSTITUTIONAL GUARD] Pointer → integer is NOT an implicit promotion.
-    // Users must use explicit `as i64`/`as i32` casts, which route through
-    // cast_numeric (line ~853) where ptrtoint is emitted deliberately.
-    // Pointer element type mismatch: when struct field type is !llvm.ptr but resolved as element type
+
     if let Type::Pointer { ref element, .. } = from {
         if element.as_ref() == to {
-            // from=Pointer{I8}, to=I8 means the field was !llvm.ptr — identity
             return Ok(var.to_string());
         }
     }
 
     Err(format!("Numeric promotion not supported from {:?} to {:?} (var: {})", from, to, var))
+}
+
+fn promote_array_packing(ctx: &mut LoweringContext, out: &mut String, var: &str, f_len: usize, to: &Type) -> Result<String, String> {
+     let packed_storage_ty = to.to_mlir_storage_type(ctx).map_err(|e| e)?;
+     let mut current_packed = format!("%packed_prom_{}", ctx.next_id());
+     out.push_str(&format!("    {} = llvm.mlir.zero : {}\n", current_packed, packed_storage_ty));
+     
+     let unpacked_storage_ty_str = format!("!llvm.array<{} x i1>", f_len);
+     
+     let mut current_word_ssa = String::new();
+     for i in 0..f_len {
+         let bit_idx = i % 64;
+         if bit_idx == 0 {
+             let zero = format!("%zero_w_{}", ctx.next_id());
+             ctx.emit_const_int(out, &zero, 0, "i64");
+             current_word_ssa = zero;
+         }
+         
+         let elem = format!("%elem_{}_{}", i, ctx.next_id());
+         out.push_str(&format!("    {} = llvm.extractvalue {}[{}] : {}\n", elem, var, i, unpacked_storage_ty_str));
+         
+         let elem_ext = format!("%elem_ext_{}", ctx.next_id());
+         ctx.emit_cast(out, &elem_ext, "arith.extui", &elem, "i8", "i64");
+         
+         let shifted = format!("%shifted_{}", ctx.next_id());
+         let shift_amt = format!("%sh_amt_{}", ctx.next_id());
+         ctx.emit_const_int(out, &shift_amt, bit_idx as i64, "i64");
+         ctx.emit_binop(out, &shifted, "arith.shli", &elem_ext, &shift_amt, "i64");
+         
+         let new_word = format!("%accum_w_{}_{}", i, ctx.next_id());
+         ctx.emit_binop(out, &new_word, "arith.ori", &current_word_ssa, &shifted, "i64");
+         current_word_ssa = new_word;
+         
+         if bit_idx == 63 || i == f_len - 1 {
+             let word_idx = i / 64;
+             let inserted = format!("%packed_insert_{}", ctx.next_id());
+             out.push_str(&format!("    {} = llvm.insertvalue {}, {}[{}] : {}\n", inserted, current_word_ssa, current_packed, word_idx, packed_storage_ty));
+             current_packed = inserted;
+         }
+     }
+     Ok(current_packed)
+}
+
+fn promote_tuple(ctx: &mut LoweringContext, out: &mut String, var: &str, fs: &[Type], ts: &[Type], from: &Type, to: &Type, res: &str) -> Result<String, String> {
+     let target_mlir = to.to_mlir_storage_type(ctx).map_err(|e| e)?;
+     let src_mlir = from.to_mlir_storage_type(ctx).map_err(|e| e)?;
+     
+     let first_init = format!("{}_init", res.replace("%", ""));
+     out.push_str(&format!("    %{} = llvm.mlir.undef : {}\n", first_init, target_mlir));
+     
+     let mut current_struct_ssa = format!("%{}", first_init);
+     
+     for (i, (f_ty, t_ty)) in fs.iter().zip(ts.iter()).enumerate() {
+        let elem_val = format!("%{}_elem_{}", res.replace("%", ""), i);
+         ctx.emit_extractvalue(out, &elem_val, var, i, &src_mlir);
+         
+         let prom_elem = match promote_numeric(ctx, out, &elem_val, f_ty, t_ty) {
+             Ok(r) => r,
+             Err(_) => match cast_numeric(ctx, out, &elem_val, f_ty, t_ty) {
+                 Ok(r) => r,
+                 Err(e) => return Err(e),
+             }
+         };
+         
+         let target_name = if i == fs.len() - 1 {
+             res.to_string()
+         } else {
+             format!("{}_chain_{}", res, i)
+         };
+         
+         out.push_str(&format!("    {} = llvm.insertvalue {}, {}[{}] : {}\n", 
+             target_name, prom_elem, current_struct_ssa, i, target_mlir));
+         
+         current_struct_ssa = target_name;
+     }
+     Ok(res.to_string())
+}
+
+
+
+fn cast_pointer_and_references(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    var: &str,
+    from: &Type,
+    to: &Type,
+    res: &str,
+) -> Result<Option<String>, String> {
+    match (from, to) {
+        (Type::Reference(_, _), Type::Reference(_, _)) => return Ok(Some(var.to_string())),
+        (Type::U64 | Type::Usize | Type::I64, Type::Pointer { .. }) => {
+            let src_ty = from.to_mlir_type(ctx)?;
+            let int_val = if src_ty != "i64" {
+                let temp = format!("%inttoptr_prep_{}", ctx.next_id());
+                if matches!(from, Type::I64) {
+                    out.push_str(&format!("    {} = arith.extsi {} : {} to i64\n", temp, var, src_ty));
+                } else {
+                    out.push_str(&format!("    {} = arith.extui {} : {} to i64\n", temp, var, src_ty));
+                }
+                temp
+            } else {
+                var.to_string()
+            };
+            out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", res, int_val));
+            return Ok(Some(res.to_string()));
+        }
+        (Type::Pointer { .. }, Type::U64 | Type::Usize | Type::I64) => {
+            out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", res, var));
+            return Ok(Some(res.to_string()));
+        }
+        (Type::Array(ref _inner, _, _), Type::Pointer { .. }) => {
+            return Ok(Some(var.to_string()));
+        }
+        (Type::Fn(_, _), Type::I64 | Type::U64) => {
+            out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", res, var));
+            return Ok(Some(res.to_string()));
+        }
+        (Type::Fn(_, _), Type::Pointer { .. }) => {
+            return Ok(Some(var.to_string()));
+        }
+        (Type::U64 | Type::Usize | Type::I64, Type::Reference(_, _)) => {
+            let src_ty = from.to_mlir_type(ctx)?;
+            let int_val = if src_ty != "i64" {
+                let temp = format!("%inttoptr_ref_{}", ctx.next_id());
+                if matches!(from, Type::Usize) {
+                    out.push_str(&format!("    {} = arith.index_cast {} : index to i64\n", temp, var));
+                } else {
+                    out.push_str(&format!("    {} = arith.extsi {} : {} to i64\n", temp, var, src_ty));
+                }
+                temp
+            } else {
+                var.to_string()
+            };
+            out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", res, int_val));
+            return Ok(Some(res.to_string()));
+        }
+        (Type::Reference(_, _), Type::U64 | Type::Usize | Type::I64) => {
+            out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", res, var));
+            return Ok(Some(res.to_string()));
+        }
+        _ => Ok(None)
+    }
 }
 
 pub fn cast_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, from: &Type, to: &Type) -> Result<String, String> {
@@ -857,77 +837,11 @@ pub fn cast_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, from
              return Ok(res);
         },
 
-        (Type::Reference(_, _), Type::Reference(_, _)) => return Ok(var.to_string()),
-
-        // Integer to Pointer cast (inttoptr) - enables addr as Ptr<T>
-        (Type::U64 | Type::Usize | Type::I64, Type::Pointer { .. }) => {
-            // First ensure we have i64 for llvm.inttoptr
-            let src_ty = from.to_mlir_type(ctx)?;
-            let int_val = if src_ty != "i64" {
-                let temp = format!("%inttoptr_prep_{}", ctx.next_id());
-                // I64 is signed, U64/Usize are unsigned
-                if matches!(from, Type::I64) {
-                    out.push_str(&format!("    {} = arith.extsi {} : {} to i64\n", temp, var, src_ty));
-                } else {
-                    out.push_str(&format!("    {} = arith.extui {} : {} to i64\n", temp, var, src_ty));
-                }
-                temp
-            } else {
-                var.to_string()
-            };
-            out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", res, int_val));
-            return Ok(res);
-        }
-
-        // [KEUOS FIX] Pointer to Integer cast (ptrtoint) - enables self as u64 in Ptr::addr
-        (Type::Pointer { .. }, Type::U64 | Type::Usize | Type::I64) => {
-            out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", res, var));
-            return Ok(res);
-        }
-
-        // [STACK ARRAY] Array to Pointer cast — identity (both are !llvm.ptr)
-        // Enables: let arr: [u8; 6]; fill(arr as Ptr<u8>, 6);
-        (Type::Array(ref _inner, _, _), Type::Pointer { .. }) => {
-            return Ok(var.to_string());
-        }
-
-        // [FIRST-CLASS FUNCTIONS] Function reference -> Integer cast
-        // Function references are already lowered to !llvm.ptr by emit_expr
-        // (via func.constant + unrealized_conversion_cast), so we just ptrtoint.
-        (Type::Fn(_, _), Type::I64 | Type::U64) => {
-            out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", res, var));
-            return Ok(res);
-        }
-        (Type::Fn(_, _), Type::Pointer { .. }) => {
-            // Already !llvm.ptr, no-op cast
-            return Ok(var.to_string());
-        }
-
-        // [KERNEL CAST] Integer to Reference (&T / &mut T) — inttoptr
-        // Enables kernel patterns like: *(addr as &mut u8) = value
-        // References lower to !llvm.ptr in MLIR, identical to Pointer cast
-        (Type::U64 | Type::Usize | Type::I64, Type::Reference(_, _)) => {
-            let src_ty = from.to_mlir_type(ctx)?;
-            let int_val = if src_ty != "i64" {
-                let temp = format!("%inttoptr_ref_{}", ctx.next_id());
-                if matches!(from, Type::Usize) {
-                    out.push_str(&format!("    {} = arith.index_cast {} : index to i64\n", temp, var));
-                } else {
-                    out.push_str(&format!("    {} = arith.extsi {} : {} to i64\n", temp, var, src_ty));
-                }
-                temp
-            } else {
-                var.to_string()
-            };
-            out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", res, int_val));
-            return Ok(res);
-        }
-
-        // [KERNEL CAST] Reference (&T) to Integer — ptrtoint
-        // Enables kernel patterns like: let addr = ref_val as u64
-        (Type::Reference(_, _), Type::U64 | Type::Usize | Type::I64) => {
-            out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", res, var));
-            return Ok(res);
+        _ => {
+            if let Some(r) = cast_pointer_and_references(ctx, out, var, from, to, &res)? {
+                return Ok(r);
+            }
+            return Err(format!("Unsupported explicit cast {} -> {}", from.mangle_suffix(), to.mangle_suffix()));
         }
 
         _ => return Err(format!("Unsupported explicit cast {} -> {}", from.mangle_suffix(), to.mangle_suffix())),
@@ -1275,9 +1189,240 @@ pub fn to_mlir_type(ctx: &mut LoweringContext, ty: &Type) -> Result<String, Stri
     }
 }
 
+
+fn resolve_codegen_type_self(ctx: &mut LoweringContext, _flattened: &Type) -> Type {
+    let mut res = None;
+    let self_concrete_opt = ctx.current_type_map().get("Self").cloned();
+    if let Some(concrete_ty) = self_concrete_opt {
+        res = Some(concrete_ty);
+    }
+    if res.is_none() {
+        if let Some(self_ty) = &*ctx.current_self_ty() {
+            res = Some(self_ty.clone());
+        }
+    }
+
+    if let Some(r) = res {
+        if let Type::Struct(name) = &r {
+             if let Some(template) = ctx.struct_templates().get(name) {
+                 if let Some(generics) = &template.generics {
+                     let mut args = Vec::new();
+                     let mut all_found = true;
+                     for param in &generics.params {
+                          let p_name = match param {
+                              crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                              crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+                          };
+                          let arg_opt = ctx.current_type_map().get(&p_name).cloned();
+                          if let Some(arg) = arg_opt {
+                              args.push(arg);
+                          } else {
+                              all_found = false; 
+                              break;
+                          }
+                     }
+                     if all_found && !args.is_empty() {
+                         return Type::Concrete(name.clone(), args);
+                     }
+                 }
+             }
+        }
+        r
+    } else {
+        panic!("MonomorphizationError: Failed to resolve SelfType. Map keys: {:?}", ctx.current_type_map().keys().collect::<Vec<_>>());
+    }
+}
+
+fn resolve_codegen_type_struct(ctx: &mut LoweringContext, ty: &Type, name: &str) -> Type {
+    if name.chars().all(|c| c.is_ascii_digit()) {
+        return ty.clone();
+    }
+    if name.contains("__") {
+        let resolved_base = name.to_string();
+        let requires_generics = ctx.struct_templates().get(&resolved_base)
+            .map(|t| t.generics.as_ref().map(|g| !g.params.is_empty()).unwrap_or(false))
+            .unwrap_or(false);
+        if requires_generics {
+            return Type::Struct(resolved_base);
+        }
+        let resolved_params = vec![]; 
+        let is_enum = ctx.enum_templates().contains_key(&resolved_base);
+        if !ctx.suppress_specialization.get() {
+            let _ = ctx.specialize_template(&resolved_base, &resolved_params, is_enum);
+        }
+        if is_enum {
+            return Type::Enum(resolved_base);
+        } else {
+            return Type::Struct(resolved_base);
+        }
+    }
+
+    let concrete_opt = ctx.current_type_map().get(name).cloned();
+    if let Some(concrete_ty) = concrete_opt {
+        concrete_ty
+    } else {
+        let suffix = format!("__{}", name);
+        let canonical_candidate = ctx.struct_templates().keys()
+            .find(|k| k.ends_with(&suffix))
+            .cloned()
+            .or_else(|| {
+                ctx.enum_templates().keys()
+                    .find(|k| k.ends_with(&suffix))
+                    .cloned()
+            });
+        
+        if let Some(ref candidate) = canonical_candidate {
+            let resolved_base = candidate.clone();
+            let requires_generics = ctx.struct_templates().get(&resolved_base)
+                .map(|t| t.generics.as_ref().map(|g| !g.params.is_empty()).unwrap_or(false))
+                .unwrap_or(false);
+            if requires_generics {
+                return Type::Struct(resolved_base);
+            }
+            let is_enum = ctx.enum_templates().contains_key(&resolved_base);
+            if !ctx.suppress_specialization.get() {
+                let _ = ctx.specialize_template(&resolved_base, &[], is_enum);
+            }
+            return if is_enum { Type::Enum(resolved_base) } else { Type::Struct(resolved_base) };
+        }
+        
+        let segments: Vec<String> = name.split("::").map(|s| s.to_string()).collect();
+        if let Some((pkg, item)) = crate::codegen::expr::utils::resolve_package_prefix_ctx(ctx, &segments) {
+             let resolved_base = if item.is_empty() { pkg } else if pkg.is_empty() { item } else { format!("{}__{}", pkg, item) };
+             let mut resolved_params = vec![];
+
+             if resolved_params.is_empty() {
+                  if let Some(template) = ctx.struct_templates().get(&resolved_base) {
+                      if let Some(generics) = &template.generics {
+                          let current_args = ctx.current_generic_args();
+                           if current_args.len() == generics.params.len() {
+                               resolved_params = current_args.clone();
+                           } else {
+                               let mut inferred = Vec::new();
+                               let mut all_found = true;
+                               for param in &generics.params {
+                                   let p_name = match param {
+                                       crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                                       crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+                                   };
+                                   let arg_opt = ctx.current_type_map().get(&p_name).cloned();
+                                   if let Some(arg) = arg_opt {
+                                       inferred.push(arg);
+                                   } else {
+                                       all_found = false;
+                                       break;
+                                   }
+                               }
+                               if all_found {
+                                   resolved_params = inferred;
+                               }
+                           }
+                      }
+                  }
+             }
+             
+             let is_enum = ctx.enum_templates().contains_key(&resolved_base);
+             let requires_generics = ctx.struct_templates().get(&resolved_base)
+                 .map(|t| t.generics.as_ref().map(|g| !g.params.is_empty()).unwrap_or(false))
+                 .unwrap_or(false);
+             
+             if !ctx.suppress_specialization.get() && (!requires_generics || !resolved_params.is_empty()) {
+                  let _ = ctx.specialize_template(&resolved_base, &resolved_params, is_enum);
+             }
+             
+             if !resolved_params.is_empty() {
+                 Type::Concrete(resolved_base, resolved_params)
+             } else if is_enum {
+                 Type::Enum(resolved_base)
+             } else {
+                 Type::Struct(resolved_base)
+             }
+        } else {
+             Type::Struct(name.to_string())
+        }
+    }
+}
+
+fn resolve_codegen_type_concrete(ctx: &mut LoweringContext, base_name: &str, target_params: &[Type]) -> Type {
+    if target_params.is_empty() {
+        let concrete_opt = ctx.current_type_map().get(base_name).cloned();
+        if let Some(concrete_ty) = concrete_opt {
+            return resolve_codegen_type(ctx, &concrete_ty);
+        }
+    }
+    if target_params.is_empty() && !ctx.current_type_map().is_empty() {
+        if let Some(template) = ctx.struct_templates().get(base_name) {
+            if let Some(generics) = &template.generics {
+                let param_names: Vec<String> = generics.params.iter().map(|param| {
+                    match param {
+                        crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                        crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+                    }
+                }).collect();
+                let type_map = ctx.current_type_map();
+                let mut inferred_map = type_map.clone();
+                crate::codegen::expr::infer_phantom_generics(&param_names, &mut inferred_map);
+                let args: Vec<Type> = param_names.iter()
+                    .filter_map(|pname| inferred_map.get(pname).cloned())
+                    .collect();
+                if args.len() == param_names.len() {
+                    let resolved_args: Vec<Type> = args.iter()
+                        .map(|a| resolve_codegen_type(ctx, a))
+                        .collect();
+                    return Type::Concrete(base_name.to_string(), resolved_args);
+                }
+            }
+        }
+    }
+    let mut resolved_params = Vec::new();
+    for param in target_params {
+        resolved_params.push(resolve_codegen_type(ctx, param));
+    }
+    if base_name == "Owned" && !resolved_params.is_empty() {
+        Type::Owned(Box::new(resolved_params[0].clone()))
+    } else if !resolved_params.is_empty() && base_name == "Window" {
+        let region = if resolved_params.len() >= 2 {
+            if let Type::Struct(r) = &resolved_params[1] { r.clone() } else { "RAM".to_string() }
+        } else { "RAM".to_string() };
+        Type::Window(Box::new(resolved_params[0].clone()), region)
+    } else if base_name == "Atomic" && !resolved_params.is_empty() {
+        Type::Atomic(Box::new(resolved_params[0].clone()))
+    } else {
+        let mut resolved_base = base_name.to_string();
+        if !resolved_base.contains("__") {
+            let suffix = format!("__{}", base_name);
+            let canonical_candidate = ctx.struct_templates().keys()
+                .find(|k| k.ends_with(&suffix))
+                .cloned()
+                .or_else(|| {
+                    ctx.enum_templates().keys()
+                        .find(|k| k.ends_with(&suffix))
+                        .cloned()
+                });
+            
+            if let Some(candidate) = canonical_candidate {
+                resolved_base = candidate;
+            } else {
+                let segments: Vec<String> = base_name.split("::").map(|s| s.to_string()).collect();
+                if let Some((pkg, item)) = crate::codegen::expr::utils::resolve_package_prefix_ctx(ctx, &segments) {
+                     resolved_base = if item.is_empty() { pkg } else if pkg.is_empty() { item } else { format!("{}__{}", pkg, item) };
+                }
+            }
+        }
+
+        let is_enum = ctx.enum_templates().contains_key(&resolved_base);
+        if ctx.struct_templates().contains_key(&resolved_base) || is_enum {
+            if !ctx.suppress_specialization.get() {
+                let _ = ctx.specialize_template(&resolved_base, &resolved_params, is_enum);
+            }
+        }
+        Type::Concrete(resolved_base, resolved_params)
+    }
+}
+
 pub fn resolve_codegen_type(ctx: &mut LoweringContext, ty: &Type) -> Type {
     let flattened = flatten_inception_recursive(ty, 0, "codegen_resolve");
-    let res = match &flattened {
+    match &flattened {
         Type::Enum(name) => Type::Enum(name.clone()),
         Type::Generic(name) => {
             let concrete_opt = ctx.current_type_map().get(name).cloned();
@@ -1294,288 +1439,9 @@ pub fn resolve_codegen_type(ctx: &mut LoweringContext, ty: &Type) -> Type {
                 Type::Struct(name.clone())
             }
         }
-        Type::SelfType => {
-            let mut res = None;
-            let self_concrete_opt = {
-                ctx.current_type_map().get("Self").cloned()
-            };
-            if let Some(concrete_ty) = self_concrete_opt {
-                res = Some(concrete_ty);
-            }
-            if res.is_none() {
-                if let Some(self_ty) = &*ctx.current_self_ty() {
-                    res = Some(self_ty.clone());
-                }
-            }
-
-            if let Some(r) = res {
-                // Identity Hand-off Fix: Hydrate Struct("Vec") to Concrete("Vec", [T]) if map covers it
-                if let Type::Struct(name) = &r {
-                     if let Some(template) = ctx.struct_templates().get(name) {
-                         // Check if we can hydrate using generic params from the template
-                         if let Some(generics) = &template.generics {
-                             let mut args = Vec::new();
-                             let mut all_found = true;
-                             for param in &generics.params {
-                                  let p_name = match param {
-                                      crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                                      crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                                  };
-                                  let arg_opt = {
-                                      ctx.current_type_map().get(&p_name).cloned()
-                                  };
-                                  if let Some(arg) = arg_opt {
-                                      args.push(arg);
-                                  } else {
-                                      all_found = false; 
-                                      break;
-                                  }
-                             }
-                             if all_found && !args.is_empty() {
-                                 return Type::Concrete(name.clone(), args);
-                             }
-                         }
-                     }
-                }
-                r
-            } else {
-                panic!("MonomorphizationError: Failed to resolve SelfType. Map keys: {:?}", ctx.current_type_map().keys().collect::<Vec<_>>());
-            }
-        }
-        Type::Struct(name) => {
-            if name.chars().all(|c| c.is_ascii_digit()) {
-                return ty.clone();
-            }
-            if name.contains("__") {
-                // Already resolved FQN
-                let resolved_base = name.clone();
-                
-                // V3.0: Check if this is a template base that requires generic params
-                // If so, skip specialization - caller must provide the generic args
-                let requires_generics = ctx.struct_templates().get(&resolved_base)
-                    .map(|t| t.generics.as_ref().map(|g| !g.params.is_empty()).unwrap_or(false))
-                    .unwrap_or(false);
-                
-                if requires_generics {
-                    // Template base without specialization - return as-is, don't specialize
-                    // Specialization will happen when the caller provides concrete types
-                    return Type::Struct(resolved_base);
-                }
-                
-                let resolved_params = vec![]; 
-                
-                // Jump to check logic (duplicated here for clarity or refactor structure)
-                let is_enum = ctx.enum_templates().contains_key(&resolved_base);
-                if !ctx.suppress_specialization.get() {
-                    let _ = ctx.specialize_template(&resolved_base, &resolved_params, is_enum);
-                }
-                if is_enum {
-                    return Type::Enum(resolved_base);
-                } else {
-                    return Type::Struct(resolved_base);
-                }
-            }
-
-
-            let concrete_opt = {
-                ctx.current_type_map().get(name).cloned()
-            };
-            if let Some(concrete_ty) = concrete_opt {
-                concrete_ty
-            } else {
-                // [CANONICAL RESOLUTION] Package-agnostic struct name resolution.
-                // During Ptr<T> method hydration, current_package is std.core.ptr (not main),
-                // so we must search ALL struct_templates for any key ending with __{name}.
-                // This correctly resolves raw Struct("Node") → Struct("main__Node").
-                let suffix = format!("__{}", name);
-                let canonical_candidate = ctx.struct_templates().keys()
-                    .find(|k| k.ends_with(&suffix))
-                    .cloned()
-                    .or_else(|| {
-                        // Also check enum_templates
-                        ctx.enum_templates().keys()
-                            .find(|k| k.ends_with(&suffix))
-                            .cloned()
-                    });
-                
-                if let Some(ref candidate) = canonical_candidate {
-                    let resolved_base = candidate.clone();
-                    let requires_generics = ctx.struct_templates().get(&resolved_base)
-                        .map(|t| t.generics.as_ref().map(|g| !g.params.is_empty()).unwrap_or(false))
-                        .unwrap_or(false);
-                    if requires_generics {
-                        return Type::Struct(resolved_base);
-                    }
-                    let is_enum = ctx.enum_templates().contains_key(&resolved_base);
-                    if !ctx.suppress_specialization.get() {
-                        let _ = ctx.specialize_template(&resolved_base, &[], is_enum);
-                    }
-                    return if is_enum { Type::Enum(resolved_base) } else { Type::Struct(resolved_base) };
-                }
-                
-                // [CROSS-MODULE STRUCT] Split qualified names like "addr::PhysAddr" into segments
-                let segments: Vec<String> = name.split("::").map(|s| s.to_string()).collect();
-                if let Some((pkg, item)) = crate::codegen::expr::utils::resolve_package_prefix_ctx(ctx, &segments) {
-                     let resolved_base = if item.is_empty() { pkg } else if pkg.is_empty() { item } else { format!("{}__{}", pkg, item) };
-                     let mut resolved_params = vec![];
-
-                     // HYDRATION FIX: If the resolved base is a template, try to use current generic args
-                     // This prevents 'Ptr' in 'impl Ptr<T>' from being treated as 'Ptr<>' (empty args),
-                     // which causes specialize_template to create a placeholder with no fields.
-                     if resolved_params.is_empty() {
-                          if let Some(template) = ctx.struct_templates().get(&resolved_base) {
-                              if let Some(generics) = &template.generics {
-                                  let current_args = ctx.current_generic_args();
-                                   if current_args.len() == generics.params.len() {
-                                       // Basic arity check passed.
-                                       // We allow implicit inference for any struct if the arity matches the current context.
-                                       // This supports using 'Ptr' inside 'Vec<T>' as 'Ptr<T>'.
-                                       resolved_params = current_args.clone();
-                                   } else {
-                                       // Fallback: Try to infer params from type_map
-                                       // This handles explicit struct usage inside its own impl (e.g. Vec inside impl<T> Vec<T>)
-                                       // where current_generic_args might be empty (method has no generics).
-                                       let mut inferred = Vec::new();
-                                       let mut all_found = true;
-                                       for param in &generics.params {
-                                           let p_name = match param {
-                                               crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                                               crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                                           };
-                                           let arg_opt = {
-                                               ctx.current_type_map().get(&p_name).cloned()
-                                           };
-                                           if let Some(arg) = arg_opt {
-                                               inferred.push(arg);
-                                           } else {
-                                               all_found = false;
-                                               break;
-                                           }
-                                       }
-                                       if all_found {
-                                           resolved_params = inferred;
-                                       }
-                                   }
-                              }
-                          }
-                     }
-                     
-                     let is_enum = ctx.enum_templates().contains_key(&resolved_base);
-                     
-                     // V3.0: Only specialize if we have params OR template doesn't require generics
-                     let requires_generics = ctx.struct_templates().get(&resolved_base)
-                         .map(|t| t.generics.as_ref().map(|g| !g.params.is_empty()).unwrap_or(false))
-                         .unwrap_or(false);
-                     
-                     if !ctx.suppress_specialization.get() && (!requires_generics || !resolved_params.is_empty()) {
-                          let _ = ctx.specialize_template(&resolved_base, &resolved_params, is_enum);
-                     }
-
-                     
-                     if !resolved_params.is_empty() {
-                         Type::Concrete(resolved_base, resolved_params)
-                     } else if is_enum {
-                         Type::Enum(resolved_base)
-                     } else {
-                         if resolved_base.contains("Ptr") {
-                         }
-                         Type::Struct(resolved_base)
-                     }
-                } else {
-                     // eprintln!("WARNING: resolve_codegen_type failed to resolve '{}'. Falling back to Struct({}). Imports: {:?}", name, name, ctx.imports().iter().map(|i| i.alias.as_ref().map(|a| a.to_string()).unwrap_or("?".to_string())).collect::<Vec<_>>());
-                     Type::Struct(name.clone())
-                }
-            }
-        },
-
-        Type::Concrete(base_name, target_params) => {
-            // [KEUOS FIX] Level 2 Safety Net: Catch misclassified generics.
-            // If Concrete(name, []) and name is in the type_map, it's actually a generic placeholder
-            // (e.g. "F2" parsed without context by from_syn). Resolve it like Type::Generic.
-            if target_params.is_empty() {
-                let concrete_opt = {
-                    ctx.current_type_map().get(base_name).cloned()
-                };
-                if let Some(concrete_ty) = concrete_opt {
-                    return resolve_codegen_type(ctx, &concrete_ty);
-                }
-            }
-            // [PHANTOM FIX] For zero-arg Concrete that matches a struct template,
-            // try to build args from the current type_map + phantom generic inference.
-            if target_params.is_empty() && !ctx.current_type_map().is_empty() {
-                if let Some(template) = ctx.struct_templates().get(base_name) {
-                    if let Some(generics) = &template.generics {
-                        let param_names: Vec<String> = generics.params.iter().map(|param| {
-                            match param {
-                                crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                                crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                            }
-                        }).collect();
-                        let type_map = ctx.current_type_map();
-                        let mut inferred_map = type_map.clone();
-                        // Infer phantom generics from Fn return types
-                        crate::codegen::expr::infer_phantom_generics(&param_names, &mut inferred_map);
-                        let args: Vec<Type> = param_names.iter()
-                            .filter_map(|pname| inferred_map.get(pname).cloned())
-                            .collect();
-                        if args.len() == param_names.len() {
-                            // All generics resolved — produce the fully-parameterized type
-                            let resolved_args: Vec<Type> = args.iter()
-                                .map(|a| resolve_codegen_type(ctx, a))
-                                .collect();
-                            return Type::Concrete(base_name.clone(), resolved_args);
-                        }
-                    }
-                }
-            }
-            let mut resolved_params = Vec::new();
-            for param in target_params {
-                resolved_params.push(resolve_codegen_type(ctx, param));
-            }
-            if base_name == "Owned" && !resolved_params.is_empty() {
-                Type::Owned(Box::new(resolved_params[0].clone()))
-            } else if !resolved_params.is_empty() && base_name == "Window" {
-                let region = if resolved_params.len() >= 2 {
-                    if let Type::Struct(r) = &resolved_params[1] { r.clone() } else { "RAM".to_string() }
-                } else { "RAM".to_string() };
-                Type::Window(Box::new(resolved_params[0].clone()), region)
-            } else if base_name == "Atomic" && !resolved_params.is_empty() {
-                Type::Atomic(Box::new(resolved_params[0].clone()))
-            } else {
-                
-                
-                // [AST-to-HIR] fallback for non-FQN bases during transition
-                let mut resolved_base = base_name.clone();
-                if !resolved_base.contains("__") {
-                    let suffix = format!("__{}", base_name);
-                    let canonical_candidate = ctx.struct_templates().keys()
-                        .find(|k| k.ends_with(&suffix))
-                        .cloned()
-                        .or_else(|| {
-                            ctx.enum_templates().keys()
-                                .find(|k| k.ends_with(&suffix))
-                                .cloned()
-                        });
-                    
-                    if let Some(candidate) = canonical_candidate {
-                        resolved_base = candidate;
-                    } else {
-                        let segments: Vec<String> = base_name.split("::").map(|s| s.to_string()).collect();
-                        if let Some((pkg, item)) = crate::codegen::expr::utils::resolve_package_prefix_ctx(ctx, &segments) {
-                             resolved_base = if item.is_empty() { pkg } else if pkg.is_empty() { item } else { format!("{}__{}", pkg, item) };
-                        }
-                    }
-                }
-
-                let is_enum = ctx.enum_templates().contains_key(&resolved_base);
-                if ctx.struct_templates().contains_key(&resolved_base) || is_enum {
-                    if !ctx.suppress_specialization.get() {
-                        let _ = ctx.specialize_template(&resolved_base, &resolved_params, is_enum);
-                    }
-                }
-                Type::Concrete(resolved_base, resolved_params)
-            }
-        }
+        Type::SelfType => resolve_codegen_type_self(ctx, &flattened),
+        Type::Struct(name) => resolve_codegen_type_struct(ctx, ty, name),
+        Type::Concrete(base_name, target_params) => resolve_codegen_type_concrete(ctx, base_name, target_params),
         Type::Pointer { element, provenance, is_mutable } => Type::Pointer {
             element: Box::new(resolve_codegen_type(ctx, element)),
             provenance: provenance.clone(),
@@ -1592,13 +1458,9 @@ pub fn resolve_codegen_type(ctx: &mut LoweringContext, ty: &Type) -> Type {
         Type::Tuple(elems) => Type::Tuple(elems.iter().map(|e| resolve_codegen_type(ctx, e)).collect()),
         Type::Tensor(inner, shape) => Type::Tensor(Box::new(resolve_codegen_type(ctx, inner)), shape.clone()),
         _ => ty.clone(),
-    };
-
-    if let Type::Struct(_name) = ty {
-
     }
-    res
 }
+
 
 
 /// Bridges the gap between Rust's syn::Type (legacy/helper) and Salt's Type system.
@@ -1888,7 +1750,186 @@ pub fn validate_trait_constraints(
     Ok(())
 }
 
+fn has_unresolved_type_params(ctx: &mut LoweringContext, ty: &Type) -> bool {
+    match ty {
+        Type::Generic(_) => true,
+        Type::Struct(name) => {
+            // Self-referential type_map entries are unresolved
+            if let Some(mapped) = ctx.current_type_map().get(name) {
+                if let Type::Struct(mapped_name) = mapped {
+                    if mapped_name == name { return true; }
+                }
+            }
+            // If not in any struct/enum registry, it's likely a generic param
+            let is_known = ctx.struct_registry().keys().any(|k| k.name.ends_with(name))
+                || ctx.enum_templates().contains_key(name);
+            !is_known && !name.contains("__") // Mangled names are real types
+        }
+        Type::Concrete(name, args) => {
+            // Check if the base name itself is an unresolved generic
+            let base_unresolved = if args.is_empty() {
+                !ctx.struct_registry().keys().any(|k| k.name.ends_with(name))
+                    && !ctx.enum_templates().contains_key(name)
+                    && !name.contains("__")
+            } else { false };
+            base_unresolved || args.iter().any(|a| has_unresolved_type_params(ctx, a))
+        }
+        Type::Pointer { element, .. } => has_unresolved_type_params(ctx, element),
+        Type::Reference(inner, _) | Type::Owned(inner) | Type::Atomic(inner) => has_unresolved_type_params(ctx, inner),
+        Type::Array(inner, _, _) => has_unresolved_type_params(ctx, inner),
+        Type::Fn(args, ret) => args.iter().any(|a| has_unresolved_type_params(ctx, a)) || has_unresolved_type_params(ctx, ret),
+        Type::Tuple(elems) => elems.iter().any(|e| has_unresolved_type_params(ctx, e)),
+        _ => false,
+    }
+}
+
 impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
+    
+    
+    pub(crate) fn populate_explicit_specialization_map(
+        &mut self,
+        func: &crate::grammar::SaltFn,
+        concrete_tys: &[Type],
+        st: &Type,
+        old_const_vals: &mut Vec<(String, Option<crate::evaluator::ConstValue>)>,
+    ) {
+        let template_name = if let Type::Struct(name) = st {
+            self.struct_registry().values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
+        } else if let Type::Enum(name) = st {
+            self.enum_registry().values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
+        } else if let Type::Concrete(name, _) = st {
+            name.clone()
+        } else if let Type::Pointer { .. } = st {
+            "std__core__ptr__Ptr".to_string()
+        } else {
+            "".to_string()
+        };
+        
+        if !template_name.is_empty() {
+            let gen_params = if let Some(s) = self.struct_templates().get(&template_name) {
+                s.generics.as_ref().map(|g| g.params.clone())
+            } else if let Some(e) = self.enum_templates().get(&template_name) {
+                e.generics.as_ref().map(|g| g.params.clone())
+            } else { None };
+            
+            if let Some(params) = gen_params {
+                for (i, param) in params.iter().enumerate() {
+                    let pname = match param { crate::grammar::GenericParam::Type { name, .. } => name.to_string(), crate::grammar::GenericParam::Const { name, .. } => name.to_string() };
+                    if let Type::Concrete(_, args) = &st {
+                        if let Some(arg) = args.get(i) {
+                            self.current_type_map_mut().insert(pname, arg.clone());
+                        }
+                    } else if let Type::Pointer { element, .. } = &st {
+                        if i == 0 {
+                            self.current_type_map_mut().insert(pname, (**element).clone());
+                        }
+                    } else if let Some(arg) = concrete_tys.get(i) {
+                        self.current_type_map_mut().insert(pname, arg.clone());
+                    }
+                }
+            }
+        }
+        
+        if let Some(fn_generics) = &func.generics {
+            let struct_generic_names: std::collections::HashSet<String> = {
+                let mut names = std::collections::HashSet::new();
+                let type_name = match st {
+                    Type::Struct(name) | Type::Concrete(name, _) => Some(name.clone()),
+                    _ => None
+                };
+                if let Some(ref tname) = type_name {
+                    let gen_params = {
+                        let templates = self.struct_templates();
+                        if let Some(s) = templates.get(tname) {
+                            s.generics.as_ref().map(|g| g.params.clone())
+                        } else {
+                            let _ = templates;
+                            let etemplates = self.enum_templates();
+                            etemplates.get(tname).and_then(|e| e.generics.as_ref()).map(|g| g.params.clone())
+                        }
+                    };
+                    if let Some(params) = gen_params {
+                        for p in &params {
+                            let name = match p {
+                                crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                                crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+                            };
+                            names.insert(name);
+                        }
+                    }
+                }
+                names
+            };
+            
+            let struct_generic_count = struct_generic_names.len();
+            let method_args: Vec<Type> = concrete_tys.iter().skip(struct_generic_count).cloned().collect();
+            
+            if !method_args.is_empty() {
+                let method_only_params: syn::punctuated::Punctuated<_, syn::token::Comma> = fn_generics.params.iter()
+                    .filter(|p| {
+                        let name = match p {
+                            crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                            crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+                        };
+                        !struct_generic_names.contains(&name)
+                    })
+                    .cloned()
+                    .collect();
+                
+                let method_only_generics = crate::grammar::Generics {
+                    params: method_only_params,
+                };
+                self.map_generics(&Some(method_only_generics), &method_args, &func.name.to_string(), old_const_vals);
+            }
+        }
+    }
+
+    pub(crate) fn enqueue_monomorphization_task(
+        &mut self,
+        func_name: &str,
+        mangled: &str,
+        func: crate::grammar::SaltFn,
+        concrete_tys: Vec<Type>,
+        s_ty: Option<Type>,
+        imports: Vec<crate::grammar::ImportDecl>,
+        spec_map: std::collections::BTreeMap<String, Type>,
+    ) {
+        let mut pkg_path = Vec::new();
+        if let Some((t_name, _method)) = func_name.rsplit_once("__") {
+            if let Some(pkg) = self.discovery.type_origins.get(t_name) {
+                pkg_path = pkg.split('.').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect();
+            }
+        }
+        
+        if pkg_path.is_empty() {
+            let path_segments: Vec<String> = if func_name.contains("__") {
+                 func_name.split("__").map(|s| s.to_string()).collect()
+            } else {
+                 vec![]
+            };
+            pkg_path = if path_segments.len() > 1 {
+                path_segments[0..path_segments.len()-1].to_vec()
+            } else {
+                vec![]
+            };
+        }
+
+        let task = crate::codegen::collector::MonomorphizationTask {
+            identity: crate::types::TypeKey { 
+                path: pkg_path, 
+                name: func.name.to_string(), 
+                specialization: None 
+            },
+            mangled_name: mangled.to_string(),
+            func,
+            concrete_tys,
+            self_ty: s_ty,
+            imports,
+            type_map: spec_map,
+        };
+        self.expansion.pending_generations.push_back(task);
+    }
+
     pub fn request_explicit_specialization(&mut self, func_name: &str, override_name: &str, concrete_tys: Vec<Type>, self_ty: Option<Type>) -> String {
         // [ABI FIX] CANONICALIZATION GUARD: Always strip Reference wrappers from self_ty.
         let self_ty = self_ty.map(|mut ty| {
@@ -1966,111 +2007,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                 *self.current_self_ty_mut() = s_ty.clone();
 
                 if let Some(st) = &s_ty {
-                    let template_name = if let Type::Struct(name) = st {
-                        self.struct_registry().values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
-                    } else if let Type::Enum(name) = st {
-                        self.enum_registry().values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
-                    } else if let Type::Concrete(name, _) = st {
-                        name.clone()
-                    // [KEUOS FIX] Handle Type::Pointer for type_map population
-                    } else if let Type::Pointer { .. } = st {
-                        "std__core__ptr__Ptr".to_string()
-                    } else {
-                        "".to_string()
-                    };
-                    
-                     if !template_name.is_empty() {
-                         let gen_params = if let Some(s) = self.struct_templates().get(&template_name) {
-                             s.generics.as_ref().map(|g| g.params.clone())
-                         } else if let Some(e) = self.enum_templates().get(&template_name) {
-                             e.generics.as_ref().map(|g| g.params.clone())
-                         } else { None };
-                         
-                         if let Some(params) = gen_params {
-                              for (i, param) in params.iter().enumerate() {
-                                   let pname = match param { crate::grammar::GenericParam::Type { name, .. } => name.to_string(), crate::grammar::GenericParam::Const { name, .. } => name.to_string() };
-                                   // Logic: If s_ty is Concrete, use its args. If not, use concrete_tys?
-                                   // For explicit specialization, concrete_tys MUST contain the args we want to map.
-                                   // Unless s_ty already has them.
-                                   // impl<T> Ptr<T>. s_ty = Ptr<u8>.
-                                   // If Ptr<u8> is passed as s_ty, we can extract u8 from it!
-                                   if let Type::Concrete(_, args) = &st {
-                                        if let Some(arg) = args.get(i) {
-                                            self.current_type_map_mut().insert(pname, arg.clone());
-                                        }
-                                   // [KEUOS FIX] Handle Type::Pointer - extract element type for T
-                                   } else if let Type::Pointer { element, .. } = &st {
-                                        if i == 0 {  // Ptr<T> has one generic param T
-                                            self.current_type_map_mut().insert(pname, (**element).clone());
-                                        }
-                                   } else if let Some(arg) = concrete_tys.get(i) {
-                                       self.current_type_map_mut().insert(pname, arg.clone());
-                                   }
-                              }
-                         }
-                     }
-                }
-                
-                // [KEUOS FIX v2] Map method-level generics (e.g. map<F2, T>)
-                // CRITICAL: fn_generics.params may contain EITHER:
-                //   (a) merged impl+method params [I, F, F2, T] (from some trait_registry paths)
-                //   (b) method-only params [F2, T] (from find_method_by_name)
-                // We MUST use name-based filtering (not position-based skip) to handle both cases.
-                if let Some(fn_generics) = &func.generics {
-                    // Build a set of struct-level generic names for filtering
-                    let struct_generic_names: std::collections::HashSet<String> = {
-                        let mut names = std::collections::HashSet::new();
-                        if let Some(t) = self_ty.as_ref() {
-                            let type_name = match t {
-                                Type::Struct(name) | Type::Concrete(name, _) => Some(name.clone()),
-                                _ => None
-                            };
-                            if let Some(ref tname) = type_name {
-                                let gen_params = {
-                                    let templates = self.struct_templates();
-                                    if let Some(s) = templates.get(tname) {
-                                        s.generics.as_ref().map(|g| g.params.clone())
-                                    } else {
-                                        let _ = templates;
-                                        let etemplates = self.enum_templates();
-                                        etemplates.get(tname).and_then(|e| e.generics.as_ref()).map(|g| g.params.clone())
-                                    }
-                                };
-                                if let Some(params) = gen_params {
-                                    for p in &params {
-                                        let name = match p {
-                                            crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                                            crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                                        };
-                                        names.insert(name);
-                                    }
-                                }
-                            }
-                        }
-                        names
-                    };
-                    
-                    let struct_generic_count = struct_generic_names.len();
-                    let method_args: Vec<Type> = concrete_tys.iter().skip(struct_generic_count).cloned().collect();
-                    
-                    if !method_args.is_empty() {
-                        // Filter fn_generics.params to only method-level params (by name, not position)
-                        let method_only_params: syn::punctuated::Punctuated<_, syn::token::Comma> = fn_generics.params.iter()
-                            .filter(|p| {
-                                let name = match p {
-                                    crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                                    crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                                };
-                                !struct_generic_names.contains(&name)
-                            })
-                            .cloned()
-                            .collect();
-                        
-                        let method_only_generics = crate::grammar::Generics {
-                            params: method_only_params,
-                        };
-                        self.map_generics(&Some(method_only_generics), &method_args, &func.name.to_string(), &mut old_const_vals);
-                    }
+                    self.populate_explicit_specialization_map(&func, &concrete_tys, st, &mut old_const_vals);
                 }
 
                 spec_map = self.current_type_map().clone();
@@ -2081,42 +2018,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                 *self.imports_mut() = old_imports;
             }
 
-            // Deduce package path from func_name or use empty
-            let mut pkg_path = Vec::new();
-            if let Some((t_name, _method)) = func_name.rsplit_once("__") {
-                if let Some(pkg) = self.discovery.type_origins.get(t_name) {
-                    pkg_path = pkg.split('.').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect();
-                } else {
-                }
-            }
-            
-            if pkg_path.is_empty() {
-                let path_segments: Vec<String> = if func_name.contains("__") {
-                     func_name.split("__").map(|s| s.to_string()).collect()
-                } else {
-                     vec![]
-                };
-                pkg_path = if path_segments.len() > 1 {
-                    path_segments[0..path_segments.len()-1].to_vec()
-                } else {
-                    vec![]
-                };
-            }
-
-            let task = crate::codegen::collector::MonomorphizationTask {
-                identity: crate::types::TypeKey { 
-                    path: pkg_path, 
-                    name: func.name.to_string(), 
-                    specialization: None 
-                },
-                mangled_name: mangled.clone(),
-                func: func.clone(),
-                concrete_tys: concrete_tys.clone(),
-                self_ty: s_ty.clone(),
-                imports: imports.clone(),
-                type_map: spec_map,
-            };
-            self.expansion.pending_generations.push_back(task);
+            self.enqueue_monomorphization_task(func_name, &mangled, func.clone(), concrete_tys.clone(), s_ty.clone(), imports.clone(), spec_map);
 
         } else {
              eprintln!("Error: Function '{}' not found for specialization.", func_name);
@@ -2149,39 +2051,6 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
 
         // [Generic Wall] Security Check: Ensure NO generics leak into the queue
         // Check for both Generic("T") and Struct("F") where F is not a known struct/enum
-        fn has_unresolved_type_params(ctx: &mut LoweringContext, ty: &Type) -> bool {
-            match ty {
-                Type::Generic(_) => true,
-                Type::Struct(name) => {
-                    // Self-referential type_map entries are unresolved
-                    if let Some(mapped) = ctx.current_type_map().get(name) {
-                        if let Type::Struct(mapped_name) = mapped {
-                            if mapped_name == name { return true; }
-                        }
-                    }
-                    // If not in any struct/enum registry, it's likely a generic param
-                    let is_known = ctx.struct_registry().keys().any(|k| k.name.ends_with(name))
-                        || ctx.enum_templates().contains_key(name);
-                    !is_known && !name.contains("__") // Mangled names are real types
-                }
-                Type::Concrete(name, args) => {
-                    // Check if the base name itself is an unresolved generic
-                    let base_unresolved = if args.is_empty() {
-                        !ctx.struct_registry().keys().any(|k| k.name.ends_with(name))
-                            && !ctx.enum_templates().contains_key(name)
-                            && !name.contains("__")
-                    } else { false };
-                    base_unresolved || args.iter().any(|a| has_unresolved_type_params(ctx, a))
-                }
-                Type::Pointer { element, .. } => has_unresolved_type_params(ctx, element),
-                Type::Reference(inner, _) | Type::Owned(inner) | Type::Atomic(inner) => has_unresolved_type_params(ctx, inner),
-                Type::Array(inner, _, _) => has_unresolved_type_params(ctx, inner),
-                Type::Fn(args, ret) => args.iter().any(|a| has_unresolved_type_params(ctx, a)) || has_unresolved_type_params(ctx, ret),
-                Type::Tuple(elems) => elems.iter().any(|e| has_unresolved_type_params(ctx, e)),
-                _ => false,
-            }
-        }
-
         if concrete_tys.iter().any(|t| has_unresolved_type_params(self, t)) {
 
              return func_name.to_string();
@@ -2358,42 +2227,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                 }
             }
 
-            // Deduce package path from func_name or use empty
-            let mut pkg_path = Vec::new();
-            if let Some((t_name, _method)) = func_name.rsplit_once("__") {
-                if let Some(pkg) = self.discovery.type_origins.get(t_name) {
-                    pkg_path = pkg.split('.').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect();
-                } else {
-                }
-            }
-            
-            if pkg_path.is_empty() {
-                let path_segments: Vec<String> = if func_name.contains("__") {
-                     func_name.split("__").map(|s| s.to_string()).collect()
-                } else {
-                     vec![]
-                };
-                pkg_path = if path_segments.len() > 1 {
-                    path_segments[0..path_segments.len()-1].to_vec()
-                } else {
-                    vec![]
-                };
-            }
-
-            let task = crate::codegen::collector::MonomorphizationTask {
-                identity: crate::types::TypeKey { 
-                    path: pkg_path, 
-                    name: func.name.to_string(), 
-                    specialization: None 
-                },
-                mangled_name: mangled.clone(),
-                func: func.clone(),
-                concrete_tys: concrete_tys.clone(),
-                self_ty: s_ty.clone(),
-                imports: imports.clone(),
-                type_map: spec_map,
-            };
-            self.expansion.pending_generations.push_back(task);
+            self.enqueue_monomorphization_task(func_name, &mangled, func.clone(), concrete_tys.clone(), s_ty.clone(), imports.clone(), spec_map);
         };
 
         mangled
@@ -3201,7 +3035,7 @@ pub fn zero_attr(ctx: &mut LoweringContext<'_, '_>, ty: &Type) -> Result<String,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codegen::context::{CodegenContext, LoweringContext};
+    use crate::codegen::context::CodegenContext;
     use crate::registry::EnumInfo;
     use crate::grammar::SaltFile;
 
@@ -3212,7 +3046,7 @@ mod tests {
         let _z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let z3_cfg = crate::z3_shim::Config::new();
         let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
-        let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
+        let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let name = "PackingEnum".to_string();
         let variants = vec![
@@ -3262,7 +3096,7 @@ mod tests {
         let _z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let z3_cfg2 = crate::z3_shim::Config::new();
         let z3_ctx = crate::z3_shim::Context::new(&z3_cfg2);
-        let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
+        let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let mut out = String::new();
         let result = ctx.with_lowering_ctx(|lctx| promote_numeric(lctx, &mut out, "%arg_len", &Type::Usize, &Type::I64));
@@ -3281,7 +3115,7 @@ mod tests {
         let _z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let z3_cfg2 = crate::z3_shim::Config::new();
         let z3_ctx = crate::z3_shim::Context::new(&z3_cfg2);
-        let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
+        let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let mut out = String::new();
         let result = ctx.with_lowering_ctx(|lctx| promote_numeric(lctx, &mut out, "%val", &Type::I64, &Type::Usize));
@@ -3300,7 +3134,7 @@ mod tests {
         let _z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let z3_cfg2 = crate::z3_shim::Config::new();
         let z3_ctx = crate::z3_shim::Context::new(&z3_cfg2);
-        let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
+        let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let mut out = String::new();
         let result = ctx.with_lowering_ctx(|lctx| cast_numeric(lctx, &mut out, "%arg_len", &Type::Usize, &Type::I64));
@@ -3317,7 +3151,7 @@ mod tests {
         let _z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let z3_cfg2 = crate::z3_shim::Config::new();
         let z3_ctx = crate::z3_shim::Context::new(&z3_cfg2);
-        let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
+        let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let mut out = String::new();
         let result = ctx.with_lowering_ctx(|lctx| promote_numeric(lctx, &mut out, "%val", &Type::Usize, &Type::Usize));
@@ -3361,7 +3195,7 @@ mod tests {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
         let z3_cfg = crate::z3_shim::Config::new();
         let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
-        let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
+        let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let ty = Type::Atomic(Box::new(Type::I32));
         let result = ctx.with_lowering_ctx(|lctx| zero_attr(lctx, &ty));
@@ -3375,7 +3209,7 @@ mod tests {
         let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
         let z3_cfg = crate::z3_shim::Config::new();
         let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
-        let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
+        let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
 
         let ty = Type::Atomic(Box::new(Type::U64));
         let result = ctx.with_lowering_ctx(|lctx| zero_attr(lctx, &ty));

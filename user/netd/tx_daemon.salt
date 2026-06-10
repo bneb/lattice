@@ -56,6 +56,51 @@ pub const TX_DESC_SIZE: u64 = 16;
 //   src_mac:         This host's MAC address (pointer to 6 bytes)
 //   dst_mac:         Gateway MAC address (pointer to 6 bytes)
 // ============================================================================
+fn process_port_tx(
+    port: u64,
+    outbound_rings: u64,
+    tcb_handles: u64,
+    port_states: u64,
+    tx_ring_base: u64,
+    src_ip: u32,
+    src_mac: u64,
+    dst_mac: u64
+) {
+    let state = *((port_states + port * 8) as &u64);
+    if state == 0 { return; }
+
+    let ring_handle = *((outbound_rings + port * 8) as &u64);
+    if ring_handle == 0 { return; }
+
+    let payload_ptr = try_read_ring(ring_handle);
+    if payload_ptr == 0 { return; }
+
+    let tcb_handle = *((tcb_handles + port * 8) as &u64);
+    if tcb_handle == 0 { return; }
+
+    let local_port = *((tcb_handle + 2) as &u16);
+    let remote_port = *((tcb_handle + 4) as &u16);
+    let seq_num = *((tcb_handle + 6) as &u32);
+    let ack_num = *((tcb_handle + 10) as &u32);
+    let dst_ip = *((tcb_handle + 22) as &u32);
+
+    let payload_len: u32 = 512;
+
+    let frame_base = encapsulate_frame(
+        payload_ptr, payload_len,
+        local_port, remote_port,
+        seq_num, ack_num,
+        src_ip, dst_ip,
+        src_mac, dst_mac
+    );
+
+    let new_seq = seq_num + payload_len;
+    *((tcb_handle + 6) as &mut u32) = new_seq;
+
+    let total_len: u64 = 54 + (payload_len as u64);
+    push_tx_descriptor(tx_ring_base, frame_base, total_len);
+}
+
 pub fn process_tx_batch(
     outbound_rings: u64,
     tcb_handles: u64,
@@ -66,53 +111,11 @@ pub fn process_tx_batch(
     dst_mac: u64
 ) {
     let mut port: u64 = 0;
-
     while port < 65536 {
-        // Check if this port is bound
-        let state = *((port_states + port * 8) as &u64);
-        if state != 0 {
-            // Check if the outbound ring has data
-            let ring_handle = *((outbound_rings + port * 8) as &u64);
-            if ring_handle != 0 {
-                // Try to read a payload pointer from the outbound ring
-                let payload_ptr = try_read_ring(ring_handle);
-                if payload_ptr != 0 {
-                    // Read TCB for port/seq info
-                    let tcb_handle = *((tcb_handles + port * 8) as &u64);
-                    if tcb_handle != 0 {
-                        // Extract TCP state from the TCB
-                        let local_port = *((tcb_handle + 2) as &u16);  // Offset for local_port
-                        let remote_port = *((tcb_handle + 4) as &u16); // Offset for remote_port
-                        let seq_num = *((tcb_handle + 6) as &u32);     // Offset for seq_num
-                        let ack_num = *((tcb_handle + 10) as &u32);    // Offset for ack_num
-                        let dst_ip = *((tcb_handle + 22) as &u32);     // Remote IP (stored in TCB extension)
-
-                        // Read payload length from the metadata side-channel
-                        // For v0.6.0: fixed at 512 bytes per frame
-                        let payload_len: u32 = 512;
-
-                        // Encapsulate: write headers into the 54-byte headroom
-                        let frame_base = encapsulate_frame(
-                            payload_ptr, payload_len,
-                            local_port, remote_port,
-                            seq_num, ack_num,
-                            src_ip, dst_ip,
-                            src_mac, dst_mac
-                        );
-
-                        // Advance the TCB sequence number
-                        let new_seq = seq_num + payload_len;
-                        *((tcb_handle + 6) as &mut u32) = new_seq;
-
-                        // Calculate total frame length
-                        let total_len: u64 = 54 + (payload_len as u64);
-
-                        // Push the frame descriptor to the DMA TX ring
-                        push_tx_descriptor(tx_ring_base, frame_base, total_len);
-                    }
-                }
-            }
-        }
+        process_port_tx(
+            port, outbound_rings, tcb_handles, port_states,
+            tx_ring_base, src_ip, src_mac, dst_mac
+        );
         port = port + 1;
     }
 }

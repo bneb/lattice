@@ -67,90 +67,73 @@ fn hash_str(text: Ptr<u8>, len: i64) -> u32 {
 // Loading
 // -----------------------------------------------------------------------------
 
-pub fn load_tokenizer(data: Ptr<u8>, vocab_size: i64) -> Tokenizer {
-    let max_len = (data as Ptr<i32>)[0];
+fn load_vocab_entries(data: Ptr<u8>, vocab: Ptr<TokenizerEntry>, vocab_size: i64, text_arena: Ptr<u8>, arena_size: i64) -> bool {
     let mut offset: i64 = 4;
-    
-    // Allocate vocab array
-    let entry_size: i64 = 24; // sizeof(TokenizerEntry) padded
-    let vocab_buf = malloc(vocab_size * entry_size);
-    if vocab_buf as i64 == 0 {
-        return Tokenizer { vocab: 0 as Ptr<TokenizerEntry>, vocab_size: 0, max_token_length: 0, text_arena: 0 as Ptr<u8>, special_tokens: 0 as Ptr<SpecialToken>, n_special: 0, special_capacity: 0, token_hash: 0 as Ptr<i64>, hash_size: 0 };
-    }
-    let vocab = vocab_buf as Ptr<TokenizerEntry>;
-    
-    // Allocate a single contiguous arena for all token text.
-    // Upper bound: vocab_size * (max_token_length + 1) for null terminators.
-    // Cache-friendly: all string data lives in one allocation.
-    let arena_size: i64 = vocab_size * (max_len as i64 + 1);
-    let text_arena = malloc(arena_size);
-    if text_arena as i64 == 0 {
-        return Tokenizer { vocab: vocab, vocab_size: 0, max_token_length: 0, text_arena: 0 as Ptr<u8>, special_tokens: 0 as Ptr<SpecialToken>, n_special: 0, special_capacity: 0, token_hash: 0 as Ptr<i64>, hash_size: 0 };
-    }
     let mut arena_offset: i64 = 0;
     
     for i in 0..vocab_size {
         let score = (data.offset(offset) as Ptr<f32>)[0];
         offset = offset + 4;
-        
         let len = (data.offset(offset) as Ptr<i32>)[0];
         offset = offset + 4;
         
-        // Copy text bytes into arena + null terminator
-        if arena_offset + len as i64 + 1 > arena_size {
-            return Tokenizer { vocab: vocab, vocab_size: vocab_size, max_token_length: max_len, text_arena: text_arena, special_tokens: 0 as Ptr<SpecialToken>, n_special: 0, special_capacity: 0, token_hash: 0 as Ptr<i64>, hash_size: 0 };
-        }
+        if arena_offset + len as i64 + 1 > arena_size { return false; }
+        
         let text_ptr = text_arena.offset(arena_offset);
-        for j in 0..(len as i64) {
-            text_ptr[j] = data[offset + j];
-        }
+        for j in 0..(len as i64) { text_ptr[j] = data[offset + j]; }
         text_ptr[len as i64] = 0;
+        
         arena_offset = arena_offset + len as i64 + 1;
         offset = offset + len as i64;
-        
         vocab[i] = TokenizerEntry { text: text_ptr, len: len, score: score };
     }
+    return true;
+}
+
+fn populate_hash_table(token_hash: Ptr<i64>, hash_size: i64, vocab: Ptr<TokenizerEntry>, vocab_size: i64) {
+    for i in 0..hash_size { token_hash[i] = -1; }
+    for i in 0..vocab_size {
+        let entry = vocab[i];
+        let hash = hash_str(entry.text, entry.len as i64);
+        let mut idx = (hash as i64) & (hash_size - 1);
+        while token_hash[idx] != -1 {
+            idx = (idx + 1) & (hash_size - 1);
+        }
+        token_hash[idx] = i;
+    }
+}
+
+pub fn load_tokenizer(data: Ptr<u8>, vocab_size: i64) -> Tokenizer {
+    let max_len = (data as Ptr<i32>)[0];
     
-    // Allocate special token registry (capacity 16)
+    let vocab_buf = malloc(vocab_size * 24);
+    let arena_size = vocab_size * (max_len as i64 + 1);
+    let text_arena = malloc(arena_size);
     let special_cap: i64 = 16;
-    let special_buf = malloc(special_cap * 24); // sizeof(SpecialToken) = 8+8+8 = 24
-    if special_buf as i64 == 0 {
-        return Tokenizer { vocab: vocab, vocab_size: vocab_size, max_token_length: max_len, text_arena: text_arena, special_tokens: 0 as Ptr<SpecialToken>, n_special: 0, special_capacity: 0, token_hash: 0 as Ptr<i64>, hash_size: 0 };
-    }
-    let special_tokens = special_buf as Ptr<SpecialToken>;
-    
-    // Allocate and populate hash table
-    let hash_size: i64 = 65536; // Power of 2, > 32000
+    let special_buf = malloc(special_cap * 24);
+    let hash_size: i64 = 65536;
     let hash_buf = malloc(hash_size * 8);
-    let token_hash = hash_buf as Ptr<i64>;
-    if token_hash as i64 != 0 {
-        // Initialize with -1
-        for i in 0..hash_size {
-            token_hash[i] = -1;
-        }
-        // Populate hash table
-        for i in 0..vocab_size {
-            let entry = vocab[i];
-            let hash = hash_str(entry.text, entry.len as i64);
-            let mut idx = (hash as i64) & (hash_size - 1);
-            while token_hash[idx] != -1 {
-                idx = (idx + 1) & (hash_size - 1);
-            }
-            token_hash[idx] = i;
-        }
+    
+    let mut tok = Tokenizer {
+        vocab: vocab_buf as Ptr<TokenizerEntry>, vocab_size: vocab_size, max_token_length: max_len,
+        text_arena: text_arena, special_tokens: special_buf as Ptr<SpecialToken>, n_special: 0,
+        special_capacity: special_cap, token_hash: hash_buf as Ptr<i64>, hash_size: hash_size,
+    };
+    
+    if vocab_buf as i64 == 0 || text_arena as i64 == 0 || special_buf as i64 == 0 {
+        if vocab_buf as i64 == 0 { tok.vocab_size = 0; tok.max_token_length = 0; }
+        return tok;
     }
     
-    return Tokenizer {
-        vocab: vocab,
-        vocab_size: vocab_size,
-        max_token_length: max_len,
-        text_arena: text_arena,
-        special_tokens: special_tokens,
-        n_special: 0,
-        special_capacity: special_cap,
-        token_hash: token_hash,
-        hash_size: hash_size,
-    };
+    if !load_vocab_entries(data, tok.vocab, vocab_size, text_arena, arena_size) {
+        return tok;
+    }
+    
+    if hash_buf as i64 != 0 {
+        populate_hash_table(tok.token_hash, hash_size, tok.vocab, vocab_size);
+    }
+    
+    return tok;
 }
 
 pub fn free_tokenizer(tok: Tokenizer) {
@@ -271,78 +254,53 @@ fn match_special(tok: Tokenizer, text: Ptr<u8>, pos: i64, text_len: i64) -> i64 
 
 fn bpe_encode_segment(tok: Tokenizer, text: Ptr<u8>, seg_start: i64, seg_len: i64, out_tokens: Ptr<i64>, offset: i64) -> i64 {
     if seg_len <= 0 { return offset; }
-    
     let mut n: i64 = offset;
-    
-    // Step 1: Initialize — each byte becomes a single-byte token
     let byte_buf = malloc(1);
     if byte_buf as i64 == 0 { return offset; }
     
     for i in 0..seg_len {
         byte_buf[0] = text[seg_start + i];
         let tid = find_token(tok, byte_buf, 1);
-        if tid >= 0 {
-            out_tokens[n] = tid;
-            n = n + 1;
-        }
+        if tid >= 0 { out_tokens[n] = tid; n = n + 1; }
     }
     free(byte_buf);
     
-    // Step 2: BPE merge — repeatedly merge best adjacent pair
-    // Only merge tokens within this segment (from offset to n)
     let seg_token_start = offset;
     let merge_buf = malloc(tok.max_token_length as i64 + 1);
     if merge_buf as i64 == 0 { return n; }
     
     let mut changed: i32 = 1;
     for iter in 0..1000 {
-        if changed != 0 {
-            changed = 0;
-            let seg_count = n - seg_token_start;
-            let mut best_score: f32 = -1000000.0f32;
-            let mut best_idx: i64 = -1;
-            let mut best_tid: i64 = -1;
+        if changed == 0 { break; }
+        changed = 0;
+        let seg_count = n - seg_token_start;
+        let mut best_score: f32 = -1000000.0f32;
+        let mut best_idx: i64 = -1;
+        let mut best_tid: i64 = -1;
+        
+        for i in 0..(seg_count - 1) {
+            let abs_i = seg_token_start + i;
+            let t1 = out_tokens[abs_i]; let t2 = out_tokens[abs_i + 1];
+            let len1 = tok.vocab[t1].len as i64; let len2 = tok.vocab[t2].len as i64;
+            let merged_len = len1 + len2;
             
-            for i in 0..(seg_count - 1) {
-                let abs_i = seg_token_start + i;
-                let t1 = out_tokens[abs_i];
-                let t2 = out_tokens[abs_i + 1];
-                let len1 = tok.vocab[t1].len as i64;
-                let len2 = tok.vocab[t2].len as i64;
-                let merged_len = len1 + len2;
-                
-                let t1_text = tok.vocab[t1].text;
-                for j in 0..len1 {
-                    merge_buf[j] = t1_text[j];
-                }
-                let t2_text = tok.vocab[t2].text;
-                for j in 0..len2 {
-                    merge_buf[len1 + j] = t2_text[j];
-                }
-                
-                let mid = find_token(tok, merge_buf, merged_len);
-                if mid >= 0 {
-                    let score = tok.vocab[mid].score;
-                    if score > best_score {
-                        best_score = score;
-                        best_idx = abs_i;
-                        best_tid = mid;
-                    }
-                }
-            }
+            let t1_text = tok.vocab[t1].text;
+            for j in 0..len1 { merge_buf[j] = t1_text[j]; }
+            let t2_text = tok.vocab[t2].text;
+            for j in 0..len2 { merge_buf[len1 + j] = t2_text[j]; }
             
-            if best_idx >= 0 {
-                out_tokens[best_idx] = best_tid;
-                let shift_from = best_idx + 2;
-                for j in shift_from..n {
-                    out_tokens[j - 1] = out_tokens[j];
-                }
-                n = n - 1;
-                changed = 1;
+            let mid = find_token(tok, merge_buf, merged_len);
+            if mid >= 0 && tok.vocab[mid].score > best_score {
+                best_score = tok.vocab[mid].score; best_idx = abs_i; best_tid = mid;
             }
         }
+        
+        if best_idx >= 0 {
+            out_tokens[best_idx] = best_tid;
+            for j in (best_idx + 2)..n { out_tokens[j - 1] = out_tokens[j]; }
+            n = n - 1; changed = 1;
+        }
     }
-    
     free(merge_buf);
     return n;
 }

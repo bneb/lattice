@@ -99,15 +99,7 @@ fn mmio_write32(offset: u16, val: u32) {
 // Initialization
 // =============================================================================
 
-pub fn init() -> bool {
-    serial.print("RTL8125: Initializing...\n");
-
-    let mut found = false;
-    let mut target_bus: u8 = 0;
-    let mut target_dev: u8 = 0;
-    let mut target_func: u8 = 0;
-
-    // Scan PCI
+fn find_device() -> u32 {
     let mut bus: u32 = 0;
     while bus < 256 {
         let mut dev: u32 = 0;
@@ -119,55 +111,31 @@ pub fn init() -> bool {
                     let vendor = (id & 0xFFFF) as u16;
                     let device = ((id >> 16) & 0xFFFF) as u16;
                     if vendor == RTL_VENDOR_ID && device == RTL_DEVICE_ID {
-                        target_bus = bus as u8;
-                        target_dev = dev as u8;
-                        target_func = func as u8;
-                        found = true;
-                        break;
+                        return (bus << 16) | (dev << 8) | func;
                     }
                 }
                 func = func + 1;
             }
-            if found { break; }
             dev = dev + 1;
         }
-        if found { break; }
         bus = bus + 1;
     }
+    return 0xFFFFFFFF;
+}
 
-    if !found {
-        serial.print("RTL8125: Device not found on PCI bus.\n");
-        return false;
-    }
-
-    // Enable Bus Mastering
-    let cmd = pci.pci_read16(target_bus, target_dev, target_func, 0x04);
-    pci.pci_write32(target_bus, target_dev, target_func, 0x04, (cmd | 0x0004) as u32);
-
-    // Read BAR5 (MMIO)
-    let bar5_low = pci.pci_read32(target_bus, target_dev, target_func, 0x24); // BAR5 is at 0x24
-    let bar5_high = pci.pci_read32(target_bus, target_dev, target_func, 0x28); // BAR5 upper 32 bits
-    let bar5_phys = ((bar5_high as u64) << 32) | (bar5_low as u64 & 0xFFFFFFF0);
-    
-    BAR5_PHYS = bar5_phys;
-    BAR5_VIRT = bar5_phys + KERNEL_BASE; // Assume physical memory is identity mapped in higher half for MMIO.
-    
-    serial.print("RTL8125: MMIO mapped at ");
-    serial.print_u64(BAR5_VIRT);
-    serial.print("\n");
-
-    // Software Reset
+fn reset_hardware() -> bool {
     mmio_write8(CR, CR_RST);
     let mut timeout = 10000;
     while (mmio_read8(CR) & CR_RST) != 0 {
         timeout = timeout - 1;
         if timeout == 0 {
-            serial.print("RTL8125: Reset timeout!\n");
             return false;
         }
     }
+    return true;
+}
 
-    // Read MAC
+fn read_mac_addr() {
     let mac0 = mmio_read32(MAC0);
     let mac4 = mmio_read16(MAC4);
     MAC_ADDR[0] = (mac0 & 0xFF) as u8;
@@ -185,34 +153,32 @@ pub fn init() -> bool {
         i = i + 1;
     }
     serial.print("\n");
+}
 
-    // Allocate Descriptor Rings (256-byte aligned)
-    // pmm.alloc_pages() returns 4KB aligned physical pages, which implies 256-byte alignment.
+fn init_rings() {
     RX_RING_PHYS = pmm.alloc(); 
     TX_RING_PHYS = pmm.alloc();
     RX_RING_VIRT = RX_RING_PHYS + KERNEL_BASE;
     TX_RING_VIRT = TX_RING_PHYS + KERNEL_BASE;
 
-    // Initialize RX Ring
     let mut idx: u64 = 0;
     while idx < NUM_RX_DESC {
         let desc_ptr = RX_RING_VIRT + idx * DESC_SIZE;
-        let buf_phys = pmm.alloc(); // 4KB buf
+        let buf_phys = pmm.alloc(); 
         
-        let mut flags = DESC_OWN | 1514; // NIC owns it, MTU=1514
+        let mut flags = DESC_OWN | 1514; 
         if idx == NUM_RX_DESC - 1 {
-            flags = flags | DESC_EOR; // End of Ring
+            flags = flags | DESC_EOR;
         }
         
         *((desc_ptr + 0) as &mut u32) = flags;
-        *((desc_ptr + 4) as &mut u32) = 0; // VLAN tag
+        *((desc_ptr + 4) as &mut u32) = 0; 
         *((desc_ptr + 8) as &mut u32) = (buf_phys & 0xFFFFFFFF) as u32;
         *((desc_ptr + 12) as &mut u32) = ((buf_phys >> 32) & 0xFFFFFFFF) as u32;
         
         idx = idx + 1;
     }
 
-    // Initialize TX Ring
     idx = 0;
     while idx < NUM_TX_DESC {
         let desc_ptr = TX_RING_VIRT + idx * DESC_SIZE;
@@ -223,27 +189,57 @@ pub fn init() -> bool {
         *((desc_ptr + 0) as &mut u32) = flags;
         idx = idx + 1;
     }
+}
 
-    // Set Ring Addresses in Hardware
+fn configure_hardware() {
     mmio_write32(RDSAR, (RX_RING_PHYS & 0xFFFFFFFF) as u32);
     mmio_write32(RDSAR_HIGH, ((RX_RING_PHYS >> 32) & 0xFFFFFFFF) as u32);
     
     mmio_write32(TNPDSAR, (TX_RING_PHYS & 0xFFFFFFFF) as u32);
     mmio_write32(TNPDSAR_HIGH, ((TX_RING_PHYS >> 32) & 0xFFFFFFFF) as u32);
 
-    // Disable Interrupts (we are a polling driver)
     mmio_write16(IMR, 0x0000);
+    mmio_write32(RCR, 0xE70F | (0x7 << 8)); 
+    mmio_write16(RMS, 1514); 
 
-    // Configure RX (Accept Broadcast, Multicast, Physical Match, wrap)
-    // 0x0F = Accept all
-    mmio_write32(RCR, 0xE70F | (0x7 << 8)); // Max DMA burst size
-    mmio_write16(RMS, 1514); // Max RX packet size
+    mmio_write32(TCR, (0x7 << 8) | 0x03000000); 
 
-    // Configure TX (Max DMA burst size)
-    mmio_write32(TCR, (0x7 << 8) | 0x03000000); // Interframe gap time
-
-    // Enable RX and TX
     mmio_write8(CR, CR_RE | CR_TE);
+}
+
+pub fn init() -> bool {
+    serial.print("RTL8125: Initializing...\n");
+
+    let device_loc = find_device();
+    if device_loc == 0xFFFFFFFF {
+        serial.print("RTL8125: Device not found on PCI bus.\n");
+        return false;
+    }
+
+    let target_bus = (device_loc >> 16) as u8;
+    let target_dev = (device_loc >> 8) as u8;
+    let target_func = device_loc as u8;
+
+    let cmd = pci.pci_read16(target_bus, target_dev, target_func, 0x04);
+    pci.pci_write32(target_bus, target_dev, target_func, 0x04, (cmd | 0x0004) as u32);
+
+    let bar5_low = pci.pci_read32(target_bus, target_dev, target_func, 0x24); 
+    let bar5_high = pci.pci_read32(target_bus, target_dev, target_func, 0x28); 
+    let bar5_phys = ((bar5_high as u64) << 32) | (bar5_low as u64 & 0xFFFFFFF0);
+    
+    BAR5_PHYS = bar5_phys;
+    BAR5_VIRT = bar5_phys + KERNEL_BASE; 
+    
+    serial.print("RTL8125: MMIO mapped at "); serial.print_u64(BAR5_VIRT); serial.print("\n");
+
+    if !reset_hardware() {
+        serial.print("RTL8125: Reset timeout!\n");
+        return false;
+    }
+
+    read_mac_addr();
+    init_rings();
+    configure_hardware();
 
     serial.print("RTL8125: Ready for C10M (or ~3.7M PPS) Polling!\n");
     return true;

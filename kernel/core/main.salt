@@ -181,6 +181,131 @@ global KERNEL_LINE_BUFFER: [u8; 64] = [0; 64];
 global DISCARD_RSP: [u64; 1] = [0];
 global KERNEL_LINE_LEN: u32 = 0;
 
+fn boot_terminal_and_netd_sips(kernel_pml4: u64) {
+    serial.print("[KeuOS] Bootstrapping Sovereign Ring 3 Terminal SIP...\n");
+    let fb_w = fb_get_width() as u64;
+    let fb_h = fb_get_height() as u64;
+    let fb_pitch = fb_get_pitch() as u64;
+    let fb_phys = fb_get_phys();
+
+    let mut fb_idx: u64 = 0;
+    while fb_idx < 1024 {
+        map_user_page_extern(kernel_pml4, 0x40002000 + (fb_idx * 4096), fb_phys + (fb_idx * 4096), 0x7);
+        fb_idx = fb_idx + 1;
+    }
+
+    let rx_ring_phys = pmm_alloc();
+    map_user_page_extern(kernel_pml4, 0x40001000, rx_ring_phys, 0x7);
+    
+    let rx_ring_kern = rx_ring_phys + KERNEL_BASE;
+    ps2_set_rx_ring(rx_ring_kern);
+    serial_set_rx_ring(rx_ring_kern);
+
+    *((rx_ring_kern + 0) as &mut u64) = 0;
+    *((rx_ring_kern + 8) as &mut u64) = 3904;
+    *((rx_ring_kern + 64) as &mut u64) = 0;
+    *((rx_ring_kern + 128) as &mut u64) = 0;
+
+    let tx_ring_phys = pmm_alloc();
+    map_user_page_extern(kernel_pml4, 0x40003000, tx_ring_phys, 0x7);
+    
+    let tx_ring_kern = tx_ring_phys + KERNEL_BASE;
+    *((tx_ring_kern + 0) as &mut u64) = 0;
+    *((tx_ring_kern + 8) as &mut u64) = 3904;
+    *((tx_ring_kern + 64) as &mut u64) = 0;
+    *((tx_ring_kern + 128) as &mut u64) = 0;
+
+    KERNEL_TX_RING_VIRT = tx_ring_kern;
+
+    let mut cp_idx: u64 = 0;
+    while cp_idx < 16 {
+        let cp_phys = pmm_alloc();
+        map_user_page_extern(kernel_pml4, 0x40402000 + (cp_idx * 4096), cp_phys, 0x7);
+        cp_idx = cp_idx + 1;
+    }
+
+    let slot_terminal = exec_spawn_kernel_thread((&sys_terminal_main) as u64, fb_w, fb_h, fb_pitch, kernel_pml4);
+    process_set_state(slot_terminal, PROC_READY);
+    serial.print("[KeuOS] Terminal SIP coroutine spawned\n");
+
+    let slot_tx = exec_spawn_kernel_thread((&terminal_tx_poll_thread) as u64, 0, 0, 0, kernel_pml4);
+    process_set_state(slot_tx, PROC_READY);
+    serial.print("[KeuOS] TX_RING Supervisor C2 Thread spawned\n");
+
+    let slot_netd = exec_spawn_kernel_thread((&sys_netd_main) as u64, 0, 0, 0, kernel_pml4);
+    process_set_state(slot_netd, PROC_READY);
+    serial.print("[KeuOS] NetD Ring 0 SIP spawned (Fastpath Handoff Target)\n");
+}
+
+fn boot_moe_pipeline(kernel_pml4: u64) -> u64 {
+    serial.print("[KeuOS] SPAWNING MOE PIPELINE\n");
+    serial.print("[KeuOS] Enumerating PCI Bus...\n");
+    pci_enumerate();
+
+    moe_net_init();
+    moe_enable_rx_interrupts();
+
+    let mac_byte5 = virtio_net_get_mac_byte(5);
+    serial.print("[KeuOS] MAC byte 5 = 0x");
+    serial.print_u64(mac_byte5 as u64);
+    serial.print("\n");
+
+    let pb_phys = pmm_alloc();
+    let pb_virt = pb_phys + KERNEL_BASE;
+    let state_ptr = pb_virt;
+    let bar_ptr   = pb_virt + 128;
+    let poll_ptr  = pb_virt + 256;
+    let output_ptr = pb_virt + 512;
+
+    let mut phase: u32 = 0;
+
+    if mac_byte5 == 0xBB {
+        serial.print("[KeuOS] Booting Node B (Expert)...\n");
+        phase = 2;
+        syscall_set_moe_peer_mac(0x52 as u8, 0x54 as u8, 0x00 as u8, 0x12 as u8, 0x34 as u8, 0xAA as u8);
+    } else {
+        serial.print("[KeuOS] Booting Node A (Router)...\n");
+        phase = 0;
+        syscall_set_moe_peer_mac(0x52 as u8, 0x54 as u8, 0x00 as u8, 0x12 as u8, 0x34 as u8, 0xBB as u8);
+    }
+
+    *((state_ptr) as &mut u32) = phase;
+    *((state_ptr + 24) as &mut u64) = output_ptr;
+
+    moe_set_bar_ptr(bar_ptr);
+
+    let rx_notify_ring_phys = pmm_alloc();
+    let rx_notify_ring_virt = rx_notify_ring_phys + KERNEL_BASE;
+    *((rx_notify_ring_virt + 0) as &mut u64) = 0;
+    *((rx_notify_ring_virt + 8) as &mut u64) = 3904;
+    *((rx_notify_ring_virt + 64) as &mut u64) = 0;
+    *((rx_notify_ring_virt + 128) as &mut u64) = 0;
+    
+    netcore_set_rx_notify(rx_notify_ring_virt);
+
+    let rx_pool_phys: u64 = 0x420000;
+    let rx_pool_vaddr: u64 = 0x40000000;
+    let rx_pool_pages: u64 = 24;
+    let mut pg: u64 = 0;
+    
+    while pg < rx_pool_pages {
+        map_user_page_extern(kernel_pml4, rx_pool_vaddr + pg * 4096, rx_pool_phys + pg * 4096, 0x207);
+        pg = pg + 1;
+    }
+    serial.print("[KeuOS] Mapped VirtIO RX pool at 0x40000000 (24 pages)\n");
+
+    let rx_notify_ring_user_vaddr: u64 = 0x40004000;
+    map_user_page_extern(kernel_pml4, rx_notify_ring_user_vaddr, rx_notify_ring_phys, 0x207);
+    *((state_ptr + 72) as &mut u64) = rx_notify_ring_user_vaddr;
+    *((state_ptr + 80) as &mut u64) = rx_pool_vaddr;
+
+    let slot_a = exec_spawn_kernel_thread((&sys_moe_init_trampoline) as u64, state_ptr, bar_ptr, poll_ptr, kernel_pml4);
+    serial.print("[KeuOS] MoE Pipeline spawned\n");
+    
+    boot_terminal_and_netd_sips(kernel_pml4);
+    return slot_a;
+}
+
 fn strcmp(s1_ptr: u64, len1: u32, s2_ptr: u64, len2: u32) -> bool {
     if len1 != len2 { return false; }
     let mut i: u32 = 0;
@@ -250,6 +375,28 @@ pub fn salt_yield_check() {
 }
 
 @no_mangle
+fn boot_nvme_and_ext2() {
+    serial.print("KEUOS BOOT: NVMe & EXT2 Root...\n");
+    let ecam_base: u64 = 0xB0000000;
+    let nvme_bar = sys_discover_nvme_bar(ecam_base, 4);
+    if nvme_bar != 0 {
+        serial.print("  NVMe Controller Found at BAR0: ");
+        serial.print_hex(nvme_bar);
+        serial.print("\n");
+        let asq = pmm_alloc();
+        let acq = pmm_alloc();
+        let sq = pmm_alloc();
+        let cq = pmm_alloc();
+        
+        let nvme_block_dev = sys_nvme_block_init(nvme_bar, asq, acq, sq, cq);
+        let ext2_root = sys_ext2_mount(nvme_block_dev);
+        sys_vfs_set_root(ext2_root);
+        serial.print("  EXT2 Root Mounted Successfully!\n");
+    } else {
+        serial.print("  WARN: NVMe not found. Running diskless.\n");
+    }
+}
+
 pub fn kmain(magic: u32, mb_info: &u8) {
     serial.init();
     serial.print("KEUOS BOOT: Serial OK\n");
@@ -299,26 +446,7 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     serial.print("KEUOS BOOT: VMA...\n");
     vma_init();
 
-    // Initialize NVMe & EXT2 Root
-    serial.print("KEUOS BOOT: NVMe & EXT2 Root...\n");
-    let ecam_base: u64 = 0xB0000000;
-    let nvme_bar = sys_discover_nvme_bar(ecam_base, 4);
-    if nvme_bar != 0 {
-        serial.print("  NVMe Controller Found at BAR0: ");
-        serial.print_hex(nvme_bar);
-        serial.print("\n");
-        let asq = pmm_alloc();
-        let acq = pmm_alloc();
-        let sq = pmm_alloc();
-        let cq = pmm_alloc();
-        
-        let nvme_block_dev = sys_nvme_block_init(nvme_bar, asq, acq, sq, cq);
-        let ext2_root = sys_ext2_mount(nvme_block_dev);
-        sys_vfs_set_root(ext2_root);
-        serial.print("  EXT2 Root Mounted Successfully!\n");
-    } else {
-        serial.print("  WARN: NVMe not found. Running diskless.\n");
-    }
+    boot_nvme_and_ext2();
 
     // =========================================================================
     // IST STACK ALLOCATION — NMI and Double Fault stacks
@@ -439,199 +567,7 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     process_set_state(slot_task0, PROC_READY);
     serial.print("[KeuOS] Task 0 (dispatcher) spawned\n");
 
-// KPTI SECURITY FIX: Create dedicated user address spaces for Ring 3 processes
-    // Terminal SIP, NetD, and MoE are Kernel Threads for now.
-
-    serial.print("[KeuOS] Bootstrapping Sovereign Ring 3 Terminal SIP...\n");
-    let fb_w = fb_get_width() as u64;
-    let fb_h = fb_get_height() as u64;
-    let fb_pitch = fb_get_pitch() as u64;
-    let fb_phys = fb_get_phys();
-
-    // Map 1024 pages of Framebuffer (1024 * 4KB = 4MB) to 0x40002000
-    let mut fb_idx: u64 = 0;
-    while fb_idx < 1024 {
-        map_user_page_extern(kernel_pml4, 0x40002000 + (fb_idx * 4096), fb_phys + (fb_idx * 4096), 0x7);
-        fb_idx = fb_idx + 1;
-    }
-
-    // Allocate 1 page for SPSC Ring Buffer at 0x40001000
-    // This establishes the secure IPC boundary between Kernel (Producer) and SIP (Consumer)
-    let rx_ring_phys = pmm_alloc();
-    map_user_page_extern(kernel_pml4, 0x40001000, rx_ring_phys, 0x7);
-    
-    // Wire the physical SPSC Ring to the PS/2 Kernel Module
-    let rx_ring_kern = rx_ring_phys + KERNEL_BASE;
-    ps2_set_rx_ring(rx_ring_kern);
-    serial_set_rx_ring(rx_ring_kern);
-
-    *((rx_ring_kern + 0) as &mut u64) = 0;           // head
-    *((rx_ring_kern + 8) as &mut u64) = 3904;        // capacity
-    *((rx_ring_kern + 64) as &mut u64) = 0;          // tail
-    *((rx_ring_kern + 128) as &mut u64) = 0;         // consumer_waiting
-
-    // ------------------------------------------------------------------------
-    // Allocate 1 page for TX_RING at 0x40003000
-    // ------------------------------------------------------------------------
-    let tx_ring_phys = pmm_alloc();
-    map_user_page_extern(kernel_pml4, 0x40003000, tx_ring_phys, 0x7);
-    
-    let tx_ring_kern = tx_ring_phys + KERNEL_BASE;
-    *((tx_ring_kern + 0) as &mut u64) = 0;           // head
-    *((tx_ring_kern + 8) as &mut u64) = 3904;        // capacity
-    *((tx_ring_kern + 64) as &mut u64) = 0;          // tail
-    *((tx_ring_kern + 128) as &mut u64) = 0;         // consumer_waiting
-
-    KERNEL_TX_RING_VIRT = tx_ring_kern;
-
-    // Allocate 16 pages for Console Virtual Grid state
-    let mut cp_idx: u64 = 0;
-    while cp_idx < 16 {
-        let cp_phys = pmm_alloc();
-        map_user_page_extern(kernel_pml4, 0x40402000 + (cp_idx * 4096), cp_phys, 0x7);
-        cp_idx = cp_idx + 1;
-    }
-
-    let slot_terminal = exec_spawn_kernel_thread(
-            (&sys_terminal_main) as u64,
-            fb_w, fb_h, fb_pitch,
-            kernel_pml4
-        );
-    process_set_state(slot_terminal, PROC_READY);
-    serial.print("[KeuOS] Terminal SIP coroutine spawned\n");
-
-    let slot_tx = exec_spawn_kernel_thread((&terminal_tx_poll_thread) as u64, 0, 0, 0, kernel_pml4);
-    process_set_state(slot_tx, PROC_READY);
-    serial.print("[KeuOS] TX_RING Supervisor C2 Thread spawned\n");
-
-    let slot_netd = exec_spawn_kernel_thread(
-            (&sys_netd_main) as u64,
-            0, 0, 0,
-            kernel_pml4
-        );
-    process_set_state(slot_netd, PROC_READY);
-    serial.print("[KeuOS] NetD Ring 0 SIP spawned (Fastpath Handoff Target)\n");
-
-    // =========================================================================
-    // SPAWN MOE PIPELINE
-    // =========================================================================
-    serial.print("[KeuOS] SPAWNING MOE PIPELINE\n");
-
-    serial.print("[KeuOS] Enumerating PCI Bus...\n");
-    pci_enumerate();
-
-    // =========================================================================
-    // Initialize VirtIO network driver FIRST — we need the MAC to determine identity
-    // =========================================================================
-    moe_net_init();
-    moe_enable_rx_interrupts();
-
-    let mac_byte5 = virtio_net_get_mac_byte(5);
-    serial.print("[KeuOS] MAC byte 5 = 0x");
-    serial.print_u64(mac_byte5 as u64);
-    serial.print("\n");
-
-    // Allocate 1 physical page (4KB) for MoE state structs
-    let pb_phys = pmm_alloc();
-    let pb_virt = pb_phys + KERNEL_BASE;
-    let state_ptr = pb_virt;
-    let bar_ptr   = pb_virt + 128;
-    let poll_ptr  = pb_virt + 256;
-
-    // Allocate a valid 64-bit memory space for the Sentinel output buffer
-    let output_ptr = pb_virt + 512;
-
-    // Dynamic Identity: Fork state machine based on VirtIO MAC address.
-    // QEMU assigns mac=...AA to Node A (Router) and mac=...BB to Node B (Expert).
-    // This single binary now boots correctly on both nodes.
-    let mut phase: u32 = 0;
-
-    if mac_byte5 == 0xBB {
-        // I am the Expert (Node B)
-        serial.print("[KeuOS] Booting Node B (Expert)...\n");
-        phase = 2;  // PHASE_EXPERT_LOAD_WEIGHTS
-        syscall_set_moe_peer_mac(0x52 as u8, 0x54 as u8, 0x00 as u8, 0x12 as u8, 0x34 as u8, 0xAA as u8);
-    } else {
-        // I am the Router (Node A)
-        serial.print("[KeuOS] Booting Node A (Router)...\n");
-        phase = 0;  // PHASE_LOAD_INPUT
-        syscall_set_moe_peer_mac(0x52 as u8, 0x54 as u8, 0x00 as u8, 0x12 as u8, 0x34 as u8, 0xBB as u8);
-    }
-
-    // Set state.phase (Offset 0)
-    *((state_ptr) as &mut u32) = phase;
-
-    // Wire the valid output_ptr into the struct at Offset 24 (STATE_OUTPUT_PTR)
-    *((state_ptr + 24) as &mut u64) = output_ptr;
-
-    // =========================================================================
-    // Wire the TX/RX Bridge globals
-    // =========================================================================
-    // TX Bridge: Tell syscall.salt where the WQE mailbox is
-    moe_set_bar_ptr(bar_ptr);
-
-    // RX Notification Ring Buffer: Allocate 1 physical page (4KB)
-    let rx_notify_ring_phys = pmm_alloc();
-    let rx_notify_ring_virt = rx_notify_ring_phys + KERNEL_BASE;
-    *((rx_notify_ring_virt + 0) as &mut u64) = 0;           // head
-    *((rx_notify_ring_virt + 8) as &mut u64) = 3904;        // capacity
-    *((rx_notify_ring_virt + 64) as &mut u64) = 0;          // tail
-    *((rx_notify_ring_virt + 128) as &mut u64) = 0;         // consumer_waiting
-    
-    netcore_set_rx_notify(rx_notify_ring_virt);
-
-    // =========================================================================
-    // Zero-Copy DMA: Map VirtIO RX buffer pool into Ring 3 address space
-    // =========================================================================
-    // RX_POOL_PHYS = 0x420000 (defined in virtio_net.salt)
-    // 64 buffers × 1524 bytes = 97,536 bytes = 24 pages (at 4KB)
-    let rx_pool_phys: u64 = 0x420000;
-    let rx_pool_vaddr: u64 = 0x40000000;  // 1GB mark in Ring 3 space
-    let rx_pool_pages: u64 = 24;
-    let mut pg: u64 = 0;
-    
-    // We map the RX pool into BOTH kernel_pml4 and kernel_pml4 (the two user processes).
-    // Actually, they run as Kernel Threads, so they are shared globally on kernel_pml4.
-
-    while pg < rx_pool_pages {
-        map_user_page_extern(
-            kernel_pml4,
-            rx_pool_vaddr + pg * 4096,
-            rx_pool_phys + pg * 4096,
-            0x207  // PRESENT | RW | USER | SHARED
-        );
-        pg = pg + 1;
-    }
-    serial.print("[KeuOS] Mapped VirtIO RX pool at 0x40000000 (24 pages)\n");
-
-    // Store rx_notify_ring_virt and rx_pool_vaddr in the state struct
-    // STATE_RX_NOTIFY_PTR = Offset 72, STATE_RX_POOL_VADDR = Offset 80
-    // We must pass the Ring 3 virtual address for the RX ring
-    // Map the RX notification ring into Ring 3 at 0x40004000
-    let rx_notify_ring_user_vaddr: u64 = 0x40004000;
-    map_user_page_extern(
-        kernel_pml4,
-        rx_notify_ring_user_vaddr,
-        rx_notify_ring_phys,
-        0x207
-    );
-    map_user_page_extern(
-        kernel_pml4,
-        rx_notify_ring_user_vaddr,
-        rx_notify_ring_phys,
-        0x207
-    );
-    *((state_ptr + 72) as &mut u64) = rx_notify_ring_user_vaddr;
-    *((state_ptr + 80) as &mut u64) = rx_pool_vaddr;
-
-    let slot_a = exec_spawn_kernel_thread(
-            (&sys_moe_init_trampoline) as u64,
-            state_ptr,
-            bar_ptr,
-            poll_ptr,
-            kernel_pml4
-        );
-    serial.print("[KeuOS] MoE Pipeline spawned\n");
+    let slot_a = boot_moe_pipeline(kernel_pml4);
 
     // Start first user process from EXT2!
     // We will look up `/grit.elf`

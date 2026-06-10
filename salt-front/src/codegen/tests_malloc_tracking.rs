@@ -6,8 +6,6 @@
 //!
 //! Written BEFORE implementation (Red Phase).
 
-#[cfg(test)]
-use crate::z3_shim as z3;
 mod tests {
     use crate::codegen::verification::Z3StateTracker;
     use std::collections::HashMap;

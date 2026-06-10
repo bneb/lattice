@@ -235,7 +235,7 @@ elif [[ "$is_lettuce_test" == true ]]; then
 elif [[ "$is_ecs_test" == true ]]; then
     TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "kernel/ecs/entity.salt" "kernel/ecs/components.salt" "kernel/ecs/sparse_set.salt" "kernel/ecs/world.salt" "kernel/ecs/ecs_bridge.salt" "kernel/ecs/commands.salt" "kernel/ecs/events.salt" "kernel/ecs/ecs_scheduler.salt" "kernel/ecs/ecs_ipc.salt" "kernel/ecs/ecs_epoch.salt")
 else
-    TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "user/os/process.salt" "user/os/ipc_ring.salt" "user/os/worker_ring.salt" "user/netd/virtio_bridge.salt")
+    TEST_DEPS=("std/core/str.salt" "std/time.salt" "std/thread/thread.salt" "user/os/process.salt" "user/os/ipc_ring.salt" "user/os/worker_ring.salt" "user/netd/virtio_bridge.salt" "user/alloc/arena.salt")
 fi
 
 for mod in "${TEST_DEPS[@]}"; do
@@ -245,9 +245,9 @@ for mod in "${TEST_DEPS[@]}"; do
         dep_ll="$TMP_DIR/${dep_base}.ll"
         echo "🔧 [LLVM] Compiling ${mod}..."
         if [[ "$NO_VERIFY" == true ]]; then
-            "$SALT_FRONT/target/release/salt-front" "$dep_path" --danger-no-verify --lib --release | grep -v "^DEBUG" | grep -v "^Debug" > "${dep_ll}.mlir"
+            "$SALT_FRONT/target/release/salt-front" "$dep_path" --danger-no-verify --lib --release -o "${dep_ll}.mlir"
         else
-            "$SALT_FRONT/target/release/salt-front" "$dep_path" --lib --release | grep -v "^DEBUG" | grep -v "^Debug" > "${dep_ll}.mlir"
+            "$SALT_FRONT/target/release/salt-front" "$dep_path" --lib --release -o "${dep_ll}.mlir"
         fi
         # Fix MLIR f32 literal emission: (0 : f32) -> (0. : f32)
         sed -i '' 's/(0 : f32)/(0. : f32)/g' "${dep_ll}.mlir"
@@ -284,15 +284,15 @@ done
 log "salt-front → MLIR"
 if [[ "$LIB_MODE" == true ]]; then
     if [[ "$NO_VERIFY" == true ]]; then
-        "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --danger-no-verify --lib --release | grep -v "^DEBUG" | grep -v "^Debug" > "$MLIR_OUT"
+        "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --danger-no-verify --lib --release -o "$MLIR_OUT"
     else
-        "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --lib --release | grep -v "^DEBUG" | grep -v "^Debug" > "$MLIR_OUT"
+        "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --lib --release -o "$MLIR_OUT"
     fi
 else
     if [[ "$NO_VERIFY" == true ]]; then
-        "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --danger-no-verify --release | grep -v "^DEBUG" | grep -v "^Debug" > "$MLIR_OUT"
+        "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --danger-no-verify --release -o "$MLIR_OUT"
     else
-        "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --release | grep -v "^DEBUG" | grep -v "^Debug" > "$MLIR_OUT"
+        "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --release -o "$MLIR_OUT"
     fi
 fi
 echo "  ✓ MLIR generated"

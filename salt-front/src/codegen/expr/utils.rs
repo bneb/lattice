@@ -60,127 +60,70 @@ pub fn get_path_turbofish_args(expr: &syn::Expr) -> Vec<syn::Type> {
     }
 }
 
-pub fn resolve_package_prefix(
+
+fn check_explicit_and_implicit_alias(
     registry: Option<&crate::registry::Registry>,
-    imports: &[crate::grammar::ImportDecl],
-    external_decls: &std::collections::HashSet<String>,
-    current_package: Option<&crate::grammar::PackageDecl>,
+    imp: &crate::grammar::ImportDecl,
+    first: &str,
     segments: &[String],
 ) -> Option<(String, String)> {
-    if segments.is_empty() { return None; }
-    
-    // 1. The "Standard Root" Rule: 
-    // If it starts with 'std', we bypass local aliases and hit the package registry.
-    if segments[0] == "std" {
-        for i in (1..=segments.len()).rev() {
-            let namespace = Mangler::mangle(&segments[0..i]);
-            if let Some(reg) = registry {
-                let mod_path = segments[0..i].join(".");
-                if reg.modules.contains_key(&mod_path) {
-                    return Some((namespace, Mangler::mangle(&segments[i..])));
+    if let Some(alias) = &imp.alias {
+        if alias == first {
+            if segments.len() > 1 {
+                let item_name = &segments[1];
+                if let Some(reg) = registry {
+                    let import_path = imp.name.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(".");
+                    if let Some(mod_info) = reg.modules.get(&import_path) {
+                        if let Some(export) = mod_info.exports.get(item_name) {
+                            if matches!(export.kind, crate::registry::SymbolKind::Intrinsic) {
+                                return Some((item_name.clone(), String::new()));
+                            }
+                        }
+                    }
                 }
             }
+            let base_pkg = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
+            let item = Mangler::mangle(&segments[1..]);
+            return Some((base_pkg, item));
         }
-        // [STANDALONE FIX] If segments start with "std" but no registry module matched
-        // (standalone compilation mode), treat as absolute path and mangle directly.
-        // This prevents the step 6 fallback from prepending the caller's package (e.g., main__).
-        return Some((Mangler::mangle(segments), String::new()));
-    }
+    } 
 
-    // 2. The Alias Lookup:
-    let first = &segments[0];
-    for imp in imports.iter() {
-         // Explicit Alias
-         if let Some(alias) = &imp.alias {
-             if alias == first {
-                 if segments.len() > 1 {
-                     let item_name = &segments[1];
-                     if let Some(reg) = registry {
-                         let import_path = imp.name.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(".");
-                         if let Some(mod_info) = reg.modules.get(&import_path) {
-                             if let Some(export) = mod_info.exports.get(item_name) {
-                                 if matches!(export.kind, crate::registry::SymbolKind::Intrinsic) {
-                                     return Some((item_name.clone(), String::new()));
-                                 }
-                             }
-                         }
-                     }
-                 }
-                 let mut full_parts: Vec<String> = imp.name.iter().map(|id| id.to_string()).collect();
-                 full_parts.extend_from_slice(&segments[1..]);
-                 
-                 let base_pkg = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
-                 let item = Mangler::mangle(&segments[1..]);
-                 return Some((base_pkg, item));
-             }
-         } 
-
-         // Implicit Alias (Short Name Match)
-         if let Some(last) = imp.name.last() {
-             if last.to_string() == *first {
-                 if segments.len() > 1 {
-                     let item_name = &segments[1];
-                     if let Some(reg) = registry {
-                         let import_path = imp.name.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(".");
-                         if let Some(mod_info) = reg.modules.get(&import_path) {
-                             if let Some(export) = mod_info.exports.get(item_name) {
-                                 if matches!(export.kind, crate::registry::SymbolKind::Intrinsic) {
-                                     return Some((item_name.clone(), String::new()));
-                                 }
-                             }
-                         }
-                     }
-                 }
-                 let base_pkg: String = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
-                 let item = if segments.len() > 1 { Mangler::mangle(&segments[1..]) } else { String::new() };
-                 return Some((base_pkg, item));
-             }
-         }
-
-         // Group Import Match
-         if let Some(group) = &imp.group {
-              if group.iter().any(|id| id.to_string() == *first) {
-                 let base: String = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
-                 let item = Mangler::mangle(segments);
-                 return Some((base, item));
-              }
-         }
-    }
-    
-    // 3. Fallback to existing comprehensive backward scan
-    for i in (1..=segments.len()).rev() {
-        let namespace = segments[0..i].join(".");
-        
-        for imp in imports.iter() {
-            let full: String = imp.name.iter().map(|id: &syn::Ident| id.to_string()).collect::<Vec<_>>().join(".");
-            
-            if full == namespace {
-                let full_pkg: String = Mangler::mangle(&imp.name.iter().map(|id: &syn::Ident| id.to_string()).collect::<Vec<_>>());
-                let item = if i < segments.len() { Mangler::mangle(&segments[i..]) } else { String::new() };
-                return Some((full_pkg, item));
+    if let Some(last) = imp.name.last() {
+        if last.to_string() == *first {
+            if segments.len() > 1 {
+                let item_name = &segments[1];
+                if let Some(reg) = registry {
+                    let import_path = imp.name.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(".");
+                    if let Some(mod_info) = reg.modules.get(&import_path) {
+                        if let Some(export) = mod_info.exports.get(item_name) {
+                            if matches!(export.kind, crate::registry::SymbolKind::Intrinsic) {
+                                return Some((item_name.clone(), String::new()));
+                            }
+                        }
+                    }
+                }
             }
+            let base_pkg = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
+            let item = if segments.len() > 1 { Mangler::mangle(&segments[1..]) } else { String::new() };
+            return Some((base_pkg, item));
         }
     }
 
-    // 4. Check if this is an intrinsic
-    if segments.len() == 1 {
-        let name = &segments[0];
-        let intrinsics = ["size_of", "align_of", "zeroed", "popcount", "ctpop"];
-        if intrinsics.contains(&name.as_str()) || name.starts_with("intrin_") || 
-           name.contains("ptr_offset") || name.contains("ptr_read") || name.contains("ptr_write") {
-            return None;
-        }
+    if let Some(group) = &imp.group {
+         if group.iter().any(|id| id.to_string() == *first) {
+            let base = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
+            let item = Mangler::mangle(segments);
+            return Some((base, item));
+         }
     }
-    
-    // 5. Check if this is an extern function
-    if segments.len() == 1 {
-        let name = &segments[0];
-        if external_decls.contains(name) {
-            return None;
-        }
-    }
+    None
+}
 
-    // 5.5. V3.0 Categorical Wildcard Resolution
+fn check_wildcard_resolution(
+    registry: Option<&crate::registry::Registry>,
+    imports: &[crate::grammar::ImportDecl],
+    segments: &[String],
+) -> Option<(String, String)> {
     if let Some(reg) = registry {
         for imp in imports.iter() {
             let is_wildcard = imp.alias.is_none() && imp.group.is_none() && !imp.name.is_empty();
@@ -232,9 +175,70 @@ pub fn resolve_package_prefix(
             }
         }
     }
+    None
+}
 
+pub fn resolve_package_prefix(
+    registry: Option<&crate::registry::Registry>,
+    imports: &[crate::grammar::ImportDecl],
+    external_decls: &std::collections::HashSet<String>,
+    current_package: Option<&crate::grammar::PackageDecl>,
+    segments: &[String],
+) -> Option<(String, String)> {
+    if segments.is_empty() { return None; }
     
-    // 6. Fallback: Current Package Local Definition
+    if segments[0] == "std" {
+        for i in (1..=segments.len()).rev() {
+            let namespace = Mangler::mangle(&segments[0..i]);
+            if let Some(reg) = registry {
+                let mod_path = segments[0..i].join(".");
+                if reg.modules.contains_key(&mod_path) {
+                    return Some((namespace, Mangler::mangle(&segments[i..])));
+                }
+            }
+        }
+        return Some((Mangler::mangle(segments), String::new()));
+    }
+
+    let first = &segments[0];
+    for imp in imports.iter() {
+        if let Some(res) = check_explicit_and_implicit_alias(registry, imp, first, segments) {
+            return Some(res);
+        }
+    }
+    
+    for i in (1..=segments.len()).rev() {
+        let namespace = segments[0..i].join(".");
+        for imp in imports.iter() {
+            let full: String = imp.name.iter().map(|id: &syn::Ident| id.to_string()).collect::<Vec<_>>().join(".");
+            if full == namespace {
+                let full_pkg: String = Mangler::mangle(&imp.name.iter().map(|id: &syn::Ident| id.to_string()).collect::<Vec<_>>());
+                let item = if i < segments.len() { Mangler::mangle(&segments[i..]) } else { String::new() };
+                return Some((full_pkg, item));
+            }
+        }
+    }
+
+    if segments.len() == 1 {
+        let name = &segments[0];
+        let intrinsics = ["size_of", "align_of", "zeroed", "popcount", "ctpop"];
+        if intrinsics.contains(&name.as_str()) || name.starts_with("intrin_") || 
+           name.contains("ptr_offset") || name.contains("ptr_read") || name.contains("ptr_write") {
+            return None;
+        }
+    }
+    
+    if segments.len() == 1 {
+        let name = &segments[0];
+        if external_decls.contains(name) {
+            return None;
+        }
+    }
+
+    if let Some(res) = check_wildcard_resolution(registry, imports, segments) {
+        return Some(res);
+    }
+    
     let pkg_name = if let Some(pkg) = current_package {
         Mangler::mangle(&pkg.name.iter().map(|id| id.to_string()).collect::<Vec<_>>())
     } else {
@@ -247,8 +251,6 @@ pub fn resolve_package_prefix(
     
     let item = Mangler::mangle(segments);
     return Some((pkg_name, item));
-    
-
 }
 
 /// Convenience wrapper: extracts parameters from CodegenContext for `resolve_package_prefix`.

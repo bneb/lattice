@@ -14,8 +14,6 @@
 // TDD: RED first (tests assert ideal behavior), then implement chase_lev.salt
 // =============================================================================
 
-#[cfg(test)]
-use crate::z3_shim as z3;
 mod tests {
     use crate::grammar::SaltFile;
     use crate::codegen::context::CodegenContext;

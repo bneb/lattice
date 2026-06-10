@@ -152,196 +152,180 @@ pub fn moe_init_trampoline(state_ptr: u64, bar_out: u64, poll_out: u64) {
 // Writes to bar_out: [control (u64), payload (u64)]
 // Writes to poll_out: [status (u32), token (u32)]
 // ============================================================================
+fn expert_matmul(input_ptr: u64, weights_ptr: u64, output_ptr: u64) {
+    let mut i: i32 = 0;
+    while i < 16 {
+        let mut j: i32 = 0;
+        while j < 16 {
+            let mut sum: f64 = 0.0;
+            let mut k: i32 = 0;
+            while k < 16 {
+                let a: f64 = *((input_ptr + ((i * 16 + k) as u64) * 8) as &f64);
+                let b: f64 = *((weights_ptr + ((k * 16 + j) as u64) * 8) as &f64);
+                sum = sum + a * b;
+                k = k + 1;
+            }
+            *((output_ptr + ((i * 16 + j) as u64) * 8) as &mut f64) = sum;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+}
+
+fn read_kernel_buf_addr(rx_notify_ring_vaddr: u64, tail: u64, capacity: u64) -> u64 {
+    let mut kernel_buf_addr: u64 = 0;
+    let mut i: u64 = 0;
+    while i < 8 {
+        let idx = (tail + i) % capacity;
+        let b = *((rx_notify_ring_vaddr + 192 + idx) as &u8);
+        kernel_buf_addr = kernel_buf_addr | ((b as u64) << (i * 8));
+        i = i + 1;
+    }
+    return kernel_buf_addr;
+}
+
+fn read_pkt_len(rx_notify_ring_vaddr: u64, tail: u64, capacity: u64) -> u32 {
+    let mut pkt_len: u32 = 0;
+    let mut j: u64 = 0;
+    while j < 4 {
+        let idx = (tail + 8 + j) % capacity;
+        let b = *((rx_notify_ring_vaddr + 192 + idx) as &u8);
+        pkt_len = pkt_len | ((b as u32) << (j * 8));
+        j = j + 1;
+    }
+    return pkt_len;
+}
+
+fn handle_route_to_expert(state: u64, bar_out: u64, poll_out: u64) {
+    let token: u32 = *((state + STATE_TOKEN) as &u32) + 1;
+    *((state + STATE_TOKEN) as &mut u32) = token;
+
+    let input_ptr: u64 = *((state + STATE_INPUT_PTR) as &u64);
+    let output_ptr: u64 = *((state + STATE_OUTPUT_PTR) as &u64);
+    *((output_ptr) as &mut u64) = 0;
+
+    let control: u64 = ((token as u64) << 32) | (NET_OPCODE_SEND as u64);
+    let payload: u64 = input_ptr;
+
+    *((state + STATE_DISPATCH_TSC) as &mut u64) = rdtsc();
+
+    *((bar_out) as &mut u64) = control;
+    *((bar_out + 8) as &mut u64) = payload;
+
+    *((state + STATE_PHASE) as &mut u32) = PHASE_SAVE_OUTPUT;
+    *((poll_out) as &mut u32) = POLL_PENDING;
+    *((poll_out + 4) as &mut u32) = token;
+}
+
+fn handle_compute_and_return(state: u64, bar_out: u64, poll_out: u64) {
+    let input_ptr: u64 = *((state + STATE_INPUT_PTR) as &u64);
+    let weights_ptr: u64 = *((state + STATE_WEIGHTS_PTR) as &u64);
+    let output_ptr: u64 = *((state + STATE_OUTPUT_PTR) as &u64);
+
+    expert_matmul(input_ptr, weights_ptr, output_ptr);
+
+    *((output_ptr) as &mut u64) = 0xDEADBEEFCAFEBABE;
+
+    let token: u32 = *((state + STATE_TOKEN) as &u32) + 1;
+    *((state + STATE_TOKEN) as &mut u32) = token;
+
+    let control: u64 = ((token as u64) << 32) | (NET_OPCODE_SEND as u64);
+    let payload: u64 = output_ptr;
+
+    *((bar_out) as &mut u64) = control;
+    *((bar_out + 8) as &mut u64) = payload;
+
+    let start_stall: u64 = rdtsc();
+    loop {
+        let current: u64 = rdtsc();
+        if (current - start_stall) > 50000000 {
+            break;
+        }
+    }
+
+    *((state + STATE_PHASE) as &mut u32) = PHASE_DONE;
+    *((poll_out) as &mut u32) = POLL_READY;
+    *((poll_out + 4) as &mut u32) = 0;
+}
+
+fn handle_save_output(state: u64, bar_out: u64, poll_out: u64) {
+    let rx_notify_ring_vaddr: u64 = *((state + STATE_RX_NOTIFY_PTR) as &u64);
+    let rx_pool_vaddr: u64 = *((state + STATE_RX_POOL_VADDR) as &u64);
+
+    let head = *((rx_notify_ring_vaddr + 0) as &u64);
+    let tail = *((rx_notify_ring_vaddr + 64) as &u64);
+    let capacity = *((rx_notify_ring_vaddr + 8) as &u64);
+    
+    if head == tail {
+        *((poll_out) as &mut u32) = POLL_PENDING;
+        let token: u32 = *((state + STATE_TOKEN) as &u32);
+        *((poll_out + 4) as &mut u32) = token;
+        return;
+    }
+
+    let kernel_buf_addr = read_kernel_buf_addr(rx_notify_ring_vaddr, tail, capacity);
+    let _pkt_len = read_pkt_len(rx_notify_ring_vaddr, tail, capacity);
+    
+    *((rx_notify_ring_vaddr + 64) as &mut u64) = tail + 12;
+
+    let RX_BUF_KERNEL_BASE: u64 = 0xFFFFFFFF80420000;
+    let offset: u64 = kernel_buf_addr - RX_BUF_KERNEL_BASE;
+    let user_buf: u64 = rx_pool_vaddr + offset;
+
+    let eth_start: u64 = user_buf + 10;
+    let ethertype: u16 = ((*((eth_start + 12) as &u8) as u16) << 8)
+                       | (*((eth_start + 13) as &u8) as u16);
+
+    if ethertype == 0x1A77 {
+        let output_ptr: u64 = *((state + STATE_OUTPUT_PTR) as &u64);
+        *((output_ptr) as &mut u64) = 0xDEADBEEFCAFEBABE;
+
+        let end_tsc: u64 = rdtsc();
+        let dispatch_tsc: u64 = *((state + STATE_DISPATCH_TSC) as &u64);
+
+        let msg = "[Ring 3] Distributed Convergence via Zero-Copy DMA\n";
+        let msg_ptr = (&msg) as u64;
+        print_str(*(msg_ptr as &u64), 51);
+
+        print_dec(dispatch_tsc);
+        print_dec(end_tsc);
+
+        loop {}
+    }
+
+    *((poll_out) as &mut u32) = POLL_PENDING;
+    let token: u32 = *((state + STATE_TOKEN) as &u32);
+    *((poll_out + 4) as &mut u32) = token;
+
+    *((state + STATE_PHASE) as &mut u32) = PHASE_DONE;
+    *((poll_out) as &mut u32) = POLL_PENDING;
+    *((poll_out + 4) as &mut u32) = token;
+}
+
 pub fn execute_moe_pipeline(state: u64, bar_out: u64, poll_out: u64) {
     let phase: u32 = *((state + STATE_PHASE) as &u32);
 
     if phase == PHASE_LOAD_INPUT {
-        // v6.2.19-PhaseCut: Skip disk load. Jump straight to network strike.
-        // Tensors are already allocated in memory (zeros/garbage — fine for latency).
         *((state + STATE_PHASE) as &mut u32) = PHASE_ROUTE_TO_EXPERT;
         return;
     }
-
     if phase == PHASE_ROUTE_TO_EXPERT {
-        // Router: Send activation tensor to Expert over network
-        let token: u32 = *((state + STATE_TOKEN) as &u32) + 1;
-        *((state + STATE_TOKEN) as &mut u32) = token;
-
-        let input_ptr: u64 = *((state + STATE_INPUT_PTR) as &u64);
-
-        // 1. The Pre-Strike Wipe: Clear the destination signature
-        let output_ptr: u64 = *((state + STATE_OUTPUT_PTR) as &u64);
-        *((output_ptr) as &mut u64) = 0;
-
-        // Pack NETWORK_WQE: control = (token << 32) | opcode
-        let control: u64 = ((token as u64) << 32) | (NET_OPCODE_SEND as u64);
-        let payload: u64 = input_ptr;
-
-        // ── Dispatch Bracket Start: last instruction before Holographic Trap ──
-        *((state + STATE_DISPATCH_TSC) as &mut u64) = rdtsc();
-
-        // The Holographic Strike
-        *((bar_out) as &mut u64) = control;
-        *((bar_out + 8) as &mut u64) = payload;
-
-        // Transition → SaveOutput (waiting for Expert's reply)
-        *((state + STATE_PHASE) as &mut u32) = PHASE_SAVE_OUTPUT;
-        *((poll_out) as &mut u32) = POLL_PENDING;
-        *((poll_out + 4) as &mut u32) = token;
+        handle_route_to_expert(state, bar_out, poll_out);
         return;
     }
-
     if phase == PHASE_EXPERT_LOAD_WEIGHTS {
-        // v6.2.19-PhaseCut: Skip disk load. Jump straight to compute.
-        // Weights are already allocated in memory (zeros/garbage — fine for latency).
         *((state + STATE_PHASE) as &mut u32) = PHASE_COMPUTE_AND_RETURN;
         return;
     }
-
     if phase == PHASE_COMPUTE_AND_RETURN {
-        // Expert: Execute matmul and send result back to Router
-        let input_ptr: u64 = *((state + STATE_INPUT_PTR) as &u64);
-        let weights_ptr: u64 = *((state + STATE_WEIGHTS_PTR) as &u64);
-        let output_ptr: u64 = *((state + STATE_OUTPUT_PTR) as &u64);
-
-        // Polyhedral Math: C = A × B (16×16)
-        let mut i: i32 = 0;
-        while i < 16 {
-            let mut j: i32 = 0;
-            while j < 16 {
-                let mut sum: f64 = 0.0;
-                let mut k: i32 = 0;
-                while k < 16 {
-                    let a: f64 = *((input_ptr + ((i * 16 + k) as u64) * 8) as &f64);
-                    let b: f64 = *((weights_ptr + ((k * 16 + j) as u64) * 8) as &f64);
-                    sum = sum + a * b;
-                    k = k + 1;
-                }
-                *((output_ptr + ((i * 16 + j) as u64) * 8) as &mut f64) = sum;
-                j = j + 1;
-            }
-            i = i + 1;
-        }
-
-        // 2. The Expert Stamp: Sign the payload
-        *((output_ptr) as &mut u64) = 0xDEADBEEFCAFEBABE;
-
-        // Send result back to Router
-        let token: u32 = *((state + STATE_TOKEN) as &u32) + 1;
-        *((state + STATE_TOKEN) as &mut u32) = token;
-
-        let control: u64 = ((token as u64) << 32) | (NET_OPCODE_SEND as u64);
-        let payload: u64 = output_ptr;
-
-        *((bar_out) as &mut u64) = control;
-        *((bar_out + 8) as &mut u64) = payload;
-
-        // ── Node B Life Support Delay ──
-        // Keep the VM alive so the Linux bridge can route the packet.
-        // Without this, ACPI shutdown kills QEMU before the frame clears
-        // the host tap → bridge → peer tap path.
-        let start_stall: u64 = rdtsc();
-        loop {
-            let current: u64 = rdtsc();
-            if (current - start_stall) > 50000000 {
-                break;
-            }
-        }
-
-        // Expert is Done
-        *((state + STATE_PHASE) as &mut u32) = PHASE_DONE;
-        *((poll_out) as &mut u32) = POLL_READY;
-        *((poll_out + 4) as &mut u32) = 0;
+        handle_compute_and_return(state, bar_out, poll_out);
         return;
     }
-
     if phase == PHASE_SAVE_OUTPUT {
-        // =====================================================================
-        // Zero-Copy Ring 3 Ethernet Parsing
-        // =====================================================================
-        // Read the RX notification SPSC Ring (set by kernel's netcore.salt)
-        let rx_notify_ring_vaddr: u64 = *((state + STATE_RX_NOTIFY_PTR) as &u64);
-        let rx_pool_vaddr: u64 = *((state + STATE_RX_POOL_VADDR) as &u64);
-
-        let head = *((rx_notify_ring_vaddr + 0) as &u64);
-        let tail = *((rx_notify_ring_vaddr + 64) as &u64);
-        let capacity = *((rx_notify_ring_vaddr + 8) as &u64);
-        
-        if head == tail {
-            // No frame yet. Yield and come back.
-            *((poll_out) as &mut u32) = POLL_PENDING;
-            let token: u32 = *((state + STATE_TOKEN) as &u32);
-            *((poll_out + 4) as &mut u32) = token;
-            return;
-        }
-
-        // Read the kernel buffer address and length from the ring
-        let mut kernel_buf_addr: u64 = 0;
-        let mut pkt_len: u32 = 0;
-        
-        let mut i: u64 = 0;
-        while i < 8 {
-            let idx = (tail + i) % capacity;
-            let b = *((rx_notify_ring_vaddr + 192 + idx) as &u8);
-            kernel_buf_addr = kernel_buf_addr | ((b as u64) << (i * 8));
-            i = i + 1;
-        }
-        
-        let mut j: u64 = 0;
-        while j < 4 {
-            let idx = (tail + 8 + j) % capacity;
-            let b = *((rx_notify_ring_vaddr + 192 + idx) as &u8);
-            pkt_len = pkt_len | ((b as u32) << (j * 8));
-            j = j + 1;
-        }
-        
-        *((rx_notify_ring_vaddr + 64) as &mut u64) = tail + 12;
-
-        // Translate: kernel vaddr → offset in RX pool → Ring 3 mapped address
-        // kernel_buf_addr = 0xFFFFFFFF80420000 + (desc_id * BUF_SIZE)
-        // RX_BUF_KERNEL_BASE = 0xFFFFFFFF80000000 + 0x420000
-        let RX_BUF_KERNEL_BASE: u64 = 0xFFFFFFFF80420000;
-        let offset: u64 = kernel_buf_addr - RX_BUF_KERNEL_BASE;
-        let user_buf: u64 = rx_pool_vaddr + offset;
-
-        // Parse Ethernet frame in Ring 3 (zero-copy DMA read)
-        let eth_start: u64 = user_buf + 10;  // Skip 10-byte virtio_net_hdr
-        let ethertype: u16 = ((*((eth_start + 12) as &u8) as u16) << 8)
-                           | (*((eth_start + 13) as &u8) as u16);
-
-        if ethertype == 0x1A77 {
-            // Ring 3 owns the convergence semantic
-            let output_ptr: u64 = *((state + STATE_OUTPUT_PTR) as &u64);
-            *((output_ptr) as &mut u64) = 0xDEADBEEFCAFEBABE;
-
-            // ── Completion Bracket: first instruction upon CQE wakeup ──
-            let end_tsc: u64 = rdtsc();
-            let dispatch_tsc: u64 = *((state + STATE_DISPATCH_TSC) as &u64);
-
-            // Ring 3 convergence telemetry
-            let msg = "[Ring 3] Distributed Convergence via Zero-Copy DMA\n";
-            let msg_ptr = (&msg) as u64;
-            print_str(*(msg_ptr as &u64), 51);
-
-            print_dec(dispatch_tsc);
-            print_dec(end_tsc);
-
-            loop {}
-        }
-
-        // Non-MoE frame (ARP, IPv6 multicast, etc.) — ignore and continue polling
-        *((poll_out) as &mut u32) = POLL_PENDING;
-        let token: u32 = *((state + STATE_TOKEN) as &u32);
-        *((poll_out + 4) as &mut u32) = token;
-
-        // Transition → Done
-        *((state + STATE_PHASE) as &mut u32) = PHASE_DONE;
-        *((poll_out) as &mut u32) = POLL_PENDING;
-        *((poll_out + 4) as &mut u32) = token;
+        handle_save_output(state, bar_out, poll_out);
         return;
     }
 
-    // PHASE_DONE or unknown
     *((poll_out) as &mut u32) = POLL_READY;
     *((poll_out + 4) as &mut u32) = 0;
 }

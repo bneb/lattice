@@ -5,8 +5,6 @@
 //! are eliminated by LLVM's mem2reg during `clang -O3`, so they don't
 //! affect final binary performance.
 
-#[cfg(test)]
-use crate::z3_shim as z3;
 mod tests {
     use crate::grammar::SaltFile;
     use crate::codegen::context::CodegenContext;

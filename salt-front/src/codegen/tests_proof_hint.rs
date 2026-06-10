@@ -15,8 +15,6 @@
 //   Layer 7:   SipHash-2-4 internal consistency (reference vectors)
 // =============================================================================
 
-#[cfg(test)]
-use crate::z3_shim as z3;
 mod tests {
     use crate::codegen::verification::proof_hint::{hash_combine, siphash24, K0, K1};
 

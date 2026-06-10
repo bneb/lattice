@@ -217,94 +217,25 @@ pub fn emit_expr(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, 
 
              Ok((ptr, Type::Reference(Box::new(ty), r.mutability.is_some())))
          }
-        syn::Expr::Return(r) => {
-            if let Some(e) = &r.expr {
-                let expected_ret = ctx.current_ret_ty().clone();
-                let (val_raw, ty) = emit_expr(ctx, out, e, local_vars, expected_ret.as_ref())?;
-
-                // [ESCAPE ANALYSIS V5.1] Recursive escape marking.
-                // Walks the expression tree to find all malloc-tracked sources,
-                // handling casts, pointer arithmetic, method calls, etc.
-                mark_expression_escaped(ctx, e);
-
-                // [ARENA ESCAPE ANALYSIS] Law I: The Return Rule.
-                // return x is valid iff depth(x) <= 1.
-                // A pointer from a local arena (depth >= 2) cannot escape.
-                if let Some(var_name) = extract_return_var_name_from_expr(e) {
-                    if let Err(msg) = ctx.arena_escape_tracker.check_return_escape(&var_name) {
-                        return Err(msg);
-                    }
-                }
-
-                let mut val = val_raw;
-                if ty == Type::Unit {
-                    // [ESCAPE ANALYSIS V5.1] Still emit cleanup before returning
-                    ctx.transfer_ownership(&val)?;
-                    crate::codegen::stmt::emit_cleanup_for_return(ctx, out, local_vars)?;
-                    out.push_str("    func.return\n");
-                    return Ok(("%unreachable".to_string(), Type::Never));
-                }
-                if let Some(expected) = &expected_ret {
-                    val = crate::codegen::type_bridge::promote_numeric(ctx, out, &val, &ty, expected)?;
-                }
-                let mlir_ty = if let Some(exp_ty) = &expected_ret {
-                    let e_ty: Type = (*exp_ty).clone();
-                    e_ty.to_mlir_type(ctx)?
-                } else {
-                    ty.to_mlir_type(ctx)?
-                };
-                
-                // [V1.1] RAII-Lite: Transfer ownership of returned value and emit cleanup
-                ctx.transfer_ownership(&val)?;
-                crate::codegen::stmt::emit_cleanup_for_return(ctx, out, local_vars)?;
-                
-                // [v0.9.2 POSTCONDITION PIVOT] Z3 verification of ensures clauses at return site
-                let ensures = ctx.current_ensures().clone();
-                if !ensures.is_empty() {
-                    let fn_name = ctx.current_fn_name().clone();
-                    let file_items = &ctx.config.file.items;
-                    let (requires, param_names) = file_items.iter()
-                        .filter_map(|item| {
-                            if let crate::grammar::Item::Fn(f) = item {
-                                if f.name.to_string() == fn_name || fn_name.ends_with(&f.name.to_string()) {
-                                    let params: Vec<String> = f.args.iter().map(|a| a.name.to_string()).collect();
-                                    return Some((f.requires.clone(), params));
-                                }
-                            }
-                            None
-                        })
-                        .next()
-                        .unwrap_or((vec![], vec![]));
-
-                    match crate::codegen::verification::VerificationEngine::verify_postcondition(
-                        ctx, &ensures, &requires, e, &param_names, local_vars, &fn_name,
-                    ) {
-                        Ok(true) => {
-                            out.push_str(&format!("    // z3_postcondition_verified: ensures proven for '{}'\n", fn_name));
-                        }
-                        Ok(false) => {}
-                        Err(err) => {
-                            return Err(err);
-                        }
-                    }
-                }
-
-                let loc = ctx.loc_tag(r.span());
-                out.push_str(&format!("    func.return {} : {}{}\n", val, mlir_ty, loc));
-            } else {
-                // [V1.1] RAII-Lite: Emit cleanup before void return
-                crate::codegen::stmt::emit_cleanup_for_return(ctx, out, local_vars)?;
-                
-                let loc = ctx.loc_tag(r.span());
-                out.push_str(&format!("    func.return{}\n", loc));
-            }
-            Ok(("%unreachable".to_string(), Type::Never))
-        }
+        syn::Expr::Return(r) => emit_return_expr(ctx, out, r, local_vars),
         syn::Expr::Repeat(r) => emit_repeat(ctx, out, r, local_vars, expected_ty),
         syn::Expr::Array(a) => emit_array(ctx, out, a, local_vars, expected_ty),
         syn::Expr::Tuple(t) => emit_tuple(ctx, out, t, local_vars),
         syn::Expr::Match(m) => emit_match(ctx, out, m, local_vars, expected_ty),
-        syn::Expr::Try(t) => {
+        syn::Expr::Try(t) => emit_try_expr(ctx, out, t, local_vars),
+        syn::Expr::While(w) => emit_while(ctx, out, w, local_vars),
+        
+        // [V4.0 SCORCHED EARTH] Handle prefixed string macros
+        // __fstring__!("...") and __hex__!("...") are generated by preprocessing
+        syn::Expr::Macro(m) => emit_macro_expr(ctx, out, m, local_vars, expected_ty),
+        
+        _ => Err(format!("Unsupported expression: {:?}", expr)),
+    }
+}
+
+
+
+fn emit_try_expr(ctx: &mut LoweringContext, out: &mut String, t: &syn::ExprTry, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<(String, Type), String> {
             let (val, ty) = emit_expr(ctx, out, &t.expr, local_vars, None)?;
             // [UNIFIED] Structural Result<T> detection via enum registry
             if let Some(_enum_info) = ctx.is_result_enum(&ty) {
@@ -417,315 +348,341 @@ pub fn emit_expr(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, 
             } else {
                 Err(format!("? operator requires Result<T> type, got {:?}", ty))
             }
-        }
-        syn::Expr::While(w) => emit_while(ctx, out, w, local_vars),
-        
-        // [V4.0 SCORCHED EARTH] Handle prefixed string macros
-        // __fstring__!("...") and __hex__!("...") are generated by preprocessing
-        syn::Expr::Macro(m) => {
-            let macro_name = m.mac.path.segments.last()
-                .map(|s| s.ident.to_string())
-                .unwrap_or_default();
-            
-            // Extract the string content from the macro tokens
-            let tokens_str = m.mac.tokens.to_string();
-            let content = tokens_str.trim_matches('"').to_string();
-            
-            match macro_name.as_str() {
-                "__fstring__" => {
-                    // [V4.0 INJECTED DEPENDENCY STRATEGY]
-                    // Force discovery of InterpolatedStringHandler BEFORE expansion.
-                    // This ensures the handler methods are in the TraitRegistry.
-                    let _ = ctx.ensure_struct_exists("std__string__InterpolatedStringHandler", &[]);
-                    // [V5.0] Also discover Formatter for structural formatting support
-                    let _ = ctx.ensure_struct_exists("std__core__fmt__Formatter", &[]);
-                    // [STANDALONE FIX] Force discovery of InterpolatedStringHandler methods.
-                    // In standalone mode, ensure_struct_exists loads the struct template but
-                    // doesn't hydrate impl methods. Trigger method discovery for critical methods.
-                    let handler_ty = Type::Struct("std__string__InterpolatedStringHandler".to_string());
-                    let _ = ctx.resolve_method(&handler_ty, "new");
-                    let _ = ctx.resolve_method(&handler_ty, "append_literal");
-                    let _ = ctx.resolve_method(&handler_ty, "finalize");
-                    
-                    // Expand f-string to Salt code using Rust path notation (::)
-                    let expanded = ctx.native_fstring_expand(&content);
 
-                    // Parse as Salt expression - path is already mangled, resolver won't re-mangle
-                    let parsed: syn::Expr = syn::parse_str(&expanded)
-                        .map_err(|e| format!("F-string parse error: {} (code: {})", e, 
-                            expanded.chars().take(100).collect::<String>()))?;
-                    
-                    // Emit the parsed expression - this triggers hydration!
-                    emit_expr(ctx, out, &parsed, local_vars, expected_ty)
-                }
-                "__hex__" => {
-                    // Expand hex string using native handler  
-                    let expanded = ctx.native_hex_expand(&content);
-                    // Parse and emit the expanded code
-                    let expanded_expr: syn::Expr = syn::parse_str(&expanded)
-                        .map_err(|e| format!("Failed to parse expanded hex: {} (code: {})", e, expanded))?;
-                    emit_expr(ctx, out, &expanded_expr, local_vars, expected_ty)
-                }
-                "__target_fstring__" => {
-                    // [KEUOS WRITER PROTOCOL] Handle target.f"..." syntax
-                    // The macro receives: target, "content"
-                    // We decompose into direct write_* calls on the target
-                    
-                    // Parse the macro arguments: target, "content"
-                    let (target_expr, fstring_content) = parse_target_fstring_args(&tokens_str)?;
-                    
-                    // Generate the expanded code using KeuOS Decomposition
-                    let expanded = ctx.native_target_fstring_expand(&target_expr, &fstring_content);
-                    
-                    // Parse and emit
-                    let parsed: syn::Expr = syn::parse_str(&expanded)
-                        .map_err(|e| format!("Target f-string parse error: {} (code: {})", e,
-                            expanded.chars().take(200).collect::<String>()))?;
-                    
-                    emit_expr(ctx, out, &parsed, local_vars, expected_ty)
-                }
-                "__railway__" => {
-                    // [PHASE 2] Railway operator: __railway__!(expr, fn[, extra_args])
-                    // Expands to: match expr { Result::Ok(v) => fn(v[, extra_args]), Result::Err(e) => Result::Err(e) }
-                    let parts: Vec<&str> = tokens_str.splitn(2, ',').collect();
-                    if parts.len() < 2 {
-                        return Err(format!("__railway__! requires at least 2 args: expr, fn. Got: {}", tokens_str));
-                    }
-                    
-                    let expr_str = parts[0].trim();
-                    let rest = parts[1].trim();
-                    
-                    // rest might be "fn_name" or "fn_name, arg1, arg2"
-                    let fn_and_args: Vec<&str> = rest.splitn(2, ',').collect();
-                    let fn_name = fn_and_args[0].trim();
-                    let extra_args = if fn_and_args.len() > 1 {
-                        format!(", {}", fn_and_args[1].trim())
-                    } else {
-                        String::new()
-                    };
-                    
-                    // Build the match expression
-                    let expanded = format!(
-                        "match {} {{ Result::Ok(__railway_v) => {}(__railway_v{}), Result::Err(__railway_e) => Result::Err(__railway_e) }}",
-                        expr_str, fn_name, extra_args
-                    );
-                    
-                    let parsed: syn::Expr = syn::parse_str(&expanded)
-                        .map_err(|e| format!("Railway expansion parse error: {} (code: {})", e,
-                            expanded.chars().take(200).collect::<String>()))?;
-                    
-                    emit_expr(ctx, out, &parsed, local_vars, expected_ty)
-                }
-                "__force_unwrap__" => {
-                    // [KEUOS] Force-unwrap operator (~)
-                    // Performance: happy path is one i32 cmp + branch + extractvalue — zero call overhead
-                    // Error path: exit(status.code) for Result, exit(1) for Option
-                    let inner_str = tokens_str.trim();
-                    let inner_expr: syn::Expr = syn::parse_str(inner_str)
-                        .map_err(|e| format!("force_unwrap parse error: {} (input: {})", e, inner_str))?;
-                    let (val, ty) = emit_expr(ctx, out, &inner_expr, local_vars, None)?;
-                    
-                    if let Some(_enum_info) = ctx.is_result_enum(&ty) {
-                        // Result<T>: tag check + extract Ok or exit(status.code)
-                        let result_mlir = ty.to_mlir_type(ctx)?;
-                        let tag = format!("%fu_tag_{}", ctx.next_id());
-                        ctx.emit_extractvalue(out, &tag, &val, 0, &result_mlir);
-                        
-                        let is_err = format!("%fu_is_err_{}", ctx.next_id());
-                        let err_disc = format!("%fu_err_disc_{}", ctx.next_id());
-                        ctx.emit_const_int(out, &err_disc, 1, "i32");
-                        out.push_str(&format!("    {} = arith.cmpi \"eq\", {}, {} : i32\n", is_err, tag, err_disc));
-                        
-                        let label_err = format!("fu_err_{}", ctx.next_id());
-                        let label_ok = format!("fu_ok_{}", ctx.next_id());
-                        ctx.emit_cond_br(out, &is_err, &label_err, &label_ok);
-                        
-                        // Err path: extract Status.code from payload and exit with it
-                        ctx.emit_label(out, &label_err);
-                        // Err payload is array<N x i8>; type-pun to Status via memory
-                        let ok_ty_for_size = match &ty {
-                            Type::Concrete(_, args) if !args.is_empty() => args[0].clone(),
-                            _ => Type::I64,
-                        };
-                        let payload_size = std::cmp::max(ctx.size_of(&ok_ty_for_size), 8);
-                        let raw_array_ty = format!("!llvm.array<{} x i8>", payload_size);
-                        let err_raw = format!("%fu_err_raw_{}", ctx.next_id());
-                        out.push_str(&format!("    {} = llvm.extractvalue {}[1] : {}\n", err_raw, val, result_mlir));
-                        // Type-pun raw array → Status through memory
-                        let err_buf = format!("%fu_err_buf_{}", ctx.next_id());
-                        let err_one = format!("%fu_err_one_{}", ctx.next_id());
-                        ctx.emit_const_int(out, &err_one, 1, "i64");
-                        out.push_str(&format!("    {} = llvm.alloca {} x {} : (i64) -> !llvm.ptr\n", err_buf, err_one, raw_array_ty));
-                        out.push_str(&format!("    llvm.store {}, {} : {}, !llvm.ptr\n", err_raw, err_buf, raw_array_ty));
-                        let err_status = format!("%fu_err_status_{}", ctx.next_id());
-                        out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> !struct_std__status__Status\n", err_status, err_buf));
-                        // Extract code (field 0) from Status
-                        let status_code = format!("%fu_status_code_{}", ctx.next_id());
-                        out.push_str(&format!("    {} = llvm.extractvalue {}[0] : !struct_std__status__Status\n", status_code, err_status));
-                        out.push_str(&format!("    llvm.call @exit({}) : (i32) -> ()\n", status_code));
-                        out.push_str("    llvm.unreachable\n");
-                        
-                        // Ok path: extract payload with type-punning through memory
-                        ctx.emit_label(out, &label_ok);
-                        let ok_ty = match &ty {
-                            Type::Concrete(_, args) if !args.is_empty() => args[0].clone(),
-                            _ => Type::I64,
-                        };
-                        let ok_mlir = ok_ty.to_mlir_type(ctx)?;
-                        let ok_raw = format!("%fu_ok_raw_{}", ctx.next_id());
-                        out.push_str(&format!("    {} = llvm.extractvalue {}[1] : {}\n", ok_raw, val, result_mlir));
-                        let ok_buf = format!("%fu_ok_buf_{}", ctx.next_id());
-                        let ok_one = format!("%fu_ok_one_{}", ctx.next_id());
-                        ctx.emit_const_int(out, &ok_one, 1, "i64");
-                        out.push_str(&format!("    {} = llvm.alloca {} x {} : (i64) -> !llvm.ptr\n", ok_buf, ok_one, raw_array_ty));
-                        out.push_str(&format!("    llvm.store {}, {} : {}, !llvm.ptr\n", ok_raw, ok_buf, raw_array_ty));
-                        let ok_payload = format!("%fu_ok_val_{}", ctx.next_id());
-                        out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> {}\n", ok_payload, ok_buf, ok_mlir));
-                        
-                        Ok((ok_payload, ok_ty))
-                    } else if ctx.is_option_enum(&ty).is_some() {
-                        // Option<T>: tag check + extract Some or exit(1)
-                        let option_mlir = ty.to_mlir_type(ctx)?;
-                        let tag = format!("%fu_tag_{}", ctx.next_id());
-                        ctx.emit_extractvalue(out, &tag, &val, 0, &option_mlir);
-                        
-                        let is_none = format!("%fu_is_none_{}", ctx.next_id());
-                        let none_disc = format!("%fu_none_disc_{}", ctx.next_id());
-                        ctx.emit_const_int(out, &none_disc, 1, "i32");
-                        out.push_str(&format!("    {} = arith.cmpi \"eq\", {}, {} : i32\n", is_none, tag, none_disc));
-                        
-                        let label_none = format!("fu_none_{}", ctx.next_id());
-                        let label_some = format!("fu_some_{}", ctx.next_id());
-                        ctx.emit_cond_br(out, &is_none, &label_none, &label_some);
-                        
-                        // None path: exit(1)
-                        ctx.emit_label(out, &label_none);
-                        let exit_code = format!("%fu_exit_code_{}", ctx.next_id());
-                        ctx.emit_const_int(out, &exit_code, 1, "i32");
-                        out.push_str(&format!("    llvm.call @exit({}) : (i32) -> ()\n", exit_code));
-                        out.push_str("    llvm.unreachable\n");
-                        
-                        // Some path: extract payload with type-punning through memory
-                        ctx.emit_label(out, &label_some);
-                        let some_ty = match &ty {
-                            Type::Concrete(_, args) if !args.is_empty() => args[0].clone(),
-                            _ => Type::I64,
-                        };
-                        let some_mlir = some_ty.to_mlir_type(ctx)?;
-                        let some_size = ctx.size_of(&some_ty);
-                        let some_raw_ty = format!("!llvm.array<{} x i8>", some_size);
-                        let some_raw = format!("%fu_some_raw_{}", ctx.next_id());
-                        out.push_str(&format!("    {} = llvm.extractvalue {}[1] : {}\n", some_raw, val, option_mlir));
-                        let some_buf = format!("%fu_some_buf_{}", ctx.next_id());
-                        let some_one = format!("%fu_some_one_{}", ctx.next_id());
-                        ctx.emit_const_int(out, &some_one, 1, "i64");
-                        out.push_str(&format!("    {} = llvm.alloca {} x {} : (i64) -> !llvm.ptr\n", some_buf, some_one, some_raw_ty));
-                        out.push_str(&format!("    llvm.store {}, {} : {}, !llvm.ptr\n", some_raw, some_buf, some_raw_ty));
-                        let some_payload = format!("%fu_some_val_{}", ctx.next_id());
-                        out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> {}\n", some_payload, some_buf, some_mlir));
-                        
-                        Ok((some_payload, some_ty))
-                    } else {
-                        Err(format!("~ operator requires Result<T> or Option<T> type, got {:?}", ty))
-                    }
-                }
-                "__fstring_append_expr" => {
-                    // [V5.0 STRUCTURAL FORMATTING] Type-aware f-string expression dispatch
-                    // This macro is emitted by native_fstring_expand for each interpolated expr.
-                    // It resolves the expression type WITHOUT emitting code (to avoid double emission),
-                    // then generates the right append_* call or a Formatter chain for structs.
-                    
-                    // Parse: __fstring_append_expr!(__h, expr)
-                    let comma_pos = tokens_str.find(',')
-                        .ok_or_else(|| format!("__fstring_append_expr! requires handler and expr: {}", tokens_str))?;
-                    let handler_name = tokens_str[..comma_pos].trim().to_string();
-                    let expr_str = tokens_str[comma_pos + 1..].trim().to_string();
-                    
-                    // Heuristic type resolution: resolve type from local_vars without emitting code
-                    let resolved_ty = resolve_fstring_expr_type(&expr_str, local_vars, ctx);
-                    
-                    // Generate the correct append call based on resolved type
-                    let append_code = match &resolved_ty {
-                        Some(Type::I32) => format!("{}.append_i32({})", handler_name, expr_str),
-                        Some(Type::I8) | Some(Type::I16) => format!("{}.append_i32({} as i32)", handler_name, expr_str),
-                        Some(Type::I64) | Some(Type::Usize) => format!("{}.append_i64({})", handler_name, expr_str),
-                        Some(Type::U8) | Some(Type::U16) | Some(Type::U32) | Some(Type::U64) => format!("{}.append_i64({} as i64)", handler_name, expr_str),
-                        Some(Type::F32) => format!("{}.append_f64({} as f64)", handler_name, expr_str),
-                        Some(Type::F64) => format!("{}.append_f64({})", handler_name, expr_str),
-                        Some(Type::Bool) => format!("{}.append_bool({})", handler_name, expr_str),
-                        Some(Type::Reference(inner, _)) if matches!(**inner, Type::U8) => {
-                            format!("{}.append_str({})", handler_name, expr_str)
-                        }
-                        Some(the_ty @ (Type::Struct(_) | Type::Concrete(_, _))) => {
-                            let name = match the_ty {
-                                Type::Struct(n) | Type::Concrete(n, _) => n.clone(),
-                                _ => unreachable!(),
-                            };
-                            // Check if the struct has a fmt() method
-                            let type_key = crate::codegen::type_bridge::type_to_type_key(the_ty);
-                            if ctx.trait_registry().contains_method(&type_key, "fmt") {
-                                // Generate Formatter chain
-                                let fmt_id = ctx.next_id();
-                                format!(
-                                    "{{ let mut __fmt_{id} = std::core::fmt::Formatter::new(); \
-                                     ({expr}).fmt(&mut __fmt_{id}); \
-                                     {handler}.append_fmt_result(__fmt_{id}.as_ptr(), __fmt_{id}.len()); }}",
-                                    id = fmt_id,
-                                    expr = expr_str,
-                                    handler = handler_name
-                                )
-                            } else {
-                                // No fmt method — fall back to i32 (legacy behavior)
-                                eprintln!("WARNING: Struct '{}' has no fmt() method in f-string", name);
-                                format!("{}.append_i32({})", handler_name, expr_str)
-                            }
-                        }
-                        _ => {
-                            // Could not resolve type — use append_i32 (legacy default)
-                            format!("{}.append_i32({})", handler_name, expr_str)
-                        }
-                    };
-                    
-                    // Parse and emit the generated append code
-                    let append_parsed: syn::Expr = syn::parse_str(&append_code)
-                        .map_err(|e| format!("__fstring_append_expr! codegen parse error: {} (code: {})", e, append_code))?;
-                    emit_expr(ctx, out, &append_parsed, local_vars, None)
-                }
-                "__builtin_hash" => {
-                    // [KEUOS I/O FABRIC] Compile-time SipHash-2-4 evaluation.
-                    // __builtin_hash!("capability.name") emits a pure arith.constant i64.
-                    // Zero runtime cost — the hash is computed during compilation.
-                    use std::collections::hash_map::DefaultHasher;
-                    use std::hash::{Hash, Hasher};
+}
 
-                    if content.is_empty() {
-                        return Err("__builtin_hash! requires a string literal argument".to_string());
-                    }
-
-                    // Compute SipHash-2-4 at compile time
-                    let mut hasher = DefaultHasher::new();
-                    content.hash(&mut hasher);
-                    let hash_val: u64 = hasher.finish();
-
-                    // Emit a pure MLIR constant — zero runtime cost
-                    let res_var = format!("%hash_const_{}", ctx.next_id());
-                    // Cast to i64 for MLIR compatibility (arith.constant uses signed)
-                    let hash_i64 = hash_val as i64;
-                    out.push_str(&format!(
-                        "    {} = arith.constant {} : i64\n",
-                        res_var, hash_i64
-                    ));
-
-                    Ok((res_var, Type::I64))
-                }
-                _ => Err(format!("Unknown macro in expression: {}", macro_name))
-            }
-        }
-        
-        _ => Err(format!("Unsupported expression: {:?}", expr)),
+fn emit_macro_expr(ctx: &mut LoweringContext, out: &mut String, m: &syn::ExprMacro, local_vars: &mut HashMap<String, (Type, LocalKind)>, expected_ty: Option<&Type>) -> Result<(String, Type), String> {
+    let macro_name = m.mac.path.segments.last()
+        .map(|s| s.ident.to_string())
+        .unwrap_or_default();
+    
+    let tokens_str = m.mac.tokens.to_string();
+    let content = tokens_str.trim_matches('"').to_string();
+    
+    match macro_name.as_str() {
+        "__fstring__" => macro_fstring(ctx, out, &content, local_vars, expected_ty),
+        "__hex__" => macro_hex(ctx, out, &content, local_vars, expected_ty),
+        "__target_fstring__" => macro_target_fstring(ctx, out, &tokens_str, local_vars, expected_ty),
+        "__railway__" => macro_railway(ctx, out, &tokens_str, local_vars, expected_ty),
+        "__force_unwrap__" => macro_force_unwrap(ctx, out, &tokens_str, local_vars),
+        "__fstring_append_expr" => macro_fstring_append_expr(ctx, out, &tokens_str, local_vars),
+        "__builtin_hash" => macro_builtin_hash(ctx, out, &content),
+        _ => Err(format!("Unknown macro in expression: {}", macro_name))
     }
 }
 
+fn macro_fstring(ctx: &mut LoweringContext, out: &mut String, content: &str, local_vars: &mut HashMap<String, (Type, LocalKind)>, expected_ty: Option<&Type>) -> Result<(String, Type), String> {
+    let _ = ctx.ensure_struct_exists("std__string__InterpolatedStringHandler", &[]);
+    let _ = ctx.ensure_struct_exists("std__core__fmt__Formatter", &[]);
+    let handler_ty = Type::Struct("std__string__InterpolatedStringHandler".to_string());
+    let _ = ctx.resolve_method(&handler_ty, "new");
+    let _ = ctx.resolve_method(&handler_ty, "append_literal");
+    let _ = ctx.resolve_method(&handler_ty, "finalize");
+    
+    let expanded = ctx.native_fstring_expand(content);
+    let parsed: syn::Expr = syn::parse_str(&expanded)
+        .map_err(|e| format!("F-string parse error: {} (code: {})", e, expanded.chars().take(100).collect::<String>()))?;
+    
+    emit_expr(ctx, out, &parsed, local_vars, expected_ty)
+}
+
+fn macro_hex(ctx: &mut LoweringContext, out: &mut String, content: &str, local_vars: &mut HashMap<String, (Type, LocalKind)>, expected_ty: Option<&Type>) -> Result<(String, Type), String> {
+    let expanded = ctx.native_hex_expand(content);
+    let expanded_expr: syn::Expr = syn::parse_str(&expanded)
+        .map_err(|e| format!("Failed to parse expanded hex: {} (code: {})", e, expanded))?;
+    emit_expr(ctx, out, &expanded_expr, local_vars, expected_ty)
+}
+
+fn macro_target_fstring(ctx: &mut LoweringContext, out: &mut String, tokens_str: &str, local_vars: &mut HashMap<String, (Type, LocalKind)>, expected_ty: Option<&Type>) -> Result<(String, Type), String> {
+    let (target_expr, fstring_content) = parse_target_fstring_args(tokens_str)?;
+    let expanded = ctx.native_target_fstring_expand(&target_expr, &fstring_content);
+    let parsed: syn::Expr = syn::parse_str(&expanded)
+        .map_err(|e| format!("Target f-string parse error: {} (code: {})", e, expanded.chars().take(200).collect::<String>()))?;
+    emit_expr(ctx, out, &parsed, local_vars, expected_ty)
+}
+
+fn macro_railway(ctx: &mut LoweringContext, out: &mut String, tokens_str: &str, local_vars: &mut HashMap<String, (Type, LocalKind)>, expected_ty: Option<&Type>) -> Result<(String, Type), String> {
+    let parts: Vec<&str> = tokens_str.splitn(2, ',').collect();
+    if parts.len() < 2 {
+        return Err(format!("__railway__! requires at least 2 args: expr, fn. Got: {}", tokens_str));
+    }
+    let expr_str = parts[0].trim();
+    let rest = parts[1].trim();
+    let fn_and_args: Vec<&str> = rest.splitn(2, ',').collect();
+    let fn_name = fn_and_args[0].trim();
+    let extra_args = if fn_and_args.len() > 1 {
+        format!(", {}", fn_and_args[1].trim())
+    } else {
+        String::new()
+    };
+    
+    let expanded = format!(
+        "match {} {{ Result::Ok(__railway_v) => {}(__railway_v{}), Result::Err(__railway_e) => Result::Err(__railway_e) }}",
+        expr_str, fn_name, extra_args
+    );
+    let parsed: syn::Expr = syn::parse_str(&expanded)
+        .map_err(|e| format!("Railway expansion parse error: {} (code: {})", e, expanded.chars().take(200).collect::<String>()))?;
+    emit_expr(ctx, out, &parsed, local_vars, expected_ty)
+}
+
+fn macro_force_unwrap(ctx: &mut LoweringContext, out: &mut String, tokens_str: &str, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<(String, Type), String> {
+    let inner_str = tokens_str.trim();
+    let inner_expr: syn::Expr = syn::parse_str(inner_str)
+        .map_err(|e| format!("force_unwrap parse error: {} (input: {})", e, inner_str))?;
+    let (val, ty) = emit_expr(ctx, out, &inner_expr, local_vars, None)?;
+    
+    if let Some(_enum_info) = ctx.is_result_enum(&ty) {
+        let result_mlir = ty.to_mlir_type(ctx)?;
+        let tag = format!("%fu_tag_{}", ctx.next_id());
+        ctx.emit_extractvalue(out, &tag, &val, 0, &result_mlir);
+        
+        let is_err = format!("%fu_is_err_{}", ctx.next_id());
+        let err_disc = format!("%fu_err_disc_{}", ctx.next_id());
+        ctx.emit_const_int(out, &err_disc, 1, "i32");
+        out.push_str(&format!("    {} = arith.cmpi \"eq\", {}, {} : i32\n", is_err, tag, err_disc));
+        
+        let label_err = format!("fu_err_{}", ctx.next_id());
+        let label_ok = format!("fu_ok_{}", ctx.next_id());
+        ctx.emit_cond_br(out, &is_err, &label_err, &label_ok);
+        
+        ctx.emit_label(out, &label_err);
+        let ok_ty_for_size = match &ty {
+            Type::Concrete(_, args) if !args.is_empty() => args[0].clone(),
+            _ => Type::I64,
+        };
+        let payload_size = std::cmp::max(ctx.size_of(&ok_ty_for_size), 8);
+        let raw_array_ty = format!("!llvm.array<{} x i8>", payload_size);
+        let err_raw = format!("%fu_err_raw_{}", ctx.next_id());
+        out.push_str(&format!("    {} = llvm.extractvalue {}[1] : {}\n", err_raw, val, result_mlir));
+        let err_buf = format!("%fu_err_buf_{}", ctx.next_id());
+        let err_one = format!("%fu_err_one_{}", ctx.next_id());
+        ctx.emit_const_int(out, &err_one, 1, "i64");
+        out.push_str(&format!("    {} = llvm.alloca {} x {} : (i64) -> !llvm.ptr\n", err_buf, err_one, raw_array_ty));
+        out.push_str(&format!("    llvm.store {}, {} : {}, !llvm.ptr\n", err_raw, err_buf, raw_array_ty));
+        let err_status = format!("%fu_err_status_{}", ctx.next_id());
+        out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> !struct_std__status__Status\n", err_status, err_buf));
+        let status_code = format!("%fu_status_code_{}", ctx.next_id());
+        out.push_str(&format!("    {} = llvm.extractvalue {}[0] : !struct_std__status__Status\n", status_code, err_status));
+        out.push_str(&format!("    llvm.call @exit({}) : (i32) -> ()\n", status_code));
+        out.push_str("    llvm.unreachable\n");
+        
+        ctx.emit_label(out, &label_ok);
+        let ok_ty = match &ty {
+            Type::Concrete(_, args) if !args.is_empty() => args[0].clone(),
+            _ => Type::I64,
+        };
+        let ok_mlir = ok_ty.to_mlir_type(ctx)?;
+        let ok_raw = format!("%fu_ok_raw_{}", ctx.next_id());
+        out.push_str(&format!("    {} = llvm.extractvalue {}[1] : {}\n", ok_raw, val, result_mlir));
+        let ok_buf = format!("%fu_ok_buf_{}", ctx.next_id());
+        let ok_one = format!("%fu_ok_one_{}", ctx.next_id());
+        ctx.emit_const_int(out, &ok_one, 1, "i64");
+        out.push_str(&format!("    {} = llvm.alloca {} x {} : (i64) -> !llvm.ptr\n", ok_buf, ok_one, raw_array_ty));
+        out.push_str(&format!("    llvm.store {}, {} : {}, !llvm.ptr\n", ok_raw, ok_buf, raw_array_ty));
+        let ok_payload = format!("%fu_ok_val_{}", ctx.next_id());
+        out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> {}\n", ok_payload, ok_buf, ok_mlir));
+        
+        Ok((ok_payload, ok_ty))
+    } else if ctx.is_option_enum(&ty).is_some() {
+        let option_mlir = ty.to_mlir_type(ctx)?;
+        let tag = format!("%fu_tag_{}", ctx.next_id());
+        ctx.emit_extractvalue(out, &tag, &val, 0, &option_mlir);
+        
+        let is_none = format!("%fu_is_none_{}", ctx.next_id());
+        let none_disc = format!("%fu_none_disc_{}", ctx.next_id());
+        ctx.emit_const_int(out, &none_disc, 1, "i32");
+        out.push_str(&format!("    {} = arith.cmpi \"eq\", {}, {} : i32\n", is_none, tag, none_disc));
+        
+        let label_none = format!("fu_none_{}", ctx.next_id());
+        let label_some = format!("fu_some_{}", ctx.next_id());
+        ctx.emit_cond_br(out, &is_none, &label_none, &label_some);
+        
+        ctx.emit_label(out, &label_none);
+        let exit_code = format!("%fu_exit_code_{}", ctx.next_id());
+        ctx.emit_const_int(out, &exit_code, 1, "i32");
+        out.push_str(&format!("    llvm.call @exit({}) : (i32) -> ()\n", exit_code));
+        out.push_str("    llvm.unreachable\n");
+        
+        ctx.emit_label(out, &label_some);
+        let some_ty = match &ty {
+            Type::Concrete(_, args) if !args.is_empty() => args[0].clone(),
+            _ => Type::I64,
+        };
+        let some_mlir = some_ty.to_mlir_type(ctx)?;
+        let some_size = ctx.size_of(&some_ty);
+        let some_raw_ty = format!("!llvm.array<{} x i8>", some_size);
+        let some_raw = format!("%fu_some_raw_{}", ctx.next_id());
+        out.push_str(&format!("    {} = llvm.extractvalue {}[1] : {}\n", some_raw, val, option_mlir));
+        let some_buf = format!("%fu_some_buf_{}", ctx.next_id());
+        let some_one = format!("%fu_some_one_{}", ctx.next_id());
+        ctx.emit_const_int(out, &some_one, 1, "i64");
+        out.push_str(&format!("    {} = llvm.alloca {} x {} : (i64) -> !llvm.ptr\n", some_buf, some_one, some_raw_ty));
+        out.push_str(&format!("    llvm.store {}, {} : {}, !llvm.ptr\n", some_raw, some_buf, some_raw_ty));
+        let some_payload = format!("%fu_some_val_{}", ctx.next_id());
+        out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> {}\n", some_payload, some_buf, some_mlir));
+        
+        Ok((some_payload, some_ty))
+    } else {
+        Err(format!("~ operator requires Result<T> or Option<T> type, got {:?}", ty))
+    }
+}
+
+fn macro_fstring_append_expr(ctx: &mut LoweringContext, out: &mut String, tokens_str: &str, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<(String, Type), String> {
+    let comma_pos = tokens_str.find(',')
+        .ok_or_else(|| format!("__fstring_append_expr! requires handler and expr: {}", tokens_str))?;
+    let handler_name = tokens_str[..comma_pos].trim().to_string();
+    let expr_str = tokens_str[comma_pos + 1..].trim().to_string();
+    
+    let resolved_ty = resolve_fstring_expr_type(&expr_str, local_vars, ctx);
+    
+    let append_code = match &resolved_ty {
+        Some(Type::I32) => format!("{}.append_i32({})", handler_name, expr_str),
+        Some(Type::I8) | Some(Type::I16) => format!("{}.append_i32({} as i32)", handler_name, expr_str),
+        Some(Type::I64) | Some(Type::Usize) => format!("{}.append_i64({})", handler_name, expr_str),
+        Some(Type::U8) | Some(Type::U16) | Some(Type::U32) | Some(Type::U64) => format!("{}.append_i64({} as i64)", handler_name, expr_str),
+        Some(Type::F32) => format!("{}.append_f64({} as f64)", handler_name, expr_str),
+        Some(Type::F64) => format!("{}.append_f64({})", handler_name, expr_str),
+        Some(Type::Bool) => format!("{}.append_bool({})", handler_name, expr_str),
+        Some(Type::Reference(inner, _)) if matches!(**inner, Type::U8) => {
+            format!("{}.append_str({})", handler_name, expr_str)
+        }
+        Some(the_ty @ (Type::Struct(_) | Type::Concrete(_, _))) => {
+            let name = match the_ty {
+                Type::Struct(n) | Type::Concrete(n, _) => n.clone(),
+                _ => unreachable!(),
+            };
+            let type_key = crate::codegen::type_bridge::type_to_type_key(the_ty);
+            if ctx.trait_registry().contains_method(&type_key, "fmt") {
+                let fmt_id = ctx.next_id();
+                format!(
+                    "{{ let mut __fmt_{id} = std::core::fmt::Formatter::new(); \
+                     ({expr}).fmt(&mut __fmt_{id}); \
+                     {handler}.append_fmt_result(__fmt_{id}.as_ptr(), __fmt_{id}.len()); }}",
+                    id = fmt_id,
+                    expr = expr_str,
+                    handler = handler_name
+                )
+            } else {
+                eprintln!("WARNING: Struct '{}' has no fmt() method in f-string", name);
+                format!("{}.append_i32({})", handler_name, expr_str)
+            }
+        }
+        _ => {
+            format!("{}.append_i32({})", handler_name, expr_str)
+        }
+    };
+    
+    let append_parsed: syn::Expr = syn::parse_str(&append_code)
+        .map_err(|e| format!("__fstring_append_expr! codegen parse error: {} (code: {})", e, append_code))?;
+    emit_expr(ctx, out, &append_parsed, local_vars, None)
+}
+
+fn macro_builtin_hash(ctx: &mut LoweringContext, out: &mut String, content: &str) -> Result<(String, Type), String> {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    if content.is_empty() {
+        return Err("__builtin_hash! requires a string literal argument".to_string());
+    }
+
+    let mut hasher = DefaultHasher::new();
+    content.hash(&mut hasher);
+    let hash_val: u64 = hasher.finish();
+
+    let res_var = format!("%hash_const_{}", ctx.next_id());
+    let hash_i64 = hash_val as i64;
+    out.push_str(&format!(
+        "    {} = arith.constant {} : i64\n",
+        res_var, hash_i64
+    ));
+
+    Ok((res_var, Type::I64))
+}
+
+fn emit_return_expr(ctx: &mut LoweringContext, out: &mut String, r: &syn::ExprReturn, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<(String, Type), String> {
+            if let Some(e) = &r.expr {
+                let expected_ret = ctx.current_ret_ty().clone();
+                let (val_raw, ty) = emit_expr(ctx, out, e, local_vars, expected_ret.as_ref())?;
+
+                // [ESCAPE ANALYSIS V5.1] Recursive escape marking.
+                // Walks the expression tree to find all malloc-tracked sources,
+                // handling casts, pointer arithmetic, method calls, etc.
+                mark_expression_escaped(ctx, e);
+
+                // [ARENA ESCAPE ANALYSIS] Law I: The Return Rule.
+                // return x is valid iff depth(x) <= 1.
+                // A pointer from a local arena (depth >= 2) cannot escape.
+                if let Some(var_name) = extract_return_var_name_from_expr(e) {
+                    if let Err(msg) = ctx.arena_escape_tracker.check_return_escape(&var_name) {
+                        return Err(msg);
+                    }
+                }
+
+                let mut val = val_raw;
+                if ty == Type::Unit {
+                    // [ESCAPE ANALYSIS V5.1] Still emit cleanup before returning
+                    ctx.transfer_ownership(&val)?;
+                    crate::codegen::stmt::emit_cleanup_for_return(ctx, out, local_vars)?;
+                    out.push_str("    func.return\n");
+                    return Ok(("%unreachable".to_string(), Type::Never));
+                }
+                if let Some(expected) = &expected_ret {
+                    val = crate::codegen::type_bridge::promote_numeric(ctx, out, &val, &ty, expected)?;
+                }
+                let mlir_ty = if let Some(exp_ty) = &expected_ret {
+                    let e_ty: Type = (*exp_ty).clone();
+                    e_ty.to_mlir_type(ctx)?
+                } else {
+                    ty.to_mlir_type(ctx)?
+                };
+                
+                // [V1.1] RAII-Lite: Transfer ownership of returned value and emit cleanup
+                ctx.transfer_ownership(&val)?;
+                crate::codegen::stmt::emit_cleanup_for_return(ctx, out, local_vars)?;
+                
+                // [v0.9.2 POSTCONDITION PIVOT] Z3 verification of ensures clauses at return site
+                let ensures = ctx.current_ensures().clone();
+                if !ensures.is_empty() {
+                    let fn_name = ctx.current_fn_name().clone();
+                    let file_items = &ctx.config.file.items;
+                    let (requires, param_names) = file_items.iter()
+                        .filter_map(|item| {
+                            if let crate::grammar::Item::Fn(f) = item {
+                                if f.name.to_string() == fn_name || fn_name.ends_with(&f.name.to_string()) {
+                                    let params: Vec<String> = f.args.iter().map(|a| a.name.to_string()).collect();
+                                    return Some((f.requires.clone(), params));
+                                }
+                            }
+                            None
+                        })
+                        .next()
+                        .unwrap_or((vec![], vec![]));
+
+                    match crate::codegen::verification::VerificationEngine::verify_postcondition(
+                        ctx, &ensures, &requires, e, &param_names, local_vars, &fn_name,
+                    ) {
+                        Ok(true) => {
+                            out.push_str(&format!("    // z3_postcondition_verified: ensures proven for '{}'\n", fn_name));
+                        }
+                        Ok(false) => {}
+                        Err(err) => {
+                            return Err(err);
+                        }
+                    }
+                }
+
+                let loc = ctx.loc_tag(r.span());
+                out.push_str(&format!("    func.return {} : {}{}\n", val, mlir_ty, loc));
+            } else {
+                // [V1.1] RAII-Lite: Emit cleanup before void return
+                crate::codegen::stmt::emit_cleanup_for_return(ctx, out, local_vars)?;
+                
+                let loc = ctx.loc_tag(r.span());
+                out.push_str(&format!("    func.return{}\n", loc));
+            }
+            Ok(("%unreachable".to_string(), Type::Never))
+
+}
 
 // Extracted helpers
 
@@ -791,706 +748,527 @@ pub fn unify_types(t1: &Type, t2: &Type) -> Result<Type, String> {
     }
 }
 
-pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<(String, Type, LValueKind), String> {
-    // 0. Namespace Lookahead (Canonical Path Flattening)
-    if let Some(segments) = get_path_from_expr(expr) {
-        if let Some((pkg, item)) = resolve_package_prefix_ctx(ctx, &segments) {
-            let mangled_name = if item.is_empty() { pkg.clone() } else { format!("{}__{}", pkg, item) };
-            if let Some(ty) = ctx.resolve_global(&mangled_name) {
-                ctx.ensure_global_declared(&mangled_name, &ty)?;
-                let addr = format!("%addr_glob_{}", ctx.next_id());
-                ctx.emit_addressof(out, &addr, &mangled_name)?;
-                return Ok((addr, ty, LValueKind::Global(mangled_name.clone())));
-            }
-            
-            // [FIX] Check if the base (pkg) is a global. If so, this is a field access on a global.
-            // e.g. GLOBAL_SCHED.yield_pending -> pkg="...__GLOBAL_SCHED", item="yield_pending"
-            // We should fall through to standard field handling.
-            if !item.is_empty() && ctx.resolve_global(&pkg).is_some() {
-                // Determine it's a field access on a global - fall through to match expr
-            } else if item.is_empty() {
-                return Err(format!("Package or module '{}' used as L-Value", segments.join(".")));
+
+
+fn emit_lvalue_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<(String, Type, LValueKind), String> {
+    let (base_ptr, base_ty, base_kind) = emit_lvalue(ctx, out, &i.expr, local_vars)?;
+
+    if let Type::Tensor(ref elem_ty, ref shape) = base_ty {
+        return emit_lvalue_index_tensor(ctx, out, i, local_vars, base_ptr, base_kind, elem_ty, shape);
+    }
+    
+    if let Type::Pointer { ref element, .. } = base_ty {
+        return emit_lvalue_index_pointer(ctx, out, i, local_vars, base_ptr, base_kind, element);
+    }
+    
+    let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::Usize))?;
+    let idx_prom = promote_numeric(ctx, out, &idx_val, &idx_ty, &Type::I64)?;
+    
+    match base_ty {
+        Type::Array(ref elem_ty, _, packed) => {
+            emit_lvalue_index_array(ctx, out, base_ptr, base_kind, elem_ty, packed, &idx_prom, &base_ty)
+        },
+        Type::Window(ref elem_ty, _) | Type::Owned(ref elem_ty) => {
+            emit_lvalue_index_window(ctx, out, base_ptr, base_kind, elem_ty, &idx_prom, &base_ty)
+        },
+        Type::Reference(ref elem_ty, _) => {
+            emit_lvalue_index_reference(ctx, out, base_ptr, base_kind, elem_ty, &idx_prom, &base_ty)
+        },
+        Type::Struct(_) | Type::Concrete(..) => {
+            emit_lvalue_index_struct(ctx, out, base_ptr, base_kind, &base_ty, &idx_prom)
+        },
+        _ => Err(format!("Index operator not supported on type {:?}", base_ty))
+    }
+}
+
+fn emit_lvalue_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_kind: LValueKind, elem_ty: &Type, shape: &Vec<usize>) -> Result<(String, Type, LValueKind), String> {
+    let tensor_ptr = match base_kind {
+        LValueKind::Local | LValueKind::Ptr => {
+            let loaded = format!("%tensor_lv_loaded_{}", ctx.next_id());
+            if ctx.config.emit_alias_scopes {
+                out.push_str(&format!("    {} = llvm.load {} {{ alias_scopes = [#scope_local], noalias = [#scope_global] }} : !llvm.ptr -> !llvm.ptr\n", loaded, base_ptr));
             } else {
-                 // Not a global field access, and not a full global.
-                 // If it starts with an import, it's an undefined static.
-                 let first = &segments[0];
-                 if ctx.imports().iter().any(|imp| {
-                    if let Some(alias) = &imp.alias { alias == first }
-                    else if let Some(f) = imp.name.first() { 
-                        let f_str: String = f.to_string();
-                        f_str == *first 
-                    }
-                    else { false }
-                 }) {
-                    return Err(format!("Undefined global or static '{}' in package/module path '{}'", segments.last().unwrap_or(&"".to_string()), segments.join(".")));
-                 }
+                ctx.emit_load(out, &loaded, &base_ptr, "!llvm.ptr");
             }
+            loaded
+        }
+        LValueKind::SSA => base_ptr.clone(),
+        LValueKind::Global(_) => {
+            let loaded = format!("%tensor_lv_global_loaded_{}", ctx.next_id());
+            if ctx.config.emit_alias_scopes {
+                out.push_str(&format!("    {} = llvm.load {} {{ alias_scopes = [#scope_global], noalias = [#scope_local] }} : !llvm.ptr -> !llvm.ptr\n", loaded, base_ptr));
+            } else {
+                ctx.emit_load(out, &loaded, &base_ptr, "!llvm.ptr");
+            }
+            loaded
+        }
+        _ => base_ptr.clone()
+    };
+
+    let index_expr = if let syn::Expr::Paren(p) = &*i.index {
+        &*p.expr
+    } else {
+        &*i.index
+    };
+    let indices = if let syn::Expr::Tuple(tup) = index_expr {
+        let mut v = Vec::new();
+        for e in &tup.elems {
+            let (val, ty) = emit_expr(ctx, out, e, local_vars, Some(&Type::Usize))?;
+            let idx_index = if ty == Type::Usize {
+                val
+            } else {
+                let i64_val = promote_numeric(ctx, out, &val, &ty, &Type::I64)?;
+                let idx = format!("%idx_lv_{}", ctx.next_id());
+                out.push_str(&format!("    {} = arith.index_cast {} : i64 to index\n", idx, i64_val));
+                idx
+            };
+            v.push(idx_index);
+        }
+        v
+    } else {
+        let (idx_val, idx_ty) = emit_expr(ctx, out, index_expr, local_vars, Some(&Type::Usize))?;
+        let idx_index = if idx_ty == Type::Usize {
+            idx_val
         } else {
-            // No package prefix resolved. Check for partial import match (Error Case)
-            let first = &segments[0];
-            if ctx.imports().iter().any(|imp| {
-                if let Some(alias) = &imp.alias { alias == first }
-                else if let Some(f) = imp.name.first() { 
-                    let f_str: String = f.to_string();
-                    f_str == *first 
-                }
-                else { false }
-            }) {
-                return Err(format!("Undefined global or static '{}' in package/module path '{}'", segments.last().unwrap_or(&"".to_string()), segments.join(".")));
+            let i64_val = promote_numeric(ctx, out, &idx_val, &idx_ty, &Type::I64)?;
+            let idx = format!("%idx_lv_{}", ctx.next_id());
+            out.push_str(&format!("    {} = arith.index_cast {} : i64 to index\n", idx, i64_val));
+            idx
+        };
+        vec![idx_index]
+    };
+    
+    Ok((tensor_ptr.clone(), elem_ty.clone(), LValueKind::Tensor { 
+        memref: tensor_ptr, 
+        indices, 
+        elem_ty: Box::new(elem_ty.clone()), 
+        shape: shape.clone() 
+    }))
+}
+
+fn emit_lvalue_index_pointer(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_kind: LValueKind, element: &Type) -> Result<(String, Type, LValueKind), String> {
+    let loaded_ptr = if matches!(base_kind, LValueKind::SSA) {
+        base_ptr.clone()
+    } else {
+        let res = format!("%ptr_lvalue_loaded_{}", ctx.next_id());
+        ctx.emit_load(out, &res, &base_ptr, "!llvm.ptr");
+        res
+    };
+
+    let (raw_idx_val, raw_idx_ty) = emit_expr(ctx, out, &i.index, local_vars, None)?;
+    let idx_final = if raw_idx_ty == Type::I64 {
+        raw_idx_val
+    } else {
+        promote_numeric(ctx, out, &raw_idx_val, &raw_idx_ty, &Type::I64)?
+    };
+
+    if let Type::Array(ref arr_elem, _, _) = element {
+        let arr_mlir = element.to_mlir_type(ctx)?;
+        let elem_ptr = format!("%mut_arr_elem_ptr_{}", ctx.next_id());
+        out.push_str(&format!("    {} = llvm.getelementptr {}[0, {}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n",
+            elem_ptr, loaded_ptr, idx_final, arr_mlir));
+        return Ok((elem_ptr, (**arr_elem).clone(), LValueKind::Ptr));
+    }
+
+    let ptr = format!("%ptr_elem_{}", ctx.next_id());
+    let elem_mlir = element.to_mlir_storage_type(ctx)?;
+    ctx.emit_gep(out, &ptr, &loaded_ptr, &idx_final, &elem_mlir);
+    Ok((ptr, element.clone(), LValueKind::Ptr))
+}
+
+fn emit_lvalue_index_array(ctx: &mut LoweringContext, out: &mut String, base_ptr: String, base_kind: LValueKind, elem_ty: &Type, packed: bool, idx_prom: &str, base_ty: &Type) -> Result<(String, Type, LValueKind), String> {
+    let array_ty = base_ty.to_mlir_type(ctx)?;
+    if packed {
+        let c64 = format!("%c64_{}", ctx.next_id());
+        ctx.emit_const_int(out, &c64, 64, "i64");
+        let word_idx = format!("%word_idx_{}", ctx.next_id());
+        ctx.emit_binop(out, &word_idx, "arith.divui", idx_prom, &c64, "i64");
+        let bit_off = format!("%bit_off_{}", ctx.next_id());
+        ctx.emit_binop(out, &bit_off, "arith.remui", idx_prom, &c64, "i64");
+        let ptr = format!("%word_ptr_{}", ctx.next_id());
+        out.push_str(&format!("    {} = llvm.getelementptr {}[0, {}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n", 
+            ptr, base_ptr, word_idx, array_ty));
+        Ok((ptr, Type::Bool, LValueKind::Bit(bit_off)))
+    } else {
+        let ptr = format!("%array_elem_ptr_{}", ctx.next_id());
+        out.push_str(&format!("    {} = llvm.getelementptr {}[0, {}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n", 
+            ptr, base_ptr, idx_prom, array_ty));
+        Ok((ptr, elem_ty.clone(), base_kind))
+    }
+}
+
+fn emit_lvalue_index_window(ctx: &mut LoweringContext, out: &mut String, base_ptr: String, base_kind: LValueKind, elem_ty: &Type, idx_prom: &str, base_ty: &Type) -> Result<(String, Type, LValueKind), String> {
+    let kind = if matches!(base_ty, Type::Owned(..)) { LValueKind::Local } else { LValueKind::Global(String::new()) };
+    let loaded_ptr = if matches!(base_kind, LValueKind::SSA) {
+        base_ptr
+    } else {
+        let res = format!("%loaded_ptr_{}", ctx.next_id());
+        let scopes = match base_kind {
+            LValueKind::Local => Some(("#scope_local", "#scope_global")),
+            LValueKind::Global(_) => Some(("#scope_global", "#scope_local")),
+            _ => None,
+        };
+        ctx.emit_load_logical_with_scope(out, &res, &base_ptr, base_ty, scopes)?;
+        res
+    };
+    let ptr = format!("%elem_ptr_{}", ctx.next_id());
+    let elem_mlir = elem_ty.to_mlir_type(ctx)?;
+    ctx.emit_gep(out, &ptr, &loaded_ptr, idx_prom, &elem_mlir);
+    Ok((ptr, elem_ty.clone(), kind))
+}
+
+fn emit_lvalue_index_reference(ctx: &mut LoweringContext, out: &mut String, base_ptr: String, base_kind: LValueKind, elem_ty: &Type, idx_prom: &str, base_ty: &Type) -> Result<(String, Type, LValueKind), String> {
+    if let Type::Array(ref arr_elem_ty, _, packed) = elem_ty {
+        let arr_base = base_ptr.clone();
+        if *packed {
+            let array_ty = elem_ty.to_mlir_type(ctx)?;
+            let c64 = format!("%c64_{}", ctx.next_id());
+            ctx.emit_const_int(out, &c64, 64, "i64");
+            let word_idx = format!("%word_idx_{}", ctx.next_id());
+            ctx.emit_binop(out, &word_idx, "arith.divui", idx_prom, &c64, "i64");
+            let bit_off = format!("%bit_off_{}", ctx.next_id());
+            ctx.emit_binop(out, &bit_off, "arith.remui", idx_prom, &c64, "i64");
+            let ptr = format!("%word_ptr_{}", ctx.next_id());
+            out.push_str(&format!("    {} = llvm.getelementptr {}[0, {}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n",
+                ptr, arr_base, word_idx, array_ty));
+            return Ok((ptr, Type::Bool, LValueKind::Bit(bit_off)));
+        }
+        let array_ty = elem_ty.to_mlir_type(ctx)?;
+        let ptr = format!("%ref_arr_elem_ptr_{}", ctx.next_id());
+        out.push_str(&format!("    {} = llvm.getelementptr {}[0, {}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n",
+            ptr, arr_base, idx_prom, array_ty));
+        return Ok((ptr, (**arr_elem_ty).clone(), LValueKind::Ptr));
+    }
+
+    let loaded_ptr = if matches!(base_kind, LValueKind::SSA) {
+        base_ptr
+    } else {
+        let res = format!("%ref_loaded_ptr_{}", ctx.next_id());
+        let scopes = match base_kind {
+            LValueKind::Local => Some(("#scope_local", "#scope_global")),
+            LValueKind::Global(_) => Some(("#scope_global", "#scope_local")),
+            _ => None,
+        };
+        ctx.emit_load_logical_with_scope(out, &res, &base_ptr, base_ty, scopes)?;
+        res
+    };
+    let ptr = format!("%elem_ptr_{}", ctx.next_id());
+    let elem_mlir = elem_ty.to_mlir_type(ctx)?;
+    ctx.emit_gep(out, &ptr, &loaded_ptr, idx_prom, &elem_mlir);
+    Ok((ptr, elem_ty.clone(), LValueKind::Ptr))
+}
+
+fn emit_lvalue_index_struct(ctx: &mut LoweringContext, out: &mut String, base_ptr: String, base_kind: LValueKind, base_ty: &Type, idx_prom: &str) -> Result<(String, Type, LValueKind), String> {
+    let resolved = crate::codegen::type_bridge::resolve_codegen_type(ctx, base_ty);
+    let struct_name = match &resolved {
+        Type::Struct(n) => n.clone(),
+        Type::Concrete(n, args) => {
+            let suffix = args.iter().map(|t| t.mangle_suffix()).collect::<Vec<_>>().join("_");
+            format!("{}_{}", n, suffix)
+        }
+        _ => return Err(format!("Index operator not supported on type {:?}", base_ty)),
+    };
+    
+    if let Some(struct_info) = ctx.find_struct_by_name(&struct_name) {
+        if let Some((field_idx, field_ty)) = struct_info.fields.get("data") {
+            if let Type::Pointer { element, .. } = field_ty {
+                let element = (**element).clone();
+                let field_idx = *field_idx;
+                
+                let struct_ptr = if matches!(base_kind, LValueKind::SSA) {
+                    base_ptr.clone()
+                } else {
+                    let res = format!("%struct_loaded_{}", ctx.next_id());
+                    ctx.emit_load(out, &res, &base_ptr, "!llvm.ptr");
+                    res
+                };
+                
+                let storage_ty = resolved.to_mlir_storage_type(ctx)?;
+                let data_field_ptr = format!("%data_field_ptr_{}", ctx.next_id());
+                out.push_str(&format!("    {} = llvm.getelementptr {}[0, {}] : (!llvm.ptr) -> !llvm.ptr, {}\n",
+                    data_field_ptr, struct_ptr, field_idx, storage_ty));
+                
+                let data_ptr = format!("%data_ptr_{}", ctx.next_id());
+                ctx.emit_load(out, &data_ptr, &data_field_ptr, "!llvm.ptr");
+                
+                let elem_ptr = format!("%slice_elem_ptr_{}", ctx.next_id());
+                let elem_mlir = element.to_mlir_storage_type(ctx)?;
+                ctx.emit_gep(out, &elem_ptr, &data_ptr, idx_prom, &elem_mlir);
+                
+                return Ok((elem_ptr, element, LValueKind::Ptr));
             }
         }
     }
+    Err(format!("Index operator not supported on type {:?} (no 'data: Ptr<T>' field found)", base_ty))
+}
+
+
+fn emit_lvalue_field(ctx: &mut LoweringContext, out: &mut String, f: &syn::ExprField, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<(String, Type, LValueKind), String> {
+    let (base_addr, base_ty, kind) = emit_lvalue(ctx, out, &f.base, local_vars)?;
+
+    match base_ty {
+        crate::types::Type::Struct(ref sn) | crate::types::Type::Concrete(ref sn, _) => {
+            emit_lvalue_field_struct(ctx, out, f, base_addr, &base_ty, sn)
+        }
+        crate::types::Type::Owned(ref inner) => {
+            emit_lvalue_field_owned(ctx, out, f, base_addr, kind, inner)
+        }
+        crate::types::Type::Tuple(ref elems) => {
+            emit_lvalue_field_tuple(ctx, out, f, base_addr, &base_ty, elems)
+        }
+        crate::types::Type::Reference(ref inner, _) => {
+            emit_lvalue_field_reference(ctx, out, f, base_addr, kind, inner)
+        }
+        crate::types::Type::Pointer { ref element, .. } => {
+            emit_lvalue_field_pointer(ctx, out, f, base_addr, kind, element)
+        }
+        _ => Err(format!("Cannot access field {:?} on base type {:?}", f.member, base_ty))
+    }
+}
+
+fn build_local_spec_map(ctx: &LoweringContext, info: &crate::registry::StructInfo) -> std::collections::BTreeMap<String, Type> {
+    let mut local_spec_map = ctx.current_type_map().clone();
+    if !info.specialization_args.is_empty() {
+        if let Some(ref template_name) = info.template_name {
+            if let Some(template_def) = ctx.struct_templates().get(template_name).cloned() {
+                if let Some(ref generics) = template_def.generics {
+                    for (i, param) in generics.params.iter().enumerate() {
+                        if let crate::grammar::GenericParam::Type { name: param_name, .. } = param {
+                            if i < info.specialization_args.len() {
+                                local_spec_map.insert(param_name.to_string(), info.specialization_args[i].clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    local_spec_map
+}
+
+fn emit_lvalue_field_struct(ctx: &mut LoweringContext, out: &mut String, f: &syn::ExprField, base_addr: String, base_ty: &Type, sn: &String) -> Result<(String, Type, LValueKind), String> {
+    let sn_resolved = if let crate::types::Type::Concrete(base, args) = base_ty {
+        ctx.ensure_struct_exists(base, args)?
+    } else {
+        sn.clone()
+    };
+    let sn = &sn_resolved;
+
+    let field_name = if let syn::Member::Named(id) = &f.member { id.to_string() } else { return Err("Named field expected".to_string()); };
+    if ctx.enum_registry().values().any(|i| i.name == *sn) {
+        return Err(format!("Field access '{}' on Enum '{}' not supported (use match)", field_name, sn));
+    }
+    let mut info_opt = ctx.struct_registry().values().find(|i| i.name == *sn).cloned();
+    if info_opt.is_none() {
+        info_opt = ctx.find_struct_by_name(sn);
+    }
+    let info = info_opt.ok_or_else(|| format!("Struct info missing for '{}'", sn))?;
+
+    if let Some((idx, raw_field_ty)) = info.fields.get(&field_name) {
+        let local_spec_map = build_local_spec_map(ctx, &info);
+        let field_ty = raw_field_ty.substitute(&local_spec_map);
+        let gep_var = format!("%gep_f_{}", ctx.next_id());
+        let mlir_struct = Type::Struct(info.name.clone()).to_mlir_type(ctx)?;
+
+        if mlir_struct == "i64" {
+            return Ok((base_addr, field_ty.clone(), LValueKind::Ptr));
+        }
+
+        let phys_idx = ctx.get_physical_index(&info.field_order, *idx);
+        ctx.emit_gep_field(out, &gep_var, &base_addr, phys_idx, &mlir_struct);
+        Ok((gep_var, field_ty, LValueKind::Ptr))
+    } else { Err(format!("Field not found {}", field_name)) }
+}
+
+fn emit_lvalue_field_owned(ctx: &mut LoweringContext, out: &mut String, f: &syn::ExprField, base_addr: String, kind: LValueKind, inner: &Type) -> Result<(String, Type, LValueKind), String> {
+    let inner_resolved = if let crate::types::Type::Concrete(base, args) = inner {
+        crate::types::Type::Struct(ctx.ensure_struct_exists(base, args)?)
+    } else {
+        inner.clone()
+    };
+
+    match inner_resolved {
+        crate::types::Type::Struct(ref sn) | crate::types::Type::Concrete(ref sn, _) => {
+            let field_name = if let syn::Member::Named(id) = &f.member { id.to_string() } else { return Err("Named field expected".to_string()); };
+            let mut info_opt = ctx.struct_registry().values().find(|i| i.name == *sn).cloned();
+            if info_opt.is_none() {
+                let suffix = format!("__{}", sn);
+                for info in ctx.struct_registry().values() {
+                    if info.name.ends_with(&suffix) {
+                        info_opt = Some(info.clone());
+                        break;
+                    }
+                }
+            }
+            let info = info_opt.expect("Struct info missing");
+
+            if let Some((idx, raw_field_ty)) = info.fields.get(&field_name) {
+                let local_spec_map = build_local_spec_map(ctx, &info);
+                let field_ty = raw_field_ty.substitute(&local_spec_map);
+                let loaded_ptr = if kind == LValueKind::SSA { base_addr } else {
+                    let res = format!("%loaded_ptr_{}", ctx.next_id());
+                    ctx.emit_load(out, &res, &base_addr, "!llvm.ptr");
+                    res
+                };
+                let gep_var = format!("%gep_f_{}", ctx.next_id());
+                let mlir_struct = inner.to_mlir_type(ctx)?;
+
+                let phys_idx = ctx.get_physical_index(&info.field_order, *idx);
+                ctx.emit_gep_field(out, &gep_var, &loaded_ptr, phys_idx, &mlir_struct);
+                Ok((gep_var, field_ty, LValueKind::Ptr))
+            } else { Err(format!("Field not found {}", field_name)) }
+        }
+        crate::types::Type::Tuple(ref elems) => {
+            let idx = if let syn::Member::Unnamed(idx) = &f.member { idx.index as usize } else { return Err("Tuple access requires index".to_string()); };
+            if idx >= elems.len() { return Err(format!("Tuple index out of bounds: {} >= {}", idx, elems.len())); }
+            let field_ty = &elems[idx];
+            let loaded_ptr = if kind == LValueKind::SSA { base_addr } else {
+                let res = format!("%loaded_ptr_{}", ctx.next_id());
+                ctx.emit_load(out, &res, &base_addr, "!llvm.ptr");
+                res
+            };
+            let gep_var = format!("%gep_tuple_{}", ctx.next_id());
+            let mlir_tuple = inner.to_mlir_type(ctx)?;
+            ctx.emit_gep_field(out, &gep_var, &loaded_ptr, idx, &mlir_tuple);
+            Ok((gep_var, field_ty.clone(), LValueKind::Ptr))
+        }
+        _ => Err(format!("Field access not supported on type {:?}", inner_resolved)),
+    }
+}
+
+fn emit_lvalue_field_tuple(ctx: &mut LoweringContext, out: &mut String, f: &syn::ExprField, base_addr: String, base_ty: &Type, elems: &Vec<Type>) -> Result<(String, Type, LValueKind), String> {
+    let idx = if let syn::Member::Unnamed(idx) = &f.member { idx.index as usize } else { return Err("Tuple access requires index".to_string()); };
+    if idx >= elems.len() { return Err(format!("Tuple index out of bounds: {} >= {}", idx, elems.len())); }
+    let field_ty = &elems[idx];
+    let gep_var = format!("%gep_tuple_{}", ctx.next_id());
+    let mlir_tuple = base_ty.to_mlir_type(ctx)?;
+    ctx.emit_gep_field(out, &gep_var, &base_addr, idx, &mlir_tuple);
+    Ok((gep_var, field_ty.clone(), LValueKind::Ptr))
+}
+
+fn emit_lvalue_field_reference(ctx: &mut LoweringContext, out: &mut String, f: &syn::ExprField, base_addr: String, kind: LValueKind, inner: &Type) -> Result<(String, Type, LValueKind), String> {
+    let loaded_ptr = if kind == LValueKind::SSA {
+        base_addr
+    } else {
+        let res = format!("%loaded_ref_{}", ctx.next_id());
+        ctx.emit_load(out, &res, &base_addr, "!llvm.ptr");
+        res
+    };
+    
+    let inner_resolved = if let crate::types::Type::Concrete(base, args) = inner {
+        crate::types::Type::Struct(ctx.ensure_struct_exists(base, args)?)
+    } else {
+        inner.clone()
+    };
+
+    match inner_resolved {
+        crate::types::Type::Struct(ref sn) => {
+            let field_name = if let syn::Member::Named(id) = &f.member { id.to_string() } else { return Err("Named field expected".to_string()); };
+            let mut info_opt = ctx.struct_registry().values().find(|i| i.name == *sn).cloned();
+            if info_opt.is_none() {
+                let suffix = format!("__{}", sn);
+                let mut best_match: Option<crate::registry::StructInfo> = None;
+                let mut best_len = usize::MAX;
+                for info in ctx.struct_registry().values() {
+                    if info.name.ends_with(&suffix) && info.name.len() < best_len {
+                        best_len = info.name.len();
+                        best_match = Some(info.clone());
+                    }
+                }
+                info_opt = best_match;
+            }
+
+            let info = info_opt.expect(&format!("Struct info missing for '{}'", sn));
+
+            if let Some((idx, field_ty)) = info.fields.get(&field_name) {
+                let gep_var = format!("%gep_f_{}", ctx.next_id());
+                let struct_mlir_ty = Type::Struct(info.name.clone()).to_mlir_type(ctx)?;
+                let phys_idx = ctx.get_physical_index(&info.field_order, *idx);
+                ctx.emit_gep_field(out, &gep_var, &loaded_ptr, phys_idx, &struct_mlir_ty);
+                Ok((gep_var, field_ty.clone(), LValueKind::Ptr))
+            } else { Err(format!("Field not found {} on {}", field_name, sn)) }
+        }
+        crate::types::Type::Tuple(ref elems) => {
+            let idx = if let syn::Member::Unnamed(idx) = &f.member { idx.index as usize } else { return Err("Tuple access requires index".to_string()); };
+            if idx >= elems.len() { return Err(format!("Tuple index out of bounds: {} >= {}", idx, elems.len())); }
+            let field_ty = &elems[idx];
+            let gep_var = format!("%gep_tuple_{}", ctx.next_id());
+            let mlir_tuple = inner.to_mlir_type(ctx)?;
+            ctx.emit_gep_field(out, &gep_var, &loaded_ptr, idx, &mlir_tuple);
+            Ok((gep_var, field_ty.clone(), LValueKind::Ptr))
+        }
+        _ => Err(format!("Cannot access field {:?} on reference to inner type {:?}", f.member, inner))
+    }
+}
+
+fn emit_lvalue_field_pointer(ctx: &mut LoweringContext, out: &mut String, f: &syn::ExprField, base_addr: String, kind: LValueKind, element: &Type) -> Result<(String, Type, LValueKind), String> {
+    let loaded_ptr = if matches!(kind, LValueKind::SSA) {
+        base_addr
+    } else {
+        let res = format!("%ptr_field_loaded_{}", ctx.next_id());
+        ctx.emit_load(out, &res, &base_addr, "!llvm.ptr");
+        res
+    };
+    
+    let inner_resolved = if let crate::types::Type::Concrete(base, args) = element {
+        crate::types::Type::Struct(ctx.ensure_struct_exists(base, args)?)
+    } else {
+        element.clone()
+    };
+
+    match inner_resolved {
+        crate::types::Type::Struct(ref sn) => {
+            let field_name = if let syn::Member::Named(id) = &f.member { id.to_string() } else { return Err("Named field expected".to_string()); };
+            let mut info_opt = ctx.struct_registry().values().find(|i| i.name == *sn).cloned();
+            if info_opt.is_none() {
+                info_opt = ctx.find_struct_by_name(sn);
+            }
+            if info_opt.is_none() {
+                let suffix = format!("__{}", sn);
+                let mut best_match: Option<crate::registry::StructInfo> = None;
+                let mut best_len = usize::MAX;
+                for info in ctx.struct_registry().values() {
+                    if info.name.ends_with(&suffix) && info.name.len() < best_len {
+                        best_len = info.name.len();
+                        best_match = Some(info.clone());
+                    }
+                }
+                info_opt = best_match;
+            }
+            let info = info_opt.expect(&format!("Struct info missing for '{}' in Ptr<T> field access", sn));
+
+            if let Some((idx, raw_field_ty)) = info.fields.get(&field_name) {
+                let local_spec_map = build_local_spec_map(ctx, &info);
+                let field_ty = raw_field_ty.substitute(&local_spec_map);
+                let gep_var = format!("%gep_f_{}", ctx.next_id());
+                let struct_mlir_ty = Type::Struct(info.name.clone()).to_mlir_type(ctx)?;
+                let phys_idx = ctx.get_physical_index(&info.field_order, *idx);
+                ctx.emit_gep_field(out, &gep_var, &loaded_ptr, phys_idx, &struct_mlir_ty);
+                Ok((gep_var, field_ty.clone(), LValueKind::Ptr))
+            } else { Err(format!("Field not found {} on Ptr<{}>", field_name, sn)) }
+        }
+        _ => Err(format!("Cannot access field {:?} on Ptr<{:?}>", f.member, element))
+    }
+}
+
+pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<(String, Type, LValueKind), String> {
+    if let Some(res) = resolve_lvalue_namespace_lookahead(ctx, out, expr)? {
+        return Ok(res);
+    }
 
     match expr {
-        syn::Expr::Path(p) => {
-            let segments: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
-            let name = Mangler::mangle(&segments);
-            let first = &segments[0];
-            
-            // 1. Check Local Scope First (Shadowing)
-            if let Some((ty, kind)) = local_vars.get(first).cloned() {
-                if segments.len() > 1 { return Err(format!("Cannot access field/namespace of local variable {} using path syntax", first)); }
-                match kind {
-                    LocalKind::Ptr(ptr_name) => return Ok((ptr_name, ty, LValueKind::Local)),
-                    LocalKind::SSA(ssa_name) => {
-                        if matches!(ty, Type::Tensor(..)) {
-                            return Ok((ssa_name, ty, LValueKind::SSA));
-                        }
-                        // [SSA PROMOTION] Check if this is an ephemeral ref (e.g. from reinterpret_cast)
-                        // If so, it's already a pointer - just return it directly without spilling
-                        let is_ephemeral_ref = ctx.emission.ephemeral_refs.contains(&ssa_name);
-                        if is_ephemeral_ref {
-                            // Ephemeral refs ARE pointers, return as LValueKind::SSA without spilling
-                            return Ok((ssa_name, ty, LValueKind::SSA));
-                        }
-                        // [REFERENCE FIX] Reference types (e.g., &self) are already pointers to the 
-                        // underlying struct. Do NOT spill them - return the pointer value directly.
-                        // Spilling a pointer creates a pointer-to-pointer which breaks field access.
-                        if matches!(ty, Type::Reference(_, _)) {
-                            return Ok((ssa_name, ty, LValueKind::SSA));
-                        }
-                        // [NOTE] Ptr<T> spills look wasteful in MLIR but are eliminated by
-                        // LLVM's mem2reg during `clang -O3`. Attempting to skip the spill here
-                        // breaks emit_assign's type dispatch (LValueKind::SSA + Pointer type
-                        // causes it to peel to element type instead of keeping the Pointer).
-                        // The correct optimization target is MLIR-level passes, not codegen.
-                        let tmp_alloca = format!("%spill_{}_{}", first, ctx.next_id());
-                        let mlir_ty = ty.to_mlir_type(ctx)?;
-                        ctx.emit_alloca(out, &tmp_alloca, &mlir_ty);
-                        out.push_str(&format!("    llvm.store {}, {} : {}, !llvm.ptr\n", ssa_name, tmp_alloca, mlir_ty));
-                        return Ok((tmp_alloca, ty, LValueKind::Ptr));
-                    }
-                }
-            }
-
-            // 2. Check Package/Global Resolution
-            if let Some((pkg, item)) = resolve_package_prefix_ctx(ctx, &segments) {
-                let mangled_name = if item.is_empty() { pkg } else if pkg.is_empty() { item } else { format!("{}__{}", pkg, item) };
-                if let Some(ty) = ctx.resolve_global(&mangled_name) {
-                    ctx.ensure_global_declared(&mangled_name, &ty)?;
-                    let addr = format!("%addr_glob_{}", ctx.next_id());
-                    ctx.emit_addressof(out, &addr, &mangled_name)?;
-                    return Ok((addr, ty, LValueKind::Global(mangled_name.clone())));
-                }
-                return Err(format!("Package or module '{}' used as L-Value", segments.join(".")));
-            }
-                let mut mangled = name.clone();
-                if let Some(pkg) = &ctx.config.file.package {
-                    let pkg_mangled = Mangler::mangle(&pkg.name.iter().map(|id: &syn::Ident| id.to_string()).collect::<Vec<_>>());
-                    let local_mangled = format!("{}__{}", pkg_mangled, mangled);
-                    if ctx.globals().contains_key(&local_mangled) {
-                        mangled = local_mangled;
-                    }
-                }
-
-                if let Some(ty) = ctx.resolve_global(&mangled) {
-                    ctx.ensure_global_declared(&mangled, &ty)?;
-                    let addr = format!("%addr_glob_{}", ctx.next_id());
-                    ctx.emit_addressof(out, &addr, &mangled)?;
-                    Ok((addr, ty, LValueKind::Global(mangled.clone())))
-                } else {
-                     Err(format!("Undefined variable or global: {}", name))
-                }
-        }
-        syn::Expr::Index(i) => {
-             let (base_ptr, base_ty, base_kind) = emit_lvalue(ctx, out, &i.expr, local_vars)?;
-             
-             // TENSOR SPECIAL CASE: Handle tuple indices before generic index evaluation
-             if let Type::Tensor(ref elem_ty, ref shape) = base_ty {
-                 // [FIX] If the tensor variable is stored in a stack slot, load the pointer first
-                 let tensor_ptr = match base_kind {
-                     LValueKind::Local | LValueKind::Ptr => {
-                         // base_ptr is a stack slot holding the tensor pointer - load it
-                         let loaded = format!("%tensor_lv_loaded_{}", ctx.next_id());
-                         if ctx.config.emit_alias_scopes {
-                             out.push_str(&format!("    {} = llvm.load {} {{ alias_scopes = [#scope_local], noalias = [#scope_global] }} : !llvm.ptr -> !llvm.ptr\n", loaded, base_ptr));
-                         } else {
-                             ctx.emit_load(out, &loaded, &base_ptr, "!llvm.ptr");
-                         }
-                         loaded
-                     }
-                     LValueKind::SSA => {
-                         // SSA value IS the tensor pointer
-                         base_ptr.clone()
-                     }
-                     LValueKind::Global(_) => {
-                         // Global - load the pointer from global address
-                         let loaded = format!("%tensor_lv_global_loaded_{}", ctx.next_id());
-                         if ctx.config.emit_alias_scopes {
-                             out.push_str(&format!("    {} = llvm.load {} {{ alias_scopes = [#scope_global], noalias = [#scope_local] }} : !llvm.ptr -> !llvm.ptr\n", loaded, base_ptr));
-                         } else {
-                             ctx.emit_load(out, &loaded, &base_ptr, "!llvm.ptr");
-                         }
-                         loaded
-                     }
-                     _ => base_ptr.clone() // Tensor/Bit kinds shouldn't happen here
-                 };
-
-                 // TENSOR LVALUE: Handle multi-dimensional indexed assignment
-                 // Unwrap Paren: (i, j) may be wrapped in syn::Expr::Paren
-                 let index_expr = if let syn::Expr::Paren(p) = &*i.index {
-                     &*p.expr
-                 } else {
-                     &*i.index
-                 };
-                 let indices = if let syn::Expr::Tuple(tup) = index_expr {
-                     let mut v = Vec::new();
-                     for e in &tup.elems {
-                         let (val, ty) = emit_expr(ctx, out, e, local_vars, Some(&Type::Usize))?;
-                         // Skip cast if already index type (Usize) - important for affine.for IVs
-                         let idx_index = if ty == Type::Usize {
-                             val
-                         } else {
-                             let i64_val = promote_numeric(ctx, out, &val, &ty, &Type::I64)?;
-                             let idx = format!("%idx_lv_{}", ctx.next_id());
-                             out.push_str(&format!("    {} = arith.index_cast {} : i64 to index\n", idx, i64_val));
-                             idx
-                         };
-                         v.push(idx_index);
-                     }
-                     v
-                 } else {
-                     // Single index
-                     let (idx_val, idx_ty) = emit_expr(ctx, out, index_expr, local_vars, Some(&Type::Usize))?;
-                     let idx_index = if idx_ty == Type::Usize {
-                         idx_val
-                     } else {
-                         let i64_val = promote_numeric(ctx, out, &idx_val, &idx_ty, &Type::I64)?;
-                         let idx = format!("%idx_lv_{}", ctx.next_id());
-                         out.push_str(&format!("    {} = arith.index_cast {} : i64 to index\n", idx, i64_val));
-                         idx
-                     };
-                     vec![idx_index]
-                 };
-                 
-                 return Ok((tensor_ptr.clone(), *elem_ty.clone(), LValueKind::Tensor { 
-                     memref: tensor_ptr, 
-                     indices, 
-                     elem_ty: Box::new(*elem_ty.clone()), 
-                     shape: shape.clone() 
-                 }));
-             }
-             
-             // [KEUOS V2.0]: First-Class Pointer Indexing for LValue
-             // Handle Ptr<T> BEFORE generic index evaluation (which uses Usize hint)
-             // This enables ptr[i] = value on the left-hand side of assignment
-             if let Type::Pointer { ref element, .. } = base_ty {
-                 
-                 // For Ptr<T>, get the pointer value from local variable
-                 let loaded_ptr = if matches!(base_kind, LValueKind::SSA) {
-                     base_ptr.clone()
-                 } else {
-                     // Load the pointer value from stack slot
-                     let res = format!("%ptr_lvalue_loaded_{}", ctx.next_id());
-                     ctx.emit_load(out, &res, &base_ptr, "!llvm.ptr");
-                     res
-                 };
-
-                 // [ZERO-TRUST INDEX EVALUATION]
-                 // Pass None instead of I64 hint to sever Context Contamination.
-                 // This prevents emit_expr from trying to match the outer Pointer context.
-
-                 let (raw_idx_val, raw_idx_ty) = emit_expr(ctx, out, &i.index, local_vars, None)?;
-
-                 
-                 // [MANUAL INTEGER ALIGNMENT]
-                 // Now that we have the raw value, force it to I64 for the GEP.
-                 let idx_final = if raw_idx_ty == Type::I64 {
-                     raw_idx_val
-                 } else {
-                     // This will correctly promote Usize -> I64 (Index Cast), NOT Usize -> Pointer.
-                     promote_numeric(ctx, out, &raw_idx_val, &raw_idx_ty, &Type::I64)?
-                 };
-
-                 // [ARRAY-REF FIX] Handle Pointer(Array(T, N)) — &mut [T; N] write path
-                 // When element is Array, use [0, idx] GEP and return element type
-                 if let Type::Array(ref arr_elem, _, _) = **element {
-                     let arr_mlir = element.to_mlir_type(ctx)?;
-                     let elem_ptr = format!("%mut_arr_elem_ptr_{}", ctx.next_id());
-                     out.push_str(&format!("    {} = llvm.getelementptr {}[0, {}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n",
-                         elem_ptr, loaded_ptr, idx_final, arr_mlir));
-                     return Ok((elem_ptr, (**arr_elem).clone(), LValueKind::Ptr));
+        syn::Expr::Path(p) => emit_lvalue_path(ctx, out, p, local_vars),
+        syn::Expr::Index(i) => emit_lvalue_index(ctx, out, i, local_vars),
+        syn::Expr::Field(f) => emit_lvalue_field(ctx, out, f, local_vars),
+        syn::Expr::Unary(u) => {
+             if let syn::UnOp::Deref(_) = u.op {
+                 let (val, ty) = emit_expr(ctx, out, &u.expr, local_vars, None)?;
+                 match ty {
+                     crate::types::Type::Reference(inner, _) | crate::types::Type::Owned(inner) => Ok((val, *inner, LValueKind::SSA)),
+                     crate::types::Type::Pointer { element, .. } => Ok((val, *element, LValueKind::SSA)),
+                     _ => Err(format!("Cannot dereference type {:?}", ty))
                  }
-
-                 let ptr = format!("%ptr_elem_{}", ctx.next_id());
-                 let elem_mlir = element.to_mlir_storage_type(ctx)?;
-                 ctx.emit_gep(out, &ptr, &loaded_ptr, &idx_final, &elem_mlir);
-                 
-                 // Return element type (F32), NOT the Pointer base
-                 return Ok((ptr, (**element).clone(), LValueKind::Ptr));
-             }
-             
-             // For non-Tensor, non-Pointer types: evaluate single index
-             let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::Usize))?;
-             
-             // Ensure index is sign-extended to i64 for GEP
-             let idx_prom = promote_numeric(ctx, out, &idx_val, &idx_ty, &Type::I64)?;
-             
-             match base_ty {
-                 Type::Array(ref elem_ty, _, packed) => {
-                     let array_ty = base_ty.to_mlir_type(ctx)?;
-                     
-                     if packed {
-                          let c64 = format!("%c64_{}", ctx.next_id());
-                          ctx.emit_const_int(out, &c64, 64, "i64");
-                          let word_idx = format!("%word_idx_{}", ctx.next_id());
-                          ctx.emit_binop(out, &word_idx, "arith.divui", &idx_prom, &c64, "i64");
-                          let bit_off = format!("%bit_off_{}", ctx.next_id());
-                          ctx.emit_binop(out, &bit_off, "arith.remui", &idx_prom, &c64, "i64");
-
-                          let ptr = format!("%word_ptr_{}", ctx.next_id());
-                          out.push_str(&format!("    {} = llvm.getelementptr {}[0, {}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n", 
-                              ptr, base_ptr, word_idx, array_ty));
-                          
-                          Ok((ptr, Type::Bool, LValueKind::Bit(bit_off)))
-                     } else {
-                         let ptr = format!("%array_elem_ptr_{}", ctx.next_id());
-                         out.push_str(&format!("    {} = llvm.getelementptr {}[0, {}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n", 
-                             ptr, base_ptr, idx_prom, array_ty));
-                         
-                         Ok((ptr, *elem_ty.clone(), base_kind)) // Clone needed if ref
-                     }
-                 },
-                 Type::Window(ref elem_ty, _) | Type::Owned(ref elem_ty) => {
-                      let kind = if matches!(base_ty, Type::Owned(..)) { LValueKind::Local } else { LValueKind::Global(String::new()) };
-                      
-                      let loaded_ptr = if matches!(base_kind, LValueKind::SSA) {
-                          base_ptr
-                      } else {
-                          let res = format!("%loaded_ptr_{}", ctx.next_id());
-                          let scopes = match base_kind {
-                              LValueKind::Local => Some(("#scope_local", "#scope_global")),
-                              LValueKind::Global(_) => Some(("#scope_global", "#scope_local")),
-                              _ => None,
-                          };
-                          // Load the pointer from the stack slot/global
-                          // The type of the variable is Window/Owned, effectively a pointer.
-                          // emit_load_logical will load the pointer value.
-                          ctx.emit_load_logical_with_scope(out, &res, &base_ptr, &base_ty, scopes)?;
-                          res
-                      };
-
-                      let ptr = format!("%elem_ptr_{}", ctx.next_id());
-                      let elem_mlir = elem_ty.to_mlir_type(ctx)?;
-                      ctx.emit_gep(out, &ptr, &loaded_ptr, &idx_prom, &elem_mlir);
-                      
-                      Ok((ptr, *elem_ty.clone(), kind))
-                 },
-                 Type::Reference(ref elem_ty, _) => {
-                       // [ARRAY-REF FIX V3] Check for Array FIRST, before loading pointer
-                       // For Reference(Array(T, N)), handle indexing directly using base_ptr
-                       if let Type::Array(ref arr_elem_ty, _, packed) = **elem_ty {
-                            // [V3.1 FIX] For Reference(Array), base_ptr IS the array address.
-                            // Whether SSA (function arg) or Ptr (local var alloca),
-                            // the pointer points to array data. Loading would SIGSEGV.
-                            let arr_base = base_ptr.clone();
-
-                           if packed {
-                               let array_ty = elem_ty.to_mlir_type(ctx)?;
-                               let c64 = format!("%c64_{}", ctx.next_id());
-                               ctx.emit_const_int(out, &c64, 64, "i64");
-                               let word_idx = format!("%word_idx_{}", ctx.next_id());
-                               ctx.emit_binop(out, &word_idx, "arith.divui", &idx_prom, &c64, "i64");
-                               let bit_off = format!("%bit_off_{}", ctx.next_id());
-                               ctx.emit_binop(out, &bit_off, "arith.remui", &idx_prom, &c64, "i64");
-                               let ptr = format!("%word_ptr_{}", ctx.next_id());
-                               out.push_str(&format!("    {} = llvm.getelementptr {}[0, {}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n",
-                                   ptr, arr_base, word_idx, array_ty));
-                               return Ok((ptr, Type::Bool, LValueKind::Bit(bit_off)));
-                           }
-
-                           let array_ty = elem_ty.to_mlir_type(ctx)?;
-                           let ptr = format!("%ref_arr_elem_ptr_{}", ctx.next_id());
-                           out.push_str(&format!("    {} = llvm.getelementptr {}[0, {}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n",
-                               ptr, arr_base, idx_prom, array_ty));
-                           return Ok((ptr, *arr_elem_ty.clone(), LValueKind::Ptr));
-                       }
-
-                       // Non-array reference: load the pointer, then GEP
-                       let loaded_ptr = if matches!(base_kind, LValueKind::SSA) {
-                           base_ptr
-                       } else {
-                           let res = format!("%ref_loaded_ptr_{}", ctx.next_id());
-                           let scopes = match base_kind {
-                               LValueKind::Local => Some(("#scope_local", "#scope_global")),
-                               LValueKind::Global(_) => Some(("#scope_global", "#scope_local")),
-                               _ => None,
-                           };
-                           ctx.emit_load_logical_with_scope(out, &res, &base_ptr, &base_ty, scopes)?;
-                           res
-                       };
-
-                       let ptr = format!("%elem_ptr_{}", ctx.next_id());
-                       let elem_mlir = elem_ty.to_mlir_type(ctx)?;
-                       ctx.emit_gep(out, &ptr, &loaded_ptr, &idx_prom, &elem_mlir);
-
-                       Ok((ptr, *elem_ty.clone(), LValueKind::Ptr))
-                  },
-                 // Note: Tensor and Pointer are handled above before the match, so won't reach here
-                 
-                 // [KEUOS V9.0] Struct/Concrete indexing via `data: Ptr<T>` field
-                 // Enables: slice[i] = val, slice[i] += expr
-                 // Resolves Slice<T>[i] by loading the `data` field (Ptr<T>) and GEP with index.
-                 Type::Struct(_) | Type::Concrete(..) => {
-                     // Resolve the struct to find its fields
-                     let resolved = crate::codegen::type_bridge::resolve_codegen_type(ctx, &base_ty);
-                     let struct_name = match &resolved {
-                         Type::Struct(n) => n.clone(),
-                         Type::Concrete(n, args) => {
-                             let suffix = args.iter().map(|t| t.mangle_suffix()).collect::<Vec<_>>().join("_");
-                             format!("{}_{}", n, suffix)
-                         }
-                         _ => return Err(format!("Index operator not supported on type {:?}", base_ty)),
-                     };
-                     
-                     if let Some(struct_info) = ctx.find_struct_by_name(&struct_name) {
-                         // Look for `data` field of type Ptr<T>
-                         if let Some((field_idx, field_ty)) = struct_info.fields.get("data") {
-                             if let Type::Pointer { element, .. } = field_ty {
-                                 let element = (**element).clone();
-                                 let field_idx = *field_idx;
-                                 
-                                 // Load the base struct pointer if needed
-                                 let struct_ptr = if matches!(base_kind, LValueKind::SSA) {
-                                     base_ptr.clone()
-                                 } else {
-                                     let res = format!("%struct_loaded_{}", ctx.next_id());
-                                     ctx.emit_load(out, &res, &base_ptr, "!llvm.ptr");
-                                     res
-                                 };
-                                 
-                                 // GEP to the `data` field
-                                 let storage_ty = resolved.to_mlir_storage_type(ctx)?;
-                                 let data_field_ptr = format!("%data_field_ptr_{}", ctx.next_id());
-                                 out.push_str(&format!("    {} = llvm.getelementptr {}[0, {}] : (!llvm.ptr) -> !llvm.ptr, {}\n",
-                                     data_field_ptr, struct_ptr, field_idx, storage_ty));
-                                 
-                                 // Load the Ptr<T> value from the data field
-                                 let data_ptr = format!("%data_ptr_{}", ctx.next_id());
-                                 ctx.emit_load(out, &data_ptr, &data_field_ptr, "!llvm.ptr");
-                                 
-                                 // GEP with the index into the data pointer
-                                 let elem_ptr = format!("%slice_elem_ptr_{}", ctx.next_id());
-                                 let elem_mlir = element.to_mlir_storage_type(ctx)?;
-                                 ctx.emit_gep(out, &elem_ptr, &data_ptr, &idx_prom, &elem_mlir);
-                                 
-                                 return Ok((elem_ptr, element, LValueKind::Ptr));
-                             }
-                         }
-                     }
-                     
-                     Err(format!("Index operator not supported on type {:?} (no 'data: Ptr<T>' field found)", base_ty))
-                 }
-
-                 _ => Err(format!("Index operator not supported on type {:?}", base_ty))
-             }
-        },
-        syn::Expr::Field(f) => {
-             let (base_addr, base_ty, kind) = emit_lvalue(ctx, out, &f.base, local_vars)?;
-
-             
-             match base_ty {
-                  crate::types::Type::Struct(ref sn) | crate::types::Type::Concrete(ref sn, _) => {
-                       // FIX: Force separate specialization for Concrete types
-                       let sn_resolved = if let crate::types::Type::Concrete(base, args) = &base_ty {
-                           ctx.ensure_struct_exists(base, args)?
-                       } else {
-                           sn.clone()
-                       };
-                       let sn = &sn_resolved;
-
-                       let field_name = if let syn::Member::Named(id) = &f.member { id.to_string() } else { return Err("Named field expected".to_string()); };
-                       if ctx.enum_registry().values().any(|i| i.name == *sn) {
-                           return Err(format!("Field access '{}' on Enum '{}' not supported (use match)", field_name, sn));
-                       }
-                        let mut info_opt = ctx.struct_registry().values().find(|i| i.name == *sn).cloned();
-                        if info_opt.is_none() {
-                             // [VERIFIED METAL] Phase 5: Use centralized struct lookup
-                             info_opt = ctx.find_struct_by_name(sn);
-                        }
-                        let info = info_opt.ok_or_else(|| format!("Struct info missing for '{}' (available: {:?})", sn, ctx.struct_registry().iter().map(|(k, v)| (k.name.clone(), v.fields.len())).collect::<Vec<_>>()))?;
-
-                       if let Some((idx, raw_field_ty)) = info.fields.get(&field_name) {
-                            // [KEUOS V4.0] CHAINED RESOLUTION FIX: Build local specialization map
-                            let mut local_spec_map = ctx.current_type_map().clone();
-                            if !info.specialization_args.is_empty() {
-                                if let Some(ref template_name) = info.template_name {
-                                    if let Some(template_def) = ctx.struct_templates().get(template_name).cloned() {
-                                        if let Some(ref generics) = template_def.generics {
-                                            for (i, param) in generics.params.iter().enumerate() {
-                                                if let crate::grammar::GenericParam::Type { name: param_name, .. } = param {
-                                                    if i < info.specialization_args.len() {
-                                                        local_spec_map.insert(param_name.to_string(), info.specialization_args[i].clone());
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            let field_ty = raw_field_ty.substitute(&local_spec_map);
-                            let gep_var = format!("%gep_f_{}", ctx.next_id());
-                           // [KEUOS FIX] Use to_mlir_type for consistent struct alias naming
-                           let mlir_struct = Type::Struct(info.name.clone()).to_mlir_type(ctx)?;
-
-                           // SCALAR WRAPPER OPTIMIZATION
-                           if mlir_struct == "i64" {
-                               return Ok((base_addr, field_ty.clone(), LValueKind::Ptr));
-                           }
-
-                           let phys_idx = ctx.get_physical_index(&info.field_order, *idx);
-                           ctx.emit_gep_field(out, &gep_var, &base_addr, phys_idx, &mlir_struct);
-                           let f_ty: crate::types::Type = field_ty.clone();
-                           Ok((gep_var, f_ty, LValueKind::Ptr))
-                       } else { Err(format!("Field not found {} (info.fields has {:?})", field_name, info.fields.keys().collect::<Vec<_>>())) }
-                  }
-                  crate::types::Type::Owned(ref inner) => {
-                      let inner_resolved = if let crate::types::Type::Concrete(base, args) = &**inner {
-                           crate::types::Type::Struct(ctx.ensure_struct_exists(base, args)?)
-                      } else {
-                           *inner.clone()
-                      };
-
-
-                      match inner_resolved {
-                           crate::types::Type::Struct(ref sn) | crate::types::Type::Concrete(ref sn, _) => {
-                                let field_name = if let syn::Member::Named(id) = &f.member { id.to_string() } else { return Err("Named field expected".to_string()); };
-                                let mut info_opt = ctx.struct_registry().values().find(|i| i.name == *sn).cloned();
-                                if info_opt.is_none() {
-                                     // Fallback
-                                     let suffix = format!("__{}", sn);
-                                     for info in ctx.struct_registry().values() {
-                                         if info.name.ends_with(&suffix) {
-                                             info_opt = Some(info.clone());
-                                             break;
-                                         }
-                                     }
-                                }
-                                let info = info_opt.expect("Struct info missing");
-
-                                if let Some((idx, raw_field_ty)) = info.fields.get(&field_name) {
-                                     // [KEUOS V4.0] CHAINED RESOLUTION FIX: Build local specialization map
-                                     let mut local_spec_map = ctx.current_type_map().clone();
-                                     if !info.specialization_args.is_empty() {
-                                         if let Some(ref template_name) = info.template_name {
-                                             if let Some(template_def) = ctx.struct_templates().get(template_name).cloned() {
-                                                 if let Some(ref generics) = template_def.generics {
-                                                     for (i, param) in generics.params.iter().enumerate() {
-                                                         if let crate::grammar::GenericParam::Type { name: param_name, .. } = param {
-                                                             if i < info.specialization_args.len() {
-                                                                 local_spec_map.insert(param_name.to_string(), info.specialization_args[i].clone());
-                                                             }
-                                                         }
-                                                     }
-                                                 }
-                                             }
-                                         }
-                                     }
-                                     let field_ty = raw_field_ty.substitute(&local_spec_map);
-                                     let loaded_ptr = if kind == LValueKind::SSA { base_addr } else {
-                                         let res = format!("%loaded_ptr_{}", ctx.next_id());
-                                         ctx.emit_load(out, &res, &base_addr, "!llvm.ptr");
-                                         res
-                                     };
-                                     let gep_var = format!("%gep_f_{}", ctx.next_id());
-                                     let mlir_struct = inner.to_mlir_type(ctx)?;
-
-                                     let phys_idx = ctx.get_physical_index(&info.field_order, *idx);
-                                     ctx.emit_gep_field(out, &gep_var, &loaded_ptr, phys_idx, &mlir_struct);
-                                     let f_ty: crate::types::Type = field_ty.clone();
-                                     Ok((gep_var, f_ty, LValueKind::Ptr))
-                                } else { Err(format!("Field not found {}", field_name)) }
-                           }
-                           crate::types::Type::Tuple(ref elems) => {
-                               let idx = if let syn::Member::Unnamed(idx) = &f.member { idx.index as usize } else { return Err("Tuple access requires index".to_string()); };
-                               if idx >= elems.len() { return Err(format!("Tuple index out of bounds: {} >= {}", idx, elems.len())); }
-                               let field_ty = &elems[idx];
-                               let loaded_ptr = if kind == LValueKind::SSA { base_addr } else {
-                                   let res = format!("%loaded_ptr_{}", ctx.next_id());
-                                   ctx.emit_load(out, &res, &base_addr, "!llvm.ptr");
-                                   res
-                               };
-                               let gep_var = format!("%gep_tuple_{}", ctx.next_id());
-                               let mlir_tuple = inner.to_mlir_type(ctx)?;
-                               ctx.emit_gep_field(out, &gep_var, &loaded_ptr, idx, &mlir_tuple);
-                               Ok((gep_var, field_ty.clone(), LValueKind::Ptr))
-                           }
-                           _ => return Err(format!("Field access not supported on type {:?}", inner_resolved)),
-                      }
-                  }
-                  crate::types::Type::Tuple(ref elems) => {
-                       let idx = if let syn::Member::Unnamed(idx) = &f.member { idx.index as usize } else { return Err("Tuple access requires index".to_string()); };
-                       if idx >= elems.len() { return Err(format!("Tuple index out of bounds: {} >= {}", idx, elems.len())); }
-                       let field_ty = &elems[idx];
-                       let gep_var = format!("%gep_tuple_{}", ctx.next_id());
-                       let mlir_tuple = base_ty.to_mlir_type(ctx)?;
-                       ctx.emit_gep_field(out, &gep_var, &base_addr, idx, &mlir_tuple);
-                       Ok((gep_var, field_ty.clone(), LValueKind::Ptr))
-                  }
-                  crate::types::Type::Reference(ref inner, _) => {
-                      // [KEUOS FIX] For reference types (like &mut self), the base_addr
-                      // is a pointer to the struct. If it's an SSA value, it is the pointer itself.
-                      // If it's a Local variable (e.g., promoted mutable argument), we must load it.
-                      let loaded_ptr = if kind == LValueKind::SSA {
-                          base_addr.clone()
-                      } else {
-                          let res = format!("%loaded_ref_{}", ctx.next_id());
-                          ctx.emit_load(out, &res, &base_addr, "!llvm.ptr");
-                          res
-                      };
-                      
-                      let inner_resolved = if let crate::types::Type::Concrete(base, args) = &**inner {
-                          crate::types::Type::Struct(ctx.ensure_struct_exists(base, args)?)
-                      } else {
-                          *inner.clone()
-                      };
-
-                      match inner_resolved {
-                           crate::types::Type::Struct(ref sn) => {
-                               let field_name = if let syn::Member::Named(id) = &f.member { id.to_string() } else { return Err("Named field expected".to_string()); };
-                               let mut info_opt = ctx.struct_registry().values().find(|i| i.name == *sn).cloned();
-                           if info_opt.is_none() {
-                                // Fallback: Suffix Search - but prefer SHORTEST match to avoid
-                                // matching NodePtr_main__TrieNode when looking for TrieNode
-                                let suffix = format!("__{}", sn);
-                                let mut best_match: Option<crate::registry::StructInfo> = None;
-                                let mut best_len = usize::MAX;
-                                for info in ctx.struct_registry().values() {
-                                    if info.name.ends_with(&suffix) && info.name.len() < best_len {
-                                        best_len = info.name.len();
-                                        best_match = Some(info.clone());
-                                    }
-                                }
-                                info_opt = best_match;
-                           }
-                           // DEBUG: Log all available struct names
-
-                           let info = info_opt.expect(&format!("Struct info missing for '{}' (available in registry: {:?})", sn, ctx.struct_registry().iter().map(|(k, v)| (&k.name, v.fields.len())).collect::<Vec<_>>()));
-
-                               if let Some((idx, field_ty)) = info.fields.get(&field_name) {
-                                   let gep_var = format!("%gep_f_{}", ctx.next_id());
-                                   // [KEUOS FIX] Use to_mlir_type for consistent struct alias naming
-                                   // This ensures fully-qualified names are used
-                                   let struct_mlir_ty = Type::Struct(info.name.clone()).to_mlir_type(ctx)?;
-                                   let phys_idx = ctx.get_physical_index(&info.field_order, *idx);
-                                   ctx.emit_gep_field(out, &gep_var, &loaded_ptr, phys_idx, &struct_mlir_ty);
-                                   let f_ty: crate::types::Type = field_ty.clone();
-                                   Ok((gep_var, f_ty, LValueKind::Ptr))
-                               } else { Err(format!("Field not found {} (struct '{}' has {} fields: {:?})", field_name, sn, info.fields.len(), info.fields.keys().collect::<Vec<_>>())) }
-                           }
-                           crate::types::Type::Tuple(ref elems) => {
-                               let idx = if let syn::Member::Unnamed(idx) = &f.member { idx.index as usize } else { return Err("Tuple access requires index".to_string()); };
-                               if idx >= elems.len() { return Err(format!("Tuple index out of bounds: {} >= {}", idx, elems.len())); }
-                               let field_ty = &elems[idx];
-                               let gep_var = format!("%gep_tuple_{}", ctx.next_id());
-                               let mlir_tuple = inner.to_mlir_type(ctx)?;
-                               ctx.emit_gep_field(out, &gep_var, &loaded_ptr, idx, &mlir_tuple);
-                               Ok((gep_var, field_ty.clone(), LValueKind::Ptr))
-                           }
-                           _ => Err(format!("Cannot access field {:?} on reference to inner type {:?}", f.member, inner))
-                       }
-                   }
-                   crate::types::Type::Pointer { ref element, .. } => {
-                       // [PTR L-VALUE FIX] For Ptr<T> types, load the raw pointer value,
-                       // then GEP into the pointed-to struct's field.
-                       // This mirrors the Type::Reference arm but loads the pointer first.
-                       let loaded_ptr = if matches!(kind, LValueKind::SSA) {
-                           base_addr.clone()
-                       } else {
-                           let res = format!("%ptr_field_loaded_{}", ctx.next_id());
-                           ctx.emit_load(out, &res, &base_addr, "!llvm.ptr");
-                           res
-                       };
-                       
-                       let inner_resolved = if let crate::types::Type::Concrete(base, args) = &**element {
-                           crate::types::Type::Struct(ctx.ensure_struct_exists(base, args)?)
-                       } else {
-                           *element.clone()
-                       };
-
-                       match inner_resolved {
-                            crate::types::Type::Struct(ref sn) => {
-                                let field_name = if let syn::Member::Named(id) = &f.member { id.to_string() } else { return Err("Named field expected".to_string()); };
-                                let mut info_opt = ctx.struct_registry().values().find(|i| i.name == *sn).cloned();
-                                if info_opt.is_none() {
-                                     info_opt = ctx.find_struct_by_name(sn);
-                                }
-                                if info_opt.is_none() {
-                                     let suffix = format!("__{}", sn);
-                                     let mut best_match: Option<crate::registry::StructInfo> = None;
-                                     let mut best_len = usize::MAX;
-                                     for info in ctx.struct_registry().values() {
-                                         if info.name.ends_with(&suffix) && info.name.len() < best_len {
-                                             best_len = info.name.len();
-                                             best_match = Some(info.clone());
-                                         }
-                                     }
-                                     info_opt = best_match;
-                                }
-                                let info = info_opt.expect(&format!("Struct info missing for '{}' in Ptr<T> field access", sn));
-
-                                if let Some((idx, raw_field_ty)) = info.fields.get(&field_name) {
-                                    // Build local specialization map for generic structs
-                                    let mut local_spec_map = ctx.current_type_map().clone();
-                                    if !info.specialization_args.is_empty() {
-                                        if let Some(ref template_name) = info.template_name {
-                                            if let Some(template_def) = ctx.struct_templates().get(template_name).cloned() {
-                                                if let Some(ref generics) = template_def.generics {
-                                                    for (i, param) in generics.params.iter().enumerate() {
-                                                        if let crate::grammar::GenericParam::Type { name: param_name, .. } = param {
-                                                            if i < info.specialization_args.len() {
-                                                                local_spec_map.insert(param_name.to_string(), info.specialization_args[i].clone());
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    let field_ty = raw_field_ty.substitute(&local_spec_map);
-                                    let gep_var = format!("%gep_f_{}", ctx.next_id());
-                                    let struct_mlir_ty = Type::Struct(info.name.clone()).to_mlir_type(ctx)?;
-                                    let phys_idx = ctx.get_physical_index(&info.field_order, *idx);
-                                    ctx.emit_gep_field(out, &gep_var, &loaded_ptr, phys_idx, &struct_mlir_ty);
-                                    let f_ty: crate::types::Type = field_ty.clone();
-                                    Ok((gep_var, f_ty, LValueKind::Ptr))
-                                } else { Err(format!("Field not found {} on Ptr<{}> (fields: {:?})", field_name, sn, info.fields.keys().collect::<Vec<_>>())) }
-                            }
-                            _ => Err(format!("Cannot access field {:?} on Ptr<{:?}> (element type is not a struct)", f.member, element))
-                       }
-                   }
-                   _ => Err(format!("Cannot access field {:?} on base type {:?}", f.member, base_ty))
-              }
-         }
-         syn::Expr::Unary(u) => {
-              if let syn::UnOp::Deref(_) = u.op {
-                  let (val, ty) = emit_expr(ctx, out, &u.expr, local_vars, None)?;
-                   match ty {
-                       crate::types::Type::Reference(inner, _) | crate::types::Type::Owned(inner) => Ok((val, *inner, LValueKind::SSA)),
-                       crate::types::Type::Pointer { element, .. } => Ok((val, *element, LValueKind::SSA)),
-                       _ => Err(format!("Cannot dereference type {:?}", ty))
-                  }
-              } else {
+             } else {
                  Err("Only Deref unary supported in LValue".to_string())
              }
         }
@@ -1507,22 +1285,17 @@ pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr
              }
         }
         syn::Expr::Paren(p) => emit_lvalue(ctx, out, &p.expr, local_vars),
-        // Handle method calls that return references - they can be used as lvalues
         syn::Expr::MethodCall(m) => {
             let (val, ty) = emit_method_call(ctx, out, m, local_vars, None)?;
-
-            // If the method returns a reference, the value IS the pointer
             match ty {
-                Type::Reference(inner, _) => {
-
-                    Ok((val, *inner, LValueKind::SSA))
-                }
+                Type::Reference(inner, _) => Ok((val, *inner, LValueKind::SSA)),
                 _ => Err(format!("Method {} returns {:?} which is not a reference type (cannot be used as L-Value)", m.method, ty))
             }
         }
         _ => Err(format!("Expression {:?} is not a valid L-Value (addressable memory location)", expr))
     }
 }
+
 
 // =========================================================================
 // Z3 Symbolic Translation
@@ -1798,4 +1571,102 @@ fn resolve_fstring_expr_type(
     
     // Could not resolve — caller will use append_i32 fallback
     None
+}
+
+
+fn resolve_lvalue_namespace_lookahead(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr) -> Result<Option<(String, Type, LValueKind)>, String> {
+    if let Some(segments) = get_path_from_expr(expr) {
+        if let Some((pkg, item)) = resolve_package_prefix_ctx(ctx, &segments) {
+            let mangled_name = if item.is_empty() { pkg.clone() } else { format!("{}__{}", pkg, item) };
+            if let Some(ty) = ctx.resolve_global(&mangled_name) {
+                ctx.ensure_global_declared(&mangled_name, &ty)?;
+                let addr = format!("%addr_glob_{}", ctx.next_id());
+                ctx.emit_addressof(out, &addr, &mangled_name)?;
+                return Ok(Some((addr, ty, LValueKind::Global(mangled_name))));
+            }
+            
+            if !item.is_empty() && ctx.resolve_global(&pkg).is_some() {
+            } else if item.is_empty() {
+                return Err(format!("Package or module '{}' used as L-Value", segments.join(".")));
+            } else {
+                 let first = &segments[0];
+                 if ctx.imports().iter().any(|imp| {
+                    if let Some(alias) = &imp.alias { alias == first }
+                    else if let Some(f) = imp.name.first() { f.to_string() == *first }
+                    else { false }
+                 }) {
+                    return Err(format!("Undefined global or static '{}' in package/module path '{}'", segments.last().unwrap_or(&"".to_string()), segments.join(".")));
+                 }
+            }
+        } else {
+            let first = &segments[0];
+            if ctx.imports().iter().any(|imp| {
+                if let Some(alias) = &imp.alias { alias == first }
+                else if let Some(f) = imp.name.first() { f.to_string() == *first }
+                else { false }
+            }) {
+                return Err(format!("Undefined global or static '{}' in package/module path '{}'", segments.last().unwrap_or(&"".to_string()), segments.join(".")));
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn emit_lvalue_path(ctx: &mut LoweringContext, out: &mut String, p: &syn::ExprPath, local_vars: &HashMap<String, (Type, LocalKind)>) -> Result<(String, Type, LValueKind), String> {
+    let segments: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
+    let name = Mangler::mangle(&segments);
+    let first = &segments[0];
+    
+    if let Some((ty, kind)) = local_vars.get(first).cloned() {
+        if segments.len() > 1 { return Err(format!("Cannot access field/namespace of local variable {} using path syntax", first)); }
+        match kind {
+            LocalKind::Ptr(ptr_name) => return Ok((ptr_name, ty, LValueKind::Local)),
+            LocalKind::SSA(ssa_name) => {
+                if matches!(ty, Type::Tensor(..)) {
+                    return Ok((ssa_name, ty, LValueKind::SSA));
+                }
+                let is_ephemeral_ref = ctx.emission.ephemeral_refs.contains(&ssa_name);
+                if is_ephemeral_ref {
+                    return Ok((ssa_name, ty, LValueKind::SSA));
+                }
+                if matches!(ty, Type::Reference(_, _)) {
+                    return Ok((ssa_name, ty, LValueKind::SSA));
+                }
+                let tmp_alloca = format!("%spill_{}_{}", first, ctx.next_id());
+                let mlir_ty = ty.to_mlir_type(ctx)?;
+                ctx.emit_alloca(out, &tmp_alloca, &mlir_ty);
+                out.push_str(&format!("    llvm.store {}, {} : {}, !llvm.ptr\n", ssa_name, tmp_alloca, mlir_ty));
+                return Ok((tmp_alloca, ty, LValueKind::Ptr));
+            }
+        }
+    }
+
+    if let Some((pkg, item)) = resolve_package_prefix_ctx(ctx, &segments) {
+        let mangled_name = if item.is_empty() { pkg } else if pkg.is_empty() { item } else { format!("{}__{}", pkg, item) };
+        if let Some(ty) = ctx.resolve_global(&mangled_name) {
+            ctx.ensure_global_declared(&mangled_name, &ty)?;
+            let addr = format!("%addr_glob_{}", ctx.next_id());
+            ctx.emit_addressof(out, &addr, &mangled_name)?;
+            return Ok((addr, ty, LValueKind::Global(mangled_name)));
+        }
+        return Err(format!("Package or module '{}' used as L-Value", segments.join(".")));
+    }
+    
+    let mut mangled = name.clone();
+    if let Some(pkg) = &ctx.config.file.package {
+        let pkg_mangled = Mangler::mangle(&pkg.name.iter().map(|id: &syn::Ident| id.to_string()).collect::<Vec<_>>());
+        let local_mangled = format!("{}__{}", pkg_mangled, mangled);
+        if ctx.globals().contains_key(&local_mangled) {
+            mangled = local_mangled;
+        }
+    }
+
+    if let Some(ty) = ctx.resolve_global(&mangled) {
+        ctx.ensure_global_declared(&mangled, &ty)?;
+        let addr = format!("%addr_glob_{}", ctx.next_id());
+        ctx.emit_addressof(out, &addr, &mangled)?;
+        Ok((addr, ty, LValueKind::Global(mangled)))
+    } else {
+         Err(format!("Undefined variable or global: {}", name))
+    }
 }

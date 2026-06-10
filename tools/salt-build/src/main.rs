@@ -123,103 +123,53 @@ fn cmd_run(path: &PathBuf, args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn cmd_test(path: &PathBuf, filter: Option<&str>) -> Result<(), String> {
-    let manifest_path = path.join("salt.toml");
-    let manifest = manifest::load(&manifest_path)?;
-
-    // Find test files
+fn find_test_files(path: &Path, filter: Option<&str>) -> Result<Vec<PathBuf>, String> {
     let test_dir = path.join("tests");
-    if !test_dir.exists() {
-        println!("No tests directory found");
+    if !test_dir.exists() { return Ok(Vec::new()); }
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&test_dir)
+        .map_err(|e| format!("Failed to read tests/: {}", e))?
+        .filter_map(|e| e.ok()).map(|e| e.path())
+        .filter(|p| p.extension().map_or(false, |e| e == "salt")).collect();
+    if let Some(f) = filter {
+        files.retain(|p| p.file_stem().map_or(false, |s| s.to_string_lossy().contains(f)));
+    }
+    files.sort();
+    Ok(files)
+}
+
+fn cmd_test(path: &PathBuf, filter: Option<&str>) -> Result<(), String> {
+    let manifest = manifest::load(&path.join("salt.toml"))?;
+    let test_files = find_test_files(path, filter)?;
+    if test_files.is_empty() {
+        println!("No tests directory found or no tests match");
         return Ok(());
     }
 
-    let mut test_files: Vec<PathBuf> = std::fs::read_dir(&test_dir)
-        .map_err(|e| format!("Failed to read tests/: {}", e))?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|p| p.extension().map_or(false, |e| e == "salt"))
-        .collect();
-
-    if let Some(f) = filter {
-        test_files.retain(|p| {
-            p.file_stem()
-                .map_or(false, |s| s.to_string_lossy().contains(f))
-        });
-    }
-
-    test_files.sort();
-
     println!("🧪 Running {} test(s) for {}", test_files.len(), manifest.package.name);
-
-    let mut passed = 0;
-    let mut failed = 0;
-
+    let mut passed = 0; let mut failed = 0;
     for test_file in &test_files {
         let name = test_file.file_stem().unwrap().to_string_lossy();
         print!("   {} ... ", name);
-
         match compiler::run_test(test_file, path) {
-            Ok(_) => {
-                println!("✅ PASS");
-                passed += 1;
-            }
-            Err(e) => {
-                println!("❌ FAIL: {}", e);
-                failed += 1;
-            }
+            Ok(_) => { println!("✅ PASS"); passed += 1; }
+            Err(e) => { println!("❌ FAIL: {}", e); failed += 1; }
         }
     }
-
     println!("\nResults: {} passed, {} failed", passed, failed);
+    if failed > 0 { Err(format!("{} test(s) failed", failed)) } else { Ok(()) }
+}
 
-    if failed > 0 {
-        Err(format!("{} test(s) failed", failed))
-    } else {
-        Ok(())
-    }
+fn generate_manifest(name: &str) -> String {
+    format!("[package]\nname = \"{}\"\nversion = \"0.1.0\"\nentry = \"src/main.salt\"\n", name)
 }
 
 fn cmd_init(name: &str) -> Result<(), String> {
     let project_dir = PathBuf::from(name);
-
-    if project_dir.exists() {
-        return Err(format!("Directory '{}' already exists", name));
-    }
-
-    // Create project structure
-    std::fs::create_dir_all(project_dir.join("src"))
-        .map_err(|e| format!("Failed to create directory: {}", e))?;
-    std::fs::create_dir_all(project_dir.join("tests"))
-        .map_err(|e| format!("Failed to create tests/: {}", e))?;
-
-    // Write salt.toml
-    let manifest = format!(
-        r#"[package]
-name = "{}"
-version = "0.1.0"
-entry = "src/main.salt"
-"#,
-        name
-    );
-    std::fs::write(project_dir.join("salt.toml"), manifest)
-        .map_err(|e| format!("Failed to write salt.toml: {}", e))?;
-
-    // Write main.salt
-    let main_salt = r#"package main
-
-fn main() -> i32 {
-    println("Hello, Salt!");
-    return 0;
-}
-"#;
-    std::fs::write(project_dir.join("src/main.salt"), main_salt)
-        .map_err(|e| format!("Failed to write main.salt: {}", e))?;
-
-    println!("✨ Created project '{}' at {}/", name, project_dir.display());
-    println!("   salt.toml");
-    println!("   src/main.salt");
-    println!("   tests/");
-
+    if project_dir.exists() { return Err(format!("Directory '{}' already exists", name)); }
+    std::fs::create_dir_all(project_dir.join("src")).map_err(|e| format!("Failed to create src/: {}", e))?;
+    std::fs::create_dir_all(project_dir.join("tests")).map_err(|e| format!("Failed to create tests/: {}", e))?;
+    std::fs::write(project_dir.join("salt.toml"), generate_manifest(name)).map_err(|e| format!("Failed to write salt.toml: {}", e))?;
+    std::fs::write(project_dir.join("src/main.salt"), "package main\n\nfn main() -> i32 {\n    println(\"Hello, Salt!\");\n    return 0;\n}\n").map_err(|e| format!("Failed to write main.salt: {}", e))?;
+    println!("✨ Created project '{}' at {}/\n   salt.toml\n   src/main.salt\n   tests/", name, project_dir.display());
     Ok(())
 }

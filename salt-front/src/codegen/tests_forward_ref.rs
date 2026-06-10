@@ -10,8 +10,6 @@
 //! misclassified as cross-module. The compiler emits only a forward declaration
 //! instead of hydrating the body, and the definition is silently dropped.
 
-#[cfg(test)]
-use crate::z3_shim as z3;
 mod tests {
     use crate::grammar::SaltFile;
     use crate::codegen::context::CodegenContext;

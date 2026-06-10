@@ -617,208 +617,229 @@ impl LoweringContext {
 
     /// Lower a syn::Expr to an HIR Expr.
     /// This is the core expression lowering that resolves variables via the ScopeStack.
-    pub fn lower_syn_expr(&mut self, expr: &syn::Expr) -> Expr {
+pub fn lower_syn_expr(&mut self, expr: &syn::Expr) -> Expr {
         let span = proc_macro2::Span::call_site();
         match expr {
-            syn::Expr::Lit(lit) => {
-                let literal = match &lit.lit {
-                    syn::Lit::Int(i) => Literal::Int(i.base10_parse::<i64>().unwrap_or(0)),
-                    syn::Lit::Float(f) => Literal::Float(f.base10_parse::<f64>().unwrap_or(0.0)),
-                    syn::Lit::Bool(b) => Literal::Bool(b.value),
-                    syn::Lit::Str(s) => Literal::String(s.value()),
-                    _ => Literal::Int(0),
-                };
-                Expr { kind: ExprKind::Literal(literal), ty: Type::Unit, span }
-            }
-            syn::Expr::Path(path) => {
-                let name = path.path.segments.last()
-                    .map(|s| s.ident.to_string())
-                    .unwrap_or_default();
-                // Try to resolve as a local variable
-                if let Some(var_id) = self.scopes.resolve(&name) {
-                    Expr { kind: ExprKind::Var(var_id), ty: Type::Unit, span }
-                } else {
-                    Expr { kind: ExprKind::UnresolvedIdent(name), ty: Type::Unit, span }
-                }
-            }
-            syn::Expr::Binary(bin) => {
-                let lhs = self.lower_syn_expr(&bin.left);
-                let rhs = self.lower_syn_expr(&bin.right);
-                let op = Self::lower_bin_op(&bin.op);
-                Expr {
-                    kind: ExprKind::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) },
-                    ty: Type::Unit,
-                    span,
-                }
-            }
-            syn::Expr::Unary(un) => {
-                let inner = self.lower_syn_expr(&un.expr);
-                let op = match un.op {
-                    syn::UnOp::Not(_) => UnOp::Not,
-                    syn::UnOp::Neg(_) => UnOp::Neg,
-                    syn::UnOp::Deref(_) => UnOp::Deref,
-                    _ => UnOp::Not,
-                };
-                Expr {
-                    kind: ExprKind::Unary { op, expr: Box::new(inner) },
-                    ty: Type::Unit,
-                    span,
-                }
-            }
-            syn::Expr::Call(call) => {
-                // Intercept contract keywords: requires(cond), ensures(cond)
-                if let syn::Expr::Path(path) = &*call.func {
-                    if let Some(ident) = path.path.get_ident() {
-                        let fn_name = ident.to_string();
-                        if fn_name == "requires" || fn_name == "ensures" {
-                            assert!(
-                                call.args.len() == 1,
-                                "{} takes exactly 1 argument, found {}",
-                                fn_name, call.args.len()
-                            );
-                            let cond = self.lower_syn_expr(&call.args[0]);
-                            let kind = if fn_name == "requires" {
-                                ExprKind::Requires(Box::new(cond))
-                            } else {
-                                ExprKind::Ensures(Box::new(cond))
-                            };
-                            return Expr { kind, ty: Type::Unit, span };
-                        }
-
-                        // Intercept yield: yield() or yield(expr)
-                        if fn_name == "yield_now" {
-                            let val = if call.args.is_empty() {
-                                None
-                            } else {
-                                assert!(
-                                    call.args.len() == 1,
-                                    "yield_now takes 0 or 1 argument, found {}",
-                                    call.args.len()
-                                );
-                                Some(Box::new(self.lower_syn_expr(&call.args[0])))
-                            };
-                            return Expr {
-                                kind: ExprKind::Yield(val),
-                                ty: Type::Unit,
-                                span,
-                            };
-                        }
-                    }
-                }
-
-                // Normal function call
-                let callee = self.lower_syn_expr(&call.func);
-                let args: Vec<Expr> = call.args.iter()
-                    .map(|a| self.lower_syn_expr(a)).collect();
-                Expr {
-                    kind: ExprKind::Call { callee: Box::new(callee), args },
-                    ty: Type::Unit,
-                    span,
-                }
-            }
-            syn::Expr::Assign(assign) => {
-                let lhs = self.lower_syn_expr(&assign.left);
-                let rhs = self.lower_syn_expr(&assign.right);
-                Expr {
-                    kind: ExprKind::Assign { lhs: Box::new(lhs), rhs: Box::new(rhs) },
-                    ty: Type::Unit,
-                    span,
-                }
-            }
-            syn::Expr::Field(field) => {
-                let base = self.lower_syn_expr(&field.base);
-                let name = match &field.member {
-                    syn::Member::Named(id) => id.to_string(),
-                    syn::Member::Unnamed(idx) => idx.index.to_string(),
-                };
-                Expr {
-                    kind: ExprKind::Field { base: Box::new(base), field: name },
-                    ty: Type::Unit,
-                    span,
-                }
-            }
-            syn::Expr::Index(idx) => {
-                let base = self.lower_syn_expr(&idx.expr);
-                let index = self.lower_syn_expr(&idx.index);
-                Expr {
-                    kind: ExprKind::Index { base: Box::new(base), index: Box::new(index) },
-                    ty: Type::Unit,
-                    span,
-                }
-            }
+            syn::Expr::Lit(lit) => self.lower_syn_lit_expr(lit, span),
+            syn::Expr::Path(path) => self.lower_syn_path_expr(path, span),
+            syn::Expr::Binary(bin) => self.lower_syn_binary_expr(bin, span),
+            syn::Expr::Unary(un) => self.lower_syn_unary_expr(un, span),
+            syn::Expr::Call(call) => self.lower_syn_call_expr(call, span),
+            syn::Expr::Assign(assign) => self.lower_syn_assign_expr(assign, span),
+            syn::Expr::Field(field) => self.lower_syn_field_expr(field, span),
+            syn::Expr::Index(idx) => self.lower_syn_index_expr(idx, span),
             syn::Expr::Paren(p) => self.lower_syn_expr(&p.expr),
-            syn::Expr::Block(block) => {
-                self.scopes.push_scope();
-                let mut stmts = Vec::new();
-                for stmt in &block.block.stmts {
-                    if let Some(s) = self.lower_syn_stmt(stmt) {
-                        stmts.push(s);
-                    }
-                }
-                self.scopes.pop_scope();
-                Expr {
-                    kind: ExprKind::Block(Block { stmts, value: None, ty: Type::Unit }),
-                    ty: Type::Unit,
-                    span,
-                }
-            }
-            syn::Expr::Return(ret) => {
-                let val = ret.expr.as_ref().map(|e| Box::new(self.lower_syn_expr(e)));
-                Expr { kind: ExprKind::Return(val), ty: Type::Unit, span }
-            }
-            syn::Expr::Cast(cast) => {
-                let inner = self.lower_syn_expr(&cast.expr);
-                let target_ty = Type::from_syn_with_generics(
-                    &SynType::from_std((*cast.ty).clone()).unwrap_or(SynType::Other("unknown".into())),
-                    &self.current_generic_names,
-                ).unwrap_or(Type::Unit);
-                Expr {
-                    kind: ExprKind::Cast { expr: Box::new(inner), ty: target_ty },
-                    ty: Type::Unit,
-                    span,
-                }
-            }
-            syn::Expr::Struct(s) => {
-                let name = s.path.segments.last()
-                    .map(|seg| seg.ident.to_string())
-                    .unwrap_or_default();
-                let fields: Vec<(String, Expr)> = s.fields.iter().map(|f| {
-                    let field_name = match &f.member {
-                        syn::Member::Named(id) => id.to_string(),
-                        syn::Member::Unnamed(idx) => idx.index.to_string(),
-                    };
-                    let val = self.lower_syn_expr(&f.expr);
-                    (field_name, val)
-                }).collect();
-                Expr {
-                    kind: ExprKind::StructLit { name, type_args: vec![], fields },
-                    ty: Type::Unit,
-                    span,
-                }
-            }
-            syn::Expr::MethodCall(mc) => {
-                let receiver = self.lower_syn_expr(&mc.receiver);
-                let method_name = mc.method.to_string();
-                let mut args: Vec<Expr> = vec![receiver];
-                for a in &mc.args {
-                    args.push(self.lower_syn_expr(a));
-                }
-                let callee = Expr {
-                    kind: ExprKind::UnresolvedIdent(method_name),
-                    ty: Type::Unit,
-                    span,
-                };
-                Expr {
-                    kind: ExprKind::Call { callee: Box::new(callee), args },
-                    ty: Type::Unit,
-                    span,
-                }
-            }
-
-            // Fallback for unsupported expressions
+            syn::Expr::Block(block) => self.lower_syn_block_expr(block, span),
+            syn::Expr::Return(ret) => self.lower_syn_return_expr(ret, span),
+            syn::Expr::Cast(cast) => self.lower_syn_cast_expr(cast, span),
+            syn::Expr::Struct(s) => self.lower_syn_struct_expr(s, span),
+            syn::Expr::MethodCall(mc) => self.lower_syn_method_call_expr(mc, span),
             _ => Expr { kind: ExprKind::Literal(Literal::Int(0)), ty: Type::Unit, span },
         }
     }
+
+    fn lower_syn_lit_expr(&mut self, lit: &syn::ExprLit, span: proc_macro2::Span) -> Expr {
+        let literal = match &lit.lit {
+            syn::Lit::Int(i) => Literal::Int(i.base10_parse::<i64>().unwrap_or(0)),
+            syn::Lit::Float(f) => Literal::Float(f.base10_parse::<f64>().unwrap_or(0.0)),
+            syn::Lit::Bool(b) => Literal::Bool(b.value),
+            syn::Lit::Str(s) => Literal::String(s.value()),
+            _ => Literal::Int(0),
+        };
+        Expr { kind: ExprKind::Literal(literal), ty: Type::Unit, span }
+    }
+
+    fn lower_syn_path_expr(&mut self, path: &syn::ExprPath, span: proc_macro2::Span) -> Expr {
+        let name = path.path.segments.last()
+            .map(|s| s.ident.to_string())
+            .unwrap_or_default();
+        if let Some(var_id) = self.scopes.resolve(&name) {
+            Expr { kind: ExprKind::Var(var_id), ty: Type::Unit, span }
+        } else {
+            Expr { kind: ExprKind::UnresolvedIdent(name), ty: Type::Unit, span }
+        }
+    }
+
+    fn lower_syn_binary_expr(&mut self, bin: &syn::ExprBinary, span: proc_macro2::Span) -> Expr {
+        let lhs = self.lower_syn_expr(&bin.left);
+        let rhs = self.lower_syn_expr(&bin.right);
+        let op = Self::lower_bin_op(&bin.op);
+        Expr {
+            kind: ExprKind::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) },
+            ty: Type::Unit,
+            span,
+        }
+    }
+
+    fn lower_syn_unary_expr(&mut self, un: &syn::ExprUnary, span: proc_macro2::Span) -> Expr {
+        let inner = self.lower_syn_expr(&un.expr);
+        let op = match un.op {
+            syn::UnOp::Not(_) => UnOp::Not,
+            syn::UnOp::Neg(_) => UnOp::Neg,
+            syn::UnOp::Deref(_) => UnOp::Deref,
+            _ => UnOp::Not,
+        };
+        Expr {
+            kind: ExprKind::Unary { op, expr: Box::new(inner) },
+            ty: Type::Unit,
+            span,
+        }
+    }
+
+    fn lower_syn_call_expr(&mut self, call: &syn::ExprCall, span: proc_macro2::Span) -> Expr {
+        if let syn::Expr::Path(path) = &*call.func {
+            if let Some(ident) = path.path.get_ident() {
+                let fn_name = ident.to_string();
+                if fn_name == "requires" || fn_name == "ensures" {
+                    assert!(
+                        call.args.len() == 1,
+                        "{} takes exactly 1 argument, found {}",
+                        fn_name, call.args.len()
+                    );
+                    let cond = self.lower_syn_expr(&call.args[0]);
+                    let kind = if fn_name == "requires" {
+                        ExprKind::Requires(Box::new(cond))
+                    } else {
+                        ExprKind::Ensures(Box::new(cond))
+                    };
+                    return Expr { kind, ty: Type::Unit, span };
+                }
+
+                if fn_name == "yield_now" {
+                    let val = if call.args.is_empty() {
+                        None
+                    } else {
+                        assert!(
+                            call.args.len() == 1,
+                            "yield_now takes 0 or 1 argument, found {}",
+                            call.args.len()
+                        );
+                        Some(Box::new(self.lower_syn_expr(&call.args[0])))
+                    };
+                    return Expr {
+                        kind: ExprKind::Yield(val),
+                        ty: Type::Unit,
+                        span,
+                    };
+                }
+            }
+        }
+
+        let callee = self.lower_syn_expr(&call.func);
+        let args: Vec<Expr> = call.args.iter()
+            .map(|a| self.lower_syn_expr(a)).collect();
+        Expr {
+            kind: ExprKind::Call { callee: Box::new(callee), args },
+            ty: Type::Unit,
+            span,
+        }
+    }
+
+    fn lower_syn_assign_expr(&mut self, assign: &syn::ExprAssign, span: proc_macro2::Span) -> Expr {
+        let lhs = self.lower_syn_expr(&assign.left);
+        let rhs = self.lower_syn_expr(&assign.right);
+        Expr {
+            kind: ExprKind::Assign { lhs: Box::new(lhs), rhs: Box::new(rhs) },
+            ty: Type::Unit,
+            span,
+        }
+    }
+
+    fn lower_syn_field_expr(&mut self, field: &syn::ExprField, span: proc_macro2::Span) -> Expr {
+        let base = self.lower_syn_expr(&field.base);
+        let name = match &field.member {
+            syn::Member::Named(id) => id.to_string(),
+            syn::Member::Unnamed(idx) => idx.index.to_string(),
+        };
+        Expr {
+            kind: ExprKind::Field { base: Box::new(base), field: name },
+            ty: Type::Unit,
+            span,
+        }
+    }
+
+    fn lower_syn_index_expr(&mut self, idx: &syn::ExprIndex, span: proc_macro2::Span) -> Expr {
+        let base = self.lower_syn_expr(&idx.expr);
+        let index = self.lower_syn_expr(&idx.index);
+        Expr {
+            kind: ExprKind::Index { base: Box::new(base), index: Box::new(index) },
+            ty: Type::Unit,
+            span,
+        }
+    }
+
+    fn lower_syn_block_expr(&mut self, block: &syn::ExprBlock, span: proc_macro2::Span) -> Expr {
+        self.scopes.push_scope();
+        let mut stmts = Vec::new();
+        for stmt in &block.block.stmts {
+            if let Some(s) = self.lower_syn_stmt(stmt) {
+                stmts.push(s);
+            }
+        }
+        self.scopes.pop_scope();
+        Expr {
+            kind: ExprKind::Block(Block { stmts, value: None, ty: Type::Unit }),
+            ty: Type::Unit,
+            span,
+        }
+    }
+
+    fn lower_syn_return_expr(&mut self, ret: &syn::ExprReturn, span: proc_macro2::Span) -> Expr {
+        let val = ret.expr.as_ref().map(|e| Box::new(self.lower_syn_expr(e)));
+        Expr { kind: ExprKind::Return(val), ty: Type::Unit, span }
+    }
+
+    fn lower_syn_cast_expr(&mut self, cast: &syn::ExprCast, span: proc_macro2::Span) -> Expr {
+        let inner = self.lower_syn_expr(&cast.expr);
+        let target_ty = Type::from_syn_with_generics(
+            &SynType::from_std((*cast.ty).clone()).unwrap_or(SynType::Other("unknown".into())),
+            &self.current_generic_names,
+        ).unwrap_or(Type::Unit);
+        Expr {
+            kind: ExprKind::Cast { expr: Box::new(inner), ty: target_ty },
+            ty: Type::Unit,
+            span,
+        }
+    }
+
+    fn lower_syn_struct_expr(&mut self, s: &syn::ExprStruct, span: proc_macro2::Span) -> Expr {
+        let name = s.path.segments.last()
+            .map(|seg| seg.ident.to_string())
+            .unwrap_or_default();
+        let fields: Vec<(String, Expr)> = s.fields.iter().map(|f| {
+            let field_name = match &f.member {
+                syn::Member::Named(id) => id.to_string(),
+                syn::Member::Unnamed(idx) => idx.index.to_string(),
+            };
+            let val = self.lower_syn_expr(&f.expr);
+            (field_name, val)
+        }).collect();
+        Expr {
+            kind: ExprKind::StructLit { name, type_args: vec![], fields },
+            ty: Type::Unit,
+            span,
+        }
+    }
+
+    fn lower_syn_method_call_expr(&mut self, mc: &syn::ExprMethodCall, span: proc_macro2::Span) -> Expr {
+        let receiver = self.lower_syn_expr(&mc.receiver);
+        let method_name = mc.method.to_string();
+        let mut args: Vec<Expr> = vec![receiver];
+        for a in &mc.args {
+            args.push(self.lower_syn_expr(a));
+        }
+        let callee = Expr {
+            kind: ExprKind::UnresolvedIdent(method_name),
+            ty: Type::Unit,
+            span,
+        };
+        Expr {
+            kind: ExprKind::Call { callee: Box::new(callee), args },
+            ty: Type::Unit,
+            span,
+        }
+    }
+
 
     // ─── Expression Helpers ───────────────────────────────────────────────
 

@@ -310,49 +310,36 @@ fn bpe_encode_segment(tok: Tokenizer, text: Ptr<u8>, seg_start: i64, seg_len: i6
     return n;
 }
 
+fn find_next_special_or_end(tok: Tokenizer, text: Ptr<u8>, start: i64, text_len: i64) -> i64 {
+    let mut seg_end = start + 1;
+    while seg_end < text_len {
+        let next_sp = match_special(tok, text, seg_end, text_len);
+        if next_sp >= 0 {
+            return seg_end;
+        }
+        seg_end = seg_end + 1;
+    }
+    return text_len;
+}
+
 fn bpe_encode(tok: Tokenizer, text: Ptr<u8>, text_len: i64, out_tokens: Ptr<i64>) -> i64 {
     let mut n_tokens: i64 = 0;
     let mut pos: i64 = 0;
     
-    // Pre-scan: split input into special-token matches and normal segments.
-    // Special tokens emit directly; normal segments go through byte-init + BPE merge.
-    for scan in 0..text_len {
-        if pos >= text_len {
-            // done
-        }
-        if pos < text_len {
-            let sp_idx = match_special(tok, text, pos, text_len);
-            if sp_idx >= 0 {
-                // Emit special token directly
-                out_tokens[n_tokens] = tok.special_tokens[sp_idx].token_id;
-                n_tokens = n_tokens + 1;
-                pos = pos + tok.special_tokens[sp_idx].len;
-            }
-            if sp_idx < 0 {
-                // Find the end of this non-special segment
-                let seg_start = pos;
-                let mut seg_end = pos + 1;
-                let mut found_next: i32 = 0;
-                for look in 0..text_len {
-                    if found_next == 0 {
-                        if seg_end >= text_len {
-                            found_next = 1;
-                        }
-                        if found_next == 0 {
-                            let next_sp = match_special(tok, text, seg_end, text_len);
-                            if next_sp >= 0 {
-                                found_next = 1;
-                            }
-                            if next_sp < 0 {
-                                seg_end = seg_end + 1;
-                            }
-                        }
-                    }
-                }
-                // BPE-encode the normal segment
-                n_tokens = bpe_encode_segment(tok, text, seg_start, seg_end - seg_start, out_tokens, n_tokens);
-                pos = seg_end;
-            }
+    while pos < text_len {
+        let sp_idx = match_special(tok, text, pos, text_len);
+        if sp_idx >= 0 {
+            // Emit special token directly
+            out_tokens[n_tokens] = tok.special_tokens[sp_idx].token_id;
+            n_tokens = n_tokens + 1;
+            pos = pos + tok.special_tokens[sp_idx].len;
+        } else {
+            // Find the end of this non-special segment
+            let seg_end = find_next_special_or_end(tok, text, pos, text_len);
+            
+            // BPE-encode the normal segment
+            n_tokens = bpe_encode_segment(tok, text, pos, seg_end - pos, out_tokens, n_tokens);
+            pos = seg_end;
         }
     }
     

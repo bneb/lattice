@@ -1,5 +1,5 @@
-#![allow(clippy::all)]
-#![allow(warnings)]
+#![warn(clippy::cognitive_complexity)]
+// removed warnings
 
 
 // Internal Compiler Error Macro

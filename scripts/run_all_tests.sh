@@ -81,6 +81,7 @@ for test_file in "$PROJECT_ROOT"/tests/test_*.salt; do
         ((SKIPPED++))
     else
         echo "❌ FAIL (exit $EXIT_CODE)"
+        echo "$OUTPUT"
         ((FAILED++))
         FAILURES+=("$BASENAME")
     fi

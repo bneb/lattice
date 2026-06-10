@@ -9,73 +9,45 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Resolve the build order for a project.
 /// Returns a list of .salt files in compilation order (dependencies first).
-pub fn resolve(manifest: &Manifest, project_dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let mut all_files = Vec::new();
-
-    // First: resolve and collect dependency files
+fn resolve_dependencies(manifest: &Manifest, project_dir: &Path, all_files: &mut Vec<PathBuf>) -> Result<(), String> {
     for (dep_name, dep) in &manifest.dependencies {
         match dep {
             Dependency::Path { path } => {
                 let dep_dir = project_dir.join(path);
                 let dep_manifest_path = dep_dir.join("salt.toml");
-
                 if !dep_manifest_path.exists() {
-                    return Err(format!(
-                        "Dependency '{}' has no salt.toml at {}",
-                        dep_name,
-                        dep_manifest_path.display()
-                    ));
+                    return Err(format!("Dependency '{}' has no salt.toml at {}", dep_name, dep_manifest_path.display()));
                 }
-
                 let dep_manifest = crate::manifest::load(&dep_manifest_path)?;
                 let dep_entry = dep_dir.join(&dep_manifest.package.entry);
-
                 if !dep_entry.exists() {
-                    return Err(format!(
-                        "Dependency '{}' entry point not found: {}",
-                        dep_name,
-                        dep_entry.display()
-                    ));
+                    return Err(format!("Dependency '{}' entry point not found: {}", dep_name, dep_entry.display()));
                 }
-
-                // Collect all .salt files from the dependency
-                let dep_files = collect_salt_files(&dep_dir)?;
-                all_files.extend(dep_files);
+                all_files.extend(collect_salt_files(&dep_dir)?);
             }
-            Dependency::Version(ver) => {
-                return Err(format!(
-                    "Registry dependencies not yet supported ({}@{}). Use path dependencies.",
-                    dep_name, ver
-                ));
-            }
+            Dependency::Version(ver) => return Err(format!("Registry dependencies not yet supported ({}@{}). Use path dependencies.", dep_name, ver)),
         }
     }
+    Ok(())
+}
 
-    // Then: collect the project's own source files
+fn collect_project_files(manifest: &Manifest, project_dir: &Path, all_files: &mut Vec<PathBuf>) -> Result<(), String> {
     let src_dir = project_dir.join("src");
     if src_dir.exists() {
-        let src_files = collect_salt_files(&src_dir)?;
-        all_files.extend(src_files);
+        all_files.extend(collect_salt_files(&src_dir)?);
     } else {
-        // If no src/ dir, use the entry point directly
         let entry = project_dir.join(&manifest.package.entry);
-        if entry.exists() {
-            all_files.push(entry);
-        } else {
-            return Err(format!(
-                "Entry point not found: {}",
-                manifest.package.entry
-            ));
-        }
+        if entry.exists() { all_files.push(entry); } else { return Err(format!("Entry point not found: {}", manifest.package.entry)); }
     }
+    Ok(())
+}
 
-    // Deduplicate while preserving order
+pub fn resolve(manifest: &Manifest, project_dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut all_files = Vec::new();
+    resolve_dependencies(manifest, project_dir, &mut all_files)?;
+    collect_project_files(manifest, project_dir, &mut all_files)?;
     let mut seen = HashSet::new();
-    all_files.retain(|f| {
-        let canonical = f.canonicalize().unwrap_or_else(|_| f.clone());
-        seen.insert(canonical)
-    });
-
+    all_files.retain(|f| seen.insert(f.canonicalize().unwrap_or_else(|_| f.clone())));
     Ok(all_files)
 }
 

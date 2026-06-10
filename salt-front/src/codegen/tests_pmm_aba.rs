@@ -7,8 +7,6 @@
 //! Layer 2: CAS + atomic_add_i64 emit correct MLIR (using extern ptr pattern)
 //! Layer 3: Full versioned CAS steal pattern
 
-#[cfg(test)]
-use crate::z3_shim as z3;
 mod tests {
     use crate::grammar::SaltFile;
     use crate::codegen::context::CodegenContext;

@@ -328,386 +328,25 @@ fn emit_hir_expr(
 ) -> Result<String, String> {
     let pad = "  ".repeat(indent);
     match &expr.kind {
-        ExprKind::Literal(lit) => {
-            let id = ctx.next_id();
-            match lit {
-                Literal::Int(n) => {
-                    let ty = resolve_hir_type(&expr.ty);
-                    let name = format!("%c{}_{}", n, id);
-                    out.push_str(&format!("{}{} = arith.constant {} : {}\n", pad, name, n, ty));
-                    Ok(name)
-                }
-                Literal::Bool(b) => {
-                    let name = format!("%b{}_{}", b, id);
-                    let val = if *b { "true" } else { "false" };
-                    out.push_str(&format!("{}{} = arith.constant {} : i1\n", pad, name, val));
-                    Ok(name)
-                }
-                Literal::Float(f) => {
-                    let ty = resolve_hir_type(&expr.ty);
-                    let name = format!("%f_{}", id);
-                    out.push_str(&format!("{}{} = arith.constant {:e} : {}\n", pad, name, f, ty));
-                    Ok(name)
-                }
-                Literal::String(s) => {
-                    // Strings are not commonly produced by async lowering
-                    Ok(format!("\"{}\"", s))
-                }
-            }
-        }
-        ExprKind::Var(var_id) => {
-            // SSA reference to a variable by its VarId
-            Ok(format!("%v{}", var_id.0))
-        }
-        ExprKind::UnresolvedIdent(name) => {
-            Ok(format!("%{}", name))
-        }
-        ExprKind::Binary { op, lhs, rhs } => {
-            let lhs_val = emit_hir_expr(ctx, out, lhs, indent)?;
-            let rhs_val = emit_hir_expr(ctx, out, rhs, indent)?;
-            let id = ctx.next_id();
-            let result = format!("%binop_{}", id);
-            let lhs_ty = resolve_hir_type(&lhs.ty);
-
-            match op {
-                // Comparison operators -> i1
-                BinOp::Eq => out.push_str(&format!(
-                    "{}{} = arith.cmpi eq, {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::Ne => out.push_str(&format!(
-                    "{}{} = arith.cmpi ne, {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::Lt => out.push_str(&format!(
-                    "{}{} = arith.cmpi slt, {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::Le => out.push_str(&format!(
-                    "{}{} = arith.cmpi sle, {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::Gt => out.push_str(&format!(
-                    "{}{} = arith.cmpi sgt, {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::Ge => out.push_str(&format!(
-                    "{}{} = arith.cmpi sge, {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                // Arithmetic operators
-                BinOp::Add => out.push_str(&format!(
-                    "{}{} = arith.addi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::Sub => out.push_str(&format!(
-                    "{}{} = arith.subi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::Mul => out.push_str(&format!(
-                    "{}{} = arith.muli {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::Div => out.push_str(&format!(
-                    "{}{} = arith.divsi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::Rem => out.push_str(&format!(
-                    "{}{} = arith.remsi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::And => out.push_str(&format!(
-                    "{}{} = arith.andi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::Or => out.push_str(&format!(
-                    "{}{} = arith.ori {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::BitAnd => out.push_str(&format!(
-                    "{}{} = arith.andi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::BitOr => out.push_str(&format!(
-                    "{}{} = arith.ori {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::BitXor => out.push_str(&format!(
-                    "{}{} = arith.xori {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::Shl => out.push_str(&format!(
-                    "{}{} = arith.shli {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::Shr => out.push_str(&format!(
-                    "{}{} = arith.shrsi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                // Compound assignment operators — emit the operation
-                BinOp::AddAssign => out.push_str(&format!(
-                    "{}{} = arith.addi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::SubAssign => out.push_str(&format!(
-                    "{}{} = arith.subi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::MulAssign => out.push_str(&format!(
-                    "{}{} = arith.muli {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::DivAssign => out.push_str(&format!(
-                    "{}{} = arith.divsi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-                BinOp::RemAssign => out.push_str(&format!(
-                    "{}{} = arith.remsi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty,
-                )),
-            }
-            Ok(result)
-        }
-        ExprKind::Unary { op, expr: inner } => {
-            let inner_val = emit_hir_expr(ctx, out, inner, indent)?;
-            let id = ctx.next_id();
-            let result = format!("%unop_{}", id);
-            match op {
-                UnOp::Not => {
-                    let true_const = format!("%true_{}", id);
-                    out.push_str(&format!("{}{} = arith.constant true : i1\n", pad, true_const));
-                    out.push_str(&format!(
-                        "{}{} = arith.xori {}, {} : i1\n",
-                        pad, result, inner_val, true_const,
-                    ));
-                }
-                UnOp::Neg => {
-                    let ty = resolve_hir_type(&inner.ty);
-                    let zero = format!("%zero_{}", id);
-                    out.push_str(&format!("{}{} = arith.constant 0 : {}\n", pad, zero, ty));
-                    out.push_str(&format!(
-                        "{}{} = arith.subi {}, {} : {}\n",
-                        pad, result, zero, inner_val, ty,
-                    ));
-                }
-                UnOp::Deref => {
-                    let ty = resolve_hir_type(&expr.ty);
-                    out.push_str(&format!(
-                        "{}{} = llvm.load {} : !llvm.ptr -> {}\n",
-                        pad, result, inner_val, ty,
-                    ));
-                }
-            }
-            Ok(result)
-        }
-        ExprKind::Field { base, field } => {
-            let base_val = emit_hir_expr(ctx, out, base, indent)?;
-            let id = ctx.next_id();
-            let field_ty = resolve_hir_type(&expr.ty);
-
-            // Resolve the struct name from the base expression's type.
-            // The step fn generator sets base Var type to Type::Unit,
-            // but the ctx parameter has type Reference(Struct(name)).
-            // We also look through the function parameters to resolve.
-            let struct_name = HirEmitCtx::extract_struct_name(&base.ty);
-            let field_idx = if let Some(ref sname) = struct_name {
-                ctx.resolve_field_index(sname, field)
-            } else {
-                // Fallback: the step fn generator uses Type::Unit for ctx base,
-                // but field names are deterministic from generate_state_struct.
-                // __state is always 0. For others, check all registered structs.
-                if field == "__state" {
-                    0
-                } else {
-                    // Search all registered structs for this field name
-                    let mut found = 0;
-                    for (_name, fields) in &ctx.struct_fields {
-                        if let Some(pos) = fields.iter().position(|f| f == field) {
-                            found = pos;
-                            break;
-                        }
-                    }
-                    found
-                }
-            };
-
-            // Resolve the struct type for GEP.
-            // If the base has Type::Unit (from step fn generator), use the
-            // first registered struct type as the GEP target.
-            let struct_ty = if let Some(ref sname) = struct_name {
-                format!("!struct_{}", sname)
-            } else {
-                // Use first registered struct (there should be exactly one per emission)
-                ctx.struct_fields.keys().next()
-                    .map(|name| format!("!struct_{}", name))
-                    .unwrap_or_else(|| resolve_hir_type(&base.ty))
-            };
-
-            let field_ptr = format!("%field_ptr_{}", id);
-            let result = format!("%field_{}", id);
-            out.push_str(&format!(
-                "{}{} = llvm.getelementptr {}[0, {}] : (!llvm.ptr) -> !llvm.ptr, {}\n",
-                pad, field_ptr, base_val, field_idx, struct_ty,
-            ));
-            out.push_str(&format!(
-                "{}{} = llvm.load {} : !llvm.ptr -> {}\n",
-                pad, result, field_ptr, field_ty,
-            ));
-            Ok(result)
-        }
-        ExprKind::Assign { lhs, rhs } => {
-            let rhs_val = emit_hir_expr(ctx, out, rhs, indent)?;
-            let id = ctx.next_id();
-
-            // If LHS is a field access, emit GEP + store
-            if let ExprKind::Field { base, field } = &lhs.kind {
-                let base_val = emit_hir_expr(ctx, out, base, indent)?;
-
-                let struct_name = HirEmitCtx::extract_struct_name(&base.ty);
-                let field_idx = if let Some(ref sname) = struct_name {
-                    ctx.resolve_field_index(sname, field)
-                } else {
-                    if field == "__state" {
-                        0
-                    } else {
-                        let mut found = 0;
-                        for (_name, fields) in &ctx.struct_fields {
-                            if let Some(pos) = fields.iter().position(|f| f == field) {
-                                found = pos;
-                                break;
-                            }
-                        }
-                        found
-                    }
-                };
-
-                let struct_ty = if let Some(ref sname) = struct_name {
-                    format!("!struct_{}", sname)
-                } else {
-                    ctx.struct_fields.keys().next()
-                        .map(|name| format!("!struct_{}", name))
-                        .unwrap_or_else(|| resolve_hir_type(&base.ty))
-                };
-
-                let rhs_ty = resolve_hir_type(&rhs.ty);
-                let field_ptr = format!("%assign_ptr_{}", id);
-                out.push_str(&format!(
-                    "{}{} = llvm.getelementptr {}[0, {}] : (!llvm.ptr) -> !llvm.ptr, {}\n",
-                    pad, field_ptr, base_val, field_idx, struct_ty,
-                ));
-                out.push_str(&format!(
-                    "{}llvm.store {}, {} : {}, !llvm.ptr\n",
-                    pad, rhs_val, field_ptr, rhs_ty,
-                ));
-            }
-            Ok(rhs_val)
-        }
-        ExprKind::If { cond, then_branch, else_branch } => {
-            let cond_val = emit_hir_expr(ctx, out, cond, indent)?;
-            let id = ctx.next_id();
-            let label_then = format!("then_{}", id);
-            let label_else = format!("else_{}", id);
-            let label_merge = format!("merge_{}", id);
-
-            if let Some(else_expr) = else_branch {
-                out.push_str(&format!(
-                    "{}cf.cond_br {}, ^{}, ^{}\n",
-                    pad, cond_val, label_then, label_else,
-                ));
-                // Then block
-                out.push_str(&format!("{}^{}:\n", "  ".repeat(indent - 1), label_then));
-                let then_diverges = emit_hir_block(ctx, out, then_branch, indent)?;
-                if !then_diverges {
-                    out.push_str(&format!("{}cf.br ^{}\n", pad, label_merge));
-                }
-                // Else block
-                out.push_str(&format!("{}^{}:\n", "  ".repeat(indent - 1), label_else));
-                if let ExprKind::Block(else_block) = &else_expr.kind {
-                    let else_diverges = emit_hir_block(ctx, out, else_block, indent)?;
-                    if !else_diverges {
-                        out.push_str(&format!("{}cf.br ^{}\n", pad, label_merge));
-                    }
-                }
-                // Merge
-                out.push_str(&format!("{}^{}:\n", "  ".repeat(indent - 1), label_merge));
-            } else {
-                out.push_str(&format!(
-                    "{}cf.cond_br {}, ^{}, ^{}\n",
-                    pad, cond_val, label_then, label_merge,
-                ));
-                out.push_str(&format!("{}^{}:\n", "  ".repeat(indent - 1), label_then));
-                let then_diverges = emit_hir_block(ctx, out, then_branch, indent)?;
-                if !then_diverges {
-                    out.push_str(&format!("{}cf.br ^{}\n", pad, label_merge));
-                }
-                out.push_str(&format!("{}^{}:\n", "  ".repeat(indent - 1), label_merge));
-            }
-            Ok("%unit".to_string())
-        }
+        ExprKind::Literal(lit) => emit_hir_literal(ctx, out, lit, &expr.ty, &pad),
+        ExprKind::Var(var_id) => Ok(format!("%v{}", var_id.0)),
+        ExprKind::UnresolvedIdent(name) => Ok(format!("%{}", name)),
+        ExprKind::Binary { op, lhs, rhs } => emit_hir_binary_op(ctx, out, op, lhs, rhs, indent, &pad),
+        ExprKind::Unary { op, expr: inner } => emit_hir_unary_op(ctx, out, op, inner, &expr.ty, indent, &pad),
+        ExprKind::Field { base, field } => emit_hir_field(ctx, out, base, field, &expr.ty, indent, &pad),
+        ExprKind::Assign { lhs, rhs } => emit_hir_assign(ctx, out, lhs, rhs, indent, &pad),
+        ExprKind::If { cond, then_branch, else_branch } => emit_hir_if(ctx, out, cond, then_branch, else_branch.as_deref(), indent, &pad),
         ExprKind::Block(block) => {
             emit_hir_block(ctx, out, block, indent)?;
             Ok("%unit".to_string())
         }
-
-        // ── Poll<T> Construction ──────────────────────────────────────
-        ExprKind::StructLit { name, fields, type_args: _ } => {
-            let id = ctx.next_id();
-            let poll_ty = resolve_hir_type(&expr.ty);
-
-            match name.as_str() {
-                "Poll::Pending" => {
-                    // Emit: undef + insertvalue discriminant 0
-                    let undef = format!("%poll_undef_{}", id);
-                    let disc = format!("%poll_disc_{}", id);
-                    let result = format!("%poll_pending_{}", id);
-                    out.push_str(&format!(
-                        "{}{} = llvm.mlir.undef : {}\n", pad, undef, poll_ty,
-                    ));
-                    out.push_str(&format!(
-                        "{}{} = arith.constant 0 : i32\n", pad, disc,
-                    ));
-                    out.push_str(&format!(
-                        "{}{} = llvm.insertvalue {}, {}[0] : {}\n",
-                        pad, result, disc, undef, poll_ty,
-                    ));
-                    Ok(result)
-                }
-                "Poll::Ready" => {
-                    // Emit: undef + insertvalue discriminant 1 + insertvalue payload
-                    let undef = format!("%poll_undef_{}", id);
-                    let disc = format!("%poll_disc_{}", id);
-                    let tagged = format!("%poll_tagged_{}", id);
-                    out.push_str(&format!(
-                        "{}{} = llvm.mlir.undef : {}\n", pad, undef, poll_ty,
-                    ));
-                    out.push_str(&format!(
-                        "{}{} = arith.constant 1 : i32\n", pad, disc,
-                    ));
-                    out.push_str(&format!(
-                        "{}{} = llvm.insertvalue {}, {}[0] : {}\n",
-                        pad, tagged, disc, undef, poll_ty,
-                    ));
-                    // Pack the payload into field [1] if present
-                    if !fields.is_empty() {
-                        let payload_val = emit_hir_expr(ctx, out, &fields[0].1, indent)?;
-                        let final_reg = format!("%poll_ready_{}", id);
-                        out.push_str(&format!(
-                            "{}{} = llvm.insertvalue {}, {}[1] : {}\n",
-                            pad, final_reg, payload_val, tagged, poll_ty,
-                        ));
-                        Ok(final_reg)
-                    } else {
-                        Ok(tagged)
-                    }
-                }
-                _ => {
-                    // Generic struct literal
-                    let result = format!("%struct_{}", id);
-                    out.push_str(&format!(
-                        "{}{} = llvm.mlir.undef : {}\n", pad, result, poll_ty,
-                    ));
-                    Ok(result)
-                }
-            }
-        }
-
-        // ── Contracts: Zero-Cost Erasure ──────────────────────────────
-        ExprKind::Requires(_) | ExprKind::Ensures(_) => {
-            // Purely frontend verification. Zero bytes at runtime.
-            Ok("%unit".to_string())
-        }
-
-        // ── Yield: should already be lowered ──────────────────────────
-        ExprKind::Yield(_) => {
-            // Yield has been lowered to __state assignment + return Poll::Pending
-            // by generate_step_fn_from_cfg. If we see it here, something is wrong.
-            Err("HIR emitter: unexpected ExprKind::Yield — should have been lowered".into())
-        }
-
-        // ── Passthrough ──────────────────────────────────────────────
+        ExprKind::StructLit { name, fields, type_args: _ } => emit_hir_struct_lit(ctx, out, name, fields, &expr.ty, indent, &pad),
+        ExprKind::Requires(_) | ExprKind::Ensures(_) => Ok("%unit".to_string()),
+        ExprKind::Yield(_) => Err("HIR emitter: unexpected ExprKind::Yield — should have been lowered".into()),
         ExprKind::Path(_) | ExprKind::Call { .. } | ExprKind::Cast { .. } |
         ExprKind::Index { .. } | ExprKind::Ref(_) | ExprKind::MethodCall { .. } |
         ExprKind::While { .. } | ExprKind::Loop(_) | ExprKind::Return(_) |
         ExprKind::Break | ExprKind::Continue => {
-            // These nodes are not produced by the async step function generator.
-            // If encountered, emit a comment placeholder.
             let id = ctx.next_id();
             let result = format!("%expr_{}", id);
             out.push_str(&format!("{}// HIR expr: {:?}\n", pad, std::mem::discriminant(&expr.kind)));
@@ -716,6 +355,239 @@ fn emit_hir_expr(
     }
 }
 
+fn emit_hir_literal(ctx: &mut HirEmitCtx, out: &mut String, lit: &Literal, ty: &Type, pad: &str) -> Result<String, String> {
+    let id = ctx.next_id();
+    match lit {
+        Literal::Int(n) => {
+            let resolved_ty = resolve_hir_type(ty);
+            let name = format!("%c{}_{}", n, id);
+            out.push_str(&format!("{}{} = arith.constant {} : {}\n", pad, name, n, resolved_ty));
+            Ok(name)
+        }
+        Literal::Bool(b) => {
+            let name = format!("%b{}_{}", b, id);
+            let val = if *b { "true" } else { "false" };
+            out.push_str(&format!("{}{} = arith.constant {} : i1\n", pad, name, val));
+            Ok(name)
+        }
+        Literal::Float(f) => {
+            let resolved_ty = resolve_hir_type(ty);
+            let name = format!("%f_{}", id);
+            out.push_str(&format!("{}{} = arith.constant {:e} : {}\n", pad, name, f, resolved_ty));
+            Ok(name)
+        }
+        Literal::String(s) => Ok(format!("\"{}\"", s)),
+    }
+}
+
+fn emit_hir_binary_op(
+    ctx: &mut HirEmitCtx, out: &mut String, op: &BinOp,
+    lhs: &Expr, rhs: &Expr, indent: usize, pad: &str
+) -> Result<String, String> {
+    let lhs_val = emit_hir_expr(ctx, out, lhs, indent)?;
+    let rhs_val = emit_hir_expr(ctx, out, rhs, indent)?;
+    let id = ctx.next_id();
+    let result = format!("%binop_{}", id);
+    let lhs_ty = resolve_hir_type(&lhs.ty);
+
+    match op {
+        BinOp::Eq => out.push_str(&format!("{}{} = arith.cmpi eq, {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::Ne => out.push_str(&format!("{}{} = arith.cmpi ne, {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::Lt => out.push_str(&format!("{}{} = arith.cmpi slt, {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::Le => out.push_str(&format!("{}{} = arith.cmpi sle, {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::Gt => out.push_str(&format!("{}{} = arith.cmpi sgt, {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::Ge => out.push_str(&format!("{}{} = arith.cmpi sge, {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::Add => out.push_str(&format!("{}{} = arith.addi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::Sub => out.push_str(&format!("{}{} = arith.subi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::Mul => out.push_str(&format!("{}{} = arith.muli {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::Div => out.push_str(&format!("{}{} = arith.divsi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::Rem => out.push_str(&format!("{}{} = arith.remsi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::And | BinOp::BitAnd => out.push_str(&format!("{}{} = arith.andi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::Or | BinOp::BitOr => out.push_str(&format!("{}{} = arith.ori {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::BitXor => out.push_str(&format!("{}{} = arith.xori {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::Shl => out.push_str(&format!("{}{} = arith.shli {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::Shr => out.push_str(&format!("{}{} = arith.shrsi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::AddAssign => out.push_str(&format!("{}{} = arith.addi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::SubAssign => out.push_str(&format!("{}{} = arith.subi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::MulAssign => out.push_str(&format!("{}{} = arith.muli {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::DivAssign => out.push_str(&format!("{}{} = arith.divsi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+        BinOp::RemAssign => out.push_str(&format!("{}{} = arith.remsi {}, {} : {}\n", pad, result, lhs_val, rhs_val, lhs_ty)),
+    }
+    Ok(result)
+}
+
+fn emit_hir_unary_op(
+    ctx: &mut HirEmitCtx, out: &mut String, op: &UnOp,
+    inner: &Expr, ty: &Type, indent: usize, pad: &str
+) -> Result<String, String> {
+    let inner_val = emit_hir_expr(ctx, out, inner, indent)?;
+    let id = ctx.next_id();
+    let result = format!("%unop_{}", id);
+    match op {
+        UnOp::Not => {
+            let true_const = format!("%true_{}", id);
+            out.push_str(&format!("{}{} = arith.constant true : i1\n", pad, true_const));
+            out.push_str(&format!("{}{} = arith.xori {}, {} : i1\n", pad, result, inner_val, true_const));
+        }
+        UnOp::Neg => {
+            let resolved_ty = resolve_hir_type(&inner.ty);
+            let zero = format!("%zero_{}", id);
+            out.push_str(&format!("{}{} = arith.constant 0 : {}\n", pad, zero, resolved_ty));
+            out.push_str(&format!("{}{} = arith.subi {}, {} : {}\n", pad, result, zero, inner_val, resolved_ty));
+        }
+        UnOp::Deref => {
+            let resolved_ty = resolve_hir_type(ty);
+            out.push_str(&format!("{}{} = llvm.load {} : !llvm.ptr -> {}\n", pad, result, inner_val, resolved_ty));
+        }
+    }
+    Ok(result)
+}
+
+fn emit_hir_field(
+    ctx: &mut HirEmitCtx, out: &mut String, base: &Expr,
+    field: &str, ty: &Type, indent: usize, pad: &str
+) -> Result<String, String> {
+    let base_val = emit_hir_expr(ctx, out, base, indent)?;
+    let id = ctx.next_id();
+    let field_ty = resolve_hir_type(ty);
+
+    let struct_name = HirEmitCtx::extract_struct_name(&base.ty);
+    let field_idx = if let Some(ref sname) = struct_name {
+        ctx.resolve_field_index(sname, field)
+    } else {
+        if field == "__state" { 0 } else {
+            let mut found = 0;
+            for (_name, fields) in &ctx.struct_fields {
+                if let Some(pos) = fields.iter().position(|f| f == field) { found = pos; break; }
+            }
+            found
+        }
+    };
+
+    let struct_ty = if let Some(ref sname) = struct_name {
+        format!("!struct_{}", sname)
+    } else {
+        ctx.struct_fields.keys().next().map(|name| format!("!struct_{}", name)).unwrap_or_else(|| resolve_hir_type(&base.ty))
+    };
+
+    let field_ptr = format!("%field_ptr_{}", id);
+    let result = format!("%field_{}", id);
+    out.push_str(&format!("{}{} = llvm.getelementptr {}[0, {}] : (!llvm.ptr) -> !llvm.ptr, {}\n", pad, field_ptr, base_val, field_idx, struct_ty));
+    out.push_str(&format!("{}{} = llvm.load {} : !llvm.ptr -> {}\n", pad, result, field_ptr, field_ty));
+    Ok(result)
+}
+
+fn emit_hir_assign(
+    ctx: &mut HirEmitCtx, out: &mut String, lhs: &Expr,
+    rhs: &Expr, indent: usize, pad: &str
+) -> Result<String, String> {
+    let rhs_val = emit_hir_expr(ctx, out, rhs, indent)?;
+    let id = ctx.next_id();
+
+    if let ExprKind::Field { base, field } = &lhs.kind {
+        let base_val = emit_hir_expr(ctx, out, base, indent)?;
+        let struct_name = HirEmitCtx::extract_struct_name(&base.ty);
+        let field_idx = if let Some(ref sname) = struct_name {
+            ctx.resolve_field_index(sname, field)
+        } else {
+            if field == "__state" { 0 } else {
+                let mut found = 0;
+                for (_name, fields) in &ctx.struct_fields {
+                    if let Some(pos) = fields.iter().position(|f| f == field) { found = pos; break; }
+                }
+                found
+            }
+        };
+
+        let struct_ty = if let Some(ref sname) = struct_name {
+            format!("!struct_{}", sname)
+        } else {
+            ctx.struct_fields.keys().next().map(|name| format!("!struct_{}", name)).unwrap_or_else(|| resolve_hir_type(&base.ty))
+        };
+
+        let rhs_ty = resolve_hir_type(&rhs.ty);
+        let field_ptr = format!("%assign_ptr_{}", id);
+        out.push_str(&format!("{}{} = llvm.getelementptr {}[0, {}] : (!llvm.ptr) -> !llvm.ptr, {}\n", pad, field_ptr, base_val, field_idx, struct_ty));
+        out.push_str(&format!("{}llvm.store {}, {} : {}, !llvm.ptr\n", pad, rhs_val, field_ptr, rhs_ty));
+    }
+    Ok(rhs_val)
+}
+
+fn emit_hir_if(
+    ctx: &mut HirEmitCtx, out: &mut String, cond: &Expr,
+    then_branch: &crate::hir::expr::Block, else_branch: Option<&Expr>,
+    indent: usize, pad: &str
+) -> Result<String, String> {
+    let cond_val = emit_hir_expr(ctx, out, cond, indent)?;
+    let id = ctx.next_id();
+    let label_then = format!("then_{}", id);
+    let label_else = format!("else_{}", id);
+    let label_merge = format!("merge_{}", id);
+
+    if let Some(else_expr) = else_branch {
+        out.push_str(&format!("{}cf.cond_br {}, ^{}, ^{}\n", pad, cond_val, label_then, label_else));
+        out.push_str(&format!("{}^{}:\n", "  ".repeat(indent - 1), label_then));
+        let then_diverges = emit_hir_block(ctx, out, then_branch, indent)?;
+        if !then_diverges { out.push_str(&format!("{}cf.br ^{}\n", pad, label_merge)); }
+        
+        out.push_str(&format!("{}^{}:\n", "  ".repeat(indent - 1), label_else));
+        if let ExprKind::Block(else_block) = &else_expr.kind {
+            let else_diverges = emit_hir_block(ctx, out, else_block, indent)?;
+            if !else_diverges { out.push_str(&format!("{}cf.br ^{}\n", pad, label_merge)); }
+        }
+        out.push_str(&format!("{}^{}:\n", "  ".repeat(indent - 1), label_merge));
+    } else {
+        out.push_str(&format!("{}cf.cond_br {}, ^{}, ^{}\n", pad, cond_val, label_then, label_merge));
+        out.push_str(&format!("{}^{}:\n", "  ".repeat(indent - 1), label_then));
+        let then_diverges = emit_hir_block(ctx, out, then_branch, indent)?;
+        if !then_diverges { out.push_str(&format!("{}cf.br ^{}\n", pad, label_merge)); }
+        out.push_str(&format!("{}^{}:\n", "  ".repeat(indent - 1), label_merge));
+    }
+    Ok("%unit".to_string())
+}
+
+fn emit_hir_struct_lit(
+    ctx: &mut HirEmitCtx, out: &mut String, name: &str,
+    fields: &[(String, Expr)], ty: &Type, indent: usize, pad: &str
+) -> Result<String, String> {
+    let id = ctx.next_id();
+    let poll_ty = resolve_hir_type(ty);
+
+    match name {
+        "Poll::Pending" => {
+            let undef = format!("%poll_undef_{}", id);
+            let disc = format!("%poll_disc_{}", id);
+            let result = format!("%poll_pending_{}", id);
+            out.push_str(&format!("{}{} = llvm.mlir.undef : {}\n", pad, undef, poll_ty));
+            out.push_str(&format!("{}{} = arith.constant 0 : i32\n", pad, disc));
+            out.push_str(&format!("{}{} = llvm.insertvalue {}, {}[0] : {}\n", pad, result, disc, undef, poll_ty));
+            Ok(result)
+        }
+        "Poll::Ready" => {
+            let undef = format!("%poll_undef_{}", id);
+            let disc = format!("%poll_disc_{}", id);
+            let tagged = format!("%poll_tagged_{}", id);
+            out.push_str(&format!("{}{} = llvm.mlir.undef : {}\n", pad, undef, poll_ty));
+            out.push_str(&format!("{}{} = arith.constant 1 : i32\n", pad, disc));
+            out.push_str(&format!("{}{} = llvm.insertvalue {}, {}[0] : {}\n", pad, tagged, disc, undef, poll_ty));
+            if !fields.is_empty() {
+                let payload_val = emit_hir_expr(ctx, out, &fields[0].1, indent)?;
+                let final_reg = format!("%poll_ready_{}", id);
+                out.push_str(&format!("{}{} = llvm.insertvalue {}, {}[1] : {}\n", pad, final_reg, payload_val, tagged, poll_ty));
+                Ok(final_reg)
+            } else {
+                Ok(tagged)
+            }
+        }
+        _ => {
+            let result = format!("%struct_{}", id);
+            out.push_str(&format!("{}{} = llvm.mlir.undef : {}\n", pad, result, poll_ty));
+            Ok(result)
+        }
+    }
+}
+
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -723,7 +595,7 @@ fn emit_hir_expr(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir::ids::{DefId, VarId};
+    use crate::hir::ids::VarId;
     use crate::hir::items::{Visibility, Param};
     use crate::hir::expr::Expr;
 

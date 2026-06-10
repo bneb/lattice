@@ -166,40 +166,24 @@ pub fn free_run_state(s: RunState) {
 // Forward Pass
 // -----------------------------------------------------------------------------
 
-@fast_math
-pub fn forward(cfg: &Config, w: &TransformerWeights, s: &RunState, token: i64, pos: i64) {
+fn transformer_embedding(s: &RunState, w: &TransformerWeights, dim: i64, token: i64) {
     unsafe {
-    if s.x as i64 == 0 {
-        return; // OOM check
-    }
-
-    let dim: i64 = cfg.dim;
-    let hidden_dim: i64 = cfg.hidden_dim;
-    let head_size: i64 = dim / cfg.n_heads;
-    let kv_dim: i64 = (dim * cfg.n_kv_heads) / cfg.n_heads;
-    let kv_mul: i64 = cfg.n_heads / cfg.n_kv_heads; 
-    let sqrt_head_size: f32 = sqrtf(head_size as f32);
-
-    // 1. Embedding — on-the-fly dequant for q8, direct copy for f32
-    if w.is_q8 == 1 {
-        // Each row is (dim / 32) q8_0 blocks × 34 bytes
-        let row_bytes: i64 = (dim / 32) * 34;
-        let row_ptr = w.embed_q8.offset(token * row_bytes);
-        dequant_block_q8(row_ptr, s.x, dim / 32);
-    } else {
-        let embed_row = w.token_embedding_table;
-        let offset: i64 = token * dim;
-        for i in 0..dim {
-            s.x[i] = embed_row[offset + i];
+        if w.is_q8 == 1 {
+            let row_bytes: i64 = (dim / 32) * 34;
+            let row_ptr = w.embed_q8.offset(token * row_bytes);
+            dequant_block_q8(row_ptr, s.x, dim / 32);
+        } else {
+            let embed_row = w.token_embedding_table;
+            let offset: i64 = token * dim;
+            for i in 0..dim {
+                s.x[i] = embed_row[offset + i];
+            }
         }
     }
-    
-    // 2. Layers Loop
-    for l in 0..cfg.n_layers {
-        // Attention RMSNorm
-        rmsnorm(s.xb, s.x, w.rms_att_weight.offset(l * dim), dim);
+}
 
-        // QKV Projections
+fn project_qkv(s: &RunState, w: &TransformerWeights, dim: i64, kv_dim: i64, l: i64) {
+    unsafe {
         let wq_offset: i64 = l * dim * dim;
         let wk_offset: i64 = l * kv_dim * dim;
         let wv_offset: i64 = l * kv_dim * dim;
@@ -216,8 +200,11 @@ pub fn forward(cfg: &Config, w: &TransformerWeights, s: &RunState, token: i64, p
             mat_mul(s.k, w.wk.offset(wk_offset), s.xb, kv_dim, 1, dim);
             mat_mul(s.v, w.wv.offset(wv_offset), s.xb, kv_dim, 1, dim);
         }
+    }
+}
 
-        // RoPE Rotation
+fn apply_rope(s: &RunState, w: &TransformerWeights, cfg: &Config, pos: i64, head_size: i64) {
+    unsafe {
         for h in 0..cfg.n_heads {
             for i in 0..(head_size / 2) {
                 let idx: i64 = h * head_size + i * 2;
@@ -244,7 +231,11 @@ pub fn forward(cfg: &Config, w: &TransformerWeights, s: &RunState, token: i64, p
                 s.k[idx + 1] = v0 * f_ci + v1 * f_cr;
             }
         }
+    }
+}
 
+fn compute_attention(s: &RunState, cfg: &Config, l: i64, pos: i64, kv_dim: i64, head_size: i64, kv_mul: i64, sqrt_head_size: f32) {
+    unsafe {
         // Cache KV
         let cache_offset: i64 = l * cfg.seq_len * kv_dim + pos * kv_dim;
         let k_cache_ptr = s.key_cache.offset(cache_offset);
@@ -254,7 +245,7 @@ pub fn forward(cfg: &Config, w: &TransformerWeights, s: &RunState, token: i64, p
             v_cache_ptr[i] = s.v[i];
         }
 
-        // Attention (Multi-Head)
+        // Multi-head attention
         for h in 0..cfg.n_heads {
             let att_offset: i64 = h * cfg.seq_len;
             let q_offset: i64 = h * head_size;
@@ -292,26 +283,11 @@ pub fn forward(cfg: &Config, w: &TransformerWeights, s: &RunState, token: i64, p
                 s.xb[out_offset + i] = val;
             }
         }
+    }
+}
 
-        // Output Projection
-        let wo_offset: i64 = l * dim * dim;
-        if w.is_q8 == 1 {
-            let wo_q8_off: i64 = l * dim * (dim / 32) * 34;
-            mat_mul_vec_q8(s.xb2, w.wo_q8.offset(wo_q8_off), s.xb, dim, dim);
-        } else {
-            mat_mul(s.xb2, w.wo.offset(wo_offset), s.xb, dim, 1, dim);
-        }
-
-        // Residual Connection
-        for i in 0..dim {
-            let v: f32 = s.xb2[i];
-            s.x[i] = s.x[i] + v;
-        }
-
-        // FFN RMSNorm
-        rmsnorm(s.xb, s.x, w.rms_ffn_weight.offset(l * dim), dim);
-
-        // FFN (SwiGLU)
+fn ffn_swiglu(s: &RunState, w: &TransformerWeights, dim: i64, hidden_dim: i64, l: i64) {
+    unsafe {
         let w1_offset: i64 = l * hidden_dim * dim;
         let w2_offset: i64 = l * dim * hidden_dim;
         let w3_offset: i64 = l * hidden_dim * dim;
@@ -335,29 +311,61 @@ pub fn forward(cfg: &Config, w: &TransformerWeights, s: &RunState, token: i64, p
             s.hb[i] = silu * val2; 
         }
 
-        // Down projection
         if w.is_q8 == 1 {
             let w2_q8_off: i64 = l * dim * (hidden_dim / 32) * 34;
             mat_mul_vec_q8(s.xb, w.w2_q8.offset(w2_q8_off), s.hb, dim, hidden_dim);
         } else {
             mat_mul(s.xb, w.w2.offset(w2_offset), s.hb, dim, 1, hidden_dim);
         }
-
-        // Residual Connection
-        for i in 0..dim {
-            let v: f32 = s.xb[i];
-            s.x[i] = s.x[i] + v;
-        }
-    } 
-    
-    // 3. Final Norm
-    rmsnorm(s.x, s.x, w.rms_final_weight, cfg.dim);
-    
-    // 4. Classifier
-    if w.is_q8 == 1 {
-        mat_mul_vec_q8(s.logits, w.w_cls_q8, s.x, cfg.vocab_size, cfg.dim);
-    } else {
-        mat_mul(s.logits, w.w_cls, s.x, cfg.vocab_size, 1, cfg.dim);
     }
-    } // End unsafe
+}
+
+@fast_math
+fn output_projection(s: &RunState, w: &TransformerWeights, dim: i64, l: i64) {
+    unsafe {
+        if w.is_q8 == 1 {
+            let wo_q8_off: i64 = l * dim * (dim / 32) * 34;
+            mat_mul_vec_q8(s.xb2, w.wo_q8.offset(wo_q8_off), s.xb, dim, dim);
+        } else {
+            mat_mul(s.xb2, w.wo.offset(l * dim * dim), s.xb, dim, 1, dim);
+        }
+    }
+}
+
+fn residual_add(x: Ptr<f32>, v: Ptr<f32>, dim: i64) {
+    unsafe { for i in 0..dim { x[i] = x[i] + v[i]; } }
+}
+
+@fast_math
+pub fn forward(cfg: &Config, w: &TransformerWeights, s: &RunState, token: i64, pos: i64) {
+    unsafe {
+        if s.x as i64 == 0 { return; }
+        let dim: i64 = cfg.dim;
+        let hidden_dim: i64 = cfg.hidden_dim;
+        let head_size: i64 = dim / cfg.n_heads;
+        let kv_dim: i64 = (dim * cfg.n_kv_heads) / cfg.n_heads;
+        let kv_mul: i64 = cfg.n_heads / cfg.n_kv_heads; 
+        let sqrt_head_size: f32 = sqrtf(head_size as f32);
+
+        transformer_embedding(s, w, dim, token);
+        
+        for l in 0..cfg.n_layers {
+            rmsnorm(s.xb, s.x, w.rms_att_weight.offset(l * dim), dim);
+            project_qkv(s, w, dim, kv_dim, l);
+            apply_rope(s, w, cfg, pos, head_size);
+            compute_attention(s, cfg, l, pos, kv_dim, head_size, kv_mul, sqrt_head_size);
+            output_projection(s, w, dim, l);
+            residual_add(s.x, s.xb2, dim);
+            rmsnorm(s.xb, s.x, w.rms_ffn_weight.offset(l * dim), dim);
+            ffn_swiglu(s, w, dim, hidden_dim, l);
+            residual_add(s.x, s.xb, dim);
+        } 
+        
+        rmsnorm(s.x, s.x, w.rms_final_weight, dim);
+        if w.is_q8 == 1 {
+            mat_mul_vec_q8(s.logits, w.w_cls_q8, s.x, cfg.vocab_size, dim);
+        } else {
+            mat_mul(s.logits, w.w_cls, s.x, cfg.vocab_size, 1, dim);
+        }
+    }
 }

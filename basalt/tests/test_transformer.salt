@@ -145,198 +145,158 @@ fn alloc_run_state(cfg: Config) -> RunState {
 
 // ---- Forward Pass Implementation ----
 
-fn forward(cfg: Config, w: TransformerWeights, s: RunState, token: i64, pos: i64) {
-    let dim: i64 = cfg.dim;
-    let hidden_dim: i64 = cfg.hidden_dim;
-    let head_size: i64 = dim / cfg.n_heads;
-    let kv_dim: i64 = (dim * cfg.n_kv_heads) / cfg.n_heads;
-    let kv_mul: i64 = cfg.n_heads / cfg.n_kv_heads; // Integer division
-    let sqrt_head_size: f32 = sqrtf(head_size as f32);
-
-    // 1. Embedding
+fn transformer_embedding(s: RunState, w: TransformerWeights, dim: i64, token: i64) {
     let embed_row = w.token_embedding_table;
     let offset: i64 = token * dim;
     for i in 0..dim {
         let val: f32 = embed_row[offset + i];
         s.x[i] = val;
     }
+}
+
+fn project_qkv(s: RunState, w: TransformerWeights, dim: i64, kv_dim: i64, l: i64) {
+    let wq_offset: i64 = l * dim * dim;
+    let wk_offset: i64 = l * kv_dim * dim;
+    let wv_offset: i64 = l * kv_dim * dim;
     
-    // 2. Layers Loop
-    for l in 0..cfg.n_layers {
-        // Attention RMSNorm
-        rmsnorm(s.xb, s.x, w.rms_att_weight.offset(l * dim), dim);
+    mat_mul(s.q, w.wq.offset(wq_offset), s.xb, dim, 1, dim);
+    mat_mul(s.k, w.wk.offset(wk_offset), s.xb, kv_dim, 1, dim);
+    mat_mul(s.v, w.wv.offset(wv_offset), s.xb, kv_dim, 1, dim);
+}
 
-        // QKV Projections
-        // wq: (dim, dim), wk: (dim, kv_dim), wv: (dim, kv_dim) -- stored flattened by layer
-        // mat_mul expects: out, a, b, m, n, d
-        // We compute: q = xb * wq^T (xb is row vector 1xdim, wq is dimxdim)
-        // Actually Llama weights are usually (out_dim, in_dim).
-        // Let's assume standard format: weights are (dim, in_dim).
-        // So q = wq * xb (column vector) or xb * wq^T (row vector).
-        // Salt mat_mul: out(m,n) = a(m,d) * b(d,n).
-        // If s.q is (1, dim), s.xb is (1, dim). wq needs to be (dim, dim).
-        // Let's assume wq stores columns: (dim, dim).
-        // So we multiply s.xb (1, dim) * wq (dim, dim) -> s.q (1, dim).
-        // But wait, standard matmul usually takes weight as first arg if batch=1?
-        // Let's stick to vector-matrix multiply: y = M * x (if x is col) or y = x * M (if x is row).
-        // Our mat_mul is general matrix multiply.
-        // Let's use: out(dim, 1) = W(dim, dim) * in(dim, 1).
-        // We can treat our flat pointers as column vectors (dim x 1).
-        // So m=dim, n=1, d=dim.
-        // a=weight, b=input.
-        
-        let wq_offset: i64 = l * dim * dim;
-        let wk_offset: i64 = l * kv_dim * dim;
-        let wv_offset: i64 = l * kv_dim * dim;
-        
-        mat_mul(s.q, w.wq.offset(wq_offset), s.xb, dim, 1, dim);
-        mat_mul(s.k, w.wk.offset(wk_offset), s.xb, kv_dim, 1, dim);
-        mat_mul(s.v, w.wv.offset(wv_offset), s.xb, kv_dim, 1, dim);
-
-        // RoPE Rotation
-        // Apply to q and k. Iterate over pairs.
-        for h in 0..cfg.n_heads {
-            for i in 0..(head_size / 2) {
-                let idx: i64 = h * head_size + i * 2;
-                let idx_freq: i64 = pos * (head_size / 2) + i;
-                let f_cr: f32 = w.freq_cis_real[idx_freq];
-                let f_ci: f32 = w.freq_cis_imag[idx_freq];
-                
-                let v0: f32 = s.q[idx];
-                let v1: f32 = s.q[idx + 1];
-                s.q[idx] = v0 * f_cr - v1 * f_ci;
-                s.q[idx + 1] = v0 * f_ci + v1 * f_cr;
-            }
-        }
-        for h in 0..cfg.n_kv_heads {
-            for i in 0..(head_size / 2) {
-                let idx: i64 = h * head_size + i * 2;
-                let idx_freq: i64 = pos * (head_size / 2) + i;
-                let f_cr: f32 = w.freq_cis_real[idx_freq];
-                let f_ci: f32 = w.freq_cis_imag[idx_freq];
-                
-                let v0: f32 = s.k[idx];
-                let v1: f32 = s.k[idx + 1];
-                s.k[idx] = v0 * f_cr - v1 * f_ci;
-                s.k[idx + 1] = v0 * f_ci + v1 * f_cr;
-            }
-        }
-
-        // Cache KV
-        // Needs pointer to correct layer/pos in cache
-        let cache_offset: i64 = l * cfg.seq_len * kv_dim + pos * kv_dim;
-        let k_cache_ptr = s.key_cache.offset(cache_offset);
-        let v_cache_ptr = s.value_cache.offset(cache_offset);
-        for i in 0..kv_dim {
-            k_cache_ptr[i] = s.k[i];
-            v_cache_ptr[i] = s.v[i];
-        }
-
-        // Attention (Multi-Head)
-        for h in 0..cfg.n_heads {
-            let att_offset: i64 = h * cfg.seq_len;
-            let q_offset: i64 = h * head_size;
+fn apply_rope(s: RunState, w: TransformerWeights, cfg: Config, pos: i64, head_size: i64) {
+    for h in 0..cfg.n_heads {
+        for i in 0..(head_size / 2) {
+            let idx: i64 = h * head_size + i * 2;
+            let idx_freq: i64 = pos * (head_size / 2) + i;
+            let f_cr: f32 = w.freq_cis_real[idx_freq];
+            let f_ci: f32 = w.freq_cis_imag[idx_freq];
             
-            // Iterate over all past positions (causal attention)
-            for t in 0..(pos + 1) {
-                // Dot product q[h] . k_cache[t, h]
-                // Need to handle GQA index mapping if n_kv_heads < n_heads
-                let h_kv: i64 = h / kv_mul;
-                let k_cache_t_offset: i64 = l * cfg.seq_len * kv_dim + t * kv_dim + h_kv * head_size;
-                let k_ptr = s.key_cache.offset(k_cache_t_offset);
-                
-                let mut score: f32 = 0.0f32;
-                for i in 0..head_size {
-                    let q_val: f32 = s.q[q_offset + i];
-                    let k_val: f32 = k_ptr[i];
-                    score = score + q_val * k_val;
-                }
-                score = score / sqrt_head_size;
-                s.att[att_offset + t] = score;
-            }
+            let v0: f32 = s.q[idx];
+            let v1: f32 = s.q[idx + 1];
+            s.q[idx] = v0 * f_cr - v1 * f_ci;
+            s.q[idx + 1] = v0 * f_ci + v1 * f_cr;
+        }
+    }
+    for h in 0..cfg.n_kv_heads {
+        for i in 0..(head_size / 2) {
+            let idx: i64 = h * head_size + i * 2;
+            let idx_freq: i64 = pos * (head_size / 2) + i;
+            let f_cr: f32 = w.freq_cis_real[idx_freq];
+            let f_ci: f32 = w.freq_cis_imag[idx_freq];
+            
+            let v0: f32 = s.k[idx];
+            let v1: f32 = s.k[idx + 1];
+            s.k[idx] = v0 * f_cr - v1 * f_ci;
+            s.k[idx + 1] = v0 * f_ci + v1 * f_cr;
+        }
+    }
+}
 
-            // Softmax on attention scores
-            // Only over valid range 0..pos+1
-            // We need a pointer to the slice of attention scores for this head
-            let att_head_ptr = s.att.offset(att_offset);
-            softmax(att_head_ptr, pos + 1);
+fn compute_attention(s: RunState, cfg: Config, l: i64, pos: i64, kv_dim: i64, head_size: i64, kv_mul: i64, sqrt_head_size: f32) {
+    let cache_offset: i64 = l * cfg.seq_len * kv_dim + pos * kv_dim;
+    let k_cache_ptr = s.key_cache.offset(cache_offset);
+    let v_cache_ptr = s.value_cache.offset(cache_offset);
+    for i in 0..kv_dim {
+        k_cache_ptr[i] = s.k[i];
+        v_cache_ptr[i] = s.v[i];
+    }
 
-            // Weighted sum of values -> xb (output buffer)
-            // xb[h * head_size ..]
-            let out_offset: i64 = h * head_size;
+    for h in 0..cfg.n_heads {
+        let att_offset: i64 = h * cfg.seq_len;
+        let q_offset: i64 = h * head_size;
+        
+        for t in 0..(pos + 1) {
+            let h_kv: i64 = h / kv_mul;
+            let k_cache_t_offset: i64 = l * cfg.seq_len * kv_dim + t * kv_dim + h_kv * head_size;
+            let k_ptr = s.key_cache.offset(k_cache_t_offset);
+            
+            let mut score: f32 = 0.0f32;
             for i in 0..head_size {
-                let mut val: f32 = 0.0f32;
-                for t in 0..(pos + 1) {
-                    let h_kv: i64 = h / kv_mul;
-                    let v_cache_t_offset: i64 = l * cfg.seq_len * kv_dim + t * kv_dim + h_kv * head_size;
-                    let v_ptr = s.value_cache.offset(v_cache_t_offset);
-                    
-                    let att_w: f32 = att_head_ptr[t];
-                    let v_val: f32 = v_ptr[i];
-                    val = val + att_w * v_val;
-                }
-                s.xb[out_offset + i] = val;
+                let q_val: f32 = s.q[q_offset + i];
+                let k_val: f32 = k_ptr[i];
+                score = score + q_val * k_val;
             }
+            score = score / sqrt_head_size;
+            s.att[att_offset + t] = score;
         }
 
-        // Output Projection (wo)
-        // xb = wo * xb (wo is dim x dim)
-        // But wait, residual connection for attention is: x = x + wo * xb
-        // We reuse xb2 for the result of projection
+        let att_head_ptr = s.att.offset(att_offset);
+        softmax(att_head_ptr, pos + 1);
+
+        let out_offset: i64 = h * head_size;
+        for i in 0..head_size {
+            let mut val: f32 = 0.0f32;
+            for t in 0..(pos + 1) {
+                let h_kv: i64 = h / kv_mul;
+                let v_cache_t_offset: i64 = l * cfg.seq_len * kv_dim + t * kv_dim + h_kv * head_size;
+                let v_ptr = s.value_cache.offset(v_cache_t_offset);
+                
+                let att_w: f32 = att_head_ptr[t];
+                let v_val: f32 = v_ptr[i];
+                val = val + att_w * v_val;
+            }
+            s.xb[out_offset + i] = val;
+        }
+    }
+}
+
+fn ffn_swiglu(s: RunState, w: TransformerWeights, dim: i64, hidden_dim: i64, l: i64) {
+    let w1_offset: i64 = l * hidden_dim * dim;
+    let w2_offset: i64 = l * dim * hidden_dim;
+    let w3_offset: i64 = l * hidden_dim * dim;
+    
+    mat_mul(s.hb, w.w1.offset(w1_offset), s.xb, hidden_dim, 1, dim);
+    mat_mul(s.hb2, w.w3.offset(w3_offset), s.xb, hidden_dim, 1, dim);
+
+    for i in 0..hidden_dim {
+        let val: f32 = s.hb[i];
+        let val2: f32 = s.hb2[i];
+        
+        let neg_val: f32 = 0.0f32 - val;
+        let sigmoid: f32 = 1.0f32 / (1.0f32 + expf(neg_val));
+        let silu: f32 = val * sigmoid;
+        
+        s.hb[i] = silu * val2; 
+    }
+
+    mat_mul(s.xb, w.w2.offset(w2_offset), s.hb, dim, 1, hidden_dim);
+}
+
+fn forward(cfg: Config, w: TransformerWeights, s: RunState, token: i64, pos: i64) {
+    let dim: i64 = cfg.dim;
+    let hidden_dim: i64 = cfg.hidden_dim;
+    let head_size: i64 = dim / cfg.n_heads;
+    let kv_dim: i64 = (dim * cfg.n_kv_heads) / cfg.n_heads;
+    let kv_mul: i64 = cfg.n_heads / cfg.n_kv_heads; 
+    let sqrt_head_size: f32 = sqrtf(head_size as f32);
+
+    transformer_embedding(s, w, dim, token);
+    
+    for l in 0..cfg.n_layers {
+        rmsnorm(s.xb, s.x, w.rms_att_weight.offset(l * dim), dim);
+        project_qkv(s, w, dim, kv_dim, l);
+        apply_rope(s, w, cfg, pos, head_size);
+        compute_attention(s, cfg, l, pos, kv_dim, head_size, kv_mul, sqrt_head_size);
+
         let wo_offset: i64 = l * dim * dim;
         mat_mul(s.xb2, w.wo.offset(wo_offset), s.xb, dim, 1, dim);
 
-        // Residual Connection
         for i in 0..dim {
             let v: f32 = s.xb2[i];
-            s.x[i] = s.x[i] + v; // x += Attention(Norm(x))
+            s.x[i] = s.x[i] + v;
         }
 
-        // FFN RMSNorm
         rmsnorm(s.xb, s.x, w.rms_ffn_weight.offset(l * dim), dim);
+        ffn_swiglu(s, w, dim, hidden_dim, l);
 
-        // FFN (SwiGLU)
-        // w1: gate (dim -> hidden), w2: down (hidden -> dim), w3: up (dim -> hidden)
-        // hb = w1 * xb
-        // hb2 = w3 * xb
-        // hb = silu(hb) * hb2
-        // xb = w2 * hb
-        let w1_offset: i64 = l * hidden_dim * dim;
-        let w2_offset: i64 = l * dim * hidden_dim;
-        let w3_offset: i64 = l * hidden_dim * dim;
-        
-        mat_mul(s.hb, w.w1.offset(w1_offset), s.xb, hidden_dim, 1, dim);
-        mat_mul(s.hb2, w.w3.offset(w3_offset), s.xb, hidden_dim, 1, dim);
-
-        // SwiGLU: SiLU(x) = x * sigmoid(x) = x / (1 + exp(-x))
-        for i in 0..hidden_dim {
-            let val: f32 = s.hb[i];
-            let val2: f32 = s.hb2[i];
-            
-            // SiLU approximation or exact
-            // silu = val / (1.0 + expf(-val))
-            // But we can just use 1 / (1 + exp(-val)) directly
-            let neg_val: f32 = 0.0f32 - val;
-            let sigmoid: f32 = 1.0f32 / (1.0f32 + expf(neg_val));
-            let silu: f32 = val * sigmoid;
-            
-            s.hb[i] = silu * val2; // element-wise mult
-        }
-
-        // Down projection
-        mat_mul(s.xb, w.w2.offset(w2_offset), s.hb, dim, 1, hidden_dim);
-
-        // Residual Connection
         for i in 0..dim {
             let v: f32 = s.xb[i];
             s.x[i] = s.x[i] + v;
         }
-    } // End Layers Loop
+    } 
     
-    // 3. Final Norm
     rmsnorm(s.x, s.x, w.rms_final_weight, cfg.dim);
-    
-    // 4. Classifier (unused in verify)
 }
 
 // ---- Tests ----

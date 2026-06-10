@@ -17,6 +17,19 @@ pub struct ArgParser {
     argc: i32
 }
 
+fn is_flag(a: StringView) -> bool {
+    if a.length() >= 2 {
+        let first = a.data().read();
+        let second = a.data().offset(1).read();
+        if first == 45 {
+            if second == 45 {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 impl ArgParser {
     /// Create a new ArgParser from the process arguments.
     pub fn new() -> ArgParser {
@@ -67,41 +80,18 @@ impl ArgParser {
         let mut i: i32 = 1;
         while i < self.argc {
             let a = arg(i);
-            // Skip flags starting with --
-            if a.length() >= 2 {
-                let first = a.data().read();
-                let second = a.data().offset(1).read();
-                if first == 45 && second == 45 {
-                    // It's a flag; if the next arg exists and doesn't start with --, skip it too (option value)
-                    if i + 1 < self.argc {
-                        let next = arg(i + 1);
-                        if next.length() >= 2 {
-                            let n1 = next.data().read();
-                            let n2 = next.data().offset(1).read();
-                            if n1 == 45 && n2 == 45 {
-                                // Next is another flag, don't skip
-                                i = i + 1;
-                            } else {
-                                // Skip the option value
-                                i = i + 2;
-                            }
-                        } else {
-                            // Short next arg = option value, skip
-                            i = i + 2;
-                        }
-                    } else {
+            if is_flag(a) {
+                if i + 1 < self.argc {
+                    let next = arg(i + 1);
+                    if is_flag(next) {
                         i = i + 1;
+                    } else {
+                        i = i + 2;
                     }
                 } else {
-                    // Not a flag — it's a positional
-                    if pos_count == idx {
-                        return Option::Some(a);
-                    }
-                    pos_count = pos_count + 1;
                     i = i + 1;
                 }
             } else {
-                // Short arg (length < 2) — treat as positional
                 if pos_count == idx {
                     return Option::Some(a);
                 }

@@ -94,73 +94,57 @@ fn alloc_i64(count: i64) -> Ptr<i64> {
 // Note: Allocates scratch buffers for the sorted candidates.
 // For the hot path, pre-allocate these in RunState.
 // -----------------------------------------------------------------------------
-pub fn sample_topp(probabilities: Ptr<f32>, n: i64, topp: f32, coin: f32) -> i64
-{
+fn sort_probs(prob_buf: Ptr<f32>, idx_buf: Ptr<i64>, n0: i64) {
+    for i in 1..n0 {
+        let key_p: f32 = prob_buf[i]; let key_i: i64 = idx_buf[i];
+        let mut j: i64 = i - 1;
+        for step in 0..i {
+            if j >= 0 && prob_buf[j] < key_p {
+                prob_buf[j + 1] = prob_buf[j]; idx_buf[j + 1] = idx_buf[j];
+                j = j - 1;
+            } else { j = -1; }
+        }
+        prob_buf[j + 1] = key_p; idx_buf[j + 1] = key_i;
+    }
+}
+
+pub fn sample_topp(probabilities: Ptr<f32>, n: i64, topp: f32, coin: f32) -> i64 {
     if n <= 0 { return 0; }
-    // Cutoff: skip tokens with negligible probability
     let cutoff: f32 = (1.0f32 - topp) / ((n - 1) as f32);
 
-    // Build filtered list of (probability, original_index) pairs
     let prob_buf = alloc_f32(n);
     let idx_buf = alloc_i64(n);
     if prob_buf as i64 == 0 || idx_buf as i64 == 0 {
         if prob_buf as i64 != 0 { free(prob_buf as Ptr<u8>); }
         if idx_buf as i64 != 0 { free(idx_buf as Ptr<u8>); }
-        return 0; // Fallback
+        return 0;
     }
     
     let mut n0: i64 = 0;
     for i in 0..n {
         let p: f32 = probabilities[i];
         if p >= cutoff {
-            prob_buf[n0] = p;
-            idx_buf[n0] = i;
-            n0 = n0 + 1;
+            prob_buf[n0] = p; idx_buf[n0] = i; n0 = n0 + 1;
         }
     }
 
     if n0 == 0 {
-        free(prob_buf as Ptr<u8>);
-        free(idx_buf as Ptr<u8>);
+        free(prob_buf as Ptr<u8>); free(idx_buf as Ptr<u8>);
         return sample_argmax(probabilities, n);
     }
 
-    // Insertion sort by probability descending
-    for i in 1..n0 {
-        let key_p: f32 = prob_buf[i];
-        let key_i: i64 = idx_buf[i];
-        let mut j: i64 = i - 1;
-        for step in 0..i {
-            if j >= 0 {
-                let pj: f32 = prob_buf[j];
-                if pj < key_p {
-                    prob_buf[j + 1] = pj;
-                    idx_buf[j + 1] = idx_buf[j];
-                    j = j - 1;
-                } else {
-                    j = -1;
-                }
-            }
-        }
-        prob_buf[j + 1] = key_p;
-        idx_buf[j + 1] = key_i;
-    }
+    sort_probs(prob_buf, idx_buf, n0);
 
-    // Truncate to top-p cumulative mass
     let mut cumulative: f32 = 0.0f32;
     let mut last_idx: i64 = n0 - 1;
     let mut found: i64 = 0;
     for i in 0..n0 {
         if found == 0 {
             cumulative = cumulative + prob_buf[i];
-            if cumulative > topp {
-                last_idx = i;
-                found = 1;
-            }
+            if cumulative > topp { last_idx = i; found = 1; }
         }
     }
 
-    // Sample from the truncated distribution
     let r: f32 = coin * cumulative;
     let mut cdf: f32 = 0.0f32;
     let mut result: i64 = idx_buf[last_idx];
@@ -168,14 +152,10 @@ pub fn sample_topp(probabilities: Ptr<f32>, n: i64, topp: f32, coin: f32) -> i64
     for i in 0..last_idx + 1 {
         if sampled == 0 {
             cdf = cdf + prob_buf[i];
-            if r < cdf {
-                result = idx_buf[i];
-                sampled = 1;
-            }
+            if r < cdf { result = idx_buf[i]; sampled = 1; }
         }
     }
     
-    free(prob_buf as Ptr<u8>);
-    free(idx_buf as Ptr<u8>);
+    free(prob_buf as Ptr<u8>); free(idx_buf as Ptr<u8>);
     return result;
 }

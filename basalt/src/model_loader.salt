@@ -58,171 +58,69 @@ pub fn is_model_q8(data: Ptr<u8>) -> i32 {
 // -----------------------------------------------------------------------------
 
 pub fn get_weights(data: Ptr<u8>, cfg: &Config) -> TransformerWeights {
-    // Legacy 7-int header: 28 bytes. New 8-int header: 32 bytes.
-    // For backward compat with existing f32 models, keep 28-byte offset.
     let header_size: i64 = 7 * 4;
+    let mut w_ptr = data.offset(header_size) as Ptr<f32>;
+    let dim = cfg.dim; let hidden_dim = cfg.hidden_dim; let n_layers = cfg.n_layers;
+    let n_heads = cfg.n_heads; let n_kv_heads = cfg.n_kv_heads; let vocab_size = cfg.vocab_size;
+    let head_size = dim / n_heads; let kv_dim = (dim * n_kv_heads) / n_heads;
     
-    let weights_base_u8 = data.offset(header_size);
-    let mut w_ptr = weights_base_u8 as Ptr<f32>;
-    
-    let dim = cfg.dim;
-    let hidden_dim = cfg.hidden_dim;
-    let n_layers = cfg.n_layers;
-    let n_heads = cfg.n_heads;
-    let n_kv_heads = cfg.n_kv_heads;
-    let vocab_size = cfg.vocab_size;
-    
-    let head_size = dim / n_heads;
-    let kv_dim = (dim * n_kv_heads) / n_heads;
-    
-    let token_embedding_table = w_ptr;
-    w_ptr = w_ptr.offset(vocab_size * dim);
-    
-    let rms_att_weight = w_ptr;
-    w_ptr = w_ptr.offset(n_layers * dim);
-    
-    let wq = w_ptr;
-    w_ptr = w_ptr.offset(n_layers * dim * (n_heads * head_size));
-    
-    let wk = w_ptr;
-    w_ptr = w_ptr.offset(n_layers * dim * (n_kv_heads * head_size));
-    
-    let wv = w_ptr;
-    w_ptr = w_ptr.offset(n_layers * dim * (n_kv_heads * head_size));
-    
-    let wo = w_ptr;
-    w_ptr = w_ptr.offset(n_layers * (n_heads * head_size) * dim);
-    
-    let rms_ffn_weight = w_ptr;
-    w_ptr = w_ptr.offset(n_layers * dim);
-    
-    let w1 = w_ptr;
-    w_ptr = w_ptr.offset(n_layers * dim * hidden_dim);
-    
-    let w2 = w_ptr;
-    w_ptr = w_ptr.offset(n_layers * hidden_dim * dim);
-    
-    let w3 = w_ptr;
-    w_ptr = w_ptr.offset(n_layers * dim * hidden_dim);
-    
-    let rms_final_weight = w_ptr;
-    w_ptr = w_ptr.offset(dim);
+    let token_embedding_table = w_ptr; w_ptr = w_ptr.offset(vocab_size * dim);
+    let rms_att_weight = w_ptr; w_ptr = w_ptr.offset(n_layers * dim);
+    let wq = w_ptr; w_ptr = w_ptr.offset(n_layers * dim * (n_heads * head_size));
+    let wk = w_ptr; w_ptr = w_ptr.offset(n_layers * dim * (n_kv_heads * head_size));
+    let wv = w_ptr; w_ptr = w_ptr.offset(n_layers * dim * (n_kv_heads * head_size));
+    let wo = w_ptr; w_ptr = w_ptr.offset(n_layers * (n_heads * head_size) * dim);
+    let rms_ffn_weight = w_ptr; w_ptr = w_ptr.offset(n_layers * dim);
+    let w1 = w_ptr; w_ptr = w_ptr.offset(n_layers * dim * hidden_dim);
+    let w2 = w_ptr; w_ptr = w_ptr.offset(n_layers * hidden_dim * dim);
+    let w3 = w_ptr; w_ptr = w_ptr.offset(n_layers * dim * hidden_dim);
+    let rms_final_weight = w_ptr; w_ptr = w_ptr.offset(dim);
     
     let rope_size = cfg.seq_len * (head_size / 2);
-    let freq_cis_real = w_ptr;
-    w_ptr = w_ptr.offset(rope_size);
-    let freq_cis_imag = w_ptr;
-    w_ptr = w_ptr.offset(rope_size);
-    let w_cls = token_embedding_table; // Shared weights
-    
+    let freq_cis_real = w_ptr; w_ptr = w_ptr.offset(rope_size);
+    let freq_cis_imag = w_ptr; w_ptr = w_ptr.offset(rope_size);
     let null_u8 = 0 as Ptr<u8>;
     
     return TransformerWeights {
-        token_embedding_table: token_embedding_table,
-        rms_att_weight: rms_att_weight,
-        wq: wq, wk: wk, wv: wv, wo: wo,
-        rms_ffn_weight: rms_ffn_weight,
-        w1: w1, w2: w2, w3: w3,
-        rms_final_weight: rms_final_weight,
-        freq_cis_real: freq_cis_real,
-        freq_cis_imag: freq_cis_imag,
-        w_cls: w_cls,
+        token_embedding_table: token_embedding_table, rms_att_weight: rms_att_weight,
+        wq: wq, wk: wk, wv: wv, wo: wo, rms_ffn_weight: rms_ffn_weight, w1: w1, w2: w2, w3: w3,
+        rms_final_weight: rms_final_weight, freq_cis_real: freq_cis_real, freq_cis_imag: freq_cis_imag,
+        w_cls: token_embedding_table,
         wq_q8: null_u8, wk_q8: null_u8, wv_q8: null_u8, wo_q8: null_u8,
         w1_q8: null_u8, w2_q8: null_u8, w3_q8: null_u8, w_cls_q8: null_u8,
-        embed_q8: null_u8,
-        is_q8: 0,
+        embed_q8: null_u8, is_q8: 0,
     };
 }
 
-// -----------------------------------------------------------------------------
-// Weights Mapping (q8_0)
-// -----------------------------------------------------------------------------
-// q8_0 format layout (after 32-byte header):
-//   1. token_embedding_table — q8_0 blocks (stay as Ptr<u8>, dequant on-the-fly)
-//   2. rms_att_weight — f32
-//   3. wq, wk, wv, wo — q8_0 blocks
-//   4. rms_ffn_weight — f32
-//   5. w1, w2, w3 — q8_0 blocks
-//   6. rms_final_weight — f32
-//   7. w_cls — q8_0, shared with embedding pointer
-// -----------------------------------------------------------------------------
-
-/// Compute q8_0 byte size for a weight matrix of n_floats total
-fn q8_bytes(n_floats: i64) -> i64 {
-    return (n_floats / 32) * 34;
-}
+fn q8_bytes(n_floats: i64) -> i64 { return (n_floats / 32) * 34; }
 
 pub fn get_weights_q8(data: Ptr<u8>, cfg: &Config) -> TransformerWeights {
-    // New 8-int header: 32 bytes
     let header_size: i64 = 8 * 4;
-    
-    let dim = cfg.dim;
-    let hidden_dim = cfg.hidden_dim;
-    let n_layers = cfg.n_layers;
-    let n_heads = cfg.n_heads;
-    let n_kv_heads = cfg.n_kv_heads;
-    let vocab_size = cfg.vocab_size;
-    
-    let head_size = dim / n_heads;
-    let kv_dim = (dim * n_kv_heads) / n_heads;
+    let dim = cfg.dim; let hidden_dim = cfg.hidden_dim; let n_layers = cfg.n_layers;
+    let n_heads = cfg.n_heads; let n_kv_heads = cfg.n_kv_heads; let vocab_size = cfg.vocab_size;
+    let head_size = dim / n_heads; let kv_dim = (dim * n_kv_heads) / n_heads;
     
     let mut b_ptr = data.offset(header_size);
-    
-    // 1. Token Embedding: stays as q8_0 (on-the-fly dequant in forward)
-    let embed_q8 = b_ptr;
-    b_ptr = b_ptr.offset(q8_bytes(vocab_size * dim));
-    
-    // 2. RMS attention weights: f32
-    let rms_att_weight = b_ptr as Ptr<f32>;
-    b_ptr = b_ptr.offset(n_layers * dim * 4);
-    
-    // 3. QKV + O projections: q8_0
-    let wq_q8 = b_ptr;
-    b_ptr = b_ptr.offset(n_layers * q8_bytes(dim * dim));
-    
-    let wk_q8 = b_ptr;
-    b_ptr = b_ptr.offset(n_layers * q8_bytes(kv_dim * dim));
-    
-    let wv_q8 = b_ptr;
-    b_ptr = b_ptr.offset(n_layers * q8_bytes(kv_dim * dim));
-    
-    let wo_q8 = b_ptr;
-    b_ptr = b_ptr.offset(n_layers * q8_bytes(dim * dim));
-    
-    // 4. RMS FFN weights: f32
-    let rms_ffn_weight = b_ptr as Ptr<f32>;
-    b_ptr = b_ptr.offset(n_layers * dim * 4);
-    
-    // 5. FFN projections: q8_0
-    let w1_q8 = b_ptr;
-    b_ptr = b_ptr.offset(n_layers * q8_bytes(hidden_dim * dim));
-    
-    let w2_q8 = b_ptr;
-    b_ptr = b_ptr.offset(n_layers * q8_bytes(dim * hidden_dim));
-    
-    let w3_q8 = b_ptr;
-    b_ptr = b_ptr.offset(n_layers * q8_bytes(hidden_dim * dim));
-    
-    // 6. Final RMS: f32
+    let embed_q8 = b_ptr; b_ptr = b_ptr.offset(q8_bytes(vocab_size * dim));
+    let rms_att_weight = b_ptr as Ptr<f32>; b_ptr = b_ptr.offset(n_layers * dim * 4);
+    let wq_q8 = b_ptr; b_ptr = b_ptr.offset(n_layers * q8_bytes(dim * dim));
+    let wk_q8 = b_ptr; b_ptr = b_ptr.offset(n_layers * q8_bytes(kv_dim * dim));
+    let wv_q8 = b_ptr; b_ptr = b_ptr.offset(n_layers * q8_bytes(kv_dim * dim));
+    let wo_q8 = b_ptr; b_ptr = b_ptr.offset(n_layers * q8_bytes(dim * dim));
+    let rms_ffn_weight = b_ptr as Ptr<f32>; b_ptr = b_ptr.offset(n_layers * dim * 4);
+    let w1_q8 = b_ptr; b_ptr = b_ptr.offset(n_layers * q8_bytes(hidden_dim * dim));
+    let w2_q8 = b_ptr; b_ptr = b_ptr.offset(n_layers * q8_bytes(dim * hidden_dim));
+    let w3_q8 = b_ptr; b_ptr = b_ptr.offset(n_layers * q8_bytes(hidden_dim * dim));
     let rms_final_weight = b_ptr as Ptr<f32>;
-    
-    // f32 weight fields are unused in q8 mode
     let null_f32 = 0 as Ptr<f32>;
     
     return TransformerWeights {
-        token_embedding_table: null_f32,  // not used — embed_q8 used instead
-        rms_att_weight: rms_att_weight,
-        wq: null_f32, wk: null_f32, wv: null_f32, wo: null_f32,
-        rms_ffn_weight: rms_ffn_weight,
-        w1: null_f32, w2: null_f32, w3: null_f32,
-        rms_final_weight: rms_final_weight,
-        freq_cis_real: null_f32,  // Caller must fix
-        freq_cis_imag: null_f32,
-        w_cls: null_f32,          // w_cls uses q8 shared embedding
+        token_embedding_table: null_f32, rms_att_weight: rms_att_weight,
+        wq: null_f32, wk: null_f32, wv: null_f32, wo: null_f32, rms_ffn_weight: rms_ffn_weight,
+        w1: null_f32, w2: null_f32, w3: null_f32, rms_final_weight: rms_final_weight,
+        freq_cis_real: null_f32, freq_cis_imag: null_f32, w_cls: null_f32,
         wq_q8: wq_q8, wk_q8: wk_q8, wv_q8: wv_q8, wo_q8: wo_q8,
         w1_q8: w1_q8, w2_q8: w2_q8, w3_q8: w3_q8,
-        w_cls_q8: embed_q8,       // w_cls shares embedding pointer (q8_0)
-        embed_q8: embed_q8,
-        is_q8: 1,
+        w_cls_q8: embed_q8, embed_q8: embed_q8, is_q8: 1,
     };
 }

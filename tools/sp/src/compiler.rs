@@ -12,6 +12,15 @@ use std::process::Command;
 ///
 /// This invokes the existing `scripts/run_test.sh` script with the entry
 /// point, passing resolved search roots so the compiler can find dependencies.
+fn extract_error_message(output: &std::process::Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let error_lines: Vec<&str> = stderr.lines().chain(stdout.lines())
+        .filter(|l| l.contains("error") || l.contains("Error") || l.contains("FAIL") || l.contains("undefined") || l.contains("cannot find"))
+        .take(10).collect();
+    if error_lines.is_empty() { format!("{}\n{}", stdout.trim(), stderr.trim()) } else { error_lines.join("\n") }
+}
+
 pub fn build(
     manifest: &Manifest,
     project_dir: &Path,
@@ -19,58 +28,22 @@ pub fn build(
     search_roots: &[PathBuf],
 ) -> Result<PathBuf, String> {
     let entry = project_dir.join(&manifest.package.entry);
-    if !entry.exists() {
-        return Err(format!(
-            "entry point not found: {}",
-            entry.display()
-        ));
-    }
+    if !entry.exists() { return Err(format!("entry point not found: {}", entry.display())); }
 
     let script = find_build_script(project_dir)?;
-
     let mut cmd = Command::new(&script);
     cmd.arg(&entry);
+    if release { cmd.env("SALT_RELEASE", "1"); }
 
-    if release {
-        cmd.env("SALT_RELEASE", "1");
-    }
-
-    // Pass search roots as extra include paths
-    // The run_test.sh script forwards these to salt-front
     if !search_roots.is_empty() {
-        let roots_str: Vec<String> = search_roots
-            .iter()
-            .map(|r| r.to_string_lossy().to_string())
-            .collect();
+        let roots_str: Vec<String> = search_roots.iter().map(|r| r.to_string_lossy().to_string()).collect();
         cmd.env("SALT_SEARCH_ROOTS", roots_str.join(":"));
     }
 
-    let output = cmd
-        .output()
-        .map_err(|e| format!("failed to run {}: {}", script.display(), e))?;
+    let output = cmd.output().map_err(|e| format!("failed to run {}: {}", script.display(), e))?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-
-        // Extract the most useful error lines
-        let error_lines: Vec<&str> = stderr
-            .lines()
-            .chain(stdout.lines())
-            .filter(|l| {
-                l.contains("error") || l.contains("Error") || l.contains("FAIL")
-                    || l.contains("undefined") || l.contains("cannot find")
-            })
-            .take(10)
-            .collect();
-
-        let error_msg = if error_lines.is_empty() {
-            format!("{}\n{}", stdout.trim(), stderr.trim())
-        } else {
-            error_lines.join("\n")
-        };
-
-        return Err(format!("compilation failed:\n{}", error_msg));
+        return Err(format!("compilation failed:\n{}", extract_error_message(&output)));
     }
 
     // The build script produces the binary in /tmp/salt_build/

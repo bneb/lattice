@@ -296,104 +296,33 @@ pub fn expr_to_msl(expr: &syn::Expr) -> String {
             let left = expr_to_msl(&bin.left);
             let right = expr_to_msl(&bin.right);
             let op = quote::quote!(#bin.op).to_string();
-            // Clean up operator spacing
-            let op = op.trim();
-            format!("{} {} {}", left, op, right)
+            format!("{} {} {}", left, op.trim(), right)
         },
-        syn::Expr::Lit(lit) => {
-            quote::quote!(#lit).to_string()
-        },
+        syn::Expr::Lit(lit) => quote::quote!(#lit).to_string(),
         syn::Expr::Path(path) => {
-            let segs: Vec<String> = path.path.segments.iter()
-                .map(|s| s.ident.to_string())
-                .collect();
+            let segs: Vec<String> = path.path.segments.iter().map(|s| s.ident.to_string()).collect();
             let name = segs.join("::");
-            // Map Salt intrinsics to MSL builtins
             match name.as_str() {
                 "thread_id" => "tid".to_string(),
                 other => other.to_string(),
             }
         },
-        syn::Expr::Call(call) => {
-            let func_name = expr_to_msl(&call.func);
-            // Special case: thread_id() maps to the `tid` parameter
-            if func_name == "tid" || func_name == "thread_id" {
-                return "tid".to_string();
-            }
-            let args: Vec<String> = call.args.iter()
-                .map(|a| expr_to_msl(a))
-                .collect();
-            format!("{}({})", func_name, args.join(", "))
-        },
-        syn::Expr::MethodCall(mc) => {
-            let receiver = expr_to_msl(&mc.receiver);
-            let method = mc.method.to_string();
-            let args: Vec<String> = mc.args.iter()
-                .map(|a| expr_to_msl(a))
-                .collect();
-            // Map Salt Ptr methods to MSL array indexing
-            match method.as_str() {
-                "read_at" => format!("{}[{}]", receiver, args.join(", ")),
-                "write_at" => format!("{}[{}] = {}", receiver, 
-                    args.first().unwrap_or(&String::new()),
-                    args.get(1).unwrap_or(&String::new())),
-                "offset" => format!("({} + {})", receiver, args.join(", ")),
-                "read" => format!("*{}", receiver),
-                "write" => format!("*{} = {}", receiver, args.join(", ")),
-                _ => format!("{}.{}({})", receiver, method, args.join(", ")),
-            }
-        },
-        syn::Expr::Index(idx) => {
-            let base = expr_to_msl(&idx.expr);
-            let index = expr_to_msl(&idx.index);
-            format!("{}[{}]", base, index)
-        },
-        syn::Expr::Paren(p) => {
-            let inner = expr_to_msl(&p.expr);
-            format!("({})", inner)
-        },
-        syn::Expr::Unary(u) => {
-            let operand = expr_to_msl(&u.expr);
-            let op = quote::quote!(#u.op).to_string();
-            format!("{}{}", op.trim(), operand)
-        },
-        syn::Expr::Assign(assign) => {
-            let left = expr_to_msl(&assign.left);
-            let right = expr_to_msl(&assign.right);
-            format!("{} = {}", left, right)
-        },
-        syn::Expr::Field(field) => {
-            let base = expr_to_msl(&field.base);
-            let member = quote::quote!(#field.member).to_string();
-            format!("{}.{}", base, member)
-        },
-        syn::Expr::Cast(cast) => {
-            let inner = expr_to_msl(&cast.expr);
-            let ty = quote::quote!(#cast.ty).to_string();
-            // Map Salt types to MSL in casts
-            let msl_ty = match ty.trim() {
-                "i32" => "int",
-                "u32" => "uint",
-                "f32" => "float",
-                "i64" => "long",
-                other => other,
-            };
-            format!("(({}){})", msl_ty, inner)
-        },
+        syn::Expr::Call(call) => expr_to_msl_call(call),
+        syn::Expr::MethodCall(mc) => expr_to_msl_method_call(mc),
+        syn::Expr::Index(idx) => format!("{}[{}]", expr_to_msl(&idx.expr), expr_to_msl(&idx.index)),
+        syn::Expr::Paren(p) => format!("({})", expr_to_msl(&p.expr)),
+        syn::Expr::Unary(u) => format!("{}{}", quote::quote!(#u.op).to_string().trim(), expr_to_msl(&u.expr)),
+        syn::Expr::Assign(assign) => format!("{} = {}", expr_to_msl(&assign.left), expr_to_msl(&assign.right)),
+        syn::Expr::Field(field) => format!("{}.{}", expr_to_msl(&field.base), quote::quote!(#field.member).to_string()),
+        syn::Expr::Cast(cast) => expr_to_msl_cast(cast),
         syn::Expr::Block(block) => {
-            // Emit block expressions
-            let stmts: Vec<String> = block.block.stmts.iter()
-                .map(|s| quote::quote!(#s).to_string())
-                .collect();
+            let stmts: Vec<String> = block.block.stmts.iter().map(|s| quote::quote!(#s).to_string()).collect();
             stmts.join("; ")
         },
-        _ => {
-            // Fallback: use quote to get token representation
-            let tokens = quote::quote!(#expr);
-            tokens.to_string()
-        },
+        _ => quote::quote!(#expr).to_string(),
     }
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -416,4 +345,43 @@ mod tests {
         let ty: SynType = syn::parse_str("u32").unwrap();
         assert_eq!(salt_type_to_msl(&ty).unwrap(), "uint");
     }
+}
+
+
+fn expr_to_msl_call(call: &syn::ExprCall) -> String {
+    let func_name = expr_to_msl(&call.func);
+    if func_name == "tid" || func_name == "thread_id" {
+        return "tid".to_string();
+    }
+    let args: Vec<String> = call.args.iter().map(|a| expr_to_msl(a)).collect();
+    format!("{}({})", func_name, args.join(", "))
+}
+
+fn expr_to_msl_method_call(mc: &syn::ExprMethodCall) -> String {
+    let receiver = expr_to_msl(&mc.receiver);
+    let method = mc.method.to_string();
+    let args: Vec<String> = mc.args.iter().map(|a| expr_to_msl(a)).collect();
+    match method.as_str() {
+        "read_at" => format!("{}[{}]", receiver, args.join(", ")),
+        "write_at" => format!("{}[{}] = {}", receiver, 
+            args.first().unwrap_or(&String::new()),
+            args.get(1).unwrap_or(&String::new())),
+        "offset" => format!("({} + {})", receiver, args.join(", ")),
+        "read" => format!("*{}", receiver),
+        "write" => format!("*{} = {}", receiver, args.join(", ")),
+        _ => format!("{}.{}({})", receiver, method, args.join(", ")),
+    }
+}
+
+fn expr_to_msl_cast(cast: &syn::ExprCast) -> String {
+    let inner = expr_to_msl(&cast.expr);
+    let ty = quote::quote!(#cast.ty).to_string();
+    let msl_ty = match ty.trim() {
+        "i32" => "int",
+        "u32" => "uint",
+        "f32" => "float",
+        "i64" => "long",
+        other => other,
+    };
+    format!("(({}){})", msl_ty, inner)
 }

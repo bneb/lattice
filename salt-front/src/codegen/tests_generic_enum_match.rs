@@ -12,8 +12,6 @@
 //!   match arm calls exit() without explicit return (treats exit() as
 //!   non-diverging). This prevents Result::unwrap() from compiling.
 
-#[cfg(test)]
-use crate::z3_shim as z3;
 mod tests {
     use crate::codegen::CodegenContext;
     use crate::grammar::SaltFile;

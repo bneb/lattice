@@ -4,23 +4,17 @@ use crate::codegen::type_bridge::*;
 use std::collections::HashMap;
 use super::{emit_expr, emit_lvalue, LValueKind};
 
-pub fn emit_field(
+
+fn emit_field_get_base(
     ctx: &mut LoweringContext,
     out: &mut String,
     f: &syn::ExprField,
     local_vars: &mut HashMap<String, (Type, LocalKind)>,
-) -> Result<(String, Type), String> {
-    // [ABI FIX] Try emit_lvalue FIRST to get a pointer directly, avoiding loading 1KB+ structs
-    // This is the "Field Access Fat Receiver" fix - we want pointer arithmetic, not value loading
-    let (base_val, base_ty, was_reference) = if let Ok((addr, ty, _kind)) = emit_lvalue(ctx, out, &f.base, local_vars) {
-        // Success: we have the address of the base
-        // [SSA PROMOTION] Include Type::Reference(aggregate) in is_aggregate check
-        // This handles ephemeral refs from reinterpret_cast that ARE pointers
+) -> Result<(String, Type, bool), String> {
+    if let Ok((addr, ty, _kind)) = emit_lvalue(ctx, out, &f.base, local_vars) {
         let is_aggregate = matches!(&ty, Type::Struct(_) | Type::Concrete(_, _) | Type::Array(_, _, _) | Type::Tuple(_))
             || matches!(&ty, Type::Reference(inner, _) if matches!(inner.as_ref(), Type::Struct(_) | Type::Concrete(_, _) | Type::Array(_, _, _) | Type::Tuple(_)));
         if is_aggregate {
-            // Return pointer directly, mark as reference for GEP path below
-            // [SSA PROMOTION] Don't double-wrap if ty is already a Reference
             if matches!(&ty, Type::Reference(_, _)) {
                 let actual_addr = if _kind == LValueKind::Local {
                     let loaded_ref = format!("%loaded_ref_{}", ctx.next_id());
@@ -29,12 +23,11 @@ pub fn emit_field(
                 } else {
                     addr
                 };
-                (actual_addr, ty, true)  // Already a reference, use as-is
+                Ok((actual_addr, ty, true))
             } else {
-                (addr, ty, true) 
+                Ok((addr, ty, true))
             }
         } else {
-            // For non-aggregates, load as usual
             let val = if _kind == LValueKind::SSA {
                 addr.clone()
             } else {
@@ -43,69 +36,62 @@ pub fn emit_field(
                 ctx.emit_load(out, &v, &addr, &mlir_ty);
                 v
             };
-            (val, ty, false)
+            Ok((val, ty, false))
         }
     } else {
-        // Fallback: emit_lvalue failed, use emit_expr (for computed expressions like function results)
         let (bv, bt) = emit_expr(ctx, out, &f.base, local_vars, None)?;
-        (bv, bt, false)
-    };
-    
-    let mut current_ty = base_ty.clone();
-    let mut current_val = base_val.clone();
-    let mut was_ref = was_reference;
+        Ok((bv, bt, false))
+    }
+}
 
-    // [POINTER SAFETY] Safety Check for Field Access
+fn emit_field_safety_check(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    f: &syn::ExprField,
+    base_ty: &Type,
+    current_val: &str,
+) -> Result<Option<(String, Type)>, String> {
     if let syn::Expr::Path(path_expr) = &*f.base {
         if let Some(ident) = path_expr.path.get_ident() {
             let var_name = ident.to_string();
-            // Check if we are accessing .addr (allowed on Empty/Optional)
             let field_name = if let syn::Member::Named(id) = &f.member { id.to_string() } else { "unnamed".to_string() };
-            
-            // Check only if base type is a pointer (Reference or Pointer)
-            // NativePtr is Type::U64 or Type::Pointer depending on version, check k_is_ptr_type
             let is_ptr = matches!(base_ty, Type::Reference(..) | Type::Pointer { .. }) || base_ty.k_is_ptr_type();
-            
             if is_ptr {
-                // [POINTER SAFETY] Intercept .addr (always allowed)
                 if field_name == "addr" {
-                    // Check if base is already a NativePtr (Type::U64) vs Type::Pointer
-                    if matches!(base_ty, Type::Pointer { .. } | Type::Reference(..)) {
+                    if matches!(base_ty, Type::Pointer { .. } | Type::Reference(..)) || base_ty.k_is_ptr_type() {
                          let addr_val = format!("%ptr_addr_{}", ctx.next_id());
                          out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", addr_val, current_val));
-                         return Ok((addr_val, Type::U64));
-                    } else if base_ty.k_is_ptr_type() {
-                         // Likely NativePtr !llvm.ptr
-                         let addr_val = format!("%ptr_addr_{}", ctx.next_id());
-                         out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", addr_val, current_val));
-                         return Ok((addr_val, Type::U64));
+                         return Ok(Some((addr_val, Type::U64)));
                     }
                 }
-
-                // If not .addr, enforce validity check
-                if !*ctx.is_dynamic_check_block() {
+                let is_dynamic = *ctx.is_dynamic_check_block() || ctx.emission.in_dynamic_check_fn;
+                if !is_dynamic {
                     ctx.pointer_tracker.check_deref(&var_name)?;
                 }
             }
         }
     }
+    Ok(None)
+}
 
-    // 1. Unified Auto-dereference loop
+fn emit_field_auto_deref(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    mut current_ty: Type,
+    mut current_val: String,
+    mut was_ref: bool,
+) -> Result<(Type, String, bool), String> {
     loop {
-        // Clone to avoid borrow issues
         let ty_clone = current_ty.clone();
-        
         if let Type::Reference(inner, _) = ty_clone {
             was_ref = true;
             match *inner {
                 Type::Struct(_) | Type::Tuple(_) | Type::Concrete(_, _) => {
-                    current_ty = *inner; // Keep current_val as the pointer for GEP
+                    current_ty = *inner;
                     break;
                 }
                 _ => {
-                    // Peel one layer and load the value
                     let loaded = format!("%deref_{}", ctx.next_id());
-                    // Use emit_load logical helper if available, or manual load
                     let mlir_ty = inner.to_mlir_type(ctx)?;
                     ctx.emit_load(out, &loaded, &current_val, &mlir_ty);
                     current_val = loaded;
@@ -113,7 +99,6 @@ pub fn emit_field(
                 }
             }
         } else if let Type::Pointer { element, .. } = ty_clone {
-            // [V12.4] Auto-dereference Ptr<T> (Same logic as Reference)
             was_ref = true;
             match *element {
                 Type::Struct(_) | Type::Tuple(_) | Type::Concrete(_, _) => {
@@ -132,15 +117,44 @@ pub fn emit_field(
             break;
         }
     }
+    Ok((current_ty, current_val, was_ref))
+}
 
-    // [PHASE 1.5] Tier 3: @dynamic_check Epoch Verification
-    if was_ref && *ctx.is_dynamic_check_block() {
-        out.push_str(&format!("    llvm.call @salt_verify_epoch({}) : (!llvm.ptr) -> ()\n", current_val));
-        let _ = ctx.ensure_external_declaration("salt_verify_epoch", &[Type::Pointer { element: Box::new(Type::U8), is_mutable: false, provenance: crate::types::Provenance::Naked }], &Type::Unit);
+pub fn emit_field(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    f: &syn::ExprField,
+    local_vars: &mut HashMap<String, (Type, LocalKind)>,
+) -> Result<(String, Type), String> {
+    let (base_val, base_ty, was_reference) = emit_field_get_base(ctx, out, f, local_vars)?;
+    let mut current_ty = base_ty.clone();
+    let mut current_val = base_val.clone();
+    let mut was_ref = was_reference;
+
+    if let Some(res) = emit_field_safety_check(ctx, out, f, &base_ty, &current_val)? {
+        return Ok(res);
     }
 
-    // 2. Perform Field Access on the resolved Struct/Tuple
-    // FIX: Force separate specialization for Concrete types to ensure registry availability
+    let (cty, cval, wref) = emit_field_auto_deref(ctx, out, current_ty, current_val, was_ref)?;
+    current_ty = cty;
+    current_val = cval;
+    was_ref = wref;
+
+    let is_dynamic = *ctx.is_dynamic_check_block() || ctx.emission.in_dynamic_check_fn;
+    if was_ref && is_dynamic {
+        out.push_str(&format!("    llvm.call @salt_verify_epoch({}) : (!llvm.ptr) -> ()\n", current_val));
+        let as_int = format!("%tag_int_{}", ctx.next_id());
+        let mask = format!("%tag_mask_{}", ctx.next_id());
+        let stripped_int = format!("%stripped_int_{}", ctx.next_id());
+        let stripped_ptr = format!("%stripped_ptr_{}", ctx.next_id());
+        out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", as_int, current_val));
+        out.push_str(&format!("    {} = llvm.mlir.constant(281474976710655 : i64) : i64\n", mask));
+        out.push_str(&format!("    {} = llvm.and {}, {} : i64\n", stripped_int, as_int, mask));
+        out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", stripped_ptr, stripped_int));
+        let _ = ctx.ensure_external_declaration("salt_verify_epoch", &[Type::Pointer { element: Box::new(Type::U8), is_mutable: false, provenance: crate::types::Provenance::Naked }], &Type::Unit);
+        current_val = stripped_ptr;
+    }
+
     let current_ty_resolved = if let Type::Concrete(base, args) = &current_ty {
         let specialized = ctx.ensure_struct_exists(base, args)?;
         Type::Struct(specialized)
@@ -149,13 +163,9 @@ pub fn emit_field(
     };
 
     if let Type::Struct(name) = &current_ty_resolved {
-        let current_ty = current_ty_resolved.clone(); // Shadow for consistent usage
-
-        // [VERIFIED METAL] Phase 5: Identity-Based Struct Lookup
-        // Replace suffix matching with TypeID-based O(1) lookup
+        let current_ty = current_ty_resolved.clone();
         let info = ctx.lookup_struct_by_type(&current_ty)
             .or_else(|| {
-                // Fallback: try with normalized canonical name
                 let canonical = current_ty.to_canonical_name();
                 ctx.struct_registry().values()
                     .find(|i| {
@@ -171,22 +181,12 @@ pub fn emit_field(
             
         let field_name = if let syn::Member::Named(id) = &f.member { id.to_string() } else { "unnamed".to_string() };
         
-        if !info.fields.contains_key(&field_name) {
-             // Field lookup failed - this is an error condition
-        }
-
         if let Some((idx, raw_field_ty)) = info.fields.get(&field_name) {
-            // [KEUOS V4.0] CHAINED RESOLUTION FIX: Build specialization map from parent struct
-            // When accessing a field on a specialized struct (e.g., Vec<u8>), we need to map
-            // the template's generic parameters (T) to concrete types (u8) for proper substitution.
             let mut local_spec_map = ctx.current_type_map().clone();
             
-            // If this struct has specialization_args, look up the template to get param names
             if !info.specialization_args.is_empty() {
-                // Try to find the template to get generic parameter names
                 if let Some(template_name) = &info.template_name {
                     if let Some(template_def) = ctx.struct_templates().get(template_name).cloned() {
-                        // Build mapping: generic param name -> concrete type from specialization_args
                         if let Some(ref generics) = template_def.generics {
                             for (i, param) in generics.params.iter().enumerate() {
                                 if let crate::grammar::GenericParam::Type { name: param_name, .. } = param {
@@ -201,16 +201,13 @@ pub fn emit_field(
                 }
             }
             
-            // Use the local specialization map that includes parent struct's generics
             let field_ty = &raw_field_ty.substitute(&local_spec_map);
             let struct_mlir_ty = Type::Struct(info.name.clone()).to_mlir_type(ctx)?;
             
-            // SCALAR WRAPPER OPTIMIZATION (RValue)
             if struct_mlir_ty == "i64" {
                 return Ok((current_val, field_ty.clone()));
             }
             
-            // [KEUOS V1.0] Pointer .addr shim
             if let Type::Pointer { .. } = current_ty {
                  if field_name == "addr" {
                      let addr_val = format!("%ptr_addr_{}", ctx.next_id());
@@ -219,15 +216,9 @@ pub fn emit_field(
                  }
             }
 
-            // V11.12/V12.4: NativePtr is now scalar !llvm.ptr (k_is_ptr_type returns true)
-            // Accessing .addr field requires ptrtoint to convert pointer back to u64
-            // V12.4: Must detect if current_val is a spill slot (ptr to ptr) and load first
-            // Note: We check the TYPE not struct_mlir_ty because struct registry may have old definitions
             let is_native_ptr = name.contains("NativePtr") && current_ty.k_is_ptr_type();
             if is_native_ptr {
                 if field_name == "addr" {
-                    // Robust LValue detection: check was_ref, base_ty, or if current_val
-                    // looks like a spill slot (contains "spill" or is from alloca)
                     let is_lvalue = was_ref 
                         || matches!(base_ty, Type::Reference(_, _)) 
                         || current_val.contains("spill")
@@ -235,8 +226,6 @@ pub fn emit_field(
                         || current_val.contains("alloca");
                     
                     let ptr_val = if is_lvalue {
-                        // V12.4 KEUOS CORRECTION: current_val is a pointer TO the NativePtr
-                        // Load the actual heap address before casting to integer
                         let loaded = format!("%nativeptr_loaded_{}", ctx.next_id());
                         out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> !llvm.ptr\n", loaded, current_val));
                         loaded
@@ -248,18 +237,12 @@ pub fn emit_field(
                     out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", addr_val, ptr_val));
                     return Ok((addr_val, Type::U64));
                 }
-                // If accessing other fields (shouldn't happen for NativePtr), fall through
             }
 
             let phys_idx = ctx.get_physical_index(&info.field_order, *idx);
-            
-            // [SSA PROMOTION] Check if this is an ephemeral ref (e.g. from reinterpret_cast)
-            // If so, treat it as a reference and skip spilling
             let is_ephemeral_ref = ctx.emission.ephemeral_refs.contains(&current_val);
             
             if !was_ref && !matches!(base_ty, Type::Reference(_, _)) && !matches!(base_ty, Type::Owned(_)) && !is_ephemeral_ref {
-                 // Direct access on SSA value (e.g. function argument passed by value).
-                 // We MUST spill to stack to use GEP.
                  let spill = format!("%spill_field_base_{}", ctx.next_id());
                  ctx.emit_alloca(out, &spill, &struct_mlir_ty);
                  ctx.emit_store(out, &current_val, &spill, &struct_mlir_ty);
@@ -267,9 +250,6 @@ pub fn emit_field(
                  let ptr = format!("%field_ptr_{}_{}", field_name, ctx.next_id());
                  ctx.emit_gep_field(out, &ptr, &spill, phys_idx, &struct_mlir_ty);
                  
-                 // [ABI FIX] For LARGE aggregate field types, return the pointer directly
-                 // This prevents loading massive structs (like BumpAlloc with 2MB heap) by value.
-                 // Heuristic: Arrays are always large; Structs > 64 bytes are considered large.
                  let is_large_aggregate = matches!(field_ty, Type::Array(_, _, _)) || {
                      let size = ctx.size_of(field_ty);
                      size > 64
@@ -282,14 +262,9 @@ pub fn emit_field(
                  ctx.emit_load_logical(out, &res, &ptr, field_ty)?;
                  return Ok((res, field_ty.clone()));
             } else {
-                // Reference access (GEP)
                 let ptr = format!("%field_ptr_{}_{}", field_name, ctx.next_id());
                 ctx.emit_gep_field(out, &ptr, &current_val, phys_idx, &struct_mlir_ty);
                 
-                // [ABI FIX] For LARGE aggregate field types, return the pointer directly to avoid loading
-                // This allows chained method calls (e.g., self.cache_64.allocate()) to work without
-                // loading the entire aggregate just to pass it by reference again.
-                // Heuristic: Arrays are always large; Structs > 64 bytes are considered large.
                 let is_large_aggregate = matches!(field_ty, Type::Array(_, _, _)) || {
                     let size = ctx.size_of(field_ty);
                     size > 64
@@ -304,13 +279,10 @@ pub fn emit_field(
             }
         }
     } else if let Type::Tuple(elems) = &current_ty {
-        // TUPLE ACCESS
         if let syn::Member::Unnamed(idx) = &f.member {
             let i = idx.index as usize;
             if let Some(elem_ty) = elems.get(i) {
                 let mlir_tuple = current_ty.to_mlir_type(ctx)?;
-                
-                // Similar GEP logic
                 let ptr = format!("%tuple_field_{}_{}", i, ctx.next_id());
                 ctx.emit_gep_field(out, &ptr, &current_val, i, &mlir_tuple);
                 let res = format!("%tuple_val_{}_{}", i, ctx.next_id());
@@ -328,8 +300,6 @@ pub fn emit_field(
         match inner_resolved {
              Type::Struct(ref sn) | Type::Concrete(ref sn, _) => {
                   let field_name = if let syn::Member::Named(id) = &f.member { id.to_string() } else { return Err("Named field expected".to_string()); };
-                  
-                  // [VERIFIED METAL] Phase 5: Identity-Based Lookup
                   let struct_ty = Type::Struct(sn.clone());
                   let info = ctx.lookup_struct_by_type(&struct_ty)
                       .or_else(|| ctx.struct_registry().values().find(|i| i.name == *sn).cloned())
@@ -358,27 +328,18 @@ pub fn emit_field(
              _ => return Err(format!("Cannot access field {:?} on type Owned({:?})", f.member, inner_resolved)),
         }
     }
-
-    // If we reach here, resolution actually failed
     Err(format!("Cannot access field {:?} on type {:?}", f.member, base_ty))
 }
 
-pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, _expected: Option<&Type>) -> Result<(String, Type), String> {
-    // Try LValue first (Handles Arrays/Windows properly, and Tensors)
-    // Try LValue first (Handles Arrays/Windows properly, and Tensors)
-    // typo in original code? i.expr is the thing being indexed.
-    
-    // Correct logic:
-    if let Ok((base_ptr, base_ty, kind)) = emit_lvalue(ctx, out, &i.expr, local_vars) {
-         match base_ty {
-             // [KEUOS V2.0]: Native Pointer Indexing
-             // This replaces the legacy "NativePtr" string-matching logic.
-             Type::Pointer { ref element, .. } | Type::Reference(ref element, _) => {
-                 // [TEMPORAL SAFETY] Check deref validity
+
+
+fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, kind: LValueKind, element: &Box<Type>) -> Result<(String, Type), String> {
+// [TEMPORAL SAFETY] Check deref validity
                  if let syn::Expr::Path(path_expr) = &*i.expr {
                      if let Some(ident) = path_expr.path.get_ident() {
                          let var_name = ident.to_string();
-                         if !*ctx.is_dynamic_check_block() {
+                         let is_dynamic = *ctx.is_dynamic_check_block() || ctx.emission.in_dynamic_check_fn;
+                         if !is_dynamic {
                              ctx.pointer_tracker.check_deref(&var_name)?;
                          }
                      }
@@ -435,10 +396,19 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
                   };
                  
                  // [PHASE 1.5] Tier 3: @dynamic_check Epoch Verification
-                 let ptr_for_gep = if *ctx.is_dynamic_check_block() {
+                 let is_dynamic = *ctx.is_dynamic_check_block() || ctx.emission.in_dynamic_check_fn;
+                 let ptr_for_gep = if is_dynamic {
                      out.push_str(&format!("    llvm.call @salt_verify_epoch({}) : (!llvm.ptr) -> ()\n", ptr_for_gep));
+                     let as_int = format!("%tag_int_{}", ctx.next_id());
+                     let mask = format!("%tag_mask_{}", ctx.next_id());
+                     let stripped_int = format!("%stripped_int_{}", ctx.next_id());
+                     let stripped_ptr = format!("%stripped_ptr_{}", ctx.next_id());
+                     out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", as_int, ptr_for_gep));
+                     out.push_str(&format!("    {} = llvm.mlir.constant(281474976710655 : i64) : i64\n", mask));
+                     out.push_str(&format!("    {} = llvm.and {}, {} : i64\n", stripped_int, as_int, mask));
+                     out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", stripped_ptr, stripped_int));
                      let _ = ctx.ensure_external_declaration("salt_verify_epoch", &[Type::Pointer { element: Box::new(Type::U8), is_mutable: false, provenance: crate::types::Provenance::Naked }], &Type::Unit);
-                     ptr_for_gep
+                     stripped_ptr
                  } else {
                      ptr_for_gep
                  };
@@ -464,9 +434,10 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
                  ctx.emit_load(out, &load_res, &res, &elem_mlir);
                  
                  return Ok((load_res, (**element).clone()));
-             },
-             Type::Tensor(ref inner, ref shape) => {
-                 // [V7.9 MEMREF FIX] Tensors are memref types (SSA values from memref.alloc)
+}
+
+fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, inner: &Box<Type>, shape: &Vec<usize>) -> Result<(String, Type), String> {
+// [V7.9 MEMREF FIX] Tensors are memref types (SSA values from memref.alloc)
                  // For SSA, base_ptr is already the memref value
                  // For Ptr/Local, we would need memref.load from a ptr, but tensors should always be SSA
                  let tensor_ptr = base_ptr.clone();
@@ -610,12 +581,13 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
                      res, tensor_ptr, indices_str, memref_ty));
                  
                  return Ok((res, *inner.clone()));
-             }
-             Type::Array(ref inner, _, packed) => {
-                 let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I64))?;
+}
+
+fn emit_index_array(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, inner: &Box<Type>, packed: &bool) -> Result<(String, Type), String> {
+let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I64))?;
                  let idx_prom = promote_numeric(ctx, out, &idx_val, &idx_ty, &Type::I64)?;
                  
-                 if packed {
+                 if *packed {
                       // Packed Boolean Array Read
                       // 1. Word Index = idx / 64
                       let word_idx = format!("%word_idx_{}", ctx.next_id());
@@ -657,9 +629,10 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
                  let res = format!("%index_res_{}", ctx.next_id());
                   ctx.emit_load_logical(out, &res, &elem_ptr, inner.as_ref())?;
                   return Ok((res, *inner.clone()));
-             }
-             Type::Owned(inner) => {
-                 let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I64))?;
+}
+
+fn emit_index_owned(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, kind: LValueKind, inner: &Box<Type>) -> Result<(String, Type), String> {
+let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I64))?;
                  let idx_prom = promote_numeric(ctx, out, &idx_val, &idx_ty, &Type::I64)?;
 
                  let loaded_ptr = if kind == LValueKind::SSA {
@@ -707,9 +680,10 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
                  let res = format!("%index_res_{}", ctx.next_id());
                  ctx.emit_load_logical(out, &res, &elem_ptr, &inner)?;
                  return Ok((res, *inner.clone()));
-             }
-             Type::Window(ref inner, _) => {
-                 let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I64))?;
+}
+
+fn emit_index_window(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, inner: &Box<Type>) -> Result<(String, Type), String> {
+let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I64))?;
                  let idx_prom = promote_numeric(ctx, out, &idx_val, &idx_ty, &Type::I64)?;
 
                  let data_ptr_ptr = format!("%win_ptr_{}", ctx.next_id());
@@ -725,7 +699,28 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
                  let res = format!("%index_res_{}", ctx.next_id());
                  ctx.emit_load_logical(out, &res, &elem_ptr, &inner)?;
                  return Ok((res, *inner.clone()));
-             }
+}
+
+pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, _expected: Option<&Type>) -> Result<(String, Type), String> {
+    // Try LValue first (Handles Arrays/Windows properly, and Tensors)
+    // Try LValue first (Handles Arrays/Windows properly, and Tensors)
+    // typo in original code? i.expr is the thing being indexed.
+    
+    // Correct logic:
+    if let Ok((base_ptr, base_ty, kind)) = emit_lvalue(ctx, out, &i.expr, local_vars) {
+         match base_ty {
+             // [KEUOS V2.0]: Native Pointer Indexing
+             // This replaces the legacy "NativePtr" string-matching logic.
+             Type::Pointer { ref element, .. } | Type::Reference(ref element, _) => return emit_index_ptr_ref(ctx, out, i, local_vars, base_ptr.clone(), &base_ty, kind.clone(), element),
+
+             Type::Tensor(ref inner, ref shape) => return emit_index_tensor(ctx, out, i, local_vars, base_ptr.clone(), inner, shape),
+
+             Type::Array(ref inner, _, ref packed) => return emit_index_array(ctx, out, i, local_vars, base_ptr.clone(), &base_ty, inner, packed),
+
+             Type::Owned(ref inner) => return emit_index_owned(ctx, out, i, local_vars, base_ptr.clone(), kind, inner),
+
+             Type::Window(ref inner, _) => return emit_index_window(ctx, out, i, local_vars, base_ptr.clone(), &base_ty, inner),
+
              _ => {} // Fallback
          }
     }

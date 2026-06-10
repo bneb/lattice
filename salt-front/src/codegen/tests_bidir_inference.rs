@@ -15,7 +15,7 @@
 mod tests {
     use crate::types::{Type, Provenance};
     use crate::codegen::expr::unify_types_recursive;
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::BTreeMap;
 
     // ============================
     // Helper constructors
@@ -684,7 +684,7 @@ mod tests {
     #[test]
     fn test_pipeline_multi_char_full_flow() {
         // Full pipeline: unify → substitute → verify no generics
-        let declared_generics = vec!["F2".to_string(), "Output".to_string()];
+        let _declared_generics = vec!["F2".to_string(), "Output".to_string()];
         let mut map: BTreeMap<String, Type> = BTreeMap::new();
 
         let ret_template = concrete("Map", vec![

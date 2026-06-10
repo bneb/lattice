@@ -144,102 +144,42 @@ fn main() {
 
 // ─── sp new ──────────────────────────────────────────────────────────────────
 
+fn generate_manifest(project_name: &str) -> String {
+    format!("[package]\nname = \"{project_name}\"\nversion = \"0.1.0\"\nedition = \"2026\"\nentry = \"src/main.salt\"\n")
+}
+
+fn generate_entry_source(project_name: &str, lib: bool) -> String {
+    if lib {
+        format!("package {project_name}\n\n/// Add two numbers.\npub fn add(a: i32, b: i32) -> i32 {{\n    return a + b;\n}}\n")
+    } else {
+        format!("package main\n\nfn main() -> i32 {{\n    println(\"Hello from {project_name}!\");\n    return 0;\n}}\n")
+    }
+}
+
+fn generate_test_source(project_name: &str, lib: bool) -> String {
+    if lib {
+        format!("package test\n\nuse {project_name}.add\n\nfn main() -> i32 {{\n    let result = add(2, 3);\n    if result == 5 {{\n        println(\"PASS: add(2, 3) == 5\");\n    }} else {{\n        println(\"FAIL: add(2, 3) != 5\");\n        return 1;\n    }}\n    return 0;\n}}\n")
+    } else {
+        "package test\n\nfn main() -> i32 {\n    println(\"PASS: smoke test\");\n    return 0;\n}\n".to_string()
+    }
+}
+
 fn cmd_new(name: &str, lib: bool) -> Result<(), String> {
     let project_dir = PathBuf::from(name);
+    if project_dir.exists() { return Err(format!("directory '{}' already exists", name)); }
 
-    if project_dir.exists() {
-        return Err(format!("directory '{}' already exists", name));
-    }
+    let project_name = project_dir.file_name().ok_or_else(|| "invalid project name".to_string())?.to_string_lossy().to_string();
 
-    // Extract just the project name from the path (e.g., "/tmp/hello" → "hello")
-    let project_name = project_dir
-        .file_name()
-        .ok_or_else(|| "invalid project name".to_string())?
-        .to_string_lossy()
-        .to_string();
+    std::fs::create_dir_all(project_dir.join("src")).map_err(|e| format!("failed to create src/: {}", e))?;
+    std::fs::create_dir_all(project_dir.join("tests")).map_err(|e| format!("failed to create tests/: {}", e))?;
 
-    // Create project structure
-    std::fs::create_dir_all(project_dir.join("src"))
-        .map_err(|e| format!("failed to create directory: {}", e))?;
-    std::fs::create_dir_all(project_dir.join("tests"))
-        .map_err(|e| format!("failed to create tests/: {}", e))?;
-
-    // Write salt.toml
-    let manifest = format!(
-        r#"[package]
-name = "{project_name}"
-version = "0.1.0"
-edition = "2026"
-entry = "src/main.salt"
-"#
-    );
-    std::fs::write(project_dir.join("salt.toml"), manifest)
-        .map_err(|e| format!("failed to write salt.toml: {}", e))?;
-
-    // Write entry point
-    let source = if lib {
-        format!(
-            r#"package {project_name}
-
-/// Add two numbers.
-pub fn add(a: i32, b: i32) -> i32 {{
-    return a + b;
-}}
-"#
-        )
-    } else {
-        format!(
-            r#"package main
-
-fn main() -> i32 {{
-    println("Hello from {project_name}!");
-    return 0;
-}}
-"#
-        )
-    };
-
+    std::fs::write(project_dir.join("salt.toml"), generate_manifest(&project_name)).map_err(|e| format!("failed to write salt.toml: {}", e))?;
+    
     let entry_path = if lib { "src/lib.salt" } else { "src/main.salt" };
-    std::fs::write(project_dir.join(entry_path), source)
-        .map_err(|e| format!("failed to write {}: {}", entry_path, e))?;
+    std::fs::write(project_dir.join(entry_path), generate_entry_source(&project_name, lib)).map_err(|e| format!("failed to write {}: {}", entry_path, e))?;
 
-    // Write a starter test
-    let test_source = if lib {
-        format!(
-            r#"package test
-
-use {project_name}.add
-
-fn main() -> i32 {{
-    let result = add(2, 3);
-    if result == 5 {{
-        println("PASS: add(2, 3) == 5");
-    }} else {{
-        println("FAIL: add(2, 3) != 5");
-        return 1;
-    }}
-    return 0;
-}}
-"#
-        )
-    } else {
-        r#"package test
-
-fn main() -> i32 {
-    println("PASS: smoke test");
-    return 0;
-}
-"#
-        .to_string()
-    };
-
-    std::fs::write(project_dir.join("tests/test_smoke.salt"), test_source)
-        .map_err(|e| format!("failed to write test: {}", e))?;
-
-    // Write .gitignore
-    let gitignore = "target/\n*.o\n*.ll\n*.mlir\n";
-    std::fs::write(project_dir.join(".gitignore"), gitignore)
-        .map_err(|e| format!("failed to write .gitignore: {}", e))?;
+    std::fs::write(project_dir.join("tests/test_smoke.salt"), generate_test_source(&project_name, lib)).map_err(|e| format!("failed to write test: {}", e))?;
+    std::fs::write(project_dir.join(".gitignore"), "target/\n*.o\n*.ll\n*.mlir\n").map_err(|e| format!("failed to write .gitignore: {}", e))?;
 
     println!("✨ Created project '{}'\n", project_name);
     println!("   {}/", name);
@@ -337,73 +277,44 @@ fn cmd_run(path: &PathBuf, release: bool, args: &[String]) -> Result<(), String>
 
 // ─── sp test ─────────────────────────────────────────────────────────────────
 
+fn find_test_files(path: &Path, filter: Option<&str>) -> Result<Vec<PathBuf>, String> {
+    let test_dir = path.join("tests");
+    if !test_dir.exists() { return Ok(Vec::new()); }
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&test_dir)
+        .map_err(|e| format!("failed to read tests/: {}", e))?
+        .filter_map(|e| e.ok()).map(|e| e.path())
+        .filter(|p| p.extension().map_or(false, |e| e == "salt")).collect();
+    if let Some(f) = filter {
+        files.retain(|p| p.file_stem().map_or(false, |s| s.to_string_lossy().contains(f)));
+    }
+    files.sort();
+    Ok(files)
+}
+
 fn cmd_test(path: &PathBuf, filter: Option<&str>) -> Result<(), String> {
     let start = Instant::now();
-    let manifest_path = path.join("salt.toml");
-    let manifest = manifest::load(&manifest_path)?;
+    let manifest = manifest::load(&path.join("salt.toml"))?;
 
-    // Find test files
-    let test_dir = path.join("tests");
-    if !test_dir.exists() {
-        println!("No tests/ directory found");
+    let test_files = find_test_files(path, filter)?;
+    if test_files.is_empty() {
+        println!("No tests found");
         return Ok(());
     }
 
-    let mut test_files: Vec<PathBuf> = std::fs::read_dir(&test_dir)
-        .map_err(|e| format!("failed to read tests/: {}", e))?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|p| p.extension().map_or(false, |e| e == "salt"))
-        .collect();
+    println!("🧪 Running {} test(s) for \x1b[1m{}\x1b[0m\n", test_files.len(), manifest.package.name);
 
-    if let Some(f) = filter {
-        test_files.retain(|p| {
-            p.file_stem()
-                .map_or(false, |s| s.to_string_lossy().contains(f))
-        });
-    }
-
-    test_files.sort();
-
-    println!(
-        "🧪 Running {} test(s) for \x1b[1m{}\x1b[0m\n",
-        test_files.len(),
-        manifest.package.name
-    );
-
-    let mut passed = 0;
-    let mut failed = 0;
-
+    let mut passed = 0; let mut failed = 0;
     for test_file in &test_files {
         let name = test_file.file_stem().unwrap().to_string_lossy();
         print!("   {} ... ", name);
-
         match compiler::run_test(test_file, path) {
-            Ok(_) => {
-                println!("\x1b[32m✓ pass\x1b[0m");
-                passed += 1;
-            }
-            Err(e) => {
-                println!("\x1b[31m✗ FAIL\x1b[0m");
-                eprintln!("     {}", e);
-                failed += 1;
-            }
+            Ok(_) => { println!("\x1b[32m✓ pass\x1b[0m"); passed += 1; }
+            Err(e) => { println!("\x1b[31m✗ FAIL\x1b[0m"); eprintln!("     {}", e); failed += 1; }
         }
     }
 
-    let elapsed = start.elapsed();
-    println!(
-        "\n   Result: {} passed, {} failed ({:.1}s)",
-        passed,
-        failed,
-        elapsed.as_secs_f64()
-    );
-
-    if failed > 0 {
-        Err(format!("{} test(s) failed", failed))
-    } else {
-        Ok(())
-    }
+    println!("\n   Result: {} passed, {} failed ({:.1}s)", passed, failed, start.elapsed().as_secs_f64());
+    if failed > 0 { Err(format!("{} test(s) failed", failed)) } else { Ok(()) }
 }
 
 // ─── sp check ────────────────────────────────────────────────────────────────

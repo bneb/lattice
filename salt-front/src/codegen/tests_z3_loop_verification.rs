@@ -15,8 +15,6 @@
 //! Layer 4: Havoc semantics erase pre-loop knowledge
 //! Layer 5: Nested loop Z3 scoping
 
-#[cfg(test)]
-use crate::z3_shim as z3;
 mod tests {
     use crate::grammar::SaltFile;
     use crate::codegen::context::CodegenContext;

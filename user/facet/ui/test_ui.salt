@@ -170,10 +170,7 @@ fn et_add(et: &mut EdgeTable, p0: Point, p1: Point, dir: i32) {
     et.count = et.count + 1;
 }
 
-fn fill_path(c: &mut Canvas, p: Ptr<Path>, r: u8, g: u8, b: u8, a: u8) {
-    let mut et = et_new();
-    
-    // Convert commands to edges
+fn convert_path_to_edges(p: Ptr<Path>, et: &mut EdgeTable) {
     let mut i: i64 = 0;
     let mut start_pt = Point { x: 0.0, y: 0.0 };
     let mut curr_pt = Point { x: 0.0, y: 0.0 };
@@ -184,118 +181,106 @@ fn fill_path(c: &mut Canvas, p: Ptr<Path>, r: u8, g: u8, b: u8, a: u8) {
             start_pt = cmd.p0;
             curr_pt = cmd.p0;
         } else if cmd.tag == CMD_LINE_TO {
-            if cmd.p0.y != curr_pt.y { // Skip horizontal
-                et_add(&mut et, curr_pt, cmd.p0, 1);
+            if cmd.p0.y != curr_pt.y { 
+                et_add(et, curr_pt, cmd.p0, 1);
             }
             curr_pt = cmd.p0;
         } else if cmd.tag == CMD_CLOSE {
             if start_pt.y != curr_pt.y {
-                et_add(&mut et, curr_pt, start_pt, 1);
+                et_add(et, curr_pt, start_pt, 1);
             }
             curr_pt = start_pt;
         }
         i = i + 1;
     }
+}
+
+fn compute_intersections(et_count: i64, et_edges: Ptr<Edge>, y_f: f32, x_list: Ptr<f32>) -> i64 {
+    let mut x_count: i64 = 0;
+    let mut e_idx: i64 = 0;
+    while e_idx < et_count {
+        let edge = et_edges.offset(e_idx).read();
+        let y_min = fminf(edge.y0, edge.y1);
+        let y_max = fmaxf(edge.y0, edge.y1);
+        
+        if y_f >= y_min && y_f < y_max {
+            let dy = edge.y1 - edge.y0;
+            let dx = edge.x1 - edge.x0;
+            let t = (y_f - edge.y0) / dy;
+            let x_int = edge.x0 + t * dx;
+            
+            x_list.offset(x_count).write(x_int);
+            x_count = x_count + 1;
+        }
+        e_idx = e_idx + 1;
+    }
+    return x_count;
+}
+
+fn sort_intersections(x_list: Ptr<f32>, x_count: i64) {
+    if x_count <= 1 { return; }
+    let mut sorted = false;
+    while !sorted {
+        sorted = true;
+        let mut j: i64 = 0;
+        while j < x_count - 1 {
+            let v1 = x_list.offset(j).read();
+            let v2 = x_list.offset(j+1).read();
+            if v1 > v2 {
+                x_list.offset(j).write(v2);
+                x_list.offset(j+1).write(v1);
+                sorted = false;
+            }
+            j = j + 1;
+        }
+    }
+}
+
+fn fill_spans(c: &mut Canvas, y: i32, width_f: f32, x_list: Ptr<f32>, x_count: i64, r: u8, g: u8, b: u8, a: u8) {
+    let mut j: i64 = 0;
+    while j < x_count - 1 {
+        let x0 = x_list.offset(j).read();
+        let x1 = x_list.offset(j+1).read();
+        
+        let ix0 = fmaxf(0.0, x0) as i32;
+        let ix1 = fminf(width_f, x1) as i32;
+        
+        if ix1 > ix0 {
+            let mut k = ix0;
+            while k < ix1 {
+                let off = (((y * c.width) + k) * 4) as i64;
+                c.pixels.offset(off).write(r);
+                c.pixels.offset(off+1).write(g);
+                c.pixels.offset(off+2).write(b);
+                c.pixels.offset(off+3).write(a);
+                k = k + 1;
+            }
+        }
+        j = j + 2;
+    }
+}
+
+fn rasterize_scanline(c: &mut Canvas, et_count: i64, et_edges: Ptr<Edge>, y: i32, width_f: f32, r: u8, g: u8, b: u8, a: u8) {
+    let y_f = (y as f32) + 0.5;
+    let x_list_mem = malloc(8 * 128); 
+    let x_list = x_list_mem as Ptr<f32>; 
     
-    // Rasterize Scanlines (Simple Bounding Box loop for edges)
-    // For every scanline y: find intersections, sort x, fill spans.
-    // Optimization: Just iterate y from 0 to height.
+    let x_count = compute_intersections(et_count, et_edges, y_f, x_list);
+    sort_intersections(x_list, x_count);
+    fill_spans(c, y, width_f, x_list, x_count, r, g, b, a);
     
-    let height_f = c.height as f32;
+    free(x_list_mem);
+}
+
+fn fill_path(c: &mut Canvas, p: Ptr<Path>, r: u8, g: u8, b: u8, a: u8) {
+    let mut et = et_new();
+    convert_path_to_edges(p, &mut et);
+    
     let width_f = c.width as f32;
-    
-    // Pre-calculate edge slopes and y-ranges? No, just brute force for now.
     
     let mut y: i32 = 0;
     while y < c.height {
-        let y_f = (y as f32) + 0.5;
-        
-        // Find intersections
-        // We need a list of x-intersections. Fixed size array on stack? No stack arrays in Salt yet.
-        // Use malloc for x-list.
-        let x_list_mem = malloc(8 * 128); // Max 128 intersections per line
-        let x_list = x_list_mem as Ptr<f32>; // stored as f32
-        let mut x_count: i64 = 0;
-        
-        // Find intersections
-        let mut e_idx: i64 = 0;
-        while e_idx < et.count {
-            let edge = et.edges.offset(e_idx).read();
-            let y_min = fminf(edge.y0, edge.y1);
-            let y_max = fmaxf(edge.y0, edge.y1);
-            
-            if y_f >= y_min && y_f < y_max {
-                // Intersect
-                let dy = edge.y1 - edge.y0;
-                let dx = edge.x1 - edge.x0;
-                let t = (y_f - edge.y0) / dy;
-                let x_int = edge.x0 + t * dx;
-                
-                // Direction: if edge goes UP (y increasing), +1 winding. DOWN, -1.
-                // My et_add logic was simplified.
-                // Let's use winding rule:
-                // edge.y1 > edge.y0 -> +1
-                // edge.y1 < edge.y0 -> -1
-                
-                // Store x and direction combined? No, even-odd rule doesn't need direction.
-                // Non-zero rule needs direction.
-                // For simplified rect/circle drawing, even-odd is fine? No, overlapping shapes.
-                // Let's implement Even-Odd for speed/simplicity in this huge file.
-                // Wait, text needs to fill correctly.
-                
-                x_list.offset(x_count).write(x_int);
-                x_count = x_count + 1;
-            }
-            e_idx = e_idx + 1;
-        }
-        
-        // Sort x-list (Bubble sort)
-        if x_count > 1 {
-           let mut sorted = false;
-           while !sorted {
-               sorted = true;
-               let mut j: i64 = 0;
-                while j < x_count - 1 {
-                    let v1 = x_list.offset(j).read();
-                    let v2 = x_list.offset(j+1).read();
-                    if v1 > v2 {
-                        x_list.offset(j).write(v2);
-                        x_list.offset(j+1).write(v1);
-                        sorted = false;
-                    }
-                    j = j + 1;
-                }
-           }
-        }
-        
-        // Fill spans (Even-Odd: inside between pairs 0-1, 2-3...)
-        let mut j: i64 = 0;
-        while j < x_count - 1 {
-            let x0 = x_list.offset(j).read();
-            let x1 = x_list.offset(j+1).read();
-            
-            // Clamp to canvas
-            let ix0 = fmaxf(0.0, x0) as i32;
-            let ix1 = fminf(width_f, x1) as i32;
-            
-            if ix1 > ix0 {
-                let mut k = ix0;
-                while k < ix1 {
-                    let off = (((y * c.width) + k) * 4) as i64;
-                    // Alpha blending (simple)
-                    // dst = dst * (1-a) + src * a
-                    // assume src alpha 255 for now
-                    c.pixels.offset(off).write(r);
-                    c.pixels.offset(off+1).write(g);
-                    c.pixels.offset(off+2).write(b);
-                    c.pixels.offset(off+3).write(a);
-                    k = k + 1;
-                }
-            }
-            j = j + 2;
-        }
-        
-        free(x_list_mem);
+        rasterize_scanline(c, et.count, et.edges, y, width_f, r, g, b, a);
         y = y + 1;
     }
     

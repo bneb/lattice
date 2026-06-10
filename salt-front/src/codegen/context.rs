@@ -597,7 +597,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         out.push_str(&format!("    {} = arith.constant {} : {}\n", res, val_str, ty));
     }
     pub fn emit_load(&self, out: &mut String, val: &str, ptr: &str, ty: &str) {
-        let mut scope_attr = "";
+        let scope_attr = "";
         // Disable alias_scopes to prevent LLVM from deleting loop conditions
         // if ptr.contains("local") || ptr.contains("spill") {
         //      scope_attr = " { alias_scopes = [#scope_local], noalias = [#scope_global] }";
@@ -3362,32 +3362,17 @@ impl<'a> CodegenContext<'a> {
         false
     }
 
-    pub fn hydrate_specialization(&self, task: MonomorphizationTask) -> Result<(), String> {
+pub fn hydrate_specialization(&self, task: MonomorphizationTask) -> Result<(), String> {
         let mangled_name = task.mangled_name.clone();
 
-        // 0. GENERICS CHECK: Backend cannot handle unresolved generics
-        // If the specialization task contains Type::Generic, it's an invalid request
-        // (likely a byproduct of inference or dead code). Skip it to avoid crashes.
         if task.type_map.values().any(|t| t.has_generics()) {
              return Ok(());
         }
 
-        // 1. EXISTENCE CHECK: Use the absolute mangled name
-        // If it's already in the defined_functions set, we've either finished it
-        // or we are currently emitting it (handling recursion).
-        // [FIX] Do NOT check external_decls here. Forward declarations (func.func private)
-        // are in external_decls state, but we still need to emit the body for local functions.
         if self.defined_functions().contains(&mangled_name) {
              return Ok(());
         }
 
-        // 1.5. EXTERN GUARD: Extern functions are FFI declarations (provided by runtime.c).
-        // They must NOT be hydrated — doing so would add them to defined_functions (via the
-        // recursion guard below), which would cause the assembly filter to suppress their
-        // forward declarations. Call sites need those declarations to resolve.
-        // NOTE: We must check BOTH external_decls AND empty body, because external_decls
-        // is also populated by ensure_func_declared for forward-declared Salt functions.
-        // True externs have empty SaltFn bodies (set by register_signatures wrapper).
         if self.external_decls().contains(&mangled_name) {
             if let Some((wrapper, _)) = self.generic_impls().get(&mangled_name) {
                 if wrapper.body.stmts.is_empty() {
@@ -3396,12 +3381,8 @@ impl<'a> CodegenContext<'a> {
             }
         }
 
-        // 2. PENDING REGISTRATION: Recursion Guard
         self.defined_functions_mut().insert(mangled_name.clone());
 
-        // 3. CONTEXT SNAPSHOT: Preserve caller state
-        // We use MANUAL context switching for maximum control, mirroring the "Senior Staff" advice.
-        // Guards are good, but explicit snapshots are better for debugging complex recursions.
         let prev_type_map = self.current_type_map().clone();
         let prev_concrete = self.current_generic_args().clone();
         let prev_self = self.current_self_ty().clone();
@@ -3409,33 +3390,12 @@ impl<'a> CodegenContext<'a> {
         let prev_ret_ty = self.current_ret_ty().clone();
         let prev_ensures = self.current_ensures().clone();
 
-        // 4. CONTEXT SWITCH: Load callee environment
-        // [CANONICAL RESOLUTION] Canonicalize type_map entries before emission.
-        // During hydration of std library methods (e.g., Box::new<T>), the type_map may contain
-        // raw Struct("Node") instead of canonical Struct("main__Node"). This causes split MLIR
-        // type aliases (e.g., !struct_Box_Node vs !struct_Box_main__Node). Canonicalizing here
-        // ensures all downstream emission uses consistent FQN names.
-        let mut canonical_type_map = task.type_map.clone();
-        for (_key, ty) in canonical_type_map.iter_mut() {
-            if let crate::types::Type::Struct(name) = ty {
-                if !name.contains("__") {
-                    let suffix = format!("__{}", name);
-                    if let Some(canonical) = self.struct_templates().keys()
-                        .find(|k| k.ends_with(&suffix))
-                        .cloned()
-                    {
-                        *name = canonical;
-                    }
-                }
-            }
-        }
-        *self.current_type_map_mut() = canonical_type_map.clone();
+        let canonical_type_map = self.canonicalize_type_map(&task.type_map);
+        *self.current_type_map_mut() = canonical_type_map;
         *self.current_generic_args_mut() = task.concrete_tys.clone();
         *self.current_self_ty_mut() = task.self_ty.clone();
         *self.imports_mut() = task.imports.clone();
-        *self.imports_mut() = task.imports.clone();
 
-        // Switch Package Context
         let package_path: Vec<syn::Ident> = task.identity.path.iter()
             .map(|s| syn::Ident::new(s, proc_macro2::Span::call_site()))
             .collect();
@@ -3450,46 +3410,10 @@ impl<'a> CodegenContext<'a> {
         };
         let prev_pkg = self.current_package.replace(new_package);
 
-        // [MODULE GLOBALS FIX] Inject self-imports for module-level items (globals, structs, consts, fns).
-        // Without this, hydrated functions can't resolve bare names like `COUNTER` or `GLOBAL_SCHED`
-        // to their mangled forms (e.g., `test__module_globals__COUNTER`).
-        {
-            let pkg_prefix = if let Some(pkg) = self.current_package.borrow().as_ref() {
-                Mangler::mangle(&pkg.name.iter().map(|id| id.to_string()).collect::<Vec<_>>()) + "__"
-            } else {
-                String::new()
-            };
+        self.inject_module_globals();
 
-            if !pkg_prefix.is_empty() {
-                let file = self.file.borrow();
-                let mut self_imports = Vec::new();
-                for item in &file.items {
-                    let (ident_name, mangled_str) = match item {
-                        Item::Struct(s) => (&s.name, format!("{}{}", pkg_prefix, s.name)),
-                        Item::Enum(e) => (&e.name, format!("{}{}", pkg_prefix, e.name)),
-                        Item::Fn(f) => (&f.name, if f.attributes.iter().any(|a| a.name == "no_mangle") { f.name.to_string() } else { format!("{}{}", pkg_prefix, f.name) }),
-                        Item::ExternFn(e) => (&e.name, e.name.to_string()),
-                        Item::Global(g) => (&g.name, format!("{}{}", pkg_prefix, g.name)),
-                        Item::Const(c) => (&c.name, format!("{}{}", pkg_prefix, c.name)),
-                        _ => continue
-                    };
-                    let mangled_ident = syn::Ident::new(&mangled_str, proc_macro2::Span::call_site());
-                    let mut p = syn::punctuated::Punctuated::new();
-                    p.push(mangled_ident);
-                    self_imports.push(crate::grammar::ImportDecl {
-                        name: p,
-                        alias: Some(ident_name.clone()),
-                        group: None
-                    });
-                }
-                self.imports_mut().extend(self_imports);
-            }
-        }
-
-        // 5. EMISSION: Generate the specialized MLIR body
         let emission_result = self.emit_function_definition(&task.func, &mangled_name);
 
-        // 6. STATE RESTORATION: Return to caller's environment
         let expected_import_count = prev_imports.len();
         *self.current_type_map_mut() = prev_type_map;
         *self.current_generic_args_mut() = prev_concrete;
@@ -3506,19 +3430,69 @@ impl<'a> CodegenContext<'a> {
                 mangled_name, expected_import_count, self.imports().len());
         }
 
-        // 7. HANDLE RESULT
         match emission_result {
             Ok(code) => {
                 self.definitions_buffer_mut().push_str(&code);
                 Ok(())
             },
             Err(e) => {
-                // Remove from Defined so we can retry or just failing clean
                 self.defined_functions_mut().remove(&mangled_name);
                 Err(e)
             }
         }
     }
+
+    fn canonicalize_type_map(&self, type_map: &std::collections::BTreeMap<String, Type>) -> std::collections::BTreeMap<String, Type> {
+        let mut canonical_type_map = type_map.clone();
+        for (_key, ty) in canonical_type_map.iter_mut() {
+            if let crate::types::Type::Struct(name) = ty {
+                if !name.contains("__") {
+                    let suffix = format!("__{}", name);
+                    if let Some(canonical) = self.struct_templates().keys()
+                        .find(|k| k.ends_with(&suffix))
+                        .cloned()
+                    {
+                        *name = canonical;
+                    }
+                }
+            }
+        }
+        canonical_type_map
+    }
+
+    fn inject_module_globals(&self) {
+        let pkg_prefix = if let Some(pkg) = self.current_package.borrow().as_ref() {
+            Mangler::mangle(&pkg.name.iter().map(|id| id.to_string()).collect::<Vec<_>>()) + "__"
+        } else {
+            String::new()
+        };
+
+        if !pkg_prefix.is_empty() {
+            let file = self.file.borrow();
+            let mut self_imports = Vec::new();
+            for item in &file.items {
+                let (ident_name, mangled_str) = match item {
+                    Item::Struct(s) => (&s.name, format!("{}{}", pkg_prefix, s.name)),
+                    Item::Enum(e) => (&e.name, format!("{}{}", pkg_prefix, e.name)),
+                    Item::Fn(f) => (&f.name, if f.attributes.iter().any(|a| a.name == "no_mangle") { f.name.to_string() } else { format!("{}{}", pkg_prefix, f.name) }),
+                    Item::ExternFn(e) => (&e.name, e.name.to_string()),
+                    Item::Global(g) => (&g.name, format!("{}{}", pkg_prefix, g.name)),
+                    Item::Const(c) => (&c.name, format!("{}{}", pkg_prefix, c.name)),
+                    _ => continue
+                };
+                let mangled_ident = syn::Ident::new(&mangled_str, proc_macro2::Span::call_site());
+                let mut p = syn::punctuated::Punctuated::new();
+                p.push(mangled_ident);
+                self_imports.push(crate::grammar::ImportDecl {
+                    name: p,
+                    alias: Some(ident_name.clone()),
+                    group: None
+                });
+            }
+            self.imports_mut().extend(self_imports);
+        }
+    }
+
 
     pub fn emit_function_definition(&self, func: &SaltFn, mangled_name: &str) -> Result<String, String> {
         emit_fn(self, func, Some(mangled_name.to_string()))
@@ -3685,370 +3659,236 @@ impl<'a> CodegenContext<'a> {
          self.resolve_global(name).map(|t| (t, name.to_string()))
     }
 
-    pub fn init_registry_definitions(&self) {
+pub fn init_registry_definitions(&self) {
         self.suppress_specialization.set(true);
-        // Populate struct_registry from Registry (imported modules)
         if let Some(reg) = self.registry {
             for (_pkg, module_info) in &reg.modules {
-                let pkg_prefix = module_info.package.replace(".", "__") + "__";
-                let path: Vec<String> = module_info.package.split('.').map(|s| s.to_string()).collect();
-                
-                // Populate struct templates (generic structs)
-                for (struct_name, struct_def) in &module_info.struct_templates {
-                    let mangled = format!("{}{}", pkg_prefix, struct_name);
-                    
-                    // Also update the internal name of the struct definition!
-                    let mut s_def = struct_def.clone();
-                     s_def.name = syn::Ident::new(&mangled, struct_def.name.span());
-                    self.struct_templates_mut().insert(mangled, s_def);
-                }
-                
-                // Populate concrete structs
-                for (struct_name, fields_vec) in &module_info.structs {
-                    let mangled = format!("{}{}", pkg_prefix, struct_name);
-                    
-                    // Convert Vec<(String, Type)> to HashMap and field_order
-                    let mut fields = std::collections::HashMap::new();
-                    let mut field_order = Vec::new();
-                    for (i, (fname, fty)) in fields_vec.iter().enumerate() {
-                        fields.insert(fname.clone(), (i, fty.clone()));
-                        field_order.push(fty.clone());
-                    }
-                    
-                    // Construct TypeKey. 
-                    // Note: We currently don't have specialization args for concrete structs in Registry.
-                    // We register them as 'base' types for now, which allows direct lookup if name matches.
-                    // e.g. "Vec_i32".
-                    let key = TypeKey {
-                        path: path.clone(),
-                        name: struct_name.clone(),
-                        specialization: None,
-                    };
-                    
-                    self.struct_registry_mut().insert(key, StructInfo {
-                        name: mangled,
-                        fields,
-                        field_order: field_order.clone(),
-                        field_alignments: vec![None; field_order.len()],
-                        template_name: None,
-                        specialization_args: vec![],
-                    });
-                }
-                
-                // Populate enum templates
-                for (enum_name, enum_def) in &module_info.enum_templates {
-                     let mangled = format!("{}{}", pkg_prefix, enum_name);
-                     let mut e_def = enum_def.clone();
-                     e_def.name = syn::Ident::new(&mangled, enum_def.name.span());
-                     self.enum_templates_mut().insert(mangled, e_def);
-                }
-                
-                // Populate concrete enums
-                for (enum_name, info) in &module_info.enums {
-                     let mangled = format!("{}{}", pkg_prefix, enum_name);
-                     let mut new_info = info.clone();
-                     new_info.name = mangled.clone();
-                     
-                     let key = TypeKey {
-                        path: path.clone(),
-                        name: enum_name.clone(),
-                        specialization: None,
-                     };
-                     
-                     self.enum_registry_mut().insert(key, new_info);
-                }
-
-                // ======================================================================
-                // [KEUOS FIX] Transitive Extern Collection
-                // Collects extern fn declarations from ALL Registry modules.
-                // This fixes the visibility hole where externs in library modules
-                // (e.g., sys_write in BufferedWriter) weren't being emitted to MLIR.
-                // ======================================================================
-                for (name, export) in &module_info.exports {
-                    if export.kind == crate::registry::SymbolKind::Intrinsic {
-                        // Get type signature from functions map
-                        if let Some((args, ret)) = module_info.functions.get(name) {
-                            // Skip if already emitted (dedupe across modules)
-                            if self.external_decls().contains(name) {
-                                continue;
-                            }
-                            
-                            // [KEUOS FIX] Register in globals for type resolution
-                            self.globals_mut().insert(
-                                name.clone(),
-                                crate::types::Type::Fn(args.clone(), Box::new(ret.clone()))
-                            );
-                            
-                            // Mark as external declaration
-                            self.external_decls_mut().insert(name.clone());
-                            
-                            // [KEUOS FIX] Emit MLIR declaration to decl_out
-                            // This is critical - without this, the extern is registered but
-                            // the func.func private declaration never makes it to MLIR
-                            let mut args_mlir = Vec::new();
-                            for arg in args {
-                                if let Ok(mlir_ty) = self.resolve_mlir_type(&arg) {
-                                    args_mlir.push(mlir_ty);
-                                }
-                            }
-                            let ret_mlir = if *ret == crate::types::Type::Unit {
-                                "()".to_string()
-                            } else if let Ok(mlir_ty) = self.resolve_mlir_type(&ret) {
-                                mlir_ty
-                            } else {
-                                "()".to_string()
-                            };
-                            
-                            let decl_str = format!("  func.func private @{}({}) -> {}\n", 
-                                name, args_mlir.join(", "), ret_mlir);
-                            self.pending_func_decls_mut().insert(name.clone(), decl_str);
-                            
-
-                        }
-                    }
-                }
-
+                self.init_registry_types(module_info);
+                self.init_registry_exports(module_info);
             }
             
             // Pass 2: Populate Impls (Resolution Dependencies Resolved)
             for (_pkg, module_info) in &reg.modules {
-                // Compute package path for this module
-                let pkg_path: Vec<String> = module_info.package.split('.').map(|s| s.to_string()).collect();
-                
-                // Populate Impls (generic methods)
-                for (impl_item, impl_imports) in &module_info.impls {
-                    if let crate::grammar::SaltImpl::Methods { target_ty, methods, generics } = impl_item {
-                        // Context Swap for Resolution with Self-Import Injection
-                        let saved_imports = self.imports().clone();
-                        let saved_map = self.current_type_map().clone();
-                        
-                        // Populate Type Map with Generic Params (e.g. SIZE) so resolution doesn't fail
-                        if let Some(g) = generics {
-                            for param in &g.params {
-                                let name = match param {
-                                    crate::grammar::GenericParam::Type { name, .. } => name,
-                                    crate::grammar::GenericParam::Const { name, .. } => name,
-                                };
-                                self.current_type_map_mut().insert(name.to_string(), crate::types::Type::Struct(name.to_string()));
-                            }
-                        }
-
-                        let mut combined_imports = impl_imports.clone();
-                        
-                        // Inject Self-Imports for the module (Same logic as in inject_self_imports/scan_defs)
-                        // V3.0: Only inject non-generic templates - generic templates need explicit instantiation
-                        {
-                            let pkg_prefix = module_info.package.replace(".", "__") + "__";
-                            // Recursively find module structs/enums locally
-                            let mut self_imps = Vec::new();
-                            
-                            for (s_name, s_def) in &module_info.struct_templates {
-                                 // V3.0: Skip generic templates - they need explicit instantiation
-                                 let has_generics = s_def.generics.as_ref().map(|g| !g.params.is_empty()).unwrap_or(false);
-                                 if has_generics {
-                                     continue;
-                                 }
-                                 
-                                 let mangled = format!("{}{}", pkg_prefix, s_name);
-                                 let mangled_ident = syn::Ident::new(&mangled, proc_macro2::Span::call_site());
-                                 let mut p = syn::punctuated::Punctuated::new();
-                                 p.push(mangled_ident);
-                                 self_imps.push(crate::grammar::ImportDecl { name: p, alias: Some(syn::Ident::new(s_name, proc_macro2::Span::call_site())), group: None });
-                            }
-                            // Also concrete structs (always add - they have no generics)
-                            for (s_name, _) in &module_info.structs {
-                                 let mangled = format!("{}{}", pkg_prefix, s_name);
-                                 let mangled_ident = syn::Ident::new(&mangled, proc_macro2::Span::call_site());
-                                 let mut p = syn::punctuated::Punctuated::new();
-                                 p.push(mangled_ident);
-                                 self_imps.push(crate::grammar::ImportDecl { name: p, alias: Some(syn::Ident::new(s_name, proc_macro2::Span::call_site())), group: None });
-                            }
-                            combined_imports.extend(self_imps);
-                        }
-
-
-                        *self.imports_mut() = combined_imports;
-                        
-                        if let Some(target) = crate::types::Type::from_syn(&target_ty) {
-                            let resolved = self.bridge_resolve_codegen_type(&target);
-                            let target_mangled = resolved.mangle_suffix();
-                            
-
-
-                            *self.current_self_ty_mut() = Some(resolved.clone());
-
-                            // Calculate Template Key for Method Registry
-                            // FIX: Use package path so methods resolve with full FQN
-                            let mut impl_key = resolved.to_key().unwrap_or_else(|| {
-                                TypeKey { path: pkg_path.clone(), name: resolved.mangle_suffix(), specialization: None }
-                            });
-
-                            // Ensure path is populated from package if to_key() returned empty
-                            if impl_key.path.is_empty() && !pkg_path.is_empty() {
-                                impl_key.path = pkg_path.clone();
-
-                            }
-
-                            
-                            // If this is a generic implementation (which it usually is in registry),
-                            // we strip specialization to register it as the Template.
-                            if impl_key.specialization.as_ref().map_or(false, |s: &Vec<Type>| !s.is_empty()) {
-                                // Check if implementation actually HAS generics?
-                                // "generics" var tells us.
-                                if generics.is_some() {
-                                    impl_key.specialization = None;
-                                }
-                            }
-
-
-                            for m in methods {
-                                 let name = format!("{}__{}", target_mangled, m.name);
-                                 
-                                 // Register Global Fn Sig (Mangled)
-                                 let ret_ty = if let Some(rt) = &m.ret_type {
-                                     crate::types::Type::from_syn(rt).unwrap_or(crate::types::Type::Unit)
-                                 } else {
-                                      crate::types::Type::Unit
-                                 };
-                                 let args: Vec<crate::types::Type> = m.args.iter()
-                                         .filter_map(|arg| arg.ty.as_ref().and_then(|t| crate::types::Type::from_syn(t)))
-                                         .collect();
-                                 self.globals_mut().insert(name.clone(), crate::types::Type::Fn(args.clone(), Box::new(ret_ty.clone())));
-                                 
-                                 // Store Template
-                                 let mut m_clone = m.clone();
-                                 if let Some(ig) = generics {
-                                     if let Some(mg) = &mut m_clone.generics {
-                                         let mut new_params = ig.params.clone();
-                                         new_params.extend(mg.params.iter().cloned());
-                                         mg.params = new_params;
-                                     } else {
-                                         m_clone.generics = Some(ig.clone());
-                                     }
-                                 }
-
-                                 // Capture imports before mutating (both borrow discovery)
-                                 let current_imports = self.imports().clone();
-                                 self.generic_impls_mut().insert(name.clone(), (m_clone.clone(), current_imports.clone()));
-                                 
-                                 // [V4.0 KEUOS] Register via TraitRegistry with signature extraction
-                                 self.trait_registry_mut().register_simple(impl_key.clone(), m_clone, Some(resolved.clone()), current_imports);
-                            }
-                            *self.current_self_ty_mut() = None;
-                        }
-                        
-                        *self.imports_mut() = saved_imports;
-                        *self.current_type_map_mut() = saved_map;
-                    }
-                    // [V4.0 KEUOS] Handle trait impl blocks: `impl Trait for Type { ... }`
-                    // Flatten trait methods into the implementing type's method table
-                    else if let crate::grammar::SaltImpl::Trait { trait_name: _, target_ty, methods, generics } = impl_item {
-                        let saved_imports = self.imports().clone();
-                        let saved_map = self.current_type_map().clone();
-                        
-                        // Populate Type Map with Generic Params
-                        if let Some(g) = generics {
-                            for param in &g.params {
-                                let name = match param {
-                                    crate::grammar::GenericParam::Type { name, .. } => name,
-                                    crate::grammar::GenericParam::Const { name, .. } => name,
-                                };
-                                self.current_type_map_mut().insert(name.to_string(), crate::types::Type::Struct(name.to_string()));
-                            }
-                        }
-
-                        let mut combined_imports = impl_imports.clone();
-                        {
-                            let pkg_prefix = module_info.package.replace(".", "__") + "__";
-                            let mut self_imps = Vec::new();
-                            for (s_name, s_def) in &module_info.struct_templates {
-                                 let has_generics = s_def.generics.as_ref().map(|g| !g.params.is_empty()).unwrap_or(false);
-                                 if has_generics { continue; }
-                                 let mangled = format!("{}{}", pkg_prefix, s_name);
-                                 let mangled_ident = syn::Ident::new(&mangled, proc_macro2::Span::call_site());
-                                 let mut p = syn::punctuated::Punctuated::new();
-                                 p.push(mangled_ident);
-                                 self_imps.push(crate::grammar::ImportDecl { name: p, alias: Some(syn::Ident::new(s_name, proc_macro2::Span::call_site())), group: None });
-                            }
-                            for (s_name, _) in &module_info.structs {
-                                 let mangled = format!("{}{}", pkg_prefix, s_name);
-                                 let mangled_ident = syn::Ident::new(&mangled, proc_macro2::Span::call_site());
-                                 let mut p = syn::punctuated::Punctuated::new();
-                                 p.push(mangled_ident);
-                                 self_imps.push(crate::grammar::ImportDecl { name: p, alias: Some(syn::Ident::new(s_name, proc_macro2::Span::call_site())), group: None });
-                            }
-                            combined_imports.extend(self_imps);
-                        }
-
-                        *self.imports_mut() = combined_imports;
-                        
-                        if let Some(target) = crate::types::Type::from_syn(&target_ty) {
-                            let resolved = self.bridge_resolve_codegen_type(&target);
-                            let target_mangled = resolved.mangle_suffix();
-                            
-
-
-                            *self.current_self_ty_mut() = Some(resolved.clone());
-
-                            // Use TARGET TYPE key (String), not trait (Writer)
-                            let mut impl_key = resolved.to_key().unwrap_or_else(|| {
-                                TypeKey { path: pkg_path.clone(), name: resolved.mangle_suffix(), specialization: None }
-                            });
-                            if impl_key.path.is_empty() && !pkg_path.is_empty() {
-                                impl_key.path = pkg_path.clone();
-                            }
-                            if impl_key.specialization.as_ref().map_or(false, |s: &Vec<Type>| !s.is_empty()) {
-                                if generics.is_some() {
-                                    impl_key.specialization = None;
-                                }
-                            }
-
-                            for m in methods {
-                                 // Register under TARGET TYPE (String), not trait (Writer)
-                                 let name = format!("{}__{}", target_mangled, m.name);
-                                 
-                                 let ret_ty = if let Some(rt) = &m.ret_type {
-                                     crate::types::Type::from_syn(rt).unwrap_or(crate::types::Type::Unit)
-                                 } else {
-                                      crate::types::Type::Unit
-                                 };
-                                 let args: Vec<crate::types::Type> = m.args.iter()
-                                         .filter_map(|arg| arg.ty.as_ref().and_then(|t| crate::types::Type::from_syn(t)))
-                                         .collect();
-                                 self.globals_mut().insert(name.clone(), crate::types::Type::Fn(args.clone(), Box::new(ret_ty.clone())));
-                                 
-                                 let mut m_clone = m.clone();
-                                 if let Some(ig) = generics {
-                                     if let Some(mg) = &mut m_clone.generics {
-                                         let mut new_params = ig.params.clone();
-                                         new_params.extend(mg.params.iter().cloned());
-                                         mg.params = new_params;
-                                     } else {
-                                         m_clone.generics = Some(ig.clone());
-                                     }
-                                 }
-
-                                 let current_imports = self.imports().clone();
-                                 self.generic_impls_mut().insert(name.clone(), (m_clone.clone(), current_imports.clone()));
-                                 
-                                 // Flatten trait method into type's method table
-                                 self.trait_registry_mut().register_simple(impl_key.clone(), m_clone, Some(resolved.clone()), current_imports);
-
-                            }
-                            *self.current_self_ty_mut() = None;
-                        }
-                        
-                        *self.imports_mut() = saved_imports;
-                        *self.current_type_map_mut() = saved_map;
-                    }
-                }
-
+                self.init_registry_impls(module_info);
             }
         }
-        
         self.suppress_specialization.set(false);
-
     }
+
+    fn init_registry_types(&self, module_info: &crate::registry::ModuleInfo) {
+        let pkg_prefix = module_info.package.replace(".", "__") + "__";
+        let path: Vec<String> = module_info.package.split('.').map(|s| s.to_string()).collect();
+        
+        // Populate struct templates (generic structs)
+        for (struct_name, struct_def) in &module_info.struct_templates {
+            let mangled = format!("{}{}", pkg_prefix, struct_name);
+            let mut s_def = struct_def.clone();
+            s_def.name = syn::Ident::new(&mangled, struct_def.name.span());
+            self.struct_templates_mut().insert(mangled, s_def);
+        }
+        
+        // Populate concrete structs
+        for (struct_name, fields_vec) in &module_info.structs {
+            let mangled = format!("{}{}", pkg_prefix, struct_name);
+            let mut fields = std::collections::HashMap::new();
+            let mut field_order = Vec::new();
+            for (i, (fname, fty)) in fields_vec.iter().enumerate() {
+                fields.insert(fname.clone(), (i, fty.clone()));
+                field_order.push(fty.clone());
+            }
+            
+            let key = TypeKey {
+                path: path.clone(),
+                name: struct_name.clone(),
+                specialization: None,
+            };
+            
+            self.struct_registry_mut().insert(key, StructInfo {
+                name: mangled,
+                fields,
+                field_order: field_order.clone(),
+                field_alignments: vec![None; field_order.len()],
+                template_name: None,
+                specialization_args: vec![],
+            });
+        }
+        
+        // Populate enum templates
+        for (enum_name, enum_def) in &module_info.enum_templates {
+             let mangled = format!("{}{}", pkg_prefix, enum_name);
+             let mut e_def = enum_def.clone();
+             e_def.name = syn::Ident::new(&mangled, enum_def.name.span());
+             self.enum_templates_mut().insert(mangled, e_def);
+        }
+        
+        // Populate concrete enums
+        for (enum_name, info) in &module_info.enums {
+             let mangled = format!("{}{}", pkg_prefix, enum_name);
+             let mut new_info = info.clone();
+             new_info.name = mangled.clone();
+             
+             let key = TypeKey {
+                path: path.clone(),
+                name: enum_name.clone(),
+                specialization: None,
+             };
+             
+             self.enum_registry_mut().insert(key, new_info);
+        }
+    }
+
+    fn init_registry_exports(&self, module_info: &crate::registry::ModuleInfo) {
+        for (name, export) in &module_info.exports {
+            if export.kind == crate::registry::SymbolKind::Intrinsic {
+                if let Some((args, ret)) = module_info.functions.get(name) {
+                    if self.external_decls().contains(name) {
+                        continue;
+                    }
+                    
+                    self.globals_mut().insert(
+                        name.clone(),
+                        crate::types::Type::Fn(args.clone(), Box::new(ret.clone()))
+                    );
+                    
+                    self.external_decls_mut().insert(name.clone());
+                    
+                    let mut args_mlir = Vec::new();
+                    for arg in args {
+                        if let Ok(mlir_ty) = self.resolve_mlir_type(&arg) {
+                            args_mlir.push(mlir_ty);
+                        }
+                    }
+                    let ret_mlir = if *ret == crate::types::Type::Unit {
+                        "()".to_string()
+                    } else if let Ok(mlir_ty) = self.resolve_mlir_type(&ret) {
+                        mlir_ty
+                    } else {
+                        "()".to_string()
+                    };
+                    
+                    let decl_str = format!("  func.func private @{}({}) -> {}\n", 
+                        name, args_mlir.join(", "), ret_mlir);
+                    self.pending_func_decls_mut().insert(name.clone(), decl_str);
+                }
+            }
+        }
+    }
+
+    fn init_registry_impls(&self, module_info: &crate::registry::ModuleInfo) {
+        let pkg_path: Vec<String> = module_info.package.split('.').map(|s| s.to_string()).collect();
+        
+        for (impl_item, impl_imports) in &module_info.impls {
+            match impl_item {
+                crate::grammar::SaltImpl::Methods { target_ty, methods, generics } => {
+                    self.register_impl_methods(module_info, &pkg_path, impl_imports, target_ty, methods, generics);
+                }
+                crate::grammar::SaltImpl::Trait { target_ty, methods, generics, .. } => {
+                    // Flatten trait methods into the implementing type's method table
+                    self.register_impl_methods(module_info, &pkg_path, impl_imports, target_ty, methods, generics);
+                }
+                crate::grammar::SaltImpl::Concept { .. } => {}
+            }
+        }
+    }
+
+    fn register_impl_methods(&self, module_info: &crate::registry::ModuleInfo, pkg_path: &[String], impl_imports: &[crate::grammar::ImportDecl], target_ty: &crate::grammar::SynType, methods: &[crate::grammar::SaltFn], generics: &Option<crate::grammar::Generics>) {
+        let saved_imports = self.imports().clone();
+        let saved_map = self.current_type_map().clone();
+        
+        if let Some(g) = generics {
+            for param in &g.params {
+                let name = match param {
+                    crate::grammar::GenericParam::Type { name, .. } => name,
+                    crate::grammar::GenericParam::Const { name, .. } => name,
+                };
+                self.current_type_map_mut().insert(name.to_string(), crate::types::Type::Struct(name.to_string()));
+            }
+        }
+
+        let mut combined_imports = impl_imports.to_vec();
+        
+        let pkg_prefix = module_info.package.replace(".", "__") + "__";
+        let mut self_imps = Vec::new();
+        
+        for (s_name, s_def) in &module_info.struct_templates {
+             let has_generics = s_def.generics.as_ref().map(|g| !g.params.is_empty()).unwrap_or(false);
+             if has_generics {
+                 continue;
+             }
+             
+             let mangled = format!("{}{}", pkg_prefix, s_name);
+             let mangled_ident = syn::Ident::new(&mangled, proc_macro2::Span::call_site());
+             let mut p = syn::punctuated::Punctuated::new();
+             p.push(mangled_ident);
+             self_imps.push(crate::grammar::ImportDecl { name: p, alias: Some(syn::Ident::new(s_name, proc_macro2::Span::call_site())), group: None });
+        }
+        for (s_name, _) in &module_info.structs {
+             let mangled = format!("{}{}", pkg_prefix, s_name);
+             let mangled_ident = syn::Ident::new(&mangled, proc_macro2::Span::call_site());
+             let mut p = syn::punctuated::Punctuated::new();
+             p.push(mangled_ident);
+             self_imps.push(crate::grammar::ImportDecl { name: p, alias: Some(syn::Ident::new(s_name, proc_macro2::Span::call_site())), group: None });
+        }
+        combined_imports.extend(self_imps);
+
+        *self.imports_mut() = combined_imports;
+        
+        if let Some(target) = crate::types::Type::from_syn(target_ty) {
+            let resolved = self.bridge_resolve_codegen_type(&target);
+            let target_mangled = resolved.mangle_suffix();
+
+            *self.current_self_ty_mut() = Some(resolved.clone());
+
+            let mut impl_key = resolved.to_key().unwrap_or_else(|| {
+                TypeKey { path: pkg_path.to_vec(), name: resolved.mangle_suffix(), specialization: None }
+            });
+
+            if impl_key.path.is_empty() && !pkg_path.is_empty() {
+                impl_key.path = pkg_path.to_vec();
+            }
+            
+            if impl_key.specialization.as_ref().map_or(false, |s: &Vec<Type>| !s.is_empty()) {
+                if generics.is_some() {
+                    impl_key.specialization = None;
+                }
+            }
+
+            for m in methods {
+                 let name = format!("{}__{}", target_mangled, m.name);
+                 
+                 let ret_ty = if let Some(rt) = &m.ret_type {
+                     crate::types::Type::from_syn(rt).unwrap_or(crate::types::Type::Unit)
+                 } else {
+                      crate::types::Type::Unit
+                 };
+                 let args: Vec<crate::types::Type> = m.args.iter()
+                         .filter_map(|arg| arg.ty.as_ref().and_then(|t| crate::types::Type::from_syn(t)))
+                         .collect();
+                 self.globals_mut().insert(name.clone(), crate::types::Type::Fn(args.clone(), Box::new(ret_ty.clone())));
+                 
+                 let mut m_clone = m.clone();
+                 if let Some(ig) = generics {
+                     if let Some(mg) = &mut m_clone.generics {
+                         let mut new_params = ig.params.clone();
+                         new_params.extend(mg.params.iter().cloned());
+                         mg.params = new_params;
+                     } else {
+                         m_clone.generics = Some(ig.clone());
+                     }
+                 }
+
+                 let current_imports = self.imports().clone();
+                 self.generic_impls_mut().insert(name.clone(), (m_clone.clone(), current_imports.clone()));
+                 
+                 self.trait_registry_mut().register_simple(impl_key.clone(), m_clone, Some(resolved.clone()), current_imports);
+            }
+            *self.current_self_ty_mut() = None;
+        }
+        
+        *self.imports_mut() = saved_imports;
+        *self.current_type_map_mut() = saved_map;
+    }
+
 
     pub fn scan_imports_from_file(&self, file: &SaltFile) {
         self.imports_mut().extend(file.imports.clone());
@@ -4104,406 +3944,378 @@ impl<'a> CodegenContext<'a> {
         }
 
         for item in &file.items {
-            if let Item::Global(g) = item {
-                 let name = format!("{}{}", pkg_prefix, g.name);
-                 let ty = self.bridge_resolve_type(&g.ty);
-                 self.globals_mut().insert(name, ty);
-                 
-                 // FIX: Emit global definition immediately
-                 if is_main_file {
-                     let mut out = String::new();
-                     if let Err(e) = self.bridge_emit_global_def(&mut out, g) {
-                         return Err(format!("Error emitting global {}: {}", g.name, e));
-                     } else {
-                         self.decl_out_mut().push_str(&out);
-                     }
-                 }
-            } else if let Item::Fn(f) = item {
-                // ... (Fn logic mostly unchanged, except we don't register methods here)
-                let is_extern = f.attributes.iter().any(|a| a.name == "extern");
-                let is_no_mangle = f.attributes.iter().any(|a| a.name == "no_mangle");
-                if is_extern {
-                    self.external_decls_mut().insert(f.name.to_string());
-                }
-
-                let name = if is_no_mangle || is_extern {
-                    f.name.to_string()
-                } else {
-                     format!("{}{}", pkg_prefix, f.name)
-                };
-                
-                let ret_ty = if let Some(rt) = &f.ret_type {
-                    self.bridge_resolve_type(rt)
-                } else {
-                     crate::types::Type::Unit
-                };
-                let args: Vec<crate::types::Type> = f.args.iter()
-                                     .filter_map(|arg| arg.ty.as_ref().map(|t| self.bridge_resolve_type(t)))
-                                     .collect();
-                self.globals_mut().insert(name.clone(), crate::types::Type::Fn(args.clone(), Box::new(ret_ty.clone())));
-                
-                // Capture imports before mutating generic_impls (both borrow discovery)
-                let current_imports = self.imports().clone();
-                self.generic_impls_mut().insert(name.clone(), (f.clone(), current_imports));
-                // LAZY REVOLUTION: Do NOT mark as defined here. 
-                // We only register the template. Hydration will mark it defined when emitted.
-            } else if let Item::Impl(i) = item {
-                if let crate::grammar::SaltImpl::Methods { target_ty, methods, generics } = i {
-                    let _saved_map = self.current_type_map().clone();
-                    // Populate Type Map with Generic Params (e.g. SIZE)
-                    if let Some(g) = generics {
-                        for param in &g.params {
-                            let name = match param {
-                                crate::grammar::GenericParam::Type { name, .. } => name,
-                                crate::grammar::GenericParam::Const { name, .. } => name,
-                            };
-                            self.current_type_map_mut().insert(name.to_string(), crate::types::Type::Struct(name.to_string()));
-                        }
-                    }
-
-                    if let Some(target) = crate::types::Type::from_syn(&target_ty) {
-                        let resolved = self.bridge_resolve_codegen_type(&target);
-                        let target_mangled = resolved.mangle_suffix();
-                        
-                        *self.current_self_ty_mut() = Some(resolved.clone());
-
-                        // FIX: Use package path for impl_key so methods resolve with full FQN
-                        // This ensures Ptr::dangling in std.core.ptr resolves to std__core__ptr__Ptr
-                        let mut impl_key = resolved.to_key().unwrap_or_else(|| {
-                            TypeKey { path: path.clone(), name: resolved.mangle_suffix(), specialization: None }
-                        });
-                        // Also ensure path is populated if to_key() returned empty
-                        if impl_key.path.is_empty() && !path.is_empty() {
-                            impl_key.path = path.clone();
-                        }
-                        if generics.is_some() {
-                             impl_key.specialization = None;
-                        }
-
-
-                        for m in methods {
-                             let name = format!("{}__{}", target_mangled, m.name);
-
-                             
-                             let ret_ty = if let Some(rt) = &m.ret_type {
-                                 crate::types::Type::from_syn(rt).unwrap_or(crate::types::Type::Unit)
-                             } else {
-                                  crate::types::Type::Unit
-                             };
-                             let args: Vec<crate::types::Type> = m.args.iter()
-                                     .filter_map(|arg| arg.ty.as_ref().and_then(|t| crate::types::Type::from_syn(t)))
-                                     .collect();
-                             
-                             self.globals_mut().insert(name.clone(), crate::types::Type::Fn(args.clone(), Box::new(ret_ty.clone())));
-                             
-                             let mut m_clone = m.clone();
-                             if let Some(ig) = generics {
-                                 if let Some(mg) = &mut m_clone.generics {
-                                     let mut new_params = ig.params.clone();
-                                     new_params.extend(mg.params.iter().cloned());
-                                     mg.params = new_params;
-                                 } else {
-                                     m_clone.generics = Some(ig.clone());
-                                 }
-                             }
-
-                             // Capture imports before mutating (both borrow discovery)
-                             let current_imports = self.imports().clone();
-                             self.generic_impls_mut().insert(name.clone(), (m_clone.clone(), current_imports.clone()));
-                             // [V4.0 KEUOS] Register via TraitRegistry with signature extraction
-                             self.trait_registry_mut().register_simple(impl_key.clone(), m_clone, Some(resolved.clone()), current_imports);
-
-
-                             // LAZY REVOLUTION: Do NOT mark as defined here.
-                        }
-                        
-                        *self.current_self_ty_mut() = None;
-                    }
-                }
-                // [KEUOS V7.0] Handle `impl Trait for Type` blocks
-                // The KeuOS Authority Rule: register these methods exactly like
-                // SaltImpl::Methods, so they're available for demand-driven hydration.
-                else if let crate::grammar::SaltImpl::Trait { trait_name, target_ty, methods, generics } = i {
-                    let _saved_map = self.current_type_map().clone();
-                    // Populate Type Map with Generic Params
-                    if let Some(g) = generics {
-                        for param in &g.params {
-                            let name = match param {
-                                crate::grammar::GenericParam::Type { name, .. } => name,
-                                crate::grammar::GenericParam::Const { name, .. } => name,
-                            };
-                            self.current_type_map_mut().insert(name.to_string(), crate::types::Type::Struct(name.to_string()));
-                        }
-                    }
-
-                    if let Some(target) = crate::types::Type::from_syn(&target_ty) {
-                        let resolved = self.bridge_resolve_codegen_type(&target);
-                        let target_mangled = resolved.mangle_suffix();
-
-
-                        *self.current_self_ty_mut() = Some(resolved.clone());
-
-                        let mut impl_key = resolved.to_key().unwrap_or_else(|| {
-                            TypeKey { path: path.clone(), name: resolved.mangle_suffix(), specialization: None }
-                        });
-                        if impl_key.path.is_empty() && !path.is_empty() {
-                            impl_key.path = path.clone();
-                        }
-                        if generics.is_some() {
-                             impl_key.specialization = None;
-                        }
-
-                        // [KEUOS V7.0] Register trait impl for coherence tracking
-                        if let Err(e) = self.register_trait_impl(
-                            target_mangled.clone(),
-                            trait_name.to_string(),
-                            pkg_prefix.trim_end_matches("__").to_string(),
-                        ) {
-                            eprintln!("Warning: {}", e);
-                        }
-
-                        for m in methods {
-                             // Register under TARGET TYPE (String), not trait (Eq)
-                             let name = format!("{}__{}", target_mangled, m.name);
-                             
-                             let ret_ty = if let Some(rt) = &m.ret_type {
-                                 crate::types::Type::from_syn(rt).unwrap_or(crate::types::Type::Unit)
-                             } else {
-                                  crate::types::Type::Unit
-                             };
-                             let args: Vec<crate::types::Type> = m.args.iter()
-                                     .filter_map(|arg| arg.ty.as_ref().and_then(|t| crate::types::Type::from_syn(t)))
-                                     .collect();
-                             
-                             self.globals_mut().insert(name.clone(), crate::types::Type::Fn(args.clone(), Box::new(ret_ty.clone())));
-                             
-                             let mut m_clone = m.clone();
-                             if let Some(ig) = generics {
-                                 if let Some(mg) = &mut m_clone.generics {
-                                     let mut new_params = ig.params.clone();
-                                     new_params.extend(mg.params.iter().cloned());
-                                     mg.params = new_params;
-                                 } else {
-                                     m_clone.generics = Some(ig.clone());
-                                 }
-                             }
-
-                             // Capture imports before mutating (both borrow discovery)
-                             let current_imports = self.imports().clone();
-                             self.generic_impls_mut().insert(name.clone(), (m_clone.clone(), current_imports.clone()));
-                             // [V4.0 KEUOS] Register via TraitRegistry with signature extraction
-                             self.trait_registry_mut().register_simple(impl_key.clone(), m_clone, Some(resolved.clone()), current_imports);
-
-                             // LAZY REVOLUTION: Do NOT mark as defined here.
-                        }
-                        
-                        *self.current_self_ty_mut() = None;
-                    }
-                }
-            } else if let Item::ExternFn(e) = item {
-                // Extern functions always use their C symbol name (never mangle)
-                let mangled_name = e.name.to_string();
-
-                // [KEUOS FIX] Extern declaration emission is now handled by register_signatures.
-                // This function only needs to ensure globals and defined_functions are populated.
-                // Skip if already registered (handles dedupe across modules)
-                if self.external_decls().contains(&mangled_name) {
-                    continue;
-                }
-                self.external_decls_mut().insert(mangled_name.clone());
-                
-                let ret_ty = if let Some(rt) = &e.ret_type {
-                    crate::types::Type::from_syn(rt).unwrap_or(crate::types::Type::Unit)
-                } else { crate::types::Type::Unit };
-                
-                let args: Vec<crate::types::Type> = e.args.iter()
-                    .filter_map(|arg| arg.ty.as_ref().and_then(|t| crate::types::Type::from_syn(t)))
-                    .collect();
-                    
-                self.globals_mut().insert(mangled_name.clone(), crate::types::Type::Fn(args.clone(), Box::new(ret_ty.clone())));
-                // NOTE: Extern functions are NOT added to defined_functions — they are
-                // FFI declarations, not MLIR definitions. The BTreeMap assembly filter
-                // must emit their forward declarations for call sites to resolve.
-                // They are tracked separately in external_decls.
-            } else if let Item::Const(c) = item {
-                 let name = format!("{}{}", pkg_prefix, c.name);
-                 let ty = self.bridge_resolve_type(&c.ty);
-                 self.globals_mut().insert(name, ty);
-                 
-                 // FIX: Emit const definition (generates global/constant table entry)
-                 let mut out = String::new();
-                 if let Err(e) = self.bridge_emit_const(&mut out, c) {
-                      return Err(format!("Error emitting const {}: {}", c.name, e));
-                 } else {
-                      self.decl_out_mut().push_str(&out);
-                 }
-
-
-            } else if let Item::Struct(s) = item {
-                let name = format!("{}{}", pkg_prefix, s.name);
-                if let Some(_generics) = &s.generics {
-                    let mut s_mangled = s.clone();
-                    s_mangled.name = syn::Ident::new(&name, s.name.span());
-                    self.struct_templates_mut().insert(name.clone(), s_mangled);
-                } else {
-                    // Concrete Struct
-                    // OPAQUE STUB: Register identity BEFORE resolving fields to break recursion
-                    // This allows NodePtr<TrieNode> to specialize even if TrieNode isn't complete
-                    let key = TypeKey {
-                        path: path.clone(),
-                        name: s.name.to_string(),
-                        specialization: None,
-                    };
-                    self.struct_registry_mut().insert(key.clone(), StructInfo {
-                        name: name.clone(),
-                        fields: std::collections::HashMap::new(),  // Opaque: empty fields
-                        field_order: vec![],
-                        field_alignments: vec![],
-                        template_name: None,
-                        specialization_args: vec![],
-                    });
-                    
-                    // Now resolve fields - recursive types can reference the stub above
-                    let mut fields: std::collections::HashMap<String, (usize, crate::types::Type)> = std::collections::HashMap::new();
-                    let mut field_order = Vec::new();
-                    let mut field_alignments = Vec::new();
-                    for (i, f) in s.fields.iter().enumerate() {
-                        let mut ty = self.bridge_resolve_type(&f.ty);
-                        
-                        // Handle @packed attribute
-                        if f.attributes.iter().any(|a| a.name == "packed") {
-                             if let crate::types::Type::Array(inner, len, _) = ty {
-                                  ty = crate::types::Type::Array(inner, len, true);
-                             } else {
-                                  eprintln!("Warning: @packed attribute ignored on non-array field '{}' in struct '{}'", f.name, s.name);
-                             }
-                        }
-
-                        let align = crate::grammar::attr::extract_align(&f.attributes);
-
-                        fields.insert(f.name.to_string(), (i, ty.clone()));
-                        field_order.push(ty);
-                        field_alignments.push(align);
-                    }
-                    
-                    // HYDRATE: Replace stub with complete info
-                    self.struct_registry_mut().insert(key, StructInfo {
-                        name: name.clone(),
-                        fields: fields.clone(),
-                        field_order: field_order.clone(),
-                        field_alignments: field_alignments.clone(),
-                        template_name: None,
-                        specialization_args: vec![],
-                    });
-
-                    // =========================================================
-                    // [FORMAL SHADOW] Z3 Alignment Verification for @atomic Fields
-                    //
-                    // If any field is tagged @atomic, verify that its byte offset
-                    // within the struct is 16-byte aligned. This prevents hardware
-                    // Alignment Check (#AC) faults and cache-line straddling on
-                    // cmpxchg16b operations.
-                    //
-                    // The compiler REFUSES to emit the binary unless Z3 can
-                    // mathematically prove alignment is invariant.
-                    // =========================================================
-                    {
-                        use crate::z3_shim::ast::Ast;  // for _eq() and not()
-
-                        let struct_reg = self.struct_registry();
-                        let mut byte_offset: usize = 0;
-                        for (i, f) in s.fields.iter().enumerate() {
-                            let has_atomic = f.attributes.iter().any(|a| a.name == "atomic");
-                            if has_atomic {
-                                // Use Z3 to formally verify alignment via integer modular arithmetic
-                                let z3_cfg = crate::z3_shim::Config::new();
-                                let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
-                                let solver = crate::z3_shim::Solver::new(&z3_ctx);
-
-                                // Model: base address is an arbitrary non-negative integer
-                                // that is 16-byte aligned (struct allocator contract)
-                                let base = crate::z3_shim::ast::Int::new_const(&z3_ctx, "base_addr");
-                                let sixteen = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 16);
-                                let zero = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 0);
-
-                                // Constraint: base >= 0 and base % 16 == 0
-                                solver.assert(&base.ge(&zero));
-                                solver.assert(&base.modulo(&sixteen)._eq(&zero));
-
-                                // Compute field address: base + byte_offset
-                                let offset_val = crate::z3_shim::ast::Int::from_i64(&z3_ctx, byte_offset as i64);
-                                let field_addr = crate::z3_shim::ast::Int::add(&z3_ctx, &[&base, &offset_val]);
-
-                                // Assert NEGATION: field_addr % 16 != 0
-                                // UNSAT => always aligned (proof), SAT => misaligned (error)
-                                solver.assert(&field_addr.modulo(&sixteen)._eq(&zero).not());
-
-                                match solver.check() {
-                                    crate::z3_shim::SatResult::Unsat => {
-                                        // PROOF COMPLETE: Z3 proved alignment invariant.
-                                        eprintln!(
-                                            "[Formal Shadow] Z3 PROVED: @atomic field '{}' in struct '{}' \
-                                             is 16-byte aligned at offset {} (z3_aligned)",
-                                            f.name, s.name, byte_offset
-                                        );
-                                    }
-                                    _ => {
-                                        // COUNTEREXAMPLE: The compiler REFUSES to emit.
-                                        drop(struct_reg);
-                                        return Err(format!(
-                                            "[Formal Shadow] ALIGNMENT VIOLATION: @atomic field '{}' \
-                                             in struct '{}' is at byte offset {}, which is NOT \
-                                             16-byte aligned. The Z3 SMT solver proved this layout \
-                                             violates the hardware alignment contract for cmpxchg16b. \
-                                             Fix: reorder fields or add padding so @atomic fields \
-                                             start at offsets that are multiples of 16.",
-                                            f.name, s.name, byte_offset
-                                        ));
-                                    }
-                                }
-                            }
-                            // Advance byte offset by field size
-                            let field_ty = &field_order[i];
-                            byte_offset += field_ty.size_of(&*struct_reg);
-                        }
-                    }
-                }
-            } else if let Item::Enum(e) = item {
-                 let name = format!("{}{}", pkg_prefix, e.name);
-                 if let Some(_generics) = &e.generics {
-                     self.enum_templates_mut().insert(name.clone(), e.clone());
-                 } else {
-                     // Concrete Enum
-                     let mut variants = Vec::new();
-                     let mut max_size = 0;
-                     for (i, v) in e.variants.iter().enumerate() {
-                         let p_ty = v.ty.as_ref().map(|t| self.bridge_resolve_type(t));
-                         if let Some(ref ty) = p_ty {
-                               let size = ty.size_of(&*self.struct_registry());
-                               if size > max_size { max_size = size; }
-                         }
-                         variants.push((v.name.to_string(), p_ty, i as i32));
-                     }
-                     
-                     let key = TypeKey {
-                        path: path.clone(),
-                        name: e.name.to_string(),
-                        specialization: None,
-                     };
-                     
-                     use crate::codegen::context::EnumInfo;
-                     self.enum_registry_mut().insert(key, EnumInfo {
-                         name,
-                         variants,
-                         max_payload_size: max_size,
-                         template_name: None,
-                         specialization_args: vec![],
-                     });
-                 }
+            match item {
+                Item::Global(g) => self.scan_def_global(g, &pkg_prefix, is_main_file)?,
+                Item::Fn(f) => self.scan_def_fn(f, &pkg_prefix),
+                Item::Impl(i) => self.scan_def_impl(i, &pkg_prefix, &path),
+                Item::ExternFn(e) => self.scan_def_extern_fn(e),
+                Item::Const(c) => self.scan_def_const(c, &pkg_prefix)?,
+                Item::Struct(s) => self.scan_def_struct(s, &pkg_prefix, &path)?,
+                Item::Enum(e) => self.scan_def_enum(e, &pkg_prefix, &path),
+                _ => {}
             }
         }
         self.current_package.replace(saved_pkg);
         Ok(())
+    }
+
+    fn scan_def_global(&self, g: &crate::grammar::GlobalDef, pkg_prefix: &str, is_main_file: bool) -> Result<(), String> {
+        let name = format!("{}{}", pkg_prefix, g.name);
+        let ty = self.bridge_resolve_type(&g.ty);
+        self.globals_mut().insert(name, ty);
+        
+        if is_main_file {
+            let mut out = String::new();
+            if let Err(e) = self.bridge_emit_global_def(&mut out, g) {
+                return Err(format!("Error emitting global {}: {}", g.name, e));
+            } else {
+                self.decl_out_mut().push_str(&out);
+            }
+        }
+        Ok(())
+    }
+
+    fn scan_def_fn(&self, f: &crate::grammar::SaltFn, pkg_prefix: &str) {
+        let is_extern = f.attributes.iter().any(|a| a.name == "extern");
+        let is_no_mangle = f.attributes.iter().any(|a| a.name == "no_mangle");
+        if is_extern {
+            self.external_decls_mut().insert(f.name.to_string());
+        }
+
+        let name = if is_no_mangle || is_extern {
+            f.name.to_string()
+        } else {
+             format!("{}{}", pkg_prefix, f.name)
+        };
+        
+        let ret_ty = if let Some(rt) = &f.ret_type {
+            self.bridge_resolve_type(rt)
+        } else {
+             crate::types::Type::Unit
+        };
+        let args: Vec<crate::types::Type> = f.args.iter()
+                             .filter_map(|arg| arg.ty.as_ref().map(|t| self.bridge_resolve_type(t)))
+                             .collect();
+        self.globals_mut().insert(name.clone(), crate::types::Type::Fn(args.clone(), Box::new(ret_ty.clone())));
+        
+        let current_imports = self.imports().clone();
+        self.generic_impls_mut().insert(name.clone(), (f.clone(), current_imports));
+    }
+
+    fn scan_def_impl(&self, i: &crate::grammar::SaltImpl, pkg_prefix: &str, path: &[String]) {
+        match i {
+            crate::grammar::SaltImpl::Methods { target_ty, methods, generics } => {
+                self.scan_def_impl_methods(target_ty, methods, generics, path);
+            }
+            crate::grammar::SaltImpl::Trait { trait_name, target_ty, methods, generics } => {
+                self.scan_def_impl_trait(trait_name, target_ty, methods, generics, pkg_prefix, path);
+            }
+            _ => {}
+        }
+    }
+
+    fn scan_def_impl_methods(&self, target_ty: &crate::grammar::SynType, methods: &[crate::grammar::SaltFn], generics: &Option<crate::grammar::Generics>, path: &[String]) {
+        let _saved_map = self.current_type_map().clone();
+        if let Some(g) = generics {
+            for param in &g.params {
+                let name = match param {
+                    crate::grammar::GenericParam::Type { name, .. } => name,
+                    crate::grammar::GenericParam::Const { name, .. } => name,
+                };
+                self.current_type_map_mut().insert(name.to_string(), crate::types::Type::Struct(name.to_string()));
+            }
+        }
+
+        if let Some(target) = crate::types::Type::from_syn(target_ty) {
+            let resolved = self.bridge_resolve_codegen_type(&target);
+            let target_mangled = resolved.mangle_suffix();
+            
+            *self.current_self_ty_mut() = Some(resolved.clone());
+
+            let mut impl_key = resolved.to_key().unwrap_or_else(|| {
+                crate::types::TypeKey { path: path.to_vec(), name: resolved.mangle_suffix(), specialization: None }
+            });
+            if impl_key.path.is_empty() && !path.is_empty() {
+                impl_key.path = path.to_vec();
+            }
+            if generics.is_some() {
+                 impl_key.specialization = None;
+            }
+
+            for m in methods {
+                 let name = format!("{}__{}", target_mangled, m.name);
+                 
+                 let ret_ty = if let Some(rt) = &m.ret_type {
+                     crate::types::Type::from_syn(rt).unwrap_or(crate::types::Type::Unit)
+                 } else {
+                      crate::types::Type::Unit
+                 };
+                 let args: Vec<crate::types::Type> = m.args.iter()
+                         .filter_map(|arg| arg.ty.as_ref().and_then(|t| crate::types::Type::from_syn(t)))
+                         .collect();
+                 
+                 self.globals_mut().insert(name.clone(), crate::types::Type::Fn(args.clone(), Box::new(ret_ty.clone())));
+                 
+                 let mut m_clone = m.clone();
+                 if let Some(ig) = generics {
+                     if let Some(mg) = &mut m_clone.generics {
+                         let mut new_params = ig.params.clone();
+                         new_params.extend(mg.params.iter().cloned());
+                         mg.params = new_params;
+                     } else {
+                         m_clone.generics = Some(ig.clone());
+                     }
+                 }
+
+                 let current_imports = self.imports().clone();
+                 self.generic_impls_mut().insert(name.clone(), (m_clone.clone(), current_imports.clone()));
+                 self.trait_registry_mut().register_simple(impl_key.clone(), m_clone, Some(resolved.clone()), current_imports);
+            }
+            
+            *self.current_self_ty_mut() = None;
+        }
+    }
+
+    fn scan_def_impl_trait(&self, trait_name: &syn::Ident, target_ty: &crate::grammar::SynType, methods: &[crate::grammar::SaltFn], generics: &Option<crate::grammar::Generics>, pkg_prefix: &str, path: &[String]) {
+        let _saved_map = self.current_type_map().clone();
+        if let Some(g) = generics {
+            for param in &g.params {
+                let name = match param {
+                    crate::grammar::GenericParam::Type { name, .. } => name,
+                    crate::grammar::GenericParam::Const { name, .. } => name,
+                };
+                self.current_type_map_mut().insert(name.to_string(), crate::types::Type::Struct(name.to_string()));
+            }
+        }
+
+        if let Some(target) = crate::types::Type::from_syn(target_ty) {
+            let resolved = self.bridge_resolve_codegen_type(&target);
+            let target_mangled = resolved.mangle_suffix();
+
+            *self.current_self_ty_mut() = Some(resolved.clone());
+
+            let mut impl_key = resolved.to_key().unwrap_or_else(|| {
+                crate::types::TypeKey { path: path.to_vec(), name: resolved.mangle_suffix(), specialization: None }
+            });
+            if impl_key.path.is_empty() && !path.is_empty() {
+                impl_key.path = path.to_vec();
+            }
+            if generics.is_some() {
+                 impl_key.specialization = None;
+            }
+
+            if let Err(e) = self.register_trait_impl(
+                target_mangled.clone(),
+                trait_name.to_string(),
+                pkg_prefix.trim_end_matches("__").to_string(),
+            ) {
+                eprintln!("Warning: {}", e);
+            }
+
+            for m in methods {
+                 let name = format!("{}__{}", target_mangled, m.name);
+                 
+                 let ret_ty = if let Some(rt) = &m.ret_type {
+                     crate::types::Type::from_syn(rt).unwrap_or(crate::types::Type::Unit)
+                 } else {
+                      crate::types::Type::Unit
+                 };
+                 let args: Vec<crate::types::Type> = m.args.iter()
+                         .filter_map(|arg| arg.ty.as_ref().and_then(|t| crate::types::Type::from_syn(t)))
+                         .collect();
+                 
+                 self.globals_mut().insert(name.clone(), crate::types::Type::Fn(args.clone(), Box::new(ret_ty.clone())));
+                 
+                 let mut m_clone = m.clone();
+                 if let Some(ig) = generics {
+                     if let Some(mg) = &mut m_clone.generics {
+                         let mut new_params = ig.params.clone();
+                         new_params.extend(mg.params.iter().cloned());
+                         mg.params = new_params;
+                     } else {
+                         m_clone.generics = Some(ig.clone());
+                     }
+                 }
+
+                 let current_imports = self.imports().clone();
+                 self.generic_impls_mut().insert(name.clone(), (m_clone.clone(), current_imports.clone()));
+                 self.trait_registry_mut().register_simple(impl_key.clone(), m_clone, Some(resolved.clone()), current_imports);
+            }
+            
+            *self.current_self_ty_mut() = None;
+        }
+    }
+
+    fn scan_def_extern_fn(&self, e: &crate::grammar::ExternFnDecl) {
+        let mangled_name = e.name.to_string();
+        if self.external_decls().contains(&mangled_name) {
+            return;
+        }
+        self.external_decls_mut().insert(mangled_name.clone());
+        
+        let ret_ty = if let Some(rt) = &e.ret_type {
+            crate::types::Type::from_syn(rt).unwrap_or(crate::types::Type::Unit)
+        } else { crate::types::Type::Unit };
+        
+        let args: Vec<crate::types::Type> = e.args.iter()
+            .filter_map(|arg| arg.ty.as_ref().and_then(|t| crate::types::Type::from_syn(t)))
+            .collect();
+            
+        self.globals_mut().insert(mangled_name.clone(), crate::types::Type::Fn(args.clone(), Box::new(ret_ty.clone())));
+    }
+
+    fn scan_def_const(&self, c: &crate::grammar::ConstDef, pkg_prefix: &str) -> Result<(), String> {
+        let name = format!("{}{}", pkg_prefix, c.name);
+        let ty = self.bridge_resolve_type(&c.ty);
+        self.globals_mut().insert(name, ty);
+        
+        let mut out = String::new();
+        if let Err(e) = self.bridge_emit_const(&mut out, c) {
+            return Err(format!("Error emitting const {}: {}", c.name, e));
+        } else {
+            self.decl_out_mut().push_str(&out);
+        }
+        Ok(())
+    }
+
+    fn scan_def_struct(&self, s: &crate::grammar::StructDef, pkg_prefix: &str, path: &[String]) -> Result<(), String> {
+        let name = format!("{}{}", pkg_prefix, s.name);
+        if let Some(_generics) = &s.generics {
+            let mut s_mangled = s.clone();
+            s_mangled.name = syn::Ident::new(&name, s.name.span());
+            self.struct_templates_mut().insert(name.clone(), s_mangled);
+            return Ok(());
+        }
+
+        let key = crate::types::TypeKey {
+            path: path.to_vec(),
+            name: s.name.to_string(),
+            specialization: None,
+        };
+        
+        self.struct_registry_mut().insert(key.clone(), crate::registry::StructInfo {
+            name: name.clone(),
+            fields: std::collections::HashMap::new(),
+            field_order: vec![],
+            field_alignments: vec![],
+            template_name: None,
+            specialization_args: vec![],
+        });
+        
+        let mut fields: std::collections::HashMap<String, (usize, crate::types::Type)> = std::collections::HashMap::new();
+        let mut field_order = Vec::new();
+        let mut field_alignments = Vec::new();
+        for (i, f) in s.fields.iter().enumerate() {
+            let mut ty = self.bridge_resolve_type(&f.ty);
+            
+            if f.attributes.iter().any(|a| a.name == "packed") {
+                 if let crate::types::Type::Array(inner, len, _) = ty {
+                      ty = crate::types::Type::Array(inner, len, true);
+                 } else {
+                      eprintln!("Warning: @packed attribute ignored on non-array field '{}' in struct '{}'", f.name, s.name);
+                 }
+            }
+
+            let align = crate::grammar::attr::extract_align(&f.attributes);
+            fields.insert(f.name.to_string(), (i, ty.clone()));
+            field_order.push(ty);
+            field_alignments.push(align);
+        }
+        
+        self.struct_registry_mut().insert(key, crate::registry::StructInfo {
+            name: name.clone(),
+            fields: fields.clone(),
+            field_order: field_order.clone(),
+            field_alignments: field_alignments.clone(),
+            template_name: None,
+            specialization_args: vec![],
+        });
+
+        self.verify_struct_alignment(s)?;
+        
+        Ok(())
+    }
+
+    fn verify_struct_alignment(&self, s: &crate::grammar::StructDef) -> Result<(), String> {
+        use crate::z3_shim::ast::Ast;
+        let mut byte_offset: usize = 0;
+        
+        for (_i, f) in s.fields.iter().enumerate() {
+            let has_atomic = f.attributes.iter().any(|a| a.name == "atomic");
+            if has_atomic {
+                let z3_cfg = crate::z3_shim::Config::new();
+                let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
+                let solver = crate::z3_shim::Solver::new(&z3_ctx);
+
+                let base = crate::z3_shim::ast::Int::new_const(&z3_ctx, "base_addr");
+                let sixteen = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 16);
+                let zero = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 0);
+
+                solver.assert(&base.ge(&zero));
+                solver.assert(&base.modulo(&sixteen)._eq(&zero));
+
+                let offset_val = crate::z3_shim::ast::Int::from_i64(&z3_ctx, byte_offset as i64);
+                let field_addr = crate::z3_shim::ast::Int::add(&z3_ctx, &[&base, &offset_val]);
+
+                solver.assert(&field_addr.modulo(&sixteen)._eq(&zero).not());
+
+                match solver.check() {
+                    crate::z3_shim::SatResult::Unsat => {
+                        eprintln!(
+                            "[Formal Shadow] Z3 PROVED: @atomic field '{}' in struct '{}'                              is 16-byte aligned at offset {} (z3_aligned)",
+                            f.name, s.name, byte_offset
+                        );
+                    }
+                    _ => {
+                        return Err(format!(
+                            "[Formal Shadow] ALIGNMENT VIOLATION: @atomic field '{}'                              in struct '{}' is at byte offset {}, which is NOT                              16-byte aligned. The Z3 SMT solver proved this layout                              violates the hardware alignment contract for cmpxchg16b.                              Fix: reorder fields or add padding so @atomic fields                              start at offsets that are multiples of 16.",
+                            f.name, s.name, byte_offset
+                        ));
+                    }
+                }
+            }
+            
+            let mut ty = self.bridge_resolve_type(&f.ty);
+            if f.attributes.iter().any(|a| a.name == "packed") {
+                 if let crate::types::Type::Array(inner, len, _) = ty {
+                      ty = crate::types::Type::Array(inner, len, true);
+                 }
+            }
+            byte_offset += ty.size_of(&*self.struct_registry());
+        }
+        Ok(())
+    }
+
+    fn scan_def_enum(&self, e: &crate::grammar::EnumDef, pkg_prefix: &str, path: &[String]) {
+        let name = format!("{}{}", pkg_prefix, e.name);
+        if let Some(_generics) = &e.generics {
+            self.enum_templates_mut().insert(name.clone(), e.clone());
+        } else {
+            let mut variants = Vec::new();
+            let mut max_size = 0;
+            for (i, v) in e.variants.iter().enumerate() {
+                let p_ty = v.ty.as_ref().map(|t| self.bridge_resolve_type(t));
+                if let Some(ref ty) = p_ty {
+                      let size = ty.size_of(&*self.struct_registry());
+                      if size > max_size { max_size = size; }
+                }
+                variants.push((v.name.to_string(), p_ty, i as i32));
+            }
+            
+            let key = crate::types::TypeKey {
+               path: path.to_vec(),
+               name: e.name.to_string(),
+               specialization: None,
+            };
+            
+            self.enum_registry_mut().insert(key, crate::registry::EnumInfo {
+                name,
+                variants,
+                max_payload_size: max_size,
+                template_name: None,
+                specialization_args: vec![],
+            });
+        }
     }
 
 

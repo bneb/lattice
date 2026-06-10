@@ -3,7 +3,7 @@ mod tests {
     use crate::codegen::generic_resolver::*;
     use crate::types::{Type, Provenance};
     use crate::grammar::GenericParam;
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::BTreeMap;
 
     // ═══════════════════════════════════════════════════════════════════
     // unify_types tests

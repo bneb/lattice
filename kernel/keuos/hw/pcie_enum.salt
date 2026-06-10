@@ -49,6 +49,61 @@ pub struct HardwareResource {
 //
 // Returns: HardwareResource (physical_address = 0 means not found)
 // ============================================================================
+fn check_pcie_device(
+    ecam_base: Ptr<u32>,
+    bus: u32,
+    dev: u32,
+    target_vendor: u32,
+    target_device: u32
+) -> HardwareResource {
+    let byte_off: u32 = (bus << 20) | (dev << 15) | 0;
+    let word_off: i64 = (byte_off / 4) as i64;
+    let id_reg: u32 = ecam_base.offset(word_off).read();
+
+    let vendor: u32 = id_reg & 0xFFFF;
+    let dev_id: u32 = (id_reg >> 16) & 0xFFFF;
+
+    if vendor == 0xFFFF {
+        return HardwareResource { physical_address: 0, vendor_id: 0, device_id: 0, bus: 0, device: 0 };
+    }
+
+    serial.print("Found PCI Device: Vendor 0x");
+    serial.print_hex(vendor as u64);
+    serial.print(" Device 0x");
+    serial.print_hex(dev_id as u64);
+    serial.print("\n");
+    
+    if vendor != target_vendor || dev_id != target_device {
+        return HardwareResource { physical_address: 0, vendor_id: 0, device_id: 0, bus: 0, device: 0 };
+    }
+
+    let bar0_byte_off: u32 = (bus << 20) | (dev << 15) | 0x10;
+    let bar0_word_off: i64 = (bar0_byte_off / 4) as i64;
+    let bar0_low: u32 = ecam_base.offset(bar0_word_off).read();
+
+    let bar1_byte_off: u32 = (bus << 20) | (dev << 15) | 0x14;
+    let bar1_word_off: i64 = (bar1_byte_off / 4) as i64;
+    let bar0_high: u32 = ecam_base.offset(bar1_word_off).read();
+
+    let phys_low: u64 = (bar0_low & 0xFFFFFFF0) as u64;
+    let phys_high: u64 = (bar0_high as u64) << 32;
+    let physical_addr: u64 = phys_high | phys_low;
+
+    let cmd_byte_off: u32 = (bus << 20) | (dev << 15) | 0x04;
+    let cmd_word_off: i64 = (cmd_byte_off / 4) as i64;
+    let mut cmd_reg: u32 = ecam_base.offset(cmd_word_off).read();
+    cmd_reg = cmd_reg | 0x00000006; 
+    ecam_base.offset(cmd_word_off).write(cmd_reg);
+
+    return HardwareResource {
+        physical_address: physical_addr,
+        vendor_id: vendor,
+        device_id: dev_id,
+        bus: bus,
+        device: dev,
+    };
+}
+
 pub fn discover_device_bar(
     ecam_base: Ptr<u32>,
     target_vendor: u32,
@@ -59,65 +114,15 @@ pub fn discover_device_bar(
     while bus < max_bus {
         let mut dev: u32 = 0;
         while dev < 32 {
-            // Read Vendor/Device ID register (offset 0x00)
-            let byte_off: u32 = (bus << 20) | (dev << 15) | (0 << 12) | 0;
-            let word_off: i64 = (byte_off / 4) as i64;
-            let id_reg: u32 = ecam_base.offset(word_off).read();
-
-            let vendor: u32 = id_reg & 0xFFFF;
-            let dev_id: u32 = (id_reg >> 16) & 0xFFFF;
-
-            // 0xFFFF = no device present
-            if vendor != 0xFFFF {
-                // DEBUG: Print all devices found
-                serial.print("Found PCI Device: Vendor 0x");
-                serial.print_hex(vendor as u64);
-                serial.print(" Device 0x");
-                serial.print_hex(dev_id as u64);
-                serial.print("\n");
-                
-                if vendor == target_vendor {
-                    if dev_id == target_device {
-                        // Device found — extract 64-bit BAR0
-                        // BAR0 Low: register 0x10
-                        let bar0_byte_off: u32 = (bus << 20) | (dev << 15) | (0 << 12) | 0x10;
-                        let bar0_word_off: i64 = (bar0_byte_off / 4) as i64;
-                        let bar0_low: u32 = ecam_base.offset(bar0_word_off).read();
-
-                        // BAR0 High: register 0x14
-                        let bar1_byte_off: u32 = (bus << 20) | (dev << 15) | (0 << 12) | 0x14;
-                        let bar1_word_off: i64 = (bar1_byte_off / 4) as i64;
-                        let bar0_high: u32 = ecam_base.offset(bar1_word_off).read();
-
-                        // Mask lower 4 bits of BAR0 Low (type/prefetch flags)
-                        let phys_low: u64 = (bar0_low & 0xFFFFFFF0) as u64;
-                        let phys_high: u64 = (bar0_high as u64) << 32;
-                        let physical_addr: u64 = phys_high | phys_low;
-
-                        // Enable Bus Mastering and Memory Space (Command Register is at 0x04)
-                        let cmd_byte_off: u32 = (bus << 20) | (dev << 15) | (0 << 12) | 0x04;
-                        let cmd_word_off: i64 = (cmd_byte_off / 4) as i64;
-                        let mut cmd_reg: u32 = ecam_base.offset(cmd_word_off).read();
-                        cmd_reg = cmd_reg | 0x00000006; // Bus Master (bit 2) + Memory Space (bit 1)
-                        ecam_base.offset(cmd_word_off).write(cmd_reg);
-
-                        return HardwareResource {
-                            physical_address: physical_addr,
-                            vendor_id: vendor,
-                            device_id: dev_id,
-                            bus: bus,
-                            device: dev,
-                        };
-                    }
-                }
+            let res = check_pcie_device(ecam_base, bus, dev, target_vendor, target_device);
+            if res.physical_address != 0 {
+                return res;
             }
-
             dev = dev + 1;
         }
         bus = bus + 1;
     }
 
-// Not found — return sentinel
     return HardwareResource {
         physical_address: 0,
         vendor_id: 0,

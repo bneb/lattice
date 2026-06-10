@@ -422,6 +422,64 @@ fn sys_open(path: u64, flags: u64) -> u64 {
 // =============================================================================
 // process_exit — Full process lifecycle cleanup. NEVER RETURNS.
 // =============================================================================
+fn destroy_fd_table(slot: u64) {
+    let fd_table_addr = process.get_fd_table(slot);
+    if fd_table_addr == 0 { return; }
+    
+    let table = fd_table_addr as Ptr<u64>;
+    let mut i = 0;
+    while i < 16 {
+        let fd_obj_addr = table.offset(i).read();
+        if fd_obj_addr != 0 {
+            let phys_fd = memory.virt_to_phys_raw(fd_obj_addr);
+            kernel.core.pmm.free(phys_fd);
+        }
+        i = i + 1;
+    }
+    let phys_table = memory.virt_to_phys_raw(fd_table_addr);
+    kernel.core.pmm.free(phys_table);
+    process.set_fd_table(slot, 0);
+}
+
+fn switch_to_slot(next: u64, old_rsp_ptr: u64) {
+    process.set_state(next, PROC_RUNNING);
+    process.set_current(next);
+    let new_rsp = process.get_kernel_rsp(next);
+    let new_pml4 = process.get_pml4(next);
+    let new_pcid = process.get_pcid(next);
+    let new_cr3 = new_pml4 | new_pcid;
+    let new_rsp0 = process.get_kernel_stack_top(next);
+
+    tss.set_rsp0(new_rsp0);
+    set_syscall_kernel_rsp0(new_rsp0);
+    proc_context_switch(old_rsp_ptr, new_rsp, new_cr3, new_rsp0);
+}
+
+fn switch_to_next_ready(slot: u64) {
+    let count = process.get_count();
+    if count > 0 {
+        let mut i: u64 = 1;
+        while i < MAX_PROCS {
+            let next = (slot + i) % MAX_PROCS;
+            if next != 0 {
+                let state = process.get_state(next);
+                if state == PROC_READY || state == PROC_RUNNING {
+                    switch_to_slot(next, 0);
+                    return;
+                }
+            }
+            i = i + 1;
+        }
+        let task0_state = process.get_state(0);
+        if task0_state == PROC_READY || task0_state == PROC_RUNNING {
+            switch_to_slot(0, 0);
+            return;
+        }
+    }
+    serial.print("[kernel] All processes exited. Idle.\n");
+    loop { idle_halt(); }
+}
+
 @no_mangle
 pub fn process_exit(exit_code: u64) {
     let slot = process.current();
@@ -432,97 +490,17 @@ pub fn process_exit(exit_code: u64) {
     serial.print("\n");
 
     let user_pml4 = process.get_pml4(slot);
-
-    // Switch to kernel PML4 before freeing user pages
     switch_cr3(KERNEL_PML4);
-
-    // Destroy user address space (frees ALL user pages + page tables)
     user_paging.destroy_user_pml4(user_pml4);
 
-    // Free VFS File Descriptors
-    let fd_table_addr = process.get_fd_table(slot);
-    if fd_table_addr != 0 {
-        let table = fd_table_addr as Ptr<u64>;
-        let mut i = 0;
-        while i < 16 {
-            let fd_obj_addr = table.offset(i).read();
-            if fd_obj_addr != 0 {
-                // In a real VFS we'd decrement Inode refcount and free if 0.
-                // For MVP, just free the FileDescriptor wrapper.
-                let phys_fd = memory.virt_to_phys_raw(fd_obj_addr);
-                kernel.core.pmm.free(phys_fd);
-            }
-            i = i + 1;
-        }
-        let phys_table = memory.virt_to_phys_raw(fd_table_addr);
-        kernel.core.pmm.free(phys_table);
-        process.set_fd_table(slot, 0);
-    }
-
-    // Destroy ring-buffer ABI pages if active
+    destroy_fd_table(slot);
     ring_abi.destroy_ring(slot);
 
-    // Mark ZOMBIE, save exit code, and decrement count
     process.set_ipc_msg(slot, 0, exit_code, 0, 0);
     process.set_state(slot, PROC_ZOMBIE);
     process.dec_count();
 
-    // Schedule next READY process — prefer user processes over Task 0
-    let count = process.get_count();
-    if count > 0 {
-        // First pass: scan for user processes (skip Task 0 at slot 0)
-        let mut i: u64 = 1;
-        while i < MAX_PROCS {
-            let next = (slot + i) % MAX_PROCS;
-            if next != 0 {
-                let state = process.get_state(next);
-                if state == PROC_READY || state == PROC_RUNNING {
-                    process.set_state(next, PROC_RUNNING);
-                    let old_rsp_ptr = 0;
-                    let new_rsp = process.get_kernel_rsp(next);
-                    let new_pml4 = process.get_pml4(next);
-                    let new_pcid = process.get_pcid(next);
-                    let new_cr3 = new_pml4 | new_pcid;
-                    let new_rsp0 = process.get_kernel_stack_top(next);
-
-                    tss.set_rsp0(new_rsp0);
-                    set_syscall_kernel_rsp0(new_rsp0);
-
-                    process.set_current(next);
-                    process.set_state(next, PROC_RUNNING);
-                    
-                    proc_context_switch(old_rsp_ptr, new_rsp, new_cr3, new_rsp0);
-                    return;
-                }
-            }
-            i = i + 1;
-        }
-
-        // Fallback: no user processes READY, switch to Task 0
-        let task0_state = process.get_state(0);
-        if task0_state == PROC_READY || task0_state == PROC_RUNNING {
-            process.set_state(0, PROC_RUNNING);
-            process.set_current(0);
-
-            let new_rsp  = process.get_kernel_rsp(0);
-            let new_pml4 = process.get_pml4(0);
-            let new_pcid = process.get_pcid(0);
-            let new_cr3  = new_pml4 | new_pcid;
-            let new_rsp0 = process.get_kernel_stack_top(0);
-
-            tss.set_rsp0(new_rsp0);
-            set_syscall_kernel_rsp0(new_rsp0);
-
-            proc_context_switch(0, new_rsp, new_cr3, new_rsp0);
-            return;
-        }
-    }
-
-    // No processes remain
-    serial.print("[kernel] All processes exited. Idle.\n");
-    loop {
-        idle_halt();
-    }
+    switch_to_next_ready(slot);
 }
 
 // Kernel PML4 saved at init
@@ -895,35 +873,12 @@ pub fn sys_ipc_recv() -> u64 {
 // memory namespace. The target's dst_vaddr must be unmapped (fresh region)
 // so no TLB shootdown is needed on the receiving core.
 // =============================================================================
-@no_mangle
-@no_mangle
-pub fn sys_shm_grant(target_pid: u64, src_vaddr: u64, dst_vaddr: u64, num_pages: u64) -> u64 {
-    let sender = process.current();
+fn validate_shm_request(target_pid: u64, src_vaddr: u64, dst_vaddr: u64, num_pages: u64) -> u64 {
+    if target_pid >= MAX_PROCS { return 0 - 1; }
+    if process.get_state(target_pid) == PROC_FREE { return 0 - 1; }
+    if (src_vaddr & 0xFFF) != 0 || (dst_vaddr & 0xFFF) != 0 { return 0 - 1; }
+    if num_pages == 0 || num_pages > 16 { return 0 - 1; }
 
-    // 1. Target Validation
-    if target_pid >= MAX_PROCS {
-        return 0 - 1;
-    }
-    let target_state = process.get_state(target_pid);
-    if target_state == PROC_FREE {
-        return 0 - 1;
-    }
-
-    // 2. Alignment Enforcement
-    if (src_vaddr & 0xFFF) != 0 || (dst_vaddr & 0xFFF) != 0 {
-        return 0 - 1;
-    }
-
-    // 3. Bounds check on num_pages (max 16 pages = 64KB per grant)
-    if num_pages == 0 || num_pages > 16 {
-        return 0 - 1;
-    }
-
-    // 4. User-half enforcement — CRITICAL SECURITY CHECK
-    // Both src and dst address ranges must be strictly in the user half.
-    // A kernel-half src_vaddr would leak kernel physical frames.
-    // A kernel-half dst_vaddr would inject PTE_USER entries into kernel space.
-    // @invariant(num_pages <= 16)
     let src_end = src_vaddr + (num_pages * PAGE_SIZE);
     let dst_end = dst_vaddr + (num_pages * PAGE_SIZE);
     if src_vaddr >= USER_ADDR_LIMIT || src_end > USER_ADDR_LIMIT {
@@ -934,83 +889,69 @@ pub fn sys_shm_grant(target_pid: u64, src_vaddr: u64, dst_vaddr: u64, num_pages:
         serial.print("[shm_grant] REJECT: dst in kernel half\n");
         return 0 - 1;
     }
-    // Also guard against integer overflow wrapping src_end/dst_end below src/dst
-    if src_end < src_vaddr || dst_end < dst_vaddr {
-        return 0 - 1;
-    }
+    if src_end < src_vaddr || dst_end < dst_vaddr { return 0 - 1; }
+    
+    return 0;
+}
 
-    // 5. Get PML4s
-    let src_pml4 = process.get_pml4(sender);
-    if src_pml4 == 0 {
-        return 0 - 1;
+fn unmap_rollback(target_pml4: u64, dst_vaddr: u64, count: u64) {
+    let mut j: u64 = 0;
+    while j < count {
+        let rollback_dst = dst_vaddr + (j * PAGE_SIZE);
+        user_paging.unmap_user_page(target_pml4, rollback_dst);
+        j = j + 1;
     }
-    let target_pml4 = process.get_pml4(target_pid);
-    if target_pml4 == 0 {
-        return 0 - 1;
-    }
+}
 
-    // 6. Page Table Manipulation — map each page with rollback on failure
-    // @invariant(i >= 0)
-    // @invariant(i <= num_pages)
-    // @invariant(num_pages <= 16)
+fn map_shm_pages(src_pml4: u64, target_pml4: u64, src_vaddr: u64, dst_vaddr: u64, num_pages: u64) -> u64 {
     let mut i: u64 = 0;
     while i < num_pages {
         let curr_src = src_vaddr + (i * PAGE_SIZE);
         let curr_dst = dst_vaddr + (i * PAGE_SIZE);
 
-        // A. Resolve the physical backing frame from the sender's CR3
         let src_pte = user_paging.get_user_pte(src_pml4, curr_src);
         if (src_pte & user_paging.PTE_PRESENT) == 0 {
-            // ROLLBACK: unmap pages 0..i that were already injected
-            let mut j: u64 = 0;
-            while j < i {
-                let rollback_dst = dst_vaddr + (j * PAGE_SIZE);
-                user_paging.unmap_user_page(target_pml4, rollback_dst);
-                j = j + 1;
-            }
+            unmap_rollback(target_pml4, dst_vaddr, i);
             return 0 - 1;
         }
         let phys_frame = src_pte & 0x000FFFFFFFFFF000;
 
-        // B. Ensure target does not already have something mapped here
-        // This prevents overwriting the target's stack or existing data
         let existing_dst_pte = user_paging.get_user_pte(target_pml4, curr_dst);
         if (existing_dst_pte & user_paging.PTE_PRESENT) != 0 {
-            // ROLLBACK
-            let mut j: u64 = 0;
-            while j < i {
-                let rollback_dst = dst_vaddr + (j * PAGE_SIZE);
-                user_paging.unmap_user_page(target_pml4, rollback_dst);
-                j = j + 1;
-            }
+            unmap_rollback(target_pml4, dst_vaddr, i);
             serial.print("[shm_grant] REJECT: target already mapped\n");
             return 0 - 1;
         }
 
-        // C. Inherit PTE_WRITE from source PTE, and add PTE_SHARED to both
         let mut target_flags = user_paging.PTE_PRESENT | user_paging.PTE_USER | user_paging.PTE_SHARED;
         if (src_pte & user_paging.PTE_WRITE) != 0 {
             target_flags = target_flags | user_paging.PTE_WRITE;
         }
 
-        // D. Update source PTE to include PTE_SHARED to prevent UAF / double-free
         let new_src_flags = (src_pte & 0xFFF) | user_paging.PTE_SHARED;
-        user_paging.map_user_page(
-            src_pml4,
-            curr_src,
-            phys_frame,
-            new_src_flags
-        );
-
-        // E. Map that exact physical frame into the target's CR3
-        user_paging.map_user_page(
-            target_pml4,
-            curr_dst,
-            phys_frame,
-            target_flags
-        );
+        user_paging.map_user_page(src_pml4, curr_src, phys_frame, new_src_flags);
+        user_paging.map_user_page(target_pml4, curr_dst, phys_frame, target_flags);
 
         i = i + 1;
+    }
+    return 0;
+}
+
+@no_mangle
+pub fn sys_shm_grant(target_pid: u64, src_vaddr: u64, dst_vaddr: u64, num_pages: u64) -> u64 {
+    if validate_shm_request(target_pid, src_vaddr, dst_vaddr, num_pages) != 0 {
+        return 0 - 1;
+    }
+
+    let sender = process.current();
+    let src_pml4 = process.get_pml4(sender);
+    let target_pml4 = process.get_pml4(target_pid);
+    if src_pml4 == 0 || target_pml4 == 0 {
+        return 0 - 1;
+    }
+
+    if map_shm_pages(src_pml4, target_pml4, src_vaddr, dst_vaddr, num_pages) != 0 {
+        return 0 - 1;
     }
 
     return 0;
@@ -1019,6 +960,28 @@ pub fn sys_shm_grant(target_pid: u64, src_vaddr: u64, dst_vaddr: u64, num_pages:
 // =============================================================================
 // Phase 4: Process Management (sys_spawn, sys_wait)
 // =============================================================================
+
+fn copy_fd_obj(fd_obj_addr: u64) -> u64 {
+    if fd_obj_addr == 0 { return 0; }
+    
+    let new_fd_phys = kernel.core.pmm.alloc();
+    if new_fd_phys == 0 { return 0; }
+    
+    let new_fd_addr = kernel.core.memory.phys_to_virt_raw(new_fd_phys);
+    let new_fd = new_fd_addr as Ptr<vfs::FileDescriptor>;
+    let old_fd = fd_obj_addr as Ptr<vfs::FileDescriptor>;
+
+    if new_fd.addr != 0 {
+        if old_fd.addr != 0 {
+            new_fd.inode = old_fd.inode;
+            new_fd.offset = old_fd.offset;
+            new_fd.flags = old_fd.flags;
+            new_fd.refcount = 1;
+        }
+    }
+    
+    return new_fd_addr;
+}
 
 fn duplicate_fd_table(parent_slot: u64, child_slot: u64) {
     let parent_fd_addr = process.get_fd_table(parent_slot);
@@ -1036,30 +999,8 @@ fn duplicate_fd_table(parent_slot: u64, child_slot: u64) {
     let mut i = 0;
     while i < 16 {
         let fd_obj_addr = parent_table.offset(i).read();
-        if fd_obj_addr != 0 {
-            // Allocate a new vfs::FileDescriptor wrapper for the child
-            let new_fd_phys = kernel.core.pmm.alloc();
-            if new_fd_phys != 0 {
-                let new_fd_addr = kernel.core.memory.phys_to_virt_raw(new_fd_phys);
-                let new_fd = new_fd_addr as Ptr<vfs::FileDescriptor>;
-                let old_fd = fd_obj_addr as Ptr<vfs::FileDescriptor>;
-
-                if new_fd.addr != 0 {
-                    if old_fd.addr != 0 {
-                        new_fd.inode = old_fd.inode;
-                        new_fd.offset = old_fd.offset;
-                        new_fd.flags = old_fd.flags;
-                        new_fd.refcount = 1;
-                    }
-                }
-
-                child_table.offset(i).write(new_fd_addr);
-            } else {
-                child_table.offset(i).write(0);
-            }
-        } else {
-            child_table.offset(i).write(0);
-        }
+        let new_fd_addr = copy_fd_obj(fd_obj_addr);
+        child_table.offset(i).write(new_fd_addr);
         i = i + 1;
     }
 }

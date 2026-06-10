@@ -5,57 +5,8 @@ use std::collections::HashMap;
 use super::{emit_expr, emit_lvalue, LValueKind, extract_field_assign_receiver};
 use super::aggregate_eq::emit_aggregate_eq;
 
-pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBinary, local_vars: &mut HashMap<String, (Type, LocalKind)>, expected: Option<&Type>) -> Result<(String, Type), String> {
-    if matches!(b.op, syn::BinOp::AddAssign(_) | syn::BinOp::SubAssign(_) | syn::BinOp::MulAssign(_) | syn::BinOp::DivAssign(_) | syn::BinOp::RemAssign(_) | syn::BinOp::BitAndAssign(_) | syn::BinOp::BitOrAssign(_) | syn::BinOp::BitXorAssign(_) | syn::BinOp::ShlAssign(_) | syn::BinOp::ShrAssign(_)) {
-        return emit_compound_assign(ctx, out, b, local_vars);
-    }
 
-    let is_cmp = matches!(b.op, syn::BinOp::Eq(_) | syn::BinOp::Lt(_) | syn::BinOp::Le(_) | syn::BinOp::Gt(_) | syn::BinOp::Ge(_) | syn::BinOp::Ne(_));
-    let is_logic = matches!(b.op, syn::BinOp::And(_) | syn::BinOp::Or(_));
-    
-    // Determine hint for LHS
-    // [V25.1] Domain Isolation: Never pass Pointer hints to arithmetic operands
-    // Pointer types contaminate index expressions (Type Osmosis)
-    let lhs_expected = if is_logic {
-        Some(&Type::Bool)
-    } else if is_cmp {
-        None // Comparisons don't hint operands with Bool
-    } else if let Some(exp) = expected {
-        // Strip Pointer types - they don't apply to arithmetic operands
-        if exp.k_is_ptr_type() { None } else { Some(exp) }
-    } else {
-        None
-    };
-
-    let (lhs_val, lhs_ty) = emit_expr(ctx, out, &b.left, local_vars, lhs_expected)?;
-    
-    if is_logic {
-         return emit_logic(ctx, out, b, (lhs_val, lhs_ty), local_vars);
-    }
-
-    // Determine hint for RHS
-    // [V25.1.1] Domain Isolation: Strip Pointer from RHS hint
-    // For pointer arithmetic (Ptr + int), RHS must be integer - not contaminated with Pointer
-    let rhs_expected = if lhs_ty.k_is_ptr_type() { None } else { Some(&lhs_ty) };
-    
-    let (rhs_val, rhs_ty) = emit_expr(ctx, out, &b.right, local_vars, rhs_expected)?;
-
-    // Validation: Bitwise ops require integers
-    if matches!(b.op, syn::BinOp::BitAnd(_) | syn::BinOp::BitOr(_) | syn::BinOp::BitXor(_) | syn::BinOp::Shl(_) | syn::BinOp::Shr(_)) {
-        if !lhs_ty.is_integer() || (!rhs_ty.is_integer() && !matches!(b.op, syn::BinOp::Shl(_) | syn::BinOp::Shr(_))) {
-             // Allow shift by distinct integer type, but others must match or be integer
-             // Actually strict mode: RHS of shift is also integer.
-             if !rhs_ty.is_integer() {
-                 return Err(format!("Bitwise operator requires integer operands, found {:?} and {:?}", lhs_ty, rhs_ty));
-             }
-        }
-        if !lhs_ty.is_integer() || !rhs_ty.is_integer() {
-             return Err(format!("Bitwise operator requires integer operands, found {:?} and {:?}", lhs_ty, rhs_ty));
-        }
-    }
-
-    // [KEUOS V5.2] Type-Aware Pointer Addition
-    // Enables: let next = ptr + offset; (Native GEP Lowering)
+fn emit_binary_ptr_add(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBinary, lhs_val: &str, lhs_ty: &Type, rhs_val: &str, rhs_ty: &Type) -> Result<Option<(String, Type)>, String> {
     if matches!(b.op, syn::BinOp::Add(_)) {
         // Check Pointer/Reference + Integer pattern
         let lhs_is_ptr = matches!(lhs_ty, Type::Pointer { .. });
@@ -81,7 +32,7 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
             // [V7.3] Propagate alias scope from base pointer to GEP result
             ctx.control_flow.propagate_scope_provenance(&lhs_val, &res);
             
-            return Ok((res, lhs_ty.clone()));
+            return Ok(Some((res, lhs_ty.clone())));
         }
         
         // Also support Integer + Pointer (commutative)
@@ -101,25 +52,14 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
             // [V7.3] Propagate alias scope from base pointer to GEP result
             ctx.control_flow.propagate_scope_provenance(&rhs_val, &res);
             
-            return Ok((res, rhs_ty.clone()));
+            return Ok(Some((res, rhs_ty.clone())));
         }
     }
+    Ok(None)
+}
 
-    // Validation: Arithmetic ops require numerics
-    if matches!(b.op, syn::BinOp::Add(_) | syn::BinOp::Sub(_) | syn::BinOp::Mul(_) | syn::BinOp::Div(_) | syn::BinOp::Rem(_)) {
-        if (!lhs_ty.is_numeric() && !matches!(lhs_ty, Type::Tensor(..))) || (!rhs_ty.is_numeric() && !matches!(rhs_ty, Type::Tensor(..))) {
-             return Err(format!("Arithmetic operator requires numeric or tensor operands, found {:?} and {:?}", lhs_ty, rhs_ty));
-        }
-    }
-
-    let common_ty = {
-        let is_shift = matches!(b.op, syn::BinOp::Shl(_) | syn::BinOp::Shr(_));
-        if is_shift {
-            // For shifts, result type is LHS type. RHS (amount) must be cast to LHS width for LLVM.
-            lhs_ty.clone()
-        } else if matches!(lhs_ty, Type::Tensor(..)) && matches!(rhs_ty, Type::Tensor(..)) {
-            // Tensor-Tensor operations
-             if let (Type::Tensor(inner1, shape1), Type::Tensor(inner2, shape2)) = (&lhs_ty, &rhs_ty) {
+fn emit_binary_tensor(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBinary, lhs_val: &str, lhs_ty: &Type, rhs_val: &str, rhs_ty: &Type) -> Result<Option<(String, Type)>, String> {
+             if let (Type::Tensor(inner1, shape1), Type::Tensor(inner2, shape2)) = (lhs_ty, rhs_ty) {
                 if matches!(b.op, syn::BinOp::Add(_)) {
                     if shape1 != shape2 {
                         return Err(format!("Tensor shape mismatch in Add: {:?} and {:?}", shape1, shape2));
@@ -156,7 +96,7 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
                     out.push_str(&format!("    func.call @salt_add({}, {}, {}, {}) : (!llvm.ptr, !llvm.ptr, !llvm.ptr, i64) -> ()\n",
                         lhs_val, rhs_val, res_ptr, count_val));
 
-                    return Ok((res_ptr, lhs_ty.clone()));
+                    return Ok(Some((res_ptr, lhs_ty.clone())));
                 } else if matches!(b.op, syn::BinOp::Mul(_)) {
                     // Check if it's a matmul (2D x 2D)
                     if shape1.len() == 2 && shape2.len() == 2 && shape1[1] == shape2[0] {
@@ -201,7 +141,7 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
                         
                         // 4. Return Result Pointer
                         let res_ty = Type::Tensor(inner1.clone(), vec![shape1[0], shape2[1]]);
-                        return Ok((res_raw_ptr, res_ty));     
+                        return Ok(Some((res_raw_ptr, res_ty)));     
                         
                     } 
                     // Support Matrix-Vector (2D x 1D) -> 1D
@@ -241,57 +181,16 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
                             lhs_val, rhs_val, res_raw_ptr, m_const, k_const));
                         
                         // 4. Return Result Pointer
-                        return Ok((res_raw_ptr, res_ty));
+                        return Ok(Some((res_raw_ptr, res_ty)));
                     }
 
                     // Else: Fallthrough not supported yet
                 }
              }
-            lhs_ty.clone()
-        } else {
-            let op_max = if lhs_ty.is_numeric() && rhs_ty.is_numeric() {
-                // [V25.3] Special case: Usize (MLIR index) mixed with I64/U64
-                // MLIR's index type is semantically different from i64 - always promote to i64
-                match (&lhs_ty, &rhs_ty) {
-                    (Type::Usize, Type::I64) | (Type::Usize, Type::U64) => rhs_ty.clone(),
-                    (Type::I64, Type::Usize) | (Type::U64, Type::Usize) => lhs_ty.clone(),
-                    _ => {
-                        if lhs_ty.size_of(&*ctx.struct_registry()) >= rhs_ty.size_of(&*ctx.struct_registry()) { lhs_ty.clone() } else { rhs_ty.clone() }
-                    }
-                }
-            } else {
-                lhs_ty.clone()
-            };
+    Ok(None)
+}
 
-            if let Some(exp) = expected {
-                if is_cmp {
-                    op_max
-                } else if exp.is_numeric() && op_max.is_numeric() {
-                    if exp.size_of(&*ctx.struct_registry()) >= op_max.size_of(&*ctx.struct_registry()) { exp.clone() } else { op_max }
-                } else {
-                    exp.clone()
-                }
-            } else {
-                op_max
-            }
-        }
-    };
-
-    let lhs_prom = crate::codegen::type_bridge::promote_numeric(ctx, out, &lhs_val, &lhs_ty, &common_ty)?;
-    
-    // For shifts, we force-cast the RHS (amount) to match LHS width (LLVM requirement).
-    // This allows implicit narrowing of shift amount (e.g. i32 << 4_i64).
-    let rhs_prom = if matches!(b.op, syn::BinOp::Shl(_) | syn::BinOp::Shr(_)) {
-        crate::codegen::type_bridge::cast_numeric(ctx, out, &rhs_val, &rhs_ty, &common_ty)?
-    } else {
-        crate::codegen::type_bridge::promote_numeric(ctx, out, &rhs_val, &rhs_ty, &common_ty)?
-    };
-    
-    let res = format!("%bin_{}", ctx.next_id());
-    let op = get_arith_op(&b.op, &common_ty);
-    let mlir_ty = common_ty.to_mlir_type(ctx)?;
-
-    if op.contains("cmp") {
+fn emit_binary_struct_cmp(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBinary, lhs_prom: &str, rhs_prom: &str, common_ty: &Type) -> Result<Option<(String, Type)>, String> {
         if matches!(common_ty, Type::Struct(_) | Type::Concrete(..) | Type::Tuple(_) | Type::Array(..) | Type::Enum(_)) {
             // [KEUOS V7.0] Check for trait-based eq before structural comparison
             // Handles both Type::Struct("name") and Type::Concrete("name", []) —
@@ -353,18 +252,21 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
                             let true_val = format!("%true_{}", ctx.next_id());
                             ctx.emit_const_int(out, &true_val, 1, "i1");
                             out.push_str(&format!("    {} = arith.xori {}, {} : i1\n", inv_res, call_res, true_val));
-                            return Ok((inv_res, Type::Bool));
+                            return Ok(Some((inv_res, Type::Bool)));
                         } else {
-                            return Ok((call_res, Type::Bool));
+                            return Ok(Some((call_res, Type::Bool)));
                         }
                     }
                 }
             }
             // Fallback: structural field-by-field comparison
              let res = emit_aggregate_eq(ctx, out, &b.op, &lhs_prom, &rhs_prom, &common_ty)?;
-             return Ok((res, Type::Bool));
+             return Ok(Some((res, Type::Bool)));
         }
+    Ok(None)
+}
 
+fn emit_binary_ref_cmp(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBinary, lhs_prom: &str, rhs_prom: &str, common_ty: &Type, res: &str) -> Result<Option<(String, Type)>, String> {
         if let Type::Reference(inner, _) = &common_ty {
             // [KEUOS V7.0] General Trait Dispatch for Equality
             // For Reference types, check if the inner type requires trait-based eq.
@@ -405,16 +307,16 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
                         let true_val = format!("%true_{}", ctx.next_id());
                         ctx.emit_const_int(out, &true_val, 1, "i1");
                         out.push_str(&format!("    {} = arith.xori {}, {} : i1\n", inv_res, call_res, true_val));
-                        return Ok((inv_res, Type::Bool));
+                        return Ok(Some((inv_res, Type::Bool)));
                     } else {
-                        return Ok((call_res, Type::Bool));
+                        return Ok(Some((call_res, Type::Bool)));
                     }
                 }
             }
 
             let inner_mlir = inner.to_mlir_type(ctx)?;
-            let inner_op = get_arith_op(&b.op, inner);
-            let inner_pred = get_comparison_pred(&b.op, inner);
+            let inner_op = get_arith_op(&b.op, &inner);
+            let inner_pred = get_comparison_pred(&b.op, &inner);
             
             // Load values from both references
             let lhs_loaded = format!("%deref_lhs_{}", ctx.next_id());
@@ -424,8 +326,135 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
             
             // Compare loaded values
             ctx.emit_cmp(out, &res, &inner_op, &inner_pred, &lhs_loaded, &rhs_loaded, &inner_mlir);
-            return Ok((res, Type::Bool));
+            return Ok(Some((res.to_string(), Type::Bool)));
         }
+    Ok(None)
+}
+
+fn determine_common_binary_type(
+    ctx: &LoweringContext,
+    b: &syn::ExprBinary,
+    lhs_ty: &Type,
+    rhs_ty: &Type,
+    expected: Option<&Type>,
+) -> Type {
+    let is_cmp = matches!(b.op, syn::BinOp::Eq(_) | syn::BinOp::Lt(_) | syn::BinOp::Le(_) | syn::BinOp::Gt(_) | syn::BinOp::Ge(_) | syn::BinOp::Ne(_));
+    let is_shift = matches!(b.op, syn::BinOp::Shl(_) | syn::BinOp::Shr(_));
+    
+    if is_shift {
+        lhs_ty.clone()
+    } else if matches!(lhs_ty, Type::Tensor(..)) && matches!(rhs_ty, Type::Tensor(..)) {
+        lhs_ty.clone()
+    } else {
+        let op_max = if lhs_ty.is_numeric() && rhs_ty.is_numeric() {
+            match (lhs_ty, rhs_ty) {
+                (Type::Usize, Type::I64) | (Type::Usize, Type::U64) => rhs_ty.clone(),
+                (Type::I64, Type::Usize) | (Type::U64, Type::Usize) => lhs_ty.clone(),
+                _ => {
+                    if lhs_ty.size_of(&*ctx.struct_registry()) >= rhs_ty.size_of(&*ctx.struct_registry()) { lhs_ty.clone() } else { rhs_ty.clone() }
+                }
+            }
+        } else {
+            lhs_ty.clone()
+        };
+
+        if let Some(exp) = expected {
+            if is_cmp {
+                op_max
+            } else if exp.is_numeric() && op_max.is_numeric() {
+                if exp.size_of(&*ctx.struct_registry()) >= op_max.size_of(&*ctx.struct_registry()) { exp.clone() } else { op_max }
+            } else {
+                exp.clone()
+            }
+        } else {
+            op_max
+        }
+    }
+}
+
+pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBinary, local_vars: &mut HashMap<String, (Type, LocalKind)>, expected: Option<&Type>) -> Result<(String, Type), String> {
+    if matches!(b.op, syn::BinOp::AddAssign(_) | syn::BinOp::SubAssign(_) | syn::BinOp::MulAssign(_) | syn::BinOp::DivAssign(_) | syn::BinOp::RemAssign(_) | syn::BinOp::BitAndAssign(_) | syn::BinOp::BitOrAssign(_) | syn::BinOp::BitXorAssign(_) | syn::BinOp::ShlAssign(_) | syn::BinOp::ShrAssign(_)) {
+        return emit_compound_assign(ctx, out, b, local_vars);
+    }
+
+    let is_cmp = matches!(b.op, syn::BinOp::Eq(_) | syn::BinOp::Lt(_) | syn::BinOp::Le(_) | syn::BinOp::Gt(_) | syn::BinOp::Ge(_) | syn::BinOp::Ne(_));
+    let is_logic = matches!(b.op, syn::BinOp::And(_) | syn::BinOp::Or(_));
+    
+    // Determine hint for LHS
+    // [V25.1] Domain Isolation: Never pass Pointer hints to arithmetic operands
+    // Pointer types contaminate index expressions (Type Osmosis)
+    let lhs_expected = if is_logic {
+        Some(&Type::Bool)
+    } else if is_cmp {
+        None // Comparisons don't hint operands with Bool
+    } else if let Some(exp) = expected {
+        // Strip Pointer types - they don't apply to arithmetic operands
+        if exp.k_is_ptr_type() { None } else { Some(exp) }
+    } else {
+        None
+    };
+
+    let (lhs_val, lhs_ty) = emit_expr(ctx, out, &b.left, local_vars, lhs_expected)?;
+    
+    if is_logic {
+         return emit_logic(ctx, out, b, (lhs_val, lhs_ty), local_vars);
+    }
+
+    // Determine hint for RHS
+    // [V25.1.1] Domain Isolation: Strip Pointer from RHS hint
+    // For pointer arithmetic (Ptr + int), RHS must be integer - not contaminated with Pointer
+    let rhs_expected = if lhs_ty.k_is_ptr_type() { None } else { Some(&lhs_ty) };
+    
+    let (rhs_val, rhs_ty) = emit_expr(ctx, out, &b.right, local_vars, rhs_expected)?;
+
+    // Validation: Bitwise ops require integers
+    if matches!(b.op, syn::BinOp::BitAnd(_) | syn::BinOp::BitOr(_) | syn::BinOp::BitXor(_) | syn::BinOp::Shl(_) | syn::BinOp::Shr(_)) {
+        if !lhs_ty.is_integer() || (!rhs_ty.is_integer() && !matches!(b.op, syn::BinOp::Shl(_) | syn::BinOp::Shr(_))) {
+             // Allow shift by distinct integer type, but others must match or be integer
+             // Actually strict mode: RHS of shift is also integer.
+             if !rhs_ty.is_integer() {
+                 return Err(format!("Bitwise operator requires integer operands, found {:?} and {:?}", lhs_ty, rhs_ty));
+             }
+        }
+        if !lhs_ty.is_integer() || !rhs_ty.is_integer() {
+             return Err(format!("Bitwise operator requires integer operands, found {:?} and {:?}", lhs_ty, rhs_ty));
+        }
+    }
+
+    // [KEUOS V5.2] Type-Aware Pointer Addition
+    // Enables: let next = ptr + offset; (Native GEP Lowering)
+    if let Some(r) = emit_binary_ptr_add(ctx, out, b, &lhs_val, &lhs_ty, &rhs_val, &rhs_ty)? { return Ok(r); }
+
+    // Validation: Arithmetic ops require numerics
+    if matches!(b.op, syn::BinOp::Add(_) | syn::BinOp::Sub(_) | syn::BinOp::Mul(_) | syn::BinOp::Div(_) | syn::BinOp::Rem(_)) {
+        if (!lhs_ty.is_numeric() && !matches!(lhs_ty, Type::Tensor(..))) || (!rhs_ty.is_numeric() && !matches!(rhs_ty, Type::Tensor(..))) {
+             return Err(format!("Arithmetic operator requires numeric or tensor operands, found {:?} and {:?}", lhs_ty, rhs_ty));
+        }
+    }
+
+    if matches!(lhs_ty, Type::Tensor(..)) && matches!(rhs_ty, Type::Tensor(..)) && !matches!(b.op, syn::BinOp::Shl(_) | syn::BinOp::Shr(_)) {
+        if let Some(r) = emit_binary_tensor(ctx, out, b, &lhs_val, &lhs_ty, &rhs_val, &rhs_ty)? { return Ok(r); }
+    }
+    let common_ty = determine_common_binary_type(ctx, b, &lhs_ty, &rhs_ty, expected);
+
+    let lhs_prom = crate::codegen::type_bridge::promote_numeric(ctx, out, &lhs_val, &lhs_ty, &common_ty)?;
+    
+    // For shifts, we force-cast the RHS (amount) to match LHS width (LLVM requirement).
+    // This allows implicit narrowing of shift amount (e.g. i32 << 4_i64).
+    let rhs_prom = if matches!(b.op, syn::BinOp::Shl(_) | syn::BinOp::Shr(_)) {
+        crate::codegen::type_bridge::cast_numeric(ctx, out, &rhs_val, &rhs_ty, &common_ty)?
+    } else {
+        crate::codegen::type_bridge::promote_numeric(ctx, out, &rhs_val, &rhs_ty, &common_ty)?
+    };
+    
+    let res = format!("%bin_{}", ctx.next_id());
+    let op = get_arith_op(&b.op, &common_ty);
+    let mlir_ty = common_ty.to_mlir_type(ctx)?;
+
+    if op.contains("cmp") {
+        if let Some(r) = emit_binary_struct_cmp(ctx, out, b, &lhs_prom, &rhs_prom, &common_ty)? { return Ok(r); }
+
+        if let Some(r) = emit_binary_ref_cmp(ctx, out, b, &lhs_prom, &rhs_prom, &common_ty, &res)? { return Ok(r); }
 
         let pred = get_comparison_pred(&b.op, &common_ty);
         ctx.emit_cmp(out, &res, &op, &pred, &lhs_prom, &rhs_prom, &mlir_ty);
@@ -522,126 +551,33 @@ pub fn emit_logic(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBina
 }
 
 pub fn emit_assign(ctx: &mut LoweringContext, out: &mut String, a: &syn::ExprAssign, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<(String, Type), String> {
-
     let (ptr, raw_ptr_ty, kind) = emit_lvalue(ctx, out, &a.left, local_vars)?;
-    // [KEUOS FIX] Substitute generics in lvalue type (T -> u8 etc.)
     let ptr_ty = raw_ptr_ty.substitute(&ctx.current_type_map());
 
-    
-    // [KEUOS V2.1]: Conditional Hint Purification
-    // For indexed pointer access (ptr[i] = val), the LHS type is Pointer<element>
-    // and we need to peel to get the element type.
-    // For struct field access (self.ptr = val), the field IS the type to assign.
-    // We only peel if the assignment target is a pointer being dereferenced,
-    // NOT if the field itself is a Pointer type we're assigning to.
     let element_ty = match (&kind, &ptr_ty) {
-        // For indexed access via Tensor, the type is already the element
         (LValueKind::Tensor { .. }, _) => ptr_ty.clone(),
-        // For regular struct field ptr access, use the field type directly
         (LValueKind::Ptr, Type::Pointer { .. }) => ptr_ty.clone(),
-        // [KEUOS FIX] For local variable assignments to Pointer-typed vars
-        // (e.g., `curr = n.next` where curr: Ptr<ListNode>), use the type directly.
-        // We are storing a Pointer value into the alloca, NOT dereferencing.
         (LValueKind::Local, _) => ptr_ty.clone(),
-        // [PMM FIX] Global variables are storage locations, NOT dereferences.
-        // `FREE_LIST_HEAD = current as !llvm.ptr` stores a pointer VALUE into the global.
-        // We must NOT peel the Pointer type — the store type must be !llvm.ptr, not i8.
         (LValueKind::Global(_), _) => ptr_ty.clone(),
-        // For other pointer cases where we're dereferencing, peel
         (_, Type::Pointer { ref element, .. }) => (**element).clone(),
         _ => ptr_ty.clone(),
     };
     
-    // Evaluate RHS with the appropriate hint
     let (rhs_val, rhs_ty) = emit_expr(ctx, out, &a.right, local_vars, Some(&element_ty))?;
 
-    // [KEUOS PHASE 3] Strict Affine Memory Safety (assignments)
     if rhs_ty.is_affine() {
         if let Some(rhs_var_name) = crate::codegen::expr::extract_ident_name(&a.right) {
             ctx.consumed_vars_mut().insert(rhs_var_name);
         }
     }
 
-    // [POINTER STATE DRAIN] Consume any pending pointer state set by the RHS.
-    // Without this, Ptr::empty() in `node.children[i] = Ptr::empty()` leaks
-    // its Empty state to the next let-binding, potentially in a later function.
-    // If the LHS is a simple named variable, apply the state to it.
-    {
-        let pending_state = ctx.pending_pointer_state.take();
-        if let Some(state) = pending_state {
-            // Extract LHS variable name for simple assignments like `curr = child`
-            if let syn::Expr::Path(p) = &*a.left {
-                if let Some(ident) = p.path.get_ident() {
-                    let var_name = ident.to_string();
-                    match state {
-                        crate::codegen::verification::PointerState::Empty => {
-                            ctx.pointer_tracker.mark_empty(&var_name);
-                        }
-                        crate::codegen::verification::PointerState::Valid => {
-                            ctx.pointer_tracker.mark_valid(&var_name);
-                        }
-                        crate::codegen::verification::PointerState::Optional => {
-                            ctx.pointer_tracker.mark_optional(&var_name);
-                        }
-                        crate::codegen::verification::PointerState::Freed => {
-                            ctx.pointer_tracker.mark_freed(&var_name);
-                        }
-                        crate::codegen::verification::PointerState::Uninitialized => {
-                            ctx.pointer_tracker.mark_uninitialized(&var_name);
-                        }
-                    }
-                }
-            }
-            // For non-path LHS (array index, field access), just drain — don't track
-        }
+    apply_pointer_state_to_lhs(ctx, &a.left);
+    mark_field_assign_escape(ctx, &a.right);
+    if let Err(msg) = check_arena_escape(ctx, &a.left, &a.right) {
+        return Err(msg);
     }
 
-    // [ESCAPE ANALYSIS] Field-assign escape: `self.field = malloc_var`
-    // When a malloc'd value is stored into a struct field (via &mut self),
-    // it escapes the current function scope. Mark it as escaped.
-    // Also peels through Expr::Cast to handle `self.data = ptr as Ptr<u8>` patterns.
-    {
-        let mut rhs_expr: &syn::Expr = &*a.right;
-        while let syn::Expr::Cast(c) = rhs_expr {
-            rhs_expr = &c.expr;
-        }
-        if let syn::Expr::Path(p) = rhs_expr {
-            if p.path.segments.len() == 1 {
-                let rhs_var = p.path.segments[0].ident.to_string();
-                let alloc_id = format!("malloc:{}", rhs_var);
-                ctx.malloc_tracker.mark_escaped(&alloc_id);
-                // Also try the var name itself (for cast aliases)
-                ctx.malloc_tracker.mark_escaped(&rhs_var);
-            }
-        }
-    }
-
-    // [ARENA ESCAPE ANALYSIS] Law II: The Assignment Rule.
-    // `a = b` is valid iff depth(b) <= depth(a).
-    // Cannot store a short-lived arena pointer into a long-lived container.
-    if ctx.arena_escape_tracker.is_active() {
-        if let syn::Expr::Path(rhs_p) = &*a.right {
-            if let Some(rhs_ident) = rhs_p.path.get_ident() {
-                let rhs_var = rhs_ident.to_string();
-                // Extract LHS receiver for field access: ctx.saved_ptr → "ctx"
-                let lhs_var = extract_field_assign_receiver(&a.left);
-                if let Some(lhs_var) = lhs_var {
-                    if let Err(msg) = ctx.arena_escape_tracker.check_store_escape(&rhs_var, &lhs_var) {
-                        return Err(msg);
-                    }
-                }
-            }
-        }
-    }
-
-    
     let rhs_prom = promote_numeric(ctx, out, &rhs_val, &rhs_ty, &element_ty)?;
-    
-    let _scopes = match kind {
-        LValueKind::Local => Some(("#scope_local", "#scope_global")),
-        LValueKind::Global(_) => Some(("#scope_global", "#scope_local")),
-        _ => None,
-    };
     
     let scopes = match kind {
         LValueKind::Local => Some(("#scope_local", "#scope_global")),
@@ -650,200 +586,45 @@ pub fn emit_assign(ctx: &mut LoweringContext, out: &mut String, a: &syn::ExprAss
     };
 
     if let LValueKind::Bit(offset_val) = kind {
-          // BIT PACKED STORE
-          // ptr points to the i64 word.
-          // We need RMW loop: Load word, mask bit, OR new bit, Store word.
-          let _word_ty = Type::I64;
-          let word_mlir = "i64";
-          
-          let prev_word = format!("%prev_word_{}", ctx.next_id());
-          ctx.emit_load(out, &prev_word, &ptr, word_mlir);
-          
-          // Prepare mask: ~(1 << offset)
-          let one = format!("%one_{}", ctx.next_id());
-          ctx.emit_const_int(out, &one, 1, "i64");
-          let sh_mask = format!("%sh_mask_{}", ctx.next_id());
-          ctx.emit_binop(out, &sh_mask, "arith.shli", &one, &offset_val, "i64");
-          
-          let minus_one = format!("%c_minus_1_{}", ctx.next_id());
-          ctx.emit_const_int(out, &minus_one, -1, "i64");
-          
-          let neg_mask = format!("%neg_mask_{}", ctx.next_id());
-          ctx.emit_binop(out, &neg_mask, "arith.xori", &sh_mask, &minus_one, "i64");
-          
-          // Mask out old bit
-          let cleared = format!("%cleared_{}", ctx.next_id());
-          ctx.emit_binop(out, &cleared, "arith.andi", &prev_word, &neg_mask, "i64");
-          
-          // Prepare new bit
-          let bit_val = if rhs_ty == Type::Bool {
-               let zext = format!("%bit_zext_{}", ctx.next_id());
-               ctx.emit_cast(out, &zext, "arith.extui", &rhs_prom, "i1", "i64");
-               zext
-          } else {
-               rhs_prom
-          };
-          
-          let shifted_bit = format!("%shifted_bit_{}", ctx.next_id());
-          ctx.emit_binop(out, &shifted_bit, "arith.shli", &bit_val, &offset_val, "i64");
-          
-          // OR together
-          let new_word = format!("%new_word_{}", ctx.next_id());
-          ctx.emit_binop(out, &new_word, "arith.ori", &cleared, &shifted_bit, "i64");
-          
-          // Store
-          ctx.emit_store(out, &new_word, &ptr, word_mlir);
-          return Ok(("%unit".to_string(), Type::Unit));
+        return emit_bit_packed_store(ctx, out, rhs_prom, rhs_ty, offset_val, ptr);
     }
     
-    // TENSOR STORE [V7.9]: Use memref.store for indexed Tensor assignment
     if let LValueKind::Tensor { memref, indices, elem_ty, shape } = kind {
         let elem_mlir = elem_ty.to_mlir_storage_type(ctx)?;
-        
-        // Build memref type string
         let shape_str = shape.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("x");
         let memref_ty = format!("memref<{}x{}>", shape_str, elem_mlir);
-        
-        // Build index list string
         let indices_str = indices.join(", ");
-        
-        // Emit memref.store
-        out.push_str(&format!("    memref.store {}, {}[{}] : {}\n", 
-           rhs_prom, memref, indices_str, memref_ty));
-
+        out.push_str(&format!("    memref.store {}, {}[{}] : {}\n", rhs_prom, memref, indices_str, memref_ty));
         return Ok(("%unit".to_string(), Type::Unit));
     }
     
     ctx.emit_store_logical_with_scope(out, &rhs_prom, &ptr, &element_ty, scopes)?;
     
-    // [PILLAR 2: Global LVN] Update cache with the stored value
-    // Subsequent reads of this global will use the cached SSA value
     if let LValueKind::Global(ref global_name) = kind {
         if !global_name.is_empty() {
             ctx.emission.global_lvn.cache_value(global_name.clone(), rhs_prom.clone());
         }
     }
-    
-    Ok((rhs_prom.clone(), Type::Unit))
+
+    Ok(("%unit".to_string(), Type::Unit))
 }
+
 
 pub fn emit_compound_assign(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBinary, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<(String, Type), String> {
     let (ptr, ptr_ty, kind) = emit_lvalue(ctx, out, &b.left, local_vars)?;
     
-    let _scopes = match kind {
-        LValueKind::Local => Some(("#scope_local", "#scope_global")),
-        LValueKind::Global(_) => Some(("#scope_global", "#scope_local")),
-        _ => None,
-    };
-
     let scopes = match kind {
         LValueKind::Local => Some(("#scope_local", "#scope_global")),
         LValueKind::Global(_) => Some(("#scope_global", "#scope_local")),
         _ => None,
     };
 
-    if let LValueKind::Bit(offset_val) = kind {
-         // BIT COMPOUND ASSIGN
-         let word_mlir = "i64";
-         let prev_word = format!("%prev_word_{}", ctx.next_id());
-         ctx.emit_load(out, &prev_word, &ptr, word_mlir);
-
-         // Extract LHS (Bit)
-         let one = format!("%one_{}", ctx.next_id());
-         ctx.emit_const_int(out, &one, 1, "i64");
-         let shifted_down = format!("%shifted_down_{}", ctx.next_id());
-         ctx.emit_binop(out, &shifted_down, "arith.shrui", &prev_word, &offset_val, "i64");
-         let lhs_val_i1 = format!("%lhs_bit_{}", ctx.next_id());
-         ctx.emit_cast(out, &lhs_val_i1, "arith.trunci", &shifted_down, "i64", "i1");
-         
-         // Evaluate RHS
-         let (rhs_val, rhs_ty) = emit_expr(ctx, out, &b.right, local_vars, None)?;
-         let rhs_prom = promote_numeric(ctx, out, &rhs_val, &rhs_ty, &Type::Bool)?; // Assuming bool op
-
-         // Perform Op
-         let op_res = format!("%op_res_{}", ctx.next_id());
-         
-         // Map Op to arith
-         let bin_op = match b.op {
-            syn::BinOp::BitAndAssign(_) => "arith.andi",
-            syn::BinOp::BitOrAssign(_) => "arith.ori",
-            syn::BinOp::BitXorAssign(_) => "arith.xori",
-             _ => return Err(format!("Unsupported compound assign on bool/bit: {:?}", b.op))
-         };
-         ctx.emit_binop(out, &op_res, bin_op, &lhs_val_i1, &rhs_prom, "i1");
-
-         // Write Back (RMW)
-         let sh_mask = format!("%sh_mask_{}", ctx.next_id());
-         ctx.emit_binop(out, &sh_mask, "arith.shli", &one, &offset_val, "i64");
-         
-         let minus_one = format!("%c_minus_1_cmp_{}", ctx.next_id());
-         ctx.emit_const_int(out, &minus_one, -1, "i64");
-         
-         let neg_mask = format!("%neg_mask_{}", ctx.next_id());
-         ctx.emit_binop(out, &neg_mask, "arith.xori", &sh_mask, &minus_one, "i64");
-         
-         let cleared = format!("%cleared_{}", ctx.next_id());
-         ctx.emit_binop(out, &cleared, "arith.andi", &prev_word, &neg_mask, "i64");
-         
-         let bit_val_ext = format!("%bit_val_ext_{}", ctx.next_id());
-         ctx.emit_cast(out, &bit_val_ext, "arith.extui", &op_res, "i1", "i64");
-         let shifted_bit = format!("%shifted_bit_{}", ctx.next_id());
-         ctx.emit_binop(out, &shifted_bit, "arith.shli", &bit_val_ext, &offset_val, "i64");
-         
-         let new_word = format!("%new_word_{}", ctx.next_id());
-         ctx.emit_binop(out, &new_word, "arith.ori", &cleared, &shifted_bit, "i64");
-         
-         ctx.emit_store(out, &new_word, &ptr, word_mlir);
-         return Ok(("%unit".to_string(), Type::Unit));
+    if let LValueKind::Bit(offset_val) = &kind {
+        return emit_bit_compound_assign(ctx, out, offset_val, &ptr, b, local_vars);
     }
 
-    // TENSOR COMPOUND ASSIGN [V7.9]: Use memref.load + op + memref.store
-    if let LValueKind::Tensor { ref memref, ref indices, ref elem_ty, ref shape } = kind {
-        let elem_mlir = elem_ty.to_mlir_storage_type(ctx)?;
-        
-        // Build memref type string
-        let shape_str = shape.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("x");
-        let memref_ty = format!("memref<{}x{}>", shape_str, elem_mlir);
-        
-        // Build index list string
-        let indices_str = indices.join(", ");
-        
-        // 1. Load current value using memref.load
-        let load_tmp = format!("%tensor_load_cmp_{}", ctx.next_id());
-        out.push_str(&format!("    {} = memref.load {}[{}] : {}\n", 
-            load_tmp, memref, indices_str, memref_ty));
-        
-        // 2. Evaluate RHS and Promote
-        let (rhs_val, rhs_ty) = emit_expr(ctx, out, &b.right, local_vars, Some(elem_ty))?;
-        let rhs_prom = promote_numeric(ctx, out, &rhs_val, &rhs_ty, elem_ty)?;
-        
-        // 3. Compute Result
-        let bin_op = if elem_ty.is_float() {
-            match b.op {
-                syn::BinOp::AddAssign(_) => "arith.addf",
-                syn::BinOp::SubAssign(_) => "arith.subf",
-                syn::BinOp::MulAssign(_) => "arith.mulf",
-                syn::BinOp::DivAssign(_) => "arith.divf",
-                _ => return Err(format!("Unsupported Tensor float assign op: {:?}", b.op))
-            }
-        } else {
-            match b.op {
-                syn::BinOp::AddAssign(_) => "arith.addi",
-                syn::BinOp::SubAssign(_) => "arith.subi",
-                syn::BinOp::MulAssign(_) => "arith.muli",
-                syn::BinOp::DivAssign(_) => "arith.divsi",
-                _ => return Err(format!("Unsupported Tensor int assign op: {:?}", b.op))
-            }
-        };
-        
-        let op_res = format!("%tensor_op_{}", ctx.next_id());
-        ctx.emit_binop(out, &op_res, bin_op, &load_tmp, &rhs_prom, &elem_mlir);
-        
-        // 4. Store using memref.store
-        out.push_str(&format!("    memref.store {}, {}[{}] : {}\n", 
-            op_res, memref, indices_str, memref_ty));
-        
-        return Ok(("%unit".to_string(), Type::Unit));
+    if let LValueKind::Tensor { memref, indices, elem_ty, shape } = &kind {
+        return emit_tensor_compound_assign(ctx, out, memref, indices, elem_ty, shape, b, local_vars);
     }
 
     let load_tmp = format!("%load_cmp_{}", ctx.next_id());
@@ -856,7 +637,6 @@ pub fn emit_compound_assign(ctx: &mut LoweringContext, out: &mut String, b: &syn
     let common_ty = ptr_ty.clone(); 
     let rhs_prom = promote_numeric(ctx, out, &rhs_val, &rhs_ty, &common_ty)?;
     
-    let _op_res = format!("%cmp_res_{}", ctx.next_id());
     let bin_op = if matches!(ptr_ty, Type::F32 | Type::F64) {
         match b.op {
             syn::BinOp::AddAssign(_) => "arith.addf",
@@ -882,8 +662,6 @@ pub fn emit_compound_assign(ctx: &mut LoweringContext, out: &mut String, b: &syn
         }
     };
     
-    // Standardize store
-    let _mlir_storage_ty = ptr_ty.to_mlir_storage_type(ctx)?;
     let binop_ty = ptr_ty.to_mlir_type(ctx)?; 
 
     let op_res = format!("%cmp_res_{}", ctx.next_id());
@@ -891,15 +669,15 @@ pub fn emit_compound_assign(ctx: &mut LoweringContext, out: &mut String, b: &syn
 
     ctx.emit_store_logical_with_scope(out, &op_res, &ptr, &ptr_ty, scopes)?;
     
-    // [PILLAR 2: Global LVN] Update cache with the computed result
     if let LValueKind::Global(ref global_name) = kind {
         if !global_name.is_empty() {
             ctx.emission.global_lvn.cache_value(global_name.clone(), op_res.clone());
         }
     }
-    
+
     Ok(("%unit".to_string(), Type::Unit))
 }
+
 
 pub fn emit_unary(ctx: &mut LoweringContext, out: &mut String, u: &syn::ExprUnary, local_vars: &mut HashMap<String, (Type, LocalKind)>, _expected: Option<&Type>) -> Result<(String, Type), String> {
     let (val, ty) = emit_expr(ctx, out, &u.expr, local_vars, None)?;
@@ -945,25 +723,35 @@ pub fn emit_unary(ctx: &mut LoweringContext, out: &mut String, u: &syn::ExprUnar
         syn::UnOp::Deref(_) => {
             // [POINTER SAFETY] Check if pointer is safe to dereference (Valid)
             if let syn::Expr::Path(expr_path) = &*u.expr {
-                if !*ctx.is_dynamic_check_block() {
+                let is_dynamic = *ctx.is_dynamic_check_block() || ctx.emission.in_dynamic_check_fn;
+                if !is_dynamic {
                     if let Some(ident) = expr_path.path.get_ident() {
                         ctx.pointer_tracker.check_deref(&ident.to_string())?;
                     }
                 }
             }
 
-            let (ptr_val, ptr_ty) = emit_expr(ctx, out, &u.expr, local_vars, _expected)?;
-            
             // [PHASE 1.5] Tier 3: @dynamic_check Epoch Verification
-            if *ctx.is_dynamic_check_block() {
-                out.push_str(&format!("    llvm.call @salt_verify_epoch({}) : (!llvm.ptr) -> ()\n", ptr_val));
+            let is_dynamic = *ctx.is_dynamic_check_block() || ctx.emission.in_dynamic_check_fn;
+            let mut current_ptr_val = val.clone();
+            if is_dynamic {
+                out.push_str(&format!("    llvm.call @salt_verify_epoch({}) : (!llvm.ptr) -> ()\n", current_ptr_val));
+                let as_int = format!("%tag_int_{}", ctx.next_id());
+                let mask = format!("%tag_mask_{}", ctx.next_id());
+                let stripped_int = format!("%stripped_int_{}", ctx.next_id());
+                let stripped_ptr = format!("%stripped_ptr_{}", ctx.next_id());
+                out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", as_int, current_ptr_val));
+                out.push_str(&format!("    {} = llvm.mlir.constant(281474976710655 : i64) : i64\n", mask));
+                out.push_str(&format!("    {} = llvm.and {}, {} : i64\n", stripped_int, as_int, mask));
+                out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", stripped_ptr, stripped_int));
                 let _ = ctx.ensure_external_declaration("salt_verify_epoch", &[Type::Pointer { element: Box::new(Type::U8), is_mutable: false, provenance: crate::types::Provenance::Naked }], &Type::Unit);
+                current_ptr_val = stripped_ptr;
             }
 
-            let inner_ty = match ptr_ty {
-                Type::Reference(inner, _) => *inner,
-                Type::Pointer { element, .. } => *element, // [V12.4] Support deref of Ptr<T> directly
-                _ => return Err(format!("Cannot dereference non-pointer type: {:?}", ptr_ty)),
+            let inner_ty = match ty {
+                Type::Reference(inner, _) => *inner.clone(),
+                Type::Pointer { element, .. } => *element.clone(), // [V12.4] Support deref of Ptr<T> directly
+                _ => return Err(format!("Cannot dereference non-pointer type: {:?}", ty)),
             };
             
             let inner_mlir = inner_ty.to_mlir_storage_type(ctx)?;
@@ -986,16 +774,16 @@ pub fn emit_unary(ctx: &mut LoweringContext, out: &mut String, u: &syn::ExprUnar
                         format!(", noalias_scopes = [{}]", noalias_list.join(", "))
                     };
                     out.push_str(&format!("    {} = llvm.load {} {{ alias_scopes = [{}]{} }} : !llvm.ptr -> {}\n",
-                        raw_res, val, alias_scope, noalias_str, inner_mlir));
+                        raw_res, current_ptr_val, alias_scope, noalias_str, inner_mlir));
                 } else {
                     let _ = cf;
                     // Fallback to regular load with local/global scope
                     out.push_str(&format!("    {} = llvm.load {} {{ alias_scopes = [#scope_local], noalias = [#scope_global] }} : !llvm.ptr -> {}\n",
-                        raw_res, val, inner_mlir));
+                        raw_res, current_ptr_val, inner_mlir));
                 }
             } else {
                 // Alias scopes disabled — plain load
-                ctx.emit_load(out, &raw_res, &val, &inner_mlir);
+                ctx.emit_load(out, &raw_res, &current_ptr_val, &inner_mlir);
             }
             
             let final_res = if inner_ty == Type::Bool {
@@ -1015,115 +803,211 @@ pub fn emit_cast(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCast,
     let syn_ty = crate::grammar::SynType::from_std(*c.ty.clone())
         .map_err(|e| format!("Invalid cast target type: {}", e))?;
     let raw_target_ty = resolve_type(ctx, &syn_ty);
-    // [KEUOS FIX] Apply current type_map to resolve generics like T -> u8 in cast expressions
     let target_ty = raw_target_ty.substitute(&ctx.current_type_map());
 
-    // [STRING→STRINGVIEW CAST] "hello" as StringView → synthesize { ptr, len } at compile time
-    // Detects string literal source + StringView target type, emits struct construction.
-    {
-        let is_stringview_target = match &target_ty {
-            Type::Struct(name) | Type::Concrete(name, _) => name.contains("StringView"),
-            _ => false,
-        };
-        if is_stringview_target {
-            if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = &*c.expr {
-                let val = s.value();
-                let str_len = val.len();
+    if let Some(res) = emit_cast_to_stringview(ctx, out, &c.expr, &target_ty)? {
+        return Ok(res);
+    }
+    
+    if let Some(res) = emit_cast_array_to_ptr(ctx, &c.expr, &target_ty, local_vars)? {
+        return Ok(res);
+    }
+    
+    if let Some(res) = emit_cast_to_pointer(ctx, out, &c.expr, &target_ty, local_vars)? {
+        return Ok(res);
+    }
+    
+    if let Some(res) = emit_cast_to_reference(ctx, out, &c.expr, &target_ty, local_vars)? {
+        return Ok(res);
+    }
 
-                // Reuse or create the string global (same dedup logic as normal string literals)
-                let existing = ctx.string_literals().iter()
-                    .find(|(_, content, _)| *content == val)
-                    .map(|(name, _, _)| name.clone());
-                let global_id = if let Some(existing_id) = existing {
-                    existing_id
-                } else {
-                    let new_id = format!("str_{}", ctx.next_id());
-                    ctx.string_literals_mut().push((new_id.clone(), val.clone(), str_len));
-                    new_id
-                };
+    let (val, ty) = emit_expr(ctx, out, &c.expr, local_vars, Some(&target_ty))?;
 
-                // Get pointer to the string global
-                let ptr_var = format!("%sv_ptr_{}", ctx.next_id());
-                ctx.emit_addressof(out, &ptr_var, &global_id)?;
+    if ty == target_ty {
+        return Ok((val, target_ty));
+    }
 
-                // Emit compile-time length constant
-                let len_var = format!("%sv_len_{}", ctx.next_id());
-                out.push_str(&format!("    {} = arith.constant {} : i64\n", len_var, str_len));
+    let res = emit_primitive_or_struct_cast(ctx, out, val, &ty, &target_ty)?;
+    Ok((res, target_ty))
+}
 
-                // Build StringView struct: { ptr: !llvm.ptr, len: i64 }
-                let mlir_ty = target_ty.to_mlir_type(ctx)?;
-                let undef = format!("%sv_undef_{}", ctx.next_id());
-                let with_ptr = format!("%sv_wptr_{}", ctx.next_id());
-                let result = format!("%sv_result_{}", ctx.next_id());
-                out.push_str(&format!("    {} = llvm.mlir.undef : {}\n", undef, mlir_ty));
-                out.push_str(&format!("    {} = llvm.insertvalue {}, {}[0] : {}\n", with_ptr, ptr_var, undef, mlir_ty));
-                out.push_str(&format!("    {} = llvm.insertvalue {}, {}[1] : {}\n", result, len_var, with_ptr, mlir_ty));
 
-                return Ok((result, target_ty));
+
+fn apply_pointer_state_to_lhs(ctx: &mut LoweringContext, left: &syn::Expr) {
+    let pending_state = ctx.pending_pointer_state.take();
+    if let Some(state) = pending_state {
+        if let syn::Expr::Path(p) = left {
+            if let Some(ident) = p.path.get_ident() {
+                let var_name = ident.to_string();
+                match state {
+                    crate::codegen::verification::PointerState::Empty => ctx.pointer_tracker.mark_empty(&var_name),
+                    crate::codegen::verification::PointerState::Valid => ctx.pointer_tracker.mark_valid(&var_name),
+                    crate::codegen::verification::PointerState::Optional => ctx.pointer_tracker.mark_optional(&var_name),
+                    crate::codegen::verification::PointerState::Freed => ctx.pointer_tracker.mark_freed(&var_name),
+                    crate::codegen::verification::PointerState::Uninitialized => ctx.pointer_tracker.mark_uninitialized(&var_name),
+                }
             }
         }
     }
+}
 
-    // [STACK ARRAY] Array → Pointer cast: return alloca address directly.
-    // Stack arrays are allocated via `llvm.alloca ... x !llvm.array<N x T>` → `!llvm.ptr`.
-    // We must NOT load the array value (which is `!llvm.array<N x i8>`), but instead
-    // return the alloca pointer itself (which is already `!llvm.ptr`).
+fn mark_field_assign_escape(ctx: &mut LoweringContext, right: &syn::Expr) {
+    let mut rhs_expr = right;
+    while let syn::Expr::Cast(c) = rhs_expr {
+        rhs_expr = &*c.expr;
+    }
+    if let syn::Expr::Path(p) = rhs_expr {
+        if p.path.segments.len() == 1 {
+            let rhs_var = p.path.segments[0].ident.to_string();
+            let alloc_id = format!("malloc:{}", rhs_var);
+            ctx.malloc_tracker.mark_escaped(&alloc_id);
+            ctx.malloc_tracker.mark_escaped(&rhs_var);
+        }
+    }
+}
+
+fn check_arena_escape(ctx: &mut LoweringContext, left: &syn::Expr, right: &syn::Expr) -> Result<(), String> {
+    if ctx.arena_escape_tracker.is_active() {
+        if let syn::Expr::Path(rhs_p) = right {
+            if let Some(rhs_ident) = rhs_p.path.get_ident() {
+                let rhs_var = rhs_ident.to_string();
+                let lhs_var = extract_field_assign_receiver(left);
+                if let Some(lhs_var) = lhs_var {
+                    return ctx.arena_escape_tracker.check_store_escape(&rhs_var, &lhs_var);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn emit_bit_packed_store(ctx: &mut LoweringContext, out: &mut String, rhs_prom: String, rhs_ty: Type, offset_val: String, ptr: String) -> Result<(String, Type), String> {
+    let word_mlir = "i64";
+    
+    let prev_word = format!("%prev_word_{}", ctx.next_id());
+    ctx.emit_load(out, &prev_word, &ptr, word_mlir);
+    
+    let one = format!("%one_{}", ctx.next_id());
+    ctx.emit_const_int(out, &one, 1, "i64");
+    let sh_mask = format!("%sh_mask_{}", ctx.next_id());
+    ctx.emit_binop(out, &sh_mask, "arith.shli", &one, &offset_val, "i64");
+    
+    let minus_one = format!("%c_minus_1_{}", ctx.next_id());
+    ctx.emit_const_int(out, &minus_one, -1, "i64");
+    
+    let neg_mask = format!("%neg_mask_{}", ctx.next_id());
+    ctx.emit_binop(out, &neg_mask, "arith.xori", &sh_mask, &minus_one, "i64");
+    
+    let cleared = format!("%cleared_{}", ctx.next_id());
+    ctx.emit_binop(out, &cleared, "arith.andi", &prev_word, &neg_mask, "i64");
+    
+    let bit_val = if rhs_ty == Type::Bool {
+         let zext = format!("%bit_zext_{}", ctx.next_id());
+         ctx.emit_cast(out, &zext, "arith.extui", &rhs_prom, "i1", "i64");
+         zext
+    } else {
+         rhs_prom
+    };
+    
+    let shifted_bit = format!("%shifted_bit_{}", ctx.next_id());
+    ctx.emit_binop(out, &shifted_bit, "arith.shli", &bit_val, &offset_val, "i64");
+    
+    let new_word = format!("%new_word_{}", ctx.next_id());
+    ctx.emit_binop(out, &new_word, "arith.ori", &cleared, &shifted_bit, "i64");
+    
+    ctx.emit_store(out, &new_word, &ptr, word_mlir);
+    Ok(("%unit".to_string(), Type::Unit))
+}
+
+
+fn emit_cast_to_stringview(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, target_ty: &Type) -> Result<Option<(String, Type)>, String> {
+    let is_stringview_target = match target_ty {
+        Type::Struct(name) | Type::Concrete(name, _) => name.contains("StringView"),
+        _ => false,
+    };
+    if is_stringview_target {
+        if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = expr {
+            let val = s.value();
+            let str_len = val.len();
+
+            let existing = ctx.string_literals().iter()
+                .find(|(_, content, _)| *content == val)
+                .map(|(name, _, _)| name.clone());
+            let global_id = if let Some(existing_id) = existing {
+                existing_id
+            } else {
+                let new_id = format!("str_{}", ctx.next_id());
+                ctx.string_literals_mut().push((new_id.clone(), val.clone(), str_len));
+                new_id
+            };
+
+            let ptr_var = format!("%sv_ptr_{}", ctx.next_id());
+            ctx.emit_addressof(out, &ptr_var, &global_id)?;
+
+            let len_var = format!("%sv_len_{}", ctx.next_id());
+            out.push_str(&format!("    {} = arith.constant {} : i64\n", len_var, str_len));
+
+            let mlir_ty = target_ty.to_mlir_type(ctx)?;
+            let undef = format!("%sv_undef_{}", ctx.next_id());
+            let with_ptr = format!("%sv_wptr_{}", ctx.next_id());
+            let result = format!("%sv_result_{}", ctx.next_id());
+            out.push_str(&format!("    {} = llvm.mlir.undef : {}\n", undef, mlir_ty));
+            out.push_str(&format!("    {} = llvm.insertvalue {}, {}[0] : {}\n", with_ptr, ptr_var, undef, mlir_ty));
+            out.push_str(&format!("    {} = llvm.insertvalue {}, {}[1] : {}\n", result, len_var, with_ptr, mlir_ty));
+
+            return Ok(Some((result, target_ty.clone())));
+        }
+    }
+    Ok(None)
+}
+
+fn emit_cast_array_to_ptr(_ctx: &mut LoweringContext, expr: &syn::Expr, target_ty: &Type, local_vars: &HashMap<String, (Type, LocalKind)>) -> Result<Option<(String, Type)>, String> {
     if matches!(target_ty, Type::Pointer { .. }) {
-        // Check if inner expression is a variable of Array type
-        if let syn::Expr::Path(p) = &*c.expr {
+        if let syn::Expr::Path(p) = expr {
             if p.path.segments.len() == 1 {
                 let var_name = p.path.segments[0].ident.to_string();
-                if let Some((ref var_ty, ref kind)) = local_vars.get(&var_name).cloned() {
+                if let Some((var_ty, kind)) = local_vars.get(&var_name) {
                     if matches!(var_ty, Type::Array(..)) {
-                        // Return the alloca address — it's already !llvm.ptr
                         let ptr = match kind {
                             LocalKind::Ptr(ptr) => ptr.clone(),
                             LocalKind::SSA(ssa) => ssa.clone(),
                         };
-                        return Ok((ptr, target_ty));
+                        return Ok(Some((ptr, target_ty.clone())));
                     }
                 }
             }
         }
     }
+    Ok(None)
+}
 
-    // [PTR CAST] Pointer-to-Pointer and Integer-to-Pointer casts
-    // With LLVM opaque pointers, Ptr<A> → Ptr<B> is a type-level no-op.
-    // Integer → Ptr<T> uses llvm.inttoptr.
+fn emit_cast_to_pointer(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, target_ty: &Type, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<Option<(String, Type)>, String> {
     if matches!(target_ty, Type::Pointer { .. }) {
-        let (val, ty) = emit_expr(ctx, out, &c.expr, local_vars, None)?;
+        let (val, ty) = emit_expr(ctx, out, expr, local_vars, None)?;
         if matches!(ty, Type::Pointer { .. }) {
-            // Ptr<A> → Ptr<B>: same !llvm.ptr SSA value, just change the type
-            return Ok((val, target_ty));
+            return Ok(Some((val, target_ty.clone())));
         }
         if matches!(ty, Type::U64 | Type::I64 | Type::Usize) {
-            // [SIP SAFETY GATE] Reject integer-to-pointer in sip_mode (Mode B SIPs)
-            // Allowing this would let SIPs write to arbitrary kernel memory.
-            // Kernel code (lib_mode without sip_mode) is NOT gated.
             if ctx.config.sip_mode {
-                return Err("SIP safety violation: integer-to-pointer cast is not allowed in Mode B SIPs. \
-                    Raw pointer creation bypasses compiler verification.".to_string());
+                return Err("SIP safety violation: integer-to-pointer cast is not allowed in Mode B SIPs.                     Raw pointer creation bypasses compiler verification.".to_string());
             }
             let res = format!("%inttoptr_{}", ctx.next_id());
             out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", res, val));
-            return Ok((res, target_ty));
+            return Ok(Some((res, target_ty.clone())));
         }
     }
+    Ok(None)
+}
 
-    // [KERNEL CAST] Integer/Reference → Reference (&T / &mut T)
-    // Enables kernel patterns like: *(addr as &mut u8) = value
-    // References lower to !llvm.ptr, so this is semantically identical to Pointer casts.
+fn emit_cast_to_reference(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, target_ty: &Type, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<Option<(String, Type)>, String> {
     if matches!(target_ty, Type::Reference(_, _)) {
-        let (val, ty) = emit_expr(ctx, out, &c.expr, local_vars, None)?;
+        let (val, ty) = emit_expr(ctx, out, expr, local_vars, None)?;
         if matches!(ty, Type::Reference(_, _) | Type::Pointer { .. }) {
-            // Ref→Ref or Ptr→Ref: same !llvm.ptr SSA value, just change the type
-            return Ok((val, target_ty));
+            return Ok(Some((val, target_ty.clone())));
         }
         if matches!(ty, Type::U64 | Type::I64 | Type::Usize) {
-            // [SIP SAFETY GATE] Reject integer-to-reference in sip_mode (Mode B SIPs)
             if ctx.config.sip_mode {
-                return Err("SIP safety violation: integer-to-pointer cast is not allowed in Mode B SIPs. \
-                    Raw pointer creation bypasses compiler verification.".to_string());
+                return Err("SIP safety violation: integer-to-pointer cast is not allowed in Mode B SIPs.                     Raw pointer creation bypasses compiler verification.".to_string());
             }
             let res = format!("%inttoptr_ref_{}", ctx.next_id());
             let int_val = if ty == Type::Usize {
@@ -1134,54 +1018,44 @@ pub fn emit_cast(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCast,
                 val
             };
             out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", res, int_val));
-            return Ok((res, target_ty));
+            return Ok(Some((res, target_ty.clone())));
         }
     }
+    Ok(None)
+}
 
-    // [V25.5] Propagate target type as expected hint to inner expression
-    // This allows (i * 8) as u64 to infer i64 context, fixing Usize+I64 mixing in loop arithmetic
-    let (val, ty) = emit_expr(ctx, out, &c.expr, local_vars, Some(&target_ty))?;
-
-    if ty == target_ty {
-        return Ok((val, target_ty));
-    }
-
-    let res = if ty == Type::Bool && target_ty.is_numeric() {
+fn emit_primitive_or_struct_cast(ctx: &mut LoweringContext, out: &mut String, val: String, ty: &Type, target_ty: &Type) -> Result<String, String> {
+    if ty == &Type::Bool && target_ty.is_numeric() {
         let target_mlir = target_ty.to_mlir_type(ctx)?;
         let res = format!("%cast_bool_{}", ctx.next_id());
         out.push_str(&format!("    {} = arith.extui {} : i1 to {}\n", res, val, target_mlir));
-        res
-    } else if ty.is_numeric() && target_ty == Type::Bool {
+        Ok(res)
+    } else if ty.is_numeric() && target_ty == &Type::Bool {
         let res = format!("%cast_to_bool_{}", ctx.next_id());
         let zero_const = format!("%zero_cmp_{}", ctx.next_id());
         let mlir_ty = ty.to_mlir_type(ctx)?;
         out.push_str(&format!("    {} = arith.constant 0 : {}\n", zero_const, mlir_ty));
         out.push_str(&format!("    {} = arith.cmpi \"ne\", {}, {} : {}\n", res, val, zero_const, mlir_ty));
-        res
+        Ok(res)
     } else if ty.k_is_ptr_type() && target_ty.is_integer() {
         let res = format!("%ptr_to_int_{}", ctx.next_id());
         let dst_mlir = target_ty.to_mlir_type(ctx)?;
         out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to {}\n", res, val, dst_mlir));
-        res
+        Ok(res)
     } else if (matches!(ty, Type::Reference(_, _) | Type::Concrete(..)) && matches!(target_ty, Type::Reference(_, _) | Type::Concrete(..))) {
-         // Check if concrete types are Ptr
          let is_ty_ptr = matches!(ty, Type::Reference(_, _)) || if let Type::Concrete(ref n, _) = ty { n.contains("Ptr") } else { false };
          let is_target_ptr = matches!(target_ty, Type::Reference(_, _)) || if let Type::Concrete(ref n, _) = target_ty { n.contains("Ptr") } else { false };
          
          if is_ty_ptr && is_target_ptr {
-             // Pointer Cast (Bitcast)
              let target_mlir = target_ty.to_mlir_type(ctx)?;
              let ty_mlir = ty.to_mlir_type(ctx)?;
              
              if (ty_mlir.starts_with("!llvm.struct") || ty_mlir.starts_with("!struct_")) && (target_mlir.starts_with("!llvm.struct") || target_mlir.starts_with("!struct_")) {
-
-                  // Struct to Struct Cast (Ptr<A> -> Ptr<B>)
                   let is_thin_ptr = match ty {
                       Type::Concrete(ref n, _) => n.ends_with("Ptr") || n.contains("std__core__ptr__Ptr"),
                       Type::Struct(ref n) => n.contains("std__core__ptr__Ptr") || n.contains("Ptr_") || n.ends_with("Ptr_u8") || n.ends_with("Ptr_i64"),
                       _ => false
                   };
-
                   
                   let inner_ptr = format!("%inner_ptr_{}", ctx.next_id());
                   out.push_str(&format!("    {} = llvm.extractvalue {}[0] : {}\n", inner_ptr, val, ty_mlir));
@@ -1197,21 +1071,127 @@ pub fn emit_cast(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCast,
                        out.push_str(&format!("    {} = llvm.extractvalue {}[1] : {}\n", size_val, val, ty_mlir));
                        let res = format!("%cast_res_{}", ctx.next_id());
                        out.push_str(&format!("    {} = llvm.insertvalue {}, {}[1] : {}\n", res, size_val, step1, target_mlir));
-                       res
+                       Ok(res)
                   } else {
-                       step1
+                       Ok(step1)
                   }
-
              } else {
                  let res = format!("%cast_ptr_{}", ctx.next_id());
                  out.push_str(&format!("    {} = llvm.bitcast {} : {} to {}\n", res, val, ty_mlir, target_mlir));
-                 res
+                 Ok(res)
              }
          } else {
-             cast_numeric(ctx, out, &val, &ty, &target_ty)?
+             cast_numeric(ctx, out, &val, ty, target_ty)
          }
     } else {
-        cast_numeric(ctx, out, &val, &ty, &target_ty)?
+        cast_numeric(ctx, out, &val, ty, target_ty)
+    }
+}
+
+
+fn emit_bit_compound_assign(
+    ctx: &mut LoweringContext, 
+    out: &mut String, 
+    offset_val: &str, 
+    ptr: &str, 
+    b: &syn::ExprBinary, 
+    local_vars: &mut HashMap<String, (Type, LocalKind)>
+) -> Result<(String, Type), String> {
+    let word_mlir = "i64";
+    let prev_word = format!("%prev_word_{}", ctx.next_id());
+    ctx.emit_load(out, &prev_word, ptr, word_mlir);
+
+    let one = format!("%one_{}", ctx.next_id());
+    ctx.emit_const_int(out, &one, 1, "i64");
+    let shifted_down = format!("%shifted_down_{}", ctx.next_id());
+    ctx.emit_binop(out, &shifted_down, "arith.shrui", &prev_word, offset_val, "i64");
+    let lhs_val_i1 = format!("%lhs_bit_{}", ctx.next_id());
+    ctx.emit_cast(out, &lhs_val_i1, "arith.trunci", &shifted_down, "i64", "i1");
+    
+    let (rhs_val, rhs_ty) = emit_expr(ctx, out, &b.right, local_vars, None)?;
+    let rhs_prom = promote_numeric(ctx, out, &rhs_val, &rhs_ty, &Type::Bool)?;
+
+    let op_res = format!("%op_res_{}", ctx.next_id());
+    
+    let bin_op = match b.op {
+        syn::BinOp::BitAndAssign(_) => "arith.andi",
+        syn::BinOp::BitOrAssign(_) => "arith.ori",
+        syn::BinOp::BitXorAssign(_) => "arith.xori",
+        _ => return Err(format!("Unsupported compound assign on bool/bit: {:?}", b.op))
     };
-    Ok((res, target_ty.clone()))
+    ctx.emit_binop(out, &op_res, bin_op, &lhs_val_i1, &rhs_prom, "i1");
+
+    let sh_mask = format!("%sh_mask_{}", ctx.next_id());
+    ctx.emit_binop(out, &sh_mask, "arith.shli", &one, offset_val, "i64");
+    
+    let minus_one = format!("%c_minus_1_cmp_{}", ctx.next_id());
+    ctx.emit_const_int(out, &minus_one, -1, "i64");
+    
+    let neg_mask = format!("%neg_mask_{}", ctx.next_id());
+    ctx.emit_binop(out, &neg_mask, "arith.xori", &sh_mask, &minus_one, "i64");
+    
+    let cleared = format!("%cleared_{}", ctx.next_id());
+    ctx.emit_binop(out, &cleared, "arith.andi", &prev_word, &neg_mask, "i64");
+    
+    let bit_val_ext = format!("%bit_val_ext_{}", ctx.next_id());
+    ctx.emit_cast(out, &bit_val_ext, "arith.extui", &op_res, "i1", "i64");
+    let shifted_bit = format!("%shifted_bit_{}", ctx.next_id());
+    ctx.emit_binop(out, &shifted_bit, "arith.shli", &bit_val_ext, offset_val, "i64");
+    
+    let new_word = format!("%new_word_{}", ctx.next_id());
+    ctx.emit_binop(out, &new_word, "arith.ori", &cleared, &shifted_bit, "i64");
+    
+    ctx.emit_store(out, &new_word, ptr, word_mlir);
+    Ok(("%unit".to_string(), Type::Unit))
+}
+
+fn emit_tensor_compound_assign(
+    ctx: &mut LoweringContext, 
+    out: &mut String, 
+    memref: &str, 
+    indices: &[String], 
+    elem_ty: &Type, 
+    shape: &[usize], 
+    b: &syn::ExprBinary, 
+    local_vars: &mut HashMap<String, (Type, LocalKind)>
+) -> Result<(String, Type), String> {
+    let elem_mlir = elem_ty.to_mlir_storage_type(ctx)?;
+    
+    let shape_str = shape.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("x");
+    let memref_ty = format!("memref<{}x{}>", shape_str, elem_mlir);
+    
+    let indices_str = indices.join(", ");
+    
+    let load_tmp = format!("%tensor_load_cmp_{}", ctx.next_id());
+    out.push_str(&format!("    {} = memref.load {}[{}] : {}\n", 
+        load_tmp, memref, indices_str, memref_ty));
+    
+    let (rhs_val, rhs_ty) = emit_expr(ctx, out, &b.right, local_vars, Some(elem_ty))?;
+    let rhs_prom = promote_numeric(ctx, out, &rhs_val, &rhs_ty, elem_ty)?;
+    
+    let bin_op = if elem_ty.is_float() {
+        match b.op {
+            syn::BinOp::AddAssign(_) => "arith.addf",
+            syn::BinOp::SubAssign(_) => "arith.subf",
+            syn::BinOp::MulAssign(_) => "arith.mulf",
+            syn::BinOp::DivAssign(_) => "arith.divf",
+            _ => return Err(format!("Unsupported Tensor float assign op: {:?}", b.op))
+        }
+    } else {
+        match b.op {
+            syn::BinOp::AddAssign(_) => "arith.addi",
+            syn::BinOp::SubAssign(_) => "arith.subi",
+            syn::BinOp::MulAssign(_) => "arith.muli",
+            syn::BinOp::DivAssign(_) => "arith.divsi",
+            _ => return Err(format!("Unsupported Tensor int assign op: {:?}", b.op))
+        }
+    };
+    
+    let op_res = format!("%tensor_op_{}", ctx.next_id());
+    ctx.emit_binop(out, &op_res, bin_op, &load_tmp, &rhs_prom, &elem_mlir);
+    
+    out.push_str(&format!("    memref.store {}, {}[{}] : {}\n", 
+        op_res, memref, indices_str, memref_ty));
+    
+    Ok(("%unit".to_string(), Type::Unit))
 }

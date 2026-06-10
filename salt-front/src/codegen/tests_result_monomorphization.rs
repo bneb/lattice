@@ -14,7 +14,7 @@
 #[cfg(test)]
 mod tests {
     use crate::types::{Type, Provenance};
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::BTreeMap;
 
     // =========================================================================
     // Section 1: Type::substitute for Pointer { element: Struct("T") }
