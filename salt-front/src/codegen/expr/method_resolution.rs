@@ -7,68 +7,55 @@ use crate::codegen::expr::{emit_expr, promote_numeric, get_path_from_expr, infer
 use crate::codegen::type_bridge::{resolve_type, resolve_codegen_type};
 use crate::codegen::expr::utils::resolve_package_prefix_ctx;
 
-pub fn resolve_and_emit_method(
+
+fn get_type_based_pkg(ctx: &LoweringContext, receiver_ty: &Type, cached_receiver_val: &Option<String>) -> Option<String> {
+    let type_based_pkg = match receiver_ty {
+        Type::Struct(name) | Type::Concrete(name, _) => Some(name.clone()),
+        Type::Pointer { .. } => Some("std__core__ptr__Ptr".to_string()),
+        _ => None,
+    };
+    if let Some(name) = type_based_pkg.as_ref() {
+        if cached_receiver_val.is_none() {
+            let is_known = ctx.struct_registry().values().any(|i| &i.name == name) || ctx.enum_registry().values().any(|i| &i.name == name);
+            if is_known { type_based_pkg } else { None }
+        } else { type_based_pkg }
+    } else { None }
+}
+
+fn get_receiver_generic_suffix(receiver_ty: &Type) -> Option<String> {
+    match receiver_ty {
+        Type::Concrete(_, args) if !args.is_empty() => Some(args.iter().map(|t| t.mangle_suffix()).collect::<Vec<_>>().join("_")),
+        Type::Pointer { element, .. } => Some(element.mangle_suffix()),
+        _ => None,
+    }
+}
+
+fn get_receiver_concrete_args(ctx: &mut LoweringContext, receiver_ty: &Type) -> Vec<Type> {
+    match receiver_ty {
+        Type::Concrete(_, args) => args.clone(),
+        Type::Reference(inner, _) => match inner.as_ref() {
+            Type::Concrete(_, args) => args.clone(),
+            Type::Pointer { element, .. } => vec![crate::codegen::type_bridge::resolve_codegen_type(ctx, &(**element))],
+            _ => vec![],
+        },
+        Type::Pointer { element, .. } => vec![crate::codegen::type_bridge::resolve_codegen_type(ctx, &(**element))],
+        _ => vec![],
+    }
+}
+
+fn try_resolve_static_method(
     ctx: &mut LoweringContext,
     out: &mut String,
     m: &syn::ExprMethodCall,
     local_vars: &mut HashMap<String, (Type, LocalKind)>,
     expected_ty: Option<&Type>,
+    receiver_ty: &Type,
     cached_receiver_val: &Option<String>,
     cached_receiver_ty: &Type,
-) -> Result<(String, Type), String> {
-    let mut receiver_ty = cached_receiver_ty.clone();
-    receiver_ty = receiver_ty.substitute(&ctx.current_type_map());
-    receiver_ty = resolve_codegen_type(ctx, &receiver_ty);
-    
-    // instead of the variable name (e.g., GLOBAL_ALLOC) to construct the method name.
+    type_based_pkg: &Option<String>,
+    receiver_generic_suffix: &Option<String>,
+) -> Result<Option<(String, Type)>, String> {
     let method = m.method.to_string();
-    let type_based_pkg = match &receiver_ty {
-        Type::Struct(name) => Some(name.clone()),
-        Type::Concrete(name, _args) => {
-            // For generic types like Ptr<u8>, we need the base name for method lookup
-            // but will add the specialization suffix separately
-            Some(name.clone())
-        },
-        // [KEUOS FIX] Handle Type::Pointer for Ptr<T> method calls with fully-qualified name
-        Type::Pointer { .. } => Some("std__core__ptr__Ptr".to_string()),
-        _ => None,
-    };
-
-    // [MODULE NAMESPACE GUARD] If receiver has no value (cached_receiver_val is None),
-    // it was resolved purely as a type/module from imports (e.g. `serial` → Concrete("kernel__drivers__serial")).
-    // In this case, check if it's actually a known struct or enum in the registries.
-    // If not, it's a module namespace — clear type_based_pkg so we don't inject &self.
-    // NOTE: We intentionally do NOT check generic_impls here because it stores
-    // module-level functions (e.g. kernel__drivers__serial__init) not just struct methods.
-    let type_based_pkg = if let Some(name) = type_based_pkg.as_ref() {
-        if cached_receiver_val.is_none() {
-            let is_known_type = ctx.struct_registry().values().any(|info| &info.name == name)
-                || ctx.enum_registry().values().any(|info| &info.name == name);
-            if is_known_type {
-                type_based_pkg
-            } else {
-                None
-            }
-        } else {
-            type_based_pkg
-        }
-    } else {
-        None
-    };
-    
-    // Extract generic type arguments for method specialization suffix
-    let receiver_generic_suffix = match &receiver_ty {
-        Type::Concrete(_, args) if !args.is_empty() => {
-            Some(args.iter().map(|t| t.mangle_suffix()).collect::<Vec<_>>().join("_"))
-        },
-        // [KEUOS FIX] Extract element type from Type::Pointer for method specialization suffix
-        Type::Pointer { element, .. } => {
-            Some(element.mangle_suffix())
-        },
-        _ => None,
-    };
-
-    // 2. Check for Static Package Call (Namespace Lookahead)
     if let Some(segments) = get_path_from_expr(&m.receiver) {
         let is_local_var = segments.len() == 1 && local_vars.contains_key(&segments[0]);
         if let Some((pkg, item)) = if is_local_var { None } else { resolve_package_prefix_ctx(ctx, &segments) } {
@@ -120,23 +107,7 @@ pub fn resolve_and_emit_method(
                  // This is CRITICAL: we must pass the receiver's specialization args (e.g., [i64, i64] from HashMap<i64, i64>)
                  // so that request_specialization can generate the correct mangled name (HashMap__get_i64_i64)
                  // instead of the template name (HashMap__get_K_V)
-                 let receiver_concrete_args: Vec<Type> = match &receiver_ty {
-                     Type::Concrete(_, args) => args.clone(),
-                     Type::Reference(inner, _) => match inner.as_ref() {
-                         Type::Concrete(_, args) => args.clone(),
-                         // [KEUOS FIX] Extract from Reference(Pointer)
-                         Type::Pointer { element, .. } => {
-                             let canonical_element = crate::codegen::type_bridge::resolve_codegen_type(ctx, &(**element));
-                             vec![canonical_element]
-                         },
-                         _ => vec![],
-                     },
-                     Type::Pointer { element, .. } => {
-                         let canonical_element = crate::codegen::type_bridge::resolve_codegen_type(ctx, &(**element));
-                         vec![canonical_element]
-                     },
-                     _ => vec![],
-                 };
+                 let receiver_concrete_args: Vec<Type> = get_receiver_concrete_args(ctx, &receiver_ty);
 
                  
                  let _ = ctx.request_specialization(&base_mangled, receiver_concrete_args, Some(receiver_ty.clone()));
@@ -417,16 +388,16 @@ pub fn resolve_and_emit_method(
                                       let val_prom = promote_numeric(ctx, out, &val, &ty, &inner)?;
                                       let res = format!("%atomic_res_{}", ctx.next_id());
                                       ctx.emit_atomicrmw(out, &res, op, &receiver_addr, &val_prom, &mlir_ty);
-                                      return Ok((res, *inner));
+                                      return Ok(Some((res, *inner)));
                                   } else if method == "load" {
                                       let res = format!("%atomic_load_{}", ctx.next_id());
                                       ctx.emit_load_atomic(out, &res, &receiver_addr, &mlir_ty);
-                                      return Ok((res, *inner));
+                                      return Ok(Some((res, *inner)));
                                   } else if method == "store" {
                                       let (val, ty) = emit_expr(ctx, out, &m.args[0], local_vars, Some(&inner))?;
                                       let val_prom = promote_numeric(ctx, out, &val, &ty, &inner)?;
                                       ctx.emit_store_atomic(out, &val_prom, &receiver_addr, &mlir_ty);
-                                      return Ok(("%unit".to_string(), Type::Unit));
+                                      return Ok(Some(("%unit".to_string(), Type::Unit)));
                                   }
                               }
                           }
@@ -550,22 +521,28 @@ pub fn resolve_and_emit_method(
              }
 
              ctx.emission.global_lvn.clear();
-             return Ok((res, ret_ty));
+             return Ok(Some((res, ret_ty)));
         }
     }
+    Ok(None)
+}
 
-    let method_name = m.method.to_string();
-
+fn try_resolve_atomic_intrinsic(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    m: &syn::ExprMethodCall,
+    local_vars: &mut HashMap<String, (Type, LocalKind)>,
+    expected_ty: Option<&Type>,
+    method_name: &str,
+) -> Result<Option<(String, Type)>, String> {
     // 1. Try Intrinsic (e.g. popcount)
     let mut intrinsic_args = vec![*m.receiver.clone()];
     intrinsic_args.extend(m.args.iter().cloned());
-    if let Ok(Some(res)) = ctx.emit_intrinsic(out, &method_name, &intrinsic_args, local_vars, expected_ty) {
-         return Ok(res);
+    if let Ok(Some(res)) = ctx.emit_intrinsic(out, method_name, &intrinsic_args, local_vars, expected_ty) {
+         return Ok(Some(res));
     }
 
     // Special handling for Atomic intrinsics (fetch_add, fetch_sub, load, store)
-    // These intercept method calls on Atomic<T> and lower them directly to LLVM
-    // atomic instructions, enabling lock-free data structures (Treiber stacks, etc.)
     if let Ok((receiver_addr, receiver_ty, _kind)) = emit_lvalue(ctx, out, &m.receiver, local_vars) {
         if let Type::Atomic(inner) = receiver_ty {
             let mlir_ty = inner.to_mlir_type(ctx)?;
@@ -574,35 +551,40 @@ pub fn resolve_and_emit_method(
                  let val_prom = promote_numeric(ctx, out, &val, &ty, &inner)?;
                  let res = format!("%atomic_res_{}", ctx.next_id());
                  ctx.emit_atomicrmw(out, &res, "add", &receiver_addr, &val_prom, &mlir_ty);
-                 return Ok((res, *inner));
+                 return Ok(Some((res, *inner)));
             } else if method_name == "fetch_sub" {
                  let (val, ty) = emit_expr(ctx, out, &m.args[0], local_vars, Some(&inner))?;
                  let val_prom = promote_numeric(ctx, out, &val, &ty, &inner)?;
                  let res = format!("%atomic_res_{}", ctx.next_id());
                  ctx.emit_atomicrmw(out, &res, "sub", &receiver_addr, &val_prom, &mlir_ty);
-                 return Ok((res, *inner));
+                 return Ok(Some((res, *inner)));
             } else if method_name == "load" {
                  let res = format!("%atomic_load_{}", ctx.next_id());
                  ctx.emit_load_atomic(out, &res, &receiver_addr, &mlir_ty);
-                 return Ok((res, *inner));
+                 return Ok(Some((res, *inner)));
             } else if method_name == "store" {
                  let (val, ty) = emit_expr(ctx, out, &m.args[0], local_vars, Some(&inner))?;
                  let val_prom = promote_numeric(ctx, out, &val, &ty, &inner)?;
                  ctx.emit_store_atomic(out, &val_prom, &receiver_addr, &mlir_ty);
-                 return Ok(("%unit".to_string(), Type::Unit));
+                 return Ok(Some(("%unit".to_string(), Type::Unit)));
             }
         }
     }
+    Ok(None)
+}
 
-    // [ABI FIX] Use emit_lvalue for receivers to get address directly without loading 1KB+ structs
-    // This is the core fix for the "Fat Receiver" bug - we pass pointers, not values
-    let (receiver_ptr, receiver_ty) = if let Ok((addr, raw_ty, _kind)) = emit_lvalue(ctx, out, &m.receiver, local_vars) {
-        // [KEUOS FIX] Apply current type_map to resolve generics in lvalue types
+fn get_receiver_lvalue(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    receiver_expr: &syn::Expr,
+    local_vars: &mut HashMap<String, (Type, LocalKind)>,
+    cached_receiver_val: &Option<String>,
+    cached_receiver_ty: &Type,
+    method_name: &str,
+) -> Result<(String, Type), String> {
+    if let Ok((addr, raw_ty, _kind)) = emit_lvalue(ctx, out, receiver_expr, local_vars) {
         let ty = raw_ty.substitute(&ctx.current_type_map());
 
-        // Success: we have the address of the receiver
-        // Determine if this is an aggregate type that should be passed by reference
-        // [KEUOS FIX] Recursively check through Type::Owned, Type::Reference wrappers
         fn is_aggregate_type(ty: &Type) -> bool {
             match ty {
                 Type::Struct(_) | Type::Concrete(_, _) | Type::Array(_, _, _) => true,
@@ -613,30 +595,300 @@ pub fn resolve_and_emit_method(
         let is_aggregate = is_aggregate_type(&ty);
         let is_ref_ssa = matches!(ty, Type::Reference(_, _)) && matches!(_kind, crate::codegen::expr::LValueKind::SSA);
         if is_aggregate {
-            // Return the pointer directly - wrap type in Reference to signal pointer semantics
-            // This ensures downstream coercion logic (lines 2740+) knows we have a pointer
-            (addr, Type::Reference(Box::new(ty), false))
+            Ok((addr, Type::Reference(Box::new(ty), false)))
         } else if is_ref_ssa {
-            (addr, ty)
+            Ok((addr, ty))
         } else {
-            // For non-aggregates (primitives), load as usual
-
             let val = format!("%recv_load_{}", ctx.next_id());
             let mlir_ty = ty.to_mlir_storage_type(ctx)?;
             ctx.emit_load(out, &val, &addr, &mlir_ty);
-            (val, ty)
+            Ok((val, ty))
         }
     } else {
-        // Fallback: emit_lvalue failed, use cached receiver (MEMOIZATION FIX - no duplicate emission)
-        // For computed receivers like function results, we already emitted above
         if let Some(ref val) = cached_receiver_val {
-
-            // [KEUOS FIX] Apply substitution to cached receiver type too
-            (val.clone(), cached_receiver_ty.substitute(&ctx.current_type_map()))
+            Ok((val.clone(), cached_receiver_ty.substitute(&ctx.current_type_map())))
         } else {
-            return Err(format!("Method call '{}' requires a receiver value", method_name));
+            Err(format!("Method call '{}' requires a receiver value", method_name))
         }
-    };
+    }
+}
+
+fn populate_type_map_from_receiver(
+    ctx: &mut LoweringContext,
+    receiver_ty: &Type
+) -> (Vec<Type>, Option<String>, Type) {
+    let mut concrete_tys = Vec::new();
+    let mut template_name_opt = None;
+
+    let mut peeled_ty = receiver_ty.clone();
+    while let Type::Reference(inner, _) = peeled_ty {
+        peeled_ty = *inner;
+    }
+
+    if let Type::Struct(name) = &peeled_ty {
+        if let Some(info) = ctx.struct_registry().values().find(|i| i.name == *name).cloned() {
+             concrete_tys.extend(info.specialization_args);
+             template_name_opt = info.template_name;
+        } else if ctx.struct_templates().contains_key(name) {
+             template_name_opt = Some(name.clone());
+        }
+    } else if let Type::Enum(name) = &peeled_ty {
+        if let Some(info) = ctx.enum_registry().values().find(|i| i.name == *name).cloned() {
+             concrete_tys.extend(info.specialization_args);
+             template_name_opt = info.template_name;
+        } else if ctx.enum_templates().contains_key(name) {
+             template_name_opt = Some(name.clone());
+        }
+    } else if let Type::Concrete(name, args) = &peeled_ty {
+         concrete_tys.extend(args.iter().cloned());
+         template_name_opt = Some(name.clone());
+    } else if let Type::Pointer { element, .. } = &peeled_ty {
+         let canonical_element = crate::codegen::type_bridge::resolve_codegen_type(ctx, &(**element));
+         concrete_tys.push(canonical_element);
+         template_name_opt = Some("std__core__ptr__Ptr".to_string());
+    }
+
+    if let Some(t_name) = &template_name_opt {
+         let mut gen_params = if let Some(s) = ctx.struct_templates().get(t_name) {
+              s.generics.as_ref().map(|g| g.params.clone())
+         } else if let Some(e) = ctx.enum_templates().get(t_name) {
+              e.generics.as_ref().map(|g| g.params.clone())
+         } else {
+              None
+         };
+
+         if gen_params.is_none() {
+              if let Some(template_name) = ctx.find_struct_template_by_name(&t_name) {
+                  if let Some(template) = ctx.struct_templates().get(&template_name) {
+                      gen_params = template.generics.as_ref().map(|g| g.params.clone());
+                  }
+              }
+              if gen_params.is_none() {
+                  if let Some(template_name) = ctx.find_enum_template_by_name(&t_name) {
+                      if let Some(template) = ctx.enum_templates().get(&template_name) {
+                          gen_params = template.generics.as_ref().map(|g| g.params.clone());
+                      }
+                  }
+              }
+         }
+
+         if let Some(params) = gen_params {
+             for (i, param) in params.iter().enumerate() {
+                  if let Some(arg) = concrete_tys.get(i) {
+                       let name = match param {
+                           crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                           crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+                       };
+                       ctx.current_type_map_mut().insert(name, arg.clone());
+                  }
+             }
+         }
+    }
+    
+    (concrete_tys, template_name_opt, peeled_ty)
+}
+
+fn append_method_generics(
+    ctx: &mut LoweringContext,
+    m: &syn::ExprMethodCall,
+    concrete_tys: &mut Vec<Type>,
+    template_name_opt: &Option<String>,
+    func: &crate::grammar::SaltFn,
+    method_generic_map: &std::collections::BTreeMap<String, Type>,
+) -> Result<(), String> {
+    // Add method-level generic arguments if present (from sync ExprMethodCall.turbofish?)
+    if let Some(tf) = &m.turbofish {
+        for arg in &tf.args {
+            if let syn::GenericArgument::Type(ty_arg) = arg {
+                 concrete_tys.push(resolve_codegen_type(ctx, &crate::types::Type::from_syn(&crate::grammar::SynType::from_std(ty_arg.clone()).map_err(|e| e.to_string())?).ok_or_else(|| "Failed to parse type".to_string())?));
+            }
+        }
+    }
+    
+    // If concrete_tys is empty (no explicit args), try to infer from context map if template matches
+    if concrete_tys.is_empty() {
+         if let Some(t_name) = template_name_opt {
+              let gen_params = if let Some(s) = ctx.struct_templates().get(t_name) {
+                   s.generics.as_ref().map(|g| g.params.clone())
+              } else if let Some(e) = ctx.enum_templates().get(t_name) {
+                   e.generics.as_ref().map(|g| g.params.clone())
+              } else { None };
+
+              if let Some(params) = gen_params {
+                   let current_map = ctx.current_type_map();
+                   for param in &params {
+                        let name = match param {
+                             crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                             crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+                        };
+                        if let Some(arg) = current_map.get(&name) {
+                             concrete_tys.push(arg.clone());
+                        }
+                   }
+                   // If valid inference, concrete_tys should match params len
+                   if concrete_tys.len() != params.len() {
+                        concrete_tys.clear(); // Abort partially filled args
+                   }
+              }
+         }
+    }
+
+    // [PHASE 4.1 BIDIR BRIDGE]
+    if let Some(fn_generics) = &func.generics {
+        let turbofish_count = if let Some(tf) = &m.turbofish { tf.args.len() } else { 0 };
+        
+        let struct_generic_names: std::collections::HashSet<String> = {
+            let mut names = std::collections::HashSet::new();
+            if let Some(t_name) = template_name_opt {
+                let gen_params = {
+                    let templates = ctx.struct_templates();
+                    if let Some(s) = templates.get(t_name) {
+                        s.generics.as_ref().map(|g| g.params.clone())
+                    } else {
+                        let etemplates = ctx.enum_templates();
+                        etemplates.get(t_name).and_then(|e| e.generics.as_ref()).map(|g| g.params.clone())
+                    }
+                };
+                if let Some(params) = gen_params {
+                    for p in &params {
+                        let name = match p {
+                            crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                            crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+                        };
+                        names.insert(name);
+                    }
+                }
+            }
+            names
+        };
+
+        // Append only METHOD-level generics
+        let mut turbofish_remaining = turbofish_count;
+        for param in fn_generics.params.iter() {
+             let name = match param {
+                 crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+                 crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+             };
+             
+             if struct_generic_names.contains(&name) {
+                 continue;
+             }
+             
+             if turbofish_remaining > 0 {
+                 turbofish_remaining -= 1;
+                 continue;
+             }
+             
+             if let Some(resolved) = method_generic_map.get(&name) {
+                  concrete_tys.push(resolved.clone());
+             }
+        }
+    }
+    Ok(())
+}
+
+fn resolve_specialized_method_name(
+    ctx: &mut LoweringContext,
+    target_name: &str,
+    template_name_opt: &Option<String>,
+    peeled_ty: &Type,
+    method_name: &str,
+    method_lookup_ty: &Type,
+    concrete_tys: &[Type],
+) -> String {
+    let mut actual_target_name = target_name.to_string();
+    let is_specialized = !concrete_tys.is_empty();
+    if is_specialized {
+        let mut handled = false;
+        if let Some(t_name) = template_name_opt {
+             let specialized_mangled_raw = ctx.get_mangled(peeled_ty).to_string();
+             let specialized_mangled = specialized_mangled_raw.strip_prefix("!struct_")
+                 .unwrap_or(&specialized_mangled_raw).to_string();
+             
+             if specialized_mangled != *t_name {
+                  let (_base_prefix, override_name) = if let Type::Pointer { element, .. } = peeled_ty {
+                      let suffix = element.mangle_suffix();
+                      ("std__core__ptr__Ptr".to_string(), format!("std__core__ptr__Ptr__{}_{}", method_name, suffix))
+                  } else {
+                      (specialized_mangled.clone(), format!("{}__{}", specialized_mangled, method_name))
+                  };
+                  
+                  let func_name_to_request = format!("{}__{}", t_name, method_name);
+                  actual_target_name = ctx.request_explicit_specialization(
+                      &func_name_to_request,
+                      &override_name,
+                      concrete_tys.to_vec(),
+                      Some(method_lookup_ty.clone())
+                  );
+                  handled = true;
+             }
+        }
+        
+        if !handled {
+            let base_prefix = template_name_opt.as_ref().unwrap_or(&target_name.to_string()).clone();
+            actual_target_name = ctx.request_specialization(&format!("{}__{}", base_prefix, method_name), concrete_tys.to_vec(), Some(method_lookup_ty.clone()));
+        }
+    }
+    actual_target_name
+}
+
+fn apply_method_memory_model(
+    ctx: &mut LoweringContext,
+    m: &syn::ExprMethodCall,
+    method_name: &str,
+) {
+    if method_name != "free" && method_name != "drop" {
+        let is_extern = ctx.external_decls().contains(method_name);
+        if is_extern || ctx.config.freeing_functions.contains(method_name) {
+            if let Some(var_name) = super::extract_ident_name(&m.receiver) {
+                ctx.pointer_tracker.mark_optional(&var_name);
+            }
+            for arg in &m.args {
+                if let Some(var_name) = super::extract_ident_name(arg) {
+                    ctx.pointer_tracker.mark_optional(&var_name);
+                }
+            }
+        }
+    }
+}
+
+pub fn resolve_and_emit_method(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    m: &syn::ExprMethodCall,
+    local_vars: &mut HashMap<String, (Type, LocalKind)>,
+    expected_ty: Option<&Type>,
+    cached_receiver_val: &Option<String>,
+    cached_receiver_ty: &Type,
+) -> Result<(String, Type), String> {
+    let mut receiver_ty = cached_receiver_ty.clone();
+    receiver_ty = receiver_ty.substitute(&ctx.current_type_map());
+    receiver_ty = resolve_codegen_type(ctx, &receiver_ty);
+    
+    // instead of the variable name (e.g., GLOBAL_ALLOC) to construct the method name.
+    let method = m.method.to_string();
+    let method = m.method.to_string();
+    let type_based_pkg = get_type_based_pkg(ctx, &receiver_ty, cached_receiver_val);
+    let receiver_generic_suffix = get_receiver_generic_suffix(&receiver_ty);
+
+    // 2. Check for Static Package Call (Namespace Lookahead)
+    if let Some(res) = try_resolve_static_method(
+        ctx, out, m, local_vars, expected_ty, &receiver_ty,
+        cached_receiver_val, cached_receiver_ty, &type_based_pkg, &receiver_generic_suffix
+    )? {
+        return Ok(res);
+    }
+
+    let method_name = m.method.to_string();
+
+    if let Some(res) = try_resolve_atomic_intrinsic(ctx, out, m, local_vars, expected_ty, &method_name)? {
+        return Ok(res);
+    }
+
+
+    let (receiver_ptr, receiver_ty) = get_receiver_lvalue(
+        ctx, out, &m.receiver, local_vars, cached_receiver_val, cached_receiver_ty, &method_name
+    )?;
     let receiver_val = receiver_ptr.clone();
     // Extract inner type for method resolution (strip the Reference wrapper we added)
     let raw_lookup_ty = if let Type::Reference(inner, _) = &receiver_ty { *inner.clone() } else { receiver_ty.clone() };
@@ -715,82 +967,7 @@ pub fn resolve_and_emit_method(
 
         let old_map = ctx.current_type_map().clone();
         
-        // 1. Extract Concrete Args from Receiver
-        let mut concrete_tys = Vec::new();
-        let mut template_name_opt = None;
-
-        let mut peeled_ty = receiver_ty.clone();
-        while let Type::Reference(inner, _) = peeled_ty {
-            peeled_ty = *inner;
-        }
-
-        if let Type::Struct(name) = &peeled_ty {
-            if let Some(info) = ctx.struct_registry().values().find(|i| i.name == *name).cloned() {
-                 concrete_tys.extend(info.specialization_args);
-                 template_name_opt = info.template_name;
-            } else if ctx.struct_templates().contains_key(name) {
-                 template_name_opt = Some(name.clone());
-            }
-        } else if let Type::Enum(name) = &peeled_ty {
-            if let Some(info) = ctx.enum_registry().values().find(|i| i.name == *name).cloned() {
-                 concrete_tys.extend(info.specialization_args);
-                 template_name_opt = info.template_name;
-            } else if ctx.enum_templates().contains_key(name) {
-                 template_name_opt = Some(name.clone());
-            }
-        } else if let Type::Concrete(name, args) = &peeled_ty {
-             concrete_tys.extend(args.iter().cloned());
-             template_name_opt = Some(name.clone());
-        // [KEUOS FIX] Handle Type::Pointer for Ptr<T> method specialization
-        // Extract element type as concrete_ty and use std__core__ptr__Ptr as template
-        } else if let Type::Pointer { element, .. } = &peeled_ty {
-             // [CANONICAL RESOLUTION] Canonicalize element type before it enters specialization.
-             // Without this, Struct("Node") flows in as T, creating Ptr__addr_Node
-             // instead of the canonical Ptr__addr_main__Node.
-             let canonical_element = resolve_codegen_type(ctx, &(**element));
-             concrete_tys.push(canonical_element);
-             template_name_opt = Some("std__core__ptr__Ptr".to_string());
-        }
-
-             if let Some(t_name) = &template_name_opt {
-                  let mut gen_params = if let Some(s) = ctx.struct_templates().get(t_name) {
-                  s.generics.as_ref().map(|g| g.params.clone())
-             } else if let Some(e) = ctx.enum_templates().get(t_name) {
-                  e.generics.as_ref().map(|g| g.params.clone())
-             } else {
-                  None
-             };
-
-             if gen_params.is_none() {
-                  // [VERIFIED METAL] Phase 5: Use centralized template lookup
-                  if let Some(template_name) = ctx.find_struct_template_by_name(&t_name) {
-                      if let Some(template) = ctx.struct_templates().get(&template_name) {
-                          gen_params = template.generics.as_ref().map(|g| g.params.clone());
-                      }
-                  }
-                  // Check Enums
-                  if gen_params.is_none() {
-                      if let Some(template_name) = ctx.find_enum_template_by_name(&t_name) {
-                          if let Some(template) = ctx.enum_templates().get(&template_name) {
-                              gen_params = template.generics.as_ref().map(|g| g.params.clone());
-                          }
-                      }
-                  }
-             }
-
-             if let Some(params) = gen_params {
-                 for (i, param) in params.iter().enumerate() {
-                      if let Some(arg) = concrete_tys.get(i) {
-                           let name = match param {
-                               crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                               crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                           };
-                           ctx.current_type_map_mut().insert(name, arg.clone());
-                      }
-                 }
-             } else {
-             }
-        }
+        let (mut concrete_tys, template_name_opt, peeled_ty) = populate_type_map_from_receiver(ctx, &receiver_ty);
 
         // [KEUOS FIX] Insert method generic names into type_map BEFORE calling resolve_type
         // so that they are resolved as Type::Generic instead of Type::Struct.
@@ -992,164 +1169,12 @@ pub fn resolve_and_emit_method(
         // If the method is generic OR the struct it belongs to is specialized,
         // we need to request a specialization for the method too.
         
-        let mut actual_target_name = target_name.clone();
-
+            append_method_generics(ctx, m, &mut concrete_tys, &template_name_opt, &func, &method_generic_map)?;
             
-            // Add method-level generic arguments if present (from sync ExprMethodCall.turbofish?)
-            if let Some(tf) = &m.turbofish {
-                for arg in &tf.args {
-                    if let syn::GenericArgument::Type(ty_arg) = arg {
-                         concrete_tys.push(resolve_codegen_type(ctx, &crate::types::Type::from_syn(&crate::grammar::SynType::from_std(ty_arg.clone()).map_err(|e| e.to_string())?).ok_or_else(|| "Failed to parse type".to_string())?));
-                    }
-                }
-            }
-            
-            // If concrete_tys is empty (no explicit args), try to infer from context map if template matches
-            if concrete_tys.is_empty() {
-                 if let Some(t_name) = &template_name_opt {
-                      let gen_params = if let Some(s) = ctx.struct_templates().get(t_name) {
-                           s.generics.as_ref().map(|g| g.params.clone())
-                      } else if let Some(e) = ctx.enum_templates().get(t_name) {
-                           e.generics.as_ref().map(|g| g.params.clone())
-                      } else { None };
-
-                      if let Some(params) = gen_params {
-                           let current_map = ctx.current_type_map();
-                           for param in &params {
-                                let name = match param {
-                                     crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                                     crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                                };
-                                if let Some(arg) = current_map.get(&name) {
-                                     concrete_tys.push(arg.clone());
-                                }
-                           }
-                           // If valid inference, concrete_tys should match params len
-                           if concrete_tys.len() != params.len() {
-                                concrete_tys.clear(); // Abort partially filled args
-                           }
-                      }
-                 }
-            }
-
-            // [PHASE 4.1 BIDIR BRIDGE] If method has its own generics that were inferred
-            // (not from turbofish, but from bidirectional inference), inject them into concrete_tys
-            // so the specialization path generates the correct mangled name.
-            // Example: mmap<T> with inferred T=f32 => concrete_tys = [f32]
-            // [KEUOS V4.1] Method-Level Generic Injection (Robust)
-            if let Some(fn_generics) = &func.generics {
-                let turbofish_count = if let Some(tf) = &m.turbofish { tf.args.len() } else { 0 };
-                
-                // CRITICAL: func.generics.params may contain EITHER:
-                //   (a) Method-only params [F2, T] (from resolve_method using raw func)
-                //   (b) Merged impl+method params [I, F, F2, T] (from trait_registry merged func)
-                // We must ONLY append method-level generics (not struct-level ones already in concrete_tys).
-                // Build a set of struct-level generic names to filter against.
-                let struct_generic_names: std::collections::HashSet<String> = {
-                    let mut names = std::collections::HashSet::new();
-                    if let Some(t_name) = &template_name_opt {
-                        let gen_params = {
-                            let templates = ctx.struct_templates();
-                            if let Some(s) = templates.get(t_name) {
-                                s.generics.as_ref().map(|g| g.params.clone())
-                            } else {
-                                let _ = templates;
-                                let etemplates = ctx.enum_templates();
-                                etemplates.get(t_name).and_then(|e| e.generics.as_ref()).map(|g| g.params.clone())
-                            }
-                        };
-                        if let Some(params) = gen_params {
-                            for p in &params {
-                                let name = match p {
-                                    crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                                    crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                                };
-                                names.insert(name);
-                            }
-                        }
-                    }
-                    names
-                };
-
-
-
-                // Append only METHOD-level generics: those not in struct_generic_names and not from turbofish
-                let mut turbofish_remaining = turbofish_count;
-                for param in fn_generics.params.iter() {
-                     let name = match param {
-                         crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                         crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                     };
-                     
-                     // Skip struct-level generics (already in concrete_tys from struct specialization)
-                     if struct_generic_names.contains(&name) {
-                         continue;
-                     }
-                     
-                     // Skip turbofish-provided method generics
-                     if turbofish_remaining > 0 {
-                         turbofish_remaining -= 1;
-                         continue;
-                     }
-                     
-                     if let Some(resolved) = method_generic_map.get(&name) {
-
-                          concrete_tys.push(resolved.clone());
-                     }
-                }
-            }
-
+            let actual_target_name = resolve_specialized_method_name(
+                ctx, &target_name, &template_name_opt, &peeled_ty, &method_name, &method_lookup_ty, &concrete_tys
+            );
             let is_specialized = !concrete_tys.is_empty();
-            if is_specialized {
-                // Fix: Use the Specialized Struct Name as the base (e.g. Ptr_u8) 
-                // instead of the Template Name (Ptr).
-                // This aligns with how emit_fn names the definition (Ptr_u8__method).
-                // We must also remove the Struct Generics from concrete_tys to avoid doubling them in the suffix.
-                
-                let _suffix_args = concrete_tys.clone();
-                let _base_prefix = target_name.clone();
-                
-                let mut handled = false;
-
-                if let Some(t_name) = &template_name_opt {
-                     // Check if peeled_ty is effectively specialized
-                     let specialized_mangled_raw = ctx.get_mangled(&peeled_ty).to_string();
-                     // Strip !struct_ prefix — get_mangled returns MLIR type form but we need it for function name
-                     let specialized_mangled = specialized_mangled_raw.strip_prefix("!struct_")
-                         .unwrap_or(&specialized_mangled_raw).to_string();
-                     
-                     // We want to force the name to "Ptr_u8__method", but keep concrete_tys for logic.
-                     if specialized_mangled != *t_name {
-                          // [KEUOS FIX] Use fully-qualified specialized name for Type::Pointer
-                          // get_mangled returns short name "Ptr_u8", but we need "std__core__ptr__Ptr_u8"
-                          // CRITICAL: Method name format must be template__method_suffix (e.g., Ptr__addr_u8)
-                          // NOT template_suffix__method (e.g., Ptr_u8__addr)
-                          let (_base_prefix, override_name) = if let Type::Pointer { element, .. } = &peeled_ty {
-                              let suffix = element.mangle_suffix();
-                              // template__method_suffix format matches from_addr pattern
-                              ("std__core__ptr__Ptr".to_string(), format!("std__core__ptr__Ptr__{}_{}",method_name, suffix))
-                          } else {
-                              (specialized_mangled.clone(), format!("{}__{}",specialized_mangled, method_name))
-                          };
-                          
-                          // Use explicit request
-
-                          let func_name_to_request = format!("{}__{}", t_name, method_name);
-                          eprintln!("request_explicit_specialization: {} -> {}", func_name_to_request, override_name); actual_target_name = ctx.request_explicit_specialization(
-                              &func_name_to_request, // Lookup Key (Template__Method)
-                              &override_name, // Override ID
-                              concrete_tys.clone(), // Context Args (cloned to be safe if reused, strict move below)
-                              Some(method_lookup_ty.clone()) // [ABI FIX] Use inner type, not Reference-wrapped
-                          );
-                          handled = true;
-                     }
-                }
-                
-                if !handled {
-                    let base_prefix = template_name_opt.as_ref().unwrap_or(&target_name);
-                    eprintln!("request_specialization: {}_{}", base_prefix, method_name); actual_target_name = ctx.request_specialization(&format!("{}__{}", base_prefix, method_name), concrete_tys, Some(method_lookup_ty.clone()));
-                }
-            }
 
         
         // Remove the redundant let mut args_vals = vec![receiver_val]; that followed
@@ -1234,35 +1259,14 @@ pub fn resolve_and_emit_method(
         }
         let mlir_arg_tys = mlir_arg_tys_code.join(", ");
         
-        if ctx.external_decls().contains(&mangled_method) {
-            if res.is_empty() {
-                out.push_str(&format!("    func.call @{}({}) : ({}) -> ()\n", mangled_method, args_str, mlir_arg_tys));
-            } else {
-                out.push_str(&format!("    {} = func.call @{}({}) : ({}) -> {}\n", res, mangled_method, args_str, mlir_arg_tys, ret_ty.to_mlir_type(ctx)?));
-            }
+        if res.is_empty() {
+            out.push_str(&format!("    func.call @{}({}) : ({}) -> ()\n", mangled_method, args_str, mlir_arg_tys));
         } else {
-            if res.is_empty() {
-                out.push_str(&format!("    func.call @{}({}) : ({}) -> ()\n", mangled_method, args_str, mlir_arg_tys));
-            } else {
-                out.push_str(&format!("    {} = func.call @{}({}) : ({}) -> {}\n", res, mangled_method, args_str, mlir_arg_tys, ret_ty.to_mlir_type(ctx)?));
-            }
+            out.push_str(&format!("    {} = func.call @{}({}) : ({}) -> {}\n", res, mangled_method, args_str, mlir_arg_tys, ret_ty.to_mlir_type(ctx)?));
         }
         
         // [SALT MEMORY MODEL] Conservative Aliasing for methods
-        let method_name = m.method.to_string();
-        if method_name != "free" && method_name != "drop" {
-            let is_extern = ctx.external_decls().contains(&method_name);
-            if is_extern || ctx.config.freeing_functions.contains(&method_name) {
-                if let Some(var_name) = super::extract_ident_name(&m.receiver) {
-                    ctx.pointer_tracker.mark_optional(&var_name);
-                }
-                for arg in &m.args {
-                    if let Some(var_name) = super::extract_ident_name(arg) {
-                        ctx.pointer_tracker.mark_optional(&var_name);
-                    }
-                }
-            }
-        }
+        apply_method_memory_model(ctx, m, &method_name);
 
         ctx.emission.global_lvn.clear();
         Ok((res, ret_ty))

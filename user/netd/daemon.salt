@@ -84,90 +84,42 @@ pub struct PacketInfo {
 // Returns:
 //   PacketInfo with extracted fields and payload pointer offset
 // ============================================================================
+fn invalid_packet() -> PacketInfo {
+    return PacketInfo {
+        src_port: 0, dst_port: 0, seq_num: 0, ack_num: 0,
+        flags: 0, payload_offset: 0, payload_len: 0, valid: 0,
+    };
+}
+
 pub fn parse_headers(frame_base: u64, frame_len: u32) -> PacketInfo {
-    // 1. Bounds check: frame must contain at minimum Eth + IPv4 + TCP headers
-    if frame_len < MIN_TOTAL_HEADER {
-        return PacketInfo {
-            src_port: 0, dst_port: 0, seq_num: 0, ack_num: 0,
-            flags: 0, payload_offset: 0, payload_len: 0, valid: 0,
-        };
-    }
+    if frame_len < MIN_TOTAL_HEADER { return invalid_packet(); }
 
-    // 2. Parse Ethernet header — extract EtherType
-    //    Z3: frame_base + 12 is safe because frame_len >= 54 > 14
     let ethertype_ptr = (frame_base + 12) as &u16;
-    let ethertype = *ethertype_ptr;
+    if *ethertype_ptr != ETHERTYPE_IPV4 { return invalid_packet(); }
 
-    // 3. Skip non-IPv4 frames
-    if ethertype != ETHERTYPE_IPV4 {
-        return PacketInfo {
-            src_port: 0, dst_port: 0, seq_num: 0, ack_num: 0,
-            flags: 0, payload_offset: 0, payload_len: 0, valid: 0,
-        };
-    }
-
-    // 4. Parse IPv4 header — extract IP Header Length (IHL) and protocol
-    //    IHL is in the lower 4 bits of the first byte, in units of 32-bit words
     let ip_start = frame_base + (ETH_HEADER_SIZE as u64);
-    let ip_vhl_ptr = ip_start as &u8;
-    let ip_vhl = *ip_vhl_ptr;
-    let ip_ihl = ((ip_vhl & 0x0F) as u32) * 4;  // IHL in bytes
+    let ip_vhl = *(&ip_start as &u8);
+    let ip_ihl = ((ip_vhl & 0x0F) as u32) * 4;
+    if ip_ihl < MIN_IPV4_HEADER_SIZE { return invalid_packet(); }
 
-    // Validate IP header length (minimum 20 bytes)
-    if ip_ihl < MIN_IPV4_HEADER_SIZE {
-        return PacketInfo {
-            src_port: 0, dst_port: 0, seq_num: 0, ack_num: 0,
-            flags: 0, payload_offset: 0, payload_len: 0, valid: 0,
-        };
-    }
+    let ip_proto = *((ip_start + 9) as &u8);
+    if ip_proto != IP_PROTO_TCP { return invalid_packet(); }
 
-    // 5. Check IP protocol is TCP
-    let ip_proto_ptr = (ip_start + 9) as &u8;
-    let ip_proto = *ip_proto_ptr;
-    if ip_proto != IP_PROTO_TCP {
-        return PacketInfo {
-            src_port: 0, dst_port: 0, seq_num: 0, ack_num: 0,
-            flags: 0, payload_offset: 0, payload_len: 0, valid: 0,
-        };
-    }
-
-    // 6. Parse TCP header — extract port, seq, ack, flags
-    //    Z3: tcp_start is safe because frame_len >= 54 and ip_ihl >= 20
     let tcp_start = ip_start + (ip_ihl as u64);
     let header_end = ETH_HEADER_SIZE + ip_ihl + MIN_TCP_HEADER_SIZE;
+    if frame_len < header_end { return invalid_packet(); }
 
-    // Final bounds check: ensure full TCP header is within the frame
-    if frame_len < header_end {
-        return PacketInfo {
-            src_port: 0, dst_port: 0, seq_num: 0, ack_num: 0,
-            flags: 0, payload_offset: 0, payload_len: 0, valid: 0,
-        };
-    }
-
-    // Extract TCP fields via raw pointer arithmetic
-    let src_port = *((tcp_start + (TCP_SRC_PORT_OFFSET as u64)) as &u16);
-    let dst_port = *((tcp_start + (TCP_DST_PORT_OFFSET as u64)) as &u16);
-    let seq_num  = *((tcp_start + (TCP_SEQ_NUM_OFFSET as u64)) as &u32);
-    let ack_num  = *((tcp_start + (TCP_ACK_NUM_OFFSET as u64)) as &u32);
-    let flags    = *((tcp_start + (TCP_FLAGS_OFFSET as u64)) as &u8);
-
-    // 7. Calculate TCP data offset (header length)
-    let tcp_data_off_ptr = (tcp_start + 12) as &u8;
-    let tcp_data_off = (((*tcp_data_off_ptr >> 4) & 0x0F) as u32) * 4;
+    let tcp_data_off = (((*((tcp_start + 12) as &u8) >> 4) & 0x0F) as u32) * 4;
     let payload_offset = ETH_HEADER_SIZE + ip_ihl + tcp_data_off;
-    
-    // Calculate payload length
     let mut payload_len: u32 = 0;
-    if frame_len > payload_offset {
-        payload_len = frame_len - payload_offset;
-    }
+    if frame_len > payload_offset { payload_len = frame_len - payload_offset; }
 
     return PacketInfo {
-        src_port: src_port,
-        dst_port: dst_port,
-        seq_num: seq_num,
-        ack_num: ack_num,
-        flags: flags,
+        src_port: *((tcp_start + (TCP_SRC_PORT_OFFSET as u64)) as &u16),
+        dst_port: *((tcp_start + (TCP_DST_PORT_OFFSET as u64)) as &u16),
+        seq_num:  *((tcp_start + (TCP_SEQ_NUM_OFFSET as u64)) as &u32),
+        ack_num:  *((tcp_start + (TCP_ACK_NUM_OFFSET as u64)) as &u32),
+        flags:    *((tcp_start + (TCP_FLAGS_OFFSET as u64)) as &u8),
         payload_offset: payload_offset,
         payload_len: payload_len,
         valid: 1,
