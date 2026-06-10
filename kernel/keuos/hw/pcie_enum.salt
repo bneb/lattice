@@ -117,7 +117,7 @@ pub fn discover_device_bar(
         bus = bus + 1;
     }
 
-    // Not found — return sentinel
+// Not found — return sentinel
     return HardwareResource {
         physical_address: 0,
         vendor_id: 0,
@@ -125,4 +125,16 @@ pub fn discover_device_bar(
         bus: 0,
         device: 0,
     };
+}
+
+[export_name="sys_discover_nvme_bar"]
+pub fn sys_discover_nvme_bar(ecam_base: u64, max_bus: u32) -> u64 {
+    // QEMU NVMe Controller: Vendor 0x1B36 (Red Hat), Device 0x0010
+    let res = discover_device_bar(ecam_base as Ptr<u32>, 0x1B36, 0x0010, max_bus);
+    if res.physical_address != 0 {
+        return res.physical_address;
+    }
+    // Try to discover Apple Silicon NVMe (if any) or other standard NVMe
+    // (A real OS would match on Class Code 01 (Mass Storage), Subclass 08 (Non-Volatile Memory))
+    return 0;
 }

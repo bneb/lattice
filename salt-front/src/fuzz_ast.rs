@@ -40,6 +40,7 @@ impl FuzzSaltFile {
 pub struct FuzzFn {
     pub name: String,
     pub args: Vec<(String, FuzzType)>,
+    pub ret_ty: FuzzType,
     pub body: FuzzBlock,
     pub ret_to_arg: bool, // If true, try to return one of the args
 }
@@ -81,13 +82,16 @@ impl FuzzFn {
 
         let body = self.body.to_salt(&mut scope);
         
-        // Ensure void return for now to simplify
-        // TODO: Handle return values
-        let ret_type = Some(syn::parse_quote!(i32));
+        let default_ret_val: syn::Expr = match self.ret_ty {
+            FuzzType::I32 => parse_quote!(0),
+            FuzzType::I64 => parse_quote!(0i64),
+            FuzzType::F64 => parse_quote!(0.0f64),
+        };
+        let ret_type = Some(self.ret_ty.to_syn());
         
-        // Hack: append 'return 0;' if not present
+        // Append valid return value if missing
         let mut stmts = body.stmts;
-        stmts.push(Stmt::Syn(parse_quote!(return 0;)));
+        stmts.push(Stmt::Syn(parse_quote!(return #default_ret_val;)));
 
         SaltFn {
             attributes: vec![],

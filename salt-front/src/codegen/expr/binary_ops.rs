@@ -586,6 +586,9 @@ pub fn emit_assign(ctx: &mut LoweringContext, out: &mut String, a: &syn::ExprAss
                         crate::codegen::verification::PointerState::Freed => {
                             ctx.pointer_tracker.mark_freed(&var_name);
                         }
+                        crate::codegen::verification::PointerState::Uninitialized => {
+                            ctx.pointer_tracker.mark_uninitialized(&var_name);
+                        }
                     }
                 }
             }
@@ -942,15 +945,25 @@ pub fn emit_unary(ctx: &mut LoweringContext, out: &mut String, u: &syn::ExprUnar
         syn::UnOp::Deref(_) => {
             // [POINTER SAFETY] Check if pointer is safe to dereference (Valid)
             if let syn::Expr::Path(expr_path) = &*u.expr {
-                if let Some(ident) = expr_path.path.get_ident() {
-                    ctx.pointer_tracker.check_deref(&ident.to_string())?;
+                if !*ctx.is_dynamic_check_block() {
+                    if let Some(ident) = expr_path.path.get_ident() {
+                        ctx.pointer_tracker.check_deref(&ident.to_string())?;
+                    }
                 }
             }
 
-            let inner_ty = match ty {
+            let (ptr_val, ptr_ty) = emit_expr(ctx, out, &u.expr, local_vars, _expected)?;
+            
+            // [PHASE 1.5] Tier 3: @dynamic_check Epoch Verification
+            if *ctx.is_dynamic_check_block() {
+                out.push_str(&format!("    llvm.call @salt_verify_epoch({}) : (!llvm.ptr) -> ()\n", ptr_val));
+                let _ = ctx.ensure_external_declaration("salt_verify_epoch", &[Type::Pointer { element: Box::new(Type::U8), is_mutable: false, provenance: crate::types::Provenance::Naked }], &Type::Unit);
+            }
+
+            let inner_ty = match ptr_ty {
                 Type::Reference(inner, _) => *inner,
                 Type::Pointer { element, .. } => *element, // [V12.4] Support deref of Ptr<T> directly
-                _ => return Err(format!("Cannot dereference non-pointer type: {:?}", ty)),
+                _ => return Err(format!("Cannot dereference non-pointer type: {:?}", ptr_ty)),
             };
             
             let inner_mlir = inner_ty.to_mlir_storage_type(ctx)?;

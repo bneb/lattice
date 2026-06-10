@@ -18,6 +18,7 @@ import std.core.ptr.Ptr
 import std.core.result.Result
 import std.status.Status
 import std.io.reactor.{Reactor, ReactorFilter}
+import std.sys.syscall6
 
 /// KeuOS kernel VirtIO-backed I/O reactor.
 /// Stub: returns errors until the kernel VirtIO stack is ready.
@@ -27,27 +28,33 @@ pub struct KeuOSReactor {
 
 impl KeuOSReactor {
     /// Create a new KeuOSReactor.
-    /// Currently fails unconditionally — VirtIO not yet available.
     pub fn new() -> Result<KeuOSReactor> {
-        // TODO: syscall 128 (reactor_create) when kernel is ready
-        return Result::Err(Status::internal("KeuOSReactor: VirtIO backend not yet implemented"));
+        // syscall 128 (reactor_create)
+        let fd = syscall6(128, 0, 0, 0, 0, 0, 0) as i32;
+        if fd < 0 {
+            return Result::Err(Status::internal("KeuOSReactor: VirtIO backend not yet implemented"));
+        }
+        return Result::Ok(KeuOSReactor { reactor_fd: fd });
     }
 }
 
 impl Reactor for KeuOSReactor {
     pub fn register(&self, fd: i32, filter: ReactorFilter) -> i32 {
-        // TODO: syscall 129 (reactor_register)
-        return -1;
+        // syscall 129 (reactor_register)
+        let res = syscall6(129, self.reactor_fd as i64, fd as i64, filter as i64, 0, 0, 0);
+        return res as i32;
     }
 
     pub fn deregister(&self, fd: i32) -> i32 {
-        // TODO: syscall 130 (reactor_deregister)
-        return -1;
+        // syscall 130 (reactor_deregister)
+        let res = syscall6(130, self.reactor_fd as i64, fd as i64, 0, 0, 0, 0);
+        return res as i32;
     }
 
     pub fn wait(&self, event_buf: Ptr<i64>, max_events: i32, timeout_ms: i32) -> i32 {
-        // TODO: syscall 131 (reactor_wait)
-        return -1;
+        // syscall 131 (reactor_wait)
+        let res = syscall6(131, self.reactor_fd as i64, event_buf as i64, max_events as i64, timeout_ms as i64, 0, 0);
+        return res as i32;
     }
 
     pub fn fd(&self) -> i32 {

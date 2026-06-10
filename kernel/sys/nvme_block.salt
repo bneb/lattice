@@ -1,0 +1,185 @@
+package kernel.sys.nvme_block
+
+import std.core.ptr.Ptr
+import kernel.sys.block.BlockRequest
+import kernel.sys.block.BlockDeviceOps
+import kernel.sys.block.BlockDevice
+import kernel.drivers.nvme.NvmeController
+import kernel.drivers.nvme.SqEntry
+import kernel.drivers.nvme.CqEntry
+import kernel.drivers.nvme
+import kernel.core.scheduler
+import kernel.core.pmm
+import kernel.core.memory
+import kernel.core.panic
+import kernel.lib.malloc
+
+// =============================================================================
+// NVMe Request Queueing and DMA Safety
+// =============================================================================
+
+pub struct NvmeRequest {
+    pub req_id: u32,
+    pub state: u32, // 0 = FREE, 1 = PENDING, 2 = COMPLETE
+    pub bounce_phys: u64, // Pinned 4KB page in kernel PMM
+    pub bounce_virt: Ptr<u8>,
+}
+
+global REQUEST_TABLE: [NvmeRequest; 32] = [NvmeRequest {
+    req_id: 0,
+    state: 0,
+    bounce_phys: 0,
+    bounce_virt: 0 as Ptr<u8>,
+}; 32];
+global NVME_CTRL: Ptr<NvmeController> = 0 as Ptr<NvmeController>;
+global CTRL_INSTANCE: [NvmeController; 1] = [NvmeController {
+    bar: 0 as Ptr<u32>,
+    asq: 0 as Ptr<SqEntry>,
+    acq: 0 as Ptr<CqEntry>,
+    asq_phys: 0,
+    acq_phys: 0,
+    asq_tail: 0,
+    acq_head: 0,
+    acq_phase: 0,
+    iosq: 0 as Ptr<SqEntry>,
+    iocq: 0 as Ptr<CqEntry>,
+    iosq_phys: 0,
+    iocq_phys: 0,
+    iosq_tail: 0,
+    iocq_head: 0,
+    iocq_phase: 0,
+}; 1];
+global OPS_PTR: Ptr<BlockDeviceOps> = 0 as Ptr<BlockDeviceOps>;
+global DEV_PTR: Ptr<BlockDevice> = 0 as Ptr<BlockDevice>;
+
+pub fn init(ctrl: Ptr<NvmeController>) -> Ptr<BlockDevice> {
+    NVME_CTRL = ctrl;
+    
+    // Allocate bounce buffers for all requests
+    let mut i = 0;
+    while i < 32 {
+        let phys = pmm.alloc();
+        let virt = memory.phys_to_virt(memory.PhysAddr { val: phys }).val as Ptr<u8>;
+        
+        REQUEST_TABLE[i].req_id = i as u32;
+        REQUEST_TABLE[i].state = 0;
+        REQUEST_TABLE[i].bounce_phys = phys;
+        REQUEST_TABLE[i].bounce_virt = virt;
+        i = i + 1;
+    }
+    
+    OPS_PTR = malloc.malloc(8) as Ptr<BlockDeviceOps>;
+    OPS_PTR.submit_request = nvme_submit_request;
+    
+    DEV_PTR = malloc.malloc(16) as Ptr<BlockDevice>;
+    DEV_PTR.id = 1; // Device ID 1
+    DEV_PTR.ops = OPS_PTR;
+    
+    return DEV_PTR;
+}
+
+@no_mangle
+pub fn sys_nvme_block_init(res_phys: u64, asq_phys: u64, acq_phys: u64, sq_phys: u64, cq_phys: u64) -> u64 {
+    let asq_virt = memory.phys_to_virt(memory.PhysAddr { val: asq_phys }).val as Ptr<u8>;
+    let acq_virt = memory.phys_to_virt(memory.PhysAddr { val: acq_phys }).val as Ptr<u8>;
+    let sq_virt = memory.phys_to_virt(memory.PhysAddr { val: sq_phys }).val as Ptr<u8>;
+    let cq_virt = memory.phys_to_virt(memory.PhysAddr { val: cq_phys }).val as Ptr<u8>;
+    
+    nvme.zero_memory(asq_virt, 4096);
+    nvme.zero_memory(acq_virt, 4096);
+    nvme.zero_memory(sq_virt, 4096);
+    nvme.zero_memory(cq_virt, 4096);
+
+    // NVMe BAR is > 2GB, so phys_to_virt wraps around.
+    // KeuOS identity maps 0-4GB via boot.S, so we use physical address directly for MMIO.
+    let res_virt = res_phys as Ptr<u32>;
+    let mut ctrl = nvme.init(res_virt, asq_phys, acq_phys, asq_virt as Ptr<SqEntry>, acq_virt as Ptr<CqEntry>);
+    CTRL_INSTANCE[0] = ctrl;
+    
+    let ctrl_ptr = (&CTRL_INSTANCE[0]) as Ptr<NvmeController>;
+    nvme.init_io_queues(ctrl_ptr, sq_phys, cq_phys, sq_virt as Ptr<SqEntry>, cq_virt as Ptr<CqEntry>);
+    let dev = init(ctrl_ptr);
+    return dev as u64;
+}
+
+global NVME_LOCK: i64 = 0;
+
+fn acquire_nvme_lock() {
+    while atomic_cas_i64(&NVME_LOCK, 0 as i64, 1 as i64) != 0 as i64 {
+        scheduler.yield_now();
+    }
+}
+
+fn release_nvme_lock() {
+    NVME_LOCK = 0;
+}
+
+// Very simple lock-free allocator for request slots (MVP)
+fn alloc_req_slot() -> u32 {
+    let mut i = 0;
+    while i < 32 {
+        if REQUEST_TABLE[i].state == 0 {
+            REQUEST_TABLE[i].state = 1;
+            return i as u32;
+        }
+        i = i + 1;
+    }
+    // Panic or yield if queue is full
+    panic.panic("NVMe Request Queue Full");
+    return 0;
+}
+
+fn nvme_submit_request(req: Ptr<BlockRequest>) -> u32 {
+    acquire_nvme_lock();
+    let req_id = alloc_req_slot();
+    release_nvme_lock();
+    
+    let count = req.count * 512;
+    if count > 4096 {
+        panic.panic("NVMe req too large");
+    }
+    
+    // Copy user data to kernel bounce buffer (if write)
+    if req.is_write {
+        let mut i = 0;
+        while i < count {
+            REQUEST_TABLE[req_id].bounce_virt.offset(i as i64).write(req.buffer.offset(i as i64).read());
+            i = i + 1;
+        }
+    }
+    
+    // Hit SQ doorbell
+    acquire_nvme_lock();
+    if req.is_write {
+        nvme.write_block(NVME_CTRL, req.lba, REQUEST_TABLE[req_id].bounce_phys, req.count as u16, req_id as u16);
+    } else {
+        nvme.read_block(NVME_CTRL, req.lba, REQUEST_TABLE[req_id].bounce_phys, req.count as u16, req_id as u16);
+    }
+    release_nvme_lock();
+    
+    // Explicit Polling Loop
+    while REQUEST_TABLE[req_id].state == 1 {
+        acquire_nvme_lock();
+        let comp_id = nvme.process_io_cq(NVME_CTRL);
+        release_nvme_lock();
+        
+        if comp_id != -1 {
+            REQUEST_TABLE[comp_id as u32].state = 2; // 2 = completed
+        } else {
+            scheduler.yield_now();
+        }
+    }
+    
+    // Copy from kernel bounce buffer to user data (if read)
+    if !req.is_write {
+        let mut i = 0;
+        let count = req.count * 512;
+        while i < count {
+            req.buffer.offset(i as i64).write(REQUEST_TABLE[req_id].bounce_virt.offset(i as i64).read());
+            i = i + 1;
+        }
+    }
+    
+    REQUEST_TABLE[req_id].state = 0;
+    return req_id;
+}

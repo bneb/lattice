@@ -1,0 +1,66 @@
+// kernel/sys/vfs_test.salt
+// =============================================================================
+// VFS and RamFS TDD Test
+// =============================================================================
+
+package kernel.sys.vfs_test
+
+import kernel.drivers.serial
+import kernel.sys.vfs
+import kernel.sys.ramfs
+import kernel.core.memory
+import kernel.core.pmm
+
+@no_mangle
+pub fn run_vfs_tests() {
+    serial.print("TEST:vfs:start\n");
+    
+    // 1. Create a dummy Inode
+    let phys_inode = kernel.core.pmm.alloc();
+    let inode = memory.phys_to_virt_raw(phys_inode) as Ptr<vfs::Inode>;
+    inode.size = 0;
+    inode.is_dir = false;
+    inode.ops = ramfs.get_ramfs_ops();
+    inode.refcount = 1;
+    
+    // 2. Create RamFS data backing
+    let phys_data_wrapper = kernel.core.pmm.alloc();
+    let ramfs_data = memory.phys_to_virt_raw(phys_data_wrapper) as Ptr<ramfs::RamFsData>;
+    inode.data = ramfs_data as u64;
+    ramfs_data.capacity = 1024;
+    let phys_data = kernel.core.pmm.alloc();
+    ramfs_data.data = memory.phys_to_virt_raw(phys_data) as Ptr<u8>;
+    
+    // 3. Write data
+    let phys_buf = kernel.core.pmm.alloc();
+    let buf = memory.phys_to_virt_raw(phys_buf) as Ptr<u8>;
+    buf.offset(0).write(0xDE as u8);
+    buf.offset(1).write(0xAD as u8);
+    buf.offset(2).write(0xBE as u8);
+    buf.offset(3).write(0xEF as u8);
+    
+    let ops = inode.ops;
+    let f_write = ops.write_op;
+    let written = f_write(inode, 0, buf, 4);
+    if written != 4 {
+        serial.print("TEST:vfs:write_fail\n");
+    }
+    if inode.size != 4 {
+        serial.print("TEST:vfs:size_update_fail\n");
+    }
+    
+    // 4. Read data back
+    let phys_read_buf = kernel.core.pmm.alloc();
+    let read_buf = memory.phys_to_virt_raw(phys_read_buf) as Ptr<u8>;
+    let f_read = ops.read_op;
+    let read_count = f_read(inode, 0, read_buf, 4);
+    if read_count != 4 {
+        serial.print("TEST:vfs:read_fail\n");
+    }
+    
+    if read_buf.offset(0).read() != 0xDE || read_buf.offset(3).read() != 0xEF {
+        serial.print("TEST:vfs:data_corruption\n");
+    }
+    
+    serial.print("TEST:vfs:PASS\n");
+}

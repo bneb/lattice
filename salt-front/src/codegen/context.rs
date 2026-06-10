@@ -566,6 +566,9 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
     pub fn devoured_vars_mut(&mut self) -> &mut std::collections::HashSet<String> { &mut self.control_flow.devoured_vars }
     pub fn is_unsafe_block(&self) -> &bool { &self.control_flow.is_unsafe_block }
     pub fn is_unsafe_block_mut(&mut self) -> &mut bool { &mut self.control_flow.is_unsafe_block }
+
+    pub fn is_dynamic_check_block(&self) -> &bool { &self.control_flow.is_dynamic_check_block }
+    pub fn is_dynamic_check_block_mut(&mut self) -> &mut bool { &mut self.control_flow.is_dynamic_check_block }
     pub fn no_yield(&self) -> &bool { &self.control_flow.no_yield }
     pub fn no_yield_mut(&mut self) -> &mut bool { &mut self.control_flow.no_yield }
     pub fn current_pulse(&self) -> &Option<u32> { &self.control_flow.current_pulse }
@@ -1832,7 +1835,7 @@ impl<'a> CodegenContext<'a> {
         
         // For other prefixes, check registry
         let _handler_name = self.string_prefix_handlers().get(prefix)?.clone();
-        // TODO(v0.2): Invoke comptime string prefix handler once the comptime evaluator is ready
+        // Future(Phase 4): Invoke comptime string prefix handler once the comptime evaluator is ready
         None
     }
     

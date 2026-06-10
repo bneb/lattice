@@ -83,7 +83,9 @@ pub fn emit_field(
                 }
 
                 // If not .addr, enforce validity check
-                ctx.pointer_tracker.check_deref(&var_name)?;
+                if !*ctx.is_dynamic_check_block() {
+                    ctx.pointer_tracker.check_deref(&var_name)?;
+                }
             }
         }
     }
@@ -132,18 +134,9 @@ pub fn emit_field(
     }
 
     // [PHASE 1.5] Tier 3: @dynamic_check Epoch Verification
-    if was_ref && ctx.emission.in_dynamic_check_fn {
+    if was_ref && *ctx.is_dynamic_check_block() {
         out.push_str(&format!("    llvm.call @salt_verify_epoch({}) : (!llvm.ptr) -> ()\n", current_val));
-        let as_int = format!("%tag_int_{}", ctx.next_id());
-        let mask = format!("%tag_mask_{}", ctx.next_id());
-        let stripped_int = format!("%stripped_int_{}", ctx.next_id());
-        let stripped_ptr = format!("%stripped_ptr_{}", ctx.next_id());
-        out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", as_int, current_val));
-        out.push_str(&format!("    {} = llvm.mlir.constant(281474976710655 : i64) : i64\n", mask));
-        out.push_str(&format!("    {} = llvm.and {}, {} : i64\n", stripped_int, as_int, mask));
-        out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", stripped_ptr, stripped_int));
         let _ = ctx.ensure_external_declaration("salt_verify_epoch", &[Type::Pointer { element: Box::new(Type::U8), is_mutable: false, provenance: crate::types::Provenance::Naked }], &Type::Unit);
-        current_val = stripped_ptr;
     }
 
     // 2. Perform Field Access on the resolved Struct/Tuple
@@ -385,7 +378,9 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
                  if let syn::Expr::Path(path_expr) = &*i.expr {
                      if let Some(ident) = path_expr.path.get_ident() {
                          let var_name = ident.to_string();
-                         ctx.pointer_tracker.check_deref(&var_name)?;
+                         if !*ctx.is_dynamic_check_block() {
+                             ctx.pointer_tracker.check_deref(&var_name)?;
+                         }
                      }
                  }
 
@@ -440,18 +435,10 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
                   };
                  
                  // [PHASE 1.5] Tier 3: @dynamic_check Epoch Verification
-                 let ptr_for_gep = if ctx.emission.in_dynamic_check_fn {
+                 let ptr_for_gep = if *ctx.is_dynamic_check_block() {
                      out.push_str(&format!("    llvm.call @salt_verify_epoch({}) : (!llvm.ptr) -> ()\n", ptr_for_gep));
-                     let as_int = format!("%tag_int_{}", ctx.next_id());
-                     let mask = format!("%tag_mask_{}", ctx.next_id());
-                     let stripped_int = format!("%stripped_int_{}", ctx.next_id());
-                     let stripped_ptr = format!("%stripped_ptr_{}", ctx.next_id());
-                     out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", as_int, ptr_for_gep));
-                     out.push_str(&format!("    {} = llvm.mlir.constant(281474976710655 : i64) : i64\n", mask));
-                     out.push_str(&format!("    {} = llvm.and {}, {} : i64\n", stripped_int, as_int, mask));
-                     out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", stripped_ptr, stripped_int));
                      let _ = ctx.ensure_external_declaration("salt_verify_epoch", &[Type::Pointer { element: Box::new(Type::U8), is_mutable: false, provenance: crate::types::Provenance::Naked }], &Type::Unit);
-                     stripped_ptr
+                     ptr_for_gep
                  } else {
                      ptr_for_gep
                  };

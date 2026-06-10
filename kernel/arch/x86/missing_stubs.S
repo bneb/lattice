@@ -273,3 +273,55 @@ __salt_contract_violation:
 .weak kernel__core__keuos_reclaim__disable_nic_rings
 kernel__core__keuos_reclaim__disable_nic_rings:
     ret
+
+// =============================================================================
+// Syscall Aliases for C-ABI Internal Kernel Linkage
+// =============================================================================
+.global sys_write
+sys_write:
+    jmp kernel__core__syscall__sys_write
+
+.global sys_spawn
+sys_spawn:
+    jmp kernel__core__syscall__sys_spawn
+
+.global sys_wait
+sys_wait:
+    jmp kernel__core__syscall__sys_wait
+
+// Dummy traps for syscalls not implemented in C for kernel threads
+.global sys_exit
+sys_exit:
+    ud2
+
+.global sys_brk
+sys_brk:
+    ud2
+
+.global sys_mmap
+sys_mmap:
+    ud2
+
+.global sys_ipc_get_msg0
+sys_ipc_get_msg0:
+    ud2
+
+.global sys_ipc_get_msg1
+sys_ipc_get_msg1:
+    ud2
+
+.global sys_ipc_get_msg2
+sys_ipc_get_msg2:
+    ud2
+
+.global sys_ipc_reg_send
+sys_ipc_reg_send:
+    ud2
+
+.global sys_ipc_ring_await
+sys_ipc_ring_await:
+    ud2
+
+.global sys_ipc_recv_full
+sys_ipc_recv_full:
+    ud2

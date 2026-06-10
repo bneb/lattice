@@ -272,10 +272,21 @@ pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall,
              let args_vec: Vec<syn::Expr> = c.args.iter().cloned().collect();
 
              // Extract Verification Data from Task
-             let requires = lazy_task.as_ref().map(|t| t.func.requires.clone()).unwrap_or_default();
-             let param_names: Vec<String> = lazy_task.as_ref()
-                 .map(|t| t.func.args.iter().map(|a| a.name.to_string()).collect())
-                 .unwrap_or_default();
+             let (requires, ensures, param_names) = if let Some(t) = lazy_task.as_ref() {
+                 (
+                     t.func.requires.clone(),
+                     t.func.ensures.clone(),
+                     t.func.args.iter().map(|a| a.name.to_string()).collect::<Vec<_>>(),
+                 )
+             } else if let Some((wrapper, _)) = ctx.generic_impls().get(&mangled_name) {
+                 (
+                     wrapper.requires.clone(),
+                     wrapper.ensures.clone(),
+                     wrapper.args.iter().map(|a| a.name.to_string()).collect::<Vec<_>>(),
+                 )
+             } else {
+                 (vec![], vec![], vec![])
+             };
 
              // 2. Emit Arguments & Capture for Verification
              let mut args_vals = Vec::new();
@@ -472,6 +483,13 @@ pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall,
                          }
                      }
                  }
+             }
+
+             // [TEMPORAL SAFETY] Apply Postconditions (ensures clauses) to the pointer tracker
+             // This must be done AFTER conservative aliasing so that explicit postconditions (like freed(p))
+             // OVERRIDE the conservative Optional fallback for extern functions.
+             if !ensures.is_empty() {
+                 crate::codegen::verification::VerificationEngine::apply_postconditions(ctx, &ensures, &param_names, &args_vec);
              }
 
              // [SALT MEMORY MODEL] Pointer State Interception

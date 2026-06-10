@@ -34,7 +34,8 @@ def main():
     tests = glob.glob(os.path.join(user_dir, "*test*.salt"))
     # Also add specific apps we know should build
     apps = [
-        "hello.salt"
+        "hello.salt",
+        "grit/shell.salt"
     ]
     for app in apps:
         app_path = os.path.join(user_dir, app)

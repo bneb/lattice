@@ -38,6 +38,14 @@ user_elf_c_start:
     .incbin "/tmp/hello"
 user_elf_c_end:
 
+// --- Process D: Grit Shell ---
+.global user_elf_d_start
+.global user_elf_d_end
+
+user_elf_d_start:
+    .incbin "/tmp/grit"
+user_elf_d_end:
+
 // --- Mode B SIP: Ring 0 Software-Isolated Process ---
 .global sip_elf_start
 .global sip_elf_end

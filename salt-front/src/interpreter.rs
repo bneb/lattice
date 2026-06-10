@@ -261,7 +261,7 @@ impl Interpreter {
             }
 
             // Match
-            Stmt::Match(_) => Ok(Value::Unit), // TODO: match support
+            Stmt::Match(salt_match) => self.exec_salt_match(salt_match, scope),
 
             // Invariant, Move, MapWindow, WithRegion, Unsafe, LetElse — skip
             _ => Ok(Value::Unit),
@@ -280,6 +280,58 @@ impl Interpreter {
             }
         } else {
             Ok(Value::Unit)
+        }
+    }
+
+    fn exec_salt_match(&mut self, salt_match: &crate::grammar::SaltMatch, scope: &mut HashMap<String, Value>) -> Result<Value, String> {
+        let scrutinee_val = self.eval_expr(&salt_match.scrutinee, scope)?;
+        if scrutinee_val.is_return() { return Ok(scrutinee_val); }
+
+        for arm in &salt_match.arms {
+            let mut match_scope = scope.clone();
+            if self.pattern_matches(&arm.pattern, &scrutinee_val, &mut match_scope) {
+                if let Some(guard_expr) = &arm.guard {
+                    let guard_val = self.eval_expr(guard_expr, &mut match_scope)?;
+                    if !guard_val.as_bool() {
+                        continue;
+                    }
+                }
+                return self.exec_block(&arm.body, &mut match_scope);
+            }
+        }
+        
+        Err("Pattern matching failed: no arms matched".into())
+    }
+
+    fn pattern_matches(&self, pattern: &crate::grammar::pattern::Pattern, value: &Value, scope: &mut HashMap<String, Value>) -> bool {
+        use crate::grammar::pattern::Pattern;
+        match pattern {
+            Pattern::Wildcard | Pattern::Rest => true,
+            Pattern::Literal(lit) => {
+                match lit {
+                    syn::Lit::Int(li) => {
+                        let parsed: i64 = li.base10_parse().unwrap_or(0);
+                        value.as_i64() == parsed
+                    },
+                    syn::Lit::Bool(lb) => value.as_bool() == lb.value,
+                    syn::Lit::Str(ls) => {
+                        if let Value::Str(vs) = value {
+                            vs == &ls.value()
+                        } else {
+                            false
+                        }
+                    },
+                    _ => false,
+                }
+            },
+            Pattern::Ident { name, .. } => {
+                scope.insert(name.to_string(), value.clone());
+                true
+            },
+            Pattern::Or(patterns) => {
+                patterns.iter().any(|p| self.pattern_matches(p, value, scope))
+            },
+            _ => false,
         }
     }
 

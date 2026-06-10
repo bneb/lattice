@@ -1477,15 +1477,9 @@ pub fn resolve_codegen_type(ctx: &mut LoweringContext, ty: &Type) -> Type {
                      } else if is_enum {
                          Type::Enum(resolved_base)
                      } else {
-                         // PEEL LOGIC disabled for testing - using fallback
-                         // TODO: Re-evaluate if this is needed with the Inception Guard in place
-                         // if let Some((template_name, peeled_args)) = peel_already_specialized_name(ctx, &resolved_base) {
-                         //     Type::Concrete(template_name, peeled_args)
-                         // } else {
-                             if resolved_base.contains("Ptr") {
-                              }
-                             Type::Struct(resolved_base)
-                         // } // removed stray closing brace
+                         if resolved_base.contains("Ptr") {
+                         }
+                         Type::Struct(resolved_base)
                      }
                 } else {
                      // eprintln!("WARNING: resolve_codegen_type failed to resolve '{}'. Falling back to Struct({}). Imports: {:?}", name, name, ctx.imports().iter().map(|i| i.alias.as_ref().map(|a| a.to_string()).unwrap_or("?".to_string())).collect::<Vec<_>>());

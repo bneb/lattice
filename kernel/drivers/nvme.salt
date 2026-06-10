@@ -2,8 +2,11 @@ package kernel.drivers.nvme
 
 import std.core.ptr.Ptr
 import kernel.drivers.serial
+import kernel.core.panic
 
 extern fn outb(port: u16, val: u8);
+extern fn volatile_read_i32(addr: u64) -> u32;
+extern fn volatile_write_i32(addr: u64, val: u32);
 
 pub struct SqEntry {
     pub cdw0: u32,
@@ -49,11 +52,11 @@ pub struct NvmeController {
     pub iocq_phase: u16,
 }
 
-pub fn init(bar_addr: u64, asq_phys: u64, acq_phys: u64) -> NvmeController {
+pub fn init(bar_virt: Ptr<u32>, asq_phys: u64, acq_phys: u64, asq_virt: Ptr<SqEntry>, acq_virt: Ptr<CqEntry>) -> NvmeController {
     let mut ctrl = NvmeController {
-        bar: bar_addr as Ptr<u32>,
-        asq: asq_phys as Ptr<SqEntry>,
-        acq: acq_phys as Ptr<CqEntry>,
+        bar: bar_virt,
+        asq: asq_virt,
+        acq: acq_virt,
         asq_phys: asq_phys,
         acq_phys: acq_phys,
         asq_tail: 0,
@@ -78,14 +81,12 @@ iocq_phase: 1,
     
     // Wait for CSTS.RDY to become 0
     let csts_offset = 0x1C / 4;
-    while (ctrl.bar.offset(csts_offset).read() & 0x1) != 0 {
+    while (volatile_read_i32(ctrl.bar.offset(csts_offset) as u64) & 0x1) != 0 {
         unsafe { outb(0x80, 0); }
     }
     serial.print("NVMe: Controller is disabled.\n");
 
     // 2. Set AQA (Admin Queue Attributes)
-    // 32 entries (0-based, so 31 = 0x1F) for both ASQ and ACQ
-    // ASQ Size (bits 11:0), ACQ Size (bits 27:16)
     let aqa_offset = 0x24 / 4;
     let aqa = (31 << 16) | 31; 
     ctrl.bar.offset(aqa_offset).write(aqa);
@@ -106,19 +107,31 @@ iocq_phase: 1,
     unsafe { outb(0x80, 0); }
 
     // 5. Enable the controller (set CC.EN=1)
-    // Also set command set to NVM (CSS=0) and queue entry sizes
-    // IOSQES = 6 (64 bytes), IOCQES = 4 (16 bytes)
     let mut new_cc = ctrl.bar.offset(cc_offset).read();
-    
-    // set bit 0 (EN), bits 23:16 (IOSQES=6), bits 27:24 (IOCQES=4)
-    // 6 << 16 = 0x00060000
-    // 4 << 20 = 0x00400000
     new_cc = new_cc | 0x00460001; 
+    
+    serial.print("NVMe: writing CC: ");
+    serial.print_hex(new_cc as u64);
+    serial.print("\n");
+    
+    let cap_low = ctrl.bar.offset(0).read();
+    let cap_high = ctrl.bar.offset(1).read();
+    serial.print("NVMe: CAP_LOW: ");
+    serial.print_hex(cap_low as u64);
+    serial.print(" CAP_HIGH: ");
+    serial.print_hex(cap_high as u64);
+    serial.print("\n");
+    
     ctrl.bar.offset(cc_offset).write(new_cc);
     unsafe { outb(0x80, 0); }
-    
+
     // Wait for CSTS.RDY to become 1
-    while (ctrl.bar.offset(csts_offset).read() & 0x1) == 0 {
+    while (volatile_read_i32(ctrl.bar.offset(csts_offset) as u64) & 0x1) == 0 {
+        let csts = volatile_read_i32(ctrl.bar.offset(csts_offset) as u64);
+        if (csts & 0x2) != 0 {
+            serial.print("NVMe: FATAL ERROR! CSTS.CFS is set!\n");
+            panic.panic("NVMe Controller Fatal Error");
+        }
         unsafe { outb(0x80, 0); }
     }
     serial.print("NVMe: Controller is ENABLED and ready.\n");
@@ -191,7 +204,7 @@ pub fn poll_admin_cq(ctrl: Ptr<NvmeController>) -> u16 {
     // Ring CQ0 Head Doorbell (CQ0 HDBL at offset 0x1004)
     let cq0_hdbl = 0x1004 / 4;
     let bar = ctrl.offset(0).read().bar;
-    bar.offset(cq0_hdbl).write(next_head);
+    bar.offset(cq0_hdbl).write(next_head as u32);
     
     return status;
 }
@@ -204,10 +217,10 @@ pub fn zero_memory(ptr: Ptr<u8>, size: u32) {
     }
 }
 
-pub fn init_io_queues(ctrl_ptr: Ptr<NvmeController>, iosq_phys: u64, iocq_phys: u64) {
+pub fn init_io_queues(ctrl_ptr: Ptr<NvmeController>, iosq_phys: u64, iocq_phys: u64, iosq_virt: Ptr<SqEntry>, iocq_virt: Ptr<CqEntry>) {
     let mut c = ctrl_ptr.offset(0).read();
-    c.iosq = iosq_phys as Ptr<SqEntry>;
-    c.iocq = iocq_phys as Ptr<CqEntry>;
+    c.iosq = iosq_virt;
+    c.iocq = iocq_virt;
     c.iosq_phys = iosq_phys;
     c.iocq_phys = iocq_phys;
     c.iosq_tail = 0;
@@ -281,45 +294,49 @@ pub fn submit_io_cmd(ctrl: Ptr<NvmeController>, cmd: Ptr<SqEntry>) {
     unsafe { outb(0x80, 0); }
 }
 
-pub fn poll_io_cq(ctrl: Ptr<NvmeController>) -> u16 {
+pub fn process_io_cq(ctrl: Ptr<NvmeController>) -> i32 {
     let acq = ctrl.offset(0).read().iocq;
     let head = ctrl.offset(0).read().iocq_head;
     let expected_phase = ctrl.offset(0).read().iocq_phase;
     
     let entry = acq.offset(head as i64);
     
-    while ((entry.offset(0).read().status & 1) != expected_phase) {
-        unsafe { outb(0x80, 0); }
+    if (entry.offset(0).read().status & 1) == expected_phase {
+        let status = entry.offset(0).read().status;
+        let command_id = entry.offset(0).read().command_id;
+        
+        let mut next_head = head + 1;
+        let mut next_phase = expected_phase;
+        if next_head >= 32 {
+            next_head = 0;
+            if next_phase == 1 { next_phase = 0; } else { next_phase = 1; }
+        }
+        
+        let mut c = ctrl.offset(0).read();
+        c.iocq_head = next_head;
+        c.iocq_phase = next_phase;
+        ctrl.offset(0).write(c);
+        
+        let cq1_hdbl = 0x100C / 4;
+        let bar = ctrl.offset(0).read().bar;
+        bar.offset(cq1_hdbl).write(next_head as u32);
+        
+        let sct_sc = status >> 1;
+        if sct_sc != 0 {
+            serial.print("NVMe I/O Error: status=");
+            serial.print_hex(status as u64);
+            serial.print("\n");
+            panic.panic("NVMe I/O Command Failed");
+        }
+        
+        return command_id as i32;
     }
-    
-    let status = entry.offset(0).read().status;
-    
-    let mut next_head = head + 1;
-    let mut next_phase = expected_phase;
-    if next_head >= 32 {
-        next_head = 0;
-        if next_phase == 1 { next_phase = 0; } else { next_phase = 1; }
-    }
-    
-    let mut c = ctrl.offset(0).read();
-    c.iocq_head = next_head;
-    c.iocq_phase = next_phase;
-    ctrl.offset(0).write(c);
-    
-    // Ring CQ1 Head Doorbell (CQ1 HDBL is at 0x1000 + (3 * 4) = 0x100C)
-    let cq1_hdbl = 0x100C / 4;
-    let bar = ctrl.offset(0).read().bar;
-    bar.offset(cq1_hdbl).write(next_head as u32);
-    
-    return status;
+    return -1;
 }
 
-pub fn read_block(ctrl: Ptr<NvmeController>, lba: u64, buf_phys: u64, blocks: u16) {
-    // NVMe NVM Command Set: Opcode 0x02 is Read
-    // cdw10, cdw11 = SLBA
-    // cdw12 = Number of Logical Blocks (0-based)
+pub fn read_block(ctrl: Ptr<NvmeController>, lba: u64, buf_phys: u64, blocks: u16, req_id: u16) {
     let mut read_cmd = SqEntry {
-        cdw0: 0x02,
+        cdw0: 0x02 | ((req_id as u32) << 16),
         nsid: 1, // NSID 1 for first namespace
         rsvd2: 0,
         mptr: 0,
@@ -327,24 +344,23 @@ pub fn read_block(ctrl: Ptr<NvmeController>, lba: u64, buf_phys: u64, blocks: u1
         dptr_prp2: 0, // Assume contiguous single page for now
         cdw10: (lba & 0xFFFFFFFF) as u32,
         cdw11: (lba >> 32) as u32,
-        cdw12: (blocks as u32) - 1,
+        cdw12: (blocks - 1) as u32,
         cdw13: 0, cdw14: 0, cdw15: 0
     };
     submit_io_cmd(ctrl, (&read_cmd) as Ptr<SqEntry>);
 }
 
-pub fn write_block(ctrl: Ptr<NvmeController>, lba: u64, buf_phys: u64, blocks: u16) {
-    // Opcode 0x01 is Write
+pub fn write_block(ctrl: Ptr<NvmeController>, lba: u64, buf_phys: u64, blocks: u16, req_id: u16) {
     let mut write_cmd = SqEntry {
-        cdw0: 0x01,
-        nsid: 1,
+        cdw0: 0x01 | ((req_id as u32) << 16),
+        nsid: 1, // NSID 1
         rsvd2: 0,
         mptr: 0,
         dptr_prp1: buf_phys,
-        dptr_prp2: 0,
+        dptr_prp2: 0, // Assume contiguous single page for now
         cdw10: (lba & 0xFFFFFFFF) as u32,
         cdw11: (lba >> 32) as u32,
-        cdw12: (blocks as u32) - 1,
+        cdw12: (blocks - 1) as u32,
         cdw13: 0, cdw14: 0, cdw15: 0
     };
     submit_io_cmd(ctrl, (&write_cmd) as Ptr<SqEntry>);

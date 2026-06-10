@@ -772,8 +772,8 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                              args: f.args.clone(),
                              ret_type: f.ret_type.clone(),
                              body: crate::grammar::SaltBlock { stmts: vec![] },
-                             requires: vec![],
-                             ensures: vec![],
+                             requires: f.requires.clone(),
+                             ensures: f.ensures.clone(),
                          };
                          return Some(ResolutionTarget {
                                template: wrapper,

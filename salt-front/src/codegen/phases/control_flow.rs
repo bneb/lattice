@@ -43,6 +43,8 @@ pub struct ControlFlowState {
     pub affine_depth: usize,
     /// Whether we're in an unsafe block
     pub is_unsafe_block: bool,
+    /// Whether we're in a @dynamic_check block
+    pub is_dynamic_check_block: bool,
     /// Whether yield is disabled
     pub no_yield: bool,
     /// Active pulse budget from @yielding(N)

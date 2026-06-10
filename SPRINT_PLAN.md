@@ -42,3 +42,22 @@
 - [x] **TUI-02:** Establish the `grit` shell architecture (event loop reading from VirtIO rings).
 - [x] **TUI-03:** Implement basic `stdio` standard library wrappers to write to the VGA text buffer or serial out.
 - [x] **TUI-04:** Achieve a successful interactive boot sequence ("Hello, KeuOS").
+
+## Sprint 7: Technical Debt & Phase Transition
+**Goal:** Address deferred structural technical debt to clear the runway for Phase 1.5 (Temporal Safety) and Phase 2 (Networking & SMP).
+- [x] **TD-01 (Compiler):** Enhance yield injection with full AST-based cost modeling and expression-level I/O detection for precise jitter budgets.
+- [x] **TD-02 (Compiler):** Support comptime `match` statements and non-i32 return value fuzzer generation.
+- [x] **TD-03 (Kernel):** Gate System Interface Program (SIP) execution behind interprocedural Z3 signature verification.
+- [x] **TD-04 (Kernel):** Implement robust lock-free `DelayedFreeMailbox` draining (Treiber stack & lists) using cross-core atomics.
+- [x] **TD-05 (Kernel):** Expand `keuos_reclaim` to aggressively tear down multi-ring IPC tables and disable VirtIO NIC rings.
+- [x] **TD-06 (Stdlib):** Finalize reactor event loop syscalls (128-131) for KeuOS and `epoll` shims for Linux port.
+- [x] **TD-07 (Stdlib):** Implement Small String Optimization (SSO) in `std::string`.
+
+## Sprint 8: Temporal Safety (Phase 1.5)
+**Goal:** Prevent Use-After-Free (UAF) and Double-Free vulnerabilities while maintaining runtime performance.
+- [x] **TS-01:** Implement basic affine type tracking (`Uninitialized -> Valid -> Freed`) in the MLIR generator to catch local UAFs statically.
+- [x] **TS-02: Contract Enforcements (`requires` / `ensures`)**
+  - Extend `@requires` and `@ensures` decorators to support `valid(ptr)`.
+  - Inject memory state tokens into the Z3 context.
+  - Assert pointer states at function entry and return boundaries.
+- [x] **TS-03 (Compiler/Kernel):** Implement Software Memory Tagging (Epoch IDs in top 16 bits of pointers) and introduce `@dynamic_check` for unprovable paths.

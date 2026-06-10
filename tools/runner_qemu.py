@@ -372,6 +372,7 @@ def build_kernel():
                  glob.glob(f"{KERNEL_ROOT}/boot/*.salt") + \
                  glob.glob(f"{WORKSPACE_ROOT}/user/reactor/tasks/*.salt") + \
                  glob.glob(f"{WORKSPACE_ROOT}/user/terminal/*.salt") + \
+                 glob.glob(f"{WORKSPACE_ROOT}/user/lib/*.salt") + \
                  glob.glob(f"{WORKSPACE_ROOT}/user/grit/*.salt")
     # Exclude files that don't compile yet (WIP / incomplete dependencies)
     # Exclude files that don't compile yet (WIP / incomplete dependencies)
@@ -644,6 +645,13 @@ def run_qemu_test(kernel_path, timeout=600, termination_string="BENCHMARK SUITE 
             print(f"{RED}  ⚠ qemu.log grew to {log_size // (1024*1024)}MB during run — truncating{RESET}")
             os.remove(log_path)
 
+    process.wait()
+    # Print any remaining incomplete line in the buffer
+    if output_buffer:
+        last_line = output_buffer.split('\n')[-1]
+        if last_line:
+            print(f"QEMU (EOF tail): {last_line.strip()}")
+    print(f"QEMU EXITED WITH CODE {process.poll()}")
     return True, output_buffer
 
 if __name__ == "__main__":

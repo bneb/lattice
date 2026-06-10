@@ -46,6 +46,7 @@ pub const KSTACK_SIZE: u64  = KSTACK_PAGES * PAGE_SIZE;
 // =============================================================================
 pub struct Process {
     pub pid: u64,
+    pub parent_pid: u64,
     pub state: u64,
     pub user_pml4: u64,         // Physical address of user PML4
     pub kernel_rsp: u64,        // Saved kernel stack pointer (for context switch)
@@ -73,13 +74,15 @@ pub struct Process {
     pub ring_sq_phys: u64,      // Physical addr of SQ page (for cleanup)
     pub ring_cq_phys: u64,      // Physical addr of CQ page (for cleanup)
     pub ring_capacity: u64,     // Ring capacity (power of 2)
+    // --- VFS State ---
+    pub fd_table: u64,          // Ptr<Ptr<FileDescriptor>> allocated on heap
 }
 
 // =============================================================================
 // Global Process Table
 // =============================================================================
 global PROC_TABLE: [Process; 16] = [Process {
-    pid: 0, state: 0, user_pml4: 0, kernel_rsp: 0,
+    pid: 0, parent_pid: 0, state: 0, user_pml4: 0, kernel_rsp: 0,
     kernel_stack_base: 0, kernel_stack_top: 0,
     user_entry: 0, user_stack_top: 0,
     brk_base: 0, brk_current: 0,
@@ -88,7 +91,8 @@ global PROC_TABLE: [Process; 16] = [Process {
     fs_namespace_id: 0, net_namespace_id: 0,
     ipc_sender: 0, ipc_msg0: 0, ipc_msg1: 0, ipc_msg2: 0,
     ring_active: 0, ring_sq_kern: 0, ring_cq_kern: 0,
-    ring_sq_phys: 0, ring_cq_phys: 0, ring_capacity: 0
+    ring_sq_phys: 0, ring_cq_phys: 0, ring_capacity: 0,
+    fd_table: 0
 }; 16];
 
 global CURRENT_PID: u64 = 0;
@@ -220,6 +224,18 @@ pub fn set_current(slot: u64) {
 // =============================================================================
 pub fn get_state(slot: u64) -> u64 {
     return PROC_TABLE[slot].state;
+}
+
+pub fn get_pid(slot: u64) -> u64 {
+    return PROC_TABLE[slot].pid;
+}
+
+pub fn get_parent_pid(slot: u64) -> u64 {
+    return PROC_TABLE[slot].parent_pid;
+}
+
+pub fn set_parent_pid(slot: u64, ppid: u64) {
+    PROC_TABLE[slot].parent_pid = ppid;
 }
 
 // get_state_addr — Returns the memory address of PROC_TABLE[slot].state
@@ -429,7 +445,20 @@ pub fn set_ring_sq_phys(slot: u64, val: u64) { PROC_TABLE[slot].ring_sq_phys = v
 pub fn get_ring_cq_phys(slot: u64) -> u64 { return PROC_TABLE[slot].ring_cq_phys; }
 pub fn set_ring_cq_phys(slot: u64, val: u64) { PROC_TABLE[slot].ring_cq_phys = val; }
 pub fn get_ring_capacity(slot: u64) -> u64 { return PROC_TABLE[slot].ring_capacity; }
-pub fn set_ring_capacity(slot: u64, val: u64) { PROC_TABLE[slot].ring_capacity = val; }
+pub fn set_ring_capacity(slot: u64, cap: u64) {
+    if slot >= MAX_PROCS { return; }
+    PROC_TABLE[slot as i64].ring_capacity = cap;
+}
+
+pub fn get_fd_table(slot: u64) -> u64 {
+    if slot >= MAX_PROCS { return 0; }
+    return PROC_TABLE[slot as i64].fd_table;
+}
+
+pub fn set_fd_table(slot: u64, table: u64) {
+    if slot >= MAX_PROCS { return; }
+    PROC_TABLE[slot as i64].fd_table = table;
+}
 
 @no_mangle
 pub fn process_set_ipc_msg(slot: u64, sender: u64, msg0: u64, msg1: u64, msg2: u64) {

@@ -145,7 +145,7 @@ impl YieldInjector {
             Stmt::Unsafe(block) => {
                 self.visit_block(block, depth + 1);
             }
-            // TODO: Check for I/O function calls in expressions
+            // Future: Check for I/O function calls in expressions
             _ => {}
         }
     }
@@ -159,7 +159,7 @@ impl YieldInjector {
         self.yield_points.push(YieldPoint {
             kind: YieldPointKind::LoopBackEdge,
             estimated_cycles: estimated_iterations.map(|n| n * 10), // ~10 cycles per simple iteration
-            line: 0, // TODO: get actual line number
+            line: 0, // Future: extract actual line number from AST node
             z3_skip: skip_injection,
         });
         
@@ -209,11 +209,97 @@ impl YieldInjector {
     ///   - Function call: ~10 cycles
     ///   - Memory store: ~4 cycles
     #[allow(dead_code)]
-    fn estimate_wcet_per_iteration(&self, _for_stmt: &SaltFor) -> u64 {
-        // TODO: Walk the loop body AST and sum operation costs
-        // For now, use a conservative default of 10 cycles per iteration
-        // (covers simple arithmetic + array access patterns)
-        10
+    fn estimate_wcet_per_iteration(&self, for_stmt: &SaltFor) -> u64 {
+        self.compute_block_cost(&for_stmt.body).max(1)
+    }
+
+    fn compute_block_cost(&self, block: &SaltBlock) -> u64 {
+        block.stmts.iter().map(|s| self.compute_stmt_cost(s)).sum()
+    }
+
+    fn compute_stmt_cost(&self, stmt: &Stmt) -> u64 {
+        match stmt {
+            Stmt::Syn(syn::Stmt::Local(local)) => {
+                if let Some(init) = &local.init {
+                    self.compute_expr_cost(&init.expr) + 1
+                } else {
+                    1
+                }
+            }
+            Stmt::Syn(syn::Stmt::Expr(expr, _)) | Stmt::Expr(expr, _) | Stmt::Invariant(expr) => {
+                self.compute_expr_cost(expr)
+            }
+            Stmt::Syn(_) => 1,
+            Stmt::While(w) => self.compute_expr_cost(&w.cond) + self.compute_block_cost(&w.body) * 10,
+            Stmt::For(f) => self.compute_expr_cost(&f.iter) + self.compute_block_cost(&f.body) * 10,
+            Stmt::If(i) => self.compute_expr_cost(&i.cond) + self.compute_block_cost(&i.then_branch) + 2, // branching cost
+            Stmt::Match(m) => self.compute_expr_cost(&m.scrutinee) + m.arms.iter().map(|a| self.compute_block_cost(&a.body)).max().unwrap_or(0) + 5,
+            Stmt::LetElse(l) => self.compute_expr_cost(&l.init) + 2,
+            Stmt::Move(e) => self.compute_expr_cost(e) + 1,
+            Stmt::Unsafe(b) | Stmt::DynamicCheck(b) => self.compute_block_cost(b),
+            Stmt::Return(Some(e)) => self.compute_expr_cost(e) + 2,
+            Stmt::Return(None) | Stmt::Break | Stmt::Continue => 2,
+            Stmt::MapWindow { addr, size, body, .. } => self.compute_expr_cost(addr) + self.compute_expr_cost(size) + self.compute_block_cost(body) + 10,
+            Stmt::WithRegion { body, .. } => self.compute_block_cost(body) + 5,
+            Stmt::Loop(b) => self.compute_block_cost(b) * 10,
+        }
+    }
+
+    fn compute_expr_cost(&self, expr: &Expr) -> u64 {
+        match expr {
+            Expr::Path(_) => 1,
+            Expr::Lit(_) => 0,
+            Expr::Binary(b) => self.compute_expr_cost(&b.left) + self.compute_expr_cost(&b.right) + 1,
+            Expr::Unary(u) => self.compute_expr_cost(&u.expr) + 1,
+            Expr::Cast(c) => self.compute_expr_cost(&c.expr) + 1,
+            Expr::Index(i) => self.compute_expr_cost(&i.expr) + self.compute_expr_cost(&i.index) + 4, // Array access: ~4 cycles
+            Expr::Field(f) => self.compute_expr_cost(&f.base) + 1,
+            Expr::Assign(a) => self.compute_expr_cost(&a.left) + self.compute_expr_cost(&a.right) + 4, // Memory store: ~4 cycles
+            Expr::Call(c) => {
+                let mut cost = c.args.iter().map(|a| self.compute_expr_cost(a)).sum::<u64>();
+                // Function call overhead
+                cost += 10;
+                
+                // I/O Detection
+                if let Expr::Path(p) = &*c.func {
+                    let path_str = quote::quote!(#p).to_string().replace(" ", "");
+                    if path_str.contains("mmio_read") || path_str.contains("mmio_write") 
+                        || path_str.contains("outb") || path_str.contains("inb")
+                        || path_str.contains("read_volatile") || path_str.contains("write_volatile")
+                        || path_str.contains("print") {
+                        // Massive cost for I/O to force yield check or represent jitter
+                        cost += 10_000;
+                    }
+                }
+                cost
+            }
+            Expr::MethodCall(m) => {
+                let mut cost = self.compute_expr_cost(&m.receiver) + 10;
+                cost += m.args.iter().map(|a| self.compute_expr_cost(a)).sum::<u64>();
+                let method_name = m.method.to_string();
+                if method_name == "get" || method_name == "insert" {
+                    cost += 100; // HashMap lookup
+                }
+                if method_name.contains("read") || method_name.contains("write") || method_name.contains("print") {
+                    cost += 10_000;
+                }
+                cost
+            }
+            Expr::Reference(r) => self.compute_expr_cost(&r.expr) + 1,
+            Expr::Paren(p) => self.compute_expr_cost(&p.expr),
+            Expr::Array(a) => a.elems.iter().map(|e| self.compute_expr_cost(e)).sum::<u64>() + a.elems.len() as u64,
+            Expr::Struct(s) => s.fields.iter().map(|f| self.compute_expr_cost(&f.expr)).sum::<u64>() + 5,
+            Expr::Tuple(t) => t.elems.iter().map(|e| self.compute_expr_cost(e)).sum::<u64>() + 2,
+            Expr::Block(_) => 10,
+            Expr::If(i) => {
+                self.compute_expr_cost(&i.cond) + 10 + 2
+            }
+            Expr::Match(m) => {
+                self.compute_expr_cost(&m.expr) + 20
+            }
+            // Fallback for others
+            _ => 10,
+        }
     }
     
     /// [PARETO V2.0] Calculate the stripe factor for a loop

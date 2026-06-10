@@ -1,0 +1,25 @@
+// kernel/sys/block.salt
+// =============================================================================
+// Block Device Interface (Phase 2 VFS)
+// =============================================================================
+
+package kernel.sys.block
+
+import std.core.ptr.Ptr
+
+pub struct BlockRequest {
+    pub id: u32,
+    pub is_write: bool,
+    pub lba: u64,
+    pub count: u32, // number of blocks
+    pub buffer: Ptr<u8>, // Virtual address
+}
+
+pub struct BlockDeviceOps {
+    pub submit_request: fn(req: Ptr<BlockRequest>) -> u32,
+}
+
+pub struct BlockDevice {
+    pub id: u32,
+    pub ops: Ptr<BlockDeviceOps>,
+}

@@ -1,0 +1,341 @@
+package kernel.sys.ext2
+
+import std.core.ptr.Ptr
+import kernel.sys.vfs.Inode
+import kernel.sys.vfs.InodeOps
+import kernel.sys.block.BlockDevice
+import kernel.sys.block.BlockRequest
+import kernel.sys.block.BlockDeviceOps
+import kernel.core.memory
+import kernel.core.pmm
+import kernel.core.panic
+import kernel.drivers.serial
+import kernel.lib.malloc
+
+// =============================================================================
+// Robust Read-Only EXT2 File System (Phase 2)
+// =============================================================================
+
+global BLOCK_DEV: Ptr<BlockDevice> = 0 as Ptr<BlockDevice>;
+global EXT2_OPS_PTR: Ptr<InodeOps> = 0 as Ptr<InodeOps>;
+
+// EXT2 Superblock Cache
+global BLOCK_SIZE: u64 = 1024;
+global INODES_PER_GROUP: u32 = 0;
+global BLOCKS_PER_GROUP: u32 = 0;
+global INODE_SIZE: u32 = 128;
+
+fn read_u16(buf: Ptr<u8>, offset: u64) -> u16 {
+    let b0 = buf.offset(offset as i64).read() as u16;
+    let b1 = buf.offset((offset + 1) as i64).read() as u16;
+    return b0 | (b1 << 8);
+}
+
+fn read_u32(buf: Ptr<u8>, offset: u64) -> u32 {
+    let b0 = buf.offset(offset as i64).read() as u32;
+    let b1 = buf.offset((offset + 1) as i64).read() as u32;
+    let b2 = buf.offset((offset + 2) as i64).read() as u32;
+    let b3 = buf.offset((offset + 3) as i64).read() as u32;
+    return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+}
+
+// Synchronous block read using the BlockDevice abstraction
+fn read_disk_block(block_idx: u64, buf: Ptr<u8>) {
+    // block_idx is in EXT2 logical blocks (e.g., 1024 bytes)
+    // NVMe BlockDevice works in 512-byte LBAs
+    let lba = block_idx * (BLOCK_SIZE / 512);
+    let count = (BLOCK_SIZE / 512) as u32;
+    
+    let req = BlockRequest {
+        id: 0,
+        is_write: false,
+        lba: lba,
+        count: count,
+        buffer: buf,
+    };
+    
+    let ops = BLOCK_DEV.ops;
+    let submit_fn = ops.submit_request;
+    submit_fn((&req) as Ptr<BlockRequest>);
+}
+
+// Resolves a file offset to an EXT2 physical block
+fn get_physical_block(inode_buf: Ptr<u8>, logical_block: u64) -> u32 {
+    // Inode block array starts at offset 40
+    if logical_block < 12 {
+        return read_u32(inode_buf, 40 + (logical_block * 4));
+    }
+    
+    // Single Indirect (logical 12 to 12 + blocks_per_ptr)
+    let ptrs_per_block = BLOCK_SIZE / 4;
+    if logical_block < 12 + ptrs_per_block {
+        let indirect_block = read_u32(inode_buf, 40 + (12 * 4));
+        if indirect_block == 0 { return 0; }
+        
+        let phys = pmm.alloc();
+        let bounce = memory.phys_to_virt(memory.PhysAddr { val: phys }).val as Ptr<u8>;
+        read_disk_block(indirect_block as u64, bounce);
+        
+        let idx = logical_block - 12;
+        let pblock = read_u32(bounce, idx * 4);
+        pmm.free(phys);
+        return pblock;
+    }
+    
+    // Double/Triple indirect omitted for MVP stability/security
+    return 0;
+}
+
+pub fn ext2_read(inode: Ptr<Inode>, offset: u64, buf: Ptr<u8>, count: u64) -> i64 {
+    let size = inode.size;
+    if offset >= size { return 0; }
+    
+    let mut actual_count = count;
+    if size - offset < count {
+        actual_count = size - offset;
+    }
+    
+    let ext2_inode_block = inode.data; // we store the block number of the inode here? No, let's store inode number!
+    let inode_num = inode.data as u32;
+    
+    // Load the Inode from disk
+    let phys = pmm.alloc();
+    let bounce = memory.phys_to_virt(memory.PhysAddr { val: phys }).val as Ptr<u8>;
+    
+    let group = (inode_num - 1) / INODES_PER_GROUP;
+    let index = (inode_num - 1) % INODES_PER_GROUP;
+    
+    let gdt_block = if BLOCK_SIZE == 1024 { 2 } else { 1 };
+    let gdt_offset = (group as u64) * 32;
+    if gdt_offset + 32 > BLOCK_SIZE {
+        panic.panic("EXT2: GDT out of bounds");
+    }
+    
+    // Load Group Descriptor Table
+    read_disk_block(gdt_block, bounce);
+    let inode_table_block = read_u32(bounce, gdt_offset + 8);
+    
+    let block_offset = (index * INODE_SIZE) / (BLOCK_SIZE as u32);
+    let byte_offset = (index * INODE_SIZE) % (BLOCK_SIZE as u32);
+    
+    read_disk_block((inode_table_block + block_offset) as u64, bounce);
+    serial.print("EXT2_READ: loaded inode_table block\n");
+    
+    let phys2 = pmm.alloc();
+    let inode_buf = memory.phys_to_virt(memory.PhysAddr { val: phys2 }).val as Ptr<u8>;
+    
+    // Copy the 128-byte inode to inode_buf
+    let mut i: u64 = 0;
+    while i < 128 {
+        inode_buf.offset(i as i64).write(bounce.offset((byte_offset as i64) + (i as i64)).read());
+        i = i + 1;
+    }
+    serial.print("EXT2_READ: copied 128-byte inode\n");
+    
+    // Now read the file data
+    let mut bytes_read: u64 = 0;
+    while bytes_read < actual_count {
+        let current_offset = offset + bytes_read;
+        let logical_block = current_offset / BLOCK_SIZE;
+        let inner_block_offset = current_offset % BLOCK_SIZE;
+        
+        let pblock = get_physical_block(inode_buf, logical_block);
+        serial.print("EXT2_READ logical=");
+        serial.print_u64(logical_block);
+        serial.print(" pblock=");
+        serial.print_u64(pblock as u64);
+        serial.print("\n");
+        
+        if pblock != 0 {
+            read_disk_block(pblock as u64, bounce);
+        } else {
+            // Sparse block, zero it
+            let mut j: u64 = 0;
+            while j < BLOCK_SIZE { bounce.offset(j as i64).write(0); j = j + 1; }
+        }
+        
+        let mut to_read = BLOCK_SIZE - inner_block_offset;
+        if to_read > (actual_count - bytes_read) {
+            to_read = actual_count - bytes_read;
+        }
+        
+        let mut j: u64 = 0;
+        while j < to_read {
+            buf.offset((bytes_read + j) as i64).write(bounce.offset((inner_block_offset + j) as i64).read());
+            j = j + 1;
+        }
+        bytes_read = bytes_read + to_read;
+    }
+    
+    pmm.free(phys);
+    pmm.free(phys2);
+    
+    serial.print("EXT2_READ: returning\n");
+    return bytes_read as i64;
+}
+fn ext2_get_inode(inode_num: u32) -> Ptr<Inode> {
+    let phys = pmm.alloc();
+    let bounce = memory.phys_to_virt(memory.PhysAddr { val: phys }).val as Ptr<u8>;
+    
+    let group = (inode_num - 1) / INODES_PER_GROUP;
+    let index = (inode_num - 1) % INODES_PER_GROUP;
+    
+    let gdt_block = if BLOCK_SIZE == 1024 { 2 } else { 1 };
+    let gdt_offset = (group as u64) * 32;
+    read_disk_block(gdt_block, bounce);
+    let inode_table_block = read_u32(bounce, gdt_offset + 8);
+    
+    let block_offset = (index * INODE_SIZE) / (BLOCK_SIZE as u32);
+    let byte_offset = (index * INODE_SIZE) % (BLOCK_SIZE as u32);
+    
+    read_disk_block((inode_table_block + block_offset) as u64, bounce);
+    
+    let i_mode = read_u16(bounce, (byte_offset as u64) + 0);
+    let i_size = read_u32(bounce, (byte_offset as u64) + 4) as u64;
+    
+    pmm.free(phys);
+    
+    let node = malloc.malloc(48) as Ptr<Inode>;
+    node.id = inode_num as u64;
+    node.size = i_size;
+    node.is_dir = (i_mode & 0x4000) != 0; // S_IFDIR
+    node.ops = EXT2_OPS_PTR;
+    node.refcount = 1;
+    node.data = inode_num as u64;
+    
+    return node;
+}
+
+pub fn ext2_lookup(dir_inode: Ptr<Inode>, name: Ptr<u8>) -> Ptr<Inode> {
+    if !dir_inode.is_dir { return 0 as Ptr<Inode>; }
+    
+    let phys = pmm.alloc();
+    let bounce = memory.phys_to_virt(memory.PhysAddr { val: phys }).val as Ptr<u8>;
+    
+    let mut offset: u64 = 0;
+    let size = dir_inode.size;
+    let mut target_inode_num: u32 = 0;
+    
+    while offset < size {
+        let block_offset = offset % BLOCK_SIZE;
+        if block_offset == 0 {
+            ext2_read(dir_inode, offset, bounce, BLOCK_SIZE);
+        }
+        
+        let rec_len = read_u16(bounce, block_offset + 4);
+        if rec_len < 8 { break; }
+        if (rec_len % 4) != 0 { break; }
+        if block_offset + (rec_len as u64) > BLOCK_SIZE { break; }
+        
+        let name_len = bounce.offset((block_offset + 6) as i64).read();
+        if (rec_len as u64) < 8 + (name_len as u64) { break; }
+        
+        let inode_num = read_u32(bounce, block_offset);
+        if inode_num != 0 {
+            let entry_name = bounce.offset((block_offset + 8) as i64);
+            let mut matched = true;
+            let mut i = 0;
+            while i < (name_len as u64) {
+                if name.offset(i as i64).read() != entry_name.offset(i as i64).read() {
+                    matched = false;
+                    break;
+                }
+                i = i + 1;
+            }
+            if matched && name.offset((name_len as u64) as i64).read() == 0 {
+                target_inode_num = inode_num;
+                break;
+            }
+        }
+        
+        offset = offset + (rec_len as u64);
+    }
+    
+    pmm.free(phys);
+    
+    if target_inode_num == 0 {
+        return 0 as Ptr<Inode>;
+    }
+    return ext2_get_inode(target_inode_num);
+}
+
+pub fn ext2_mkdir(dir_inode: Ptr<Inode>, name: Ptr<u8>) -> i32 {
+    return -1; // Read only
+}
+
+pub fn ext2_write(inode: Ptr<Inode>, offset: u64, buf: Ptr<u8>, count: u64) -> i64 {
+    return -1; // Read only
+}
+
+pub fn mount(dev: Ptr<BlockDevice>) -> Ptr<Inode> {
+    BLOCK_DEV = dev;
+    
+    let phys = pmm.alloc();
+    let bounce = memory.phys_to_virt(memory.PhysAddr { val: phys }).val as Ptr<u8>;
+    
+    // Superblock is at byte offset 1024, which is Block 1 if block size is 1024
+    read_disk_block(1, bounce);
+    
+    // Check magic
+    let magic = read_u16(bounce, 56);
+    if magic != 0xEF53 {
+        serial.print("EXT2 Bad Magic: ");
+        serial.print_hex(magic as u64);
+        serial.print("\nSuperblock Hex Dump:\n");
+        let mut i = 0;
+        while i < 16 {
+            let word = read_u32(bounce, (i * 4) as u64);
+            serial.print_hex(word as u64);
+            serial.print(" ");
+            i = i + 1;
+        }
+        serial.print("\n");
+        pmm.free(phys);
+        return 0 as Ptr<Inode>;
+    }
+    
+    let s_log_block_size = read_u32(bounce, 24);
+    if s_log_block_size > 2 {
+        panic.panic("EXT2: invalid block size");
+    }
+    BLOCK_SIZE = 1024 << s_log_block_size;
+    
+    INODES_PER_GROUP = read_u32(bounce, 40);
+    if INODES_PER_GROUP == 0 {
+        panic.panic("EXT2: invalid INODES_PER_GROUP");
+    }
+    BLOCKS_PER_GROUP = read_u32(bounce, 32);
+    
+    // Check version
+    let rev = read_u32(bounce, 76);
+    if rev >= 1 {
+        INODE_SIZE = read_u16(bounce, 88) as u32;
+    } else {
+        INODE_SIZE = 128;
+    }
+    
+    // Create Root Inode (Inode #2)
+    EXT2_OPS_PTR = malloc.malloc(32) as Ptr<InodeOps>;
+    EXT2_OPS_PTR.read_op = ext2_read;
+    EXT2_OPS_PTR.write_op = ext2_write;
+    EXT2_OPS_PTR.lookup_op = ext2_lookup;
+    EXT2_OPS_PTR.mkdir_op = ext2_mkdir;
+    
+    let root = malloc.malloc(48) as Ptr<Inode>;
+    root.id = 2;
+    root.size = 4096; // Need to actually read root inode size
+    root.is_dir = true;
+    root.ops = EXT2_OPS_PTR;
+    root.refcount = 1;
+    root.data = 2; // Inode number
+    
+    pmm.free(phys);
+    return root;
+}
+
+@no_mangle
+pub fn sys_ext2_mount(dev_ptr: u64) -> u64 {
+    let dev = dev_ptr as Ptr<BlockDevice>;
+    let root = mount(dev);
+    return root as u64;
+}

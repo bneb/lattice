@@ -73,7 +73,7 @@ const RX_POOL_PHYS: u64 = 0x420000; // 4MB + 128KB — RX buffer pool
 const TX_POOL_PHYS: u64 = 0x440000; // 4MB + 256KB — TX buffer pool
 
 // MAC address (6 bytes, read from device config)
-global MAC_ADDR: [u8; 6] = [0 as u8; 6];
+pub global MAC_ADDR: [u8; 6] = [0 as u8; 6];
 
 // Stats
 global RX_COUNT: u64 = 0;
@@ -163,6 +163,14 @@ pub fn moe_enable_rx_interrupts() {
     // Clear flags to 0 — enable device interrupts on RX used entries
     *((avail_base) as &mut u16) = 0;
     serial.print("[MOE] RX interrupts ENABLED\n");
+}
+
+pub fn disable_rx_interrupts() {
+    let base_virt = virtio.get_rx_base() + KERNEL_BASE;
+    let avail_base = base_virt + virtio.virtq_avail_offset(virtio.get_rx_size());
+    // Set flags to 1 — disable device interrupts on RX used entries
+    *((avail_base) as &mut u16) = 1;
+    serial.print("[MOE] RX interrupts DISABLED\n");
 }
 
 // I/O Pump: Force a PCI PIO VMEXIT by notifying the RX queue.

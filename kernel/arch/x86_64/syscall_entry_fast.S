@@ -53,7 +53,7 @@ syscall_entry_fast:
     mov gs:[128], rdx                 /* Save User CR3 to user_cr3_scratch */
 
     mov rdx, gs:[64]                  /* Load kernel_cr3 from PerCpuData */
-    bts rdx, 63                        /* Set NOFLUSH bit — skip TLB flush (PCID) */
+    /* bts rdx, 63 removed for QEMU TCG compatibility */
     mov cr3, rdx                      /* Switch to Kernel PML4 */
 
     pop rdx                           /* Restore RDX from scratch stack */
@@ -146,7 +146,7 @@ syscall_entry_fast:
      * stack is gone. Use GS-segment scratch to save RDX. */
     mov gs:[112], rdx           /* Save RDX to syscall_ret_scratch */
     mov rdx, gs:[128]           /* Load user_cr3_scratch */
-    bts rdx, 63                 /* Set NOFLUSH bit — skip TLB flush (PCID) */
+    /* bts rdx, 63 removed for QEMU TCG compatibility */
     mov cr3, rdx                /* Switch to User PML4 */
     mov rdx, gs:[112]           /* Restore RDX from scratch */
 

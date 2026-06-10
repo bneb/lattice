@@ -41,6 +41,7 @@ pub enum Stmt {
     Break,
     Continue,
     Loop(SaltBlock),
+    DynamicCheck(SaltBlock),
 }
 
 #[derive(Clone, Debug)]
@@ -528,6 +529,7 @@ pub struct ExternFnDecl {
     pub args: Punctuated<Arg, Token![,]>,
     pub ret_type: Option<SynType>,
     pub requires: Vec<Expr>,
+    pub ensures: Vec<Expr>,
 }
 
 // Attribute struct moved to attr.rs
@@ -1081,10 +1083,29 @@ impl Parse for ExternFnDecl {
             }
         }
 
-        // Consume trailing semicolon
-        input.parse::<Token![;]>()?;
+        let mut ensures = Vec::new();
+        while input.peek(crate::keywords::ensures) {
+            input.parse::<crate::keywords::ensures>()?;
+            if input.peek(syn::token::Brace) {
+                 let content;
+                 syn::braced!(content in input);
+                 let e: Expr = content.parse()?;
+                 ensures.push(e);
+            } else {
+                 let e: Expr = input.parse()?;
+                 if input.peek(Token![;]) {
+                     input.parse::<Token![;]>()?;
+                 }
+                 ensures.push(e);
+            }
+        }
+
+        // Consume trailing semicolon if it's still there
+        if input.peek(Token![;]) {
+            input.parse::<Token![;]>()?;
+        }
         
-        Ok(ExternFnDecl { attributes, is_pub, name, args, ret_type, requires })
+        Ok(ExternFnDecl { attributes, is_pub, name, args, ret_type, requires, ensures })
     }
 }
 
@@ -1186,9 +1207,16 @@ impl Parse for Stmt {
         // Check for @decorator or [attribute]
         // Check for @decorator
         if input.peek(Token![@]) {
-            // V2.0: Loop-level decorators removed (@pulse eliminated)
-            // @yielding is now function-level only
-            return Err(input.error("Loop-level decorators removed in V2.0. Use @yielding on functions instead."));
+            input.parse::<Token![@]>()?;
+            let ident: syn::Ident = input.parse()?;
+            if ident.to_string() == "dynamic_check" {
+                let block: SaltBlock = input.parse()?;
+                return Ok(Stmt::DynamicCheck(block));
+            } else {
+                // V2.0: Loop-level decorators removed (@pulse eliminated)
+                // @yielding is now function-level only
+                return Err(input.error("Loop-level decorators removed in V2.0. Use @yielding on functions instead."));
+            }
         }
 
         if input.peek(Token![loop]) {

@@ -1501,6 +1501,10 @@ fn hoist_allocas_in_block(ctx: &mut LoweringContext, stmts: &[Stmt], local_vars:
                 let mut inner_vars = local_vars.clone();
                 hoist_allocas_in_block(ctx, &b.stmts, &mut inner_vars)?;
             }
+            Stmt::DynamicCheck(b) => {
+                let mut inner_vars = local_vars.clone();
+                hoist_allocas_in_block(ctx, &b.stmts, &mut inner_vars)?;
+            }
             Stmt::WithRegion { region: _, body } => {
                 let mut inner_vars = local_vars.clone();
                 hoist_allocas_in_block(ctx, &body.stmts, &mut inner_vars)?;
@@ -1657,6 +1661,16 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
                             }
                             crate::codegen::verification::PointerState::Freed => {
                                 ctx.pointer_tracker.mark_freed(&name);
+                            }
+                            crate::codegen::verification::PointerState::Uninitialized => {
+                                ctx.pointer_tracker.mark_uninitialized(&name);
+                            }
+                        }
+                    } else if local.init.is_none() {
+                        if let Some((ty, _)) = local_vars.get(&name) {
+                            if ty.k_is_ptr_type() {
+                                // TS-01: Basic affine type tracking. A pointer without init is Uninitialized.
+                                ctx.pointer_tracker.mark_uninitialized(&name);
                             }
                         }
                     }
@@ -2211,6 +2225,14 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
             *ctx.is_unsafe_block_mut() = was_unsafe;
             Ok(res)
         }
+        Stmt::DynamicCheck(block) => {
+            let was_dynamic = *ctx.is_dynamic_check_block();
+            *ctx.is_dynamic_check_block_mut() = true;
+            let mut inner_vars = local_vars.clone();
+            let res = emit_block(ctx, out, &block.stmts, &mut inner_vars)?;
+            *ctx.is_dynamic_check_block_mut() = was_dynamic;
+            Ok(res)
+        }
         Stmt::WithRegion { region, body } => {
             ctx.region_stack_mut().push(region.to_string());
             let mut inner_vars = local_vars.clone();
@@ -2414,7 +2436,7 @@ fn get_narrowing_target(cond: &syn::Expr) -> Option<(String, bool)> {
     // [POINTER TRUTHINESS] Bare pointer: `if ptr { ... }` => narrowing target = ptr, is_neq=true
     if let syn::Expr::Path(p) = cond {
         if let Some(ident) = p.path.get_ident() {
-            println!("DEBUG get_narrowing_target: matched Expr::Path {}", ident);
+
             return Some((ident.to_string(), true));
         }
     }
@@ -2483,7 +2505,7 @@ pub fn emit_salt_if(
 
     // Apply narrowing for Then
     if let Some((var, is_neq)) = &narrowing {
-        println!("DEBUG narrowing applying for Then: {} {}", var, is_neq);
+
         if *is_neq { 
             // p != 0 -> Valid in Then
             ctx.pointer_tracker.mark_valid(var); 
@@ -2492,7 +2514,7 @@ pub fn emit_salt_if(
             ctx.pointer_tracker.mark_empty(var); 
         }
     } else {
-        println!("DEBUG narrowing is None for cond");
+
     }
 
     let loc = ctx.loc_tag(cond.span());
@@ -3305,7 +3327,7 @@ fn collect_mutations_in_stmt(visitor: &mut MutationVisitor, stmt: &Stmt) {
             visitor.visit_expr(&f.iter);
             for s in &f.body.stmts { collect_mutations_in_stmt(visitor, s); }
         }
-        Stmt::Loop(b) | Stmt::Unsafe(b) => {
+        Stmt::Loop(b) | Stmt::Unsafe(b) | Stmt::DynamicCheck(b) => {
             for s in &b.stmts { collect_mutations_in_stmt(visitor, s); }
         }
         Stmt::Match(m) => {

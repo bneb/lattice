@@ -1,8 +1,8 @@
 package user.grit.shell
 
 import user.terminal.console
-import std.core.str
 import user.std.stdio
+import user.lib.syscall
 
 const TX_RING: u64 = 0x40003000;
 
@@ -10,9 +10,9 @@ global LINE_BUFFER: [u8; 256] = [0; 256];
 global LINE_LEN: u32 = 0;
 
 pub fn prompt() {
-    let msg = "grit> ";
-    console.print(msg.ptr as u64, 6);
-    tx_print(msg.ptr as u64, 6);
+    let msg: &u8 = "grit> ";
+    console.print(msg as u64, 6);
+    tx_print(msg as u64, 6);
 }
 
 pub fn tx_print(s_ptr: u64, len: u32) {
@@ -46,32 +46,53 @@ fn strcmp(s1_ptr: u64, len1: u32, s2_ptr: u64, len2: u32) -> bool {
     return true;
 }
 
+fn cmd_help() {
+    let msg: &u8 = "\x1B[36mKeuOS Terminal Help\x1B[0m\n  clear : Clear the screen\n  help  : Show this help\n  hello : Say hello\n";
+    console.print(msg as u64, 94);
+    tx_print(msg as u64, 94);
+}
+
+fn cmd_hello() {
+    let msg: &u8 = "Spawning /hello.elf...\n";
+    console.print(msg as u64, 23);
+    tx_print(msg as u64, 23);
+    
+    let path: &u8 = "/hello.elf";
+    let pid = syscall.spawn(path as u64, 10);
+    
+    // Wait for child to exit
+    let code = syscall.wait(pid);
+    
+    let msg2: &u8 = "Process exited.\n";
+    console.print(msg2 as u64, 16);
+    tx_print(msg2 as u64, 16);
+}
+
+fn cmd_unknown() {
+    let msg: &u8 = "Command not found.\n";
+    console.print(msg as u64, 19);
+    tx_print(msg as u64, 19);
+}
+
 pub fn parse_command() {
     console.putc(10); // newline
-    let nl = "\n";
-    tx_print(nl.ptr as u64, 1);
+    let nl: &u8 = "\n";
+    tx_print(nl as u64, 1);
     
-    let help_cmd = "help";
-    let clear_cmd = "clear";
-    let hello_cmd = "hello";
+    let help_cmd: &u8 = "help";
+    let clear_cmd: &u8 = "clear";
+    let hello_cmd: &u8 = "hello";
     
     if LINE_LEN == 0 {
         // Do nothing
-    } else if strcmp((&LINE_BUFFER) as u64, LINE_LEN, help_cmd.ptr as u64, 4) {
-        let msg = "\x1B[36mKeuOS Terminal Help\x1B[0m\n  clear : Clear the screen\n  help  : Show this help\n  hello : Say hello\n";
-        console.print(msg.ptr as u64, 94);
-        tx_print(msg.ptr as u64, 94);
-    } else if strcmp((&LINE_BUFFER) as u64, LINE_LEN, hello_cmd.ptr as u64, 5) {
-        let msg = "Hello, KeuOS!\n";
-        console.print(msg.ptr as u64, 14);
-        tx_print(msg.ptr as u64, 14);
-    } else if strcmp((&LINE_BUFFER) as u64, LINE_LEN, clear_cmd.ptr as u64, 5) {
+    } else if strcmp((&LINE_BUFFER) as u64, LINE_LEN, help_cmd as u64, 4) {
+        cmd_help();
+    } else if strcmp((&LINE_BUFFER) as u64, LINE_LEN, hello_cmd as u64, 5) {
+        cmd_hello();
+    } else if strcmp((&LINE_BUFFER) as u64, LINE_LEN, clear_cmd as u64, 5) {
         console.clear();
     } else {
-        // Unknown command
-        let msg = "Command not found.\n";
-        console.print(msg.ptr as u64, 19);
-        tx_print(msg.ptr as u64, 19);
+        cmd_unknown();
     }
     
     LINE_LEN = 0;
@@ -88,27 +109,54 @@ pub fn handle_key(c: u8) {
         parse_command();
     } else if c == 8 {
         // Backspace
-        if LINE_LEN > 0 {
-            LINE_LEN = LINE_LEN - 1;
-            console.putc(8); // Backspace removes char visually
-        }
+        handle_backspace();
     } else {
-        if LINE_LEN < 255 {
-            LINE_BUFFER[(LINE_LEN as u64)] = c;
-            LINE_LEN = LINE_LEN + 1;
-            console.putc(c); // Echo locally
-            
-            // Also echo to serial TX
-            let capacity = *((TX_RING + 8) as &u64);
-            if capacity > 0 {
-                let mut head = *((TX_RING + 0) as &u64);
-                let tail = *((TX_RING + 64) as &u64);
-                let next_head = (head + 1) % capacity;
-                if next_head != tail {
-                    *((TX_RING + 192 + head) as &mut u8) = c;
-                    *((TX_RING + 0) as &mut u64) = next_head;
-                }
+        handle_printable(c);
+    }
+}
+
+fn handle_backspace() {
+    if LINE_LEN > 0 {
+        LINE_LEN = LINE_LEN - 1;
+        console.putc(8); // Backspace removes char visually
+    }
+}
+
+fn handle_printable(c: u8) {
+    if LINE_LEN < 255 {
+        LINE_BUFFER[(LINE_LEN as u64)] = c;
+        LINE_LEN = LINE_LEN + 1;
+        console.putc(c); // Echo locally
+        
+        // Also echo to serial TX
+        let capacity = *((TX_RING + 8) as &u64);
+        if capacity > 0 {
+            let mut head = *((TX_RING + 0) as &u64);
+            let tail = *((TX_RING + 64) as &u64);
+            let next_head = (head + 1) % capacity;
+            if next_head != tail {
+                *((TX_RING + 192 + head) as &mut u8) = c;
+                *((TX_RING + 0) as &mut u64) = next_head;
             }
         }
+    }
+}
+
+pub fn main() {
+    let msg: &u8 = "Welcome to KeuOS (grit shell)\n";
+    console.print(msg as u64, 30);
+    tx_print(msg as u64, 30);
+    
+    prompt();
+    
+    // In a real shell we would read from VirtIO RX queue using sys_read,
+    // but right now VirtIO keyboard events are handled in kernel space and
+    // pushed to the console buffer. So we just yield and let the kernel
+    // interrupt handler call handle_key(), or we poll.
+    // Wait, KeuOS handles VirtIO keyboard via ISR directly invoking handle_key!
+    // But handle_key is exported? Yes!
+    // So the shell just yields forever in the background!
+    loop {
+        syscall.sys_yield_thread();
     }
 }

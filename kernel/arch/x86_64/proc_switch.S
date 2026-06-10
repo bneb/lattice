@@ -21,10 +21,6 @@
 .global proc_trampoline
 
 proc_context_switch:
-    mov dx, 0x3F8
-    mov al, 0x30  /* '0' */
-    out dx, al
-
     /* RDI = old_rsp_ptr, RSI = new_rsp, RDX = new_cr3, RCX = new_rsp0 */
 
     /* Save callee-saved registers */
@@ -46,6 +42,8 @@ proc_context_switch:
     mov dx, 0x3F8
     mov al, 0x31  /* '1' */
     out dx, al
+    mov al, 10
+    out dx, al
 
     /* Switch CR3 (address space) */
     mov cr3, rdx
@@ -53,9 +51,17 @@ proc_context_switch:
     mov dx, 0x3F8
     mov al, 0x32  /* '2' */
     out dx, al
+    mov al, 10
+    out dx, al
 
     /* Update kernel_rsp0_scratch for SYSCALL entry path (Per-CPU) */
     mov gs:[96], rcx
+
+    mov dx, 0x3F8
+    mov al, 0x33  /* '3' */
+    out dx, al
+    mov al, 10
+    out dx, al
 
     /* Restore callee-saved registers from new stack */
     pop r15
@@ -87,7 +93,10 @@ proc_trampoline:
     mov dx, 0x3F8
     mov al, 0x54  /* 'T' */
     out dx, al
+    mov al, 10
+    out dx, al
 
+    /* Ring 3 transition: Data segments */
     mov ax, 0x23
     mov ds, ax
     mov es, ax
@@ -96,11 +105,15 @@ proc_trampoline:
     mov dx, 0x3F8
     mov al, 0x53  /* 'S' */
     out dx, al
+    mov al, 10
+    out dx, al
 
     swapgs
 
     mov dx, 0x3F8
     mov al, 0x49  /* 'I' */
+    out dx, al
+    mov al, 10
     out dx, al
 
 .global proc_trampoline_iretq

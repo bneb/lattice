@@ -73,6 +73,21 @@ pub fn mmap(length: u64, prot: u64) -> u64 {
 }
 
 // =============================================================================
+// Process Management
+// =============================================================================
+
+extern fn sys_spawn(path_ptr: u64, path_len: u64) -> u64;
+extern fn sys_wait(pid: u64) -> u64;
+
+pub fn spawn(path_ptr: u64, path_len: u64) -> u64 {
+    return sys_spawn(path_ptr, path_len);
+}
+
+pub fn wait(pid: u64) -> u64 {
+    return sys_wait(pid);
+}
+
+// =============================================================================
 // IPC — Fast-Path Register-Level Message Passing
 // =============================================================================
 

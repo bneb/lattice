@@ -7,9 +7,13 @@ package kernel.drivers.rtl8125
 
 import kernel.drivers.pci
 import kernel.drivers.serial
-import kernel.core.pmm
+import kernel.core.memory as memory
+import kernel.core.pmm as pmm
 import kernel.core.panic
-import kernel.arch.x86_64.cpu
+import kernel.core.dispatcher as dispatcher
+
+extern fn cpu_lfence();
+extern fn cpu_sfence();
 
 const KERNEL_BASE: u64 = 0xFFFFFFFF80000000;
 
@@ -61,7 +65,7 @@ const DESC_EOR: u32 = 0x40000000; // End of Ring
 const DESC_FS:  u32 = 0x20000000; // First Segment
 const DESC_LS:  u32 = 0x10000000; // Last Segment
 
-global MAC_ADDR: [u8; 6] = [0 as u8; 6];
+pub global MAC_ADDR: [u8; 6] = [0 as u8; 6];
 
 // =============================================================================
 // MMIO Access
@@ -184,8 +188,8 @@ pub fn init() -> bool {
 
     // Allocate Descriptor Rings (256-byte aligned)
     // pmm.alloc_pages() returns 4KB aligned physical pages, which implies 256-byte alignment.
-    RX_RING_PHYS = pmm.alloc_pages(1); 
-    TX_RING_PHYS = pmm.alloc_pages(1);
+    RX_RING_PHYS = pmm.alloc(); 
+    TX_RING_PHYS = pmm.alloc();
     RX_RING_VIRT = RX_RING_PHYS + KERNEL_BASE;
     TX_RING_VIRT = TX_RING_PHYS + KERNEL_BASE;
 
@@ -193,7 +197,7 @@ pub fn init() -> bool {
     let mut idx: u64 = 0;
     while idx < NUM_RX_DESC {
         let desc_ptr = RX_RING_VIRT + idx * DESC_SIZE;
-        let buf_phys = pmm.alloc_pages(1); // 4KB buf
+        let buf_phys = pmm.alloc(); // 4KB buf
         
         let mut flags = DESC_OWN | 1514; // NIC owns it, MTU=1514
         if idx == NUM_RX_DESC - 1 {
@@ -260,7 +264,7 @@ pub fn rx_poll(out_buf: &mut u64, out_len: &mut u32) -> bool {
     // Red-Team: Speculative Execution Barrier
     // Prevent the CPU from speculatively reading the packet buffer before
     // the DESC_OWN check is genuinely resolved.
-    cpu.cpu_lfence();
+    cpu_lfence();
 
     let pkt_len = flags & 0x3FFF;
     let buf_phys_low = *((desc_ptr + 8) as &u32);
@@ -289,7 +293,7 @@ pub fn rx_repost(buf_virt: u64) {
     *((desc_ptr + 12) as &mut u32) = ((buf_phys >> 32) & 0xFFFFFFFF) as u32;
     
     // Red-Team: Store fence before giving ownership back
-    cpu.cpu_sfence();
+    cpu_sfence();
 
     let mut flags = DESC_OWN | 1514;
     if target_idx == NUM_RX_DESC - 1 {
@@ -314,7 +318,7 @@ pub fn tx_reclaim() {
         
         if buf_phys != 0 {
             // Free page to PMM
-            pmm.free_pages(buf_phys, 1);
+            pmm.free(buf_phys);
             
             // Clear ptr
             *((desc_ptr + 8) as &mut u32) = 0;
@@ -336,7 +340,7 @@ pub fn tx_send(pkt: u64, pkt_len: u32) -> bool {
 
     // We must copy the packet to a DMA-able physical page, because the caller might
     // provide a temporary stack buffer or non-contiguous virtual memory.
-    let buf_phys = pmm.alloc_pages(1);
+    let buf_phys = pmm.alloc();
     let buf_virt = buf_phys + KERNEL_BASE;
     
     // extern fn fast_memcpy(dst: u64, src: u64, count: u64);
@@ -355,7 +359,7 @@ pub fn tx_send(pkt: u64, pkt_len: u32) -> bool {
     *((desc_ptr + 12) as &mut u32) = ((buf_phys >> 32) & 0xFFFFFFFF) as u32;
     
     // Red-Team: Store Fence to commit the packet payload
-    cpu.cpu_sfence();
+    cpu_sfence();
 
     let mut new_flags = DESC_OWN | DESC_FS | DESC_LS | pkt_len;
     if TX_CUR == NUM_TX_DESC - 1 {
@@ -364,7 +368,7 @@ pub fn tx_send(pkt: u64, pkt_len: u32) -> bool {
     *((desc_ptr + 0) as &mut u32) = new_flags;
 
     // Red-Team: Store Fence to commit the descriptor before doorbell
-    cpu.cpu_sfence();
+    cpu_sfence();
 
     // Ring Doorbell
     mmio_write16(TPPOLL, 0x0040); // Normal Priority Queue polling

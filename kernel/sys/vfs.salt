@@ -1,0 +1,62 @@
+// kernel/sys/vfs.salt
+// =============================================================================
+// Virtual File System (VFS) Core (Phase 2)
+// =============================================================================
+
+package kernel.sys.vfs
+
+import std.core.ptr.Ptr
+
+pub struct InodeOps {
+    pub read_op: fn(inode: Ptr<Inode>, offset: u64, buf: Ptr<u8>, count: u64) -> i64,
+    pub write_op: fn(inode: Ptr<Inode>, offset: u64, buf: Ptr<u8>, count: u64) -> i64,
+    pub lookup_op: fn(inode: Ptr<Inode>, name: Ptr<u8>) -> Ptr<Inode>,
+    pub mkdir_op: fn(inode: Ptr<Inode>, name: Ptr<u8>) -> i32,
+}
+
+pub struct Inode {
+    pub id: u64,
+    pub size: u64,
+    pub is_dir: bool,
+    pub ops: Ptr<InodeOps>,
+    pub refcount: u32,
+    pub data: u64, // Opaque pointer to fs-specific data
+}
+
+pub struct FileDescriptor {
+    pub inode: Ptr<Inode>,
+    pub offset: u64,
+    pub flags: u32,
+    pub refcount: u32,
+}
+
+global ROOT_INODE: Ptr<Inode> = 0 as Ptr<Inode>;
+
+pub fn set_root(inode: Ptr<Inode>) {
+    ROOT_INODE = inode;
+}
+
+@no_mangle
+pub fn sys_vfs_set_root(inode_ptr: u64) {
+    set_root(inode_ptr as Ptr<Inode>);
+}
+
+// vfs_lookup: Resolve a simple absolute path to an Inode.
+// MVP: No parent ".." or current "." traversal. Just forward matches.
+pub fn vfs_lookup(path: Ptr<u8>) -> Ptr<Inode> {
+    if ROOT_INODE as u64 == 0 { return 0 as Ptr<Inode>; }
+    
+    // Must be absolute
+    if path.offset(0).read() != 47 { return 0 as Ptr<Inode>; } // '/'
+    
+    let mut current = ROOT_INODE;
+    let ops = current.ops;
+    let f_lookup = ops.lookup_op;
+    return f_lookup(current, path.offset(1));
+}
+
+@no_mangle
+pub fn sys_vfs_lookup(path_ptr: u64) -> u64 {
+    let inode = vfs_lookup(path_ptr as Ptr<u8>);
+    return inode as u64;
+}

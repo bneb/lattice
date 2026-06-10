@@ -57,8 +57,9 @@ pub fn try_emit_special_method(
              // Enforce validity on tracked variables
              if let syn::Expr::Path(path) = &*m.receiver {
                  if let Some(ident) = path.path.get_ident() {
-                      // Check state
-                      ctx.pointer_tracker.check_deref(&ident.to_string())?;
+                      if !*ctx.is_dynamic_check_block() {
+                          ctx.pointer_tracker.check_deref(&ident.to_string())?;
+                      }
                  }
              }
         }

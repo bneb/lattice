@@ -28,6 +28,7 @@ import kernel.core.percpu
 
 
 extern fn get_cycles_asm() -> u64;
+extern fn ebr_get_global_epoch() -> u64;
 
 // =============================================================================
 // Constants
@@ -36,6 +37,8 @@ pub const EVENT_DISPATCH: u64  = 0;
 pub const EVENT_YIELD: u64     = 1;
 pub const EVENT_COMPLETED: u64 = 2;
 pub const EVENT_TIMER_ISR: u64 = 3;
+pub const EVENT_CPU_STALL: u64 = 8;
+const EVENT_PANIC: u64     = 9;
 
 const MAX_CPUS: u64 = 16;
 
@@ -226,7 +229,7 @@ pub fn finalize_for_panic(reason_hash: u64, cpu_id: u64, timestamp: u64) {
     FR_HEADER.faulting_cpu = cpu_id;
     FR_HEADER.timestamp = timestamp;
     FR_HEADER.total_trace_events = get_total_trace_count();
-    FR_HEADER.global_epoch = 0;  // TODO: read from EBR arena when integrated
+    FR_HEADER.global_epoch = ebr_get_global_epoch();
     FR_HEADER.reserved0 = 0;
     FR_HEADER.reserved1 = 0;
 

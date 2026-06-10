@@ -67,18 +67,29 @@ timer_isr_wrapper:
     # 2. Handshake with the Salt Scheduler
     # Pass pointer to the stack (Context)
     mov rdi, rsp
+    # Ensure 16-byte stack alignment for C ABI
+    mov rbx, rsp
+    and rsp, -16
     call timer_isr
+    mov rsp, rbx
 
     # 3. Send EOI to BOTH PIC and LAPIC for dual-mode compatibility.
-    # Under KVM with APIC timer: PIC is masked, PIC EOI is harmless no-op.
-    # Under TCG with legacy PIT: LAPIC EOI is harmless no-op.
-    # This ensures timer interrupts are never permanently blocked in either mode.
     mov al, 0x20
     out 0x20, al
+    mov rbx, rsp
+    and rsp, -16
     call apic_send_eoi
+    mov rsp, rbx
 
     # 4. Ring 3 process preemption (round-robin scheduling)
+    # Check if we interrupted Ring 3. CS is at [rsp + 15*8 + 8] = [rsp + 128]
+    test qword ptr [rsp + 128], 3
+    jz .L_skip_preempt
+    mov rbx, rsp
+    and rsp, -16
     call timer_preempt
+    mov rsp, rbx
+.L_skip_preempt:
 
     # 4. Restore state (LIFO - Reverse of Push)
     pop r15

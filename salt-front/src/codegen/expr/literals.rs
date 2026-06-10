@@ -169,6 +169,16 @@ pub fn emit_path(ctx: &mut LoweringContext, out: &mut String, p: &syn::ExprPath,
             if ctx.consumed_vars().contains(&name) {
                 return Err(format!("Use of moved value: {}", name));
             }
+            if let Some(state) = ctx.pointer_tracker.get_state(&name) {
+                if state == crate::codegen::verification::PointerState::Uninitialized {
+                    return Err(format!("Use of uninitialized pointer variable: {}", name));
+                }
+                if !*ctx.is_dynamic_check_block() {
+                    if state == crate::codegen::verification::PointerState::Freed {
+                        return Err(format!("Use of freed pointer variable: {}", name));
+                    }
+                }
+            }
             match kind {
                 LocalKind::SSA(val) => return Ok((val.clone(), ty.clone())),
                 LocalKind::Ptr(ptr) => {
@@ -598,8 +608,8 @@ pub fn emit_array(ctx: &mut LoweringContext, out: &mut String, a: &syn::ExprArra
         if i == 0 {
             elem_ty = ty;
         } else if ty != elem_ty {
-             // Basic type unification (Todo: Promote to common supertype)
-             // For now, strict strictness
+             // Basic type unification: strict MLIR type equality.
+             // We do not silently promote to supertypes to maintain predictable bounds.
              if ty.to_mlir_type(ctx)? != elem_ty.to_mlir_type(ctx)? {
                  return Err(format!("Array element type mismatch at index {}: expected {:?}, found {:?}", i, elem_ty, ty));
              }

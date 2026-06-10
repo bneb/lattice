@@ -23,10 +23,12 @@
 package kernel.core.keuos_reclaim
 
 import kernel.core.process
+import kernel.core.ring_abi
 import kernel.core.reclaim_histogram
 import kernel.core.pmm
 import kernel.mem.page_sweep
 import kernel.drivers.serial
+import kernel.drivers.virtio_net
 
 // =============================================================================
 // Reclamation Result — Instrumented for KPI monitoring
@@ -108,15 +110,10 @@ pub fn keuos_reclaim(pid: u64) -> ReclaimResult {
 // =============================================================================
 
 fn flush_and_fence_rings(pid: u64) -> u64 {
-    // In the current implementation, each process has at most 1 SPSC ring.
-    // When multi-ring support is added, this walks the ring table.
-    //
-    // For now, we reset the ring header in shared memory:
-    //   head = 0, tail = 0, capacity = 0
-    // This atomically "disarms" the ring.
-
-    // TODO: Walk proc.ring_table when multi-ring IPC is implemented
-    return 1;  // 1 ring flushed (conservative)
+    // Walk the multi-ring table and destroy all IPC rings associated with the process.
+    // In our current design, slot matches pid.
+    ring_abi.destroy_ring(pid);
+    return 1;
 }
 
 // =============================================================================
@@ -127,10 +124,9 @@ fn flush_and_fence_rings(pid: u64) -> u64 {
 // =============================================================================
 
 fn disable_nic_rings(pid: u64) {
-    // VirtIO: set the ring's avail_flags to VIRTQ_AVAIL_F_NO_INTERRUPT
-    // This signals the device to stop processing this ring.
-    //
-    // TODO: Wire to VirtIO ring disable when multi-ring NIC is implemented
+    // Tells the VirtIO NIC to stop polling this process's RX/TX rings.
+    // This prevents DMA race conditions during unmap.
+    virtio_net.disable_rx_interrupts();
 }
 
 // =============================================================================

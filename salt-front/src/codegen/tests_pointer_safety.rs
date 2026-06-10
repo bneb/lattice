@@ -258,4 +258,94 @@ mod tests {
         // search's `let child` binding, causing a false "Empty pointer" error.
         check_safety("ptr_empty_assign_no_leak", source, None);
     }
+
+    // ========================================================================
+    // TS-01: Basic Affine Type Tracking
+    // ========================================================================
+
+    #[test]
+    fn test_use_uninitialized_pointer_fails() {
+        let source = r#"
+            package main
+            use std.core.ptr.Ptr
+
+            fn main() -> i32 {
+                let p: Ptr<i32>;
+                // Use uninitialized pointer
+                let x = p;
+                return 0;
+            }
+        "#;
+        check_safety("use_uninitialized", source, Some("Use of uninitialized pointer variable: p"));
+    }
+
+    #[test]
+    fn test_use_freed_pointer_fails() {
+        let source = r#"
+            package main
+            use std.core.ptr.Ptr
+            
+            extern fn free(p: Ptr<i32>);
+
+            fn main() -> i32 {
+                let p: Ptr<i32> = Ptr::<i32>::empty();
+                // We use free which will mark it Freed
+                free(p);
+                // Cannot pass a freed pointer around
+                let x = p;
+                return 0;
+            }
+        "#;
+        check_safety("use_freed", source, Some("Use of freed pointer variable: p"));
+        check_safety("use_freed", source, Some("Use of freed pointer variable: p"));
+    }
+
+    #[test]
+    fn test_custom_deallocator_ensures() {
+        let source = r#"
+            package main
+            use std.core.ptr.Ptr
+            
+            extern fn get_valid_ptr() -> Ptr<i32> ensures valid(result);
+            extern fn custom_free(p: Ptr<i32>) requires valid(p); ensures freed(p);
+
+            fn main() -> i32 {
+                let p = get_valid_ptr();
+                custom_free(p);
+                // Cannot pass a freed pointer
+                let x = p;
+                return 0;
+            }
+        "#;
+        check_safety("custom_free", source, Some("Use of freed pointer variable: p"));
+    }
+
+    #[test]
+    fn test_dynamic_check_fallback() {
+        let source = r#"
+            package main
+            use std.core.ptr.Ptr
+            
+            extern fn get_valid_ptr() -> Ptr<i32>;
+            extern fn opaque_function(p: Ptr<i32>);
+
+            fn main() -> i32 {
+                let p = get_valid_ptr();
+                // opaque_function makes the pointer Optional (unprovable statically)
+                opaque_function(p);
+                
+                // This would normally fail compile time:
+                // let val = *p; 
+
+                // But with dynamic check, it defers to runtime (compiles successfully!)
+                @dynamic_check {
+                    let val = *p;
+                }
+                return 0;
+            }
+        "#;
+        // Because it's enclosed in @dynamic_check, it should COMPILE successfully,
+        // and rely on the runtime Software Memory Tagging to trap.
+        check_safety("dynamic_check", source, None);
+    }
 }

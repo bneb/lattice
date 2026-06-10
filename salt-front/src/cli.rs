@@ -226,10 +226,30 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
                             })?;
                         }
                         
-                        // Post-compilation KeuOSty Audit
-                        eprintln!("⚖️  [KeuOS] Running KeuOSty Audit...");
-                        // TODO: Run full disassembly-based audit via binary_audit::check_pattern()
-                        // Requires: otool -tV <binary> | check NoX19Spill + HasTailCall + HasIoSyscall
+                        // Post-compilation KeuOS Audit
+                        eprintln!("⚖️  [KeuOS] Running KeuOS Audit...");
+                        if let Ok(output) = std::process::Command::new("otool").arg("-tV").arg(&output_bin).output() {
+                            let disasm = String::from_utf8_lossy(&output.stdout);
+                            let config = crate::codegen::passes::binary_audit::BinaryAuditConfig::standard(
+                                crate::codegen::passes::io_backend::TargetPlatform::Darwin
+                            );
+                            let results = crate::codegen::passes::binary_audit::run_audit(&config, &disasm);
+                            let mut all_passed = true;
+                            for res in results {
+                                if !res.passed {
+                                    all_passed = false;
+                                    eprintln!("    ❌ Rule failed: {:?}", res.rule);
+                                    eprintln!("       {}", res.detail);
+                                }
+                            }
+                            if all_passed {
+                                eprintln!("    ✅ Audit passed.");
+                            } else {
+                                eprintln!("    ⚠️ Audit found violations.");
+                            }
+                        } else {
+                            eprintln!("    ⚠️ Could not run otool to audit binary.");
+                        }
                         eprintln!("✅  [KeuOS] Binary synthesized: {:?}", output_bin);
                         eprintln!("    Pipeline: mlir-opt → mlir-translate → llc (x19 reserved) → clang (-nostdlib)");
                     }

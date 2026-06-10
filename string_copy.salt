@@ -29,36 +29,34 @@ pub struct String {
     data: Ptr<u8>,
     len: i64,
     cap: i64,
-    is_inline: bool,
-    inline_buf: [u8; 23],
 }
 
 impl String {
     // Create an empty string (zero-alloc)
     pub fn new() -> String {
-        return String { data: 1 as Ptr<u8>, len: 0, cap: 23, is_inline: true, inline_buf: [0; 23] };
+        return String { data: 1 as Ptr<u8>, len: 0, cap: 0 };
     }
 
     // Create with pre-allocated capacity
     pub fn with_capacity(cap: i64) -> String
         // requires cap >= 0
     {
-        if cap <= 23 {
+        if cap == 0 {
             return String::new();
         }
         let ptr = malloc(cap);
         let p = ptr as Ptr<u8>;
-        return String { data: p, len: 0, cap: cap, is_inline: false, inline_buf: [0; 23] };
+        return String { data: p, len: 0, cap: cap };
     }
 
     // [KEUOS V4.0] Create with capacity for f-string hot paths
     pub fn with_arena_capacity(cap: i64) -> String {
-        if cap <= 23 {
+        if cap == 0 {
             return String::new();
         }
         let addr = malloc(cap);
         let p = addr as Ptr<u8>;
-        return String { data: p, len: 0, cap: cap, is_inline: false, inline_buf: [0; 23] };
+        return String { data: p, len: 0, cap: cap };
     }
 
     // Get byte length
@@ -84,7 +82,7 @@ impl String {
         if self.len == self.cap {
             self.grow_slow(1);
         }
-        self.mut_ptr().offset(self.len).write(b);
+        self.data.offset(self.len).write(b);
         self.len = self.len + 1;
     }
 
@@ -104,23 +102,23 @@ impl String {
         } else if ch < 0x800 {
             // Two bytes
             self.reserve(2);
-            self.mut_ptr().offset(self.len).write((0xC0 | (ch >> 6)) as u8);
-            self.mut_ptr().offset(self.len + 1).write((0x80 | (ch & 0x3F)) as u8);
+            self.data.offset(self.len).write((0xC0 | (ch >> 6)) as u8);
+            self.data.offset(self.len + 1).write((0x80 | (ch & 0x3F)) as u8);
             self.len = self.len + 2;
         } else if ch < 0x10000 {
             // Three bytes
             self.reserve(3);
-            self.mut_ptr().offset(self.len).write((0xE0 | (ch >> 12)) as u8);
+            self.data.offset(self.len).write((0xE0 | (ch >> 12)) as u8);
             self.data.offset(self.len + 1).write((0x80 | ((ch >> 6) & 0x3F)) as u8);
-            self.mut_ptr().offset(self.len + 2).write((0x80 | (ch & 0x3F)) as u8);
+            self.data.offset(self.len + 2).write((0x80 | (ch & 0x3F)) as u8);
             self.len = self.len + 3;
         } else {
             // Four bytes
             self.reserve(4);
-            self.mut_ptr().offset(self.len).write((0xF0 | (ch >> 18)) as u8);
+            self.data.offset(self.len).write((0xF0 | (ch >> 18)) as u8);
             self.data.offset(self.len + 1).write((0x80 | ((ch >> 12) & 0x3F)) as u8);
             self.data.offset(self.len + 2).write((0x80 | ((ch >> 6) & 0x3F)) as u8);
-            self.mut_ptr().offset(self.len + 3).write((0x80 | (ch & 0x3F)) as u8);
+            self.data.offset(self.len + 3).write((0x80 | (ch & 0x3F)) as u8);
             self.len = self.len + 4;
         }
     }
@@ -129,7 +127,7 @@ impl String {
     pub fn byte_at(&self, idx: i64) -> u8
         requires idx >= 0 && idx < self.len
     {
-        return self.as_ptr().index(idx);
+        return self.data.index(idx);
     }
 
     // Clear the string (preserves capacity)
@@ -148,30 +146,16 @@ impl String {
         }
     }
 
-
-    // Get mutable raw pointer to underlying buffer
-    @inline
-    pub fn mut_ptr(&mut self) -> Ptr<u8> {
-        if self.is_inline {
-            return reinterpret_cast::<Ptr<u8>>(&self.inline_buf[0]);
-        }
-        return self.data;
-    }
-
     // Get raw pointer to underlying buffer
     @inline
     pub fn as_ptr(&self) -> Ptr<u8> {
-        if self.is_inline {
-            return reinterpret_cast::<Ptr<u8>>(&self.inline_buf[0]);
-        }
         return self.data;
     }
-
 
     // Create a zero-copy StringView of this String's contents
     @inline
     pub fn as_view(&self) -> StringView {
-        return StringView { ptr: self.as_ptr(), len: self.len };
+        return StringView { ptr: self.data, len: self.len };
     }
 
     // Create a String by copying bytes from a StringView
@@ -190,7 +174,7 @@ impl String {
 
     // Free the underlying buffer
     pub fn free(self) {
-        if !self.is_inline && self.cap > 0 {
+        if self.cap > 0 {
             salt_sys_free(self.data as u64);
         }
     }
@@ -235,22 +219,13 @@ impl String {
             required
         };
 
-        if self.is_inline {
+        // Handle initial allocation (cap == 0, sentinel ptr)
+        if self.cap == 0 {
             let ptr = malloc(new_cap);
-            let dst_ptr = ptr as Ptr<u8>;
-            for i in 0..self.len {
-                dst_ptr.offset(i).write(self.inline_buf[i as i32]);
-            }
-            self.data = dst_ptr;
-            self.is_inline = false;
+            self.data = ptr as Ptr<u8>;
         } else {
-            if self.cap == 0 {
-                let ptr = malloc(new_cap);
-                self.data = ptr as Ptr<u8>;
-            } else {
-                let new_ptr = salt_sys_realloc(self.data as u64, new_cap);
-                self.data = new_ptr as Ptr<u8>;
-            }
+            let new_ptr = salt_sys_realloc(self.data as u64, new_cap);
+            self.data = new_ptr as Ptr<u8>;
         }
         self.cap = new_cap;
     }
@@ -278,9 +253,9 @@ impl String {
     // LLVM will lower "Item " to a single 64-bit store instruction via store merging
     @inline
     pub fn write_str_unchecked(&mut self, src: &u8, len: i64) {
-        let dst = self.mut_ptr().offset(self.len);
+        let dst = self.data.offset(self.len);
         let src_addr = reinterpret_cast::<i64>(src);
-        memcpy(reinterpret_cast::<i64>(dst), src_addr, len);
+        memcpy(dst as i64, src_addr, len);
         self.len = self.len + len;
     }
 
@@ -289,8 +264,7 @@ impl String {
     @inline
     pub fn write_i32_unchecked(&mut self, val: i32) {
         if val == 0 {
-            let mut_p = self.mut_ptr();
-            mut_p[self.len] = 48;
+            self.data[self.len] = 48;
             self.len = self.len + 1;
             return;
         }
@@ -316,7 +290,7 @@ impl String {
         }
         buf[i] = (n as u8) + 48;
 
-        let write_ptr = self.mut_ptr().offset(self.len);
+        let write_ptr = self.data.offset(self.len);
         let mut offset: i64 = 0;
 
         if is_negative {
@@ -340,8 +314,7 @@ impl String {
     @inline
     pub fn write_i64_unchecked(&mut self, val: i64) {
         if val == 0 {
-            let mut_p = self.mut_ptr();
-            mut_p[self.len] = 48;
+            self.data[self.len] = 48;
             self.len = self.len + 1;
             return;
         }
@@ -366,7 +339,7 @@ impl String {
         }
         buf[i] = (n as u8) + 48;
 
-        let write_ptr = self.mut_ptr().offset(self.len);
+        let write_ptr = self.data.offset(self.len);
         let mut offset: i64 = 0;
 
         if is_negative {
@@ -396,8 +369,8 @@ impl Eq for String {
         if self.len != other.len { return false; }
 
         let len = self.len;
-        let p1 = self.as_ptr();
-        let p2 = other.as_ptr();
+        let p1 = self.data;
+        let p2 = other.data;
 
         let mut i: i64 = 0;
         while i < len {
@@ -477,7 +450,7 @@ impl Writer for String {
         self.reserve(needed);
 
         // Direct pointer writes — no per-byte capacity checks
-        let write_ptr = self.mut_ptr().offset(self.len);
+        let write_ptr = self.data.offset(self.len);
         let mut offset: i64 = 0;
 
         if is_negative {
@@ -525,7 +498,7 @@ impl Writer for String {
         let needed = if is_negative { len + 1 } else { len };
         self.reserve(needed);
 
-        let write_ptr = self.mut_ptr().offset(self.len);
+        let write_ptr = self.data.offset(self.len);
         let mut offset: i64 = 0;
 
         if is_negative {
@@ -556,13 +529,13 @@ impl Writer for String {
         self.reserve(len);
 
         // Calculate destination: buffer_ptr + current_len
-        let dst = self.mut_ptr().offset(self.len);
+        let dst = self.data.offset(self.len);
 
         // Get source address (Salt idiom for &T -> addr)
         let src_addr = reinterpret_cast::<i64>(s);
 
         // Hardware-accelerated bulk copy (maps to memcpy intrinsic)
-        memcpy(reinterpret_cast::<i64>(dst), src_addr, len);
+        memcpy(dst as i64, src_addr, len);
 
         // Direct metadata update — no per-byte checks
         self.len = self.len + len;

@@ -9,9 +9,11 @@
 
 use std::collections::HashMap;
 
-/// The 3 states of a pointer in the Salt Memory Model.
+/// The 5 states of a pointer in the Salt Memory Model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PointerState {
+    /// Declared but not yet holding a valid allocation
+    Uninitialized,
     /// Safe to dereference. Source: Box::new(), Arena::alloc(), narrowed Optional.
     Valid,
     /// Sentinel (address 0). Dereference is a compile error.
@@ -26,6 +28,7 @@ pub enum PointerState {
 impl std::fmt::Display for PointerState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            PointerState::Uninitialized => write!(f, "Uninitialized"),
             PointerState::Valid => write!(f, "Valid"),
             PointerState::Empty => write!(f, "Empty"),
             PointerState::Optional => write!(f, "Optional"),
@@ -54,6 +57,11 @@ impl PointerStateTracker {
         }
     }
 
+    /// Mark a variable as Uninitialized.
+    pub fn mark_uninitialized(&mut self, name: &str) {
+        self.states.insert(name.to_string(), PointerState::Uninitialized);
+    }
+
     /// Mark a variable as Valid (e.g., after Box::new or Arena::alloc).
     pub fn mark_valid(&mut self, name: &str) {
         self.states.insert(name.to_string(), PointerState::Valid);
@@ -80,14 +88,19 @@ impl PointerStateTracker {
     }
 
     /// Check if a dereference is allowed. Returns Ok(()) if Valid, Err with
-    /// a diagnostic message if Empty or Optional.
+    /// a diagnostic message if Empty, Optional, Freed, or Uninitialized.
     pub fn check_deref(&self, name: &str) -> Result<(), String> {
-        println!("DEBUG check_deref: {} has state {:?}", name, self.states.get(name));
+
         match self.states.get(name) {
             Some(PointerState::Valid) => Ok(()),
             Some(PointerState::Freed) => Err(format!(
                 "Cannot dereference 'Freed' pointer '{}'. \
                  It has already been freed.",
+                name
+            )),
+            Some(PointerState::Uninitialized) => Err(format!(
+                "Cannot dereference 'Uninitialized' pointer '{}'. \
+                 It has not been assigned a valid allocation.",
                 name
             )),
             Some(PointerState::Empty) => Err(format!(
@@ -138,6 +151,7 @@ impl PointerStateTracker {
             let merged = match (state_a, state_b) {
                 (Some(a), Some(b)) if a == b => a,
                 (Some(PointerState::Freed), _) | (_, Some(PointerState::Freed)) => PointerState::Freed,
+                (Some(PointerState::Uninitialized), _) | (_, Some(PointerState::Uninitialized)) => PointerState::Uninitialized,
                 (Some(_), Some(_)) => PointerState::Optional,
                 (Some(a), None) => a,
                 (None, Some(b)) => b,

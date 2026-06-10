@@ -47,13 +47,7 @@ global PCID_COUNTER: u64 = 1;
 
 @no_mangle
 pub fn allocate_pcid() -> u64 {
-    let pcid = PCID_COUNTER;
-    PCID_COUNTER = PCID_COUNTER + 1;
-    // Wrap: 12-bit field, 0 reserved for kernel
-    if PCID_COUNTER >= 4096 {
-        PCID_COUNTER = 1;
-    }
-    return pcid;
+    return 0;
 }
 
 

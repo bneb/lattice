@@ -112,7 +112,7 @@ impl PurityAnalyzer {
                 visitor.visit_expr(size);
                 Self::visit_block(body, visitor);
             }
-            Stmt::WithRegion { body, .. } | Stmt::Unsafe(body) => {
+            Stmt::WithRegion { body, .. } | Stmt::Unsafe(body) | Stmt::DynamicCheck(body) => {
                 Self::visit_block(body, visitor);
             }
             Stmt::Return(e) => {

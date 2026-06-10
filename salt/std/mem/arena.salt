@@ -5,6 +5,7 @@ struct IsolatedArena {
     base: Ptr<u8>,
     offset: i64,
     capacity: i64,
+    next: u64, // For lock-free Treiber stack chaining
 }
 
 impl IsolatedArena {
@@ -14,11 +15,16 @@ impl IsolatedArena {
             base: ptr as Ptr<u8>,
             offset: 0,
             capacity: size,
+            next: 0,
         };
     }
 
     fn reset(self: &mut IsolatedArena) {
         self.offset = 0;
+    }
+
+    fn deinit(self: &mut IsolatedArena) {
+        intrinsics::macos_syscall(73, self.base as i64, self.capacity, 0); // munmap
     }
 }
 
@@ -44,25 +50,54 @@ impl DmaArena {
     }
 }
 
-// DelayedFreeMailbox: For cross-core task frame reclamation
 struct DelayedFreeMailbox {
-    head: Ptr<u8>,
+    head: u64,
 }
+
+extern fn atomic_cas_i64(addr: &u64, expected: i64, desired: i64) -> i64;
 
 impl DelayedFreeMailbox {
     fn new() -> DelayedFreeMailbox {
         return DelayedFreeMailbox {
-            head: intrinsics::ptr_null(),
+            head: 0,
         };
     }
 
-    fn drain(self: &mut DelayedFreeMailbox, arena: &mut IsolatedArena) {
-        // TODO: Implement actual list draining
-        self.head = intrinsics::ptr_null();
+    pub fn push(self: &mut DelayedFreeMailbox, arena: &mut IsolatedArena) {
+        let arena_ptr = arena as Ptr<IsolatedArena> as u64;
+        let mut expected = self.head as i64;
+        
+        loop {
+            arena.next = expected as u64;
+            let actual = atomic_cas_i64(&self.head, expected, arena_ptr as i64);
+            if actual == expected {
+                break;
+            }
+            expected = actual;
+        }
     }
 
-    fn drain_treiber(self: &mut DelayedFreeMailbox, arena: &mut IsolatedArena) {
-        // TODO: Implement actual treiber stack draining
-        self.head = intrinsics::ptr_null();
+    pub fn drain_treiber(self: &mut DelayedFreeMailbox) -> u64 {
+        let mut expected = self.head as i64;
+        loop {
+            if expected == 0 {
+                return 0;
+            }
+            let actual = atomic_cas_i64(&self.head, expected, 0 as i64);
+            if actual == expected {
+                return expected as u64;
+            }
+            expected = actual;
+        }
+    }
+
+    pub fn drain(self: &mut DelayedFreeMailbox) {
+        let mut current_ptr = self.drain_treiber();
+        while current_ptr != 0 {
+            let arena = current_ptr as Ptr<IsolatedArena>;
+            let next_ptr = arena.next;
+            arena.deinit();
+            current_ptr = next_ptr;
+        }
     }
 }

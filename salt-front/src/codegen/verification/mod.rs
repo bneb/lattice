@@ -282,6 +282,72 @@ impl VerificationEngine {
         Ok(())
     }
 
+    /// Apply postconditions to the caller's context (e.g. updating PointerStateTracker)
+    pub fn apply_postconditions(
+        ctx: &mut LoweringContext<'_, '_>,
+        ensures: &[syn::Expr],
+        params: &[String],
+        arg_exprs: &[syn::Expr],
+    ) {
+        eprintln!("[DEBUG] Applying postconditions for {}", ensures.len());
+        for ens in ensures {
+            let actual_ens = if let syn::Expr::Block(block) = ens {
+                if let Some(syn::Stmt::Expr(inner, _)) = block.block.stmts.first() {
+                    inner
+                } else {
+                    ens
+                }
+            } else {
+                ens
+            };
+
+            if let syn::Expr::Call(call) = actual_ens {
+                let func_name = if let syn::Expr::Path(p) = &*call.func {
+                    p.path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("_")
+                } else {
+                    "".to_string()
+                };
+
+                eprintln!("[DEBUG] apply_postconditions: func_name={}", func_name);
+
+                if (func_name == "valid" || func_name == "freed") && call.args.len() == 1 {
+                    // Check if it's `result`
+                    if let syn::Expr::Path(p) = &call.args[0] {
+                        let arg_name = p.path.get_ident().map(|i| i.to_string()).unwrap_or_default();
+                        eprintln!("[DEBUG] apply_postconditions: arg_name={}", arg_name);
+                        if arg_name == "result" {
+                            let state = if func_name == "valid" {
+                                crate::codegen::verification::PointerState::Valid
+                            } else {
+                                crate::codegen::verification::PointerState::Freed
+                            };
+                            eprintln!("[DEBUG] Marking result as {:?}", state);
+                            *ctx.pending_pointer_state = Some(state);
+                            continue;
+                        }
+
+                        // Otherwise find which parameter this corresponds to
+                        let arg_idx = params.iter().position(|name| name == &arg_name);
+                        eprintln!("[DEBUG] apply_postconditions: param idx={:?}", arg_idx);
+
+                        if let Some(idx) = arg_idx {
+                            if let Some(arg_expr) = arg_exprs.get(idx) {
+                                if let Some(var_name) = crate::codegen::expr::extract_ident_name(arg_expr) {
+                                    eprintln!("[DEBUG] apply_postconditions: marking var {} as {}", var_name, func_name);
+                                    if func_name == "valid" {
+                                        ctx.pointer_tracker.mark_valid(&var_name);
+                                    } else if func_name == "freed" {
+                                        ctx.pointer_tracker.mark_freed(&var_name);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// [v0.9.2 POSTCONDITION PIVOT] Weakest Precondition verification for `ensures` clauses.
     ///
     /// At each return site, substitutes `result` in the ensures expression with
@@ -357,6 +423,42 @@ impl VerificationEngine {
         for pc in &path_conds {
             if let Ok(z3_pc) = crate::codegen::expr::translate_bool_to_z3(ctx, pc, &z3_locals, &sym_ctx) {
                 solver.assert(&z3_pc);
+            }
+        }
+
+        // [TEMPORAL SAFETY TIER 2] Inject Pointer State Tokens for ensures
+        for (i, p_name) in params.iter().enumerate() {
+            if let Some(state) = ctx.pointer_tracker.get_state(p_name) {
+                if let Some((_, sym)) = param_symbols.iter().find(|(n, _)| n == p_name) {
+                    let sort_refs = [&crate::z3_shim::Sort::int(ctx.z3_ctx)];
+                    let valid_func = crate::z3_shim::FuncDecl::new(
+                        ctx.z3_ctx,
+                        crate::z3_shim::Symbol::String("valid".to_string()),
+                        &sort_refs,
+                        &crate::z3_shim::Sort::bool(ctx.z3_ctx),
+                    );
+                    let freed_func = crate::z3_shim::FuncDecl::new(
+                        ctx.z3_ctx,
+                        crate::z3_shim::Symbol::String("freed".to_string()),
+                        &sort_refs,
+                        &crate::z3_shim::Sort::bool(ctx.z3_ctx),
+                    );
+                    let arg_refs: Vec<&dyn crate::z3_shim::ast::Ast> = vec![&*sym as &dyn crate::z3_shim::ast::Ast];
+                    let valid_app = valid_func.apply(&arg_refs).as_bool().unwrap();
+                    let freed_app = freed_func.apply(&arg_refs).as_bool().unwrap();
+                    
+                    match state {
+                        crate::codegen::verification::PointerState::Valid => {
+                            solver.assert(&valid_app._eq(&crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, true)));
+                            solver.assert(&freed_app._eq(&crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, false)));
+                        }
+                        crate::codegen::verification::PointerState::Freed => {
+                            solver.assert(&valid_app._eq(&crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, false)));
+                            solver.assert(&freed_app._eq(&crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, true)));
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
 

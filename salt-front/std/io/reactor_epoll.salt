@@ -1,11 +1,6 @@
 // =============================================================================
 // std.io.EpollReactor — Linux epoll backend for the Reactor trait
 // =============================================================================
-// Stub implementation for Linux portability.
-// All methods currently return -1 (not implemented).
-//
-// When targeting Linux, this file will use raw epoll_ctl / epoll_wait
-// syscalls via the same FFI pattern as KqueueReactor uses for kqueue.
 
 package std.io.reactor_epoll
 
@@ -13,39 +8,91 @@ import std.core.ptr.Ptr
 import std.core.result.Result
 import std.status.Status
 import std.io.reactor.{Reactor, ReactorFilter}
+import std.sys.syscall6
+import std.mem.malloc
+import std.mem.free
+import std.core.ptr.reinterpret_cast
 
 /// Linux epoll-backed I/O reactor.
-/// Stub: returns errors until Linux support is implemented.
 pub struct EpollReactor {
     epfd: i32
 }
 
 impl EpollReactor {
-    /// Create a new EpollReactor.
-    /// Currently fails unconditionally — epoll not yet implemented.
     pub fn new() -> Result<EpollReactor> {
-        // TODO: epoll_create1(EPOLL_CLOEXEC) when targeting Linux
-        return Result::Err(Status::internal("EpollReactor: Linux epoll backend not yet implemented"));
+        // epoll_create1(EPOLL_CLOEXEC) -> syscall 291
+        // EPOLL_CLOEXEC = 0x80000 (524288)
+        let epfd = syscall6(291, 524288, 0, 0, 0, 0, 0) as i32;
+        if epfd < 0 {
+            return Result::Err(Status::internal("epoll_create1 failed"));
+        }
+        return Result::Ok(EpollReactor { epfd: epfd });
     }
 }
 
 impl Reactor for EpollReactor {
     pub fn register(&self, fd: i32, filter: ReactorFilter) -> i32 {
-        // TODO: epoll_ctl(self.epfd, EPOLL_CTL_ADD, fd, &ev)
-        return -1;
+        // epoll_ctl(self.epfd, EPOLL_CTL_ADD, fd, &ev) -> syscall 233
+        // EPOLL_CTL_ADD = 1
+        let mut ev: [i32; 3] = [0, 0, 0];
+        if filter as i64 == ReactorFilter::Read as i64 {
+            ev[0] = 1; // EPOLLIN
+        } else {
+            ev[0] = 4; // EPOLLOUT
+        }
+        ev[1] = fd;
+        ev[2] = 0;
+        
+        let ev_ptr = reinterpret_cast::<i64>(&ev[0]);
+        let res = syscall6(233, self.epfd as i64, 1, fd as i64, ev_ptr, 0, 0);
+        return res as i32;
     }
 
     pub fn deregister(&self, fd: i32) -> i32 {
-        // TODO: epoll_ctl(self.epfd, EPOLL_CTL_DEL, fd, null)
-        return -1;
+        // epoll_ctl(self.epfd, EPOLL_CTL_DEL, fd, null) -> syscall 233
+        // EPOLL_CTL_DEL = 2
+        let res = syscall6(233, self.epfd as i64, 2, fd as i64, 0, 0, 0);
+        return res as i32;
     }
 
     pub fn wait(&self, event_buf: Ptr<i64>, max_events: i32, timeout_ms: i32) -> i32 {
-        // TODO: epoll_wait(self.epfd, events, max_events, timeout_ms)
-        return -1;
+        // epoll_wait(self.epfd, events, max_events, timeout_ms) -> syscall 232
+        // struct epoll_event is 12 bytes on x86_64
+        let ep_events_size = (max_events * 12) as i64;
+        let ep_events_addr = malloc(ep_events_size);
+        let ep_events = reinterpret_cast::<Ptr<i32>>(ep_events_addr);
+
+        let res = syscall6(232, self.epfd as i64, ep_events_addr, max_events as i64, timeout_ms as i64, 0, 0) as i32;
+        
+        if res > 0 {
+            translate_events(event_buf, ep_events, res);
+        }
+
+        std.mem.salt_sys_free(ep_events_addr as u64);
+        return res;
     }
 
     pub fn fd(&self) -> i32 {
         return self.epfd;
+    }
+}
+
+fn translate_events(event_buf: Ptr<i64>, ep_events: Ptr<i32>, res: i32) {
+    let mut i = 0;
+    while i < res {
+        let offset = i * 3;
+        let events = ep_events.index(offset as i64);
+        let data_fd = ep_events.index((offset + 1) as i64);
+        
+        let out_offset = (i * 2) as i64;
+        event_buf.offset(out_offset).write(data_fd as i64);
+        
+        if (events & 1) != 0 {
+            event_buf.offset(out_offset + 1).write(ReactorFilter::Read as i64);
+        } else {
+            event_buf.offset(out_offset + 1).write(ReactorFilter::Write as i64);
+        }
+        
+        i = i + 1;
     }
 }

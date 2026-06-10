@@ -129,6 +129,12 @@ get_user_elf_c_addr:
     lea rax, [rip + user_elf_c_start]
     ret
 
+/* get_user_elf_d_addr() -> u64 */
+.global get_user_elf_d_addr
+get_user_elf_d_addr:
+    lea rax, [rip + user_elf_d_start]
+    ret
+
 /* get_sip_elf_addr() -> u64
  * Returns the address of the embedded Mode B SIP ELF binary.
  */

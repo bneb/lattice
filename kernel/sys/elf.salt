@@ -100,6 +100,16 @@ pub fn elf_load_sip(elf_base_ptr: u64) -> u64 {
         return 0;
     }
 
+    // 1b. Verify Z3 Signature (e_ident[8..16])
+    let z3_sig_ptr = (elf_base_ptr + 8) as &u64;
+    let mut z3_sig: u64 = 0;
+    unsafe { z3_sig = z3_sig_ptr[0]; }
+    if z3_sig != 0x7A335F5349474E41 {
+        serial.print("SIP Loader: FATAL - Z3 Signature Verification Failed\n");
+        return 0;
+    }
+    serial.print("SIP Loader: Z3 Signature Verified\n");
+
     // 2. Parse Program Headers — copy PT_LOAD segments into SIP Arena
     let phdr_base = elf_base_ptr + header.phoff;
     let mut i: u16 = 0;

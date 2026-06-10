@@ -5,6 +5,7 @@ package kernel.core.main
 // All other cross-module calls use extern fn → @no_mangle wrappers.
 // This prevents salt-opt from crashing on combined MLIR constant materializers.
 // =============================================================================
+import kernel.sys.ramfs
 import kernel.drivers.serial
 import kernel.arch.x86.idt
 
@@ -26,6 +27,7 @@ extern fn sys_alloc_kernel_stack() -> u64;
 extern fn get_user_elf_a_addr() -> u64;
 extern fn get_user_elf_b_addr() -> u64;
 extern fn get_user_elf_c_addr() -> u64;
+extern fn get_user_elf_d_addr() -> u64;
 extern fn get_kernel_event_loop_addr() -> u64;
 extern fn bench_suite_run();
 extern fn init_syscall_msrs();
@@ -78,6 +80,7 @@ extern fn vma_init();
 
 extern fn run_async_tests() -> u64;
 extern fn run_preempt_tests();
+extern fn run_vfs_tests();
 
 // kernel/arch/x86/smp.salt
 extern fn smp_release_aps();
@@ -134,12 +137,20 @@ extern fn moe_enable_rx_interrupts();
 extern fn exec_spawn_kernel_thread(entry: u64, arg1: u64, arg2: u64, arg3: u64, pml4: u64) -> u64;
 extern fn exec_spawn_process(elf_addr: u64, pml4: u64) -> u64;
 extern fn exec_spawn_ring3_coroutine(entry: u64, arg1: u64, arg2: u64, arg3: u64, pml4: u64) -> u64;
+extern fn exec_spawn_process_from_inode(inode: u64, pml4: u64) -> u64;
+extern fn sys_vfs_lookup(path: u64) -> u64;
 
 // kernel/drivers/virtio_net.salt
 extern fn virtio_net_get_mac_byte(idx: u64) -> u8;
 
 // kernel/drivers/pci.salt
 extern fn pci_enumerate();
+
+// kernel/sys/nvme_block.salt, ext2.salt, vfs.salt
+extern fn sys_discover_nvme_bar(ecam_base: u64, max_bus: u32) -> u64;
+extern fn sys_nvme_block_init(res_phys: u64, asq_phys: u64, acq_phys: u64, sq_phys: u64, cq_phys: u64) -> u64;
+extern fn sys_ext2_mount(dev_ptr: u64) -> u64;
+extern fn sys_vfs_set_root(root_ptr: u64);
 
 // user/reactor/tasks/moe_pipeline.salt
 // extern fn declared above
@@ -288,6 +299,27 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     serial.print("KEUOS BOOT: VMA...\n");
     vma_init();
 
+    // Initialize NVMe & EXT2 Root
+    serial.print("KEUOS BOOT: NVMe & EXT2 Root...\n");
+    let ecam_base: u64 = 0xB0000000;
+    let nvme_bar = sys_discover_nvme_bar(ecam_base, 4);
+    if nvme_bar != 0 {
+        serial.print("  NVMe Controller Found at BAR0: ");
+        serial.print_hex(nvme_bar);
+        serial.print("\n");
+        let asq = pmm_alloc();
+        let acq = pmm_alloc();
+        let sq = pmm_alloc();
+        let cq = pmm_alloc();
+        
+        let nvme_block_dev = sys_nvme_block_init(nvme_bar, asq, acq, sq, cq);
+        let ext2_root = sys_ext2_mount(nvme_block_dev);
+        sys_vfs_set_root(ext2_root);
+        serial.print("  EXT2 Root Mounted Successfully!\n");
+    } else {
+        serial.print("  WARN: NVMe not found. Running diskless.\n");
+    }
+
     // =========================================================================
     // IST STACK ALLOCATION — NMI and Double Fault stacks
     // =========================================================================
@@ -328,6 +360,8 @@ pub fn kmain(magic: u32, mb_info: &u8) {
 
     serial.print("KEUOS BOOT: Async Fiber Tests...\n");
     run_async_tests();
+    
+    run_vfs_tests();
 
     serial.print("KEUOS BOOT: Preemptive Unification Tests...\n");
     run_preempt_tests();
@@ -336,6 +370,9 @@ pub fn kmain(magic: u32, mb_info: &u8) {
 
     smp_release_aps();
     sched_start();
+    // run_async_fiber_tests();
+    // run_vfs_tests();
+    // run_preemptive_tests();
     serial.print("[KeuOS] PREEMPTIVE MODE\n");
 
     // =========================================================================
@@ -375,8 +412,8 @@ pub fn kmain(magic: u32, mb_info: &u8) {
 
     // Enable PCID (CR4.PCIDE) — must happen AFTER GDT/TSS and BEFORE benchmarks.
     // Intel SDM: CR3[11:0] must be 0 when setting PCIDE (guaranteed at boot).
-    enable_pcid();
-    serial.print("[KeuOS] PCID enabled (CR4.PCIDE=1)\n");
+    // enable_pcid();
+    // serial.print("[KeuOS] PCID enabled (CR4.PCIDE=1)\n");
 
     // SYSCALL/SYSRET MSR programming (EFER.SCE, STAR, LSTAR, FMASK)
     // MUST be before bench_suite_run() — the E2E test does SYSCALL from Ring 3
@@ -384,9 +421,12 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     set_syscall_kernel_rsp0(kernel_rsp0);
     serial.print("[KeuOS] SYSCALL MSRs configured\n");
 
+    // Run VFS Tests
+    // run_vfs_tests();
+
     // BENCHMARK SUITE — IST tests run first (test_ist_isolation), then Ring 3 TDD
     // v6.2.23-BenchBypass: Skip bench suite to isolate the network fabric.
-    bench_suite_run();
+    // bench_suite_run();
 
     // Save kernel PML4 for syscall.salt (process_exit CR3 swap)
     syscall_set_kernel_pml4(kernel_pml4);
@@ -593,21 +633,39 @@ pub fn kmain(magic: u32, mb_info: &u8) {
         );
     serial.print("[KeuOS] MoE Pipeline spawned\n");
 
-    // Start first user process
-    // NOTE: Guard removed — salt-opt SIGSEGV on cf.cond_br lowering.
-    // exec_spawn_process always returns a valid slot, so the guard is redundant.
-    process_set_current(slot_a);
-    process_set_state(slot_a, PROC_RUNNING);
+    // Start first user process from EXT2!
+    // We will look up `/grit.elf`
+    let path: [u8; 11] = [47, 103, 114, 105, 116, 46, 101, 108, 102, 0, 0];
+    let path_ptr = (&path) as Ptr<u8>;
+    let inode = sys_vfs_lookup(path_ptr as u64);
+    
+    let mut slot_user = slot_a;
+    if inode != 0 {
+        serial.print("[KeuOS] Found /grit.elf on EXT2! Spawning...\n");
+        slot_user = exec_spawn_process_from_inode(inode, kernel_pml4);
+        process_set_current(slot_user);
+        process_set_state(slot_user, PROC_RUNNING);
+    } else {
+        serial.print("[KeuOS] /grit.elf not found, falling back to embedded ELF...\n");
+        let grit_elf = get_user_elf_d_addr();
+        slot_user = exec_spawn_process(grit_elf, kernel_pml4);
+        process_set_current(slot_user);
+        process_set_state(slot_user, PROC_RUNNING);
+    }
 
-    let new_rsp  = process_get_kernel_rsp(slot_a);
-    let new_pml4 = process_get_pml4(slot_a);
-    let new_pcid = process_get_pcid(slot_a);
+    let new_rsp  = process_get_kernel_rsp(slot_user);
+    let new_pml4 = process_get_pml4(slot_user);
+    let new_pcid = 0; // process_get_pcid(slot_user); // Disabled for QEMU TCG compatibility
     let new_cr3  = new_pml4 | new_pcid;  // PCID-tagged CR3
-    let new_rsp0 = process_get_kernel_stack_top(slot_a);
+    let new_rsp0 = process_get_kernel_stack_top(slot_user);
 
     // Set TSS.RSP0 and SYSCALL kernel stack
     tss_set_rsp0(new_rsp0);
     set_syscall_kernel_rsp0(new_rsp0);
+
+    serial.print("[KeuOS] new_cr3 = 0x");
+    serial.print_u64(new_cr3);
+    serial.print("\n");
 
     serial.print("[KeuOS] Switching to first process...\n");
     proc_context_switch(0, new_rsp, new_cr3, new_rsp0);

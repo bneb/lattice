@@ -21,14 +21,14 @@ This roadmap outlines the planned development and hardening phases for the KeuOS
 **Objective:** Prevent Use-After-Free (UAF) and Double-Free vulnerabilities while maintaining runtime performance.
 
 - **Tier 1: Intraprocedural State Machine:** Implement basic affine type tracking (`Uninitialized → Valid → Freed`) in the MLIR generator to catch local UAFs statically.
-- **Tier 2: Interprocedural Z3 Proofs:** Extend `@requires` and `@ensures` decorators to support `valid(ptr)`. Inject memory state tokens into the Z3 context to model temporal transitions across function boundaries.
-- **Tier 3: Epoch-Tagged Dynamic Checking:** For concurrent or unprovable paths, introduce the `@dynamic_check` decorator. Implement Software Memory Tagging by embedding allocation Epoch IDs in the top 16 bits of the pointer. 
+- **Tier 2: Interprocedural Z3 Proofs:** Extend `@requires` and `@ensures` decorators to support `valid(ptr)`. Inject memory state tokens into the Z3 context to model temporal transitions across function boundaries. Support cryptographic `.text` segment pointer validation for System Interface Programs (SIP).
+- **Tier 3: Epoch-Tagged Dynamic Checking:** For concurrent or unprovable paths, introduce the `@dynamic_check` decorator. Implement Software Memory Tagging by embedding allocation Epoch IDs in the top 16 bits of the pointer.
 
 ## Phase 2: Networking and SMP *(Months 6-12)*
 **Objective:** Scale networking and multi-processing capabilities.
 
-- **SMP Stability:** Implement atomic CAS for slab cache allocations and fix non-atomic Chase-Lev deque victim bitmap modifications.
-- **TCP/IP:** Finalize the NetD bridge. Enable VirtIO RX to Ring 3 SPSC ring communication without system calls.
+- **SMP Stability:** Implement atomic CAS for slab cache allocations and fix non-atomic Chase-Lev deque victim bitmap modifications. Implement lock-free Treiber stack and list draining for `DelayedFreeMailbox`.
+- **TCP/IP & Multi-Ring IPC:** Finalize the NetD bridge. Enable VirtIO RX to Ring 3 SPSC ring communication without system calls. Support multi-ring `proc.ring_table` tearing down and VirtIO ring disablement on process exit.
 - **Cross-Core Synchronization:** Implement cross-core TLB shootdowns for guard pages to ensure consistent page faults on stack overflows across all cores.
 - **Chaos Testing:** Introduce network fuzzing and connection reset tests against NetD to validate resilience.
 - **Interactive TUI:** Build the `grit` shell and establish VirtIO console communication to achieve bare-metal interactive boot capability.
@@ -44,7 +44,7 @@ This roadmap outlines the planned development and hardening phases for the KeuOS
 ## Phase 4: Open Ecosystem *(Months 18-24+)*
 **Objective:** Expand the software ecosystem and developer tooling.
 
-- **Standard Library (`salt-std`):** Release a userspace library.
+- **Standard Library (`salt-std`):** Release a userspace library including asynchronous I/O with `epoll` shims for Linux and native KeuOS `reactor` event loops.
 - **WebAssembly Sandboxing:** Introduce WASM support in Ring 3 for running untrusted third-party code.
 - **POSIX Compatibility Layer:** Allow porting of existing C/C++ applications via a `musl`-backed shim layer.
 - **Interactive Web IDE:** Deploy the Salt LSP in the browser, featuring Z3 hover and real-time verification visualization.

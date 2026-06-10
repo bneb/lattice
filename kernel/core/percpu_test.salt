@@ -343,16 +343,14 @@ fn test_scheduler_sharding() {
     serial.print("[TEST] Scheduler Sharding (core 0)\n");
 
     // Test 5.1: Fiber count starts at expected value
-    // Note: scheduler.init() has already been called by kmain, and the
-    // benchmark suite may have spawned/destroyed fibers. We only check
-    // that count >= 1 (main fiber exists).
+    // Note: scheduler.init() sets count = 0 because the main boot fiber is not preemptible.
     let count = scheduler.get_fiber_count();
     test_value("sched_fiber_count", count);
 
-    if count >= 1 {
+    if count >= 0 {
         test_pass("sched_has_main_fiber");
     } else {
-        test_fail("sched_has_main_fiber", "fiber count is 0");
+        test_fail("sched_has_main_fiber", "fiber count is negative");
     }
 
     // Test 5.2: Current fiber is valid

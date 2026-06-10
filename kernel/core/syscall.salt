@@ -11,6 +11,11 @@ import kernel.core.pulse
 import kernel.core.moe
 import kernel.core.ring_abi
 import kernel.core.capability
+import kernel.core.capability
+import kernel.sys.vfs
+import kernel.sys.ramfs
+import kernel.core.exec_user
+
 // FFI bridges — bypass module mangling, link against @no_mangle symbols
 extern fn sys_cap_bind(flags: u64) -> u64;
 extern fn sys_core_acquire(target_core_id: u64) -> u64;
@@ -73,10 +78,11 @@ pub fn is_valid_user_ptr(ptr: u64, len: u64) -> bool {
 @no_mangle
 pub fn handle_syscall(num: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
     if num == 0 {
-        return 0;
+        return sys_read(arg0, arg1, arg2);
     } else if num == 1 {
-        sys_write(arg0, arg1, arg2);
-        return 0;
+        return sys_write(arg0, arg1, arg2);
+    } else if num == 2 {
+        return sys_open(arg0, arg1);
     } else if num == 9 {
         return sys_mmap(arg0, arg1);
     } else if num == 12 {
@@ -148,6 +154,16 @@ pub fn handle_syscall(num: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
         moe.drain_bar();
         outw(0x604, 0x2000);
         return 0;
+    } else if num >= 128 && num <= 131 {
+        // SYS_REACTOR_* are deprecated in favor of sys_ipc_await (14/15)
+        // and KeuOSPoller. Return ENOSYS (-1) to signal userspace.
+        return 0 - 1;
+    } else if num == 400 {
+        // SYS_SPAWN: arg0 = path_ptr, arg1 = path_len
+        return sys_spawn(arg0, arg1);
+    } else if num == 401 {
+        // SYS_WAIT: arg0 = target_pid
+        return sys_wait(arg0);
     }
     return 0;
 }
@@ -155,52 +171,252 @@ pub fn handle_syscall(num: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
 // =============================================================================
 // sys_write
 // =============================================================================
-fn sys_write(fd: u64, buf: u64, len: u64) {
-    if fd != 1 {
-        return;
-    }
-    if len == 0 {
-        return;
-    }
-    let mut actual_len = len;
-    if actual_len > 4096 {
-        actual_len = 4096;
-    }
-    if !is_valid_user_ptr(buf, actual_len) {
-        return;
-    }
-
-    // KPTI: Under the kernel CR3, user virtual addresses are NOT mapped.
-    // We walk the user's page tables to translate each page, then read
-    // via the kernel's higher-half direct map. We chunk at page boundaries
-    // because virtually contiguous memory may be physically discontiguous.
+pub fn copy_from_user(dst_kern: u64, src_user: u64, len: u64) -> i64 {
+    if !is_valid_user_ptr(src_user, len) { return 0 - 1; }
     let pid = process.current();
     let user_pml4 = process.get_pml4(pid);
-    let mut remaining = actual_len;
-    let mut current_va = buf;
+    let mut remaining = len;
+    let mut current_va = src_user;
+    let mut current_dst = dst_kern;
 
     while remaining > 0 {
-        // Translate current user VA to physical address
         let phys = user_paging.translate_user_addr(user_pml4, current_va);
-        if phys == 0 {
-            return;  // Unmapped page — stop
-        }
-
-        // Calculate chunk size: bytes until next page boundary or end of buffer
+        if phys == 0 { return 0 - 1; }
+        
         let offset_in_page = current_va & 0xFFF;
         let bytes_to_page_end = PAGE_SIZE - offset_in_page;
         let mut chunk_size = remaining;
-        if chunk_size > bytes_to_page_end {
-            chunk_size = bytes_to_page_end;
+        if chunk_size > bytes_to_page_end { chunk_size = bytes_to_page_end; }
+        
+        let kern_ptr = memory.phys_to_virt_raw(phys) as Ptr<u8>;
+        let dst_ptr = current_dst as Ptr<u8>;
+        
+        let mut i = 0;
+        while i < chunk_size {
+            dst_ptr.offset(i as i64).write(kern_ptr.offset(i as i64).read());
+            i = i + 1;
         }
 
-        // Read chunk from physical address via kernel direct map
-        let kern_ptr = memory.phys_to_virt_raw(phys);
-        serial.print_buf(kern_ptr, chunk_size);
-
         current_va = current_va + chunk_size;
+        current_dst = current_dst + chunk_size;
         remaining = remaining - chunk_size;
     }
+    return len as i64;
+}
+
+pub fn copy_to_user(dst_user: u64, src_kern: u64, len: u64) -> i64 {
+    if !is_valid_user_ptr(dst_user, len) { return 0 - 1; }
+    let pid = process.current();
+    let user_pml4 = process.get_pml4(pid);
+    let mut remaining = len;
+    let mut current_va = dst_user;
+    let mut current_src = src_kern;
+
+    while remaining > 0 {
+        let phys = user_paging.translate_user_addr(user_pml4, current_va);
+        if phys == 0 { return 0 - 1; }
+        
+        let pte = user_paging.get_user_pte(user_pml4, current_va);
+        if (pte & 2) == 0 { return 0 - 1; } // Check PTE_WRITE
+        
+        let offset_in_page = current_va & 0xFFF;
+        let bytes_to_page_end = PAGE_SIZE - offset_in_page;
+        let mut chunk_size = remaining;
+        if chunk_size > bytes_to_page_end { chunk_size = bytes_to_page_end; }
+        
+        let kern_ptr = memory.phys_to_virt_raw(phys) as Ptr<u8>;
+        let src_ptr = current_src as Ptr<u8>;
+        
+        let mut i = 0;
+        while i < chunk_size {
+            kern_ptr.offset(i as i64).write(src_ptr.offset(i as i64).read());
+            i = i + 1;
+        }
+
+        current_va = current_va + chunk_size;
+        current_src = current_src + chunk_size;
+        remaining = remaining - chunk_size;
+    }
+    return len as i64;
+}
+
+fn sys_write(fd: u64, buf: u64, len: u64) -> u64 {
+    let mut actual_len = len;
+    if actual_len > 4096 { actual_len = 4096; }
+    if !is_valid_user_ptr(buf, actual_len) { return 0; }
+
+    if fd == 1 {
+        // Serial stdout (legacy)
+        let pid = process.current();
+        let user_pml4 = process.get_pml4(pid);
+        let mut remaining = actual_len;
+        let mut current_va = buf;
+
+        while remaining > 0 {
+            let phys = user_paging.translate_user_addr(user_pml4, current_va);
+            if phys == 0 { return 0; }
+            let offset_in_page = current_va & 0xFFF;
+            let bytes_to_page_end = PAGE_SIZE - offset_in_page;
+            let mut chunk_size = remaining;
+            if chunk_size > bytes_to_page_end { chunk_size = bytes_to_page_end; }
+            
+            let kern_ptr = memory.phys_to_virt_raw(phys);
+            serial.print_buf(kern_ptr, chunk_size);
+            
+            current_va = current_va + chunk_size;
+            remaining = remaining - chunk_size;
+        }
+        return actual_len;
+    }
+    
+    // VFS Path
+    let pid = process.current();
+    let fd_table_addr = process.get_fd_table(pid);
+    if fd_table_addr == 0 { return 0 - 1; }
+    if fd >= 16 { return 0 - 1; }
+
+    let table = fd_table_addr as Ptr<u64>;
+    let fd_obj_addr = table.offset(fd as i64).read();
+    if fd_obj_addr == 0 { return 0 - 1; }
+    
+    let fd_obj = fd_obj_addr as Ptr<vfs::FileDescriptor>;
+    if fd_obj.addr != 0 {
+        let inode = fd_obj.inode;
+        if inode.addr != 0 {
+            let ops = inode.ops;
+            let f_write = ops.write_op;
+
+            let phys_buf = kernel.core.pmm.alloc();
+            let kern_buf = memory.phys_to_virt_raw(phys_buf);
+            let kern_ptr = kern_buf as Ptr<u8>;
+            let res = copy_from_user(kern_buf, buf, actual_len);
+            if res < 0 { 
+                kernel.core.pmm.free(phys_buf);
+                return 0 - 1; 
+            }
+            
+            let written = f_write(inode, fd_obj.offset, kern_ptr, actual_len);
+            if written > 0 {
+                let offset_ptr = (fd_obj as u64 + 8) as Ptr<i64>;
+                let old_offset = offset_ptr.read();
+                offset_ptr.write(old_offset + written as i64);
+            }
+            kernel.core.pmm.free(phys_buf);
+            return written as u64;
+        }
+    }
+    
+    return 0 - 1;
+}
+
+fn sys_read(fd: u64, buf: u64, len: u64) -> u64 {
+    let mut actual_len = len;
+    if actual_len > 4096 { actual_len = 4096; }
+    if !is_valid_user_ptr(buf, actual_len) { return 0 - 1; }
+
+    let pid = process.current();
+    let fd_table_addr = process.get_fd_table(pid);
+    if fd_table_addr == 0 { return 0 - 1; }
+    if fd >= 16 { return 0 - 1; }
+
+    let table = fd_table_addr as Ptr<u64>;
+    let fd_obj_addr = table.offset(fd as i64).read();
+    if fd_obj_addr == 0 { return 0 - 1; }
+    
+    let fd_obj = fd_obj_addr as Ptr<vfs::FileDescriptor>;
+    if fd_obj.addr != 0 {
+        let inode = fd_obj.inode;
+        if inode.addr != 0 {
+            let ops = inode.ops;
+            let f_read = ops.read_op;
+
+            let phys_buf = kernel.core.pmm.alloc();
+            let kern_buf = memory.phys_to_virt_raw(phys_buf);
+            let kern_ptr = kern_buf as Ptr<u8>;
+            
+            let read_count = f_read(inode, fd_obj.offset, kern_ptr, actual_len);
+            if read_count > 0 {
+                let offset_ptr = (fd_obj as u64 + 8) as Ptr<i64>;
+                let old_offset = offset_ptr.read();
+                offset_ptr.write(old_offset + read_count as i64); // Naive update
+                let cpy = copy_to_user(buf, kern_buf, read_count as u64);
+                if cpy < 0 { 
+                    kernel.core.pmm.free(phys_buf);
+                    return 0 - 1; 
+                }
+            }
+            
+            kernel.core.pmm.free(phys_buf);
+            return read_count as u64;
+        }
+    }
+    return 0 - 1;
+}
+
+fn sys_open(path: u64, flags: u64) -> u64 {
+    if !is_valid_user_ptr(path, 1) { return 0 - 1; }
+    let pid = process.current();
+    let mut fd_table_addr = process.get_fd_table(pid);
+    if fd_table_addr == 0 {
+        let table_phys = kernel.core.pmm.alloc();
+        let table_ptr = memory.phys_to_virt_raw(table_phys);
+        let table_u8 = table_ptr as Ptr<u8>;
+        let mut i = 0;
+        while i < 4096 {
+            table_u8.offset(i).write(0);
+            i = i + 1;
+        }
+        process.set_fd_table(pid, table_ptr);
+        fd_table_addr = table_ptr;
+    }
+    
+    let table = fd_table_addr as Ptr<u64>;
+    let mut fd = 3;
+    let mut found = false;
+    while fd < 16 {
+        if table.offset(fd as i64).read() == 0 {
+            found = true;
+            break;
+        }
+        fd = fd + 1;
+    }
+    if !found { return 0 - 1; }
+    
+    let path_ptr = path as Ptr<u8>;
+    let phys_buf = kernel.core.pmm.alloc();
+    let kbuf = memory.phys_to_virt_raw(phys_buf) as Ptr<u8>;
+    
+    let mut i = 0;
+    while i < 255 {
+        if !is_valid_user_ptr(path + i, 1) {
+            kernel.core.pmm.free(phys_buf);
+            return 0 - 1;
+        }
+        let b = path_ptr.offset(i as i64).read();
+        kbuf.offset(i as i64).write(b);
+        if b == 0 { break; }
+        i = i + 1;
+    }
+    kbuf.offset(255).write(0); // Ensure null termination
+    
+    let target_inode = kernel.sys.vfs.vfs_lookup(kbuf);
+    kernel.core.pmm.free(phys_buf);
+    
+    if target_inode.addr != 0 {
+        let fd_obj_phys = kernel.core.pmm.alloc();
+        let fd_obj = memory.phys_to_virt_raw(fd_obj_phys) as Ptr<vfs::FileDescriptor>;
+        if fd_obj.addr != 0 {
+            fd_obj.offset = 0;
+            fd_obj.flags = flags as u32;
+            fd_obj.refcount = 1;
+            fd_obj.inode = target_inode;
+        }
+        
+        table.offset(fd as i64).write(fd_obj as u64);
+        return fd;
+    }
+    
+    return 0 - 1;
 }
 
 // =============================================================================
@@ -223,10 +439,31 @@ pub fn process_exit(exit_code: u64) {
     // Destroy user address space (frees ALL user pages + page tables)
     user_paging.destroy_user_pml4(user_pml4);
 
+    // Free VFS File Descriptors
+    let fd_table_addr = process.get_fd_table(slot);
+    if fd_table_addr != 0 {
+        let table = fd_table_addr as Ptr<u64>;
+        let mut i = 0;
+        while i < 16 {
+            let fd_obj_addr = table.offset(i).read();
+            if fd_obj_addr != 0 {
+                // In a real VFS we'd decrement Inode refcount and free if 0.
+                // For MVP, just free the FileDescriptor wrapper.
+                let phys_fd = memory.virt_to_phys_raw(fd_obj_addr);
+                kernel.core.pmm.free(phys_fd);
+            }
+            i = i + 1;
+        }
+        let phys_table = memory.virt_to_phys_raw(fd_table_addr);
+        kernel.core.pmm.free(phys_table);
+        process.set_fd_table(slot, 0);
+    }
+
     // Destroy ring-buffer ABI pages if active
     ring_abi.destroy_ring(slot);
 
-    // Mark ZOMBIE and decrement count
+    // Mark ZOMBIE, save exit code, and decrement count
+    process.set_ipc_msg(slot, 0, exit_code, 0, 0);
     process.set_state(slot, PROC_ZOMBIE);
     process.dec_count();
 
@@ -777,4 +1014,131 @@ pub fn sys_shm_grant(target_pid: u64, src_vaddr: u64, dst_vaddr: u64, num_pages:
     }
 
     return 0;
+}
+
+// =============================================================================
+// Phase 4: Process Management (sys_spawn, sys_wait)
+// =============================================================================
+
+fn duplicate_fd_table(parent_slot: u64, child_slot: u64) {
+    let parent_fd_addr = process.get_fd_table(parent_slot);
+    if parent_fd_addr == 0 { return; }
+
+    let child_fd_phys = kernel.core.pmm.alloc();
+    if child_fd_phys == 0 { return; }
+
+    let child_fd_addr = kernel.core.memory.phys_to_virt_raw(child_fd_phys);
+    process.set_fd_table(child_slot, child_fd_addr);
+
+    let parent_table = parent_fd_addr as Ptr<u64>;
+    let child_table = child_fd_addr as Ptr<u64>;
+
+    let mut i = 0;
+    while i < 16 {
+        let fd_obj_addr = parent_table.offset(i).read();
+        if fd_obj_addr != 0 {
+            // Allocate a new vfs::FileDescriptor wrapper for the child
+            let new_fd_phys = kernel.core.pmm.alloc();
+            if new_fd_phys != 0 {
+                let new_fd_addr = kernel.core.memory.phys_to_virt_raw(new_fd_phys);
+                let new_fd = new_fd_addr as Ptr<vfs::FileDescriptor>;
+                let old_fd = fd_obj_addr as Ptr<vfs::FileDescriptor>;
+
+                if new_fd.addr != 0 {
+                    if old_fd.addr != 0 {
+                        new_fd.inode = old_fd.inode;
+                        new_fd.offset = old_fd.offset;
+                        new_fd.flags = old_fd.flags;
+                        new_fd.refcount = 1;
+                    }
+                }
+
+                child_table.offset(i).write(new_fd_addr);
+            } else {
+                child_table.offset(i).write(0);
+            }
+        } else {
+            child_table.offset(i).write(0);
+        }
+        i = i + 1;
+    }
+}
+
+pub fn sys_spawn(path_ptr: u64, path_len: u64) -> u64 {
+    let mut buf_len = path_len;
+    if buf_len > 255 { buf_len = 255; }
+    
+    let kern_buf = kernel.core.pmm.alloc();
+    if kern_buf == 0 { return 0 - 1; }
+    let buf_va = kernel.core.memory.phys_to_virt_raw(kern_buf);
+    
+    let bytes_copied = copy_from_user(buf_va as u64, path_ptr, buf_len);
+    if bytes_copied <= 0 {
+        kernel.core.pmm.free(kern_buf);
+        return 0 - 1;
+    }
+    
+    // Null-terminate the string
+    let p = buf_va as Ptr<u8>;
+    p.offset(bytes_copied).write(0);
+    
+    // Lookup in VFS
+    let inode = vfs.sys_vfs_lookup(buf_va as u64);
+    if inode == 0 {
+        kernel.core.pmm.free(kern_buf);
+        return 0 - 2; // ENOENT
+    }
+    
+    // Spawn process
+    let child_slot = exec_user.exec_spawn_process_from_inode(inode, KERNEL_PML4);
+    kernel.core.pmm.free(kern_buf);
+    
+    if child_slot >= MAX_PROCS {
+        return 0 - 1; // EAGAIN
+    }
+    
+    // Set parent
+    let caller_slot = process.current();
+    let caller_pid = process.get_pid(caller_slot);
+    process.set_parent_pid(child_slot, caller_pid);
+    
+    // Duplicate FDs
+    duplicate_fd_table(caller_slot, child_slot);
+    
+    return process.get_pid(child_slot);
+}
+
+pub fn sys_wait(target_pid: u64) -> u64 {
+    let caller_slot = process.current();
+    let caller_pid = process.get_pid(caller_slot);
+    
+    // 1. Find the child
+    let mut child_slot = MAX_PROCS;
+    let mut i: u64 = 0;
+    while i < MAX_PROCS {
+        if process.get_pid(i) == target_pid {
+            if process.get_parent_pid(i) == caller_pid {
+                child_slot = i;
+            }
+        }
+        i = i + 1;
+    }
+    
+    if child_slot == MAX_PROCS {
+        return 0 - 1; // ECHILD
+    }
+    
+    // 2. Wait loop
+    let mut state = process.get_state(child_slot);
+    while state != PROC_ZOMBIE {
+        // Yield to the scheduler
+        sched_yield();
+        state = process.get_state(child_slot);
+    }
+    
+    // 3. Reap
+    // Exit code was stored in ipc_msg0 by process_exit
+    let exit_code = process.get_ipc_msg0(child_slot);
+    process.set_state(child_slot, PROC_FREE);
+    return exit_code;
 }

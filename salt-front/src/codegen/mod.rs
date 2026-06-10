@@ -928,7 +928,7 @@ impl<'a> CodegenContext<'a> {
                     // to avoid symbol collisions between modules (e.g., multiple `init` functions).
                     // @no_mangle functions retain their bare names.
                     let is_no_mangle = f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" );
-                    // TODO: Remove `main_salt` hardcode once keuos_train.salt uses
+                    // Future(Phase 4): Remove `main_salt` hardcode once all legacy tests use
                     // `@no_mangle fn main_salt()`. The @no_mangle attribute already exists
                     // in the grammar and handles this generically for any FFI boundary.
                     let mangled = if name == "main" || name == "main_salt" {
@@ -2032,11 +2032,12 @@ fn register_signatures(ctx: &CodegenContext, file: &SaltFile) -> Result<(), Stri
                     args: ef.args.clone(),
                     ret_type: ef.ret_type.clone(),
                     body: crate::grammar::SaltBlock { stmts: vec![] }, // Empty body for extern
-                    requires: vec![],
-                    ensures: vec![],
+                    requires: ef.requires.clone(),
+                    ensures: ef.ensures.clone(),
                 };
                 // Capture current imports? Externs don't need imports usually.
-                ctx.generic_impls_mut().insert(mangled, (wrapper, vec![]));
+                // Extern functions are never mangled in C-ABI! Use the raw name.
+                ctx.generic_impls_mut().insert(name.clone(), (wrapper, vec![]));
             }
             Item::Concept(c) => {
                  if c.generics.is_none() {

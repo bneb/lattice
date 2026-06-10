@@ -71,6 +71,54 @@ fn print_hex(val: u32, digits: u32) {
 }
 
 @no_mangle
+pub fn sys_discover_nvme_bar(ecam_base: u64, max_bus: u32) -> u64 {
+    let mut bus: u32 = 0;
+    while bus < 256 {
+        let mut dev: u32 = 0;
+        while dev < 32 {
+            let mut func: u32 = 0;
+            while func < 8 {
+                let id = pci_read32(bus as u8, dev as u8, func as u8, 0);
+                if id != 0xFFFFFFFF {
+                    let vendor = (id & 0xFFFF);
+                    let device = ((id >> 16) & 0xFFFF);
+                    
+                    // QEMU NVMe Controller: Vendor 0x1B36, Device 0x0010
+                    if vendor == 0x1B36 {
+                        if device == 0x0010 {
+                            // Extract BAR0 (offset 0x10)
+                            let bar0_low = pci_read32(bus as u8, dev as u8, func as u8, 0x10);
+                            let type_bits = (bar0_low & 0x06) >> 1;
+                            
+                            let mut phys_high: u64 = 0;
+                            if type_bits == 2 {
+                                // 64-bit BAR
+                                let bar0_high = pci_read32(bus as u8, dev as u8, func as u8, 0x14);
+                                phys_high = (bar0_high as u64) << 32;
+                            }
+                            
+                            let phys_low: u64 = (bar0_low & 0xFFFFFFF0) as u64;
+                            let physical_addr: u64 = phys_high | phys_low;
+
+                            // Enable Bus Master & Memory Space (Command Register at 0x04)
+                            let mut cmd = pci_read32(bus as u8, dev as u8, func as u8, 0x04);
+                            cmd = cmd | 0x00000006;
+                            pci_write32(bus as u8, dev as u8, func as u8, 0x04, cmd);
+
+                            return physical_addr;
+                        }
+                    }
+                }
+                func = func + 1;
+            }
+            dev = dev + 1;
+        }
+        bus = bus + 1;
+    }
+    return 0;
+}
+
+@no_mangle
 pub fn pci_enumerate() {
     serial.print("PCI: Starting enumeration...\n");
     let mut bus: u32 = 0;

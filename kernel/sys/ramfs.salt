@@ -1,0 +1,99 @@
+// kernel/sys/ramfs.salt
+// =============================================================================
+// RamFS Implementation
+// =============================================================================
+
+package kernel.sys.ramfs
+
+import std.core.ptr.Ptr
+import kernel.sys.vfs.Inode
+import kernel.sys.vfs.InodeOps
+import kernel.core.memory
+import kernel.core.pmm
+
+pub struct RamFsData {
+    pub data: Ptr<u8>,
+    pub capacity: u64,
+}
+
+fn ramfs_read(inode: Ptr<Inode>, offset: u64, buf: Ptr<u8>, count: u64) -> i64 {
+    let size = inode.size;
+    if offset >= size {
+        return 0;
+    }
+    
+    let mut actual_count = count;
+    if size - offset < count {
+        actual_count = size - offset;
+    }
+    
+    let ramfs_data = inode.data as Ptr<RamFsData>;
+    let data_ptr = ramfs_data.data;
+    
+    // copy bytes
+    let mut i: u64 = 0;
+    while i < actual_count {
+        let file_offset = offset + i;
+        let src = data_ptr.offset(file_offset as i64);
+        let dst = buf.offset(i as i64);
+        dst.write(src.read());
+        i = i + 1;
+    }
+    
+    return actual_count as i64;
+}
+
+fn ramfs_write(inode: Ptr<Inode>, offset: u64, buf: Ptr<u8>, count: u64) -> i64 {
+    // Basic write (assuming pre-allocated capacity for MVP)
+    let ramfs_data = inode.data as Ptr<RamFsData>;
+    let cap = ramfs_data.capacity;
+    
+    if offset >= cap {
+        return 0;
+    }
+    
+    let mut actual_count = count;
+    if cap - offset < count {
+        actual_count = cap - offset;
+    }
+    
+    let data_ptr = ramfs_data.data;
+    
+    let mut i: u64 = 0;
+    while i < actual_count {
+        let src = buf.offset(i as i64);
+        let file_offset = offset + i;
+        let dst = data_ptr.offset(file_offset as i64);
+        dst.write(src.read());
+        i = i + 1;
+    }
+    
+    // Naive non-atomic update for size, as requested for MVP but acknowledged by Red Team
+    // Real kernel would atomic_cas here
+    if offset + actual_count > inode.size {
+        inode.size = offset + actual_count;
+    }
+    
+    return actual_count as i64;
+}
+
+fn ramfs_lookup(inode: Ptr<Inode>, name: Ptr<u8>) -> Ptr<Inode> {
+    let null_ptr: u64 = 0;
+    return null_ptr as Ptr<Inode>;
+}
+
+fn ramfs_mkdir(inode: Ptr<Inode>, name: Ptr<u8>) -> i32 {
+    return -1;
+}
+
+// Static Ops Table
+pub fn get_ramfs_ops() -> Ptr<InodeOps> {
+    let phys = kernel.core.pmm.alloc();
+    let raw_ptr = memory.phys_to_virt_raw(phys);
+    let ops = raw_ptr as Ptr<InodeOps>;
+    ops.read_op = ramfs_read;
+    ops.write_op = ramfs_write;
+    ops.lookup_op = ramfs_lookup;
+    ops.mkdir_op = ramfs_mkdir;
+    return ops;
+}
