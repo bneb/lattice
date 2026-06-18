@@ -2,7 +2,7 @@
 
 **An experimental systems language with MLIR lowering and Z3 embedded formal verification.**
 
-Salt is an ahead-of-time compiled toy systems language exploring the intersection of MLIR lowering and Z3-based safety. KeuOS is a proof-of-concept microkernel written in Salt.
+Salt is an experimental, ahead-of-time compiled systems language exploring the intersection of MLIR (Multi-Level Intermediate Representation) lowering and Z3-based formal verification. KeuOS is an accompanying proof-of-concept microkernel built entirely in Salt to demonstrate the language's capabilities in a bare-metal environment.
 
 [![Experimental](https://img.shields.io/badge/Status-Experimental-orange?style=flat-square)]()
 [![Z3 Verified](https://img.shields.io/badge/Safety-Z3_Verified-blue?style=flat-square)](docs/ARCH.md)
@@ -35,11 +35,11 @@ Salt is an experimental systems language that replaces traditional runtime check
 
 ### The Three Pillars
 
-#### 1. Fast Enough (Targeting within 10% of C)
-Salt relies on MLIR to lower code into highly optimized native machine code. It does not aim to magically beat C, but rather to achieve performance within 10% of highly optimized C code, allowing systems to be fast without sacrificing safety.
+#### 1. Performance Envelope (Comparable to C)
+Salt relies on MLIR to lower code into highly optimized native machine code. Our design goal is not to categorically outperform C, but to maintain a performance envelope within 10% of highly optimized C code. This demonstrates that systems can provide strong formal guarantees without sacrificing raw execution speed.
 
-#### 2. Supremely Ergonomic
-Salt avoids the cognitive overhead of lifetime annotations and complex borrow checkers. Memory is managed via Arena allocators, allowing developers to write high-performance code with a simple mental model.
+#### 2. Deterministic Memory Model
+Salt avoids the cognitive overhead of lifetime annotations and complex borrow checkers. Memory is managed via Arena allocators with compile-time escape analysis. This allows developers to write high-performance code with a simple, predictable mental model, freeing regions of memory in O(1) time.
 
 #### 3. Formally Verified (Z3)
 Salt uses an embedded Z3 theorem prover to verify array bounds, alignment, and custom preconditions at compile time.
@@ -99,7 +99,7 @@ All benchmarks use runtime-dynamic inputs to prevent constant folding, and resul
 | http_parser | 44ms | 24ms | 75ms |
 | trie | 63ms | 33ms | 32ms |
 
-**Salt targets performance within 10% of highly optimized C**. Where Salt shines is not in magically beating C, but in achieving C-like performance while maintaining **Zero-Cost Abstraction**: Salt provides formally verified safety, rich generics, and arena memory without paying any runtime penalty. The Z3 proofs discharge at compile time, the arenas free in O(1), and the MLIR backend optimizes precisely like LLVM.
+**Salt targets a performance envelope within 10% of highly optimized C**. Our thesis is that we can achieve C-like performance while maintaining **Zero-Cost Abstraction**: Salt provides formally verified safety, rich generics, and arena memory without paying any runtime penalty. The Z3 proofs discharge entirely at compile time, the arenas free memory in O(1) time, and the MLIR backend optimizes loops precisely like LLVM.
 
 
 ## Verified Safety
@@ -175,35 +175,47 @@ The `ArenaVerifier` checks at compile time that no reference escapes its arena. 
 
 KeuOS is a **Microkernel**: the kernel provides only memory management (PMM, VMO), scheduling (16-core SMP, preemptive, Chase-Lev work-stealing), and IPC (SPSC rings via `sys_shm_grant`). Everything else — networking, storage, device drivers — runs in Ring 3 as isolated System Daemons.
 
+```mermaid
+flowchart TD
+    subgraph "Ring 3 (User Space)"
+        A["NetD<br/>(TCP/IP)"]
+        B["KeuOSFS<br/>(Storage)"]
+        C["User Programs"]
+    end
+    
+    subgraph "SPSC Shared Memory Rings"
+        D{{"Data Path<br/>(Zero-copy, Lock-free)"}}
+    end
+    
+    subgraph "Ring 0 (Kernel)"
+        E["PMM<br/>(Pages)"]
+        F["Scheduler<br/>(16-SMP Chase-Lev)"]
+        G["IPC<br/>(SPSC / EBR)"]
+        H["VirtIO<br/>(NIC/Blk)"]
+    end
+
+    A <==>|sys_shm_grant| D
+    B <==>|sys_shm_grant| D
+    C <==>|sys_shm_grant| D
+    D <==> G
+    
+    style A fill:#4a5568,color:#fff,stroke:#a0aec0
+    style B fill:#4a5568,color:#fff,stroke:#a0aec0
+    style C fill:#4a5568,color:#fff,stroke:#a0aec0
+    style D fill:#2c5282,color:#fff,stroke:#63b3ed,stroke-width:2px
+    style E fill:#2b6cb0,color:#fff,stroke:#63b3ed
+    style F fill:#2b6cb0,color:#fff,stroke:#63b3ed
+    style G fill:#2b6cb0,color:#fff,stroke:#63b3ed
+    style H fill:#2b6cb0,color:#fff,stroke:#63b3ed
 ```
-┌─────────────────────────────────────────────────────────┐
-│                       Ring 3 (User)                     │
-│   ┌──────────┐   ┌───────────┐   ┌──────────────────┐   │
-│   │   NetD   │   │ KeuOSFS │   │  User Programs   │   │
-│   │ (TCP/IP) │   │ (Storage) │   │                  │   │
-│   └────┬─────┘   └─────┬─────┘   └────────┬─────────┘   │
-│        │               │                  │             │
-│  ══════╪═══════════════╪══════════════════╪═══════════  │
-│        │     SPSC Shared Memory Rings     │             │
-│  ══════╪═══════════════╪══════════════════╪═══════════  │
-│                                                         │
-├─────────────────────────────────────────────────────────┤
-│                      Ring 0 (Kernel)                    │
-│  ┌─────────┐  ┌───────────┐  ┌────────┐  ┌───────────┐  │
-│  │   PMM   │  │ Scheduler │  │  IPC   │  │  VirtIO   │  │
-│  │ (Pages) │  │  (16-SMP) │  │ (SPSC) │  │ (NIC/Blk) │  │
-│  │         │  │ Chase-Lev │  │  EBR   │  │           │  │
-│  └─────────┘  └───────────┘  └────────┘  └───────────┘  │
-└─────────────────────────────────────────────────────────┘
-```
 
-### Why Ring 3 Without the Speed Penalty?
+### Overcoming Microkernel IPC Overhead
 
-Linux pays ~1000 cycles per syscall for context switching and kernel-to-user copies. KeuOS pays ~150 cycles because:
+Traditionally, microkernels suffer a performance penalty because moving data between user-space daemons requires a kernel trap (context switch), which can cost upwards of 1,000 CPU cycles. KeuOS minimizes this overhead to ~150 cycles using Single-Producer Single-Consumer (SPSC) ring buffers:
 
-1. **No trap:** The SPSC ring lives in shared memory (`sys_shm_grant`). Producers and consumers read/write directly — no kernel transition needed for data transfer.
-2. **No copy:** The DMA buffer writes directly into the SPSC ring page. NetD reads from the same physical page mapped into its address space.
-3. **No lock:** The ring is single-producer, single-consumer. Head and tail sit on separate cache lines (`@align(64)`), so there's no contention and no atomic CAS in the steady state.
+1. **No trap:** The SPSC ring lives in shared memory (`sys_shm_grant`). Producers and consumers read/write directly — no kernel transition is needed for data transfer.
+2. **No copy:** The DMA (Direct Memory Access) buffer writes directly into the SPSC ring page. The network daemon reads from the same physical page mapped into its address space.
+3. **No lock:** The ring is single-producer, single-consumer. Head and tail indices sit on separate cache lines (`@align(64)`), ensuring there is no cache contention and no atomic Compare-And-Swap (CAS) required in the steady state.
 
 ### How Z3 Prevents Byzantine Corruption
 

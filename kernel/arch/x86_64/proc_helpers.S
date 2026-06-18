@@ -143,4 +143,13 @@ get_sip_elf_addr:
     lea rax, [rip + sip_elf_start]
     ret
 
+/* get_netd_elf_addr() -> u64
+ * Returns the address of the embedded NetD Ring 3 ELF binary.
+ * Hard link-time dependency — the build must embed netd.elf.
+ */
+.global get_netd_elf_addr
+get_netd_elf_addr:
+    lea rax, [rip + netd_elf_start]
+    ret
+
 /* enable_interrupts is already defined in boot.S */

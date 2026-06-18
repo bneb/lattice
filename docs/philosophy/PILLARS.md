@@ -6,9 +6,9 @@ Salt is built on three non-negotiable pillars. Every design decision is weighed 
 
 ---
 
-## 1. Fast Enough
+## 1. Performance Competitiveness
 
-**Goal**: Within 20% of C.
+**Goal**: Within 10% of C.
 
 Salt proves that safety and speed are not mutually exclusive. Through MLIR's optimization infrastructure and careful codegen, Salt achieves C-competitive performance without sacrificing ergonomics.
 
@@ -28,11 +28,11 @@ Salt proves that safety and speed are not mutually exclusive. Through MLIR's opt
 
 ---
 
-## 2. Ergonomics
+## 2. Developer Ergonomics
 
 **Goal**: Best features from modern languages.
 
-Salt draws from Rust's safety model, Kotlin's syntax clarity, and functional programming's compositional power, while fixing the rough edges.
+Salt draws from Rust's safety model, Kotlin's syntax clarity, and functional programming's compositional power, creating a predictable and highly readable environment.
 
 ### Syntax Highlights
 

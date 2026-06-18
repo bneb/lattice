@@ -7,6 +7,18 @@ Salt uses **move semantics by default** — when a value is assigned to a new bi
 > [!IMPORTANT]
 > Salt's ownership model is simpler than Rust's: no lifetimes, no borrow checker. Values are either moved or copied. The compiler tracks which variables have been consumed and rejects use-after-move at compile time.
 
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Uninitialized
+    Uninitialized --> Valid : let x = Vec()
+    Valid --> Moved : let y = x (Move)
+    Moved --> Valid : x = Vec() (Rebind)
+    
+    Valid --> [*] : drop() at block end
+    Moved --> [*] : (no drop needed)
+```
+
 ## How It Works
 
 ### Basic Move

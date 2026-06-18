@@ -2,49 +2,6 @@
 // kernel/benchmarks/netd_bench.salt
 // NetD C10M Benchmark Suite — Full Data Plane + Protocol Stack Validation
 // =============================================================================
-//
-// Comprehensive TDD benchmark for the Ring 3 NetD network daemon.
-// Exercises the complete bidirectional data plane, protocol parsers,
-// ARP cache, TCP connection manager, and RFC 793 checksum.
-//
-// Architecture under test:
-//   VirtIO RX ISR → netd_bridge → [2B len][frame] → SPSC RX ring → NetD
-//   NetD → SPSC TX ring → [2B len][frame] → netd_tx_bridge → VirtIO TX
-//
-// Gates:
-//   Phase 1 — Data Plane:
-//     1.  spsc_packet_push    — push 47B UDP frame, verify available
-//     2.  spsc_packet_pop     — pop 47B, verify byte-perfect integrity
-//     3.  udp_parse_from_ring — parse ETH→IP→UDP, verify fields + "HELLO"
-//     4.  ipc_rx_notify       — IPC control + data plane round-trip
-//   Phase 2 — Bridge Framing:
-//     5.  bridge_push_frame   — length-prefixed SPSC push via RX bridge
-//     6.  bridge_pop_frame    — pop len → pop frame → parse → verify
-//   Phase 3 — Protocol Parsers:
-//     7.  bswap16             — 0x0800↔0x0008, 0x0806↔0x0608, roundtrip
-//     8.  arp_cache_update    — insert IP→MAC, lookup, verify 6-byte MAC
-//     9.  arp_cache_evict     — fill 256 entries, verify LRU eviction
-//     10. arp_parse_request   — build ARP → bridge → pop → parse fields
-//   Phase 4 — TX Bridge:
-//     11. tx_push_frame       — push frame into TX ring, verify available
-//     12. tx_pop_frame        — pop from TX ring, verify ETH/UDP integrity
-//   Phase 5 — TCP Stack:
-//     13. tcp_alloc            — allocate TCB, verify state=LISTEN
-//     14. tcp_pool_exhaust     — fill 1024 slots, verify 0xFFFFFFFF
-//     15. tcp_lookup           — 4-tuple match + miss
-//     16. tcp_parse_header     — build SYN, parse, verify flags/seq/ports
-//     17. tcp_checksum         — RFC 793 pseudo-header checksum, self-verify=0
-//     18. tcp_syn_handshake    — SYN→SYN_RECEIVED→ESTABLISHED transitions
-//   Phase 6 — Throughput:
-//     19. bench_tx_throughput  — 10K frame TX pipeline with PPS @ 3.0 GHz
-//
-// Estimated PPS reported at 3.0 GHz baseline:
-//   TCG:  ~2M PPS (software emulation overhead)
-//   KVM:  ~60M+ PPS (C10M exceeded by 6×)
-//
-// Packet layout (47 bytes):
-//   [14B ETH header][20B IP header][8B UDP header][5B payload "HELLO"]
-// =============================================================================
 
 package benchmarks.netd_bench
 
@@ -72,74 +29,13 @@ extern fn cpu_sti();
 extern fn fast_memset(dst: u64, val: u8, count: u64);
 extern fn get_bench_divisor() -> u64;
 
-// Synthetic packet parameters
-const PKT_SIZE: u64 = 47;  // 14 (ETH) + 20 (IP) + 8 (UDP) + 5 ("HELLO")
+const PKT_SIZE: u64 = 47;
 const UDP_DST_PORT: u16 = 7;
 const UDP_SRC_PORT: u16 = 12345;
-const SRC_IP: u32 = 0x0A000201;   // 10.0.2.1
-const DST_IP: u32 = 0x0A00020F;   // 10.0.2.15
+const SRC_IP: u32 = 0x0A000201;
+const DST_IP: u32 = 0x0A00020F;
 
-@no_mangle
-pub fn run_netd_bench() {
-    serial.print("BENCH:netd:start\n");
-    vga.print("NetD data plane tests...\n");
-
-    // ═════════════════════════════════════════════════════════════════
-    // CONTIGUOUS 4-PAGE BLOCK — Spatial Locality (minimize TLB entries)
-    // ═════════════════════════════════════════════════════════════════
-    // Allocate 4 sequential pages and carve them up:
-    //   Page 0: RX SPSC ring (4KB)
-    //   Page 1: TX SPSC ring (4KB)
-    //   Page 2: Packet build buffer (pkt_buf) + RX scratch (rx_buf)
-    //   Page 3: TX verify buffer (tx_rx_buf)
-    let p0 = pmm.alloc();
-    let p1 = pmm.alloc();
-    let p2 = pmm.alloc();
-    let p3 = pmm.alloc();
-    if p0 == 0 || p1 == 0 || p2 == 0 || p3 == 0 {
-        serial.print("BENCH:netd:ERROR could not allocate 4 pages\n");
-        return;
-    }
-
-    let ring_base = memory.phys_to_virt(memory.PhysAddr { val: p0 }).val;
-    let tx_base   = memory.phys_to_virt(memory.PhysAddr { val: p1 }).val;
-    let pkt_buf   = memory.phys_to_virt(memory.PhysAddr { val: p2 }).val;
-    let rx_buf    = pkt_buf + 256;
-    let tx_rx_buf = memory.phys_to_virt(memory.PhysAddr { val: p3 }).val;
-
-    // Zero scratch pages (pages 0,1 are zeroed by spsc_init)
-    fast_memset(pkt_buf, 0, 4096);
-    fast_memset(tx_rx_buf, 0, 4096);
-
-    ipc_shm.spsc_init(ring_base);
-
-    // ═════════════════════════════════════════════════════════════════
-    // Build a synthetic UDP packet at pkt_buf
-    // ═════════════════════════════════════════════════════════════════
-    let dst_mac: [u8; 6] = [0xFF as u8, 0xFF as u8, 0xFF as u8,
-                             0xFF as u8, 0xFF as u8, 0xFF as u8];
-    let src_mac: [u8; 6] = [0x52 as u8, 0x54 as u8, 0x00 as u8,
-                             0x12 as u8, 0x34 as u8, 0x56 as u8];
-
-    // ETH header (14 bytes)
-    let eth_sz = eth.eth_build(pkt_buf, dst_mac, src_mac, 0x0800);
-
-    // IP header (20 bytes) — protocol 17 = UDP, payload = 8 (UDP hdr) + 5 ("HELLO")
-    let ip_sz = ip.ip_build(pkt_buf + eth_sz as u64, SRC_IP, DST_IP, 17, 13 as u16);
-
-    // UDP header (8 bytes)
-    let udp_sz = udp.udp_build(pkt_buf + eth_sz as u64 + ip_sz as u64,
-                                UDP_SRC_PORT, UDP_DST_PORT, 5 as u16);
-
-    // Payload: "HELLO" (5 bytes)
-    let payload_off = eth_sz + ip_sz + udp_sz;
-    *((pkt_buf + payload_off as u64 + 0) as &mut u8) = 72;  // 'H'
-    *((pkt_buf + payload_off as u64 + 1) as &mut u8) = 69;  // 'E'
-    *((pkt_buf + payload_off as u64 + 2) as &mut u8) = 76;  // 'L'
-    *((pkt_buf + payload_off as u64 + 3) as &mut u8) = 76;  // 'L'
-    *((pkt_buf + payload_off as u64 + 4) as &mut u8) = 79;  // 'O'
-
-    let total_len: u64 = payload_off as u64 + 5;
+// ── Gate 1-3: SPSC push/pop + UDP parse ────────────────────────────
 
 fn test_gates_1_to_3(ring_base: u64, pkt_buf: u64, rx_buf: u64, total_len: u64) -> bool {
     let pushed = ipc_shm.spsc_push_bulk(ring_base, pkt_buf, total_len);
@@ -201,6 +97,8 @@ fn test_gates_1_to_3(ring_base: u64, pkt_buf: u64, rx_buf: u64, total_len: u64) 
     return true;
 }
 
+// ── Gate 4: IPC control + data plane round-trip ────────────────────
+
 fn test_gate_4_ipc(ring_base: u64, pkt_buf: u64, rx_buf: u64, total_len: u64) -> bool {
     ipc_shm.spsc_init(ring_base);
     let pushed2 = ipc_shm.spsc_push_bulk(ring_base, pkt_buf, total_len);
@@ -213,7 +111,7 @@ fn test_gate_4_ipc(ring_base: u64, pkt_buf: u64, rx_buf: u64, total_len: u64) ->
     let signal = process.get_ipc_msg0(slot);
     let pkt_len = process.get_ipc_msg1(slot);
 
-    let mut rx2_buf = rx_buf + 256;
+    let rx2_buf = rx_buf + 256;
     let popped2 = ipc_shm.spsc_pop_bulk(ring_base, rx2_buf, pkt_len);
     let udp_hdr2 = udp.udp_parse(rx2_buf + 34, (pkt_len as u32) - 34);
 
@@ -228,6 +126,8 @@ fn test_gate_4_ipc(ring_base: u64, pkt_buf: u64, rx_buf: u64, total_len: u64) ->
         return false;
     }
 }
+
+// ── Gate 5-9: Bridge framing, bswap16, ARP cache ───────────────────
 
 fn test_gates_5_to_9(ring_base: u64, pkt_buf: u64, rx_buf: u64, total_len: u64) -> bool {
     ipc_shm.spsc_init(ring_base);
@@ -250,11 +150,12 @@ fn test_gates_5_to_9(ring_base: u64, pkt_buf: u64, rx_buf: u64, total_len: u64) 
 
     let eth_hdr3 = eth.eth_parse(rx3_buf, frame_len as u32);
     let udp_hdr3 = udp.udp_parse(rx3_buf + 34, (frame_len as u32) - 34);
-
     let h3 = *((rx3_buf + 42) as &u8);
     let e3 = *((rx3_buf + 43) as &u8);
 
-    let gate6_ok = frame_len == total_len && popped3 == total_len && eth_hdr3.ethertype == 0x0800 && udp_hdr3.dst_port == UDP_DST_PORT && h3 == 72 && e3 == 69;
+    let gate6_ok = frame_len == total_len && popped3 == total_len
+        && eth_hdr3.ethertype == 0x0800 && udp_hdr3.dst_port == UDP_DST_PORT
+        && h3 == 72 && e3 == 69;
 
     if gate6_ok {
         serial.print("TEST:netd:bridge_pop_frame:PASS\n");
@@ -276,11 +177,11 @@ fn test_gates_5_to_9(ring_base: u64, pkt_buf: u64, rx_buf: u64, total_len: u64) 
     }
 
     netd_arp.clear();
-    let test_mac: [u8; 6] = [0x52 as u8, 0x54 as u8, 0x00 as u8, 0x12 as u8, 0x34 as u8, 0x56 as u8];
+    let test_mac: [u8; 6] = [0x52, 0x54, 0x00, 0x12, 0x34, 0x56];
     let test_ip: u32 = 0x0A000201;
     netd_arp.update(test_ip, test_mac);
 
-    let mut found_mac: [u8; 6] = [0 as u8; 6];
+    let mut found_mac: [u8; 6] = [0; 6];
     let found = netd_arp.lookup(test_ip, &mut found_mac);
     let count = netd_arp.entry_count();
 
@@ -296,21 +197,21 @@ fn test_gates_5_to_9(ring_base: u64, pkt_buf: u64, rx_buf: u64, total_len: u64) 
     let mut fi: u64 = 0;
     while fi < 256 {
         let fill_ip: u32 = (fi as u32) + 1;
-        let mut fill_mac: [u8; 6] = [0 as u8; 6];
+        let mut fill_mac: [u8; 6] = [0; 6];
         fill_mac[0] = (fi & 0xFF) as u8;
         netd_arp.update(fill_ip, fill_mac);
         fi = fi + 1;
     }
 
     let full_count = netd_arp.entry_count();
-    let evict_mac: [u8; 6] = [0xDE as u8, 0xAD as u8, 0xBE as u8, 0xEF as u8, 0xCA as u8, 0xFE as u8];
-    netd_arp.update(999 as u32, evict_mac);
+    let evict_mac: [u8; 6] = [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE];
+    netd_arp.update(999, evict_mac);
     let still_256 = netd_arp.entry_count();
-    
-    let mut evicted_mac: [u8; 6] = [0 as u8; 6];
-    let ip1_found = netd_arp.lookup(1 as u32, &mut evicted_mac);
-    let mut new_mac: [u8; 6] = [0 as u8; 6];
-    let ip999_found = netd_arp.lookup(999 as u32, &mut new_mac);
+
+    let mut evicted_mac: [u8; 6] = [0; 6];
+    let ip1_found = netd_arp.lookup(1, &mut evicted_mac);
+    let mut new_mac: [u8; 6] = [0; 6];
+    let ip999_found = netd_arp.lookup(999, &mut new_mac);
 
     let evict_ok = full_count == 256 && still_256 == 256 && !ip1_found && ip999_found && new_mac[0] == 0xDE;
     if evict_ok {
@@ -323,55 +224,13 @@ fn test_gates_5_to_9(ring_base: u64, pkt_buf: u64, rx_buf: u64, total_len: u64) 
     return true;
 }
 
-@no_mangle
-pub fn run_netd_bench() {
-    serial.print("BENCH:netd:start\n");
-    vga.print("NetD data plane tests...\n");
-
-    let p0 = pmm.alloc();
-    let p1 = pmm.alloc();
-    let p2 = pmm.alloc();
-    let p3 = pmm.alloc();
-    if p0 == 0 || p1 == 0 || p2 == 0 || p3 == 0 {
-        serial.print("BENCH:netd:ERROR could not allocate 4 pages\n");
-        return;
-    }
-
-    let ring_base = memory.phys_to_virt(memory.PhysAddr { val: p0 }).val;
-    let tx_base   = memory.phys_to_virt(memory.PhysAddr { val: p1 }).val;
-    let pkt_buf   = memory.phys_to_virt(memory.PhysAddr { val: p2 }).val;
-    let rx_buf    = pkt_buf + 256;
-    let tx_rx_buf = memory.phys_to_virt(memory.PhysAddr { val: p3 }).val;
-
-    fast_memset(pkt_buf, 0, 4096);
-    fast_memset(tx_rx_buf, 0, 4096);
-    ipc_shm.spsc_init(ring_base);
-
-    let dst_mac: [u8; 6] = [0xFF as u8, 0xFF as u8, 0xFF as u8, 0xFF as u8, 0xFF as u8, 0xFF as u8];
-    let src_mac: [u8; 6] = [0x52 as u8, 0x54 as u8, 0x00 as u8, 0x12 as u8, 0x34 as u8, 0x56 as u8];
-
-    let eth_sz = eth.eth_build(pkt_buf, dst_mac, src_mac, 0x0800);
-    let ip_sz = ip.ip_build(pkt_buf + eth_sz as u64, SRC_IP, DST_IP, 17, 13 as u16);
-    let udp_sz = udp.udp_build(pkt_buf + eth_sz as u64 + ip_sz as u64, UDP_SRC_PORT, UDP_DST_PORT, 5 as u16);
-
-    let payload_off = eth_sz + ip_sz + udp_sz;
-    *((pkt_buf + payload_off as u64 + 0) as &mut u8) = 72;
-    *((pkt_buf + payload_off as u64 + 1) as &mut u8) = 69;
-    *((pkt_buf + payload_off as u64 + 2) as &mut u8) = 76;
-    *((pkt_buf + payload_off as u64 + 3) as &mut u8) = 76;
-    *((pkt_buf + payload_off as u64 + 4) as &mut u8) = 79;
-
-    let total_len: u64 = payload_off as u64 + 5;
-
-    if !test_gates_1_to_3(ring_base, pkt_buf, rx_buf, total_len) { return; }
-    if !test_gate_4_ipc(ring_base, pkt_buf, rx_buf, total_len) { return; }
-    if !test_gates_5_to_9(ring_base, pkt_buf, rx_buf, total_len) { return; }
+// ── Gate 10-18: ARP parse, TX bridge, TCP stack ────────────────────
 
 fn test_gates_10_to_18(ring_base: u64, tx_base: u64, pkt_buf: u64, rx_buf: u64, tx_rx_buf: u64, total_len: u64) -> bool {
     ipc_shm.spsc_init(ring_base);
     let arp_build_buf = pkt_buf + 2048;
-    let arp_sha: [u8; 6] = [0x52 as u8, 0x54 as u8, 0x00 as u8, 0xAA as u8, 0xBB as u8, 0xCC as u8];
-    let arp_tha: [u8; 6] = [0 as u8; 6];
+    let arp_sha: [u8; 6] = [0x52, 0x54, 0x00, 0xAA, 0xBB, 0xCC];
+    let arp_tha: [u8; 6] = [0; 6];
     let arp_spa: u32 = 0x0A000201;
     let arp_tpa: u32 = 0x0A00020F;
 
@@ -384,7 +243,10 @@ fn test_gates_10_to_18(ring_base: u64, tx_base: u64, pkt_buf: u64, rx_buf: u64, 
     ipc_shm.spsc_pop_bulk(ring_base, arp_rx_buf, arp_frame_len);
 
     let parsed = netd_parse.parse_arp(arp_rx_buf, arp_frame_len);
-    let arp_ok = parsed.htype == 1 && parsed.ptype == 0x0800 && parsed.hlen == 6 && parsed.plen == 4 && parsed.oper == netd_parse.ARP_OPER_REQUEST && parsed.spa == arp_spa && parsed.tpa == arp_tpa && parsed.sha[0] == 0x52 && parsed.sha[5] == 0xCC;
+    let arp_ok = parsed.htype == 1 && parsed.ptype == 0x0800 && parsed.hlen == 6
+        && parsed.plen == 4 && parsed.oper == netd_parse.ARP_OPER_REQUEST
+        && parsed.spa == arp_spa && parsed.tpa == arp_tpa
+        && parsed.sha[0] == 0x52 && parsed.sha[5] == 0xCC;
 
     if arp_ok {
         serial.print("TEST:netd:arp_parse_request:PASS\n");
@@ -412,7 +274,8 @@ fn test_gates_10_to_18(ring_base: u64, tx_base: u64, pkt_buf: u64, rx_buf: u64, 
     let tx_eth = eth.eth_parse(tx_rx_buf, tx_flen as u32);
     let tx_udp = udp.udp_parse(tx_rx_buf + 34, (tx_flen as u32) - 34);
 
-    let tx_pop_ok = tx_flen == total_len && tx_popped == total_len && tx_eth.ethertype == 0x0800 && tx_udp.dst_port == UDP_DST_PORT;
+    let tx_pop_ok = tx_flen == total_len && tx_popped == total_len
+        && tx_eth.ethertype == 0x0800 && tx_udp.dst_port == UDP_DST_PORT;
 
     if tx_pop_ok {
         serial.print("TEST:netd:tx_pop_frame:PASS\n");
@@ -451,10 +314,10 @@ fn test_gates_10_to_18(ring_base: u64, tx_base: u64, pkt_buf: u64, rx_buf: u64, 
 
     netd_tcp.clear();
     let lk_idx = netd_tcp.alloc();
-    netd_tcp.setup_connection(lk_idx, 80 as u16, 0x0A000201 as u32, 12345 as u16, 1000 as u32, 2000 as u32);
+    netd_tcp.setup_connection(lk_idx, 80, 0x0A000201, 12345, 1000, 2000);
 
-    let found_idx = netd_tcp.lookup(80 as u16, 0x0A000201 as u32, 12345 as u16);
-    let miss_idx = netd_tcp.lookup(80 as u16, 0x0A000201 as u32, 54321 as u16);
+    let found_idx = netd_tcp.lookup(80, 0x0A000201, 12345);
+    let miss_idx = netd_tcp.lookup(80, 0x0A000201, 54321);
 
     if found_idx == lk_idx && miss_idx == 0xFFFFFFFF {
         serial.print("TEST:netd:tcp_lookup:PASS\n");
@@ -465,10 +328,13 @@ fn test_gates_10_to_18(ring_base: u64, tx_base: u64, pkt_buf: u64, rx_buf: u64, 
 
     let tcp_buf = pkt_buf + 512;
     let syn_flags: u16 = netd_tcp.FLAG_SYN;
-    let tcp_sz = netd_tcp_parse.build_tcp(tcp_buf, 12345 as u16, 80 as u16, 1000 as u32, 0 as u32, syn_flags, 8192 as u16);
+    let tcp_sz = netd_tcp_parse.build_tcp(tcp_buf, 12345, 80, 1000, 0, syn_flags, 8192);
 
     let tcp_hdr = netd_tcp_parse.parse_tcp(tcp_buf, tcp_sz as u64);
-    let tcp_parse_ok = tcp_hdr.src_port == 12345 && tcp_hdr.dst_port == 80 && tcp_hdr.seq_num == 1000 && tcp_hdr.ack_num == 0 && tcp_hdr.data_offset == 5 && (tcp_hdr.flags & netd_tcp.FLAG_SYN) != 0 && tcp_hdr.window == 8192;
+    let tcp_parse_ok = tcp_hdr.src_port == 12345 && tcp_hdr.dst_port == 80
+        && tcp_hdr.seq_num == 1000 && tcp_hdr.ack_num == 0
+        && tcp_hdr.data_offset == 5 && (tcp_hdr.flags & netd_tcp.FLAG_SYN) != 0
+        && tcp_hdr.window == 8192;
 
     if tcp_parse_ok {
         serial.print("TEST:netd:tcp_parse_header:PASS\n");
@@ -478,13 +344,13 @@ fn test_gates_10_to_18(ring_base: u64, tx_base: u64, pkt_buf: u64, rx_buf: u64, 
     }
 
     let sa_flags: u16 = netd_tcp.FLAG_SYN | netd_tcp.FLAG_ACK;
-    netd_tcp_parse.build_tcp(tcp_buf, 80 as u16, 12345 as u16, 5000 as u32, 1001 as u32, sa_flags, 8192 as u16);
+    netd_tcp_parse.build_tcp(tcp_buf, 80, 12345, 5000, 1001, sa_flags, 8192);
 
-    let csum = netd_tcp_parse.tcp_checksum(tcp_buf, 20 as u32, 0 as u32, 0x0A00020F as u32, 0x0A000201 as u32);
+    let csum = netd_tcp_parse.tcp_checksum(tcp_buf, 20, 0, 0x0A00020F, 0x0A000201);
     *((tcp_buf + 16) as &mut u8) = ((csum >> 8) & 0xFF) as u8;
     *((tcp_buf + 17) as &mut u8) = (csum & 0xFF) as u8;
 
-    let verify = netd_tcp_parse.tcp_checksum(tcp_buf, 20 as u32, 0 as u32, 0x0A00020F as u32, 0x0A000201 as u32);
+    let verify = netd_tcp_parse.tcp_checksum(tcp_buf, 20, 0, 0x0A00020F, 0x0A000201);
 
     if csum != 0 && verify == 0 {
         serial.print("TEST:netd:tcp_checksum:PASS\n");
@@ -498,7 +364,7 @@ fn test_gates_10_to_18(ring_base: u64, tx_base: u64, pkt_buf: u64, rx_buf: u64, 
     let client_isn: u32 = 1000;
     let server_isn: u32 = netd_tcp.generate_isn();
 
-    netd_tcp.setup_connection(hs_idx, 80 as u16, 0x0A000201 as u32, 12345 as u16, server_isn + 1, client_isn + 1);
+    netd_tcp.setup_connection(hs_idx, 80, 0x0A000201, 12345, server_isn + 1, client_isn + 1);
     netd_tcp.set_state(hs_idx, netd_tcp.TCP_SYN_RECEIVED);
     let syn_rcvd = netd_tcp.get_state(hs_idx);
 
@@ -509,7 +375,9 @@ fn test_gates_10_to_18(ring_base: u64, tx_base: u64, pkt_buf: u64, rx_buf: u64, 
     let hs_seq_snd = netd_tcp.get_seq_snd(hs_idx);
     let hs_seq_rcv = netd_tcp.get_seq_rcv(hs_idx);
 
-    let hs_ok = syn_rcvd == netd_tcp.TCP_SYN_RECEIVED && established == netd_tcp.TCP_ESTABLISHED && hs_seq_snd == server_isn + 1 && hs_seq_rcv == client_isn + 1;
+    let hs_ok = syn_rcvd == netd_tcp.TCP_SYN_RECEIVED
+        && established == netd_tcp.TCP_ESTABLISHED
+        && hs_seq_snd == server_isn + 1 && hs_seq_rcv == client_isn + 1;
 
     if hs_ok {
         serial.print("TEST:netd:tcp_syn_handshake:PASS\n");
@@ -520,23 +388,65 @@ fn test_gates_10_to_18(ring_base: u64, tx_base: u64, pkt_buf: u64, rx_buf: u64, 
     return true;
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// run_netd_bench — Main benchmark entry point
+// ═══════════════════════════════════════════════════════════════════
+
+@no_mangle
+pub fn run_netd_bench() {
+    serial.print("BENCH:netd:start\n");
+    vga.print("NetD data plane tests...\n");
+
+    let p0 = pmm.alloc();
+    let p1 = pmm.alloc();
+    let p2 = pmm.alloc();
+    let p3 = pmm.alloc();
+    if p0 == 0 || p1 == 0 || p2 == 0 || p3 == 0 {
+        serial.print("BENCH:netd:ERROR could not allocate 4 pages\n");
+        return;
+    }
+
+    let ring_base = memory.phys_to_virt(memory.PhysAddr { val: p0 }).val;
+    let tx_base   = memory.phys_to_virt(memory.PhysAddr { val: p1 }).val;
+    let pkt_buf   = memory.phys_to_virt(memory.PhysAddr { val: p2 }).val;
+    let rx_buf    = pkt_buf + 256;
+    let tx_rx_buf = memory.phys_to_virt(memory.PhysAddr { val: p3 }).val;
+
+    fast_memset(pkt_buf, 0, 4096);
+    fast_memset(tx_rx_buf, 0, 4096);
+    ipc_shm.spsc_init(ring_base);
+
+    // Build synthetic UDP packet
+    let dst_mac: [u8; 6] = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
+    let src_mac: [u8; 6] = [0x52, 0x54, 0x00, 0x12, 0x34, 0x56];
+
+    let eth_sz = eth.eth_build(pkt_buf, dst_mac, src_mac, 0x0800);
+    let ip_sz = ip.ip_build(pkt_buf + eth_sz as u64, SRC_IP, DST_IP, 17, 13);
+    let udp_sz = udp.udp_build(pkt_buf + eth_sz as u64 + ip_sz as u64, UDP_SRC_PORT, UDP_DST_PORT, 5);
+
+    let payload_off = eth_sz + ip_sz + udp_sz;
+    *((pkt_buf + payload_off as u64 + 0) as &mut u8) = 72;
+    *((pkt_buf + payload_off as u64 + 1) as &mut u8) = 69;
+    *((pkt_buf + payload_off as u64 + 2) as &mut u8) = 76;
+    *((pkt_buf + payload_off as u64 + 3) as &mut u8) = 76;
+    *((pkt_buf + payload_off as u64 + 4) as &mut u8) = 79;
+    let total_len: u64 = payload_off as u64 + 5;
+
+    // Run all test gates
+    if !test_gates_1_to_3(ring_base, pkt_buf, rx_buf, total_len) { return; }
+    if !test_gate_4_ipc(ring_base, pkt_buf, rx_buf, total_len) { return; }
+    if !test_gates_5_to_9(ring_base, pkt_buf, rx_buf, total_len) { return; }
     if !test_gates_10_to_18(ring_base, tx_base, pkt_buf, rx_buf, tx_rx_buf, total_len) { return; }
 
-    // ═════════════════════════════════════════════════════════════════
-    // TSC FREQUENCY DETECTION (CPUID leaf 0x16)
-    // ═════════════════════════════════════════════════════════════════
+    // TSC frequency detection
     let tsc_hz = cpuid.get_tsc_hz();
     let tsc_mhz = tsc_hz / 1000000;
     serial.print("BENCH:netd:tsc_mhz=");
     serial.print_u64(tsc_mhz);
     serial.print("\n");
 
-    // ═════════════════════════════════════════════════════════════════
-    // RX THROUGHPUT: bridge push/pop with per-packet RDTSC
-    // ═════════════════════════════════════════════════════════════════
+    // RX throughput benchmark
     ipc_shm.spsc_init(ring_base);
-
-    // Warmup pass — 100 iterations to prime caches and branch predictor
     let warmup_count: u64 = 100;
     let mut wp: u64 = 0;
     while wp < warmup_count {
@@ -546,18 +456,13 @@ fn test_gates_10_to_18(ring_base: u64, tx_base: u64, pkt_buf: u64, rx_buf: u64, 
         wp = wp + 1;
     }
 
-    // Measurement pass — per-packet RDTSC for min/max/avg
     ipc_shm.spsc_init(ring_base);
     let is_kvm = get_bench_divisor() == 1;
-    let rx_count: u64 = if is_kvm { 10000 } else { 100 };  // 100 on TCG to avoid hang
+    let rx_count: u64 = if is_kvm { 10000 } else { 100 };
     let mut rx_min: u64 = 0xFFFFFFFFFFFFFFFF;
     let mut rx_max: u64 = 0;
 
-    // INTERRUPT SHIELD: CLI prevents timer/NMI from trashing L1 during measurement
-    // GUARD: Only on KVM — TCG hangs if we disable its virtual timer
-    if is_kvm {
-        cpu_cli();
-    }
+    if is_kvm { cpu_cli(); }
     let rx_t0 = timing.get_cycles();
 
     let mut rp: u64 = 0;
@@ -568,19 +473,13 @@ fn test_gates_10_to_18(ring_base: u64, tx_base: u64, pkt_buf: u64, rx_buf: u64, 
         ipc_shm.spsc_pop_bulk(ring_base, rx_buf, flen);
         let pkt_t1 = timing.get_cycles();
         let pkt_cy = pkt_t1 - pkt_t0;
-        if pkt_cy < rx_min {
-            rx_min = pkt_cy;
-        }
-        if pkt_cy > rx_max {
-            rx_max = pkt_cy;
-        }
+        if pkt_cy < rx_min { rx_min = pkt_cy; }
+        if pkt_cy > rx_max { rx_max = pkt_cy; }
         rp = rp + 1;
     }
 
     let rx_t1 = timing.get_cycles();
-    if is_kvm {
-        cpu_sti();
-    }
+    if is_kvm { cpu_sti(); }
     let rx_elapsed = rx_t1 - rx_t0;
     let rx_avg = rx_elapsed / rx_count;
     let rx_pps = tsc_hz / rx_avg;
@@ -594,20 +493,11 @@ fn test_gates_10_to_18(ring_base: u64, tx_base: u64, pkt_buf: u64, rx_buf: u64, 
     serial.print(" max=");
     serial.print_u64(rx_max);
     serial.print(" cy\n");
-    serial.print("BENCH:netd:RX_PPS @ ");
-    serial.print_u64(tsc_mhz);
-    serial.print("MHz = ");
-    serial.print_u64(rx_pps);
-    serial.print("\n");
 
-    // ═════════════════════════════════════════════════════════════════
-    // GATE 19: bench_tx_throughput — 10K frame TX pipeline
-    // ═════════════════════════════════════════════════════════════════
-    // Reset TX ring for throughput test
+    // TX throughput benchmark
     ipc_shm.spsc_init(tx_base);
     netd_tx_bridge.init_at(tx_base);
 
-    // Warmup pass — 100 iterations
     let mut twp: u64 = 0;
     while twp < warmup_count {
         netd_tx_bridge.push_frame(pkt_buf, total_len);
@@ -616,19 +506,14 @@ fn test_gates_10_to_18(ring_base: u64, tx_base: u64, pkt_buf: u64, rx_buf: u64, 
         twp = twp + 1;
     }
 
-    // Reset for measurement
     ipc_shm.spsc_init(tx_base);
     netd_tx_bridge.init_at(tx_base);
 
-    let tx_count: u64 = if is_kvm { 10000 } else { 100 };  // 100 on TCG to avoid hang
+    let tx_count: u64 = if is_kvm { 10000 } else { 100 };
     let mut tx_min: u64 = 0xFFFFFFFFFFFFFFFF;
     let mut tx_max: u64 = 0;
 
-    // INTERRUPT SHIELD: CLI prevents timer/NMI from trashing L1 during measurement
-    // GUARD: Only on KVM — TCG hangs if we disable its virtual timer
-    if is_kvm {
-        cpu_cli();
-    }
+    if is_kvm { cpu_cli(); }
     let tx_t0 = timing.get_cycles();
 
     let mut tp: u64 = 0;
@@ -639,26 +524,18 @@ fn test_gates_10_to_18(ring_base: u64, tx_base: u64, pkt_buf: u64, rx_buf: u64, 
         netd_tx_bridge.pop_frame(rx_buf, drain_len);
         let pkt_t1 = timing.get_cycles();
         let pkt_cy = pkt_t1 - pkt_t0;
-        if pkt_cy < tx_min {
-            tx_min = pkt_cy;
-        }
-        if pkt_cy > tx_max {
-            tx_max = pkt_cy;
-        }
+        if pkt_cy < tx_min { tx_min = pkt_cy; }
+        if pkt_cy > tx_max { tx_max = pkt_cy; }
         tp = tp + 1;
     }
 
     let tx_t1 = timing.get_cycles();
-    if is_kvm {
-        cpu_sti();
-    }
+    if is_kvm { cpu_sti(); }
     let tx_elapsed = tx_t1 - tx_t0;
     let tx_avg = tx_elapsed / tx_count;
     let tx_pps = tsc_hz / tx_avg;
 
-    // Gate check: verify we actually processed all 10K frames
     let tx_bench_ok = netd_tx_bridge.get_frames_sent() >= tx_count;
-
     if tx_bench_ok {
         serial.print("TEST:netd:bench_tx_throughput:PASS\n");
     } else {
@@ -677,47 +554,17 @@ fn test_gates_10_to_18(ring_base: u64, tx_base: u64, pkt_buf: u64, rx_buf: u64, 
     serial.print(" max=");
     serial.print_u64(tx_max);
     serial.print(" cy\n");
+
+    // Executive summary
+    serial.print("BENCH:netd:RX_PPS @ ");
+    serial.print_u64(tsc_mhz);
+    serial.print("MHz = ");
+    serial.print_u64(rx_pps);
+    serial.print("\n");
     serial.print("BENCH:netd:TX_PPS @ ");
     serial.print_u64(tsc_mhz);
     serial.print("MHz = ");
     serial.print_u64(tx_pps);
     serial.print("\n");
-
-    // ═════════════════════════════════════════════════════════════════
-    // Executive Summary
-    // ═════════════════════════════════════════════════════════════════
-    serial.print("══════════════════════════════════════════════════\n");
-    serial.print("  KEUOS NetD C10M BENCHMARK SUMMARY\n");
-    serial.print("  Clock: ");
-    serial.print_u64(tsc_mhz);
-    serial.print(" MHz (CPUID leaf 0x16)\n");
-    serial.print("  RX  avg=");
-    serial.print_u64(rx_avg);
-    serial.print(" min=");
-    serial.print_u64(rx_min);
-    serial.print(" max=");
-    serial.print_u64(rx_max);
-    serial.print(" cy  PPS=");
-    serial.print_u64(rx_pps);
-    serial.print("\n");
-    serial.print("  TX  avg=");
-    serial.print_u64(tx_avg);
-    serial.print(" min=");
-    serial.print_u64(tx_min);
-    serial.print(" max=");
-    serial.print_u64(tx_max);
-    serial.print(" cy  PPS=");
-    serial.print_u64(tx_pps);
-    serial.print("\n");
-    serial.print("  Target: 10,000,000 PPS (C10M)\n");
-    if rx_pps > 10000000 && tx_pps > 10000000 {
-        serial.print("  VERDICT: C10M EXCEEDED\n");
-    } else if rx_pps > 10000000 || tx_pps > 10000000 {
-        serial.print("  VERDICT: PARTIAL C10M (one direction exceeds)\n");
-    } else {
-        serial.print("  VERDICT: BELOW C10M\n");
-    }
-    serial.print("══════════════════════════════════════════════════\n");
-
     serial.print("BENCH:netd:done\n");
 }

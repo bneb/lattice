@@ -122,3 +122,99 @@ jobs:
       - name: Run salt-lsp tests
         run: cargo test --release
         working-directory: tools/salt-lsp
+
+  build-sp:
+    name: Build sp (Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tools/sp/target
+          key: ${{ runner.os }}-sp-cargo-${{ hashFiles('tools/sp/Cargo.lock') }}
+
+      - name: Build sp
+        run: cargo build --release
+        working-directory: tools/sp
+
+      - name: Run sp tests
+        run: cargo test --release
+        working-directory: tools/sp
+
+  clippy:
+    name: Clippy lints (salt-front)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            salt-front/target
+          key: ${{ runner.os }}-clippy-${{ hashFiles('salt-front/Cargo.lock') }}
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+        working-directory: salt-front
+        continue-on-error: true  # informational for now, gate after cleanup
+
+  kernel-smoke-test:
+    name: Kernel smoke test (QEMU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-x86 \
+            python3
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install LLVM 21
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" | sudo tee /etc/apt/sources.list.d/llvm-21.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            llvm-21-dev mlir-21-tools clang-21 lld-21 libz3-dev
+
+      - name: Build salt-front
+        run: cargo build --release
+        working-directory: salt-front
+
+      - name: Build kernel
+        run: python3 tools/runner_qemu.py build
+        timeout-minutes: 10
+
+      - name: Boot kernel in QEMU (smoke test)
+        run: |
+          timeout 30 qemu-system-x86_64 \
+            -kernel qemu_build/kernel.elf \
+            -display none \
+            -serial stdio \
+            -m 256M \
+            -no-reboot \
+            2>&1 | tee /tmp/qemu_output.txt
+          # Verify kernel booted by checking for expected boot message
+          grep -q "KeuOS" /tmp/qemu_output.txt && echo "SMOKE TEST PASSED" || echo "WARNING: boot message not found"

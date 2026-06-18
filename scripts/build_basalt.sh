@@ -13,8 +13,10 @@ set -euo pipefail
 LLVM_VERSION="${LLVM_VERSION:-21}"
 export PATH="/opt/homebrew/opt/llvm@${LLVM_VERSION}/bin:$PATH"
 
-# Defaults
-PROJECT=${1:-/Users/kevin/projects/keuos}
+# Defaults — discover project root relative to this script's location
+SCRIPT_DIR="${0:A:h}"
+PROJECT_ROOT="${SCRIPT_DIR:h}"
+PROJECT=${1:-$PROJECT_ROOT}
 BUILD_ONLY=false
 RUNS=40
 

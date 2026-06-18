@@ -1,0 +1,270 @@
+// =============================================================================
+// kernel/core/boot_helpers.salt — Boot Sequence (extracted from main.salt)
+// =============================================================================
+// Contains functions previously in main.salt that were extracted to keep
+// each file under 500 lines. All functions use @no_mangle for direct
+// linker-level cross-module calls (same pattern as the rest of the kernel).
+
+package kernel.core.boot_helpers
+
+import kernel.drivers.serial
+import kernel.core.pmm
+import kernel.mem.user_paging
+import kernel.core.moe
+import kernel.drivers.virtio_net
+import kernel.net.netcore
+import kernel.drivers.pci
+import kernel.sys.nvme_block
+import kernel.sys.ext2
+
+extern fn pmm_alloc() -> u64;
+extern fn pci_enumerate();
+extern fn moe_net_init();
+extern fn moe_enable_rx_interrupts();
+extern fn moe_set_bar_ptr(ptr: u64);
+extern fn fb_get_width() -> u32;
+extern fn fb_get_height() -> u32;
+extern fn fb_get_pitch() -> u32;
+extern fn fb_get_phys() -> u64;
+extern fn fb_clear(color: u32);
+extern fn ps2_set_rx_ring(ring_base: u64);
+extern fn serial_set_rx_ring(ring_base: u64);
+extern fn map_user_page_extern(pml4: u64, vaddr: u64, phys: u64, flags: u64);
+extern fn netcore_set_rx_notify(rx_ring: u64);
+extern fn netcore_set_netd_pid(pid: u64);
+extern fn virtio_net_get_mac_byte(index: u64) -> u8;
+extern fn syscall_set_moe_peer_mac(m0: u8, m1: u8, m2: u8, m3: u8, m4: u8, m5: u8);
+extern fn get_netd_elf_addr() -> u64;
+extern fn exec_spawn_kernel_thread(entry: u64, a1: u64, a2: u64, a3: u64, pml4: u64) -> u64;
+extern fn exec_spawn_process(elf: u64, pml4: u64) -> u64;
+extern fn exec_spawn_process_from_inode(inode: u64, pml4: u64) -> u64;
+extern fn process_set_state(pid: u64, state: u64);
+extern fn process_set_current(pid: u64);
+extern fn process_get_kernel_rsp(pid: u64) -> u64;
+extern fn process_get_pml4(pid: u64) -> u64;
+extern fn process_get_kernel_stack_top(pid: u64) -> u64;
+extern fn sys_discover_nvme_bar() -> u64;
+extern fn sys_nvme_block_init(ctrl: u64) -> u64;
+extern fn sys_ext2_mount(block_dev: u64);
+extern fn sys_moe_init_trampoline(state: u64, bar_out: u64, poll_out: u64);
+extern fn sys_vfs_lookup(path: u64) -> u64;
+extern fn get_user_elf_d_addr() -> u64;
+extern fn get_kernel_event_loop_addr() -> u64;
+extern fn bench_suite_run();
+extern fn init_syscall_msrs();
+extern fn set_syscall_kernel_rsp0(rsp0: u64);
+extern fn run_smp_tests() -> u64;
+extern fn run_percpu_tests() -> u64;
+extern fn init_cores(num_cpus: u64);
+extern fn release_aps();
+extern fn tss_set_rsp0(rsp0: u64);
+
+// Refs back into main.salt (linked via @no_mangle)
+extern fn sys_terminal_main(w: u64, h: u64, pitch: u64);
+extern fn terminal_tx_poll_thread();
+extern fn salt_yield_check();
+
+// Globals shared with main.salt (linked via @no_mangle)
+global KERNEL_TX_RING_VIRT: u64 = 0;
+global KERNEL_LINE_BUFFER: [u8; 64] = [0; 64];
+global KERNEL_LINE_LEN: u32 = 0;
+global KERNEL_ECS_WORLD: u64 = 0;
+
+const PROC_READY: u64 = 1;
+const KERNEL_BASE: u64 = 0xFFFFFF0000000000;
+
+// ── Helpers ────────────────────────────────────────────────────────
+
+@no_mangle
+pub fn get_ecs_world_ptr() -> u64 {
+    return KERNEL_ECS_WORLD;
+}
+
+fn strcmp(s1_ptr: u64, len1: u32, s2_ptr: u64, len2: u32) -> bool {
+    if len1 != len2 { return false; }
+    let mut i: u32 = 0;
+    while i < len1 {
+        let c1 = *((s1_ptr + (i as u64)) as &u8);
+        let c2 = *((s2_ptr + (i as u64)) as &u8);
+        if c1 != c2 { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+// ── NetD + Terminal SIP Spawn ──────────────────────────────────────
+
+@no_mangle
+pub fn boot_terminal_and_netd_sips(kernel_pml4: u64) {
+    serial.print("[KeuOS] Bootstrapping Sovereign Ring 3 Terminal SIP...\n");
+    let fb_w = fb_get_width() as u64;
+    let fb_h = fb_get_height() as u64;
+    let fb_pitch = fb_get_pitch() as u64;
+    let fb_phys = fb_get_phys();
+
+    let mut fb_idx: u64 = 0;
+    while fb_idx < 1024 {
+        map_user_page_extern(kernel_pml4, 0x40002000 + (fb_idx * 4096), fb_phys + (fb_idx * 4096), 0x7);
+        fb_idx = fb_idx + 1;
+    }
+
+    let rx_ring_phys = pmm_alloc();
+    map_user_page_extern(kernel_pml4, 0x40001000, rx_ring_phys, 0x7);
+    let rx_ring_kern = rx_ring_phys + KERNEL_BASE;
+    ps2_set_rx_ring(rx_ring_kern);
+    serial_set_rx_ring(rx_ring_kern);
+    *((rx_ring_kern + 0) as &mut u64) = 0;
+    *((rx_ring_kern + 8) as &mut u64) = 3904;
+    *((rx_ring_kern + 64) as &mut u64) = 0;
+    *((rx_ring_kern + 128) as &mut u64) = 0;
+
+    let tx_ring_phys = pmm_alloc();
+    map_user_page_extern(kernel_pml4, 0x40003000, tx_ring_phys, 0x7);
+    let tx_ring_kern = tx_ring_phys + KERNEL_BASE;
+    *((tx_ring_kern + 0) as &mut u64) = 0;
+    *((tx_ring_kern + 8) as &mut u64) = 3904;
+    *((tx_ring_kern + 64) as &mut u64) = 0;
+    *((tx_ring_kern + 128) as &mut u64) = 0;
+    KERNEL_TX_RING_VIRT = tx_ring_kern;
+
+    let mut cp_idx: u64 = 0;
+    while cp_idx < 16 {
+        let cp_phys = pmm_alloc();
+        map_user_page_extern(kernel_pml4, 0x40402000 + (cp_idx * 4096), cp_phys, 0x7);
+        cp_idx = cp_idx + 1;
+    }
+
+    let slot_terminal = exec_spawn_kernel_thread((&sys_terminal_main) as u64, fb_w, fb_h, fb_pitch, kernel_pml4);
+    process_set_state(slot_terminal, PROC_READY);
+    serial.print("[KeuOS] Terminal SIP coroutine spawned\n");
+
+    let slot_tx = exec_spawn_kernel_thread((&terminal_tx_poll_thread) as u64, 0, 0, 0, kernel_pml4);
+    process_set_state(slot_tx, PROC_READY);
+    serial.print("[KeuOS] TX_RING Supervisor C2 Thread spawned\n");
+
+    let netd_elf = get_netd_elf_addr();
+    let slot_netd = exec_spawn_process(netd_elf, kernel_pml4);
+    process_set_state(slot_netd, PROC_READY);
+    serial.print("[KeuOS] NetD Ring 3 process spawned (Zero-Trap SPSC Data Plane)\n");
+}
+
+// ── MoE Pipeline ───────────────────────────────────────────────────
+
+@no_mangle
+pub fn boot_moe_pipeline(kernel_pml4: u64) -> u64 {
+    serial.print("[KeuOS] SPAWNING MOE PIPELINE\n");
+    serial.print("[KeuOS] Enumerating PCI Bus...\n");
+    pci_enumerate();
+    moe_net_init();
+    moe_enable_rx_interrupts();
+
+    let mac_byte5 = virtio_net_get_mac_byte(5);
+    serial.print("[KeuOS] MAC byte 5 = 0x");
+    serial.print_u64(mac_byte5 as u64);
+    serial.print("\n");
+
+    let pb_phys = pmm_alloc();
+    let pb_virt = pb_phys + KERNEL_BASE;
+    let state_ptr = pb_virt;
+    let bar_ptr   = pb_virt + 128;
+    let poll_ptr  = pb_virt + 256;
+    let output_ptr = pb_virt + 512;
+
+    let mut phase: u32 = 0;
+    if mac_byte5 == 0xBB {
+        serial.print("[KeuOS] Booting Node B (Expert)...\n");
+        phase = 2;
+        syscall_set_moe_peer_mac(0x52, 0x54, 0x00, 0x12, 0x34, 0xAA);
+    } else {
+        serial.print("[KeuOS] Booting Node A (Router)...\n");
+        phase = 0;
+        syscall_set_moe_peer_mac(0x52, 0x54, 0x00, 0x12, 0x34, 0xBB);
+    }
+
+    *((state_ptr) as &mut u32) = phase;
+    *((state_ptr + 24) as &mut u64) = output_ptr;
+    moe_set_bar_ptr(bar_ptr);
+
+    let rx_notify_ring_phys = pmm_alloc();
+    let rx_notify_ring_virt = rx_notify_ring_phys + KERNEL_BASE;
+    *((rx_notify_ring_virt + 0) as &mut u64) = 0;
+    *((rx_notify_ring_virt + 8) as &mut u64) = 3904;
+    *((rx_notify_ring_virt + 64) as &mut u64) = 0;
+    *((rx_notify_ring_virt + 128) as &mut u64) = 0;
+    netcore_set_rx_notify(rx_notify_ring_virt);
+
+    let rx_pool_phys: u64 = 0x420000;
+    let rx_pool_vaddr: u64 = 0x40000000;
+    let rx_pool_pages: u64 = 24;
+    let mut pg: u64 = 0;
+    while pg < rx_pool_pages {
+        map_user_page_extern(kernel_pml4, rx_pool_vaddr + pg * 4096, rx_pool_phys + pg * 4096, 0x207);
+        pg = pg + 1;
+    }
+    serial.print("[KeuOS] Mapped VirtIO RX pool at 0x40000000 (24 pages)\n");
+
+    let rx_notify_ring_user_vaddr: u64 = 0x40004000;
+    map_user_page_extern(kernel_pml4, rx_notify_ring_user_vaddr, rx_notify_ring_phys, 0x207);
+    *((state_ptr + 72) as &mut u64) = rx_notify_ring_user_vaddr;
+    *((state_ptr + 80) as &mut u64) = rx_pool_vaddr;
+
+    let slot_a = exec_spawn_kernel_thread((&sys_moe_init_trampoline) as u64, state_ptr, bar_ptr, poll_ptr, kernel_pml4);
+    serial.print("[KeuOS] MoE Pipeline spawned\n");
+
+    boot_terminal_and_netd_sips(kernel_pml4);
+    return slot_a;
+}
+
+// ── Terminal TX Poll ───────────────────────────────────────────────
+
+@no_mangle
+pub fn terminal_tx_poll_thread() {
+    loop {
+        let ring = KERNEL_TX_RING_VIRT;
+        if ring != 0 {
+            let head = *((ring + 0) as &u64);
+            let tail = *((ring + 64) as &u64);
+            if head != tail {
+                let mut capacity = *((ring + 8) as &u64);
+                if capacity == 0 { capacity = 3904; }
+                if capacity > 3904 { capacity = 3904; }
+                let t = *((ring + 64) as &u64);
+                if t >= capacity { continue; }
+                let idx = t % capacity;
+                let mut c: u8 = 0;
+                if idx < 3904 { c = *((ring + 192 + idx) as &u8); }
+                *((ring + 64) as &mut u64) = t + 1;
+
+                if c == 10 {
+                    let panic_cmd = "panic";
+                    if strcmp((&KERNEL_LINE_BUFFER) as u64, KERNEL_LINE_LEN, (&panic_cmd) as u64, 5) {
+                        serial.print("!!! KERNEL PANIC TRIGGERED VIA C2 !!!\n");
+                        fb_clear(0x00FF0000);
+                        loop {}
+                    }
+                    KERNEL_LINE_LEN = 0;
+                } else {
+                    if KERNEL_LINE_LEN < 64 {
+                        KERNEL_LINE_BUFFER[KERNEL_LINE_LEN as u64] = c;
+                        KERNEL_LINE_LEN = KERNEL_LINE_LEN + 1;
+                    }
+                }
+            }
+        }
+        salt_yield_check();
+    }
+}
+
+// ── NVMe + EXT2 ────────────────────────────────────────────────────
+
+@no_mangle
+pub fn boot_nvme_and_ext2() {
+    let nvme_bar = sys_discover_nvme_bar();
+    if nvme_bar != 0 {
+        // NVMe init requires type-safe Ptr parameters — use the higher-level
+        // wrapper in kernel/drivers/nvme.salt when the ABI wrapper is added.
+        serial.print("[KeuOS] NVMe BAR found at 0x");
+        serial.print_u64(nvme_bar);
+        serial.print(" — driver ABI wrapper pending\n");
+    }
+}

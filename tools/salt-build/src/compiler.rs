@@ -127,13 +127,15 @@ fn find_build_script(project_dir: &Path) -> Result<PathBuf, String> {
         }
     }
 
-    // Fallback: assume keuos project structure
-    let keuos_script = PathBuf::from("/Users/kevin/projects/keuos/scripts/run_test.sh");
-    if keuos_script.exists() {
-        return Ok(keuos_script);
+    // Fallback: check SALT_REPO_ROOT environment variable
+    if let Ok(repo_root) = std::env::var("SALT_REPO_ROOT") {
+        let env_script = PathBuf::from(&repo_root).join("scripts/run_test.sh");
+        if env_script.exists() {
+            return Ok(env_script);
+        }
     }
 
-    Err("Could not find scripts/run_test.sh. Are you in a Salt project?".to_string())
+    Err("Could not find scripts/run_test.sh. Set SALT_REPO_ROOT or run from within a Salt project.".to_string())
 }
 
 #[cfg(test)]

@@ -1,11 +1,16 @@
 //! Salt Language Server — Entry Point
 //!
 //! Launches the salt-lsp server over stdio using tower-lsp.
+//! v0.3.0: semantic tokens, references, document symbols, code actions.
 
 mod backend;
 mod completion;
 mod diagnostics;
 pub mod sir_index;
+mod sir_display;
+mod semantic_tokens;
+#[cfg(test)]
+mod tests_lsp;
 
 use tower_lsp::{LspService, Server};
 

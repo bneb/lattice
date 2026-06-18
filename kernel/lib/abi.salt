@@ -14,7 +14,8 @@
 //     mapped via SYS_RING_MAP, all push/pop operations bypass the kernel.
 //     Throughput is bounded only by cache-line transfer latency.
 //
-// ABI Level: 0 (Experimental)
+// ABI Level: 1 (Stable, proposed for v1.0.0 freeze)
+// See docs/abi/KEUOS_ABI_STABLE.md for the canonical reference.
 // =============================================================================
 
 package kernel.lib.abi
@@ -22,22 +23,43 @@ package kernel.lib.abi
 import kernel.lib.ipc_ring
 
 // =============================================================================
-// Control Plane Syscall Vectors
+// Syscall Numbers — Frozen for v1.0.0
 // =============================================================================
-// These numbers are allocated in the post-Linux range (10+) to avoid
-// collision with existing syscalls (0=noop, 1=write, 9=mmap, 12=brk,
-// 60=exit, 119=yield, 200-202=IPC).
-//
-// Changes require synchronized updates across:
-//   - kernel/core/syscall.salt    (slow-path dispatch)
-//   - kernel/core/capability.salt (handler implementations)
-//   - user/lib/syscall.salt       (userspace wrappers)
+// These numbers form the stable syscall ABI. Once v1.0.0 ships:
+//   - Never reuse a number
+//   - Never change a signature
+//   - Add new syscalls at the end of each reserved range
+//   - Deprecate with one full release cycle notice
 // =============================================================================
 
+// I/O (0-8)
+pub const SYS_READ: u64       = 0;
+pub const SYS_WRITE: u64      = 1;
+pub const SYS_OPEN: u64       = 2;
+
+// Memory (9-15)
+pub const SYS_MMAP: u64       = 9;
+pub const SYS_BRK: u64        = 12;
+
+// Capability & IPC (10-13, 200-202)
 pub const SYS_CAP_BIND: u64     = 10;  // Allocate a capability handle
 pub const SYS_RING_MAP: u64     = 11;  // Map a physical SPSC ring to a capability
 pub const SYS_CORE_ACQUIRE: u64 = 12;  // Request spatial ownership of a CPU core
-pub const SYS_IPC_REG_SEND: u64 = 13;  // Fast-path register IPC (2x u64 payload)
+pub const SYS_IPC_REG_SEND: u64 = 14;  // Fast-path register IPC (ENOSYS pending)
+pub const SYS_IPC_AWAIT: u64    = 15;  // Await fast-path IPC (ENOSYS pending)
+pub const SYS_IPC_SEND: u64     = 200; // Slow-path IPC send
+pub const SYS_IPC_RECV: u64     = 201; // Slow-path IPC receive (blocking)
+pub const SYS_SHM_GRANT: u64    = 202; // Zero-copy shared memory grant
+
+// Process (60, 119, 400-401)
+pub const SYS_EXIT: u64       = 60;   // Exit process (asm fast path)
+pub const SYS_YIELD: u64      = 119;  // Yield CPU + I/O pump
+pub const SYS_SPAWN: u64      = 400;  // Spawn process from ELF
+pub const SYS_WAIT: u64       = 401;  // Wait for child process
+
+// System (99, 128-131 deprecated)
+pub const SYS_SHUTDOWN: u64   = 99;   // ACPI power-off
+pub const SYS_REACTOR_BASE: u64 = 128; // Deprecated — use SYS_IPC_AWAIT
 
 // =============================================================================
 // Capability Handle

@@ -27,6 +27,7 @@ import kernel.drivers.rtl8125
 const VIRTIO_NET_HDR_SIZE: u32 = 10;
 
 extern fn fast_memcpy(dst: u64, src: u64, count: u64);
+extern fn sys_ipc_send(target_pid: u64, msg0: u64, msg1: u64, msg2: u64) -> u64;
 
 // =============================================================================
 // Active Driver Selection
@@ -36,6 +37,11 @@ global USING_RTL8125: bool = false;
 @no_mangle
 pub fn netcore_set_rtl8125_mode(enabled: bool) {
     USING_RTL8125 = enabled;
+}
+
+@no_mangle
+pub fn netcore_set_netd_pid(pid: u64) {
+    NETD_NOTIFY_PID = pid;
 }
 
 // =============================================================================
@@ -53,6 +59,10 @@ global UDP_PACKETS_HANDLED: u64 = 0;
 // Zero-Trap TCP/IP: The kernel pushes 12-byte packet metadata into the SPSC ring.
 // Each entry: [buf_addr: u64, pkt_len: u32]
 global RX_NOTIFY_PTR: u64 = 0;
+global NETD_NOTIFY_PID: u64 = 0;
+
+// CMD_RX_NOTIFY — sent to NetD when frames are available in the RX ring
+const CMD_RX_NOTIFY: u64 = 1;
 
 @no_mangle
 pub fn netcore_set_rx_notify(ptr: u64) {
@@ -172,6 +182,9 @@ pub fn process_one() -> bool {
             if ring_push_u64(RX_NOTIFY_PTR, buf_addr) {
                 ring_push_u32(RX_NOTIFY_PTR, pkt_len);
             }
+            if NETD_NOTIFY_PID != 0 {
+                sys_ipc_send(NETD_NOTIFY_PID, CMD_RX_NOTIFY, 0, 0);
+            }
             // Do NOT repost — Ring 3 owns the buffer until it reposts
             return true;
         }
@@ -207,6 +220,10 @@ pub fn process_one() -> bool {
             serial.print(" len=");
             serial.print_u64(pkt_len as u64);
             serial.print("\n");
+        }
+        // Wake up Ring 3 NetD via IPC if configured
+        if NETD_NOTIFY_PID != 0 {
+            sys_ipc_send(NETD_NOTIFY_PID, CMD_RX_NOTIFY, 0, 0);
         }
         // Do NOT repost — Ring 3 owns the buffer until it reposts
         return true;
@@ -244,7 +261,13 @@ fn handle_ipv4(buf: u64, len: u32, src_mac: [u8; 6]) {
         // UDP
         handle_udp(payload_buf, payload_len, ip_hdr.src_ip, src_mac);
     }
-    // Protocol 6 (TCP) and 1 (ICMP) can be added here
+    // Protocol 6: TCP — dispatch to NetD TCP state machine
+    if ip_hdr.protocol == 6 {
+        if RX_NOTIFY_PTR != 0 {
+            handle_tcp_notify(payload_buf, payload_len, ip_hdr.src_ip, src_mac);
+        }
+    }
+    // Protocol 1 (ICMP) can be added here
 }
 
 // =============================================================================
@@ -323,6 +346,27 @@ fn send_udp_reply(dst_ip: u32, dst_mac: [u8; 6], dst_port: u16, src_port: u16, p
         rtl8125.tx_reclaim();
     } else {
         virtio_net.net_tx_send(frame_buf, total);
+    }
+}
+
+// =============================================================================
+// TCP Notification — Notify Ring 3 NetD of incoming TCP packet
+// =============================================================================
+// Pushes the TCP segment into the RX notification ring and wakes NetD via IPC.
+// The Ring 3 NetD process reads from the shared ring and runs the TCP state
+// machine (netd_tcp.salt).
+
+fn handle_tcp_notify(buf: u64, len: u32, src_ip: u32, src_mac: [u8; 6]) {
+    if RX_NOTIFY_PTR != 0 {
+        if ring_push_u64(RX_NOTIFY_PTR, buf) {
+            ring_push_u32(RX_NOTIFY_PTR, len);
+            serial.print("[TCP] Notified Ring 3 NetD: len=");
+            serial.print_u64(len as u64);
+            serial.print("\n");
+        }
+        if NETD_NOTIFY_PID != 0 {
+            sys_ipc_send(NETD_NOTIFY_PID, CMD_RX_NOTIFY, src_ip as u64, 0);
+        }
     }
 }
 

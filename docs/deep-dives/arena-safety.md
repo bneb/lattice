@@ -21,6 +21,34 @@ Every variable is assigned an integer **depth** based on its lexical scope:
 | 2 | Local variables (function body) | `let arena = Arena::new(4096)` |
 | 3+ | Nested blocks | Arena inside `if`/`while`/`for` |
 
+```mermaid
+flowchart TD
+    subgraph "Depth 0: Globals"
+        G[Global State]
+    end
+    subgraph "Depth 1: Arguments"
+        A[Function Arguments]
+    end
+    subgraph "Depth 2: Locals"
+        L[Local Variables]
+    end
+    subgraph "Depth 3: Nested"
+        N[Block-Scoped Locals]
+    end
+
+    G -->|Safe Assignment| A
+    A -->|Safe Assignment| L
+    L -->|Safe Assignment| N
+    
+    N -.->|❌ REJECTED: depth(b) > depth(a)| L
+    L -.->|❌ REJECTED: depth(b) > depth(a)| A
+    
+    style G fill:#2b6cb0,color:#fff,stroke:#63b3ed
+    style A fill:#2c5282,color:#fff,stroke:#63b3ed
+    style L fill:#2a4365,color:#fff,stroke:#63b3ed
+    style N fill:#1a365d,color:#fff,stroke:#63b3ed
+```
+
 Arena pointers **inherit the depth of the arena they were allocated from**:
 
 ```salt

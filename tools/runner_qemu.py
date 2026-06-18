@@ -128,11 +128,9 @@ def compile_salt(src_file):
     print(f"  [SALT] Compiling {src_file} → {safe_name}.o")
     
     # 1. Salt -> MLIR
-    cmd = [SALT_FRONT, src_file, "--lib", "--disable-alias-scopes"]
-    print(f"    Running: {' '.join(cmd)} > {mlir_file}")
-    
-    with open(mlir_file, "w") as out:
-        subprocess.check_call(cmd, stdout=out)
+    cmd = [SALT_FRONT, src_file, "--lib", "--disable-alias-scopes", "-o", mlir_file]
+    print(f"    Running: {' '.join(cmd)}")
+    subprocess.check_call(cmd)
 
     # 1b. Strip sip_verified attribute — salt-front emits it but salt-opt rejects
     # non-dialect-prefixed module attributes
@@ -302,6 +300,26 @@ def build_user_programs():
             "name": "hello",
             "salt_files": [
                 os.path.join(user_dir, "hello.salt"),
+                os.path.join(user_dir, "lib", "syscall.salt"),
+                os.path.join(user_dir, "std", "stdio.salt"),
+            ],
+        },
+        # NetD: Ring 3 Network Daemon (Zero-Trap SPSC Data Plane)
+        {
+            "name": "netd",
+            "salt_files": [
+                os.path.join(user_dir, "netd", "main.salt"),
+                os.path.join(user_dir, "netd", "daemon.salt"),
+                os.path.join(user_dir, "netd", "encap.salt"),
+                os.path.join(user_dir, "netd", "router.salt"),
+                os.path.join(user_dir, "lib", "syscall.salt"),
+                os.path.join(user_dir, "lib", "socket.salt"),
+            ],
+        },
+        # Grit: Structural Shell
+        {
+            "name": "grit",
+            "salt_files": [
                 os.path.join(user_dir, "lib", "syscall.salt"),
                 os.path.join(user_dir, "std", "stdio.salt"),
             ],

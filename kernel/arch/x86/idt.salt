@@ -191,6 +191,9 @@ pub fn init_ist_gates() {
 
 // @no_mangle ABI Wrappers
 @no_mangle
+pub fn idt_init() { init(); }
+
+@no_mangle
 pub fn idt_init_ist_gates() { init_ist_gates(); }
 
 @no_mangle

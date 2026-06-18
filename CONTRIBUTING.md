@@ -15,7 +15,7 @@ The project is currently standardized on **LLVM 21**. To build the kernel and th
 | **clang + libclang-dev** | Required on Linux (Debian/Ubuntu) |
 
 > [!TIP]
-> We recommend using the provided Docker environment in the `tools/` directory to ensure a deterministic build.
+> First time? Run `make setup` (or `./scripts/bootstrap.sh`) to install prerequisites, build the compiler, and boot the kernel in QEMU. See [Architecture Decision Records](docs/adr/) for context on key design choices.
 
 ## How to Contribute
 
@@ -24,6 +24,46 @@ We are specifically looking for help in these areas:
 - **Userspace Tests** — Adding self-contained Ring 3 test programs to the `user/` directory.
 - **Documentation** — Clarifying architecture docs or fixing inaccuracies in the README.
 - **Bug Reports** — Reproducible reports for kernel panics or compiler crashes.
+
+### Good First Issues
+
+Look for issues labeled [`good-first-issue`](https://github.com/bneb/keuos/labels/good-first-issue) — these are specifically curated for new contributors and require minimal context. Current good-first-issue categories:
+
+| Label | Example Tasks |
+|-------|--------------|
+| `good-first-issue` | Fix a warning, add a doc comment, write a simple example |
+| `help-wanted` | Larger features that need design discussion |
+| `documentation` | Spec updates, README improvements, API docs |
+| `tests` | Add test coverage for untested code paths |
+
+### Contributor Ladder
+
+| Level | Requires | Can Do |
+|-------|----------|--------|
+| **Reader** | Nothing | Read code, open issues, ask questions in Discussions |
+| **Contributor** | 1 merged PR | Submit PRs, review documentation |
+| **Reviewer** | 5+ merged PRs, demonstrated architecture knowledge | Review PRs in specific subsystems |
+| **Maintainer** | Sustained contribution, HAL Mandate fluency | Merge PRs, approve architecture changes |
+
+> [!TIP]
+> New here? Start with a `good-first-issue`. Read `docs/adr/` to understand why the code works the way it does.
+
+## Issue Labels
+
+| Label | Meaning |
+|-------|---------|
+| `bug` | Confirmed incorrect behavior |
+| `enhancement` | New feature or improvement |
+| `good-first-issue` | Curated for new contributors |
+| `help-wanted` | Needs design discussion or extra hands |
+| `compiler` | salt-front (parser, typechecker, Z3, MLIR) |
+| `kernel` | KeuOS kernel (scheduler, IPC, memory, drivers) |
+| `stdlib` | Standard library modules |
+| `lsp` | Language server and editor integration |
+| `sp` | Package manager |
+| `docs` | Documentation and spec |
+| `security` | Security-sensitive (requires careful review) |
+| `triage` | Needs initial assessment
 
 > [!IMPORTANT]
 > We are **not** currently accepting major changes to the kernel internals or the compiler's core verification passes without prior discussion in the [GitHub Discussions](https://github.com/bneb/keuos/discussions) area.

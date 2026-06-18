@@ -13,13 +13,11 @@ use std::collections::HashMap;
 
 use crate::completion;
 use crate::diagnostics;
-use crate::sir_index::SirIndex;
+use crate::semantic_tokens;
+use crate::sir_index::{SirIndex, SymbolKind as SirSymbolKind};
 
-/// In-memory document and symbol state.
 pub struct DocumentState {
-    /// URI → full text content
     pub documents: HashMap<Url, String>,
-    /// SIR symbol index (populated from in-memory compilation)
     pub sir_index: SirIndex,
 }
 
@@ -39,12 +37,9 @@ impl SaltBackend {
         }
     }
 
-    /// Run two-tier diagnostics and update the SIR index.
     async fn publish_diagnostics(&self, uri: Url, text: &str) {
-        // Tier 1: Fast pattern-based diagnostics (instant)
         let mut diags = diagnostics::diagnose(text);
 
-        // Tier 2: In-memory compiler diagnostics (<5ms via salt-front library)
         let module_name = uri.path_segments()
             .and_then(|s| s.last())
             .unwrap_or("unknown")
@@ -54,15 +49,12 @@ impl SaltBackend {
         let (compiler_diags, sir_module) = diagnostics::diagnose_with_compiler(text, &module_name);
         diags.extend(compiler_diags);
 
-        // Update SIR index if compilation succeeded
         if let Some(module) = sir_module {
             let mut state = self.state.write().await;
             state.sir_index.update(uri.clone(), module);
         }
 
-        self.client
-            .publish_diagnostics(uri, diags, None)
-            .await;
+        self.client.publish_diagnostics(uri, diags, None).await;
     }
 }
 
@@ -76,19 +68,32 @@ impl LanguageServer for SaltBackend {
                 )),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
-                    trigger_characters: Some(vec![
-                        ".".to_string(),
-                        ":".to_string(),
-                    ]),
+                    trigger_characters: Some(vec![".".to_string(), ":".to_string()]),
                     ..Default::default()
                 }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                // ── New capabilities ──────────────────────────────────
+                references_provider: Some(OneOf::Left(true)),
+                document_symbol_provider: Some(OneOf::Left(true)),
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            work_done_progress_options: WorkDoneProgressOptions {
+                                work_done_progress: None,
+                            },
+                            legend: semantic_tokens::legend(),
+                            range: Some(false),
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                        },
+                    )
+                ),
+                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
                 name: "salt-lsp".to_string(),
-                version: Some("0.2.0".to_string()),
+                version: Some("0.3.0".to_string()),
             }),
         })
     }
@@ -97,30 +102,25 @@ impl LanguageServer for SaltBackend {
         self.client
             .log_message(
                 MessageType::INFO,
-                "Salt LSP v0.2.0 initialized — in-memory compilation active",
+                "Salt LSP v0.3.0 — semantic tokens, references, document symbols, code actions",
             )
             .await;
     }
 
-    async fn shutdown(&self) -> Result<()> {
-        Ok(())
-    }
+    async fn shutdown(&self) -> Result<()> { Ok(()) }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri.clone();
         let text = params.text_document.text.clone();
-
         {
             let mut state = self.state.write().await;
             state.documents.insert(uri.clone(), text.clone());
         }
-
         self.publish_diagnostics(uri, &text).await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri.clone();
-
         if let Some(change) = params.content_changes.into_iter().next() {
             let text = change.text;
             {
@@ -140,16 +140,13 @@ impl LanguageServer for SaltBackend {
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = &params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
-
         let state = self.state.read().await;
         let text = match state.documents.get(uri) {
             Some(t) => t.as_str(),
             None => return Ok(None),
         };
-
         let mut items = completion::complete(text, position);
 
-        // SIR-powered function completions
         for name in state.sir_index.all_function_names() {
             if !items.iter().any(|i| i.label == name) {
                 let detail = state.sir_index.lookup_function(name).map(|func| {
@@ -163,8 +160,6 @@ impl LanguageServer for SaltBackend {
                 });
             }
         }
-
-        // SIR-powered struct completions
         for name in state.sir_index.all_struct_names() {
             if !items.iter().any(|i| i.label == name) {
                 items.push(CompletionItem {
@@ -175,83 +170,222 @@ impl LanguageServer for SaltBackend {
                 });
             }
         }
-
         Ok(Some(CompletionResponse::Array(items)))
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let uri = &params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
-
         let state = self.state.read().await;
         let text = match state.documents.get(uri) {
             Some(t) => t.as_str(),
             None => return Ok(None),
         };
-
         let word = extract_word_at(text, position);
 
-        // Priority 1: SIR function hover (signature + contracts)
         if let Some(func) = state.sir_index.lookup_function(&word) {
             let hover_text = SirIndex::format_function_hover(func);
             return Ok(Some(Hover {
                 contents: HoverContents::Markup(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: hover_text,
+                    kind: MarkupKind::Markdown, value: hover_text,
                 }),
                 range: None,
             }));
         }
-
-        // Priority 2: SIR struct hover (field layout)
         if let Some(s) = state.sir_index.lookup_struct(&word) {
             let hover_text = SirIndex::format_struct_hover(s);
             return Ok(Some(Hover {
                 contents: HoverContents::Markup(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: hover_text,
+                    kind: MarkupKind::Markdown, value: hover_text,
                 }),
                 range: None,
             }));
         }
-
-        // Priority 3: Keyword/builtin type info
         if let Some(info) = completion::keyword_info(&word) {
             return Ok(Some(Hover {
                 contents: HoverContents::Markup(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: info.to_string(),
+                    kind: MarkupKind::Markdown, value: info.to_string(),
                 }),
                 range: None,
             }));
         }
-
         Ok(None)
     }
 
-    async fn goto_definition(
-        &self,
-        params: GotoDefinitionParams,
-    ) -> Result<Option<GotoDefinitionResponse>> {
+    async fn goto_definition(&self, params: GotoDefinitionParams) -> Result<Option<GotoDefinitionResponse>> {
         let uri = &params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
+        let state = self.state.read().await;
+        let text = match state.documents.get(uri) {
+            Some(t) => t.as_str(),
+            None => return Ok(None),
+        };
+        let word = extract_word_at(text, position);
+        if word.is_empty() { return Ok(None); }
+        if let Some(location) = state.sir_index.find_definition(&word) {
+            return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+        }
+        Ok(None)
+    }
 
+    // ── References (new) ────────────────────────────────────────────
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let uri = &params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let state = self.state.read().await;
+        let text = match state.documents.get(uri) {
+            Some(t) => t.as_str(),
+            None => return Ok(None),
+        };
+        let word = extract_word_at(text, position);
+        if word.is_empty() { return Ok(None); }
+
+        let refs = state.sir_index.find_references(&word);
+        if refs.is_empty() {
+            // If no type-based refs found, try definition as fallback
+            if let Some(def) = state.sir_index.find_definition(&word) {
+                return Ok(Some(vec![def]));
+            }
+            return Ok(None);
+        }
+        Ok(Some(refs))
+    }
+
+    // ── Document Symbols (new) ──────────────────────────────────────
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        let uri = &params.text_document.uri;
+        let state = self.state.read().await;
+
+        let entries = state.sir_index.document_symbols_for(uri);
+        if entries.is_empty() {
+            return Ok(None);
+        }
+
+        let symbols: Vec<DocumentSymbol> = entries.iter().map(|e| {
+            let kind = match e.kind {
+                SirSymbolKind::FUNCTION => SymbolKind::FUNCTION,
+                SirSymbolKind::STRUCT => SymbolKind::STRUCT,
+            };
+            DocumentSymbol {
+                name: if e.is_pub {
+                    format!("pub {}", e.name)
+                } else {
+                    e.name.clone()
+                },
+                detail: Some(e.detail.clone()),
+                kind,
+                range: Range {
+                    start: Position::new(e.line, e.column),
+                    end: Position::new(e.line, e.column + e.name.len() as u32),
+                },
+                selection_range: Range {
+                    start: Position::new(e.line, e.column),
+                    end: Position::new(e.line, e.column + e.name.len() as u32),
+                },
+                children: None,
+                tags: None,
+                deprecated: None,
+            }
+        }).collect();
+
+        Ok(Some(DocumentSymbolResponse::Nested(symbols)))
+    }
+
+    // ── Semantic Tokens (new) ───────────────────────────────────────
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let uri = &params.text_document.uri;
         let state = self.state.read().await;
         let text = match state.documents.get(uri) {
             Some(t) => t.as_str(),
             None => return Ok(None),
         };
 
-        let word = extract_word_at(text, position);
-        if word.is_empty() {
-            return Ok(None);
+        let tokens = semantic_tokens::tokenize(text);
+        Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+            result_id: None,
+            data: tokens,
+        })))
+    }
+
+    // ── Code Actions (new) ──────────────────────────────────────────
+
+    async fn code_action(
+        &self,
+        params: CodeActionParams,
+    ) -> Result<Option<CodeActionResponse>> {
+        let uri = &params.text_document.uri;
+        let diags = params.context.diagnostics;
+
+        let mut actions = Vec::new();
+
+        for diag in &diags {
+            // Offer to wrap in unsafe if "unsafe operation" diagnostic
+            if diag.message.contains("VERIFICATION ERROR")
+                || diag.message.contains("contract violation")
+            {
+                actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                    title: "Add @trusted annotation to skip Z3 verification".to_string(),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    diagnostics: Some(vec![diag.clone()]),
+                    edit: Some(WorkspaceEdit {
+                        changes: Some({
+                            let mut map = HashMap::new();
+                            map.insert(uri.clone(), vec![TextEdit {
+                                range: Range {
+                                    start: Position::new(diag.range.start.line, 0),
+                                    end: Position::new(diag.range.start.line, 0),
+                                },
+                                new_text: "@trusted\n".to_string(),
+                            }]);
+                            map
+                        }),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }));
+            }
+
+            // Offer to add requires clause for bounds violations
+            if diag.message.contains("could not prove")
+                || diag.message.contains("counterexample")
+            {
+                actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                    title: "Add requires clause with the suggested constraint".to_string(),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    diagnostics: Some(vec![diag.clone()]),
+                    edit: Some(WorkspaceEdit {
+                        changes: Some({
+                            let mut map = HashMap::new();
+                            map.insert(uri.clone(), vec![TextEdit {
+                                range: Range {
+                                    start: Position::new(diag.range.start.line, 0),
+                                    end: Position::new(diag.range.start.line, 0),
+                                },
+                                new_text: "// TODO: add requires() clause based on the counterexample above\n".to_string(),
+                            }]);
+                            map
+                        }),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }));
+            }
         }
 
-        if let Some(location) = state.sir_index.find_definition(&word) {
-            return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+        if actions.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(actions))
         }
-
-        Ok(None)
     }
 }
 
@@ -259,26 +393,16 @@ impl LanguageServer for SaltBackend {
 fn extract_word_at(text: &str, position: Position) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let line_idx = position.line as usize;
-    if line_idx >= lines.len() {
-        return String::new();
-    }
+    if line_idx >= lines.len() { return String::new(); }
     let line = lines[line_idx];
     let col = position.character as usize;
-    if col > line.len() {
-        return String::new();
-    }
+    if col > line.len() { return String::new(); }
 
     let bytes = line.as_bytes();
     let mut start = col;
     let mut end = col;
-
-    while start > 0 && is_ident_char(bytes[start - 1]) {
-        start -= 1;
-    }
-    while end < bytes.len() && is_ident_char(bytes[end]) {
-        end += 1;
-    }
-
+    while start > 0 && is_ident_char(bytes[start - 1]) { start -= 1; }
+    while end < bytes.len() && is_ident_char(bytes[end]) { end += 1; }
     line[start..end].to_string()
 }
 

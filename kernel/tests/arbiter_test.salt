@@ -1,0 +1,150 @@
+// =============================================================================
+// kernel/tests/arbiter_test.salt
+// SPSC Arbiter Clamping & Validation Tests
+// =============================================================================
+// Tests the security hardening added in Phase 3.4:
+//   - clamp_capacity: reject 0, reject >MAX, accept valid range
+//   - clamp_ring_index: wrap-around protection, valid range
+//   - validate_descriptor_full: 3-gate validation (alignment + proof + bounds)
+// =============================================================================
+
+package kernel.tests.arbiter_test
+
+import kernel.lib.ipc_arbiter
+
+// ── Test: clamp_capacity rejects zero ──────────────────────────────
+
+fn test_clamp_capacity_rejects_zero() -> u64 {
+    let raw: u64 = 0;
+    let clamped = ipc_arbiter.clamp_capacity(raw);
+    // Zero capacity should be clamped to MIN_CAPACITY (1)
+    if clamped != 1 {
+        return 1;
+    }
+    return 0;
+}
+
+// ── Test: clamp_capacity rejects over-max ──────────────────────────
+
+fn test_clamp_capacity_rejects_over_max() -> u64 {
+    // MAX_CAPACITY = 4096 - 192 = 3904
+    let raw: u64 = 10000;
+    let clamped = ipc_arbiter.clamp_capacity(raw);
+    if clamped != 3904 {
+        return 2;
+    }
+    return 0;
+}
+
+// ── Test: clamp_capacity accepts valid range ───────────────────────
+
+fn test_clamp_capacity_accepts_valid() -> u64 {
+    let raw: u64 = 1024;
+    let clamped = ipc_arbiter.clamp_capacity(raw);
+    if clamped != 1024 {
+        return 3;
+    }
+    return 0;
+}
+
+// ── Test: clamp_ring_index rejects wrap-around ─────────────────────
+
+fn test_clamp_ring_index_rejects_wraparound() -> u64 {
+    // With capacity 100, index 500 should be clamped to 99
+    let raw: u64 = 500;
+    let cap: u64 = 100;
+    let clamped = ipc_arbiter.clamp_ring_index(raw, cap);
+    if clamped != 99 {
+        return 4;
+    }
+    return 0;
+}
+
+// ── Test: clamp_ring_index accepts valid index ─────────────────────
+
+fn test_clamp_ring_index_accepts_valid() -> u64 {
+    let raw: u64 = 42;
+    let cap: u64 = 100;
+    let clamped = ipc_arbiter.clamp_ring_index(raw, cap);
+    if clamped != 42 {
+        return 5;
+    }
+    return 0;
+}
+
+// ── Test: clamp_ring_index handles minimum capacity ────────────────
+
+fn test_clamp_ring_index_min_capacity() -> u64 {
+    // With capacity 1, any index should be clamped to 0
+    let raw: u64 = 999;
+    let cap: u64 = 1;
+    let clamped = ipc_arbiter.clamp_ring_index(raw, cap);
+    if clamped != 0 {
+        return 6;
+    }
+    return 0;
+}
+
+// ── Test: SipHash-2-4 consistency ──────────────────────────────────
+
+fn test_siphash_deterministic() -> u64 {
+    let k0: u64 = ipc_arbiter.SIPHASH_K0;
+    let k1: u64 = ipc_arbiter.SIPHASH_K1;
+    let msg: u64 = 42;
+
+    let h1 = ipc_arbiter.siphash24(k0, k1, msg);
+    let h2 = ipc_arbiter.siphash24(k0, k1, msg);
+
+    // Same input must produce same output (deterministic)
+    if h1 != h2 {
+        return 7;
+    }
+    return 0;
+}
+
+// ── Test: hash_combine produces different values for different offsets ──
+
+fn test_hash_combine_different_offsets() -> u64 {
+    let struct_id: u64 = 0x676E695263737053;  // pre-computed SpscRing ID
+
+    let h_head = ipc_arbiter.hash_combine(struct_id, 0, 64);    // head offset
+    let h_tail = ipc_arbiter.hash_combine(struct_id, 64, 64);   // tail offset
+
+    // Different offsets should produce different hashes
+    if h_head == h_tail {
+        return 8;
+    }
+    return 0;
+}
+
+// ── Test Runner ────────────────────────────────────────────────────
+
+pub fn run_arbiter_tests() -> u64 {
+    let mut failures: u64 = 0;
+
+    let r1 = test_clamp_capacity_rejects_zero();
+    if r1 != 0 { failures = failures + 1; }
+
+    let r2 = test_clamp_capacity_rejects_over_max();
+    if r2 != 0 { failures = failures + 1; }
+
+    let r3 = test_clamp_capacity_accepts_valid();
+    if r3 != 0 { failures = failures + 1; }
+
+    let r4 = test_clamp_ring_index_rejects_wraparound();
+    if r4 != 0 { failures = failures + 1; }
+
+    let r5 = test_clamp_ring_index_accepts_valid();
+    if r5 != 0 { failures = failures + 1; }
+
+    let r6 = test_clamp_ring_index_min_capacity();
+    if r6 != 0 { failures = failures + 1; }
+
+    let r7 = test_siphash_deterministic();
+    if r7 != 0 { failures = failures + 1; }
+
+    let r8 = test_hash_combine_different_offsets();
+    if r8 != 0 { failures = failures + 1; }
+
+    return failures;
+}

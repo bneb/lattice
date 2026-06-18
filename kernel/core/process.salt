@@ -410,6 +410,12 @@ pub fn process_get_pcid(slot: u64) -> u64 { return get_pcid(slot); }
 @no_mangle
 pub fn process_get_kernel_stack_top(slot: u64) -> u64 { return get_kernel_stack_top(slot); }
 
+@no_mangle
+pub fn process_alloc_pid() -> u64 { return alloc_pid(); }
+
+@no_mangle
+pub fn process_init() { }
+
 // =============================================================================
 // IPC Fast-Path Accessors
 // =============================================================================

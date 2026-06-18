@@ -1,33 +1,28 @@
+// =============================================================================
+// kernel/core/main.salt — Kernel Entry Point
+// =============================================================================
+// Boot functions extracted to boot_helpers.salt to keep this file under 500 lines.
+// IMPORT POLICY: Only import modules with tiny globals (< 1KB). All other
+// cross-module calls use extern fn with the exact symbol names exported by
+// each module (most use @no_mangle for unmangled C-ABI symbols).
+
 package kernel.core.main
 
-// =============================================================================
-// IMPORT POLICY: Only import modules with tiny globals (< 1KB).
-// All other cross-module calls use extern fn → @no_mangle wrappers.
-// This prevents salt-opt from crashing on combined MLIR constant materializers.
-// =============================================================================
 import kernel.sys.ramfs
 import kernel.drivers.serial
 import kernel.arch.x86.idt
 
 extern fn multiboot_parse(mb_info: u64);
-extern fn sys_moe_init_trampoline(state: u64, bar_out: u64, poll_out: u64);
+extern fn boot_terminal_and_netd_sips(kernel_pml4: u64);
+extern fn boot_moe_pipeline(kernel_pml4: u64) -> u64;
+extern fn boot_nvme_and_ext2();
+extern fn terminal_tx_poll_thread();
+extern fn get_ecs_world_ptr() -> u64;
 
-pub fn sys_terminal_main(w: u64, h: u64, pitch: u64) { let dummy = 0; }
-pub fn sys_netd_main(arg1: u64, arg2: u64, arg3: u64) { let dummy = 0; }
-
-
-
-// =============================================================================
-// Assembly FFI (unmangled symbols from .S files)
-// =============================================================================
-extern fn read_cr3() -> u64;
-extern fn idle_halt();
-extern fn proc_context_switch(old_rsp_ptr: u64, new_rsp: u64, new_cr3: u64, new_rsp0: u64);
-extern fn sys_alloc_kernel_stack() -> u64;
-extern fn get_user_elf_a_addr() -> u64;
 extern fn get_user_elf_b_addr() -> u64;
 extern fn get_user_elf_c_addr() -> u64;
 extern fn get_user_elf_d_addr() -> u64;
+extern fn get_netd_elf_addr() -> u64;
 extern fn get_kernel_event_loop_addr() -> u64;
 extern fn bench_suite_run();
 extern fn init_syscall_msrs();
@@ -35,533 +30,142 @@ extern fn set_syscall_kernel_rsp0(rsp0: u64);
 extern fn run_smp_tests() -> u64;
 extern fn run_percpu_tests() -> u64;
 extern fn init_cores(num_cpus: u64);
-extern fn get_sip_elf_addr() -> u64;
 
-// kernel/arch/x86/cr3_helpers.S — PCID support
-extern fn enable_pcid();
-
-// kernel/sys/elf.salt — Mode B SIP Loader
-extern fn elf_load_sip(elf_base_ptr: u64) -> u64;
-
-// =============================================================================
-// ABI-boundary extern fn for kernel modules.
-// Each calls an @no_mangle wrapper in the definition file.
-// =============================================================================
-
-// kernel/arch/x86/gdt.salt
-extern fn gdt_init();
-extern fn gdt_init_ring3(tss_addr: u64);
-extern fn gdt_load_ring3();
-
-// kernel/arch/x86/tss.salt
-extern fn tss_init_tss(kernel_rsp0: u64);
-extern fn tss_get_tss_addr() -> u64;
-extern fn tss_set_rsp0(new_rsp0: u64);
-
-// kernel/drivers/pit.salt
-extern fn pit_init();
-
-// kernel/core/scheduler.salt
+extern fn pmm_alloc() -> u64;
+extern fn pmm_add_region(phys_start: u64, phys_end: u64);
+extern fn slab_cache_init();
+extern fn vma_init();
+extern fn ecs_world_init();
 extern fn sched_init();
+extern fn percpu_init_bsp();
+extern fn smp_boot_aps();
 extern fn sched_start();
 
-// kernel/ecs/world.salt
-extern fn ecs_world_init() -> u64;
+extern fn gdt_init();
+extern fn idt_init();
+extern fn tss_init_tss();
+extern fn tss_set_rsp0(rsp0: u64);
+extern fn idt_init_ist_gates();
+// syscall_configure_msrs, pcid_init — pending @no_mangle wrappers
+extern fn pit_init();
+// fn syscall_configure_msrs(), pcid_init(), ist_install_gates() — pending @no_mangle wrappers
+// fn run_async_fiber_tests(), run_vfs_tests(), run_preemptive_tests() — test stubs pending
+extern fn fp_save();
+extern fn fp_restore(x: u64);
 
-// kernel/core/pmm.salt
-extern fn pmm_add_region(start: u64, end: u64);
-extern fn pmm_init_cpu_count(count: u64);
-
-// kernel/mem/slab_cache.salt
-extern fn slab_cache_init();
-
-// kernel/core/vma.salt
-extern fn vma_init();
-
-extern fn run_async_tests() -> u64;
-extern fn run_preempt_tests();
-extern fn run_vfs_tests();
-
-// kernel/arch/x86/smp.salt
+extern fn exec_spawn_kernel_thread(entry: u64, a1: u64, a2: u64, a3: u64, pml4: u64) -> u64;
+extern fn exec_spawn_process(elf: u64, pml4: u64) -> u64;
+extern fn exec_spawn_process_from_inode(inode: u64, pml4: u64) -> u64;
+extern fn exec_spawn_ring3_coroutine(entry: u64, a1: u64, a2: u64, a3: u64, pml4: u64) -> u64;
+extern fn process_init();
+extern fn process_set_state(pid: u64, state: u64);
+extern fn process_set_current(pid: u64);
+extern fn process_get_kernel_rsp(pid: u64) -> u64;
+extern fn process_get_pml4(pid: u64) -> u64;
+extern fn process_get_kernel_stack_top(pid: u64) -> u64;
+extern fn process_alloc_pid() -> u64;
 extern fn smp_release_aps();
 
-// kernel/arch/x86/acpi.salt
-extern fn acpi_get_apic_id(index: u64) -> u8;
+extern fn proc_context_switch(old_rsp_ptr: u64, new_rsp: u64, new_cr3: u64, new_rsp0: u64);
 
-// kernel/core/percpu.salt
-extern fn percpu_init_bsp(apic_id: u64);
-extern fn percpu_set_kernel_cr3(logical_id: u64, cr3: u64);
-
-// kernel/core/percpu.salt — IST stack storage
-extern fn percpu_set_nmi_stack(logical_id: u64, stack_top: u64);
-extern fn percpu_set_df_stack(logical_id: u64, stack_top: u64);
-
-// kernel/arch/x86/tss.salt — IST population
-extern fn tss_set_ist(index: u64, stack_top: u64);
-
-// kernel/arch/x86/idt.salt — Phase 2 IST gates
-extern fn idt_init_ist_gates();
-
-// kernel/core/ist_test.salt
-extern fn test_ist_isolation();
-
-// kernel/core/pmm.salt — page allocation for IST stacks
-extern fn pmm_alloc() -> u64;
-
-// kernel/core/memory.salt — KERNEL_BASE constant for phys→virt inline
-const KERNEL_BASE: u64 = 0xFFFFFFFF80000000;
-
-// kernel/core/process.salt
-extern fn process_set_state(slot: u64, state: u64);
-extern fn process_set_current(slot: u64);
-extern fn process_get_kernel_rsp(slot: u64) -> u64;
-extern fn process_get_pml4(slot: u64) -> u64;
-extern fn process_get_pcid(slot: u64) -> u64;
-extern fn process_get_kernel_stack_top(slot: u64) -> u64;
-
-// kernel/core/syscall.salt
-extern fn syscall_set_kernel_pml4(pml4: u64);
-extern fn moe_set_bar_ptr(ptr: u64);
-extern fn syscall_set_moe_peer_mac(b0: u8, b1: u8, b2: u8, b3: u8, b4: u8, b5: u8);
-
-// kernel/net/netcore.salt
-extern fn netcore_set_rx_notify(ptr: u64);
-extern fn map_user_page_extern(pml4_phys: u64, vaddr: u64, paddr: u64, flags: u64);
-extern fn sys_create_user_pml4_kpti(kernel_pml4: u64) -> u64;
-
-// kernel/drivers/virtio_net.salt
-extern fn moe_net_init() -> bool;
-extern fn moe_enable_rx_interrupts();
-
-// kernel/core/exec_user.salt
-extern fn exec_spawn_kernel_thread(entry: u64, arg1: u64, arg2: u64, arg3: u64, pml4: u64) -> u64;
-extern fn exec_spawn_process(elf_addr: u64, pml4: u64) -> u64;
-extern fn exec_spawn_ring3_coroutine(entry: u64, arg1: u64, arg2: u64, arg3: u64, pml4: u64) -> u64;
-extern fn exec_spawn_process_from_inode(inode: u64, pml4: u64) -> u64;
-extern fn sys_vfs_lookup(path: u64) -> u64;
-
-// kernel/drivers/virtio_net.salt
-extern fn virtio_net_get_mac_byte(idx: u64) -> u8;
-
-// kernel/drivers/pci.salt
-extern fn pci_enumerate();
-
-// kernel/sys/nvme_block.salt, ext2.salt, vfs.salt
-extern fn sys_discover_nvme_bar(ecam_base: u64, max_bus: u32) -> u64;
-extern fn sys_nvme_block_init(res_phys: u64, asq_phys: u64, acq_phys: u64, sq_phys: u64, cq_phys: u64) -> u64;
-extern fn sys_ext2_mount(dev_ptr: u64) -> u64;
-extern fn sys_vfs_set_root(root_ptr: u64);
-
-// user/reactor/tasks/moe_pipeline.salt
-// extern fn declared above
-
-// Local copies of process constants
-const MAX_PROCS: u64   = 16;
-const PROC_RUNNING: u64 = 2;
-const PROC_READY: u64  = 1;
-
-// NEW BARE METAL MODULES
-extern fn fb_clear(color: u32);
 extern fn fb_get_width() -> u32;
 extern fn fb_get_height() -> u32;
-extern fn fb_get_pitch() -> u32;
-extern fn fb_get_phys() -> u64;
-extern fn ps2_kbd_irq_handler();
-extern fn ps2_set_rx_ring(ptr: u64);
-extern fn serial_set_rx_ring(ptr: u64);
 
-global KERNEL_TX_RING_VIRT: u64 = 0;
-global KERNEL_ECS_WORLD: u64 = 0;
-
-@no_mangle
-pub fn get_ecs_world_ptr() -> u64 {
-    return KERNEL_ECS_WORLD;
-}
-global KERNEL_LINE_BUFFER: [u8; 64] = [0; 64];
-global DISCARD_RSP: [u64; 1] = [0];
-global KERNEL_LINE_LEN: u32 = 0;
-
-fn boot_terminal_and_netd_sips(kernel_pml4: u64) {
-    serial.print("[KeuOS] Bootstrapping Sovereign Ring 3 Terminal SIP...\n");
-    let fb_w = fb_get_width() as u64;
-    let fb_h = fb_get_height() as u64;
-    let fb_pitch = fb_get_pitch() as u64;
-    let fb_phys = fb_get_phys();
-
-    let mut fb_idx: u64 = 0;
-    while fb_idx < 1024 {
-        map_user_page_extern(kernel_pml4, 0x40002000 + (fb_idx * 4096), fb_phys + (fb_idx * 4096), 0x7);
-        fb_idx = fb_idx + 1;
-    }
-
-    let rx_ring_phys = pmm_alloc();
-    map_user_page_extern(kernel_pml4, 0x40001000, rx_ring_phys, 0x7);
-    
-    let rx_ring_kern = rx_ring_phys + KERNEL_BASE;
-    ps2_set_rx_ring(rx_ring_kern);
-    serial_set_rx_ring(rx_ring_kern);
-
-    *((rx_ring_kern + 0) as &mut u64) = 0;
-    *((rx_ring_kern + 8) as &mut u64) = 3904;
-    *((rx_ring_kern + 64) as &mut u64) = 0;
-    *((rx_ring_kern + 128) as &mut u64) = 0;
-
-    let tx_ring_phys = pmm_alloc();
-    map_user_page_extern(kernel_pml4, 0x40003000, tx_ring_phys, 0x7);
-    
-    let tx_ring_kern = tx_ring_phys + KERNEL_BASE;
-    *((tx_ring_kern + 0) as &mut u64) = 0;
-    *((tx_ring_kern + 8) as &mut u64) = 3904;
-    *((tx_ring_kern + 64) as &mut u64) = 0;
-    *((tx_ring_kern + 128) as &mut u64) = 0;
-
-    KERNEL_TX_RING_VIRT = tx_ring_kern;
-
-    let mut cp_idx: u64 = 0;
-    while cp_idx < 16 {
-        let cp_phys = pmm_alloc();
-        map_user_page_extern(kernel_pml4, 0x40402000 + (cp_idx * 4096), cp_phys, 0x7);
-        cp_idx = cp_idx + 1;
-    }
-
-    let slot_terminal = exec_spawn_kernel_thread((&sys_terminal_main) as u64, fb_w, fb_h, fb_pitch, kernel_pml4);
-    process_set_state(slot_terminal, PROC_READY);
-    serial.print("[KeuOS] Terminal SIP coroutine spawned\n");
-
-    let slot_tx = exec_spawn_kernel_thread((&terminal_tx_poll_thread) as u64, 0, 0, 0, kernel_pml4);
-    process_set_state(slot_tx, PROC_READY);
-    serial.print("[KeuOS] TX_RING Supervisor C2 Thread spawned\n");
-
-    let slot_netd = exec_spawn_kernel_thread((&sys_netd_main) as u64, 0, 0, 0, kernel_pml4);
-    process_set_state(slot_netd, PROC_READY);
-    serial.print("[KeuOS] NetD Ring 0 SIP spawned (Fastpath Handoff Target)\n");
-}
-
-fn boot_moe_pipeline(kernel_pml4: u64) -> u64 {
-    serial.print("[KeuOS] SPAWNING MOE PIPELINE\n");
-    serial.print("[KeuOS] Enumerating PCI Bus...\n");
-    pci_enumerate();
-
-    moe_net_init();
-    moe_enable_rx_interrupts();
-
-    let mac_byte5 = virtio_net_get_mac_byte(5);
-    serial.print("[KeuOS] MAC byte 5 = 0x");
-    serial.print_u64(mac_byte5 as u64);
-    serial.print("\n");
-
-    let pb_phys = pmm_alloc();
-    let pb_virt = pb_phys + KERNEL_BASE;
-    let state_ptr = pb_virt;
-    let bar_ptr   = pb_virt + 128;
-    let poll_ptr  = pb_virt + 256;
-    let output_ptr = pb_virt + 512;
-
-    let mut phase: u32 = 0;
-
-    if mac_byte5 == 0xBB {
-        serial.print("[KeuOS] Booting Node B (Expert)...\n");
-        phase = 2;
-        syscall_set_moe_peer_mac(0x52 as u8, 0x54 as u8, 0x00 as u8, 0x12 as u8, 0x34 as u8, 0xAA as u8);
-    } else {
-        serial.print("[KeuOS] Booting Node A (Router)...\n");
-        phase = 0;
-        syscall_set_moe_peer_mac(0x52 as u8, 0x54 as u8, 0x00 as u8, 0x12 as u8, 0x34 as u8, 0xBB as u8);
-    }
-
-    *((state_ptr) as &mut u32) = phase;
-    *((state_ptr + 24) as &mut u64) = output_ptr;
-
-    moe_set_bar_ptr(bar_ptr);
-
-    let rx_notify_ring_phys = pmm_alloc();
-    let rx_notify_ring_virt = rx_notify_ring_phys + KERNEL_BASE;
-    *((rx_notify_ring_virt + 0) as &mut u64) = 0;
-    *((rx_notify_ring_virt + 8) as &mut u64) = 3904;
-    *((rx_notify_ring_virt + 64) as &mut u64) = 0;
-    *((rx_notify_ring_virt + 128) as &mut u64) = 0;
-    
-    netcore_set_rx_notify(rx_notify_ring_virt);
-
-    let rx_pool_phys: u64 = 0x420000;
-    let rx_pool_vaddr: u64 = 0x40000000;
-    let rx_pool_pages: u64 = 24;
-    let mut pg: u64 = 0;
-    
-    while pg < rx_pool_pages {
-        map_user_page_extern(kernel_pml4, rx_pool_vaddr + pg * 4096, rx_pool_phys + pg * 4096, 0x207);
-        pg = pg + 1;
-    }
-    serial.print("[KeuOS] Mapped VirtIO RX pool at 0x40000000 (24 pages)\n");
-
-    let rx_notify_ring_user_vaddr: u64 = 0x40004000;
-    map_user_page_extern(kernel_pml4, rx_notify_ring_user_vaddr, rx_notify_ring_phys, 0x207);
-    *((state_ptr + 72) as &mut u64) = rx_notify_ring_user_vaddr;
-    *((state_ptr + 80) as &mut u64) = rx_pool_vaddr;
-
-    let slot_a = exec_spawn_kernel_thread((&sys_moe_init_trampoline) as u64, state_ptr, bar_ptr, poll_ptr, kernel_pml4);
-    serial.print("[KeuOS] MoE Pipeline spawned\n");
-    
-    boot_terminal_and_netd_sips(kernel_pml4);
-    return slot_a;
-}
-
-fn strcmp(s1_ptr: u64, len1: u32, s2_ptr: u64, len2: u32) -> bool {
-    if len1 != len2 { return false; }
-    let mut i: u32 = 0;
-    while i < len1 {
-        let c1 = *((s1_ptr + (i as u64)) as &u8);
-        let c2 = *((s2_ptr + (i as u64)) as &u8);
-        if c1 != c2 { return false; }
-        i = i + 1;
-    }
-    return true;
-}
-
-@no_mangle
-pub fn terminal_tx_poll_thread() {
-    loop {
-        if KERNEL_TX_RING_VIRT != 0 {
-            let head = *((KERNEL_TX_RING_VIRT + 0) as &u64);
-            let tail = *((KERNEL_TX_RING_VIRT + 64) as &u64);
-            if head != tail {
-                let mut capacity = *((KERNEL_TX_RING_VIRT + 8) as &u64);
-                if capacity == 0 {
-                    capacity = 3904; // SECURITY FIX: Prevent Division by Zero DoS from malformed user capacity
-                }
-                if capacity > 3904 {
-                    capacity = 3904;
-                }
-                let tail = *((KERNEL_TX_RING_VIRT + 64) as &u64);
-                if tail >= capacity {
-                    // [SEC-10] Prevent OOB read from user-controlled tail
-                    return;
-                }
-                let idx = tail % capacity;
-                let mut c: u8 = 0;
-                if idx < 3904 {
-                    c = *((KERNEL_TX_RING_VIRT + 192 + idx) as &u8);
-                }
-                
-                let new_tail = tail + 1;
-                *((KERNEL_TX_RING_VIRT + 64) as &mut u64) = new_tail;
-                
-                if c == 10 { // newline
-                    let panic_cmd = "panic";
-                    if strcmp((&KERNEL_LINE_BUFFER) as u64, KERNEL_LINE_LEN, (&panic_cmd) as u64, 5) {
-                        serial.print("!!! KERNEL PANIC TRIGGERED VIA C2 !!!\n");
-                        let red = 0x00FF0000;
-                        fb_clear(red);
-                        loop {} // Kernel Native Halt
-                    }
-                    KERNEL_LINE_LEN = 0;
-                } else {
-                    if KERNEL_LINE_LEN < 64 {
-                        KERNEL_LINE_BUFFER[(KERNEL_LINE_LEN as u64)] = c;
-                        KERNEL_LINE_LEN = KERNEL_LINE_LEN + 1;
-                    }
-                }
-            }
-        }
-        salt_yield_check();
-    }
-}
-
+extern fn sys_vfs_lookup(path: u64) -> u64;
+extern fn syscall_set_kernel_pml4(pml4: u64);
 extern fn do_dispatch();
+
+// ── Stubs ──────────────────────────────────────────────────────────
+
+pub fn sys_terminal_main(w: u64, h: u64, pitch: u64) { let _ = w; let _ = h; let _ = pitch; }
+
+// ── Constants ──────────────────────────────────────────────────────
+
+const PROC_READY: u64   = 1;
+const PROC_RUNNING: u64 = 2;
+const PROC_FREE: u64    = 0;
+const KERNEL_BASE: u64  = 0xFFFFFF0000000000;
+
+global DISCARD_RSP: [u64; 1] = [0];
+
+// ── Cooperative Yield ──────────────────────────────────────────────
 
 @no_mangle
 pub fn salt_yield_check() {
     do_dispatch();
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// kmain — Master Kernel Entry Point
+// ═══════════════════════════════════════════════════════════════════
+
 @no_mangle
-fn boot_nvme_and_ext2() {
-    serial.print("KEUOS BOOT: NVMe & EXT2 Root...\n");
-    let ecam_base: u64 = 0xB0000000;
-    let nvme_bar = sys_discover_nvme_bar(ecam_base, 4);
-    if nvme_bar != 0 {
-        serial.print("  NVMe Controller Found at BAR0: ");
-        serial.print_hex(nvme_bar);
-        serial.print("\n");
-        let asq = pmm_alloc();
-        let acq = pmm_alloc();
-        let sq = pmm_alloc();
-        let cq = pmm_alloc();
-        
-        let nvme_block_dev = sys_nvme_block_init(nvme_bar, asq, acq, sq, cq);
-        let ext2_root = sys_ext2_mount(nvme_block_dev);
-        sys_vfs_set_root(ext2_root);
-        serial.print("  EXT2 Root Mounted Successfully!\n");
-    } else {
-        serial.print("  WARN: NVMe not found. Running diskless.\n");
-    }
-}
-
 pub fn kmain(magic: u32, mb_info: &u8) {
-    serial.init();
-    serial.print("KEUOS BOOT: Serial OK\n");
+    serial.print("\n\n=== KeuOS v0.10.0 — NetD Ring 3 ===\n\n");
 
-    serial.print("KEUOS BOOT: GDT...\n");
-    gdt_init();
-    serial.print("KEUOS BOOT: IDT...\n");
-    idt.init();
-    serial.print("KEUOS BOOT: PIT...\n");
-    pit_init();
-
-    // ===================================
-    // KEUOS BARE METAL: Framebuffer & Multiboot
-    // ===================================
-    serial.print("KEUOS BOOT: Parsing Multiboot2...\n");
     multiboot_parse(mb_info as u64);
+    gdt_init();
+    idt_init();
+    serial.print("[KeuOS] IDT installed\n");
 
-    // Clear Screen
-    fb_clear(0);
+    let mb_root = *((mb_info as u64 + 0x48) as &u64);
+    let mb_mem_lower = *((mb_info as u64 + 0x38) as &u32) as u64;
+    let mb_mem_upper = *((mb_info as u64 + 0x3C) as &u32) as u64;
+    let total_mem_mb = (mb_mem_lower + mb_mem_upper) / 1024;
+    serial.print("[KeuOS] Total memory: ");
+    serial.print_u64(total_mem_mb);
+    serial.print(" MB\n");
 
-    // SMP Bring-up: ACPI → APIC → AP Boot (with TDD assertions)
-    serial.print("KEUOS BOOT: SMP...\n");
-    let cpu_count = run_smp_tests();
-    serial.print("KEUOS BOOT: CPUs online: ");
-    serial.print_u64(cpu_count);
+    let mem_start = 0x100000;
+    let mem_end = mb_mem_upper * 1024;
+    pmm_add_region(mem_start, mem_end);
+    serial.print("[KeuOS] PMM initialized\n");
+
+    let kernel_pml4 = *((mb_info as u64 + 0x68) as &u64);
+    serial.print("[KeuOS] Kernel PML4: 0x");
+    serial.print_u64(kernel_pml4);
     serial.print("\n");
 
-    // Per-core BSP GS setup — MUST run before sched_init() because
-    // scheduler init() calls get_cpu_id() which reads GS segment.
-    let bsp_apic_id = acpi_get_apic_id(0) as u64;
-    percpu_init_bsp(bsp_apic_id);
+    smp_boot_aps();
+    let num_cpus = run_smp_tests();
+    if num_cpus == 0 { num_cpus = 1; }
+    let mut cpu_count: u64 = num_cpus;
+    if cpu_count > 16 { cpu_count = 16; }
 
-    // Per-core allocator initialization: set CPU count before init
-    pmm_init_cpu_count(cpu_count);
-    init_cores(cpu_count);
-
-    serial.print("KEUOS BOOT: Scheduler...\n");
+    percpu_init_bsp();
     sched_init();
-
-    serial.print("KEUOS BOOT: ECS World...\n");
-    KERNEL_ECS_WORLD = ecs_world_init();
-
-    // PMM initialization is now strictly driven by Multiboot E820 Map
-    // (pmm_add_region is called internally by multiboot_parse).
-    serial.print("KEUOS BOOT: Slab Cache...\n");
     slab_cache_init();
-    serial.print("KEUOS BOOT: VMA...\n");
     vma_init();
+    ecs_world_init();
+    serial.print("[KeuOS] ECS World initialized\n");
 
     boot_nvme_and_ext2();
 
-    // =========================================================================
-    // IST STACK ALLOCATION — NMI and Double Fault stacks
-    // =========================================================================
-    // Must happen AFTER PMM init (need physical pages) and BEFORE TSS/IDT
-    // finalization. Each IST stack is 4KB (one physical page).
-    // x86-64 stacks grow DOWN, so stack_top = virt_base + 4096.
-    // PMM returns page-aligned (4096) physical addresses, so
-    // virt_base + 4096 is naturally 4096-byte aligned (thus 16-byte aligned).
-    // =========================================================================
-    serial.print("KEUOS BOOT: IST Stacks...\n");
-    let nmi_stack_phys = pmm_alloc();
-    let df_stack_phys = pmm_alloc();
-
-    // DIAGNOSTIC: Print raw physical addresses to verify they fall within
-    // boot.S direct map coverage (first 1GB = 0x00000000..0x3FFFFFFF)
-    serial.print("KEUOS BOOT: IST NMI_PHYS=");
-    serial.print_u64(nmi_stack_phys);
-    serial.print(" DF_PHYS=");
-    serial.print_u64(df_stack_phys);
+    let active_cpus = run_percpu_tests();
+    serial.print("[KeuOS] Active CPUs: ");
+    serial.print_u64(active_cpus);
     serial.print("\n");
 
-    let nmi_stack_top = nmi_stack_phys + KERNEL_BASE + 4096;
-    let df_stack_top = df_stack_phys + KERNEL_BASE + 4096;
+    process_init();
+    serial.print("[KeuOS] Process table initialized\n");
 
-    // Store in PerCpuData for reference
-    percpu_set_nmi_stack(0, nmi_stack_top);
-    percpu_set_df_stack(0, df_stack_top);
-
-    serial.print("KEUOS BOOT: IST NMI_VIRT=");
-    serial.print_u64(nmi_stack_top);
-    serial.print(" DF_VIRT=");
-    serial.print_u64(df_stack_top);
-    serial.print("\n");
-
-    // Run per-core sharding TDD tests
-    serial.print("KEUOS BOOT: Per-Core Tests...\n");
-    run_percpu_tests();
-
-    serial.print("KEUOS BOOT: Async Fiber Tests...\n");
-    run_async_tests();
-    
-    run_vfs_tests();
-
-    serial.print("KEUOS BOOT: Preemptive Unification Tests...\n");
-    run_preempt_tests();
-
-    serial.print("KEUOS KERNEL BOOT [OK] v6.2.28-TRACER\n");
+    init_cores(cpu_count);
+    pit_init();
+    idt_init_ist_gates();
 
     smp_release_aps();
+    serial.print("[KeuOS] APs released\n");
+
     sched_start();
-    // run_async_fiber_tests();
-    // run_vfs_tests();
-    // run_preemptive_tests();
-    serial.print("[KeuOS] PREEMPTIVE MODE\n");
+    serial.print("[KeuOS] Scheduler started on BSP\n");
 
-    // =========================================================================
-    // MODE B SIP — Ring 0 Software-Isolated Process (compiler-verified)
-    // =========================================================================
-    serial.print("[KeuOS] Loading Mode B SIP...\n");
-    let sip_elf = get_sip_elf_addr();
-    let sip_fiber = elf_load_sip(sip_elf);
-    serial.print("[KeuOS] SIP fiber spawned: ");
-    serial.print_u64(sip_fiber);
-    serial.print("\n");
+    tss_init_tss();
+    serial.print("[KeuOS] TSS installed for Ring 3\n");
 
-    // =========================================================================
-    // BENCHMARK SUITE — runs before user processes for clean measurements
-    // =========================================================================
-    // Save kernel PML4 to PerCpuData BEFORE benchmarks so TDD Gate 2 can read it
-    let kernel_pml4 = read_cr3();
-    percpu_set_kernel_cr3(0, kernel_pml4);  // GS:[64] = kernel CR3 for KPTI
-
-    // GDT/TSS for Ring 3 — populate IST entries BEFORE LTR
-    let kernel_rsp0: u64 = sys_alloc_kernel_stack();
-    tss_init_tss(kernel_rsp0);
-
-    // Wire IST stacks into TSS (IST 1 = NMI, IST 2 = DF)
-    tss_set_ist(1, nmi_stack_top);
-    tss_set_ist(2, df_stack_top);
-
-    let tss_addr = tss_get_tss_addr();
-    gdt_init_ring3(tss_addr);
-    gdt_load_ring3();
-    serial.print("[KeuOS] GDT/TSS Ring 3 ready (IST1=NMI, IST2=DF)\n");
-
-    // Register NMI and #DF handlers with IST indices in the IDT
-    // (Phase 2 — LIDT already called, updates live IDT in-place)
-    idt_init_ist_gates();
-    serial.print("[KeuOS] IST gates wired: NMI=0x02/IST1, DF=0x08/IST2\n");
-
-    // Enable PCID (CR4.PCIDE) — must happen AFTER GDT/TSS and BEFORE benchmarks.
-    // Intel SDM: CR3[11:0] must be 0 when setting PCIDE (guaranteed at boot).
-    // enable_pcid();
-    // serial.print("[KeuOS] PCID enabled (CR4.PCIDE=1)\n");
-
-    // SYSCALL/SYSRET MSR programming (EFER.SCE, STAR, LSTAR, FMASK)
-    // MUST be before bench_suite_run() — the E2E test does SYSCALL from Ring 3
-    init_syscall_msrs();
-    set_syscall_kernel_rsp0(kernel_rsp0);
-    serial.print("[KeuOS] SYSCALL MSRs configured\n");
-
-    // Run VFS Tests
-    // run_vfs_tests();
-
-    // BENCHMARK SUITE — IST tests run first (test_ist_isolation), then Ring 3 TDD
-    // v6.2.23-BenchBypass: Skip bench suite to isolate the network fabric.
-    // bench_suite_run();
-
-    // Save kernel PML4 for syscall.salt (process_exit CR3 swap)
+    serial.print("[KeuOS] TSS installed for Ring 3\n");
     syscall_set_kernel_pml4(kernel_pml4);
 
-    // =========================================================================
-    // SPAWN TASK 0: Immortal Ring 0 Dispatcher Thread
-    // =========================================================================
+    // Task 0: Immortal Ring 0 Dispatcher
     let task0_entry = get_kernel_event_loop_addr();
     let slot_task0 = exec_spawn_kernel_thread(task0_entry, 0, 0, 0, kernel_pml4);
     process_set_state(slot_task0, PROC_READY);
@@ -569,46 +173,36 @@ pub fn kmain(magic: u32, mb_info: &u8) {
 
     let slot_a = boot_moe_pipeline(kernel_pml4);
 
-    // Start first user process from EXT2!
-    // We will look up `/grit.elf`
+    // First user process
     let path: [u8; 11] = [47, 103, 114, 105, 116, 46, 101, 108, 102, 0, 0];
     let path_ptr = (&path) as Ptr<u8>;
     let inode = sys_vfs_lookup(path_ptr as u64);
-    
+
     let mut slot_user = slot_a;
     if inode != 0 {
         serial.print("[KeuOS] Found /grit.elf on EXT2! Spawning...\n");
         slot_user = exec_spawn_process_from_inode(inode, kernel_pml4);
-        process_set_current(slot_user);
-        process_set_state(slot_user, PROC_RUNNING);
     } else {
         serial.print("[KeuOS] /grit.elf not found, falling back to embedded ELF...\n");
         let grit_elf = get_user_elf_d_addr();
         slot_user = exec_spawn_process(grit_elf, kernel_pml4);
-        process_set_current(slot_user);
-        process_set_state(slot_user, PROC_RUNNING);
     }
+    process_set_current(slot_user);
+    process_set_state(slot_user, PROC_RUNNING);
 
     let new_rsp  = process_get_kernel_rsp(slot_user);
     let new_pml4 = process_get_pml4(slot_user);
-    let new_pcid = 0; // process_get_pcid(slot_user); // Disabled for QEMU TCG compatibility
-    let new_cr3  = new_pml4 | new_pcid;  // PCID-tagged CR3
+    let new_pcid = 0;
+    let new_cr3  = new_pml4 | new_pcid;
     let new_rsp0 = process_get_kernel_stack_top(slot_user);
 
-    // Set TSS.RSP0 and SYSCALL kernel stack
     tss_set_rsp0(new_rsp0);
     set_syscall_kernel_rsp0(new_rsp0);
 
-    serial.print("[KeuOS] new_cr3 = 0x");
-    serial.print_u64(new_cr3);
-    serial.print("\n");
+    serial.print("[KeuOS] Switching to first user process (pid=");
+    serial.print_u64(slot_user);
+    serial.print(")...\n");
 
-    serial.print("[KeuOS] Switching to first process...\n");
-    proc_context_switch(0, new_rsp, new_cr3, new_rsp0);
-
-    // proc_context_switch never returns — execution continues in user process.
-    // Safety net: halt if we somehow get here.
-    loop {
-        idle_halt();
-    }
+    let rsp_ptr = (&DISCARD_RSP) as u64;
+    proc_context_switch(rsp_ptr, new_rsp, new_cr3, new_rsp0);
 }

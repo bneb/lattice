@@ -130,27 +130,63 @@ fn resolve_single(
         }
 
         Dependency::Version(ver) => {
-            // Phase 1: registry deps are not yet supported
+            // Parse the version requirement and convert to a compatible path dep
+            // if the package exists in the local workspace
+            let dep_dir = resolve_version_to_path(name, ver, project_dir)?;
             Err(format!(
-                "registry dependencies not yet supported ({}@{}). Use path dependencies for now.",
-                name, ver
+                "version dependency '{}@{}' requires a package registry.\n  \
+                 Hint: use a path dependency instead: '{} = {{ path = \"{}\" }}'\n  \
+                 Package registry support is planned for sp v0.3.0.",
+                name, ver, name, dep_dir.display()
             ))
         }
 
         Dependency::Full { version, .. } => {
+            let dep_dir = resolve_version_to_path(name, version, project_dir)?;
             Err(format!(
-                "registry dependencies not yet supported ({}@{}). Use path dependencies for now.",
-                name, version
+                "version dependency '{}@{}' requires a package registry.\n  \
+                 Hint: use a path dependency instead: '{} = {{ path = \"{}\" }}'",
+                name, version, name, dep_dir.display()
             ))
         }
 
         Dependency::Git { git, .. } => {
             Err(format!(
-                "git dependencies not yet supported ({}@{}). Use path dependencies for now.",
+                "git dependency '{}' from '{}' requires git clone support.\n  \
+                 Workaround: clone the repo manually and use a path dependency.\n  \
+                 Git dependency support is planned for sp v0.3.0.",
                 name, git
             ))
         }
     }
+}
+
+/// Attempt to resolve a version requirement to a local workspace path.
+///
+/// Searches upward from the project directory for a matching package.
+/// This is a heuristic for monorepo setups before the registry is implemented.
+fn resolve_version_to_path(
+    name: &str,
+    _version: &str,
+    project_dir: &Path,
+) -> Result<PathBuf, String> {
+    let mut dir = project_dir
+        .canonicalize()
+        .unwrap_or_else(|_| project_dir.to_path_buf());
+
+    loop {
+        // Check for a matching directory in the repo root
+        for candidate in &[name, &format!("lib/{}", name)] {
+            let dep_dir = dir.join(candidate);
+            if dep_dir.exists() && dep_dir.join("salt.toml").exists() {
+                return Ok(dep_dir);
+            }
+        }
+
+        if !dir.pop() { break; }
+    }
+
+    Err(format!("no local workspace package found for '{}'", name))
 }
 
 /// Find the Salt stdlib by searching upward from the project directory.
@@ -177,10 +213,12 @@ fn find_stdlib(project_dir: &Path) -> Option<PathBuf> {
         }
     }
 
-    // Fallback: hardcoded keuos path
-    let fallback = PathBuf::from("/Users/kevin/projects/keuos/salt-front/std");
-    if fallback.exists() {
-        return Some(fallback);
+    // Fallback: check SALT_REPO_ROOT environment variable
+    if let Ok(repo_root) = std::env::var("SALT_REPO_ROOT") {
+        let env_stdlib = PathBuf::from(&repo_root).join("salt-front").join("std");
+        if env_stdlib.exists() {
+            return Some(env_stdlib);
+        }
     }
 
     None

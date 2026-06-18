@@ -46,6 +46,14 @@ user_elf_d_start:
     .incbin "/tmp/grit"
 user_elf_d_end:
 
+// --- NetD: Ring 3 Network Daemon (Zero-Trap SPSC Data Plane) ---
+.global netd_elf_start
+.global netd_elf_end
+
+netd_elf_start:
+    .incbin "/tmp/netd"
+netd_elf_end:
+
 // --- Mode B SIP: Ring 0 Software-Isolated Process ---
 .global sip_elf_start
 .global sip_elf_end

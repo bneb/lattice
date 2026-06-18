@@ -1,0 +1,27 @@
+# Code Owners
+# Last updated: 2026-06-18
+# These owners will be automatically requested for review on PRs.
+
+# Compiler core (salt-front)
+salt-front/src/codegen/    @kevin
+salt-front/src/types.rs    @kevin
+salt-front/src/lib.rs      @kevin
+salt-front/src/driver.rs   @kevin
+
+# Kernel core (architecture-agnostic)
+kernel/core/               @kevin
+kernel/mem/                @kevin
+kernel/sched/              @kevin
+kernel/ipc/                @kevin
+
+# Architecture-specific (HAL mandate enforced)
+kernel/arch/x86_64/        @kevin
+kernel/arch/aarch64/       @kevin
+
+# Documentation
+docs/                      @kevin
+*.md                       @kevin
+
+# Tooling
+tools/sp/                  @kevin
+tools/salt-lsp/            @kevin

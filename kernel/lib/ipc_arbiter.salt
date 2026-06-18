@@ -222,6 +222,79 @@ pub fn validate_descriptor_fast(desc_ptr: u64, desc_proof_hint: u64, authorized_
 }
 
 // =============================================================================
+// validate_ring_bounds — Clamp untrusted Ring 3 ring metadata
+// =============================================================================
+// Directive 3.1 (SPSC Hardening): Untrusted userspace writes capacity and tail
+// into shared memory rings. Malicious values can cause wrap-around OOB reads.
+// This function sanitizes ring indices before the kernel or NetD uses them.
+//
+// Clamping rules:
+//   capacity: clamped to [1, PAGE_SIZE - RING_HEADER_SIZE]
+//   tail:     clamped to [0, capacity - 1]
+//   head:     clamped to [0, capacity - 1]
+// =============================================================================
+
+const RING_HEADER_SIZE: u64 = 192;    // 3 cache lines × 64 bytes
+const MAX_RING_DATA_SIZE: u64 = 4096 - RING_HEADER_SIZE;  // 3904 bytes
+const MIN_CAPACITY: u64 = 1;
+const MAX_CAPACITY: u64 = MAX_RING_DATA_SIZE;
+
+/// Clamp an untrusted capacity value to safe bounds.
+/// Returns the sanitized capacity (guaranteed: 1 <= result <= MAX_CAPACITY).
+pub fn clamp_capacity(raw_capacity: u64) -> u64 {
+    if raw_capacity < MIN_CAPACITY {
+        return MIN_CAPACITY;
+    }
+    if raw_capacity > MAX_CAPACITY {
+        return MAX_CAPACITY;
+    }
+    return raw_capacity;
+}
+
+/// Clamp an untrusted ring index (head or tail) to [0, capacity-1].
+/// Returns the sanitized index. Guards against wrap-around OOB.
+pub fn clamp_ring_index(raw_index: u64, capacity: u64) -> u64 {
+    // capacity is already sanitized by clamp_capacity, so capacity >= 1
+    if raw_index >= capacity {
+        return capacity - 1;  // clamp to last valid index
+    }
+    return raw_index;
+}
+
+/// Validate all untrusted ring metadata in one call.
+/// Returns 1 if the descriptor passes all checks (alignment + proof + bounds),
+/// and the sanitized values are written to the output pointers.
+/// Returns 0 if any check fails.
+pub fn validate_descriptor_full(
+    desc_ptr: u64,
+    desc_proof_hint: u64,
+    authorized_hint: u64,
+    raw_capacity: u64,
+    raw_tail: u64,
+    raw_head: u64,
+    out_capacity: Ptr<u64>,
+    out_tail: Ptr<u64>,
+    out_head: Ptr<u64>,
+) -> u64 {
+    // Gate 1: Alignment (64-byte cache line)
+    if (desc_ptr & 0x3F) != 0 { return 0; }
+
+    // Gate 2: Proof hint (cryptographic integrity)
+    if desc_proof_hint != authorized_hint { return 0; }
+
+    // Gate 3: Bounds clamping (prevents OOB from untrusted userspace)
+    let cap = clamp_capacity(raw_capacity);
+    let tail = clamp_ring_index(raw_tail, cap);
+    let head = clamp_ring_index(raw_head, cap);
+
+    out_capacity.write(cap);
+    out_tail.write(tail);
+    out_head.write(head);
+
+    return 1;
+}
+
+// =============================================================================
 // Pre-computed authorized hints for SpscRing fields
 // =============================================================================
 // Called once during NetD initialization. Results are cached core-locally.

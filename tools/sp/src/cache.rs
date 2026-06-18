@@ -62,8 +62,9 @@ impl ArtifactCache {
             }
         }
 
-        // 2. Compiler version (approximate — full binary hash is expensive)
-        hasher.update(b"salt-front-1.0.0");
+        // 2. Compiler version — hash the salt-front binary if available
+        let compiler_id = compiler_version_hash(project_dir);
+        hasher.update(compiler_id.as_bytes());
 
         // 3. Build profile
         let profile = if release { "release" } else { "debug" };
@@ -116,6 +117,51 @@ impl ArtifactCache {
 
         Ok(())
     }
+}
+
+/// Get a version identifier for the salt-front compiler.
+///
+/// Tries to hash a portion of the salt-front binary for accurate cache
+/// invalidation when the compiler changes. Falls back to a version string.
+fn compiler_version_hash(project_dir: &Path) -> String {
+    // Try to find and hash the salt-front binary
+    let mut dir = project_dir
+        .canonicalize()
+        .unwrap_or_else(|_| project_dir.to_path_buf());
+
+    loop {
+        let bin = dir.join("salt-front/target/release/salt-front");
+        if bin.exists() {
+            if let Ok(data) = std::fs::read(&bin) {
+                let mut h = Sha256::new();
+                // Hash first 64KB + last 64KB for speed (sufficient for version detection)
+                let len = data.len();
+                let head = &data[..len.min(65536)];
+                let tail = if len > 65536 { &data[len - 65536..] } else { &[] };
+                h.update(head);
+                h.update(tail);
+                return hex::encode(h.finalize());
+            }
+            break;
+        }
+
+        let debug_bin = dir.join("salt-front/target/debug/salt-front");
+        if debug_bin.exists() {
+            if let Ok(data) = std::fs::read(&debug_bin) {
+                let mut h = Sha256::new();
+                let len = data.len();
+                h.update(&data[..len.min(65536)]);
+                return hex::encode(h.finalize());
+            }
+            break;
+        }
+
+        if !dir.pop() { break; }
+    }
+
+    // Fallback: use environment-provided version
+    std::env::var("SALT_COMPILER_VERSION")
+        .unwrap_or_else(|_| "salt-front-dev".to_string())
 }
 
 /// Hash all .salt files in a directory recursively.

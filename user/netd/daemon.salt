@@ -179,6 +179,82 @@ pub fn process_frame(frame_base: u64, frame_len: u32, streams: u64, tcbs: u64) {
 }
 
 // ============================================================================
+// NetD Initialization State
+// ============================================================================
+// Set once by netd_init() during boot. The kernel maps the shared RX ring
+// into NetD's address space via sys_shm_grant, and NetD stores the user VA.
+
+global RX_RING_BASE: u64 = 0;
+global STREAMS_ARRAY: u64 = 0;
+global TCB_ARRAY: u64 = 0;
+
+pub fn netd_init(rx_ring_base: u64, streams: u64, tcbs: u64) {
+    RX_RING_BASE = rx_ring_base;
+    STREAMS_ARRAY = streams;
+    TCB_ARRAY = tcbs;
+}
+
+// ============================================================================
+// drain_rx_ring — Pop and process all pending frames from the RX ring
+// ============================================================================
+// Called from the main event loop when the kernel sends CMD_RX_NOTIFY.
+// Pops length-prefixed Ethernet frames from the shared SPSC ring and
+// dispatches each to process_frame().
+// ============================================================================
+
+pub fn drain_rx_ring() {
+    if RX_RING_BASE == 0 {
+        return;
+    }
+
+    // Ring header layout (matches kernel/lib/ipc_ring.salt):
+    //   offset 0:   head (u64) — kernel (producer) writes
+    //   offset 8:   capacity (u64)
+    //   offset 64:  tail (u64) — NetD (consumer) writes
+    //   offset 192: data region
+    let ring = RX_RING_BASE;
+    let capacity = *((ring + 8) as &u64);
+    if capacity < 2 {
+        return;
+    }
+
+    loop {
+        let head = *((ring + 0) as &u64);
+        let tail = *((ring + 64) as &u64);
+
+        // Nothing to consume
+        if tail == head {
+            break;
+        }
+
+        // Read the 2-byte frame length (LE) from the data region at tail
+        let data_start: u64 = 192;
+        let len_lo = *((ring + data_start + tail) as &u8) as u32;
+        let len_hi = *((ring + data_start + tail + 1) as &u8) as u32;
+        let frame_len: u32 = (len_hi << 8) | len_lo;
+
+        // Validate frame length (Ethernet min 14, max 1514 + 2B len prefix)
+        if frame_len < 14 || frame_len > 1516 {
+            // Corrupt frame — advance past it
+            let advance = (2 + frame_len as u64 + 7) & !7;  // 8-byte aligned
+            let new_tail = (tail + advance) % capacity;
+            *((ring + 64) as &mut u64) = new_tail;
+            continue;
+        }
+
+        // Frame data starts after the 2-byte length prefix
+        let frame_base = ring + data_start + tail + 2;
+        process_frame(frame_base, frame_len, STREAMS_ARRAY, TCB_ARRAY);
+
+        // Advance tail past the frame (2B len + frame_len, 8-byte aligned)
+        let total_len: u64 = 2 + frame_len as u64;
+        let aligned_len = (total_len + 7) & !7;
+        let new_tail = (tail + aligned_len) % capacity;
+        *((ring + 64) as &mut u64) = new_tail;
+    }
+}
+
+// ============================================================================
 // ring_push — Thin wrapper for the SPSC ring push operation
 // ============================================================================
 // Pushes a payload pointer and length into the application's SPSC ring.

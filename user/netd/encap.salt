@@ -24,7 +24,15 @@ package user.netd.encap
 
 extern fn sys_cap_bind(flags: u64) -> u64;
 extern fn sys_ring_map(cap_id: u64) -> u64;
-extern fn fastpath_handoff_syscall(cap_id: u64, payload_offset: u32, payload_len: u32);
+// fastpath_handoff_syscall was a kernel-mode diagnostic. For Ring 3 NetD
+// this is a no-op — the mechanism requires kernel-mode fastpath IPC which
+// is being replaced by sys_ipc_reg_send (syscall 14, pending).
+@no_mangle
+pub fn fastpath_handoff_syscall(cap_id: u64, payload_offset: u32, payload_len: u32) {
+    let _ = cap_id;
+    let _ = payload_offset;
+    let _ = payload_len;
+}
 
 // ============================================================================
 // Header Size Constants

@@ -116,12 +116,30 @@ struct Handler {
 }
 ```
 
-### Extern Functions
+### Foreign Function Interface (FFI)
 
+Salt uses the standard C Application Binary Interface (ABI), making it trivial to interoperate with C, Rust, or Assembly.
+
+**Calling C from Salt (`extern fn`)**
 ```salt
 extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: Ptr<u8>);
+
+@trusted // Skip Z3 verification for FFI wrappers
+fn allocate_buffer(size: i64) -> Ptr<u8> {
+    return malloc(size);
+}
 ```
+
+**Calling Salt from C (`@export`)**
+By default, Salt mangles function names. Use `@export` to prevent name mangling and expose the function to external linkers.
+```salt
+@export
+fn salt_compute(a: i32, b: i32) -> i32 {
+    return a + b;
+}
+```
+*Note on Types: The Salt compiler enforces FFI safety at compile time. Only primitive types (`i32`, `f64`), function pointers, and raw pointers (`Ptr<T>`) may cross the FFI boundary. Attempting to pass complex Salt types like `String` by value will result in a compile-time error.*
 
 ### Attributes
 
