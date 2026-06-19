@@ -56,6 +56,7 @@ pub struct CpuContext {
 // ============================================================================
 // find_first_set — O(1) Context Switcher abstraction
 // ============================================================================
+@no_mangle
 pub fn find_first_set(bitmap: u64) -> u32 {
     return ctz_u64(bitmap) as u32;
 }

@@ -20,6 +20,7 @@ import kernel.core.exec_user
 extern fn sys_cap_bind(flags: u64) -> u64;
 extern fn sys_core_acquire(target_core_id: u64) -> u64;
 extern fn outw(port: u64, val: u64);
+extern fn fastpath_handoff_syscall(cap_id: u64, payload_offset: u32, payload_len: u32);
 
 
 extern fn proc_context_switch(old_rsp_ptr: u64, new_rsp: u64, new_cr3: u64, new_rsp0: u64);
@@ -104,10 +105,12 @@ pub fn handle_syscall(num: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
         // SYS_CORE_ACQUIRE: arg0=target_core_id
         return sys_core_acquire(arg0);
     } else if num == 14 {
-        // SYS_IPC_REG_SEND: ENOSYS — fastpath module not yet linkable
-        return 0 - 1;
+        // SYS_IPC_REG_SEND: arg0=cap_id, arg1=payload_offset, arg2=payload_len
+        // Fast-path register IPC — zero-copy capability handoff to kernel
+        fastpath_handoff_syscall(arg0, arg1 as u32, arg2 as u32);
+        return 0;
     } else if num == 15 {
-        // SYS_IPC_AWAIT: ENOSYS — fastpath module not yet linkable
+        // SYS_IPC_AWAIT: fast-path await, pending implementation
         return 0 - 1;
     } else if num == 119 {
         // Ring ABI: drain submission queue before yielding

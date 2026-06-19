@@ -387,6 +387,8 @@ def build_kernel():
                  glob.glob(f"{KERNEL_ROOT}/ipc/*.salt") + \
                  glob.glob(f"{KERNEL_ROOT}/ecs/*.salt") + \
                  glob.glob(f"{KERNEL_ROOT}/arch/x86/*.salt") + \
+                 glob.glob(f"{KERNEL_ROOT}/arch/x86_64/*.salt") + \
+                 glob.glob(f"{KERNEL_ROOT}/arch/*.salt") + \
                  glob.glob(f"{KERNEL_ROOT}/boot/*.salt") + \
                  glob.glob(f"{WORKSPACE_ROOT}/user/reactor/tasks/*.salt") + \
                  glob.glob(f"{WORKSPACE_ROOT}/user/terminal/*.salt") + \
@@ -397,8 +399,9 @@ def build_kernel():
     EXCLUDE_BASENAMES = {
         "df_test_runner",  # test_df mode only, conflicts with suite.o
         "teardown",        # WIP: parse error (expected identifier)
-        "bitmap_disp",     # WIP: missing kernel.arch.cpu module
-        "fastpath",        # WIP: deep dependency chain (bitmap_disp → cpu)
+        "bitmap_disp",     # WIP: needs atomic_or_u64 intrinsic (not yet defined)
+        "irq",             # WIP: missing kernel__core__process__get_process_by_cap
+        # fastpath is now buildable (included in build — no longer blocked)
     }
     salt_files = [f for f in salt_files
                   if os.path.basename(f).replace(".salt", "") not in EXCLUDE_BASENAMES]

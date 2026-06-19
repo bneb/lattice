@@ -13,9 +13,9 @@
 
 package kernel.sched.bitmap_disp
 
-// Import the architecture-agnostic HAL module
-// Compile-time dispatch via kernel/arch/mod.salt
-import kernel.arch.cpu
+// Architecture-agnostic: find_first_set is @no_mangle in each arch's cpu.salt.
+// Resolved at link time — avoids the HAL import/mangling issue.
+extern fn find_first_set(bitmap: u64) -> u32;
 
 const IDLE_TASK_ID: u32 = 0xFFFFFFFF;
 const MAX_TASKS: u32 = 4096;
@@ -34,14 +34,14 @@ pub fn get_next_runnable() -> u32 {
     }
     
     // Architecture-agnostic: TZCNT on x86, RBIT+CLZ on ARM
-    let l1_idx = cpu.find_first_set(l1_active);
+    let l1_idx = find_first_set(l1_active);
     
     let l2_active = L2_BITMAPS[l1_idx];
     if l2_active == 0 {
         return IDLE_TASK_ID;
     }
     
-    let l2_idx = cpu.find_first_set(l2_active);
+    let l2_idx = find_first_set(l2_active);
     
     return (l1_idx * 64) + l2_idx;
 }
