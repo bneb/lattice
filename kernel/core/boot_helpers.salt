@@ -223,42 +223,59 @@ pub fn boot_moe_pipeline(kernel_pml4: u64) -> u64 {
     return slot_a;
 }
 
+// ── Terminal TX Ring Helpers ───────────────────────────────────────
+
+fn clamp_capacity(raw: u64) -> u64 {
+    if raw == 0 { return 3904; }
+    if raw > 3904 { return 3904; }
+    return raw;
+}
+
+fn read_ring_char(ring: u64, idx: u64) -> u8 {
+    if idx < 3904 { return *((ring + 192 + idx) as &u8); }
+    return 0;
+}
+
+fn handle_newline() {
+    let panic_cmd = "panic";
+    if strcmp((&KERNEL_LINE_BUFFER) as u64, KERNEL_LINE_LEN, (&panic_cmd) as u64, 5) {
+        serial.print("!!! KERNEL PANIC TRIGGERED VIA C2 !!!\n");
+        fb_clear(0x00FF0000);
+        loop {}
+    }
+    KERNEL_LINE_LEN = 0;
+}
+
+fn append_to_line(c: u8) {
+    if KERNEL_LINE_LEN < 64 {
+        KERNEL_LINE_BUFFER[KERNEL_LINE_LEN as u64] = c;
+        KERNEL_LINE_LEN = KERNEL_LINE_LEN + 1;
+    }
+}
+
+fn try_process_ring_char(ring: u64) {
+    let head = *((ring + 0) as &u64);
+    let tail = *((ring + 64) as &u64);
+    if head == tail { return; }
+
+    let capacity = clamp_capacity(*((ring + 8) as &u64));
+    let t = *((ring + 64) as &u64);
+    if t >= capacity { return; }
+
+    let c = read_ring_char(ring, t % capacity);
+    *((ring + 64) as &mut u64) = t + 1;
+
+    if c == 10 { handle_newline(); }
+    else       { append_to_line(c); }
+}
+
 // ── Terminal TX Poll ───────────────────────────────────────────────
 
 @no_mangle
 pub fn terminal_tx_poll_thread() {
     loop {
         let ring = KERNEL_TX_RING_VIRT;
-        if ring != 0 {
-            let head = *((ring + 0) as &u64);
-            let tail = *((ring + 64) as &u64);
-            if head != tail {
-                let mut capacity = *((ring + 8) as &u64);
-                if capacity == 0 { capacity = 3904; }
-                if capacity > 3904 { capacity = 3904; }
-                let t = *((ring + 64) as &u64);
-                if t >= capacity { continue; }
-                let idx = t % capacity;
-                let mut c: u8 = 0;
-                if idx < 3904 { c = *((ring + 192 + idx) as &u8); }
-                *((ring + 64) as &mut u64) = t + 1;
-
-                if c == 10 {
-                    let panic_cmd = "panic";
-                    if strcmp((&KERNEL_LINE_BUFFER) as u64, KERNEL_LINE_LEN, (&panic_cmd) as u64, 5) {
-                        serial.print("!!! KERNEL PANIC TRIGGERED VIA C2 !!!\n");
-                        fb_clear(0x00FF0000);
-                        loop {}
-                    }
-                    KERNEL_LINE_LEN = 0;
-                } else {
-                    if KERNEL_LINE_LEN < 64 {
-                        KERNEL_LINE_BUFFER[KERNEL_LINE_LEN as u64] = c;
-                        KERNEL_LINE_LEN = KERNEL_LINE_LEN + 1;
-                    }
-                }
-            }
-        }
+        if ring != 0 { try_process_ring_char(ring); }
         salt_yield_check();
     }
 }
