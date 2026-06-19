@@ -42,8 +42,16 @@
 - [x] CI job: benchmark regression check with artifact upload
 - [x] Baseline comparison for >5% regression detection
 
+## Goal G: Fix map_user_page_extern crash (pre-allocate page table pages)
+- [ ] Intermediate page table levels allocated for 0x4000_xxxx user range
+- [ ] GDB confirms map_user_page_extern returns without fault
+
+## Goal H: NetD spawns, kernel reaches Ring 3 context switch
+- [ ] Boot log: "NetD Ring 3 process spawned" then "Switching to first user process"
+- [ ] GDB breakpoint at proc_context_switch confirms valid args
+
 ## Active Goal
-**Current:** None — all six goals complete
+**Current:** Goal G — Fix map_user_page_extern crash
 
 ## Log
 - 2026-06-18: Infrastructure created, all 17 goals completed
