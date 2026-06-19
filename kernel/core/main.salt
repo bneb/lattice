@@ -157,18 +157,17 @@ pub fn kmain(magic: u32, mb_info: &u8) {
 
     boot_nvme_and_ext2();
 
+    process_init();
+    serial.print("[KeuOS] Process table initialized\n");
+
+    // Spawn NetD BEFORE percpu tests which drain the PMM shard.
+    set_kernel_pml4_stash(kernel_pml4);
+    boot_terminal_and_netd_sips(kernel_pml4);
+
     let active_cpus = run_percpu_tests();
     serial.print("[KeuOS] Active CPUs: ");
     serial.print_u64(active_cpus);
     serial.print("\n");
-
-    process_init();
-    serial.print("[KeuOS] Process table initialized\n");
-
-    // Stash kernel_pml4 where boot_helpers can reload it after
-    // Salt ABI register clobbering across extern fn calls.
-    set_kernel_pml4_stash(kernel_pml4);
-    boot_terminal_and_netd_sips(kernel_pml4);
 
     init_cores(cpu_count);
     pit_init();
