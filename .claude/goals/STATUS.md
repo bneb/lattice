@@ -55,8 +55,14 @@
 - [x] KERNEL_BASE fix resolves all phys_to_virt crashes
 - [x] cargo test: 1,243 passed, 0 failed
 
+## Goal I: syscall.salt split (proven correct, deferred mechanical cleanup)
+- [x] handlers.salt compiles individually with extern fn pattern
+- [x] 23 @no_mangle wrappers committed as prerequisite
+- [ ] Mechanical sed cleanup of ~40 cross-module references in extracted body
+- [ ] Three-way split: syscall_io.salt, syscall_proc.salt, syscall_ipc.salt (all <400)
+
 ## Active Goal
-**Current:** None — all goals complete
+**Current:** None — awaiting syscall split cleanup script
 
 ## Log
 - 2026-06-18: Infrastructure created, all 17 goals completed
