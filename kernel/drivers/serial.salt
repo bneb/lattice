@@ -1,4 +1,5 @@
 package kernel.drivers.serial
+use std.core.ptr.Ptr
 
 extern fn outb(port: u16, val: u8);
 extern fn inb(port: u16) -> u8;
@@ -143,3 +144,18 @@ pub fn print_u64(n: u64) {
         write_char(buf[i]);
     }
 }
+
+// @no_mangle ABI Wrappers for cross-module extern fn calls
+@no_mangle
+pub fn serial_print(msg: Ptr<u8>) {
+    // Iterate until null terminator, printing each char
+    let mut i = 0;
+    loop {
+        let c = msg.offset(i).read();
+        if c == 0 { break; }
+        write_char(c);
+        i = i + 1;
+    }
+}
+@no_mangle
+pub fn serial_print_u64(val: u64) { print_u64(val); }

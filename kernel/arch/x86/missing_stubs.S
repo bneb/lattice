@@ -285,22 +285,14 @@ sys_write:
 sys_spawn:
     jmp kernel__core__syscall__sys_spawn
 
-.global sys_wait
-sys_wait:
-    jmp kernel__core__syscall__sys_wait
-
+// sys_wait: now @no_mangle in kernel/core/syscall_sched.salt
 // Dummy traps for syscalls not implemented in C for kernel threads
 .global sys_exit
 sys_exit:
     ud2
 
-.global sys_brk
-sys_brk:
-    ud2
-
-.global sys_mmap
-sys_mmap:
-    ud2
+// sys_brk: now @no_mangle in kernel/core/syscall_sched.salt
+// sys_mmap: now @no_mangle in kernel/core/syscall_sched.salt
 
 .global sys_ipc_get_msg0
 sys_ipc_get_msg0:

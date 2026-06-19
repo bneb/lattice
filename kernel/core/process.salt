@@ -508,3 +508,13 @@ pub fn process_get_ipc_msg0(slot: u64) -> u64 { return get_ipc_msg0(slot); }
 pub fn process_get_ipc_msg1(slot: u64) -> u64 { return get_ipc_msg1(slot); }
 @no_mangle
 pub fn process_get_ipc_msg2(slot: u64) -> u64 { return get_ipc_msg2(slot); }
+@no_mangle
+pub fn process_get_state_addr(slot: u64) -> u64 { return get_state_addr(slot); }
+@no_mangle
+pub fn process_get_rsp_addr(slot: u64) -> u64 { return get_rsp_addr(slot); }
+@no_mangle
+pub fn process_get_ipc_sender_addr(slot: u64) -> u64 { return get_ipc_sender_addr(slot); }
+@no_mangle
+pub fn process_set_parent_pid(slot: u64, ppid: u64) { set_parent_pid(slot, ppid); }
+@no_mangle
+pub fn process_set_vma_list_head(slot: u64, val: u64) { set_vma_list_head(slot, val); }

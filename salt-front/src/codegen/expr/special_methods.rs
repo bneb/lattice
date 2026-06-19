@@ -507,7 +507,7 @@ fn emit_ufcs_method(
                 return emit_method_call(ctx, out, &modified, local_vars, expected_ty).map(Some);
             }
         }
-        Ok(None)
+        // All match arms return — this is never reached
 }
 
 

@@ -28,6 +28,7 @@ pub fn parse_args(args: Vec<String>) -> anyhow::Result<Option<CliConfig>> {
     let mut binary_mode = false;
     let mut object_mode = false;
     let mut disable_alias_scopes = false;
+    #[cfg_attr(not(debug_assertions), allow(unused_mut))]
     let mut no_verify = false;
     let mut lib_mode = false;
     let mut sip_mode = false;

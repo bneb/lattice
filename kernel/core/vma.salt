@@ -82,4 +82,6 @@ pub fn free(ptr: u64) {
 // @no_mangle ABI Wrappers
 @no_mangle
 pub fn vma_init() { init(); }
+@no_mangle
+pub fn vma_alloc(start: u64, end: u64, flags: u64) -> u64 { return alloc(start, end, flags); }
 

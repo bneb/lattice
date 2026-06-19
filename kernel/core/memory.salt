@@ -11,6 +11,7 @@
 // =============================================================================
 
 package kernel.core.memory
+use std.core.ptr.Ptr
 
 const KERNEL_BASE: u64 = 0xFFFFFFFF80000000;
 
@@ -101,3 +102,5 @@ pub fn phys_align_down(p: PhysAddr, align: u64) -> PhysAddr {
 pub fn memory_phys_to_virt_raw(phys: u64) -> u64 { return phys_to_virt_raw(phys); }
 @no_mangle
 pub fn memory_virt_to_phys_raw(virt: u64) -> u64 { return virt_to_phys_raw(virt); }
+@no_mangle
+pub fn memory_phys_to_virt_ptr(phys: u64) -> Ptr<u8> { return phys_to_virt_raw(phys) as Ptr<u8>; }

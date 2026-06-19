@@ -1,0 +1,354 @@
+package kernel.core.syscall_handlers
+use std.core.ptr.Ptr
+
+extern fn process_current() -> u64;
+extern fn process_get_pml4(slot: u64) -> u64;
+
+extern fn process_get_brk_base(slot: u64) -> u64;
+extern fn process_get_brk_current(slot: u64) -> u64;
+extern fn process_get_mmap_base(slot: u64) -> u64;
+extern fn process_set_brk_current(slot: u64, val: u64);
+extern fn process_set_mmap_base(slot: u64, val: u64);
+extern fn process_get_vma_list_head(slot: u64) -> u64;
+extern fn process_get_state(slot: u64) -> u64;
+extern fn process_get_count() -> u64;
+
+extern fn process_set_state(slot: u64, state: u64);
+extern fn process_get_kernel_rsp(slot: u64) -> u64;
+extern fn process_get_kernel_stack_top(slot: u64) -> u64;
+extern fn process_get_parent_pid(slot: u64) -> u64;
+extern fn process_set_ipc_msg(slot: u64, sender: u64, msg0: u64, msg1: u64, msg2: u64);
+extern fn process_get_pid(slot: u64) -> u64;
+extern fn process_get_ipc_sender(slot: u64) -> u64;
+extern fn process_get_ipc_msg0(slot: u64) -> u64;
+
+extern fn process_set_current(slot: u64);
+extern fn pmm_alloc() -> u64;
+extern fn pmm_free(page: u64);
+
+extern fn user_paging_get_user_pte(pml4: u64, vaddr: u64) -> u64;
+
+extern fn user_paging_unmap_user_page(pml4: u64, vaddr: u64);
+extern fn map_user_page_extern(pml4: u64, vaddr: u64, paddr: u64, flags: u64);
+
+extern fn pulse_is_empty() -> bool;
+extern fn ring_abi_destroy_ring(slot: u64);
+extern fn ring_abi_drain_sq(slot: u64);
+extern fn schedule_next();
+extern fn proc_context_switch(old_rsp_ptr: u64, new_rsp: u64, new_cr3: u64, new_rsp0: u64);
+extern fn serial_print(msg_ptr: Ptr<u8>);
+
+extern fn serial_print_u64(val: u64);
+
+extern fn idle_halt();
+extern fn invlpg_addr(vaddr: u64);
+extern fn smp_cas_u64(ptr: u64, expected: u64, desired: u64) -> u64;
+extern fn set_syscall_kernel_rsp0(rsp0: u64);
+extern fn tss_set_rsp0(rsp0: u64);
+extern fn process_get_pcid(slot: u64) -> u64;
+extern fn process_get_rsp_addr(slot: u64) -> u64;
+extern fn process_get_state_addr(slot: u64) -> u64;
+extern fn process_get_ipc_sender_addr(slot: u64) -> u64;
+extern fn process_get_ipc_msg1(slot: u64) -> u64;
+extern fn process_get_ipc_msg2(slot: u64) -> u64;
+
+extern fn process_set_vma_list_head(slot: u64, val: u64);
+extern fn vma_alloc(start: u64, end: u64, flags: u64) -> u64;
+
+const PAGE_SIZE: u64 = 4096;
+const MAX_PROCS: u64 = 16;
+const PROC_FREE: u64 = 0;
+const PROC_READY: u64 = 1;
+const PROC_RUNNING: u64 = 2;
+const PROC_ZOMBIE: u64 = 3;
+const PROC_IPC_BLOCKED: u64 = 4;
+const USER_PAGE_FLAGS: u64 = 0x7;
+const USER_ADDR_LIMIT: u64 = 0x0000800000000000;
+const PTE_PRESENT: u64 = 0x1;
+const PTE_WRITE: u64 = 0x2;
+const PTE_USER: u64 = 0x4;
+const PTE_SHARED: u64 = 0x200;
+
+fn switch_to_slot(next: u64, old_rsp_ptr: u64) {
+    process_set_state(next, PROC_RUNNING);
+    process_set_current(next);
+    let new_rsp = process_get_kernel_rsp(next);
+    let new_pml4 = process_get_pml4(next);
+    let new_pcid = process_get_pcid(next);
+    let new_cr3 = new_pml4 | new_pcid;
+    let new_rsp0 = process_get_kernel_stack_top(next);
+
+    tss_set_rsp0(new_rsp0);
+    set_syscall_kernel_rsp0(new_rsp0);
+    proc_context_switch(old_rsp_ptr, new_rsp, new_cr3, new_rsp0);
+}
+
+@no_mangle
+fn switch_to_next_ready(slot: u64) {
+    let count = process_get_count();
+    if count > 0 {
+        let mut i: u64 = 1;
+        while i < MAX_PROCS {
+            let next = (slot + i) % MAX_PROCS;
+            if next != 0 {
+                let state = process_get_state(next);
+                if state == PROC_READY || state == PROC_RUNNING {
+                    switch_to_slot(next, 0);
+                    return;
+                }
+            }
+            i = i + 1;
+        }
+        let task0_state = process_get_state(0);
+        if task0_state == PROC_READY || task0_state == PROC_RUNNING {
+            switch_to_slot(0, 0);
+            return;
+        }
+    }
+    serial_print("[kernel] All processes exited. Idle.\n");
+    loop { idle_halt(); }
+}
+@no_mangle
+@no_mangle
+@no_mangle
+pub fn schedule_next() {
+    let current = process_current();
+    let count = process_get_count();
+    if count <= 1 {
+        return; // Only one or zero processes
+    }
+
+    // REACTIVE FAST-PATH: Priority dispatch to Task 0 when events pending
+    if pulse_is_empty() == false {
+        let task0_state = process_get_state(0);
+        if current != 0 && (task0_state == PROC_READY || task0_state == PROC_RUNNING) {
+            switch_to_process(current, 0);
+            return;
+        }
+    }
+
+    // Normal round-robin for Ring 3 processes
+    let mut i: u64 = 1;
+    while i < MAX_PROCS {
+        let next = (current + i) % MAX_PROCS;
+        let state = process_get_state(next);
+        if state == PROC_READY || state == PROC_RUNNING {
+            if next != current {
+                switch_to_process(current, next);
+                return;
+            }
+        }
+        i = i + 1;
+    }
+}
+
+// =============================================================================
+// switch_to_process — Context switch from current to next process
+// =============================================================================
+@no_mangle
+fn switch_to_process(current: u64, next: u64) {
+    // Ring ABI: drain outgoing process's submission queue before switching
+    ring_abi_drain_sq(current);
+    process_set_state(current, PROC_READY);
+    process_set_state(next, PROC_RUNNING);
+    process_set_current(next);
+
+    let old_rsp_addr = process_get_rsp_addr(current);
+    let new_rsp  = process_get_kernel_rsp(next);
+    let new_pml4 = process_get_pml4(next);
+    let new_pcid = process_get_pcid(next);
+    let new_cr3  = new_pml4 | new_pcid;  // PCID-tagged CR3
+    let new_rsp0 = process_get_kernel_stack_top(next);
+
+    // Update TSS.RSP0 and SYSCALL kernel stack for the new process
+    tss_set_rsp0(new_rsp0);
+    set_syscall_kernel_rsp0(new_rsp0);
+
+    proc_context_switch(old_rsp_addr, new_rsp, new_cr3, new_rsp0);
+}
+
+// =============================================================================
+// timer_preempt — Called from PIT handler for Ring 3 preemption
+// =============================================================================
+@no_mangle
+@no_mangle
+@no_mangle
+pub fn timer_preempt() {
+    schedule_next();
+}
+// The @no_mangle implementation lives in scheduler.salt (full O(1) bitmap).
+// This extern declaration lets call sites in this file resolve the symbol.
+extern fn sched_yield();
+@no_mangle
+@no_mangle
+pub fn sys_brk(new_brk: u64) -> u64 {
+    let pid = process_current();
+    let current_brk = process_get_brk_current(pid);
+    let brk_base = process_get_brk_base(pid);
+
+    // 1. The Query: libc asking where the heap currently ends
+    if new_brk == 0 {
+        return current_brk;
+    }
+
+    // 2. The Floor: prevent shrinking into the ELF binary
+    if new_brk < brk_base {
+        return current_brk;
+    }
+
+    // 3. The Math: calculate 4KB page boundaries
+    // Only map new pages if the request crosses a 4KB line.
+    let current_page_end = (current_brk + 0xFFF) & 0xFFFFFFFFFFFFF000;
+    let new_page_end = (new_brk + 0xFFF) & 0xFFFFFFFFFFFFF000;
+
+    // 4. The Allocation Loop
+    if new_page_end > current_page_end {
+        let pml4 = process_get_pml4(pid);
+        let mut vaddr_cursor = current_page_end;
+
+        while vaddr_cursor < new_page_end {
+            let paddr = pmm_alloc();
+
+            // STRICT OOM PROPAGATION — deny the brk increase
+            if paddr == 0 {
+                serial_print("[sys_brk] OOM\n");
+                return current_brk;
+            }
+
+            map_user_page_extern(pml4, vaddr_cursor, paddr, USER_PAGE_FLAGS);
+
+            // TLB flush: CPU may cache the old "unmapped" translation
+            invlpg_addr(vaddr_cursor);
+
+            vaddr_cursor = vaddr_cursor + PAGE_SIZE;
+        }
+    }
+
+    // 5. Commit the new boundary
+    process_set_brk_current(pid, new_brk);
+
+    serial_print("[sys_brk] brk=0x");
+    serial_print_u64(new_brk);
+    serial_print("\n");
+
+    return new_brk;
+}
+
+// =============================================================================
+// sys_mmap — Anonymous Dynamic Memory Mapping (syscall 9)
+// =============================================================================
+// arg0 = length (requested size in bytes)
+// arg1 = prot   (protection flags — simplified to USER_PAGE_FLAGS for bootstrap)
+//
+// Uses bump allocation from process.mmap_base (64TB mark).
+// Allocates VMA metadata from slab cache, maps physical pages,
+// and prepends VMA to the process's linked list.
+// =============================================================================
+@no_mangle
+@no_mangle
+pub fn sys_mmap(length: u64, prot: u64) -> u64 {
+    let pid = process_current();
+
+    // 1. Page-align the requested length
+    let aligned_length = (length + 0xFFF) & 0xFFFFFFFFFFFFF000;
+    if aligned_length == 0 {
+        return 0;
+    }
+
+    // 2. Bump-allocate a virtual address range from the 64TB region
+    let start_vaddr = process_get_mmap_base(pid);
+    let end_vaddr = start_vaddr + aligned_length;
+
+    // 3. Allocate VMA tracking metadata from the slab cache
+    let vma_ptr = vma_alloc(start_vaddr, end_vaddr, prot);
+    if vma_ptr == 0 {
+        serial_print("[sys_mmap] OOM: VMA slab exhausted\n");
+        return 0;
+    }
+
+    // 4. Map physical pages into the user's address space
+    let pml4 = process_get_pml4(pid);
+    let mut cursor = start_vaddr;
+
+    while cursor < end_vaddr {
+        let paddr = pmm_alloc();
+
+        // PMM OOM mid-mapping
+        if paddr == 0 {
+            serial_print("[sys_mmap] OOM: PMM exhausted at 0x");
+            serial_print_u64(cursor);
+            serial_print("\n");
+            // Bootstrap: signal failure to Ring 3. Production would unmap partial.
+            return 0;
+        }
+
+        map_user_page_extern(pml4, cursor, paddr, USER_PAGE_FLAGS);
+
+        // TLB flush for each newly mapped page
+        invlpg_addr(cursor);
+
+        cursor = cursor + PAGE_SIZE;
+    }
+
+    // 5. Advance the mmap high-water mark for the next call
+    process_set_mmap_base(pid, end_vaddr);
+
+    // 6. Prepend VMA to the process's linked list
+    let vma_ref = vma_ptr as &mut u64;
+    let current_head = process_get_vma_list_head(pid);
+    // VMA struct layout: [vaddr_start, vaddr_end, flags, next]
+    // next is at offset 24 (3rd u64 from base)
+    let next_field_ptr = (vma_ptr + 24) as &mut u64;
+    *next_field_ptr = current_head;
+    process_set_vma_list_head(pid, vma_ptr);
+
+    serial_print("[sys_mmap] mapped 0x");
+    serial_print_u64(start_vaddr);
+    serial_print(" len=");
+    serial_print_u64(aligned_length);
+    serial_print("\n");
+
+    return start_vaddr;
+}
+// IPC Payload Staging — Assembly Handoff
+// =============================================================================
+// The ipc_recv_msg0/1/2 variables are defined in syscall_entry_fast.S
+// (.data section, global linkage). Salt writes, assembly reads.
+// This extern fn stages all three words in one call.
+
+@no_mangle
+@no_mangle
+pub fn sys_wait(target_pid: u64) -> u64 {
+    let caller_slot = process_current();
+    let caller_pid = process_get_pid(caller_slot);
+    
+    // 1. Find the child
+    let mut child_slot = MAX_PROCS;
+    let mut i: u64 = 0;
+    while i < MAX_PROCS {
+        if process_get_pid(i) == target_pid {
+            if process_get_parent_pid(i) == caller_pid {
+                child_slot = i;
+            }
+        }
+        i = i + 1;
+    }
+    
+    if child_slot == MAX_PROCS {
+        return 0 - 1; // ECHILD
+    }
+    
+    // 2. Wait loop
+    let mut state = process_get_state(child_slot);
+    while state != PROC_ZOMBIE {
+        // Yield to the scheduler
+        sched_yield();
+        state = process_get_state(child_slot);
+    }
+    
+    // 3. Reap
+    // Exit code was stored in ipc_msg0 by process_exit
+    let exit_code = process_get_ipc_msg0(child_slot);
+    process_set_state(child_slot, PROC_FREE);
+    return exit_code;
+}

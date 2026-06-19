@@ -231,8 +231,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust nightly (required for llvm-tools-preview)
+        uses: dtolnay/rust-toolchain@nightly
         with:
           components: llvm-tools-preview
 
@@ -246,24 +246,16 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             salt-front/target
-          key: ${{ runner.os }}-coverage-${{ hashFiles('salt-front/Cargo.lock') }}
+            tools/salt-lsp/target
+          key: ${{ runner.os }}-coverage-${{ hashFiles('salt-front/Cargo.lock', 'tools/salt-lsp/Cargo.lock') }}
 
       - name: Run coverage (salt-front)
-        run: cargo llvm-cov --lcov --output-path lcov.info
+        run: cargo llvm-cov --fail-under-lines 60
         working-directory: salt-front
 
       - name: Run coverage (salt-lsp)
-        run: cargo llvm-cov --lcov --output-path lcov.info
+        run: cargo llvm-cov --fail-under-lines 50
         working-directory: tools/salt-lsp
-
-      - name: Report coverage summary
-        run: |
-          echo "Coverage reports generated:"
-          ls -la salt-front/lcov.info tools/salt-lsp/lcov.info 2>/dev/null || true
-          if [ -f salt-front/lcov.info ]; then
-            echo "salt-front coverage:"
-            grep -m1 '"lines"' salt-front/lcov.info || head -5 salt-front/lcov.info
-          fi
 
   benchmark:
     name: Benchmark regression check

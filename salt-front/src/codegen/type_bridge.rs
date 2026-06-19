@@ -843,8 +843,6 @@ pub fn cast_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, from
             }
             return Err(format!("Unsupported explicit cast {} -> {}", from.mangle_suffix(), to.mangle_suffix()));
         }
-
-        _ => return Err(format!("Unsupported explicit cast {} -> {}", from.mangle_suffix(), to.mangle_suffix())),
     }
 }
 
