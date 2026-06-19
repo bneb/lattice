@@ -5,11 +5,17 @@
 # Runs each contract through salt-front --verify and checks the expected result.
 # Used to detect the Z3 SAT/UNSAT inversion and other verification regressions.
 #
-# Usage: bash salt-front/tests/z3_contracts/run_tests.sh
+# Usage: bash $PROJECT_ROOT/salt-front/tests/z3_contracts/run_tests.sh
 # =============================================================================
 set -euo pipefail
 
-SALT_FRONT="${SALT_FRONT:-./salt-front/target/release/salt-front}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+SALT_FRONT="${SALT_FRONT:-$PROJECT_ROOT/salt-front/target/release/salt-front}"
+if [ ! -f "$SALT_FRONT" ]; then
+    SALT_FRONT="$PROJECT_ROOT/salt-front/target/debug/salt-front"
+fi
 PASS=0
 FAIL=0
 
@@ -18,7 +24,7 @@ echo ""
 
 # ── Test 1: Contract MUST be proved ────────────────────────────
 echo -n "  test_contract_proved: "
-if "$SALT_FRONT" salt-front/tests/z3_contracts/test_contract_proved.salt \
+if "$SALT_FRONT" $PROJECT_ROOT/salt-front/tests/z3_contracts/test_contract_proved.salt \
     --verify -o /tmp/z3_test_proved > /tmp/z3_out_proved.txt 2>&1; then
     if grep -q 'UNSAT\|proven' /tmp/z3_out_proved.txt; then
         echo "PASS (Z3 proved the contract)"
@@ -34,7 +40,7 @@ fi
 
 # ── Test 2: Contract MUST be rejected ──────────────────────────
 echo -n "  test_contract_rejected: "
-if ! "$SALT_FRONT" salt-front/tests/z3_contracts/test_contract_rejected.salt \
+if ! "$SALT_FRONT" $PROJECT_ROOT/salt-front/tests/z3_contracts/test_contract_rejected.salt \
     --verify -o /tmp/z3_test_rejected > /tmp/z3_out_rejected.txt 2>&1; then
     if grep -q 'VERIFICATION ERROR\|counterexample' /tmp/z3_out_rejected.txt; then
         echo "PASS (Z3 found counterexample, compile error as expected)"
@@ -50,7 +56,7 @@ fi
 
 # ── Test 3: Complex contract ───────────────────────────────────
 echo -n "  test_contract_timeout: "
-OUTCOME=$( "$SALT_FRONT" salt-front/tests/z3_contracts/test_contract_timeout.salt \
+OUTCOME=$( "$SALT_FRONT" $PROJECT_ROOT/salt-front/tests/z3_contracts/test_contract_timeout.salt \
     --verify -o /tmp/z3_test_timeout 2>&1 || true )
 if echo "$OUTCOME" | grep -q 'VERIFICATION ERROR'; then
     echo "PASS (Z3 could not prove, runtime assertion emitted)"
