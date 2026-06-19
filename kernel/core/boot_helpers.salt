@@ -102,13 +102,20 @@ pub fn boot_terminal_and_netd_sips(kernel_pml4: u64) {
     let fb_pitch = fb_get_pitch() as u64;
     let fb_phys = fb_get_phys();
 
-    let mut fb_idx: u64 = 0;
-    while fb_idx < 1024 {
-        map_user_page_extern(kernel_pml4, 0x40002000 + (fb_idx * 4096), fb_phys + (fb_idx * 4096), 0x7);
-        fb_idx = fb_idx + 1;
+    // Guard: skip framebuffer mapping on headless QEMU (fb_phys == 0).
+    if fb_phys != 0 {
+        let mut fb_idx: u64 = 0;
+        while fb_idx < 1024 {
+            map_user_page_extern(kernel_pml4, 0x40002000 + (fb_idx * 4096), fb_phys + (fb_idx * 4096), 0x7);
+            fb_idx = fb_idx + 1;
+        }
     }
 
     let rx_ring_phys = pmm_alloc();
+    if rx_ring_phys == 0 {
+        serial.print("[KeuOS] FATAL: PMM alloc failed for RX ring\n");
+        return;
+    }
     map_user_page_extern(kernel_pml4, 0x40001000, rx_ring_phys, 0x7);
     let rx_ring_kern = rx_ring_phys + KERNEL_BASE;
     ps2_set_rx_ring(rx_ring_kern);

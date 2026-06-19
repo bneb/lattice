@@ -118,7 +118,11 @@ pub fn kmain(magic: u32, mb_info: &u8) {
 
     let mem_start = 0x100000;
     let mem_end = mb_mem_upper * 1024;
-    pmm_add_region(mem_start, mem_end);
+    // Multiboot1 may report mem_upper=0; the mmap parse adds pages separately.
+    // Only add this region if mem_end > mem_start (non-empty).
+    if mem_end > mem_start {
+        pmm_add_region(mem_start, mem_end);
+    }
     serial.print("[KeuOS] PMM initialized\n");
 
     let kernel_pml4 = *((mb_info as u64 + 0x68) as &u64);
@@ -149,14 +153,31 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     process_init();
     serial.print("[KeuOS] Process table initialized\n");
 
+    // Spawn NetD + Terminal BEFORE the scheduler starts.
+    // The APIC timer (configured by SMP tests) fires but the scheduler
+    // isn't active yet, so timer ISRs don't preempt. NetD spawn completes
+    // inline on the BSP before any context switch can occur.
+    boot_terminal_and_netd_sips(kernel_pml4);
+
     init_cores(cpu_count);
     pit_init();
     idt_init_ist_gates();
+    sched_init();
+    slab_cache_init();
+    vma_init();
+    ecs_world_init();
+    serial.print("[KeuOS] ECS World initialized\n");
 
-    // Spawn NetD + Terminal SIPs BEFORE scheduler starts.
-    // Once the scheduler runs, timer interrupts can preempt the BSP
-    // and dispatch ready fibers, racing with inline spawn calls.
-    boot_terminal_and_netd_sips(kernel_pml4);
+    boot_nvme_and_ext2();
+
+    let active_cpus = run_percpu_tests();
+    serial.print("[KeuOS] Active CPUs: ");
+    serial.print_u64(active_cpus);
+    serial.print("\n");
+
+    init_cores(cpu_count);
+    pit_init();
+    idt_init_ist_gates();
 
     smp_release_aps();
     serial.print("[KeuOS] APs released\n");
