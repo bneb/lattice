@@ -86,7 +86,8 @@ pub fn sys_terminal_main(w: u64, h: u64, pitch: u64) { let _ = w; let _ = h; let
 const PROC_READY: u64   = 1;
 const PROC_RUNNING: u64 = 2;
 const PROC_FREE: u64    = 0;
-const KERNEL_BASE: u64  = 0xFFFFFF0000000000;
+// Must match boot.S: pml4 (0xFFFFFFFF8233E000) - pml4_phys (0x233E000)
+const KERNEL_BASE: u64  = 0xFFFFFFFF80000000;
 
 global DISCARD_RSP: [u64; 1] = [0];
 global KERNEL_PML4: u64 = 0;
