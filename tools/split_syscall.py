@@ -67,10 +67,7 @@ def clean_body(body: str) -> str:
         (r'pulse\.is_empty\(\)', 'pulse_is_empty()'),
         (r'ring_abi\.destroy_ring\(', 'ring_abi_destroy_ring('),
         (r'ring_abi\.drain_sq\(', 'ring_abi_drain_sq('),
-        # serial.xxx (space before to avoid matching identifiers)
-        (r' serial\.print\(', ' serial_print('),
-        (r' serial\.print_buf\(', ' serial_print_buf('),
-        (r' serial\.print_u64\(', ' serial_print_u64('),
+        # serial.xxx — kept as import-based calls (kernel.drivers.serial import)
     ]
     for pat, rep in reps:
         body = re.sub(pat, rep, body)
@@ -96,10 +93,17 @@ def add_no_mangle(body: str) -> str:
 
 
 def main():
-    # Read original
-    with open(SRC) as f:
-        original = f.read()
-    lines = original.split('\n')
+    # Read original from git (not current file, which may be already trimmed)
+    import subprocess
+    result = subprocess.run(['git', 'show', 'HEAD~1:kernel/core/syscall.salt'],
+                          capture_output=True, text=True, cwd=ROOT)
+    if result.returncode != 0:
+        result = subprocess.run(['git', 'show', 'HEAD:kernel/core/syscall.salt'],
+                              capture_output=True, text=True, cwd=ROOT)
+    lines = result.stdout.split('\n')
+    if len(lines) < 200:
+        print("Error: could not read original syscall.salt from git")
+        sys.exit(1)
 
     # Extract dispatch (lines 1-176) and body (lines 177+)
     dispatch = '\n'.join(lines[:DISPATCH_LINES])
@@ -112,6 +116,7 @@ def main():
     # Write handlers file
     header = '''package kernel.core.syscall_handlers
 use std.core.ptr.Ptr
+import kernel.drivers.serial
 import kernel.sys.vfs
 import kernel.core.memory
 extern fn is_valid_user_ptr(ptr: u64, len: u64) -> bool;
@@ -153,9 +158,6 @@ extern fn ring_abi_destroy_ring(slot: u64);
 extern fn ring_abi_drain_sq(slot: u64);
 extern fn schedule_next();
 extern fn proc_context_switch(old_rsp_ptr: u64, new_rsp: u64, new_cr3: u64, new_rsp0: u64);
-extern fn serial_print(msg_ptr: Ptr<u8>);
-extern fn serial_print_buf(ptr: u64, len: u64);
-extern fn serial_print_u64(val: u64);
 const PAGE_SIZE: u64 = 4096;
 global DISCARD_RSP: [u64; 1] = [0];
 '''
