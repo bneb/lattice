@@ -1,50 +1,34 @@
 # Six-Month Plan Progress
 
 ## Phase 1: Remove Bus Factor ✅
-- [x] 1.1 Eliminate hardcoded developer paths
-- [x] 1.2 Architecture Decision Records (15 ADRs)
-- [x] 1.3 One-command developer setup (`make setup`)
-- [x] 1.4 Contributor ladder (labels, CODEOWNERS, good-first-issue)
-
 ## Phase 2: Developer Experience ✅
-- [x] 2.1 "Salt by Example" tutorial (8+ chapters)
-- [x] 2.2 Standard library API documentation
-- [x] 2.3 LSP: semantic tokens, references, code actions, document symbols (38 tests)
-- [x] 2.4 Package manager: direct salt-front invocation, compiler hash caching, version resolution skeleton
-
 ## Phase 3: Kernel Completion ✅
-- [x] 3.1 NetD→Ring3 migration (6 code files, design doc, build system, backward-compatible)
-- [x] 3.2 TCP dispatch wired + IPC wakeup path
-- [x] 3.3 Stable syscall ABI (frozen numbers, layouts, error codes)
-- [x] 3.4 Kernel security hardening (SPSC clamping, 8 arbiter tests)
-
 ## Phase 4: Killer App ✅
-- [x] 4.1 Lettuce E2E tests (7 integration tests: SET, GET, DEL, overwrite, pipeline, large values)
-
 ## Phase 5: Sustainability ✅
-- [x] 5.1 CI: kernel smoke test (QEMU), sp tests, clippy lint job
-- [x] 5.2 v1.0.0 exit criteria document
-- [x] 5.3 Blog posts (3 technical deep-dive outlines)
 
-## Summary
-**Completed:** 17/17 goals
+## Goal A: Reproducible Build + Kernel Boot ✅
+- [x] BUILD SUCCESS from clean checkout (`rm -rf qemu_build && python3 tools/runner_qemu.py build`)
+- [x] kernel.elf = 780,720 bytes (762 KB, >700KB threshold)
+- [x] fastpath_handoff_syscall: 2 symbols in ELF (T + _mlir_ciface_)
+- [x] kmain: 1 symbol in ELF (T)
+- [x] Byte-reproducible: SHA-256 `f065fc5d...` matches across two clean builds
+- [x] Kernel boots in QEMU: 5+ seconds, 0 panics, NetD banner printed
 
-## Test Coverage Added
-- LSP: 16 new tests (semantic tokens edge cases, references, document symbols, cross-file index)
-- SPSC arbiter: 8 tests (clamp_capacity 0/max/valid, clamp_ring_index wrap/min, SipHash consistency)
-- Lettuce: 7 E2E tests (SET, GET missing/existing, DEL sequence, overwrite, pipeline, large value)
-- sp: 10 tests passing (existing)
-- salt-lsp: 38 tests passing (existing + new)
+## Goal B: Z3 Verification Correct + Guarded
+- [ ] SAT/UNSAT inversion fix verified and defended by regression tests
+- [ ] CI job runs Z3 contract test suite
 
-## File Count Summary
-- 52 files created across the project
-- All files under 500 lines (except pre-existing main.salt at 628)
-- 0 hardcoded paths in tools/sp, scripts, tools/
-- 0 TODO/FIXME/HACK markers in non-test files
+## Goal C: End-to-End Verified HTTP Demo
+- [ ] Verified HTTP key-value server with Z3-proven buffer safety
+- [ ] Every buffer access has requires() bounds contract
+- [ ] Runnable test script exercises SET/GET/DEL
+
+## Active Goal
+**Current:** Goal B — Z3 Verification Correct + Guarded
 
 ## Log
-- 2026-06-18: Infrastructure created (hooks, CLAUDE.md, STATUS.md, Makefile)
-- 2026-06-18: Phase 1 complete — paths, ADRs, bootstrap, contributor ladder
-- 2026-06-18: Phase 2 complete — tutorial, stdlib docs, LSP v0.3.0, sp improvements
-- 2026-06-18: Phase 3+4 complete — NetD→Ring3 migration (6 files + build system + design doc), stable ABI, SPSC hardening, Lettuce E2E tests
-- 2026-06-18: Phase 5 complete — CI kernel smoke test + sp + clippy jobs, v1.0.0 criteria, blog outlines
+- 2026-06-18: Infrastructure created, all 17 goals completed
+- 2026-06-18: Kernel boots, NetD Ring 3 architecture implemented
+- 2026-06-18: Autonomous iterations — Z3 tests, VS Code, coverage CI, AOF contracts
+- 2026-06-18: sys_ipc_reg_send (syscall 14) unblocked — fastpath in kernel.elf
+- 2026-06-18: **Goal A complete** — 780KB kernel reproducible with SHA-256 f065fc5d
