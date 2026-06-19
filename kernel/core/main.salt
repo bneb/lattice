@@ -173,22 +173,6 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     init_cores(cpu_count);
     pit_init();
     idt_init_ist_gates();
-    sched_init();
-    slab_cache_init();
-    vma_init();
-    ecs_world_init();
-    serial.print("[KeuOS] ECS World initialized\n");
-
-    boot_nvme_and_ext2();
-
-    let active_cpus = run_percpu_tests();
-    serial.print("[KeuOS] Active CPUs: ");
-    serial.print_u64(active_cpus);
-    serial.print("\n");
-
-    init_cores(cpu_count);
-    pit_init();
-    idt_init_ist_gates();
 
     smp_release_aps();
     serial.print("[KeuOS] APs released\n");
