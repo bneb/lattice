@@ -159,13 +159,40 @@ impl VerificationEngine {
             if let Ok(z3_req_sym) = crate::codegen::expr::translate_bool_to_z3(ctx, actual_req, &dummy_locals, &sym_ctx) {
                  let z3_req_subst = z3_req_sym.substitute(&substitutions);
                  
+                 // ═══════════════════════════════════════════════════════════════
+                 // Z3 PROOF-OR-PANIC — SAT/UNSAT POLARITY (DO NOT INVERT)
+                 // ═══════════════════════════════════════════════════════════════
+                 // The Z3 solver checks the NEGATION of the requirement:
+                 //
+                 //   Z3.assert(NOT(requirement))
+                 //   Z3.check()
+                 //
+                 //   UNSAT → NOT(requirement) is impossible
+                 //        → requirement is ALWAYS TRUE
+                 //        → VERIFIED ✓ (check elided, zero runtime cost)
+                 //
+                 //   SAT   → NOT(requirement) has a satisfying assignment
+                 //        → requirement CAN BE VIOLATED
+                 //        → COMPILE ERROR ✗ (counterexample reported)
+                 //
+                 //   UNKNOWN → Z3 timed out (100ms default)
+                 //          → Emit runtime assertion as safe fallback
+                 //
+                 // REGRESSION GUARD: salt-front/tests/z3_contracts/run_tests.sh
+                 //   - test_contract_proved.salt: requires(x != 0) with x=10 → UNSAT expected
+                 //   - test_contract_rejected.salt: requires(x != 0) with x=0  → SAT expected
+                 //   - test_contract_timeout.salt: complex non-linear constraint
+                 //
+                 // If these tests ever fail, the SAT/UNSAT polarity has been inverted.
+                 // ═══════════════════════════════════════════════════════════════
+
                  // [V4.0] 3-state verification:
                  // - Check if the substituted requirement is DEFINITELY FALSE
                  //   by checking if `NOT(requirement)` is a tautology (always true).
                  // - If requirement is definitely false (e.g., 0 > 0) → REJECT
-                 // - If requirement is definitely true → PASS  
+                 // - If requirement is definitely true → PASS
                  // - If Z3 can't determine (uninterpreted functions) → PASS (conservative)
-                 
+
                  // We check if the negation of the requirement is satisfiable.
                  // If NOT(req) is UNSAT, then req is ALWAYS TRUE (proven).
                  let solver = crate::z3_shim::Solver::new(ctx.z3_ctx);

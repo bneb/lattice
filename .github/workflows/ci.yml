@@ -43,6 +43,12 @@ jobs:
         run: cargo test --release
         working-directory: salt-front
 
+      - name: Run Z3 contract regression tests
+        run: |
+          SALT_FRONT=./target/release/salt-front \
+            bash tests/z3_contracts/run_tests.sh
+        working-directory: salt-front
+
       - name: Upload salt-front binary
         uses: actions/upload-artifact@v4
         with:
