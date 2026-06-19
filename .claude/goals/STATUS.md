@@ -37,12 +37,13 @@
 - [x] All LSP features: semantic tokens, go-to-def, find-refs, doc symbols, code actions, Z3 hover
 - [x] LSP tests: 38 passing
 
-## Goal F: Benchmark Dashboard
-- [ ] Script produces JSON with per-benchmark Salt/C/Rust timings
-- [ ] CI job runs benchmark suite and flags >5% regressions
+## Goal F: Benchmark Dashboard ✅
+- [x] Script: tools/bench_infra/benchmark_ci.sh produces JSON with Salt/C/Rust timings
+- [x] CI job: benchmark regression check with artifact upload
+- [x] Baseline comparison for >5% regression detection
 
 ## Active Goal
-**Current:** Goal F — Benchmark Dashboard
+**Current:** None — all six goals complete
 
 ## Log
 - 2026-06-18: Infrastructure created, all 17 goals completed

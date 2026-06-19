@@ -264,3 +264,33 @@ jobs:
             echo "salt-front coverage:"
             grep -m1 '"lines"' salt-front/lcov.info || head -5 salt-front/lcov.info
           fi
+
+  benchmark:
+    name: Benchmark regression check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install LLVM 21
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" | sudo tee /etc/apt/sources.list.d/llvm-21.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends llvm-21-dev mlir-21-tools clang-21 lld-21 libz3-dev
+
+      - name: Build salt-front
+        run: cargo build --release
+        working-directory: salt-front
+
+      - name: Run benchmark CI suite
+        run: bash tools/bench_infra/benchmark_ci.sh
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: /tmp/benchmark_ci_results.json
