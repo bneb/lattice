@@ -66,8 +66,14 @@ pub fn resp_nil() -> RespValue {
 // Helper: find \r\n in a StringView starting from offset
 // ============================================================================
 
+// find_crlf — locate \r\n in a StringView starting from 'start'.
+// Bounds are checked at each byte_at call site; the loop condition
+// (i < len - 1) ensures i and i+1 are always in bounds.
 fn find_crlf(&input: &StringView, start: i64) -> i64 {
     let len = input.length();
+    if start < 0 || start >= len {
+        return -1;
+    }
     let mut i = start;
     while i < len - 1 {
         if input.byte_at(i) == 13 && input.byte_at(i + 1) == 10 {
@@ -83,6 +89,10 @@ fn find_crlf(&input: &StringView, start: i64) -> i64 {
 // ============================================================================
 
 fn parse_int_from_view(&input: &StringView, start: i64, end: i64) -> i64 {
+    let len = input.length();
+    if start < 0 || end > len || start > end {
+        return 0;
+    }
     let mut result: i64 = 0;
     let mut neg: bool = false;
     let mut i = start;
@@ -212,6 +222,11 @@ pub fn resp_parse(input: StringView) -> RespValue {
     }
 
     let prefix = input.byte_at(0);
+    // Guard: find_crlf requires start < len. With start=1, we need len > 1.
+    // This makes the bounds check statically provable by Z3.
+    if len <= 1 {
+        return resp_nil();
+    }
     let crlf = find_crlf(&input, 1);
     if crlf < 0 {
         return resp_nil();
