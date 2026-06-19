@@ -72,6 +72,7 @@ extern fn fb_get_width() -> u32;
 extern fn fb_get_height() -> u32;
 
 extern fn sys_vfs_lookup(path: u64) -> u64;
+extern fn get_pml4_phys() -> u64;
 extern fn syscall_set_kernel_pml4(pml4: u64);
 extern fn do_dispatch();
 
@@ -87,6 +88,7 @@ const PROC_FREE: u64    = 0;
 const KERNEL_BASE: u64  = 0xFFFFFF0000000000;
 
 global DISCARD_RSP: [u64; 1] = [0];
+global KERNEL_PML4: u64 = 0;
 
 // ── Cooperative Yield ──────────────────────────────────────────────
 
@@ -125,10 +127,19 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     }
     serial.print("[KeuOS] PMM initialized\n");
 
-    let kernel_pml4 = *((mb_info as u64 + 0x68) as &u64);
+    // pml4_phys is set by boot.S during early boot. get_pml4_phys()
+    // reads the PML4 physical address from the pml4 linker symbol.
+    // NOTE: print before computing kernel_pml4 to avoid register
+    // clobbering (serial.print does not preserve RBX per SysV ABI).
+    // pml4_phys is set by boot.S. get_pml4_phys() reads CR3 at boot.
+    // serial.print clobbers callee-saved regs (Salt ABI difference),
+    // so we call get_pml4_phys() immediately before print_u64 to
+    // ensure the value is fresh in RAX.
+    KERNEL_PML4 = get_pml4_phys();
     serial.print("[KeuOS] Kernel PML4: 0x");
-    serial.print_u64(kernel_pml4);
+    serial.print_u64(get_pml4_phys());
     serial.print("\n");
+    let kernel_pml4 = KERNEL_PML4;
 
     smp_boot_aps();
     let num_cpus = run_smp_tests();

@@ -152,4 +152,16 @@ get_netd_elf_addr:
     lea rax, [rip + netd_elf_start]
     ret
 
+/* get_pml4_phys() -> u64
+ * Returns the physical address of the kernel PML4 page table.
+ * pml4 (virtual, 0xffffffff8233e000) is within PC-relative range.
+ * Physical = virtual - KERNEL_HIGHER_HALF_BASE (0xffffffff80000000).
+ */
+.global get_pml4_phys
+get_pml4_phys:
+    lea rax, [rip + pml4]
+    mov rcx, 0xffffffff80000000
+    sub rax, rcx
+    ret
+
 /* enable_interrupts is already defined in boot.S */
