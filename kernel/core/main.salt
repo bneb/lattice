@@ -73,6 +73,7 @@ extern fn fb_get_height() -> u32;
 
 extern fn sys_vfs_lookup(path: u64) -> u64;
 extern fn get_pml4_phys() -> u64;
+extern fn set_kernel_pml4_stash(val: u64);
 extern fn syscall_set_kernel_pml4(pml4: u64);
 extern fn do_dispatch();
 
@@ -164,10 +165,9 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     process_init();
     serial.print("[KeuOS] Process table initialized\n");
 
-    // Spawn NetD + Terminal BEFORE the scheduler starts.
-    // The APIC timer (configured by SMP tests) fires but the scheduler
-    // isn't active yet, so timer ISRs don't preempt. NetD spawn completes
-    // inline on the BSP before any context switch can occur.
+    // Stash kernel_pml4 where boot_helpers can reload it after
+    // Salt ABI register clobbering across extern fn calls.
+    set_kernel_pml4_stash(kernel_pml4);
     boot_terminal_and_netd_sips(kernel_pml4);
 
     init_cores(cpu_count);

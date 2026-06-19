@@ -72,6 +72,12 @@ global KERNEL_ECS_WORLD: u64 = 0;
 
 const PROC_READY: u64 = 1;
 const KERNEL_BASE: u64 = 0xFFFFFF0000000000;
+global KERNEL_PML4_STASH: u64 = 0;
+
+@no_mangle
+pub fn set_kernel_pml4_stash(val: u64) {
+    KERNEL_PML4_STASH = val;
+}
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -95,8 +101,11 @@ fn strcmp(s1_ptr: u64, len1: u32, s2_ptr: u64, len2: u32) -> bool {
 // ── NetD + Terminal SIP Spawn ──────────────────────────────────────
 
 @no_mangle
-pub fn boot_terminal_and_netd_sips(kernel_pml4: u64) {
+pub fn boot_terminal_and_netd_sips(_unused_pml4: u64) {
     serial.print("[KeuOS] Bootstrapping Sovereign Ring 3 Terminal SIP...\n");
+    // Reload PML4 from global on each use — Salt ABI does not preserve
+    // callee-saved registers across extern fn calls (fb_get_width etc).
+    let kernel_pml4 = KERNEL_PML4_STASH;
     let fb_w = fb_get_width() as u64;
     let fb_h = fb_get_height() as u64;
     let fb_pitch = fb_get_pitch() as u64;
