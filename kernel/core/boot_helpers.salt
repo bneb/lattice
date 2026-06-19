@@ -129,8 +129,7 @@ pub fn boot_terminal_and_netd_sips(_unused_pml4: u64, rx_ring_phys: u64, tx_ring
     *((rx_ring_kern + 64) as &mut u64) = 0;
     *((rx_ring_kern + 128) as &mut u64) = 0;
 
-    // FIXME: map_user_page_extern crash — skip
-    // map_user_page_extern(kernel_pml4, 0x40003000, tx_ring_phys, 0x7);
+    map_user_page_extern(kernel_pml4, 0x40003000, tx_ring_phys, 0x7);
     let tx_ring_kern = tx_ring_phys + KERNEL_BASE;
     *((tx_ring_kern + 0) as &mut u64) = 0;
     *((tx_ring_kern + 8) as &mut u64) = 3904;
@@ -138,9 +137,10 @@ pub fn boot_terminal_and_netd_sips(_unused_pml4: u64, rx_ring_phys: u64, tx_ring
     *((tx_ring_kern + 128) as &mut u64) = 0;
     KERNEL_TX_RING_VIRT = tx_ring_kern;
 
-    // Compute page loop skipped — map_user_page_extern disabled
     let mut cp_idx: u64 = 0;
     while cp_idx < 16 {
+        let cp_phys = pmm_alloc();
+        map_user_page_extern(kernel_pml4, 0x40402000 + (cp_idx * 4096), cp_phys, 0x7);
         cp_idx = cp_idx + 1;
     }
 
@@ -208,15 +208,13 @@ pub fn boot_moe_pipeline(kernel_pml4: u64) -> u64 {
     let rx_pool_pages: u64 = 24;
     let mut pg: u64 = 0;
     while pg < rx_pool_pages {
-        // FIXME: map_user_page_extern crash — skipping RX pool mapping
-        // map_user_page_extern(kernel_pml4, rx_pool_vaddr + pg * 4096, rx_pool_phys + pg * 4096, 0x207);
+        map_user_page_extern(kernel_pml4, rx_pool_vaddr + pg * 4096, rx_pool_phys + pg * 4096, 0x207);
         pg = pg + 1;
     }
     serial.print("[KeuOS] Mapped VirtIO RX pool at 0x40000000 (24 pages)\n");
 
     let rx_notify_ring_user_vaddr: u64 = 0x40004000;
-    // FIXME: map_user_page_extern crash — skipping notify ring mapping
-    // map_user_page_extern(kernel_pml4, rx_notify_ring_user_vaddr, rx_notify_ring_phys, 0x207);
+    map_user_page_extern(kernel_pml4, rx_notify_ring_user_vaddr, rx_notify_ring_phys, 0x207);
     *((state_ptr + 72) as &mut u64) = rx_notify_ring_user_vaddr;
     *((state_ptr + 80) as &mut u64) = rx_pool_vaddr;
 
