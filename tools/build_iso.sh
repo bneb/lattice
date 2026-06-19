@@ -3,7 +3,7 @@ set -e
 
 # Build the kernel ELF locally
 echo "==> Building KeuOS..."
-python3 tools/runner_qemu.py build
+# python3 tools/runner_qemu.py build
 
 # Setup the ISO directory structure
 echo "==> Setting up ISO directory..."

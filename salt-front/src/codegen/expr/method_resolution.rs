@@ -1099,6 +1099,7 @@ fn resolve_method_generics(
 
 
 
+#[allow(dead_code)]
 fn resolve_generic_signature(
     ctx: &mut LoweringContext,
     original_mangled: &str,

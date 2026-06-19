@@ -153,6 +153,11 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     pit_init();
     idt_init_ist_gates();
 
+    // Spawn NetD + Terminal SIPs BEFORE scheduler starts.
+    // Once the scheduler runs, timer interrupts can preempt the BSP
+    // and dispatch ready fibers, racing with inline spawn calls.
+    boot_terminal_and_netd_sips(kernel_pml4);
+
     smp_release_aps();
     serial.print("[KeuOS] APs released\n");
 

@@ -1,0 +1,20 @@
+// =============================================================================
+// Z3 Regression Test: CONTRACT MUST BE PROVED
+// =============================================================================
+// Expected: Z3 returns UNSAT → check elided → compile succeeds with zero warnings
+// If this fails: Z3 SAT/UNSAT inversion is present (returns SAT when should be UNSAT)
+// =============================================================================
+
+package test_contract_proved
+
+fn safe_div(a: i32, b: i32) -> i32
+    requires(b != 0)
+{
+    return a / b;
+}
+
+fn main() -> i32 {
+    // Z3 must prove: 10 != 0 → UNSAT on negated condition → check elided
+    let result = safe_div(100, 10);
+    return result;
+}

@@ -1,6 +1,6 @@
 # Salt — Editor & AI Integration
 
-Salt ships a TextMate grammar and an optional LSP server for syntax highlighting, completions, and diagnostics.
+Salt ships a TextMate grammar and an LSP server (v0.3.0) for semantic highlighting, go-to-definition, find-references, document symbols, code actions, and in-memory diagnostics.
 
 ---
 
@@ -11,12 +11,12 @@ Salt ships a TextMate grammar and an optional LSP server for syntax highlighting
 ```bash
 cd tools/salt-lsp/editors/vscode
 npm install
-npx -y @vscode/vsce package     # produces salt-language-0.1.0.vsix
+npx -y @vscode/vsce package     # produces salt-language-0.3.0.vsix
 ```
 
 Then inside your editor:
 
-**Cmd+Shift+P** → **"Extensions: Install from VSIX..."** → select `salt-language-0.1.0.vsix`
+**Cmd+Shift+P** → **"Extensions: Install from VSIX..."** → select `salt-language-0.3.0.vsix`
 
 This works in **VS Code, Antigravity, Cursor, Windsurf**, and any other VS Code fork — the VSIX install path handles extension registration automatically.
 
@@ -24,12 +24,12 @@ This works in **VS Code, Antigravity, Cursor, Windsurf**, and any other VS Code 
 
 ```bash
 # VS Code
-code --install-extension salt-language-0.1.0.vsix
+code --install-extension salt-language-0.3.0.vsix
 
 # If 'code' is not in PATH, use the full path:
 # macOS VS Code:
 "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
-    --install-extension salt-language-0.1.0.vsix
+    --install-extension salt-language-0.3.0.vsix
 ```
 
 ### Option C: Development Mode (no packaging)

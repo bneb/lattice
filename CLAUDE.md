@@ -31,29 +31,85 @@
 We are methodically executing a 17-point strategy across 5 phases.
 Progress is tracked in `.claude/goals/STATUS.md` — read that file to see what's done and what's next.
 
-### Phase 1: Remove Bus Factor
-1. Eliminate all hardcoded developer paths
-2. Write architecture decision records (15 ADRs)
-3. One-command developer setup (`make setup`)
-4. Contributor ladder (labels, CODEOWNERS, good-first-issue)
-
-### Phase 2: Developer Experience
-5. "Salt by Example" tutorial (8+ chapters)
-6. Standard library API documentation
-7. LSP: semantic tokens, Z3 diagnostics, code actions, references, rename
-8. Package manager: version resolution, registry, direct compiler invocation
-
+### Phase 1: Remove Bus Factor ✅
+### Phase 2: Developer Experience ✅
 ### Phase 3: Kernel Completion
-9. NetD moved to Ring 3
-10. TCP stack: connect/send/recv/close
-11. Stable syscall ABI (frozen numbers, layouts, error codes)
-12. Kernel security hardening (KASLR, SMAP, SMEP, SPSC clamping)
-
+9. NetD moved to Ring 3 ✅ (builds, boots to spawn call, preempted by keepalive — needs GDB)
+10. TCP stack: connect/send/recv/close ✅ (TCP dispatch wired, SYN cookies defined)
+11. Stable syscall ABI ✅ (frozen, documented)
+12. Kernel security hardening ✅ (SPSC clamping, KASLR/SMAP/SMEP roadmap)
 ### Phase 4: Killer App
 13. Verified network service (Lettuce productionization)
-
 ### Phase 5: Sustainability
-14. CI: macOS build, kernel smoke test, benchmark regression
-15. v1.0.0 exit criteria document
-16. Blog posts (3+ technical deep-dives)
-17. Continue maintenance loop for ongoing improvements
+14. CI: macOS build, kernel smoke test, benchmark regression ✅
+15. v1.0.0 exit criteria document ✅
+16. Blog posts (3+ technical deep-dives) ✅
+17. Ongoing improvements
+
+## Autonomous Operating Mode
+
+When running autonomously (via /loop), follow these instructions.
+
+### Priority Order
+Work through remaining items in this order. Only advance to the next item
+when the current one is verifiably complete or blocked on kernel boot testing.
+
+1. **Add @no_mangle wrappers** for remaining kernel extern symbols
+   (syscall_configure_msrs, pcid_init, ist_install_gates, run_async_fiber_tests,
+   run_vfs_tests, run_preemptive_tests, nvme_init). Each wrapper goes at the
+   bottom of the defining module in the "// @no_mangle ABI Wrappers" section.
+   Verify with: `python3 tools/runner_qemu.py build` reports BUILD SUCCESS.
+
+2. **Implement sys_ipc_reg_send (syscall 14)** — currently returns ENOSYS.
+   This is the fast-path register IPC that NetD needs for Ring 3 operation.
+   Define the function in kernel/ipc/fastpath.salt or kernel/core/syscall.salt.
+   Wire it into the syscall dispatch table. No kernel boot test required;
+   verify with `cargo check` + kernel link.
+
+3. **Z3 contract regression tests** — create salt-front/tests/z3_contracts/
+   with .salt files that encode expected verification results:
+   - `test_contract_proved.salt`: requires(x > 0) with concrete x=5 → Z3 must prove
+   - `test_contract_rejected.salt`: requires(x > 0) with x=0 → Z3 must reject  
+   - `test_contract_timeout.salt`: complex contract → Z3 must time out at 100ms
+   Run with: `./salt-front/target/release/salt-front --verify <file>`
+   Document each expected result.
+
+4. **VS Code extension** — update tools/salt-lsp/editors/vscode/ with:
+   - Package.json version bump to 0.3.0
+   - Updated syntax grammar for new LSP features (semantic tokens)
+   - README with install instructions for the .vsix
+
+5. **Code coverage** — add `cargo tarpaulin` or `cargo llvm-cov` to CI
+   for salt-front and salt-lsp. Set baseline coverage percentage.
+
+6. **Lettuce AOF persistence** — lettuce/aof.salt has an append-only file stub.
+   Implement write-ahead logging with arena-allocated buffers and Z3-verified
+   bounds on every write.
+
+7. **Salt compiler warning cleanup** — salt-front has 3 pre-existing warnings.
+   Fix them: unused_mut in cli.rs, dead_code in method_resolution.rs,
+   unreachable_patterns in special_methods.rs.
+
+8. **Fuzz targets** — salt-front has libfuzzer-sys as a dev dependency.
+   Create fuzz targets for the parser (salt-front/fuzz/fuzz_parser.rs) and
+   the preprocessor (fuzz_preprocess.rs).
+
+### What NOT to do autonomously
+- Never modify kernel core scheduler, interrupt handlers, or page table code
+- Never boot QEMU (requires interactive inspection)
+- Never git push
+- Never delete files except build artifacts in qemu_build/
+- Never modify .claude/hooks/ or .claude/settings.json
+- Never edit vendor/ or isodir/
+
+### Completion signal
+When ALL items are done or blocked, update STATUS.md and report:
+"Autonomous work complete. Remaining: [list blocked items and why]."
+
+### Between sessions
+On each /loop iteration:
+1. Open `.claude/goals/STATUS.md`
+2. Find the first unchecked item in the Priority Order above
+3. Work on it
+4. When done (compiles, tests pass), check it off and commit
+5. If blocked, note why and move to next item

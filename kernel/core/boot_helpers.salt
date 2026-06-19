@@ -210,8 +210,6 @@ pub fn boot_moe_pipeline(kernel_pml4: u64) -> u64 {
 
     let slot_a = exec_spawn_kernel_thread((&sys_moe_init_trampoline) as u64, state_ptr, bar_ptr, poll_ptr, kernel_pml4);
     serial.print("[KeuOS] MoE Pipeline spawned\n");
-
-    boot_terminal_and_netd_sips(kernel_pml4);
     return slot_a;
 }
 

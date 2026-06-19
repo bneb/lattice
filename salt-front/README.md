@@ -37,6 +37,17 @@ The compiler routes loops to different MLIR dialects based on analysis:
 - **Scalar loops** → `scf.for` (register pressure optimization)
 - **Linear algebra** → `linalg` ops (hardware-specific lowering)
 
+## Incremental Adoption via FFI
+
+Salt supports incremental adoption within legacy codebases. Existing C, C++, and Rust applications can integrate with Salt components without requiring a full rewrite.
+
+Critical components can be written in Salt and exposed via a verified Foreign Function Interface (FFI). The FFI enforces compile-time safety checks:
+- **ABI Safety**: Only primitive types, function pointers, and raw memory pointers are permitted to cross the boundary.
+- **Type Isolation**: C and Rust code cannot observe or manipulate internal high-level Salt types (like `String` or generic structs).
+- **Native Interoperability**: Salt compiles to MLIR/LLVM, enabling FFI calls to directly use the SysV C ABI natively without serialization or intermediate runtime layers.
+
+This allows developers to write formally verified core logic in Salt and safely interface with existing C/Rust infrastructure.
+
 ## Build & Test
 
 **Prerequisites**: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 21+ (`brew install llvm@21`).

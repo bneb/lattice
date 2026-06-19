@@ -59,6 +59,8 @@ mod tests_cross_module_struct;
 #[cfg(test)]
 mod tests_kernel_halt;
 #[cfg(test)]
+mod tests_ffi;
+#[cfg(test)]
 mod tests_datalayout;
 #[cfg(test)]
 mod tests_method_receiver;
@@ -1112,6 +1114,9 @@ pub fn emit_extern_fn(ctx: &CodegenContext, decl: &ExternFnDecl) -> Result<Strin
     let mut args_code = Vec::new();
     for arg in &decl.args {
         let ty = ctx.bridge_resolve_type(arg.ty.as_ref().ok_or_else(|| "Extern function argument missing type".to_string())?);
+        if !ty.is_ffi_safe() {
+            return Err(format!("Extern function `{}` argument `{}` has type `{:?}` which is not FFI-safe.", decl.name, arg.name, ty));
+        }
         args_code.push(ctx.resolve_mlir_type(&ty)?);
     }
     
@@ -1121,6 +1126,9 @@ pub fn emit_extern_fn(ctx: &CodegenContext, decl: &ExternFnDecl) -> Result<Strin
     ctx.external_decls_mut().insert(name.clone());
     
     let ret_ty = if let Some(rt) = &decl.ret_type { ctx.bridge_resolve_type(rt) } else { Type::Unit };
+    if !ret_ty.is_ffi_safe() {
+        return Err(format!("Extern function `{}` has return type `{:?}` which is not FFI-safe.", decl.name, ret_ty));
+    }
 
     let ret_part = if ret_ty == Type::Unit { "()".to_string() } else { 
         ctx.resolve_mlir_type(&ret_ty)?
@@ -1256,6 +1264,18 @@ pub fn emit_fn(ctx: &CodegenContext, func: &crate::grammar::SaltFn, override_nam
 
     let is_main = fn_name == "main";
     let is_no_mangle = func.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" );
+    
+    if is_no_mangle {
+        for arg in &func.args {
+            let ty = ctx.bridge_resolve_type(arg.ty.as_ref().unwrap()).substitute(&ctx.current_type_map());
+            if !ty.is_ffi_safe() {
+                return Err(format!("Exported function `{}` argument `{}` has type `{:?}` which is not FFI-safe.", fn_name, arg.name, ty));
+            }
+        }
+        if !ret_ty.is_ffi_safe() {
+            return Err(format!("Exported function `{}` has return type `{:?}` which is not FFI-safe.", fn_name, ret_ty));
+        }
+    }
     let visibility_keyword = if func.is_pub || is_no_mangle || is_main { "public" } else { "private" };
 
     let mut out = format!("  func.func {} @{}({}){}{} {{\n", visibility_keyword, fn_name, args_code.join(", "), ret_part, fn_attrs);
@@ -1452,6 +1472,7 @@ fn build_fn_attributes(ctx: &CodegenContext, func: &crate::grammar::SaltFn, _fn_
              let target_cpu = if ctx.lib_mode { "x86-64" } else { "apple-m4" };
              pt_items.push(format!("[\"target-cpu\", \"{}\"]", target_cpu));
              pt_items.push("[\"stack-alignment\", \"16\"]".to_string());
+             attr_dict.push("llvm.emit_c_interface".to_string());
         }
         if !pt_items.is_empty() {
             attr_dict.push(format!("passthrough = [ {} ]", pt_items.join(", ")));

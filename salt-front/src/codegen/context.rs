@@ -3948,7 +3948,7 @@ pub fn init_registry_definitions(&self) {
                 Item::Global(g) => self.scan_def_global(g, &pkg_prefix, is_main_file)?,
                 Item::Fn(f) => self.scan_def_fn(f, &pkg_prefix),
                 Item::Impl(i) => self.scan_def_impl(i, &pkg_prefix, &path),
-                Item::ExternFn(e) => self.scan_def_extern_fn(e),
+                Item::ExternFn(e) => self.scan_def_extern_fn(e)?,
                 Item::Const(c) => self.scan_def_const(c, &pkg_prefix)?,
                 Item::Struct(s) => self.scan_def_struct(s, &pkg_prefix, &path)?,
                 Item::Enum(e) => self.scan_def_enum(e, &pkg_prefix, &path),
@@ -4146,10 +4146,10 @@ pub fn init_registry_definitions(&self) {
         }
     }
 
-    fn scan_def_extern_fn(&self, e: &crate::grammar::ExternFnDecl) {
+    fn scan_def_extern_fn(&self, e: &crate::grammar::ExternFnDecl) -> Result<(), String> {
         let mangled_name = e.name.to_string();
         if self.external_decls().contains(&mangled_name) {
-            return;
+            return Ok(());
         }
         self.external_decls_mut().insert(mangled_name.clone());
         
@@ -4157,11 +4157,21 @@ pub fn init_registry_definitions(&self) {
             crate::types::Type::from_syn(rt).unwrap_or(crate::types::Type::Unit)
         } else { crate::types::Type::Unit };
         
-        let args: Vec<crate::types::Type> = e.args.iter()
-            .filter_map(|arg| arg.ty.as_ref().and_then(|t| crate::types::Type::from_syn(t)))
-            .collect();
+        if !ret_ty.is_ffi_safe() {
+            return Err(format!("Extern function `{}` has return type `{:?}` which is not FFI-safe.", e.name, ret_ty));
+        }
+        
+        let mut args = Vec::new();
+        for arg in &e.args {
+             let t = arg.ty.as_ref().and_then(|t| crate::types::Type::from_syn(t)).unwrap_or(crate::types::Type::Unit);
+             if !t.is_ffi_safe() {
+                 return Err(format!("Extern function `{}` argument `{}` has type `{:?}` which is not FFI-safe.", e.name, arg.name, t));
+             }
+             args.push(t);
+        }
             
-        self.globals_mut().insert(mangled_name.clone(), crate::types::Type::Fn(args.clone(), Box::new(ret_ty.clone())));
+        self.globals_mut().insert(mangled_name.clone(), crate::types::Type::Fn(args, Box::new(ret_ty.clone())));
+        Ok(())
     }
 
     fn scan_def_const(&self, c: &crate::grammar::ConstDef, pkg_prefix: &str) -> Result<(), String> {

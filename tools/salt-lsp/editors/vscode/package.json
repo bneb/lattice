@@ -1,9 +1,9 @@
 {
     "name": "salt-language",
     "displayName": "Salt Language",
-    "description": "Salt language support — syntax highlighting, in-memory diagnostics, semantic hover, and Z3 contract display",
+    "description": "Salt language support — semantic tokens, go-to-definition, find-references, document symbols, Z3 contract hover, code actions, and in-memory diagnostics",
     "icon": "icon.png",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "license": "MIT",
     "publisher": "salt-lang",
     "repository": {

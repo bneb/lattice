@@ -1,0 +1,24 @@
+// =============================================================================
+// Z3 Regression Test: CONTRACT MUST BE REJECTED
+// =============================================================================
+// Expected: Z3 finds counterexample → COMPILE ERROR with counterexample values
+// If this compiles: Z3 SAT/UNSAT inversion (returns UNSAT when should be SAT)
+//
+// Run with: salt-front --verify test_contract_rejected.salt 2>&1
+// Expected output: "VERIFICATION ERROR" with counterexample "b = 0"
+// =============================================================================
+
+package test_contract_rejected
+
+fn safe_div(a: i32, b: i32) -> i32
+    requires(b != 0)
+{
+    return a / b;
+}
+
+fn main() -> i32 {
+    // Z3 must find: b = 0 violates requires(b != 0) → compile error expected
+    // This SHOULD fail to compile with --verify flag
+    let result = safe_div(100, 0);
+    return result;
+}

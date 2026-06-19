@@ -241,6 +241,18 @@ impl Type {
              }
         }
     }
+    pub fn is_ffi_safe(&self) -> bool {
+        match self {
+            Type::I8 | Type::I16 | Type::I32 | Type::I64 |
+            Type::U8 | Type::U16 | Type::U32 | Type::U64 | Type::Usize |
+            Type::F32 | Type::F64 | Type::Bool | Type::Unit | Type::Pointer { .. } => true,
+            Type::Fn(args, ret) => args.iter().all(|a| a.is_ffi_safe()) && ret.is_ffi_safe(),
+            Type::Reference(inner, _) => inner.is_ffi_safe(),
+            Type::Array(inner, _, _) => inner.is_ffi_safe(),
+            _ => false,
+        }
+    }
+
 
     pub fn mangle_suffix(&self) -> String {
         match self {
