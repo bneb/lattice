@@ -416,6 +416,35 @@ pub fn process_alloc_pid() -> u64 { return alloc_pid(); }
 @no_mangle
 pub fn process_init() { }
 
+@no_mangle
+pub fn process_current() -> u64 { return current(); }
+@no_mangle
+pub fn process_get_state(slot: u64) -> u64 { return get_state(slot); }
+@no_mangle
+pub fn process_get_count() -> u64 { return get_count(); }
+@no_mangle
+pub fn process_dec_count() { }
+@no_mangle
+pub fn process_get_fd_table(slot: u64) -> u64 { return get_fd_table(slot); }
+@no_mangle
+pub fn process_get_brk_base(slot: u64) -> u64 { return get_brk_base(slot); }
+@no_mangle
+pub fn process_get_brk_current(slot: u64) -> u64 { return get_brk_current(slot); }
+@no_mangle
+pub fn process_get_mmap_base(slot: u64) -> u64 { return get_mmap_base(slot); }
+@no_mangle
+pub fn process_set_brk_current(slot: u64, val: u64) { set_brk_current(slot, val); }
+@no_mangle
+pub fn process_set_fd_table(slot: u64, phys: u64) { set_fd_table(slot, phys); }
+@no_mangle
+pub fn process_set_mmap_base(slot: u64, val: u64) { set_mmap_base(slot, val); }
+@no_mangle
+pub fn process_get_parent_pid(slot: u64) -> u64 { return get_parent_pid(slot); }
+@no_mangle
+pub fn process_get_pid(slot: u64) -> u64 { return get_pid(slot); }
+@no_mangle
+pub fn process_get_vma_list_head(slot: u64) -> u64 { return get_vma_list_head(slot); }
+
 // =============================================================================
 // IPC Fast-Path Accessors
 // =============================================================================

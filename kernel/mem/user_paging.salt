@@ -329,6 +329,23 @@ pub fn map_user_page_extern(pml4_phys: u64, vaddr: u64, paddr: u64, flags: u64) 
     map_user_page(pml4_phys, vaddr, paddr, flags);
 }
 
+@no_mangle
+pub fn user_paging_translate_user_addr(pml4_phys: u64, vaddr: u64) -> u64 {
+    return translate_user_addr(pml4_phys, vaddr);
+}
+@no_mangle
+pub fn user_paging_get_user_pte(pml4_phys: u64, vaddr: u64) -> u64 {
+    return get_user_pte(pml4_phys, vaddr);
+}
+@no_mangle
+pub fn user_paging_destroy_user_pml4(pml4_phys: u64) {
+    destroy_user_pml4(pml4_phys);
+}
+@no_mangle
+pub fn user_paging_unmap_user_page(pml4_phys: u64, vaddr: u64) {
+    unmap_user_page(pml4_phys, vaddr);
+}
+
 // =============================================================================
 // translate_user_addr -- Walk page tables (read-only) to get physical address
 // =============================================================================

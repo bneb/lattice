@@ -725,3 +725,8 @@ fn ring_spawn(slot: u64, manifest_vaddr: u64) -> u64 {
 
     return child_pid;
 }
+
+@no_mangle
+pub fn ring_abi_destroy_ring(slot: u64) { destroy_ring(slot); }
+@no_mangle
+pub fn ring_abi_drain_sq(slot: u64) { drain_sq(slot); }

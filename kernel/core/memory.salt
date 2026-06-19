@@ -96,3 +96,8 @@ pub fn virt_sub(v: VirtAddr, offset: u64) -> VirtAddr {
 pub fn phys_align_down(p: PhysAddr, align: u64) -> PhysAddr {
     return PhysAddr { val: p.val & (0xFFFFFFFFFFFFFFFF - (align - 1)) };
 }
+
+@no_mangle
+pub fn memory_phys_to_virt_raw(phys: u64) -> u64 { return phys_to_virt_raw(phys); }
+@no_mangle
+pub fn memory_virt_to_phys_raw(virt: u64) -> u64 { return virt_to_phys_raw(virt); }

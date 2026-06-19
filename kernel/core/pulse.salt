@@ -133,3 +133,6 @@ pub fn get_tick() -> u64 {
 pub fn get_drop_count() -> u64 {
     return DROP_COUNT;
 }
+
+@no_mangle
+pub fn pulse_is_empty() -> bool { return is_empty(); }
