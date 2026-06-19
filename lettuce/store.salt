@@ -137,7 +137,7 @@ fn handle_inline_command(input: StringView, out_buf: Ptr<u8>) -> ExecResult {
     return ExecResult { resp_len: r2, input_consumed: consumed, context_ptr: 0 };
 }
 
-fn handle_infer(elems: StringView, arg0: ParsedValue, consumed: i64, out_buf: Ptr<u8>) -> ExecResult {
+fn handle_infer(elems: StringView, arg0: RespValue, consumed: i64, out_buf: Ptr<u8>) -> ExecResult {
     let rest1 = elems.slice(arg0.bytes_consumed, elems.length());
     let arg1 = resp_parse(rest1);
     let prompt_sv = StringView::from_raw(arg1.str_ptr, arg1.str_len);
@@ -150,7 +150,7 @@ fn handle_infer(elems: StringView, arg0: ParsedValue, consumed: i64, out_buf: Pt
     return ExecResult { resp_len: -1, input_consumed: consumed, context_ptr: ctx };
 }
 
-fn handle_set(smap: Ptr<StringMap>, elems: StringView, arg0: ParsedValue, consumed: i64, out_buf: Ptr<u8>) -> ExecResult {
+fn handle_set(smap: Ptr<StringMap>, elems: StringView, arg0: RespValue, consumed: i64, out_buf: Ptr<u8>) -> ExecResult {
     let rest1 = elems.slice(arg0.bytes_consumed, elems.length());
     let arg1 = resp_parse(rest1);
     let rest2 = rest1.slice(arg1.bytes_consumed, rest1.length());
@@ -162,7 +162,7 @@ fn handle_set(smap: Ptr<StringMap>, elems: StringView, arg0: ParsedValue, consum
     return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
 }
 
-fn handle_get(smap: Ptr<StringMap>, elems: StringView, arg0: ParsedValue, consumed: i64, out_buf: Ptr<u8>) -> ExecResult {
+fn handle_get(smap: Ptr<StringMap>, elems: StringView, arg0: RespValue, consumed: i64, out_buf: Ptr<u8>) -> ExecResult {
     let rest1 = elems.slice(arg0.bytes_consumed, elems.length());
     let arg1 = resp_parse(rest1);
     let key = StringView::from_raw(arg1.str_ptr, arg1.str_len);
@@ -176,7 +176,7 @@ fn handle_get(smap: Ptr<StringMap>, elems: StringView, arg0: ParsedValue, consum
     return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
 }
 
-fn handle_del(smap: Ptr<StringMap>, elems: StringView, arg0: ParsedValue, consumed: i64, out_buf: Ptr<u8>) -> ExecResult {
+fn handle_del(smap: Ptr<StringMap>, elems: StringView, arg0: RespValue, consumed: i64, out_buf: Ptr<u8>) -> ExecResult {
     let rest1 = elems.slice(arg0.bytes_consumed, elems.length());
     let arg1 = resp_parse(rest1);
     let key = StringView::from_raw(arg1.str_ptr, arg1.str_len);
