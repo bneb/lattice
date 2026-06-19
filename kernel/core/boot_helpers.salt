@@ -71,7 +71,9 @@ global KERNEL_LINE_LEN: u32 = 0;
 global KERNEL_ECS_WORLD: u64 = 0;
 
 const PROC_READY: u64 = 1;
-const KERNEL_BASE: u64 = 0xFFFFFF0000000000;
+// KERNEL_BASE must match the higher-half offset from boot.S:
+// pml4 (0xFFFFFFFF8233E000) - pml4_phys (0x233E000) = 0xFFFFFFFF80000000
+const KERNEL_BASE: u64 = 0xFFFFFFFF80000000;
 global KERNEL_PML4_STASH: u64 = 0;
 
 @no_mangle
@@ -101,10 +103,8 @@ fn strcmp(s1_ptr: u64, len1: u32, s2_ptr: u64, len2: u32) -> bool {
 // ── NetD + Terminal SIP Spawn ──────────────────────────────────────
 
 @no_mangle
-pub fn boot_terminal_and_netd_sips(_unused_pml4: u64) {
+pub fn boot_terminal_and_netd_sips(_unused_pml4: u64, rx_ring_phys: u64, tx_ring_phys: u64) {
     serial.print("[KeuOS] Bootstrapping Sovereign Ring 3 Terminal SIP...\n");
-    // Reload PML4 from global on each use — Salt ABI does not preserve
-    // callee-saved registers across extern fn calls (fb_get_width etc).
     let kernel_pml4 = KERNEL_PML4_STASH;
     let fb_w = fb_get_width() as u64;
     let fb_h = fb_get_height() as u64;
@@ -120,15 +120,7 @@ pub fn boot_terminal_and_netd_sips(_unused_pml4: u64) {
         }
     }
 
-    let rx_ring_phys = pmm_alloc();
-    if rx_ring_phys == 0 {
-        serial.print("[KeuOS] FATAL: PMM alloc failed for RX ring\n");
-        return;
-    }
-    // FIXME: map_user_page_extern crashes during page table creation.
-    // Page splitting (PTE_PS) works, PMM has 56K pages, but zero_page
-    // or PTE write faults. Temporarily skip mapping to test spawn flow.
-    // map_user_page_extern(kernel_pml4, 0x40001000, rx_ring_phys, 0x7);
+    map_user_page_extern(kernel_pml4, 0x40001000, rx_ring_phys, 0x7);
     let rx_ring_kern = rx_ring_phys + KERNEL_BASE;
     ps2_set_rx_ring(rx_ring_kern);
     serial_set_rx_ring(rx_ring_kern);
@@ -137,8 +129,7 @@ pub fn boot_terminal_and_netd_sips(_unused_pml4: u64) {
     *((rx_ring_kern + 64) as &mut u64) = 0;
     *((rx_ring_kern + 128) as &mut u64) = 0;
 
-    let tx_ring_phys = pmm_alloc();
-    // FIXME: map_user_page_extern crash — skipping TX ring mapping
+    // FIXME: map_user_page_extern crash — skip
     // map_user_page_extern(kernel_pml4, 0x40003000, tx_ring_phys, 0x7);
     let tx_ring_kern = tx_ring_phys + KERNEL_BASE;
     *((tx_ring_kern + 0) as &mut u64) = 0;
@@ -147,11 +138,9 @@ pub fn boot_terminal_and_netd_sips(_unused_pml4: u64) {
     *((tx_ring_kern + 128) as &mut u64) = 0;
     KERNEL_TX_RING_VIRT = tx_ring_kern;
 
+    // Compute page loop skipped — map_user_page_extern disabled
     let mut cp_idx: u64 = 0;
     while cp_idx < 16 {
-        let cp_phys = pmm_alloc();
-        // FIXME: map_user_page_extern crash — skipping compute page
-        // map_user_page_extern(kernel_pml4, 0x40402000 + (cp_idx * 4096), cp_phys, 0x7);
         cp_idx = cp_idx + 1;
     }
 
