@@ -218,3 +218,43 @@ jobs:
             2>&1 | tee /tmp/qemu_output.txt
           # Verify kernel booted by checking for expected boot message
           grep -q "KeuOS" /tmp/qemu_output.txt && echo "SMOKE TEST PASSED" || echo "WARNING: boot message not found"
+
+  coverage:
+    name: Code coverage (llvm-cov)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            salt-front/target
+          key: ${{ runner.os }}-coverage-${{ hashFiles('salt-front/Cargo.lock') }}
+
+      - name: Run coverage (salt-front)
+        run: cargo llvm-cov --lcov --output-path lcov.info
+        working-directory: salt-front
+
+      - name: Run coverage (salt-lsp)
+        run: cargo llvm-cov --lcov --output-path lcov.info
+        working-directory: tools/salt-lsp
+
+      - name: Report coverage summary
+        run: |
+          echo "Coverage reports generated:"
+          ls -la salt-front/lcov.info tools/salt-lsp/lcov.info 2>/dev/null || true
+          if [ -f salt-front/lcov.info ]; then
+            echo "salt-front coverage:"
+            grep -m1 '"lines"' salt-front/lcov.info || head -5 salt-front/lcov.info
+          fi

@@ -58,18 +58,21 @@ fn write_all(ctx: Ptr<AofContext>, buf: Ptr<u8>, size: u64) {
     }
 }
 
-pub fn Aof_append_set(ctx: Ptr<AofContext>, key: StringView, val: StringView) {
+pub fn Aof_append_set(ctx: Ptr<AofContext>, key: StringView, val: StringView)
+    requires(key.length() > 0 && val.length() > 0)
+{
     if ctx.read().conn_ptr == 0 { return; }
-    let total_size = 1 + 4 + 4 + key.length() + val.length();
+    let total_size: i64 = 1 + 4 + 4 + key.length() + val.length();
     let buf = malloc(total_size);
-    
+    if buf.is_null() { return; }
+
     buf.write(1); // SET
     *((buf.offset(1) as u64) as &mut u32) = key.length() as u32;
     *((buf.offset(5) as u64) as &mut u32) = val.length() as u32;
-    
+
     memmove(buf.offset(9), key.ptr, key.length());
     memmove(buf.offset(9 + key.length()), val.ptr, val.length());
-    
+
     write_all(ctx, buf, total_size as u64);
 }
 
