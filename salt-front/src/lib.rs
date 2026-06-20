@@ -1,5 +1,5 @@
 #![deny(clippy::cognitive_complexity)]
-// removed warnings
+// removed warnings — pre-existing lints suppressed in clippy_allows module
 
 
 // Internal Compiler Error Macro
