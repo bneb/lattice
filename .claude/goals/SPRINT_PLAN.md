@@ -41,7 +41,7 @@ Each task = one thematic extraction. One task per session. Work top-to-bottom.
 - **Acceptance:** `netd_bench_gates_end.salt` exists, `netd_bench.salt` < 500 lines, `cargo test` passes, clippy clean
 - **Estimate:** 1 session
 
-### T-007: Extract PID/stack alloc from process.salt
+### [x] T-007: Extract PID/stack alloc from process.salt
 - **Target:** `kernel/core/process.salt` (520 → ~420 lines)
 - **Strategy:** Extract `alloc_pid`, `alloc_kernel_stack`, `sys_alloc_kernel_stack`, `free_kernel_stack`, `init_slot` into `kernel/core/process_resource.salt`
 - **Acceptance:** `process_resource.salt` exists, `process.salt` < 500 lines, `cargo test` passes, clippy clean

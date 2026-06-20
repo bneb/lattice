@@ -161,6 +161,27 @@ Extracted: test_gates_10_to_18 (ARP parse, TX bridge, TCP stack tests).
 - cargo test: 0 FAILED
 - cargo build --release: SUCCESS
 
+## 2026-06-19 — Session 8: T-007 process_resource extraction from process.salt
+
+### Files >500 lines (kernel/)
+| Metric | Before | After | Delta |
+|--------|--------|-------|-------|
+| Count | 4 | 3 | -1 |
+| Worst file | process.salt (520) | preempt_test.salt (509) | process.salt -24 |
+
+### process.salt specific
+| Metric | Before | After |
+|--------|--------|-------|
+| Lines | 520 | 496 (-5%) |
+| Files created | 0 | 1 (process_resource.salt, 51 lines) |
+
+Extracted: alloc_kernel_stack, free_kernel_stack into process_resource.salt.
+alloc_pid and init_slot stay — they're tightly coupled to PROC_TABLE globals
+and would require fragile offset computations if moved.
+
+### Verification
+- cargo test: 0 FAILED
+- cargo build --release: SUCCESS
+
 ### Next session targets (Tier 1 priority order)
-1. kernel/core/process.salt (520 lines)
-2. kernel/core/preempt_test.salt (509 lines)
+1. kernel/core/preempt_test.salt (509 lines)

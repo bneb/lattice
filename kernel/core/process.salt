@@ -153,49 +153,25 @@ pub fn alloc_pid() -> u64 {
 }
 
 // =============================================================================
-// alloc_kernel_stack — Allocate KSTACK_PAGES contiguous pages for kernel stack
+import kernel.core.process_resource
+
 // =============================================================================
-// Returns the physical base address. Stack grows downward, so
-// kernel_stack_top = base + KSTACK_SIZE.
-// We use identity-mapped physical memory for kernel stacks.
+// alloc_kernel_stack — Delegates to process_resource.salt
+// =============================================================================
 pub fn alloc_kernel_stack() -> u64 {
-    let mut base: u64 = 0;
-    let mut i: u64 = 0;
-    while i < KSTACK_PAGES {
-        let page = pmm.alloc();
-        if page == 0 {
-            serial.print("[process] FATAL: OOM allocating kernel stack\n");
-            return 0;
-        }
-        // Zero the page via higher-half virtual address
-        let page_virt = memory.phys_to_virt(memory.PhysAddr { val: page }).val;
-        let mut z: u64 = 0;
-        while z < PAGE_SIZE {
-            *((page_virt + z) as &mut u8) = 0;
-            z = z + 1;
-        }
-        if i == 0 {
-            base = page;
-        }
-        i = i + 1;
-    }
-    return base;
+    return process_resource.alloc_kernel_stack();
 }
 
 @no_mangle
 pub fn sys_alloc_kernel_stack() -> u64 {
-    return alloc_kernel_stack();
+    return process_resource.alloc_kernel_stack();
 }
 
 // =============================================================================
-// free_kernel_stack — Return kernel stack pages to PMM
+// free_kernel_stack — Delegates to process_resource.salt
 // =============================================================================
 pub fn free_kernel_stack(base: u64) {
-    let mut i: u64 = 0;
-    while i < KSTACK_PAGES {
-        pmm.free(base + i * PAGE_SIZE);
-        i = i + 1;
-    }
+    process_resource.free_kernel_stack(base);
 }
 
 // =============================================================================
