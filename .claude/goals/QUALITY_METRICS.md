@@ -183,5 +183,28 @@ and would require fragile offset computations if moved.
 - cargo test: 0 FAILED
 - cargo build --release: SUCCESS
 
-### Next session targets (Tier 1 priority order)
-1. kernel/core/preempt_test.salt (509 lines)
+## 2026-06-19 — Session 9: T-008 preempt_test layer_05 extraction
+
+### Files >500 lines (kernel/)
+| Metric | Before | After | Delta |
+|--------|--------|-------|-------|
+| Count | 3 | 2 | -1 |
+| Worst file | preempt_test.salt (509) | syscall.salt (582) | preempt_test.salt -198 |
+
+### preempt_test.salt specific
+| Metric | Before | After |
+|--------|--------|-------|
+| Lines | 509 | 311 (-39%) |
+| Files created | 0 | 1 (preempt_test_layer05.salt, 200 lines) |
+
+Extracted: test_layer_05, test_layer_05a, test_layer_05b into
+preempt_test_layer05.salt. run_preempt_tests calls them via extern fn.
+
+### Sprint 1 Complete
+All unblocked kernel .salt files now under 500 lines.
+Remaining: syscall.salt (582, blocked by u64↔Ptr<T> compiler limitation),
+exec_user.salt (500, at exact limit — needs trim to be comfortably under).
+
+### Next session: Sprint 2
+1. T-011: context.rs emit_verify (368→<100 lines, extract verification phases)
+2. T-012: type_bridge.rs drain_work_queue (325→<100 lines)

@@ -47,7 +47,7 @@ Each task = one thematic extraction. One task per session. Work top-to-bottom.
 - **Acceptance:** `process_resource.salt` exists, `process.salt` < 500 lines, `cargo test` passes, clippy clean
 - **Estimate:** 1 session
 
-### T-008: Extract layer_05 tests from preempt_test.salt
+### [x] T-008: Extract layer_05 tests from preempt_test.salt
 - **Target:** `kernel/core/preempt_test.salt` (509 → ~360 lines)
 - **Strategy:** Extract `test_layer_05`, `test_layer_05a`, `test_layer_05b` into `kernel/core/preempt_test_layer05.salt`
 - **Acceptance:** `preempt_test_layer05.salt` exists, `preempt_test.salt` < 500 lines, `cargo test` passes, clippy clean

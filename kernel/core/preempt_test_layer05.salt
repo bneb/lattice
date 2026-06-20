@@ -1,0 +1,200 @@
+// =============================================================================
+// kernel/core/preempt_test_layer05.salt
+// Preemptive test Layer 0.5 extracted from preempt_test.salt.
+//
+// Layer 0.5:  preemptive_stack_init frame validation
+// Layer 0.5a: vmm_clear_present isolation test
+// Layer 0.5b: sched_spawn isolation (no yield)
+// =============================================================================
+
+package kernel.core.preempt_test_layer05
+
+import kernel.drivers.serial
+
+// Cross-module externs
+extern fn sched_spawn(entry_addr: u64) -> u64;
+extern fn fiber_count() -> u64;
+extern fn preemptive_stack_init(stack_top: u64, entry_addr: u64) -> u64;
+extern fn pop_stack() -> u64;
+extern fn push_stack(addr: u64);
+extern fn read_u64(addr: u64) -> u64;
+
+// FFI for vmm guard page tests
+extern fn vmm_clear_present_abi(vaddr: u64);
+extern fn vmm_set_present_abi(vaddr: u64);
+
+// Accessors from preempt_test.salt
+extern fn fn_addr(f: fn()) -> u64;
+extern fn preempt_noop();
+extern fn fiber_step_fn(slot: u64) -> u64;
+extern fn fiber_stack_ptr(slot: u64) -> u64;
+
+const SLAB_SLOT_SIZE: u64 = 16384;
+
+// Test helpers (defined in preempt_test.salt)
+extern fn test_pass(name: &u8);
+extern fn test_fail(name: &u8, reason: &u8);
+extern fn test_value(name: &u8, val: u64);
+
+// =============================================================================
+// Layer 0.5: preemptive_stack_init frame validation
+// =============================================================================
+pub fn test_layer_05() {
+    serial.print("[TEST] Layer 0.5: Stack Init Frame Validation\n");
+
+    let stack_base = pop_stack();
+    test_value("stack_base", stack_base);
+    if stack_base == 0 {
+        test_fail("stack_alloc", "pop_stack returned 0");
+        return;
+    }
+    test_pass("stack_alloc");
+
+    let stack_top = stack_base + SLAB_SLOT_SIZE;
+    let entry_addr = fn_addr(preempt_noop);
+    test_value("entry_addr", entry_addr);
+
+    let ctx_ptr = preemptive_stack_init(stack_top, entry_addr);
+    test_value("ctx_ptr", ctx_ptr);
+
+    if ctx_ptr > stack_base {
+        if ctx_ptr < stack_top {
+            test_pass("ctx_in_range");
+        } else {
+            test_fail("ctx_in_range", "ctx_ptr >= stack_top");
+        }
+    } else {
+        test_fail("ctx_in_range", "ctx_ptr <= stack_base");
+    }
+
+    // Frame layout verification
+    let gpr0 = read_u64(ctx_ptr);
+    test_value("gpr0_rax", gpr0);
+    if gpr0 == 0 { test_pass("gpr0_zero"); }
+    else         { test_fail("gpr0_zero", "GPR[0] not zero"); }
+
+    let rip = read_u64(ctx_ptr + 120);
+    test_value("frame_rip", rip);
+    if rip == entry_addr { test_pass("rip_correct"); }
+    else                 { test_fail("rip_correct", "RIP mismatch"); }
+
+    let cs = read_u64(ctx_ptr + 128);
+    test_value("frame_cs", cs);
+    if cs == 8 { test_pass("cs_correct"); }
+    else       { test_fail("cs_correct", "CS != 0x08"); }
+
+    let rflags = read_u64(ctx_ptr + 136);
+    test_value("frame_rflags", rflags);
+    if rflags == 514 { test_pass("rflags_correct"); }
+    else             { test_fail("rflags_correct", "RFLAGS != 0x202"); }
+
+    let ss = read_u64(ctx_ptr + 152);
+    test_value("frame_ss", ss);
+    if ss == 16 { test_pass("ss_correct"); }
+    else        { test_fail("ss_correct", "SS != 0x10"); }
+
+    let rsp_val = read_u64(ctx_ptr + 144);
+    test_value("frame_rsp", rsp_val);
+    if rsp_val > stack_base {
+        if rsp_val <= stack_top {
+            test_pass("rsp_in_range");
+        } else {
+            test_fail("rsp_in_range", "RSP > stack_top");
+        }
+    } else {
+        test_fail("rsp_in_range", "RSP <= stack_base");
+    }
+
+    push_stack(stack_base);
+}
+
+// =============================================================================
+// Layer 0.5a: vmm_clear_present isolation test
+// =============================================================================
+pub fn test_layer_05a() {
+    serial.print("[TEST] Layer 0.5a: VMM Guard Page Isolation\n");
+
+    let stack_base = pop_stack();
+    if stack_base == 0 {
+        test_fail("vmm_guard_alloc", "pop_stack returned 0");
+        return;
+    }
+    test_pass("vmm_guard_alloc");
+    test_value("vmm_guard_base", stack_base);
+
+    serial.print("[TEST] Calling vmm_clear_present_abi...\n");
+    vmm_clear_present_abi(stack_base);
+    serial.print("[TEST] vmm_clear_present_abi returned!\n");
+    test_pass("vmm_guard_split");
+
+    let test_addr = stack_base + 4096;
+    serial.print("[TEST] Reading from base+4096...\n");
+    let val = *(test_addr as &u64);
+    test_pass("vmm_guard_read_above");
+
+    serial.print("[TEST] Writing to base+4096...\n");
+    *(test_addr as &mut u64) = 3735928559;
+    let readback = *(test_addr as &u64);
+    if readback == 3735928559 {
+        test_pass("vmm_guard_write_readback");
+    } else {
+        test_fail("vmm_guard_write_readback", "readback mismatch");
+        test_value("vmm_guard_readback", readback);
+    }
+
+    let near_top = stack_base + SLAB_SLOT_SIZE - 8;
+    serial.print("[TEST] Writing near stack_top...\n");
+    *(near_top as &mut u64) = 3405691582;
+    let top_readback = *(near_top as &u64);
+    if top_readback == 3405691582 {
+        test_pass("vmm_guard_top_readback");
+    } else {
+        test_fail("vmm_guard_top_readback", "readback mismatch");
+        test_value("vmm_guard_top_readback", top_readback);
+    }
+
+    vmm_set_present_abi(stack_base);
+    push_stack(stack_base);
+    serial.print("[TEST] Layer 0.5a COMPLETE\n");
+}
+
+// =============================================================================
+// Layer 0.5b: sched_spawn isolation (no yield)
+// =============================================================================
+pub fn test_layer_05b() {
+    serial.print("[TEST] Layer 0.5b: sched_spawn Isolation (no yield)\n");
+
+    let count_before = fiber_count();
+    test_value("spawn_iso_count_before", count_before);
+
+    let slot = sched_spawn(fn_addr(preempt_noop));
+    test_value("spawn_iso_slot", slot);
+
+    if slot >= 256 {
+        test_fail("spawn_iso", "slot >= 256");
+        return;
+    }
+    test_pass("spawn_iso");
+
+    let count_after = fiber_count();
+    test_value("spawn_iso_count_after", count_after);
+
+    if count_after == count_before + 1 {
+        test_pass("spawn_iso_count_increased");
+    } else {
+        test_fail("spawn_iso_count_increased", "count did not increase");
+    }
+
+    let sfn = fiber_step_fn(slot);
+    let sptr = fiber_stack_ptr(slot);
+    test_value("spawn_iso_step_fn", sfn);
+    test_value("spawn_iso_stack_ptr", sptr);
+
+    if sfn != 0 { test_pass("spawn_iso_step_fn_valid"); }
+    else        { test_fail("spawn_iso_step_fn_valid", "step_fn is 0"); }
+
+    if sptr != 0 { test_pass("spawn_iso_stack_ptr_valid"); }
+    else         { test_fail("spawn_iso_stack_ptr_valid", "stack_ptr is 0"); }
+
+    serial.print("[TEST] Layer 0.5b COMPLETE\n");
+}
