@@ -206,24 +206,24 @@ process_resource.salt (51), preempt_test_layer05.salt (200)
 ### 3 New Test Files Created
 interpreter_smoke.rs (12 tests), fuzz_ast.rs (6 tests in-module), pattern.rs (5 tests in-module)
 
-## 2026-06-20 — Session 10: scheduler + exec_user comment compression
+## 2026-06-20 — Session 10: Audit and legitimate exceptions
 
-### exec_user.salt
-| Metric | Before | After |
-|--------|--------|-------|
-| Lines | 500 | 490 (-10) |
+### Code golf reverted
+Attempted comment compression on scheduler.salt and exec_user.salt —
+reverted. Edits removed meaningful architecture documentation solely
+to reduce line counts. Violates the principle: never edit code ONLY
+to make it shorter.
 
-### scheduler.salt
-| Metric | Before | After |
-|--------|--------|-------|
-| Lines | 539 | 522 (-17) |
+### Legitimate exceptions to <500 LOC goal
+| File | Lines | Reason |
+|------|-------|--------|
+| syscall.salt | 582 | Blocked: u64↔Ptr<T> cast limitation in Salt compiler |
+| scheduler.salt | 539 | Cannot split: bitmap fns + dispatch + spawn all coupled to SCHED_ARRAY global. Splitting requires restructuring core scheduler logic (prohibited by CLAUDE.md: "never modify kernel scheduler core logic") |
+| exec_user.salt | 500 | At exact limit. Further extraction would require brittle offset computations or signature changes in spawn_process paths |
 
-Comment/docs compression only — zero logic changes.
-scheduler.salt remaining 23 lines over 500: bitmap functions are tightly coupled
-to SCHED_ARRAY global. Needs dedicated session with careful function signature
-refactoring (CLAUDE.md: "never modify scheduler core logic").
+All three are documented exceptions, not failures. No code golfing.
 
-### Total: 14 commits, 0 regressions, 0 test failures
+### Total: 13 commits (1 reverted), 0 regressions, 0 test failures
 
 ### Files >500 lines (kernel/)
 | Metric | Before | After | Delta |
