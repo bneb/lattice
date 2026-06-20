@@ -52,7 +52,29 @@ scheduler.salt: 8→0. Other kernel files unchanged.
 - cargo build --release: SUCCESS
 - cargo clippy: pre-existing errors (unrelated to .salt changes)
 
+## 2026-06-19 — Session 3: T-002 scheduling_sets extraction from sparse_set.salt
+
+### Files >500 lines (kernel/)
+| Metric | Before | After | Delta |
+|--------|--------|-------|-------|
+| Count | 9 | 8 | -1 |
+| Worst file | sparse_set.salt (671) | exec_user.salt (633) | sparse_set.salt -250 |
+
+### sparse_set.salt specific
+| Metric | Before | After |
+|--------|--------|-------|
+| Lines | 671 | 421 (-37%) |
+| Files created | 0 | 1 (scheduling_sets.salt, 394 lines) |
+
+Extracted sets: ThreadState, SchedulingPriority, CpuAffinity, EpochInfo, PerfCounters.
+Kept delegation wrappers in sparse_set.salt so existing callers (ecs_scheduler,
+ecs_epoch, ecs_ipc, ecs_bridge, commands, world) need no changes.
+
+### Verification
+- cargo test: 0 FAILED
+- cargo build --release: SUCCESS
+
 ### Next session targets (Tier 1 priority order)
-1. kernel/ecs/sparse_set.salt (671 lines)
-2. kernel/core/exec_user.salt (633 lines)
-3. kernel/core/ring3_test.salt (609 lines)
+1. kernel/core/exec_user.salt (633 lines)
+2. kernel/core/ring3_test.salt (609 lines)
+3. kernel/core/syscall.salt (582 lines)

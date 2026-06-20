@@ -1,0 +1,394 @@
+// =============================================================================
+// kernel/ecs/scheduling_sets.salt
+// Sparse-set storage for scheduling-related ECS components.
+// Extracted from sparse_set.salt — thread, priority, affinity, epoch, and
+// performance counter component sets.
+// =============================================================================
+
+package kernel.ecs.scheduling_sets
+
+import kernel.ecs.entity.{Entity, MAX_ENTITIES}
+import std.core.mem.size_of
+import kernel.ecs.components.{ThreadState, SchedulingPriority, CpuAffinity, EpochInfo, PerfCounters}
+
+extern fn malloc(size: i64) -> Ptr<u8>;
+
+// =============================================================================
+// ThreadSparseSet
+// =============================================================================
+pub struct ThreadSparseSet {
+    pub dense: Ptr<ThreadState>,
+    pub sparse: Ptr<u32>,
+    pub entity_map: Ptr<Entity>,
+    pub count: u32,
+}
+
+pub fn new_thread_set() -> Ptr<ThreadSparseSet> {
+    let t_size = size_of::<ThreadState>();
+    let d_ptr = malloc((MAX_ENTITIES as i64) * t_size) as Ptr<ThreadState>;
+    let s_ptr = malloc((MAX_ENTITIES as i64) * 4) as Ptr<u32>;
+    let e_ptr = malloc((MAX_ENTITIES as i64) * 8) as Ptr<Entity>;
+
+    let mut i: u32 = 0;
+    while i < MAX_ENTITIES {
+        (*(( (s_ptr as u64) + (i as u64) * 4 ) as &mut u32)) = 0xFFFFFFFF;
+        i = i + 1;
+    }
+
+    let p = malloc(32) as Ptr<ThreadSparseSet>;
+    p[0] = ThreadSparseSet { dense: d_ptr, sparse: s_ptr, entity_map: e_ptr, count: 0 };
+    return p;
+}
+
+pub fn thread_set_insert(set: Ptr<ThreadSparseSet>, entity: Entity, component: ThreadState) {
+    let sid = entity.id;
+    if sid >= MAX_ENTITIES { return; }
+    let s_ptr = set[0].sparse;
+    let existing = (*(( (s_ptr as u64) + (sid as u64) * 4 ) as &u32));
+    if existing != 0xFFFFFFFF {
+        (*(( (set[0].dense as u64) + (existing as u64) * (size_of::<ThreadState>() as u64) ) as &mut ThreadState)) = component;
+        (*(( (set[0].entity_map as u64) + (existing as u64) * 8 ) as &mut Entity)) = entity;
+        return;
+    }
+    let c = set[0].count;
+    if c >= MAX_ENTITIES { return; }
+    (*(( (set[0].dense as u64) + (c as u64) * (size_of::<ThreadState>() as u64) ) as &mut ThreadState)) = component;
+    (*(( (set[0].entity_map as u64) + (c as u64) * 8 ) as &mut Entity)) = entity;
+    (*(( (s_ptr as u64) + (sid as u64) * 4 ) as &mut u32)) = c;
+    set[0].count = c + 1;
+}
+
+pub fn thread_set_get_mut(set: Ptr<ThreadSparseSet>, entity: Entity) -> Ptr<ThreadState> {
+    let sid = entity.id;
+    if sid >= MAX_ENTITIES { return 0 as Ptr<ThreadState>; }
+    let dense_idx = (*(( (set[0].sparse as u64) + (sid as u64) * 4 ) as &u32));
+    if dense_idx != 0xFFFFFFFF {
+        if (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &Entity)).gen == entity.gen {
+            return ((set[0].dense as u64) + (dense_idx as u64) * (size_of::<ThreadState>() as u64)) as Ptr<ThreadState>;
+        }
+    }
+    return 0 as Ptr<ThreadState>;
+}
+
+pub fn thread_set_remove(set: Ptr<ThreadSparseSet>, entity: Entity) {
+    let sid = entity.id;
+    if sid >= MAX_ENTITIES { return; }
+    let dense_idx = (*(( (set[0].sparse as u64) + (sid as u64) * 4 ) as &u32));
+    if dense_idx != 0xFFFFFFFF {
+        if (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &Entity)).gen == entity.gen {
+            let last_idx = set[0].count - 1;
+            if dense_idx != last_idx {
+                (*(( (set[0].dense as u64) + (dense_idx as u64) * (size_of::<ThreadState>() as u64) ) as &mut ThreadState)) = (*(( (set[0].dense as u64) + (last_idx as u64) * (size_of::<ThreadState>() as u64) ) as &ThreadState));
+                let last_entity = (*(( (set[0].entity_map as u64) + (last_idx as u64) * 8 ) as &Entity));
+                (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &mut Entity)) = last_entity;
+                (*(( (set[0].sparse as u64) + (last_entity.id as u64) * 4 ) as &mut u32)) = dense_idx;
+            }
+            (*(( (set[0].sparse as u64) + (sid as u64) * 4 ) as &mut u32)) = 0xFFFFFFFF;
+            set[0].count = last_idx;
+        }
+    }
+}
+
+// =============================================================================
+// PrioritySparseSet
+// =============================================================================
+pub struct PrioritySparseSet {
+    pub dense: Ptr<SchedulingPriority>,
+    pub sparse: Ptr<u32>,
+    pub entity_map: Ptr<Entity>,
+    pub count: u32,
+}
+
+pub fn new_priority_set() -> Ptr<PrioritySparseSet> {
+    let t_size = size_of::<SchedulingPriority>();
+    let d_ptr = malloc((MAX_ENTITIES as i64) * t_size) as Ptr<SchedulingPriority>;
+    let s_ptr = malloc((MAX_ENTITIES as i64) * 4) as Ptr<u32>;
+    let e_ptr = malloc((MAX_ENTITIES as i64) * 8) as Ptr<Entity>;
+
+    let mut i: u32 = 0;
+    while i < MAX_ENTITIES {
+        (*(( (s_ptr as u64) + (i as u64) * 4 ) as &mut u32)) = 0xFFFFFFFF;
+        i = i + 1;
+    }
+
+    let p = malloc(32) as Ptr<PrioritySparseSet>;
+    p[0] = PrioritySparseSet { dense: d_ptr, sparse: s_ptr, entity_map: e_ptr, count: 0 };
+    return p;
+}
+
+pub fn priority_set_insert(set: Ptr<PrioritySparseSet>, entity: Entity, component: SchedulingPriority) {
+    let sid = entity.id;
+    if sid >= MAX_ENTITIES { return; }
+    let s_ptr = set[0].sparse;
+    let existing = (*(( (s_ptr as u64) + (sid as u64) * 4 ) as &u32));
+    if existing != 0xFFFFFFFF {
+        (*(( (set[0].dense as u64) + (existing as u64) * (size_of::<SchedulingPriority>() as u64) ) as &mut SchedulingPriority)) = component;
+        (*(( (set[0].entity_map as u64) + (existing as u64) * 8 ) as &mut Entity)) = entity;
+        return;
+    }
+    let c = set[0].count;
+    if c >= MAX_ENTITIES { return; }
+    (*(( (set[0].dense as u64) + (c as u64) * (size_of::<SchedulingPriority>() as u64) ) as &mut SchedulingPriority)) = component;
+    (*(( (set[0].entity_map as u64) + (c as u64) * 8 ) as &mut Entity)) = entity;
+    (*(( (s_ptr as u64) + (sid as u64) * 4 ) as &mut u32)) = c;
+    set[0].count = c + 1;
+}
+
+pub fn priority_set_get(set: Ptr<PrioritySparseSet>, entity: Entity) -> Ptr<SchedulingPriority> {
+    let sid = entity.id;
+    if sid >= MAX_ENTITIES { return 0 as Ptr<SchedulingPriority>; }
+    let dense_idx = (*(( (set[0].sparse as u64) + (sid as u64) * 4 ) as &u32));
+    if dense_idx != 0xFFFFFFFF {
+        if (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &Entity)).gen == entity.gen {
+            return ((set[0].dense as u64) + (dense_idx as u64) * (size_of::<SchedulingPriority>() as u64)) as Ptr<SchedulingPriority>;
+        }
+    }
+    return 0 as Ptr<SchedulingPriority>;
+}
+
+pub fn priority_set_remove(set: Ptr<PrioritySparseSet>, entity: Entity) {
+    let sid = entity.id;
+    if sid >= MAX_ENTITIES { return; }
+    let dense_idx = (*(( (set[0].sparse as u64) + (sid as u64) * 4 ) as &u32));
+    if dense_idx != 0xFFFFFFFF {
+        if (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &Entity)).gen == entity.gen {
+            let last_idx = set[0].count - 1;
+            if dense_idx != last_idx {
+                (*(( (set[0].dense as u64) + (dense_idx as u64) * (size_of::<SchedulingPriority>() as u64) ) as &mut SchedulingPriority)) = (*(( (set[0].dense as u64) + (last_idx as u64) * (size_of::<SchedulingPriority>() as u64) ) as &SchedulingPriority));
+                let last_entity = (*(( (set[0].entity_map as u64) + (last_idx as u64) * 8 ) as &Entity));
+                (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &mut Entity)) = last_entity;
+                (*(( (set[0].sparse as u64) + (last_entity.id as u64) * 4 ) as &mut u32)) = dense_idx;
+            }
+            (*(( (set[0].sparse as u64) + (sid as u64) * 4 ) as &mut u32)) = 0xFFFFFFFF;
+            set[0].count = last_idx;
+        }
+    }
+}
+
+// =============================================================================
+// AffinitySparseSet
+// =============================================================================
+pub struct AffinitySparseSet {
+    pub dense: Ptr<CpuAffinity>,
+    pub sparse: Ptr<u32>,
+    pub entity_map: Ptr<Entity>,
+    pub count: u32,
+}
+
+pub fn new_affinity_set() -> Ptr<AffinitySparseSet> {
+    let t_size = size_of::<CpuAffinity>();
+    let d_ptr = malloc((MAX_ENTITIES as i64) * t_size) as Ptr<CpuAffinity>;
+    let s_ptr = malloc((MAX_ENTITIES as i64) * 4) as Ptr<u32>;
+    let e_ptr = malloc((MAX_ENTITIES as i64) * 8) as Ptr<Entity>;
+
+    let mut i: u32 = 0;
+    while i < MAX_ENTITIES {
+        (*(( (s_ptr as u64) + (i as u64) * 4 ) as &mut u32)) = 0xFFFFFFFF;
+        i = i + 1;
+    }
+
+    let p = malloc(size_of::<AffinitySparseSet>() as i64) as Ptr<AffinitySparseSet>;
+    p[0] = AffinitySparseSet { dense: d_ptr, sparse: s_ptr, entity_map: e_ptr, count: 0 };
+    return p;
+}
+
+pub fn affinity_set_insert(set: Ptr<AffinitySparseSet>, entity: Entity, component: CpuAffinity) {
+    let id = entity.id;
+    if id >= MAX_ENTITIES { return; }
+    let s_ptr = set[0].sparse;
+    let dense_idx = (*(( (s_ptr as u64) + (id as u64) * 4 ) as &u32));
+    if dense_idx != 0xFFFFFFFF {
+        (*(( (set[0].dense as u64) + (dense_idx as u64) * (size_of::<CpuAffinity>() as u64) ) as &mut CpuAffinity)) = component;
+        (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &mut Entity)) = entity;
+        return;
+    }
+    let count = set[0].count;
+    if count >= MAX_ENTITIES { return; }
+    (*(( (set[0].dense as u64) + (count as u64) * (size_of::<CpuAffinity>() as u64) ) as &mut CpuAffinity)) = component;
+    (*(( (set[0].entity_map as u64) + (count as u64) * 8 ) as &mut Entity)) = entity;
+    (*(( (set[0].sparse as u64) + (id as u64) * 4 ) as &mut u32)) = count;
+    set[0].count = count + 1;
+}
+
+pub fn affinity_set_get(set: Ptr<AffinitySparseSet>, entity: Entity) -> Ptr<CpuAffinity> {
+    let sid = entity.id;
+    if sid >= MAX_ENTITIES { return 0 as Ptr<CpuAffinity>; }
+    let dense_idx = (*(( (set[0].sparse as u64) + (sid as u64) * 4 ) as &u32));
+    if dense_idx != 0xFFFFFFFF {
+        if (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &Entity)).gen == entity.gen {
+            return ((set[0].dense as u64) + (dense_idx as u64) * (size_of::<CpuAffinity>() as u64)) as Ptr<CpuAffinity>;
+        }
+    }
+    return 0 as Ptr<CpuAffinity>;
+}
+
+pub fn affinity_set_remove(set: Ptr<AffinitySparseSet>, entity: Entity) {
+    let sid = entity.id;
+    if sid >= MAX_ENTITIES { return; }
+    let dense_idx = (*(( (set[0].sparse as u64) + (sid as u64) * 4 ) as &u32));
+    if dense_idx != 0xFFFFFFFF {
+        if (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &Entity)).gen == entity.gen {
+            let last_idx = set[0].count - 1;
+            if dense_idx != last_idx {
+                (*(( (set[0].dense as u64) + (dense_idx as u64) * (size_of::<CpuAffinity>() as u64) ) as &mut CpuAffinity)) = (*(( (set[0].dense as u64) + (last_idx as u64) * (size_of::<CpuAffinity>() as u64) ) as &CpuAffinity));
+                let last_entity = (*(( (set[0].entity_map as u64) + (last_idx as u64) * 8 ) as &Entity));
+                (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &mut Entity)) = last_entity;
+                (*(( (set[0].sparse as u64) + (last_entity.id as u64) * 4 ) as &mut u32)) = dense_idx;
+            }
+            (*(( (set[0].sparse as u64) + (sid as u64) * 4 ) as &mut u32)) = 0xFFFFFFFF;
+            set[0].count = last_idx;
+        }
+    }
+}
+
+// =============================================================================
+// EpochInfoSparseSet
+// =============================================================================
+pub struct EpochInfoSparseSet {
+    pub dense: Ptr<EpochInfo>,
+    pub sparse: Ptr<u32>,
+    pub entity_map: Ptr<Entity>,
+    pub count: u32,
+}
+
+pub fn new_epoch_info_set() -> Ptr<EpochInfoSparseSet> {
+    let t_size = size_of::<EpochInfo>();
+    let d_ptr = malloc((MAX_ENTITIES as i64) * t_size) as Ptr<EpochInfo>;
+    let s_ptr = malloc((MAX_ENTITIES as i64) * 4) as Ptr<u32>;
+    let e_ptr = malloc((MAX_ENTITIES as i64) * 8) as Ptr<Entity>;
+
+    let mut i: u32 = 0;
+    while i < MAX_ENTITIES {
+        (*(( (s_ptr as u64) + (i as u64) * 4 ) as &mut u32)) = 0xFFFFFFFF;
+        i = i + 1;
+    }
+
+    let p = malloc(size_of::<EpochInfoSparseSet>() as i64) as Ptr<EpochInfoSparseSet>;
+    p[0] = EpochInfoSparseSet { dense: d_ptr, sparse: s_ptr, entity_map: e_ptr, count: 0 };
+    return p;
+}
+
+pub fn epoch_info_set_insert(set: Ptr<EpochInfoSparseSet>, entity: Entity, component: EpochInfo) {
+    let id = entity.id;
+    if id >= MAX_ENTITIES { return; }
+    let s_ptr = set[0].sparse;
+    let dense_idx = (*(( (s_ptr as u64) + (id as u64) * 4 ) as &u32));
+    if dense_idx != 0xFFFFFFFF {
+        (*(( (set[0].dense as u64) + (dense_idx as u64) * (size_of::<EpochInfo>() as u64) ) as &mut EpochInfo)) = component;
+        (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &mut Entity)) = entity;
+        return;
+    }
+    let count = set[0].count;
+    if count >= MAX_ENTITIES { return; }
+    (*(( (set[0].dense as u64) + (count as u64) * (size_of::<EpochInfo>() as u64) ) as &mut EpochInfo)) = component;
+    (*(( (set[0].entity_map as u64) + (count as u64) * 8 ) as &mut Entity)) = entity;
+    (*(( (set[0].sparse as u64) + (id as u64) * 4 ) as &mut u32)) = count;
+    set[0].count = count + 1;
+}
+
+pub fn epoch_info_set_get(set: Ptr<EpochInfoSparseSet>, entity: Entity) -> Ptr<EpochInfo> {
+    let sid = entity.id;
+    if sid >= MAX_ENTITIES { return 0 as Ptr<EpochInfo>; }
+    let dense_idx = (*(( (set[0].sparse as u64) + (sid as u64) * 4 ) as &u32));
+    if dense_idx != 0xFFFFFFFF {
+        if (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &Entity)).gen == entity.gen {
+            return ((set[0].dense as u64) + (dense_idx as u64) * (size_of::<EpochInfo>() as u64)) as Ptr<EpochInfo>;
+        }
+    }
+    return 0 as Ptr<EpochInfo>;
+}
+
+pub fn epoch_info_set_remove(set: Ptr<EpochInfoSparseSet>, entity: Entity) {
+    let sid = entity.id;
+    if sid >= MAX_ENTITIES { return; }
+    let dense_idx = (*(( (set[0].sparse as u64) + (sid as u64) * 4 ) as &u32));
+    if dense_idx != 0xFFFFFFFF {
+        if (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &Entity)).gen == entity.gen {
+            let last_idx = set[0].count - 1;
+            if dense_idx != last_idx {
+                (*(( (set[0].dense as u64) + (dense_idx as u64) * (size_of::<EpochInfo>() as u64) ) as &mut EpochInfo)) = (*(( (set[0].dense as u64) + (last_idx as u64) * (size_of::<EpochInfo>() as u64) ) as &EpochInfo));
+                let last_entity = (*(( (set[0].entity_map as u64) + (last_idx as u64) * 8 ) as &Entity));
+                (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &mut Entity)) = last_entity;
+                (*(( (set[0].sparse as u64) + (last_entity.id as u64) * 4 ) as &mut u32)) = dense_idx;
+            }
+            (*(( (set[0].sparse as u64) + (sid as u64) * 4 ) as &mut u32)) = 0xFFFFFFFF;
+            set[0].count = last_idx;
+        }
+    }
+}
+
+// =============================================================================
+// PerfCountersSparseSet
+// =============================================================================
+pub struct PerfCountersSparseSet {
+    pub dense: Ptr<PerfCounters>,
+    pub sparse: Ptr<u32>,
+    pub entity_map: Ptr<Entity>,
+    pub count: u32,
+}
+
+pub fn new_perf_counters_set() -> Ptr<PerfCountersSparseSet> {
+    let t_size = size_of::<PerfCounters>();
+    let d_ptr = malloc((MAX_ENTITIES as i64) * t_size) as Ptr<PerfCounters>;
+    let s_ptr = malloc((MAX_ENTITIES as i64) * 4) as Ptr<u32>;
+    let e_ptr = malloc((MAX_ENTITIES as i64) * 8) as Ptr<Entity>;
+
+    let mut i: u32 = 0;
+    while i < MAX_ENTITIES {
+        (*(( (s_ptr as u64) + (i as u64) * 4 ) as &mut u32)) = 0xFFFFFFFF;
+        i = i + 1;
+    }
+
+    let p = malloc(size_of::<PerfCountersSparseSet>() as i64) as Ptr<PerfCountersSparseSet>;
+    p[0] = PerfCountersSparseSet { dense: d_ptr, sparse: s_ptr, entity_map: e_ptr, count: 0 };
+    return p;
+}
+
+pub fn perf_counters_set_insert(set: Ptr<PerfCountersSparseSet>, entity: Entity, component: PerfCounters) {
+    let id = entity.id;
+    if id >= MAX_ENTITIES { return; }
+    let s_ptr = set[0].sparse;
+    let dense_idx = (*(( (s_ptr as u64) + (id as u64) * 4 ) as &u32));
+    if dense_idx != 0xFFFFFFFF {
+        (*(( (set[0].dense as u64) + (dense_idx as u64) * (size_of::<PerfCounters>() as u64) ) as &mut PerfCounters)) = component;
+        (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &mut Entity)) = entity;
+        return;
+    }
+    let count = set[0].count;
+    if count >= MAX_ENTITIES { return; }
+    (*(( (set[0].dense as u64) + (count as u64) * (size_of::<PerfCounters>() as u64) ) as &mut PerfCounters)) = component;
+    (*(( (set[0].entity_map as u64) + (count as u64) * 8 ) as &mut Entity)) = entity;
+    (*(( (set[0].sparse as u64) + (id as u64) * 4 ) as &mut u32)) = count;
+    set[0].count = count + 1;
+}
+
+pub fn perf_counters_set_get(set: Ptr<PerfCountersSparseSet>, entity: Entity) -> Ptr<PerfCounters> {
+    let sid = entity.id;
+    if sid >= MAX_ENTITIES { return 0 as Ptr<PerfCounters>; }
+    let dense_idx = (*(( (set[0].sparse as u64) + (sid as u64) * 4 ) as &u32));
+    if dense_idx != 0xFFFFFFFF {
+        if (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &Entity)).gen == entity.gen {
+            return ((set[0].dense as u64) + (dense_idx as u64) * (size_of::<PerfCounters>() as u64)) as Ptr<PerfCounters>;
+        }
+    }
+    return 0 as Ptr<PerfCounters>;
+}
+
+pub fn perf_counters_set_remove(set: Ptr<PerfCountersSparseSet>, entity: Entity) {
+    let sid = entity.id;
+    if sid >= MAX_ENTITIES { return; }
+    let dense_idx = (*(( (set[0].sparse as u64) + (sid as u64) * 4 ) as &u32));
+    if dense_idx != 0xFFFFFFFF {
+        if (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &Entity)).gen == entity.gen {
+            let last_idx = set[0].count - 1;
+            if dense_idx != last_idx {
+                (*(( (set[0].dense as u64) + (dense_idx as u64) * (size_of::<PerfCounters>() as u64) ) as &mut PerfCounters)) = (*(( (set[0].dense as u64) + (last_idx as u64) * (size_of::<PerfCounters>() as u64) ) as &PerfCounters));
+                let last_entity = (*(( (set[0].entity_map as u64) + (last_idx as u64) * 8 ) as &Entity));
+                (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &mut Entity)) = last_entity;
+                (*(( (set[0].sparse as u64) + (last_entity.id as u64) * 4 ) as &mut u32)) = dense_idx;
+            }
+            (*(( (set[0].sparse as u64) + (sid as u64) * 4 ) as &mut u32)) = 0xFFFFFFFF;
+            set[0].count = last_idx;
+        }
+    }
+}

@@ -11,7 +11,7 @@ Each task = one thematic extraction. One task per session. Work top-to-bottom.
 - **Acceptance:** `ring_ops.salt` exists, `ring_abi.salt` < 500 lines, `cargo test` passes, clippy clean
 - **Estimate:** 1 session
 
-### T-002: Extract scheduling sets from sparse_set.salt
+### [x] T-002: Extract scheduling sets from sparse_set.salt
 - **Target:** `kernel/ecs/sparse_set.salt` (671 → ~370 lines)
 - **Strategy:** Extract thread, priority, affinity, epoch_info, and perf_counters sets into `kernel/ecs/scheduling_sets.salt`. Leave ipc_cap, socket, and memmap sets in sparse_set.salt.
 - **Acceptance:** `scheduling_sets.salt` exists, `sparse_set.salt` < 500 lines, `cargo test` passes, clippy clean
