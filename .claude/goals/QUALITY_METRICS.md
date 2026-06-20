@@ -141,7 +141,26 @@ capability.salt) working without changes.
 - cargo test: 0 FAILED
 - cargo build --release: SUCCESS
 
+## 2026-06-19 — Session 7: T-006 netd_bench gates_10_to_18 extraction
+
+### Files >500 lines (kernel/)
+| Metric | Before | After | Delta |
+|--------|--------|-------|-------|
+| Count | 5 | 4 | -1 |
+| Worst file | netd_bench.salt (570) | process.salt (520) | netd_bench.salt -162 |
+
+### netd_bench.salt specific
+| Metric | Before | After |
+|--------|--------|-------|
+| Lines | 570 | 408 (-28%) |
+| Files created | 0 | 1 (netd_bench_gates_end.salt, 183 lines) |
+
+Extracted: test_gates_10_to_18 (ARP parse, TX bridge, TCP stack tests).
+
+### Verification
+- cargo test: 0 FAILED
+- cargo build --release: SUCCESS
+
 ### Next session targets (Tier 1 priority order)
-1. kernel/benchmarks/netd_bench.salt (570 lines)
-2. kernel/core/process.salt (520 lines)
-3. kernel/core/preempt_test.salt (509 lines)
+1. kernel/core/process.salt (520 lines)
+2. kernel/core/preempt_test.salt (509 lines)

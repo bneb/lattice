@@ -35,7 +35,7 @@ Each task = one thematic extraction. One task per session. Work top-to-bottom.
 - **Acceptance:** `paging_destroy.salt` exists, `user_paging.salt` < 500 lines, `cargo test` passes, clippy clean
 - **Estimate:** 1 session
 
-### T-006: Extract gates_10_to_18 from netd_bench.salt
+### [x] T-006: Extract gates_10_to_18 from netd_bench.salt
 - **Target:** `kernel/benchmarks/netd_bench.salt` (570 → ~405 lines)
 - **Strategy:** Extract `test_gates_10_to_18` (largest test, ~167 lines) into `kernel/benchmarks/netd_bench_gates_end.salt`
 - **Acceptance:** `netd_bench_gates_end.salt` exists, `netd_bench.salt` < 500 lines, `cargo test` passes, clippy clean
