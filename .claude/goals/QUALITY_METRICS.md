@@ -33,7 +33,26 @@ scheduler.salt: 8→0. Other kernel files unchanged.
 - 1,243 passed, 0 failed (unchanged)
 - Kernel build: SUCCESS
 
+## 2026-06-19 — Session 2: T-001 ring_ops extraction from ring_abi.salt
+
+### Files >500 lines (kernel/)
+| Metric | Before | After | Delta |
+|--------|--------|-------|-------|
+| Count | 10 | 9 | -1 |
+| Worst file | ring_abi.salt (732) | sparse_set.salt (671) | ring_abi.salt -355 |
+
+### ring_abi.salt specific
+| Metric | Before | After |
+|--------|--------|-------|
+| Lines | 732 | 377 (-48%) |
+| Files created | 0 | 1 (ring_ops.salt, 376 lines) |
+
+### Verification
+- cargo test: 0 FAILED
+- cargo build --release: SUCCESS
+- cargo clippy: pre-existing errors (unrelated to .salt changes)
+
 ### Next session targets (Tier 1 priority order)
-1. kernel/core/ring_abi.salt (732 lines)
+1. kernel/ecs/sparse_set.salt (671 lines)
 2. kernel/core/exec_user.salt (633 lines)
 3. kernel/core/ring3_test.salt (609 lines)
