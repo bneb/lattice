@@ -11,13 +11,13 @@ pub fn extract_ptr_inner(name: &str) -> Option<String> {
 }
 
 /// Flattening Loop
-pub fn flatten_inception_recursive(ty: &Type, depth: usize, debug_ctx: &str) -> Type {
+pub fn flatten_nested_ptr(ty: &Type, depth: usize, debug_ctx: &str) -> Type {
     if depth > 10 { return ty.clone(); }
     match ty {
         Type::Concrete(template, args) if template.contains("Ptr") && !args.is_empty() => {
             if args[0].k_is_ptr_type() {
                 // Drill down to the innermost non-pointer type
-                return flatten_inception_recursive(&args[0], depth + 1, debug_ctx);
+                return flatten_nested_ptr(&args[0], depth + 1, debug_ctx);
             }
             // If it's a pointer but the inner is NOT a pointer, we stay as is
             // EXCEPT if we are already in a recursion (depth > 0), in which case we strip this last layer too
@@ -27,7 +27,7 @@ pub fn flatten_inception_recursive(ty: &Type, depth: usize, debug_ctx: &str) -> 
         Type::Struct(name) if name.contains("Ptr") => {
             if let Some(inner_name) = extract_ptr_inner(name) {
                 let t = Type::Struct(inner_name);
-                return flatten_inception_recursive(&t, depth + 1, debug_ctx);
+                return flatten_nested_ptr(&t, depth + 1, debug_ctx);
             }
             ty.clone()
         }

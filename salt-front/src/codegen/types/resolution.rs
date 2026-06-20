@@ -4,7 +4,7 @@ use crate::common::mangling::Mangler;
 use std::collections::HashMap;
 
 pub fn resolve_codegen_type(ctx: &mut LoweringContext, ty: &Type) -> Type {
-    let flattened = super::layout::flatten_inception_recursive(ty, 0, "codegen_resolve");
+    let flattened = super::layout::flatten_nested_ptr(ty, 0, "codegen_resolve");
     let res = match &flattened {
         Type::Enum(name) => {
             let mut resolved_name = name.clone();

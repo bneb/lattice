@@ -121,11 +121,9 @@ impl Type {
         return Ok("!llvm.ptr".to_string());
     }
 
-    // Tensor Lowering: Tensor<T, [D]> -> memref<D x T>
-    // This formalizes the "KeuOS Rule" - types carry their shape bounds.
+    // Tensor<T, [D]> lowers to an opaque pointer; the MemRef descriptor is
+    // constructed at use sites.
     if let Type::Tensor(_inner, _shape) = self {
-         // Tensor Storage (Opaque Handle)
-         // We store the base pointer on the stack. The MemRef descriptor is hydrated at use sites.
          return Ok("!llvm.ptr".to_string());
     }
 
@@ -165,9 +163,8 @@ impl Type {
        }
     }
     
-    // NOMINAL STRIKE: Struct/Concrete types MUST return named aliases
-    // This ensures type identity consistency across alloca, store, load, and GEP operations.
-    // The named alias is the Single Source of Truth for struct memory layout.
+    // Struct and Concrete types return named aliases for consistent identity
+    // across alloca, store, load, and GEP operations.
     match self {
         Type::Struct(name) => {
             // [SIMD] Intercept vector type aliases BEFORE struct alias resolution
@@ -232,15 +229,13 @@ impl Type {
 } // End impl Type
 
 // ============================================================================
-// Inception Guard
-// Recursively flattens nested pointers to enforce the Single Indirection Property.
+// Recursively flatten nested pointers to a single indirection level
 // ============================================================================
 
 
 
 // ============================================================================
-// [ZERO-TRUST] Layout Prover
-// Validates that two types are bit-for-bit identical before allowing a cast.
+// Validate that two types are bit-identical before allowing a cast
 // ============================================================================
 
 
@@ -891,7 +886,7 @@ fn peel_already_specialized_name(ctx: &mut LoweringContext, name: &str) -> Optio
 }
 
 impl Type {
-    /// Ensures Pointers and References always become !llvm.ptr for the Apple M4.
+    /// Pointers and References always lower to !llvm.ptr.
     pub fn to_mlir_type(&self, ctx: &mut LoweringContext) -> Result<String, String> {
         to_mlir_type(ctx, self)
     }
@@ -899,7 +894,7 @@ impl Type {
 // End impl Type
 
 // ============================================================================
-// Inception Guard & Layout Prover
+// Pointer flattening and layout validation
 // ============================================================================
 
 /// Extracts the inner type from mangled pointer names.
@@ -913,13 +908,13 @@ pub fn extract_ptr_inner(name: &str) -> Option<String> {
 }
 
 /// Flattening Loop
-pub fn flatten_inception_recursive(ty: &Type, depth: usize, debug_ctx: &str) -> Type {
+pub fn flatten_nested_ptr(ty: &Type, depth: usize, debug_ctx: &str) -> Type {
     if depth > 10 { return ty.clone(); }
     match ty {
         Type::Concrete(template, args) if template.contains("Ptr") && !args.is_empty() => {
             if args[0].k_is_ptr_type() {
                 // Drill down to the innermost non-pointer type
-                return flatten_inception_recursive(&args[0], depth + 1, debug_ctx);
+                return flatten_nested_ptr(&args[0], depth + 1, debug_ctx);
             }
             // If it's a pointer but the inner is NOT a pointer, we stay as is
             // EXCEPT if we are already in a recursion (depth > 0), in which case we strip this last layer too
@@ -929,7 +924,7 @@ pub fn flatten_inception_recursive(ty: &Type, depth: usize, debug_ctx: &str) -> 
         Type::Struct(name) if name.contains("Ptr") => {
             if let Some(inner_name) = extract_ptr_inner(name) {
                 let t = Type::Struct(inner_name);
-                return flatten_inception_recursive(&t, depth + 1, debug_ctx);
+                return flatten_nested_ptr(&t, depth + 1, debug_ctx);
             }
             ty.clone()
         }
@@ -937,7 +932,7 @@ pub fn flatten_inception_recursive(ty: &Type, depth: usize, debug_ctx: &str) -> 
     }
 }
 
-/// [ZERO-TRUST] Layout Prover
+/// Validate that two types share the same physical layout before a cast.
 pub fn prove_layout_compatibility(struct_registry: &std::collections::HashMap<crate::types::TypeKey, crate::registry::StructInfo>, from: &Type, to: &Type) -> bool {
     if from == to { return true; }
     from.size_of(struct_registry) == to.size_of(struct_registry) && from.align_of(struct_registry) == to.align_of(struct_registry)
@@ -1419,7 +1414,7 @@ fn resolve_codegen_type_concrete(ctx: &mut LoweringContext, base_name: &str, tar
 }
 
 pub fn resolve_codegen_type(ctx: &mut LoweringContext, ty: &Type) -> Type {
-    let flattened = flatten_inception_recursive(ty, 0, "codegen_resolve");
+    let flattened = flatten_nested_ptr(ty, 0, "codegen_resolve");
     match &flattened {
         Type::Enum(name) => Type::Enum(name.clone()),
         Type::Generic(name) => {
@@ -2040,10 +2035,10 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         });
 
         // Prevent recursive specialization
-        // Use the reusable flatten_inception_recursive helper to enforce Single Indirection Property
+        // Recursively flatten nested pointer wrappers
         let concrete_tys: Vec<Type> = concrete_tys.into_iter().enumerate().map(|(i, ty)| {
             let debug_ctx = format!("{}[arg {}]", func_name, i);
-            flatten_inception_recursive(&ty, 0, &debug_ctx)
+            flatten_nested_ptr(&ty, 0, &debug_ctx)
         }).collect();
 
 
@@ -2111,7 +2106,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             // Trait Constraint Solver: Validate constraints before specialization
             if let Err(e) = validate_trait_constraints(self, &func.generics, &concrete_tys) {
                 eprintln!("ERROR: Trait constraint validation failed for '{}': {}", func_name, e);
-                // In strict mode we could panic, but for now we just warn
+                // If trait constraint is unsatisfied, warn rather than error
             }
             
             // [Fix] Scan specialized function for new dependencies (e.g. return types, local vars)
@@ -2139,7 +2134,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                         let tname = self.enum_registry().values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone());
                         (tname, vec![])
                     } else if let Type::Concrete(name, args) = st {
-                        // [CRITICAL] The args here ARE the concrete types for the struct generics!
+                        // The args here are the concrete types for the struct generics
 
                         (name.clone(), args.clone())
                     } else if let Type::Pointer { element, .. } = st {
