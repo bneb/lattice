@@ -230,3 +230,61 @@ impl FuzzType {
         SynType::from_std(ty).unwrap()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fuzz_file_empty() {
+        let fuzz = FuzzSaltFile { fns: vec![] };
+        let salt = fuzz.to_salt();
+        assert!(salt.items.is_empty());
+    }
+
+    #[test]
+    fn test_fuzz_fn_to_salt_structure() {
+        let fuzz_fn = FuzzFn {
+            name: "test".into(),
+            args: vec![],
+            ret_ty: FuzzType::I64,
+            body: FuzzBlock { stmts: vec![] },
+            ret_to_arg: false,
+        };
+        let salt_fn = fuzz_fn.to_salt();
+        // FuzzFn name gets converted to Ident — verify structure, not exact string
+        assert!(salt_fn.args.is_empty());
+        // ret_ty I64 should produce Some(i64) return type
+        assert!(salt_fn.ret_type.is_some());
+    }
+
+    #[test]
+    fn test_fuzz_type_to_syn_all_variants() {
+        // Verify all FuzzType variants produce valid SynType
+        FuzzType::I32.to_syn();
+        FuzzType::I64.to_syn();
+        FuzzType::F64.to_syn();
+    }
+
+    #[test]
+    fn test_sanitize_ident_valid() {
+        let clean = sanitize_ident("foo_bar");
+        assert!(!clean.is_empty());
+        assert!(!clean.contains(|c: char| !c.is_alphanumeric() && c != '_'));
+    }
+
+    #[test]
+    fn test_sanitize_ident_special_chars() {
+        let clean = sanitize_ident("foo bar baz");
+        assert!(!clean.contains(' '));
+        assert!(!clean.is_empty());
+    }
+
+    #[test]
+    fn test_scope_add_and_lookup() {
+        let mut scope = Scope::new();
+        scope.add_var("x".into(), FuzzType::I64);
+        scope.add_var("y".into(), FuzzType::F64);
+        assert_eq!(scope.defined_vars.len(), 2);
+    }
+}

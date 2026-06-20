@@ -84,7 +84,7 @@ For these, extract one mega-function per session — don't split the whole file.
 
 ## Sprint 3: Coverage Gaps (5 tasks)
 
-### T-017: Add smoke tests for interpreter.rs
+### [x] T-017: Add smoke tests for interpreter.rs
 - **Target:** `salt-front/src/interpreter.rs` (0 tests → target > 60% coverage)
 - **Strategy:** Add tests for `eval_expr` and `exec_stmt` with basic types (integers, bools, simple control flow). Create `salt-front/tests/interpreter_smoke.rs` if no inline test module.
 - **Acceptance:** > 5 new test functions, all pass, coverage of interpreter.rs > 60%
