@@ -121,15 +121,15 @@ impl Type {
         return Ok("!llvm.ptr".to_string());
     }
 
-    // [KEUOS V3] Tensor Lowering: Tensor<T, [D]> -> memref<D x T>
+    // Tensor Lowering: Tensor<T, [D]> -> memref<D x T>
     // This formalizes the "KeuOS Rule" - types carry their shape bounds.
     if let Type::Tensor(_inner, _shape) = self {
-         // [KEUOS V3] Tensor Storage (Opaque Handle)
+         // Tensor Storage (Opaque Handle)
          // We store the base pointer on the stack. The MemRef descriptor is hydrated at use sites.
          return Ok("!llvm.ptr".to_string());
     }
 
-    // [KEUOS V3] Universal Simd Lowering
+    // Universal Simd Lowering
     if let Type::Concrete(base, args) = self {
        if (base.contains("Simd") && !base.contains("ptr")) || base == "Simd" {
            // Check args: [T, N]
@@ -149,7 +149,7 @@ impl Type {
            }
        }
        
-     // [KEUOS V6] Vector Intrinsic Types
+     // Vector Intrinsic Types
        // These are used for portable SIMD operations
        if base == "Vector4f32" {
            return Ok("vector<4xf32>".to_string());
@@ -165,7 +165,7 @@ impl Type {
        }
     }
     
-    // [VERIFIED METAL] NOMINAL STRIKE: Struct/Concrete types MUST return named aliases
+    // NOMINAL STRIKE: Struct/Concrete types MUST return named aliases
     // This ensures type identity consistency across alloca, store, load, and GEP operations.
     // The named alias is the Single Source of Truth for struct memory layout.
     match self {
@@ -232,7 +232,7 @@ impl Type {
 } // End impl Type
 
 // ============================================================================
-// [VERIFIED METAL] Inception Guard
+// Inception Guard
 // Recursively flattens nested pointers to enforce the Single Indirection Property.
 // ============================================================================
 
@@ -726,7 +726,7 @@ pub fn cast_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, from
     
     let involves_usize = *from == Type::Usize || *to == Type::Usize;
     if w_from != 0 && w_from == w_to && from.is_integer() && to.is_integer() && !involves_usize {
-        // [VERIFIED METAL]: No MLIR instruction needed for same-width integer casts.
+        // : No MLIR instruction needed for same-width integer casts.
         // This resolves i64 -> u64 without string matching or wrapper logic.
         return Ok(var.to_string());
     }
@@ -873,7 +873,7 @@ fn peel_already_specialized_name(ctx: &mut LoweringContext, name: &str) -> Optio
             let type_arg_name = &name[prefix.len()..];
             // The type arg should be resolvable as a struct
             if !type_arg_name.is_empty() {
-                // [VERIFIED METAL] Phase 5: Use centralized struct lookup
+                // Phase 5: Use centralized struct lookup
                 let arg_ty = if ctx.struct_registry().values().any(|i| i.name == type_arg_name) {
                     Type::Struct(type_arg_name.to_string())
                 } else if let Some(info) = ctx.find_struct_by_name(type_arg_name) {
@@ -899,7 +899,7 @@ impl Type {
 // End impl Type
 
 // ============================================================================
-// [VERIFIED METAL] Inception Guard & Layout Prover
+// Inception Guard & Layout Prover
 // ============================================================================
 
 /// Extracts the inner type from mangled pointer names.
@@ -912,13 +912,13 @@ pub fn extract_ptr_inner(name: &str) -> Option<String> {
     None
 }
 
-/// [VERIFIED METAL] Flattening Loop
+/// Flattening Loop
 pub fn flatten_inception_recursive(ty: &Type, depth: usize, debug_ctx: &str) -> Type {
     if depth > 10 { return ty.clone(); }
     match ty {
         Type::Concrete(template, args) if template.contains("Ptr") && !args.is_empty() => {
             if args[0].k_is_ptr_type() {
-                // [VERIFIED METAL] Drill down to the innermost non-pointer type
+                // Drill down to the innermost non-pointer type
                 return flatten_inception_recursive(&args[0], depth + 1, debug_ctx);
             }
             // If it's a pointer but the inner is NOT a pointer, we stay as is
@@ -949,7 +949,7 @@ pub fn prove_layout_compatibility_ctx(ctx: &mut LoweringContext, from: &Type, to
     prove_layout_compatibility(&reg, from, to)
 }
 
-/// [GRAYDON FIX] Recursively substitute generic placeholders using current_type_map.
+/// Recursively substitute generic placeholders using current_type_map.
 /// This is the "Secret of $i64$" - when HashMap<i64, i64> looks at Entry<K, V>,
 /// this function transforms it to Entry<i64, i64> by consulting the active type context.
 pub fn substitute_generics(type_map: &std::collections::BTreeMap<String, Type>, ty: &Type) -> Type {
@@ -1054,7 +1054,7 @@ pub fn substitute_generics_ctx(ctx: &mut LoweringContext, ty: &Type) -> Type {
 
 /// Top-level helper for MLIR Type Lowering
 pub fn to_mlir_type(ctx: &mut LoweringContext, ty: &Type) -> Result<String, String> {
-    // [GRAYDON FIX] First, substitute any generic placeholders using current context
+    // First, substitute any generic placeholders using current context
     let resolved_ty = substitute_generics_ctx(ctx, ty);
     
     if resolved_ty.k_is_ptr_type() || matches!(resolved_ty, Type::Reference(_, _)) { 
@@ -1463,7 +1463,7 @@ pub fn resolve_codegen_type(ctx: &mut LoweringContext, ty: &Type) -> Type {
 
 /// Bridges the gap between Rust's syn::Type (legacy/helper) and Salt's Type system.
 pub fn resolve_type(ctx: &mut LoweringContext, ty: &crate::grammar::SynType) -> Type {
-    // [KEUOS V2.0] Type Resolution Hardening
+    // Type Resolution Hardening
     // Handle context-dependent types (Array, Tensor) here.
     
     if let crate::grammar::SynType::Array(inner, len_expr) = ty {
@@ -2039,7 +2039,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             ty
         });
 
-        // [VERIFIED METAL] INCEPTION GUARD - Prevent recursive specialization
+        // Prevent recursive specialization
         // Use the reusable flatten_inception_recursive helper to enforce Single Indirection Property
         let concrete_tys: Vec<Type> = concrete_tys.into_iter().enumerate().map(|(i, ty)| {
             let debug_ctx = format!("{}[arg {}]", func_name, i);
@@ -2131,7 +2131,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
 
                 // Map Generics
                 if let Some(st) = &s_ty {
-                    // [GRAYDON FIX] Extract concrete args from Type::Concrete for struct generics
+                    // Extract concrete args from Type::Concrete for struct generics
                     let (template_name, struct_concrete_args) = if let Type::Struct(name) = st {
                         let tname = self.struct_registry().values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone());
                         (tname, vec![])
@@ -2157,7 +2157,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                          } else { None };
                           
 
-                          // [GRAYDON FIX] Use struct_concrete_args when available, fallback to concrete_tys
+                          // Use struct_concrete_args when available, fallback to concrete_tys
                           let args_to_map = if struct_concrete_args.is_empty() { &concrete_tys[..] } else { &struct_concrete_args[..] };
 
                           self.map_generics(&gen_params, args_to_map, &template_name, &mut old_const_vals);
@@ -2202,7 +2202,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                 
                 // Scan!
 
-                // [MIGRATION] Inline type scanning (scan_types_in_fn expects CodegenContext)
+                // Inline type scanning (scan_types_in_fn expects CodegenContext)
                 if let Err(e) = self.scan_types_in_fn_lctx(&func) {
                     eprintln!("Warning: Failed to scan dependencies for {}: {}", mangled, e);
                 }
@@ -2557,7 +2557,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                                      combined_imports.push(crate::grammar::ImportDecl { name: p, alias: Some(syn::Ident::new(s_name, proc_macro2::Span::call_site())), group: None });
                                 }
                            }
-                           // [MIGRATION] Direct import swap (ImportContextGuard expects CodegenContext)
+                           // Direct import swap (ImportContextGuard expects CodegenContext)
                            let old_imports = std::mem::replace(&mut *self.imports_mut(), combined_imports);
                            _import_guard = Some(old_imports);
                            break; 
@@ -2780,7 +2780,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
 
 pub fn emit_const(ctx: &mut LoweringContext, _out: &mut String, c: &crate::grammar::ConstDef) -> Result<(), String> {
     let val = ctx.evaluator.eval_expr(&c.value).map_err(|e| format!("Const eval failed for {}: {:?}", c.name, e))?;
-    // [PHASE 4a] Only insert scalar constants into constant_table for inlining.
+    // Only insert scalar constants into constant_table for inlining.
     // Complex values (struct consts like OpenFlags { bits: 0 }) cannot be represented
     // as arith.constant — they are emitted as llvm.mlir.global below.
     match &val {

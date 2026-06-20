@@ -119,7 +119,7 @@ impl<'a> TypeTracer for CodegenContext<'a> {
                  Ok(Type::Reference(Box::new(inner), r.mutability.is_some()))
             }
 
-            // [PHASE 3.5] Struct literal: Node { val: 42 } => Type::Struct("main__Node")
+            // Struct literal: Node { val: 42 } => Type::Struct("main__Node")
             // Canonical Resolution: Construct FQN deterministically, verify in Symbol Table.
             // Source of Truth: struct_templates (the Symbol Table), not string patterns.
             Expr::Struct(s) => {
@@ -156,7 +156,7 @@ impl<'a> TypeTracer for CodegenContext<'a> {
                 Ok(Type::Struct(fqn))
             }
 
-            // [PHASE 3.5] Cast expression: addr as Ptr<T> => target type
+            // Cast expression: addr as Ptr<T> => target type
             Expr::Cast(c) => {
                 let syn_ty = crate::grammar::SynType::from_std((*c.ty).clone())
                     .map_err(|e| e.to_string())?;

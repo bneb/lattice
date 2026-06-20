@@ -90,7 +90,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             }
         }
         
-        // [VERIFIED METAL] Phase 5: Use centralized template lookup
+        // Phase 5: Use centralized template lookup
         if let Some(template_name) = self.find_struct_template_by_name(struct_name) {
             let field_defs = {
                 let templates = self.struct_templates();

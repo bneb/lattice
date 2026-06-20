@@ -150,7 +150,7 @@ pub enum Item {
     Const(ConstDef),
 }
 
-// [KEUOS V2.0] Grammar Lockdown
+// Grammar Lockdown
 // First-class SynType used by the parser to enforce pointer safety semantics.
 // This replaces direct usage of syn::Type in the Salt AST.
 #[derive(Clone, Debug, PartialEq)]

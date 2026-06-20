@@ -610,7 +610,7 @@ fn append_method_generics(
          }
     }
 
-    // [PHASE 4.1 BIDIR BRIDGE]
+    // 
     if let Some(fn_generics) = &func.generics {
         let turbofish_count = if let Some(tf) = &m.turbofish { tf.args.len() } else { 0 };
         

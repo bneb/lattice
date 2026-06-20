@@ -113,7 +113,7 @@ pub fn emit_expr(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, 
             
             // 1. Constant Lookup
              if let Some(val) = ctx.evaluator.constant_table.get(&mangled_name).cloned() {
-                  // [PHASE 4a] Only inline scalar constants. Complex/String values
+                  // Only inline scalar constants. Complex/String values
                   // should never appear here (filtered at insertion), but guard anyway.
                    if let Some((ty, val_str, is_float)) = match val {
                       crate::evaluator::ConstValue::Integer(i) => Some((Type::I64, i.to_string(), false)),
@@ -686,7 +686,7 @@ fn emit_return_expr(ctx: &mut LoweringContext, out: &mut String, r: &syn::ExprRe
 
 // Extracted helpers
 
-/// [KEUOS V5.0] Extract the source-level identifier name from a syn::Expr.
+/// Extract the source-level identifier name from a syn::Expr.
 /// Used by the malloc/free tracking system to identify which variable is being freed.
 /// Returns None if the expression is not a simple identifier (e.g., it's a complex expression).
 pub(crate) fn extract_ident_name(expr: &syn::Expr) -> Option<String> {

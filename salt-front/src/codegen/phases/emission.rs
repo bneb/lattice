@@ -36,7 +36,7 @@ pub struct TensorLayout {
     pub is_row_major: bool,
 }
 
-/// [VERIFIED METAL] Normalize a type name for MLIR alias compatibility.
+/// Normalize a type name for MLIR alias compatibility.
 /// Strips special characters and normalizes underscores.
 pub fn normalize_type_name_for_mlir(name: &str) -> String {
     name.replace("__", "_")
@@ -97,19 +97,19 @@ pub struct EmissionState {
     /// LinAlg dialect initialized flag
     pub linalg_initialized: bool,
     
-    /// [VERIFIED METAL] Canonical Type Identity Registry
+    /// Canonical Type Identity Registry
     /// Maps TypeID → canonical name for O(1) type identity comparison
     pub type_id_registry: TypeIDRegistry,
     
-    /// [VERIFIED METAL] Phase 4: Buffered function bodies
+    /// Phase 4: Buffered function bodies
     /// These are accumulated during hydration and emitted after fixed-point
     pub body_buffer: String,
     
-    /// [VERIFIED METAL] Phase 4: Fixed-point reached flag
+    /// Phase 4: Fixed-point reached flag
     /// Set to true after all specializations are complete
     pub fixed_point_reached: bool,
     
-    /// [VERIFIED METAL] Provenance tracking for GEP optimization
+    /// Provenance tracking for GEP optimization
     /// Maps local variable names to their element types for Buffer<T>
     pub provenance_map: ProvenanceMap,
     
@@ -153,7 +153,7 @@ pub struct EmissionState {
     /// [v0.9.3] Function-level @trusted flag.
     /// When true, bounds verification for raw pointer indexing is skipped.
     pub in_trusted_fn: bool,
-    /// [PHASE 1.5] Tier 3 Temporal Safety: Function-level @dynamic_check flag.
+    /// Tier 3 Temporal Safety: Function-level @dynamic_check flag.
     /// When true, all pointer dereferences emit runtime epoch validation checks.
     pub in_dynamic_check_fn: bool,
     pub path_conditions: Vec<syn::Expr>,
@@ -176,17 +176,17 @@ impl EmissionState {
         self.metadata_id_counter
     }
     
-    /// [VERIFIED METAL] Append to body buffer during hydration
+    /// Append to body buffer during hydration
     pub fn buffer_body(&mut self, code: &str) {
         self.body_buffer.push_str(code);
     }
     
-    /// [VERIFIED METAL] Get buffered body content
+    /// Get buffered body content
     pub fn get_buffered_body(&self) -> &str {
         &self.body_buffer
     }
     
-    /// [VERIFIED METAL] Phase 4: Generate canonical MLIR aliases from TypeIDRegistry
+    /// Phase 4: Generate canonical MLIR aliases from TypeIDRegistry
     /// 
     /// This method iterates over all TypeIDs discovered during Phases 1-3 and
     /// generates MLIR type aliases that ensure consistent naming across the module.
@@ -201,7 +201,7 @@ impl EmissionState {
         F: Fn(&str) -> Option<String>
     {
         let mut aliases = String::new();
-        aliases.push_str("// --- VERIFIED METAL CANONICAL ALIASES ---\n");
+        aliases.push_str("// --- Canonical type aliases ---\n");
         
         // Track what we've emitted to avoid duplicates
         let mut emitted: HashSet<String> = HashSet::new();
@@ -229,7 +229,7 @@ impl EmissionState {
         aliases
     }
     
-    /// [VERIFIED METAL] Phase 4: Finalize MLIR output after fixed-point
+    /// Phase 4: Finalize MLIR output after fixed-point
     /// 
     /// This is called only after all specializations are complete.
     /// It generates the complete MLIR module with:

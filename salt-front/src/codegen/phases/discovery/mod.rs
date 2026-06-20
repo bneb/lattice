@@ -49,24 +49,24 @@ pub struct DiscoveryState {
     /// During Bootstrap: use hardcoded Rust handlers (prevents circular dependency)
     /// After Ready: use Salt-native handlers from string_prefix_handlers
     pub comptime_ready: bool,
-    /// [KEUOS V2.0] Pulse function registry: name -> (frequency_hz, tier)
+    /// Pulse function registry: name -> (frequency_hz, tier)
     /// Used by yield injection pass to determine deadline checking behavior
     pub pulse_functions: HashMap<String, (u32, u8)>,
-    /// [KEUOS V7.0] Type Origin Registry: mangled_type_name -> module_package
+    /// Type Origin Registry: mangled_type_name -> module_package
     /// Maps each struct/enum to the module where it was first defined.
     /// This is the "KeuOS Home" — only the home module may emit trait impls for a type.
     pub type_origins: HashMap<String, String>,
-    /// [KEUOS V7.0] Trait Origin Registry: trait_name -> module_package
+    /// Trait Origin Registry: trait_name -> module_package
     /// Tracks which module defined each trait for orphan rule enforcement.
     pub trait_origins: HashMap<String, String>,
-    /// [KEUOS V7.0] Trait Impl Registry: (type_name, trait_name) -> module_package
+    /// Trait Impl Registry: (type_name, trait_name) -> module_package
     /// Tracks all trait implementations for duplicate detection and coherence validation.
     pub trait_impls: HashMap<(String, String), String>,
-    /// [KEUOS V2.0] Cross-yield liveness results: fn_name -> LivenessResult
+    /// Cross-yield liveness results: fn_name -> LivenessResult
     /// Populated by the liveness analysis phase for @yielding/@pulse functions.
     /// Used by emit_fn to divert async functions to StateMachineEmitter.
     pub liveness_results: HashMap<String, LivenessResult>,
-    /// [PHASE 11] HIR async items: fn_name -> lowered Items (struct + step fn)
+    /// HIR async items: fn_name -> lowered Items (struct + step fn)
     /// Populated by lower_async_fn_cfg. When emit_fn sees a @yielding function,
     /// it checks here first; if items exist, it bypasses AST codegen entirely.
     pub hir_async_items: HashMap<String, Vec<Item>>,
@@ -98,13 +98,13 @@ impl DiscoveryState {
         }
     }
 
-    /// [KEUOS V7.0] Register a type's "KeuOS Home" module.
+    /// Register a type's "KeuOS Home" module.
     /// First-writer-wins: prevents type hijacking across modules.
     pub fn register_type_home(&mut self, type_name: String, module_package: String) {
         self.type_origins.entry(type_name).or_insert(module_package);
     }
 
-    /// [KEUOS V7.0] Register a trait's home module.
+    /// Register a trait's home module.
     pub fn register_trait_home(&mut self, trait_name: String, module_package: String) {
         self.trait_origins.entry(trait_name).or_insert(module_package);
     }
@@ -162,7 +162,7 @@ impl DiscoveryState {
         false
     }
 
-    /// [KEUOS V7.0] The KeuOS Check: Does this module own the type?
+    /// The KeuOS Check: Does this module own the type?
     pub fn is_type_home(&self, type_name: &str, current_module: &str) -> bool {
         match self.type_origins.get(type_name) {
             Some(home_module) => home_module == current_module,
@@ -170,7 +170,7 @@ impl DiscoveryState {
         }
     }
 
-    /// [KEUOS V7.0] Check if this module owns the trait.
+    /// Check if this module owns the trait.
     pub fn is_trait_home(&self, trait_name: &str, current_module: &str) -> bool {
         match self.trait_origins.get(trait_name) {
             Some(home_module) => home_module == current_module,
@@ -178,7 +178,7 @@ impl DiscoveryState {
         }
     }
 
-    /// [KEUOS V7.0] Register a trait implementation and check for duplicates.
+    /// Register a trait implementation and check for duplicates.
     /// Returns Err if a duplicate (Type, Trait) pair is found in the same module.
     pub fn register_trait_impl(&mut self, type_name: String, trait_name: String, module_package: String) -> Result<(), String> {
         let key = (type_name.clone(), trait_name.clone());
@@ -195,7 +195,7 @@ impl DiscoveryState {
         Ok(())
     }
 
-    /// [KEUOS V7.0] Validate coherence: every impl must reside in the Home of
+    /// Validate coherence: every impl must reside in the Home of
     /// either the Type or the Trait. Orphan implementations are rejected.
     pub fn validate_coherence(&self) -> Result<(), String> {
         for ((type_name, trait_name), impl_module) in &self.trait_impls {

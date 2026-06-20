@@ -1,5 +1,5 @@
 // =============================================================================
-// [KEUOS V2.0] Iron Driver — MLIR → Native Binary Pipeline
+// Iron Driver — MLIR → Native Binary Pipeline
 //
 // Orchestrates the 4-step LLVM toolchain to produce KeuOS binaries:
 //   1. mlir-opt:       MLIR → LLVM dialect

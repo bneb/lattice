@@ -1,5 +1,5 @@
 // =============================================================================
-// [KEUOS V2.0] LLVM Lowering Configuration
+// LLVM Lowering Configuration
 //
 // Generates llc flags and MLIR function attributes for KeuOS binaries.
 // Ensures x19 is reserved (hardware deadline register), LSE atomics are

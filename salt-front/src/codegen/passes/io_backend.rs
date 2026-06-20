@@ -1,5 +1,5 @@
 // =============================================================================
-// [KEUOS V2.0] I/O Backend Abstraction
+// I/O Backend Abstraction
 //
 // Hardware-agnostic I/O backend for the KeuOS async engine.
 // Provides a unified trait (IoBackend) with platform-specific implementations:

@@ -432,7 +432,7 @@ pub fn generate_budget_yield_check_mlir(budget_cycles: u64) -> String {
 /// Lowers to: `cmp x19, x20` (1 cycle vs ~12 cycles for TLS)
 pub fn generate_pinned_deadline_intrinsic_llir() -> String {
     r#"
-; [KEUOS V2.0] Register-pinned deadline read
+; Register-pinned deadline read
 ; x19 = KeuOS Deadline Register (callee-saved, ABI-safe)
 define i64 @salt.get_pinned_deadline() {
 entry:
@@ -455,7 +455,7 @@ entry:
 /// On AArch64: reads CNTVCT_EL0 (virtual timer counter)
 pub fn generate_cycle_counter_intrinsic_llir() -> String {
     r#"
-; [KEUOS V2.0] Cycle counter (AArch64 CNTVCT_EL0)
+; Cycle counter (AArch64 CNTVCT_EL0)
 define i64 @salt.cycle_counter() {
 entry:
   %cycles = call i64 @llvm.readcyclecounter()

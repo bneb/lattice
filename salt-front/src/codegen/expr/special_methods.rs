@@ -66,7 +66,7 @@ pub fn try_emit_special_method(
         }
     }
     
-    // [KEUOS V1.0] Clean Break: Removed NativePtr method interception (get/set/at/offset)
+    // Clean Break: Removed NativePtr method interception (get/set/at/offset)
     // These are now handled by standard library intrinsics or unified syntax.
 
     // [KEUOS FLUENT-MATH] Matrix multiplication: receiver.matmul(other)
@@ -733,7 +733,7 @@ fn emit_vec_unchecked_method(
             if let Some(elem_ty) = element_ty {
 
                 
-                // [PHASE 5 FIX] Extract data pointer directly from Vec field 0.
+                // Extract data pointer directly from Vec field 0.
                 // Vec layout: { data: Ptr<T>, len: i64, cap: i64, allocator: A }
                 let vec_mlir_ty = vec_ty.to_mlir_type(ctx)?;
                 let data_ptr = format!("%vec_data_{}", ctx.next_id());

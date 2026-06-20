@@ -107,7 +107,7 @@ fn emit_binary_tensor(ctx: &mut LoweringContext, out: &mut String, b: &syn::Expr
                         let k = shape1[1] as i64;
                         let n = shape2[1] as i64;
 
-                        // [KEUOS V5] Pure FFI Strategy: Direct C Call
+                        // Pure FFI Strategy: Direct C Call
                         // Avoids MLIR MemRef descriptor complexity entirely.
                         // salt_matmul(lhs, rhs, res, m, k, n) in ml_bridge.c
                         
@@ -152,7 +152,7 @@ fn emit_binary_tensor(ctx: &mut LoweringContext, out: &mut String, b: &syn::Expr
                         let m = shape1[0] as i64;
                         let k = shape1[1] as i64;
                         
-                        // [KEUOS V5.1] Pure FFI Strategy: Direct C Call
+                        // Pure FFI Strategy: Direct C Call
                         // salt_matvec(lhs, rhs, res, m, k) in ml_bridge.c
                         
                         // 1. Calculate Sizes & Allocate Result
@@ -192,7 +192,7 @@ fn emit_binary_tensor(ctx: &mut LoweringContext, out: &mut String, b: &syn::Expr
 
 fn emit_binary_struct_cmp(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBinary, lhs_prom: &str, rhs_prom: &str, common_ty: &Type) -> Result<Option<(String, Type)>, String> {
         if matches!(common_ty, Type::Struct(_) | Type::Concrete(..) | Type::Tuple(_) | Type::Array(..) | Type::Enum(_)) {
-            // [KEUOS V7.0] Check for trait-based eq before structural comparison
+            // Check for trait-based eq before structural comparison
             // Handles both Type::Struct("name") and Type::Concrete("name", []) —
             // String values resolve as Concrete("std__string__String", [])
             let struct_name_opt = match &common_ty {
@@ -268,7 +268,7 @@ fn emit_binary_struct_cmp(ctx: &mut LoweringContext, out: &mut String, b: &syn::
 
 fn emit_binary_ref_cmp(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBinary, lhs_prom: &str, rhs_prom: &str, common_ty: &Type, res: &str) -> Result<Option<(String, Type)>, String> {
         if let Type::Reference(inner, _) = &common_ty {
-            // [KEUOS V7.0] General Trait Dispatch for Equality
+            // General Trait Dispatch for Equality
             // For Reference types, check if the inner type requires trait-based eq.
             // CRITICAL: Primitives (i64, i32, u8, etc.) MUST skip trait dispatch and
             // fall through to the hardware comparison path (arith.cmpi). Dispatching
@@ -421,7 +421,7 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
         }
     }
 
-    // [KEUOS V5.2] Type-Aware Pointer Addition
+    // Type-Aware Pointer Addition
     // Enables: let next = ptr + offset; (Native GEP Lowering)
     if let Some(r) = emit_binary_ptr_add(ctx, out, b, &lhs_val, &lhs_ty, &rhs_val, &rhs_ty)? { return Ok(r); }
 
@@ -731,7 +731,7 @@ pub fn emit_unary(ctx: &mut LoweringContext, out: &mut String, u: &syn::ExprUnar
                 }
             }
 
-            // [PHASE 1.5] Tier 3: @dynamic_check Epoch Verification
+            // Tier 3: @dynamic_check Epoch Verification
             let is_dynamic = *ctx.is_dynamic_check_block() || ctx.emission.in_dynamic_check_fn;
             let mut current_ptr_val = val.clone();
             if is_dynamic {

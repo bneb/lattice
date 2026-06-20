@@ -1740,74 +1740,74 @@ impl<'a> CodegenContext<'a> {
         self.discovery.borrow_mut().comptime_ready = true;
     }
     
-    /// [KEUOS V2.0] Register a pulse function discovered during analysis
+    /// Register a pulse function discovered during analysis
     pub fn register_pulse_function(&self, name: &str, frequency_hz: u32, tier: u8) {
         self.discovery.borrow_mut().pulse_functions.insert(name.to_string(), (frequency_hz, tier));
     }
     
-    /// [KEUOS V2.0] Check if a function is a pulse function and get its tier
+    /// Check if a function is a pulse function and get its tier
     pub fn get_pulse_info(&self, name: &str) -> Option<(u32, u8)> {
         self.discovery.borrow().pulse_functions.get(name).copied()
     }
     
-    /// [KEUOS V2.0] Check if a function requires yield injection (is pulse function)
+    /// Check if a function requires yield injection (is pulse function)
     pub fn is_pulse_function(&self, name: &str) -> bool {
         self.discovery.borrow().pulse_functions.contains_key(name)
     }
 
-    /// [KEUOS V7.0] Register a type's KeuOS Home module.
+    /// Register a type's KeuOS Home module.
     pub fn register_type_home(&self, type_name: String, module_package: String) {
         self.discovery.borrow_mut().register_type_home(type_name, module_package);
     }
 
-    /// [KEUOS V7.0] Register a trait's home module.
+    /// Register a trait's home module.
     pub fn register_trait_home(&self, trait_name: String, module_package: String) {
         self.discovery.borrow_mut().register_trait_home(trait_name, module_package);
     }
 
-    /// [KEUOS V7.0] Check if this module owns the type.
+    /// Check if this module owns the type.
     pub fn is_type_home(&self, type_name: &str, current_module: &str) -> bool {
         self.discovery.borrow().is_type_home(type_name, current_module)
     }
 
-    /// [KEUOS V7.0] Check if this module owns the trait.
+    /// Check if this module owns the trait.
     pub fn is_trait_home(&self, trait_name: &str, current_module: &str) -> bool {
         self.discovery.borrow().is_trait_home(trait_name, current_module)
     }
 
-    /// [KEUOS V7.0] Register a trait impl and check for duplicates.
+    /// Register a trait impl and check for duplicates.
     pub fn register_trait_impl(&self, type_name: String, trait_name: String, module_package: String) -> Result<(), String> {
         self.discovery.borrow_mut().register_trait_impl(type_name, trait_name, module_package)
     }
 
-    /// [KEUOS V7.0] Validate coherence of all trait implementations.
+    /// Validate coherence of all trait implementations.
     pub fn validate_coherence(&self) -> Result<(), String> {
         self.discovery.borrow().validate_coherence()
     }
 
-    /// [KEUOS V2.0] Register liveness analysis result for a @yielding function
+    /// Register liveness analysis result for a @yielding function
     pub fn register_liveness(&self, fn_name: String, result: crate::codegen::passes::liveness::LivenessResult) {
         self.discovery.borrow_mut().liveness_results.insert(fn_name, result);
     }
 
-    /// [KEUOS V2.0] Get liveness result for a function (None if synchronous)
+    /// Get liveness result for a function (None if synchronous)
     pub fn get_liveness(&self, fn_name: &str) -> Option<crate::codegen::passes::liveness::LivenessResult> {
         self.discovery.borrow().liveness_results.get(fn_name).cloned()
     }
 
-    /// [PHASE 11] Register HIR items for an async function that has been lowered
+    /// Register HIR items for an async function that has been lowered
     /// via lower_async_fn_cfg. The items (struct + step fn) are cached so emit_fn
     /// can bypass AST codegen and delegate directly to emit_hir_items.
     pub fn register_hir_async(&self, fn_name: &str, items: Vec<crate::hir::items::Item>) {
         self.discovery.borrow_mut().hir_async_items.insert(fn_name.to_string(), items);
     }
 
-    /// [PHASE 11] Get HIR items for a function (None if not lowered via HIR path)
+    /// Get HIR items for a function (None if not lowered via HIR path)
     pub fn get_hir_async_items(&self, fn_name: &str) -> Option<Vec<crate::hir::items::Item>> {
         self.discovery.borrow().hir_async_items.get(fn_name).cloned()
     }
 
-    /// [KEUOS V2.0] Get the I/O backend for the current target platform.
+    /// Get the I/O backend for the current target platform.
     /// Returns a boxed trait object implementing platform-specific I/O MLIR emission.
     pub fn io_backend(&self) -> Box<dyn crate::codegen::passes::io_backend::IoBackend> {
         crate::codegen::passes::io_backend::backend_for_target(self.target_platform)
@@ -2390,7 +2390,7 @@ impl<'a> CodegenContext<'a> {
         std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.linalg_initialized)
     }
     
-    // [VERIFIED METAL] TypeID Registry accessors
+    // TypeID Registry accessors
     pub fn type_id_registry(&self) -> std::cell::Ref<'_, crate::codegen::types::TypeIDRegistry> {
         std::cell::Ref::map(self.emission.borrow(), |e| &e.type_id_registry)
     }
@@ -2398,7 +2398,7 @@ impl<'a> CodegenContext<'a> {
         std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.type_id_registry)
     }
     
-    // [VERIFIED METAL] Phase 4: Body buffer accessors
+    // Phase 4: Body buffer accessors
     pub fn buffer_body(&self, code: &str) {
         self.emission.borrow_mut().buffer_body(code);
     }
@@ -2407,7 +2407,7 @@ impl<'a> CodegenContext<'a> {
         self.emission.borrow().get_buffered_body().to_string()
     }
     
-    /// [VERIFIED METAL] Phase 4: Look up struct MLIR layout by canonical name
+    /// Phase 4: Look up struct MLIR layout by canonical name
     /// Returns the physical MLIR layout string for a given canonical type name.
     pub fn lookup_struct_layout_by_canonical(&self, canonical_name: &str) -> Option<String> {
         let registry = self.struct_registry();
@@ -2433,7 +2433,7 @@ impl<'a> CodegenContext<'a> {
         None
     }
     
-    /// [VERIFIED METAL] Phase 4: Finalize MLIR output after all specializations
+    /// Phase 4: Finalize MLIR output after all specializations
     pub fn finalize_mlir_output(&self, header: &str) -> String {
         let struct_registry = self.struct_registry();
         
@@ -2469,7 +2469,7 @@ impl<'a> CodegenContext<'a> {
         final_output
     }
     
-    /// [VERIFIED METAL] Phase 5: Identity-Based Struct Lookup by TypeID
+    /// Phase 5: Identity-Based Struct Lookup by TypeID
     /// Resolves a TypeID to its physical StructInfo with zero string matching.
     /// 
     /// This is the core of the "Suffix Purge" - we use the TypeID (structural hash)
@@ -2487,7 +2487,7 @@ impl<'a> CodegenContext<'a> {
         }).cloned()
     }
     
-    /// [VERIFIED METAL] Phase 5: Identity-Based Struct Lookup by Type
+    /// Phase 5: Identity-Based Struct Lookup by Type
     /// Convenience method that extracts TypeID from a Type and looks up the StructInfo.
     /// 
     /// This is the primary entry point for field access hardening.
@@ -2510,7 +2510,7 @@ impl<'a> CodegenContext<'a> {
         }).cloned()
     }
     
-    /// [VERIFIED METAL] Phase 5: Find struct by name with canonical fallback
+    /// Phase 5: Find struct by name with canonical fallback
     /// This replaces all `ends_with()` heuristics with TypeID-based lookup.
     /// 
     /// Priority order:
@@ -2544,7 +2544,7 @@ impl<'a> CodegenContext<'a> {
         best_match
     }
     
-    /// [VERIFIED METAL] Phase 5: Find template by name with suffix fallback
+    /// Phase 5: Find template by name with suffix fallback
     /// Returns the template key if found.
     pub fn find_struct_template_by_name(&self, name: &str) -> Option<String> {
         let templates = self.struct_templates();
@@ -2567,7 +2567,7 @@ impl<'a> CodegenContext<'a> {
         best_match
     }
     
-    /// [VERIFIED METAL] Phase 5: Find enum template by name with suffix fallback
+    /// Phase 5: Find enum template by name with suffix fallback
     pub fn find_enum_template_by_name(&self, name: &str) -> Option<String> {
         let templates = self.enum_templates();
         
@@ -4803,7 +4803,7 @@ pub fn init_registry_definitions(&self) {
     // Verification & Symbolic Analysis
     // =========================================================================
 
-    /* [KEUOS V3] Disabled Z3 methods
+    /* Disabled Z3 methods
     pub fn mk_int(&self, val: i64) -> crate::z3_shim::ast::Int<'a> {
         crate::z3_shim::ast::Int::from_i64(self.z3_ctx, val)
     }

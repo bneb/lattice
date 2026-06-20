@@ -10,13 +10,13 @@ pub fn extract_ptr_inner(name: &str) -> Option<String> {
     None
 }
 
-/// [VERIFIED METAL] Flattening Loop
+/// Flattening Loop
 pub fn flatten_inception_recursive(ty: &Type, depth: usize, debug_ctx: &str) -> Type {
     if depth > 10 { return ty.clone(); }
     match ty {
         Type::Concrete(template, args) if template.contains("Ptr") && !args.is_empty() => {
             if args[0].k_is_ptr_type() {
-                // [VERIFIED METAL] Drill down to the innermost non-pointer type
+                // Drill down to the innermost non-pointer type
                 return flatten_inception_recursive(&args[0], depth + 1, debug_ctx);
             }
             // If it's a pointer but the inner is NOT a pointer, we stay as is

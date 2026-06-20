@@ -91,7 +91,7 @@ pub enum Type {
 }
 
 impl Type {
-    /// [KEUOS V2.0] Direct mapping from Parser to Compiler Primitives
+    /// Direct mapping from Parser to Compiler Primitives
     pub fn from_syn(ty: &SynType) -> Option<Self> {
         // Delegate to the context-aware version with an empty set (preserves legacy single-char heuristic)
         Self::from_syn_with_generics(ty, &std::collections::HashSet::new())
@@ -405,7 +405,7 @@ impl Type {
             Type::Generic(name) => mapping.get(name).cloned().unwrap_or(self.clone()),
             Type::SelfType => mapping.get("Self").cloned().unwrap_or(self.clone()),
             Type::Struct(name) if name == "Self" => mapping.get("Self").cloned().unwrap_or(self.clone()),
-            // [GRAYDON FIX] Handle Type::Struct that represents a generic placeholder (K, V, T, E, etc.)
+            // Handle Type::Struct that represents a generic placeholder (K, V, T, E, etc.)
             // This happens when resolve_type creates Struct("K") instead of Generic("K") from AST
             Type::Struct(name) if mapping.contains_key(name) => {
                 mapping.get(name).cloned().unwrap_or(self.clone())
@@ -455,7 +455,7 @@ impl Type {
                 specialization: Some(vec![*element.clone()]) 
             }),
             Type::Reference(inner, _) => inner.to_key(),
-            // [GRAYDON FIX] Return TypeKey for primitive types so trait methods can be looked up
+            // Return TypeKey for primitive types so trait methods can be looked up
             // e.g., Type::I64 -> TypeKey { path: [], name: "i64" } enables finding impl Hash for i64
             Type::I8 | Type::I16 | Type::I32 | Type::I64 |
             Type::U8 | Type::U16 | Type::U32 | Type::U64 | Type::Usize |

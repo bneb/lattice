@@ -1,5 +1,5 @@
 // =============================================================================
-// [KEUOS V2.0] C10M Validator
+// C10M Validator
 //
 // Validates whether a hardware target can sustain 10 million concurrent
 // connections using the KeuOS architecture. Checks three invariants:

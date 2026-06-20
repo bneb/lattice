@@ -395,7 +395,7 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                       }
                   };
                  
-                 // [PHASE 1.5] Tier 3: @dynamic_check Epoch Verification
+                 // Tier 3: @dynamic_check Epoch Verification
                  let is_dynamic = *ctx.is_dynamic_check_block() || ctx.emission.in_dynamic_check_fn;
                  let ptr_for_gep = if is_dynamic {
                      out.push_str(&format!("    llvm.call @salt_verify_epoch({}) : (!llvm.ptr) -> ()\n", ptr_for_gep));
@@ -512,7 +512,7 @@ fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprI
                      }
                  };
                  
-                 // Z3 Bounds Check Elision [KEUOS V4 - ACTIVATED]
+                 // Z3 Bounds Check Elision 
                  // Attempts to prove bounds are safe at compile time using Z3.
                  // If proven safe, emits no runtime check. Otherwise, falls through to memref.load
                  // which has implicit bounds checking in debug mode.
@@ -709,7 +709,7 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
     // Correct logic:
     if let Ok((base_ptr, base_ty, kind)) = emit_lvalue(ctx, out, &i.expr, local_vars) {
          match base_ty {
-             // [KEUOS V2.0]: Native Pointer Indexing
+             // : Native Pointer Indexing
              // This replaces the legacy "NativePtr" string-matching logic.
              Type::Pointer { ref element, .. } | Type::Reference(ref element, _) => return emit_index_ptr_ref(ctx, out, i, local_vars, base_ptr.clone(), &base_ty, kind.clone(), element),
 
@@ -767,7 +767,7 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
              ctx.emit_load_logical(out, &res, &elem_ptr, elem_ty.as_ref())?;
              Ok((res, *elem_ty.clone()))
         }
-        // [KEUOS V2.0]: First-Class Pointer Indexing (Fallback Path)
+        // : First-Class Pointer Indexing (Fallback Path)
         // This handles Ptr<T> when emit_lvalue didn't catch it
         Type::Pointer { ref element, .. } => {
              // Z3 Bounds Verification Integration
@@ -847,7 +847,7 @@ pub fn translate_to_z3<'a, 'ctx>(
         syn::Expr::Paren(p) => translate_to_z3(ctx, &p.expr, local_vars),
         syn::Expr::Field(f) => {
             let base_z3 = translate_to_z3(ctx, &f.base, local_vars)?;
-            // [KEUOS V4.0] Model field access as Z3 uninterpreted function: field(base) → Int
+            // Model field access as Z3 uninterpreted function: field(base) → Int
             if let syn::Member::Named(id) = &f.member {
                 let field_name = id.to_string();
                 let func = crate::z3_shim::FuncDecl::new(
@@ -871,7 +871,7 @@ pub fn translate_to_z3<'a, 'ctx>(
                  _ => Err(format!("Unsupported symbolic unary operator: {:?}", u.op)),
              }
         }
-        // [KEUOS V4.0] @pure function calls → Z3 uninterpreted functions
+        // @pure function calls → Z3 uninterpreted functions
         syn::Expr::Call(call) => {
             // Extract function name from the call expression
             let func_name = if let syn::Expr::Path(p) = &*call.func {
@@ -974,7 +974,7 @@ pub fn translate_bool_to_z3<'a, 'ctx>(
         syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Bool(b), .. }) => {
             Ok(crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, b.value))
         }
-        // [KEUOS V4.0] @pure function calls returning bool → Z3 uninterpreted Bool functions
+        // @pure function calls returning bool → Z3 uninterpreted Bool functions
         syn::Expr::Call(call) => {
             let func_name = if let syn::Expr::Path(p) = &*call.func {
                 p.path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("_")

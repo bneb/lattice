@@ -201,7 +201,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         name == "read_vector" ||
         // V2.2 Shadow Reduction: Register-resident tensor updates
         name == "update_tensor" || name == "fma_update" ||
-        // [KEUOS V3] ML Intrinsics
+        // ML Intrinsics
         name == "matmul" || name.starts_with("matmul_into") || name == "update_weights" || name == "v_fma" || name == "v_add" || name == "v_mul" || name == "v_max" || name == "v_sum" || name == "v_hsum" || name == "v_relu" || name == "v_broadcast" || name == "v_load" || name == "v_store" ||
         name == "__internal_dispatch_matmul" || name == "__internal_fma_update" ||
         name == "mmap_view" || name == "cast_view" ||
@@ -209,9 +209,9 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         name.starts_with("intrin_") || name.starts_with("tensor_alloc") || name.contains("ptr_offset") || name.contains("ptr_read") || name.contains("ptr_write") ||
         // [KEUOS PHASE 3] Shaped tensor allocation
         name == "alloc_tensor" ||
-        // [KEUOS V6] Vector Intrinsics
+        // Vector Intrinsics
         name == "vector_load" || name == "vector_store" || name == "vector_fma" || name == "vector_reduce_add" || name == "vector_splat" ||
-        // [KEUOS V6] Target Feature Detection
+        // Target Feature Detection
         name.starts_with("target__") ||
         // [std.nn] Neural network building blocks
         name == "add_bias" ||
@@ -327,7 +327,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                         });
                     }
                     
-                    // [KEUOS V2] Also try the simple name from canonical_name's last segment
+                    // Also try the simple name from canonical_name's last segment
                     // This handles cases where name was already mangled (e.g., HashMap__DELETED -> DELETED)
                     let simple_name = canonical_name.rsplit("__").next().unwrap_or(&canonical_name);
                     if simple_name != name {
@@ -346,7 +346,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
             }
         }
         
-        // 2.6 [KEUOS V4] Direct Registry Probing for Module-Level Functions  
+        // 2.6 Direct Registry Probing for Module-Level Functions  
         // When the canonical_name looks like HashMap__DELETED but the actual function is
         // at module level (hash_map__DELETED), we extract the simple name and search
         // ALL registry modules for it. This handles hydration context where imports are lost.

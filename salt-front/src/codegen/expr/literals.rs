@@ -784,7 +784,7 @@ pub fn emit_repeat(ctx: &mut LoweringContext, out: &mut String, r: &syn::ExprRep
     let array_ty = Type::Array(Box::new(ty.clone()), len, false);
     let mlir_array_ty = array_ty.to_mlir_type(ctx)?;
     
-    // [KEUOS V4.2] BULK INIT FAST PATH
+    // BULK INIT FAST PATH
     // Detect zero-initialization pattern [0; N] for large arrays
     let is_zero_init = match &*r.expr {
         syn::Expr::Lit(l) => match &l.lit {
@@ -918,13 +918,13 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
     // This handles cross-function hydration where the struct wasn't used in main
     let _ = ctx.ensure_struct_exists(&mangled_name, &[]);
     
-    // [VERIFIED METAL] Phase 5: Use centralized template lookup
+    // Phase 5: Use centralized template lookup
     let short_name = s.path.segments.last().map(|s| s.ident.to_string()).unwrap_or_default();
     if let Some(template_name) = ctx.find_struct_template_by_name(&short_name) {
         let _ = ctx.ensure_struct_exists(&template_name, &[]);
     }
     
-    // [VERIFIED METAL] Phase 5: Use centralized struct lookup
+    // Phase 5: Use centralized struct lookup
     let info_opt = ctx.find_struct_by_name(&mangled_name);
     if let Some(info) = info_opt {
         // [GENERIC SCOPE FIX] Temporarily swap type_map to include the struct's own
@@ -972,7 +972,7 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
 
         }
         
-        // [KEUOS V1.0] Clean Break: Removed NativePtr struct construction intercept
+        // Clean Break: Removed NativePtr struct construction intercept
         // NativePtr is now Type::Pointer and cannot be constructed via struct syntax.
         
         let mut current_struct = format!("%struct_init_{}", ctx.next_id());

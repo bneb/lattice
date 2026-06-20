@@ -313,7 +313,7 @@ pub fn resolve_path_to_enum(
     if ctx.enum_templates().contains_key(&enum_name_candidate) {
         template_match = Some(enum_name_candidate.clone());
     } else {
-        // [VERIFIED METAL] Phase 5: Use centralized template lookup
+        // Phase 5: Use centralized template lookup
         template_match = ctx.find_enum_template_by_name(&enum_name_candidate);
     }
     

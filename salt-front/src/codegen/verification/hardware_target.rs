@@ -1,5 +1,5 @@
 // =============================================================================
-// [KEUOS V2.0] Hardware Target Abstraction
+// Hardware Target Abstraction
 //
 // Hardware-agnostic trait modeling per-phase cycle costs for KeuOS packet
 // processing. Each hardware target implements the trait with its specific

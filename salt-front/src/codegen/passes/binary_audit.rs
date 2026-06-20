@@ -1,5 +1,5 @@
 // =============================================================================
-// [KEUOS V2.0] Post-Compilation Binary Audit
+// Post-Compilation Binary Audit
 //
 // Verification rules for the resulting object file. After MLIR → LLVM → native
 // lowering, we audit the disassembly to ensure the compiler respected KeuOS

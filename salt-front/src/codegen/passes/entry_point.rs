@@ -1,5 +1,5 @@
 // =============================================================================
-// [KEUOS V2.0] Entry Point Synthesis
+// Entry Point Synthesis
 //
 // Generates the _salt_main entry point MLIR that bootstraps the KeuOS
 // runtime. Replaces crt0 initialization with a direct jump into the

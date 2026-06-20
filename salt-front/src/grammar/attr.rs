@@ -63,7 +63,7 @@ pub fn has_attribute(attrs: &[Attribute], name: &str) -> bool {
     attrs.iter().any(|a| a.name == name)
 }
 
-/// [KEUOS V4.0] Check if function is marked @pure
+/// Check if function is marked @pure
 /// Pure functions can be used in requires/ensures clauses and are modeled
 /// as Z3 uninterpreted functions for verification.
 pub fn is_pure(attrs: &[Attribute]) -> bool {
@@ -87,7 +87,7 @@ pub fn extract_yielding_pulse(attrs: &[Attribute]) -> Option<u32> {
         .map(|a| a.int_arg.unwrap_or(1024))
 }
 
-/// [KEUOS V2.0] Extract pulse frequency from @pulse attribute
+/// Extract pulse frequency from @pulse attribute
 /// Returns Some(frequency_hz) if @pulse is present, None otherwise
 /// Examples: @pulse(60) -> Some(60), @pulse(1000) -> Some(1000)
 pub fn extract_pulse_hz(attrs: &[Attribute]) -> Option<u32> {
@@ -96,7 +96,7 @@ pub fn extract_pulse_hz(attrs: &[Attribute]) -> Option<u32> {
         .map(|a| a.int_arg.unwrap_or(60)) // Default 60Hz if no arg
 }
 
-/// [KEUOS V2.0] Determine priority tier from pulse frequency
+/// Determine priority tier from pulse frequency
 /// Tier 0 (Real-Time): >= 500Hz
 /// Tier 1 (Interactive): >= 30Hz
 /// Tier 2 (Background): < 30Hz
@@ -142,7 +142,7 @@ pub fn extract_pulse_budget(attrs: &[Attribute]) -> Option<u32> {
         .and_then(|a| a.int_arg)
 }
 
-/// [KEUOS V0.9.1] Extract memory alignment from @align attribute
+/// Extract memory alignment from @align attribute
 /// Returns Some(alignment) if @align(N) is present, None otherwise
 /// Examples: @align(64) -> Some(64)
 pub fn extract_align(attrs: &[Attribute]) -> Option<u32> {

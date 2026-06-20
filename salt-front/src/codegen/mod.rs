@@ -18,7 +18,7 @@ pub mod interleaved_gen;  // V2.0 FFB: Fused Forward-Backward codegen
 pub mod passes;           // V2.0 KeuOS: Pulse injection, yield injection, sync verification
 pub mod generic_resolver; // Consolidated generic type resolution
 pub mod shader;           // [FACET L1] Metal Shading Language codegen for @shader functions
-pub mod emit_hir;         // [PHASE 11] HIR-to-MLIR emitter for async lowering Items
+pub mod emit_hir;         // HIR-to-MLIR emitter for async lowering Items
 #[cfg(test)]
 mod tests_ptr_and_comparison;
 #[cfg(test)]
@@ -1137,7 +1137,7 @@ pub fn emit_extern_fn(ctx: &CodegenContext, decl: &ExternFnDecl) -> Result<Strin
     Ok(format!("  func.func private @{}({}) -> {}\n", name, args_code.join(", "), ret_part))
 }
 
-/// [KEUOS V2.0] Emit a @yielding function as a state machine.
+/// Emit a @yielding function as a state machine.
 /// Splits the function body at yield points, emits each segment via emit_block(),
 /// and wraps them in state machine infrastructure (TaskFrame, jump table, dispatch hub).
 fn emit_async_fn(
@@ -1708,7 +1708,7 @@ fn register_templates(ctx: &CodegenContext, file: &SaltFile) -> Result<(), Strin
         String::new()
     };
 
-    // [KEUOS V7.0] Derive the module package for Home registration
+    // Derive the module package for Home registration
     let module_package = if let Some(pkg) = &file.package {
         pkg.name.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(".")
     } else {
@@ -1722,7 +1722,7 @@ fn register_templates(ctx: &CodegenContext, file: &SaltFile) -> Result<(), Strin
                 let mut s_mangled = s.clone();
                 s_mangled.name = syn::Ident::new(&mangled, s.name.span());
                 ctx.struct_templates_mut().insert(mangled.clone(), s_mangled);
-                // [KEUOS V7.0] Register this struct's KeuOS Home
+                // Register this struct's KeuOS Home
                 ctx.register_type_home(mangled, module_package.clone());
             }
             Item::Enum(e) => {
@@ -1730,11 +1730,11 @@ fn register_templates(ctx: &CodegenContext, file: &SaltFile) -> Result<(), Strin
                 let mut e_mangled = e.clone();
                 e_mangled.name = syn::Ident::new(&mangled, e.name.span());
                 ctx.enum_templates_mut().insert(mangled.clone(), e_mangled);
-                // [KEUOS V7.0] Register this enum's KeuOS Home
+                // Register this enum's KeuOS Home
                 ctx.register_type_home(mangled, module_package.clone());
             }
             Item::Trait(t) => {
-                // [KEUOS V7.0] Register this trait's KeuOS Home
+                // Register this trait's KeuOS Home
                 let trait_mangled = if pkg_name.is_empty() { t.name.to_string() } else { Mangler::mangle(&[&pkg_name, &t.name.to_string()]) };
                 ctx.register_trait_home(trait_mangled, module_package.clone());
             }
@@ -2489,7 +2489,7 @@ fn scan_expr_method_call(ctx: &CodegenContext, m: &syn::ExprMethodCall) -> Resul
                          
                          let func_name = format!("{}__{}", template_name, method_name);
                          
-                         // [GRAYDON FIX] Substitute generic placeholders in concrete_tys using current_type_map
+                         // Substitute generic placeholders in concrete_tys using current_type_map
                          // This fixes internal method calls inside with_capacity where recv_ty is Concrete(HashMap, [Struct(K), Struct(V)])
                          // We need to convert [Struct(K), Struct(V)] → [I64, I64] using the active type_map
                          let current_map = ctx.current_type_map().clone();

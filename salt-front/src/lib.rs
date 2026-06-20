@@ -88,11 +88,11 @@ pub fn preprocess(source: &str) -> String {
             // This is done via simple regex-like replacement for now
             let line = convert_matmul_operator(&line);
             
-            // [PHASE 2] Convert |> pipe operator to function application
+            // Convert |> pipe operator to function application
             // x |> f() becomes f(x)
             let line = convert_pipe_operator(&line);
             
-            // [PHASE 2] Convert |?> railway operator to __railway__! macro
+            // Convert |?> railway operator to __railway__! macro
             // x |?> f() becomes __railway__!(x, f)
             let line = convert_railway_operator(&line);
             
@@ -797,7 +797,7 @@ fn extract_matmul_rhs(chars: &mut std::iter::Peekable<std::str::Chars>) -> Strin
     result
 }
 
-/// [PHASE 2] Convert `x |> f()` pipe syntax to `f(x)` function application
+/// Convert `x |> f()` pipe syntax to `f(x)` function application
 /// Chains: `x |> f() |> g()` → `g(f(x))`
 /// With args: `x |> f(y)` → `f(x, y)` (prepends LHS as first argument)
 /// Bare fn: `x |> f` → `f(x)`
@@ -932,7 +932,7 @@ fn extract_pipe_rhs(chars: &mut std::iter::Peekable<std::str::Chars>) -> (String
     (fn_name.trim().to_string(), args.trim().to_string())
 }
 
-/// [PHASE 2] Convert `x |?> f()` railway syntax to `__railway__!(x, f)` macro
+/// Convert `x |?> f()` railway syntax to `__railway__!(x, f)` macro
 /// Chains: `x |?> f() |?> g()` → `__railway__!(__railway__!(x, f), g)`
 /// With args: `x |?> f(y)` → `__railway__!(x, f, y)`
 fn convert_railway_operator(line: &str) -> String {
