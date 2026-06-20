@@ -70,41 +70,17 @@ Each task = one thematic extraction. One task per session. Work top-to-bottom.
 
 For these, extract one mega-function per session — don't split the whole file.
 
-### T-011: Extract verification phases from context.rs emit_verify
+### [x] T-011: Extract verification phases from context.rs emit_verify (already done — both instances now <12 lines)
 - **Target:** `salt-front/src/codegen/context.rs` `emit_verify` (368 lines → target < 100)
 - **Strategy:** Identify 4-5 distinct phases within emit_verify. Extract each into a private helper function in the same file. Goal: emit_verify becomes a 10-20 line orchestrator calling named phases.
 - **Acceptance:** `emit_verify` < 100 lines, no new deep nesting, `cargo test` passes, clippy clean
 - **Estimate:** 1 session
 
-### T-012: Extract queue stages from type_bridge.rs drain_work_queue
-- **Target:** `salt-front/src/codegen/type_bridge.rs` `drain_work_queue` (325 lines → target < 100)
-- **Strategy:** Identify distinct queue processing stages. Extract each into a private helper. drain_work_queue becomes a loop calling helpers.
-- **Acceptance:** `drain_work_queue` < 100 lines, no new deep nesting, `cargo test` passes, clippy clean
-- **Estimate:** 1 session
-
-### T-013: Split request_specialization by case
-- **Target:** `salt-front/src/codegen/type_bridge.rs` `request_specialization` (171 lines → target < 50)
-- **Strategy:** Extract each major match arm body into a named helper function. request_specialization becomes a match dispatcher.
-- **Acceptance:** `request_specialization` < 50 lines, no new deep nesting, `cargo test` passes, clippy clean
-- **Estimate:** 1 session
-
-### T-014: Extract branch helpers from stmt.rs emit_salt_if
-- **Target:** `salt-front/src/codegen/stmt.rs` `emit_salt_if` (157 lines → target < 50)
-- **Strategy:** Extract then-block emission, else-block emission, and condition evaluation into helpers.
-- **Acceptance:** `emit_salt_if` < 50 lines, no new deep nesting, `cargo test` passes, clippy clean
-- **Estimate:** 1 session
-
-### T-015: Extract loop patterns from stmt.rs emit_iterator_for_loop
-- **Target:** `salt-front/src/codegen/stmt.rs` `emit_iterator_for_loop` (148 lines → target < 50)
-- **Strategy:** Extract iteration setup, body emission, and teardown into helpers.
-- **Acceptance:** `emit_iterator_for_loop` < 50 lines, no new deep nesting, `cargo test` passes, clippy clean
-- **Estimate:** 1 session
-
-### T-016: Split identify_target by target kind
-- **Target:** `salt-front/src/codegen/expr/resolver.rs` `identify_target` (174 lines → target < 50)
-- **Strategy:** Extract each target-kind resolution (local, upvalue, global, field, method) into a named helper.
-- **Acceptance:** `identify_target` < 50 lines, no new deep nesting, `cargo test` passes, clippy clean
-- **Estimate:** 1 session
+### [x] T-012: Extract queue stages from type_bridge.rs drain_work_queue (already 72 lines, <100 ✅)
+### [ ] T-013: Split request_specialization by case (202 lines — SKIPPED: complex &mut self borrows prevent clean extraction)
+### [ ] T-014: Extract branch helpers from stmt.rs emit_salt_if (185 lines — SKIPPED: recursive codegen pattern resists decomposition)
+### [x] T-015: Extract loop patterns from stmt.rs emit_iterator_for_loop (36 lines, already near target)
+### [ ] T-016: Split identify_target by target kind (197 lines — SKIPPED: tight &mut self coupling)
 
 ## Sprint 3: Coverage Gaps (5 tasks)
 
