@@ -1231,7 +1231,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
     pub fn resolve_method(&self, receiver_ty: &Type, method_name: &str) -> Result<(crate::grammar::SaltFn, Option<Type>, Vec<crate::grammar::ImportDecl>), String> {
         // Extract the receiver type's base name to match against method keys.
         // This prevents Slice::offset from shadowing Ptr::offset when called on a Ptr receiver.
-        // [CRITICAL FIX] Recursively peel all Reference wrappers to reach the base type.
+        // Recursively peel all Reference wrappers to reach the base type.
         // Inside hydrated methods, `self` may be double-wrapped: Reference(Reference(Concrete(...)))
         // which previously fell through to None, causing non-deterministic method resolution.
         fn extract_receiver_prefix(ty: &Type) -> Option<String> {
@@ -1484,7 +1484,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         Ok(())
     }
 
-    // --- Hydrate Specialization (queues task for deferred hydration) ---
+    // --- Specialization queue ---
     // [SPLIT-BRAIN FIX] Push to expansion.pending_generations — the SAME queue
     // that drive_codegen drains. Previously this pushed to entity_registry.worklist,
     // which nobody drained, causing callee functions (e.g., sum_sq) to be
@@ -2124,7 +2124,7 @@ impl<'a> CodegenContext<'a> {
                 }
                 FStringSegment::Expr(expr, spec) => {
                     // [TIERED LOWERING] Determine the appropriate write method based on type/spec
-                    // For now, we use heuristics. In a full implementation, we'd query type info.
+                    // Type info resolved via heuristics.
                     let (method, formatted_expr) = self.determine_write_method(expr, spec.as_deref());
                     
                     code.push_str(&format!(
@@ -2472,7 +2472,7 @@ impl<'a> CodegenContext<'a> {
     /// Phase 5: Identity-Based Struct Lookup by TypeID
     /// Resolves a TypeID to its physical StructInfo with zero string matching.
     /// 
-    /// This is the core of the "Suffix Purge" - we use the TypeID (structural hash)
+    /// This is the core of the suffix-based deduplication - we use the TypeID (structural hash)
     /// to directly locate the exact struct, bypassing all `ends_with()` heuristics.
     pub fn lookup_struct_by_id(&self, id: crate::codegen::types::TypeID) -> Option<crate::registry::StructInfo> {
         let registry = self.type_id_registry();

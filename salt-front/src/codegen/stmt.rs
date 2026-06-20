@@ -1375,7 +1375,7 @@ fn emit_iterator_for_loop(
 }
 
 
-/// [v0.9.2] Check if a Salt block always returns (is a terminal path).
+/// Check if a Salt block always returns (is a terminal path).
 /// Used for implicit guard negation: after `if cond { return x; }`, remaining code
 /// implicitly runs under `!cond`.
 pub fn salt_block_always_returns(stmts: &[Stmt]) -> bool {
@@ -1418,7 +1418,7 @@ pub fn emit_block(ctx: &mut LoweringContext, out: &mut String, stmts: &[Stmt], l
             break;
         }
 
-        // [v0.9.2] Implicit Guard Negation for path-sensitive postcondition verification.
+        // Implicit Guard Negation for path-sensitive postcondition verification.
         // After `if cond { return ...; }` (no else), remaining code runs under `!cond`.
         if let Stmt::If(f) = stmt {
             if f.else_branch.is_none() && salt_block_always_returns(&f.then_branch.stmts) {
@@ -2455,7 +2455,7 @@ pub fn emit_salt_if(
 
     out.push_str(&format!("  ^{}:\n", label_then));
     let mut then_vars = local_vars.clone();
-    // [v0.9.2] Push branch condition for Z3 postcondition verification
+    // Push branch condition for Z3 postcondition verification
     ctx.emission.path_conditions.push(cond.clone());
     let then_diverges = emit_block(ctx, out, &then_branch.stmts, &mut then_vars)?;
     ctx.emission.path_conditions.pop();
@@ -2500,7 +2500,7 @@ pub fn emit_salt_if(
 
         out.push_str(&format!("  ^{}:\n", label_else));
         let mut else_vars = local_vars.clone();
-        // [v0.9.2] Push negated condition for else branch
+        // Push negated condition for else branch
         let negated_cond = syn::Expr::Unary(syn::ExprUnary {
             attrs: vec![],
             op: syn::UnOp::Not(syn::token::Not::default()),
