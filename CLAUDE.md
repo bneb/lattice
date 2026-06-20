@@ -46,38 +46,27 @@ Progress is tracked in `.claude/goals/STATUS.md` — read that file to see what'
 16. Blog posts (3+ technical deep-dives) ✅
 17. Ongoing improvements
 
-## Quality Goals (Aspirational — work toward these incrementally)
+## Code Quality Goals
 
-We are pursuing five quality goals. These are NOT hard blockers on new code
-(the hook-enforced constraints in `.claude/hooks/check-constraints.sh` already
-handle that). These are long-term targets to reach through systematic,
-incremental refactoring.
+These are targets, not hard blockers. The hook-enforced constraints in
+`.claude/hooks/check-constraints.sh` handle the blocking side.
 
-### The Five Goals
 1. Every file < 500 LOC
 2. Every function < 32 non-blank LOC
-3. Zero blocks at nesting level 4+ (no `if`/`match`/`while`/`for`/`loop`
-   at 16+ spaces of indent)
+3. Zero blocks at nesting level 4+ (if/match/while/for/loop at ≥16 spaces indent)
 4. Test coverage > 95% (salt-front + salt-lsp)
-5. Zero mutant markers (TODO/FIXME/HACK/XXX/temp_/workaround) in source
+5. Zero mutants (TODO/FIXME/HACK/XXX/temp_/workaround) in non-test source
 
-### Strategy: Ratchet, Don't Boil the Ocean
-- Each session, pick ONE file or module and improve it against ALL five goals.
-- Never make coverage worse. Never make a function longer. Never add nesting.
-- If you touch a function to fix something else, leave it shorter/flatter.
-- Commit after each successful improvement with a metric in the message:
+### Rules of thumb
+- Pick one file per session, improve it. Don't try to fix everything at once.
+- Never make coverage worse, never make a function longer, never add nesting.
+- Don't code-golf — readability matters more than line counts. If a file
+  genuinely can't be split (global coupling, circular type dependencies),
+  document it and move on.
+- Commit after each improvement with a metric:
   "refactor: shrink do_dispatch 98→30 lines, scheduler.salt 810→492 lines"
 
-### Anti-Patterns (from 2026-06-20 session)
-- **Never code golf.** Don't delete comments, compress doc strings, or remove
-  blank lines solely to hit a line-count target. If a file can't be naturally
-  split, document it as a legitimate exception rather than degrading readability.
-- **Legitimate exceptions are OK.** When a file genuinely resists extraction
-  (global coupling, circular type dependencies, core logic that would be worse
-  if split), write down the specific reason and move on. See
-  `[[no-code-golfing]]` in memory for the full policy with examples.
-
-### Priority Queue — Tier 1: Kernel Files (work top-to-bottom)
+### Kernel Files — Refactoring Status
 
 | # | File | Status | Result |
 |---|------|--------|--------|
@@ -92,7 +81,7 @@ incremental refactoring.
 | 9 | preempt_test.salt (was 509) | ✅ | 311 lines — preempt_test_layer05.salt (200) |
 | 10 | scheduler.salt (539) | ⚠ LEGITIMATE EXCEPTION | All functions access SCHED_ARRAY global; struct types are file-local; extracting would require raw pointer arithmetic or core logic restructuring (prohibited). Do not code-golf — leave as-is. |
 
-### Priority Queue — Tier 2: Salt Compiler Functions
+### Salt Compiler — Large Functions
 Focus on the worst functions first, not whole-file splits. Several were
 already refactored in prior work; others resist decomposition due to
 `&mut self` borrow-checker coupling.
@@ -104,7 +93,7 @@ already refactored in prior work; others resist decomposition due to
 - ~~`stmt.rs` `emit_iterator_for_loop`~~ — 36 lines, near target
 - `expr/resolver.rs` `identify_target` (197 lines) — tight &mut self coupling
 
-### Priority Queue — Tier 3: Coverage Gaps
+### Coverage Gaps
 
 | Module | Status | Result |
 |--------|--------|--------|
@@ -114,7 +103,7 @@ already refactored in prior work; others resist decomposition due to
 | salt-lsp: completion.rs, sir_display.rs, sir_index.rs | ⬜ | Deferred — needs LSP test harness |
 | codegen/verification/ modules | ⬜ | Deferred — Z3 shim currently disabled |
 
-### Priority Queue — Tier 4: Fuzz Targets
+### Fuzz Targets
 - `salt-front/fuzz/fuzz_parser.rs` — round-trip fuzzing (deferred)
 - `salt-front/fuzz/fuzz_preprocess.rs` — preprocessor stress (deferred)
 
