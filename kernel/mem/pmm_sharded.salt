@@ -57,7 +57,7 @@ global TOTAL_PAGES: u64 = 0;
 global NUM_CPUS: u64 = 1;
 global MAX_PHYS_ADDR: u64 = 0;
 
-// [SEC-14] SECURITY FIX: Used/Free bitmask to detect double free. 1 = Free, 0 = Used.
+// Used/Free bitmask to detect double free. 1 = Free, 0 = Used.
 global PMM_USED_BITMAP: [u64; 16384] = [0; 16384];
 
 fn mark_page_free_bitmap(phys: u64) {
@@ -118,7 +118,7 @@ fn set_next_frame_ptr(phys_head: u64, next_phys: u64) {
 }
 
 fn check_double_free(phys_head: u64) -> bool {
-    // [SEC-14] SECURITY FIX: Use the bitmap to detect double free. 1 = Free.
+    // Use the bitmap to detect double free. 1 = Free.
     let page_idx = phys_head / PAGE_SIZE;
     let arr_idx = page_idx / 64;
     let bit_idx = page_idx % 64;

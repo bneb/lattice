@@ -30,7 +30,7 @@ import kernel.core.panic
 import kernel.drivers.serial
 import kernel.core.percpu
 
-// [SEC-17] SMP Safety: disable/enable interrupts for critical sections
+// SMP Safety: disable/enable interrupts for critical sections
 extern fn disable_interrupts();
 // =============================================================================
 // Constants
@@ -186,7 +186,7 @@ fn grow_cache(cache_id: u64) -> u64 {
 // Security: Zeroes the user region. Does NOT overwrite the Redzone.
 // =============================================================================
 pub fn alloc(cache_id: u64) -> u64 {
-    // [SEC-17] SECURITY FIX: Lock-free atomic Compare-And-Swap (CAS) loop
+    // Lock-free atomic Compare-And-Swap (CAS) loop
     // to protect the freelist from concurrent modification on SMP.
     let base = CACHE_REGISTRY + (cache_id * CACHE_STRIDE);
     let user_obj_size = *((base + 8) as &u64);
@@ -249,7 +249,7 @@ pub fn free(cache_id: u64, ptr: u64) {
         panic.panic("slab_cache: BUFFER OVERFLOW DETECTED");
     }
 
-    // [SEC-17] SECURITY FIX: Lock-free atomic CAS loop to protect the freelist.
+    // Lock-free atomic CAS loop to protect the freelist.
     let head_addr = base + 24;
     let mut current_head = *(head_addr as &u64);
     let mut success = false;

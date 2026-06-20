@@ -266,7 +266,7 @@ pub fn get_count() -> u64 {
     return PROC_COUNT;
 }
 
-// [NEW-05] SECURITY FIX: dec_count must be atomic on SMP to prevent race conditions.
+// dec_count must be atomic on SMP to prevent race conditions.
 // The canonical atomic implementation is at the bottom of this file (line ~361).
 // This non-atomic version is removed to eliminate the duplicate definition.
 // pub fn dec_count() { PROC_COUNT = PROC_COUNT - 1; }  // REMOVED: non-atomic, SMP-unsafe

@@ -257,11 +257,11 @@ fn walk_or_create(table_phys: u64, index: u64, flags: u64) -> u64 {
     let entry_addr = table_virt + (index * 8);
     let entry = *(entry_addr as &u64);
 
-    // [SEC-07] SECURITY FIX: Only propagate User and Write flags if the leaf mapping requests them.
+    // Only propagate User and Write flags if the leaf mapping requests them.
     let allowed_flags = flags & (PTE_USER | PTE_WRITE);
 
     if (entry & PTE_PRESENT) != 0 {
-        // [PS-FIX] Large page splitting: if this entry maps a 1GB or 2MB
+        // Large page splitting: if this entry maps a 1GB or 2MB
         // page directly (PS bit set), we must split it into a table of
         // smaller entries. Without this, the physical address of the large
         // page is misinterpreted as a child page table pointer, causing
@@ -285,7 +285,7 @@ fn walk_or_create(table_phys: u64, index: u64, flags: u64) -> u64 {
     }
 
     let new_table = pmm.alloc();
-    // [NEW-01] SECURITY FIX: OOM guard — if pmm.alloc() returns 0, we must NOT
+    // OOM guard — if pmm.alloc() returns 0, we must NOT
     // write to physical address 0 (corrupts low memory) or install a null PTE.
     if new_table == 0 {
         return 0;
@@ -299,7 +299,7 @@ fn walk_or_create(table_phys: u64, index: u64, flags: u64) -> u64 {
 // map_user_page -- Map a single 4KB page with Ring 3 permissions
 // =============================================================================
 pub fn map_user_page(pml4_phys: u64, vaddr: u64, paddr: u64, flags: u64) {
-    // [SEC-06] Reject kernel-range virtual addresses to prevent PML4 corruption
+    // Reject kernel-range virtual addresses to prevent PML4 corruption
     if vaddr >= 0x0000800000000000 {
         return;
     }
