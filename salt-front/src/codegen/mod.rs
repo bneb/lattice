@@ -17,7 +17,7 @@ pub mod types;
 pub mod interleaved_gen;  // V2.0 FFB: Fused Forward-Backward codegen
 pub mod passes;           // V2.0 KeuOS: Pulse injection, yield injection, sync verification
 pub mod generic_resolver; // Consolidated generic type resolution
-pub mod shader;           // [FACET L1] Metal Shading Language codegen for @shader functions
+pub mod shader;           // Metal Shading Language codegen for @shader functions
 pub mod emit_hir;         // HIR-to-MLIR emitter for async lowering Items
 #[cfg(test)]
 mod tests_ptr_and_comparison;
@@ -1615,7 +1615,7 @@ fn emit_impl(ctx: &CodegenContext, imp: &SaltImpl) -> Result<String, String> {
             // Restore
             *ctx.current_self_ty_mut() = old_self;
         }
-        // [COUNCIL V2] Trait impl blocks — emit method bodies (e.g. impl Display for Point { fn fmt })
+        // Trait impl blocks — emit method bodies (e.g. impl Display for Point { fn fmt })
         SaltImpl::Trait { trait_name: _, target_ty, methods, generics: _ } => {
             let parsed_ty = crate::types::Type::from_syn(target_ty).ok_or_else(|| "Failed to parse type from syntax in trait impl block".to_string())?;
             let target_name_full = ctx.bridge_resolve_codegen_type(&parsed_ty).mangle_suffix();

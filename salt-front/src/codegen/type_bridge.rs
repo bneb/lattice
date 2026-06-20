@@ -1144,7 +1144,7 @@ pub fn to_mlir_type(ctx: &mut LoweringContext, ty: &Type) -> Result<String, Stri
                     .cloned()
                     .unwrap_or_else(|| name.clone())
             };
-            // [CANONICAL RESOLUTION] Canonicalize Struct args before mangling.
+            // Canonicalize Struct args before mangling.
             // to_canonical_name() has no context, so Struct("Node") mangles to "Node"
             // producing Box_Node instead of Box_main__Node. We canonicalize here.
             let canonical_args: Vec<Type> = args.iter().map(|t| {
@@ -1929,7 +1929,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
     }
 
     pub fn request_explicit_specialization(&mut self, func_name: &str, override_name: &str, concrete_tys: Vec<Type>, self_ty: Option<Type>) -> String {
-        // CANONICALIZATION GUARD: Always strip Reference wrappers from self_ty.
+        // Always strip Reference wrappers from self_ty.
         let self_ty = self_ty.map(|mut ty| {
             while let Type::Reference(inner, _) = ty {
                 ty = *inner;
@@ -2029,7 +2029,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
 
 
     pub fn request_specialization(&mut self, func_name: &str, concrete_tys: Vec<Type>, self_ty: Option<Type>) -> String {
-        // CANONICALIZATION GUARD: Always strip Reference wrappers from self_ty.
+        // Always strip Reference wrappers from self_ty.
         // The self_ty identity should be the naked base type (e.g., Result), not Reference(Result).
         // This ensures correct type mangling and Self resolution during hydration.
         let self_ty = self_ty.map(|mut ty| {
@@ -2231,7 +2231,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         mangled
     }
     pub fn specialize_template(&mut self, base_name: &str, concrete_tys: &[Type], is_enum: bool) -> Result<TypeKey, String> {
-        // [CANONICAL RESOLUTION] Canonicalize concrete_tys before constructing the TypeKey.
+        // Canonicalize concrete_tys before constructing the TypeKey.
         // Without this, Struct("Node") produces "Box_Node" while Struct("main__Node") produces
         // "Box_main__Node", creating duplicate specializations. By canonicalizing here, all
         // specializations consistently use FQN names.
@@ -2645,7 +2645,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             *self.current_type_map_mut() = old_map;
             *self.current_generic_args_mut() = old_generic_args;
         }
-        // [FIX] Restore imports that were swapped for template definition scope.
+        // Restore imports that were swapped for template definition scope.
         // Without this, the caller's import context is permanently clobbered
         // with the template's module imports (e.g., Slice's 1-import context
         // overwrites main's 21-import context).

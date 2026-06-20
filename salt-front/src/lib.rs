@@ -59,7 +59,7 @@ pub fn preprocess(source: &str) -> String {
             // Replace Salt keywords with syn-friendly ones
             let line = line.replace("!llvm.ptr", "LlvmPtr");
             
-            // [FIX] Convert Rust-style use syntax to Salt import syntax:
+            // Convert Rust-style use syntax to Salt import syntax:
             // `use std::string::*;` -> `import std.string;` (wildcard = bare module)
             // `use std::string::{A, B};` -> `import std.string.{A, B};`
             // `use std::string::Foo;` -> `import std.string.Foo;`
@@ -114,11 +114,11 @@ pub fn preprocess(source: &str) -> String {
         .collect::<Vec<_>>()
         .join("\n");
     
-    // [P1 HARDENING] Expand @derive annotations into trait impl blocks
+    // Expand @derive annotations into trait impl blocks
     expand_derive_annotations(&result)
 }
 
-/// [P1 HARDENING] Expand @derive(Clone, Hash, Eq, Ord) annotations on structs.
+/// Expand @derive(Clone, Hash, Eq, Ord) annotations on structs.
 /// Scans for `@derive(Trait1, Trait2, ...)` followed by `pub struct Name { fields }`.
 /// Generates trait impl blocks and appends them after the struct definition.
 fn expand_derive_annotations(source: &str) -> String {
@@ -1139,7 +1139,7 @@ fn extract_force_unwrap_expr(s: &str) -> String {
 
 
 pub fn compile_ast(file: &mut SaltFile, release_mode: bool, registry: Option<&crate::registry::Registry>, skip_scan: bool, _vverify: bool, disable_alias_scopes: bool, no_verify: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> anyhow::Result<String> {
-    // [PRELUDE] Inject implicit stdlib imports for built-in types.
+    // Inject implicit stdlib imports for built-in types.
     // Ptr<T> is a built-in type whose methods (write, read, offset) live in std/core/ptr.salt.
     // Without this import, standalone files can use Ptr<T> but can't call its methods.
     // This acts as Salt's implicit prelude, similar to Rust's std::prelude.

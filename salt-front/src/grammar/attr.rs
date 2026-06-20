@@ -70,7 +70,7 @@ pub fn is_pure(attrs: &[Attribute]) -> bool {
     has_attribute(attrs, "pure")
 }
 
-/// [V8] Check if function is marked @fast_math
+/// Check if function is marked @fast_math
 /// Enables reassoc + contract fast-math flags on ALL floating-point ops
 /// in the function body, not just reduction patterns. This allows LLVM to
 /// vectorize and reassociate FP arithmetic for maximum throughput.
@@ -110,7 +110,7 @@ pub fn pulse_to_tier(frequency_hz: u32) -> u8 {
     }
 }
 
-/// [FACET L1] Extract shader kind from @shader attribute
+/// Extract shader kind from @shader attribute
 /// Returns Some("compute"), Some("vertex"), or Some("fragment") if present
 /// Default is "compute" when @shader has no arguments
 pub fn extract_shader_kind(attrs: &[Attribute]) -> Option<String> {
@@ -123,7 +123,7 @@ pub fn extract_shader_kind(attrs: &[Attribute]) -> Option<String> {
         })
 }
 
-/// [FACET L1] Extract workgroup size from @shader attribute
+/// Extract workgroup size from @shader attribute
 /// Returns the int_arg if present, defaulting to 64
 /// Examples: @shader(compute, 256) -> 256, @shader(compute) -> 64
 pub fn extract_workgroup_size(attrs: &[Attribute]) -> u32 {
@@ -133,7 +133,7 @@ pub fn extract_workgroup_size(attrs: &[Attribute]) -> u32 {
         .unwrap_or(64)
 }
 
-/// [SPRINT 2] Extract explicit cycle budget from @pulse_budget attribute
+/// Extract explicit cycle budget from @pulse_budget attribute
 /// Returns Some(cycles) if @pulse_budget is present, None otherwise
 /// Examples: @pulse_budget(1000) -> Some(1000), @pulse_budget(50000) -> Some(50000)
 pub fn extract_pulse_budget(attrs: &[Attribute]) -> Option<u32> {

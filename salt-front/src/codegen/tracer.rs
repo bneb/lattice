@@ -85,7 +85,7 @@ impl<'a> TypeTracer for CodegenContext<'a> {
                 if let Expr::Path(p) = &*c.func {
                     let path_string = p.path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("::");
                     
-                    // INTRINSIC GROUNDING
+                    // Built-in intrinsics
                     if path_string.ends_with("size_of") { return Ok(Type::I64); }
                     
                     // Ptr Offset maintains pointer identity
@@ -105,7 +105,7 @@ impl<'a> TypeTracer for CodegenContext<'a> {
             
             Expr::Lit(lit) => {
                 match &lit.lit {
-                    // [COUNCIL V1] String literals are StringView by default
+                    // String literals are StringView by default
                     syn::Lit::Str(_) => Ok(Type::Struct("std__core__str__StringView".to_string())),
                     syn::Lit::Int(_) => Ok(Type::I64),
                     syn::Lit::Bool(_) => Ok(Type::Bool),
@@ -169,7 +169,7 @@ impl<'a> TypeTracer for CodegenContext<'a> {
     }
 
     fn resolve_field_type(&self, receiver_ty: &Type, field_name: &str) -> Result<Type, String> {
-        // UNIFIED PEEL: Dereference References and Pointers to find the base struct
+        // Dereference through References and Pointers to find the base struct
         let mut current = receiver_ty;
         while let Some(inner) = current.get_ptr_element() {
             current = inner;

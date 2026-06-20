@@ -19,7 +19,7 @@ impl<'a, 'ctx, 'b> Seeker<'a, 'ctx, 'b> {
         Self { ctx }
     }
 
-    /// THE INVARIANT: Deterministic symbol mangling for monomorphized types.
+    /// Deterministic symbol mangling for monomorphized types.
     /// This ensures that call-site generator and definition generator produce identical symbols.
     /// Format: TypeName_Param1_Param2__MethodName (double underscore before method)
     /// Examples: Vec_u8__push, RawVec_i32__with_capacity, Result_i32_bool__map
@@ -92,7 +92,7 @@ impl<'a, 'ctx, 'b> Seeker<'a, 'ctx, 'b> {
     /// Exhaustively discovers all physical requirements of an expression.
     pub fn discover_requirements(&mut self, expr: &Expr, tasks: &mut Vec<MonomorphizationTask>, locals: &mut BTreeMap<String, Type>) -> Result<(), String> {
         match expr {
-            // THE STRUCT PIVOT: Every literal is a layout request.
+            // Struct literals trigger layout resolution
             Expr::Struct(s) => {
                 let path_ty = syn::Type::Path(syn::TypePath { qself: None, path: s.path.clone() });
                 let resolved_ty = crate::codegen::type_bridge::resolve_type(self.ctx, &crate::grammar::SynType::from_std(path_ty).map_err(|e| e.to_string())?);
@@ -109,18 +109,18 @@ impl<'a, 'ctx, 'b> Seeker<'a, 'ctx, 'b> {
                 }
             }
 
-            // THE CALL PIVOT: Every call is a specialization request.
+            // Function calls trigger specialization resolution
             Expr::Call(c) => self.discover_call_requirements(c, tasks, locals)?,
 
              Expr::MethodCall(m) => self.discover_method_call_requirements(m, tasks, locals)?,
 
-            // THE MEMORY PIVOT: Indexing implies array/pointer layout knowledge.
+            // Indexing implies array/pointer layout knowledge
             Expr::Index(i) => {
                 self.discover_requirements(&i.expr, tasks, locals)?;
                 self.discover_requirements(&i.index, tasks, locals)?;
             }
 
-            // RECURSIVE COMPLETENESS (Missing from original implementation)
+            // Recursive completeness
             Expr::If(i) => {
                 self.discover_requirements(&i.cond, tasks, locals)?;
                 // Recurse into block statements

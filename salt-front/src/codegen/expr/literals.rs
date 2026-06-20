@@ -189,7 +189,7 @@ pub fn emit_lit(ctx: &mut LoweringContext, out: &mut String, lit: &syn::ExprLit,
                  new_id
              };
 
-             // [COUNCIL V1] String literals produce StringView { ptr, len } by default.
+             // String literals produce StringView { ptr, len } by default.
              // This enables "hello".length() and other method calls on string literals.
              // Auto-extraction to !llvm.ptr happens in promote_numeric for FFI compat.
              if matches!(expected, Some(Type::Reference(..)) | Some(Type::Pointer { .. })) {

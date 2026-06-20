@@ -128,7 +128,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                  return Ok((mangled, generics));
              }
 
-             // [FIX] Wildcard Import Resolution: Check `use X::*` imports via Registry
+             // Wildcard Import Resolution: Check `use X::*` imports via Registry
              // When import has no alias AND no group, search that module's exports for the symbol.
              let resolved_name = resolved_name.or_else(|| {
                  if let Some(reg) = self.ctx.config.registry {
@@ -191,7 +191,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         name == "size_of" || name == "align_of" || name == "zeroed" || name == "unreachable" ||
         name == "popcount" || name == "ctpop" || name == "println" || name == "print" ||
         name == "trailing_zeros" || name == "cttz" || name == "leading_zeros" || name == "ctlz" ||
-        // [FIX] Bit manipulation intrinsics used by kernel scheduler (std.math.* aliases)
+        // Bit manipulation intrinsics used by kernel scheduler (std.math.* aliases)
         name == "ctz_u64" || name == "clz_u64" || name == "popcount_u64" ||
         name == "reinterpret_cast" || name == "ref_to_addr" || name == "is_null" ||
         // [KEUOS OPTIMIZATION] Bulk memory intrinsics
@@ -765,7 +765,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                 Ok(())
             },
 
-            // [CANONICAL RESOLUTION] Concrete vs Struct: strict equality after canonicalization.
+            // Concrete vs Struct: strict equality after canonicalization.
             // With proper FQN resolution in the tracer, these types should not need fuzzy matching.
             (Type::Concrete(p_name, _p_args), Type::Struct(s_name)) => {
                 Err(format!("Cannot unify Concrete({}) with Struct({}). Types must match exactly after canonicalization.", p_name, s_name))
