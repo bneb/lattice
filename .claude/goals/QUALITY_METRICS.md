@@ -229,16 +229,28 @@ spawn_ring3_coroutine.
 Cross-package Ptr<T> cast (inode_ptr as Ptr<Inode>) works when Inode type
 is properly imported.
 
-### Legitimate exceptions to <500 LOC goal (2 remaining)
+## 2026-06-20 — Session 12: syscall.salt extraction (I/O + FD-table)
+
+### syscall.salt
+| Metric | Before | After |
+|--------|--------|-------|
+| Lines | 582 | 278 (-52%) |
+| Files created | 0 | 2 (syscall_io.salt 281 lines, syscall_fd.salt 86 lines) |
+
+Extracted I/O subsystem (copy_from_user, copy_to_user, sys_write, sys_read,
+sys_open) into syscall_io.salt. FD-table management (destroy_fd_table,
+copy_fd_obj, duplicate_fd_table) into syscall_fd.salt.
+
+Cross-package Ptr<T> casts all work — limitation was misdiagnosed.
+
+### Legitimate exception to <500 LOC goal (1 remaining)
 | File | Lines | Reason |
 |------|-------|--------|
-| syscall.salt | 582 | **Researched 2026-06-20:** Ptr<T> casts work cross-package (verified: Ptr<u8>, Ptr<vfs::FileDescriptor>, .offset(), .read(), .write(), .addr all compile from separate package). Limitation was either fixed or misdiagnosed. Extraction is feasible — needs a dedicated session to split I/O + fd-table + spawn subsystems. |
-| scheduler.salt | 539 | Cannot split: all functions (bitmap, dispatch, spawn, steal) access SCHED_ARRAY global. Extracting requires either raw pointer arithmetic (fragile) or restructuring core scheduler logic (prohibited). Struct types (Fiber, SchedulerState) are file-local — moving them creates circular dependencies. |
+| scheduler.salt | 539 | Cannot split: all functions access SCHED_ARRAY global. Struct types are file-local — moving them creates circular dependencies. Raw pointer arithmetic would degrade code. |
 
-Both verified through multiple independent extraction attempts.
-No code golfing — all remaining content is essential.
+Verified through multiple independent extraction attempts.
 
-### Total: 14 commits, 0 regressions, 0 test failures
+### Total: 16 commits, 0 regressions, 0 test failures
 
 ### Files >500 lines (kernel/)
 | Metric | Before | After | Delta |
