@@ -90,7 +90,7 @@ For these, extract one mega-function per session — don't split the whole file.
 - **Acceptance:** > 5 new test functions, all pass, coverage of interpreter.rs > 60%
 - **Estimate:** 1 session
 
-### T-018: Add round-trip tests for fuzz_ast.rs
+### [x] T-018: Add round-trip tests for fuzz_ast.rs
 - **Target:** `salt-front/src/fuzz_ast.rs` (0 tests → target > 60% coverage)
 - **Strategy:** Add round-trip tests: parse → serialize → parse, verify AST equivalence for basic node types.
 - **Acceptance:** > 3 new test functions, all pass, coverage of fuzz_ast.rs > 60%

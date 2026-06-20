@@ -306,4 +306,39 @@ mod tests {
         assert_eq!(names.len(), 1);
         assert_eq!(names[0].0.to_string(), "x");
     }
+
+    #[test]
+    fn test_parse_struct_pattern() {
+        let pat: Pattern = syn::parse_str("Point { x, y }").unwrap();
+        if let Pattern::Struct { name, fields } = pat {
+            assert_eq!(name.to_string(), "Point");
+            assert_eq!(fields.len(), 2);
+        } else {
+            panic!("Expected struct pattern");
+        }
+    }
+
+    #[test]
+    fn test_parse_or_pattern() {
+        let pat: Pattern = syn::parse_str("A | B").unwrap();
+        assert!(matches!(pat, Pattern::Or(_)));
+    }
+
+    #[test]
+    fn test_parse_rest_pattern() {
+        let pat: Pattern = syn::parse_str("..").unwrap();
+        assert!(matches!(pat, Pattern::Rest));
+    }
+
+    #[test]
+    fn test_is_irrefutable_wildcard() {
+        let pat: Pattern = syn::parse_str("_").unwrap();
+        assert!(pat.is_irrefutable());
+    }
+
+    #[test]
+    fn test_is_irrefutable_ident_false() {
+        let pat: Pattern = syn::parse_str("Some(x)").unwrap();
+        assert!(!pat.is_irrefutable());
+    }
 }
