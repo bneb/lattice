@@ -207,7 +207,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         name == "mmap_view" || name == "cast_view" ||
         name.contains("macos_syscall") ||
         name.starts_with("intrin_") || name.starts_with("tensor_alloc") || name.contains("ptr_offset") || name.contains("ptr_read") || name.contains("ptr_write") ||
-        // [KEUOS PHASE 3] Shaped tensor allocation
+        // Shaped tensor allocation
         name == "alloc_tensor" ||
         // Vector Intrinsics
         name == "vector_load" || name == "vector_store" || name == "vector_fma" || name == "vector_reduce_add" || name == "vector_splat" ||
@@ -219,7 +219,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         name.starts_with("std__math__") ||
         name == "expf" || name == "logf" || name == "sqrtf" || name == "powf" ||
         name == "sinf" || name == "cosf" || name == "fabsf" || name == "floorf" || name == "ceilf" ||
-        // [KEUOS FIX] Atomic intrinsics for kernel lock-free data structures
+        // Atomic intrinsics for kernel lock-free data structures
         name == "cmpxchg" || name.contains("atomic_cas") || name.contains("ptr_is_null") ||
         // [salt.atomic] Concurrency primitives — must bypass package mangling
         // so they route to the intrinsic handler in intrinsics.rs
@@ -305,7 +305,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
              });
         }
         
-        // 2.5 [KEUOS FIX] Hierarchical Scope Resolution
+        // 2.5 Hierarchical Scope Resolution
         // Check Registry for module-level functions in current package.
         // This enables EMPTY(), DELETED() etc. to be visible from impl blocks.
 

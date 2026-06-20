@@ -20,7 +20,7 @@ impl ToTokens for SynType {
                 }
                 inner.to_tokens(tokens);
             }
-            // [KEUOS PHASE 3]: Emit ShapedTensor as Tensor<T, {Rank, D1...}>
+            // : Emit ShapedTensor as Tensor<T, {Rank, D1...}>
             SynType::ShapedTensor { element, rank, dims } => {
                 let t = quote::format_ident!("Tensor");
                 tokens.append(t);

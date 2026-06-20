@@ -189,7 +189,7 @@ fn emit_matmul_method(
         let elem_mlir = a_elem.to_mlir_type(ctx)?;
         
         // Matrix-Vector: A[M,K] @ B[K] = C[M]
-        // [KEUOS PHASE 3] linalg.matvec with JIT memref casting for M4 optimization
+        // linalg.matvec with JIT memref casting for M4 optimization
         if b_rank == 1 {
             if b_shape[0] != k_dim {
                 return Err(format!("matvec dimension mismatch: A is {}x{}, B is {}", 
@@ -251,7 +251,7 @@ fn emit_matmul_method(
         }
         
         // Matrix-Matrix: A[M,K] @ B[K,N] = C[M,N]
-        // [KEUOS PHASE 3] linalg.matmul with JIT memref casting
+        // linalg.matmul with JIT memref casting
         if b_rank == 2 {
             let n_dim = b_shape[1];
             

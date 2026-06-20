@@ -1822,7 +1822,7 @@ impl<'a> CodegenContext<'a> {
             return None;
         }
         
-        // [V4.0 SCORCHED EARTH] Native f-string expansion with TraitRegistry context
+        // Native f-string expansion with TraitRegistry context
         if prefix == "f" {
             return Some(self.native_fstring_expand(content));
         }
@@ -1839,7 +1839,7 @@ impl<'a> CodegenContext<'a> {
         None
     }
     
-    /// [V4.0 SCORCHED EARTH] Native f-string expansion
+    /// Native f-string expansion
     /// This replaces lib.rs preprocessing with TraitRegistry-aware generation
     pub fn native_fstring_expand(&self, content: &str) -> String {
         // Parse segments from f-string content
@@ -2094,7 +2094,7 @@ impl<'a> CodegenContext<'a> {
         format!("Vec::<u8>::from_array([{}])", bytes.join(", "))
     }
     
-    /// [KEUOS WRITER PROTOCOL] Native Target F-String Expansion
+    /// Native Target F-String Expansion
     /// Converts target.f"Hello {x}" → { target.write_str("Hello ", 6); target.write_i32(x); }
     /// This implements zero-allocation streaming by decomposing the f-string into direct
     /// write_* calls on the target Writer, avoiding intermediate String allocation.
@@ -2139,7 +2139,7 @@ impl<'a> CodegenContext<'a> {
         code
     }
     
-    /// [KEUOS WRITER PROTOCOL] Determine the appropriate write_* method for an interpolated expression
+    /// Determine the appropriate write_* method for an interpolated expression
     /// Returns (method_name, formatted_expression)
     fn determine_write_method(&self, expr: &str, spec: Option<&str>) -> (String, String) {
         // Check format spec first - it overrides type inference

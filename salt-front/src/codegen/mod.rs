@@ -810,7 +810,7 @@ impl<'a> CodegenContext<'a> {
                         vec![]
                     };
                     
-                    // [KEUOS FIX] In lib mode, mangle function names with package prefix
+                    // In lib mode, mangle function names with package prefix
                     // to avoid symbol collisions between modules (e.g., multiple `init` functions).
                     // @no_mangle functions retain their bare names.
                     let is_no_mangle = f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" );
@@ -2460,7 +2460,7 @@ fn scan_expr_method_call(ctx: &CodegenContext, m: &syn::ExprMethodCall) -> Resul
                      // B. Method Args
                      concrete_tys.extend(method_generics);
                      
-                     // [KEUOS FIX] Check if method generics are fully satisfied by turbofish.
+                     // Check if method generics are fully satisfied by turbofish.
                      // scan_expr cannot do argument inference. If inference is needed, we SKIP creating the task.
                      // emit_method_call will create the correct task with inference later.
                      let method_generic_count = func_def.generics.as_ref().map(|g| g.params.len()).unwrap_or(0);

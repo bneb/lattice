@@ -241,7 +241,7 @@ pub fn emit_method_call(ctx: &mut LoweringContext, out: &mut String, m: &syn::Ex
             }
         };
         
-    // [KEUOS FIX] Substitute generics in cached receiver type at the source
+    // Substitute generics in cached receiver type at the source
     let mut cached_receiver_ty = cached_receiver_ty.substitute(&ctx.current_type_map());
     // [CANONICAL RESOLUTION] Canonicalize receiver type to prevent raw Struct("Node")
     cached_receiver_ty = crate::codegen::type_bridge::resolve_codegen_type(ctx, &cached_receiver_ty);

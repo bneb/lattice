@@ -160,7 +160,7 @@ pub enum SynType {
     Pointer(Box<SynType>),
     /// First-class Reference: &T
     Reference(Box<SynType>, bool),
-    /// [KEUOS PHASE 3] Shaped Tensor: Tensor<T, {Rank, D1, D2...}>
+    /// Shaped Tensor: Tensor<T, {Rank, D1, D2...}>
     /// Carries compile-time shape metadata for @ operator dispatch.
     /// Example: Tensor<f32, {2, 128, 784}> -> 2D matrix [128 x 784]
     ShapedTensor {
@@ -212,7 +212,7 @@ pub struct SynTuple {
 
 impl Parse for SynType {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        // [GRAMMAR CHECK]: Peek for Explicit Ptr<T> (KeuOS Syntax)
+        // : Peek for Explicit Ptr<T> (KeuOS Syntax)
         if input.peek(Ident) {
             let fork = input.fork();
             let id: Ident = fork.parse()?;
@@ -224,7 +224,7 @@ impl Parse for SynType {
                 return Ok(SynType::Pointer(Box::new(inner)));
             }
             
-            // [KEUOS PHASE 3]: Tensor<T, {Rank, D1, D2...}> shaped tensor
+            // : Tensor<T, {Rank, D1, D2...}> shaped tensor
             if id == "Tensor" && fork.peek(Token![<]) {
                 input.parse::<Ident>()?; // eat Tensor
                 input.parse::<Token![<]>()?;
@@ -286,7 +286,7 @@ impl Parse for SynType {
             }
         }
 
-        // [GRAMMAR CHECK]: Peek for Explicit Reference &T or &mut T
+        // : Peek for Explicit Reference &T or &mut T
         if input.peek(Token![&]) {
             input.parse::<Token![&]>()?;
             let is_mut = if input.peek(Token![mut]) {
@@ -352,7 +352,7 @@ impl SynType {
                     let ident = seg.ident;
                     let name = ident.to_string();
                     
-                    // [SCORCHED EARTH] NativePtr Syntax Ban
+                    // NativePtr Syntax Ban
                     if name == "NativePtr" || name == "NodePtr" {
                          return Err(syn::Error::new(ident.span(), format!("Legacy type '{}' is abolished. Use 'Ptr<T>' instead.", name)));
                     }

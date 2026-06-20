@@ -1,6 +1,6 @@
 use crate::codegen::context::CodegenContext;
 
-/// [V4.0 SCORCHED EARTH] F-string segment for native expansion
+/// F-string segment for native expansion
 #[derive(Clone, Debug)]
 pub enum FStringSegment {
     Literal(String),

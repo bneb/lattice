@@ -79,7 +79,7 @@ pub fn preprocess(source: &str) -> String {
             // so that syn can parse it (syn requires turbofish in expression position)
             let line = convert_generic_call_syntax(&line);
             
-            // [KEUOS PHASE 3] Convert tensor shape syntax to parseable form
+            // Convert tensor shape syntax to parseable form
             // `Tensor<f32, {2, 128, 784}>` -> `Tensor<f32, __Shape_2_128_784__>`
             let line = convert_tensor_shape_syntax(&line);
             
@@ -96,7 +96,7 @@ pub fn preprocess(source: &str) -> String {
             // x |?> f() becomes __railway__!(x, f)
             let line = convert_railway_operator(&line);
             
-            // [V4.0 SCORCHED EARTH] Convert prefixed strings to macro calls for syn parsing
+            // Convert prefixed strings to macro calls for syn parsing
             // f"Hello {x}" -> __fstring__!("Hello {x}")
             // hex"DEADBEEF" -> __hex__!("DEADBEEF")
             let line = convert_prefixed_string_syntax(&line);
@@ -278,10 +278,10 @@ fn expand_derive_annotations(source: &str) -> String {
     result
 }
 
-/// [V4.0 SCORCHED EARTH] Convert prefixed string literals to macro calls
+/// Convert prefixed string literals to macro calls
 /// `f"Hello {name}"` -> `__fstring__!("Hello {name}")`
 /// `hex"DEADBEEF"` -> `__hex__!("DEADBEEF")`
-/// [KEUOS WRITER PROTOCOL] Also converts target expressions:
+/// Also converts target expressions:
 /// `console.f"Hello {x}"` -> `__target_fstring__!(console, "Hello {x}")`
 /// This converts the syntax to something syn can parse as a macro invocation,
 /// which codegen then intercepts and expands via native_fstring_expand/native_hex_expand.
@@ -331,7 +331,7 @@ fn convert_prefixed_string_syntax(line: &str) -> String {
             continue;
         }
         
-        // [KEUOS WRITER PROTOCOL] Check for '.f"' pattern (target.f"...")
+        // Check for '.f"' pattern (target.f"...")
         // This is the target expression syntax for streaming to Writers
         if c == '.' && chars.peek() == Some(&'f') {
             // Peek ahead to verify pattern: .f"
@@ -405,7 +405,7 @@ fn convert_prefixed_string_syntax(line: &str) -> String {
     result
 }
 
-/// [KEUOS WRITER PROTOCOL] Extract the target expression for target.f"..." syntax
+/// Extract the target expression for target.f"..." syntax
 /// Scans backwards from the current position to find the complete expression
 fn extract_target_expression(buffer: &str) -> String {
     let mut depth = 0;
@@ -597,7 +597,7 @@ fn convert_generic_call_syntax(line: &str) -> String {
     result
 }
 
-/// [KEUOS PHASE 3] Convert tensor shape syntax to syn-parseable form with AUTO-RANK
+/// Convert tensor shape syntax to syn-parseable form with AUTO-RANK
 /// `Tensor<f32, {128, 784}>` -> `Tensor<f32, __Shape_2_128_784__>` (2 dims = rank 2)
 /// `Tensor<f32, {784}>` -> `Tensor<f32, __Shape_1_784__>` (1 dim = rank 1)
 /// Only converts `{...}` that appear to be in type position (after comma in generics)
@@ -1133,7 +1133,7 @@ fn extract_force_unwrap_expr(s: &str) -> String {
     s[..end].to_string()
 }
 
-// [V4.0 SCORCHED EARTH] Legacy f-string preprocessing code deleted
+// Legacy f-string preprocessing code deleted
 // F-strings are now handled by codegen/context.rs::native_fstring_expand
 // with full TraitRegistry context for signature-aware format spec dispatch.
 
@@ -1207,7 +1207,7 @@ pub fn compile(source: &str, release_mode: bool, registry: Option<&crate::regist
     compile_ast(&mut file, release_mode, registry, skip_scan, vverify, false, false, false, false, false, "<stdin>")
 }
 
-/// [SALT SYNTAX] Detect Rust-style turbofish `::<` in Salt source and emit a helpful error.
+/// Detect Rust-style turbofish `::<` in Salt source and emit a helpful error.
 ///
 /// Salt uses C++/Java-style generics: `identity<i32>(42)`, not `identity::<i32>(42)`.
 /// This function scans the raw source for `::<` patterns in expression context
@@ -1524,7 +1524,7 @@ mod tests {
         assert!(step2.contains(".matmul("), "@ should become .matmul()");
     }
 
-    // [V4.0 SCORCHED EARTH] F-string preprocessing tests removed
+    // F-string preprocessing tests removed
     // F-strings are now handled by codegen/context.rs::native_fstring_expand
     // Tests for f-string expansion are now in codegen context tests
     

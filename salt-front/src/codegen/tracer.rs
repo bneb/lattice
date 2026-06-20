@@ -63,7 +63,7 @@ impl<'a> TypeTracer for CodegenContext<'a> {
                                 crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
                             };
                             if let Some(syn::GenericArgument::Type(ty)) = turbofish.args.iter().nth(i) {
-                                // KEUOS FIX: Use the Ptr-aware from_std bridge
+                                // Use the Ptr-aware from_std bridge
                                 let syn_ty = crate::grammar::SynType::from_std(ty.clone()).map_err(|e| e.to_string())?;
                                 let concrete = Type::from_syn(&syn_ty).unwrap_or(Type::Unit);
                                 type_map.insert(p_name, concrete);

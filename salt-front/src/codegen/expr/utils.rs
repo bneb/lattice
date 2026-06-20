@@ -345,7 +345,7 @@ pub fn resolve_path_to_enum(
 
 
                     
-                    // KEUOS FIX V9.7: Structural Identity via Registry
+                    // Structural Identity via Registry
                     // Instead of string matching, check if the expected type's template_name 
                     // matches the base_template we're resolving. This is the "Salt Way".
                     let matches = if exp_name == &base_template {
@@ -370,7 +370,7 @@ pub fn resolve_path_to_enum(
 
             
             if !final_generics.is_empty() {
-                 // KEUOS FIX: Substitute any remaining generics using the current type map
+                 // Substitute any remaining generics using the current type map
 
                  let substituted_generics: Vec<Type> = final_generics.iter().cloned().collect();
 

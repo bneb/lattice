@@ -163,7 +163,7 @@ impl Layout {
                      return Layout::new(LayoutKind::Aggregate(fields), offset, align);
                 }
                 
-                // [SCORCHED EARTH] If we are here, we have a structural disconnect.
+                // If we are here, we have a structural disconnect.
                 panic!("FatalCompilerError: Struct '{}' not found in registry during ABI compute.", name);
             }
 

@@ -530,7 +530,7 @@ pub fn emit_logic(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBina
     // RHS block
     out.push_str(&format!("  ^{}:\n", next_block));
     
-    // [COMPILER BUG FIX]: RHS is evaluated conditionally.
+    // : RHS is evaluated conditionally.
     // Any global variables loaded here MUST NOT leak into the merge block's cache!
     ctx.emission.global_lvn.push_snapshot();
     let (rhs_val, rhs_ty) = emit_expr(ctx, out, &b.right, local_vars, Some(&Type::Bool))?;

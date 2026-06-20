@@ -865,11 +865,11 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
     let path_ty = syn::Type::Path(syn::TypePath { qself: None, path: s.path.clone() });
     let syn_ty = crate::grammar::SynType::from_std(path_ty).map_err(|e| e.to_string())?;
     let raw_resolved_ty = resolve_type(ctx, &syn_ty);
-    // [KEUOS FIX] Apply generic substitution for struct literals in specialized method contexts
+    // Apply generic substitution for struct literals in specialized method contexts
     // This ensures RawVec in RawVec<T>::new() resolves to RawVec_u8 when T=u8
     let resolved_ty = raw_resolved_ty.substitute(&ctx.current_type_map());
     
-    // [KEUOS FIX] Check if this struct literal matches the current impl context
+    // Check if this struct literal matches the current impl context
     // If we're inside RawVec<T>::new() and the struct literal is RawVec { ... }, 
     // we should apply the current generic arguments (T=u8) to produce RawVec_u8
     let resolved_ty_with_context = match &resolved_ty {
@@ -894,7 +894,7 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
                 resolved_ty.clone()
             }
         }
-        // [KEUOS FIX] Handle Concrete types with empty args in specialized method context
+        // Handle Concrete types with empty args in specialized method context
         // If we have Concrete(RawVec, []) inside RawVec<T>::new() with T=u8, produce Concrete(RawVec, [u8])
         Type::Concrete(base, args) if args.is_empty() && !ctx.current_type_map().is_empty() => {
             // [ORDERING FIX] Build args in template's declared generic parameter order,
@@ -955,7 +955,7 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
         // This ensures Concrete(Vec, [u8]) becomes Struct(Vec_u8) for MLIR emission.
         let struct_ty = Type::Struct(mangled_name.clone());
 
-        // [KEUOS FIX] Use resolved_ty_with_context for MLIR type generation to include impl context specialization.
+        // Use resolved_ty_with_context for MLIR type generation to include impl context specialization.
         // This ensures Concrete(Vec, [u8]) becomes Struct(Vec_u8) for MLIR emission, and
         // RawVec inside RawVec<T>::new() becomes RawVec_u8 when T=u8.
         let mlir_ty = resolved_ty_with_context.to_mlir_type(ctx)?;

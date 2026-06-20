@@ -448,7 +448,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         
         let mut type_map = BTreeMap::new();
         // Add Self?
-        // [ABI FIX] Strip Reference wrapper from self_ty - during hydration, current_self_ty should be
+        // Strip Reference wrapper from self_ty - during hydration, current_self_ty should be
         // the concrete type (e.g., Result<...>), not Reference(Result<...>), otherwise Self mangling is broken
         let mut self_ty = if let Some(t) = trait_ty.as_ref() { t.clone() } else { receiver_ty.clone() };
         while let Type::Reference(inner, _) = self_ty {

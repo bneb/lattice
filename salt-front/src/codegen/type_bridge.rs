@@ -107,7 +107,7 @@ impl Type {
     // Mutability/ownership are access permissions, not changes to storage layout
     match self {
         Type::Owned(inner) => return inner.to_mlir_storage_type(ctx),
-        // [KEUOS FIX] Atomic<T> storage is just T — atomicrmw/cmpxchg operate
+        // Atomic<T> storage is just T — atomicrmw/cmpxchg operate
         // on the address of the scalar value, not an opaque pointer.
         Type::Atomic(inner) => return inner.to_mlir_storage_type(ctx),
         _ => {}
@@ -178,7 +178,7 @@ impl Type {
                 "Vector16f32" => return Ok("vector<16xf32>".to_string()),
                 _ => {}
             }
-            // [KEUOS FIX] Look up the fully-qualified struct name from struct_registry
+            // Look up the fully-qualified struct name from struct_registry
             // This ensures consistency between header alias declarations and body usage.
             // The registry stores structs with their full package-qualified names.
             let full_name = {
@@ -209,7 +209,7 @@ impl Type {
                     _ => {}
                 }
             }
-            // [KEUOS FIX] Look up the fully-qualified template name from struct_templates
+            // Look up the fully-qualified template name from struct_templates
             // This ensures consistency between header alias declarations and body usage.
             let full_base = {
                 let templates = ctx.struct_templates();
@@ -1084,7 +1084,7 @@ pub fn to_mlir_type(ctx: &mut LoweringContext, ty: &Type) -> Result<String, Stri
                 return to_mlir_type(ctx, &concrete);
             }
             
-            // [KEUOS FIX] Look up the fully-qualified struct name from struct_registry
+            // Look up the fully-qualified struct name from struct_registry
             // Use shortest-match disambiguation to prefer main__ListNode over
             // std__core__boxed__Box_main__ListNode (both end with __ListNode).
             let full_name = {
@@ -1134,7 +1134,7 @@ pub fn to_mlir_type(ctx: &mut LoweringContext, ty: &Type) -> Result<String, Stri
                 return Ok("!llvm.ptr".to_string());
             }
             
-            // [KEUOS FIX] Look up the fully-qualified template name from struct_templates
+            // Look up the fully-qualified template name from struct_templates
             // This ensures consistency between header alias declarations and body usage.
             let full_base = {
                 let templates = ctx.struct_templates();
@@ -1483,7 +1483,7 @@ pub fn resolve_type(ctx: &mut LoweringContext, ty: &crate::grammar::SynType) -> 
                      let inner = resolve_type(ctx, inner_syn);
                      let mut shape = Vec::new();
                      
-                     // [KEUOS PHASE 3] Check for __Shape_X_Y_Z__ marker (AUTO-RANK)
+                     // Check for __Shape_X_Y_Z__ marker (AUTO-RANK)
                      // Preprocessor prepends auto-computed rank: {128,784} -> __Shape_2_128_784__
                      // Format: __Shape_Rank_D1_D2_...__ where first element is auto-rank (skipped)
                      if let crate::grammar::SynType::Path(shape_path) = &seg.args[1] {
@@ -1929,7 +1929,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
     }
 
     pub fn request_explicit_specialization(&mut self, func_name: &str, override_name: &str, concrete_tys: Vec<Type>, self_ty: Option<Type>) -> String {
-        // [ABI FIX] CANONICALIZATION GUARD: Always strip Reference wrappers from self_ty.
+        // CANONICALIZATION GUARD: Always strip Reference wrappers from self_ty.
         let self_ty = self_ty.map(|mut ty| {
             while let Type::Reference(inner, _) = ty {
                 ty = *inner;
@@ -1973,7 +1973,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                  self.struct_registry().values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
              } else if let Type::Enum(name) = st {
                  self.enum_registry().values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
-             // [KEUOS FIX] Handle Type::Pointer method lookup with fully-qualified template name
+             // Handle Type::Pointer method lookup with fully-qualified template name
              } else if let Type::Pointer { .. } = st {
                  "std__core__ptr__Ptr".to_string()
              } else {
@@ -2029,7 +2029,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
 
 
     pub fn request_specialization(&mut self, func_name: &str, concrete_tys: Vec<Type>, self_ty: Option<Type>) -> String {
-        // [ABI FIX] CANONICALIZATION GUARD: Always strip Reference wrappers from self_ty.
+        // CANONICALIZATION GUARD: Always strip Reference wrappers from self_ty.
         // The self_ty identity should be the naked base type (e.g., Result), not Reference(Result).
         // This ensures correct type mangling and Self resolution during hydration.
         let self_ty = self_ty.map(|mut ty| {
@@ -2169,7 +2169,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                     }
                 }
                 
-                // KEUOS FIX: Method-level generics (e.g., mmap<T> on File struct)
+                // Method-level generics (e.g., mmap<T> on File struct)
                 // CRITICAL: func.generics.params includes BOTH impl-level and method-level params.
                 // We must only map method-level ones (skip struct_generic_count from func.generics).
                 if let Some(fn_generics) = &func.generics {
@@ -2656,7 +2656,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         // Phase B: API Surface Discovery (Eager Method Registration)
         let methods = self.find_methods_for_template(template_name);
         for method_name in methods {
-             // [KEUOS FIX] Skip generic methods. They require inference/turbofish at call site.
+             // Skip generic methods. They require inference/turbofish at call site.
              // Registry stores full mangled name in 'name' field with empty path for Struct types.
              let key = crate::types::TypeKey { path: vec![], name: template_name.to_string(), specialization: None };
              
@@ -2747,7 +2747,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         // Phase B: API Surface Discovery
         let methods = self.find_methods_for_template(template_name);
         for method_name in methods {
-             // [KEUOS FIX] Skip generic methods. They require inference/turbofish at call site.
+             // Skip generic methods. They require inference/turbofish at call site.
              // Registry stores full mangled name in 'name' field with empty path for Struct types.
              let key = crate::types::TypeKey { path: vec![], name: template_name.to_string(), specialization: None };
              
@@ -2865,7 +2865,7 @@ pub fn emit_const(ctx: &mut LoweringContext, _out: &mut String, c: &crate::gramm
 
 pub fn emit_global_def(ctx: &mut LoweringContext, _out: &mut String, g: &crate::grammar::GlobalDef) -> Result<(), String> {
     let ty_raw = resolve_type(ctx, &g.ty);
-    // [KEUOS FIX] Atomic<T> is a semantic wrapper — storage is just T.
+    // Atomic<T> is a semantic wrapper — storage is just T.
     // Unwrap for MLIR emission (type + init_val), but keep Atomic<T> in globals table
     // so method dispatch (fetch_add, compare_exchange, load, store) still works.
     let ty_storage = match &ty_raw {
@@ -2965,7 +2965,7 @@ pub fn zero_attr(ctx: &mut LoweringContext<'_, '_>, ty: &Type) -> Result<String,
         Type::F32 => Ok("0.0 : f32".to_string()),
         Type::F64 => Ok("0.0 : f64".to_string()),
         Type::Owned(_) | Type::Reference(_, _) | Type::Fn(_, _) => Ok("null : !llvm.ptr".to_string()),
-        // [KEUOS FIX] Atomic<T> storage is the inner type T, not a pointer.
+        // Atomic<T> storage is the inner type T, not a pointer.
         // Recurse to get the correct zero value (e.g., Atomic<i32> → "0 : i32").
         Type::Atomic(inner) => zero_attr(ctx, inner),
         

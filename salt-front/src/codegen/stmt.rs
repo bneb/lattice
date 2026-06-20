@@ -1173,7 +1173,7 @@ fn has_shadow_updates(stmts: &[Stmt]) -> bool {
 
 
 
-/// [ITERATOR PROTOCOL] Lower `for x in iter` to a while-loop with `.next()` calls.
+/// Lower `for x in iter` to a while-loop with `.next()` calls.
 ///
 /// Desugaring:
 /// ```text
@@ -1257,7 +1257,7 @@ fn emit_iterator_for_loop(
         let registry = ctx.enum_registry();
         let info = registry.values()
             .find(|i| i.name == mangled || mangled.ends_with(&format!("__{}", i.name)) || i.name == "Option")
-            .ok_or_else(|| format!("[ITER PROTOCOL] Cannot find Option enum in registry for {:?}", next_ty))?;
+            .ok_or_else(|| format!("Cannot find Option enum in registry for {:?}", next_ty))?;
         info.variants.iter()
             .find(|(n, _, _)| n == "None")
             .map(|(_, _, disc)| *disc as i64)
@@ -1283,12 +1283,12 @@ fn emit_iterator_for_loop(
             let info = ctx.enum_registry().values()
                 .find(|i| i.name == *name || name.ends_with(&format!("__{}", i.name)))
                 .cloned()
-                .ok_or_else(|| format!("[ITER PROTOCOL] Cannot find enum '{}' in registry", name))?;
+                .ok_or_else(|| format!("Cannot find enum '{}' in registry", name))?;
             let (_vname, payload, _disc) = info.variants.iter()
                 .find(|(n, _, _)| n == "Some")
-                .ok_or_else(|| format!("[ITER PROTOCOL] Enum '{}' has no 'Some' variant", name))?;
+                .ok_or_else(|| format!("Enum '{}' has no 'Some' variant", name))?;
             let inner = payload.clone()
-                .ok_or_else(|| format!("[ITER PROTOCOL] Option 'Some' variant has no payload type"))?;
+                .ok_or_else(|| format!("Option 'Some' variant has no payload type"))?;
             (inner, info.max_payload_size)
         },
         Type::Concrete(base, args) => {
@@ -1300,9 +1300,9 @@ fn emit_iterator_for_loop(
             if let Some(info) = info {
                 let (_vname, payload, _disc) = info.variants.iter()
                     .find(|(n, _, _)| n == "Some")
-                    .ok_or_else(|| format!("[ITER PROTOCOL] Enum has no 'Some' variant"))?;
+                    .ok_or_else(|| format!("Enum has no 'Some' variant"))?;
                 let inner = payload.clone()
-                    .ok_or_else(|| format!("[ITER PROTOCOL] Option 'Some' has no payload"))?;
+                    .ok_or_else(|| format!("Option 'Some' has no payload"))?;
                 (inner, info.max_payload_size)
             } else if !args.is_empty() {
                 // Fallback: use the first generic arg as the payload type
@@ -1311,10 +1311,10 @@ fn emit_iterator_for_loop(
                 let size = 8usize; // i64 = 8 bytes
                 (inner, size)
             } else {
-                return Err(format!("[ITER PROTOCOL] Cannot determine payload type for {:?}", next_ty));
+                return Err(format!("Cannot determine payload type for {:?}", next_ty));
             }
         },
-        _ => return Err(format!("[ITER PROTOCOL] next() must return Option<T>, got {:?}", next_ty)),
+        _ => return Err(format!("next() must return Option<T>, got {:?}", next_ty)),
     };
 
     let (inner_ty, max_payload_size) = payload_ty;
@@ -2071,7 +2071,7 @@ fn emit_cf_br_for_loop(ctx: &mut LoweringContext, out: &mut String, f: &crate::g
 fn emit_return_stmt(ctx: &mut LoweringContext, out: &mut String, opt_expr: &Option<syn::Expr>, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<bool, String>  {
             emit_cleanup_for_return(ctx, out, local_vars)?;
             if let Some(e) = opt_expr {
-                // [KEUOS FIX] Substitute generics in return type (T -> u8 etc.)
+                // Substitute generics in return type (T -> u8 etc.)
                 let expected_ret = ctx.current_ret_ty().clone().map(|t| t.substitute(&ctx.current_type_map()));
                 let (val_raw, ty) = emit_expr(ctx, out, e, local_vars, expected_ret.as_ref())?;
 

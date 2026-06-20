@@ -39,7 +39,7 @@ pub fn emit_if_expr(ctx: &mut LoweringContext, out: &mut String, if_expr: &syn::
     // [v0.9.2] Push branch condition as path constraint for Z3 postcondition verification
     ctx.emission.path_conditions.push((*if_expr.cond).clone());
     
-    // [COMPILER BUG FIX]: Prevent global loads in then-branch from leaking to merge block
+    // : Prevent global loads in then-branch from leaking to merge block
     ctx.emission.global_lvn.push_snapshot();
     let (then_val, then_actual) = emit_block_expr(ctx, &mut then_out, &if_expr.then_branch, local_vars, expected)?;
     ctx.emission.global_lvn.pop_snapshot();
