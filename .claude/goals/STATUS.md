@@ -81,18 +81,27 @@ Progress tracker: `.claude/goals/QUALITY_METRICS.md`
 - [x] **Infrastructure**: .editorconfig, blank-line hook, clippy tightening, blocking CI
 - [x] **scheduler.salt**: 810→539 lines, 8→0 deep-nest blocks, 6→0 long fns
 - [x] **work_steal.salt**: New file (116 lines), work-stealing extracted from scheduler
-- [ ] kernel/core/ring_abi.salt (732 lines)
-- [ ] kernel/core/exec_user.salt (633 lines)
-- [ ] kernel/core/ring3_test.salt (609 lines)
-- [ ] kernel/core/syscall.salt (582 lines)
-- [ ] kernel/benchmarks/netd_bench.salt (570 lines)
-- [ ] kernel/mem/user_paging.salt (527 lines)
-- [ ] kernel/core/process.salt (520 lines)
-- [ ] kernel/core/preempt_test.salt (509 lines)
-- [ ] kernel/core/scheduler.salt (539→<500, needs further split)
-- [ ] kernel/ecs/sparse_set.salt (671 lines)
+- [x] kernel/core/ring_abi.salt (732→377) — ring_ops.salt created
+- [x] kernel/ecs/sparse_set.salt (671→421) — scheduling_sets.salt created
+- [x] kernel/core/exec_user.salt (633→500) — spawn_coroutine.salt created
+- [x] kernel/core/ring3_test.salt (609→313) — ring3_kpti_test.salt created
+- [ ] kernel/core/syscall.salt (582 lines, blocked: u64↔Ptr<T> cast)
+- [x] kernel/benchmarks/netd_bench.salt (570→408) — netd_bench_gates_end.salt created
+- [x] kernel/mem/user_paging.salt (527→421) — paging_destroy.salt created
+- [x] kernel/core/process.salt (520→496) — process_resource.salt created
+- [x] kernel/core/preempt_test.salt (509→311) — preempt_test_layer05.salt created
+- [ ] kernel/core/scheduler.salt (539→<500, needs dedicated session — bitmap fns coupled to SCHED_ARRAY)
+- [x] kernel/ecs/sparse_set.salt (671→421) — scheduling_sets.salt created
+
+### Session Additions (2026-06-19, session 2)
+- [x] interpreter.rs — 12 smoke tests, 0→12
+- [x] fuzz_ast.rs — 6 tests, 0→6
+- [x] grammar/pattern.rs — 5 tests, 8→13
+- [ ] salt-lsp modules (deferred — requires test harness setup)
+- [x] Zero mutant markers confirmed — both grep hits are false positives
 
 ## Log
+- 2026-06-19: Quality sprint — 8 kernel files split, 3 modules tested, 0 real mutants
 - 2026-06-19: Items #5, #7 complete — coverage CI baseline, 3 compiler warnings fixed
 - 2026-06-19: Goal I complete — syscall.salt split into 3 files, kernel builds
 - 2026-06-18: Infrastructure created, all 17 goals completed
