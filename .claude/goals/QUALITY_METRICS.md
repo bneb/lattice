@@ -74,7 +74,29 @@ ecs_epoch, ecs_ipc, ecs_bridge, commands, world) need no changes.
 - cargo test: 0 FAILED
 - cargo build --release: SUCCESS
 
+## 2026-06-19 — Session 4: T-003 spawn_coroutine extraction from exec_user.salt
+
+### Files >500 lines (kernel/)
+| Metric | Before | After | Delta |
+|--------|--------|-------|-------|
+| Count | 8 | 7 | -1 |
+| Worst file | exec_user.salt (633) | ring3_test.salt (609) | exec_user.salt -133 |
+
+### exec_user.salt specific
+| Metric | Before | After |
+|--------|--------|-------|
+| Lines | 633 | 500 (-21%) |
+| Files created | 0 | 1 (spawn_coroutine.salt, 167 lines) |
+
+Extracted: spawn_ring3_coroutine, setup_kernel_stack, map_kernel_stack.
+exec_user.salt retains: spawn_process, spawn_kernel_thread, spawn_process_from_inode,
+and their @no_mangle wrappers. Removed 4 unused FFI declarations.
+
+### Verification
+- cargo test: 0 FAILED
+- cargo build --release: SUCCESS
+
 ### Next session targets (Tier 1 priority order)
-1. kernel/core/exec_user.salt (633 lines)
-2. kernel/core/ring3_test.salt (609 lines)
-3. kernel/core/syscall.salt (582 lines)
+1. kernel/core/ring3_test.salt (609 lines)
+2. kernel/core/syscall.salt (582 lines)
+3. kernel/benchmarks/netd_bench.salt (570 lines)

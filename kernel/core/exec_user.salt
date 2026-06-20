@@ -25,14 +25,8 @@ import kernel.core.memory
 import kernel.sys.vfs.Inode
 
 // Assembly FFI
-extern fn jump_to_ring3(entry_point: u64, user_stack_top: u64);
-extern fn switch_cr3(pml4_phys: u64);
-extern fn read_cr3() -> u64;
 extern fn get_proc_trampoline_addr() -> u64;
 extern fn get_kernel_trampoline_addr() -> u64;
-extern fn get_moe_trampoline_addr() -> u64;
-
-
 
 // =============================================================================
 // Constants
@@ -139,36 +133,9 @@ fn setup_user_stack(user_pml4: u64) {
     }
 }
 
-fn setup_kernel_stack(kstack_top_virt: u64, entry: u64) -> u64 {
-    let sp = kstack_top_virt;
-
-    *((sp - 8) as &mut u64)  = 0x23;             // SS (User Data)
-    *((sp - 16) as &mut u64) = USER_STACK_TOP;   // RSP
-    *((sp - 24) as &mut u64) = 0x202;            // RFLAGS (IF=1)
-    *((sp - 32) as &mut u64) = 0x2B;             // CS (User Code 64)
-    *((sp - 40) as &mut u64) = entry;            // RIP
-
-    let trampoline_addr = get_proc_trampoline_addr();
-    *((sp - 48) as &mut u64) = trampoline_addr;
-
-    *((sp - 56) as &mut u64) = 0;   // RBP
-    *((sp - 64) as &mut u64) = 0;   // RBX
-    *((sp - 72) as &mut u64) = 0;   // R12
-    *((sp - 80) as &mut u64) = 0;   // R13
-    *((sp - 88) as &mut u64) = 0;   // R14
-    *((sp - 96) as &mut u64) = 0;   // R15
-
-    return kstack_top_virt - 96;
-}
-
-fn map_kernel_stack(user_pml4: u64, kstack_base_phys: u64, kstack_top_phys: u64) {
-    let mut cur_kpage = kstack_base_phys;
-    while cur_kpage < kstack_top_phys {
-        let page_virt = memory.phys_to_virt_raw(cur_kpage);
-        user_paging.map_kpti_page(user_pml4, page_virt, cur_kpage, user_paging.PTE_PRESENT | user_paging.PTE_WRITE);
-        cur_kpage = cur_kpage + PAGE_SIZE;
-    }
-}
+extern fn setup_kernel_stack(kstack_top_virt: u64, entry: u64) -> u64;
+extern fn map_kernel_stack(user_pml4: u64, kstack_base_phys: u64, kstack_top_phys: u64);
+extern fn spawn_ring3_coroutine(entry_fn: u64, arg1: u64, arg2: u64, arg3: u64, pml4: u64) -> u64;
 
 pub fn spawn_process(elf_base: u64, kernel_pml4: u64) -> u64 {
     if !validate_elf_inline(elf_base) {
@@ -241,106 +208,6 @@ pub fn spawn_process(elf_base: u64, kernel_pml4: u64) -> u64 {
 
     serial.print("[spawn] slot="); serial.print_u64(slot);
     serial.print(" entry=0x"); serial.print_u64(entry); serial.print("\n");
-
-    return slot;
-}
-
-// =============================================================================
-// spawn_ring3_coroutine — Spawn a Ring 3 process from a raw function pointer
-// =============================================================================
-// Bypasses the ELF loader. Uses moe_trampoline to pass 3 arguments into the
-// user space process: rdi=arg1, rsi=arg2, rdx=arg3.
-// =============================================================================
-pub fn spawn_ring3_coroutine(entry_fn: u64, arg1: u64, arg2: u64, arg3: u64, pml4: u64) -> u64 {
-    let slot = process.alloc_pid();
-    if slot >= MAX_PROCS {
-        serial.print("[spawn_moe] FATAL: No free process slots\n");
-        return MAX_PROCS;
-    }
-
-    let kstack_base_phys = process.alloc_kernel_stack();
-    if kstack_base_phys == 0 {
-        return MAX_PROCS;
-    }
-    let kstack_top_phys = kstack_base_phys + KSTACK_SIZE;
-    let kstack_top_virt = memory.phys_to_virt(memory.PhysAddr { val: kstack_top_phys }).val;
-    let kstack_base_virt = memory.phys_to_virt(memory.PhysAddr { val: kstack_base_phys }).val;
-
-    // Stack layout (from kstack_top, growing down):
-    //   sp - 8:  SS (0x23)
-    //   sp - 16: RSP (USER_STACK_TOP)
-    //   sp - 24: RFLAGS (0x202)
-    //   sp - 32: CS (0x2B)
-    //   sp - 40: RIP (entry_fn)
-    //   sp - 48: arg3 (RDX)   <-- popped by moe_trampoline
-    //   sp - 56: arg2 (RSI)   <-- popped by moe_trampoline
-    //   sp - 64: arg1 (RDI)   <-- popped by moe_trampoline
-    //   sp - 72: return addr (moe_trampoline) <-- popped by proc_context_switch `ret`
-    //   sp - 80: RBP (0)
-    //   sp - 88: RBX (0)
-    //   sp - 96: R12 (0)
-    //   sp - 104: R13 (0)
-    //   sp - 112: R14 (0)
-    //   sp - 120: R15 (0)
-
-    let sp = kstack_top_virt;
-
-    *((sp - 8) as &mut u64)  = 0x23;
-    *((sp - 16) as &mut u64) = USER_STACK_TOP;
-    *((sp - 24) as &mut u64) = 0x202;
-    *((sp - 32) as &mut u64) = 0x2B;
-    *((sp - 40) as &mut u64) = entry_fn;
-
-    *((sp - 48) as &mut u64) = arg3;
-    *((sp - 56) as &mut u64) = arg2;
-    *((sp - 64) as &mut u64) = arg1;
-
-    let trampoline_addr = get_moe_trampoline_addr();
-    *((sp - 72) as &mut u64) = trampoline_addr;
-
-    *((sp - 80) as &mut u64) = 0;
-    *((sp - 88) as &mut u64) = 0;
-    *((sp - 96) as &mut u64) = 0;
-    *((sp - 104) as &mut u64) = 0;
-    *((sp - 112) as &mut u64) = 0;
-    *((sp - 120) as &mut u64) = 0;
-
-    let saved_rsp_virt = kstack_top_virt - 120;
-
-    // Allocate 1 physical page for the User Stack (Ring 3 coroutine)
-    let user_stack_phys = pmm.alloc();
-    let stack_virt_base = USER_STACK_TOP - PAGE_SIZE;
-
-    // Zero the page to prevent leaking kernel memory or garbage
-    let stack_page_virt = memory.phys_to_virt(memory.PhysAddr { val: user_stack_phys }).val;
-    let mut z: u64 = 0;
-    while z < PAGE_SIZE {
-        *((stack_page_virt + z) as &mut u8) = 0;
-        z = z + 1;
-    }
-    user_paging.map_user_page(pml4, stack_virt_base, user_stack_phys, USER_PAGE_FLAGS);
-
-    let mut cur_kpage = kstack_base_phys;
-    while cur_kpage < kstack_top_phys {
-        let page_virt = memory.phys_to_virt_raw(cur_kpage);
-        user_paging.map_kpti_page(pml4, page_virt, cur_kpage, user_paging.PTE_PRESENT | user_paging.PTE_WRITE);
-        cur_kpage = cur_kpage + PAGE_SIZE;
-    }
-
-    process.init_slot(slot, pml4, kstack_base_virt, kstack_top_virt, entry_fn, USER_STACK_TOP);
-    process.set_kernel_rsp(slot, saved_rsp_virt);
-
-    // No heap base calculation for pure functions
-    process.set_brk_base(slot, 0x10000000);
-    process.set_brk_current(slot, 0x10000000);
-    process.set_mmap_base(slot, 0x400000000000);
-    process.set_vma_list_head(slot, 0);
-
-    serial.print("[spawn_moe] slot=");
-    serial.print_u64(slot);
-    serial.print(" entry=0x");
-    serial.print_u64(entry_fn);
-    serial.print("\n");
 
     return slot;
 }

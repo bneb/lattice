@@ -17,7 +17,7 @@ Each task = one thematic extraction. One task per session. Work top-to-bottom.
 - **Acceptance:** `scheduling_sets.salt` exists, `sparse_set.salt` < 500 lines, `cargo test` passes, clippy clean
 - **Estimate:** 1 session
 
-### T-003: Extract spawn_coroutine from exec_user.salt
+### [x] T-003: Extract spawn_coroutine from exec_user.salt
 - **Target:** `kernel/core/exec_user.salt` (633 → ~440 lines)
 - **Strategy:** Extract `spawn_ring3_coroutine`, `setup_kernel_stack`, `map_kernel_stack`, `exec_spawn_ring3_coroutine` into `kernel/core/spawn_coroutine.salt`
 - **Acceptance:** `spawn_coroutine.salt` exists, `exec_user.salt` < 500 lines, `cargo test` passes, clippy clean
