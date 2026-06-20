@@ -68,44 +68,55 @@ incremental refactoring.
 - Commit after each successful improvement with a metric in the message:
   "refactor: shrink do_dispatch 98→30 lines, scheduler.salt 810→492 lines"
 
-### Priority Queue (work top-to-bottom)
+### Anti-Patterns (from 2026-06-20 session)
+- **Never code golf.** Don't delete comments, compress doc strings, or remove
+  blank lines solely to hit a line-count target. If a file can't be naturally
+  split, document it as a legitimate exception rather than degrading readability.
+- **Legitimate exceptions are OK.** When a file genuinely resists extraction
+  (global coupling, circular type dependencies, core logic that would be worse
+  if split), write down the specific reason and move on. See
+  `[[no-code-golfing]]` in memory for the full policy with examples.
 
-**Tier 1 — Kernel (highest impact, smallest files):**
-1. `kernel/core/scheduler.salt` (810 lines, 8 deep-nest blocks, functions
-   up to 98 lines) — split into sched_dispatch, sched_spawn, sched_steal
-2. `kernel/core/ring_abi.salt` (732 lines) — split by operation family
-   (ring_init, ring_transfer, ring_spawn/mmap)
-3. `kernel/core/exec_user.salt` (633 lines, functions up to 161 lines) —
-   extract spawn variants into separate helpers
-4. `kernel/core/ring3_test.salt` (609 lines) — split by test scenario
-5. `kernel/core/syscall.salt` (582 lines) — extract I/O syscalls
-   (sys_write/read/open/spawn/exit) to syscall_io.salt (blocked: u64↔Ptr<T>
-   cast limitation — track this, revisit when compiler supports it)
-6. `kernel/benchmarks/netd_bench.salt` (570 lines) — split by test case
-7. `kernel/mem/user_paging.salt` (527 lines) — extract walk/create/unmap
-8. `kernel/core/process.salt` (520 lines) — extract PID alloc/free helpers
-9. `kernel/core/preempt_test.salt` (509 lines) — split by test layer
-10. `kernel/ecs/sparse_set.salt` (671 lines) — split sparse set operations
+### Priority Queue — Tier 1: Kernel Files (work top-to-bottom)
 
-**Tier 2 — Salt compiler (large files, architectural risk):**
-Focus on the worst functions first, not whole-file splits:
-- `context.rs` `emit_verify` (368 lines) — extract verification phases
-- `type_bridge.rs` `drain_work_queue` (325 lines) — extract queue stages
-- `type_bridge.rs` `request_specialization` (171 lines) — split by case
-- `stmt.rs` `emit_salt_if` (157 lines) — extract branch emission helpers
-- `stmt.rs` `emit_iterator_for_loop` (148 lines) — extract loop patterns
-- `expr/resolver.rs` `identify_target` (174 lines) — split by target kind
+| # | File | Status | Result |
+|---|------|--------|--------|
+| 1 | ring_abi.salt (was 732) | ✅ | 377 lines — ring_ops.salt (376) |
+| 2 | sparse_set.salt (was 671) | ✅ | 421 lines — scheduling_sets.salt (394) |
+| 3 | exec_user.salt (was 633) | ✅ | 312 lines — spawn_coroutine.salt (167) + spawn_inode.salt (225) |
+| 4 | ring3_test.salt (was 609) | ✅ | 313 lines — ring3_kpti_test.salt (281) |
+| 5 | syscall.salt (was 582) | ✅ | 278 lines — syscall_io.salt (281) + syscall_fd.salt (86) |
+| 6 | netd_bench.salt (was 570) | ✅ | 408 lines — netd_bench_gates_end.salt (183) |
+| 7 | user_paging.salt (was 527) | ✅ | 421 lines — paging_destroy.salt (141) |
+| 8 | process.salt (was 520) | ✅ | 496 lines — process_resource.salt (51) |
+| 9 | preempt_test.salt (was 509) | ✅ | 311 lines — preempt_test_layer05.salt (200) |
+| 10 | scheduler.salt (539) | ⚠ LEGITIMATE EXCEPTION | All functions access SCHED_ARRAY global; struct types are file-local; extracting would require raw pointer arithmetic or core logic restructuring (prohibited). Do not code-golf — leave as-is. |
 
-**Tier 3 — Coverage gaps:**
-- `interpreter.rs` (0 tests) — add smoke tests for eval_expr, exec_stmt
-- `fuzz_ast.rs` (0 tests) — verify round-trip for basic AST nodes
-- `grammar/pattern.rs` (0 dedicated tests) — test each pattern variant
-- `codegen/verification/` modules — add edge-case Z3 contract tests
-- salt-lsp: `completion.rs`, `sir_display.rs`, `sir_index.rs` — add unit tests
+### Priority Queue — Tier 2: Salt Compiler Functions
+Focus on the worst functions first, not whole-file splits. Several were
+already refactored in prior work; others resist decomposition due to
+`&mut self` borrow-checker coupling.
 
-**Tier 4 — Fuzz targets (new coverage tool):**
-- `salt-front/fuzz/fuzz_parser.rs` — round-trip fuzzing
-- `salt-front/fuzz/fuzz_preprocess.rs` — preprocessor stress
+- ~~`context.rs` `emit_verify`~~ — already <12 lines
+- ~~`type_bridge.rs` `drain_work_queue`~~ — already 72 lines
+- `type_bridge.rs` `request_specialization` (202 lines) — complex &mut self borrows
+- `stmt.rs` `emit_salt_if` (185 lines) — recursive codegen pattern
+- ~~`stmt.rs` `emit_iterator_for_loop`~~ — 36 lines, near target
+- `expr/resolver.rs` `identify_target` (197 lines) — tight &mut self coupling
+
+### Priority Queue — Tier 3: Coverage Gaps
+
+| Module | Status | Result |
+|--------|--------|--------|
+| interpreter.rs (was 0 tests) | ✅ | 12 smoke tests — tests/interpreter_smoke.rs |
+| fuzz_ast.rs (was 0 tests) | ✅ | 6 tests in-module |
+| grammar/pattern.rs (was 8 tests) | ✅ | 13 tests (5 added) |
+| salt-lsp: completion.rs, sir_display.rs, sir_index.rs | ⬜ | Deferred — needs LSP test harness |
+| codegen/verification/ modules | ⬜ | Deferred — Z3 shim currently disabled |
+
+### Priority Queue — Tier 4: Fuzz Targets
+- `salt-front/fuzz/fuzz_parser.rs` — round-trip fuzzing (deferred)
+- `salt-front/fuzz/fuzz_preprocess.rs` — preprocessor stress (deferred)
 
 ### Measurement & Checkpoints
 
