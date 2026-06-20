@@ -71,7 +71,7 @@ mod tests {
         
         let aliases = state.generate_canonical_aliases(|_| None);
         
-        assert!(aliases.contains("VERIFIED METAL CANONICAL ALIASES"));
+        assert!(aliases.contains("Canonical type aliases"));
     }
     
     #[test]
@@ -137,7 +137,7 @@ mod tests {
         );
         
         // Should contain all parts
-        assert!(output.contains("VERIFIED METAL CANONICAL ALIASES"));
+        assert!(output.contains("Canonical type aliases"));
         assert!(output.contains("!struct_TestStruct"));
         assert!(output.contains("module {"));
         assert!(output.contains("FUNCTION BODIES"));
