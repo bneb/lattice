@@ -214,16 +214,31 @@ reverted. Edits removed meaningful architecture documentation solely
 to reduce line counts. Violates the principle: never edit code ONLY
 to make it shorter.
 
-### Legitimate exceptions to <500 LOC goal
+## 2026-06-20 — Session 11: spawn_inode extraction from exec_user.salt
+
+### exec_user.salt
+| Metric | Before | After |
+|--------|--------|-------|
+| Lines | 500 | 312 (-188, -38%) |
+| Files created | 0 | 1 (spawn_inode.salt, 225 lines) |
+
+Extracted spawn_process_from_inode — VFS-inode-based process spawning path.
+Natural subsystem distinct from raw-ELF spawn_process and function-pointer
+spawn_ring3_coroutine.
+
+Cross-package Ptr<T> cast (inode_ptr as Ptr<Inode>) works when Inode type
+is properly imported.
+
+### Legitimate exceptions to <500 LOC goal (2 remaining)
 | File | Lines | Reason |
 |------|-------|--------|
-| syscall.salt | 582 | Blocked: u64↔Ptr<T> cast limitation in Salt compiler |
-| scheduler.salt | 539 | Cannot split: bitmap fns + dispatch + spawn all coupled to SCHED_ARRAY global. Splitting requires restructuring core scheduler logic (prohibited by CLAUDE.md: "never modify kernel scheduler core logic") |
-| exec_user.salt | 500 | At exact limit. Further extraction would require brittle offset computations or signature changes in spawn_process paths |
+| syscall.salt | 582 | Blocked: cross-package Ptr<T> cast limitation in Salt compiler for specific u64↔Ptr<u8>/Ptr<vfs::FileDescriptor> patterns |
+| scheduler.salt | 539 | Cannot split: all functions (bitmap, dispatch, spawn, steal) access SCHED_ARRAY global. Extracting requires either raw pointer arithmetic (fragile) or restructuring core scheduler logic (prohibited). Struct types (Fiber, SchedulerState) are file-local — moving them creates circular dependencies. |
 
-All three are documented exceptions, not failures. No code golfing.
+Both verified through multiple independent extraction attempts.
+No code golfing — all remaining content is essential.
 
-### Total: 13 commits (1 reverted), 0 regressions, 0 test failures
+### Total: 14 commits, 0 regressions, 0 test failures
 
 ### Files >500 lines (kernel/)
 | Metric | Before | After | Delta |
