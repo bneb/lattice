@@ -102,10 +102,8 @@ already refactored in prior work; others resist decomposition due to
 | grammar/pattern.rs (was 8 tests) | ✅ | 13 tests (5 added) |
 | salt-lsp: completion.rs, sir_display.rs, sir_index.rs | ⬜ | Deferred — needs LSP test harness |
 | codegen/verification/ modules | ⬜ | Deferred — Z3 shim currently disabled |
-
-### Fuzz Targets
-- `salt-front/fuzz/fuzz_parser.rs` — round-trip fuzzing (deferred)
-- `salt-front/fuzz/fuzz_preprocess.rs` — preprocessor stress (deferred)
+| syscall.salt I/O split | ⬜ | Blocked — u64↔Ptr<T> cast limitation |
+| fuzz targets (parser, preprocessor) | ⬜ | Deferred — non-blocking enhancement |
 
 ### Measurement & Checkpoints
 
