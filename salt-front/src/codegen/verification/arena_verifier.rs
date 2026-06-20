@@ -141,7 +141,7 @@ impl ArenaVerifier {
         Ok(())
     }
 
-    /// THE PROOF: Verify no use-after-free occurred
+    /// Verify no use-after-free occurred
     ///
     /// Returns an error if any UAF was detected.
     pub fn verify_no_use_after_free(&self) -> Result<(), String> {
@@ -308,7 +308,7 @@ mod tests {
             verifier.register_reset(&mark_id).unwrap();
         }
 
-        // THE PROOF: This pattern is safe
+        // This pattern is safe
         let result = verifier.verify_no_use_after_free();
         assert!(result.is_ok(), 
             "fstring_perf pattern FORMALLY VERIFIED as use-after-free safe: {:?}", 

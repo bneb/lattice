@@ -667,7 +667,7 @@ fn emit_affine_for_reduction(
     out.push_str(&format!("    {} = arith.constant {} : index\n", ub_ssa, ub));
     out.push_str(&format!("    {} = arith.constant 1 : index\n", step_ssa));
     
-    // Emit scf.for with iter_args (V7: scf.for is more flexible than affine.for)
+    // Emit scf.for with iter_args (scf.for is more flexible than affine.for)
     // Pattern: %result = scf.for %i = lb to ub step 1 iter_args(%acc = %init) -> (type) { ... }
     out.push_str(&format!(
         "    {} = scf.for {} = {} to {} step {} iter_args({} = {}) -> ({}) {{\n",
@@ -990,7 +990,7 @@ fn emit_scf_for_runtime_reduction(
 }
 
 // ============================================================================
-// V8: SIMPLE SCF.FOR — Non-Reduction Runtime-Bound Loops
+// SIMPLE SCF.FOR — Non-Reduction Runtime-Bound Loops
 // ============================================================================
 
 /// Emit scf.for for runtime-bound non-reduction loops.
@@ -2353,7 +2353,7 @@ pub fn emit_pattern(
     }
 }
 
-// [POINTER SAFETY] Helper to detect `p.addr != 0` or `p.addr == 0` check
+// Helper to detect `p.addr != 0` or `p.addr == 0` check
 fn get_narrowing_target(cond: &syn::Expr) -> Option<(String, bool)> {
     // Bare pointer: `if ptr { ... }` => narrowing target = ptr, is_neq=true
     if let syn::Expr::Path(p) = cond {
@@ -2419,7 +2419,7 @@ pub fn emit_salt_if(
         cond_val
     };
 
-    // [POINTER SAFETY] Flow-Sensitive Narrowing
+    // Flow-Sensitive Narrowing
     let narrowing = get_narrowing_target(cond);
     
     // Save state (Push Scope) for Then branch
@@ -3264,7 +3264,7 @@ fn collect_mutations_in_stmt(visitor: &mut MutationVisitor, stmt: &Stmt) {
 
 
 // ============================================================================
-// ARENA ESCAPE ANALYSIS — Helper Functions (Scope Ladder)
+// Arena escape analysis helpers (Scope Ladder)
 // ============================================================================
 
 /// Detect if an expression is an Arena constructor call: `Arena::new(...)`.

@@ -455,7 +455,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             self_ty = *inner;
         }
         
-        // 1. PHASE A: Hydrate Impl Scope (e.g., T -> bool)
+        // 1. Hydrate Impl Scope (e.g., T -> bool)
         let mut base_ty = receiver_ty;
         while let Type::Reference(inner, _) = base_ty {
             base_ty = inner;
@@ -510,7 +510,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             }
         }
         
-        // 2. PHASE B: Hydrate Method Scope
+        // 2. Hydrate Method Scope
         if let Some(g) = &func.generics {
              for (i, param) in g.params.iter().enumerate() {
                  let name = match param {
@@ -523,7 +523,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
              }
         }
         
-        // 3. PHASE C: Identity Construction
+        // 3. Identity Construction
         // We must substitute generics in self_ty with type_map (e.g. Vec<T> -> Vec<u8>)
         fn substitute(ty: &Type, map: &BTreeMap<String, Type>) -> Type {
             match ty {

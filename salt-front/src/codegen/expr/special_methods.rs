@@ -48,7 +48,7 @@ pub fn try_emit_special_method(
     // Instead of returning RawPtr{inner: i64}, we return the !llvm.ptr directly.
     let method_name = m.method.to_string();
 
-    // [POINTER SAFETY CONTRACT] Verify receiver validity for unsafe methods
+    // Verify receiver validity for unsafe methods
     // If calling unsafe methods on Ptr<T> (read, write, offset, etc.),
     // the receiver must be Valid. Safe methods (addr, is_null) are exempt.
     if let Type::Pointer { .. } = &cached_receiver_ty {
@@ -69,7 +69,7 @@ pub fn try_emit_special_method(
     // Clean Break: Removed NativePtr method interception (get/set/at/offset)
     // These are now handled by standard library intrinsics or unified syntax.
 
-    // [KEUOS FLUENT-MATH] Matrix multiplication: receiver.matmul(other)
+    // Matrix multiplication: receiver.matmul(other)
     // Called via A @ B syntax (preprocessor converts to A.matmul(B))
     // Supports:
     //   - Type::Tensor (rank 2 @ rank 2) -> linalg.matmul
@@ -79,7 +79,7 @@ pub fn try_emit_special_method(
         return emit_matmul_method(ctx, out, m, local_vars, cached_receiver_val, &cached_receiver_ty);
     }
 
-    // [KEUOS FLUENT-MATH / UFCS] Universal Function Call Syntax
+    // Universal Function Call Syntax
     // Syntax: receiver.method(_, arg2, arg3) where _ is replaced by receiver pointer
     // This enables fluent chains: (w1 @ input).add_bias(_, HIDDEN, b1).relu(_, HIDDEN)
     // 
@@ -109,7 +109,7 @@ pub fn try_emit_special_method(
             return Ok(Some(res));
         }
     }
-    // TRANSPARENT VEC ACCESSOR INTERCEPT (Zero-Overhead Path)
+    // Vec accessor intercept
     if method_name == "get_unchecked" || method_name == "set_unchecked" {
         if let Some(res) = emit_vec_unchecked_method(ctx, out, m, local_vars, cached_receiver_val, &cached_receiver_ty, &method_name)? {
             return Ok(Some(res));
@@ -521,7 +521,7 @@ fn emit_rawptr_method(
     method_name: &str,
 ) -> Result<Option<(String, Type)>, String> {
 
-        // Use cached receiver (MEMOIZATION FIX - no duplicate emission)
+        // Use cached receiver no duplicate emission
         if let Some(ref recv_val) = cached_receiver_val {
             let recv_ty = cached_receiver_ty.clone();
             // Check if receiver is NativePtr (native !llvm.ptr) or RawPtr<T> struct
@@ -702,7 +702,7 @@ fn emit_vec_unchecked_method(
             }
         }
         
-        // Fallback: use cached receiver for non-local receivers (MEMOIZATION FIX)
+        // Fallback: use cached receiver for non-local receivers (no duplicate emission)
         if let Some(ref vec_val) = cached_receiver_val {
             let vec_ty = cached_receiver_ty.clone();
             let inner_ty = match &vec_ty {
@@ -817,7 +817,7 @@ fn emit_tensor_method(
                  ctx.emit_const_int(out, &acc, 0, &elem_mlir);
              }
              let _recv_val = format!("%recv_{}", ctx.next_id());
-             // Use cached receiver value (MEMOIZATION FIX - no duplicate emission)
+             // Use cached receiver value no duplicate emission
              let rv = cached_receiver_val.clone().ok_or("Tensor sum requires a receiver value")?;
              out.push_str(&format!("    {} = linalg.reduce ins({} : {}) outs({} : {}) \n    ({{ ^bb0(%arg0: {}, %arg1: {}): \n", 
                  res, rv, receiver_ty.to_mlir_type(ctx)?, acc, elem_mlir, elem_mlir, elem_mlir));

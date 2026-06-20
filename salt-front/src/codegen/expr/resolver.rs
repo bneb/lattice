@@ -194,7 +194,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         // Bit manipulation intrinsics used by kernel scheduler (std.math.* aliases)
         name == "ctz_u64" || name == "clz_u64" || name == "popcount_u64" ||
         name == "reinterpret_cast" || name == "ref_to_addr" || name == "is_null" ||
-        // [KEUOS OPTIMIZATION] Bulk memory intrinsics
+        // Bulk memory intrinsics
         name == "memset" || name == "memcpy" ||
         // Refined Intrinsics (Phase 4A/4B)
         name == "fused_cross_entropy" || name == "ml__fused_cross_entropy" ||

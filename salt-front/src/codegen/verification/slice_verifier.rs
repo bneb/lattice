@@ -110,7 +110,7 @@ pub fn verify_slice_access(
         solver.assert(&bound_const.le(&buf_len));
     }
 
-    // 5. THE PROOF: Can access at (start + offset) violate (< end)?
+    // 5. Can access at (start + offset) violate (< end)?
     let offset_const = crate::z3_shim::ast::Int::from_i64(z3_ctx, access_offset);
     let access_pos = crate::z3_shim::ast::Int::add(z3_ctx, &[&start, &offset_const]);
 
@@ -222,7 +222,7 @@ pub fn verify_dynamic_slice_access(
         solver.assert(&bound_const.le(&buf_len));
     }
 
-    // THE PROOF: Can (start + offset) >= end?
+    // Can (start + offset) >= end?
     let access_pos = crate::z3_shim::ast::Int::add(z3_ctx, &[&start, &offset]);
     let violation = access_pos.ge(&end);
     solver.assert(&violation);

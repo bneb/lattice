@@ -2820,7 +2820,7 @@ impl<'a> CodegenContext<'a> {
         self.trait_registry().find_methods_for_type(template_name)
     }
 
-    /// KEUOS RESOLUTION: Unified Pointer Peeling
+    /// Unified Pointer Peeling
     /// Instead of checking Reference/Owned/NativePtr separately, we peel the 
     /// first-class Type::Pointer variant.
     pub fn resolve_method(&self, receiver_ty: &Type, method_name: &str) -> Result<(SaltFn, Option<Type>, Vec<ImportDecl>), String> {
@@ -2846,7 +2846,7 @@ impl<'a> CodegenContext<'a> {
                 }
             }
 
-            // 2. UNIFIED DEREF: Peeling the KeuOS Pointer
+            // 2. Dereference through pointer wrappers
             // This replaces legacy Reference/Owned/NativePtr branches.
             if let Type::Pointer { element, .. } = current_ty {
                 current_ty = (*element).clone();
@@ -3257,7 +3257,7 @@ impl<'a> CodegenContext<'a> {
     }
 
 
-    /// SCORCHED EARTH: Removed legacy Ptr bootstrap.
+    /// Removed legacy Ptr bootstrap.
     /// Ptr<T> is now a first-class grammar construct and requires no import injection.
     pub fn inject_self_imports(&self, file: &crate::grammar::SaltFile) {
         let pkg_prefix = if let Some(pkg) = &file.package {
@@ -3286,7 +3286,7 @@ impl<'a> CodegenContext<'a> {
     }
 
 
-    // --- LAZY REVOLUTION: The Recursive Context Switcher ---
+    // --- Recursive context switcher ---
 
     pub fn is_function_defined(&self, mangled_name: &str) -> bool {
         if self.defined_functions().contains(mangled_name) {

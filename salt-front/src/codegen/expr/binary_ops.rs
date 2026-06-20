@@ -721,7 +721,7 @@ pub fn emit_unary(ctx: &mut LoweringContext, out: &mut String, u: &syn::ExprUnar
             Ok((res, ty))
         }
         syn::UnOp::Deref(_) => {
-            // [POINTER SAFETY] Check if pointer is safe to dereference (Valid)
+            // Check if pointer is safe to dereference (Valid)
             if let syn::Expr::Path(expr_path) = &*u.expr {
                 let is_dynamic = *ctx.is_dynamic_check_block() || ctx.emission.in_dynamic_check_fn;
                 if !is_dynamic {

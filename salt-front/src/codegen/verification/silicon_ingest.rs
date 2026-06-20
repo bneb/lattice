@@ -1,4 +1,4 @@
-//! Silicon Ingest: M4 Cycle-Accurate Pipeline Simulation (AUDITED V3)
+//! Silicon Ingest: M4 Cycle-Accurate Pipeline Simulation 
 //!
 //! # Fair Comparison Philosophy
 //!

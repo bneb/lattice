@@ -83,7 +83,7 @@ pub fn preprocess(source: &str) -> String {
             // `Tensor<f32, {2, 128, 784}>` -> `Tensor<f32, __Shape_2_128_784__>`
             let line = convert_tensor_shape_syntax(&line);
             
-            // [KEUOS FLUENT-MATH] Convert @ operator to .matmul() method
+            // Convert @ operator to .matmul() method
             // Pattern: A @ B becomes A.matmul(B)
             // This is done via simple regex-like replacement for now
             let line = convert_matmul_operator(&line);

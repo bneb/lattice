@@ -100,7 +100,7 @@ impl VerificationEngine {
             if let Ok(z3_val) = crate::codegen::expr::translate_to_z3(ctx, arg_expr, local_vars) {
                 call_vals_z3.push(z3_val);
             } else {
-                // CV-2 FIX: Hard error on translation failure.
+                // Hard error on translation failure.
                 // If we can't translate an argument, we cannot verify the precondition.
                 // Silently substituting zero would create false positive verification.
                 return Err(format!(
@@ -209,7 +209,7 @@ impl VerificationEngine {
                      }
                  }
                  
-                 // [TEMPORAL SAFETY TIER 2] Inject Pointer State Tokens
+                 // Inject Pointer State Tokens
                  // For each argument that is a known variable, map its pointer state into Z3
                  for (i, _p_name) in params.iter().enumerate() {
                      if let Some(arg_expr) = arg_exprs.get(i) {
@@ -443,7 +443,7 @@ impl VerificationEngine {
             }
         }
 
-        // 2b. [v0.9.2 PATH-SENSITIVE] Assume branch conditions (path guards)
+        // 2b. Assume branch conditions (path guards)
         // These are pushed by emit_if_expr when entering then/else branches.
         // They tell Z3 what branch we're in (e.g., "x < 0" in the then-branch).
         let path_conds = ctx.emission.path_conditions.clone();
@@ -453,7 +453,7 @@ impl VerificationEngine {
             }
         }
 
-        // [TEMPORAL SAFETY TIER 2] Inject Pointer State Tokens for ensures
+        // Inject Pointer State Tokens for ensures
         for (_i, p_name) in params.iter().enumerate() {
             if let Some(state) = ctx.pointer_tracker.get_state(p_name) {
                 if let Some((_, sym)) = param_symbols.iter().find(|(n, _)| n == p_name) {

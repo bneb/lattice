@@ -334,7 +334,7 @@ pub fn emit_field(
 
 
 fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, kind: LValueKind, element: &Box<Type>) -> Result<(String, Type), String> {
-// [TEMPORAL SAFETY] Check deref validity
+// Check deref validity
                  if let syn::Expr::Path(path_expr) = &*i.expr {
                      if let Some(ident) = path_expr.path.get_ident() {
                          let var_name = ident.to_string();
@@ -366,16 +366,16 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                  let idx_expr = &*i.index;
                  let (raw_idx_val, raw_idx_ty) = emit_expr(ctx, out, idx_expr, local_vars, None)?;
                  
-                 // [MANUAL INTEGER ALIGNMENT]
+                 // 
                  let idx_final = if raw_idx_ty == Type::I64 {
                      raw_idx_val
                  } else {
                      promote_numeric(ctx, out, &raw_idx_val, &raw_idx_ty, &Type::I64)?
                  };
-                                // [SPILL SLOT FIX V2] Use LValueKind to determine if we need to load.
+                                // Use LValueKind to determine if we need to load.
                   // If kind is Ptr or Local, base_ptr is an alloca containing the pointer - must load first.
                   // If kind is SSA, base_ptr IS the pointer value (no load needed).
-                  // [KEUOS FIX V3] For Reference types, the SSA value IS the pointer - don't load!
+                  // For Reference types, the SSA value IS the pointer - don't load!
                   // A &u8 parameter like %arg_s is already the pointer to the data, not a pointer-to-pointer.
                   let ptr_for_gep = if matches!(base_ty, Type::Reference(_, _)) {
                       // For references, base_ptr IS the address of the data (even if kind is Ptr)
@@ -413,7 +413,7 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                      ptr_for_gep
                  };
                  
-                  // [ARRAY-REF FIX] Handle Reference(Array(T, N)) - read index into array element
+                  // Handle Reference(Array(T, N)) - read index into array element
                   // When element is Array(I32, 10, false), use [0, idx] GEP and return element type
                   if let Type::Array(ref arr_elem, _, _) = **element {
                       let arr_mlir = element.to_mlir_type(ctx)?;

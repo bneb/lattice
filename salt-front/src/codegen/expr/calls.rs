@@ -19,7 +19,7 @@ fn emit_function_call(
     arg_tys: Vec<Type>,
     lazy_task: Option<Box<crate::codegen::collector::MonomorphizationTask>>,
 ) -> Result<(String, Type), String> {
-             // LAZY REVOLUTION: The Active Resolution Agent
+             // Active resolution agent
 
              hydrate_function_if_needed(ctx, &mangled_name, &arg_tys, &ret_ty, &lazy_task)?;
 
