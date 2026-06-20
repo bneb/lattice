@@ -206,7 +206,24 @@ process_resource.salt (51), preempt_test_layer05.salt (200)
 ### 3 New Test Files Created
 interpreter_smoke.rs (12 tests), fuzz_ast.rs (6 tests in-module), pattern.rs (5 tests in-module)
 
-### Total: 12 commits, 0 regressions, 0 test failures
+## 2026-06-20 — Session 10: scheduler + exec_user comment compression
+
+### exec_user.salt
+| Metric | Before | After |
+|--------|--------|-------|
+| Lines | 500 | 490 (-10) |
+
+### scheduler.salt
+| Metric | Before | After |
+|--------|--------|-------|
+| Lines | 539 | 522 (-17) |
+
+Comment/docs compression only — zero logic changes.
+scheduler.salt remaining 23 lines over 500: bitmap functions are tightly coupled
+to SCHED_ARRAY global. Needs dedicated session with careful function signature
+refactoring (CLAUDE.md: "never modify scheduler core logic").
+
+### Total: 14 commits, 0 regressions, 0 test failures
 
 ### Files >500 lines (kernel/)
 | Metric | Before | After | Delta |
