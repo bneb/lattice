@@ -3,7 +3,7 @@ use crate::types::Type;
 use crate::grammar::{StructDef, EnumDef};
 
 // =============================================================================
-// Registry V3.0: Categorical Symbol Resolution
+// Registry Categorical Symbol Resolution
 // =============================================================================
 // Every symbol is tagged with a SymbolKind to enable correct resolution:
 // - Namespace: Container of other symbols (module) - searchable via wildcard
@@ -62,7 +62,7 @@ pub struct EnumInfo {
 #[derive(Clone, Debug)]
 pub struct ModuleInfo {
     pub package: String,
-    /// V3.0: Categorical exports for symbol resolution
+    /// Categorical exports for symbol resolution
     pub exports: HashMap<String, ExportMetadata>,
     pub functions: HashMap<String, (Vec<Type>, Type)>,
     pub structs: HashMap<String, Vec<(String, Type)>>, // name -> field types (concrete)

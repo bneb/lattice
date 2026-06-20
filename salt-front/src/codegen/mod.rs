@@ -12,10 +12,10 @@ pub mod tracer;
 pub mod verification;
 pub mod const_eval;
 pub mod struct_deriver;
-pub mod trait_registry;  // V4.0: Signature-aware method resolution
+pub mod trait_registry;  // Signature-aware method resolution
 pub mod types;
-pub mod interleaved_gen;  // V2.0 FFB: Fused Forward-Backward codegen
-pub mod passes;           // V2.0 KeuOS: Pulse injection, yield injection, sync verification
+pub mod interleaved_gen;  // FFB: Fused Forward-Backward codegen
+pub mod passes;           // KeuOS: Pulse injection, yield injection, sync verification
 pub mod generic_resolver; // Consolidated generic type resolution
 pub mod shader;           // Metal Shading Language codegen for @shader functions
 pub mod emit_hir;         // HIR-to-MLIR emitter for async lowering Items
@@ -1049,7 +1049,7 @@ fn emit_item(ctx: &CodegenContext, item: &Item) -> Result<String, String> {
             Ok(out)
         }
         Item::Concept(c) => emit_concept(ctx, c),
-        Item::Trait(t) => emit_trait(ctx, t),  // [V4.0] Trait definitions
+        Item::Trait(t) => emit_trait(ctx, t),  // Trait definitions
         _ => Ok(String::new()),
     }
 }
@@ -1095,7 +1095,7 @@ pub fn emit_concept(ctx: &CodegenContext, concept: &SaltConcept) -> Result<Strin
     Ok(out)
 }
 
-/// [V4.0] Emit a trait definition - registers trait in TraitRegistry
+/// Emit a trait definition - registers trait in TraitRegistry
 pub fn emit_trait(ctx: &CodegenContext, trait_def: &SaltTrait) -> Result<String, String> {
     let trait_name = trait_def.name.to_string();
     
@@ -1602,7 +1602,7 @@ fn emit_impl(ctx: &CodegenContext, imp: &SaltImpl) -> Result<String, String> {
             
             for m in methods {
                 let key = parsed_ty.to_key().ok_or_else(|| format!("Failed to derive TypeKey for impl target {}", target_name_full))?;
-                // [V4.0 KEUOS] Register via TraitRegistry with signature extraction
+                // Register via TraitRegistry with signature extraction
                 ctx.trait_registry_mut().register_simple(key, m.clone(), Some(parsed_ty.clone()), ctx.imports().clone());
                 // Only emit immediately if NOT a generic struct/enum and NOT a generic method
                 if (parsed_ty.is_numeric() || matches!(parsed_ty, Type::Bool | Type::Unit)) || (!matches!(parsed_ty, Type::Concrete(..)) && m.generics.is_none()) {
@@ -1664,7 +1664,7 @@ pub fn pre_scan_workspace(ctx: &CodegenContext) -> Result<(), String> {
     // Pass 2: Register signatures (Functions/Globals)
     scan_dir(ctx, &root, false)?;
     
-    // [V4.0] Mark comptime as ready now that std discovery is complete
+    // Mark comptime as ready now that std discovery is complete
     // This enables Salt-native string prefix handlers to be used
     ctx.set_comptime_ready();
     
@@ -2429,7 +2429,7 @@ fn scan_expr_method_call(ctx: &CodegenContext, m: &syn::ExprMethodCall) -> Resul
                 }
 
                 // 2. Resolve Method via Context
-                // [V4.0 KEUOS] Use TraitRegistry for method lookup with receiver type matching
+                // Use TraitRegistry for method lookup with receiver type matching
                 let method_result: Option<(crate::grammar::SaltFn, Option<crate::types::Type>, Vec<crate::grammar::ImportDecl>)> = {
                     // Try to resolve via TraitRegistry using the receiver type
                     if let Some(recv_key) = recv_ty.to_key() {

@@ -6,7 +6,7 @@
 //!
 //! This preserves pointer identity and enables LLVM's loop vectorizer.
 //!
-//! ## Buffer-First V1.0: The Salty Contract
+//! ## Buffer-First The Salty Contract
 //!
 //! When a Buffer<T> is used, the compiler:
 //! 1. **Hoists** the inttoptr conversion to the function pre-header

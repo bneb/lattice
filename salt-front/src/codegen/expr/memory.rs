@@ -437,7 +437,7 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
 }
 
 fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, inner: &Box<Type>, shape: &Vec<usize>) -> Result<(String, Type), String> {
-// [V7.9 MEMREF FIX] Tensors are memref types (SSA values from memref.alloc)
+// Tensors are memref types (SSA values from memref.alloc)
                  // For SSA, base_ptr is already the memref value
                  // For Ptr/Local, we would need memref.load from a ptr, but tensors should always be SSA
                  let tensor_ptr = base_ptr.clone();
@@ -564,7 +564,7 @@ fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprI
                  // Log elision status for debugging (can be removed in production)
                  let _ = (sym_ctx, all_safe); // Suppress unused warnings for now
 
-                 // TENSOR LOAD [V7.9]: Use memref.load with multi-dimensional indices
+                 // TENSOR LOAD : Use memref.load with multi-dimensional indices
                  // Tensors are allocated as memref<DxMxT>, so we must use memref ops, not llvm.gep
                  
                  let elem_mlir = inner.to_mlir_storage_type(ctx)?;

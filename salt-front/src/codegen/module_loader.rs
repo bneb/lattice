@@ -221,7 +221,7 @@ impl ModuleLoader {
                 // Store AST for monomorphization (Global Function Discovery)
                 info.function_templates.insert(f.name.to_string(), f.clone());
                 
-                // V3.0: Register categorical export
+                // Register categorical export
                 let generic_count = f.generics.as_ref().map(|g| g.params.len()).unwrap_or(0);
                 info.exports.insert(f.name.to_string(), crate::registry::ExportMetadata {
                     fqn: format!("{}__{}" , pkg_mangled, f.name),
@@ -238,7 +238,7 @@ impl ModuleLoader {
                     .unwrap_or(crate::types::Type::Unit);
                 info.functions.insert(ef.name.to_string(), (args, ret));
                 
-                // V3.0: Extern functions are Intrinsics
+                // Extern functions are Intrinsics
                 info.exports.insert(ef.name.to_string(), crate::registry::ExportMetadata {
                     fqn: ef.name.to_string(),  // Externs use raw name
                     kind: crate::registry::SymbolKind::Intrinsic,
@@ -260,7 +260,7 @@ impl ModuleLoader {
                     info.structs.insert(s.name.to_string(), fields);
                 }
                 
-                // V3.0: Register categorical export (LeafType)
+                // Register categorical export (LeafType)
                 info.exports.insert(s.name.to_string(), crate::registry::ExportMetadata {
                     fqn: format!("{}__{}" , pkg_mangled, s.name),
                     kind: crate::registry::SymbolKind::LeafType,
@@ -276,7 +276,7 @@ impl ModuleLoader {
                     // Placeholder for concrete enums
                 }
                 
-                // V3.0: Register categorical export (LeafType)
+                // Register categorical export (LeafType)
                 info.exports.insert(e.name.to_string(), crate::registry::ExportMetadata {
                     fqn: format!("{}__{}" , pkg_mangled, e.name),
                     kind: crate::registry::SymbolKind::LeafType,

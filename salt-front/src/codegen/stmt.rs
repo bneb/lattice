@@ -135,7 +135,7 @@ fn expr_has_if(expr: &syn::Expr) -> bool {
     }
 }
 
-/// [V25.8] KeuOS Body Analysis: Detect if statements contain tensor indexing
+/// KeuOS Body Analysis: Detect if statements contain tensor indexing
 /// Returns true if any statement uses tensor/array indexing (A[i,j] pattern)
 /// This indicates the loop benefits from polyhedral optimization (affine.for)
 fn has_tensor_indexing(stmts: &[Stmt]) -> bool {
@@ -213,7 +213,7 @@ fn expr_has_tensor_indexing(expr: &syn::Expr) -> bool {
 }
 
 /// Emit an scf.for loop with KeuOS Narrowing for constant-bound loops.
-/// [V25.8] Source-Level IV Narrowing: Use i32 when bounds fit, eliminating index_cast overhead.
+/// Source-Level IV Narrowing: Use i32 when bounds fit, eliminating index_cast overhead.
 /// This maintains LLVM's ability to optimize while reducing per-iteration instruction count.
 fn emit_affine_for(
     ctx: &mut LoweringContext,
@@ -239,7 +239,7 @@ fn emit_affine_for(
         return emit_affine_for_reduction(ctx, out, f, lb, ub, local_vars, &var_name, reduction_info);
     }
     
-    // [V25.8] KeuOS Body Analysis: Detect loop intent from body contents
+    // KeuOS Body Analysis: Detect loop intent from body contents
     // - Tensor indexing (A[i,j]) -> Use affine.for + Usize for polyhedral optimization
     // - Pointer arithmetic (ptr + offset) -> Use scf.for + i32 for instruction density
     let uses_tensor_indexing = has_tensor_indexing(&f.body.stmts);
@@ -609,7 +609,7 @@ fn detect_tensor_reduction(stmt: &Stmt) -> bool {
 /// Pattern: `for j in 0..K { acc = vector_fma(a, b, acc); }`
 /// Becomes: `%result = scf.for %j = 0 to K iter_args(%acc = %init) -> (vector<8xf32>) { ... scf.yield %next }`
 /// 
-/// V7 Upgrade: Now uses scf.for instead of affine.for for better compatibility with
+/// Upgrade: Now uses scf.for instead of affine.for for better compatibility with
 /// multi-statement bodies containing vector operations.
 fn emit_affine_for_reduction(
     ctx: &mut LoweringContext,
@@ -655,7 +655,7 @@ fn emit_affine_for_reduction(
         reduction.init_ssa.clone()
     };
     
-    // [V25.8] KeuOS Narrowing: Determine if we can use i32 for the body
+    // KeuOS Narrowing: Determine if we can use i32 for the body
     // scf.for requires index type for bounds
     let can_narrow = ub < 2_147_483_647 && lb >= 0;
     
@@ -677,12 +677,12 @@ fn emit_affine_for_reduction(
     // Enter affine context (still use this for nested optimizations)
     ctx.enter_affine_context();
     
-    // [V8] Enable fast-math context for constant-bound reduction body
+    // Enable fast-math context for constant-bound reduction body
     // Matches the pattern already used in emit_scf_for_runtime_reduction.
     // Without this, LLVM cannot vectorize constant-bound reductions (e.g., for i in 0..128)
     ctx.emission.in_fast_math_reduction = true;
     
-    // [V25.8] Narrow the IV inside the loop if possible
+    // Narrow the IV inside the loop if possible
     let mut body_vars = local_vars.clone();
     if can_narrow {
         let iv_i32 = format!("%iv_i32_{}", ctx.next_id());
@@ -742,7 +742,7 @@ fn emit_affine_for_reduction(
     // Emit scf.yield with the new accumulator value
     out.push_str(&format!("      scf.yield {} : {}\n", next_val, mlir_ty));
     
-    // [V8] Reset fast-math context after reduction body
+    // Reset fast-math context after reduction body
     ctx.emission.in_fast_math_reduction = false;
     
     ctx.exit_affine_context();
@@ -774,7 +774,7 @@ fn emit_affine_for_reduction(
     Ok(false)
 }
 
-/// [V7.4] Emit scf.for with iter_args for runtime-bound reduction patterns.
+/// Emit scf.for with iter_args for runtime-bound reduction patterns.
 /// Unlike emit_affine_for_reduction which uses constant bounds, this works with
 /// dynamic bounds like `for j in 0..cols` where `cols` is a runtime variable.
 /// 
@@ -803,13 +803,13 @@ fn emit_scf_for_runtime_reduction(
         Type::Struct(name) if name == "Vector8f32" => "vector<8xf32>".to_string(),
         Type::Struct(name) if name == "Vector4f64" => "vector<4xf64>".to_string(),
         Type::Struct(name) if name == "Vector16f32" => "vector<16xf32>".to_string(),
-        _ => return Err(format!("V7.4 Reduction accumulator must be f32, f64, or Vector type, got {:?}", reduction.ty)),
+        _ => return Err(format!("Reduction accumulator must be f32, f64, or Vector type, got {:?}", reduction.ty)),
     };
     
     // Extract range bounds from the for-loop iterator
     let (start_expr, end_expr) = match &f.iter {
         syn::Expr::Range(r) => (&r.start, &r.end),
-        _ => return Err("V7.4 scf.for requires range iterator".to_string()),
+        _ => return Err("scf.for requires range iterator".to_string()),
     };
     
     // Emit start and end bounds as SSA values
@@ -824,10 +824,10 @@ fn emit_scf_for_runtime_reduction(
     let (end_val_raw, end_ty) = if let Some(end) = end_expr {
         emit_expr(ctx, out, end, local_vars, None)?
     } else {
-        return Err("V7.4 scf.for requires finite upper bound".to_string());
+        return Err("scf.for requires finite upper bound".to_string());
     };
     
-    // [V25.8] Convert bounds to index type for scf.for (required by MLIR)
+    // Convert bounds to index type for scf.for (required by MLIR)
     // Determine if we can narrow the IV to i32 inside the loop
     let can_narrow = matches!(start_ty, Type::I32 | Type::U32) && 
                      matches!(end_ty, Type::I32 | Type::U32);
@@ -882,7 +882,7 @@ fn emit_scf_for_runtime_reduction(
         result_ssa, iv, lb_ssa, ub_ssa, step_ssa, iter_acc, init_value_ssa, mlir_ty
     ));
     
-    // [V25.8] Narrow the IV inside the loop if possible
+    // Narrow the IV inside the loop if possible
     let mut body_vars = local_vars.clone();
     let z3_iv_name: String;
     if can_narrow {
@@ -931,7 +931,7 @@ fn emit_scf_for_runtime_reduction(
         false
     };
     
-    // [V7.5] Enable fast-math context for reduction body
+    // Enable fast-math context for reduction body
     // Allows LLVM to reorder FP operations for vectorization
     ctx.emission.in_fast_math_reduction = true;
     
@@ -949,7 +949,7 @@ fn emit_scf_for_runtime_reduction(
         let assign = match stmt {
             Stmt::Syn(syn::Stmt::Expr(syn::Expr::Assign(a), _)) => a,
             Stmt::Expr(syn::Expr::Assign(a), _) => a,
-            _ => return Err("V7.4 Reduction update must be an assignment".to_string()),
+            _ => return Err("Reduction update must be an assignment".to_string()),
         };
         let (val, _) = emit_expr(ctx, out, assign.right.as_ref(), &mut body_vars, Some(&reduction.ty))?;
         val
@@ -964,7 +964,7 @@ fn emit_scf_for_runtime_reduction(
         ctx.z3_solver.pop(1);
     }
     
-    // [V7.5] Reset fast-math context after reduction body
+    // Reset fast-math context after reduction body
     ctx.emission.in_fast_math_reduction = false;
     
     // For alloca-based accumulators, store the result back
@@ -993,7 +993,7 @@ fn emit_scf_for_runtime_reduction(
 // V8: SIMPLE SCF.FOR — Non-Reduction Runtime-Bound Loops
 // ============================================================================
 
-/// [V8] Emit scf.for for runtime-bound non-reduction loops.
+/// Emit scf.for for runtime-bound non-reduction loops.
 /// This handles the common case of simple write loops like:
 ///   for i in 0..size { out[i] = expr }
 /// which would otherwise fall to cf.br basic-block loops.
@@ -1104,7 +1104,7 @@ fn emit_scf_for_simple(
 }
 
 // ============================================================================
-// V2.2 SHADOW REDUCTION: FFB Saturated Loop Emission
+// FFB Saturated Loop Emission
 // ============================================================================
 
 /// Information about a detected shadow update (tensor in-place modification)
@@ -1229,7 +1229,7 @@ fn emit_iterator_for_loop(
     // [PILLAR 2: Global LVN] Clear cache at loop header entry
     ctx.emission.global_lvn.clear();
 
-    // Heartbeat Injection (V2.0)
+    // Heartbeat Injection 
     if !*ctx.no_yield() {
         ctx.emit_lto_hook(out, "__salt_yield_check", &[], local_vars, None)?;
     }
@@ -1524,7 +1524,7 @@ pub fn emit_stmt(ctx: &mut LoweringContext, out: &mut String, stmt: &Stmt, local
                 let is_return = matches!(e, syn::Expr::Return(_));
                 Ok((semi.is_none() && val == "%unreachable") || is_return)
             }
-            // [V5.0 STRUCTURAL FORMATTING FIX] Handle macro statements
+            // Handle macro statements
             // syn parses `macro!(...);` at statement position as Stmt::Macro,
             // not Stmt::Expr(Expr::Macro). Route through emit_expr for handling
             // by the macro dispatch logic (e.g., __fstring_append_expr!).
@@ -1771,7 +1771,7 @@ fn emit_while_stmt(ctx: &mut LoweringContext, out: &mut String, w: &crate::gramm
             out.push_str(&format!("  ^{}:\n", label_header));
             
             let (cond_val, cond_ty) = emit_expr(ctx, out, &w.cond, local_vars, None)?;
-            // [POINTER TRUTHINESS] Accept Pointer types as while conditions
+            // Accept Pointer types as while conditions
             let cond_val = if cond_ty.k_is_ptr_type() {
                 let id = ctx.next_id();
                 let int_val = format!("%ptrtoint_{}", id);
@@ -1791,7 +1791,7 @@ fn emit_while_stmt(ctx: &mut LoweringContext, out: &mut String, w: &crate::gramm
             out.push_str(&format!("    cf.cond_br {}, ^{}, ^{}{}\n", cond_val, label_body, label_exit, loc));
             out.push_str(&format!("  ^{}:\n", label_body));
             
-            // Heartbeat Injection (V2.0: simplified, uses @yielding at function level)
+            // Heartbeat Injection (simplified, uses @yielding at function level)
             if !*ctx.no_yield() {
                 ctx.emit_lto_hook(out, "__salt_yield_check", &[], local_vars, None)?;
             }
@@ -1817,7 +1817,7 @@ fn emit_while_stmt(ctx: &mut LoweringContext, out: &mut String, w: &crate::gramm
 
                 // --- Phase A: Base Case ---
                 // Variable values are already registered in Z3 at the let-binding
-                // emission point (see [Z3 REGISTRATION] above). This gives us
+                // emission point (see above). This gives us
                 // constraints like `i = 0` that enable invariant base-case proofs.
                 ctx.z3_solver.push(); // Temporary scope for base-case checks
 
@@ -2075,7 +2075,7 @@ fn emit_return_stmt(ctx: &mut LoweringContext, out: &mut String, opt_expr: &Opti
                 let expected_ret = ctx.current_ret_ty().clone().map(|t| t.substitute(&ctx.current_type_map()));
                 let (val_raw, ty) = emit_expr(ctx, out, e, local_vars, expected_ret.as_ref())?;
 
-                // [ESCAPE ANALYSIS V5.1] Recursive escape marking.
+                // Recursive escape marking.
                 crate::codegen::expr::mark_expression_escaped(ctx, e);
 
                 // [ARENA ESCAPE ANALYSIS] Law I: The Return Rule.
@@ -2087,7 +2087,7 @@ fn emit_return_stmt(ctx: &mut LoweringContext, out: &mut String, opt_expr: &Opti
                     }
                 }
 
-                // [v0.9.2 POSTCONDITION PIVOT] Z3 verification of ensures clauses at return site
+                // Z3 verification of ensures clauses at return site
                 // Before emitting func.return, verify the postcondition holds for this return value.
                 let ensures = ctx.current_ensures().clone();
                 if !ensures.is_empty() {
@@ -2168,7 +2168,7 @@ fn emit_loop_stmt(ctx: &mut LoweringContext, out: &mut String, body: &crate::gra
                 out.push_str(&format!("    cf.br ^{}\n", label_body));
             }
 
-            // [DIVERGENCE TRACKING] Only emit the exit block if a break
+            // Only emit the exit block if a break
             // actually targets it. An infinite `loop { }` with no break
             // produces an exit block with zero predecessors, which crashes
             // MLIR's dominance tree computation in salt-opt.
@@ -2184,7 +2184,7 @@ fn emit_loop_stmt(ctx: &mut LoweringContext, out: &mut String, body: &crate::gra
         }
 
 fn emit_unsafe_stmt(ctx: &mut LoweringContext, out: &mut String, block: &crate::grammar::SaltBlock, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<bool, String>  {
-            // [SAFETY GATE] Only allow unsafe blocks in privileged packages
+            // Only allow unsafe blocks in privileged packages
             // (std.* and kernel.*). All other packages are rejected.
             // Uses config.file.package as fallback when current_package is None.
             let first_seg = ctx.current_package.as_ref()
@@ -2226,7 +2226,7 @@ pub fn emit_pattern(
     target_ty: Type,
     local_vars: &mut HashMap<String, (Type, LocalKind)>,
 ) -> Result<(), String> {
-    // [CONSTITUTIONAL GUARD V21.0]: Loop Induction Isolation
+    // Loop Induction Isolation
     // If we are binding an induction variable (actual=Usize or integer), 
     // we must NOT allow it to be 'magnetized' by a Pointer target.
     // This prevents the "Usize to Pointer" contamination from loop bodies.
@@ -2263,7 +2263,7 @@ pub fn emit_pattern(
                 LocalKind::SSA(val_prom.clone())
             };
             
-            // [V1.1] RAII-Lite: Register Vec types for automatic cleanup at scope exit
+            // RAII-Lite: Register Vec types for automatic cleanup at scope exit
             if let Type::Concrete(base, args) = &target_ty {
                 if base == "Vec" || base.ends_with("__Vec") || base.contains("__vec__Vec") {
                     // Determine the element type suffix for the drop function
@@ -2300,7 +2300,7 @@ pub fn emit_pattern(
                     let elem_ty = &elems[i];
                     
                     let final_val = if *elem_ty == Type::Bool {
-                        // [FIX] cmpxchg tuples store the success flag as native i1,
+                        // cmpxchg tuples store the success flag as native i1,
                         // not as i8. Check if the struct field is already i1 before truncating.
                         let is_already_i1 = struct_ty.contains("i1");
                         if is_already_i1 {
@@ -2355,7 +2355,7 @@ pub fn emit_pattern(
 
 // [POINTER SAFETY] Helper to detect `p.addr != 0` or `p.addr == 0` check
 fn get_narrowing_target(cond: &syn::Expr) -> Option<(String, bool)> {
-    // [POINTER TRUTHINESS] Bare pointer: `if ptr { ... }` => narrowing target = ptr, is_neq=true
+    // Bare pointer: `if ptr { ... }` => narrowing target = ptr, is_neq=true
     if let syn::Expr::Path(p) = cond {
         if let Some(ident) = p.path.get_ident() {
 
@@ -2403,7 +2403,7 @@ pub fn emit_salt_if(
     let label_merge = format!("merge_{}", ctx.next_id());
 
     let (cond_val, cond_ty) = emit_expr(ctx, out, cond, local_vars, None)?;
-    // [POINTER TRUTHINESS] Accept Pointer types as if conditions
+    // Accept Pointer types as if conditions
     let cond_val = if cond_ty.k_is_ptr_type() {
         let id = ctx.next_id();
         let int_val = format!("%ptrtoint_{}", id);
@@ -3081,7 +3081,7 @@ pub fn emit_let_else(
 }
 
 pub fn emit_cleanup_for_return(ctx: &mut LoweringContext, out: &mut String, local_vars: &HashMap<String, (Type, LocalKind)>) -> Result<(), String> {
-    // [V1.1] RAII-Lite: Emit cleanup for all owned resources in the cleanup_stack
+    // RAII-Lite: Emit cleanup for all owned resources in the cleanup_stack
     // This handles Vec and other container types registered via register_owned_resource
     {
         let tasks: Vec<_> = ctx.cleanup_stack()
@@ -3091,7 +3091,7 @@ pub fn emit_cleanup_for_return(ctx: &mut LoweringContext, out: &mut String, loca
 
         for task in &tasks {
 
-                // [V1.1] Z3 Ownership Ledger: Register DEATH event for each resource (DISABLED)
+                // Z3 Ownership Ledger: Register DEATH event for each resource (DISABLED)
                 /*
                 ctx.ownership_tracker.mark_released(
                     &task.var_name,
@@ -3105,7 +3105,7 @@ pub fn emit_cleanup_for_return(ctx: &mut LoweringContext, out: &mut String, loca
         }
     }
 
-    // [QoL V1.0] Drop Trait RAII: Auto-call drop() on locals implementing Drop
+    // Drop Trait RAII: Auto-call drop() on locals implementing Drop
     // Iterate in reverse insertion order for proper cleanup ordering (LIFO)
     {
         let mut drop_fns: Vec<(String, String)> = Vec::new();
@@ -3124,7 +3124,7 @@ pub fn emit_cleanup_for_return(ctx: &mut LoweringContext, out: &mut String, loca
                     };
                     let mangled = format!("{}__drop", type_name);
                     
-                    // [QoL V1.0] Demand-driven hydration: ensure drop() is emitted
+                    // Demand-driven hydration: ensure drop() is emitted
                     // Same pattern as Display::fmt hydration (intrinsics.rs:3580-3596)
                     let drop_impl_data = {
                         ctx.generic_impls().get(&mangled).cloned()

@@ -1,4 +1,4 @@
-//! Trait Registry - Signature-Aware Method Resolution for Salt V4.0
+//! Trait Registry - Signature-Aware Method Resolution for Salt
 //!
 //! This module solves the "method overload collision" problem where the legacy
 //! method_registry keyed by `(TypeKey, String)` could only store one method
@@ -184,7 +184,7 @@ impl TraitRegistry {
         self.traits.insert(def.name.clone(), def);
     }
     
-    /// [V4.0] Register a trait definition from parsed grammar.
+    /// Register a trait definition from parsed grammar.
     /// Convenience method that takes simpler arguments from emit_trait.
     pub fn register_trait_def(
         &mut self, 
@@ -258,7 +258,7 @@ impl TraitRegistry {
             return Some(method);
         }
         
-        // [V4.0 KEUOS] Path-agnostic fallback: when lookup key has empty path but
+        // Path-agnostic fallback: when lookup key has empty path but
         // registration used full path (e.g., trait method flattening), match by name only
         if receiver.path.is_empty() {
             for ((reg_key, method_name), method_keys) in &self.legacy_index {
@@ -333,7 +333,7 @@ impl TraitRegistry {
     }
     
     // =========================================================================
-    // V4.0 KEUOS: Convenience methods for migration from legacy method_registry
+    // Convenience methods for migration from legacy method_registry
     // =========================================================================
     
     /// Register a method using simple parameters (convenience wrapper).

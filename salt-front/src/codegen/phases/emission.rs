@@ -127,23 +127,23 @@ pub struct EmissionState {
     /// Example: `let p = reinterpret_cast::<&Pixel>(addr)` → p is kept in register
     pub ephemeral_refs: HashSet<String>,
     
-    // === V7.3: Alias Scope Metadata for LLVM Vectorization ===
-    /// [V7.3] Alias scope domain ID (distinct ID for module-level domain)
+    // === Alias Scope Metadata for LLVM Vectorization ===
+    /// Alias scope domain ID (distinct ID for module-level domain)
     pub alias_domain_id: usize,
-    /// [V7.3] Tensor ID → scope name mapping for noalias metadata
+    /// Tensor ID → scope name mapping for noalias metadata
     pub tensor_scopes: HashMap<usize, String>,
     
-    /// [V7.5] Fast-math reduction context flag
+    /// Fast-math reduction context flag
     /// When true, floating-point arithmetic emits {fastmath = #arith.fastmath<reassoc, contract>}
     /// Enables LLVM to reorder FP operations for vectorization
     pub in_fast_math_reduction: bool,
-    /// [V8] Function-level fast-math flag (set by @fast_math attribute)
+    /// Function-level fast-math flag (set by @fast_math attribute)
     /// When true, ALL floating-point operations emit fast-math flags, not just reductions.
     /// This enables LLVM to fully vectorize and reassociate FP arithmetic across the function.
     pub in_fast_math_fn: bool,
-    /// [V7.3] Next tensor scope ID counter
+    /// Next tensor scope ID counter
     pub next_tensor_scope_id: usize,
-    /// [V7.3] Flag indicating alias preamble has been emitted
+    /// Flag indicating alias preamble has been emitted
     pub alias_preamble_emitted: bool,
     
     /// [v0.9.2] Path condition stack for Z3 postcondition verification.
@@ -265,9 +265,9 @@ impl EmissionState {
         final_output
     }
     
-    // === V7.3: Alias Scope Metadata for LLVM Vectorization ===
+    // === Alias Scope Metadata for LLVM Vectorization ===
     
-    /// [V7.3] Generate the alias preamble defining the Salt memory domain
+    /// Generate the alias preamble defining the Salt memory domain
     /// This should be called once at the start of MLIR module emission
     pub fn emit_alias_preamble(&mut self) -> String {
         if self.alias_preamble_emitted {
@@ -283,7 +283,7 @@ impl EmissionState {
         )
     }
     
-    /// [V7.3] Register a tensor and generate its unique alias scope
+    /// Register a tensor and generate its unique alias scope
     /// Returns the scope identifier (e.g., "#scope_weights")
     pub fn register_tensor_scope(&mut self, description: &str) -> (usize, String) {
         let tensor_id = self.next_tensor_scope_id;
@@ -295,7 +295,7 @@ impl EmissionState {
         (tensor_id, scope_name)
     }
     
-    /// [V7.3] Generate MLIR scope definition for a registered tensor
+    /// Generate MLIR scope definition for a registered tensor
     pub fn emit_scope_definition(&self, tensor_id: usize, description: &str) -> String {
         let scope_name = self.tensor_scopes.get(&tensor_id)
             .map(|s| s.as_str())
@@ -310,7 +310,7 @@ impl EmissionState {
         )
     }
     
-    /// [V7.3] Get comma-separated list of noalias scopes (all scopes except active_tensor_id)
+    /// Get comma-separated list of noalias scopes (all scopes except active_tensor_id)
     pub fn get_noalias_scopes(&self, active_tensor_id: usize) -> String {
         self.tensor_scopes
             .iter()
@@ -320,7 +320,7 @@ impl EmissionState {
             .join(", ")
     }
     
-    /// [V7.3] Format load instruction with alias metadata
+    /// Format load instruction with alias metadata
     pub fn format_load_with_alias(
         &self,
         result: &str,
@@ -348,7 +348,7 @@ impl EmissionState {
         }
     }
     
-    /// [V7.3] Format store instruction with alias metadata
+    /// Format store instruction with alias metadata
     pub fn format_store_with_alias(
         &self,
         value: &str,

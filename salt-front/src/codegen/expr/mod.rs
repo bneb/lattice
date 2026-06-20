@@ -61,7 +61,7 @@ pub enum LValueKind {
     Tensor { memref: String, indices: Vec<String>, elem_ty: Box<crate::types::Type>, shape: Vec<usize> }, // Tensor indexed access
 }
 
-/// [ESCAPE ANALYSIS V5.1] Recursively walk an expression to mark all
+/// Recursively walk an expression to mark all
 /// malloc-tracked allocations as escaped (safely returned to caller).
 ///
 /// This closes the "Chain of Custody" gap: when a return expression contains
@@ -174,7 +174,7 @@ pub fn emit_expr(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, 
         }
     }
 
-    // V25.0-V25.2 Domain Isolation: Pointer contamination is now prevented upstream
+    // Domain Isolation: Pointer contamination is now prevented upstream
     
     match expr {
         syn::Expr::Lit(lit) => emit_lit(ctx, out, lit, expected_ty),
@@ -604,7 +604,7 @@ fn emit_return_expr(ctx: &mut LoweringContext, out: &mut String, r: &syn::ExprRe
                 let expected_ret = ctx.current_ret_ty().clone();
                 let (val_raw, ty) = emit_expr(ctx, out, e, local_vars, expected_ret.as_ref())?;
 
-                // [ESCAPE ANALYSIS V5.1] Recursive escape marking.
+                // Recursive escape marking.
                 // Walks the expression tree to find all malloc-tracked sources,
                 // handling casts, pointer arithmetic, method calls, etc.
                 mark_expression_escaped(ctx, e);
@@ -620,7 +620,7 @@ fn emit_return_expr(ctx: &mut LoweringContext, out: &mut String, r: &syn::ExprRe
 
                 let mut val = val_raw;
                 if ty == Type::Unit {
-                    // [ESCAPE ANALYSIS V5.1] Still emit cleanup before returning
+                    // Still emit cleanup before returning
                     ctx.transfer_ownership(&val)?;
                     crate::codegen::stmt::emit_cleanup_for_return(ctx, out, local_vars)?;
                     out.push_str("    func.return\n");
@@ -636,11 +636,11 @@ fn emit_return_expr(ctx: &mut LoweringContext, out: &mut String, r: &syn::ExprRe
                     ty.to_mlir_type(ctx)?
                 };
                 
-                // [V1.1] RAII-Lite: Transfer ownership of returned value and emit cleanup
+                // RAII-Lite: Transfer ownership of returned value and emit cleanup
                 ctx.transfer_ownership(&val)?;
                 crate::codegen::stmt::emit_cleanup_for_return(ctx, out, local_vars)?;
                 
-                // [v0.9.2 POSTCONDITION PIVOT] Z3 verification of ensures clauses at return site
+                // Z3 verification of ensures clauses at return site
                 let ensures = ctx.current_ensures().clone();
                 if !ensures.is_empty() {
                     let fn_name = ctx.current_fn_name().clone();
@@ -674,7 +674,7 @@ fn emit_return_expr(ctx: &mut LoweringContext, out: &mut String, r: &syn::ExprRe
                 let loc = ctx.loc_tag(r.span());
                 out.push_str(&format!("    func.return {} : {}{}\n", val, mlir_ty, loc));
             } else {
-                // [V1.1] RAII-Lite: Emit cleanup before void return
+                // RAII-Lite: Emit cleanup before void return
                 crate::codegen::stmt::emit_cleanup_for_return(ctx, out, local_vars)?;
                 
                 let loc = ctx.loc_tag(r.span());
@@ -1483,7 +1483,7 @@ pub(crate) fn infer_generics(
     res
 }
 
-/// [V5.0 STRUCTURAL FORMATTING] Heuristically resolve the type of an f-string expression
+/// Heuristically resolve the type of an f-string expression
 /// without emitting any MLIR code. This is used by __fstring_append_expr to determine
 /// the correct append_* method to call.
 ///

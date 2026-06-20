@@ -143,7 +143,7 @@ pub enum Item {
     Struct(StructDef),
     Global(GlobalDef),
     Concept(SaltConcept),
-    Trait(SaltTrait),  // [V4.0] Trait definitions
+    Trait(SaltTrait),  // Trait definitions
     Impl(SaltImpl),
     ExternFn(ExternFnDecl),
     Enum(EnumDef),
@@ -496,7 +496,7 @@ pub struct SaltConcept {
     pub requires: Expr,
 }
 
-/// [V4.0] A trait definition: `trait Foo<T> { fn bar(&self) -> T; }`
+/// A trait definition: `trait Foo<T> { fn bar(&self) -> T; }`
 #[derive(Clone, Debug)]
 pub struct SaltTrait {
     pub name: Ident,
@@ -504,7 +504,7 @@ pub struct SaltTrait {
     pub methods: Vec<TraitMethodSig>,
 }
 
-/// [V4.0] A method signature in a trait (no body)
+/// A method signature in a trait (no body)
 #[derive(Clone, Debug)]
 pub struct TraitMethodSig {
     pub name: Ident,
@@ -517,7 +517,7 @@ pub struct TraitMethodSig {
 pub enum SaltImpl {
     Concept { concept_name: Ident, target_ty: SynType },
     Methods { target_ty: SynType, methods: Vec<SaltFn>, generics: Option<Generics> },
-    /// [V4.0] `impl Trait for Type { ... }`
+    /// `impl Trait for Type { ... }`
     Trait { trait_name: Ident, target_ty: SynType, methods: Vec<SaltFn>, generics: Option<Generics> },
 }
 
@@ -614,7 +614,7 @@ impl Parse for SaltFile {
              } else if input.peek(concept) {
                  items.push(Item::Concept(input.parse()?));
              } else if input.peek(Token![trait]) {
-                 // [V4.0] Parse trait definitions
+                 // Parse trait definitions
                  items.push(Item::Trait(input.parse()?));
              } else if input.peek(Token![impl]) {
                  items.push(Item::Impl(input.parse()?));
@@ -904,7 +904,7 @@ impl Parse for SaltConcept {
     }
 }
 
-/// [V4.0] Parse trait method signature: `fn name(&self) -> RetType;`
+/// Parse trait method signature: `fn name(&self) -> RetType;`
 impl Parse for TraitMethodSig {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         input.parse::<Token![fn]>()?;
@@ -937,7 +937,7 @@ impl Parse for TraitMethodSig {
     }
 }
 
-/// [V4.0] Parse trait definition: `trait Foo<T> { fn bar(&self) -> T; }`
+/// Parse trait definition: `trait Foo<T> { fn bar(&self) -> T; }`
 impl Parse for SaltTrait {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         input.parse::<Token![trait]>()?;
@@ -1012,7 +1012,7 @@ impl Parse for SaltImpl {
             }
             return Err(input.error("Invalid concept implementation syntax, expected Concept<Type>;"));
         } else if found_for {
-            // [V4.0] impl Trait for Type { ... }
+            // impl Trait for Type { ... }
             let trait_name: Ident = syn::parse2(before_for)?;
             let target_ty: SynType = syn::parse2(after_for)?;
             
@@ -1153,7 +1153,7 @@ impl Parse for SaltFn {
             requires.push(e);
         }
 
-        // [V4.0] Parse ensures clause (postconditions)
+        // Parse ensures clause (postconditions)
         let mut ensures = Vec::new();
         while input.peek(crate::keywords::ensures) {
             input.parse::<crate::keywords::ensures>()?;
@@ -1210,7 +1210,7 @@ fn parse(input: ParseStream) -> syn::Result<Self> {
                 let block: SaltBlock = input.parse()?;
                 return Ok(Stmt::DynamicCheck(block));
             } else {
-                return Err(input.error("Loop-level decorators removed in V2.0. Use @yielding on functions instead."));
+                return Err(input.error("Loop-level decorators removed. Use @yielding on functions instead."));
             }
         }
 

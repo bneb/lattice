@@ -103,7 +103,7 @@ impl Type {
 
 
     pub fn to_mlir_storage_type(&self, ctx: &mut LoweringContext) -> Result<String, String> {
-    // [V7.8 RECURSIVE IDENTITY] Strip semantic wrappers to find the nominal core
+    // Strip semantic wrappers to find the nominal core
     // Mutability/ownership are access permissions, not changes to storage layout
     match self {
         Type::Owned(inner) => return inner.to_mlir_storage_type(ctx),
@@ -113,7 +113,7 @@ impl Type {
         _ => {}
     }
     
-    // [V1.0 POINTER DECAY RULE]
+    // 
     // All safe pointers (NodePtr, Ptr, etc.) and references are emitted as native !llvm.ptr
     // This eliminates struct wrapper overhead and inttoptr/ptrtoint casts.
     // Front-end sees safety metadata; backend sees naked 8-byte pointer.
@@ -1116,7 +1116,7 @@ pub fn to_mlir_type(ctx: &mut LoweringContext, ty: &Type) -> Result<String, Stri
                     _ => {}
                 }
             }
-            // [V25.7] De-escalated Type Fallback: Check if any arg is an unresolved Generic
+            // De-escalated Type Fallback: Check if any arg is an unresolved Generic
             fn has_unresolved_generic(ty: &Type) -> bool {
                 match ty {
                     Type::Generic(_) => true,
@@ -1171,7 +1171,7 @@ pub fn to_mlir_type(ctx: &mut LoweringContext, ty: &Type) -> Result<String, Stri
             Ok(format!("!llvm.struct<({})>", parts?.join(", ")))
         }
         Type::Enum(name) => {
-            // [V4.0 ENUM FUZZY LOOKUP] Check if enum name needs stripping
+            // Check if enum name needs stripping
             // Handles package-prefixed names like "main__Status" → "Status"
             let stripped_name = name.rsplit("__").next().unwrap_or(name);
             if let Some(enum_info) = ctx.enum_registry().values()
@@ -1651,7 +1651,7 @@ pub fn type_to_type_key(ty: &Type) -> TypeKey {
     }
 }
 
-/// [V4.0] Trait Constraint Solver
+/// Trait Constraint Solver
 /// Checks whether a concrete type satisfies a trait constraint.
 /// 
 /// This is called during generic instantiation when a type parameter has a bound:
@@ -1709,7 +1709,7 @@ pub fn check_trait_constraint(
     ))
 }
 
-/// [V4.0] Validate all trait constraints for a generic function instantiation.
+/// Validate all trait constraints for a generic function instantiation.
 /// Called when specializing a generic function with concrete type arguments.
 pub fn validate_trait_constraints(
     ctx: &mut LoweringContext,
@@ -1979,7 +1979,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
              } else {
                  st_base
              };
-             // [V4.0 KEUOS] Use TraitRegistry for method lookup
+             // Use TraitRegistry for method lookup
              self.trait_registry().find_method_by_name(&template_name, &method_name, st)
         } else {
              file.items.iter().find_map(|item| {
@@ -2095,7 +2095,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
              } else {
                  st_base
              };
-             // [V4.0 KEUOS] Use TraitRegistry for method lookup
+             // Use TraitRegistry for method lookup
              self.trait_registry().find_method_by_name(&template_name, &method_name, st)
         } else {
              // Function lookup
@@ -2108,7 +2108,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         };
 
         if let Some((func, s_ty, imports)) = found {
-            // [V4.0] Trait Constraint Solver: Validate constraints before specialization
+            // Trait Constraint Solver: Validate constraints before specialization
             if let Err(e) = validate_trait_constraints(self, &func.generics, &concrete_tys) {
                 eprintln!("ERROR: Trait constraint validation failed for '{}': {}", func_name, e);
                 // In strict mode we could panic, but for now we just warn
@@ -2527,7 +2527,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                       let prefix = format!("{}__", pkg_mangled);
                       if template_name.starts_with(&prefix) {
                            let mut combined_imports = mod_info.imports.clone();
-                           // V3.0: Synthesize self-imports ONLY for non-generic types
+                           // Synthesize self-imports ONLY for non-generic types
                            // Generic types (like Vec<T>, SlabCache<SIZE>) should be resolved
                            // via their categorical export metadata which preserves generic_params.
                            {
@@ -2535,7 +2535,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                                 
                                 // Only add non-generic struct templates as simple aliases
                                 for (s_name, s_def) in &mod_info.struct_templates {
-                                     // V3.0: Skip generic templates - they need explicit instantiation
+                                     // Skip generic templates - they need explicit instantiation
                                      let has_generics = s_def.generics.as_ref().map(|g| !g.params.is_empty()).unwrap_or(false);
                                      if has_generics {
                                          continue;
@@ -2570,7 +2570,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         // 2. Validate Argument Count
         let params_len = generics.as_ref().map(|g| g.params.len()).unwrap_or(0);
         if params_len != args.len() {
-            // V3.0: Instead of hard error, return placeholder for deferred expansion
+            // Instead of hard error, return placeholder for deferred expansion
             // This handles cases like Vec<T> inside String definition - the T will be
             // substituted later when the actual specialization is requested with concrete args.
             // Only log for debugging, don't fail compilation.

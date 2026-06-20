@@ -144,7 +144,7 @@ impl VerificationEngine {
 
         // 3. Verify Each Clause
         for req in requires {
-            // [V4.0] Unwrap Block: Grammar parses `requires { expr }` as Expr::Block
+            // Unwrap Block: Grammar parses `requires { expr }` as Expr::Block
             // We need to extract the inner expression for Z3 translation.
             let actual_req = if let syn::Expr::Block(block) = req {
                 if let Some(syn::Stmt::Expr(inner, _)) = block.block.stmts.first() {
@@ -186,7 +186,7 @@ impl VerificationEngine {
                  // If these tests ever fail, the SAT/UNSAT polarity has been inverted.
                  // ═══════════════════════════════════════════════════════════════
 
-                 // [V4.0] 3-state verification:
+                 // 3-state verification:
                  // - Check if the substituted requirement is DEFINITELY FALSE
                  //   by checking if `NOT(requirement)` is a tautology (always true).
                  // - If requirement is definitely false (e.g., 0 > 0) → REJECT
@@ -375,7 +375,7 @@ impl VerificationEngine {
         }
     }
 
-    /// [v0.9.2 POSTCONDITION PIVOT] Weakest Precondition verification for `ensures` clauses.
+    /// Weakest Precondition verification for `ensures` clauses.
     ///
     /// At each return site, substitutes `result` in the ensures expression with
     /// the actual return value, then checks the obligation via Z3.

@@ -377,7 +377,7 @@ mod tests {
         };
     }
 
-    // Integer → Pointer (CONSTITUTIONAL GUARD — prevents context contamination)
+    // Integer → Pointer (pointer provenance guard — prevents context contamination)
     test_invalid_promotion!(test_invalid_i32_to_ptr, Type::I32, Type::Pointer {
         element: Box::new(Type::U8),
         provenance: crate::types::Provenance::Naked,

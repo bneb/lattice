@@ -29,7 +29,7 @@ fn emit_binary_ptr_add(ctx: &mut LoweringContext, out: &mut String, b: &syn::Exp
             out.push_str(&format!("    {} = llvm.getelementptr {}[{}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n",
                 res, lhs_val, idx_i64, elem_mlir));
             
-            // [V7.3] Propagate alias scope from base pointer to GEP result
+            // Propagate alias scope from base pointer to GEP result
             ctx.control_flow.propagate_scope_provenance(&lhs_val, &res);
             
             return Ok(Some((res, lhs_ty.clone())));
@@ -49,7 +49,7 @@ fn emit_binary_ptr_add(ctx: &mut LoweringContext, out: &mut String, b: &syn::Exp
             out.push_str(&format!("    {} = llvm.getelementptr {}[{}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n",
                 res, rhs_val, idx_i64, elem_mlir));
             
-            // [V7.3] Propagate alias scope from base pointer to GEP result
+            // Propagate alias scope from base pointer to GEP result
             ctx.control_flow.propagate_scope_provenance(&rhs_val, &res);
             
             return Ok(Some((res, rhs_ty.clone())));
@@ -381,7 +381,7 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
     let is_logic = matches!(b.op, syn::BinOp::And(_) | syn::BinOp::Or(_));
     
     // Determine hint for LHS
-    // [V25.1] Domain Isolation: Never pass Pointer hints to arithmetic operands
+    // Domain Isolation: Never pass Pointer hints to arithmetic operands
     // Pointer types contaminate index expressions (Type Osmosis)
     let lhs_expected = if is_logic {
         Some(&Type::Bool)
@@ -401,7 +401,7 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
     }
 
     // Determine hint for RHS
-    // [V25.1.1] Domain Isolation: Strip Pointer from RHS hint
+    // Domain Isolation: Strip Pointer from RHS hint
     // For pointer arithmetic (Ptr + int), RHS must be integer - not contaminated with Pointer
     let rhs_expected = if lhs_ty.k_is_ptr_type() { None } else { Some(&lhs_ty) };
     
@@ -460,7 +460,7 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
         ctx.emit_cmp(out, &res, &op, &pred, &lhs_prom, &rhs_prom, &mlir_ty);
         Ok((res, Type::Bool))
     } else {
-        // [V7.5/V8] Use fast-math for floating-point ops in reduction context or @fast_math functions
+        // Use fast-math for floating-point ops in reduction context or @fast_math functions
         let is_fp = matches!(common_ty, Type::F32 | Type::F64);
         let in_fast = {
             let emission = &ctx.emission;
@@ -750,14 +750,14 @@ pub fn emit_unary(ctx: &mut LoweringContext, out: &mut String, u: &syn::ExprUnar
 
             let inner_ty = match ty {
                 Type::Reference(inner, _) => *inner.clone(),
-                Type::Pointer { element, .. } => *element.clone(), // [V12.4] Support deref of Ptr<T> directly
+                Type::Pointer { element, .. } => *element.clone(), // Support deref of Ptr<T> directly
                 _ => return Err(format!("Cannot dereference non-pointer type: {:?}", ty)),
             };
             
             let inner_mlir = inner_ty.to_mlir_storage_type(ctx)?;
             let raw_res = format!("%deref_raw_{}", ctx.next_id());
             
-            // [V7.3] Check if this pointer originates from a registered argument scope
+            // Check if this pointer originates from a registered argument scope
             // If so, emit load with fine-grained alias metadata
             if ctx.config.emit_alias_scopes {
                 let cf = &ctx.control_flow;

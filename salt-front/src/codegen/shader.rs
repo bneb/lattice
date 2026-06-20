@@ -1,4 +1,4 @@
-//! [FACET L1] Metal Shading Language (MSL) codegen for @shader functions.
+//! Metal Shading Language (MSL) codegen for @shader functions.
 //!
 //! Salt functions annotated with `@shader(compute)` are compiled to MSL text
 //! instead of LLVM IR. The MSL source is embedded as a global string constant

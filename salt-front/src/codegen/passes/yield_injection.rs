@@ -26,13 +26,13 @@ pub struct YieldInjectionConfig {
     pub cycle_threshold: u64,
     /// Whether to inject at every back-edge (true) or only proven-long loops (false)
     pub aggressive_mode: bool,
-    /// [PARETO V2.0] Jitter budget in cycles (10μs @ 4GHz = 40,000 cycles)
+    /// Jitter budget in cycles (10μs @ 4GHz = 40,000 cycles)
     pub jitter_budget_cycles: u64,
-    /// [PARETO V2.0] Use register-pinned deadline instead of TLS
+    /// Use register-pinned deadline instead of TLS
     pub use_register_pinned_deadline: bool,
-    /// [PARETO V2.0] Maximum stripe factor (clamped to power of 2)
+    /// Maximum stripe factor (clamped to power of 2)
     pub max_stripe_factor: u32,
-    /// [SPRINT 2] Explicit cycle budget from @pulse_budget(N) annotation
+    /// Explicit cycle budget from @pulse_budget(N) annotation
     /// When Some(N), inject rdtsc deadline checks at loop back-edges
     /// with budget = N cycles. When None, use automatic analysis.
     pub explicit_budget_cycles: Option<u64>,
@@ -42,17 +42,17 @@ impl Default for YieldInjectionConfig {
     fn default() -> Self {
         Self {
             min_loop_iterations: 100,
-            cycle_threshold: 25_000,           // [PARETO] Raised from 50k
+            cycle_threshold: 25_000,           // Raised from 50k
             aggressive_mode: true,
             jitter_budget_cycles: 40_000,      // 10μs @ 4GHz
-            use_register_pinned_deadline: true, // [PARETO] Default ON
+            use_register_pinned_deadline: true, // Default ON
             max_stripe_factor: 256,            // Power of 2 for alignment
             explicit_budget_cycles: None,       // No explicit budget by default
         }
     }
 }
 
-/// [PARETO V2.0] Stripe factor calculation result
+/// Stripe factor calculation result
 #[derive(Debug, Clone)]
 pub struct StripeAnalysis {
     /// Calculated stripe factor (power of 2, clamped to max)
@@ -201,7 +201,7 @@ impl YieldInjector {
         }
     }
     
-    /// [PARETO V2.0] Estimate worst-case cycles per loop iteration
+    /// Estimate worst-case cycles per loop iteration
     /// Uses a cost model based on loop body operations:
     ///   - Array access: ~4 cycles (L1 hit)
     ///   - HashMap lookup: ~100 cycles (L3 hit)
@@ -302,7 +302,7 @@ impl YieldInjector {
         }
     }
     
-    /// [PARETO V2.0] Calculate the stripe factor for a loop
+    /// Calculate the stripe factor for a loop
     /// Formula: S = floor(T_jitter_budget / (T_loop_body + T_check))
     /// Result is clamped to the nearest power of 2 ≤ max_stripe_factor
     pub fn calculate_stripe_factor(&self, wcet_per_iteration: u64) -> StripeAnalysis {
@@ -351,12 +351,12 @@ fn clamp_to_power_of_2(value: u64, max: u64) -> u64 {
 // MLIR GENERATION
 // =============================================================================
 
-/// [PARETO V2.0] Generate register-pinned yield check MLIR
+/// Generate register-pinned yield check MLIR
 /// Uses llvm.read_register for x19 instead of TLS pointer chase
 /// Cost: 1 cycle (CMP against register) vs ~12 cycles (TLS load)
 pub fn generate_yield_check_mlir() -> String {
     r#"
-    // [PARETO V2.0] Register-pinned deadline check
+    // Register-pinned deadline check
     %now = "salt.cycle_counter"() : () -> i64
     %deadline = "salt.get_pinned_deadline"() : () -> i64
     %exceeded = arith.cmpi ugt, %now, %deadline : i64
@@ -366,11 +366,11 @@ pub fn generate_yield_check_mlir() -> String {
     "#.to_string()
 }
 
-/// [PARETO V2.0] Generate striped loop MLIR with amortized deadline check
+/// Generate striped loop MLIR with amortized deadline check
 /// Instead of checking every iteration, unroll by stripe_factor and check once
 pub fn generate_striped_loop_mlir(stripe_factor: u32) -> String {
     format!(r#"
-    // [PARETO V2.0] Striped loop (factor={stripe})
+    // Striped loop (factor={stripe})
     // Amortizes deadline check across {stripe} iterations
     // Overhead: 1/{stripe} of naive injection
     %c0 = arith.constant 0 : index
@@ -400,7 +400,7 @@ pub fn generate_yielding_loop_header_mlir() -> String {
     "#.to_string()
 }
 
-/// [SPRINT 2] Generate budget-based rdtsc yield check MLIR
+/// Generate budget-based rdtsc yield check MLIR
 /// Injected at loop back-edges for @pulse_budget(N) annotated functions.
 /// Reads the hardware cycle counter (rdtsc on x86-64), compares against
 /// the budget deadline, and yields to the executor if exceeded.
@@ -409,7 +409,7 @@ pub fn generate_yielding_loop_header_mlir() -> String {
 /// the kernel if the hardware device doesn't respond.
 pub fn generate_budget_yield_check_mlir(budget_cycles: u64) -> String {
     format!(r#"
-    // [SPRINT 2] @pulse_budget({budget}) — rdtsc deadline check
+    // @pulse_budget({budget}) — rdtsc deadline check
     %budget_now = "salt.cycle_counter"() : () -> i64
     %budget_deadline = arith.constant {budget} : i64
     %budget_start = "salt.get_pinned_deadline"() : () -> i64
@@ -425,7 +425,7 @@ pub fn generate_budget_yield_check_mlir(budget_cycles: u64) -> String {
 // KEUOS INTRINSICS - Register-Pinned Deadline
 // =============================================================================
 
-/// [PARETO V2.0] LLVM IR for reading the register-pinned deadline
+/// LLVM IR for reading the register-pinned deadline
 /// On Apple M4 (AArch64): x19 is a callee-saved register used as the
 /// KeuOS Deadline Register. This avoids TLS pointer chase entirely.
 ///
@@ -491,7 +491,7 @@ mod tests {
     fn test_default_config_pareto() {
         let config = YieldInjectionConfig::default();
         assert_eq!(config.min_loop_iterations, 100);
-        assert_eq!(config.cycle_threshold, 25_000);      // [PARETO] was 50k
+        assert_eq!(config.cycle_threshold, 25_000);      // was 50k
         assert_eq!(config.jitter_budget_cycles, 40_000);  // 10μs @ 4GHz
         assert!(config.use_register_pinned_deadline);
         assert_eq!(config.max_stripe_factor, 256);

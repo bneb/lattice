@@ -196,10 +196,10 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         name == "reinterpret_cast" || name == "ref_to_addr" || name == "is_null" ||
         // [KEUOS OPTIMIZATION] Bulk memory intrinsics
         name == "memset" || name == "memcpy" ||
-        // V1.6 Refined Intrinsics (Phase 4A/4B)
+        // Refined Intrinsics (Phase 4A/4B)
         name == "fused_cross_entropy" || name == "ml__fused_cross_entropy" ||
         name == "read_vector" ||
-        // V2.2 Shadow Reduction: Register-resident tensor updates
+        // Shadow Reduction: Register-resident tensor updates
         name == "update_tensor" || name == "fma_update" ||
         // ML Intrinsics
         name == "matmul" || name.starts_with("matmul_into") || name == "update_weights" || name == "v_fma" || name == "v_add" || name == "v_mul" || name == "v_max" || name == "v_sum" || name == "v_hsum" || name == "v_relu" || name == "v_broadcast" || name == "v_load" || name == "v_store" ||
@@ -397,7 +397,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                      specialization: None 
                  };
                  
-                 // [V4.0 KEUOS] Use TraitRegistry for method lookup
+                 // Use TraitRegistry for method lookup
                  if let Some((func, self_ty, imports)) = self.ctx.trait_registry().get_legacy(&template_key, method) {
                      return Some(ResolutionTarget {
                          template: func.clone(),
@@ -414,7 +414,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
              // Fallback: Try "path=[] name=Base" (Old Logic)
              let base = Mangler::mangle(&parts[..parts.len()-1]);
              let template_key = TypeKey { path: vec![], name: base.clone(), specialization: None };
-             // [V4.0 KEUOS] Use TraitRegistry for method lookup
+             // Use TraitRegistry for method lookup
              if let Some((func, self_ty, imports)) = self.ctx.trait_registry().get_legacy(&template_key, method) {
                  return Some(ResolutionTarget {
                      template: func.clone(),

@@ -994,7 +994,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         if self.emission.initialized_globals.contains(name) {
             return Ok(());
         }
-        // [FIX] Function symbols must NOT be emitted as llvm.mlir.global.
+        // Function symbols must NOT be emitted as llvm.mlir.global.
         // When a function is used as a pointer (e.g., passed as an argument),
         // resolve_global returns Type::Fn. Redirect to ensure_func_declared
         // which emits `func.func private` instead of `llvm.mlir.global external`.
@@ -1229,7 +1229,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
 
     // --- Resolve Method (complex delegation) ---
     pub fn resolve_method(&self, receiver_ty: &Type, method_name: &str) -> Result<(crate::grammar::SaltFn, Option<Type>, Vec<crate::grammar::ImportDecl>), String> {
-        // [FIX] Extract the receiver type's base name to match against method keys.
+        // Extract the receiver type's base name to match against method keys.
         // This prevents Slice::offset from shadowing Ptr::offset when called on a Ptr receiver.
         // [CRITICAL FIX] Recursively peel all Reference wrappers to reach the base type.
         // Inside hydrated methods, `self` may be double-wrapped: Reference(Reference(Concrete(...)))
@@ -1715,14 +1715,14 @@ impl<'a> CodegenContext<'a> {
                 && info.variants.iter().any(|(v, _, _)| v == "None")
         }).cloned()
     }
-    // [V4.0 KEUOS] Signature-aware method resolution - the ONLY method lookup path
+    // Signature-aware method resolution - the ONLY method lookup path
     pub fn trait_registry(&self) -> std::cell::Ref<'_, crate::codegen::trait_registry::TraitRegistry> {
         std::cell::Ref::map(self.discovery.borrow(), |d| &d.trait_registry)
     }
     pub fn trait_registry_mut(&self) -> std::cell::RefMut<'_, crate::codegen::trait_registry::TraitRegistry> {
         std::cell::RefMut::map(self.discovery.borrow_mut(), |d| &mut d.trait_registry)
     }
-    // [V4.0] String prefix handlers for comptime string processing
+    // String prefix handlers for comptime string processing
     pub fn string_prefix_handlers(&self) -> std::cell::Ref<'_, std::collections::HashMap<String, String>> {
         std::cell::Ref::map(self.discovery.borrow(), |d| &d.string_prefix_handlers)
     }
@@ -1730,12 +1730,12 @@ impl<'a> CodegenContext<'a> {
         std::cell::RefMut::map(self.discovery.borrow_mut(), |d| &mut d.string_prefix_handlers)
     }
     
-    /// [V4.0] Check if comptime is ready (std discovery complete)
+    /// Check if comptime is ready (std discovery complete)
     pub fn is_comptime_ready(&self) -> bool {
         self.discovery.borrow().comptime_ready
     }
     
-    /// [V4.0] Mark comptime as ready after std library discovery
+    /// Mark comptime as ready after std library discovery
     pub fn set_comptime_ready(&self) {
         self.discovery.borrow_mut().comptime_ready = true;
     }
@@ -1813,7 +1813,7 @@ impl<'a> CodegenContext<'a> {
         crate::codegen::passes::io_backend::backend_for_target(self.target_platform)
     }
     
-    /// [V4.0] Process a prefixed string literal using comptime handlers
+    /// Process a prefixed string literal using comptime handlers
     /// During bootstrap: returns None (use Rust fallback)
     /// After ready: returns Some(generated_code) using native expansion
     pub fn process_prefixed_string(&self, prefix: &str, content: &str) -> Option<String> {
@@ -1827,7 +1827,7 @@ impl<'a> CodegenContext<'a> {
             return Some(self.native_fstring_expand(content));
         }
         
-        // [V4.0 LIBRARY KEUOSTY] Native hex string expansion
+        // Native hex string expansion
         // hex"DEADBEEF" → Vec::<u8>::from_array([0xDE, 0xAD, 0xBE, 0xEF])
         if prefix == "hex" {
             return Some(self.native_hex_expand(content));
@@ -1868,7 +1868,7 @@ impl<'a> CodegenContext<'a> {
         }
         
         // Generate InterpolatedStringHandler block
-        // [V4.0 FIX] Use Rust path notation (::) since syn parses . as field access
+        // Use Rust path notation (::) since syn parses . as field access
         let mut code = String::new();
         code.push_str("{\n");
         code.push_str(&format!(
@@ -1886,7 +1886,7 @@ impl<'a> CodegenContext<'a> {
                     ));
                 }
                 FStringSegment::Expr(expr, spec) => {
-                    // [V4.0] TraitRegistry-aware format spec handling
+                    // TraitRegistry-aware format spec handling
                     let formatted = self.format_with_spec_v4(expr, spec.as_deref());
                     if formatted.starts_with("fmt_") {
                         // Format-spec expression (e.g., {x:.2f}) -> append_fmt
@@ -1895,7 +1895,7 @@ impl<'a> CodegenContext<'a> {
                             formatted
                         ));
                     } else {
-                        // [V5.0 STRUCTURAL FORMATTING] Type-aware dispatch via internal macro
+                        // Type-aware dispatch via internal macro
                         // The __fstring_append_expr! macro resolves the expression's type at
                         // compile time and dispatches to append_i32/append_i64/append_f64/append_bool
                         // or the fmt() call chain for struct types.
@@ -2018,7 +2018,7 @@ impl<'a> CodegenContext<'a> {
         (expr.trim().to_string(), spec)
     }
     
-    /// [V4.0] Format with spec using TraitRegistry context
+    /// Format with spec using TraitRegistry context
     fn format_with_spec_v4(&self, expr: &str, spec: Option<&str>) -> String {
         let spec = match spec {
             Some(s) => s.trim(),
@@ -2061,7 +2061,7 @@ impl<'a> CodegenContext<'a> {
         s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\r', "\\0D")
     }
     
-    /// [V4.0 LIBRARY KEUOSTY] Native Hex Expansion
+    /// Native Hex Expansion
     /// Converts hex"DEADBEEF" → Vec::<u8>::from_array([0xDE, 0xAD, 0xBE, 0xEF])
     /// Allows whitespace separators: hex"DE AD BE EF" is valid
     pub fn native_hex_expand(&self, content: &str) -> String {
@@ -2070,7 +2070,7 @@ impl<'a> CodegenContext<'a> {
         
         // 2. Validation: Must have even length
         if clean_hex.len() % 2 != 0 {
-            eprintln!("[V4.0 HEX] ERROR: Hex literal must have even length, found {}", clean_hex.len());
+            eprintln!("ERROR: Hex literal must have even length, found {}", clean_hex.len());
             return "Vec::<u8>::new()".to_string(); // Empty vec as fallback
         }
         
@@ -2084,7 +2084,7 @@ impl<'a> CodegenContext<'a> {
             let byte_str = &clean_hex[i..i + 2];
             // Validate hex characters
             if u8::from_str_radix(byte_str, 16).is_err() {
-                eprintln!("[V4.0 HEX] ERROR: Invalid hex digit in: {}", byte_str);
+                eprintln!("ERROR: Invalid hex digit in: {}", byte_str);
                 return "Vec::<u8>::new()".to_string();
             }
             bytes.push(format!("0x{}", byte_str.to_uppercase()));
@@ -2698,7 +2698,7 @@ impl<'a> CodegenContext<'a> {
             });
         }
         
-        // [V1.1] Z3 Ownership Ledger: Register BIRTH event
+        // Z3 Ownership Ledger: Register BIRTH event
         // Use var_name for better error messages (maps to source variable)
         self.ownership_tracker.borrow_mut().register_allocation(
             var_name,
@@ -2735,7 +2735,7 @@ impl<'a> CodegenContext<'a> {
             if let Some(pos) = scope.iter().position(|t: &crate::codegen::phases::CleanupTask| t.value == value) {
                 let _task = scope.remove(pos);
                 
-                // [V1.1] Z3 Ownership Ledger: Register MOVE event
+                // Z3 Ownership Ledger: Register MOVE event
                 self.ownership_tracker.borrow_mut().mark_moved(
                     value, // We track by value name in SSA
                     &self.z3_solver.borrow()
@@ -2816,7 +2816,7 @@ impl<'a> CodegenContext<'a> {
     }
 
     pub fn find_methods_for_template(&self, template_name: &str) -> Vec<String> {
-        // [V4.0 KEUOS] Delegate to TraitRegistry
+        // Delegate to TraitRegistry
         self.trait_registry().find_methods_for_type(template_name)
     }
 
@@ -2831,7 +2831,7 @@ impl<'a> CodegenContext<'a> {
             if depth > 10 { break; }
             depth += 1;
 
-            // [V4.0 KEUOS] Lookup via TraitRegistry signature-aware resolution
+            // Lookup via TraitRegistry signature-aware resolution
             if let Some(key) = current_ty.to_key() {
 
                 // Try exact key lookup
@@ -3545,7 +3545,7 @@ pub fn hydrate_specialization(&self, task: MonomorphizationTask) -> Result<(), S
             return Some(ty.clone());
         }
         
-        // 2. [FIX] Wildcard Import Expansion: Check `use X::*` imports
+        // 2. Wildcard Import Expansion: Check `use X::*` imports
         // When import has no alias AND no group, it's a wildcard import from that module.
         // We look up the query_name in that module's symbols from Registry.
         if let Some(reg) = self.registry {
@@ -4429,7 +4429,7 @@ pub fn init_registry_definitions(&self) {
         out.push_str(&format!("    {} = {} {}, {} : {}\n", res, op, lhs, rhs, ty));
     }
     
-    /// [V7.5] Emit binary operation with fast-math attributes for vectorization.
+    /// Emit binary operation with fast-math attributes for vectorization.
     /// Only use for floating-point operations in reduction loops where reassociation is acceptable.
     /// Attributes: reassoc (allow reordering), contract (allow FMA contraction)
     pub fn emit_binop_fast(&self, out: &mut String, res: &str, op: &str, lhs: &str, rhs: &str, ty: &str) {

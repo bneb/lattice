@@ -147,7 +147,7 @@ pub(crate) fn resolve_call_path(ctx: &mut LoweringContext, func_expr: &syn::Expr
 
 pub fn emit_method_call(ctx: &mut LoweringContext, out: &mut String, m: &syn::ExprMethodCall, local_vars: &mut HashMap<String, (Type, LocalKind)>, expected_ty: Option<&Type>) -> Result<(String, Type), String> {
     
-    // [ESCAPE ANALYSIS V5.2] Mark malloc'd pointers as escaped when passed
+    // Mark malloc'd pointers as escaped when passed
     // as function arguments to method calls.
     for arg_expr in m.args.iter() {
         super::mark_expression_escaped(ctx, arg_expr);
@@ -243,7 +243,7 @@ pub fn emit_method_call(ctx: &mut LoweringContext, out: &mut String, m: &syn::Ex
         
     // Substitute generics in cached receiver type at the source
     let mut cached_receiver_ty = cached_receiver_ty.substitute(&ctx.current_type_map());
-    // [CANONICAL RESOLUTION] Canonicalize receiver type to prevent raw Struct("Node")
+    // Canonicalize receiver type to prevent raw Struct("Node")
     cached_receiver_ty = crate::codegen::type_bridge::resolve_codegen_type(ctx, &cached_receiver_ty);
 
     // Try special methods

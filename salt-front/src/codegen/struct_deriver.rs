@@ -24,7 +24,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         let header = format!("{} {{ ", struct_name.split("__").last().unwrap_or(struct_name));
         self.emit_derived_print_literal(out, writer_val, &header)?;
         
-        // [QoL V1.1] Always spill to a temporary alloca so field access via GEP works.
+        // Always spill to a temporary alloca so field access via GEP works.
         // LLVM's mem2reg pass will optimize this away, so it's zero-cost.
         // This avoids fragile string-prefix matching on SSA variable names.
         let id = self.next_id();
@@ -152,7 +152,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             Type::Reference(_, _) => true,
             // Structs need derivation unless manually implemented
             Type::Struct(_name) | Type::Concrete(_name, _) => {
-                // [V4.0 KEUOS] Check TraitRegistry for custom write_to
+                // Check TraitRegistry for custom write_to
                 let type_key = crate::codegen::type_bridge::type_to_type_key(ty);
                 self.trait_registry().contains_method(&type_key, "write_to")
             }

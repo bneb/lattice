@@ -1163,7 +1163,7 @@ pub fn compile_ast(file: &mut SaltFile, release_mode: bool, registry: Option<&cr
     let mut mlir = emit_mlir(file, release_mode, registry, skip_scan, no_verify, disable_alias_scopes, lib_mode, sip_mode, debug_info, source_file).map_err(|e| anyhow::anyhow!(e))?;
     
     // Prepend Alias Scope Definitions (MLIR Attribute Aliases)
-    // V7.3: Added per-argument scopes (scope_arg_0 through scope_arg_9) for fine-grained noalias
+    // Added per-argument scopes (scope_arg_0 through scope_arg_9) for fine-grained noalias
     // Guarded by disable_alias_scopes flag — when disabled, MLIR is compatible with standard mlir-opt
     if !disable_alias_scopes {
         let alias_defs = "

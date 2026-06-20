@@ -31,7 +31,7 @@ pub struct DiscoveryState {
     pub struct_registry: HashMap<TypeKey, StructInfo>,
     /// Resolved enum type information (after monomorphization)
     pub enum_registry: HashMap<TypeKey, EnumInfo>,
-    /// V4.0 KEUOS: Signature-aware method registry - the ONLY method lookup path
+    /// Signature-aware method registry - the ONLY method lookup path
     /// All methods must be registered with their signature for overload resolution.
     pub trait_registry: TraitRegistry,
     /// Global variable types
@@ -42,10 +42,10 @@ pub struct DiscoveryState {
     pub generic_impls: HashMap<String, (SaltFn, Vec<ImportDecl>)>,
     /// The unified entity registry from collector phase
     pub entity_registry: EntityRegistry,
-    /// [V4.0] String prefix handlers: prefix -> handler function name
+    /// String prefix handlers: prefix -> handler function name
     /// e.g., "f" -> "std__string__fstring_handler", "sql" -> "sql_handler"
     pub string_prefix_handlers: HashMap<String, String>,
-    /// [V4.0] Comptime phase tracking for bootstrap safety
+    /// Comptime phase tracking for bootstrap safety
     /// During Bootstrap: use hardcoded Rust handlers (prevents circular dependency)
     /// After Ready: use Salt-native handlers from string_prefix_handlers
     pub comptime_ready: bool,

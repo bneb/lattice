@@ -52,13 +52,13 @@ pub struct ControlFlowState {
     /// Hot path optimization flag
     pub is_hot_path: bool,
     
-    // === V7.3: Per-Argument Alias Scopes ===
-    /// [V7.3] Maps SSA argument name (e.g., "%arg_w") to its unique scope ID
+    // === Per-Argument Alias Scopes ===
+    /// Maps SSA argument name (e.g., "%arg_w") to its unique scope ID
     /// Used to emit fine-grained noalias metadata for pointer arguments
     pub arg_alias_scopes: std::collections::HashMap<String, usize>,
-    /// [V7.3] Next available argument scope ID
+    /// Next available argument scope ID
     pub next_arg_scope_id: usize,
-    /// [V7.3] Maps SSA pointer values (including GEP results) to their origin scope ID
+    /// Maps SSA pointer values (including GEP results) to their origin scope ID
     /// Enables scope propagation: GEP result inherits scope from base pointer
     pub ssa_alias_scopes: std::collections::HashMap<String, usize>,
 }
@@ -83,9 +83,9 @@ impl ControlFlowState {
         self.affine_depth = self.affine_depth.saturating_sub(1);
     }
     
-    // === V7.3: Per-Argument Alias Scope Methods ===
+    // === Per-Argument Alias Scope Methods ===
     
-    /// [V7.3] Register a pointer argument with a unique alias scope
+    /// Register a pointer argument with a unique alias scope
     /// Returns the scope ID for this argument
     pub fn register_arg_scope(&mut self, ssa_name: &str) -> usize {
         let scope_id = self.next_arg_scope_id;
@@ -94,19 +94,19 @@ impl ControlFlowState {
         scope_id
     }
     
-    /// [V7.3] Get the alias scope ID for a pointer argument
+    /// Get the alias scope ID for a pointer argument
     pub fn get_arg_scope(&self, ssa_name: &str) -> Option<usize> {
         self.arg_alias_scopes.get(ssa_name).copied()
     }
     
-    /// [V7.3] Clear all argument scopes (called at function entry)
+    /// Clear all argument scopes (called at function entry)
     pub fn clear_arg_scopes(&mut self) {
         self.arg_alias_scopes.clear();
         self.ssa_alias_scopes.clear();
         self.next_arg_scope_id = 0;
     }
     
-    /// [V7.3] Get all scope IDs except the given one (for noalias list)
+    /// Get all scope IDs except the given one (for noalias list)
     pub fn get_other_arg_scopes(&self, except_scope: usize) -> Vec<usize> {
         self.arg_alias_scopes
             .values()
@@ -115,7 +115,7 @@ impl ControlFlowState {
             .collect()
     }
     
-    /// [V7.3] Propagate scope from base pointer to derived pointer (GEP inheritance)
+    /// Propagate scope from base pointer to derived pointer (GEP inheritance)
     /// When %gep_result = getelementptr %base_ptr[...], gep_result inherits base_ptr's scope
     pub fn propagate_scope_provenance(&mut self, from_ssa: &str, to_ssa: &str) {
         // Check arg_alias_scopes first (original function arguments)
@@ -128,7 +128,7 @@ impl ControlFlowState {
         }
     }
     
-    /// [V7.3] Get the scope ID for any pointer (argument or derived)
+    /// Get the scope ID for any pointer (argument or derived)
     pub fn get_pointer_scope(&self, ssa_name: &str) -> Option<usize> {
         self.arg_alias_scopes.get(ssa_name).copied()
             .or_else(|| self.ssa_alias_scopes.get(ssa_name).copied())

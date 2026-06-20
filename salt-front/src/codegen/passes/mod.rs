@@ -1,4 +1,4 @@
-//! KeuOS V2.0 Compiler Passes
+//! KeuOS Compiler Passes
 //!
 //! This module contains the compiler passes for the Pulsed Capability model:
 //! - `pulse_injection`: Injects Context parameters into @pulse functions

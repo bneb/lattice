@@ -256,7 +256,7 @@ impl StateMachineEmitter {
     }
 
     // =========================================================================
-    // Jump Table Dispatch (KeuOS V2.0)
+    // Jump Table Dispatch (KeuOS)
     // =========================================================================
     //
     // O(1) dispatch via a global array of function pointers, replacing the
@@ -421,7 +421,7 @@ impl StateMachineEmitter {
     }
 
     // =========================================================================
-    // Spill/Reload (KeuOS V2.0 — Codegen Wiring)
+    // Spill/Reload (KeuOS — Codegen Wiring)
     // =========================================================================
     //
     // Spill: store live variables from SSA registers into the TaskFrame via GEP.

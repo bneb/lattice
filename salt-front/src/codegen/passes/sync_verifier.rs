@@ -45,7 +45,7 @@ impl SyncVerifier {
     }
 
     // =========================================================================
-    // Call Graph Integration (KeuOS V2.0)
+    // Call Graph Integration (KeuOS)
     // =========================================================================
     //
     // Uses transitive queries into the CallGraphAnalyzer. The call graph has

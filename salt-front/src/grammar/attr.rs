@@ -10,7 +10,7 @@ pub struct Attribute {
     pub name: Ident,
     pub args: Vec<Ident>,
     pub int_arg: Option<u32>,       // For @pulse(4096)
-    pub string_arg: Option<String>, // [V4.0] For @string_prefix("f")
+    pub string_arg: Option<String>, // For @string_prefix("f")
 }
 
 impl Attribute {
@@ -29,7 +29,7 @@ impl Attribute {
                 let lit: syn::LitInt = content.parse()?;
                 int_arg = Some(lit.base10_parse::<u32>()?);
             } else if content.peek(syn::LitStr) {
-                // [V4.0] Parse string literal for @string_prefix("...")
+                // Parse string literal for @string_prefix("...")
                 let lit: syn::LitStr = content.parse()?;
                 string_arg = Some(lit.value());
             } else {

@@ -16,7 +16,7 @@ pub fn emit_binop(out: &mut String, res: &str, op: &str, lhs: &str, rhs: &str, t
     out.push_str(&format!("    {} = {} {}, {} : {}\n", res, op, lhs, rhs, ty));
 }
 
-/// [V7.5] Emit binary operation with fast-math attributes for vectorization.
+/// Emit binary operation with fast-math attributes for vectorization.
 pub fn emit_binop_fast(out: &mut String, res: &str, op: &str, lhs: &str, rhs: &str, ty: &str) {
     out.push_str(&format!("    {} = {} {}, {} {{fastmath = #arith.fastmath<reassoc, contract>}} : {}\n", 
         res, op, lhs, rhs, ty));
