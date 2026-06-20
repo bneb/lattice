@@ -23,7 +23,7 @@ Each task = one thematic extraction. One task per session. Work top-to-bottom.
 - **Acceptance:** `spawn_coroutine.salt` exists, `exec_user.salt` < 500 lines, `cargo test` passes, clippy clean
 - **Estimate:** 1 session
 
-### T-004: Extract KPTI tests from ring3_test.salt
+### [x] T-004: Extract KPTI tests from ring3_test.salt
 - **Target:** `kernel/core/ring3_test.salt` (609 → ~370 lines)
 - **Strategy:** Extract `test_ring3_kpti`, `test_pcid_allocation`, `test_pcid_cr3_noflush`, `test_kpti_user_pml4_isolated` into `kernel/core/ring3_kpti_test.salt`
 - **Acceptance:** `ring3_kpti_test.salt` exists, `ring3_test.salt` < 500 lines, `cargo test` passes, clippy clean

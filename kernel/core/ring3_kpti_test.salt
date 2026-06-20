@@ -1,0 +1,281 @@
+// =============================================================================
+// kernel/core/ring3_kpti_test.salt
+// KPTI & PCID test suite extracted from ring3_test.salt.
+//
+// Tests: KPTI CR3 verification, PCID allocation, PCID CR3 NOFLUSH, and
+// KPTI user PML4 isolation validation.
+// =============================================================================
+
+package kernel.core.ring3_kpti_test
+
+import kernel.drivers.serial
+import kernel.core.memory
+
+// =============================================================================
+// FFI — hardware ABI boundary
+// =============================================================================
+extern fn read_gs_u64(offset: u64) -> u64;
+extern fn read_cr3() -> u64;
+extern fn read_cr4() -> u64;
+extern fn percpu_get_kernel_cr3(logical_id: u64) -> u64;
+extern fn allocate_pcid() -> u64;
+extern fn switch_cr3(cr3: u64);
+extern fn switch_cr3_pcid(pml4_with_pcid: u64);
+extern fn sys_create_user_pml4_kpti(kernel_pml4: u64) -> u64;
+extern fn pmm_free(addr: u64);
+
+const CR4_PCIDE: u64 = 0x20000;  // Bit 17
+
+// =============================================================================
+// TDD Gate 2 — Verify KPTI Kernel CR3 in PerCpuData
+// =============================================================================
+@no_mangle
+pub fn test_ring3_kpti() {
+    serial.print("TEST:ring3:kpti:BEGIN\n");
+
+    let mut pass_count: u64 = 0;
+
+    // 1. kernel_cr3 via percpu accessor should be non-zero
+    let kcr3 = percpu_get_kernel_cr3(0);
+    if kcr3 != 0 {
+        serial.print("TEST:ring3:kpti_cr3_set:PASS cr3=0x");
+        serial.print_hex(kcr3);
+        serial.print("\n");
+        pass_count = pass_count + 1;
+    } else {
+        serial.print("TEST:ring3:kpti_cr3_set:FAIL kernel_cr3=0 (not initialized)\n");
+    }
+
+    // 2. kernel_cr3 should match the current CR3 (we're in Ring 0 on BSP)
+    let current_cr3 = read_cr3();
+    if kcr3 == current_cr3 {
+        serial.print("TEST:ring3:kpti_cr3_match:PASS\n");
+        pass_count = pass_count + 1;
+    } else {
+        serial.print("TEST:ring3:kpti_cr3_match:FAIL stored=0x");
+        serial.print_hex(kcr3);
+        serial.print(" current=0x");
+        serial.print_hex(current_cr3);
+        serial.print("\n");
+    }
+
+    // 3. GS:[64] should match the percpu accessor value
+    let gs_val = read_gs_u64(64);
+    if gs_val == kcr3 {
+        serial.print("TEST:ring3:kpti_gs64:PASS\n");
+        pass_count = pass_count + 1;
+    } else {
+        serial.print("TEST:ring3:kpti_gs64:FAIL gs64=0x");
+        serial.print_hex(gs_val);
+        serial.print(" expected=0x");
+        serial.print_hex(kcr3);
+        serial.print("\n");
+    }
+
+    // Summary
+    serial.print("TEST:ring3:kpti:");
+    if pass_count == 3 {
+        serial.print("ALL_PASS");
+    } else {
+        serial.print("PARTIAL ");
+        serial.print_u64(pass_count);
+        serial.print("/3");
+    }
+    serial.print("\n");
+}
+
+// =============================================================================
+// TDD Gate 4 — PCID Allocation
+// =============================================================================
+@no_mangle
+pub fn test_pcid_allocation() {
+    serial.print("TEST:ring3:pcid:BEGIN\n");
+
+    let mut pass_count: u64 = 0;
+
+    // 1. First PCID should be 1 (0 = kernel)
+    let pcid1 = allocate_pcid();
+    if pcid1 == 1 {
+        serial.print("TEST:ring3:pcid_first:PASS\n");
+        pass_count = pass_count + 1;
+    } else {
+        serial.print("TEST:ring3:pcid_first:FAIL expected=1 got=");
+        serial.print_u64(pcid1);
+        serial.print("\n");
+    }
+
+    // 2. Second PCID should be 2
+    let pcid2 = allocate_pcid();
+    if pcid2 == 2 {
+        serial.print("TEST:ring3:pcid_second:PASS\n");
+        pass_count = pass_count + 1;
+    } else {
+        serial.print("TEST:ring3:pcid_second:FAIL expected=2 got=");
+        serial.print_u64(pcid2);
+        serial.print("\n");
+    }
+
+    // 3. PCID must be < 4096 (12-bit field)
+    if pcid1 < 4096 && pcid2 < 4096 {
+        serial.print("TEST:ring3:pcid_range:PASS\n");
+        pass_count = pass_count + 1;
+    } else {
+        serial.print("TEST:ring3:pcid_range:FAIL out of 12-bit range\n");
+    }
+
+    // Summary
+    serial.print("TEST:ring3:pcid:");
+    if pass_count == 3 {
+        serial.print("ALL_PASS");
+    } else {
+        serial.print("PARTIAL ");
+        serial.print_u64(pass_count);
+        serial.print("/3");
+    }
+    serial.print("\n");
+}
+
+// =============================================================================
+// TDD Gate 5 — PCID CR4 Enable + CR3 NOFLUSH
+// =============================================================================
+@no_mangle
+pub fn test_pcid_cr3_noflush() {
+    serial.print("TEST:ring3:pcid_cr3:BEGIN\n");
+
+    let mut pass_count: u64 = 0;
+
+    // 1. Verify boot-time PCID enablement
+    let cr4 = read_cr4();
+    if (cr4 & CR4_PCIDE) != 0 {
+        serial.print("TEST:ring3:pcid_cr4_set:PASS\n");
+        pass_count = pass_count + 1;
+    } else {
+        serial.print("TEST:ring3:pcid_cr4_set:FAIL cr4=0x");
+        serial.print_hex(cr4);
+        serial.print("\n");
+    }
+
+    // 2. Read current CR3, construct PCID-tagged address
+    let current_cr3 = read_cr3();
+    let pml4_phys = current_cr3 & 0x000FFFFFFFFFF000;
+    let pcid_val: u64 = 1;
+
+    // Step 2a: Write CR3 with PCID=1
+    let cr3_pcid_only = pml4_phys | pcid_val;
+    switch_cr3_pcid(cr3_pcid_only);
+
+    // Step 2b: Read CR3, extracting PCID from the bottom 12 bits
+    let readback_cr3 = read_cr3();
+    let readback_pcid = readback_cr3 & 0xFFF;
+    if readback_pcid == pcid_val {
+        serial.print("TEST:ring3:pcid_cr3_readback:PASS\n");
+        pass_count = pass_count + 1;
+    } else {
+        serial.print("TEST:ring3:pcid_cr3_readback:FAIL readback_cr3=0x");
+        serial.print_hex(readback_cr3);
+        serial.print("\n");
+    }
+
+    // Step 2c: Verify the PML4 base address remained intact
+    let readback_pml4 = readback_cr3 & 0x000FFFFFFFFFF000;
+    if readback_pml4 == pml4_phys {
+        serial.print("TEST:ring3:pcid_pml4_intact:PASS\n");
+        pass_count = pass_count + 1;
+    } else {
+        serial.print("TEST:ring3:pcid_pml4_intact:FAIL readback_pml4=0x");
+        serial.print_hex(readback_pml4);
+        serial.print(" expected=0x");
+        serial.print_hex(pml4_phys);
+        serial.print("\n");
+    }
+
+    // Step 3: NOFLUSH path — skipped on QEMU TCG (ARM emulation bug)
+    serial.print("TEST:ring3:pcid_noflush:SKIP (requires KVM)\n");
+
+    // Restore original CR3
+    switch_cr3(current_cr3);
+
+    // Summary
+    serial.print("TEST:ring3:pcid_cr3:");
+    if pass_count == 3 {
+        serial.print("ALL_PASS");
+    } else {
+        serial.print("PARTIAL ");
+        serial.print_u64(pass_count);
+        serial.print("/3");
+    }
+    serial.print("\n");
+}
+
+// =============================================================================
+// TDD Gate 6 — KPTI PML4 Isolation
+// =============================================================================
+@no_mangle
+pub fn test_kpti_user_pml4_isolated() {
+    serial.print("TEST:ring3:kpti_isolated:BEGIN\n");
+    let mut pass_count: u64 = 0;
+
+    let kernel_cr3 = read_cr3();
+    let kernel_pml4 = kernel_cr3 & 0x000FFFFFFFFFF000;
+
+    // Create a new user PML4
+    let user_pml4 = sys_create_user_pml4_kpti(kernel_pml4);
+    if user_pml4 == 0 {
+        serial.print("TEST:ring3:kpti_isolated:FAIL (OOM)\n");
+        return;
+    }
+
+    // Map it to virtual memory for inspection
+    let pml4_virt = memory.phys_to_virt(memory.PhysAddr { val: user_pml4 }).val;
+    let pml4_ptr = pml4_virt as &u64;
+
+    let kernel_pml4_virt = memory.phys_to_virt(memory.PhysAddr { val: kernel_pml4 }).val;
+    let kernel_pml4_ptr = kernel_pml4_virt as &u64;
+
+    // 1. Verify identity map (PML4[0]) is NOT present
+    let mut pml4_0: u64 = 0;
+    unsafe { pml4_0 = pml4_ptr[0]; }
+    if (pml4_0 & 0x1) == 0 {
+        serial.print("TEST:ring3:kpti_identity_present:PASS\n");
+        pass_count = pass_count + 1;
+    } else {
+        serial.print("TEST:ring3:kpti_identity_present:FAIL\n");
+    }
+
+    // 2. Verify kernel half (PML4[256..511]) does NOT blind-copy kernel mappings
+    let mut blind_copy_leak = false;
+    let mut i: u64 = 256;
+    while i < 512 {
+        let mut pml4_i: u64 = 0;
+        let mut kernel_pml4_i: u64 = 0;
+        unsafe {
+            pml4_i = pml4_ptr[i];
+            kernel_pml4_i = kernel_pml4_ptr[i];
+        }
+        if pml4_i != 0 && pml4_i == kernel_pml4_i {
+            blind_copy_leak = true;
+            serial.print("TEST:ring3:kpti_blind_copy_leak:FAIL index=");
+            serial.print_u64(i);
+            serial.print("\n");
+        }
+        i = i + 1;
+    }
+
+    if !blind_copy_leak {
+        serial.print("TEST:ring3:kpti_kernel_hidden:PASS\n");
+        pass_count = pass_count + 1;
+    }
+
+    // Summary
+    serial.print("TEST:ring3:kpti_isolated:");
+    if pass_count == 2 {
+        serial.print("ALL_PASS");
+    } else {
+        serial.print("PARTIAL ");
+        serial.print_u64(pass_count);
+        serial.print("/2");
+    }
+    serial.print("\n");
+
+    pmm_free(user_pml4);
+}

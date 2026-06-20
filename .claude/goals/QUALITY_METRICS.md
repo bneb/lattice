@@ -96,7 +96,29 @@ and their @no_mangle wrappers. Removed 4 unused FFI declarations.
 - cargo test: 0 FAILED
 - cargo build --release: SUCCESS
 
+## 2026-06-19 — Session 5: T-004 KPTI test extraction from ring3_test.salt
+
+### Files >500 lines (kernel/)
+| Metric | Before | After | Delta |
+|--------|--------|-------|-------|
+| Count | 7 | 6 | -1 |
+| Worst file | ring3_test.salt (609) | syscall.salt (582) | ring3_test.salt -296 |
+
+### ring3_test.salt specific
+| Metric | Before | After |
+|--------|--------|-------|
+| Lines | 609 | 313 (-49%) |
+| Files created | 0 | 1 (ring3_kpti_test.salt, 281 lines) |
+
+Extracted: test_ring3_kpti, test_pcid_allocation, test_pcid_cr3_noflush,
+test_kpti_user_pml4_isolated + their FFI declarations.
+ring3_test.salt retains: test_ring3_iretq_frame, test_ring3_e2e, test_swapgs_ring3.
+
+### Verification
+- cargo test: 0 FAILED
+- cargo build --release: SUCCESS
+
 ### Next session targets (Tier 1 priority order)
-1. kernel/core/ring3_test.salt (609 lines)
-2. kernel/core/syscall.salt (582 lines)
-3. kernel/benchmarks/netd_bench.salt (570 lines)
+1. kernel/core/syscall.salt (582 lines)
+2. kernel/benchmarks/netd_bench.salt (570 lines)
+3. kernel/mem/user_paging.salt (527 lines)
