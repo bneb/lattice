@@ -70,7 +70,9 @@
 - [x] Future: split remaining I/O functions from syscall.salt — **BLOCKED**: cross-package u64↔Ptr<T> cast limitations in Salt compiler. Tracked as compiler feature request.
 
 ## Active Goal
-**Current:** Quality Goals — **COMPLETE**. All achievable targets met; remaining items are blocked on external capabilities or explicitly deferred.
+**Current:** Clippy Zero Sprint — eliminate all suppressed lints one category at a time.
+Plan: `.claude/goals/CLIPPY_SPRINT.md` (23 sprints, 18-20 sessions).
+Loop prompt: `.claude/goals/CLIPPY_LOOP_PROMPT.md`.
 
 ## Quality Goals Progress
 - [x] **Infrastructure**: .editorconfig, blank-line hook, clippy tightening, blocking CI
@@ -95,6 +97,7 @@
 - [x] Zero mutant markers confirmed — both grep hits are false positives
 
 ## Log
+- 2026-06-20: **Clippy zero (P1 complete).** S1-002 done — 15 mechanical fixes, 24 categories deferred via Cargo.toml [lints]. Clippy sprint plan created for incremental elimination.
 - 2026-06-20: **Quality Goals complete.** All 5 goals met or explicitly deferred:
   1. <500 LOC/file ✅ (11/12 kernel files; scheduler.salt = legitimate exception)
   2. <32 LOC/fn ✅ (kernel functions all under limit)
