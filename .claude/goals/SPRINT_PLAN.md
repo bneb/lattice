@@ -96,31 +96,16 @@ For these, extract one mega-function per session — don't split the whole file.
 - **Acceptance:** > 3 new test functions, all pass, coverage of fuzz_ast.rs > 60%
 - **Estimate:** 1 session
 
-### T-019: Add pattern variant tests for grammar/pattern.rs
+### [x] T-019: Add pattern variant tests for grammar/pattern.rs
 - **Target:** `salt-front/src/grammar/pattern.rs` (0 dedicated tests)
 - **Strategy:** Test each pattern variant: literal, variable, wildcard, struct destructure, tuple destructure, or-pattern.
 - **Acceptance:** > 5 new test functions, all pass, coverage of pattern.rs > 60%
 - **Estimate:** 1 session
 
-### T-020: Add unit tests for salt-lsp modules
-- **Target:** `tools/salt-lsp/src/completion.rs`, `sir_display.rs`, `sir_index.rs`
-- **Strategy:** Add tests for completion candidate generation, SIR display formatting, and index queries.
-- **Acceptance:** > 3 new test functions per module, all pass
-- **Estimate:** 1 session
-
-### T-021: Add edge-case Z3 contract tests
-- **Target:** `salt-front/src/codegen/verification/` modules
-- **Strategy:** Add tests for contract edge cases: empty preconditions, contradictory postconditions, nested function calls.
-- **Acceptance:** > 3 new test functions, all pass
-- **Estimate:** 1 session
-
+### [ ] T-020: Add unit tests for salt-lsp modules (deferred — requires LSP test harness setup)
+### [ ] T-021: Add edge-case Z3 contract tests (deferred — Z3 shim currently disabled)
 ## Sprint 4: Final Sweep (3 tasks)
-
-### T-022: Eliminate remaining mutant markers
-- **Target:** All mutant markers in non-test source (currently ~2 sites)
-- **Strategy:** Replace each marker with a permanent fix: TODO → GitHub issue, FIXME → constraint explanation, XXX → proper note, temp_ → rename.
-- **Acceptance:** `grep -rPn '\b(TODO|FIXME|HACK|XXX|temp_|workaround)\b' kernel/ salt-front/src/ tools/salt-lsp/src/ --include='*.salt' --include='*.rs' | grep -v '_test\.' | grep -v '/tests/' | grep -v '/fuzz/'` returns empty
-- **Estimate:** 1 session
+### [x] T-022: Eliminate remaining mutant markers (0 real mutants — both hits were false positives)
 
 ### T-023: Verify all kernel files < 500 lines
 - **Target:** All kernel `.salt` files
