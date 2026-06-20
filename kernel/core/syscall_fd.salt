@@ -1,0 +1,86 @@
+// =============================================================================
+// kernel/core/syscall_fd.salt
+// File descriptor table management extracted from syscall.salt.
+// Handles fd table creation, duplication (for fork/spawn), and destruction.
+// =============================================================================
+
+package kernel.core.syscall_fd
+
+import kernel.core.process
+import kernel.core.pmm
+import kernel.core.memory
+import kernel.sys.vfs
+
+const PAGE_SIZE: u64 = 4096;
+
+// =============================================================================
+// destroy_fd_table — Free all fd objects and the fd table page
+// =============================================================================
+pub fn destroy_fd_table(slot: u64) {
+    let fd_table_addr = process.get_fd_table(slot);
+    if fd_table_addr == 0 { return; }
+
+    let table = fd_table_addr as Ptr<u64>;
+    let mut i = 0;
+    while i < 16 {
+        let fd_obj_addr = table.offset(i).read();
+        if fd_obj_addr != 0 {
+            let phys_fd = memory.virt_to_phys_raw(fd_obj_addr);
+            kernel.core.pmm.free(phys_fd);
+        }
+        i = i + 1;
+    }
+    let phys_table = memory.virt_to_phys_raw(fd_table_addr);
+    kernel.core.pmm.free(phys_table);
+    process.set_fd_table(slot, 0);
+}
+
+// =============================================================================
+// copy_fd_obj — Deep-copy a single FileDescriptor object
+// =============================================================================
+pub fn copy_fd_obj(fd_obj_addr: u64) -> u64 {
+    if fd_obj_addr == 0 { return 0; }
+
+    let new_fd_phys = kernel.core.pmm.alloc();
+    if new_fd_phys == 0 { return 0; }
+
+    let new_fd_addr = kernel.core.memory.phys_to_virt_raw(new_fd_phys);
+    let new_fd = new_fd_addr as Ptr<vfs::FileDescriptor>;
+    let old_fd = fd_obj_addr as Ptr<vfs::FileDescriptor>;
+
+    if new_fd.addr != 0 {
+        if old_fd.addr != 0 {
+            new_fd.inode = old_fd.inode;
+            new_fd.offset = old_fd.offset;
+            new_fd.flags = old_fd.flags;
+            new_fd.refcount = 1;
+        }
+    }
+
+    return new_fd_addr;
+}
+
+// =============================================================================
+// duplicate_fd_table — Copy parent's fd table into child process
+// =============================================================================
+pub fn duplicate_fd_table(parent_slot: u64, child_slot: u64) {
+    let parent_fd_addr = process.get_fd_table(parent_slot);
+    if parent_fd_addr == 0 { return; }
+
+    let child_fd_phys = kernel.core.pmm.alloc();
+    if child_fd_phys == 0 { return; }
+
+    let child_fd_addr = kernel.core.memory.phys_to_virt_raw(child_fd_phys);
+    process.set_fd_table(child_slot, child_fd_addr);
+
+    let parent_table = parent_fd_addr as Ptr<u64>;
+    let child_table = child_fd_addr as Ptr<u64>;
+
+    let mut i = 0;
+    while i < 16 {
+        let fd_obj_addr = parent_table.offset(i).read();
+        let new_fd_addr = copy_fd_obj(fd_obj_addr);
+        child_table.offset(i).write(new_fd_addr);
+        i = i + 1;
+    }
+}

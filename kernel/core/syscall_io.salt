@@ -1,0 +1,281 @@
+// =============================================================================
+// kernel/core/syscall_io.salt
+// I/O syscalls extracted from syscall.salt — user/kernel memory copying
+// and file descriptor I/O (sys_write, sys_read, sys_open).
+// =============================================================================
+
+package kernel.core.syscall_io
+
+import kernel.drivers.serial
+import kernel.core.process
+import kernel.mem.user_paging
+import kernel.core.pmm
+import kernel.core.memory
+import kernel.sys.vfs
+
+extern fn is_valid_user_ptr(ptr: u64, len: u64) -> bool;
+
+const PAGE_SIZE: u64 = 4096;
+
+// =============================================================================
+// copy_from_user — KPTI-safe copy from user virtual address to kernel buffer
+// =============================================================================
+pub fn copy_from_user(dst_kern: u64, src_user: u64, len: u64) -> i64 {
+    if !is_valid_user_ptr(src_user, len) { return 0 - 1; }
+    let pid = process.current();
+    let user_pml4 = process.get_pml4(pid);
+    let mut remaining = len;
+    let mut current_va = src_user;
+    let mut current_dst = dst_kern;
+
+    while remaining > 0 {
+        let phys = user_paging.translate_user_addr(user_pml4, current_va);
+        if phys == 0 { return 0 - 1; }
+
+        let offset_in_page = current_va & 0xFFF;
+        let bytes_to_page_end = PAGE_SIZE - offset_in_page;
+        let mut chunk_size = remaining;
+        if chunk_size > bytes_to_page_end { chunk_size = bytes_to_page_end; }
+
+        let kern_ptr = memory.phys_to_virt_raw(phys) as Ptr<u8>;
+        let dst_ptr = current_dst as Ptr<u8>;
+
+        let mut i = 0;
+        while i < chunk_size {
+            dst_ptr.offset(i as i64).write(kern_ptr.offset(i as i64).read());
+            i = i + 1;
+        }
+
+        current_va = current_va + chunk_size;
+        current_dst = current_dst + chunk_size;
+        remaining = remaining - chunk_size;
+    }
+    return len as i64;
+}
+
+// =============================================================================
+// copy_to_user — KPTI-safe copy from kernel buffer to user virtual address
+// =============================================================================
+pub fn copy_to_user(dst_user: u64, src_kern: u64, len: u64) -> i64 {
+    if !is_valid_user_ptr(dst_user, len) { return 0 - 1; }
+    let pid = process.current();
+    let user_pml4 = process.get_pml4(pid);
+    let mut remaining = len;
+    let mut current_va = dst_user;
+    let mut current_src = src_kern;
+
+    while remaining > 0 {
+        let phys = user_paging.translate_user_addr(user_pml4, current_va);
+        if phys == 0 { return 0 - 1; }
+
+        let pte = user_paging.get_user_pte(user_pml4, current_va);
+        if (pte & 2) == 0 { return 0 - 1; } // Check PTE_WRITE
+
+        let offset_in_page = current_va & 0xFFF;
+        let bytes_to_page_end = PAGE_SIZE - offset_in_page;
+        let mut chunk_size = remaining;
+        if chunk_size > bytes_to_page_end { chunk_size = bytes_to_page_end; }
+
+        let kern_ptr = memory.phys_to_virt_raw(phys) as Ptr<u8>;
+        let src_ptr = current_src as Ptr<u8>;
+
+        let mut i = 0;
+        while i < chunk_size {
+            kern_ptr.offset(i as i64).write(src_ptr.offset(i as i64).read());
+            i = i + 1;
+        }
+
+        current_va = current_va + chunk_size;
+        current_src = current_src + chunk_size;
+        remaining = remaining - chunk_size;
+    }
+    return len as i64;
+}
+
+// =============================================================================
+// sys_write — Write to file descriptor (fd=1 serial, else VFS)
+// =============================================================================
+pub fn sys_write(fd: u64, buf: u64, len: u64) -> u64 {
+    let mut actual_len = len;
+    if actual_len > 4096 { actual_len = 4096; }
+    if !is_valid_user_ptr(buf, actual_len) { return 0; }
+
+    if fd == 1 {
+        // Serial stdout (legacy)
+        let pid = process.current();
+        let user_pml4 = process.get_pml4(pid);
+        let mut remaining = actual_len;
+        let mut current_va = buf;
+
+        while remaining > 0 {
+            let phys = user_paging.translate_user_addr(user_pml4, current_va);
+            if phys == 0 { return 0; }
+            let offset_in_page = current_va & 0xFFF;
+            let bytes_to_page_end = PAGE_SIZE - offset_in_page;
+            let mut chunk_size = remaining;
+            if chunk_size > bytes_to_page_end { chunk_size = bytes_to_page_end; }
+
+            let kern_ptr = memory.phys_to_virt_raw(phys);
+            serial.print_buf(kern_ptr, chunk_size);
+
+            current_va = current_va + chunk_size;
+            remaining = remaining - chunk_size;
+        }
+        return actual_len;
+    }
+
+    // VFS Path
+    let pid = process.current();
+    let fd_table_addr = process.get_fd_table(pid);
+    if fd_table_addr == 0 { return 0 - 1; }
+    if fd >= 16 { return 0 - 1; }
+
+    let table = fd_table_addr as Ptr<u64>;
+    let fd_obj_addr = table.offset(fd as i64).read();
+    if fd_obj_addr == 0 { return 0 - 1; }
+
+    let fd_obj = fd_obj_addr as Ptr<vfs::FileDescriptor>;
+    if fd_obj.addr != 0 {
+        let inode = fd_obj.inode;
+        if inode.addr != 0 {
+            let ops = inode.ops;
+            let f_write = ops.write_op;
+
+            let phys_buf = kernel.core.pmm.alloc();
+            let kern_buf = memory.phys_to_virt_raw(phys_buf);
+            let kern_ptr = kern_buf as Ptr<u8>;
+            let res = copy_from_user(kern_buf, buf, actual_len);
+            if res < 0 {
+                kernel.core.pmm.free(phys_buf);
+                return 0 - 1;
+            }
+
+            let written = f_write(inode, fd_obj.offset, kern_ptr, actual_len);
+            if written > 0 {
+                let offset_ptr = (fd_obj as u64 + 8) as Ptr<i64>;
+                let old_offset = offset_ptr.read();
+                offset_ptr.write(old_offset + written as i64);
+            }
+            kernel.core.pmm.free(phys_buf);
+            return written as u64;
+        }
+    }
+
+    return 0 - 1;
+}
+
+// =============================================================================
+// sys_read — Read from file descriptor (VFS only)
+// =============================================================================
+pub fn sys_read(fd: u64, buf: u64, len: u64) -> u64 {
+    let mut actual_len = len;
+    if actual_len > 4096 { actual_len = 4096; }
+    if !is_valid_user_ptr(buf, actual_len) { return 0 - 1; }
+
+    let pid = process.current();
+    let fd_table_addr = process.get_fd_table(pid);
+    if fd_table_addr == 0 { return 0 - 1; }
+    if fd >= 16 { return 0 - 1; }
+
+    let table = fd_table_addr as Ptr<u64>;
+    let fd_obj_addr = table.offset(fd as i64).read();
+    if fd_obj_addr == 0 { return 0 - 1; }
+
+    let fd_obj = fd_obj_addr as Ptr<vfs::FileDescriptor>;
+    if fd_obj.addr != 0 {
+        let inode = fd_obj.inode;
+        if inode.addr != 0 {
+            let ops = inode.ops;
+            let f_read = ops.read_op;
+
+            let phys_buf = kernel.core.pmm.alloc();
+            let kern_buf = memory.phys_to_virt_raw(phys_buf);
+            let kern_ptr = kern_buf as Ptr<u8>;
+
+            let read_count = f_read(inode, fd_obj.offset, kern_ptr, actual_len);
+            if read_count > 0 {
+                let offset_ptr = (fd_obj as u64 + 8) as Ptr<i64>;
+                let old_offset = offset_ptr.read();
+                offset_ptr.write(old_offset + read_count as i64);
+                let cpy = copy_to_user(buf, kern_buf, read_count as u64);
+                if cpy < 0 {
+                    kernel.core.pmm.free(phys_buf);
+                    return 0 - 1;
+                }
+            }
+
+            kernel.core.pmm.free(phys_buf);
+            return read_count as u64;
+        }
+    }
+    return 0 - 1;
+}
+
+// =============================================================================
+// sys_open — Open a file by path, returning a file descriptor
+// =============================================================================
+pub fn sys_open(path: u64, flags: u64) -> u64 {
+    if !is_valid_user_ptr(path, 1) { return 0 - 1; }
+    let pid = process.current();
+    let mut fd_table_addr = process.get_fd_table(pid);
+    if fd_table_addr == 0 {
+        let table_phys = kernel.core.pmm.alloc();
+        let table_ptr = memory.phys_to_virt_raw(table_phys);
+        let table_u8 = table_ptr as Ptr<u8>;
+        let mut i = 0;
+        while i < 4096 {
+            table_u8.offset(i).write(0);
+            i = i + 1;
+        }
+        process.set_fd_table(pid, table_ptr);
+        fd_table_addr = table_ptr;
+    }
+
+    let table = fd_table_addr as Ptr<u64>;
+    let mut fd = 3;
+    let mut found = false;
+    while fd < 16 {
+        if table.offset(fd as i64).read() == 0 {
+            found = true;
+            break;
+        }
+        fd = fd + 1;
+    }
+    if !found { return 0 - 1; }
+
+    let path_ptr = path as Ptr<u8>;
+    let phys_buf = kernel.core.pmm.alloc();
+    let kbuf = memory.phys_to_virt_raw(phys_buf) as Ptr<u8>;
+
+    let mut i = 0;
+    while i < 255 {
+        if !is_valid_user_ptr(path + i, 1) {
+            kernel.core.pmm.free(phys_buf);
+            return 0 - 1;
+        }
+        let b = path_ptr.offset(i as i64).read();
+        kbuf.offset(i as i64).write(b);
+        if b == 0 { break; }
+        i = i + 1;
+    }
+    kbuf.offset(255).write(0);
+
+    let target_inode = kernel.sys.vfs.vfs_lookup(kbuf);
+    kernel.core.pmm.free(phys_buf);
+
+    if target_inode.addr != 0 {
+        let fd_obj_phys = kernel.core.pmm.alloc();
+        let fd_obj = memory.phys_to_virt_raw(fd_obj_phys) as Ptr<vfs::FileDescriptor>;
+        if fd_obj.addr != 0 {
+            fd_obj.offset = 0;
+            fd_obj.flags = flags as u32;
+            fd_obj.refcount = 1;
+            fd_obj.inode = target_inode;
+        }
+
+        table.offset(fd as i64).write(fd_obj as u64);
+        return fd;
+    }
+
+    return 0 - 1;
+}
