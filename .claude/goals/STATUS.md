@@ -85,7 +85,7 @@ Progress tracker: `.claude/goals/QUALITY_METRICS.md`
 - [x] kernel/ecs/sparse_set.salt (671→421) — scheduling_sets.salt created
 - [x] kernel/core/exec_user.salt (633→500) — spawn_coroutine.salt created
 - [x] kernel/core/ring3_test.salt (609→313) — ring3_kpti_test.salt created
-- [ ] kernel/core/syscall.salt (582 lines, blocked: u64↔Ptr<T> cast)
+- [ ] kernel/core/syscall.salt (582 lines — **researched 2026-06-20:** Ptr<T> cross-package limitation is NOT active. Ptr<u8>, Ptr<u64>, Ptr<vfs::FileDescriptor> all compile from separate packages. Extraction is feasible: I/O subsystem → syscall_io.salt (~275 lines), FD table → syscall_fd.salt (~75 lines), remaining dispatch+spawn+exit → ~232 lines. Needs 1-2 dedicated sessions.)
 - [x] kernel/benchmarks/netd_bench.salt (570→408) — netd_bench_gates_end.salt created
 - [x] kernel/mem/user_paging.salt (527→421) — paging_destroy.salt created
 - [x] kernel/core/process.salt (520→496) — process_resource.salt created

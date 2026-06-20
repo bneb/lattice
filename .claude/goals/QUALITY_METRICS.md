@@ -232,7 +232,7 @@ is properly imported.
 ### Legitimate exceptions to <500 LOC goal (2 remaining)
 | File | Lines | Reason |
 |------|-------|--------|
-| syscall.salt | 582 | Blocked: cross-package Ptr<T> cast limitation in Salt compiler for specific u64↔Ptr<u8>/Ptr<vfs::FileDescriptor> patterns |
+| syscall.salt | 582 | **Researched 2026-06-20:** Ptr<T> casts work cross-package (verified: Ptr<u8>, Ptr<vfs::FileDescriptor>, .offset(), .read(), .write(), .addr all compile from separate package). Limitation was either fixed or misdiagnosed. Extraction is feasible — needs a dedicated session to split I/O + fd-table + spawn subsystems. |
 | scheduler.salt | 539 | Cannot split: all functions (bitmap, dispatch, spawn, steal) access SCHED_ARRAY global. Extracting requires either raw pointer arithmetic (fragile) or restructuring core scheduler logic (prohibited). Struct types (Fiber, SchedulerState) are file-local — moving them creates circular dependencies. |
 
 Both verified through multiple independent extraction attempts.
