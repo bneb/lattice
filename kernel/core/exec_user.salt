@@ -1,6 +1,16 @@
 // =============================================================================
-// Process Spawner — ELF Load + Process Table Registration.
-// CRITICAL: PMM returns physical addresses — use phys_to_virt() for writes.
+// kernel/core/exec_user.salt
+// Process Spawner — ELF Load and Process Table Registration
+// =============================================================================
+//
+// spawn_process(elf_base, kernel_pml4) -> slot
+//   Loads an ELF binary into a new address space, allocates a kernel stack,
+//   pre-populates the kernel stack with an IRETQ frame, and registers the
+//   process in PROC_TABLE.
+//
+// CRITICAL: PMM returns PHYSICAL addresses. All memory writes to PMM-allocated
+// pages must go through phys_to_virt(). The elf_base address is already a
+// higher-half virtual address (embedded in .data section).
 // =============================================================================
 
 package kernel.core.exec_user

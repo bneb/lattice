@@ -21,9 +21,18 @@ extern fn flight_log_trace(fiber_id: u64, event: u64);
 extern fn sched_yield();
 
 // =============================================================================
-// O(1) two-level bitmap scheduler, per-core sharded, 256 fibers/CPU.
-// Stack lifecycle: spawn→pop_stack, exit→push_stack.
-// Work-stealing in kernel/sched/work_steal.salt.
+// Kernel Scheduler — O(1) Multi-Level Bitmap, Per-Core Sharded
+// =============================================================================
+// Each CPU core gets its own SchedulerState, indexed by cpu_id via GS segment.
+// Uses a 2-level bitmap to find the next runnable fiber in O(1) via hardware
+// TZCNT instruction. Supports up to 256 fibers PER CORE.
+//
+// Stack Lifecycle:
+//   spawn()      → pop_stack()   (allocate 16KB slab slot from this core)
+//   fiber_exit() → push_stack()  (reclaim 16KB slab slot, deferred)
+//
+// Work-stealing is in kernel/sched/work_steal.salt — it uses the cross-CPU
+// accessor functions at the bottom of this file.
 // =============================================================================
 
 const MAX_FIBERS: u64 = 256;
@@ -357,7 +366,9 @@ pub fn get_current_fiber() -> u64 {
     return SCHED_ARRAY[cpu].current;
 }
 
-// @no_mangle ABI wrappers
+// =============================================================================
+// @no_mangle ABI Wrappers
+// =============================================================================
 @no_mangle
 pub fn sched_init() { init(); }
 @no_mangle
@@ -377,6 +388,7 @@ pub fn sched_spawn_async(step_fn_addr: u64, frame_size: u64) -> u64 {
     return 0;
 }
 
+// Fiber field accessors (for tests)
 @no_mangle
 pub fn fiber_step_fn(slot: u64) -> u64 {
     let cpu = percpu.get_cpu_id();
@@ -398,7 +410,12 @@ pub fn fiber_ctx_ptr(slot: u64) -> u64 {
     return SCHED_ARRAY[cpu].fibers[slot].ctx_ptr;
 }
 
-// Cross-CPU accessors for work_steal.salt — @no_mangle ABI for SCHED_ARRAY
+// =============================================================================
+// Cross-CPU Accessors for kernel/sched/work_steal.salt
+// =============================================================================
+// Work-stealing needs to read/write SCHED_ARRAY on remote cores.
+// These @no_mangle functions are the ONLY way to access SCHED_ARRAY
+// from another Salt package.
 
 @no_mangle
 pub fn sched_steal_migrate(dst_cpu: u64, dst_slot: u64, src_cpu: u64, src_slot: u64) {
