@@ -624,9 +624,6 @@ impl<'a> CodegenContext<'a> {
     ///   - @align(N) fields: N-byte alignment (cache-line isolation)
     ///   - @atomic structs: stride alignment (sizeof % 16 == 0)
     ///   - @packed structs: zero implicit padding
-    /// Uses Z3 integer modular arithmetic to prove alignment is invariant.
-
-
     fn verify_struct_alignments(&self) -> Result<(), String> {
         let structs: Vec<_> = {
             let file = self.file.borrow();

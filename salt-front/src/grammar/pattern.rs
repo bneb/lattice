@@ -4,7 +4,6 @@
 /// - `match expr { Pattern => body, ... }`
 /// - `let Pattern = expr else { diverging_block }`
 /// - Future: `if let Pattern = expr { ... }`
-
 use syn::{Ident, Token, Lit};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;

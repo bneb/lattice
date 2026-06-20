@@ -11,7 +11,6 @@
 /// 4. **Return-type** — unify return type template against expected type
 /// 5. **Phantom** — infer unresolved generics from `Fn` return types
 /// 6. **Completeness** — verify all generics are resolved
-
 use std::collections::{BTreeMap, HashMap};
 use crate::types::Type;
 use crate::codegen::context::LoweringContext;

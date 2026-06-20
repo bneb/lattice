@@ -89,7 +89,7 @@ fn check_explicit_and_implicit_alias(
     } 
 
     if let Some(last) = imp.name.last() {
-        if last.to_string() == *first {
+        if *last == *first {
             if segments.len() > 1 {
                 let item_name = &segments[1];
                 if let Some(reg) = registry {
@@ -110,7 +110,7 @@ fn check_explicit_and_implicit_alias(
     }
 
     if let Some(group) = &imp.group {
-         if group.iter().any(|id| id.to_string() == *first) {
+         if group.iter().any(|id| *id == *first) {
             let base = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
             let item = Mangler::mangle(segments);
             return Some((base, item));
@@ -308,14 +308,11 @@ pub fn resolve_path_to_enum(
     }
     
     // 3. Check Templates (Generic)
-    let template_match;
-    
-    if ctx.enum_templates().contains_key(&enum_name_candidate) {
-        template_match = Some(enum_name_candidate.clone());
+    let template_match = if ctx.enum_templates().contains_key(&enum_name_candidate) {
+        Some(enum_name_candidate.clone())
     } else {
-        // Phase 5: Use centralized template lookup
-        template_match = ctx.find_enum_template_by_name(&enum_name_candidate);
-    }
+        ctx.find_enum_template_by_name(&enum_name_candidate)
+    };
     
     
     if let Some(base_template) = template_match {

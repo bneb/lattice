@@ -806,7 +806,6 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
 }
 
 #[allow(unused)]
-#[allow(unused)]
 pub fn translate_to_z3<'a, 'ctx>(
     ctx: &mut LoweringContext<'a, 'ctx>, 
     expr: &syn::Expr, 

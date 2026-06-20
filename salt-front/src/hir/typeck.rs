@@ -386,7 +386,6 @@ impl TypeckContext {
 
     /// Evaluate an expression bottom-up, enforce type rules,
     /// and ATTACH the resolved type to the HIR node.
-
     fn typeck_method_call(&mut self, receiver: &mut Expr, method: &str, args: &mut [Expr]) -> Result<Type, String> {
                 // 1. Evaluate the receiver
                 let receiver_ty = self.typeck_expr(receiver)?;
