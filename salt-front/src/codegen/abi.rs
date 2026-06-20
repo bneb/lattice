@@ -71,7 +71,7 @@ impl Layout {
                 format!("!llvm.array<{} x {}>", len, inner.to_mlir_storage(ctx))
             },
             LayoutKind::PackedArray(len) => {
-                let words = (len + 63) / 64;
+                let words = len.div_ceil(64);
                 format!("!llvm.array<{} x i64>", words)
             },
             LayoutKind::Void => "!llvm.void".to_string(),
@@ -89,7 +89,7 @@ impl Layout {
                 format!("!llvm.array<{} x {}>", len, inner.to_mlir_logical(ctx))
             },
             LayoutKind::PackedArray(len) => {
-                let words = (len + 63) / 64;
+                let words = len.div_ceil(64);
                 format!("!llvm.array<{} x i64>", words)
             },
             LayoutKind::Void => "!llvm.void".to_string(),
@@ -121,7 +121,7 @@ impl Layout {
             
             Type::Array(inner, len, packed) => {
                 if *packed && **inner == Type::Bool {
-                     let size = (*len + 7) / 8;
+                     let size = (*len).div_ceil(8);
                      Layout::new(LayoutKind::PackedArray(*len), size, 8)
                 } else {
                     let inner_layout = Layout::compute(ctx, inner);

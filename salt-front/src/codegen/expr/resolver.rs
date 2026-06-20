@@ -91,11 +91,10 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
              }
 
              // Special Case: intrin module
-             if segments.first().map(|s| s == "intrin").unwrap_or(false) {
-                 if segments.len() == 2 {
+             if segments.first().map(|s| s == "intrin").unwrap_or(false)
+                 && segments.len() == 2 {
                      return Ok((segments[1].clone(), generics));
                  }
-             }
 
              // Package Resolution (Imports)
              if let Some((pkg, item)) = resolve_package_prefix_ctx(self.ctx, &segments) {
@@ -108,10 +107,10 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
              
              // Check if it matches a global alias/import exactly
              let resolved_name = self.ctx.imports().iter().find_map(|imp| {
-                if imp.alias.as_ref().map_or(false, |a| a == &mangled) {
+                if imp.alias.as_ref().is_some_and(|a| a == &mangled) {
                      Some(Mangler::mangle(&imp.name.iter().map(|i| i.to_string()).collect::<Vec<_>>()))
                 } else if let Some(group) = &imp.group {
-                     if group.iter().any(|id| id.to_string() == mangled) {
+                     if group.iter().any(|id| *id == mangled) {
                          let pkg_mangled = Mangler::mangle(&imp.name.iter().map(|i| i.to_string()).collect::<Vec<_>>());
                          if pkg_mangled.is_empty() {
                              Some(mangled.clone())
@@ -143,7 +142,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
 
                                  
                                  // Check if first segment (type name) exists in this module's exports
-                                 if segments.len() >= 1 {
+                                 if !segments.is_empty() {
                                      let type_name = &segments[0];
                                      
                                      // Check struct templates (e.g., InterpolatedStringHandler)
@@ -170,9 +169,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                                          return Some(fqn);
                                      }
                                  }
-                             } else {
-
-                             }
+                             } 
                          }
                      }
                  }
@@ -260,7 +257,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
              for item in &file.items {
                  if let crate::grammar::Item::Fn(f) = item {
                       let m = self.ctx.mangle_fn_name(&f.name.to_string());
-                      if m.to_string() == canonical_name || f.name.to_string() == name {
+                      if m == canonical_name || f.name == name {
                           return Some(ResolutionTarget {
                               template: f.clone(),
                               base_name: if f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" ) { f.name.to_string() } else { m.to_string() }, // Use the canonical mangled name
@@ -272,7 +269,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                  // Handle Externs - always use C symbol name (never mangle)
                  if let crate::grammar::Item::ExternFn(f) = item {
                      let m = f.name.to_string();
-                     if m == canonical_name || f.name.to_string() == name {
+                     if m == canonical_name || f.name == name {
                          let wrapper = SaltFn {
                              attributes: f.attributes.clone(),
                              is_pub: f.is_pub,
@@ -449,7 +446,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         let current_fn = self.ctx.current_fn_name();
         if !current_fn.is_empty() {
             // Extract the function's simple name from current_fn (e.g., "main__fib" -> "fib")
-            let current_simple = current_fn.rsplit("__").next().unwrap_or(&current_fn);
+            let current_simple = current_fn.rsplit("__").next().unwrap_or(current_fn);
             // Extract simple name from input (e.g., "__fib" -> "fib", "fib" -> "fib")
             let input_simple = name.trim_start_matches('_').trim_start_matches('_');
             
@@ -523,10 +520,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         // Extract concrete args from self_ty
         let mut struct_concrete_args = Vec::new();
         if let Some(self_ty) = &target.self_ty {
-            match self_ty {
-                Type::Concrete(_, args) => struct_concrete_args.extend(args.iter().cloned()),
-                _ => {}
-            }
+            if let Type::Concrete(_, args) = self_ty { struct_concrete_args.extend(args.iter().cloned()) }
         }
         
         let mut resolver = crate::codegen::generic_resolver::GenericResolver::new(self.ctx);
@@ -892,8 +886,8 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
          let ret = if let Some(rt) = &template.ret_type {
              let resolved = crate::codegen::type_bridge::resolve_type(self.ctx, rt);
              let _substituted = resolved.substitute(map);
-             let substituted = resolved.substitute(map);
-             substituted
+             
+             resolved.substitute(map)
          } else { Type::Unit };
          
          let args = template.args.iter().map(|a| {
@@ -1060,7 +1054,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
             
             {
                 let struct_reg = self.ctx.struct_registry();
-                if let Some(info) = struct_reg.values().find(|i| i.name == mangled_name.to_string()) {
+                if let Some(info) = struct_reg.values().find(|i| i.name == mangled_name) {
                     let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
                         .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
                         .collect::<Vec<_>>();
@@ -1097,7 +1091,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                 if has_exact {
                     let _ = self.ctx.ensure_struct_exists(&mangled_name, &[]);
                     let struct_reg = self.ctx.struct_registry();
-                    if let Some(info) = struct_reg.values().find(|i| i.name == mangled_name.to_string()) {
+                    if let Some(info) = struct_reg.values().find(|i| i.name == mangled_name) {
                         let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
                             .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
                             .collect::<Vec<_>>();
@@ -1124,7 +1118,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
             let imports = self.ctx.imports();
             for imp in imports.iter() {
                 if imp.name.len() == 1 && imp.group.is_none() {
-                    let alias_matches = imp.alias.as_ref().map_or(false, |a| a.to_string() == raw_name);
+                    let alias_matches = imp.alias.as_ref().is_some_and(|a| *a == raw_name);
                     if alias_matches {
                         let single_str = imp.name[0].to_string();
                         if single_str.contains("__") {
@@ -1282,11 +1276,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
             specialization: None,
         };
         
-        let resolved_self = if let Some(st) = &target.self_ty {
-             Some(st.substitute(&spec_map))
-        } else {
-             None
-        };
+        let resolved_self = target.self_ty.as_ref().map(|st| st.substitute(&spec_map));
 
         let lazy_task = Box::new(crate::codegen::collector::MonomorphizationTask {
             identity: type_key,

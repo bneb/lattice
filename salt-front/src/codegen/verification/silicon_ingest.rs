@@ -158,7 +158,7 @@ fn scalar_header_scan(header_bytes: u64) -> u64 {
 /// NEON SIMD header scan: 16 bytes per iteration
 /// LD1(4c) → CMEQ(1c) → check → branch. With OoO: 5c/iter effective.
 fn simd_header_scan(header_bytes: u64) -> u64 {
-    let iterations = (header_bytes + 15) / 16;
+    let iterations = header_bytes.div_ceil(16);
     let first_iter = m4_timing::NEON_LD1_L1
         + m4_timing::NEON_CMEQ
         + m4_timing::NEON_REDUCE
@@ -415,7 +415,7 @@ pub fn simulate_salt_keuos(params: &WorkloadParams) -> ConfigResult {
     let func = 2 * m4_timing::FUNC_OVERHEAD;
 
     // Yield check overhead (SIMD loop + path loop)
-    let simd_iters = (params.header_bytes + 15) / 16;
+    let simd_iters = params.header_bytes.div_ceil(16);
     let total_loop_iters = simd_iters + params.path_bytes;
     let yield_checks = total_loop_iters / m4_timing::YIELD_CHECK_STRIPE;
     let yield_cost = yield_checks * m4_timing::YIELD_CHECK;

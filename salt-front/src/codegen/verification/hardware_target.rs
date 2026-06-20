@@ -113,7 +113,7 @@ impl HardwareTarget for M4Target {
         let path_bytes: u64 = 12;
 
         // SIMD header scan: 13 iterations × 5 cycles/iter = 65 cycles
-        let header_iters = (header_bytes + 15) / 16;
+        let header_iters = header_bytes.div_ceil(16);
         let header = header_iters * (m4_timing::NEON_LD1_L1 + m4_timing::NEON_CMEQ);
 
         // Path extraction: 12 bytes × 5 cycles/byte = 60 cycles

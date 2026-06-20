@@ -120,8 +120,8 @@ fn expr_has_if(expr: &syn::Expr) -> bool {
         syn::Expr::If(if_expr) => !is_select_compatible_if(if_expr),  // Allow select-compatible
         syn::Expr::Binary(b) => expr_has_if(&b.left) || expr_has_if(&b.right),
         syn::Expr::Unary(u) => expr_has_if(&u.expr),
-        syn::Expr::Call(c) => c.args.iter().any(|a| expr_has_if(a)),
-        syn::Expr::MethodCall(m) => m.args.iter().any(|a| expr_has_if(a)),
+        syn::Expr::Call(c) => c.args.iter().any(expr_has_if),
+        syn::Expr::MethodCall(m) => m.args.iter().any(expr_has_if),
         syn::Expr::Reference(r) => expr_has_if(&r.expr),
         syn::Expr::Paren(p) => expr_has_if(&p.expr),
         syn::Expr::Field(f) => expr_has_if(&f.base),
@@ -205,8 +205,8 @@ fn expr_has_tensor_indexing(expr: &syn::Expr) -> bool {
         syn::Expr::Cast(c) => expr_has_tensor_indexing(&c.expr),
         syn::Expr::Field(f) => expr_has_tensor_indexing(&f.base),
         syn::Expr::Reference(r) => expr_has_tensor_indexing(&r.expr),
-        syn::Expr::Call(c) => c.args.iter().any(|a| expr_has_tensor_indexing(a)),
-        syn::Expr::MethodCall(m) => expr_has_tensor_indexing(&m.receiver) || m.args.iter().any(|a| expr_has_tensor_indexing(a)),
+        syn::Expr::Call(c) => c.args.iter().any(expr_has_tensor_indexing),
+        syn::Expr::MethodCall(m) => expr_has_tensor_indexing(&m.receiver) || m.args.iter().any(expr_has_tensor_indexing),
         
         _ => false,
     }
@@ -365,7 +365,7 @@ fn detect_reduction_pattern(
         // LHS of binary must be the same accumulator
         let lhs_is_acc = match rhs_binary.left.as_ref() {
             syn::Expr::Path(p) if p.path.segments.len() == 1 => {
-                p.path.segments[0].ident.to_string() == acc_name
+                p.path.segments[0].ident == acc_name
             }
             _ => false,
         };
@@ -483,7 +483,7 @@ fn detect_vector_reduction_pattern(
         
         let acc_arg_is_acc = match &call.args[acc_arg_idx] {
             syn::Expr::Path(p) if p.path.segments.len() == 1 => {
-                p.path.segments[0].ident.to_string() == acc_name
+                p.path.segments[0].ident == acc_name
             }
             _ => false,
         };
@@ -1159,13 +1159,10 @@ fn has_shadow_updates(stmts: &[Stmt]) -> bool {
             return true;
         }
         // Check nested statements
-        match stmt {
-            Stmt::For(f) => {
-                if has_shadow_updates(&f.body.stmts) {
-                    return true;
-                }
+        if let Stmt::For(f) = stmt {
+            if has_shadow_updates(&f.body.stmts) {
+                return true;
             }
-            _ => {}
         }
     }
     false
@@ -1288,7 +1285,7 @@ fn emit_iterator_for_loop(
                 .find(|(n, _, _)| n == "Some")
                 .ok_or_else(|| format!("Enum '{}' has no 'Some' variant", name))?;
             let inner = payload.clone()
-                .ok_or_else(|| format!("Option 'Some' variant has no payload type"))?;
+                .ok_or_else(|| "Option 'Some' variant has no payload type".to_string())?;
             (inner, info.max_payload_size)
         },
         Type::Concrete(base, args) => {
@@ -1300,9 +1297,9 @@ fn emit_iterator_for_loop(
             if let Some(info) = info {
                 let (_vname, payload, _disc) = info.variants.iter()
                     .find(|(n, _, _)| n == "Some")
-                    .ok_or_else(|| format!("Enum has no 'Some' variant"))?;
+                    .ok_or_else(|| "Enum has no 'Some' variant".to_string())?;
                 let inner = payload.clone()
-                    .ok_or_else(|| format!("Option 'Some' has no payload"))?;
+                    .ok_or_else(|| "Option 'Some' has no payload".to_string())?;
                 (inner, info.max_payload_size)
             } else if !args.is_empty() {
                 // Fallback: use the first generic arg as the payload type
@@ -1454,7 +1451,7 @@ fn hoist_allocas_in_block(ctx: &mut LoweringContext, stmts: &[Stmt], local_vars:
                 if let syn::Pat::Ident(id) = pat {
                     let name = id.ident.to_string();
                     
-                    if !local_vars.contains_key(&name) {
+                    if let std::collections::hash_map::Entry::Vacant(e) = local_vars.entry(name.clone()) {
                         let ty = if let syn::Pat::Type(pt) = &local.pat {
                             resolve_type(ctx, &crate::grammar::SynType::from_std(*pt.ty.clone()).map_err(|e| e.to_string())?)
                         } else if let Some(_init) = &local.init {
@@ -1470,7 +1467,7 @@ fn hoist_allocas_in_block(ctx: &mut LoweringContext, stmts: &[Stmt], local_vars:
                         let alloca = format!("%local_{}_{}", name, ctx.next_id());
                         let mlir_ty = ty.to_mlir_storage_type(ctx)?;
                         ctx.emit_alloca(&mut String::new(), &alloca, &mlir_ty);
-                        local_vars.insert(name, (ty, LocalKind::Ptr(alloca)));
+                        e.insert((ty, LocalKind::Ptr(alloca)));
                     }
                 }
             }
@@ -1838,11 +1835,9 @@ fn emit_while_stmt(ctx: &mut LoweringContext, out: &mut String, w: &crate::gramm
 
                         if check == crate::z3_shim::SatResult::Sat {
                             ctx.z3_solver.pop(1); // Pop base-case registration scope
-                            return Err(format!(
-                                "Z3 verification failed: loop invariant does not hold at entry. \
+                            return Err("Z3 verification failed: loop invariant does not hold at entry. \
                                  The solver found a counterexample proving the invariant is false \
-                                 with current variable values."
-                            ));
+                                 with current variable values.".to_string());
                         }
 
                         // Invariant proven or undecidable: assert as true for reasoning
@@ -2072,7 +2067,7 @@ fn emit_return_stmt(ctx: &mut LoweringContext, out: &mut String, opt_expr: &Opti
             emit_cleanup_for_return(ctx, out, local_vars)?;
             if let Some(e) = opt_expr {
                 // Substitute generics in return type (T -> u8 etc.)
-                let expected_ret = ctx.current_ret_ty().clone().map(|t| t.substitute(&ctx.current_type_map()));
+                let expected_ret = ctx.current_ret_ty().clone().map(|t| t.substitute(ctx.current_type_map()));
                 let (val_raw, ty) = emit_expr(ctx, out, e, local_vars, expected_ret.as_ref())?;
 
                 // Recursive escape marking.
@@ -2082,9 +2077,7 @@ fn emit_return_stmt(ctx: &mut LoweringContext, out: &mut String, opt_expr: &Opti
                 // return x is valid iff depth(x) <= 1.
                 // A pointer from a local arena (depth >= 2) cannot escape.
                 if let Some(var_name) = extract_return_var_name(e) {
-                    if let Err(msg) = ctx.arena_escape_tracker.check_return_escape(&var_name) {
-                        return Err(msg);
-                    }
+                    ctx.arena_escape_tracker.check_return_escape(&var_name)?
                 }
 
                 // Z3 verification of ensures clauses at return site
@@ -2097,7 +2090,7 @@ fn emit_return_stmt(ctx: &mut LoweringContext, out: &mut String, opt_expr: &Opti
                     let (requires, param_names) = file.items.iter()
                         .filter_map(|item| {
                             if let crate::grammar::Item::Fn(f) = item {
-                                if f.name.to_string() == fn_name || ctx.expansion.current_fn_name.ends_with(&f.name.to_string()) {
+                                if f.name == fn_name || ctx.expansion.current_fn_name.ends_with(&f.name.to_string()) {
                                     let params: Vec<String> = f.args.iter().map(|a| a.name.to_string()).collect();
                                     return Some((f.requires.clone(), params));
                                 }
@@ -2188,7 +2181,7 @@ fn emit_unsafe_stmt(ctx: &mut LoweringContext, out: &mut String, block: &crate::
             // (std.* and kernel.*). All other packages are rejected.
             // Uses config.file.package as fallback when current_package is None.
             let first_seg = ctx.current_package.as_ref()
-                .or_else(|| ctx.config.file.package.as_ref())
+                .or(ctx.config.file.package.as_ref())
                 .and_then(|pkg| pkg.name.iter().next().map(|id| id.to_string()));
 
             let fn_name = ctx.current_fn_name();
@@ -2435,9 +2428,7 @@ pub fn emit_salt_if(
             // p == 0 -> Empty in Then
             ctx.pointer_tracker.mark_empty(var); 
         }
-    } else {
-
-    }
+    } 
 
     let loc = ctx.loc_tag(cond.span());
     let has_else = else_branch.is_some();
@@ -2845,7 +2836,7 @@ fn emit_pattern_condition(
             };
             
             // Check the struct name matches (allowing mangled variants)
-            if !struct_name.ends_with(&name.to_string()) && struct_name != name.to_string() {
+            if !struct_name.ends_with(&name.to_string()) && *name != struct_name {
                 return Err(format!(
                     "Struct pattern '{}' doesn't match scrutinee type '{}'",
                     name, struct_name
@@ -3312,11 +3303,7 @@ fn extract_arena_alloc_receiver(expr: &syn::Expr) -> Option<String> {
 fn extract_return_var_name(expr: &syn::Expr) -> Option<String> {
     match expr {
         syn::Expr::Path(p) => {
-            if let Some(ident) = p.path.get_ident() {
-                Some(ident.to_string())
-            } else {
-                None
-            }
+            p.path.get_ident().map(|ident| ident.to_string())
         }
         syn::Expr::Cast(c) => extract_return_var_name(&c.expr),
         syn::Expr::Paren(p) => extract_return_var_name(&p.expr),

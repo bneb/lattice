@@ -238,7 +238,7 @@ fn extract_sir_function(f: &SaltFn) -> SirFunction {
     }).collect();
 
     let return_type = f.ret_type.as_ref()
-        .map(|ty| syntype_to_sirtype(ty))
+        .map(syntype_to_sirtype)
         .unwrap_or(SirType::Void);
 
     let mut contracts = Vec::new();

@@ -249,7 +249,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                     self.entity_registry_mut().register_hook("free");
                     out.push_str(&format!("    func.call @free({}) : (!llvm.ptr) -> ()\n", data_ptr));
                 } else {
-                    if let Err(_) = self.derive_struct_write_to(out, name, val, ty, "%writer_stub") {
+                    if self.derive_struct_write_to(out, name, val, ty, "%writer_stub").is_err() {
                         self.emit_print_literal(out, &format!("<{}>", name.split("__").last().unwrap_or(name)))?;
                     }
                 }

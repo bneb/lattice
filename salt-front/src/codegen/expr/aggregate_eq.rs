@@ -32,11 +32,7 @@ pub fn emit_aggregate_eq(ctx: &mut LoweringContext, out: &mut String, op: &syn::
 }
 
 fn emit_struct_eq(ctx: &mut LoweringContext, out: &mut String, op: &syn::BinOp, lhs: &str, rhs: &str, ty: &Type, name: &str, is_eq: bool) -> Result<String, String> {
-    let canonical = if let Some(info) = ctx.struct_registry().values().find(|i| i.name == *name) {
-        Some(info.clone())
-    } else {
-        None
-    };
+    let canonical = ctx.struct_registry().values().find(|i| i.name == *name).map(|info| info.clone());
     
     if let Some(info) = canonical {
         let mut conds = Vec::new();

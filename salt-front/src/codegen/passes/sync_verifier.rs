@@ -91,9 +91,9 @@ impl SyncVerifier {
                 let needs_context = cg.requires_context(&name);
 
                 let violation = if is_blocking {
-                    Some(format!("transitively calls blocking operation (via call graph)"))
+                    Some("transitively calls blocking operation (via call graph)".to_string())
                 } else if needs_context {
-                    Some(format!("transitively requires Context (via call graph)"))
+                    Some("transitively requires Context (via call graph)".to_string())
                 } else {
                     None
                 };

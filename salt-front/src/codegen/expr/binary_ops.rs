@@ -21,7 +21,7 @@ fn emit_binary_ptr_add(ctx: &mut LoweringContext, out: &mut String, b: &syn::Exp
             };
             
             // Convert rhs to i64 for GEP
-            let idx_i64 = promote_numeric(ctx, out, &rhs_val, &rhs_ty, &Type::I64)?;
+            let idx_i64 = promote_numeric(ctx, out, rhs_val, rhs_ty, &Type::I64)?;
             
             // Emit type-aware GEP
             let elem_mlir = elem_ty.to_mlir_type(ctx)?;
@@ -30,7 +30,7 @@ fn emit_binary_ptr_add(ctx: &mut LoweringContext, out: &mut String, b: &syn::Exp
                 res, lhs_val, idx_i64, elem_mlir));
             
             // Propagate alias scope from base pointer to GEP result
-            ctx.control_flow.propagate_scope_provenance(&lhs_val, &res);
+            ctx.control_flow.propagate_scope_provenance(lhs_val, &res);
             
             return Ok(Some((res, lhs_ty.clone())));
         }
@@ -43,14 +43,14 @@ fn emit_binary_ptr_add(ctx: &mut LoweringContext, out: &mut String, b: &syn::Exp
                 _ => return Err(format!("Cannot offset non-pointer type {:?}", rhs_ty)),
             };
             
-            let idx_i64 = promote_numeric(ctx, out, &lhs_val, &lhs_ty, &Type::I64)?;
+            let idx_i64 = promote_numeric(ctx, out, lhs_val, lhs_ty, &Type::I64)?;
             let elem_mlir = elem_ty.to_mlir_type(ctx)?;
             let res = format!("%gep_{}", ctx.next_id());
             out.push_str(&format!("    {} = llvm.getelementptr {}[{}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n",
                 res, rhs_val, idx_i64, elem_mlir));
             
             // Propagate alias scope from base pointer to GEP result
-            ctx.control_flow.propagate_scope_provenance(&rhs_val, &res);
+            ctx.control_flow.propagate_scope_provenance(rhs_val, &res);
             
             return Ok(Some((res, rhs_ty.clone())));
         }
@@ -206,7 +206,7 @@ fn emit_binary_struct_cmp(ctx: &mut LoweringContext, out: &mut String, b: &syn::
                 if is_eq || is_ne {
                     // Resolve struct name through type system (handles unqualified -> qualified)
                     // e.g. "String" -> "std__string__String" via imports
-                    let resolved_ty = crate::codegen::type_bridge::resolve_codegen_type(ctx, &common_ty);
+                    let resolved_ty = crate::codegen::type_bridge::resolve_codegen_type(ctx, common_ty);
                     let resolved_name = resolved_ty.mangle_suffix();
                     let eq_method_name = format!("{}__{}", resolved_name, "eq");
                     // Fallback: also check unqualified name for same-package types
@@ -260,7 +260,7 @@ fn emit_binary_struct_cmp(ctx: &mut LoweringContext, out: &mut String, b: &syn::
                 }
             }
             // Fallback: structural field-by-field comparison
-             let res = emit_aggregate_eq(ctx, out, &b.op, &lhs_prom, &rhs_prom, &common_ty)?;
+             let res = emit_aggregate_eq(ctx, out, &b.op, lhs_prom, rhs_prom, common_ty)?;
              return Ok(Some((res, Type::Bool)));
         }
     Ok(None)
@@ -315,17 +315,17 @@ fn emit_binary_ref_cmp(ctx: &mut LoweringContext, out: &mut String, b: &syn::Exp
             }
 
             let inner_mlir = inner.to_mlir_type(ctx)?;
-            let inner_op = get_arith_op(&b.op, &inner);
-            let inner_pred = get_comparison_pred(&b.op, &inner);
+            let inner_op = get_arith_op(&b.op, inner);
+            let inner_pred = get_comparison_pred(&b.op, inner);
             
             // Load values from both references
             let lhs_loaded = format!("%deref_lhs_{}", ctx.next_id());
             let rhs_loaded = format!("%deref_rhs_{}", ctx.next_id());
-            ctx.emit_load(out, &lhs_loaded, &lhs_prom, &inner_mlir);
-            ctx.emit_load(out, &rhs_loaded, &rhs_prom, &inner_mlir);
+            ctx.emit_load(out, &lhs_loaded, lhs_prom, &inner_mlir);
+            ctx.emit_load(out, &rhs_loaded, rhs_prom, &inner_mlir);
             
             // Compare loaded values
-            ctx.emit_cmp(out, &res, &inner_op, &inner_pred, &lhs_loaded, &rhs_loaded, &inner_mlir);
+            ctx.emit_cmp(out, res, &inner_op, &inner_pred, &lhs_loaded, &rhs_loaded, &inner_mlir);
             return Ok(Some((res.to_string(), Type::Bool)));
         }
     Ok(None)
@@ -351,7 +351,7 @@ fn determine_common_binary_type(
                 (Type::Usize, Type::I64) | (Type::Usize, Type::U64) => rhs_ty.clone(),
                 (Type::I64, Type::Usize) | (Type::U64, Type::Usize) => lhs_ty.clone(),
                 _ => {
-                    if lhs_ty.size_of(&*ctx.struct_registry()) >= rhs_ty.size_of(&*ctx.struct_registry()) { lhs_ty.clone() } else { rhs_ty.clone() }
+                    if lhs_ty.size_of(ctx.struct_registry()) >= rhs_ty.size_of(ctx.struct_registry()) { lhs_ty.clone() } else { rhs_ty.clone() }
                 }
             }
         } else {
@@ -362,7 +362,7 @@ fn determine_common_binary_type(
             if is_cmp {
                 op_max
             } else if exp.is_numeric() && op_max.is_numeric() {
-                if exp.size_of(&*ctx.struct_registry()) >= op_max.size_of(&*ctx.struct_registry()) { exp.clone() } else { op_max }
+                if exp.size_of(ctx.struct_registry()) >= op_max.size_of(ctx.struct_registry()) { exp.clone() } else { op_max }
             } else {
                 exp.clone()
             }
@@ -387,12 +387,7 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
         Some(&Type::Bool)
     } else if is_cmp {
         None // Comparisons don't hint operands with Bool
-    } else if let Some(exp) = expected {
-        // Strip Pointer types - they don't apply to arithmetic operands
-        if exp.k_is_ptr_type() { None } else { Some(exp) }
-    } else {
-        None
-    };
+    } else { expected.filter(|&exp| !exp.k_is_ptr_type()) };
 
     let (lhs_val, lhs_ty) = emit_expr(ctx, out, &b.left, local_vars, lhs_expected)?;
     
@@ -426,11 +421,10 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
     if let Some(r) = emit_binary_ptr_add(ctx, out, b, &lhs_val, &lhs_ty, &rhs_val, &rhs_ty)? { return Ok(r); }
 
     // Validation: Arithmetic ops require numerics
-    if matches!(b.op, syn::BinOp::Add(_) | syn::BinOp::Sub(_) | syn::BinOp::Mul(_) | syn::BinOp::Div(_) | syn::BinOp::Rem(_)) {
-        if (!lhs_ty.is_numeric() && !matches!(lhs_ty, Type::Tensor(..))) || (!rhs_ty.is_numeric() && !matches!(rhs_ty, Type::Tensor(..))) {
+    if matches!(b.op, syn::BinOp::Add(_) | syn::BinOp::Sub(_) | syn::BinOp::Mul(_) | syn::BinOp::Div(_) | syn::BinOp::Rem(_))
+        && ((!lhs_ty.is_numeric() && !matches!(lhs_ty, Type::Tensor(..))) || (!rhs_ty.is_numeric() && !matches!(rhs_ty, Type::Tensor(..)))) {
              return Err(format!("Arithmetic operator requires numeric or tensor operands, found {:?} and {:?}", lhs_ty, rhs_ty));
         }
-    }
 
     if matches!(lhs_ty, Type::Tensor(..)) && matches!(rhs_ty, Type::Tensor(..)) && !matches!(b.op, syn::BinOp::Shl(_) | syn::BinOp::Shr(_)) {
         if let Some(r) = emit_binary_tensor(ctx, out, b, &lhs_val, &lhs_ty, &rhs_val, &rhs_ty)? { return Ok(r); }
@@ -552,7 +546,7 @@ pub fn emit_logic(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBina
 
 pub fn emit_assign(ctx: &mut LoweringContext, out: &mut String, a: &syn::ExprAssign, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<(String, Type), String> {
     let (ptr, raw_ptr_ty, kind) = emit_lvalue(ctx, out, &a.left, local_vars)?;
-    let ptr_ty = raw_ptr_ty.substitute(&ctx.current_type_map());
+    let ptr_ty = raw_ptr_ty.substitute(ctx.current_type_map());
 
     let element_ty = match (&kind, &ptr_ty) {
         (LValueKind::Tensor { .. }, _) => ptr_ty.clone(),
@@ -573,9 +567,7 @@ pub fn emit_assign(ctx: &mut LoweringContext, out: &mut String, a: &syn::ExprAss
 
     apply_pointer_state_to_lhs(ctx, &a.left);
     mark_field_assign_escape(ctx, &a.right);
-    if let Err(msg) = check_arena_escape(ctx, &a.left, &a.right) {
-        return Err(msg);
-    }
+    check_arena_escape(ctx, &a.left, &a.right)?;
 
     let rhs_prom = promote_numeric(ctx, out, &rhs_val, &rhs_ty, &element_ty)?;
     
@@ -803,7 +795,7 @@ pub fn emit_cast(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCast,
     let syn_ty = crate::grammar::SynType::from_std(*c.ty.clone())
         .map_err(|e| format!("Invalid cast target type: {}", e))?;
     let raw_target_ty = resolve_type(ctx, &syn_ty);
-    let target_ty = raw_target_ty.substitute(&ctx.current_type_map());
+    let target_ty = raw_target_ty.substitute(ctx.current_type_map());
 
     if let Some(res) = emit_cast_to_stringview(ctx, out, &c.expr, &target_ty)? {
         return Ok(res);

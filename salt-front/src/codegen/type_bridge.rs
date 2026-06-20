@@ -367,7 +367,7 @@ fn promote_numeric_cast(ctx: &mut LoweringContext, out: &mut String, var: &str, 
 
     match (from, to) {
         (Type::Never, _) => {
-             let dst_ty_mlir = to.to_mlir_type(ctx).map_err(|e| e)?;
+             let dst_ty_mlir = to.to_mlir_type(ctx)?;
              out.push_str(&format!("    {} = llvm.mlir.undef : {}\n", res, dst_ty_mlir));
              return Ok(res);
         },
@@ -464,7 +464,7 @@ fn promote_numeric_cast(ctx: &mut LoweringContext, out: &mut String, var: &str, 
         (Type::Reference(_, _), Type::Reference(_, _)) => return Ok(var.to_string()),
         
         (Type::Reference(inner_from, _), to) if inner_from.as_ref() == to => {
-            let mlir_to = to.to_mlir_type(ctx).map_err(|e| e)?;
+            let mlir_to = to.to_mlir_type(ctx)?;
             out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> {}\n", res, var, mlir_to));
             return Ok(res);
         },
@@ -481,13 +481,13 @@ fn promote_numeric_cast(ctx: &mut LoweringContext, out: &mut String, var: &str, 
         }
         (from, Type::Bool) if from.is_integer() => {
              let zero = format!("%c0_{}", ctx.next_id());
-             let mlir_from = from.to_mlir_type(ctx).map_err(|e| e)?;
+             let mlir_from = from.to_mlir_type(ctx)?;
              ctx.emit_const_int(out, &zero, 0, &mlir_from);
              out.push_str(&format!("    {} = arith.cmpi \"ne\", {}, {} : {}\n", res, var, zero, mlir_from));
              return Ok(res);
         },
         (Type::Bool, to) if to.is_integer() => {
-             let dst_ty = to.to_mlir_type(ctx).map_err(|e| e)?;
+             let dst_ty = to.to_mlir_type(ctx)?;
              emit("arith.extui", "i1", &dst_ty);
              return Ok(res);
         }
@@ -519,7 +519,7 @@ fn promote_numeric_fallback(ctx: &mut LoweringContext, out: &mut String, var: &s
     if let (Ok(mlir_from), Ok(mlir_to)) = (from.to_mlir_type(ctx), to.to_mlir_type(ctx)) {
         if mlir_from == mlir_to {
              let registry = ctx.struct_registry();
-             if from.size_of(&registry) == to.size_of(&registry) {
+             if from.size_of(registry) == to.size_of(registry) {
                  return Ok(var.to_string());
              }
         }
@@ -564,7 +564,7 @@ fn promote_numeric_fallback(ctx: &mut LoweringContext, out: &mut String, var: &s
 }
 
 fn promote_array_packing(ctx: &mut LoweringContext, out: &mut String, var: &str, f_len: usize, to: &Type) -> Result<String, String> {
-     let packed_storage_ty = to.to_mlir_storage_type(ctx).map_err(|e| e)?;
+     let packed_storage_ty = to.to_mlir_storage_type(ctx)?;
      let mut current_packed = format!("%packed_prom_{}", ctx.next_id());
      out.push_str(&format!("    {} = llvm.mlir.zero : {}\n", current_packed, packed_storage_ty));
      
@@ -605,8 +605,8 @@ fn promote_array_packing(ctx: &mut LoweringContext, out: &mut String, var: &str,
 }
 
 fn promote_tuple(ctx: &mut LoweringContext, out: &mut String, var: &str, fs: &[Type], ts: &[Type], from: &Type, to: &Type, res: &str) -> Result<String, String> {
-     let target_mlir = to.to_mlir_storage_type(ctx).map_err(|e| e)?;
-     let src_mlir = from.to_mlir_storage_type(ctx).map_err(|e| e)?;
+     let target_mlir = to.to_mlir_storage_type(ctx)?;
+     let src_mlir = from.to_mlir_storage_type(ctx)?;
      
      let first_init = format!("{}_init", res.replace("%", ""));
      out.push_str(&format!("    %{} = llvm.mlir.undef : {}\n", first_init, target_mlir));
@@ -619,10 +619,7 @@ fn promote_tuple(ctx: &mut LoweringContext, out: &mut String, var: &str, fs: &[T
          
          let prom_elem = match promote_numeric(ctx, out, &elem_val, f_ty, t_ty) {
              Ok(r) => r,
-             Err(_) => match cast_numeric(ctx, out, &elem_val, f_ty, t_ty) {
-                 Ok(r) => r,
-                 Err(e) => return Err(e),
-             }
+             Err(_) => cast_numeric(ctx, out, &elem_val, f_ty, t_ty)?
          };
          
          let target_name = if i == fs.len() - 1 {
@@ -650,7 +647,7 @@ fn cast_pointer_and_references(
     res: &str,
 ) -> Result<Option<String>, String> {
     match (from, to) {
-        (Type::Reference(_, _), Type::Reference(_, _)) => return Ok(Some(var.to_string())),
+        (Type::Reference(_, _), Type::Reference(_, _)) => Ok(Some(var.to_string())),
         (Type::U64 | Type::Usize | Type::I64, Type::Pointer { .. }) => {
             let src_ty = from.to_mlir_type(ctx)?;
             let int_val = if src_ty != "i64" {
@@ -665,21 +662,21 @@ fn cast_pointer_and_references(
                 var.to_string()
             };
             out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", res, int_val));
-            return Ok(Some(res.to_string()));
+            Ok(Some(res.to_string()))
         }
         (Type::Pointer { .. }, Type::U64 | Type::Usize | Type::I64) => {
             out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", res, var));
-            return Ok(Some(res.to_string()));
+            Ok(Some(res.to_string()))
         }
         (Type::Array(ref _inner, _, _), Type::Pointer { .. }) => {
-            return Ok(Some(var.to_string()));
+            Ok(Some(var.to_string()))
         }
         (Type::Fn(_, _), Type::I64 | Type::U64) => {
             out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", res, var));
-            return Ok(Some(res.to_string()));
+            Ok(Some(res.to_string()))
         }
         (Type::Fn(_, _), Type::Pointer { .. }) => {
-            return Ok(Some(var.to_string()));
+            Ok(Some(var.to_string()))
         }
         (Type::U64 | Type::Usize | Type::I64, Type::Reference(_, _)) => {
             let src_ty = from.to_mlir_type(ctx)?;
@@ -695,11 +692,11 @@ fn cast_pointer_and_references(
                 var.to_string()
             };
             out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", res, int_val));
-            return Ok(Some(res.to_string()));
+            Ok(Some(res.to_string()))
         }
         (Type::Reference(_, _), Type::U64 | Type::Usize | Type::I64) => {
             out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", res, var));
-            return Ok(Some(res.to_string()));
+            Ok(Some(res.to_string()))
         }
         _ => Ok(None)
     }
@@ -742,19 +739,19 @@ pub fn cast_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, from
             let intermediate = format!("%idx_i64_{}", ctx.next_id());
             out.push_str(&format!("    {} = arith.index_cast {} : index to i64\n", intermediate, var));
             out.push_str(&format!("    {} = arith.trunci {} : i64 to i32\n", res, intermediate));
-            return Ok(res);
+            Ok(res)
         },
         (Type::Usize, Type::I16 | Type::U16) => {
             let intermediate = format!("%idx_i64_{}", ctx.next_id());
             out.push_str(&format!("    {} = arith.index_cast {} : index to i64\n", intermediate, var));
             out.push_str(&format!("    {} = arith.trunci {} : i64 to i16\n", res, intermediate));
-            return Ok(res);
+            Ok(res)
         },
         (Type::Usize, Type::I8 | Type::U8) => {
             let intermediate = format!("%idx_i64_{}", ctx.next_id());
             out.push_str(&format!("    {} = arith.index_cast {} : index to i64\n", intermediate, var));
             out.push_str(&format!("    {} = arith.trunci {} : i64 to i8\n", res, intermediate));
-            return Ok(res);
+            Ok(res)
         },
         
         // Generic Integer Truncation
@@ -762,7 +759,7 @@ pub fn cast_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, from
              let src_str = from.to_mlir_type(ctx)?;
              let dst_str = to.to_mlir_type(ctx)?;
              emit("arith.trunci", &src_str, &dst_str);
-             return Ok(res);
+             Ok(res)
         },
         
         // Generic Integer Extension (should have been handled by promote_numeric, but fallback here)
@@ -771,45 +768,45 @@ pub fn cast_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, from
              let src_str = from.to_mlir_type(ctx)?;
              let dst_str = to.to_mlir_type(ctx)?;
              emit(op, &src_str, &dst_str);
-             return Ok(res);
+             Ok(res)
         },
 
-        (Type::F64, Type::F32) => { emit("arith.truncf", "f64", "f32"); return Ok(res); },
+        (Type::F64, Type::F32) => { emit("arith.truncf", "f64", "f32"); Ok(res)},
         
         (Type::F32 | Type::F64, Type::I8 | Type::I32 | Type::I64) => {
              let src_str = from.to_mlir_type(ctx)?;
              let dst_str = to.to_mlir_type(ctx)?;
              emit("arith.fptosi", &src_str, &dst_str);
-             return Ok(res);
+             Ok(res)
         }
         (Type::F32 | Type::F64, Type::U8 | Type::U32 | Type::U64 | Type::Usize) => {
              let src_str = from.to_mlir_type(ctx)?;
              let dst_str = to.to_mlir_type(ctx)?;
              emit("arith.fptoui", &src_str, &dst_str);
-             return Ok(res);
+             Ok(res)
         }
         
         (Type::I8 | Type::I32 | Type::I64, Type::F32 | Type::F64) => {
              let src_str = from.to_mlir_type(ctx)?;
              let dst_str = to.to_mlir_type(ctx)?;
              emit("arith.sitofp", &src_str, &dst_str);
-             return Ok(res);
+             Ok(res)
         }
         (Type::U8 | Type::U32 | Type::U64 | Type::Usize, Type::F32 | Type::F64) => {
              let src_str = from.to_mlir_type(ctx)?;
              let dst_str = to.to_mlir_type(ctx)?;
              emit("arith.uitofp", &src_str, &dst_str);
-             return Ok(res);
+             Ok(res)
         }
 
         (Type::Struct(_) | Type::Concrete(..), Type::Struct(_) | Type::Concrete(..)) => {
              // SOUNDNESS CHECK: Validate layout compatibility before cast
              if !prove_layout_compatibility_ctx(ctx, from, to) {
                  let struct_registry = ctx.struct_registry();
-                 let size_from = from.size_of(&struct_registry);
-                 let size_to = to.size_of(&struct_registry);
-                 let align_from = from.align_of(&struct_registry);
-                 let align_to = to.align_of(&struct_registry);
+                 let size_from = from.size_of(struct_registry);
+                 let size_to = to.size_of(struct_registry);
+                 let align_from = from.align_of(struct_registry);
+                 let align_to = to.align_of(struct_registry);
                  let _ = struct_registry; // Release borrow
                  
                  return Err(format!(
@@ -829,14 +826,14 @@ pub fn cast_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, from
                  "    {} = llvm.bitcast {} : {} to {}\n",
                  res, var, src_ty_mlir, dst_ty_mlir
              ));
-             return Ok(res);
+             Ok(res)
         },
 
         _ => {
             if let Some(r) = cast_pointer_and_references(ctx, out, var, from, to, &res)? {
                 return Ok(r);
             }
-            return Err(format!("Unsupported explicit cast {} -> {}", from.mangle_suffix(), to.mangle_suffix()));
+            Err(format!("Unsupported explicit cast {} -> {}", from.mangle_suffix(), to.mangle_suffix()))
         }
     }
 }
@@ -941,7 +938,7 @@ pub fn prove_layout_compatibility(struct_registry: &std::collections::HashMap<cr
 /// Convenience wrapper: extracts struct_registry from CodegenContext.
 pub fn prove_layout_compatibility_ctx(ctx: &mut LoweringContext, from: &Type, to: &Type) -> bool {
     let reg = ctx.struct_registry();
-    prove_layout_compatibility(&reg, from, to)
+    prove_layout_compatibility(reg, from, to)
 }
 
 /// Recursively substitute generic placeholders using current_type_map.
@@ -1044,7 +1041,7 @@ pub fn substitute_generics(type_map: &std::collections::BTreeMap<String, Type>, 
 /// Convenience wrapper: extracts type_map from CodegenContext.
 pub fn substitute_generics_ctx(ctx: &mut LoweringContext, ty: &Type) -> Type {
     let type_map = ctx.current_type_map();
-    substitute_generics(&type_map, ty)
+    substitute_generics(type_map, ty)
 }
 
 /// Top-level helper for MLIR Type Lowering
@@ -1115,7 +1112,7 @@ pub fn to_mlir_type(ctx: &mut LoweringContext, ty: &Type) -> Result<String, Stri
             fn has_unresolved_generic(ty: &Type) -> bool {
                 match ty {
                     Type::Generic(_) => true,
-                    Type::Struct(n) if n.len() == 1 && n.chars().next().map_or(false, |c| c.is_ascii_uppercase()) => true,
+                    Type::Struct(n) if n.len() == 1 && n.chars().next().is_some_and(|c| c.is_ascii_uppercase()) => true,
                     Type::Concrete(_, inner_args) => inner_args.iter().any(has_unresolved_generic),
                     Type::Pointer { element, .. } => has_unresolved_generic(element),
                     Type::Reference(inner, _) => has_unresolved_generic(inner),
@@ -1190,7 +1187,7 @@ fn resolve_codegen_type_self(ctx: &mut LoweringContext, _flattened: &Type) -> Ty
         res = Some(concrete_ty);
     }
     if res.is_none() {
-        if let Some(self_ty) = &*ctx.current_self_ty() {
+        if let Some(self_ty) = ctx.current_self_ty() {
             res = Some(self_ty.clone());
         }
     }
@@ -1404,11 +1401,10 @@ fn resolve_codegen_type_concrete(ctx: &mut LoweringContext, base_name: &str, tar
         }
 
         let is_enum = ctx.enum_templates().contains_key(&resolved_base);
-        if ctx.struct_templates().contains_key(&resolved_base) || is_enum {
-            if !ctx.suppress_specialization.get() {
+        if (ctx.struct_templates().contains_key(&resolved_base) || is_enum)
+            && !ctx.suppress_specialization.get() {
                 let _ = ctx.specialize_template(&resolved_base, &resolved_params, is_enum);
             }
-        }
         Type::Concrete(resolved_base, resolved_params)
     }
 }
@@ -1472,8 +1468,8 @@ pub fn resolve_type(ctx: &mut LoweringContext, ty: &crate::grammar::SynType) -> 
 
     if let crate::grammar::SynType::Path(tp) = ty {
         if let Some(seg) = tp.segments.last() {
-            if seg.ident == "Tensor" {
-                 if seg.args.len() >= 2 {
+            if seg.ident == "Tensor"
+                 && seg.args.len() >= 2 {
                      let inner_syn = &seg.args[0];
                      let inner = resolve_type(ctx, inner_syn);
                      let mut shape = Vec::new();
@@ -1512,7 +1508,6 @@ pub fn resolve_type(ctx: &mut LoweringContext, ty: &crate::grammar::SynType) -> 
                      }
                      return Type::Tensor(Box::new(inner), shape);
                  }
-            }
         }
     }
 
@@ -2138,7 +2133,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
 
                         (name.clone(), args.clone())
                     } else if let Type::Pointer { element, .. } = st {
-                        let canonical_element = crate::codegen::type_bridge::resolve_codegen_type(self, &(**element));
+                        let canonical_element = crate::codegen::type_bridge::resolve_codegen_type(self, element);
                         ("std__core__ptr__Ptr".to_string(), vec![canonical_element])
                     } else {
                         ("".to_string(), vec![])
@@ -2313,10 +2308,10 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         }
 
         // 4. Self-Identity Guard (If inside the struct being simplified)
-        if let Some(Type::Struct(self_name)) = &*self.current_self_ty() {
+        if let Some(Type::Struct(self_name)) = self.current_self_ty() {
             if *self_name == mangled { return Ok(key); }
         }
-        if let Some(Type::Enum(self_name)) = &*self.current_self_ty() {
+        if let Some(Type::Enum(self_name)) = self.current_self_ty() {
              if *self_name == mangled { return Ok(key); }
         }
 
@@ -2422,12 +2417,10 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                         *entry = info;
                     }
                 }
-            } else {
-                if let Ok(info) = self.expand_template_structure(&task.template_name, &task.args) {
-                    // Commit to Registry
-                    if let Some(entry) = self.struct_registry_mut().get_mut(&key) {
-                        *entry = info;
-                    }
+            } else if let Ok(info) = self.expand_template_structure(&task.template_name, &task.args) {
+                // Commit to Registry
+                if let Some(entry) = self.struct_registry_mut().get_mut(&key) {
+                    *entry = info;
                 }
             };
 
@@ -2544,7 +2537,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                                 }
                                 
                                 // Concrete (non-template) structs can be aliased directly
-                                for (s_name, _) in &mod_info.structs {
+                                for s_name in mod_info.structs.keys() {
                                      let mangled = format!("{}{}", pkg_prefix_ident, s_name);
                                      let mangled_ident = syn::Ident::new(&mangled, proc_macro2::Span::call_site());
                                      let mut p = syn::punctuated::Punctuated::new();
@@ -2661,8 +2654,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                          continue; 
                      }
                  }
-             } else {
-             }
+             } 
 
              let full_name = format!("{}__{}", template_name, method_name);
              let self_ty = Type::Concrete(template_name.to_string(), args.to_vec());
@@ -2727,7 +2719,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         for (idx, v) in variants.iter().enumerate() {
              let p_ty = v.ty.as_ref().map(|sy| crate::codegen::type_bridge::resolve_type(self, sy));
              if let Some(ref ty) = p_ty {
-                 let size = ty.size_of(&*self.struct_registry());
+                 let size = ty.size_of(self.struct_registry());
                  if size > max_payload_size { max_payload_size = size; }
              }
              resolved_variants.push((v.name.to_string(), p_ty, idx as i32));

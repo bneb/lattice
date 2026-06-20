@@ -584,7 +584,7 @@ impl CfgBuilder {
 
             // Check: is this a while/loop with yield inside?
             match &stmt.kind {
-                StmtKind::While { cond, body } if body.stmts.iter().any(|s| contains_yield(s)) => {
+                StmtKind::While { cond, body } if body.stmts.iter().any(contains_yield) => {
                     // Emit current accumulated stmts as a Goto to the condition block
                     let cond_id = self.alloc_id();
                     self.push_block(BasicBlock {
@@ -633,7 +633,7 @@ impl CfgBuilder {
                     continue;
                 }
 
-                StmtKind::Loop(body) if body.stmts.iter().any(|s| contains_yield(s)) => {
+                StmtKind::Loop(body) if body.stmts.iter().any(contains_yield) => {
                     // loop { body } → unconditional entry into body, body loops back
                     let loop_start_id = self.alloc_id();
                     self.push_block(BasicBlock {
@@ -655,10 +655,10 @@ impl CfgBuilder {
 
                 StmtKind::Expr(expr) | StmtKind::Semi(expr) => {
                     if let ExprKind::If { cond, then_branch, else_branch } = &expr.kind {
-                        let then_has_yield = then_branch.stmts.iter().any(|s| contains_yield(s));
-                        let else_has_yield = else_branch.as_ref().map_or(false, |e| {
+                        let then_has_yield = then_branch.stmts.iter().any(contains_yield);
+                        let else_has_yield = else_branch.as_ref().is_some_and(|e| {
                             if let ExprKind::Block(b) = &e.kind {
-                                b.stmts.iter().any(|s| contains_yield(s))
+                                b.stmts.iter().any(contains_yield)
                             } else {
                                 expr_contains_yield(e)
                             }
@@ -1105,18 +1105,18 @@ fn contains_yield(stmt: &Stmt) -> bool {
     match &stmt.kind {
         StmtKind::Expr(expr) | StmtKind::Semi(expr) => expr_contains_yield(expr),
         StmtKind::Local(local) => {
-            local.init.as_ref().map_or(false, |e| expr_contains_yield(e))
+            local.init.as_ref().is_some_and(expr_contains_yield)
         }
         StmtKind::While { cond, body } => {
             expr_contains_yield(cond)
-                || body.stmts.iter().any(|s| contains_yield(s))
+                || body.stmts.iter().any(contains_yield)
         }
         StmtKind::For { iter, body, .. } => {
             expr_contains_yield(iter)
-                || body.stmts.iter().any(|s| contains_yield(s))
+                || body.stmts.iter().any(contains_yield)
         }
-        StmtKind::Loop(body) => body.stmts.iter().any(|s| contains_yield(s)),
-        StmtKind::Return(opt) => opt.as_ref().map_or(false, |e| expr_contains_yield(e)),
+        StmtKind::Loop(body) => body.stmts.iter().any(contains_yield),
+        StmtKind::Return(opt) => opt.as_ref().is_some_and(expr_contains_yield),
         StmtKind::Assume(expr) => expr_contains_yield(expr),
         _ => false,
     }
@@ -1127,8 +1127,8 @@ fn expr_contains_yield(expr: &Expr) -> bool {
     match &expr.kind {
         ExprKind::Yield(_) => true,
         ExprKind::Block(block) => {
-            block.stmts.iter().any(|s| contains_yield(s))
-                || block.value.as_ref().map_or(false, |e| expr_contains_yield(e))
+            block.stmts.iter().any(contains_yield)
+                || block.value.as_ref().is_some_and(|e| expr_contains_yield(e))
         }
         ExprKind::Binary { lhs, rhs, .. } => {
             expr_contains_yield(lhs) || expr_contains_yield(rhs)
@@ -1139,8 +1139,8 @@ fn expr_contains_yield(expr: &Expr) -> bool {
         }
         ExprKind::If { cond, then_branch, else_branch } => {
             expr_contains_yield(cond)
-                || then_branch.stmts.iter().any(|s| contains_yield(s))
-                || else_branch.as_ref().map_or(false, |e| expr_contains_yield(e))
+                || then_branch.stmts.iter().any(contains_yield)
+                || else_branch.as_ref().is_some_and(|e| expr_contains_yield(e))
         }
         _ => false,
     }

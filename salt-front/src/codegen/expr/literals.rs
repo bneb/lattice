@@ -263,11 +263,10 @@ fn resolve_local_variable_path(
                 return Err(format!("Use of uninitialized pointer variable: {}", name));
             }
             let is_dynamic = *ctx.is_dynamic_check_block() || ctx.emission.in_dynamic_check_fn;
-                    if !is_dynamic {
-                if state == crate::codegen::verification::PointerState::Freed {
+                    if !is_dynamic
+                && state == crate::codegen::verification::PointerState::Freed {
                     return Err(format!("Use of freed pointer variable: {}", name));
                 }
-            }
         }
         match kind {
             LocalKind::SSA(val) => return Ok(Some((val.clone(), ty.clone()))),
@@ -404,7 +403,7 @@ fn resolve_global_variable_path(
              let val_loaded = format!("%global_val_{}", ctx.next_id());
              ctx.emit_load_logical_with_scope(out, &val_loaded, &ptr, &ty, scopes)?;
              
-             return Ok(Some((val_loaded, ty.clone())));
+             Ok(Some((val_loaded, ty.clone())))
         },
         None => Ok(None)
     }
@@ -468,7 +467,7 @@ fn resolve_enum_variant_full(
     let variant_name = segments.last().ok_or_else(|| "Empty segments in Enum Variant Lookup".to_string())?;
     
     let mut resolved_enum_name = enum_name.clone();
-    for imp in &*ctx.imports() {
+    for imp in ctx.imports() {
          if let Some(alias) = &imp.alias {
              if alias.to_string() == *enum_name {
                  resolved_enum_name = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
@@ -501,9 +500,9 @@ fn resolve_enum_variant_full(
         }
     }
 
-    let found_enum = if let Some(_) = ctx.enum_registry().values().find(|i| i.name == resolved_enum_name) {
+    let found_enum = if ctx.enum_registry().values().find(|i| i.name == resolved_enum_name).is_some() {
          Some(Type::Enum(resolved_enum_name.clone()))
-    } else if let Some(_) = ctx.enum_templates().get(&resolved_enum_name) {
+    } else if ctx.enum_templates().get(&resolved_enum_name).is_some() {
          if !generic_args.is_empty() {
              Some(Type::Concrete(resolved_enum_name.clone(), generic_args))
          } else {
@@ -591,10 +590,10 @@ fn resolve_generics_and_functions(
                 };
                 if my_mangled == mangled_fn {
                     let arg_types: Vec<Type> = f.args.iter().filter_map(|arg| {
-                        arg.ty.as_ref().and_then(|t| Type::from_syn(t))
+                        arg.ty.as_ref().and_then(Type::from_syn)
                     }).collect();
                     let ret_type = f.ret_type.as_ref()
-                        .and_then(|t| Type::from_syn(t))
+                        .and_then(Type::from_syn)
                         .unwrap_or(Type::Unit);
                     Some((mangled_fn.clone(), Type::Fn(arg_types, Box::new(ret_type))))
                 } else {
@@ -867,7 +866,7 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
     let raw_resolved_ty = resolve_type(ctx, &syn_ty);
     // Apply generic substitution for struct literals in specialized method contexts
     // This ensures RawVec in RawVec<T>::new() resolves to RawVec_u8 when T=u8
-    let resolved_ty = raw_resolved_ty.substitute(&ctx.current_type_map());
+    let resolved_ty = raw_resolved_ty.substitute(ctx.current_type_map());
     
     // Check if this struct literal matches the current impl context
     // If we're inside RawVec<T>::new() and the struct literal is RawVec { ... }, 
@@ -984,7 +983,7 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
              let field_name = info.fields.iter().find(|(_, (idx, _))| *idx == i).map(|(k, _)| k).ok_or_else(|| format!("Field index {} not found", i))?;
              if let Some((val, actual_ty)) = field_vals.get(field_name) {
                   let next_struct = format!("%struct_step_{}", ctx.next_id());
-                  let concrete_field_ty = field_ty.substitute(&ctx.current_type_map());
+                  let concrete_field_ty = field_ty.substitute(ctx.current_type_map());
                   let val_prom = promote_numeric(ctx, out, val, actual_ty, &concrete_field_ty)?;
                   let phys_idx = ctx.get_physical_index(&info.field_order, i);
                   ctx.emit_insertvalue_logical(out, &next_struct, &val_prom, &current_struct, phys_idx, &mlir_ty, &concrete_field_ty)?;
@@ -1034,7 +1033,7 @@ pub(crate) fn emit_enum_constructor(
     let max_size = if let Some(ei) = enum_info { 
         ei.max_payload_size 
     } else {
-        info.payload_ty.as_ref().map(|t| t.size_of(&*ctx.struct_registry())).unwrap_or(0)
+        info.payload_ty.as_ref().map(|t| t.size_of(ctx.struct_registry())).unwrap_or(0)
     };
     
 

@@ -182,7 +182,7 @@ impl<'a> TypeTracer for CodegenContext<'a> {
         };
         
         if let Some(struct_def) = self.struct_templates().get(base_name.as_str()) {
-             if let Some(f) = struct_def.fields.iter().find(|f| f.name.to_string() == field_name) {
+             if let Some(f) = struct_def.fields.iter().find(|f| f.name == field_name) {
                   let raw_field_ty = Type::from_syn(&f.ty).unwrap_or(Type::Unit);
                   // Canonicalize raw struct names from AST to FQNs
                   let field_ty = self.canonicalize_type(&raw_field_ty);
@@ -408,7 +408,7 @@ impl<'a, 'ctx> TypeTracer for crate::codegen::context::LoweringContext<'a, 'ctx>
             _ => return Err(format!("Cannot access field '{}' on non-struct type {:?}", field_name, current)),
         };
         if let Some(struct_def) = self.struct_templates().get(base_name.as_str()) {
-            if let Some(f) = struct_def.fields.iter().find(|f| f.name.to_string() == field_name) {
+            if let Some(f) = struct_def.fields.iter().find(|f| f.name == field_name) {
                 let raw_field_ty = Type::from_syn(&f.ty).unwrap_or(Type::Unit);
                 let field_ty = self.canonicalize_type(&raw_field_ty);
                 let mut map = BTreeMap::new();

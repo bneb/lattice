@@ -20,6 +20,12 @@ pub struct MallocTracker {
     dependencies: HashMap<String, Vec<String>>,
 }
 
+impl Default for MallocTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MallocTracker {
     pub fn new() -> Self {
         Self {

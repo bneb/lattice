@@ -57,7 +57,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
         // Compute struct-level generic names for filtering downstream
         // func.generics.params = [impl_params... , method_params...] by convention
         let struct_generic_names: Vec<String> = struct_generics
-            .map(|sg| sg.iter().map(|p| generic_param_name(p)).collect())
+            .map(|sg| sg.iter().map(generic_param_name).collect())
             .unwrap_or_default();
 
         // ── Phase 1: Turbofish (explicit generics) ──────────────────────
@@ -147,9 +147,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
                         continue;
                     }
                     let name = generic_param_name(param);
-                    if !map.contains_key(&name) {
-                        map.insert(name, arg.clone());
-                    }
+                    map.entry(name).or_insert_with(|| arg.clone());
                 }
             }
         }
@@ -172,7 +170,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
         // For method calls, skip `self` parameter (index 0 in template.args)
         // call_arg_exprs doesn't include `self` — it's the explicit args only
         let is_method = template.args.first()
-            .map(|a| a.name.to_string() == "self")
+            .map(|a| a.name == "self")
             .unwrap_or(false);
         let param_offset = if is_method { 1 } else { 0 };
 
@@ -215,11 +213,8 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
                 let dummy_call: syn::ExprCall = syn::parse_quote! { #p() };
                 let mut resolver = crate::codegen::expr::resolver::CallSiteResolver::new(self.ctx);
                 if let Ok(resolved) = resolver.resolve_call(&dummy_call, local_vars, None) {
-                    match resolved {
-                        crate::codegen::expr::resolver::CallKind::Function(_, ret_ty, param_tys, _) => {
-                            return Some(Type::Fn(param_tys, Box::new(ret_ty)));
-                        },
-                        _ => {}
+                    if let crate::codegen::expr::resolver::CallKind::Function(_, ret_ty, param_tys, _) = resolved {
+                        return Some(Type::Fn(param_tys, Box::new(ret_ty)));
                     }
                 }
             }
@@ -236,7 +231,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
         map: &mut BTreeMap<String, Type>,
     ) -> Result<(), String> {
         let is_instance_method = template.args.first()
-            .map(|arg| arg.name.to_string() == "self")
+            .map(|arg| arg.name == "self")
             .unwrap_or(false);
 
         if is_instance_method {
@@ -304,7 +299,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
     ) {
         if let Some(generics) = &template.generics {
             let declared: Vec<String> = generics.params.iter()
-                .map(|p| generic_param_name(p))
+                .map(generic_param_name)
                 .collect();
             infer_phantom_generics(&declared, map);
         }
@@ -322,7 +317,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
     ) {
         if let Some(generics) = &template.generics {
             let method_only_declared: Vec<String> = generics.params.iter()
-                .map(|p| generic_param_name(p))
+                .map(generic_param_name)
                 .filter(|name| !struct_generic_names.contains(name))
                 .collect();
             infer_phantom_generics(&method_only_declared, map);
@@ -344,7 +339,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
         // Only check method-level generics (skip struct-level)
         let required: Vec<String> = template.generics.as_ref()
             .map(|g| g.params.iter()
-                .map(|p| generic_param_name(p))
+                .map(generic_param_name)
                 .filter(|name| !struct_generic_names.contains(name))
                 .collect::<Vec<_>>())
             .unwrap_or_default();
@@ -372,7 +367,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
     ) -> Result<(), String> {
         // Check function-level generics
         let required = template.generics.as_ref()
-            .map(|g| g.params.iter().map(|p| generic_param_name(p)).collect::<Vec<_>>())
+            .map(|g| g.params.iter().map(generic_param_name).collect::<Vec<_>>())
             .unwrap_or_default();
 
         for req in &required {
@@ -433,7 +428,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
         // Without this, resolve_type produces Struct("T") (not Generic("T")),
         // and unify_types can't bind it against the concrete expected type.
         let declared: Vec<String> = template.generics.as_ref()
-            .map(|g| g.params.iter().map(|p| generic_param_name(p)).collect())
+            .map(|g| g.params.iter().map(generic_param_name).collect())
             .unwrap_or_default();
         let normalized = normalize_generics(&template_ret_ty, &declared);
 
@@ -445,7 +440,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
     /// Collect all declared generic param names from a function template.
     fn get_declared_generic_names(&mut self, template: &SaltFn) -> Vec<String> {
         template.generics.as_ref()
-            .map(|g| g.params.iter().map(|p| generic_param_name(p)).collect())
+            .map(|g| g.params.iter().map(generic_param_name).collect())
             .unwrap_or_default()
     }
 
@@ -453,7 +448,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
     fn get_unmapped_generics(&mut self, template: &SaltFn, map: &BTreeMap<String, Type>) -> Vec<String> {
         template.generics.as_ref()
             .map(|g| g.params.iter()
-                .map(|p| generic_param_name(p))
+                .map(generic_param_name)
                 .filter(|name| !map.contains_key(name))
                 .collect())
             .unwrap_or_default()

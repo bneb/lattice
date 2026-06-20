@@ -11,7 +11,7 @@ pub struct GenericContextGuard<'b, 'a> {
 impl<'b, 'a> GenericContextGuard<'b, 'a> {
     pub fn new(ctx: &'b CodegenContext<'a>, new_args: std::collections::BTreeMap<String, Type>, self_ty: Type, ordered_args: Vec<Type>) -> Self {
         let old_args = std::mem::replace(&mut *ctx.current_type_map_mut(), new_args);
-        let old_self = std::mem::replace(&mut *ctx.current_self_ty_mut(), Some(self_ty));
+        let old_self = (*ctx.current_self_ty_mut()).replace(self_ty);
         let old_ordered_args = std::mem::replace(&mut *ctx.current_generic_args_mut(), ordered_args);
         Self { ctx, old_args, old_self, old_ordered_args }
     }

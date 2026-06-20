@@ -482,12 +482,12 @@ fn emit_ptr_offset(
     out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", new_addr, gep_ptr));
     
     if struct_ty == "i64" {
-         return Ok(Some((new_addr, ptr_ty)));
+         Ok(Some((new_addr, ptr_ty)))
     } else {
         out.push_str(&format!("    {} = llvm.mlir.undef : {}\n", res, struct_ty));
         let res_final = format!("%res_final_{}", ctx.next_id());
         ctx.emit_insertvalue(out, &res_final, &new_addr, &res, 0, &struct_ty);
-        return Ok(Some((res_final, ptr_ty)));
+        Ok(Some((res_final, ptr_ty)))
     }
 }
 
@@ -568,7 +568,7 @@ fn emit_ptr_read(
     
     let res = format!("%ptr_read_{}", ctx.next_id());
     ctx.emit_load_logical(out, &res, &load_ptr, &inner_ty)?;
-    return Ok(Some((res, inner_ty)));
+    Ok(Some((res, inner_ty)))
 }
 
 fn emit_ptr_write(
@@ -633,7 +633,7 @@ fn emit_ptr_write(
     };
     
     ctx.emit_store_logical(out, &val, &raw_ptr, &inner_ty)?;
-    return Ok(Some(("%unit".to_string(), Type::Unit)));
+    Ok(Some(("%unit".to_string(), Type::Unit)))
 }
 
 fn emit_from_ref(

@@ -347,8 +347,8 @@ impl TraitRegistry {
     ) {
         // Extract parameter types from function signature (skip 'self' parameter)
         let param_types: Vec<Type> = func.args.iter()
-            .filter(|arg| arg.name.to_string() != "self")
-            .filter_map(|arg| arg.ty.as_ref().and_then(|t| Type::from_syn(t)))
+            .filter(|arg| arg.name != "self")
+            .filter_map(|arg| arg.ty.as_ref().and_then(Type::from_syn))
             .collect();
         
         let key = MethodKey::new(receiver, func.name.to_string(), &param_types);
@@ -364,7 +364,7 @@ impl TraitRegistry {
     /// Used by context.find_methods_for_template.
     pub fn find_methods_for_type(&self, template_name: &str) -> Vec<String> {
         let mut methods = Vec::new();
-        for (key, _) in &self.method_index {
+        for key in self.method_index.keys() {
             if key.receiver_type.name == template_name || key.receiver_type.mangle() == template_name {
                 methods.push(key.method_name.clone());
             }

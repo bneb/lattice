@@ -354,8 +354,6 @@ impl NameResolver {
 
                 if p.segments.len() == 1 {
                     let name = p.segments[0].ident.to_string();
-                    if name == "F2" {
-                    }
                     if self.local_generics.contains(&name) {
                         return; // It's a local generic, keep it raw
                     }

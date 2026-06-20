@@ -308,7 +308,7 @@ fn emit_matmul_method(
             return Ok(Some((c_ptr, ptr_ty)));
         }
         
-        return Err(format!("matmul: unsupported operand ranks: {} @ {}", a_rank, b_rank));
+        Err(format!("matmul: unsupported operand ranks: {} @ {}", a_rank, b_rank))
     }
     
 
@@ -392,11 +392,11 @@ fn emit_ufcs_method(
                 out.push_str("    }\n");
                 
                 // Return receiver for chaining
-                return Ok(Some((receiver_val, receiver_ty)));
+                Ok(Some((receiver_val, receiver_ty)))
             },
             "relu" => {
                 // relu(dst, size) - in-place ReLU
-                if emitted_args.len() < 1 {
+                if emitted_args.is_empty() {
                     return Err("relu expects at least 1 argument: (dst, size)".to_string());
                 }
                 let dst_ptr = &emitted_args[0].0;
@@ -432,7 +432,7 @@ fn emit_ufcs_method(
                 out.push_str("    }\n");
                 
                 // Return receiver for chaining
-                return Ok(Some((receiver_val, receiver_ty)));
+                Ok(Some((receiver_val, receiver_ty)))
             },
             "copy_from" => {
                 // copy_from(dst, size, src) - copy src to dst
@@ -471,7 +471,7 @@ fn emit_ufcs_method(
                 out.push_str("    }\n");
                 
                 // Return receiver for chaining
-                return Ok(Some((receiver_val, receiver_ty)));
+                Ok(Some((receiver_val, receiver_ty)))
             },
             _ => {
                 // [GENERALIZED PLACEHOLDER] Universal _ forwarding for ANY method.
@@ -504,7 +504,7 @@ fn emit_ufcs_method(
                 modified.args = new_args;
                 
                 // Recurse through normal dispatch (no longer has Infer nodes)
-                return emit_method_call(ctx, out, &modified, local_vars, expected_ty).map(Some);
+                emit_method_call(ctx, out, &modified, local_vars, expected_ty).map(Some)
             }
         }
         // All match arms return — this is never reached
@@ -796,8 +796,8 @@ fn emit_tensor_method(
             return Ok(Some((res, receiver_ty.clone())));
         } else if method == "fill" {
             if let Some(arg_expr) = m.args.first() {
-                let (val, ty) = emit_expr(ctx, out, arg_expr, local_vars, Some(&inner))?;
-                let val_prom = promote_numeric(ctx, out, &val, &ty, &inner)?;
+                let (val, ty) = emit_expr(ctx, out, arg_expr, local_vars, Some(inner))?;
+                let val_prom = promote_numeric(ctx, out, &val, &ty, inner)?;
                 let res = format!("%fill_{}", ctx.next_id());
                 let mlir_ty = receiver_ty.to_mlir_type(ctx)?;
                 let elem_mlir = inner.to_mlir_storage_type(ctx)?;

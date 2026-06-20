@@ -613,9 +613,7 @@ fn emit_return_expr(ctx: &mut LoweringContext, out: &mut String, r: &syn::ExprRe
                 // return x is valid iff depth(x) <= 1.
                 // A pointer from a local arena (depth >= 2) cannot escape.
                 if let Some(var_name) = extract_return_var_name_from_expr(e) {
-                    if let Err(msg) = ctx.arena_escape_tracker.check_return_escape(&var_name) {
-                        return Err(msg);
-                    }
+                    ctx.arena_escape_tracker.check_return_escape(&var_name)?
                 }
 
                 let mut val = val_raw;
@@ -648,7 +646,7 @@ fn emit_return_expr(ctx: &mut LoweringContext, out: &mut String, r: &syn::ExprRe
                     let (requires, param_names) = file_items.iter()
                         .filter_map(|item| {
                             if let crate::grammar::Item::Fn(f) = item {
-                                if f.name.to_string() == fn_name || fn_name.ends_with(&f.name.to_string()) {
+                                if f.name == fn_name || fn_name.ends_with(&f.name.to_string()) {
                                     let params: Vec<String> = f.args.iter().map(|a| a.name.to_string()).collect();
                                     return Some((f.requires.clone(), params));
                                 }
@@ -1178,7 +1176,7 @@ fn emit_lvalue_field_reference(ctx: &mut LoweringContext, out: &mut String, f: &
                 info_opt = best_match;
             }
 
-            let info = info_opt.expect(&format!("Struct info missing for '{}'", sn));
+            let info = info_opt.unwrap_or_else(|| panic!("Struct info missing for '{}'", sn));
 
             if let Some((idx, field_ty)) = info.fields.get(&field_name) {
                 let gep_var = format!("%gep_f_{}", ctx.next_id());
@@ -1235,7 +1233,7 @@ fn emit_lvalue_field_pointer(ctx: &mut LoweringContext, out: &mut String, f: &sy
                 }
                 info_opt = best_match;
             }
-            let info = info_opt.expect(&format!("Struct info missing for '{}' in Ptr<T> field access", sn));
+            let info = info_opt.unwrap_or_else(|| panic!("Struct info missing for '{}' in Ptr<T> field access", sn));
 
             if let Some((idx, raw_field_ty)) = info.fields.get(&field_name) {
                 let local_spec_map = build_local_spec_map(ctx, &info);
@@ -1558,7 +1556,7 @@ fn resolve_fstring_expr_type(
     // 4. Integer literal detection
     if trimmed.parse::<i64>().is_ok() {
         // Check if it fits in i32
-        if let Ok(_) = trimmed.parse::<i32>() {
+        if trimmed.parse::<i32>().is_ok() {
             return Some(Type::I32);
         }
         return Some(Type::I64);

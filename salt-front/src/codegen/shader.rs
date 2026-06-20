@@ -313,7 +313,7 @@ pub fn expr_to_msl(expr: &syn::Expr) -> String {
         syn::Expr::Paren(p) => format!("({})", expr_to_msl(&p.expr)),
         syn::Expr::Unary(u) => format!("{}{}", quote::quote!(#u.op).to_string().trim(), expr_to_msl(&u.expr)),
         syn::Expr::Assign(assign) => format!("{} = {}", expr_to_msl(&assign.left), expr_to_msl(&assign.right)),
-        syn::Expr::Field(field) => format!("{}.{}", expr_to_msl(&field.base), quote::quote!(#field.member).to_string()),
+        syn::Expr::Field(field) => format!("{}.{}", expr_to_msl(&field.base), quote::quote!(#field.member)),
         syn::Expr::Cast(cast) => expr_to_msl_cast(cast),
         syn::Expr::Block(block) => {
             let stmts: Vec<String> = block.block.stmts.iter().map(|s| quote::quote!(#s).to_string()).collect();
@@ -353,14 +353,14 @@ fn expr_to_msl_call(call: &syn::ExprCall) -> String {
     if func_name == "tid" || func_name == "thread_id" {
         return "tid".to_string();
     }
-    let args: Vec<String> = call.args.iter().map(|a| expr_to_msl(a)).collect();
+    let args: Vec<String> = call.args.iter().map(expr_to_msl).collect();
     format!("{}({})", func_name, args.join(", "))
 }
 
 fn expr_to_msl_method_call(mc: &syn::ExprMethodCall) -> String {
     let receiver = expr_to_msl(&mc.receiver);
     let method = mc.method.to_string();
-    let args: Vec<String> = mc.args.iter().map(|a| expr_to_msl(a)).collect();
+    let args: Vec<String> = mc.args.iter().map(expr_to_msl).collect();
     match method.as_str() {
         "read_at" => format!("{}[{}]", receiver, args.join(", ")),
         "write_at" => format!("{}[{}] = {}", receiver, 

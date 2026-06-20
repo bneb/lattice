@@ -127,7 +127,7 @@ pub fn verify_pulse_bounds(
 
 /// Score a single basic block by summing the costs of its statements.
 fn score_block(block: &BasicBlock) -> i64 {
-    block.stmts.iter().map(|s| score_stmt(s)).sum()
+    block.stmts.iter().map(score_stmt).sum()
 }
 
 /// Score a statement.
@@ -135,17 +135,17 @@ fn score_stmt(stmt: &Stmt) -> i64 {
     match &stmt.kind {
         StmtKind::Expr(expr) | StmtKind::Semi(expr) => score_expr(expr),
         StmtKind::Local(local) => {
-            local.init.as_ref().map_or(0, |e| score_expr(e))
+            local.init.as_ref().map_or(0, score_expr)
         }
         StmtKind::While { cond, body } => {
             // Bounded while: estimate iterations from loop bound
             // For now, treat as bounded(10) × body_cost as conservative default
             let cond_cost = score_expr(cond);
-            let body_cost: i64 = body.stmts.iter().map(|s| score_stmt(s)).sum();
+            let body_cost: i64 = body.stmts.iter().map(score_stmt).sum();
             cond_cost + 10 * (cond_cost + body_cost)
         }
         StmtKind::For { body, .. } => {
-            let body_cost: i64 = body.stmts.iter().map(|s| score_stmt(s)).sum();
+            let body_cost: i64 = body.stmts.iter().map(score_stmt).sum();
             10 * body_cost // Conservative default: 10 iterations
         }
         StmtKind::Loop(_body) => {
@@ -174,7 +174,7 @@ fn score_expr(expr: &Expr) -> i64 {
         }
         ExprKind::Unary { expr: inner, .. } => score_expr(inner) + 1,
         ExprKind::Call { callee, args } => {
-            let args_cost: i64 = args.iter().map(|a| score_expr(a)).sum();
+            let args_cost: i64 = args.iter().map(score_expr).sum();
             score_expr(callee) + args_cost + 5 // function call = 5 cycles
         }
         ExprKind::Assign { lhs, rhs } => {
@@ -188,16 +188,16 @@ fn score_expr(expr: &Expr) -> i64 {
         ExprKind::Cast { expr: inner, .. } => score_expr(inner),
         ExprKind::If { cond, then_branch, else_branch } => {
             let cond_cost = score_expr(cond);
-            let then_cost: i64 = then_branch.stmts.iter().map(|s| score_stmt(s)).sum();
+            let then_cost: i64 = then_branch.stmts.iter().map(score_stmt).sum();
             let else_cost = else_branch.as_ref().map_or(0, |e| score_expr(e));
             // Worst case: cond + max(then, else)
             cond_cost + 1 + then_cost.max(else_cost)
         }
         ExprKind::Block(block) => {
-            block.stmts.iter().map(|s| score_stmt(s)).sum()
+            block.stmts.iter().map(score_stmt).sum()
         }
         ExprKind::MethodCall { receiver, args, .. } => {
-            let args_cost: i64 = args.iter().map(|a| score_expr(a)).sum();
+            let args_cost: i64 = args.iter().map(score_expr).sum();
             score_expr(receiver) + args_cost + 5
         }
         ExprKind::StructLit { fields, .. } => {
@@ -215,7 +215,7 @@ fn has_unbounded_loop(stmts: &[Stmt]) -> bool {
         match &stmt.kind {
             StmtKind::Loop(body) => {
                 // Unbounded loop — check if it contains a yield
-                let has_yield = body.stmts.iter().any(|s| stmt_contains_yield(s));
+                let has_yield = body.stmts.iter().any(stmt_contains_yield);
                 if !has_yield {
                     return true;
                 }
@@ -242,7 +242,7 @@ fn expr_has_unbounded_loop(expr: &Expr) -> bool {
     match &expr.kind {
         ExprKind::Binary { lhs, rhs, .. } => expr_has_unbounded_loop(lhs) || expr_has_unbounded_loop(rhs),
         ExprKind::Unary { expr: inner, .. } => expr_has_unbounded_loop(inner),
-        ExprKind::Call { callee, args } => expr_has_unbounded_loop(callee) || args.iter().any(|a| expr_has_unbounded_loop(a)),
+        ExprKind::Call { callee, args } => expr_has_unbounded_loop(callee) || args.iter().any(expr_has_unbounded_loop),
         ExprKind::Assign { lhs, rhs } => expr_has_unbounded_loop(lhs) || expr_has_unbounded_loop(rhs),
         ExprKind::Index { base, index } => expr_has_unbounded_loop(base) || expr_has_unbounded_loop(index),
         ExprKind::Field { base, .. } => expr_has_unbounded_loop(base),
@@ -251,14 +251,14 @@ fn expr_has_unbounded_loop(expr: &Expr) -> bool {
         ExprKind::If { cond, then_branch, else_branch } => {
             expr_has_unbounded_loop(cond)
                 || has_unbounded_loop(&then_branch.stmts)
-                || else_branch.as_ref().map_or(false, |e| expr_has_unbounded_loop(e))
+                || else_branch.as_ref().is_some_and(|e| expr_has_unbounded_loop(e))
         }
         ExprKind::Block(block) => has_unbounded_loop(&block.stmts),
         ExprKind::MethodCall { receiver, args, .. } => {
-            expr_has_unbounded_loop(receiver) || args.iter().any(|a| expr_has_unbounded_loop(a))
+            expr_has_unbounded_loop(receiver) || args.iter().any(expr_has_unbounded_loop)
         }
         ExprKind::StructLit { fields, .. } => fields.iter().any(|(_, v)| expr_has_unbounded_loop(v)),
-        ExprKind::Return(val) => val.as_ref().map_or(false, |v| expr_has_unbounded_loop(v)),
+        ExprKind::Return(val) => val.as_ref().is_some_and(|v| expr_has_unbounded_loop(v)),
         _ => false,
     }
 }
@@ -268,13 +268,13 @@ fn stmt_contains_yield(stmt: &Stmt) -> bool {
     match &stmt.kind {
         StmtKind::Expr(expr) | StmtKind::Semi(expr) | StmtKind::Return(Some(expr)) => expr_contains_yield(expr),
         StmtKind::While { cond, body } => {
-            expr_contains_yield(cond) || body.stmts.iter().any(|s| stmt_contains_yield(s))
+            expr_contains_yield(cond) || body.stmts.iter().any(stmt_contains_yield)
         }
         StmtKind::For { body, .. } => {
-            body.stmts.iter().any(|s| stmt_contains_yield(s))
+            body.stmts.iter().any(stmt_contains_yield)
         }
-        StmtKind::Loop(body) => body.stmts.iter().any(|s| stmt_contains_yield(s)),
-        StmtKind::Local(local) => local.init.as_ref().map_or(false, |e| expr_contains_yield(e)),
+        StmtKind::Loop(body) => body.stmts.iter().any(stmt_contains_yield),
+        StmtKind::Local(local) => local.init.as_ref().is_some_and(expr_contains_yield),
         _ => false,
     }
 }
@@ -285,7 +285,7 @@ fn expr_contains_yield(expr: &Expr) -> bool {
         ExprKind::Yield(_) => true,
         ExprKind::Binary { lhs, rhs, .. } => expr_contains_yield(lhs) || expr_contains_yield(rhs),
         ExprKind::Unary { expr: inner, .. } => expr_contains_yield(inner),
-        ExprKind::Call { callee, args } => expr_contains_yield(callee) || args.iter().any(|a| expr_contains_yield(a)),
+        ExprKind::Call { callee, args } => expr_contains_yield(callee) || args.iter().any(expr_contains_yield),
         ExprKind::Assign { lhs, rhs } => expr_contains_yield(lhs) || expr_contains_yield(rhs),
         ExprKind::Index { base, index } => expr_contains_yield(base) || expr_contains_yield(index),
         ExprKind::Field { base, .. } => expr_contains_yield(base),
@@ -293,15 +293,15 @@ fn expr_contains_yield(expr: &Expr) -> bool {
         ExprKind::Cast { expr: inner, .. } => expr_contains_yield(inner),
         ExprKind::If { cond, then_branch, else_branch } => {
             expr_contains_yield(cond)
-                || then_branch.stmts.iter().any(|s| stmt_contains_yield(s))
-                || else_branch.as_ref().map_or(false, |e| expr_contains_yield(e))
+                || then_branch.stmts.iter().any(stmt_contains_yield)
+                || else_branch.as_ref().is_some_and(|e| expr_contains_yield(e))
         }
-        ExprKind::Block(block) => block.stmts.iter().any(|s| stmt_contains_yield(s)),
+        ExprKind::Block(block) => block.stmts.iter().any(stmt_contains_yield),
         ExprKind::MethodCall { receiver, args, .. } => {
-            expr_contains_yield(receiver) || args.iter().any(|a| expr_contains_yield(a))
+            expr_contains_yield(receiver) || args.iter().any(expr_contains_yield)
         }
         ExprKind::StructLit { fields, .. } => fields.iter().any(|(_, v)| expr_contains_yield(v)),
-        ExprKind::Return(val) => val.as_ref().map_or(false, |v| expr_contains_yield(v)),
+        ExprKind::Return(val) => val.as_ref().is_some_and(|v| expr_contains_yield(v)),
         _ => false,
     }
 }

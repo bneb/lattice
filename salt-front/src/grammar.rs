@@ -1010,7 +1010,7 @@ impl Parse for SaltImpl {
                      return Ok(SaltImpl::Concept { concept_name, target_ty: first_arg.clone() });
                 }
             }
-            return Err(input.error("Invalid concept implementation syntax, expected Concept<Type>;"));
+            Err(input.error("Invalid concept implementation syntax, expected Concept<Type>;"))
         } else if found_for {
             // impl Trait for Type { ... }
             let trait_name: Ident = syn::parse2(before_for)?;
@@ -1206,7 +1206,7 @@ fn parse(input: ParseStream) -> syn::Result<Self> {
         if input.peek(Token![@]) {
             input.parse::<Token![@]>()?;
             let ident: syn::Ident = input.parse()?;
-            if ident.to_string() == "dynamic_check" {
+            if ident == "dynamic_check" {
                 let block: SaltBlock = input.parse()?;
                 return Ok(Stmt::DynamicCheck(block));
             } else {
@@ -1468,9 +1468,8 @@ impl Parse for MatchArm {
                 
                 // Decrement depth on closing
                 if matches!(&token, TokenTree::Group(g) if 
-                    matches!(g.delimiter(), proc_macro2::Delimiter::Brace | proc_macro2::Delimiter::Parenthesis | proc_macro2::Delimiter::Bracket)) {
-                    if depth > 0 { depth -= 1; }
-                }
+                    matches!(g.delimiter(), proc_macro2::Delimiter::Brace | proc_macro2::Delimiter::Parenthesis | proc_macro2::Delimiter::Bracket))
+                    && depth > 0 { depth -= 1; }
                 
                 expr_tokens.extend(std::iter::once(token));
             }
@@ -1523,7 +1522,7 @@ fn parse_region_stmt(input: ParseStream) -> syn::Result<Stmt> {
         let _name: Expr = content.parse()?;
         let body: SaltBlock = input.parse()?;
         let dummy = Ident::new("region_block", proc_macro2::Span::call_site());
-        return Ok(Stmt::WithRegion { region: dummy, body });
+        Ok(Stmt::WithRegion { region: dummy, body })
     } else {
         let region: Ident = input.parse()?;
         let content;
@@ -1532,7 +1531,7 @@ fn parse_region_stmt(input: ParseStream) -> syn::Result<Stmt> {
         content.parse::<Token![,]>()?;
         let size: Expr = content.parse()?;
         let body: SaltBlock = input.parse()?;
-        return Ok(Stmt::MapWindow { addr, size, region, body });
+        Ok(Stmt::MapWindow { addr, size, region, body })
     }
 }
 

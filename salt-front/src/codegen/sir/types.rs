@@ -195,7 +195,7 @@ impl SirModule {
                 if j + 1 < s.fields.len() { out.push_str(", "); }
             }
             out.push_str("]}");
-            if i + 1 < self.structs.len() { out.push_str(","); }
+            if i + 1 < self.structs.len() { out.push(','); }
             out.push('\n');
         }
         out.push_str("  ],\n");
@@ -211,7 +211,7 @@ impl SirModule {
                 f.body.len(),
                 f.contracts.len(),
             ));
-            if i + 1 < self.functions.len() { out.push_str(","); }
+            if i + 1 < self.functions.len() { out.push(','); }
             out.push('\n');
         }
         out.push_str("  ]\n");

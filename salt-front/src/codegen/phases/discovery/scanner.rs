@@ -101,7 +101,7 @@ pub fn scan_defs_from_file_impl(ctx: &mut LoweringContext, file: &SaltFile, is_m
                             }
                         }
 
-                        if let Some(target) = Type::from_syn(&target_ty) {
+                        if let Some(target) = Type::from_syn(target_ty) {
                             let resolved = crate::codegen::type_bridge::resolve_codegen_type(ctx, &target);
                             let target_mangled = resolved.mangle_suffix();
                             
@@ -125,7 +125,7 @@ pub fn scan_defs_from_file_impl(ctx: &mut LoweringContext, file: &SaltFile, is_m
                                       Type::Unit
                                  };
                                  let args: Vec<Type> = m.args.iter()
-                                         .filter_map(|arg| arg.ty.as_ref().and_then(|t| Type::from_syn(t)))
+                                         .filter_map(|arg| arg.ty.as_ref().and_then(Type::from_syn))
                                          .collect();
                                  
                                  ctx.discovery.trait_registry.register_simple(impl_key.clone(), m.clone(), Some(resolved.clone()), ctx.discovery.imports.clone());
@@ -137,7 +137,7 @@ pub fn scan_defs_from_file_impl(ctx: &mut LoweringContext, file: &SaltFile, is_m
                     }
                     SaltImpl::Trait { trait_name: _, target_ty, methods, generics } => {
                         // Trait impl scanning logic...
-                        if let Some(target) = Type::from_syn(&target_ty) {
+                        if let Some(target) = Type::from_syn(target_ty) {
                              let resolved = crate::codegen::type_bridge::resolve_codegen_type(ctx, &target);
                              let mut impl_key = resolved.to_key().unwrap_or_else(|| {
                                 TypeKey { path: path.clone(), name: resolved.mangle_suffix(), specialization: None }

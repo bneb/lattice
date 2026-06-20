@@ -457,7 +457,7 @@ fn emit_hir_field(
     } else {
         if field == "__state" { 0 } else {
             let mut found = 0;
-            for (_name, fields) in &ctx.struct_fields {
+            for fields in ctx.struct_fields.values() {
                 if let Some(pos) = fields.iter().position(|f| f == field) { found = pos; break; }
             }
             found
@@ -492,7 +492,7 @@ fn emit_hir_assign(
         } else {
             if field == "__state" { 0 } else {
                 let mut found = 0;
-                for (_name, fields) in &ctx.struct_fields {
+                for fields in ctx.struct_fields.values() {
                     if let Some(pos) = fields.iter().position(|f| f == field) { found = pos; break; }
                 }
                 found

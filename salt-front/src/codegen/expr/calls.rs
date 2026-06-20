@@ -163,7 +163,7 @@ pub fn emit_method_call(ctx: &mut LoweringContext, out: &mut String, m: &syn::Ex
                 let var_name = ident.to_string();
                 let _ = ctx.ownership_tracker.mark_released(
                     &var_name,
-                    &ctx.z3_solver
+                    ctx.z3_solver
                 );
                 // Remove from RAII cleanup stack to prevent double-free
                 ctx.release_by_var_name(&var_name);
@@ -195,7 +195,7 @@ pub fn emit_method_call(ctx: &mut LoweringContext, out: &mut String, m: &syn::Ex
                                     _ => false,
                                 }
                             }
-                            let is_aggregate = is_aggregate_type(&ty);
+                            let is_aggregate = is_aggregate_type(ty);
                             if is_aggregate {
                                 (Some(ptr.clone()), Type::Reference(Box::new(ty.clone()), false))
                             } else {
@@ -242,7 +242,7 @@ pub fn emit_method_call(ctx: &mut LoweringContext, out: &mut String, m: &syn::Ex
         };
         
     // Substitute generics in cached receiver type at the source
-    let mut cached_receiver_ty = cached_receiver_ty.substitute(&ctx.current_type_map());
+    let mut cached_receiver_ty = cached_receiver_ty.substitute(ctx.current_type_map());
     // Canonicalize receiver type to prevent raw Struct("Node")
     cached_receiver_ty = crate::codegen::type_bridge::resolve_codegen_type(ctx, &cached_receiver_ty);
 
@@ -410,7 +410,7 @@ fn emit_transparent_vec_access(
         (data_ptr, Type::I64)
     };
     
-    let index_expr = args.get(0).ok_or("get_unchecked/set_unchecked requires index argument")?;
+    let index_expr = args.first().ok_or("get_unchecked/set_unchecked requires index argument")?;
     let (index_val, _) = super::emit_expr(ctx, out, index_expr, local_vars, Some(&Type::I64))?;
     
     let stride = ctx.size_of(&element_ty) as i64;
@@ -528,7 +528,7 @@ fn hydrate_function_if_needed(
                         let is_local_no_mangle = ctx.config.file.items.iter().any(|item| {
                             if let crate::grammar::Item::Fn(f) = item {
                                 let is_nm = f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" );
-                                is_nm && f.name.to_string() == mangled_name
+                                is_nm && f.name == mangled_name
                             } else {
                                 false
                             }
@@ -699,7 +699,7 @@ fn emit_low_level_call(
         if let Some(first_arg) = args_vec.first() {
             if let Some(var_name) = super::extract_ident_name(first_arg) {
                 let alloc_id = format!("malloc:{}", var_name);
-                if let Err(e) = ctx.ownership_tracker.mark_released(&alloc_id, &ctx.z3_solver) {
+                if let Err(e) = ctx.ownership_tracker.mark_released(&alloc_id, ctx.z3_solver) {
                     return Err(e);
                 }
                 ctx.malloc_tracker.free(&alloc_id);
@@ -724,15 +724,14 @@ fn emit_low_level_call(
         
         // [SALT MEMORY MODEL] Conservative Aliasing (Interprocedural Purity + Arena-Immunity)
         let is_extern = ctx.external_decls().contains(mangled_name);
-        if mangled_name != "free" && mangled_name != "drop" {
-            if is_extern || ctx.config.freeing_functions.contains(mangled_name) {
+        if mangled_name != "free" && mangled_name != "drop"
+            && (is_extern || ctx.config.freeing_functions.contains(mangled_name)) {
                 if let Some(Type::Pointer { .. }) = final_arg_tys.get(i) {
                     if let Some(var_name) = super::extract_ident_name(arg_expr) {
                         ctx.pointer_tracker.mark_optional(&var_name);
                     }
                 }
             }
-        }
     }
 
     if !ensures.is_empty() {

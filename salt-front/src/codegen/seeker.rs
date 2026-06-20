@@ -202,14 +202,8 @@ pub fn discover_call_requirements(&mut self, c: &syn::ExprCall, tasks: &mut Vec<
                 // Existing call logic from walk_expr_for_calls
                  // 1. Static Calls & Global Functions: e.g., Vec::with_capacity(10) OR dealloc(...)
                 if let Expr::Path(path) = &*c.func {
-                    // Log path
-                    let path_str = path.path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("::");
-                    if path_str.contains("array") || path_str.contains("Vec") {
-                    }
 
                     if let Ok(target_key) = self.ctx.resolve_path_to_fqn(&path.path) {
-                        if path_str.contains("array") {
-                        }
                         let mut concrete_args = self.ctx.extract_call_site_generics(&path.path)?;
                         
                         // If target is a Struct (RawVec), check if we need to infer implicit generics from context
@@ -242,8 +236,7 @@ pub fn discover_call_requirements(&mut self, c: &syn::ExprCall, tasks: &mut Vec<
                         if let Some(global_task) = self.ctx.resolve_global_to_task(&target_key, concrete_args.clone()) {
                             if is_task_concrete(&global_task) {
                                 tasks.push(global_task);
-                            } else {
-                            }
+                            } 
                         } 
                         // B) Fallback: Try to match as a STATIC Method Task (e.g. RawVec::with_capacity)
                         else {
@@ -261,8 +254,6 @@ pub fn discover_call_requirements(&mut self, c: &syn::ExprCall, tasks: &mut Vec<
                                      struct_arity = e.generics.as_ref().map(|g| g.params.len()).unwrap_or(0);
                                  }
                                  
-                                 if method_name == "array" {
-                                 }
 
                                  // Distribute Args
                                  let (struct_args, method_args) = if concrete_args.len() >= struct_arity {
@@ -278,17 +269,14 @@ pub fn discover_call_requirements(&mut self, c: &syn::ExprCall, tasks: &mut Vec<
                                      Type::Concrete(base_name.clone(), struct_args)
                                  };
                                  
-                                 if base_name.contains("Vec") {
-                                 }
+                                 base_name.contains("Vec");
 
                                  match self.ctx.resolve_method_to_task(&recv_ty, &method_name, method_args) {
                                      Ok(task) => {
                                          if is_task_concrete(&task) {
-                                             if base_name.contains("Vec") {
-                                             }
+                                             base_name.contains("Vec");
                                              tasks.push(task);
-                                         } else {
-                                         }
+                                         } 
                                      },
                                      Err(_e) => {
                                          if method_name == "array" || base_name.contains("Vec") {
@@ -328,8 +316,7 @@ pub fn discover_method_call_requirements(&mut self, m: &syn::ExprMethodCall, tas
                           Ok(task) => {
                               if is_task_concrete(&task) {
                                   tasks.push(task);
-                              } else {
-                              }
+                              } 
                           },
                           Err(_e) => {
                           }
@@ -620,7 +607,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                  // Check LOCAL file
                  for item in &self.config.file.items {
                      if let crate::grammar::Item::Fn(f) = item {
-                         if f.name.to_string() == key.name {
+                         if f.name == key.name {
                             // Found local match
                              let pkg_prefix = if let Some(pkg) = &self.config.file.package {
                                   Mangler::mangle(&pkg.name.iter().map(|id| id.to_string()).collect::<Vec<_>>()) + "__"
@@ -674,8 +661,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                                   s
                              };
                              
-                             if f.name.to_string().contains("test_basic_arrays") {
-                             }
+                             f.name.to_string().contains("test_basic_arrays");
         
                              return Some(MonomorphizationTask {
                                  identity: key.clone(),
@@ -689,8 +675,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                          }
                      }
                  }
-             } else {
-             }
+             } 
          }
          None
     }

@@ -184,7 +184,7 @@ impl Pattern {
             Pattern::Tuple(pats) => pats.iter().all(|p| p.is_irrefutable()),
             Pattern::Struct { fields, .. } => {
                 fields.iter().all(|f| {
-                    f.pattern.as_ref().map_or(true, |p| p.is_irrefutable())
+                    f.pattern.as_ref().is_none_or(|p| p.is_irrefutable())
                 })
             }
             Pattern::Variant { .. } => false,  // Variants are refutable

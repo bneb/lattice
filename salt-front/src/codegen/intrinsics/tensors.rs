@@ -134,7 +134,7 @@ pub fn emit_tensor_intrinsic(
             if args.len() != 2 { return Err("read_vector expects 2 args: (mmap_ptr, index)".to_string()); }
             let (ptr_val, _) = emit_expr(ctx, out, &args[0], local_vars, None)?;
             let (idx_val, _) = emit_expr(ctx, out, &args[1], local_vars, Some(&Type::I64))?;
-            let vec_len = if let Some(Type::Tensor(_, shape)) = _expected_ty { shape.get(0).copied().unwrap_or(784) } else { 784 };
+            let vec_len = if let Some(Type::Tensor(_, shape)) = _expected_ty { shape.first().copied().unwrap_or(784) } else { 784 };
             let offset = format!("%rv_offset_{}", ctx.next_id());
             let vec_size = format!("%rv_size_{}", ctx.next_id());
             out.push_str(&format!("    {} = arith.constant {} : i64\n", vec_size, vec_len * 8));

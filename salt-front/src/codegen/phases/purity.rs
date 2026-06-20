@@ -47,12 +47,11 @@ impl PurityAnalyzer {
         while changed {
             changed = false;
             for (caller, callees) in &calls_graph {
-                if !can_free.contains(caller) {
-                    if callees.iter().any(|c| can_free.contains(c)) {
+                if !can_free.contains(caller)
+                    && callees.iter().any(|c| can_free.contains(c)) {
                         can_free.insert(caller.clone());
                         changed = true;
                     }
-                }
             }
         }
 

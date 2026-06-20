@@ -145,7 +145,7 @@ impl Type {
                        // Format: first value is auto-rank (skipped), rest are dimensions
                        "Tensor" => {
                            // params[0] = element type, params[1] = __Shape_...__ marker
-                           if params.len() >= 1 {
+                           if !params.is_empty() {
                                let elem = params[0].clone();
                                // Look for shape marker in the syntax path
                                if seg.args.len() >= 2 {

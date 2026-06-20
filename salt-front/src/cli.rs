@@ -43,7 +43,7 @@ pub fn parse_args(args: Vec<String>) -> anyhow::Result<Option<CliConfig>> {
             release_mode = true;
         } else if arg == "--help" || arg == "-h" {
             println!("Usage: salt-front <file.salt> [-o output] [--release] [--binary] [-c] [--target <target>] [--lib] [-g] [--emit-sir] [--skip-scan] [--verify] [--danger-no-verify] [--disable-alias-scopes]");
-            println!("");
+            println!();
             println!("Flags:");
             println!("  --release    Enable optimizations");
             println!("  --binary     Produce native Mach-O/ELF binary via Iron Driver");

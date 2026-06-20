@@ -248,8 +248,7 @@ impl VerificationEngine {
                                          _ => {}
                                      }
                                  }
-                             } else {
-                             }
+                             } 
                          }
                      }
                  }
@@ -454,7 +453,7 @@ impl VerificationEngine {
         }
 
         // Inject Pointer State Tokens for ensures
-        for (_i, p_name) in params.iter().enumerate() {
+        for p_name in params.iter() {
             if let Some(state) = ctx.pointer_tracker.get_state(p_name) {
                 if let Some((_, sym)) = param_symbols.iter().find(|(n, _)| n == p_name) {
                     let sort_refs = [&crate::z3_shim::Sort::int(ctx.z3_ctx)];
@@ -470,7 +469,7 @@ impl VerificationEngine {
                         &sort_refs,
                         &crate::z3_shim::Sort::bool(ctx.z3_ctx),
                     );
-                    let arg_refs: Vec<&dyn crate::z3_shim::ast::Ast> = vec![&*sym as &dyn crate::z3_shim::ast::Ast];
+                    let arg_refs: Vec<&dyn crate::z3_shim::ast::Ast> = vec![sym as &dyn crate::z3_shim::ast::Ast];
                     let valid_app = valid_func.apply(&arg_refs).as_bool().unwrap();
                     let freed_app = freed_func.apply(&arg_refs).as_bool().unwrap();
                     

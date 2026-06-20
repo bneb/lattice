@@ -32,6 +32,12 @@ pub struct LoweringContext {
     pub var_name_map: std::collections::HashMap<String, VarId>,
 }
 
+impl Default for LoweringContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LoweringContext {
     pub fn new() -> Self {
         Self {

@@ -250,7 +250,7 @@ pub fn resolve_package_prefix(
     }
     
     let item = Mangler::mangle(segments);
-    return Some((pkg_name, item));
+    Some((pkg_name, item))
 }
 
 /// Convenience wrapper: extracts parameters from CodegenContext for `resolve_package_prefix`.
@@ -259,7 +259,7 @@ pub fn resolve_package_prefix_ctx(ctx: &LoweringContext, segments: &[String]) ->
     let pkg_guard = &*ctx.current_package;
     let imports_guard = ctx.imports();
     let ext_decls_guard = ctx.external_decls();
-    resolve_package_prefix(ctx.config.registry, &imports_guard, &ext_decls_guard, pkg_guard.as_ref(), segments)
+    resolve_package_prefix(ctx.config.registry, imports_guard, ext_decls_guard, pkg_guard.as_ref(), segments)
 }
 
 pub fn get_name_from_expr(expr: &syn::Expr) -> Option<String> {
@@ -372,7 +372,7 @@ pub fn resolve_path_to_enum(
             if !final_generics.is_empty() {
                  // Substitute any remaining generics using the current type map
 
-                 let substituted_generics: Vec<Type> = final_generics.iter().cloned().collect();
+                 let substituted_generics: Vec<Type> = final_generics.to_vec();
 
                  
 

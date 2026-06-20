@@ -35,10 +35,10 @@ fn get_receiver_concrete_args(ctx: &mut LoweringContext, receiver_ty: &Type) -> 
         Type::Concrete(_, args) => args.clone(),
         Type::Reference(inner, _) => match inner.as_ref() {
             Type::Concrete(_, args) => args.clone(),
-            Type::Pointer { element, .. } => vec![crate::codegen::type_bridge::resolve_codegen_type(ctx, &(**element))],
+            Type::Pointer { element, .. } => vec![crate::codegen::type_bridge::resolve_codegen_type(ctx, element)],
             _ => vec![],
         },
-        Type::Pointer { element, .. } => vec![crate::codegen::type_bridge::resolve_codegen_type(ctx, &(**element))],
+        Type::Pointer { element, .. } => vec![crate::codegen::type_bridge::resolve_codegen_type(ctx, element)],
         _ => vec![],
     }
 }
@@ -180,33 +180,31 @@ fn prepare_receiver_arg(
 
     let recv_ref = if matches!(recv_ty, Type::Reference(_, _)) {
         recv_val
-    } else {
-        if matches!(self_arg_ty, Type::Reference(_, _)) {
-            let mut is_global = false;
-            let mut global_ptr = None;
-            if let syn::Expr::Path(p) = &*m.receiver {
-                let name = p.path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("__");
-                if let Some((canonical, _)) = resolve_package_prefix_ctx(ctx, &[name.clone()]) {
-                    let full_name = if canonical.is_empty() { name } else { canonical };
-                    let ptr_var = format!("%recv_ptr_{}", ctx.next_id());
-                    out.push_str(&format!("    {} = llvm.mlir.addressof @{} : !llvm.ptr\n", ptr_var, full_name));
-                    global_ptr = Some(ptr_var);
-                    is_global = true;
-                }
+    } else if matches!(self_arg_ty, Type::Reference(_, _)) {
+        let mut is_global = false;
+        let mut global_ptr = None;
+        if let syn::Expr::Path(p) = &*m.receiver {
+            let name = p.path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("__");
+            if let Some((canonical, _)) = resolve_package_prefix_ctx(ctx, &[name.clone()]) {
+                let full_name = if canonical.is_empty() { name } else { canonical };
+                let ptr_var = format!("%recv_ptr_{}", ctx.next_id());
+                out.push_str(&format!("    {} = llvm.mlir.addressof @{} : !llvm.ptr\n", ptr_var, full_name));
+                global_ptr = Some(ptr_var);
+                is_global = true;
             }
-            
-            if is_global {
-                global_ptr.ok_or_else(|| "Compiler bug: global_ptr missing".to_string())?
-            } else {
-                let ptr_var = format!("%spill_recv_{}", ctx.next_id());
-                let mlir_ty = recv_ty.to_mlir_storage_type(ctx)?;
-                out.push_str(&format!("    {} = llvm.alloca %c1_i64 x {} : (i64) -> !llvm.ptr\n", ptr_var, mlir_ty));
-                ctx.emit_store(out, &recv_val, &ptr_var, &mlir_ty);
-                ptr_var
-            }
-        } else {
-            recv_val
         }
+        
+        if is_global {
+            global_ptr.ok_or_else(|| "Compiler bug: global_ptr missing".to_string())?
+        } else {
+            let ptr_var = format!("%spill_recv_{}", ctx.next_id());
+            let mlir_ty = recv_ty.to_mlir_storage_type(ctx)?;
+            out.push_str(&format!("    {} = llvm.alloca %c1_i64 x {} : (i64) -> !llvm.ptr\n", ptr_var, mlir_ty));
+            ctx.emit_store(out, &recv_val, &ptr_var, &mlir_ty);
+            ptr_var
+        }
+    } else {
+        recv_val
     };
     Ok((recv_ref, self_arg_ty))
 }
@@ -273,7 +271,7 @@ fn try_resolve_static_method(
              let is_generic = ctx.generic_impls().contains_key(&base_mangled) || ctx.generic_impls().contains_key(&original_mangled);
              
              if type_based_pkg.is_some() {
-                 let receiver_concrete_args: Vec<Type> = get_receiver_concrete_args(ctx, &receiver_ty);
+                 let receiver_concrete_args: Vec<Type> = get_receiver_concrete_args(ctx, receiver_ty);
                  let _ = ctx.request_specialization(&base_mangled, receiver_concrete_args, Some(receiver_ty.clone()));
              }
              
@@ -295,7 +293,7 @@ fn try_resolve_static_method(
                       return Err(format!("Symbol '{}' is not a function", mangled));
                   }
              } else if let Some(ref override_pkg) = type_based_pkg {
-                  if let Some(sig) = resolve_typed_method_signature(ctx, &receiver_ty, override_pkg, &method) {
+                  if let Some(sig) = resolve_typed_method_signature(ctx, receiver_ty, override_pkg, &method) {
                       (sig.0, sig.1)
                   } else if let Some(sig) = resolve_pending_task_signature(ctx, &mangled) {
                       (sig.0, sig.1)
@@ -460,7 +458,7 @@ fn get_receiver_lvalue(
     method_name: &str,
 ) -> Result<(String, Type), String> {
     if let Ok((addr, raw_ty, _kind)) = emit_lvalue(ctx, out, receiver_expr, local_vars) {
-        let ty = raw_ty.substitute(&ctx.current_type_map());
+        let ty = raw_ty.substitute(ctx.current_type_map());
 
         fn is_aggregate_type(ty: &Type) -> bool {
             match ty {
@@ -483,7 +481,7 @@ fn get_receiver_lvalue(
         }
     } else {
         if let Some(ref val) = cached_receiver_val {
-            Ok((val.clone(), cached_receiver_ty.substitute(&ctx.current_type_map())))
+            Ok((val.clone(), cached_receiver_ty.substitute(ctx.current_type_map())))
         } else {
             Err(format!("Method call '{}' requires a receiver value", method_name))
         }
@@ -520,7 +518,7 @@ fn populate_type_map_from_receiver(
          concrete_tys.extend(args.iter().cloned());
          template_name_opt = Some(name.clone());
     } else if let Type::Pointer { element, .. } = &peeled_ty {
-         let canonical_element = crate::codegen::type_bridge::resolve_codegen_type(ctx, &(**element));
+         let canonical_element = crate::codegen::type_bridge::resolve_codegen_type(ctx, element);
          concrete_tys.push(canonical_element);
          template_name_opt = Some("std__core__ptr__Ptr".to_string());
     }
@@ -535,13 +533,13 @@ fn populate_type_map_from_receiver(
          };
 
          if gen_params.is_none() {
-              if let Some(template_name) = ctx.find_struct_template_by_name(&t_name) {
+              if let Some(template_name) = ctx.find_struct_template_by_name(t_name) {
                   if let Some(template) = ctx.struct_templates().get(&template_name) {
                       gen_params = template.generics.as_ref().map(|g| g.params.clone());
                   }
               }
               if gen_params.is_none() {
-                  if let Some(template_name) = ctx.find_enum_template_by_name(&t_name) {
+                  if let Some(template_name) = ctx.find_enum_template_by_name(t_name) {
                       if let Some(template) = ctx.enum_templates().get(&template_name) {
                           gen_params = template.generics.as_ref().map(|g| g.params.clone());
                       }
@@ -739,7 +737,7 @@ pub fn resolve_and_emit_method(
     cached_receiver_ty: &Type,
 ) -> Result<(String, Type), String> {
     let mut receiver_ty = cached_receiver_ty.clone();
-    receiver_ty = receiver_ty.substitute(&ctx.current_type_map());
+    receiver_ty = receiver_ty.substitute(ctx.current_type_map());
     receiver_ty = resolve_codegen_type(ctx, &receiver_ty);
     
     let _method = m.method.to_string();
@@ -825,11 +823,10 @@ fn adjust_receiver_for_method_call(
     self_arg_ty: Option<&Type>,
 ) -> Result<(String, Type), String> {
     let mut final_receiver_val = receiver_val.to_string();
-    let mut final_receiver_ty = receiver_ty.substitute(&ctx.current_type_map());
+    let mut final_receiver_ty = receiver_ty.substitute(ctx.current_type_map());
     
     if let Type::Struct(ref name) = final_receiver_ty {
-        if name.starts_with("RefMut_") {
-             let inner_name = &name["RefMut_".len()..];
+        if let Some(inner_name) = name.strip_prefix("RefMut_") {
              let inner_ty = Type::Struct(inner_name.to_string());
              final_receiver_ty = Type::Reference(Box::new(inner_ty), true);
         }
@@ -1077,7 +1074,7 @@ fn resolve_method_generics(
     let struct_gen_slice = struct_gen_params.as_deref();
     let mut resolver = crate::codegen::generic_resolver::GenericResolver::new(ctx);
     let call_args_vec: Vec<syn::Expr> = m.args.iter().cloned().collect();
-    match resolver.resolve_generics(
+    if let Ok(resolved_map) = resolver.resolve_generics(
         func,
         &turbofish_args,
         &call_args_vec,
@@ -1087,12 +1084,9 @@ fn resolve_method_generics(
         struct_gen_slice,
         concrete_tys,
     ) {
-        Ok(resolved_map) => {
-            for (k, v) in resolved_map {
-                method_generic_map.insert(k, v);
-            }
+        for (k, v) in resolved_map {
+            method_generic_map.insert(k, v);
         }
-        Err(_) => {}
     }
     Ok(())
 }
@@ -1198,10 +1192,10 @@ fn resolve_typed_method_signature(
         Type::Concrete(_, args) => args.clone(),
         Type::Reference(inner, _) => match inner.as_ref() {
             Type::Concrete(_, args) => args.clone(),
-            Type::Pointer { element, .. } => vec![crate::codegen::type_bridge::resolve_codegen_type(ctx, &**element)],
+            Type::Pointer { element, .. } => vec![crate::codegen::type_bridge::resolve_codegen_type(ctx, element)],
             _ => vec![],
         },
-        Type::Pointer { element, .. } => vec![crate::codegen::type_bridge::resolve_codegen_type(ctx, &**element)],
+        Type::Pointer { element, .. } => vec![crate::codegen::type_bridge::resolve_codegen_type(ctx, element)],
         _ => vec![],
     };
 

@@ -40,9 +40,7 @@ pub struct TensorLayout {
 /// Strips special characters and normalizes underscores.
 pub fn normalize_type_name_for_mlir(name: &str) -> String {
     name.replace("__", "_")
-        .replace('<', "_")
-        .replace('>', "_")
-        .replace(',', "_")
+        .replace(['<', '>', ','], "_")
         .replace(' ', "")
 }
 
@@ -225,7 +223,7 @@ impl EmissionState {
             }
         }
         
-        aliases.push_str("\n");
+        aliases.push('\n');
         aliases
     }
     
@@ -257,7 +255,7 @@ impl EmissionState {
         
         // 3. Append buffered function bodies
         final_output.push_str("\n// --- FUNCTION BODIES ---\n");
-        final_output.push_str(&self.get_buffered_body());
+        final_output.push_str(self.get_buffered_body());
         
         // Mark fixed-point as reached
         self.fixed_point_reached = true;

@@ -128,21 +128,18 @@ impl PulseInjectionContext {
 
         // Phase 2: Query call graph for blocking and context requirements
         for item in &file.items {
-            match item {
-                Item::Fn(func) => {
-                    let name = func.name.to_string();
+            if let Item::Fn(func) = item {
+                let name = func.name.to_string();
 
-                    // Call graph: is this function transitively blocking?
-                    if cg.is_blocking(&name) {
-                        self.blocking_fns.insert(name.clone());
-                    }
-
-                    // Call graph: does this function require Context?
-                    if cg.requires_context(&name) {
-                        self.implicit_context_fns.insert(name);
-                    }
+                // Call graph: is this function transitively blocking?
+                if cg.is_blocking(&name) {
+                    self.blocking_fns.insert(name.clone());
                 }
-                _ => {}
+
+                // Call graph: does this function require Context?
+                if cg.requires_context(&name) {
+                    self.implicit_context_fns.insert(name);
+                }
             }
         }
     }

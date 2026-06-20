@@ -474,7 +474,7 @@ impl CallGraphAnalyzer {
         self.call_edges.insert(fn_name.to_string(), callees);
         // Ensure the function has attributes entry
         self.fn_attributes.entry(fn_name.to_string())
-            .or_insert_with(FnAttributes::default);
+            .or_default();
     }
 
     /// Inject function attributes directly (for test setup without parsing)

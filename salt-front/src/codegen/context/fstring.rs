@@ -47,14 +47,14 @@ pub fn native_fstring_expand_impl(_ctx: &CodegenContext, content: &str) -> Strin
 
 pub fn native_hex_expand_impl(content: &str) -> String {
     let clean_hex: String = content.chars().filter(|c| !c.is_whitespace()).collect();
-    if clean_hex.len() % 2 != 0 {
+    if !clean_hex.len().is_multiple_of(2) {
         return "Vec::<u8>::new()".to_string();
     }
     if clean_hex.is_empty() { return "Vec::<u8>::new()".to_string(); }
     let mut bytes = Vec::new();
     for i in (0..clean_hex.len()).step_by(2) {
         let byte_str = &clean_hex[i..i + 2];
-        if let Ok(_) = u8::from_str_radix(byte_str, 16) {
+        if u8::from_str_radix(byte_str, 16).is_ok() {
             bytes.push(format!("0x{}", byte_str.to_uppercase()));
         }
     }
@@ -80,7 +80,7 @@ pub fn native_target_fstring_expand_impl(_ctx: &CodegenContext, target: &str, co
             }
         }
     }
-    code.push_str("}");
+    code.push('}');
     code
 }
 

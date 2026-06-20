@@ -109,7 +109,7 @@ impl VerificationFailure {
         }
         
         if !self.hints.is_empty() {
-            msg.push_str("\n");
+            msg.push('\n');
             for hint in &self.hints {
                 msg.push_str(&format!("  = hint: {}\n", hint));
             }

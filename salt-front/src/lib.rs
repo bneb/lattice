@@ -107,9 +107,9 @@ pub fn preprocess(source: &str) -> String {
             
             // [CROSS-MODULE STRUCT] Convert module.StructName { ... } to module::StructName { ... }
             // so syn parses it as a struct literal, not field access + block.
-            let line = convert_module_struct_literal(&line);
             
-            line
+            
+            convert_module_struct_literal(&line)
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -631,7 +631,7 @@ fn convert_tensor_shape_syntax(line: &str) -> String {
             // This looks like a shape in generic position: `<T, {2, 3, 4}>`
             let mut contents = String::new();
             let mut depth = 1;
-            while let Some(inner) = chars.next() {
+            for inner in chars.by_ref() {
                 if inner == '{' {
                     depth += 1;
                     contents.push(inner);
@@ -907,7 +907,7 @@ fn extract_pipe_rhs(chars: &mut std::iter::Peekable<std::str::Chars>) -> (String
             chars.next(); // consume (
             // Collect args until matching )
             let mut depth = 1;
-            while let Some(ac) = chars.next() {
+            for ac in chars.by_ref() {
                 if ac == '(' {
                     depth += 1;
                     args.push(ac);

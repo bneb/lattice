@@ -137,7 +137,7 @@ fn matches_all(pattern: &Pattern) -> bool {
     match pattern {
         Pattern::Wildcard => true,
         Pattern::Ident { .. } => true, // Binding without destructuring matches all
-        Pattern::Or(patterns) => patterns.iter().any(|p| matches_all(p)),
+        Pattern::Or(patterns) => patterns.iter().any(matches_all),
         _ => false,
     }
 }

@@ -31,10 +31,10 @@ pub fn emit_io_intrinsic(
                 for seg in &fstring_segments {
                     match seg {
                         crate::codegen::context::FStringSegment::Literal(s) => {
-                            if !s.is_empty() { ctx.emit_print_literal(out, &s)?; }
+                            if !s.is_empty() { ctx.emit_print_literal(out, s)?; }
                         }
                         crate::codegen::context::FStringSegment::Expr(expr_str, _) => {
-                            let parsed: syn::Expr = syn::parse_str(&expr_str)
+                            let parsed: syn::Expr = syn::parse_str(expr_str)
                                 .map_err(|e| format!("println f-string expr parse error: {} (expr: {})", e, expr_str))?;
                             let (val, ty) = emit_expr(ctx, out, &parsed, local_vars, None)?;
                             ctx.emit_print_typed(out, &val, &ty)?;

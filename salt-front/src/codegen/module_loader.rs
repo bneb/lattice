@@ -211,10 +211,10 @@ impl ModuleLoader {
         match item {
             Item::Fn(f) => {
                 let args: Vec<crate::types::Type> = f.args.iter()
-                    .filter_map(|arg| arg.ty.as_ref().and_then(|t| crate::types::Type::from_syn(t)))
+                    .filter_map(|arg| arg.ty.as_ref().and_then(crate::types::Type::from_syn))
                     .collect();
                 let ret = f.ret_type.as_ref()
-                    .and_then(|t| crate::types::Type::from_syn(t))
+                    .and_then(crate::types::Type::from_syn)
                     .unwrap_or(crate::types::Type::Unit);
                 info.functions.insert(f.name.to_string(), (args, ret));
                 
@@ -231,10 +231,10 @@ impl ModuleLoader {
             }
             Item::ExternFn(ef) => {
                 let args: Vec<crate::types::Type> = ef.args.iter()
-                    .filter_map(|arg| arg.ty.as_ref().and_then(|t| crate::types::Type::from_syn(t)))
+                    .filter_map(|arg| arg.ty.as_ref().and_then(crate::types::Type::from_syn))
                     .collect();
                 let ret = ef.ret_type.as_ref()
-                    .and_then(|t| crate::types::Type::from_syn(t))
+                    .and_then(crate::types::Type::from_syn)
                     .unwrap_or(crate::types::Type::Unit);
                 info.functions.insert(ef.name.to_string(), (args, ret));
                 

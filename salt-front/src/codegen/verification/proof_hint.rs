@@ -86,8 +86,8 @@ pub fn hash_combine(struct_id: u64, offset: u64, align: u64) -> u64 {
     // Cascade: hash(struct_id) → hash(result ⊕ offset) → hash(result ⊕ align)
     let h1 = siphash24(SIPHASH_K0, SIPHASH_K1, struct_id);
     let h2 = siphash24(SIPHASH_K0, SIPHASH_K1, h1 ^ offset);
-    let h3 = siphash24(SIPHASH_K0, SIPHASH_K1, h2 ^ align);
-    h3
+    
+    siphash24(SIPHASH_K0, SIPHASH_K1, h2 ^ align)
 }
 
 /// Generate a struct_id from a struct name.

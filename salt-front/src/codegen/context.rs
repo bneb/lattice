@@ -13,6 +13,12 @@ pub struct StringInterner {
     pool: HashSet<Rc<str>>,
 }
 
+impl Default for StringInterner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StringInterner {
     pub fn new() -> Self {
         Self { pool: HashSet::new() }
@@ -47,6 +53,12 @@ pub struct MonomorphizerState {
     pub work_queue: VecDeque<SpecializationTask>,
     pub pending_set: HashSet<String>,
     pub is_frozen: bool,
+}
+
+impl Default for MonomorphizerState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MonomorphizerState {
@@ -620,10 +632,8 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         } else if ty.k_is_ptr_type() {
             if let Some((s, n)) = scopes { self.emit_load_scoped(out, res, ptr, "!llvm.ptr", s, n); }
             else { out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> !llvm.ptr\n", res, ptr)); }
-        } else {
-            if let Some((s, n)) = scopes { self.emit_load_scoped(out, res, ptr, &storage_ty, s, n); }
-            else { out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> {}\n", res, ptr, storage_ty)); }
-        }
+        } else if let Some((s, n)) = scopes { self.emit_load_scoped(out, res, ptr, &storage_ty, s, n); }
+        else { out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> {}\n", res, ptr, storage_ty)); }
         Ok(())
     }
     pub fn emit_store(&self, out: &mut String, val: &str, ptr: &str, ty: &str) {
@@ -643,10 +653,8 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         } else if ty.k_is_ptr_type() {
             if let Some((s, n)) = scopes { self.emit_store_scoped(out, val, ptr, "!llvm.ptr", s, n); }
             else { out.push_str(&format!("    llvm.store {} , {} : !llvm.ptr, !llvm.ptr\n", val, ptr)); }
-        } else {
-            if let Some((s, n)) = scopes { self.emit_store_scoped(out, val, ptr, &storage_ty, s, n); }
-            else { out.push_str(&format!("    llvm.store {} , {} : {}, !llvm.ptr\n", val, ptr, storage_ty)); }
-        }
+        } else if let Some((s, n)) = scopes { self.emit_store_scoped(out, val, ptr, &storage_ty, s, n); }
+        else { out.push_str(&format!("    llvm.store {} , {} : {}, !llvm.ptr\n", val, ptr, storage_ty)); }
         Ok(())
     }
     pub fn emit_alloca(&mut self, _out: &mut String, res: &str, ty: &str) {
@@ -894,11 +902,10 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         match ty {
             Type::Enum(name) | Type::Struct(name) => {
                 for (key, info) in &self.discovery.enum_registry {
-                    if info.name == *name || key.name == *name {
-                        if info.variants.iter().any(|v| v.0 == "Some") && info.variants.iter().any(|v| v.0 == "None") {
+                    if (info.name == *name || key.name == *name)
+                        && info.variants.iter().any(|v| v.0 == "Some") && info.variants.iter().any(|v| v.0 == "None") {
                             return Some(info.clone());
                         }
-                    }
                 }
                 None
             }
@@ -1139,7 +1146,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
     }
 
     pub fn determine_write_method(&self, expr: &str, spec: Option<&str>) -> (String, String) {
-        if let Some(_) = spec {
+        if spec.is_some() {
             ("write_fmt".to_string(), format!("fmt({})", expr))
         } else {
             ("write_any".to_string(), expr.to_string())
@@ -1183,13 +1190,13 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             }
         }
         code.push_str("    __h.finalize()\n");
-        code.push_str("}");
+        code.push('}');
         code
     }
 
     pub fn native_hex_expand(&self, content: &str) -> String {
         let clean_hex: String = content.chars().filter(|c| !c.is_whitespace()).collect();
-        if clean_hex.len() % 2 != 0 {
+        if !clean_hex.len().is_multiple_of(2) {
             return "Vec::<u8>::new()".to_string();
         }
         if clean_hex.is_empty() { return "Vec::<u8>::new()".to_string(); }
@@ -1223,7 +1230,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                 }
             }
         }
-        code.push_str("}");
+        code.push('}');
         code
     }
 
@@ -1363,7 +1370,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         f: impl FnOnce(&mut Self) -> R,
     ) -> R {
         let old_args = std::mem::replace(&mut self.expansion.current_type_map, new_args);
-        let old_self = std::mem::replace(&mut self.expansion.current_self_ty, Some(self_ty));
+        let old_self = self.expansion.current_self_ty.replace(self_ty);
         let old_ordered_args = std::mem::replace(&mut self.expansion.current_generic_args, ordered_args);
         let result = f(self);
         self.expansion.current_type_map = old_args;
@@ -1539,26 +1546,26 @@ impl<'a> CodegenContext<'a> {
         let file = self.file.borrow();
 
         let mut lctx = LoweringContext {
-            discovery: &mut *discovery,
-            expansion: &mut *expansion,
-            emission:  &mut *emission,
-            control_flow: &mut *control_flow,
+            discovery: &mut discovery,
+            expansion: &mut expansion,
+            emission:  &mut emission,
+            control_flow: &mut control_flow,
             z3_ctx: self.z3_ctx,
-            z3_solver: &mut *z3_solver,
-            symbolic_tracker: &mut *symbolic_tracker,
-            ownership_tracker: &mut *ownership_tracker,
-            elided_checks: &mut *elided_checks,
-            total_checks: &mut *total_checks,
-            evaluator: &mut *evaluator,
-            malloc_tracker: &mut *malloc_tracker,
-            pointer_tracker: &mut *pointer_tracker,
-            arena_escape_tracker: &mut *arena_escape_tracker,
-            pending_malloc_result: &mut *pending_malloc_result,
-            pending_pointer_state: &mut *pending_pointer_state,
-            current_package: &mut *current_package,
+            z3_solver: &mut z3_solver,
+            symbolic_tracker: &mut symbolic_tracker,
+            ownership_tracker: &mut ownership_tracker,
+            elided_checks: &mut elided_checks,
+            total_checks: &mut total_checks,
+            evaluator: &mut evaluator,
+            malloc_tracker: &mut malloc_tracker,
+            pointer_tracker: &mut pointer_tracker,
+            arena_escape_tracker: &mut arena_escape_tracker,
+            pending_malloc_result: &mut pending_malloc_result,
+            pending_pointer_state: &mut pending_pointer_state,
+            current_package: &mut current_package,
             suppress_specialization: &self.suppress_specialization,
             config: CodegenConfig {
-                file: &*file,
+                file: &file,
                 registry: self.registry,
                 release_mode: self.release_mode,
                 consuming_fns: &self.consuming_fns,
@@ -1909,7 +1916,7 @@ impl<'a> CodegenContext<'a> {
         }
         
         code.push_str("    __h.finalize()\n");
-        code.push_str("}");
+        code.push('}');
         
         code
     }
@@ -2069,7 +2076,7 @@ impl<'a> CodegenContext<'a> {
         let clean_hex: String = content.chars().filter(|c| !c.is_whitespace()).collect();
         
         // 2. Validation: Must have even length
-        if clean_hex.len() % 2 != 0 {
+        if !clean_hex.len().is_multiple_of(2) {
             eprintln!("ERROR: Hex literal must have even length, found {}", clean_hex.len());
             return "Vec::<u8>::new()".to_string(); // Empty vec as fallback
         }
@@ -2135,7 +2142,7 @@ impl<'a> CodegenContext<'a> {
             }
         }
         
-        code.push_str("}");
+        code.push('}');
         code
     }
     
@@ -2421,7 +2428,7 @@ impl<'a> CodegenContext<'a> {
                 // Build the MLIR struct layout
                 let mut layout_parts = Vec::new();
                 for field_ty in &info.field_order {
-                    match self.resolve_mlir_storage_type(&field_ty) {
+                    match self.resolve_mlir_storage_type(field_ty) {
                         Ok(s) => layout_parts.push(s),
                         Err(_) => layout_parts.push("!llvm.ptr".to_string()),
                     }
@@ -2444,7 +2451,7 @@ impl<'a> CodegenContext<'a> {
                 if info.name == canonical_name || info_canonical == canonical_name {
                     let mut layout_parts = Vec::new();
                     for field_ty in &info.field_order {
-                        match self.resolve_mlir_storage_type(&field_ty) {
+                        match self.resolve_mlir_storage_type(field_ty) {
                             Ok(s) => layout_parts.push(s),
                             Err(_) => layout_parts.push("!llvm.ptr".to_string()),
                         }
@@ -2535,11 +2542,10 @@ impl<'a> CodegenContext<'a> {
         let suffix = format!("__{}", name);
         let mut best_match: Option<crate::registry::StructInfo> = None;
         for info in struct_reg.values() {
-            if info.name.ends_with(&suffix) {
-                if best_match.as_ref().map_or(true, |b| info.name.len() < b.name.len()) {
+            if info.name.ends_with(&suffix)
+                && best_match.as_ref().is_none_or(|b| info.name.len() < b.name.len()) {
                     best_match = Some(info.clone());
                 }
-            }
         }
         best_match
     }
@@ -2558,11 +2564,10 @@ impl<'a> CodegenContext<'a> {
         let suffix = format!("__{}", name);
         let mut best_match: Option<String> = None;
         for k in templates.keys() {
-            if k.ends_with(&suffix) {
-                if best_match.as_ref().map_or(true, |b| k.len() < b.len()) {
+            if k.ends_with(&suffix)
+                && best_match.as_ref().is_none_or(|b| k.len() < b.len()) {
                     best_match = Some(k.clone());
                 }
-            }
         }
         best_match
     }
@@ -2580,11 +2585,10 @@ impl<'a> CodegenContext<'a> {
         let suffix = format!("__{}", name);
         let mut best_match: Option<String> = None;
         for k in templates.keys() {
-            if k.ends_with(&suffix) {
-                if best_match.as_ref().map_or(true, |b| k.len() < b.len()) {
+            if k.ends_with(&suffix)
+                && best_match.as_ref().is_none_or(|b| k.len() < b.len()) {
                     best_match = Some(k.clone());
                 }
-            }
         }
         best_match
     }
@@ -2862,10 +2866,10 @@ impl<'a> CodegenContext<'a> {
     #[allow(dead_code)]
     fn find_template_base(&self, name: &str) -> Option<String> {
         // 1. Check Registry Metadata
-        if let Some(info) = self.struct_registry().values().find(|i| &i.name == name) {
+        if let Some(info) = self.struct_registry().values().find(|i| i.name == name) {
             if let Some(tn) = &info.template_name { return Some(tn.clone()); }
         }
-        if let Some(info) = self.enum_registry().values().find(|i| &i.name == name) {
+        if let Some(info) = self.enum_registry().values().find(|i| i.name == name) {
             if let Some(tn) = &info.template_name { return Some(tn.clone()); }
         }
 
@@ -2874,22 +2878,20 @@ impl<'a> CodegenContext<'a> {
         {
             let templates = self.struct_templates();
             for t_name in templates.keys() {
-                if name.starts_with(t_name) && name.len() > t_name.len() {
-                    if name.chars().nth(t_name.len()) == Some('_') {
+                if name.starts_with(t_name) && name.len() > t_name.len()
+                    && name.chars().nth(t_name.len()) == Some('_') {
                         return Some(t_name.clone()); 
                     }
-                }
             }
         }
         // Check Enum Templates
         {
             let templates = self.enum_templates();
             for t_name in templates.keys() {
-                if name.starts_with(t_name) && name.len() > t_name.len() {
-                    if name.chars().nth(t_name.len()) == Some('_') {
+                if name.starts_with(t_name) && name.len() > t_name.len()
+                    && name.chars().nth(t_name.len()) == Some('_') {
                         return Some(t_name.clone());
                     }
-                }
             }
         }
         
@@ -3131,8 +3133,8 @@ impl<'a> CodegenContext<'a> {
             return *layout;
         }
         
-        let size = ty.size_of(&*self.struct_registry());
-        let align = ty.align_of(&*self.struct_registry());
+        let size = ty.size_of(&self.struct_registry());
+        let align = ty.align_of(&self.struct_registry());
         
         self.layout_cache_mut().insert(ty.clone(), (size, align));
         (size, align)
@@ -3215,7 +3217,7 @@ impl<'a> CodegenContext<'a> {
             let mut best_pkg = old_pkg.clone();
             for i in (1..parts.len()).rev() {
                  let candidate = parts[0..i].join(".");
-                 let exists = self.registry.as_ref().map_or(false, |r| r.modules.contains_key(&candidate));
+                 let exists = self.registry.as_ref().is_some_and(|r| r.modules.contains_key(&candidate));
                  if exists {
                      let pkg_str = format!("package {};", candidate);
                      if let Ok(pkg) = syn::parse_str::<crate::grammar::PackageDecl>(&pkg_str) {
@@ -3513,10 +3515,10 @@ pub fn hydrate_specialization(&self, task: MonomorphizationTask) -> Result<(), S
          // func.func private @name(args...) -> ret
          let mut args_code = Vec::new();
          for ty in arg_tys {
-             args_code.push(self.resolve_mlir_type(&ty)?);
+             args_code.push(self.resolve_mlir_type(ty)?);
          }
          
-         let ret_part = if *ret_ty == Type::Unit { "".to_string() } else { format!(" -> {}", self.resolve_mlir_type(&ret_ty)?) };
+         let ret_part = if *ret_ty == Type::Unit { "".to_string() } else { format!(" -> {}", self.resolve_mlir_type(ret_ty)?) };
          
          // [PILLAR 2] Mark contract violation as cold+noreturn so LLVM
          // moves it off the hot path and optimizes branch prediction
@@ -3534,7 +3536,7 @@ pub fn hydrate_specialization(&self, task: MonomorphizationTask) -> Result<(), S
     pub fn resolve_global(&self, query_name: &str) -> Option<Type> {
         // 1. Resolve Aliases via Imports (explicit `use X as Y` or self-imports)
         let resolved_name = self.imports().iter().find_map(|imp| {
-            if imp.alias.as_ref().map_or(false, |a| a == query_name) {
+            if imp.alias.as_ref().is_some_and(|a| a == query_name) {
                  Some(Mangler::mangle(&imp.name.iter().map(|i| i.to_string()).collect::<Vec<_>>()))
             } else { None }
         }).unwrap_or(query_name.to_string());
@@ -3662,13 +3664,13 @@ pub fn hydrate_specialization(&self, task: MonomorphizationTask) -> Result<(), S
 pub fn init_registry_definitions(&self) {
         self.suppress_specialization.set(true);
         if let Some(reg) = self.registry {
-            for (_pkg, module_info) in &reg.modules {
+            for module_info in reg.modules.values() {
                 self.init_registry_types(module_info);
                 self.init_registry_exports(module_info);
             }
             
             // Pass 2: Populate Impls (Resolution Dependencies Resolved)
-            for (_pkg, module_info) in &reg.modules {
+            for module_info in reg.modules.values() {
                 self.init_registry_impls(module_info);
             }
         }
@@ -3754,13 +3756,13 @@ pub fn init_registry_definitions(&self) {
                     
                     let mut args_mlir = Vec::new();
                     for arg in args {
-                        if let Ok(mlir_ty) = self.resolve_mlir_type(&arg) {
+                        if let Ok(mlir_ty) = self.resolve_mlir_type(arg) {
                             args_mlir.push(mlir_ty);
                         }
                     }
                     let ret_mlir = if *ret == crate::types::Type::Unit {
                         "()".to_string()
-                    } else if let Ok(mlir_ty) = self.resolve_mlir_type(&ret) {
+                    } else if let Ok(mlir_ty) = self.resolve_mlir_type(ret) {
                         mlir_ty
                     } else {
                         "()".to_string()
@@ -3822,7 +3824,7 @@ pub fn init_registry_definitions(&self) {
              p.push(mangled_ident);
              self_imps.push(crate::grammar::ImportDecl { name: p, alias: Some(syn::Ident::new(s_name, proc_macro2::Span::call_site())), group: None });
         }
-        for (s_name, _) in &module_info.structs {
+        for s_name in module_info.structs.keys() {
              let mangled = format!("{}{}", pkg_prefix, s_name);
              let mangled_ident = syn::Ident::new(&mangled, proc_macro2::Span::call_site());
              let mut p = syn::punctuated::Punctuated::new();
@@ -3847,11 +3849,10 @@ pub fn init_registry_definitions(&self) {
                 impl_key.path = pkg_path.to_vec();
             }
             
-            if impl_key.specialization.as_ref().map_or(false, |s: &Vec<Type>| !s.is_empty()) {
-                if generics.is_some() {
+            if impl_key.specialization.as_ref().is_some_and(|s: &Vec<Type>| !s.is_empty())
+                && generics.is_some() {
                     impl_key.specialization = None;
                 }
-            }
 
             for m in methods {
                  let name = format!("{}__{}", target_mangled, m.name);
@@ -3862,7 +3863,7 @@ pub fn init_registry_definitions(&self) {
                       crate::types::Type::Unit
                  };
                  let args: Vec<crate::types::Type> = m.args.iter()
-                         .filter_map(|arg| arg.ty.as_ref().and_then(|t| crate::types::Type::from_syn(t)))
+                         .filter_map(|arg| arg.ty.as_ref().and_then(crate::types::Type::from_syn))
                          .collect();
                  self.globals_mut().insert(name.clone(), crate::types::Type::Fn(args.clone(), Box::new(ret_ty.clone())));
                  
@@ -4051,7 +4052,7 @@ pub fn init_registry_definitions(&self) {
                       crate::types::Type::Unit
                  };
                  let args: Vec<crate::types::Type> = m.args.iter()
-                         .filter_map(|arg| arg.ty.as_ref().and_then(|t| crate::types::Type::from_syn(t)))
+                         .filter_map(|arg| arg.ty.as_ref().and_then(crate::types::Type::from_syn))
                          .collect();
                  
                  self.globals_mut().insert(name.clone(), crate::types::Type::Fn(args.clone(), Box::new(ret_ty.clone())));
@@ -4121,7 +4122,7 @@ pub fn init_registry_definitions(&self) {
                       crate::types::Type::Unit
                  };
                  let args: Vec<crate::types::Type> = m.args.iter()
-                         .filter_map(|arg| arg.ty.as_ref().and_then(|t| crate::types::Type::from_syn(t)))
+                         .filter_map(|arg| arg.ty.as_ref().and_then(crate::types::Type::from_syn))
                          .collect();
                  
                  self.globals_mut().insert(name.clone(), crate::types::Type::Fn(args.clone(), Box::new(ret_ty.clone())));
@@ -4163,7 +4164,7 @@ pub fn init_registry_definitions(&self) {
         
         let mut args = Vec::new();
         for arg in &e.args {
-             let t = arg.ty.as_ref().and_then(|t| crate::types::Type::from_syn(t)).unwrap_or(crate::types::Type::Unit);
+             let t = arg.ty.as_ref().and_then(crate::types::Type::from_syn).unwrap_or(crate::types::Type::Unit);
              if !t.is_ffi_safe() {
                  return Err(format!("Extern function `{}` argument `{}` has type `{:?}` which is not FFI-safe.", e.name, arg.name, t));
              }
@@ -4250,7 +4251,7 @@ pub fn init_registry_definitions(&self) {
         use crate::z3_shim::ast::Ast;
         let mut byte_offset: usize = 0;
         
-        for (_i, f) in s.fields.iter().enumerate() {
+        for f in s.fields.iter() {
             let has_atomic = f.attributes.iter().any(|a| a.name == "atomic");
             if has_atomic {
                 let z3_cfg = crate::z3_shim::Config::new();
@@ -4291,7 +4292,7 @@ pub fn init_registry_definitions(&self) {
                       ty = crate::types::Type::Array(inner, len, true);
                  }
             }
-            byte_offset += ty.size_of(&*self.struct_registry());
+            byte_offset += ty.size_of(&self.struct_registry());
         }
         Ok(())
     }
@@ -4306,7 +4307,7 @@ pub fn init_registry_definitions(&self) {
             for (i, v) in e.variants.iter().enumerate() {
                 let p_ty = v.ty.as_ref().map(|t| self.bridge_resolve_type(t));
                 if let Some(ref ty) = p_ty {
-                      let size = ty.size_of(&*self.struct_registry());
+                      let size = ty.size_of(&self.struct_registry());
                       if size > max_size { max_size = size; }
                 }
                 variants.push((v.name.to_string(), p_ty, i as i32));
@@ -4344,7 +4345,7 @@ pub fn init_registry_definitions(&self) {
 
         let mut arg_code = Vec::new();
         for t in arg_tys {
-             let mut ty_str = self.resolve_mlir_type(&t)?;
+             let mut ty_str = self.resolve_mlir_type(t)?;
              if matches!(t, Type::Reference(..) | Type::Owned(..) | Type::Fn(..)) {
                   ty_str.push_str(" {llvm.noalias}");
              }
@@ -4353,7 +4354,7 @@ pub fn init_registry_definitions(&self) {
         let arg_str = arg_code.join(", ");
             
         // External declaration: func.func private
-        let ret_str = if let Type::Unit = ret_ty { "()".to_string() } else { self.resolve_mlir_type(&ret_ty)? };
+        let ret_str = if let Type::Unit = ret_ty { "()".to_string() } else { self.resolve_mlir_type(ret_ty)? };
         // [PILLAR 2] Mark contract violation as cold+noreturn so LLVM
         // moves it off the hot path and optimizes branch prediction
         let attrs = if name == "__salt_contract_violation" {
@@ -4378,7 +4379,7 @@ pub fn init_registry_definitions(&self) {
             return self.ensure_func_declared(name, args, ret);
         }
 
-        let mlir_ty = self.resolve_mlir_type(&ty)?;
+        let mlir_ty = self.resolve_mlir_type(ty)?;
         self.decl_out_mut().push_str(&format!("  llvm.mlir.global external @{}() : {}\n", name, mlir_ty));
         self.external_decls_mut().insert(name.to_string());
         Ok(())
@@ -4469,7 +4470,7 @@ pub fn init_registry_definitions(&self) {
     }
 
     pub fn emit_load_logical_with_scope(&self, out: &mut String, res: &str, ptr: &str, ty: &Type, scopes: Option<(&str, &str)>) -> Result<(), String> {
-        let storage_ty = self.resolve_mlir_storage_type(&ty)?;
+        let storage_ty = self.resolve_mlir_storage_type(ty)?;
         
         if *ty == Type::Bool {
             let load_res = format!("%b_load_{}", self.next_id());
@@ -4487,12 +4488,10 @@ pub fn init_registry_definitions(&self) {
              } else {
                  out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> !llvm.ptr\n", res, ptr));
              }
+        } else if let Some((s, n)) = scopes {
+            self.emit_load_scoped(out, res, ptr, &storage_ty, s, n);
         } else {
-            if let Some((s, n)) = scopes {
-                self.emit_load_scoped(out, res, ptr, &storage_ty, s, n);
-            } else {
-                out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> {}\n", res, ptr, storage_ty));
-            }
+            out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> {}\n", res, ptr, storage_ty));
         }
         Ok(())
     }
@@ -4515,7 +4514,7 @@ pub fn init_registry_definitions(&self) {
     }
 
     pub fn emit_store_logical_with_scope(&self, out: &mut String, val: &str, ptr: &str, ty: &Type, scopes: Option<(&str, &str)>) -> Result<(), String> {
-        let storage_ty = self.resolve_mlir_storage_type(&ty)?;
+        let storage_ty = self.resolve_mlir_storage_type(ty)?;
         if *ty == Type::Bool {
             let zext_res = format!("%b_zext_{}", self.next_id());
             // Boolean Law: i1 -> i8 via arith.extui
@@ -4533,12 +4532,10 @@ pub fn init_registry_definitions(&self) {
              } else {
                  out.push_str(&format!("    llvm.store {} , {} : !llvm.ptr, !llvm.ptr\n", val, ptr));
              }
+        } else if let Some((s, n)) = scopes {
+            self.emit_store_scoped(out, val, ptr, &storage_ty, s, n);
         } else {
-            if let Some((s, n)) = scopes {
-                self.emit_store_scoped(out, val, ptr, &storage_ty, s, n);
-            } else {
-                out.push_str(&format!("    llvm.store {} , {} : {}, !llvm.ptr\n", val, ptr, storage_ty));
-            }
+            out.push_str(&format!("    llvm.store {} , {} : {}, !llvm.ptr\n", val, ptr, storage_ty));
         }
         Ok(())
     }
@@ -4889,12 +4886,8 @@ pub fn init_registry_definitions(&self) {
                             _ => ty.clone()
                         };
                         return Some(qualified_ty);
-                   } else {
-
-                   }
-              } else {
-
-              }
+                   } 
+              } 
          }
          None
     }

@@ -57,13 +57,12 @@ fn emit_field_safety_check(
             let field_name = if let syn::Member::Named(id) = &f.member { id.to_string() } else { "unnamed".to_string() };
             let is_ptr = matches!(base_ty, Type::Reference(..) | Type::Pointer { .. }) || base_ty.k_is_ptr_type();
             if is_ptr {
-                if field_name == "addr" {
-                    if matches!(base_ty, Type::Pointer { .. } | Type::Reference(..)) || base_ty.k_is_ptr_type() {
+                if field_name == "addr"
+                    && (matches!(base_ty, Type::Pointer { .. } | Type::Reference(..)) || base_ty.k_is_ptr_type()) {
                          let addr_val = format!("%ptr_addr_{}", ctx.next_id());
                          out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", addr_val, current_val));
                          return Ok(Some((addr_val, Type::U64)));
                     }
-                }
                 let is_dynamic = *ctx.is_dynamic_check_block() || ctx.emission.in_dynamic_check_fn;
                 if !is_dynamic {
                     ctx.pointer_tracker.check_deref(&var_name)?;
@@ -217,8 +216,8 @@ pub fn emit_field(
             }
 
             let is_native_ptr = name.contains("NativePtr") && current_ty.k_is_ptr_type();
-            if is_native_ptr {
-                if field_name == "addr" {
+            if is_native_ptr
+                && field_name == "addr" {
                     let is_lvalue = was_ref 
                         || matches!(base_ty, Type::Reference(_, _)) 
                         || current_val.contains("spill")
@@ -237,7 +236,6 @@ pub fn emit_field(
                     out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", addr_val, ptr_val));
                     return Ok((addr_val, Type::U64));
                 }
-            }
 
             let phys_idx = ctx.get_physical_index(&info.field_order, *idx);
             let is_ephemeral_ref = ctx.emission.ephemeral_refs.contains(&current_val);
@@ -303,7 +301,7 @@ pub fn emit_field(
                   let struct_ty = Type::Struct(sn.clone());
                   let info = ctx.lookup_struct_by_type(&struct_ty)
                       .or_else(|| ctx.struct_registry().values().find(|i| i.name == *sn).cloned())
-                      .expect(&format!("Struct info missing for '{}' (available: {:?})", sn, ctx.struct_registry().keys().map(|k| k.name.clone()).collect::<Vec<_>>()));
+                      .unwrap_or_else(|| panic!("Struct info missing for '{}' (available: {:?})", sn, ctx.struct_registry().keys().map(|k| k.name.clone()).collect::<Vec<_>>()));
                   if let Some((idx, field_ty)) = info.fields.get(&field_name) {
                        let gep_var = format!("%owned_gep_{}", ctx.next_id());
                        let mlir_ty = inner.to_mlir_type(ctx)?;
@@ -348,7 +346,7 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                  // Z3 Bounds Verification Integration
                  let func_name = ctx.current_fn_name().clone();
                  let info = crate::codegen::verification::ptr_bounds_verifier::PtrBoundsInfo::new(&func_name);
-                 let proof_result = crate::codegen::verification::ptr_bounds_verifier::verify_ptr_dynamic_index(ctx.z3_ctx, &ctx.z3_solver, &info);
+                 let proof_result = crate::codegen::verification::ptr_bounds_verifier::verify_ptr_dynamic_index(ctx.z3_ctx, ctx.z3_solver, &info);
                  
                  match proof_result {
                      crate::codegen::verification::ptr_bounds_verifier::PtrProofResult::Proven => {
@@ -433,7 +431,7 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                  let load_res = format!("%val_{}", ctx.next_id());
                  ctx.emit_load(out, &load_res, &res, &elem_mlir);
                  
-                 return Ok((load_res, (**element).clone()));
+                 Ok((load_res, (**element).clone()))
 }
 
 fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, inner: &Box<Type>, shape: &Vec<usize>) -> Result<(String, Type), String> {
@@ -580,7 +578,7 @@ fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprI
                  out.push_str(&format!("    {} = memref.load {}[{}] : {}\n", 
                      res, tensor_ptr, indices_str, memref_ty));
                  
-                 return Ok((res, *inner.clone()));
+                 Ok((res, *inner.clone()))
 }
 
 fn emit_index_array(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, inner: &Box<Type>, packed: &bool) -> Result<(String, Type), String> {
@@ -628,7 +626,7 @@ let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I6
                  
                  let res = format!("%index_res_{}", ctx.next_id());
                   ctx.emit_load_logical(out, &res, &elem_ptr, inner.as_ref())?;
-                  return Ok((res, *inner.clone()));
+                  Ok((res, *inner.clone()))
 }
 
 fn emit_index_owned(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, kind: LValueKind, inner: &Box<Type>) -> Result<(String, Type), String> {
@@ -678,8 +676,8 @@ let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I6
                  let inner_storage = inner.to_mlir_storage_type(ctx)?;
                  ctx.emit_gep(out, &elem_ptr, &loaded_ptr, &idx_prom, &inner_storage);
                  let res = format!("%index_res_{}", ctx.next_id());
-                 ctx.emit_load_logical(out, &res, &elem_ptr, &inner)?;
-                 return Ok((res, *inner.clone()));
+                 ctx.emit_load_logical(out, &res, &elem_ptr, inner)?;
+                 Ok((res, *inner.clone()))
 }
 
 fn emit_index_window(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, inner: &Box<Type>) -> Result<(String, Type), String> {
@@ -697,8 +695,8 @@ let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I6
                  let inner_storage = inner.to_mlir_storage_type(ctx)?;
                  ctx.emit_gep(out, &elem_ptr, &data_ptr, &idx_prom, &inner_storage);
                  let res = format!("%index_res_{}", ctx.next_id());
-                 ctx.emit_load_logical(out, &res, &elem_ptr, &inner)?;
-                 return Ok((res, *inner.clone()));
+                 ctx.emit_load_logical(out, &res, &elem_ptr, inner)?;
+                 Ok((res, *inner.clone()))
 }
 
 pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, _expected: Option<&Type>) -> Result<(String, Type), String> {
@@ -752,7 +750,7 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
              ctx.emit_gep(out, &ptr, &base_val, &idx_prom, &storage_inner);
              
              let res = format!("%index_res_{}", ctx.next_id());
-             ctx.emit_load_logical(out, &res, &ptr, &inner)?;
+             ctx.emit_load_logical(out, &res, &ptr, inner)?;
              Ok((res, *inner.clone()))
         }
         // Handle direct Array indexing (e.g., field access returns Array without Reference wrapper)
@@ -777,7 +775,7 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
              // Extract loop invariant upper bounds or known local array sizes
              // Note: In an advanced version we would query MallocTracker or loop invariants
              // but for now, we rely on the Z3 context having the path conditions mapped.
-             let proof_result = crate::codegen::verification::ptr_bounds_verifier::verify_ptr_dynamic_index(ctx.z3_ctx, &ctx.z3_solver, &info);
+             let proof_result = crate::codegen::verification::ptr_bounds_verifier::verify_ptr_dynamic_index(ctx.z3_ctx, ctx.z3_solver, &info);
              
              match proof_result {
                  crate::codegen::verification::ptr_bounds_verifier::PtrProofResult::Proven => {

@@ -195,7 +195,7 @@ use std::collections::{HashMap, HashSet};
             }
         };
         
-        for (_, ast) in &loader.loaded_files {
+        for ast in loader.loaded_files.values() {
             collect_globals(ast, &mut global_types);
         }
         collect_globals(file, &mut global_types);
@@ -209,7 +209,7 @@ use std::collections::{HashMap, HashSet};
 
     fn initialize_context<'a>(ctx: &mut CodegenContext<'a>, file: &SaltFile, loader: &ModuleLoader, no_verify: bool, disable_alias_scopes: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) {
         let mut all_files = Vec::new();
-        for (_, ast) in &loader.loaded_files {
+        for ast in loader.loaded_files.values() {
             all_files.push(ast);
         }
         all_files.push(file);
@@ -225,12 +225,12 @@ use std::collections::{HashMap, HashSet};
     }
 
     fn register_all_templates_and_signatures(ctx: &CodegenContext, file: &SaltFile, loader: &ModuleLoader) -> Result<(), String> {
-        for (_, ast) in &loader.loaded_files {
+        for ast in loader.loaded_files.values() {
             register_templates(ctx, ast)?;
         }
         register_templates(ctx, file)?;
 
-        for (_, ast) in &loader.loaded_files {
+        for ast in loader.loaded_files.values() {
             register_signatures(ctx, ast)?;
         }
         register_signatures(ctx, file)?;
@@ -238,7 +238,7 @@ use std::collections::{HashMap, HashSet};
     }
 
     fn scan_definitions(ctx: &mut CodegenContext, file: &SaltFile, loader: &ModuleLoader) -> Result<(), String> {
-        let dep_order = loader.get_compilation_order().map_err(|e| e)?;
+        let dep_order = loader.get_compilation_order()?;
         ctx.init_registry_definitions();
         for ns in &dep_order {
             if let Some(f) = loader.loaded_files.get(ns) {
@@ -650,7 +650,7 @@ impl<'a> CodegenContext<'a> {
 
                 let field_ty = self.bridge_resolve_type(&f.ty);
                 let struct_reg = self.struct_registry();
-                byte_offset += field_ty.size_of(&*struct_reg);
+                byte_offset += field_ty.size_of(&struct_reg);
             }
 
             self.verify_struct_atomic(&s_name_str, &s.attributes, byte_offset)?;
@@ -764,7 +764,7 @@ impl<'a> CodegenContext<'a> {
         let resolved_types: Vec<_> = fields.iter().map(|f| self.bridge_resolve_type(&f.ty)).collect();
         let field_sizes: Vec<usize> = {
             let struct_reg = self.struct_registry();
-            resolved_types.iter().map(|ty: &crate::types::Type| ty.size_of(&*struct_reg)).collect()
+            resolved_types.iter().map(|ty: &crate::types::Type| ty.size_of(&struct_reg)).collect()
         };
 
         let mut abi_offset: usize = 0;
@@ -803,7 +803,7 @@ impl<'a> CodegenContext<'a> {
         // 1. Check current file
         for item in &self.file.borrow().items {
             if let Item::Fn(f) = item {
-                if f.name.to_string() == name {
+                if f.name == name {
                     let pkg_path = if let Some(pkg) = &self.file.borrow().package {
                         pkg.name.iter().map(|id| id.to_string()).collect()
                     } else {
@@ -896,7 +896,7 @@ impl<'a> CodegenContext<'a> {
         let mut sorted_starts = all_keys.clone();
         for _k in &all_keys {
         }
-        sorted_starts.sort_by(|a, b| a.mangle().cmp(&b.mangle()));
+        sorted_starts.sort_by_key(|a| a.mangle());
         
         for key in &sorted_starts {
             self.topo_visit(key, &adj, &mut temp_mark, &mut perm_mark, &mut sorted_keys);
@@ -921,7 +921,7 @@ impl<'a> CodegenContext<'a> {
                 let mut type_str = format!("!llvm.struct<\"{}\", (", info.name);
                 for (i, ty) in info.field_order.iter().enumerate() {
                     if i > 0 { type_str.push_str(", "); }
-                    match self.resolve_mlir_storage_type(&ty) {
+                    match self.resolve_mlir_storage_type(ty) {
                         Ok(s) => type_str.push_str(&s),
                         Err(_) => type_str.push_str("!llvm.ptr"),
                     }
@@ -1307,7 +1307,7 @@ pub fn emit_fn(ctx: &CodegenContext, func: &crate::grammar::SaltFn, override_nam
     emit_requires_verification(ctx, func, &mut body_out, &mut local_vars)?;
 
     let old_no_yield = *ctx.no_yield();
-    let old_pulse = ctx.current_pulse().clone();
+    let old_pulse = *ctx.current_pulse();
     let pulse = crate::grammar::attr::extract_yielding_pulse(&func.attributes);
     *ctx.no_yield_mut() = pulse.is_none();
     *ctx.current_pulse_mut() = pulse;
@@ -1400,7 +1400,7 @@ fn process_fn_arguments(ctx: &CodegenContext, func: &crate::grammar::SaltFn, loc
     for arg in &func.args {
         let ty = if let Some(t) = &arg.ty {
             ctx.bridge_resolve_type(t)
-        } else if arg.name.to_string() == "self" {
+        } else if arg.name == "self" {
              if let Some(self_ty) = &*ctx.current_self_ty() {
                  self_ty.clone()
              } else {
@@ -1452,7 +1452,7 @@ fn build_fn_attributes(ctx: &CodegenContext, func: &crate::grammar::SaltFn, _fn_
             let s_str = format!("{:?}", s);
             s_str.contains("print") || s_str.contains("open") || s_str.contains("write") || s_str.contains("mmap")
         });
-        let is_not_main = func.name.to_string() != "main";
+        let is_not_main = func.name != "main";
         is_small && is_small_return && has_no_io && is_not_main
     };
     
@@ -1569,7 +1569,7 @@ fn emit_fn_cleanup(ctx: &CodegenContext, func: &crate::grammar::SaltFn, out: &mu
         
         if *ret_ty == Type::Unit {
             out.push_str("    func.return\n");
-        } else if func.name.to_string() == "main" && *ret_ty == Type::I32 {
+        } else if func.name == "main" && *ret_ty == Type::I32 {
             let c0 = format!("%c0_{}", ctx.next_id());
             out.push_str(&format!("    {} = arith.constant 0 : i32\n", c0));
             out.push_str(&format!("    func.return {} : i32\n", c0));
@@ -1685,7 +1685,7 @@ fn scan_dir(ctx: &CodegenContext, dir: &std::path::Path, pass1: bool) -> Result<
                 continue;
             }
             scan_dir(ctx, &path, pass1)?;
-        } else if path.extension().map_or(false, |ext| ext == "salt") {
+        } else if path.extension().is_some_and(|ext| ext == "salt") {
             if let Ok(content) = std::fs::read_to_string(&path) {
                 let processed = crate::preprocess(&content);
                 if let Ok(file) = syn::parse_str::<SaltFile>(&processed) {
@@ -1814,7 +1814,7 @@ fn register_extern_fn_signature(ctx: &CodegenContext, ef: &crate::grammar::Exter
 
     let mut args_mlir = Vec::new();
     for arg in &args {
-        if let Ok(mlir_ty) = ctx.resolve_mlir_type(&arg) {
+        if let Ok(mlir_ty) = ctx.resolve_mlir_type(arg) {
             args_mlir.push(mlir_ty);
         }
     }
@@ -1947,8 +1947,8 @@ fn resolve_type_safe(ctx: &CodegenContext, ty: &crate::grammar::SynType) -> Type
                  let segments: Vec<String> = name.split("::").map(|s| s.to_string()).collect();
                  // RESOLVE TO FQN
                  let resolved_name = if let Some((pkg, item)) = ctx.bridge_resolve_package_prefix(&segments) {
-                     let r = if item.is_empty() { pkg } else if pkg.is_empty() { item } else { Mangler::mangle(&[&pkg, &item]) };
-                     r
+                     
+                     if item.is_empty() { pkg } else if pkg.is_empty() { item } else { Mangler::mangle(&[&pkg, &item]) }
                  } else {
                      // TOP MINDS: Check if this is the impl target struct (Self-referential scope injection)
                      // This handles cases like `impl Point { fn sum(self: &Point) }` where Point isn't imported
@@ -2262,9 +2262,9 @@ fn resolve_scan_expr_call_fqn(ctx: &CodegenContext, p: &syn::ExprPath, target_ke
              let template_key = base_name.clone();
              let is_generic_struct = {
                  if let Some(t) = ctx.struct_templates().get(&template_key) {
-                     t.generics.as_ref().map_or(false, |g| !g.params.is_empty())
+                     t.generics.as_ref().is_some_and(|g| !g.params.is_empty())
                  } else if let Some(e) = ctx.enum_templates().get(&template_key) {
-                     e.generics.as_ref().map_or(false, |g| !g.params.is_empty())
+                     e.generics.as_ref().is_some_and(|g| !g.params.is_empty())
                  } else { false }
              };
              
@@ -2276,7 +2276,7 @@ fn resolve_scan_expr_call_fqn(ctx: &CodegenContext, p: &syn::ExprPath, target_ke
              };
              let key_obj = crate::types::TypeKey { path: b_path, name: b_name, specialization: None };
              
-             let fn_item_opt = ctx.trait_registry().get_legacy(&key_obj, &method_name);
+             let fn_item_opt = ctx.trait_registry().get_legacy(&key_obj, method_name);
              
              if let Some((f, _, _)) = fn_item_opt {
                  let old_map = ctx.current_type_map().clone();
@@ -2299,19 +2299,17 @@ fn resolve_scan_expr_call_fqn(ctx: &CodegenContext, p: &syn::ExprPath, target_ke
                      } else if let Some(template) = ctx.enum_templates().get(&template_key) {
                           if let Some(generics) = &template.generics { map_params(&generics.params); } 
                      }
-                 } else {
-                      if let Some(generics) = &f.generics {
-                         for (i, param) in generics.params.iter().enumerate() {
-                              let name = match param {
-                                  crate::grammar::GenericParam::Type { name, .. } => name,
-                                  crate::grammar::GenericParam::Const { name, .. } => name,
-                              };
-                              if let Some(arg) = generic_args.get(i) {
-                                  let val: crate::types::Type = arg.clone();
-                                ctx.current_type_map_mut().insert(name.to_string(), val);
-                              }
+                 } else if let Some(generics) = &f.generics {
+                    for (i, param) in generics.params.iter().enumerate() {
+                         let name = match param {
+                             crate::grammar::GenericParam::Type { name, .. } => name,
+                             crate::grammar::GenericParam::Const { name, .. } => name,
+                         };
+                         if let Some(arg) = generic_args.get(i) {
+                             let val: crate::types::Type = arg.clone();
+                           ctx.current_type_map_mut().insert(name.to_string(), val);
                          }
-                      }
+                    }
                  }
 
                  if let Some(rt) = &f.ret_type { let _ = ctx.bridge_resolve_type(rt); }
@@ -2572,9 +2570,7 @@ fn resolve_receiver_scan_helper(ctx: &CodegenContext, expr: &syn::Expr) -> Optio
 
                                 return Some(fty.clone());
                             }
-                       } else {
-
-                       }
+                       } 
                   }
              }
              None
@@ -2753,18 +2749,14 @@ fn emit_specialized_generation(
         let mut best_pkg = old_pkg.clone();
         for i in (1..parts.len()).rev() {
              let candidate = parts[0..i].join(".");
-             let exists = ctx.registry.as_ref().map_or(false, |r| r.modules.contains_key(&candidate));
-             if mangled_name.contains("alloc") {
-
-             }
+             let exists = ctx.registry.as_ref().is_some_and(|r| r.modules.contains_key(&candidate));
+             mangled_name.contains("alloc");
              if exists {
                  let pkg_str = format!("package {};", candidate);
                  if let Ok(pkg) = syn::parse_str::<crate::grammar::PackageDecl>(&pkg_str) {
                      best_pkg = Some(pkg);
                      break;
-                 } else {
-
-                 }
+                 } 
              }
         }
         *ctx.current_package.borrow_mut() = best_pkg;
