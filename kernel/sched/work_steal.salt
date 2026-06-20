@@ -1,0 +1,116 @@
+package kernel.sched.work_steal
+
+import kernel.core.percpu
+import kernel.core.vmm
+
+// =============================================================================
+// Work-Stealing Scheduler Extension
+// =============================================================================
+// Implements Chase-Lev work-stealing for multi-core fiber migration.
+// Uses @no_mangle accessor functions in kernel.core.scheduler to read/write
+// SCHED_ARRAY on remote cores (Salt does not support cross-package global access).
+//
+// Entry point: sched_enter_idle_loop() — called from smp.salt AP bootstrap.
+// =============================================================================
+
+const DEQUE_EMPTY: u64 = 0;
+const POLL_READY: i64 = 1;
+
+// Chase-Lev deque interface (resolved from kernel/sched/chase_lev.salt)
+extern fn chase_lev_steal_scan(core: u64) -> u64;
+extern fn chase_lev_push(core: u64, task: u64);
+
+// Platform / arch externs
+extern fn enable_interrupts();
+extern fn idle_halt();
+extern fn invoke_task(fn_addr: u64, arg: u64) -> i64;
+extern fn push_stack(ptr: u64);
+
+// ECS bridge
+extern fn ecs_bridge_set_thread_status(entity_val: u64, status: u32);
+extern fn ecs_bridge_destroy_thread(entity_val: u64);
+
+// Flight recorder
+extern fn flight_log_trace(fiber_id: u64, event: u64);
+
+// =============================================================================
+// Scheduler Accessors (from kernel.core.scheduler)
+// =============================================================================
+extern fn sched_steal_migrate(dst_cpu: u64, dst_slot: u64, src_cpu: u64, src_slot: u64);
+extern fn sched_steal_clear_victim(victim_cpu: u64, victim_slot: u64);
+extern fn sched_steal_init_core(cpu: u64);
+extern fn sched_steal_release(cpu: u64, slot: u64, l1_bit: u64);
+extern fn sched_steal_save_preempt(cpu: u64, slot: u64);
+extern fn sched_steal_get_active(cpu: u64, slot: u64) -> u64;
+extern fn sched_steal_get_l1(cpu: u64) -> u64;
+extern fn sched_steal_get_step(cpu: u64, slot: u64) -> u64;
+extern fn sched_steal_get_ctx(cpu: u64, slot: u64) -> u64;
+extern fn sched_steal_get_ecs(cpu: u64, slot: u64) -> u64;
+
+// =============================================================================
+// execute_stolen_fiber — Run a stolen fiber to completion or preemption
+// =============================================================================
+fn execute_stolen_fiber(cpu: u64, local_slot: u64, bit: u64) {
+    let step = sched_steal_get_step(cpu, local_slot);
+    let ctx = sched_steal_get_ctx(cpu, local_slot);
+    if step == 0 { return; }
+    let ecs_val = sched_steal_get_ecs(cpu, local_slot);
+    ecs_bridge_set_thread_status(ecs_val, 2);
+    let status = invoke_task(step, ctx);
+    if status == POLL_READY {
+        ecs_bridge_destroy_thread(ecs_val);
+        sched_steal_release(cpu, local_slot, bit);
+    } else {
+        ecs_bridge_set_thread_status(ecs_val, 1);
+        sched_steal_save_preempt(cpu, local_slot);
+    }
+}
+
+// =============================================================================
+// dispatch_stolen — Decode stolen word and migrate the fiber
+// =============================================================================
+fn dispatch_stolen(cpu: u64, stolen_word: u64) {
+    let victim_cpu = (stolen_word >> 16) & 0xFFFF;
+    let victim_slot = stolen_word & 0xFFFF;
+    if sched_steal_get_active(victim_cpu, victim_slot) == 0 {
+        return;
+    }
+    let l1 = sched_steal_get_l1(cpu);
+    let inv_bitmap = l1 ^ 0xFFFFFFFFFFFFFFFF;
+    if inv_bitmap == 0 {
+        return;
+    }
+    let mut local_slot: u64 = 1;
+    while local_slot < 64 {
+        let bit: u64 = (1 as u64) << local_slot;
+        if (l1 & bit) == 0 {
+            sched_steal_migrate(cpu, local_slot, victim_cpu, victim_slot);
+            sched_steal_clear_victim(victim_cpu, victim_slot);
+            execute_stolen_fiber(cpu, local_slot, bit);
+            return;
+        }
+        local_slot = local_slot + 1;
+    }
+}
+
+// =============================================================================
+// enter_idle_loop — AP idle loop with work-stealing
+// =============================================================================
+pub fn enter_idle_loop() {
+    let cpu = percpu.get_cpu_id();
+    sched_steal_init_core(cpu);
+    enable_interrupts();
+    loop {
+        let stolen = chase_lev_steal_scan(cpu);
+        if stolen != DEQUE_EMPTY {
+            dispatch_stolen(cpu, stolen);
+        } else {
+            idle_halt();
+        }
+    }
+}
+
+@no_mangle
+pub fn sched_enter_idle_loop() {
+    enter_idle_loop();
+}

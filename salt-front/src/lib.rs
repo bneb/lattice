@@ -1,4 +1,4 @@
-#![warn(clippy::cognitive_complexity)]
+#![deny(clippy::cognitive_complexity)]
 // removed warnings
 
 

@@ -19,12 +19,28 @@ fi
 
 FAIL=0
 
-# ── Constraint 1: File max 500 lines ──────────────────────────
+# ── Constraint 1: File max 500 lines (incremental) ─────────────
+# New files must be ≤500 lines. Existing files >500 may only shrink.
 LINES=$(wc -l < "$FILE" 2>/dev/null || echo 0)
 if [ "$LINES" -gt 500 ]; then
-  echo "CONSTRAINT VIOLATION [max-500-lines]: $FILE is $LINES lines (limit: 500)." >&2
-  echo "  Action: Split this file into smaller modules before proceeding." >&2
-  FAIL=1
+  GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+  if [ -n "$GIT_ROOT" ]; then
+    REL_PATH="${FILE#$GIT_ROOT/}"
+    OLD_LINES=$(git show "HEAD:$REL_PATH" 2>/dev/null | wc -l | tr -d '[:space:]' || echo 0)
+  else
+    OLD_LINES=0
+  fi
+  # Block if: new file exceeds 500, OR existing ≤500 file now exceeds 500,
+  # OR already-large file grew further.
+  if [ "$OLD_LINES" -eq 0 ] || [ "$OLD_LINES" -le 500 ] || [ "$LINES" -gt "$OLD_LINES" ]; then
+    echo "CONSTRAINT VIOLATION [max-500-lines]: $FILE is $LINES lines (limit: 500)." >&2
+    if [ "$OLD_LINES" -gt 500 ]; then
+      echo "  File was already $OLD_LINES lines — edits must not increase line count." >&2
+    else
+      echo "  Action: Split this file into smaller modules before proceeding." >&2
+    fi
+    FAIL=1
+  fi
 fi
 
 # ── Constraint 2: Functions max 32 non-blank lines ────────────
@@ -100,6 +116,43 @@ if [[ "$FILE" != *test* && "$FILE" != *spec* && "$FILE" != *tests_* ]]; then
     echo "  Action: Resolve the issue now or open a GitHub issue — don't leave markers in code." >&2
     FAIL=1
   fi
+fi
+
+# ── Constraint 5: Max 2 consecutive blank lines ──────────────
+# Prevents whitespace bloat. Also makes "cheating" the line-count
+# limit by stripping ALL blank lines impossible — functions need
+# at least SOME breathing room.
+TRIPLE_BLANK=$(grep -nP '^\s*$' "$FILE" 2>/dev/null | awk -F: '{
+  line = $1 + 0
+  if (line == prev + 1) { consec++ } else { consec = 1 }
+  prev = line
+  if (consec >= 3) { print prev; exit }
+}' 2>/dev/null)
+if [ -n "$TRIPLE_BLANK" ]; then
+  echo "CONSTRAINT VIOLATION [max-2-consecutive-blank]: 3+ consecutive blank lines near line $TRIPLE_BLANK in $FILE." >&2
+  echo "  Action: Use at most 2 consecutive blank lines to separate sections." >&2
+  FAIL=1
+fi
+
+# ── Constraint 6: Blank line required between functions ───────
+# Prevents function-squashing to save lines. A closing brace
+# immediately followed by a function signature (no blank line
+# between) is rejected.
+NO_BLANK_BETWEEN=$(awk '
+  /^[[:space:]]*\}/ { last_close = NR; next }
+  /^[[:space:]]*(pub[[:space:]]+)?(unsafe[[:space:]]+)?(extern[[:space:]]+)?fn[[:space:]]/ {
+    if (last_close > 0 && NR - last_close == 1) {
+      printf "%d\n", NR
+      exit
+    }
+  }
+  /^[[:space:]]*$/ { next }  # blank lines dont break the chain
+  { last_close = 0 }          # non-fn, non-blank => reset
+' "$FILE" 2>/dev/null)
+if [ -n "$NO_BLANK_BETWEEN" ]; then
+  echo "CONSTRAINT VIOLATION [blank-between-fns]: fn at line $NO_BLANK_BETWEEN needs a blank line before it in $FILE." >&2
+  echo "  Action: Add a blank line between consecutive function definitions." >&2
+  FAIL=1
 fi
 
 # ── Result ────────────────────────────────────────────────────

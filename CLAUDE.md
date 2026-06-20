@@ -46,70 +46,104 @@ Progress is tracked in `.claude/goals/STATUS.md` — read that file to see what'
 16. Blog posts (3+ technical deep-dives) ✅
 17. Ongoing improvements
 
-## Autonomous Operating Mode
+## Quality Goals (Aspirational — work toward these incrementally)
 
-When running autonomously (via /loop), follow these instructions.
+We are pursuing five quality goals. These are NOT hard blockers on new code
+(the hook-enforced constraints in `.claude/hooks/check-constraints.sh` already
+handle that). These are long-term targets to reach through systematic,
+incremental refactoring.
 
-### Priority Order
-Work through remaining items in this order. Only advance to the next item
-when the current one is verifiably complete or blocked on kernel boot testing.
+### The Five Goals
+1. Every file < 500 LOC
+2. Every function < 32 non-blank LOC
+3. Zero blocks at nesting level 4+ (no `if`/`match`/`while`/`for`/`loop`
+   at 16+ spaces of indent)
+4. Test coverage > 95% (salt-front + salt-lsp)
+5. Zero mutant markers (TODO/FIXME/HACK/XXX/temp_/workaround) in source
 
-1. **Add @no_mangle wrappers** for remaining kernel extern symbols
-   (syscall_configure_msrs, pcid_init, ist_install_gates, run_async_fiber_tests,
-   run_vfs_tests, run_preemptive_tests, nvme_init). Each wrapper goes at the
-   bottom of the defining module in the "// @no_mangle ABI Wrappers" section.
-   Verify with: `python3 tools/runner_qemu.py build` reports BUILD SUCCESS.
+### Strategy: Ratchet, Don't Boil the Ocean
+- Each session, pick ONE file or module and improve it against ALL five goals.
+- Never make coverage worse. Never make a function longer. Never add nesting.
+- If you touch a function to fix something else, leave it shorter/flatter.
+- Commit after each successful improvement with a metric in the message:
+  "refactor: shrink do_dispatch 98→30 lines, scheduler.salt 810→492 lines"
 
-2. **Implement sys_ipc_reg_send (syscall 14)** — currently returns ENOSYS.
-   This is the fast-path register IPC that NetD needs for Ring 3 operation.
-   Define the function in kernel/ipc/fastpath.salt or kernel/core/syscall.salt.
-   Wire it into the syscall dispatch table. No kernel boot test required;
-   verify with `cargo check` + kernel link.
+### Priority Queue (work top-to-bottom)
 
-3. **Z3 contract regression tests** — create salt-front/tests/z3_contracts/
-   with .salt files that encode expected verification results:
-   - `test_contract_proved.salt`: requires(x > 0) with concrete x=5 → Z3 must prove
-   - `test_contract_rejected.salt`: requires(x > 0) with x=0 → Z3 must reject  
-   - `test_contract_timeout.salt`: complex contract → Z3 must time out at 100ms
-   Run with: `./salt-front/target/release/salt-front --verify <file>`
-   Document each expected result.
+**Tier 1 — Kernel (highest impact, smallest files):**
+1. `kernel/core/scheduler.salt` (810 lines, 8 deep-nest blocks, functions
+   up to 98 lines) — split into sched_dispatch, sched_spawn, sched_steal
+2. `kernel/core/ring_abi.salt` (732 lines) — split by operation family
+   (ring_init, ring_transfer, ring_spawn/mmap)
+3. `kernel/core/exec_user.salt` (633 lines, functions up to 161 lines) —
+   extract spawn variants into separate helpers
+4. `kernel/core/ring3_test.salt` (609 lines) — split by test scenario
+5. `kernel/core/syscall.salt` (582 lines) — extract I/O syscalls
+   (sys_write/read/open/spawn/exit) to syscall_io.salt (blocked: u64↔Ptr<T>
+   cast limitation — track this, revisit when compiler supports it)
+6. `kernel/benchmarks/netd_bench.salt` (570 lines) — split by test case
+7. `kernel/mem/user_paging.salt` (527 lines) — extract walk/create/unmap
+8. `kernel/core/process.salt` (520 lines) — extract PID alloc/free helpers
+9. `kernel/core/preempt_test.salt` (509 lines) — split by test layer
+10. `kernel/ecs/sparse_set.salt` (671 lines) — split sparse set operations
 
-4. **VS Code extension** — update tools/salt-lsp/editors/vscode/ with:
-   - Package.json version bump to 0.3.0
-   - Updated syntax grammar for new LSP features (semantic tokens)
-   - README with install instructions for the .vsix
+**Tier 2 — Salt compiler (large files, architectural risk):**
+Focus on the worst functions first, not whole-file splits:
+- `context.rs` `emit_verify` (368 lines) — extract verification phases
+- `type_bridge.rs` `drain_work_queue` (325 lines) — extract queue stages
+- `type_bridge.rs` `request_specialization` (171 lines) — split by case
+- `stmt.rs` `emit_salt_if` (157 lines) — extract branch emission helpers
+- `stmt.rs` `emit_iterator_for_loop` (148 lines) — extract loop patterns
+- `expr/resolver.rs` `identify_target` (174 lines) — split by target kind
 
-5. **Code coverage** — add `cargo tarpaulin` or `cargo llvm-cov` to CI
-   for salt-front and salt-lsp. Set baseline coverage percentage.
+**Tier 3 — Coverage gaps:**
+- `interpreter.rs` (0 tests) — add smoke tests for eval_expr, exec_stmt
+- `fuzz_ast.rs` (0 tests) — verify round-trip for basic AST nodes
+- `grammar/pattern.rs` (0 dedicated tests) — test each pattern variant
+- `codegen/verification/` modules — add edge-case Z3 contract tests
+- salt-lsp: `completion.rs`, `sir_display.rs`, `sir_index.rs` — add unit tests
 
-6. **Lettuce AOF persistence** — lettuce/aof.salt has an append-only file stub.
-   Implement write-ahead logging with arena-allocated buffers and Z3-verified
-   bounds on every write.
+**Tier 4 — Fuzz targets (new coverage tool):**
+- `salt-front/fuzz/fuzz_parser.rs` — round-trip fuzzing
+- `salt-front/fuzz/fuzz_preprocess.rs` — preprocessor stress
 
-7. **Salt compiler warning cleanup** — salt-front has 3 pre-existing warnings.
-   Fix them: unused_mut in cli.rs, dead_code in method_resolution.rs,
-   unreachable_patterns in special_methods.rs.
+### Measurement & Checkpoints
 
-8. **Fuzz targets** — salt-front has libfuzzer-sys as a dev dependency.
-   Create fuzz targets for the parser (salt-front/fuzz/fuzz_parser.rs) and
-   the preprocessor (fuzz_preprocess.rs).
+After each session, run and record:
+```bash
+# File count over 500
+find kernel/ salt-front/src/ tools/salt-lsp/src/ -name '*.salt' -o -name '*.rs' | \
+  xargs wc -l | awk '$1>500{print $1, $2}' | wc -l
 
-### What NOT to do autonomously
-- Never modify kernel core scheduler, interrupt handlers, or page table code
+# Deep nesting count
+grep -rcP '^\s{16,}(if|match|while|for|loop)\b' kernel/ salt-front/src/ | \
+  grep -v ':0$'
+
+# Coverage trend
+cargo llvm-cov --summary-only 2>&1 | grep 'lines.*%'
+```
+
+Track these numbers in `.claude/goals/QUALITY_METRICS.md` with a date stamp
+each session. The goal is monotonic improvement — every session should move
+at least one number in the right direction.
+
+### Non-Negotiables (these remain hard constraints)
+- New code MUST comply: <500 lines, <32 LOC/fn, <3 nesting, no mutants
+- `cargo test` and `cargo clippy -- -D warnings` must pass before commit
+- Never edit vendor/, isodir/boot/, or .claude/hooks/
+- Never modify kernel scheduler core logic, interrupt handlers, or page
+  table code during refactoring — extract helpers, don't rewrite semantics
+- Every extracted function must have a Z3 `requires` clause if it touches
+  unsafe memory
+
+### What NOT to do
 - Never boot QEMU (requires interactive inspection)
 - Never git push
 - Never delete files except build artifacts in qemu_build/
 - Never modify .claude/hooks/ or .claude/settings.json
 - Never edit vendor/ or isodir/
 
-### Completion signal
-When ALL items are done or blocked, update STATUS.md and report:
-"Autonomous work complete. Remaining: [list blocked items and why]."
-
-### Between sessions
-On each /loop iteration:
-1. Open `.claude/goals/STATUS.md`
-2. Find the first unchecked item in the Priority Order above
-3. Work on it
-4. When done (compiles, tests pass), check it off and commit
-5. If blocked, note why and move to next item
+### Completion Signal
+When all five goals are met across the entire codebase, update STATUS.md:
+"Quality goals achieved: <500 LOC/file, <32 LOC/fn, <3 nesting, >95% cov, 0 mutants."
+Until then, each session moves the needle on at least one metric.

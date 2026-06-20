@@ -72,18 +72,25 @@
         u64↔Ptr<T> cast limitations in Salt compiler
 
 ## Active Goal
-**Current:** Autonomous mode — working through CLAUDE.md priority list.
-Items #1-5, #7 complete. Next: #6 (Lettuce AOF) or #8 (Fuzz targets).
+**Current:** Quality Goals — systematic refactoring toward <500 LOC/file,
+<32 LOC/fn, <3 nesting, >95% coverage, 0 mutants.
 
-## Ongoing Improvements (CLAUDE.md Priority List)
-- [x] #1: @no_mangle wrappers for remaining kernel symbols
-- [x] #2: sys_ipc_reg_send (syscall 14) wired
-- [x] #3: Z3 contract regression tests
-- [x] #4: VS Code extension 0.3.0
-- [x] #5: Code coverage CI with baseline (llvm-cov, nightly, --fail-under-lines 60/50)
-- [ ] #6: Lettuce AOF persistence
-- [x] #7: Salt compiler warning cleanup (3 warnings fixed)
-- [ ] #8: Fuzz targets (parser, preprocessor)
+Progress tracker: `.claude/goals/QUALITY_METRICS.md`
+
+## Quality Goals Progress
+- [x] **Infrastructure**: .editorconfig, blank-line hook, clippy tightening, blocking CI
+- [x] **scheduler.salt**: 810→539 lines, 8→0 deep-nest blocks, 6→0 long fns
+- [x] **work_steal.salt**: New file (116 lines), work-stealing extracted from scheduler
+- [ ] kernel/core/ring_abi.salt (732 lines)
+- [ ] kernel/core/exec_user.salt (633 lines)
+- [ ] kernel/core/ring3_test.salt (609 lines)
+- [ ] kernel/core/syscall.salt (582 lines)
+- [ ] kernel/benchmarks/netd_bench.salt (570 lines)
+- [ ] kernel/mem/user_paging.salt (527 lines)
+- [ ] kernel/core/process.salt (520 lines)
+- [ ] kernel/core/preempt_test.salt (509 lines)
+- [ ] kernel/core/scheduler.salt (539→<500, needs further split)
+- [ ] kernel/ecs/sparse_set.salt (671 lines)
 
 ## Log
 - 2026-06-19: Items #5, #7 complete — coverage CI baseline, 3 compiler warnings fixed

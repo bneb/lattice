@@ -178,7 +178,6 @@ jobs:
       - name: Run clippy
         run: cargo clippy -- -D warnings
         working-directory: salt-front
-        continue-on-error: true  # informational for now, gate after cleanup
 
   kernel-smoke-test:
     name: Kernel smoke test (QEMU)
