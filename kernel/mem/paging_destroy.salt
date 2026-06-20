@@ -1,0 +1,141 @@
+// =============================================================================
+// kernel/mem/paging_destroy.salt
+// Page-table destruction extracted from user_paging.salt.
+//
+// destroy_user_pml4 walks the user-half PML4 entries (0..255), recursively
+// freeing page tables and leaf pages. unmap_user_page clears a single leaf
+// PTE without freeing intermediate tables.
+// =============================================================================
+
+package kernel.mem.paging_destroy
+
+import kernel.core.pmm
+import kernel.core.memory
+
+// =============================================================================
+// Constants (must match user_paging.salt)
+// =============================================================================
+const PAGE_SIZE: u64    = 4096;
+const ENTRIES: u64      = 512;
+const ADDR_MASK: u64    = 0x000FFFFFFFFFF000;
+
+const PTE_PRESENT: u64 = 0x1;
+const PTE_SHARED: u64  = 0x200;
+
+const KERNEL_PML4_START: u64 = 256;
+
+// Page-table index helpers (defined in user_paging.salt)
+extern fn pml4_index(vaddr: u64) -> u64;
+extern fn pdp_index(vaddr: u64) -> u64;
+extern fn pd_index(vaddr: u64) -> u64;
+extern fn pt_index(vaddr: u64) -> u64;
+
+// =============================================================================
+// unmap_user_page — Clear a single 4KB leaf PTE (read-only walk, no alloc)
+// =============================================================================
+// Walks PML4→PDPT→PD→PT and clears the leaf PTE to 0.
+// Does NOT free intermediate tables or the physical page.
+// Returns true if a mapping was cleared, false if already unmapped.
+// Used by sys_shm_grant rollback on partial mapping failure.
+// =============================================================================
+pub fn unmap_user_page(pml4_phys: u64, vaddr: u64) -> bool {
+    // Walk PML4
+    let pml4_virt = memory.phys_to_virt(memory.PhysAddr { val: pml4_phys }).val;
+    let pml4e = *((pml4_virt + (pml4_index(vaddr) * 8)) as &u64);
+    if (pml4e & PTE_PRESENT) == 0 {
+        return false;
+    }
+
+    // Walk PDP
+    let pdp_phys = pml4e & ADDR_MASK;
+    let pdp_virt = memory.phys_to_virt(memory.PhysAddr { val: pdp_phys }).val;
+    let pdpe = *((pdp_virt + (pdp_index(vaddr) * 8)) as &u64);
+    if (pdpe & PTE_PRESENT) == 0 {
+        return false;
+    }
+
+    // Walk PD
+    let pd_phys = pdpe & ADDR_MASK;
+    let pd_virt = memory.phys_to_virt(memory.PhysAddr { val: pd_phys }).val;
+    let pde = *((pd_virt + (pd_index(vaddr) * 8)) as &u64);
+    if (pde & PTE_PRESENT) == 0 {
+        return false;
+    }
+
+    // Walk PT — clear the leaf entry
+    let pt_phys = pde & ADDR_MASK;
+    let pt_virt = memory.phys_to_virt(memory.PhysAddr { val: pt_phys }).val;
+    let pt_entry_addr = pt_virt + (pt_index(vaddr) * 8);
+    let pte = *(pt_entry_addr as &u64);
+    if (pte & PTE_PRESENT) == 0 {
+        return false;
+    }
+
+    // Clear the PTE — page is no longer mapped
+    *(pt_entry_addr as &mut u64) = 0;
+    return true;
+}
+
+// =============================================================================
+// destroy_user_pml4 — Free ALL user-half pages (data + page tables)
+// =============================================================================
+pub fn destroy_user_pml4(pml4_phys: u64) {
+    let pml4_virt = memory.phys_to_virt(memory.PhysAddr { val: pml4_phys }).val;
+    // SECURITY FIX: Index 0 must be freed! User-mode ELFs and heaps exist in index 0.
+    // PML4[0] is no longer borrowed from the kernel identity map; it is allocated
+    // uniquely for each user process.
+    let mut pml4_i: u64 = 0;
+    while pml4_i < KERNEL_PML4_START {
+        let pml4_entry = *((pml4_virt + pml4_i * 8) as &u64);
+        if (pml4_entry & PTE_PRESENT) != 0 {
+            let pdp_phys = pml4_entry & ADDR_MASK;
+            destroy_pdp(pdp_phys);
+            pmm.free(pdp_phys);
+        }
+        pml4_i = pml4_i + 1;
+    }
+    pmm.free(pml4_phys);
+}
+
+fn destroy_pdp(pdp_phys: u64) {
+    let pdp_virt = memory.phys_to_virt(memory.PhysAddr { val: pdp_phys }).val;
+    let mut i: u64 = 0;
+    while i < ENTRIES {
+        let entry = *((pdp_virt + i * 8) as &u64);
+        if (entry & PTE_PRESENT) != 0 {
+            let pd_phys = entry & ADDR_MASK;
+            destroy_pd(pd_phys);
+            pmm.free(pd_phys);
+        }
+        i = i + 1;
+    }
+}
+
+fn destroy_pd(pd_phys: u64) {
+    let pd_virt = memory.phys_to_virt(memory.PhysAddr { val: pd_phys }).val;
+    let mut i: u64 = 0;
+    while i < ENTRIES {
+        let entry = *((pd_virt + i * 8) as &u64);
+        if (entry & PTE_PRESENT) != 0 {
+            let pt_phys = entry & ADDR_MASK;
+            destroy_pt(pt_phys);
+            pmm.free(pt_phys);
+        }
+        i = i + 1;
+    }
+}
+
+fn destroy_pt(pt_phys: u64) {
+    let pt_virt = memory.phys_to_virt(memory.PhysAddr { val: pt_phys }).val;
+    let mut i: u64 = 0;
+    while i < ENTRIES {
+        let entry = *((pt_virt + i * 8) as &u64);
+        if (entry & PTE_PRESENT) != 0 {
+            if (entry & PTE_SHARED) == 0 {
+                let leaf_phys = entry & ADDR_MASK;
+                pmm.free(leaf_phys);
+            }
+        }
+        i = i + 1;
+    }
+}

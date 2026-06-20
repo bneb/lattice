@@ -29,7 +29,7 @@ Each task = one thematic extraction. One task per session. Work top-to-bottom.
 - **Acceptance:** `ring3_kpti_test.salt` exists, `ring3_test.salt` < 500 lines, `cargo test` passes, clippy clean
 - **Estimate:** 1 session
 
-### T-005: Extract paging_destroy from user_paging.salt
+### [x] T-005: Extract paging_destroy from user_paging.salt
 - **Target:** `kernel/mem/user_paging.salt` (527 → ~410 lines)
 - **Strategy:** Extract `destroy_user_pml4`, `destroy_pdp`, `destroy_pd`, `destroy_pt`, `user_paging_destroy_user_pml4`, `user_paging_unmap_user_page`, `unmap_user_page` into `kernel/mem/paging_destroy.salt`
 - **Acceptance:** `paging_destroy.salt` exists, `user_paging.salt` < 500 lines, `cargo test` passes, clippy clean

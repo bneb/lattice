@@ -118,7 +118,30 @@ ring3_test.salt retains: test_ring3_iretq_frame, test_ring3_e2e, test_swapgs_rin
 - cargo test: 0 FAILED
 - cargo build --release: SUCCESS
 
+## 2026-06-19 — Session 6: T-005 paging_destroy extraction from user_paging.salt
+
+### Files >500 lines (kernel/)
+| Metric | Before | After | Delta |
+|--------|--------|-------|-------|
+| Count | 6 | 5 | -1 |
+| Worst file | user_paging.salt (527) | syscall.salt (582) | user_paging.salt -106 |
+
+### user_paging.salt specific
+| Metric | Before | After |
+|--------|--------|-------|
+| Lines | 527 | 421 (-20%) |
+| Files created | 0 | 1 (paging_destroy.salt, 141 lines) |
+
+Extracted: destroy_user_pml4, destroy_pdp, destroy_pd, destroy_pt,
+unmap_user_page into paging_destroy.salt. Delegation wrappers keep
+existing callers (syscall.salt, syscall_ipc.salt, exec_user.salt,
+capability.salt) working without changes.
+
+### Verification
+- cargo test: 0 FAILED
+- cargo build --release: SUCCESS
+
 ### Next session targets (Tier 1 priority order)
-1. kernel/core/syscall.salt (582 lines)
-2. kernel/benchmarks/netd_bench.salt (570 lines)
-3. kernel/mem/user_paging.salt (527 lines)
+1. kernel/benchmarks/netd_bench.salt (570 lines)
+2. kernel/core/process.salt (520 lines)
+3. kernel/core/preempt_test.salt (509 lines)
