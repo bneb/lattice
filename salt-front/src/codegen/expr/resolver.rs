@@ -519,9 +519,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         
         // Extract concrete args from self_ty
         let mut struct_concrete_args = Vec::new();
-        if let Some(self_ty) = &target.self_ty {
-            if let Type::Concrete(_, args) = self_ty { struct_concrete_args.extend(args.iter().cloned()) }
-        }
+        if let Some(Type::Concrete(_, args)) = &target.self_ty { struct_concrete_args.extend(args.iter().cloned()) }
         
         let mut resolver = crate::codegen::generic_resolver::GenericResolver::new(self.ctx);
         resolver.resolve_generics(

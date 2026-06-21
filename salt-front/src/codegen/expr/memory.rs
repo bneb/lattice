@@ -820,12 +820,10 @@ pub fn translate_to_z3<'a, 'ctx>(
         syn::Expr::Path(p) => {
             let name = p.path.segments.last().ok_or_else(|| "Empty path segments".to_string())?.ident.to_string();
             // First check local variables for SSA value
-            if let Some((_, kind)) = local_vars.get(&name) {
-                if let LocalKind::SSA(ssa) = kind {
+            if let Some((_, LocalKind::SSA(ssa))) = local_vars.get(&name) {
                     if let Some(z3_val) = ctx.get_symbolic_int(ssa) {
                         return Ok(z3_val);
                     }
-                }
             }
             // Fallback to fresh variable
             Ok(ctx.mk_var(&name))

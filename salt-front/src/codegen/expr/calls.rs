@@ -353,8 +353,7 @@ fn try_emit_indirect_call(
     }
 
     let fn_result = super::emit_expr(ctx, out, &c.func, local_vars, None);
-    if let Ok((fn_ptr_val, fn_ty)) = fn_result {
-        if let Type::Fn(param_tys, ret_ty) = &fn_ty {
+    if let Ok((fn_ptr_val, Type::Fn(param_tys, ret_ty))) = fn_result {
             let mut arg_vals = Vec::new();
             let mut arg_mlir_tys = Vec::new();
             for (i, arg_expr) in c.args.iter().enumerate() {
@@ -375,7 +374,7 @@ fn try_emit_indirect_call(
             let ret_mlir_ty = ret_ty.to_mlir_type(ctx)?;
 
             let mut res_val = String::new();
-            if **ret_ty == Type::Unit {
+            if *ret_ty == Type::Unit {
                 out.push_str(&format!("    llvm.call {}({}) : !llvm.ptr, ({}) -> ()\n",
                     fn_ptr_val, args_str, args_tys_str));
             } else {
@@ -386,7 +385,6 @@ fn try_emit_indirect_call(
 
             ctx.emission.global_lvn.clear();
             return Ok(Some((res_val, *ret_ty.clone())));
-        }
     }
     Ok(None)
 }

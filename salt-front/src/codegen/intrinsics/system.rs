@@ -104,8 +104,7 @@ pub fn emit_system_intrinsic(
             ctx.emit_lto_hook(out, "__salt_yield_check", args, local_vars, expected_ty)
         }
         "target__has_feature" => {
-            if let Some(arg) = args.first() {
-                if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = arg {
+            if let Some(syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. })) = args.first() {
                     let feature = s.value();
                     let has = match feature.as_str() {
                         "neon" | "aarch64" | "m4" => true,
@@ -115,7 +114,6 @@ pub fn emit_system_intrinsic(
                     let res = format!("%has_feat_{}", ctx.next_id());
                     ctx.emit_const_int(out, &res, if has { 1 } else { 0 }, "i1");
                     return Ok(Some((res, Type::Bool)));
-                }
             }
             Err("target::has_feature expects string literal".to_string())
         }

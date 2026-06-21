@@ -561,8 +561,7 @@ fn resolve_generics_and_functions(
 ) -> Result<Option<(String, Type)>, String> {
     if segments.len() == 1 {
          let name = &segments[0];
-         if let Some(val_ty) = ctx.current_type_map().get(name) {
-             if let Type::Struct(s) = val_ty {
+         if let Some(Type::Struct(s)) = ctx.current_type_map().get(name) {
                  if let Ok(i) = s.parse::<i64>() {
                      let res = format!("%const_gen_{}", ctx.next_id());
                      ctx.emit_const_int(out, &res, i, "i64");
@@ -572,7 +571,6 @@ fn resolve_generics_and_functions(
                      out.push_str(&format!("    {} = llvm.mlir.undef : i64\n", res));
                      return Ok(Some((res, Type::I64)));
                  }
-             }
          }
     }
     if segments.len() == 1 {
