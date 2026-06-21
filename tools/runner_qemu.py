@@ -394,11 +394,12 @@ def build_kernel():
     # Exclude files that don't compile yet (WIP / incomplete dependencies)
     # Exclude files that don't compile yet (WIP / incomplete dependencies)
     EXCLUDE_BASENAMES = {
-        "df_test_runner",  # test_df mode only, conflicts with suite.o
-        "teardown",        # WIP: parse error (expected identifier)
-        "bitmap_disp",     # WIP: needs atomic_or_u64 intrinsic (not yet defined)
-        "irq",             # WIP: missing kernel__core__process__get_process_by_cap
-        "syscall_test",    # WIP: references sys_shm_grant (syscall IPC split in progress)
+        "teardown",        # WIP: needs sched.bitmap_disp re-export
+        "syscall_test",    # uses module-qualified syscall.sys_shm_grant() — needs
+                           # compiler support for dual mangled+unmangled exports
+        "bitmap_disp",     # WIP: needs atomic_or_u64 intrinsic (not yet implemented)
+        "irq",             # WIP: needs process.get_process_by_cap (extracted from process.salt)
+        # df_test_runner — FIXED: renamed bench_suite_run → df_test_suite_run
         # fastpath is now buildable (included in build — no longer blocked)
     }
     salt_files = [f for f in salt_files

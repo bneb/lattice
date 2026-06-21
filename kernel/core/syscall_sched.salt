@@ -109,8 +109,6 @@ fn switch_to_next_ready(slot: u64) {
     loop { idle_halt(); }
 }
 @no_mangle
-@no_mangle
-@no_mangle
 pub fn schedule_next() {
     let current = process_current();
     let count = process_get_count();
@@ -171,15 +169,12 @@ fn switch_to_process(current: u64, next: u64) {
 // timer_preempt — Called from PIT handler for Ring 3 preemption
 // =============================================================================
 @no_mangle
-@no_mangle
-@no_mangle
 pub fn timer_preempt() {
     schedule_next();
 }
 // The @no_mangle implementation lives in scheduler.salt (full O(1) bitmap).
 // This extern declaration lets call sites in this file resolve the symbol.
 extern fn sched_yield();
-@no_mangle
 @no_mangle
 pub fn sys_brk(new_brk: u64) -> u64 {
     let pid = process_current();
@@ -244,7 +239,6 @@ pub fn sys_brk(new_brk: u64) -> u64 {
 // Allocates VMA metadata from slab cache, maps physical pages,
 // and prepends VMA to the process's linked list.
 // =============================================================================
-@no_mangle
 @no_mangle
 pub fn sys_mmap(length: u64, prot: u64) -> u64 {
     let pid = process_current();
@@ -316,7 +310,6 @@ pub fn sys_mmap(length: u64, prot: u64) -> u64 {
 // (.data section, global linkage). Salt writes, assembly reads.
 // This extern fn stages all three words in one call.
 
-@no_mangle
 @no_mangle
 pub fn sys_wait(target_pid: u64) -> u64 {
     let caller_slot = process_current();

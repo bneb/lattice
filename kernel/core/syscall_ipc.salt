@@ -86,9 +86,6 @@ extern fn ipc_stage_payload(msg0: u64, msg1: u64, msg2: u64);
 // Returns 0 on success, -1 on invalid target.
 // =============================================================================
 @no_mangle
-@no_mangle
-@no_mangle
-@no_mangle
 pub fn sys_ipc_send(target_pid: u64, msg0: u64, msg1: u64, msg2: u64) -> u64 {
     let sender = process_current();
 
@@ -150,9 +147,6 @@ pub fn sys_ipc_send(target_pid: u64, msg0: u64, msg1: u64, msg2: u64) -> u64 {
 // Returns: sender_pid in RAX.
 // Post-condition: ipc_recv_msg0/1/2 contain the payload for assembly.
 // =============================================================================
-@no_mangle
-@no_mangle
-@no_mangle
 @no_mangle
 pub fn sys_ipc_recv() -> u64 {
     let slot = process_current();
@@ -278,8 +272,6 @@ fn map_shm_pages(src_pml4: u64, target_pml4: u64, src_vaddr: u64, dst_vaddr: u64
     return 0;
 }
 
-@no_mangle
-@no_mangle
 @no_mangle
 pub fn sys_shm_grant(target_pid: u64, src_vaddr: u64, dst_vaddr: u64, num_pages: u64) -> u64 {
     if validate_shm_request(target_pid, src_vaddr, dst_vaddr, num_pages) != 0 {

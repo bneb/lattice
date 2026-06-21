@@ -19,7 +19,7 @@ package kernel.core.teardown
 import kernel.core.process
 import kernel.mem.vmm
 import kernel.mem.pmm_sharded
-import kernel.sched.bitmap_disp
+// import kernel.sched.bitmap_disp — DEFERRED: module extracted, needs re-export
 
 // Generic architecture HAL abstraction for TLB shootdown
 extern fn tlb_flush_all();
