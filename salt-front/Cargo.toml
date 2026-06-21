@@ -31,7 +31,6 @@ type_complexity = "allow"
 collapsible_match = "allow"
 collapsible_if = "allow"
 # single_match = "allow"
-# # borrowed_box = "allow" — fixed via site-level allows
 # ptr_arg = "allow"
 needless_late_init = "allow"
 needless_range_loop = "allow"

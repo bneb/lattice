@@ -331,8 +331,7 @@ pub fn emit_field(
 
 
 
-#[allow(clippy::borrowed_box)]
-fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, kind: LValueKind, element: &Box<Type>) -> Result<(String, Type), String> {
+fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, kind: LValueKind, element: &Type) -> Result<(String, Type), String> {
 // Check deref validity
                  if let syn::Expr::Path(path_expr) = &*i.expr {
                      if let Some(ident) = path_expr.path.get_ident() {
@@ -414,7 +413,7 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                  
                   // Handle Reference(Array(T, N)) - read index into array element
                   // When element is Array(I32, 10, false), use [0, idx] GEP and return element type
-                  if let Type::Array(ref arr_elem, _, _) = **element {
+                  if let Type::Array(ref arr_elem, _, _) = *element {
                       let arr_mlir = element.to_mlir_type(ctx)?;
                       let elem_ptr = format!("%ref_arr_elem_ptr_{}", ctx.next_id());
                       out.push_str(&format!("    {} = llvm.getelementptr {}[0, {}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n",
@@ -432,11 +431,10 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                  let load_res = format!("%val_{}", ctx.next_id());
                  ctx.emit_load(out, &load_res, &res, &elem_mlir);
                  
-                 Ok((load_res, (**element).clone()))
+                 Ok((load_res, (*element).clone()))
 }
 
-#[allow(clippy::borrowed_box)]
-fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, inner: &Box<Type>, shape: &[usize]) -> Result<(String, Type), String> {
+fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, inner: &Type, shape: &[usize]) -> Result<(String, Type), String> {
 // Tensors are memref types (SSA values from memref.alloc)
                  // For SSA, base_ptr is already the memref value
                  // For Ptr/Local, we would need memref.load from a ptr, but tensors should always be SSA
@@ -580,11 +578,10 @@ fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprI
                  out.push_str(&format!("    {} = memref.load {}[{}] : {}\n", 
                      res, tensor_ptr, indices_str, memref_ty));
                  
-                 Ok((res, *inner.clone()))
+                 Ok((res, (*inner).clone()))
 }
 
-#[allow(clippy::borrowed_box)]
-fn emit_index_array(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, inner: &Box<Type>, packed: &bool) -> Result<(String, Type), String> {
+fn emit_index_array(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, inner: &Type, packed: &bool) -> Result<(String, Type), String> {
 let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I64))?;
                  let idx_prom = promote_numeric(ctx, out, &idx_val, &idx_ty, &Type::I64)?;
                  
@@ -628,12 +625,11 @@ let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I6
                  out.push_str(&format!("    {} = llvm.getelementptr {}[0, {}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n", elem_ptr, base_ptr, idx_prom, arr_mlir));
                  
                  let res = format!("%index_res_{}", ctx.next_id());
-                  ctx.emit_load_logical(out, &res, &elem_ptr, inner.as_ref())?;
-                  Ok((res, *inner.clone()))
+                  ctx.emit_load_logical(out, &res, &elem_ptr, inner)?;
+                  Ok((res, (*inner).clone()))
 }
 
-#[allow(clippy::borrowed_box)]
-fn emit_index_owned(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, kind: LValueKind, inner: &Box<Type>) -> Result<(String, Type), String> {
+fn emit_index_owned(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, kind: LValueKind, inner: &Type) -> Result<(String, Type), String> {
 let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I64))?;
                  let idx_prom = promote_numeric(ctx, out, &idx_val, &idx_ty, &Type::I64)?;
 
@@ -645,7 +641,7 @@ let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I6
                      res
                  };
                  
-                 if let Type::Array(ref elem_ty, _, packed) = inner.as_ref() {
+                 if let Type::Array(ref elem_ty, _, packed) = inner {
                      let elem_ptr = format!("%elem_ptr_{}", ctx.next_id());
                      let arr_mlir = inner.to_mlir_type(ctx)?;  
                      
@@ -681,11 +677,10 @@ let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I6
                  ctx.emit_gep(out, &elem_ptr, &loaded_ptr, &idx_prom, &inner_storage);
                  let res = format!("%index_res_{}", ctx.next_id());
                  ctx.emit_load_logical(out, &res, &elem_ptr, inner)?;
-                 Ok((res, *inner.clone()))
+                 Ok((res, (*inner).clone()))
 }
 
-#[allow(clippy::borrowed_box)]
-fn emit_index_window(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, inner: &Box<Type>) -> Result<(String, Type), String> {
+fn emit_index_window(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, inner: &Type) -> Result<(String, Type), String> {
 let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I64))?;
                  let idx_prom = promote_numeric(ctx, out, &idx_val, &idx_ty, &Type::I64)?;
 
@@ -701,7 +696,7 @@ let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I6
                  ctx.emit_gep(out, &elem_ptr, &data_ptr, &idx_prom, &inner_storage);
                  let res = format!("%index_res_{}", ctx.next_id());
                  ctx.emit_load_logical(out, &res, &elem_ptr, inner)?;
-                 Ok((res, *inner.clone()))
+                 Ok((res, (*inner).clone()))
 }
 
 pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, _expected: Option<&Type>) -> Result<(String, Type), String> {
