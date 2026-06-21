@@ -30,7 +30,7 @@ type_complexity = "allow"
 # Pre-existing style nits — fixed incrementally as files are refactored
 collapsible_match = "allow"
 collapsible_if = "allow"
-single_match = "allow"
+# single_match = "allow"
 # # borrowed_box = "allow" — fixed via site-level allows
 # ptr_arg = "allow"
 needless_late_init = "allow"
