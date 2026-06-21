@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 
 pub struct CliConfig {
@@ -179,8 +180,8 @@ fn handle_binary_synthesis(mlir: &str, basename: &str, config: &CliConfig) {
     let mut driver = crate::driver::SaltDriver::new(build_dir);
     if let Some(ref t) = config.target_name {
         let t_parsed = crate::driver::DriverTarget::from_str(t)
-            .unwrap_or_else(|| {
-                eprintln!("❌ Unknown target: '{}'. Valid: macos, linux-arm64, keuos, keuos-x86_64", t);
+            .unwrap_or_else(|e| {
+                eprintln!("❌ {}", e);
                 std::process::exit(1);
             });
         driver = driver.with_target(t_parsed);
@@ -257,8 +258,8 @@ fn handle_object_synthesis(mlir: &str, basename: &str, config: &CliConfig) {
         .with_debug_info(config.debug_info);
     if let Some(ref t) = config.target_name {
         let t_parsed = crate::driver::DriverTarget::from_str(t)
-            .unwrap_or_else(|| {
-                eprintln!("❌ Unknown target: '{}'. Valid: macos, linux-arm64, keuos, keuos-x86_64", t);
+            .unwrap_or_else(|e| {
+                eprintln!("❌ {}", e);
                 std::process::exit(1);
             });
         driver = driver.with_target(t_parsed);

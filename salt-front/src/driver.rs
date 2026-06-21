@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 // =============================================================================
 // Iron Driver — MLIR → Native Binary Pipeline
 //
@@ -87,14 +89,18 @@ impl DriverTarget {
         }
     }
 
-    /// Parse a target name from CLI string.
-    pub fn from_str(s: &str) -> Option<Self> {
+}
+
+impl std::str::FromStr for DriverTarget {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "darwin-arm64" | "macos" => Some(DriverTarget::DarwinArm64),
-            "linux-arm64" => Some(DriverTarget::LinuxArm64),
-            "keuos" | "keuos-arm64" => Some(DriverTarget::KeuOSArm64),
-            "keuos-x86" | "keuos-x86_64" => Some(DriverTarget::KeuOSX86_64),
-            _ => None,
+            "darwin-arm64" | "macos" => Ok(DriverTarget::DarwinArm64),
+            "linux-arm64" => Ok(DriverTarget::LinuxArm64),
+            "keuos" | "keuos-arm64" => Ok(DriverTarget::KeuOSArm64),
+            "keuos-x86" | "keuos-x86_64" => Ok(DriverTarget::KeuOSX86_64),
+            _ => Err(format!("unknown target: {}", s)),
         }
     }
 }
@@ -599,11 +605,11 @@ mod tests {
 
     #[test]
     fn test_target_from_str() {
-        assert_eq!(DriverTarget::from_str("keuos"), Some(DriverTarget::KeuOSArm64));
-        assert_eq!(DriverTarget::from_str("keuos-arm64"), Some(DriverTarget::KeuOSArm64));
-        assert_eq!(DriverTarget::from_str("keuos-x86_64"), Some(DriverTarget::KeuOSX86_64));
-        assert_eq!(DriverTarget::from_str("macos"), Some(DriverTarget::DarwinArm64));
-        assert_eq!(DriverTarget::from_str("bogus"), None);
+        assert_eq!(DriverTarget::from_str("keuos"), Ok(DriverTarget::KeuOSArm64));
+        assert_eq!(DriverTarget::from_str("keuos-arm64"), Ok(DriverTarget::KeuOSArm64));
+        assert_eq!(DriverTarget::from_str("keuos-x86_64"), Ok(DriverTarget::KeuOSX86_64));
+        assert_eq!(DriverTarget::from_str("macos"), Ok(DriverTarget::DarwinArm64));
+        assert!(DriverTarget::from_str("bogus").is_err());
     }
 
     #[test]
