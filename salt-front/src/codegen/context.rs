@@ -3173,11 +3173,7 @@ impl<'a> CodegenContext<'a> {
         // e.g. Ptr<T> -> i64.
         
         // Check Self Type
-        if let Some(st) = &task.self_ty {
-            // FIX: Do NOT flatten methods on Ptr types (e.g. from_raw). We need the symbol to exist.
-            // if st.k_is_ptr_type() { return true; }
-            // Generalize: Check if struct has 1 field which is primitive
-            if let Type::Concrete(base, _) = st {
+        if let Some(Type::Concrete(base, _)) = &task.self_ty {
                  if let Some(def) = self.struct_templates().get(base) {
                      if def.fields.len() == 1 {
                          // Check if field is primitive (this is hard without mapping args, 
@@ -3185,7 +3181,6 @@ impl<'a> CodegenContext<'a> {
                          // We can rely on k_is_ptr_type covering the Ptr case.
                      }
                  }
-            }
         }
         false
     }

@@ -68,8 +68,7 @@ pub fn resolve_method_to_task_impl(ctx: &CodegenContext, receiver_ty: &Type, met
     let (func, trait_ty, imports) = resolve_method_impl(ctx, receiver_ty, method_name)?;
     
     let mut type_map = std::collections::BTreeMap::new();
-    if let Some(self_ty) = &trait_ty {
-        if let Type::Concrete(name, args) = self_ty {
+    if let Some(Type::Concrete(name, args)) = &trait_ty {
             if let Some(template) = ctx.discovery.borrow().struct_templates.get(name) {
                 if let Some(t_generics) = &template.generics {
                     for (i, param) in t_generics.params.iter().enumerate() {
@@ -83,7 +82,6 @@ pub fn resolve_method_to_task_impl(ctx: &CodegenContext, receiver_ty: &Type, met
                     }
                 }
             }
-        }
     }
 
     let mangled_name = if let Some(self_ty) = &trait_ty {
