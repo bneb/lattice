@@ -263,7 +263,7 @@ impl LoweringContext {
                 let self_ty = Type::from_syn_with_generics(target_ty, &generic_names)
                     .unwrap_or(Type::Unit);
 
-                let items: Vec<ImplItem> = methods.iter().filter_map(|m| {
+                let items: Vec<ImplItem> = methods.iter().map(|m| {
                     let method_generic_names = {
                         let mut names = generic_names.clone();
                         names.extend(self.collect_generic_names(&m.generics));
@@ -281,13 +281,13 @@ impl LoweringContext {
                         .unwrap_or(Type::Unit);
                     let method_generics = self.lower_generics(&m.generics, &method_generic_names);
 
-                    Some(ImplItem::Fn { name: m.name.to_string(), func: Fn {
+                    ImplItem::Fn { name: m.name.to_string(), func: Fn {
                         inputs,
                         output,
                         body: None,
                         generics: method_generics,
                         is_async: false,
-                    }})
+                    }}
                 }).collect();
 
                 let impl_generics = self.lower_generics(generics, &generic_names);
@@ -311,7 +311,7 @@ impl LoweringContext {
                     .unwrap_or(Type::Unit);
                 let trait_ty = Type::Struct(trait_name.to_string());
 
-                let items: Vec<ImplItem> = methods.iter().filter_map(|m| {
+                let items: Vec<ImplItem> = methods.iter().map(|m| {
                     let method_generic_names = {
                         let mut names = generic_names.clone();
                         names.extend(self.collect_generic_names(&m.generics));
@@ -329,13 +329,13 @@ impl LoweringContext {
                         .unwrap_or(Type::Unit);
                     let method_generics = self.lower_generics(&m.generics, &method_generic_names);
 
-                    Some(ImplItem::Fn { name: m.name.to_string(), func: Fn {
+                    ImplItem::Fn { name: m.name.to_string(), func: Fn {
                         inputs,
                         output,
                         body: None,
                         generics: method_generics,
                         is_async: false,
-                    }})
+                    }}
                 }).collect();
 
                 let impl_generics = self.lower_generics(generics, &generic_names);
