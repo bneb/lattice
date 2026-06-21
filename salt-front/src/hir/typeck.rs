@@ -515,12 +515,12 @@ impl TypeckContext {
                 Ok(sig.return_type)
     }
 
-    fn typeck_struct_lit(&mut self, name: &String, type_args: &Vec<Type>, fields: &mut Vec<(String, Expr)>) -> Result<Type, String> {
+    fn typeck_struct_lit(&mut self, name: &str, type_args: &[Type], fields: &mut Vec<(String, Expr)>) -> Result<Type, String> {
                 // 1. If generic type_args are provided, monomorphize first
                 let effective_name = if !type_args.is_empty() {
                     self.monomorphize_struct(name, type_args)?
                 } else {
-                    name.clone()
+                    name.to_string()
                 };
 
                 // 2. Verify the struct exists (original or monomorphized)

@@ -436,7 +436,7 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
 }
 
 #[allow(clippy::borrowed_box)]
-fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, inner: &Box<Type>, shape: &Vec<usize>) -> Result<(String, Type), String> {
+fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, inner: &Box<Type>, shape: &[usize]) -> Result<(String, Type), String> {
 // Tensors are memref types (SSA values from memref.alloc)
                  // For SSA, base_ptr is already the memref value
                  // For Ptr/Local, we would need memref.load from a ptr, but tensors should always be SSA

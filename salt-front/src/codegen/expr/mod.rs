@@ -779,7 +779,7 @@ fn emit_lvalue_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprI
     }
 }
 
-fn emit_lvalue_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_kind: LValueKind, elem_ty: &Type, shape: &Vec<usize>) -> Result<(String, Type, LValueKind), String> {
+fn emit_lvalue_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_kind: LValueKind, elem_ty: &Type, shape: &[usize]) -> Result<(String, Type, LValueKind), String> {
     let tensor_ptr = match base_kind {
         LValueKind::Local | LValueKind::Ptr => {
             let loaded = format!("%tensor_lv_loaded_{}", ctx.next_id());
@@ -840,7 +840,7 @@ fn emit_lvalue_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn
         memref: tensor_ptr, 
         indices, 
         elem_ty: Box::new(elem_ty.clone()), 
-        shape: shape.clone() 
+        shape: shape.to_vec()
     }))
 }
 
@@ -1044,11 +1044,11 @@ fn build_local_spec_map(ctx: &LoweringContext, info: &crate::registry::StructInf
     local_spec_map
 }
 
-fn emit_lvalue_field_struct(ctx: &mut LoweringContext, out: &mut String, f: &syn::ExprField, base_addr: String, base_ty: &Type, sn: &String) -> Result<(String, Type, LValueKind), String> {
+fn emit_lvalue_field_struct(ctx: &mut LoweringContext, out: &mut String, f: &syn::ExprField, base_addr: String, base_ty: &Type, sn: &str) -> Result<(String, Type, LValueKind), String> {
     let sn_resolved = if let crate::types::Type::Concrete(base, args) = base_ty {
         ctx.ensure_struct_exists(base, args)?
     } else {
-        sn.clone()
+        sn.to_string()
     };
     let sn = &sn_resolved;
 
@@ -1134,7 +1134,7 @@ fn emit_lvalue_field_owned(ctx: &mut LoweringContext, out: &mut String, f: &syn:
     }
 }
 
-fn emit_lvalue_field_tuple(ctx: &mut LoweringContext, out: &mut String, f: &syn::ExprField, base_addr: String, base_ty: &Type, elems: &Vec<Type>) -> Result<(String, Type, LValueKind), String> {
+fn emit_lvalue_field_tuple(ctx: &mut LoweringContext, out: &mut String, f: &syn::ExprField, base_addr: String, base_ty: &Type, elems: &[Type]) -> Result<(String, Type, LValueKind), String> {
     let idx = if let syn::Member::Unnamed(idx) = &f.member { idx.index as usize } else { return Err("Tuple access requires index".to_string()); };
     if idx >= elems.len() { return Err(format!("Tuple index out of bounds: {} >= {}", idx, elems.len())); }
     let field_ty = &elems[idx];
