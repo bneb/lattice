@@ -742,11 +742,10 @@ fn emit_low_level_call(
 fn handle_post_call_state(ctx: &mut LoweringContext, call_name: &str) {
     if call_name.contains("__empty") && call_name.contains("Ptr") {
         *ctx.pending_pointer_state = Some(crate::codegen::verification::PointerState::Empty);
-    } else if call_name.contains("__new") && call_name.contains("Box") {
-        *ctx.pending_pointer_state = Some(crate::codegen::verification::PointerState::Valid);
-    } else if (call_name.contains("__alloc") || call_name.contains("__place")) && call_name.contains("Arena") {
-        *ctx.pending_pointer_state = Some(crate::codegen::verification::PointerState::Valid);
-    } else if call_name == "malloc" || call_name.ends_with("__malloc") {
+    } else if (call_name.contains("__new") && call_name.contains("Box"))
+        || ((call_name.contains("__alloc") || call_name.contains("__place")) && call_name.contains("Arena"))
+        || call_name == "malloc" || call_name.ends_with("__malloc")
+    {
         *ctx.pending_pointer_state = Some(crate::codegen::verification::PointerState::Valid);
     }
 }

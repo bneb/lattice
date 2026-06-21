@@ -341,9 +341,7 @@ fn determine_common_binary_type(
     let is_cmp = matches!(b.op, syn::BinOp::Eq(_) | syn::BinOp::Lt(_) | syn::BinOp::Le(_) | syn::BinOp::Gt(_) | syn::BinOp::Ge(_) | syn::BinOp::Ne(_));
     let is_shift = matches!(b.op, syn::BinOp::Shl(_) | syn::BinOp::Shr(_));
     
-    if is_shift {
-        lhs_ty.clone()
-    } else if matches!(lhs_ty, Type::Tensor(..)) && matches!(rhs_ty, Type::Tensor(..)) {
+    if is_shift || (matches!(lhs_ty, Type::Tensor(..)) && matches!(rhs_ty, Type::Tensor(..))) {
         lhs_ty.clone()
     } else {
         let op_max = if lhs_ty.is_numeric() && rhs_ty.is_numeric() {

@@ -62,7 +62,7 @@ impl HirEmitCtx {
             fields.iter().position(|f| f == field_name).unwrap_or(0)
         } else {
             // Fallback: __state is always 0
-            if field_name == "__state" { 0 } else { 0 }
+            0
         }
     }
 

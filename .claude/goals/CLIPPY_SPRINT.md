@@ -209,7 +209,7 @@ After all categories are fixed:
 
 | Phase | Lint | Instances | Sessions | Status |
 |-------|------|-----------|----------|--------|
-| A1 | if_same_then_else | 6 | 1 | ⬜ |
+| A1 | if_same_then_else | 0 | 0 | ✅ |
 | A2 | only_used_in_recursion | 4 | 1 | ⬜ |
 | A3 | unnecessary_filter_map | 2 | 1 | ⬜ |
 | A4 | singletons (4 lints) | 4 | 1 | ⬜ |
