@@ -41,6 +41,7 @@ impl std::fmt::Display for PointerState {
 ///
 /// Tracks PointerState for each variable name, with scope support
 /// for branching (push/pop) and merging.
+#[derive(Default)]
 pub struct PointerStateTracker {
     /// Current scope's variable states
     states: HashMap<String, PointerState>,

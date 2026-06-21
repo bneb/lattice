@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 // =============================================================================
 // Iron Driver — MLIR → Native Binary Pipeline
 //
@@ -418,6 +416,7 @@ impl SaltDriver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     fn test_driver() -> SaltDriver {
         SaltDriver::new(PathBuf::from("/tmp/salt-build"))
