@@ -181,11 +181,7 @@ fn expand_derive_annotations(source: &str) -> String {
                 // Parse field declarations: "pub field_name: FieldType" or "field_name: FieldType"
                 let field_line = line.trim();
                 if field_line.contains(':') && !field_line.starts_with("//") && !field_line.contains("struct") {
-                    let field_line = if field_line.starts_with("pub ") {
-                        &field_line[4..]
-                    } else {
-                        field_line
-                    };
+                    let field_line = field_line.strip_prefix("pub ").unwrap_or(field_line);
                     if let Some(colon_pos) = field_line.find(':') {
                         let field_name = field_line[..colon_pos].trim().to_string();
                         let mut field_type = field_line[colon_pos + 1..].trim().to_string();
@@ -1256,8 +1252,8 @@ fn check_turbofish_syntax(source: &str) -> anyhow::Result<()> {
                     // Find the matching > to determine what follows
                     let mut depth = 0;
                     let mut gen_end = i + 2;
-                    for j in (i + 2)..len {
-                        match chars[j] {
+                    for (j, &ch) in chars.iter().enumerate().skip(i + 2) {
+                        match ch {
                             '<' => depth += 1,
                             '>' => {
                                 depth -= 1;

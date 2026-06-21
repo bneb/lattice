@@ -884,18 +884,17 @@ fn emit_scf_for_runtime_reduction(
     
     // Narrow the IV inside the loop if possible
     let mut body_vars = local_vars.clone();
-    let z3_iv_name: String;
-    if can_narrow {
+    let z3_iv_name = if can_narrow {
         let iv_i32 = format!("%iv_i32_{}", ctx.next_id());
         out.push_str(&format!("    {} = arith.index_cast {} : index to i32\n", iv_i32, iv));
         body_vars.insert(var_name.to_string(), (Type::I32, LocalKind::SSA(iv_i32.clone())));
-        z3_iv_name = iv_i32;
+        iv_i32
     } else {
         let iv_i64 = format!("%iv_i64_{}", ctx.next_id());
         out.push_str(&format!("    {} = arith.index_cast {} : index to i64\n", iv_i64, iv));
         body_vars.insert(var_name.to_string(), (Type::I64, LocalKind::SSA(iv_i64.clone())));
-        z3_iv_name = iv_i64;
-    }
+        iv_i64
+    };
     
     // Shadow the accumulator with the iter_args parameter
     // This means `sum` now refers to the register-resident iter_acc

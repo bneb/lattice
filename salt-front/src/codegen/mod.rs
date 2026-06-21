@@ -572,8 +572,8 @@ impl<'a> CodegenContext<'a> {
                     out.push_str(&format!("    llvm.store {}, {} : !llvm.ptr, !llvm.ptr\n",
                         target_ptr, current_ptr));
                 } else {
-                    out.push_str(&format!("    llvm.store {}, {} : !llvm.ptr, !llvm.ptr\n",
-                        target_ptr, format!("%global_{}", patch_id)));
+                    out.push_str(&format!("    llvm.store {}, %global_{} : !llvm.ptr, !llvm.ptr\n",
+                        target_ptr, patch_id));
                 }
             }
             
@@ -768,7 +768,7 @@ impl<'a> CodegenContext<'a> {
         let mut max_align: usize = 1;
 
         for &field_size in &field_sizes {
-            let field_align = field_size.min(8).max(1);
+            let field_align = field_size.clamp(1, 8);
             let padding = (field_align - (abi_offset % field_align)) % field_align;
             abi_offset += padding;
             abi_offset += field_size;

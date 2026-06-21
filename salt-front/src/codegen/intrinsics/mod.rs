@@ -26,13 +26,9 @@ pub const PTR_CANONICAL_NAME: &str = "std__core__ptr__Ptr";
 impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
     pub fn emit_intrinsic(&mut self, out: &mut String, name: &str, args: &[syn::Expr], local_vars: &mut HashMap<String, (Type, LocalKind)>, _expected_ty: Option<&Type>) -> Result<Option<(String, Type)>, String> {
         // Unmangle standard library intrinsics
-        let clean_name = if name.starts_with("std__arith__") {
-            &name["std__arith__".len()..]
-        } else if name.starts_with("std__llvm__") {
-            &name["std__llvm__".len()..]
-        } else {
-            name
-        };
+        let clean_name = name.strip_prefix("std__arith__")
+            .or_else(|| name.strip_prefix("std__llvm__"))
+            .unwrap_or(name);
 
         // Try categorized modules first
         if let Some(res) = emit_memory_intrinsic(self, out, clean_name, args, local_vars, _expected_ty)? {
