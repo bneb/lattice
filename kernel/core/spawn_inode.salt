@@ -35,6 +35,7 @@ const ELF_PHOFF_OFF: u64    = 32;
 const ELF_PHENTSIZE_OFF: u64 = 54;
 const ELF_PHNUM_OFF: u64    = 56;
 
+@no_mangle
 pub fn spawn_process_from_inode(inode_ptr: u64, kernel_pml4: u64) -> u64 {
     let inode = inode_ptr as Ptr<Inode>;
     let hdr_phys = pmm.alloc();

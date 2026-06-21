@@ -30,6 +30,7 @@ const KSTACK_SIZE: u64     = 4096;
 // =============================================================================
 // setup_kernel_stack — Pre-populate IRETQ frame for Ring 3 entry
 // =============================================================================
+@no_mangle
 pub fn setup_kernel_stack(kstack_top_virt: u64, entry: u64) -> u64 {
     let sp = kstack_top_virt;
 
@@ -55,6 +56,7 @@ pub fn setup_kernel_stack(kstack_top_virt: u64, entry: u64) -> u64 {
 // =============================================================================
 // map_kernel_stack — Map kernel stack pages into KPTI user PML4
 // =============================================================================
+@no_mangle
 pub fn map_kernel_stack(user_pml4: u64, kstack_base_phys: u64, kstack_top_phys: u64) {
     let mut cur_kpage = kstack_base_phys;
     while cur_kpage < kstack_top_phys {
@@ -71,6 +73,7 @@ pub fn map_kernel_stack(user_pml4: u64, kstack_base_phys: u64, kstack_top_phys: 
 // Bypasses the ELF loader. Uses moe_trampoline to pass 3 arguments into the
 // user space process: rdi=arg1, rsi=arg2, rdx=arg3.
 // =============================================================================
+@no_mangle
 pub fn spawn_ring3_coroutine(entry_fn: u64, arg1: u64, arg2: u64, arg3: u64, pml4: u64) -> u64 {
     let slot = process.alloc_pid();
     if slot >= MAX_PROCS {

@@ -38,13 +38,15 @@ const SLAB_SLOT_SIZE: u64 = 16384;
 // Test Infrastructure
 // =============================================================================
 
-fn test_pass(name: &u8) {
+@no_mangle
+pub fn test_pass(name: &u8) {
     serial.print("TEST:preempt:");
     serial.print(name);
     serial.print(":PASS\n");
 }
 
-fn test_fail(name: &u8, reason: &u8) {
+@no_mangle
+pub fn test_fail(name: &u8, reason: &u8) {
     serial.print("TEST:preempt:");
     serial.print(name);
     serial.print(":FAIL ");
@@ -52,7 +54,8 @@ fn test_fail(name: &u8, reason: &u8) {
     serial.print("\n");
 }
 
-fn test_value(name: &u8, val: u64) {
+@no_mangle
+pub fn test_value(name: &u8, val: u64) {
     serial.print("TEST:preempt:");
     serial.print(name);
     serial.print(":VALUE ");

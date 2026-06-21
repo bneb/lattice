@@ -51,7 +51,8 @@ const ELF_PHNUM_OFF: u64    = 56;
 // =============================================================================
 // validate_elf_inline
 // =============================================================================
-fn validate_elf_inline(base: u64) -> bool {
+@no_mangle
+pub fn validate_elf_inline(base: u64) -> bool {
     let b0 = *(base as &u8);
     let b1 = *((base + 1) as &u8);
     let b2 = *((base + 2) as &u8);

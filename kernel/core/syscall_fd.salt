@@ -16,6 +16,7 @@ const PAGE_SIZE: u64 = 4096;
 // =============================================================================
 // destroy_fd_table — Free all fd objects and the fd table page
 // =============================================================================
+@no_mangle
 pub fn destroy_fd_table(slot: u64) {
     let fd_table_addr = process.get_fd_table(slot);
     if fd_table_addr == 0 { return; }
@@ -63,6 +64,7 @@ pub fn copy_fd_obj(fd_obj_addr: u64) -> u64 {
 // =============================================================================
 // duplicate_fd_table — Copy parent's fd table into child process
 // =============================================================================
+@no_mangle
 pub fn duplicate_fd_table(parent_slot: u64, child_slot: u64) {
     let parent_fd_addr = process.get_fd_table(parent_slot);
     if parent_fd_addr == 0 { return; }

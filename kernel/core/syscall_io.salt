@@ -20,6 +20,7 @@ const PAGE_SIZE: u64 = 4096;
 // =============================================================================
 // copy_from_user — KPTI-safe copy from user virtual address to kernel buffer
 // =============================================================================
+@no_mangle
 pub fn copy_from_user(dst_kern: u64, src_user: u64, len: u64) -> i64 {
     if !is_valid_user_ptr(src_user, len) { return 0 - 1; }
     let pid = process.current();
@@ -95,6 +96,7 @@ pub fn copy_to_user(dst_user: u64, src_kern: u64, len: u64) -> i64 {
 // =============================================================================
 // sys_write — Write to file descriptor (fd=1 serial, else VFS)
 // =============================================================================
+@no_mangle
 pub fn sys_write(fd: u64, buf: u64, len: u64) -> u64 {
     let mut actual_len = len;
     if actual_len > 4096 { actual_len = 4096; }
@@ -167,6 +169,7 @@ pub fn sys_write(fd: u64, buf: u64, len: u64) -> u64 {
 // =============================================================================
 // sys_read — Read from file descriptor (VFS only)
 // =============================================================================
+@no_mangle
 pub fn sys_read(fd: u64, buf: u64, len: u64) -> u64 {
     let mut actual_len = len;
     if actual_len > 4096 { actual_len = 4096; }
@@ -214,6 +217,7 @@ pub fn sys_read(fd: u64, buf: u64, len: u64) -> u64 {
 // =============================================================================
 // sys_open — Open a file by path, returning a file descriptor
 // =============================================================================
+@no_mangle
 pub fn sys_open(path: u64, flags: u64) -> u64 {
     if !is_valid_user_ptr(path, 1) { return 0 - 1; }
     let pid = process.current();

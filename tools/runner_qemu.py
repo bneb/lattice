@@ -444,6 +444,7 @@ def build_benchmark(bench_file, kernel_objs):
         "shm_grant_bench.salt",
         "spsc_bench.salt",
         "netd_bench.salt",
+        "netd_bench_gates_end.salt",  # extracted from netd_bench, provides test_gates_10_to_18
         "socket_bench.salt",
     ]
     

@@ -277,15 +277,12 @@ kernel__core__keuos_reclaim__disable_nic_rings:
 // =============================================================================
 // Syscall Aliases for C-ABI Internal Kernel Linkage
 // =============================================================================
-.global sys_write
-sys_write:
-    jmp kernel__core__syscall__sys_write
-
-.global sys_spawn
-sys_spawn:
-    jmp kernel__core__syscall__sys_spawn
-
+// sys_write: now @no_mangle in kernel/core/syscall_io.salt
+// sys_spawn: now @no_mangle in kernel/core/syscall_sched.salt
 // sys_wait: now @no_mangle in kernel/core/syscall_sched.salt
+// sys_brk: now @no_mangle in kernel/core/syscall_sched.salt
+// sys_mmap: now @no_mangle in kernel/core/syscall_sched.salt
+
 // Dummy traps for syscalls not implemented in C for kernel threads
 .global sys_exit
 sys_exit:
@@ -305,6 +302,13 @@ sys_ipc_get_msg1:
 .global sys_ipc_get_msg2
 sys_ipc_get_msg2:
     ud2
+
+// sys_moe_init_trampoline — defined in user/reactor/tasks/moe_pipeline.salt
+// Weak stub for kernel-side linkage during boot sequence
+.global sys_moe_init_trampoline
+.weak sys_moe_init_trampoline
+sys_moe_init_trampoline:
+    ret
 
 .global sys_ipc_reg_send
 sys_ipc_reg_send:

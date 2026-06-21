@@ -20,6 +20,7 @@ import kernel.drivers.serial
 
 // ── Gate 10-18: ARP parse, TX bridge, TCP stack ────────────────────
 
+@no_mangle
 pub fn test_gates_10_to_18(ring_base: u64, tx_base: u64, pkt_buf: u64, rx_buf: u64, tx_rx_buf: u64, total_len: u64) -> bool {
     ipc_shm.spsc_init(ring_base);
     let arp_build_buf = pkt_buf + 2048;

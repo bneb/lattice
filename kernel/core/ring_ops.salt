@@ -44,6 +44,7 @@ extern fn invlpg_addr(vaddr: u64);
 // then reads via the kernel's higher-half direct map.
 // Returns bytes written as i64, or negative on error.
 // =============================================================================
+@no_mangle
 pub fn ring_write(slot: u64, fd: u64, buf: u64, len: u64) -> i64 {
     // Only fd=1 (stdout → serial) is supported
     if fd != 1 {
@@ -101,6 +102,7 @@ pub fn ring_write(slot: u64, fd: u64, buf: u64, len: u64) -> i64 {
 // =============================================================================
 // ring_brk — Heap growth via ring buffer
 // =============================================================================
+@no_mangle
 pub fn ring_brk(slot: u64, new_brk: u64) -> u64 {
     let current_brk = process.get_brk_current(slot);
     let brk_base = process.get_brk_base(slot);
@@ -140,6 +142,7 @@ pub fn ring_brk(slot: u64, new_brk: u64) -> u64 {
 // SQE fields: buf=length (bytes), len=prot (protection flags)
 // Returns: virtual address of mapped region, or 0 on failure
 // =============================================================================
+@no_mangle
 pub fn ring_mmap(slot: u64, length: u64, prot: u64) -> u64 {
     // Page-align the requested length
     let aligned_length = (length + 0xFFF) & 0xFFFFFFFFFFFFF000;
@@ -201,6 +204,7 @@ pub fn ring_mmap(slot: u64, length: u64, prot: u64) -> u64 {
 // SQE fields: fd=target_pid, buf=msg0, len=msg1
 // Returns: 0 on success, -1 on invalid/not-blocked target
 // =============================================================================
+@no_mangle
 pub fn ring_ipc_send(slot: u64, target_pid: u64, msg0: u64, msg1: u64) -> i64 {
     let max_procs: u64 = 16;
     if target_pid >= max_procs {
@@ -236,6 +240,7 @@ pub fn ring_ipc_send(slot: u64, target_pid: u64, msg0: u64, msg1: u64) -> i64 {
 // The number of pages is fixed at 1 for ring-buffer submissions.
 // Returns: 0 on success, -1 on error
 // =============================================================================
+@no_mangle
 pub fn ring_shm_grant(slot: u64, target_pid: u64, src_vaddr: u64, dst_vaddr: u64) -> i64 {
     let max_procs: u64 = 16;
     // Target validation
@@ -309,6 +314,7 @@ pub fn ring_shm_grant(slot: u64, target_pid: u64, src_vaddr: u64, dst_vaddr: u64
 // =============================================================================
 // ring_spawn — Read SpawnManifest and create a new process
 // =============================================================================
+@no_mangle
 pub fn ring_spawn(slot: u64, manifest_vaddr: u64) -> u64 {
     // Validate user pointer for SpawnManifest (16 bytes)
     if !is_valid_user_ptr(manifest_vaddr, 16) {

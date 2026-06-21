@@ -79,6 +79,7 @@ extern fn do_dispatch();
 
 // ── Stubs ──────────────────────────────────────────────────────────
 
+@no_mangle
 pub fn sys_terminal_main(w: u64, h: u64, pitch: u64) { let _ = w; let _ = h; let _ = pitch; }
 
 // ── Constants ──────────────────────────────────────────────────────

@@ -233,6 +233,7 @@ pub fn syscall_set_kernel_pml4(pml4: u64) { set_kernel_pml4(pml4); }
 extern fn copy_fd_obj(fd_obj_addr: u64) -> u64;
 extern fn duplicate_fd_table(parent_slot: u64, child_slot: u64);
 
+@no_mangle
 pub fn sys_spawn(path_ptr: u64, path_len: u64) -> u64 {
     let mut buf_len = path_len;
     if buf_len > 255 { buf_len = 255; }

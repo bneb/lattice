@@ -39,6 +39,7 @@ extern fn test_value(name: &u8, val: u64);
 // =============================================================================
 // Layer 0.5: preemptive_stack_init frame validation
 // =============================================================================
+@no_mangle
 pub fn test_layer_05() {
     serial.print("[TEST] Layer 0.5: Stack Init Frame Validation\n");
 
@@ -111,6 +112,7 @@ pub fn test_layer_05() {
 // =============================================================================
 // Layer 0.5a: vmm_clear_present isolation test
 // =============================================================================
+@no_mangle
 pub fn test_layer_05a() {
     serial.print("[TEST] Layer 0.5a: VMM Guard Page Isolation\n");
 
@@ -161,6 +163,7 @@ pub fn test_layer_05a() {
 // =============================================================================
 // Layer 0.5b: sched_spawn isolation (no yield)
 // =============================================================================
+@no_mangle
 pub fn test_layer_05b() {
     serial.print("[TEST] Layer 0.5b: sched_spawn Isolation (no yield)\n");
 
