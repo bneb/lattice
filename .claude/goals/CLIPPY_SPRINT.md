@@ -176,7 +176,7 @@ Total estimated: 18-20 sessions (many are 0.25 session and can be batched).
 | 7 | needless_range_loop | 1 | ✅ | 2026-06-20 |
 | 8 | manual_map | 0 | ✅ | 2026-06-20 |
 | 9 | manual_is_multiple_of | 0 | ✅ | 2026-06-20 |
-| 10 | if_same_then_else | ~2 | ⬜ | - |
+| 10 | if_same_then_else | 0 | ✅ | 2026-06-21 |
 | 11 | unnecessary_filter_map | ~2 | ⬜ | - |
 | 12 | manual_strip | 3 | ✅ | 2026-06-20 |
 | 13 | manual_clamp | 1 | ✅ | 2026-06-20 |

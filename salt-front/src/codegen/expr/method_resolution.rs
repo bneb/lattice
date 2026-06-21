@@ -185,7 +185,7 @@ fn prepare_receiver_arg(
         let mut global_ptr = None;
         if let syn::Expr::Path(p) = &*m.receiver {
             let name = p.path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("__");
-            if let Some((canonical, _)) = resolve_package_prefix_ctx(ctx, &[name.clone()]) {
+            if let Some((canonical, _)) = resolve_package_prefix_ctx(ctx, std::slice::from_ref(&name)) {
                 let full_name = if canonical.is_empty() { name } else { canonical };
                 let ptr_var = format!("%recv_ptr_{}", ctx.next_id());
                 out.push_str(&format!("    {} = llvm.mlir.addressof @{} : !llvm.ptr\n", ptr_var, full_name));
