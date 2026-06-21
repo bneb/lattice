@@ -60,6 +60,7 @@ impl Layout {
         Self { kind, size, align }
     }
 
+    #[allow(clippy::only_used_in_recursion)] // pub API: ctx passed for recursive calls
     pub fn to_mlir_storage(&self, ctx: &mut LoweringContext) -> String {
         match &self.kind {
             LayoutKind::Scalar(s) => s.to_mlir(true).to_string(),
@@ -78,6 +79,7 @@ impl Layout {
         }
     }
     
+    #[allow(clippy::only_used_in_recursion)] // pub API: ctx passed for recursive calls
     pub fn to_mlir_logical(&self, ctx: &mut LoweringContext) -> String {
         match &self.kind {
             LayoutKind::Scalar(s) => s.to_mlir(false).to_string(),

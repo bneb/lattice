@@ -921,9 +921,10 @@ pub fn translate_to_z3<'a, 'ctx>(
     }
 }
 
+#[allow(clippy::only_used_in_recursion)] // pub API: params passed in recursive calls
 pub fn translate_bool_to_z3<'a, 'ctx>(
-    ctx: &mut LoweringContext<'a, 'ctx>, 
-    expr: &syn::Expr, 
+    ctx: &mut LoweringContext<'a, 'ctx>,
+    expr: &syn::Expr,
     local_vars: &HashMap<String, (Type, LocalKind)>,
     sym_ctx: &crate::codegen::verification::SymbolicContext<'a>
 ) -> Result<crate::z3_shim::ast::Bool<'a>, String> {
