@@ -153,7 +153,6 @@ pub fn emit_lit(ctx: &mut LoweringContext, out: &mut String, lit: &syn::ExprLit,
                      Type::U64 | Type::I64 => (exp.clone(), "i64"),
                      Type::Usize => (exp.clone(), "index"),
                      _ => {
-                         let use_i64 = val_u64 > 0x7FFFFFFF;
                          (Type::I64, "i64") // Default to I64 for safety in mixed context
                      }
                  }

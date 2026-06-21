@@ -39,7 +39,7 @@ impl<'a> HashLoopVerifier<'a> {
         let _zero = Int::from_i64(self.ctx, 0);
         
         // main_len = len - (len % 4)
-        let remainder = Int::try_from(len_z3.modulo(&four)).unwrap();
+        let remainder = len_z3.modulo(&four);
         let main_len = Int::sub(self.ctx, &[&len_z3, &remainder]);
         
         // Property 1: main_len <= len
