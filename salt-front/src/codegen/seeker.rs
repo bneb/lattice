@@ -411,13 +411,11 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                          }
                          syn::GenericArgument::Const(c) => {
                               // evaluate const?
-                              if let syn::Expr::Lit(l) = c {
-                                   if let syn::Lit::Int(i) = &l.lit {
+                              if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(i), .. }) = c {
                                        if let Ok(val) = i.base10_parse::<i64>() {
                                             // Mapping const generic to I32/I64 type hack for now as per type system
                                             params.push(Type::Struct(val.to_string()));
                                        }
-                                   }
                               }
                          }
                          _ => {}
