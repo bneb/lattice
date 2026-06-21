@@ -28,8 +28,8 @@ large_enum_variant = "allow"
 inherent_to_string = "allow"
 type_complexity = "allow"
 # Pre-existing style nits — fixed incrementally as files are refactored
-collapsible_match = "allow"
-collapsible_if = "allow"
+collapsible_match = "allow"  # 20 remaining — pattern merge works, needs dedicated /loop
+collapsible_if = "allow"     # 2 fixed as POC, rest queued
 # single_match = "allow"
 # ptr_arg = "allow"
 # needless_late_init = "allow"

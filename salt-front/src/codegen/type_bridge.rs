@@ -1743,10 +1743,8 @@ fn has_unresolved_type_params(ctx: &mut LoweringContext, ty: &Type) -> bool {
         Type::Generic(_) => true,
         Type::Struct(name) => {
             // Self-referential type_map entries are unresolved
-            if let Some(mapped) = ctx.current_type_map().get(name) {
-                if let Type::Struct(mapped_name) = mapped {
-                    if mapped_name == name { return true; }
-                }
+            if let Some(Type::Struct(mapped_name)) = ctx.current_type_map().get(name) {
+                if mapped_name == name { return true; }
             }
             // If not in any struct/enum registry, it's likely a generic param
             let is_known = ctx.struct_registry().keys().any(|k| k.name.ends_with(name))

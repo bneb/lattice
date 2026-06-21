@@ -337,8 +337,7 @@ fn try_resolve_static_method(
                       }
                   } else {
                       if matches!(method.as_str(), "fetch_add" | "fetch_sub" | "load" | "store") {
-                          if let Ok((receiver_addr, receiver_ty, _kind)) = emit_lvalue(ctx, out, &m.receiver, local_vars) {
-                              if let Type::Atomic(inner) = receiver_ty {
+                          if let Ok((receiver_addr, Type::Atomic(inner), _kind)) = emit_lvalue(ctx, out, &m.receiver, local_vars) {
                                   let mlir_ty = inner.to_mlir_type(ctx)?;
                                   if method == "fetch_add" || method == "fetch_sub" {
                                       let op = if method == "fetch_add" { "add" } else { "sub" };
@@ -357,7 +356,6 @@ fn try_resolve_static_method(
                                       ctx.emit_store_atomic(out, &val_prom, &receiver_addr, &mlir_ty);
                                       return Ok(Some(("%unit".to_string(), Type::Unit)));
                                   }
-                              }
                           }
                       }
                       return Err(format!("Linker Error: Function '{}' not found in symbol table.", mangled));
