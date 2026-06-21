@@ -28,6 +28,6 @@ large_enum_variant = "allow"
 inherent_to_string = "allow"
 type_complexity = "allow"
 # Pre-existing style nits — fixed incrementally as files are refactored
-# collapsible_match = "allow" — B1 in progress
-# collapsible_if = "allow" — B1 in progress
+collapsible_match = "allow"  # 3 remaining (async_lower, mod.rs) — 14 of 22 fixed
+collapsible_if = "allow"     # 5 remaining (mod.rs, expr/mod) — fixed elsewhere
 
