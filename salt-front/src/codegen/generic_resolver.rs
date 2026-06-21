@@ -211,10 +211,8 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
             if p.path.segments.len() == 1 {
                 let dummy_call: syn::ExprCall = syn::parse_quote! { #p() };
                 let mut resolver = crate::codegen::expr::resolver::CallSiteResolver::new(self.ctx);
-                if let Ok(resolved) = resolver.resolve_call(&dummy_call, local_vars, None) {
-                    if let crate::codegen::expr::resolver::CallKind::Function(_, ret_ty, param_tys, _) = resolved {
-                        return Some(Type::Fn(param_tys, Box::new(ret_ty)));
-                    }
+                if let Ok(crate::codegen::expr::resolver::CallKind::Function(_, ret_ty, param_tys, _)) = resolver.resolve_call(&dummy_call, local_vars, None) {
+                    return Some(Type::Fn(param_tys, Box::new(ret_ty)));
                 }
             }
         }
