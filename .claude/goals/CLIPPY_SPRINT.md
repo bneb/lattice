@@ -168,20 +168,22 @@ Total estimated: 18-20 sessions (many are 0.25 session and can be batched).
 | # | Lint | Instances | Status | Date |
 |---|------|-----------|--------|------|
 | 1 | cmp_owned | ~7 | ✅ | 2026-06-20 |
-| 2 | borrowed_box | ~5 | ✅ | 2026-06-20 |
+| 2 | borrowed_box | 5 | ✅ | 2026-06-20 — properly fixed, no allows |
 | 3 | ptr_arg | ~5 | ✅ | 2026-06-20 |
 | 4 | single_match | 0 | ✅ | 2026-06-20 |
 | 5 | collapsible_if/match | ~24 | ⬜ | - |
-| 6 | needless_late_init | ~2 | ⬜ | - |
-| 7 | needless_range_loop | ~1 | ⬜ | - |
-| 8 | manual_map | ~2 | ⬜ | - |
-| 9 | manual_is_multiple_of | ~2 | ⬜ | - |
+| 6 | needless_late_init | 1 | ✅ | 2026-06-20 |
+| 7 | needless_range_loop | 1 | ✅ | 2026-06-20 |
+| 8 | manual_map | 0 | ✅ | 2026-06-20 |
+| 9 | manual_is_multiple_of | 0 | ✅ | 2026-06-20 |
 | 10 | if_same_then_else | ~2 | ⬜ | - |
 | 11 | unnecessary_filter_map | ~2 | ⬜ | - |
-| 12 | manual_strip | ~3 | ⬜ | - |
-| 13 | manual_clamp | ~1 | ⬜ | - |
+| 12 | manual_strip | 3 | ✅ | 2026-06-20 |
+| 13 | manual_clamp | 1 | ✅ | 2026-06-20 |
+| 17 | uninlined_format_args | 0 | ✅ | 2026-06-20 |
 | 14 | type_complexity | ~3 | ⬜ | - |
 | 15 | too_many_arguments | ~30 | ⬜ | - |
 | 16 | only_used_in_recursion | ~4 | ⬜ | - |
 | 17 | uninlined_format_args | ~2 | ⬜ | - |
 | 18-23 | singletons (10 lints) | 1 each | ⬜ | - |
+| - | format_in_format_args | 1 | ✅ | 2026-06-20 |
