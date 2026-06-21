@@ -329,8 +329,7 @@ pub fn emit_field(
     Err(format!("Cannot access field {:?} on type {:?}", f.member, base_ty))
 }
 
-
-
+#[allow(clippy::too_many_arguments)] // REASON: all 8 params independently meaningful; bundling would obscure intent
 fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, kind: LValueKind, element: &Type) -> Result<(String, Type), String> {
 // Check deref validity
                  if let syn::Expr::Path(path_expr) = &*i.expr {
@@ -581,6 +580,7 @@ fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprI
                  Ok((res, (*inner).clone()))
 }
 
+#[allow(clippy::too_many_arguments)] // REASON: all 8 params independently meaningful; bundling would obscure intent
 fn emit_index_array(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, inner: &Type, packed: &bool) -> Result<(String, Type), String> {
 let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I64))?;
                  let idx_prom = promote_numeric(ctx, out, &idx_val, &idx_ty, &Type::I64)?;

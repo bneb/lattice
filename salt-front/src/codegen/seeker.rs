@@ -409,14 +409,11 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                          syn::GenericArgument::Type(ty) => {
                              params.push(crate::codegen::type_bridge::resolve_type(self, &crate::grammar::SynType::from_std(ty.clone()).map_err(|e| e.to_string())?));
                          }
-                         syn::GenericArgument::Const(c) => {
-                              // evaluate const?
-                              if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(i), .. }) = c {
-                                       if let Ok(val) = i.base10_parse::<i64>() {
-                                            // Mapping const generic to I32/I64 type hack for now as per type system
-                                            params.push(Type::Struct(val.to_string()));
-                                       }
-                              }
+                         syn::GenericArgument::Const(syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(i), .. })) => {
+                             if let Ok(val) = i.base10_parse::<i64>() {
+                                 // Mapping const generic to I32/I64 type hack for now as per type system
+                                 params.push(Type::Struct(val.to_string()));
+                             }
                          }
                          _ => {}
                      }

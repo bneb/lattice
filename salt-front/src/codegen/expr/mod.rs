@@ -779,6 +779,8 @@ fn emit_lvalue_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprI
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+// REASON: all 8 parameters are independently meaningful; bundling would obscure intent
 fn emit_lvalue_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_kind: LValueKind, elem_ty: &Type, shape: &[usize]) -> Result<(String, Type, LValueKind), String> {
     let tensor_ptr = match base_kind {
         LValueKind::Local | LValueKind::Ptr => {
@@ -874,6 +876,8 @@ fn emit_lvalue_index_pointer(ctx: &mut LoweringContext, out: &mut String, i: &sy
     Ok((ptr, element.clone(), LValueKind::Ptr))
 }
 
+#[allow(clippy::too_many_arguments)]
+// REASON: all 8 parameters are independently meaningful; bundling would obscure intent
 fn emit_lvalue_index_array(ctx: &mut LoweringContext, out: &mut String, base_ptr: String, base_kind: LValueKind, elem_ty: &Type, packed: bool, idx_prom: &str, base_ty: &Type) -> Result<(String, Type, LValueKind), String> {
     let array_ty = base_ty.to_mlir_type(ctx)?;
     if packed {
@@ -968,10 +972,9 @@ fn emit_lvalue_index_struct(ctx: &mut LoweringContext, out: &mut String, base_pt
     };
     
     if let Some(struct_info) = ctx.find_struct_by_name(&struct_name) {
-        if let Some((field_idx, field_ty)) = struct_info.fields.get("data") {
-            if let Type::Pointer { element, .. } = field_ty {
-                let element = (**element).clone();
-                let field_idx = *field_idx;
+        if let Some((field_idx, Type::Pointer { element, .. })) = struct_info.fields.get("data") {
+            let element = (**element).clone();
+            let field_idx = *field_idx;
                 
                 let struct_ptr = if matches!(base_kind, LValueKind::SSA) {
                     base_ptr.clone()
@@ -994,7 +997,6 @@ fn emit_lvalue_index_struct(ctx: &mut LoweringContext, out: &mut String, base_pt
                 ctx.emit_gep(out, &elem_ptr, &data_ptr, idx_prom, &elem_mlir);
                 
                 return Ok((elem_ptr, element, LValueKind::Ptr));
-            }
         }
     }
     Err(format!("Index operator not supported on type {:?} (no 'data: Ptr<T>' field found)", base_ty))
@@ -1539,17 +1541,15 @@ fn resolve_fstring_expr_type(
         let base = &trimmed[..dot_pos];
         let _field = &trimmed[dot_pos + 1..];
         // If base is a known variable, and it's a struct, look up field type
-        if let Some(base_ty) = resolve_fstring_expr_type(base, local_vars, ctx) {
-            if let Type::Struct(name) | Type::Concrete(name, _) = &base_ty {
+        if let Some(Type::Struct(name) | Type::Concrete(name, _)) = resolve_fstring_expr_type(base, local_vars, ctx) {
                 // Try to get field info from struct_templates
-                if let Ok(fields) = ctx.get_struct_fields(name) {
+                if let Ok(fields) = ctx.get_struct_fields(&name) {
                     for (fname, fty) in &fields {
                         if fname == _field {
                             return Some(fty.clone());
                         }
                     }
                 }
-            }
         }
     }
     

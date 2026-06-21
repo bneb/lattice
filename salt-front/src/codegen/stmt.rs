@@ -524,7 +524,6 @@ fn detect_vector_reduction_pattern(
     None
 }
 
-
 /// Check if an expression is a tensor index pattern like `tensor[(i, j)]`
 /// Returns (tensor_name, indices_exprs) if matched
 fn extract_tensor_index(expr: &syn::Expr) -> Option<(String, Vec<&syn::Expr>)> {
@@ -611,6 +610,7 @@ fn detect_tensor_reduction(stmt: &Stmt) -> bool {
 /// 
 /// Upgrade: Now uses scf.for instead of affine.for for better compatibility with
 /// multi-statement bodies containing vector operations.
+#[allow(clippy::too_many_arguments)] // REASON: all 8 params independently meaningful; bundling would obscure intent
 fn emit_affine_for_reduction(
     ctx: &mut LoweringContext,
     out: &mut String,

@@ -31,6 +31,8 @@ pub fn emit_aggregate_eq(ctx: &mut LoweringContext, out: &mut String, op: &syn::
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+// REASON: all 8 parameters are independently meaningful for struct equality codegen; bundling would obscure emitter semantics.
 fn emit_struct_eq(ctx: &mut LoweringContext, out: &mut String, op: &syn::BinOp, lhs: &str, rhs: &str, ty: &Type, name: &str, is_eq: bool) -> Result<String, String> {
     let canonical = ctx.struct_registry().values().find(|i| i.name == *name).cloned();
     
@@ -84,6 +86,8 @@ fn emit_struct_eq(ctx: &mut LoweringContext, out: &mut String, op: &syn::BinOp, 
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+// REASON: all 8 parameters are independently meaningful for tuple equality codegen; bundling would obscure emitter semantics.
 fn emit_tuple_eq(ctx: &mut LoweringContext, out: &mut String, op: &syn::BinOp, lhs: &str, rhs: &str, ty: &Type, elems: &[Type], is_eq: bool) -> Result<String, String> {
     let mut conds = Vec::new();
     for (i, elem_ty) in elems.iter().enumerate() {
@@ -110,6 +114,8 @@ fn emit_tuple_eq(ctx: &mut LoweringContext, out: &mut String, op: &syn::BinOp, l
     Ok(combine_conditions(ctx, out, conds, is_eq))
 }
 
+#[allow(clippy::too_many_arguments)]
+// REASON: all 9 parameters are independently meaningful for array equality codegen; bundling would obscure emitter semantics.
 fn emit_array_eq(ctx: &mut LoweringContext, out: &mut String, op: &syn::BinOp, lhs: &str, rhs: &str, ty: &Type, inner: &Type, len: usize, is_eq: bool) -> Result<String, String> {
     if len <= 16 {
         let mut conds = Vec::new();
@@ -205,6 +211,8 @@ fn emit_array_eq(ctx: &mut LoweringContext, out: &mut String, op: &syn::BinOp, l
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+// REASON: all 8 parameters are independently meaningful for enum equality codegen; bundling would obscure emitter semantics.
 fn emit_enum_eq(ctx: &mut LoweringContext, out: &mut String, op: &syn::BinOp, lhs: &str, rhs: &str, ty: &Type, name: &str, is_eq: bool) -> Result<String, String> {
     if let Some(info) = ctx.enum_registry().values().find(|i| i.name == *name).cloned() {
         let mut conds = Vec::new();

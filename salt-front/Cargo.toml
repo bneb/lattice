@@ -22,12 +22,10 @@ paste = "1.0.15"
 tempfile = "3.24.0"
 walkdir = "2.3"
 
-[lints.clippy]
-too_many_arguments = "allow"
-large_enum_variant = "allow"
-inherent_to_string = "allow"
-type_complexity = "allow"
-# Pre-existing style nits — fixed incrementally as files are refactored
-collapsible_match = "allow"  # 3 remaining (async_lower, mod.rs) — 14 of 22 fixed
-collapsible_if = "allow"     # 5 remaining (mod.rs, expr/mod) — fixed elsewhere
+# [lints.clippy] — Clippy Zero achieved. All 6 categories fixed:
+#   too_many_arguments    → site-level #[allow] with REASON comments
+#   type_complexity       → extracted type aliases (PromotionTable, MethodResolver, etc.)
+#   large_enum_variant    → Box-wrapped ShapedTensor + GenericParam::Const
+#   inherent_to_string    → Display impl for SynPath
+#   collapsible_match/if  → 22 instances collapsed across 6 files
 

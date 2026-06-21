@@ -29,8 +29,8 @@ pub fn get_numeric_idx(ty: &Type) -> Option<usize> {
 }
 
 
-
-pub const PROMOTION_OPS: [[Option<(&str, &str, &str)>; 12]; 12] = {
+pub type PromotionTable = [[Option<(&'static str, &'static str, &'static str)>; 12]; 12];
+pub const PROMOTION_OPS: PromotionTable = {
     let mut table = [[None; 12]; 12];
     
     // Identity removals (return None, which means map to Ok(var))
@@ -492,7 +492,7 @@ fn promote_numeric_cast(ctx: &mut LoweringContext, out: &mut String, var: &str, 
              return Ok(res);
         }
         (Type::Tuple(fs), Type::Tuple(ts)) if fs.len() == ts.len() => {
-             return promote_tuple(ctx, out, var, fs, ts, from, to, &res);
+             return promote_tuple(ctx, out, var, from, to, &res);
         }
         _ => {}
     }
@@ -603,8 +603,8 @@ fn promote_array_packing(ctx: &mut LoweringContext, out: &mut String, var: &str,
      }
      Ok(current_packed)
 }
-
-fn promote_tuple(ctx: &mut LoweringContext, out: &mut String, var: &str, fs: &[Type], ts: &[Type], from: &Type, to: &Type, res: &str) -> Result<String, String> {
+fn promote_tuple(ctx: &mut LoweringContext, out: &mut String, var: &str, from: &Type, to: &Type, res: &str) -> Result<String, String> {
+     let (fs, ts) = match (from, to) { (Type::Tuple(f), Type::Tuple(t)) => (f, t), _ => return Err("promote_tuple requires tuple types".to_string()) };
      let target_mlir = to.to_mlir_storage_type(ctx)?;
      let src_mlir = from.to_mlir_storage_type(ctx)?;
      
@@ -1870,7 +1870,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             }
         }
     }
-
+    #[allow(clippy::too_many_arguments)] // All 8 parameters needed to construct MonomorphizationTask
     pub(crate) fn enqueue_monomorphization_task(
         &mut self,
         func_name: &str,

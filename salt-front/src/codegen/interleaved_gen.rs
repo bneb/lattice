@@ -22,6 +22,8 @@ impl<'a> CodegenContext<'a> {
     ///
     /// The key insight is that x_j is loaded once and used for both the dot product
     /// accumulation AND the weight update.
+    #[allow(clippy::too_many_arguments)]
+    // REASON: all parameters independently meaningful for interleaved matmul codegen
     pub fn emit_interleaved_matmul(
         &self,
         out: &mut String,
@@ -76,6 +78,8 @@ impl<'a> CodegenContext<'a> {
     /// - affine-super-vectorize to generate NEON vector ops
     /// - Loop pipelining and unrolling
     /// - Zero memory stalls on the hot path
+    #[allow(clippy::too_many_arguments)]
+    // REASON: all parameters independently meaningful for pure affine matmul codegen
     pub fn emit_pure_affine_matmul(
         &self,
         out: &mut String,
@@ -169,6 +173,8 @@ impl<'a> CodegenContext<'a> {
 
     /// Emit a complete FFB layer: Matmul → ReLU → Weight Update → Gradient Propagation
     /// This is the ultimate fused kernel that handles an entire layer in one pass.
+    #[allow(clippy::too_many_arguments)]
+    // REASON: all parameters independently meaningful for FFB layer codegen
     pub fn emit_ffb_layer(
         &self,
         out: &mut String,

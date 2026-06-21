@@ -7,6 +7,11 @@ use crate::codegen::expr::{emit_expr, promote_numeric, get_path_from_expr, infer
 use crate::codegen::type_bridge::{resolve_type, resolve_codegen_type};
 use crate::codegen::expr::utils::resolve_package_prefix_ctx;
 
+/// A resolved generic method signature: return type and argument types after specialization.
+type SpecializedSig = Option<(Type, Vec<Type>)>;
+
+/// Result from method lookup: the (function def, self type, imports) plus the actual receiver type matched.
+type MethodLookupResult = Option<((crate::grammar::SaltFn, Option<Type>, Vec<crate::grammar::ImportDecl>), Type)>;
 
 fn get_type_based_pkg(ctx: &LoweringContext, receiver_ty: &Type, cached_receiver_val: &Option<String>) -> Option<String> {
     let type_based_pkg = match receiver_ty {
@@ -92,7 +97,7 @@ fn resolve_generic_method_args(
     expected_ty: Option<&Type>,
     receiver_ty: &Type,
     original_mangled: &str,
-) -> Result<(Vec<String>, Vec<Type>, Option<(Type, Vec<Type>)>), String> {
+) -> Result<(Vec<String>, Vec<Type>, SpecializedSig), String> {
     let mut emitted_vals = Vec::new();
     let mut emitted_tys = Vec::new();
     
@@ -155,8 +160,7 @@ fn resolve_generic_method_args(
     Ok((emitted_vals, emitted_tys, specialized_sig))
 }
 
-
-
+#[allow(clippy::too_many_arguments)] // REASON: all 8 params independently necessary for receiver arg
 fn prepare_receiver_arg(
     ctx: &mut LoweringContext,
     out: &mut String,
@@ -209,6 +213,7 @@ fn prepare_receiver_arg(
     Ok((recv_ref, self_arg_ty))
 }
 
+#[allow(clippy::too_many_arguments)] // REASON: all 10 params independently necessary for method call args
 fn prepare_method_call_args(
     ctx: &mut LoweringContext,
     out: &mut String,
@@ -251,6 +256,7 @@ fn prepare_method_call_args(
     Ok((final_args, final_arg_tys))
 }
 
+#[allow(clippy::too_many_arguments)] // REASON: all 10 params independently necessary for static method resolution
 fn try_resolve_static_method(
     ctx: &mut LoweringContext,
     out: &mut String,
@@ -788,7 +794,7 @@ fn perform_method_lookup(
     ctx: &mut LoweringContext,
     receiver_ty: &Type,
     method_name: &str,
-) -> Option<((crate::grammar::SaltFn, Option<Type>, Vec<crate::grammar::ImportDecl>), Type)> {
+) -> MethodLookupResult {
     let mut current_ty = receiver_ty.clone();
     for _ in 0..10 {
         if let Ok(info) = ctx.resolve_method(&current_ty, method_name) {
@@ -863,6 +869,7 @@ fn adjust_receiver_for_method_call(
     Ok((final_receiver_val, final_receiver_ty))
 }
 
+#[allow(clippy::too_many_arguments)] // REASON: all 10 params independently necessary for method name mangling
 fn determine_method_mangling(
     ctx: &mut LoweringContext,
     target_name: &str,
@@ -890,6 +897,7 @@ fn determine_method_mangling(
     } else { mangled_method }
 }
 
+#[allow(clippy::too_many_arguments)] // REASON: all 11 params independently necessary for emitting resolved method call
 fn emit_resolved_method_call(
     ctx: &mut LoweringContext,
     out: &mut String,
@@ -1026,6 +1034,7 @@ fn emit_resolved_method_call(
     Ok((res, ret_ty))
 }
 
+#[allow(clippy::too_many_arguments)] // REASON: all 9 params independently necessary for method generic resolution
 fn resolve_method_generics(
     ctx: &mut LoweringContext,
     m: &syn::ExprMethodCall,

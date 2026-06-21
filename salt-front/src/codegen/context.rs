@@ -680,6 +680,8 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
     pub fn emit_insertvalue(&self, out: &mut String, res: &str, elem: &str, val: &str, idx: usize, ty: &str) {
         out.push_str(&format!("    {} = llvm.insertvalue {}, {}[{}] : {}\n", res, elem, val, idx, ty));
     }
+    #[allow(clippy::too_many_arguments)]
+    // REASON: all 8 parameters are independently meaningful for MLIR insertvalue emission; bundling would obscure emitter semantics.
     pub fn emit_insertvalue_logical(&mut self, out: &mut String, res: &str, elem: &str, val: &str, idx: usize, ty: &str, field_ty: &Type) -> Result<(), String> {
         if *field_ty == Type::Bool {
             let zext_res = format!("%b_zext_ins_{}", self.next_id());
@@ -688,6 +690,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         } else { self.emit_insertvalue(out, res, elem, val, idx, ty); }
         Ok(())
     }
+    #[allow(clippy::too_many_arguments)] // REASON: all 7 params independently meaningful for MLIR cmp emission
     pub fn emit_cmp(&self, out: &mut String, res: &str, cmp_op: &str, pred: &str, lhs: &str, rhs: &str, ty: &str) {
         let comma = if cmp_op == "llvm.icmp" || cmp_op == "llvm.fcmp" { "" } else { "," };
         out.push_str(&format!("    {} = {} \"{}\"{} {}, {} : {}\n", res, cmp_op, pred, comma, lhs, rhs, ty));
@@ -850,6 +853,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)] // REASON: all 7 params independently meaningful for MLIR matmul emission
     pub fn emit_linalg_matmul(&mut self, out: &mut String, lhs: &str, lhs_ty: &str, rhs: &str, rhs_ty: &str, acc: &str, acc_ty: &str) -> Result<String, String> {
         let res = format!("%matmul_res_{}", self.next_id());
         out.push_str(&format!("    {} = linalg.matmul ins({}, {} : {}, {}) outs({} : {}) -> {}\n",
@@ -4567,7 +4571,7 @@ pub fn init_registry_definitions(&self) {
     pub fn emit_insertvalue(&self, out: &mut String, res: &str, elem: &str, val: &str, idx: usize, ty: &str) {
         out.push_str(&format!("    {} = llvm.insertvalue {}, {}[{}] : {}\n", res, elem, val, idx, ty));
     }
-
+    #[allow(clippy::too_many_arguments)] // REASON: all 8 params independently meaningful for MLIR insertvalue emission
     pub fn emit_insertvalue_logical(&self, out: &mut String, res: &str, elem: &str, val: &str, idx: usize, ty: &str, field_ty: &Type) -> Result<(), String> {
         if *field_ty == Type::Bool {
              let zext_res = format!("%b_zext_ins_{}", self.next_id());
@@ -4580,7 +4584,7 @@ pub fn init_registry_definitions(&self) {
         }
         Ok(())
     }
-
+    #[allow(clippy::too_many_arguments)] // REASON: all 7 params independently meaningful for MLIR cmp emission
     pub fn emit_cmp(&self, out: &mut String, res: &str, cmp_op: &str, pred: &str, lhs: &str, rhs: &str, ty: &str) {
         let comma = if cmp_op == "llvm.icmp" || cmp_op == "llvm.fcmp" { "" } else { "," };
         out.push_str(&format!("    {} = {} \"{}\"{} {}, {} : {}\n", res, cmp_op, pred, comma, lhs, rhs, ty));
@@ -4762,7 +4766,7 @@ pub fn init_registry_definitions(&self) {
             res, maps, iter_tys, ins, outs));
         Ok(res)
     }
-
+    #[allow(clippy::too_many_arguments)] // REASON: all 7 params independently meaningful for MLIR matmul emission
     pub fn emit_linalg_matmul(
         &self,
         out: &mut String,

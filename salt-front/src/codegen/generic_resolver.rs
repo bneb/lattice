@@ -16,7 +16,6 @@ use crate::types::Type;
 use crate::codegen::context::LoweringContext;
 use crate::grammar::{GenericParam, SaltFn};
 
-
 /// Central generic resolution engine.
 pub struct GenericResolver<'a, 'ctx, 'b> {
     ctx: &'b mut LoweringContext<'a, 'ctx>,
@@ -41,6 +40,7 @@ impl<'a, 'ctx, 'b> GenericResolver<'a, 'ctx, 'b> {
     /// * `self_ty` — Receiver type for method calls (None for free functions)
     /// * `struct_generics` — Generic params from the struct template (for methods)
     /// * `struct_concrete_args` — Concrete type args already extracted from receiver
+    #[allow(clippy::too_many_arguments)] // REASON: all 9 params independently meaningful; bundling would obscure intent
     pub fn resolve_generics(&mut self,
         template: &SaltFn,
         turbofish_args: &[Type],

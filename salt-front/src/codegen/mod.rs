@@ -128,6 +128,8 @@ use crate::common::mangling::Mangler;
 use crate::types::Type;
 use crate::registry::Registry;
 use std::collections::{HashMap, HashSet};
+    #[allow(clippy::too_many_arguments)]
+    // REASON: all 10 parameters are independently meaningful; bundling would obscure intent
     pub fn emit_mlir(file: &mut SaltFile, release_mode: bool, _registry: Option<&Registry>, _skip_scan: bool, no_verify: bool, disable_alias_scopes: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> Result<String, String> {
         let (mut loader, loader_registry) = load_modules(file)?;
         
@@ -207,6 +209,8 @@ use std::collections::{HashMap, HashSet};
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
+    // REASON: all 9 parameters are independently meaningful; bundling would obscure intent
     fn initialize_context<'a>(ctx: &mut CodegenContext<'a>, file: &SaltFile, loader: &ModuleLoader, no_verify: bool, disable_alias_scopes: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) {
         let mut all_files = Vec::new();
         for ast in loader.loaded_files.values() {
@@ -1949,13 +1953,11 @@ fn resolve_type_safe(ctx: &CodegenContext, ty: &crate::grammar::SynType) -> Type
                  } else {
                      // TOP MINDS: Check if this is the impl target struct (Self-referential scope injection)
                      // This handles cases like `impl Point { fn sum(self: &Point) }` where Point isn't imported
-                     if let Some(self_ty) = ctx.current_self_ty().as_ref() {
-                         if let Type::Struct(self_name) = self_ty {
-                             let self_short = self_name.rsplit("__").next().unwrap_or(self_name);
-                             if name == self_short || name == *self_name {
-                                 let _ = ctx.ensure_struct_exists(self_name, &[]);
-                                 return Type::Struct(self_name.clone());
-                             }
+                     if let Some(Type::Struct(self_name)) = ctx.current_self_ty().as_ref() {
+                         let self_short = self_name.rsplit("__").next().unwrap_or(self_name);
+                         if name == self_short || name == *self_name {
+                             let _ = ctx.ensure_struct_exists(self_name, &[]);
+                             return Type::Struct(self_name.clone());
                          }
                      }
                      eprintln!("CRITICAL: resolve_type_safe failed to resolve '{}'. Imports: {:?}", name, ctx.imports().iter().map(|i| i.alias.as_ref().map(|a| a.to_string()).unwrap_or("?".to_string())).collect::<Vec<_>>());
@@ -2089,12 +2091,11 @@ fn scan_dependencies_in_file(ctx: &CodegenContext, f: &SaltFile) -> Result<(), S
                      scan_types_in_fn(ctx, func)?;
                  }
              }
-             Item::Impl(imp) => {
-                 if let SaltImpl::Methods { target_ty, methods, generics } = imp {
-                     if generics.is_some() { 
+             Item::Impl(SaltImpl::Methods { target_ty, methods, generics }) => {
+                 if generics.is_some() {
 
-                        continue; 
-                    }
+                    continue;
+                }
                     // Also check if target_ty implies generics (e.g. impl Vec<T>)
                     let parsed_ty = crate::types::Type::from_syn(target_ty).ok_or_else(|| "Failed to parse type from syntax in impl block during scan".to_string())?;
                     let substituted = crate::codegen::type_bridge::substitute_generics(&ctx.current_type_map(), &parsed_ty);
@@ -2126,7 +2127,6 @@ fn scan_dependencies_in_file(ctx: &CodegenContext, f: &SaltFile) -> Result<(), S
                      }
                      
                      *ctx.current_self_ty_mut() = old_self;
-                 }
              }
              _ => {}
          }
@@ -2360,10 +2360,8 @@ fn resolve_scan_expr_call_fqn(ctx: &CodegenContext, p: &syn::ExprPath, target_ke
          }
     } 
     
-    if let Some((_, ret_ty)) = ctx.resolve_global_signature(&full_mangled) { 
-         if let crate::types::Type::Fn(_, box_ret) = ret_ty {
-             let _ = ctx.bridge_resolve_codegen_type(&box_ret);
-         }
+    if let Some((_, crate::types::Type::Fn(_, box_ret))) = ctx.resolve_global_signature(&full_mangled) {
+         let _ = ctx.bridge_resolve_codegen_type(&box_ret);
     }
     
     Ok(())

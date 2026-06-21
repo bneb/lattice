@@ -1134,15 +1134,15 @@ fn emit_bit_compound_assign(
     ctx.emit_store(out, &new_word, ptr, word_mlir);
     Ok(("%unit".to_string(), Type::Unit))
 }
-
+#[allow(clippy::too_many_arguments)] // REASON: all 8 params independently meaningful; bundling would obscure intent
 fn emit_tensor_compound_assign(
-    ctx: &mut LoweringContext, 
-    out: &mut String, 
-    memref: &str, 
-    indices: &[String], 
-    elem_ty: &Type, 
-    shape: &[usize], 
-    b: &syn::ExprBinary, 
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    memref: &str,
+    indices: &[String],
+    elem_ty: &Type,
+    shape: &[usize],
+    b: &syn::ExprBinary,
     local_vars: &mut HashMap<String, (Type, LocalKind)>
 ) -> Result<(String, Type), String> {
     let elem_mlir = elem_ty.to_mlir_storage_type(ctx)?;

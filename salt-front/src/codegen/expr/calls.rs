@@ -7,7 +7,7 @@ use super::resolver;
 use std::collections::HashMap;
 use super::emit_expr;
 use super::literals::emit_enum_constructor;
-
+#[allow(clippy::too_many_arguments)] // REASON: all 9 params independently meaningful; bundling would obscure intent
 fn emit_function_call(
     ctx: &mut LoweringContext,
     out: &mut String,
@@ -301,7 +301,6 @@ pub(crate) fn emit_tensor_constructor(
     } else {
         return Err("Tensor shape must be array literal: Tensor<f64>(0.0, [512, 512])".to_string());
     };
-    
     
     // 3. Create Tensor type
     let tensor_ty = Type::Tensor(Box::new(elem_ty.clone()), shape.clone());
@@ -626,6 +625,7 @@ fn emit_function_args(
     Ok((args_vals, inferred_tys))
 }
 
+#[allow(clippy::too_many_arguments)] // REASON: all 9 params independently meaningful; bundling would obscure intent
 fn emit_low_level_call(
     ctx: &mut LoweringContext,
     out: &mut String,

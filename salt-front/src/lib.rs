@@ -1132,8 +1132,7 @@ fn extract_force_unwrap_expr(s: &str) -> String {
 // Legacy f-string preprocessing code deleted
 // F-strings are now handled by codegen/context.rs::native_fstring_expand
 // with full TraitRegistry context for signature-aware format spec dispatch.
-
-
+#[allow(clippy::too_many_arguments)] // REASON: all 11 params independently meaningful; bundling would obscure intent
 pub fn compile_ast(file: &mut SaltFile, release_mode: bool, registry: Option<&crate::registry::Registry>, skip_scan: bool, _vverify: bool, disable_alias_scopes: bool, no_verify: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> anyhow::Result<String> {
     // Inject implicit stdlib imports for built-in types.
     // Ptr<T> is a built-in type whose methods (write, read, offset) live in std/core/ptr.salt.

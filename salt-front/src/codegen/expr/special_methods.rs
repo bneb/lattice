@@ -310,9 +310,7 @@ fn emit_matmul_method(
         
         Err(format!("matmul: unsupported operand ranks: {} @ {}", a_rank, b_rank))
     }
-    
-
-
+#[allow(clippy::too_many_arguments)] // REASON: all 8 params independently meaningful; bundling would obscure intent
 fn emit_ufcs_method(
     ctx: &mut LoweringContext,
     out: &mut String,

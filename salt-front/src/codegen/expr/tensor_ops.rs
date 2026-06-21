@@ -222,8 +222,10 @@ pub fn emit_inplace_sub(
 }
 
 /// Emit matrix multiplication using linalg.matmul
-/// 
+///
 /// For 2D tensors: C = A @ B where A is MxK and B is KxN, result is MxN
+#[allow(clippy::too_many_arguments)]
+// REASON: all 8 parameters are independently meaningful; bundling would obscure intent
 pub fn emit_matmul(
     ctx: &mut LoweringContext,
     out: &mut String,
