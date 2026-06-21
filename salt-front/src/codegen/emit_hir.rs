@@ -454,14 +454,12 @@ fn emit_hir_field(
     let struct_name = HirEmitCtx::extract_struct_name(&base.ty);
     let field_idx = if let Some(ref sname) = struct_name {
         ctx.resolve_field_index(sname, field)
-    } else {
-        if field == "__state" { 0 } else {
-            let mut found = 0;
-            for fields in ctx.struct_fields.values() {
-                if let Some(pos) = fields.iter().position(|f| f == field) { found = pos; break; }
-            }
-            found
+    } else if field == "__state" { 0 } else {
+        let mut found = 0;
+        for fields in ctx.struct_fields.values() {
+            if let Some(pos) = fields.iter().position(|f| f == field) { found = pos; break; }
         }
+        found
     };
 
     let struct_ty = if let Some(ref sname) = struct_name {
@@ -489,14 +487,12 @@ fn emit_hir_assign(
         let struct_name = HirEmitCtx::extract_struct_name(&base.ty);
         let field_idx = if let Some(ref sname) = struct_name {
             ctx.resolve_field_index(sname, field)
-        } else {
-            if field == "__state" { 0 } else {
-                let mut found = 0;
-                for fields in ctx.struct_fields.values() {
-                    if let Some(pos) = fields.iter().position(|f| f == field) { found = pos; break; }
-                }
-                found
+        } else if field == "__state" { 0 } else {
+            let mut found = 0;
+            for fields in ctx.struct_fields.values() {
+                if let Some(pos) = fields.iter().position(|f| f == field) { found = pos; break; }
             }
+            found
         };
 
         let struct_ty = if let Some(ref sname) = struct_name {

@@ -479,12 +479,10 @@ fn get_receiver_lvalue(
             ctx.emit_load(out, &val, &addr, &mlir_ty);
             Ok((val, ty))
         }
+    } else if let Some(ref val) = cached_receiver_val {
+        Ok((val.clone(), cached_receiver_ty.substitute(ctx.current_type_map())))
     } else {
-        if let Some(ref val) = cached_receiver_val {
-            Ok((val.clone(), cached_receiver_ty.substitute(ctx.current_type_map())))
-        } else {
-            Err(format!("Method call '{}' requires a receiver value", method_name))
-        }
+        Err(format!("Method call '{}' requires a receiver value", method_name))
     }
 }
 

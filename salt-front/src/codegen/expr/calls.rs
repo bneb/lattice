@@ -699,9 +699,7 @@ fn emit_low_level_call(
         if let Some(first_arg) = args_vec.first() {
             if let Some(var_name) = super::extract_ident_name(first_arg) {
                 let alloc_id = format!("malloc:{}", var_name);
-                if let Err(e) = ctx.ownership_tracker.mark_released(&alloc_id, ctx.z3_solver) {
-                    return Err(e);
-                }
+                ctx.ownership_tracker.mark_released(&alloc_id, ctx.z3_solver)?;
                 ctx.malloc_tracker.free(&alloc_id);
                 ctx.pointer_tracker.mark_freed(&var_name);
             }

@@ -61,7 +61,7 @@ pub fn emit_entry_point(config: &EntryPointConfig) -> String {
     // On ARM64, we use llvm.inline_asm to set x19 directly
     out.push_str("      // Step 1: Initialize deadline register (x19 = MAX)\n");
     out.push_str("      %max_deadline = arith.constant -1 : i64\n");
-    out.push_str(&"      llvm.inline_asm has_side_effects \"mov x19, $0\", \"r\" %max_deadline : (i64) -> ()\n".to_string());
+    out.push_str("      llvm.inline_asm has_side_effects \"mov x19, $0\", \"r\" %max_deadline : (i64) -> ()\n");
 
     // Step 2: Allocate DMA arena
     out.push_str("      // Step 2: Allocate DMA arena\n");

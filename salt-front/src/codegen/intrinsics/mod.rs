@@ -248,10 +248,8 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                     out.push_str(&format!("    func.call @__salt_print_literal({}, {}) : (!llvm.ptr, i64) -> ()\n", data_ptr, len));
                     self.entity_registry_mut().register_hook("free");
                     out.push_str(&format!("    func.call @free({}) : (!llvm.ptr) -> ()\n", data_ptr));
-                } else {
-                    if self.derive_struct_write_to(out, name, val, ty, "%writer_stub").is_err() {
-                        self.emit_print_literal(out, &format!("<{}>", name.split("__").last().unwrap_or(name)))?;
-                    }
+                } else if self.derive_struct_write_to(out, name, val, ty, "%writer_stub").is_err() {
+                    self.emit_print_literal(out, &format!("<{}>", name.split("__").last().unwrap_or(name)))?;
                 }
             }
             Type::Tensor(inner_ty, shape) => {

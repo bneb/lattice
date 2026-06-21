@@ -1,5 +1,5 @@
 #![deny(clippy::cognitive_complexity)]
-// removed warnings — pre-existing lints suppressed in clippy_allows module
+// removed warnings — pre-existing lints deferred per MASTER_SPRINT.md S1-002
 
 
 // Internal Compiler Error Macro

@@ -77,7 +77,7 @@ impl StateMachineEmitter {
         ));
 
         // Add field comments
-        out.push_str(&"    // Field 0: resume_state (i32)\n".to_string());
+        out.push_str("    // Field 0: resume_state (i32)\n");
         for member in &liveness.frame_members {
             out.push_str(&format!(
                 "    // Field {}: {} ({})\n",
@@ -329,7 +329,7 @@ impl StateMachineEmitter {
             "    %table_base = llvm.mlir.addressof @{} : !llvm.ptr\n",
             table_name,
         ));
-        out.push_str(&"    %state_ext = arith.extsi %resume_state : i32 to i64\n".to_string());
+        out.push_str("    %state_ext = arith.extsi %resume_state : i32 to i64\n");
         out.push_str(&format!(
             "    %fn_ptr_addr = llvm.getelementptr %table_base[0, %state_ext] : (!llvm.ptr, i64) -> !llvm.ptr, !llvm.array<{} x !llvm.ptr>\n",
             num_states,
