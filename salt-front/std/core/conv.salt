@@ -8,7 +8,7 @@ pub const ITOA_MIN_BUF_SIZE: i64 = 24;
 
 pub fn itoa(n: i64, buf: Ptr<u8>, buf_len: i64) -> i64
 requires buf_len >= ITOA_MIN_BUF_SIZE; // The "Ground Truth" for Z3
-requires (buf as i64) != 0;  // V3.0: Check address directly
+requires (buf as i64) != 0;  // Check address directly
 {
     if n == 0 {
         buf.store(48); // '0'

@@ -20,7 +20,7 @@ pub fn write(fd: i32, buf: Ptr<u8>, count: i64) -> i64
 requires count >= 0;
 {
     // Syscall 1 = WRITE
-    // V3.0: Cast Ptr<u8> directly to i64 for syscall
+    // Cast Ptr<u8> directly to i64 for syscall
     return syscall6(1, fd as i64, buf as i64, count, 0, 0, 0);
 }
 
@@ -28,12 +28,12 @@ pub fn read(fd: i32, buf: Ptr<u8>, count: i64) -> i64
 requires count >= 0;
 {
     // Syscall 0 = READ
-    // V3.0: Cast Ptr<u8> directly to i64 for syscall
+    // Cast Ptr<u8> directly to i64 for syscall
     return syscall6(0, fd as i64, buf as i64, count, 0, 0, 0);
 }
 
 pub fn open(path: Ptr<u8>, flags: i32) -> i32 
-requires (path as i64) != 0; // V3.0: Check address directly
+requires (path as i64) != 0; // Check address directly
 {
     // Syscall 2 = OPEN
     return syscall6(2, path as i64, flags as i64, 0, 0, 0, 0) as i32;

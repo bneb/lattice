@@ -19,7 +19,7 @@ fn main(argc: i32) -> i32 {
         }
     }
     
-    // --- THE SHADOW PIVOT ---
+    // --- Shadow stack verification ---
     // 1. Capture Global to Local (Promotion)
     let mut local_counter = argc; 
 

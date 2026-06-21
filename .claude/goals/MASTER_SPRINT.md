@@ -3,11 +3,7 @@
 ## Phase 1: Clippy Zero (1-2 sessions)
 Goal: `cargo clippy -- -D warnings` passes with zero errors.
 
-### S1-001: Safe auto-fix batch
-- Run `cargo clippy --fix --lib --broken-code`
-- Fix the 3 known build errors (borrow-after-move in stmt.rs, dead expressions in seeker.rs, name_resolver.rs)
-- Verify build + tests pass
-- Acceptance: build green, tests green, warnings ≤ 129
+### [x] S1-001: Safe auto-fix batch (533→126, -407 warnings, 0 test failures)
 
 ### S1-002: Manual clippy fix pass
 - Fix remaining 129 warnings manually

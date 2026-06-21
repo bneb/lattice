@@ -839,7 +839,7 @@ impl InterpolatedStringHandler {
 }
 
 // ============================================================================
-// [V4.0] COMPTIME STRING PREFIX HANDLER
+// COMPTIME STRING PREFIX HANDLER
 // ============================================================================
 
 // Register this function as the handler for f"..." strings
