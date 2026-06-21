@@ -998,13 +998,11 @@ fn emit_resolved_method_call(
     final_arg_tys_vec.extend(arg_tys.clone());
     
     if is_static_method {
-        if let Some(sig) = ctx.resolve_global(&mangled_method) {
-             if let Type::Fn(expected_args, _) = sig {
+        if let Some(Type::Fn(expected_args, _)) = ctx.resolve_global(&mangled_method) {
                   if final_args_vals.len() == expected_args.len() + 1 {
                        final_args_vals.remove(0);
                        final_arg_tys_vec.remove(0);
                   }
-             }
         }
     }
 
