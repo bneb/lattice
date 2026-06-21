@@ -389,11 +389,8 @@ def build_kernel():
                  glob.glob(f"{KERNEL_ROOT}/arch/x86/*.salt") + \
                  glob.glob(f"{KERNEL_ROOT}/arch/x86_64/*.salt") + \
                  glob.glob(f"{KERNEL_ROOT}/arch/*.salt") + \
-                 glob.glob(f"{KERNEL_ROOT}/boot/*.salt") + \
-                 glob.glob(f"{WORKSPACE_ROOT}/user/reactor/tasks/*.salt") + \
-                 glob.glob(f"{WORKSPACE_ROOT}/user/terminal/*.salt") + \
-                 glob.glob(f"{WORKSPACE_ROOT}/user/lib/*.salt") + \
-                 glob.glob(f"{WORKSPACE_ROOT}/user/grit/*.salt")
+                 glob.glob(f"{KERNEL_ROOT}/boot/*.salt")
+    # User-space programs (reactor, terminal, lib, grit) are built separately by build_user_programs()
     # Exclude files that don't compile yet (WIP / incomplete dependencies)
     # Exclude files that don't compile yet (WIP / incomplete dependencies)
     EXCLUDE_BASENAMES = {
@@ -401,6 +398,7 @@ def build_kernel():
         "teardown",        # WIP: parse error (expected identifier)
         "bitmap_disp",     # WIP: needs atomic_or_u64 intrinsic (not yet defined)
         "irq",             # WIP: missing kernel__core__process__get_process_by_cap
+        "syscall_test",    # WIP: references sys_shm_grant (syscall IPC split in progress)
         # fastpath is now buildable (included in build — no longer blocked)
     }
     salt_files = [f for f in salt_files

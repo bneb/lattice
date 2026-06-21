@@ -11,28 +11,7 @@ package kernel.ecs.sparse_set
 import kernel.ecs.entity.{Entity, MAX_ENTITIES}
 import std.core.mem.size_of
 import kernel.ecs.components.{MemoryMap, IpcCapability, OpenSocket, TestComponent}
-import kernel.ecs.scheduling_sets.{
-    ThreadSparseSet, new_thread_set as sched_new_thread_set,
-    thread_set_insert as sched_thread_set_insert,
-    thread_set_get_mut as sched_thread_set_get_mut,
-    thread_set_remove as sched_thread_set_remove,
-    PrioritySparseSet, new_priority_set as sched_new_priority_set,
-    priority_set_insert as sched_priority_set_insert,
-    priority_set_get as sched_priority_set_get,
-    priority_set_remove as sched_priority_set_remove,
-    AffinitySparseSet, new_affinity_set as sched_new_affinity_set,
-    affinity_set_insert as sched_affinity_set_insert,
-    affinity_set_get as sched_affinity_set_get,
-    affinity_set_remove as sched_affinity_set_remove,
-    EpochInfoSparseSet, new_epoch_info_set as sched_new_epoch_info_set,
-    epoch_info_set_insert as sched_epoch_info_set_insert,
-    epoch_info_set_get as sched_epoch_info_set_get,
-    epoch_info_set_remove as sched_epoch_info_set_remove,
-    PerfCountersSparseSet, new_perf_counters_set as sched_new_perf_counters_set,
-    perf_counters_set_insert as sched_perf_counters_set_insert,
-    perf_counters_set_get as sched_perf_counters_set_get,
-    perf_counters_set_remove as sched_perf_counters_set_remove
-}
+import kernel.ecs.scheduling_sets.{ThreadSparseSet, new_thread_set, thread_set_insert, thread_set_get_mut, thread_set_remove, PrioritySparseSet, new_priority_set, priority_set_insert, priority_set_get, priority_set_remove, AffinitySparseSet, new_affinity_set, affinity_set_insert, affinity_set_get, affinity_set_remove, EpochInfoSparseSet, new_epoch_info_set, epoch_info_set_insert, epoch_info_set_get, epoch_info_set_remove, PerfCountersSparseSet, new_perf_counters_set, perf_counters_set_insert, perf_counters_set_get, perf_counters_set_remove}
 
 extern fn malloc(size: i64) -> Ptr<u8>;
 
@@ -40,80 +19,80 @@ extern fn malloc(size: i64) -> Ptr<u8>;
 // Delegation wrappers — ThreadSparseSet (impl in scheduling_sets.salt)
 // =============================================================================
 pub fn new_thread_set() -> Ptr<ThreadSparseSet> {
-    return sched_new_thread_set();
+    return new_thread_set();
 }
 pub fn thread_set_insert(set: Ptr<ThreadSparseSet>, entity: Entity, component: ThreadState) {
-    sched_thread_set_insert(set, entity, component);
+    thread_set_insert(set, entity, component);
 }
 pub fn thread_set_get_mut(set: Ptr<ThreadSparseSet>, entity: Entity) -> Ptr<ThreadState> {
-    return sched_thread_set_get_mut(set, entity);
+    return thread_set_get_mut(set, entity);
 }
 pub fn thread_set_remove(set: Ptr<ThreadSparseSet>, entity: Entity) {
-    sched_thread_set_remove(set, entity);
+    thread_set_remove(set, entity);
 }
 
 // =============================================================================
 // Delegation wrappers — PrioritySparseSet (impl in scheduling_sets.salt)
 // =============================================================================
 pub fn new_priority_set() -> Ptr<PrioritySparseSet> {
-    return sched_new_priority_set();
+    return new_priority_set();
 }
 pub fn priority_set_insert(set: Ptr<PrioritySparseSet>, entity: Entity, component: SchedulingPriority) {
-    sched_priority_set_insert(set, entity, component);
+    priority_set_insert(set, entity, component);
 }
 pub fn priority_set_get(set: Ptr<PrioritySparseSet>, entity: Entity) -> Ptr<SchedulingPriority> {
-    return sched_priority_set_get(set, entity);
+    return priority_set_get(set, entity);
 }
 pub fn priority_set_remove(set: Ptr<PrioritySparseSet>, entity: Entity) {
-    sched_priority_set_remove(set, entity);
+    priority_set_remove(set, entity);
 }
 
 // =============================================================================
 // Delegation wrappers — AffinitySparseSet (impl in scheduling_sets.salt)
 // =============================================================================
 pub fn new_affinity_set() -> Ptr<AffinitySparseSet> {
-    return sched_new_affinity_set();
+    return new_affinity_set();
 }
 pub fn affinity_set_insert(set: Ptr<AffinitySparseSet>, entity: Entity, component: CpuAffinity) {
-    sched_affinity_set_insert(set, entity, component);
+    affinity_set_insert(set, entity, component);
 }
 pub fn affinity_set_get(set: Ptr<AffinitySparseSet>, entity: Entity) -> Ptr<CpuAffinity> {
-    return sched_affinity_set_get(set, entity);
+    return affinity_set_get(set, entity);
 }
 pub fn affinity_set_remove(set: Ptr<AffinitySparseSet>, entity: Entity) {
-    sched_affinity_set_remove(set, entity);
+    affinity_set_remove(set, entity);
 }
 
 // =============================================================================
 // Delegation wrappers — EpochInfoSparseSet (impl in scheduling_sets.salt)
 // =============================================================================
 pub fn new_epoch_info_set() -> Ptr<EpochInfoSparseSet> {
-    return sched_new_epoch_info_set();
+    return new_epoch_info_set();
 }
 pub fn epoch_info_set_insert(set: Ptr<EpochInfoSparseSet>, entity: Entity, component: EpochInfo) {
-    sched_epoch_info_set_insert(set, entity, component);
+    epoch_info_set_insert(set, entity, component);
 }
 pub fn epoch_info_set_get(set: Ptr<EpochInfoSparseSet>, entity: Entity) -> Ptr<EpochInfo> {
-    return sched_epoch_info_set_get(set, entity);
+    return epoch_info_set_get(set, entity);
 }
 pub fn epoch_info_set_remove(set: Ptr<EpochInfoSparseSet>, entity: Entity) {
-    sched_epoch_info_set_remove(set, entity);
+    epoch_info_set_remove(set, entity);
 }
 
 // =============================================================================
 // Delegation wrappers — PerfCountersSparseSet (impl in scheduling_sets.salt)
 // =============================================================================
 pub fn new_perf_counters_set() -> Ptr<PerfCountersSparseSet> {
-    return sched_new_perf_counters_set();
+    return new_perf_counters_set();
 }
 pub fn perf_counters_set_insert(set: Ptr<PerfCountersSparseSet>, entity: Entity, component: PerfCounters) {
-    sched_perf_counters_set_insert(set, entity, component);
+    perf_counters_set_insert(set, entity, component);
 }
 pub fn perf_counters_set_get(set: Ptr<PerfCountersSparseSet>, entity: Entity) -> Ptr<PerfCounters> {
-    return sched_perf_counters_set_get(set, entity);
+    return perf_counters_set_get(set, entity);
 }
 pub fn perf_counters_set_remove(set: Ptr<PerfCountersSparseSet>, entity: Entity) {
-    sched_perf_counters_set_remove(set, entity);
+    perf_counters_set_remove(set, entity);
 }
 
 // =============================================================================

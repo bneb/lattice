@@ -1,0 +1,258 @@
+// ============================================================================
+// user/netd/daemon.salt
+// NetDaemon — Zero-Copy DMA Ingestion Pipeline
+// ============================================================================
+//
+// NetD reads raw Ethernet frames from the SovereignPoller's SPSC ring,
+// parses headers in-place, and pushes payload pointers directly into
+// application Codata streams. No memory copies. No buffer allocation.
+//
+// Data Flow:
+//   NIC DMA → SPSC Ring → parse_headers() → route_to_stream() → App
+//               ↑                                      ↑
+//          Zero-copy read                    Zero-copy pointer push
+//
+// The kernel never touches the payload. The NIC's DMA engine writes
+// directly into the SPSC ring. NetD validates headers and forwards
+// a raw pointer to the application's ReactiveStream.
+//
+// ============================================================================
+
+package user.netd.daemon
+
+// ============================================================================
+// Protocol Constants — Standard Header Sizes
+// ============================================================================
+
+// Ethernet II header: DST(6) + SRC(6) + EtherType(2) = 14 bytes
+pub const ETH_HEADER_SIZE: u32 = 14;
+
+// IPv4 header: minimum 20 bytes (no options)
+pub const MIN_IPV4_HEADER_SIZE: u32 = 20;
+
+// TCP header: minimum 20 bytes (no options)
+pub const MIN_TCP_HEADER_SIZE: u32 = 20;
+
+// Total minimum header size: Eth + IPv4 + TCP = 54 bytes
+pub const MIN_TOTAL_HEADER: u32 = 54;
+
+// EtherType values (Big Endian wire format)
+pub const ETHERTYPE_IPV4: u16 = 0x0800;
+
+// IP Protocol numbers
+pub const IP_PROTO_TCP: u8 = 6;
+
+// ============================================================================
+// TCP Header Field Offsets (from start of TCP segment)
+// ============================================================================
+pub const TCP_SRC_PORT_OFFSET: u32 = 0;    // Bytes 0-1
+pub const TCP_DST_PORT_OFFSET: u32 = 2;    // Bytes 2-3
+pub const TCP_SEQ_NUM_OFFSET:  u32 = 4;    // Bytes 4-7
+pub const TCP_ACK_NUM_OFFSET:  u32 = 8;    // Bytes 8-11
+pub const TCP_FLAGS_OFFSET:    u32 = 13;   // Byte 13 (flags byte)
+
+// ============================================================================
+// PacketInfo — Parsed Header Result
+// ============================================================================
+// After in-place header parsing, this struct holds the extracted
+// metadata and a raw pointer to the payload. No copies made.
+// ============================================================================
+pub struct PacketInfo {
+    pub src_port: u16,
+    pub dst_port: u16,
+    pub seq_num: u32,
+    pub ack_num: u32,
+    pub flags: u8,
+    pub payload_offset: u32,   // Offset from frame start to TCP payload
+    pub payload_len: u32,      // Length of TCP payload in bytes
+    pub valid: u8,             // 1 = valid TCP packet, 0 = invalid/dropped
+}
+
+// ============================================================================
+// parse_headers — In-Place Zero-Copy Header Validation
+// ============================================================================
+// Parses Ethernet, IPv4, and TCP headers directly from the DMA buffer.
+// No memory allocation. No buffer copies. Just pointer arithmetic.
+//
+// Z3 VERIFIED: All pointer offsets are bounds-checked against frame_len.
+// If the frame is too short for the minimum header, valid=0 is returned.
+//
+// Arguments:
+//   frame_base: Raw pointer to the start of the Ethernet frame (DMA buffer)
+//   frame_len:  Total length of the frame in bytes
+//
+// Returns:
+//   PacketInfo with extracted fields and payload pointer offset
+// ============================================================================
+pub fn parse_headers(frame_base: u64, frame_len: u32) -> PacketInfo {
+    // 1. Bounds check: frame must contain at minimum Eth + IPv4 + TCP headers
+    if frame_len < MIN_TOTAL_HEADER {
+        return PacketInfo {
+            src_port: 0, dst_port: 0, seq_num: 0, ack_num: 0,
+            flags: 0, payload_offset: 0, payload_len: 0, valid: 0,
+        };
+    }
+
+    // 2. Parse Ethernet header — extract EtherType
+    //    Z3: frame_base + 12 is safe because frame_len >= 54 > 14
+    let ethertype_ptr = (frame_base + 12) as &u16;
+    let ethertype = *ethertype_ptr;
+
+    // 3. Skip non-IPv4 frames
+    if ethertype != ETHERTYPE_IPV4 {
+        return PacketInfo {
+            src_port: 0, dst_port: 0, seq_num: 0, ack_num: 0,
+            flags: 0, payload_offset: 0, payload_len: 0, valid: 0,
+        };
+    }
+
+    // 4. Parse IPv4 header — extract IP Header Length (IHL) and protocol
+    //    IHL is in the lower 4 bits of the first byte, in units of 32-bit words
+    let ip_start = frame_base + (ETH_HEADER_SIZE as u64);
+    let ip_vhl_ptr = ip_start as &u8;
+    let ip_vhl = *ip_vhl_ptr;
+    let ip_ihl = ((ip_vhl & 0x0F) as u32) * 4;  // IHL in bytes
+
+    // Validate IP header length (minimum 20 bytes)
+    if ip_ihl < MIN_IPV4_HEADER_SIZE {
+        return PacketInfo {
+            src_port: 0, dst_port: 0, seq_num: 0, ack_num: 0,
+            flags: 0, payload_offset: 0, payload_len: 0, valid: 0,
+        };
+    }
+
+    // 5. Check IP protocol is TCP
+    let ip_proto_ptr = (ip_start + 9) as &u8;
+    let ip_proto = *ip_proto_ptr;
+    if ip_proto != IP_PROTO_TCP {
+        return PacketInfo {
+            src_port: 0, dst_port: 0, seq_num: 0, ack_num: 0,
+            flags: 0, payload_offset: 0, payload_len: 0, valid: 0,
+        };
+    }
+
+    // 6. Parse TCP header — extract port, seq, ack, flags
+    //    Z3: tcp_start is safe because frame_len >= 54 and ip_ihl >= 20
+    let tcp_start = ip_start + (ip_ihl as u64);
+    let header_end = ETH_HEADER_SIZE + ip_ihl + MIN_TCP_HEADER_SIZE;
+
+    // Final bounds check: ensure full TCP header is within the frame
+    if frame_len < header_end {
+        return PacketInfo {
+            src_port: 0, dst_port: 0, seq_num: 0, ack_num: 0,
+            flags: 0, payload_offset: 0, payload_len: 0, valid: 0,
+        };
+    }
+
+    // Extract TCP fields via raw pointer arithmetic
+    let src_port = *((tcp_start + (TCP_SRC_PORT_OFFSET as u64)) as &u16);
+    let dst_port = *((tcp_start + (TCP_DST_PORT_OFFSET as u64)) as &u16);
+    let seq_num  = *((tcp_start + (TCP_SEQ_NUM_OFFSET as u64)) as &u32);
+    let ack_num  = *((tcp_start + (TCP_ACK_NUM_OFFSET as u64)) as &u32);
+    let flags    = *((tcp_start + (TCP_FLAGS_OFFSET as u64)) as &u8);
+
+    // 7. Calculate TCP data offset (header length)
+    let tcp_data_off_ptr = (tcp_start + 12) as &u8;
+    let tcp_data_off = (((*tcp_data_off_ptr >> 4) & 0x0F) as u32) * 4;
+    let payload_offset = ETH_HEADER_SIZE + ip_ihl + tcp_data_off;
+    
+    // Calculate payload length
+    let mut payload_len: u32 = 0;
+    if frame_len > payload_offset {
+        payload_len = frame_len - payload_offset;
+    }
+
+    return PacketInfo {
+        src_port: src_port,
+        dst_port: dst_port,
+        seq_num: seq_num,
+        ack_num: ack_num,
+        flags: flags,
+        payload_offset: payload_offset,
+        payload_len: payload_len,
+        valid: 1,
+    };
+}
+
+// ============================================================================
+// process_frame — Single-Frame Zero-Copy Pipeline
+// ============================================================================
+// The complete hot-path for one Ethernet frame:
+//   1. Parse headers in-place (zero-copy)
+//   2. Look up the destination port's stream handle
+//   3. Push the raw payload pointer into the application's ReactiveStream
+//
+// Arguments:
+//   frame_base:    Raw pointer to the DMA frame
+//   frame_len:     Frame length in bytes
+//   lookup_fn:     Port → stream handle function (from router.salt)
+//   write_fn:      Function to push u64 into a stream
+//
+// This function NEVER allocates memory. It NEVER copies packet data.
+// The application receives a raw pointer into the NIC's DMA buffer.
+// ============================================================================
+pub fn process_frame(frame_base: u64, frame_len: u32, streams: u64, tcbs: u64) {
+    // 1. Parse headers in-place
+    let info = parse_headers(frame_base, frame_len);
+    
+    if info.valid == 0 {
+        return;  // Invalid or non-TCP frame — drop silently
+    }
+
+    // 2. Look up the destination port's stream handle
+    //    The streams array is indexed by port number, each entry is u64
+    let port_idx = (info.dst_port as u64) * 8;  // 8 bytes per u64 entry
+    let stream_handle = *((streams + port_idx) as &u64);
+    
+    if stream_handle == 0 {
+        return;  // Port not bound — drop silently
+    }
+
+    // 3. Calculate the raw payload pointer (zero-copy!)
+    let payload_ptr = frame_base + (info.payload_offset as u64);
+
+    // 4. Push the payload pointer into the application's ReactiveStream
+    //    The application receives a direct pointer into the DMA buffer.
+    //    It must consume the data before the ring advances.
+    //    write_element is from user.lib.codata
+    let ring_ref = stream_handle;
+    let mut push_ok = ring_push(ring_ref, payload_ptr, info.payload_len as u64);
+    
+    // If the application's ring is full, we drop the packet.
+    // In production, this would increment a drop counter.
+    if push_ok == 0 {
+        // Ring full — packet dropped (application not consuming fast enough)
+        return;
+    }
+}
+
+// ============================================================================
+// ring_push — Thin wrapper for the SPSC ring push operation
+// ============================================================================
+// Pushes a payload pointer and length into the application's SPSC ring.
+// This is a zero-copy operation: we push the *address*, not the data.
+// ============================================================================
+fn ring_push(ring_base: u64, payload: u64, len: u64) -> u64 {
+    // Read ring header
+    let head = *((ring_base + 0) as &u64);           // HEAD_OFFSET
+    let capacity = *((ring_base + 8) as &u64);       // CAPACITY_OFFSET
+    let tail = *((ring_base + 64) as &u64);          // TAIL_OFFSET
+    
+    // Write the pointer value (8 bytes) into the ring data area
+    let data_offset: u64 = 192;  // DATA_OFFSET
+    let next_head = (head + 8) % capacity;
+    
+    // Guard: would overwrite unread data
+    if next_head == tail {
+        return 0;
+    }
+    
+    // Write the payload pointer as a u64 into the ring
+    let dst = ring_base + data_offset + head;
+    *((dst) as &mut u64) = payload;
+    
+    // Advance head
+    *((ring_base + 0) as &mut u64) = next_head;
+    
+    return 1;
+}

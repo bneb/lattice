@@ -56,18 +56,22 @@ pub fn allocate_pcid() -> u64 {
 // =============================================================================
 // Index Extraction
 // =============================================================================
+@no_mangle
 pub fn pml4_index(vaddr: u64) -> u64 {
     return (vaddr >> 39) & INDEX_MASK;
 }
 
+@no_mangle
 pub fn pdp_index(vaddr: u64) -> u64 {
     return (vaddr >> 30) & INDEX_MASK;
 }
 
+@no_mangle
 pub fn pd_index(vaddr: u64) -> u64 {
     return (vaddr >> 21) & INDEX_MASK;
 }
 
+@no_mangle
 pub fn pt_index(vaddr: u64) -> u64 {
     return (vaddr >> 12) & INDEX_MASK;
 }

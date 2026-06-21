@@ -1,0 +1,157 @@
+// ============================================================================
+// user/netd/router.salt
+// Codata Stream Router — Lock-Free Port-to-Stream Routing Table
+// ============================================================================
+//
+// Applications on KeuOS do not use bind() or accept(). They subscribe
+// to a port via a Codata ReactiveStream. NetD maintains this routing
+// table mapping ports directly to reactive streams.
+//
+// Architecture:
+//   - Fixed 65536-entry lookup table (one per TCP port)
+//   - Each entry holds:
+//       1. A stream handle (u64 pointer to ReactiveStream)
+//       2. A TCB handle (u64 pointer to TransmissionControlBlock)
+//   - Zero-copy: payload pointers (Ptr<u8>) are written directly
+//     into the application's stream without any memcpy
+//
+// Memory: 65536 × 16 = 1 MiB for the routing table.
+// This is acceptable for a dedicated NetD process.
+//
+// ============================================================================
+
+package user.netd.router
+
+// ============================================================================
+// Port Binding State Constants
+// ============================================================================
+pub const PORT_UNBOUND: u64 = 0;
+pub const PORT_BOUND:   u64 = 1;
+
+// ============================================================================
+// PortEntry — Per-Port Routing Slot
+// ============================================================================
+// Each port holds a stream handle for zero-copy packet dispatch
+// and a TCB handle for TCP state tracking.
+//
+// When stream_handle == 0, the port is unbound and packets are dropped.
+// ============================================================================
+pub struct PortEntry {
+    pub stream_handle: u64,   // Pointer to the application's ReactiveStream
+    pub tcb_handle: u64,      // Pointer to the TransmissionControlBlock
+    pub state: u64,           // PORT_UNBOUND or PORT_BOUND
+    pub owner_pid: u64,       // PID of the binding process (for capability check)
+}
+
+// ============================================================================
+// PortRouter — The Zero-Copy Routing Table
+// ============================================================================
+// Maps all 65536 TCP ports to their application streams.
+// Lookup is O(1): a single array index by destination port.
+//
+// Design decision: We use flat arrays of u64 handles rather than
+// embedded structs to avoid complex generic instantiation in the
+// router hot path. The handles are type-erased pointers cast back
+// to their concrete types only when needed.
+// ============================================================================
+
+// Maximum ports (full TCP port space)
+pub const MAX_PORTS: u64 = 65536;
+
+// Flat routing arrays — cache-friendly for sequential scanning
+global PORT_STREAMS:  [u64; 65536] = [0 as u64; 65536];
+global PORT_TCBS:     [u64; 65536] = [0 as u64; 65536];
+global PORT_STATES:   [u64; 65536] = [0 as u64; 65536];
+global PORT_OWNERS:   [u64; 65536] = [0 as u64; 65536];
+
+// ============================================================================
+// bind_stream — Cold Path: Register an Application Stream on a Port
+// ============================================================================
+// Called once during application initialization. Binds a ReactiveStream
+// handle and a fresh TransmissionControlBlock to the specified port.
+//
+// Arguments:
+//   port:          TCP port number (0-65535)
+//   stream_handle: Pointer to the application's ReactiveStream (cast to u64)
+//   tcb_handle:    Pointer to a fresh TransmissionControlBlock (cast to u64)
+//   owner_pid:     PID of the owning process
+//
+// Returns:
+//   0 = success
+//   1 = port already bound
+// ============================================================================
+pub fn bind_stream(port: u16, stream_handle: u64, tcb_handle: u64, owner_pid: u64) -> u64 {
+    let idx = port as u64;
+    
+    // SECURITY FIX: Atomically claim the port (state transition to STAGING=99)
+    // This prevents race conditions when multiple apps attempt to bind the same port simultaneously.
+    let old_state = atomic_cas_i64(&PORT_STATES[idx], PORT_UNBOUND as i64, 99 as i64);
+    if old_state != PORT_UNBOUND as i64 {
+        return 1;
+    }
+    
+    // We now exclusively own the slot. Stage the payload.
+    PORT_STREAMS[idx] = stream_handle;
+    PORT_TCBS[idx]    = tcb_handle;
+    PORT_OWNERS[idx]  = owner_pid;
+    
+    // Finally, commit the state (store-release)
+    PORT_STATES[idx]  = PORT_BOUND;
+    
+    return 0;
+}
+
+// ============================================================================
+// unbind_stream — Cold Path: Release a Port Binding
+// ============================================================================
+pub fn unbind_stream(port: u16, caller_pid: u64) -> u64 {
+    let idx = port as u64;
+    
+    // Atomically transition PORT_BOUND -> STAGING (99) to claim the unbind
+    let old_state = atomic_cas_i64(&PORT_STATES[idx], PORT_BOUND as i64, 99 as i64);
+    if old_state != PORT_BOUND as i64 {
+        return 1;  // Not bound or already unbinding
+    }
+    
+    // Verify ownership now that we locked the state
+    if PORT_OWNERS[idx] != caller_pid {
+        // Rollback
+        PORT_STATES[idx] = PORT_BOUND;
+        return 2;  // Not owner
+    }
+    
+    // Clear the binding
+    PORT_STREAMS[idx] = 0;
+    PORT_TCBS[idx]    = 0;
+    PORT_OWNERS[idx]  = 0;
+    
+    // Finally, mark UNBOUND
+    PORT_STATES[idx]  = PORT_UNBOUND;
+    
+    return 0;
+}
+
+// ============================================================================
+// lookup_stream — Hot Path: O(1) Stream Lookup by Port
+// ============================================================================
+// Returns the stream handle for the given port, or 0 if unbound.
+// This is the hot path — called for every incoming packet.
+// ============================================================================
+pub fn lookup_stream(port: u16) -> u64 {
+    let idx = port as u64;
+    if PORT_STATES[idx] == PORT_BOUND {
+        return PORT_STREAMS[idx];
+    }
+    return 0;
+}
+
+// ============================================================================
+// lookup_tcb — Hot Path: O(1) TCB Lookup by Port
+// ============================================================================
+pub fn lookup_tcb(port: u16) -> u64 {
+    let idx = port as u64;
+    if PORT_STATES[idx] == PORT_BOUND {
+        return PORT_TCBS[idx];
+    }
+    return 0;
+}
