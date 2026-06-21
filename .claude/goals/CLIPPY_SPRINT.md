@@ -161,8 +161,8 @@ Total estimated: 18-20 sessions (many are 0.25 session and can be batched).
 
 | # | Lint | Instances | Status | Date |
 |---|------|-----------|--------|------|
-| 1 | cmp_owned | ~7 | ⬜ | - |
-| 2 | borrowed_box | ~5 | ⬜ | - |
+| 1 | cmp_owned | ~7 | ✅ | 2026-06-20 |
+| 2 | borrowed_box | ~5 | ✅ | 2026-06-20 |
 | 3 | ptr_arg | ~4 | ⬜ | - |
 | 4 | single_match | ~5 | ⬜ | - |
 | 5 | collapsible_if/match | ~24 | ⬜ | - |
