@@ -469,19 +469,19 @@ fn resolve_enum_variant_full(
     let mut resolved_enum_name = enum_name.clone();
     for imp in ctx.imports() {
          if let Some(alias) = &imp.alias {
-             if alias.to_string() == *enum_name {
+             if *alias == *enum_name {
                  resolved_enum_name = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
                  break;
              }
          } else if let Some(group) = &imp.group {
-             if group.iter().any(|id| id.to_string() == *enum_name) {
+             if group.iter().any(|id| *id == *enum_name) {
                  let mut parts: Vec<String> = imp.name.iter().map(|id| id.to_string()).collect();
                  parts.push(enum_name.clone());
                  resolved_enum_name = Mangler::mangle(&parts);
                  break;
              }
          } else if let Some(last) = imp.name.last() {
-             if last.to_string() == *enum_name {
+             if *last == *enum_name {
                   resolved_enum_name = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
                   break;
              }
@@ -500,7 +500,7 @@ fn resolve_enum_variant_full(
         }
     }
 
-    let found_enum = if ctx.enum_registry().values().find(|i| i.name == resolved_enum_name).is_some() {
+    let found_enum = if ctx.enum_registry().values().any(|i| i.name == resolved_enum_name) {
          Some(Type::Enum(resolved_enum_name.clone()))
     } else if ctx.enum_templates().get(&resolved_enum_name).is_some() {
          if !generic_args.is_empty() {

@@ -1590,7 +1590,7 @@ fn resolve_lvalue_namespace_lookahead(ctx: &mut LoweringContext, out: &mut Strin
                  let first = &segments[0];
                  if ctx.imports().iter().any(|imp| {
                     if let Some(alias) = &imp.alias { alias == first }
-                    else if let Some(f) = imp.name.first() { f.to_string() == *first }
+                    else if let Some(f) = imp.name.first() { *f == *first }
                     else { false }
                  }) {
                     return Err(format!("Undefined global or static '{}' in package/module path '{}'", segments.last().unwrap_or(&"".to_string()), segments.join(".")));
@@ -1600,7 +1600,7 @@ fn resolve_lvalue_namespace_lookahead(ctx: &mut LoweringContext, out: &mut Strin
             let first = &segments[0];
             if ctx.imports().iter().any(|imp| {
                 if let Some(alias) = &imp.alias { alias == first }
-                else if let Some(f) = imp.name.first() { f.to_string() == *first }
+                else if let Some(f) = imp.name.first() { *f == *first }
                 else { false }
             }) {
                 return Err(format!("Undefined global or static '{}' in package/module path '{}'", segments.last().unwrap_or(&"".to_string()), segments.join(".")));
