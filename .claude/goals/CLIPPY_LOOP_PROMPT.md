@@ -1,60 +1,57 @@
 # Clippy Sprint — Autonomous /loop Prompt
 
-Feed this to `/loop` (self-paced mode). The agent will work through
-`.claude/goals/CLIPPY_SPRINT.md` one lint category at a time.
-
----
-
 ## Goal Prompt
 
 ```
-Read .claude/goals/CLIPPY_SPRINT.md. Find the first unchecked lint category.
-That is your ONLY target for this session.
+Read .claude/goals/CLIPPY_SPRINT.md. Find the first unchecked phase item
+(starting from Phase A1). That is your ONLY work for this /loop iteration.
 
-Workflow:
-1. Remove the "= allow" for that one lint from salt-front/Cargo.toml
-2. Run: cargo clippy -- -D warnings 2>&1
-   This shows every instance of the lint with file:line locations.
-3. Read each affected file and fix each instance. Apply fixes one file at a time.
-4. After fixing a file, run: cargo test --lib
-   If tests fail, undo and fix correctly.
-5. When cargo clippy -- -D warnings shows zero errors for that lint:
-   - The allow is already removed from Cargo.toml (step 1)
-   - Run cargo test --lib one final time
-   - Check the box in CLIPPY_SPRINT.md with today's date
-   - Commit: "chore: fix clippy::<lint> — N instances, allow removed"
+Execution checklist:
+1. Read the phase section in CLIPPY_SPRINT.md for the specific prompt.
+2. cd salt-front && cargo clippy -- -D warnings 2>&1 | head -5
+   If clippy shows 0 errors for your target lint: mark it 0 instances in
+   the sprint plan, check it off, commit, and move to the next phase next iteration.
+3. Remove the allow from Cargo.toml for your target lint(s) only.
+4. Run cargo clippy -- -D warnings 2>&1 to find all instances (file:line).
+5. Fix each instance per the phase-specific prompt instructions.
+6. After each file: cargo check to verify compilation.
+7. When all instances fixed: cargo test --lib (must pass).
+8. Update CLIPPY_SPRINT.md: check the box with today's date.
+9. Commit: "chore: fix clippy::<lint> — N instances, allow removed"
+10. Stop. Do not start the next phase until the next /loop iteration.
 
 Hard constraints (hook-enforced):
-- Never make a function longer than 32 lines
-- Never add nesting beyond 3 levels
-- Never make a file exceed 500 lines (if already >500, don't increase it)
+- Max 32 non-blank lines per function
+- Max 500 lines per file (do not grow files already >500)
+- Max 3 nesting levels
+- No mutant markers (TODO/FIXME/HACK/XXX/temp_/workaround)
 - cargo test must pass before commit
 
-If a fix would violate a constraint, leave that instance, add a comment
-explaining why, and note it in the commit message. Remove the allow anyway
-for the instances you DID fix — add #[allow] at the specific site for
-the unfixable one.
+If a fix would violate a constraint: add #[allow(clippy::<lint>)] at the
+specific site with a // REASON: comment, and document the exception in
+the commit message. Remove the crate-level allow anyway — the site-level
+one handles that instance.
 
-Never suppress a lint at the crate level (Cargo.toml or lib.rs) for a
-category that's been started. Only site-level #[allow] with a comment
-for exceptional cases.
+Never re-add a crate-level allow to Cargo.toml once removed.
+If an instance cannot be fixed this session, leave the lint commented out
+in Cargo.toml with a note: "# <lint> = "allow" — N remaining in <file>"
 
-When done with one category, move to the next unchecked one in the next
-/loop iteration.
-
-Stop conditions:
-- All categories checked = sprint complete
-- A category requires architectural changes beyond the scope of lint fixing
-  (document why in CLIPPY_SPRINT.md and move on)
+Commit after every lint category is complete.
 ```
 
 ## Usage
 
+For continuous execution:
 ```
-/loop "..."   # with the prompt above
+/loop "Read .claude/goals/CLIPPY_SPRINT.md. Find the first unchecked item. Execute it per the prompt in CLIPPY_LOOP_PROMPT.md. Stop after one category."
 ```
 
-Or for a single sprint:
+For a single sprint:
 ```
-/loop "Sprint 1: Fix every instance of clippy::cmp_owned. [paste full prompt from CLIPPY_SPRINT.md for cmp_owned]"
+Fix all clippy::if_same_then_else instances in salt-front. [paste A1 prompt]
 ```
+
+## Stop Conditions
+- All phases A1 through D checked off → sprint complete.
+- A phase requires architectural changes beyond the scope of lint fixing → document in the sprint plan under "Blocked" with rationale, move to next phase.
+- Three consecutive instances in a phase require site-level #[allow] → assess whether that phase should be deferred as a group and allow at crate level with a dated note.

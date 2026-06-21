@@ -70,9 +70,15 @@
 - [x] Future: split remaining I/O functions from syscall.salt — **BLOCKED**: cross-package u64↔Ptr<T> cast limitations in Salt compiler. Tracked as compiler feature request.
 
 ## Active Goal
-**Current:** Clippy Zero Sprint — eliminate all suppressed lints one category at a time.
-Plan: `.claude/goals/CLIPPY_SPRINT.md` (23 sprints, 18-20 sessions).
+**Current:** Clippy Zero Sprint — Final Plan.
+Plan: `.claude/goals/CLIPPY_SPRINT.md` (4 phases, 13 categories, ~70 instances, ~19 sessions).
 Loop prompt: `.claude/goals/CLIPPY_LOOP_PROMPT.md`.
+
+Progress: 12/23 original categories complete. Remaining organized into:
+- Phase A: Medium (if_same_then_else, only_used_in_recursion, etc.) — 4 sessions
+- Phase B: Pattern Merge (collapsible_match/if) — 7 sessions
+- Phase C: Structural (too_many_arguments, type_complexity, etc.) — 7 sessions
+- Phase D: Cleanup — 1 session
 
 ## Quality Goals Progress
 - [x] **Infrastructure**: .editorconfig, blank-line hook, clippy tightening, blocking CI
