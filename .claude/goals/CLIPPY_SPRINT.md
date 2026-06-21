@@ -145,6 +145,12 @@ Run cargo test --lib after each file. When all collapsible_if are fixed, remove 
 - `doc_lazy_continuation` — Fix doc list indentation
 - `format_in_format_args` — Remove nested `format!`
 
+## Lessons Learned (2026-06-20)
+- **One lint at a time.** Batching sprints 6-17 together produced 20+ errors across 8+ files. Each category needs dedicated attention.
+- **site-level `#[allow]` is valid for structural cases.** borrowed_box in memory.rs required it because `Type` enum variants contain `Box<Type>` — changing signatures ripples into enum definitions.
+- **auto-fix doesn't handle collapsible_if/match.** These require let-chain refactoring (`&& let`) and must be done manually, one instance per edit.
+- **ptr_arg body fixes needed.** Changing `&Vec<T>` → `&[T]` requires fixing `.clone()` → `.to_vec()` and similar in function bodies.
+
 ## Execution Strategy
 
 For each sprint:
@@ -164,7 +170,7 @@ Total estimated: 18-20 sessions (many are 0.25 session and can be batched).
 | 1 | cmp_owned | ~7 | ✅ | 2026-06-20 |
 | 2 | borrowed_box | ~5 | ✅ | 2026-06-20 |
 | 3 | ptr_arg | ~5 | ✅ | 2026-06-20 |
-| 4 | single_match | ~5 | ⬜ | - |
+| 4 | single_match | 0 | ✅ | 2026-06-20 |
 | 5 | collapsible_if/match | ~24 | ⬜ | - |
 | 6 | needless_late_init | ~2 | ⬜ | - |
 | 7 | needless_range_loop | ~1 | ⬜ | - |
