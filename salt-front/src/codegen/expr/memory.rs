@@ -331,6 +331,7 @@ pub fn emit_field(
 
 
 
+#[allow(clippy::borrowed_box)]
 fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, kind: LValueKind, element: &Box<Type>) -> Result<(String, Type), String> {
 // Check deref validity
                  if let syn::Expr::Path(path_expr) = &*i.expr {
@@ -434,6 +435,7 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                  Ok((load_res, (**element).clone()))
 }
 
+#[allow(clippy::borrowed_box)]
 fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, inner: &Box<Type>, shape: &Vec<usize>) -> Result<(String, Type), String> {
 // Tensors are memref types (SSA values from memref.alloc)
                  // For SSA, base_ptr is already the memref value
@@ -581,6 +583,7 @@ fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprI
                  Ok((res, *inner.clone()))
 }
 
+#[allow(clippy::borrowed_box)]
 fn emit_index_array(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, inner: &Box<Type>, packed: &bool) -> Result<(String, Type), String> {
 let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I64))?;
                  let idx_prom = promote_numeric(ctx, out, &idx_val, &idx_ty, &Type::I64)?;
@@ -629,6 +632,7 @@ let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I6
                   Ok((res, *inner.clone()))
 }
 
+#[allow(clippy::borrowed_box)]
 fn emit_index_owned(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, kind: LValueKind, inner: &Box<Type>) -> Result<(String, Type), String> {
 let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I64))?;
                  let idx_prom = promote_numeric(ctx, out, &idx_val, &idx_ty, &Type::I64)?;
@@ -680,6 +684,7 @@ let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I6
                  Ok((res, *inner.clone()))
 }
 
+#[allow(clippy::borrowed_box)]
 fn emit_index_window(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, inner: &Box<Type>) -> Result<(String, Type), String> {
 let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I64))?;
                  let idx_prom = promote_numeric(ctx, out, &idx_val, &idx_ty, &Type::I64)?;
