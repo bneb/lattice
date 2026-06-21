@@ -356,9 +356,7 @@ Ok(())
                       }
                  }
             }
-            Stmt::Return(opt_e) => {
-                 if let Some(e) = opt_e { self.discover_requirements(e, tasks, locals)?; }
-            }
+            Stmt::Return(Some(e)) => { self.discover_requirements(e, tasks, locals)?; }
             _ => {}
         }
         Ok(())
