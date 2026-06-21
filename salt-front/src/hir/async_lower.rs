@@ -224,12 +224,10 @@ fn rewrite_expr(
         ExprKind::StructLit { fields, .. } => {
             for (_, val) in fields { rewrite_expr(val, ctx_var_id, rewrites, state_struct_name); }
         }
-        ExprKind::Yield(val) => {
-            if let Some(v) = val { rewrite_expr(v, ctx_var_id, rewrites, state_struct_name); }
-        }
-        ExprKind::Return(val) => {
-            if let Some(v) = val { rewrite_expr(v, ctx_var_id, rewrites, state_struct_name); }
-        }
+        ExprKind::Yield(Some(v)) => { rewrite_expr(v, ctx_var_id, rewrites, state_struct_name); }
+        ExprKind::Yield(None) => {}
+        ExprKind::Return(Some(v)) => { rewrite_expr(v, ctx_var_id, rewrites, state_struct_name); }
+        ExprKind::Return(None) => {}
         ExprKind::Requires(inner) | ExprKind::Ensures(inner) => {
             rewrite_expr(inner, ctx_var_id, rewrites, state_struct_name);
         }
@@ -1192,9 +1190,8 @@ fn collect_used_vars(expr: &Expr, out: &mut Vec<VarId>) {
             }
             if let Some(v) = &block.value { collect_used_vars(v, out); }
         }
-        ExprKind::Yield(val) => {
-            if let Some(v) = val { collect_used_vars(v, out); }
-        }
+        ExprKind::Yield(Some(v)) => { collect_used_vars(v, out); }
+        ExprKind::Yield(None) => {}
         _ => {}
     }
 }
