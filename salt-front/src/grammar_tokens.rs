@@ -31,7 +31,7 @@ impl ToTokens for SynType {
                 // Emit dimension block {Rank, D1, D2...}
                 let mut dim_tokens = proc_macro2::TokenStream::new();
                 dim_tokens.extend(quote::quote!(#rank));
-                for dim in dims {
+                for dim in dims.iter() {
                     dim_tokens.append(proc_macro2::Punct::new(',', proc_macro2::Spacing::Alone));
                     match dim {
                         TensorDim::Static(n) => dim_tokens.extend(quote::quote!(#n)),
