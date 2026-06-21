@@ -166,12 +166,12 @@ pub enum SynType {
     ShapedTensor {
         element: Box<SynType>,
         rank: usize,
-        dims: Vec<TensorDim>,
+        dims: Box<Vec<TensorDim>>,
     },
     /// Standard Path (e.g. i32, Vec<T>, std::Result)
     Path(SynPath),
     /// Array: [T; N]
-    Array(Box<SynType>, Expr),
+    Array(Box<SynType>, Box<Expr>),
     /// Tuple: (A, B, C)
     Tuple(SynTuple),
     /// Function pointer: fn(T1, T2) -> R
@@ -193,9 +193,9 @@ pub struct SynPath {
     pub segments: Vec<SynPathSegment>,
 }
 
-impl SynPath {
-    pub fn to_string(&self) -> String {
-        self.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("::")
+impl std::fmt::Display for SynPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = self.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("::"); f.write_str(&s)
     }
 }
 
@@ -281,7 +281,7 @@ impl Parse for SynType {
                 return Ok(SynType::ShapedTensor {
                     element: Box::new(element),
                     rank,
-                    dims,
+                    dims: Box::new(dims),
                 });
             }
         }
@@ -390,7 +390,7 @@ impl SynType {
             },
             syn::Type::Array(ta) => {
                 let inner = Self::from_std(*ta.elem)?;
-                Ok(SynType::Array(Box::new(inner), ta.len))
+                Ok(SynType::Array(Box::new(inner), Box::new(ta.len)))
             },
             syn::Type::Tuple(tt) => {
                 let mut elems = Vec::new();
@@ -550,7 +550,7 @@ pub struct SaltFn {
 #[derive(Clone, Debug)]
 pub enum GenericParam {
     Type { name: Ident, constraint: Option<Ident> },
-    Const { name: Ident, ty: SynType },
+    Const { name: Ident, ty: Box<SynType> },
 }
 
 #[derive(Clone, Debug)]
@@ -730,7 +730,7 @@ impl Parse for GenericParam {
             let name: Ident = parse_user_ident(input)?;
             input.parse::<Token![:]>()?;
             let ty: SynType = input.parse()?;
-            Ok(GenericParam::Const { name, ty })
+            Ok(GenericParam::Const { name, ty: Box::new(ty) })
         } else {
             let name: Ident = parse_user_ident(input)?;
             let constraint = if input.peek(Token![:]) {

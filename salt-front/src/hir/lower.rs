@@ -453,7 +453,7 @@ impl LoweringContext {
                             GenericParam::Type(name.to_string())
                         }
                         grammar::GenericParam::Const { name, ty } => {
-                            let resolved_ty = Type::from_syn_with_generics(ty, generic_names)
+                            let resolved_ty = Type::from_syn_with_generics(ty.as_ref(), generic_names)
                                 .unwrap_or(Type::Unit);
                             GenericParam::Const(name.to_string(), resolved_ty)
                         }

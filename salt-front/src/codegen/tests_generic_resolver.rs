@@ -214,7 +214,7 @@ mod tests {
         use crate::grammar::SynType;
         let param = GenericParam::Const {
             name: syn::Ident::new("N", proc_macro2::Span::call_site()),
-            ty: SynType::from_std(syn::parse_quote!(i64)).unwrap(),
+            ty: Box::new(SynType::from_std(syn::parse_quote!(i64)).unwrap()),
         };
         assert_eq!(generic_param_name(&param), "N");
     }

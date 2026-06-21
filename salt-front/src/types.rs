@@ -189,7 +189,7 @@ impl Type {
               }
              SynType::Array(inner_syn, len_expr) => {
                  let inner = Type::from_syn_with_generics(inner_syn, generic_names)?;
-                 if let syn::Expr::Lit(syn::ExprLit{lit: syn::Lit::Int(li), ..}) = len_expr {
+                 if let syn::Expr::Lit(syn::ExprLit{lit: syn::Lit::Int(li), ..}) = len_expr.as_ref() {
                       let len = li.base10_parse::<usize>().ok()?;
                       Some(Type::Array(Box::new(inner), len, false))
                  } else { None }
