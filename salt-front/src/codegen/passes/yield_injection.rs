@@ -331,10 +331,7 @@ impl YieldInjector {
             return false; // Always inject in aggressive mode
         }
         
-        match estimated_iterations {
-            Some(n) if n < self.config.min_loop_iterations as u64 => true,
-            _ => false,
-        }
+        matches!(estimated_iterations, Some(n) if n < self.config.min_loop_iterations as u64)
     }
 }
 
