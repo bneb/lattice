@@ -226,8 +226,8 @@ impl NameResolver {
             Stmt::WithRegion { body, .. } => self.visit_block(body),
             Stmt::Unsafe(b) => self.visit_block(b),
             Stmt::Loop(b) => self.visit_block(b),
+            #[allow(clippy::collapsible_match)] // Stmt::Syn matches all Syn variants; Local is a subset
             Stmt::Syn(s) => {
-                // If it's a let statement with a type annotation, we must resolve it!
                 if let syn::Stmt::Local(_l) = s {
                     // But we don't have access to mutate syn::Type easily here unless we parse it to SynType,
                     // mutate, and convert back. Actually, Salt compiler ignores type annotations in Stmt::Syn

@@ -416,8 +416,7 @@ fn try_resolve_atomic_intrinsic(
     }
 
     // Special handling for Atomic intrinsics (fetch_add, fetch_sub, load, store)
-    if let Ok((receiver_addr, receiver_ty, _kind)) = emit_lvalue(ctx, out, &m.receiver, local_vars) {
-        if let Type::Atomic(inner) = receiver_ty {
+    if let Ok((receiver_addr, Type::Atomic(inner), _kind)) = emit_lvalue(ctx, out, &m.receiver, local_vars) {
             let mlir_ty = inner.to_mlir_type(ctx)?;
             if method_name == "fetch_add" {
                  let (val, ty) = emit_expr(ctx, out, &m.args[0], local_vars, Some(&inner))?;
@@ -441,7 +440,6 @@ fn try_resolve_atomic_intrinsic(
                  ctx.emit_store_atomic(out, &val_prom, &receiver_addr, &mlir_ty);
                  return Ok(Some(("%unit".to_string(), Type::Unit)));
             }
-        }
     }
     Ok(None)
 }

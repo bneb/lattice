@@ -3357,13 +3357,11 @@ fn extract_vec_new_allocator(expr: &syn::Expr) -> Option<String> {
                     let type_name = &segs[segs.len() - 2];
                     if type_name == "Vec" {
                         // First argument is the allocator
-                        if let Some(first_arg) = c.args.first() {
-                            if let syn::Expr::Path(arg_p) = first_arg {
+                        if let Some(syn::Expr::Path(arg_p)) = c.args.first() {
                                 if let Some(ident) = arg_p.path.get_ident() {
                                     return Some(ident.to_string());
                                 }
                             }
-                        }
                     }
                 }
             }
