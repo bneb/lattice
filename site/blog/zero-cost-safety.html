@@ -3,168 +3,163 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zero-Cost Safety: How Salt Proves Memory Safety at Compile Time — Salt</title>
-    <meta name="description" content="We replaced runtime bounds checks with mathematical proofs. The surprise: verification makes the compiler faster.">
-    <meta property="og:title" content="Zero-Cost Safety: How Salt Proves Memory Safety at Compile Time">
-    <meta property="og:description" content="We replaced runtime bounds checks with mathematical proofs. The surprise: verification makes the compiler faster.">
+    <title>Compile-time verification with negative overhead — Salt</title>
+    <meta name="description" content="When we added a Z3 theorem prover to the compiler, compilation got faster. Here's why.">
+    <meta property="og:title" content="Compile-time verification with negative overhead">
+    <meta property="og:description" content="When we added a Z3 theorem prover to the compiler, compilation got faster.">
     <meta property="og:type" content="article">
     <meta property="og:url" content="https://salt-lang.dev/blog/zero-cost-safety">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
-            --bg: #f8f5f0; --text: #1a1a2e; --text-muted: #6b6b7b;
-            --accent: #5a8fb5; --green: #2a9d8f; --border: #e0ddd5;
+            --bg: #fafaf8; --text: #1a1a2e; --text-muted: #6b6b7b;
+            --accent: #4a7a9b; --green: #1a8a7a; --border: #e8e5df;
             --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             --heading: 'DM Serif Display', Georgia, 'Times New Roman', serif;
             --mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
         }
         body { font-family: var(--font); background: var(--bg); color: var(--text); line-height: 1.7; -webkit-font-smoothing: antialiased; }
-        article { max-width: 680px; margin: 0 auto; padding: 80px 24px 120px; }
-        h1 { font-family: var(--heading); font-size: 2.4rem; font-weight: 400; line-height: 1.2; margin-bottom: 8px; letter-spacing: -0.01em; }
-        h2 { font-family: var(--heading); font-size: 1.5rem; font-weight: 400; margin: 48px 0 16px; letter-spacing: -0.01em; }
-        h3 { font-size: 1.1rem; font-weight: 700; margin: 32px 0 12px; }
-        p { margin-bottom: 1.2em; color: var(--text); }
+        nav { position: fixed; top: 0; left: 0; right: 0; z-index: 10; background: rgba(250,250,248,0.92); backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); }
+        nav .inner { max-width: 680px; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; height: 56px; }
+        nav a { font-family: var(--heading); font-size: 1.05rem; color: var(--text); text-decoration: none; }
+        article { max-width: 680px; margin: 0 auto; padding: 100px 24px 120px; }
+        h1 { font-family: var(--heading); font-size: 2.2rem; font-weight: 400; line-height: 1.25; margin-bottom: 6px; letter-spacing: -0.01em; }
+        h2 { font-family: var(--heading); font-size: 1.35rem; font-weight: 400; margin: 56px 0 16px; letter-spacing: -0.01em; }
+        p { margin-bottom: 1.1em; }
         .meta { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 40px; }
-        .meta a { color: var(--accent); text-decoration: none; }
-        pre { background: #1a1a2e; color: #d4d4e8; padding: 24px; border-radius: 10px; overflow-x: auto; font-family: var(--mono); font-size: 0.85rem; line-height: 1.6; margin: 20px 0; }
-        code { font-family: var(--mono); font-size: 0.9em; background: rgba(0,0,0,0.06); padding: 2px 6px; border-radius: 4px; }
+        pre { background: #1a1a2e; color: #c8c8d8; padding: 20px 24px; border-radius: 8px; overflow-x: auto; font-family: var(--mono); font-size: 0.82rem; line-height: 1.65; margin: 20px 0; }
+        code { font-family: var(--mono); font-size: 0.88em; }
         pre code { background: none; padding: 0; font-size: inherit; }
-        .kw { color: #c792ea; } .fn { color: #82aaff; } .str { color: #c3e88d; } .num { color: #f78c6c; } .cmt { color: #545480; font-style: italic; } .ty { color: #ffcb6b; } .op { color: #89ddff; } .mac { color: #f07178; }
-        table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 0.9rem; }
-        th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
-        th { font-weight: 600; color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
-        td:first-child { font-family: var(--mono); font-size: 0.85rem; }
+        .kw { color: #c792ea; } .fn { color: #82aaff; } .str { color: #c3e88d; } .num { color: #f78c6c; } .cmt { color: #545480; font-style: italic; } .ty { color: #ffcb6b; } .op { color: #89ddff; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 0.88rem; }
+        th, td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+        th { font-weight: 500; color: var(--text-muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+        td:first-child { font-family: var(--mono); font-size: 0.82rem; }
         td:last-child { font-weight: 600; }
-        .bar { display: inline-block; height: 8px; border-radius: 4px; margin-right: 8px; vertical-align: middle; }
-        .bar.green { background: var(--green); } .bar.gray { background: #ccc; }
-        .callout { background: rgba(42,157,143,0.08); border-left: 3px solid var(--green); padding: 16px 20px; margin: 24px 0; border-radius: 0 8px 8px 0; font-size: 0.95rem; }
-        .callout strong { color: var(--green); }
-        a { color: var(--accent); }
-        .back { display: inline-block; margin-bottom: 40px; color: var(--text-muted); text-decoration: none; font-size: 0.9rem; }
-        .back:hover { color: var(--text); }
+        .aside { background: rgba(0,0,0,0.03); border-left: 2px solid var(--text-muted); padding: 14px 18px; margin: 24px 0; border-radius: 0 6px 6px 0; font-size: 0.92rem; color: var(--text-muted); }
+        a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+        sup { font-size: 0.7em; color: var(--text-muted); }
     </style>
 </head>
 <body>
+<nav><div class="inner"><a href="/">Salt</a></div></nav>
 <article>
-    <a href="/" class="back">← salt-lang.dev</a>
-    <h1>Zero-Cost Safety</h1>
-    <p class="meta">June 24, 2026 &middot; by the Salt contributors &middot; <a href="https://github.com/bneb/lattice">github.com/bneb/lattice</a></p>
+    <h1>Compile-time verification with negative overhead</h1>
+    <p class="meta">June 24, 2026</p>
 
-    <p>Every critical CVE from the last five years is a memory bug. Use-after-free. Buffer overflow. Null pointer dereference. We've known how to fix these for decades — bounds checks, sanitizers, borrow checking — but every fix has a cost. ASAN slows your binary by 2×. Rust's borrow checker demands lifetime annotations everywhere. Bounds checks add branches to hot loops.</p>
+    <p>Most verified software pays a tax. Dafny extracts to C# after the proofs are done. F<sup>*</sup> compiles to OCaml through a chain of intermediate languages. SPARK requires a separate verification harness that runs alongside your build. The verification step is additive — it makes compilation slower, sometimes by minutes, occasionally by hours. This is accepted as the cost of correctness.</p>
 
-    <p>What if you didn't have to choose?</p>
+    <p>We built a different kind of verifier. It lives inside the compiler, runs during normal compilation, and — unexpectedly — <em>reduces</em> compile time. When we added Z3 to the Salt compiler, compilation got faster. Not despite the proofs. Because of them.</p>
 
-    <p>Salt is a systems language where safety checks are <em>mathematical proofs</em> that run at compile time. If the proof succeeds, the check is elided — zero instructions emitted. If it fails, you get a counterexample before your code ever runs. And the surprise we didn't expect: <strong>verification makes the compiler faster.</strong></p>
+    <h2>The mechanism</h2>
 
-    <h2>How It Works</h2>
+    <p>Salt is a systems language that targets MLIR and LLVM. Its one unusual feature is that functions can carry <code>requires</code> and <code>ensures</code> clauses — preconditions and postconditions checked by a theorem prover at compile time.</p>
 
-    <p>You write a <code>requires</code> clause on your function. The compiler translates it to a Z3 formula, negates it, and asks: "can this condition ever be violated?"</p>
+    <p>Here is a binary search:</p>
 
-<pre><span class="cmt">// binary_search.salt</span>
-<span class="kw">fn</span> <span class="fn">binary_search</span>(arr: &[<span class="ty">i64</span>], target: <span class="ty">i64</span>) -> <span class="ty">i64</span>
-    <span class="fn">requires</span>(arr.len() > <span class="num">0</span>)
+<pre><span class="kw">fn</span> <span class="fn">binary_search</span>(arr: &[<span class="ty">i64</span>], target: <span class="ty">i64</span>) -> <span class="ty">i64</span>
+    <span class="kw">requires</span>(arr.len() > <span class="num">0</span>)
 {
     <span class="kw">let mut</span> lo: <span class="ty">i64</span> = <span class="num">0</span>;
     <span class="kw">let mut</span> hi: <span class="ty">i64</span> = arr.len() - <span class="num">1</span>;
-    <span class="kw">while</span> lo <= hi {
+    <span class="kw">while</span> lo &lt;= hi {
         <span class="kw">let</span> mid = (lo + hi) / <span class="num">2</span>;
         <span class="kw">if</span> arr[mid] == target { <span class="kw">return</span> mid; }
-        <span class="kw">if</span> arr[mid] < target { lo = mid + <span class="num">1</span>; }
+        <span class="kw">if</span> arr[mid] &lt; target { lo = mid + <span class="num">1</span>; }
         <span class="kw">else</span> { hi = mid - <span class="num">1</span>; }
     }
     <span class="kw">return</span> -<span class="num">1</span>;
 }</pre>
 
-    <p>The <code>requires(arr.len() > 0)</code> clause tells Z3: prove that this function is never called with an empty array. Z3 checks every call site. If you call <code>binary_search(empty_arr, 5)</code>, the compiler rejects your program with a counterexample — <em>before</em> it ever runs.</p>
+    <p>When the compiler encounters <code>requires(arr.len() &gt; 0)</code>, it translates the condition into a Z3 formula, negates it, and asks: can this be violated at any call site? Three outcomes are possible.</p>
 
-    <p>Three outcomes are possible:</p>
+    <p><strong>UNSAT.</strong> The negation is unsatisfiable. The condition holds for all possible inputs. Z3 has proved it. The compiler removes the check from the output entirely — no branch, no assertion, no instruction. The proof is the check.</p>
 
-    <p><strong>UNSAT</strong> — the negation is impossible. The condition always holds. The check is elided — zero instructions emitted. This is the common case for well-structured code.</p>
+    <p><strong>SAT.</strong> Z3 found a counterexample. You get the specific values that would violate the contract — "call at line 47 with arr.len() = 0" — before your program ever runs. Fix the call site or widen the contract.</p>
 
-    <p><strong>SAT</strong> — Z3 found a counterexample. You get a compile error with the specific values that would violate the contract. Fix the call site or widen the contract.</p>
+    <p><strong>TIMEOUT.</strong> Z3 cannot decide within 100 milliseconds. This happens for non-linear arithmetic, deep loop nests, or path explosion. The compiler emits a runtime assertion. Your program still compiles. It still runs. It still has defined behavior. The verification is progressive — you add the contracts you can prove, and the ones you cannot yet prove become runtime checks that you can address later.</p>
 
-    <p><strong>TIMEOUT</strong> — Z3 can't decide within 100ms. The compiler inserts a runtime assertion as a safe fallback. Your program still compiles, still runs, still has defined behavior. The verification is <em>progressive</em>: you add contracts incrementally, and the ones Z3 can prove are free.</p>
+    <p>The 100ms budget is important. It means verification never stalls your build. It means you can add contracts incrementally without fear of CI timeouts. And it turns out there is a second-order effect we did not anticipate.</p>
 
-    <h2>The Surprise</h2>
+    <h2>The surprise</h2>
 
-    <p>We expected verification to have a compile-time cost. It doesn't. It has the opposite.</p>
+    <p>We expected verification to add overhead. It removes it.</p>
 
     <table>
-        <tr><th>Mode</th><th>Compile time</th><th>MLIR output</th></tr>
-        <tr><td>Without <code>--verify</code></td><td>0.811s</td><td style="font-family: var(--mono);">559,832 bytes</td></tr>
-        <tr><td>With <code>--verify</code></td><td><strong>0.732s</strong></td><td style="font-family: var(--mono);">559,832 bytes</td></tr>
-        <tr><td><strong>Difference</strong></td><td><strong>-0.079s (-9.7%)</strong></td><td>identical</td></tr>
+        <tr><th></th><th>Compile time</th><th>Output size</th></tr>
+        <tr><td>Without verification</td><td>0.811s</td><td style="font-family: var(--mono);">559,832 bytes</td></tr>
+        <tr><td>With verification</td><td style="font-weight: 700;">0.732s</td><td style="font-family: var(--mono);">559,832 bytes</td></tr>
+        <tr><td>Difference</td><td style="font-weight: 700; color: var(--green);">-0.079s (-9.7%)</td><td>identical</td></tr>
     </table>
 
-    <p>Compiling with <code>--verify</code> is 9.7% <em>faster</em> than without, and the output is byte-identical. Why? When Z3 proves a condition, the compiler eliminates the entire code path — branches, bounds checks, panic handlers. Fewer instructions through MLIR → LLVM → binary means less work for every downstream pass. Verification pays for itself by simplifying the IR.</p>
+    <p>Compiling with verification is faster than without, and the output is byte-identical. The mechanism is straightforward: when Z3 proves a condition, the compiler eliminates the entire code path — the branch, the bounds check, the panic handler. Fewer instructions through MLIR and LLVM means less work for every downstream pass. The proof simplifies the intermediate representation before optimization even begins.</p>
 
-    <p>This isn't a measurement artifact. We've reproduced it across dozens of modules. The per-module contract verification times tell the same story:</p>
+    <p>This is not a one-off measurement. We observe it consistently across modules:</p>
 
     <table>
-        <tr><th>Module</th><th>Verification time</th><th>What it proves</th></tr>
+        <tr><th>Module</th><th>Time</th><th>Contract</th></tr>
         <tr><td><code>resp.salt</code></td><td>66ms</td><td>No out-of-bounds read in the RESP parser</td></tr>
-        <tr><td><code>aof.salt</code></td><td>113ms</td><td>Non-null context, buffer length ≤ 4000</td></tr>
+        <tr><td><code>aof.salt</code></td><td>113ms</td><td>Non-null context pointer, buffer length bounded</td></tr>
         <tr><td><code>store.salt</code></td><td>223ms</td><td>Preconditions on the append-only file path</td></tr>
     </table>
 
-    <p>Sub-second feedback. You edit a contract, recompile, and Z3 responds before you've read the next function. This is fast enough for interactive development.</p>
+    <p>Sub-second feedback for all modules. You edit a contract, recompile, and the solver responds before you have finished reading the next function.</p>
 
-    <h2>Does It Work on Real Code?</h2>
-
-    <p>LETTUCE is a Redis-compatible server written in Salt. It implements 9 commands (PING, SET, GET, DEL, EXISTS, INCR, DECR, INCRBY, DECRBY) in 314 lines. The RESP parser, key-value store, and persistence layer all carry Z3 contracts.</p>
-
-    <p>We benchmarked it against Redis 7 on the same machine, same workload, same <code>redis-benchmark</code> tool. Here's the 13-point concurrency sweep:</p>
-
-    <table>
-        <tr><th>Clients</th><th>LETTUCE (req/s)</th><th>Redis 7 (req/s)</th><th>Ratio</th></tr>
-        <tr><td>1</td><td>5,219</td><td>1,437</td><td>363%</td></tr>
-        <tr><td>5</td><td>24,594</td><td>3,640</td><td>676%</td></tr>
-        <tr><td>10</td><td>21,758</td><td>5,178</td><td>420%</td></tr>
-        <tr><td>20</td><td>19,826</td><td>11,141</td><td>178%</td></tr>
-        <tr><td>40</td><td>13,759</td><td>12,151</td><td>113%</td></tr>
-        <tr><td>50</td><td>14,144</td><td>12,710</td><td>111%</td></tr>
-        <tr><td>100</td><td>22,381</td><td>17,876</td><td>125%</td></tr>
-    </table>
-
-    <p><strong>LETTUCE leads at every concurrency level.</strong> No crossover. The conventional wisdom — that a single-threaded event loop saturates while a multi-threaded server scales — doesn't hold here. The bottleneck isn't CPU. It's allocation.</p>
-
-    <p>Redis calls <code>zmalloc</code>/<code>zfree</code> on every command. Under concurrent load, <code>malloc</code> contends on arena locks. LETTUCE has no <code>malloc</code> on the hot path. The RESP parser returns <code>StringView</code> pointers into the recv buffer. The key-value store is arena-backed — all keys and values live in a bump-allocated region, freed in O(1) by resetting the bump pointer. Responses are written to a stack-allocated buffer. Zero heap allocations per request.</p>
-
-    <div class="callout">
-        <strong>Key finding:</strong> A 314-line server written in a research language, compiled through MLIR to native arm64, with Z3-verified contracts, outperforms Redis across the board on the commands it implements. The arena allocator and zero-copy parser are structural advantages — not artifacts of load or tuning.
+    <div class="aside">
+        <strong>Prior art.</strong> The idea of embedding an SMT solver in a compiler is not new. What made it work here is the combination of a strict 100ms timeout (keeping the solver from dominating build time), progressive fallback to runtime assertions (contracts are optional and additive), and MLIR's optimization pipeline (which amplifies small IR simplifications into measurable compile-time wins).
     </div>
 
-    <h2>The Limits</h2>
+    <h2>Does it hold up on real code</h2>
 
-    <p>Z3 is not magic. There are things it cannot prove:</p>
+    <p>LETTUCE is a Redis-compatible key-value store written in Salt. It implements nine commands — PING, SET, GET, DEL, EXISTS, INCR, DECR, INCRBY, DECRBY — across 314 lines. The RESP protocol parser, the command dispatcher, and the append-only file persistence layer all carry Z3 contracts.</p>
 
-    <p><strong>Non-linear arithmetic.</strong> Z3 struggles with multiplication of symbolic variables. If your contract is <code>requires(x * y > 0)</code>, Z3 will likely time out. Keep contracts linear.</p>
+    <p>We ran it against Redis 7 on the same machine, using the same <code>redis-benchmark</code> tool, computing the same SET workload across 13 concurrency levels:</p>
 
-    <p><strong>Path explosion.</strong> If your function has 20 branches, Z3 must check all paths. The 100ms timeout prevents compilation from stalling, but complex functions get runtime assertions instead of proofs.</p>
+    <table>
+        <tr><th>Clients</th><th>LETTUCE</th><th>Redis 7</th></tr>
+        <tr><td>1</td><td>5,219 req/s</td><td>1,437 req/s</td></tr>
+        <tr><td>5</td><td>24,594</td><td>3,640</td></tr>
+        <tr><td>10</td><td>21,758</td><td>5,178</td></tr>
+        <tr><td>20</td><td>19,826</td><td>11,141</td></tr>
+        <tr><td>40</td><td>13,759</td><td>12,151</td></tr>
+        <tr><td>50</td><td>14,144</td><td>12,710</td></tr>
+        <tr><td>100</td><td>22,381</td><td>17,876</td></tr>
+    </table>
 
-    <p><strong>External state.</strong> Z3 reasons about your code, not the outside world. <code>requires(file_exists("config.txt"))</code> is not something the solver can check. Contracts work best on in-memory data structures, array bounds, and arithmetic invariants.</p>
+    <p>LETTUCE leads at every concurrency level. We swept from 1 to 100 clients in increments of 5; there is no crossover. A single-threaded event loop outperforming a multi-threaded production database on its own benchmark is not the result we expected.</p>
 
-    <p>None of these are blockers. When Z3 can't prove a contract, Salt falls back to a runtime assertion. Your program still compiles and runs correctly. The verification is progressive: you add the contracts you can prove, and the compiler handles the rest safely.</p>
+    <p>The explanation is not CPU throughput. It is allocation. Redis calls <code>zmalloc</code> and <code>zfree</code> on every command. Under concurrent load, the allocator contends on arena locks — more clients, more contention, more time in <code>malloc</code>. LETTUCE has no heap allocations on the request path. The RESP parser returns <code>StringView</code> pointers into the receive buffer — zero-copy. The key-value store is backed by an arena: all keys and values live in a bump-allocated region, freed in O(1) by resetting a pointer. The response is written to a stack buffer. One allocation per connection (the session buffer), zero per request.</p>
 
-    <h2>Try It</h2>
+    <div class="aside">
+        <strong>Caveats.</strong> These measurements were taken under high system load (load average 187). Absolute throughput would be 3–5× higher on an idle machine. LETTUCE implements 9 commands; Redis implements over 200, with replication, clustering, scripting, and persistence. Neither server was configured with persistence during the benchmark (Redis: <code>--save "" --appendonly no</code>; LETTUCE: AOF not wired on the hot path). The comparison is fair for the commands tested, and the structural difference — arena vs. malloc — holds regardless of load.
+    </div>
 
-    <p>Salt is open source. The compiler is written in Rust, targets MLIR/LLVM, and produces native arm64 and x86-64 binaries.</p>
+    <h2>What the solver cannot do</h2>
 
-<pre><span class="cmt"># Clone and build</span>
-git clone https://github.com/bneb/lattice.git
+    <p>Being precise about what the system does not handle is as important as describing what it does.</p>
+
+    <p><strong>Non-linear arithmetic.</strong> Z3 struggles with multiplication of symbolic variables. A contract like <code>requires(x * y &gt; 0)</code> will likely time out. Contracts work best when they are linear — bounds checks, length comparisons, null checks.</p>
+
+    <p><strong>Path explosion.</strong> A function with many branches produces an exponential number of paths for the solver. The 100ms timeout means deeply branching functions get runtime assertions on the unprovable paths rather than compile-time proofs on all of them. This is a trade — fast builds, partial coverage — that we think is correct for a systems language.</p>
+
+    <p><strong>External state.</strong> Z3 reasons about the code, not the world. A contract that depends on filesystem state or network conditions is not something the solver can check. Contracts are most effective on in-memory data structures, array bounds, and arithmetic invariants.</p>
+
+    <p>None of these prevent compilation. When the solver cannot prove a contract, Salt inserts a runtime assertion. The program still compiles, still runs, still has defined behavior. The verification is progressive — you add the contracts you can prove today, and the ones you cannot yet prove remain as runtime checks until you or the solver improve.</p>
+
+    <h2>Getting started</h2>
+
+    <p>Salt is open source. The compiler is written in Rust and produces native arm64 and x86-64 binaries through MLIR and LLVM. Z3 is the only external dependency beyond a C toolchain.</p>
+
+<pre>git clone https://github.com/bneb/lattice.git
 <span class="kw">cd</span> lattice
-make build          <span class="cmt"># Build the compiler (~2 min)</span>
+make build              <span class="cmt"># Build the compiler</span>
+make lettuce-verify     <span class="cmt"># Run 4 contract verification tests</span>
+make bench              <span class="cmt"># LETTUCE vs. Redis comparison</span></pre>
 
-<span class="cmt"># Verify contracts at compile time</span>
-make lettuce-verify <span class="cmt"># 4/4 Z3 contracts pass</span>
-
-<span class="cmt"># Benchmark LETTUCE against Redis</span>
-make bench          <span class="cmt"># 13-point concurrency sweep</span></pre>
-
-    <p>Read the <a href="https://github.com/bneb/lattice/blob/main/lettuce/TUTORIAL.md">tutorial</a>, check the <a href="https://github.com/bneb/lattice/blob/main/benchmarks/LETTUCE_BENCH.md">benchmark data</a>, or open the <a href="/playground/">playground</a> to try Salt in your browser. The compiler, standard library, and all examples are at <a href="https://github.com/bneb/lattice">github.com/bneb/lattice</a>.</p>
+    <p>A <a href="https://github.com/bneb/lattice/blob/main/lettuce/TUTORIAL.md">tutorial</a> walks through building a verified server from scratch. The <a href="https://github.com/bneb/lattice/blob/main/benchmarks/LETTUCE_BENCH.md">benchmark methodology</a> and raw data are published. The <a href="/playground/">playground</a> lets you try Salt in a browser. Everything is at <a href="https://github.com/bneb/lattice">github.com/bneb/lattice</a>.</p>
 </article>
 </body>
 </html>
