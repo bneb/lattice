@@ -186,6 +186,10 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     sched_start();
     serial.print("[KeuOS] Scheduler started on BSP\n");
 
+    serial.print("[KeuOS] Running benchmark suite...\n");
+    bench_suite_run();
+    serial.print("[KeuOS] Benchmark suite complete\n");
+
     tss_init_tss();
     serial.print("[KeuOS] TSS installed for Ring 3\n");
 
