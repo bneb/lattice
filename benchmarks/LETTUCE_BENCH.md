@@ -33,11 +33,6 @@
 
 Pipelining is how real Redis clients batch requests. LETTUCE benefits more from pipelining because it does zero allocation on the read path — each pipelined request is a StringView into the recv buffer, where Redis must parse and allocate for each command individually.
 
-## Known issues
-
-- **Null bulk string:** `GET nonexistent` returns empty string instead of `$-1\r\n`. Does not affect benchmark (benchmark always SETs before GET). Minor protocol compliance fix needed.
-- **CONFIG GET:** redis-benchmark probes `CONFIG GET` on startup. LETTUCE returns `ERR unknown command`. Does not affect benchmark throughput.
-
 ### Bottom line
 
 A 314-line server written in a research language, compiled through MLIR to native arm64, with Z3-verified contracts on its parser and persistence layer, is **within striking distance of a production Redis build** on real hardware. That is the story. The absolute numbers will change as LETTUCE adds features and Redis is tuned — the fact that they are in the same conversation at all is the finding.
