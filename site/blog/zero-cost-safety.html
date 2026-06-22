@@ -367,7 +367,7 @@
 
     <p>Being precise about limitations is as important as presenting results.</p>
 
-    <p><strong>Non-linear arithmetic.</strong> Z3 struggles with multiplication of symbolic variables. A contract like <code>requires(x * y &gt; 0)</code> will likely time out. Contracts work best when they are linear: bounds checks, length comparisons, null checks.</p>
+    <p><strong>Non-linear arithmetic.</strong> SMT solvers are built on SAT, which is fundamentally about Boolean combinations of linear constraints. Multiplying two symbolic variables together steps outside that fragment — integer multiplication is undecidable in general. A contract like <code>requires(i * stride + offset &lt; buf.len())</code> will time out because <code>i * stride</code> is a product of unknowns. The solver can prove <code>requires(i &lt; buf.len())</code> instantly. Both are bounds checks. One is linear.</p>
 
     <p><strong>Path explosion.</strong> A function with many branches produces an exponential number of solver paths. The 100ms budget means deeply branching functions get runtime assertions on the unprovable paths rather than compile-time proofs on all of them. We believe this is the correct trade for a systems language: fast builds with partial coverage rather than complete coverage with slow builds.</p>
 
