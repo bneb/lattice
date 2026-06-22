@@ -148,6 +148,26 @@ extern fn get_gdt_base() -> u64;
 extern fn tss_get_tss_addr() -> u64;
 extern fn tss_get_ist(index: u64) -> u64;
 
+@no_mangle
+pub fn map_kpti_minimal(user_pml4: u64) {
+    // Map trampoline data (scratch stack for syscall CR3 pivot)
+    let data_start = (&kpti_trampoline_data_start) as u64;
+    let data_end   = (&kpti_trampoline_data_end) as u64;
+    let mut vaddr = data_start;
+    while vaddr < data_end {
+        let paddr = memory.virt_to_phys_raw(vaddr);
+        map_kpti_page(user_pml4, vaddr, paddr, PTE_PRESENT | PTE_WRITE);
+        vaddr = vaddr + PAGE_SIZE;
+    }
+    // Map per-CPU data (gs:[64], gs:[96], gs:[104], gs:[112], gs:[128])
+    let percpu_virt = read_gs_base();
+    let percpu_page_virt = percpu_virt & 0xFFFFFFFFFFFFF000;
+    if percpu_page_virt != 0 {
+        let percpu_paddr = memory.virt_to_phys_raw(percpu_page_virt);
+        map_kpti_page(user_pml4, percpu_page_virt, percpu_paddr, PTE_PRESENT | PTE_WRITE);
+    }
+}
+
 pub fn create_user_pml4_kpti(kernel_pml4: u64) -> u64 {
     let user_pml4 = pmm.alloc();
     if user_pml4 == 0 {

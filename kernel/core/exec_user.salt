@@ -120,8 +120,15 @@ fn copy_segment_data(p_vaddr: u64, p_memsz: u64, p_filesz: u64, p_offset: u64, e
 fn setup_user_stack(user_pml4: u64) {
     let stack_base = USER_STACK_TOP - USER_STACK_SIZE;
     let mut stack_offset: u64 = 0;
+    let mut pages_mapped: u64 = 0;
     while stack_offset < USER_STACK_SIZE {
         let stack_page_phys = pmm.alloc();
+        if stack_page_phys == 0 {
+            serial.print("[stack] PMM out of pages at offset ");
+            serial.print_u64(stack_offset);
+            serial.print("\n");
+            return;
+        }
         let stack_page_virt = memory.phys_to_virt(memory.PhysAddr { val: stack_page_phys }).val;
         let mut z: u64 = 0;
         while z < PAGE_SIZE {
@@ -130,7 +137,11 @@ fn setup_user_stack(user_pml4: u64) {
         }
         user_paging.map_user_page(user_pml4, stack_base + stack_offset, stack_page_phys, USER_PAGE_FLAGS);
         stack_offset = stack_offset + PAGE_SIZE;
+        pages_mapped = pages_mapped + 1;
     }
+    serial.print("[stack] mapped ");
+    serial.print_u64(pages_mapped);
+    serial.print(" user stack pages\n");
 }
 
 extern fn setup_kernel_stack(kstack_top_virt: u64, entry: u64) -> u64;
@@ -176,6 +187,8 @@ pub fn spawn_process(elf_base: u64, kernel_pml4: u64) -> u64 {
         process.free_kernel_stack(kstack_base_phys);
         return MAX_PROCS;
     }
+    // Map KPTI scratch stack + per-CPU data for syscall fast path
+    user_paging.map_kpti_minimal(user_pml4);
 
     let mut highest_elf_vaddr: u64 = 0;
     let mut seg_i: u16 = 0;
