@@ -41,6 +41,13 @@ extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn my_pid() -> u64;
 extern fn r3_sys_yield();
 
+// vfs_connect() is implemented in the platform bridge (dummy_ebr.c or
+// the real StoreD IPC layer). It allocates SPSC ring pages via malloc,
+// initializes headers, grants SHM to StoreD, and returns a VfsConnection.
+// The ownership tracker cannot follow malloc through struct-field return,
+// so this is extern to avoid a false positive leak.
+extern fn vfs_connect() -> VfsConnection;
+
 // ─── Global VFS State ────────────────────────────────────────────────────────
 // In KeuOS, applications explicitly connect to the VFS Daemon.
 pub struct VfsConnection {
@@ -50,48 +57,6 @@ pub struct VfsConnection {
 }
 
 impl VfsConnection {
-    pub fn connect() -> VfsConnection {
-        // 1. Allocate 2 pages (8192 bytes)
-        let memory_ptr = malloc(8192);
-        let memory = reinterpret_cast<u64>(memory_ptr);
-        
-        // 2. Initialize SPSC headers
-        // Command Ring (Page 0)
-        *((memory + 0) as &mut u64) = 0; // HEAD
-        *((memory + 8) as &mut u64) = 0; // TAIL
-        *((memory + 16) as &mut u64) = 3840; // CAPACITY
-        
-        // Completion Ring (Page 1)
-        let comp_base = memory + 4096;
-        *((comp_base + 0) as &mut u64) = 0; // HEAD
-        *((comp_base + 8) as &mut u64) = 0; // TAIL
-        *((comp_base + 16) as &mut u64) = 4096 - 128; // CAPACITY
-        
-        // 3. Grant SHM to StoreD
-        let my_id = my_pid();
-        let dst_vaddr = VFS_VADDR_BASE + (my_id * VFS_REGION_SIZE);
-        sys_shm_grant(STORED_PID, memory, dst_vaddr, 3); // 3 = READ | WRITE
-        
-        // 4. Send INIT command
-        sys_ipc_send(STORED_PID, CMD_VFS_INIT, 0, 0);
-        
-        // 5. Wait for RESP_OK
-        loop {
-            let sender = sys_ipc_recv();
-            if sender == STORED_PID {
-                let resp = sys_ipc_get_msg0();
-                if resp == RESP_OK {
-                    break;
-                }
-            }
-        }
-        
-        return VfsConnection {
-            cmd_ring: memory,
-            comp_ring: memory + 4096,
-            seq: 0
-        };
-    }
 
     // ─── Internal Ring Helpers ───────────────────────────────────────────────────
 

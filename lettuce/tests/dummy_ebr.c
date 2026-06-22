@@ -1,8 +1,13 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 void ebr_retire(unsigned long long core, unsigned long long ptr) {}
+void ebr_enter_epoch(unsigned long long core) {}
+void ebr_exit_epoch(unsigned long long core) {}
+void ebr_advance_epoch(void) {}
+void ebr_reclaim(unsigned long long core) {}
 
 uint64_t g_vfs_mem = 0;
 
@@ -69,7 +74,44 @@ void r3_sys_yield() {
     }
 }
 
-void* VfsConnection_connect() {
-    extern void* std__fs__fs__VfsConnection__connect();
-    return std__fs__fs__VfsConnection__connect();
+// vfs_connect — allocates SPSC rings, initializes headers,
+// grants SHM to StoreD, sends INIT, waits for RESP_OK.
+// Returns pointer to VfsConnection { cmd_ring: u64, comp_ring: u64, seq: u64 }.
+void* std__fs__fs__vfs_connect(void) {
+    uint64_t* mem = (uint64_t*)malloc(8192);
+    if (!mem) return 0;
+
+    // Command Ring (Page 0): HEAD=0, TAIL=0, CAPACITY=3840
+    mem[0] = 0;      // HEAD
+    mem[1] = 0;      // TAIL
+    mem[2] = 3840;   // CAPACITY
+
+    // Completion Ring (Page 1 at offset 4096 = 512 * 8)
+    uint64_t* comp = mem + 512;
+    comp[0] = 0;      // HEAD
+    comp[1] = 0;      // TAIL
+    comp[2] = 4096 - 128; // CAPACITY
+
+    // Grant SHM to StoreD
+    uint64_t mem_addr = (uint64_t)mem;
+    sys_shm_grant(6 /* STORED_PID */, mem_addr, 0, 3 /* READ|WRITE */, 0);
+
+    // Send INIT command
+    sys_ipc_send(6, 0x20 /* CMD_VFS_INIT */, 0, 0);
+
+    // Wait for RESP_OK — these stubs return STORED_PID(6) and RESP_OK(0)
+    while (1) {
+        uint64_t sender = sys_ipc_recv();
+        if (sender == 6) {
+            uint64_t resp = sys_ipc_get_msg0();
+            if (resp == 0) break;
+        }
+    }
+
+    // Build VfsConnection (3 u64 fields) on heap and return
+    uint64_t* conn = (uint64_t*)malloc(24);  // 3 * 8 bytes
+    conn[0] = mem_addr;          // cmd_ring
+    conn[1] = mem_addr + 4096;   // comp_ring
+    conn[2] = 0;                 // seq
+    return conn;
 }

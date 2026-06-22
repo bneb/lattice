@@ -52,14 +52,13 @@ lettuce-verify: build
 	@$(SALT_FRONT) $(LETTUCE_SRC) --verify -o $(LETTUCE_MLIR) 2>&1 | grep -v 'GENERIC WARNING'
 	@echo ""
 
-lettuce-run: lettuce
-	@echo "Starting LETTUCE on port 6379..."
-	@echo "Connect with: redis-cli -p 6379 PING"
+lettuce-run: build
+	@echo "=== Building LETTUCE server binary ==="
+	@zsh scripts/run_test.sh $(LETTUCE_SRC) --compile-only 2>&1 | grep -v 'GENERIC WARNING\|zoxide\|_ZO_DOCTOR' | tail -15
 	@echo ""
-	@zsh scripts/run_test.sh $(LETTUCE_SRC) --compile-only 2>&1 | tail -20
-	@echo ""
-	@echo "Binary at /tmp/salt_build/server"
-	@echo "Run: DYLD_LIBRARY_PATH=/opt/homebrew/lib /tmp/salt_build/server"
+	@echo "Binary: /tmp/salt_build/server"
+	@echo "Target: KeuOS (QEMU/KVM)"
+	@echo "Run in QEMU: make run-qemu"
 
 bench: build
 	@bash benchmarks/lettuce_bench.sh 2>&1 | grep -v 'zoxide\|_ZO_DOCTOR\|GENERIC WARNING\|Blocking functions'
