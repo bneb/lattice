@@ -33,7 +33,8 @@ Run `make setup` (or `./scripts/bootstrap.sh`) from the repository root to insta
 | 5 | [Generics](05-generics.md) | Type parameters, inference, `@derive`, concepts/trait bounds |
 | 6 | [Error Handling](06-error-handling.md) | `Result<T>`, `?` operator, `|?>` railway, `~` force-unwrap, `match` |
 | 7 | [Arena Memory](07-arena-memory.md) | Arena allocation, `mark`/`reset_to`, the Scope Ladder, escape analysis |
-| 8 | [Z3 Contracts](08-contracts.md) | `requires`, `ensures`, compile-time proofs, counterexamples, `@trusted` |
+| 8 | [Async, Yield, and State Machines](08-async.md) | `@yielding`, `yield` keyword, Poll ABI, stackless state machines, `Context` |
+| 9 | [Z3 Contracts](09-contracts.md) | `requires`, `ensures`, compile-time proofs, counterexamples, `@trusted` |
 
 ## Going Further
 

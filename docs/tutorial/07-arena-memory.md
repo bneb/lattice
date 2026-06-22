@@ -163,7 +163,7 @@ fn low_level_op(ptr: Ptr<u8>) {
 }
 ```
 
-> **Rule**: Minimize `unsafe` blocks. Every `unsafe` operation should have a `requires` contract explaining why it's safe (see Chapter 8).
+> **Rule**: Minimize `unsafe` blocks. Every `unsafe` operation should have a `requires` contract explaining why it's safe (see Chapter 9).
 
 ## Move Semantics
 
@@ -185,4 +185,4 @@ let transferred = move data;  // data is no longer valid here
 | Raw operations | `unsafe { ... }` | Bypass verifier (justify in a comment) |
 | Transfer ownership | `move value` | Explicit ownership transfer |
 
-Next: [Chapter 8: Z3 Contracts](08-contracts.md)
+Next: [Chapter 8: Async, Yield, and State Machines](08-async.md)

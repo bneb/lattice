@@ -1,186 +1,138 @@
-# Chapter 6: Error Handling
+# Chapter 6: Error Handling, Result, and Pipe
 
-## The `Result<T>` Type
+## The Result Type
 
-Salt uses `Result<T>` for fallible operations. Success wraps a value of type `T`. Failure carries an error code and diagnostic message:
+Salt uses `Result<T>` for operations that can fail. It is an enum with two variants: `Ok(T)` on success and `Err(Status)` on failure. The `Status` type carries an error code and detail payload.
 
 ```salt
 package main
 
-use std.core.result.Result
+import std.core.result.Result
+import std.status.Status
 
-fn safe_div(a: i32, b: i32) -> Result<i32> {
-    if b == 0 {
-        return Result::Err::<i32>(1);  // error code 1 = division by zero
+/// Parse a "key=value" line, returning Ok((key, value)) or Err
+fn parse_kv(line: StringView) -> Result<(i64, i64)> {
+    let eq = line.find_byte('=' as u8);
+    if eq < 0 {
+        return Result::Err(Status::with_detail(4, -1));  // INVALID_ARGUMENT
     }
-    return Result::Ok::<i32>(a / b);
+    let key = line.slice(0, eq);
+    let val = line.slice(eq + 1, line.length());
+    return Result::Ok((key.length(), val.length()));
 }
 
 fn main() -> i32 {
-    let good = safe_div(10, 2);   // Result::Ok(5)
-    let bad = safe_div(10, 0);    // Result::Err(1)
-
-    match good {
-        Result::Ok(val) => println(f"result = {val}"),
-        Result::Err(e) => println(f"error code: {e}"),
+    // match on Ok/Err with f-strings for formatted output
+    match parse_kv("width=1024") {
+        Result::Ok((k, v)) => println(f"ok: key_len={k}, val_len={v}"),
+        Result::Err(s) => println(f"error code={s.code}"),
     }
+
+    // let-else: extract or bail
+    let Result::Ok((k, v)) = parse_kv("height=768") else {
+        println("config parse failed");
+        return 1;
+    };
+    println(f"parsed: {k}, {v}");
     return 0;
 }
 ```
 
 ## The `?` Operator
 
-The postfix `?` operator extracts `Ok(v)` or returns `Err(e)` from the enclosing function:
+The postfix `?` operator unwraps a `Result`: on `Ok(v)` it yields `v`; on `Err(s)` it returns the error from the enclosing function immediately. This is Salt's equivalent of Rust's `?`.
 
 ```salt
-package main
+fn open_config(path: StringView) -> Result<i64> {
+    // Simulated: always succeeds here
+    return Result::Ok(4096);
+}
 
-use std.core.result.Result
+fn load_and_validate(path: StringView) -> Result<i64> {
+    let size = open_config(path)?;       // propagate error if open fails
+    if size < 256 {
+        return Result::Err(Status::with_detail(9, size as i32));  // FAILED_PRECONDITION
+    }
+    return Result::Ok(size);
+}
+```
 
-fn parse_int(s: StringView) -> Result<i32> { /* ... */ return Result::Ok::<i32>(0); }
-fn validate_range(val: i32) -> Result<i32> { /* ... */ return Result::Ok::<i32>(val); }
-fn store(val: i32) -> Result<i32> { /* ... */ return Result::Ok::<i32>(val); }
+## Pipe (`|>`) for Data Flow
 
-fn process(input: StringView) -> Result<i32> {
-    // If parse_int returns Err, propagate it immediately
-    let val = parse_int(input)?;
+The pipe operator feeds a value into a function: `x |> f()` becomes `f(x)`. Use it to build clear left-to-right transformation pipelines when every step is infallible.
 
-    // If validate_range returns Err, propagate it immediately
-    let checked = validate_range(val)?;
+```salt
+fn trim_len(s: StringView) -> i64 {
+    return s.length();
+}
 
-    // Both succeeded — proceed
-    return store(checked);
+fn clamp(max: i64, val: i64) -> i64 {
+    if val > max { return max; }
+    return val;
 }
 
 fn main() -> i32 {
-    let result = process("42");
-    match result {
-        Result::Ok(v) => println(f"processed: {v}"),
-        Result::Err(_) => println("processing failed"),
-    }
+    // Chained: trim_len(clamp(255, ...))
+    let capped = "hello world"
+        |> trim_len(_)     // 11
+        |> clamp(255, _);  // 11
+    println(f"capped={capped}");
     return 0;
 }
 ```
 
-## The Railway Operator `|?>`
+## Railway (`|?>`) for Error Propagation
 
-The `|?>` operator chains fallible operations — it short-circuits on the first `Err`:
+The railway operator chains fallible operations. Each step only runs if the previous one produced `Ok`. On the first `Err`, the chain short-circuits and propagates the error.
 
 ```salt
-package main
-
-use std.core.result.Result
-
-fn parse(s: StringView) -> Result<StringView> {
-    return Result::Ok::<StringView>(s);
+fn validate(val: i64) -> Result<i64> {
+    if val < 0 {
+        return Result::Err(Status::with_detail(3, val as i32));  // INVALID_ARGUMENT
+    }
+    return Result::Ok(val);
 }
-fn validate(s: StringView) -> Result<StringView> {
-    return Result::Ok::<StringView>(s);
-}
-fn transform(s: StringView) -> Result<StringView> {
-    return Result::Ok::<StringView>(s);
+
+fn double(val: i64) -> Result<i64> {
+    return Result::Ok(val * 2);
 }
 
 fn main() -> i32 {
-    let raw = "hello";
+    let raw = 42;
 
-    // Each step only runs if the previous one succeeded.
-    // If any step returns Err, the chain stops and propagates the error.
-    let processed = raw
-        |?> parse(_)
+    // Chain: validate → double, stop on first Err
+    let result = raw
         |?> validate(_)
-        |?> transform(_);
+        |?> double(_);
 
-    match processed {
-        Result::Ok(v) => println(f"ok: {v}"),
-        Result::Err(_) => println("chain failed"),
+    match result {
+        Result::Ok(v) => println(f"result={v}"),
+        Result::Err(s) => println(f"failed code={s.code}"),
     }
     return 0;
 }
 ```
 
-The `|?>` pipeline reads left-to-right: "take `raw`, try parsing, try validating, try transforming."
+## How It Compares
 
-## `|?>` vs `|>` — When to Use Each
+| Concept | Salt | Rust | Go |
+|---------|------|------|----|
+| Wrapped result | `Result<T>` | `Result<T, E>` | `(T, err)` |
+| Unwrap or return | `expr?` | `expr?` | `if err != nil { return err }` |
+| Fallible chain | `x \|?> f() \|?> g()` | `x.and_then(f).and_then(g)` | nested `if err` blocks |
+| Infallible chain | `x \|> f() \|> g()` | method chaining | `x = f(x); x = g(x)` |
+| Force-unwrap | `expr~` | `expr.unwrap()` | implicit panic via runtime |
 
-```salt
-// |> (pipe): use when every step succeeds unconditionally
-let result = data |> normalize() |> format() |> output();
-
-// |?> (railway): use when any step can fail
-let result = input |?> parse() |?> validate() |?> process();
-```
-
-## Force-Unwrap with `~`
-
-The postfix `~` operator unwraps a `Result<T>`, panicking if it's `Err`:
-
-```salt
-package main
-
-use std.core.result.Result
-
-fn main() -> i32 {
-    let ok_val = Result::Ok::<i32>(42);
-    let x = ok_val~;  // x = 42
-
-    // let bad = Result::Err::<i32>(1);
-    // let y = bad~;  // PANICS at runtime
-
-    println(f"x = {x}");
-    return 0;
-}
-```
-
-Use `~` for invariants that should never fail (like the Z3 `requires`/`ensures` pattern) — when you know a `Result` must be `Ok`, `~` makes that assertion explicit.
-
-## Combining `?` with Pattern Matching
-
-```salt
-package main
-
-use std.core.result.Result
-
-fn main() -> i32 {
-    let maybe_value = Result::Ok::<i32>(42);
-
-    // Let-else: handle the error case inline
-    let Result::Ok(val) = maybe_value else {
-        println("was Err — using default");
-        return -1;
-    };
-    // val is available here
-
-    println(f"val = {val}");
-    return 0;
-}
-```
-
-## Error Handling Flow
-
-```
-Input data
-    |
-    v
-parse()       --|?>--> if Err → short-circuit, return Err
-    | Ok
-    v
-validate()    --|?>--> if Err → short-circuit, return Err
-    | Ok
-    v
-process()     --|?>--> if Err → short-circuit, return Err
-    | Ok
-    v
-Success result
-```
+Salt's `?` maps directly to Rust's `?` — both return early on error. The railway operator `|?>` replaces Rust's `and_then` chains and Go's repetitive `if err != nil` boilerplate. The plain pipe `|>` covers the common case where every step succeeds, keeping nitpicky `unwrap()` calls out of business logic.
 
 ## Summary
 
 | Operator | Behavior |
 |----------|----------|
 | `expr?` | Extract `Ok(v)` or return `Err(e)` from the enclosing function |
-| `a \|?> f()` | Chain: pass `Ok(v)` to `f`, short-circuit on `Err` |
-| `expr~` | Force-unwrap: panic if `Err` (use for provable invariants) |
-| `let Ok(v) = expr else { ... }` | Extract or execute fallback block |
+| `x \|> f()` | Pipe: call `f(x)` — infallible transformation |
+| `x \|?> f()` | Railway: call `f(x)` if `Ok`, short-circuit on `Err` |
+| `expr~` | Force-unwrap: panic on `Err` (use for verified invariants) |
+| `let Ok(v) = expr else { ... }` | Extract or execute fallback |
 
 Next: [Chapter 7: Arena Memory](07-arena-memory.md)

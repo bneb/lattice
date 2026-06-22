@@ -214,4 +214,4 @@ fn main() -> i32 {
 | Pipe | `value \|> fn()` |
 | Placeholder | `_` in pipeline chains |
 
-Next: [Chapter 4: Structs & Enums](04-structs-enums.md)
+Next: [Chapter 4: Generics and Monomorphization](04-generics.md)

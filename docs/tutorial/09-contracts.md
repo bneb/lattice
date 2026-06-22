@@ -1,4 +1,4 @@
-# Chapter 8: Z3 Contracts
+# Chapter 9: Z3 Contracts
 
 ## Zero-Cost Formal Verification
 

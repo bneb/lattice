@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Why we chose arenas over borrow checking — Salt</title>
+    <meta name="description" content="Salt has no lifetime annotations. Here is how we still guarantee safety.">
+    <meta property="og:title" content="Why we chose arenas over borrow checking">
+    <meta property="og:description" content="Salt has no lifetime annotations. Here is how we still guarantee safety.">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://salt-lang.dev/blog/arenas-over-borrow-checking">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600&family=JetBrains+Mono:wght@400;450&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        /* ═══ Light mode ═══════════════════════════ */
+        :root {
+            --bg: #f9f8f5;
+            --text: #1d1d2e;
+            --text-heading: #253040;
+            --text-secondary: #555566;
+            --text-tertiary: #888898;
+            --accent: #3d6d8e;
+            --accent-hover: #234b63;
+            --accent-subtle: rgba(61,109,142,0.07);
+            --green: #1a7a6a;
+            --green-subtle: rgba(26,122,106,0.06);
+            --border: #e4e0d8;
+            --border-light: #eeebe3;
+            --surface: #ffffff;
+            --surface-hover: #f4f1ea;
+            --code-bg: #1e1e2e;
+            --code-text: #cdd6f4;
+            --nav-bg: rgba(249,248,245,0.88);
+        }
+
+        /* ═══ Dark mode ════════════════════════════ */
+        html[data-theme="dark"] {
+            --bg: #121118;
+            --text: #e0e0e8;
+            --text-heading: #c4cdd8;
+            --text-secondary: #9898a8;
+            --text-tertiary: #6a6a7a;
+            --accent: #7bb4d4;
+            --accent-hover: #9ccae2;
+            --accent-subtle: rgba(123,180,212,0.08);
+            --green: #4db8a2;
+            --green-subtle: rgba(77,184,162,0.08);
+            --border: #262632;
+            --border-light: #1f1f2a;
+            --surface: #1a1a24;
+            --surface-hover: #20202c;
+            --code-bg: #0e0e16;
+            --code-text: #cdd6f4;
+            --nav-bg: rgba(18,17,24,0.88);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.75;
+            -webkit-font-smoothing: antialiased;
+            transition: background 0.3s, color 0.3s;
+        }
+
+        /* Ambient light — a fixed vignette that shifts with scroll depth.
+           The gradient is nearly invisible; you feel it more than you see it. */
+        .ambient {
+            position: fixed; inset: 0; pointer-events: none; z-index: 0;
+            background: radial-gradient(ellipse 80% 60% at 50% var(--light-y, 15%),
+                transparent 0%, var(--bg) 100%);
+            opacity: 0.5;
+            transition: opacity 0.8s;
+        }
+
+        /* ── Navigation ───────────────────────────── */
+        nav {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+            background: var(--nav-bg);
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.3s, background 0.3s;
+        }
+        nav.scrolled { border-bottom-color: var(--border); }
+        nav .inner {
+            max-width: 700px; margin: 0 auto; padding: 0 24px;
+            display: flex; align-items: center; justify-content: space-between; height: 52px;
+        }
+        .nav-home {
+            font-family: 'DM Serif Display', Georgia, serif;
+            font-size: 1.1rem; color: var(--text); text-decoration: none;
+        }
+        .nav-home span { color: var(--text-tertiary); font-size: 0.85rem; margin-left: 4px; }
+
+        .theme-toggle {
+            background: none; border: 1px solid var(--border);
+            border-radius: 6px; padding: 4px 10px; cursor: pointer;
+            font-size: 0.9rem; color: var(--text-tertiary);
+            transition: border-color 0.2s, color 0.2s;
+            line-height: 1;
+        }
+        .theme-toggle:hover { border-color: var(--text-tertiary); color: var(--text-secondary); }
+
+        /* ── Article layout ───────────────────────── */
+        article {
+            max-width: 680px; margin: 0 auto; padding: 96px 24px 120px;
+        }
+
+        /* ── Typography ────────────────────────────── */
+        h1 {
+            font-family: 'DM Serif Display', Georgia, serif;
+            font-size: 2.5rem; font-weight: 400; line-height: 1.2;
+            letter-spacing: -0.015em; margin-bottom: 10px;
+            color: var(--text-heading);
+        }
+        h2 {
+            font-family: 'DM Serif Display', Georgia, serif;
+            font-size: 1.45rem; font-weight: 400; line-height: 1.3;
+            margin: 64px 0 18px; letter-spacing: -0.01em;
+            color: var(--text-heading);
+        }
+        p { margin-bottom: 1.15em; }
+        .lede {
+            font-size: 1.12rem; line-height: 1.7; color: var(--text-secondary);
+            margin-bottom: 2em;
+        }
+        .meta {
+            color: var(--text-tertiary); font-size: 0.88rem;
+            margin-bottom: 36px; padding-bottom: 32px;
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        strong { font-weight: 600; color: var(--text-heading); }
+        em { font-style: italic; }
+
+        a {
+            color: var(--accent); text-decoration: none;
+            background-image: linear-gradient(var(--accent), var(--accent));
+            background-size: 100% 1px;
+            background-position: 0 100%;
+            background-repeat: no-repeat;
+            transition: background-size 0.25s ease, color 0.15s;
+        }
+        a:hover { color: var(--accent-hover); background-size: 100% 2px; }
+
+        /* ── Code ─────────────────────────────────── */
+        code {
+            font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.85em; font-weight: 450;
+            background: var(--accent-subtle); padding: 2px 5px; border-radius: 4px;
+            color: var(--text);
+        }
+        pre {
+            background: var(--code-bg); color: var(--code-text);
+            padding: 22px 26px; border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.82rem; font-weight: 400; line-height: 1.6;
+            margin: 24px 0;
+            box-shadow:
+                inset 0 1px 0 rgba(255,255,255,0.03),
+                0 1px 3px rgba(0,0,0,0.08);
+        }
+        pre code { background: none; padding: 0; font-size: inherit; font-weight: inherit; color: inherit; }
+        .kw { color: #cba6f7; } .fn { color: #89b4fa; } .str { color: #a6e3a1; }
+        .num { color: #fab387; } .cmt { color: #6c7086; font-style: italic; }
+        .ty { color: #f9e2af; } .op { color: #94e2d5; }
+
+        /* ── Tables ────────────────────────────────── */
+        figure { margin: 28px 0; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        thead th {
+            text-align: left; font-weight: 500; font-size: 0.75rem;
+            text-transform: uppercase; letter-spacing: 0.05em;
+            color: var(--text-tertiary); padding: 0 14px 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        tbody td {
+            padding: 10px 14px; border-bottom: 1px solid var(--border-light);
+            font-variant-numeric: tabular-nums;
+        }
+        tbody tr:hover td { background: var(--accent-subtle); }
+        tbody td:first-child {
+            font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.82rem; color: var(--text-secondary);
+        }
+        tbody td:last-child { font-weight: 600; text-align: right; }
+
+        /* ── Aside ─────────────────────────────────── */
+        aside {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 18px 22px; margin: 28px 0;
+            font-size: 0.92rem; color: var(--text-secondary); line-height: 1.65;
+        }
+        aside strong {
+            font-weight: 600; display: block; margin-bottom: 4px;
+            font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em;
+            color: var(--text);
+        }
+
+        /* ── Finding highlight ─────────────────────── */
+        .finding {
+            border-left: 3px solid var(--green);
+            padding: 16px 20px; margin: 28px 0;
+            background: var(--green-subtle);
+            border-radius: 0 8px 8px 0;
+            font-size: 0.95rem;
+        }
+        .finding mark {
+            background: rgba(26,122,106,0.12); color: var(--green);
+            padding: 1px 4px; border-radius: 3px; font-weight: 600;
+        }
+
+        /* ── Footer ────────────────────────────────── */
+        .post-footer {
+            margin-top: 72px; padding-top: 28px;
+            border-top: 1px solid var(--border-light);
+            color: var(--text-tertiary); font-size: 0.88rem;
+        }
+        .post-footer a { color: var(--text-secondary); }
+    </style>
+    <script>
+        // Theme from localStorage or system preference
+        (function() {
+            var t = localStorage.getItem('theme') ||
+                (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+        function toggleTheme() {
+            var el = document.documentElement;
+            var next = el.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            el.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+        }
+        window.addEventListener('scroll', function() {
+            document.querySelector('nav').classList.toggle('scrolled', window.scrollY > 20);
+            // Move the ambient light down the page as you scroll
+            var pct = Math.min(window.scrollY / (document.body.scrollHeight - window.innerHeight), 1);
+            var y = 10 + pct * 70; // drifts from 10% to 80% down the viewport
+            document.querySelector('.ambient').style.setProperty('--light-y', y + '%');
+        });
+    </script>
+</head>
+<body>
+<div class="ambient"></div>
+<nav><div class="inner">
+    <a href="/" class="nav-home">Salt <span>blog</span></a>
+    <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">◐</button>
+</div></nav>
+<article>
+    <h1>Why we chose arenas over&nbsp;borrow checking</h1>
+    <p class="meta">June 22, 2026</p>
+
+    <p class="lede">Salt has no lifetime annotations. No <code>'a</code>, no <code>&amp;'b mut</code>, no <code>Rc&lt;RefCell&lt;T&gt;&gt;</code> escape hatches. The language never asks you to teach a borrow checker about the relative ordering of your objects. Here is how we still guarantee safety&mdash;and why we believe arena allocation, paired with compile-time escape analysis, is the right trade for a systems language targeting deterministic performance.</p>
+
+    <h2>The systems memory trilemma</h2>
+
+    <p>Every systems language faces a three-way choice about memory management.</p>
+
+    <p><strong>Manual memory management</strong> (C, C++ with raw pointers). You control every allocation and free. The machine does exactly what you say. The cost is that you must also be right about what you say &mdash; every time. Use-after-free, double-free, buffer overrun, null-pointer dereference: CVE after CVE traces to a single <code>free()</code> call that was right 99.9% of the time and wrong on the 0.1% path nobody tested. Performance is maximized; safety is manual and fallible.</p>
+
+    <p><strong>Garbage collection</strong> (Go, Java, OCaml). You allocate freely. A tracing collector identifies unreachable objects and reclaims them in a periodic pause. The cost is that the pause is unpredictable&mdash;and for systems code (a kernel interrupt handler, a network-packet dispatch loop), unpredictability is unacceptable. You cannot take 10 milliseconds to scan the heap when you are holding a spinlock. GC gives safety and programmer productivity at the expense of latency determinism.</p>
+
+    <p><strong>Borrow checking</strong> (Rust). Compile-time reference tracking ensures that every borrow is valid for its lifetime. No GC pause, no dangling pointer. The cost is annotation ergonomics and code-structure constraints. Rust&rsquo;s borrow checker is a remarkable achievement, but it forces you to reason about lifetimes whether or not your problem needs them. And when your data structure doesn&rsquo;t fit the tree-of-ownership model&mdash;graphs, arenas, intrusive lists&mdash;you reach for <code>unsafe</code>, <code>Pin</code>, or reference counting, each of which reintroduces some of the costs the borrow checker was meant to eliminate.</p>
+
+    <div class="finding">
+        The trilemma says you can have fast, safe, or simple &mdash; pick two. Salt picks fast and safe, but replaces the annotation complexity of borrow checking with <mark>arena discipline</mark>: fixed-size regions, bump-pointer allocation, and compile-time escape analysis verified by Z3.
+    </div>
+
+    <p>The result is a language with the safety properties of Rust, the latency profile of C, and no lifetime annotations on any function signature.</p>
+
+    <h2>The arena model</h2>
+
+    <p>An arena is a fixed-size region of memory. Allocation is a single pointer bump: reserve <code>n</code> bytes, advance the bump pointer by <code>n</code>, return the old value. Deallocation is O(1) &mdash; reset the bump pointer to the start of the region. There is no free list, no coalescing, no fragmentation.</p>
+
+<pre><span class="kw">arena</span> <span class="ty">RequestArena</span> : <span class="ty">Arena</span> {
+    <span class="fn">capacity</span>: <span class="num">64</span> * <span class="num">1024</span>;   <span class="cmt">// 64 KiB per request</span>
+}
+
+<span class="kw">fn</span> <span class="fn">handle_request</span>(arena: &<span class="ty">RequestArena</span>, req: &<span class="ty">Request</span>) -> <span class="ty">Response</span>
+{
+    <span class="kw">let</span> path   = arena.<span class="fn">alloc_str</span>(req.path);    <span class="cmt">// bump-allocated</span>
+    <span class="kw">let</span> query  = arena.<span class="fn">alloc_map</span>();             <span class="cmt">// hash map in arena memory</span>
+    <span class="kw">let</span> result = <span class="fn">dispatch</span>(path, query);
+    arena.<span class="fn">reset</span>();                              <span class="cmt">// O(1): all memory reclaimed</span>
+    <span class="kw">return</span> result;
+}</pre>
+
+    <p>Every allocation within the request handler is bump-allocated into the arena. When the request completes, a single <code>reset()</code> frees everything. There is no per-object <code>free()</code>, no reference-counting decrement, no garbage-collection pause. The allocator is a single pointer write.</p>
+
+    <p>This is not a new idea. Apache used <code>apr_pool_t</code> for this purpose. Region-based allocation appears in the ML Kit and the Cyclone language. What is new is combining it with <em>compile-time guarantees</em> that escape is impossible&mdash;without requiring the programmer to write lifetime annotations.</p>
+
+    <h2>The scope ladder</h2>
+
+    <p>Salt&rsquo;s static escape analysis is built on a concept we call the <strong>scope ladder</strong>. Every expression and every block has an associated <em>scope depth</em>: a small integer that encodes how long the value can safely live.</p>
+
+    <p>The scope ladder tracks three rules:</p>
+
+    <p><strong>Return Rule.</strong> A function cannot return a pointer into a local arena. If <code>handle_request</code> tried to return <code>path</code> (which lives only for the duration of the arena), the compiler rejects it. The scope of the arena is a function level; the return value must have function-level scope or higher.</p>
+
+    <p><strong>Assignment Rule.</strong> A value can be stored only in a container whose scope is at most as deep as the value&rsquo;s own scope. You cannot put a request-local path into a connection-level cache. The compiler tracks the arena provenance of every pointer and ensures that the destination&rsquo;s expected lifetime is a subset of the source&rsquo;s.</p>
+
+    <p><strong>Transitivity Rule.</strong> If a struct contains a pointer, the pointer&rsquo;s scope constrains the struct&rsquo;s scope. A <code>Response</code> that holds a <code>StringView</code> into an arena cannot outlive that arena. Z3 verifies this by translating scope constraints into linear arithmetic formulas that the solver can check in sub-millisecond time.</p>
+
+<pre><span class="kw">type</span> <span class="ty">StringView</span> = { ptr: *<span class="ty">u8</span>, len: <span class="ty">u64</span> };
+
+<span class="kw">fn</span> <span class="fn">parse_path</span>(arena: &<span class="ty">Arena</span>, raw: &[<span class="ty">u8</span>]) -> <span class="ty">StringView</span>
+    <span class="kw">requires</span>(raw.len() &lt; arena.capacity)
+{
+    <span class="kw">let</span> slice = arena.<span class="fn">alloc_slice</span>(<span class="ty">u8</span>, raw.len());
+    std::mem::<span class="fn">copy</span>(raw, slice);
+    <span class="kw">return</span> { ptr: &slice[<span class="num">0</span>], len: raw.len() };
+    <span class="cmt">// Scope check: StringView.ptr = Arena scope, this is fn scope.</span>
+    <span class="cmt">// Return scope must be >= Arena scope. OK.</span>
+}
+
+<span class="kw">fn</span> <span class="fn">bad_return</span>(arena: &<span class="ty">Arena</span>) -> <span class="ty">StringView</span>
+{
+    <span class="kw">let</span> local_buf: [<span class="ty">u8</span>; <span class="num">64</span>] = [<span class="num">0</span>; <span class="num">64</span>];
+    <span class="kw">return</span> { ptr: &local_buf[<span class="num">0</span>], len: <span class="num">64</span> };
+    <span class="cmt">// ERROR: local_buf is stack-local (depth 2),</span>
+    <span class="cmt">// but return type expects at least arena scope (depth 1).</span>
+}</pre>
+
+    <p>The scope ladder is not a new invention. It is region analysis, known since Tofte and Talpin&rsquo;s work in the 1990s. What makes it practical in Salt is that the programmer never writes a scope annotation. The compiler infers scopes from the arena declaration and the structure of the code. The rules are enforced silently. When you violate them, the error message names the value, the scope it requires, and the scope it would escape into.</p>
+
+    <aside>
+        <strong>Z3 integration</strong>
+        Arena mark/reset safety is verified by the same theorem prover used for contract checking. In a debug build, <code>reset()</code> writes a sentinel pattern over the freed region and increments an epoch counter. Any subsequent read from an arena-allocated pointer checks that the epoch matches. Z3 proves that no pointer from a previous epoch is reachable after <code>reset()</code>. The runtime assertion is compiled away in release builds, but the proof remains.
+    </aside>
+
+    <h2>What it catches in practice</h2>
+
+    <p>Three classes of bugs are eliminated at compile time.</p>
+
+    <p><strong>Return escape.</strong> The most common mistake we saw in early arena-based prototypes was returning a pointer into an arena that was about to be reset. The scope ladder catches this automatically:</p>
+
+<pre><span class="kw">fn</span> <span class="fn">process_connection</span>(conn: &<span class="ty">Connection</span>) -> <span class="ty">Response</span>
+{
+    <span class="kw">let</span> arena = <span class="ty">Arena</span>::<span class="fn">with_capacity</span>(<span class="num">64</span> * <span class="num">1024</span>);
+    <span class="kw">let</span> req   = arena.<span class="fn">alloc</span>(<span class="ty">Request</span>);
+    <span class="fn">parse</span>(&arena, conn.buffer, req);
+    <span class="kw">let</span> resp  = <span class="fn">build_response</span>(req);
+    arena.<span class="fn">reset</span>();
+    <span class="kw">return</span> resp;
+    <span class="cmt">// If resp contained a pointer into arena, the compiler rejects it.</span>
+}</pre>
+
+    <p><strong>Store escape.</strong> Storing an arena pointer into a longer-lived data structure:</p>
+
+<pre><span class="kw">type</span> <span class="ty">CacheEntry</span> = { key: <span class="ty">StringView</span>, value: <span class="ty">StringView</span> };
+
+<span class="kw">fn</span> <span class="fn">cache_insert_bad</span>(cache: &<span class="ty">Cache</span>, arena: &<span class="ty">Arena</span>, k: &[<span class="ty">u8</span>], v: &[<span class="ty">u8</span>])
+{
+    <span class="kw">let</span> key   = arena.<span class="fn">alloc_str</span>(k);
+    <span class="kw">let</span> value = arena.<span class="fn">alloc_str</span>(v);
+    cache.<span class="fn">insert</span>({ key, value });
+    <span class="cmt">// ERROR: Cache lives longer than this arena.</span>
+    <span class="cmt">// Store escape: arena-scoped pointer into long-lived container.</span>
+}</pre>
+
+    <p><strong>Use-after-reset.</strong> The Z3 epoch tracker catches reads across a <code>reset()</code> boundary in debug builds. By the time you run your test suite, you know exactly which pointer was read from a freed region, and which <code>reset()</code> made it stale.</p>
+
+    <p>Together, these three checks eliminate the entire category of use-after-free bugs for arena-allocated memory. No runtime tooling needed. No Valgrind, no ASAN, no Miri. The compiler and the solver prove it before the program executes one instruction.</p>
+
+    <h2>When arenas do not work</h2>
+
+    <p>Arenas are not a universal memory solution. Two patterns require a different approach.</p>
+
+    <p><strong>Arbitrary graph structures with independent lifetimes.</strong> An arena is a region; all objects in it share the same lifetime. If you have a graph where nodes are created and destroyed independently&mdash;a scene graph in a game, a DOM tree in a browser&mdash;one arena per node defeats the purpose (you might as well use <code>malloc</code>), and one arena for everything means you never reclaim memory until the graph is destroyed entirely. For these cases, Salt provides separate per-component allocators. The component that owns the graph manages its own arena hierarchy. If a graph needs fine-grained deallocation, you can use a freelist allocator wrapped in a <code>#[may_dangle]</code> contract that asserts the freed node is no longer referenced.</p>
+
+    <p><strong>Long-lived caches that span request boundaries.</strong> A connection pool or a DNS cache lives for the duration of the process. Storing arena-allocated data in these caches is a store-escape violation by design. The answer is a separate, GC-like collector for the cache region&mdash;but with a key difference: the collector is scoped to the cache and runs only when the cache is accessed, never during latency-sensitive code paths. Salt provides a <code>gc::Region</code> type for this purpose, with explicit mark-or-sweep boundaries and Z3 contracts that prove no pointer from the cache region escapes into request-handling code.</p>
+
+<pre><span class="kw">type</span> <span class="ty">DnsCache</span> {
+    arena: <span class="ty">gc::Region</span>,
+    entries: <span class="ty">HashMap</span>&lt;<span class="ty">String</span>, <span class="ty">IpAddr</span>&gt;,
+}
+
+<span class="kw">fn</span> <span class="fn">lookup</span>(cache: &<span class="ty">DnsCache</span>, host: &[<span class="ty">u8</span>]) -> <span class="ty">Option</span>&lt;<span class="ty">IpAddr</span>&gt;
+    <span class="kw">ensures</span>(result.is_none() || result.is_some())
+{
+    <span class="kw">return</span> cache.entries.<span class="fn">get</span>(host).<span class="fn">copied</span>();
+    <span class="cmt">// IpAddr is Copy; no pointer escapes the cache region.</span>
+}</pre>
+
+    <p>For the remaining cases, Salt offers <code>unsafe</code> blocks with Z3 contracts. The contract formalizes the safety invariant; the programmer attests it; Z3 checks that the invariant is not violated by the code within the block. This is the same mechanism as in the zero-cost safety post, applied to memory management rather than array bounds.</p>
+
+    <div class="finding">
+        The pattern is consistent: <mark>arena allocation for the hot path, separate allocators for the graph case, and unsafe with contracts for the edge case</mark>. The result is that the common case has no runtime overhead and no annotation burden, and the uncommon case has a formal proof.
+    </div>
+
+    <h2>Comparison with Rust</h2>
+
+    <p>Rust&rsquo;s borrow checker proves that every reference is valid. Salt&rsquo;s arena model proves that every arena-allocated pointer is valid for the lifetime of its region. The two approaches provide equivalent safety for the common case. The difference is where the complexity lives.</p>
+
+    <p>In Rust, you write lifetime annotations on function signatures, struct definitions, and impl blocks. The compiler checks that your annotations are consistent with the code. When the annotations are wrong, you get an error with a detailed explanation&mdash;and a suggestion for the fix. This works, and it works well. But it requires that you think about lifetimes all the time, even when your data has a simple, region-shaped lifetime.</p>
+
+    <p>In Salt, you write no lifetime annotations. The compiler infers scopes from the arena declaration and the function body. The scope ladder enforces the same constraints that Rust&rsquo;s borrow checker enforces, but without the syntax. The trade is that Salt&rsquo;s model works best when your allocation pattern is arena-shaped: allocate in bulk, free in bulk. When it is not arena-shaped, you need a separate mechanism.</p>
+
+    <p>Rust can do arena allocation too, using crates like <code>bumpalo</code> or <code>typed-arena</code>. But Rust&rsquo;s borrow checker does not understand arenas natively. Using <code>bumpalo</code> in Rust means working with lifetime parameters that thread through every function that touches arena memory. The arena is not a first-class concept; it is a library that the borrow checker treats as opaque. In Salt, the arena is part of the type system. The compiler knows what an arena is, knows when a pointer came from one, and knows when a <code>reset()</code> would invalidate a reference.</p>
+
+    <figure>
+        <table>
+            <thead><tr><th></th><th>Rust (borrow checking)</th><th>Salt (arena + scope ladder)</th></tr></thead>
+            <tbody>
+                <tr><td>Lifetime annotations</td><td>Required</td><td>Zero</td></tr>
+                <tr><td>Use-after-free prevention</td><td>Compile-time</td><td>Compile-time</td></tr>
+                <tr><td>Arbitrary graph structures</td><td>Rc&lt;RefCell&gt; or unsafe</td><td>Separate allocator or unsafe</td></tr>
+                <tr><td>Hot-path allocation cost</td><td>Stack or bump (with arena crate)</td><td>Bump (native)</td></tr>
+                <tr><td>Bulk deallocation</td><td>Drop impls (linear)</td><td>O(1) reset</td></tr>
+                <tr><td>Annotation complexity</td><td>Medium to high</td><td>Low</td></tr>
+            </tbody>
+        </table>
+    </figure>
+
+    <p>Rust is the right language for projects that need the full power of individual-lifetime tracking across diverse allocation patterns. Salt is the right language for projects that work in request-response or frame-at-a-time patterns&mdash;servers, kernels, game engines, network stacks&mdash;where allocation is batch-shaped and the annotation burden of individual lifetimes would be pure overhead.</p>
+
+    <h2>What we learned</h2>
+
+    <p>Building the scope ladder changed how we think about memory safety. We started with the goal of eliminating lifetime annotations. We ended up with a system that is not only annotation-free but also catches bugs that Rust&rsquo;s borrow checker does not: use-after-reset across <code>reset()</code> boundaries (tracked by epoch), store-escape into arbitrarily nested containers (tracked by transitive scope propagation), and cross-region pointer leaks (tracked by Z3).</p>
+
+    <p>The lesson is not that lifetime annotations are bad. The lesson is that matching the memory model to the allocation pattern<span style="color:var(--text-tertiary);">&#8212;</span>region-shaped allocation gets a region-shaped safety model, tree-shaped allocation gets a borrow checker, and graph-shaped allocation gets a separate collector<span style="color:var(--text-tertiary);">&#8212;</span>produces a language where each pattern pays only for what it needs.</p>
+
+    <aside>
+        <strong>Open questions</strong>
+        The scope ladder currently supports one arena per function. We are working on multi-arena support (one function managing a short-lived and a medium-lived arena simultaneously) and on formalizing the Z3 epoch proof for all release-build paths. Both are active research alongside shipping the compiler.
+    </aside>
+
+    <p>Salt is open source. The compiler is written in Rust and produces native arm64 and x86-64 binaries through MLIR and LLVM.</p>
+
+<pre>git clone https://github.com/bneb/lattice.git
+<span class="kw">cd</span> lattice
+make build              <span class="cmt"># Build the compiler</span>
+make test               <span class="cmt"># Run the test suite</span>
+<span class="kw">cat</span> docs/tutorial/arena.salt  <span class="cmt"># See arena allocation in action</span></pre>
+
+    <p>The <a href="https://github.com/bneb/lattice/blob/main/docs/tutorial/README.md">tutorial</a> walks through building a request handler with arena allocation from scratch. The <a href="https://github.com/bneb/lattice/blob/main/benchmarks/ARENA_BENCH.md">benchmark methodology</a> compares bump allocation against <code>malloc</code>/<code>free</code> across request sizes. Everything is at <a href="https://github.com/bneb/lattice">github.com/bneb/lattice</a>.</p>
+
+    <div class="post-footer">
+        Questions or corrections: <a href="https://github.com/bneb/lattice">open an issue</a>.
+    </div>
+</article>
+</body>
+</html>

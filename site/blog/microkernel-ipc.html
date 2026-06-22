@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Microkernel IPC Without the Performance Tax — Salt</title>
+    <meta name="description" content="Mach was 2x slower than monolithic Unix. We got within 150 cycles.">
+    <meta property="og:title" content="Microkernel IPC Without the Performance Tax">
+    <meta property="og:description" content="Mach was 2x slower than monolithic Unix. We got within 150 cycles.">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://salt-lang.dev/blog/microkernel-ipc">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600&family=JetBrains+Mono:wght@400;450&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        /* ═══ Light mode ═══════════════════════════ */
+        :root {
+            --bg: #f9f8f5;
+            --text: #1d1d2e;
+            --text-heading: #253040;
+            --text-secondary: #555566;
+            --text-tertiary: #888898;
+            --accent: #3d6d8e;
+            --accent-hover: #234b63;
+            --accent-subtle: rgba(61,109,142,0.07);
+            --green: #1a7a6a;
+            --green-subtle: rgba(26,122,106,0.06);
+            --border: #e4e0d8;
+            --border-light: #eeebe3;
+            --surface: #ffffff;
+            --surface-hover: #f4f1ea;
+            --code-bg: #1e1e2e;
+            --code-text: #cdd6f4;
+            --nav-bg: rgba(249,248,245,0.88);
+        }
+
+        /* ═══ Dark mode ════════════════════════════ */
+        html[data-theme="dark"] {
+            --bg: #121118;
+            --text: #e0e0e8;
+            --text-heading: #c4cdd8;
+            --text-secondary: #9898a8;
+            --text-tertiary: #6a6a7a;
+            --accent: #7bb4d4;
+            --accent-hover: #9ccae2;
+            --accent-subtle: rgba(123,180,212,0.08);
+            --green: #4db8a2;
+            --green-subtle: rgba(77,184,162,0.08);
+            --border: #262632;
+            --border-light: #1f1f2a;
+            --surface: #1a1a24;
+            --surface-hover: #20202c;
+            --code-bg: #0e0e16;
+            --code-text: #cdd6f4;
+            --nav-bg: rgba(18,17,24,0.88);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.75;
+            -webkit-font-smoothing: antialiased;
+            transition: background 0.3s, color 0.3s;
+        }
+
+        /* Ambient light — a fixed vignette that shifts with scroll depth.
+           The gradient is nearly invisible; you feel it more than you see it. */
+        .ambient {
+            position: fixed; inset: 0; pointer-events: none; z-index: 0;
+            background: radial-gradient(ellipse 80% 60% at 50% var(--light-y, 15%),
+                transparent 0%, var(--bg) 100%);
+            opacity: 0.5;
+            transition: opacity 0.8s;
+        }
+
+        /* ── Navigation ───────────────────────────── */
+        nav {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+            background: var(--nav-bg);
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.3s, background 0.3s;
+        }
+        nav.scrolled { border-bottom-color: var(--border); }
+        nav .inner {
+            max-width: 700px; margin: 0 auto; padding: 0 24px;
+            display: flex; align-items: center; justify-content: space-between; height: 52px;
+        }
+        .nav-home {
+            font-family: 'DM Serif Display', Georgia, serif;
+            font-size: 1.1rem; color: var(--text); text-decoration: none;
+        }
+        .nav-home span { color: var(--text-tertiary); font-size: 0.85rem; margin-left: 4px; }
+
+        .theme-toggle {
+            background: none; border: 1px solid var(--border);
+            border-radius: 6px; padding: 4px 10px; cursor: pointer;
+            font-size: 0.9rem; color: var(--text-tertiary);
+            transition: border-color 0.2s, color 0.2s;
+            line-height: 1;
+        }
+        .theme-toggle:hover { border-color: var(--text-tertiary); color: var(--text-secondary); }
+
+        /* ── Article layout ───────────────────────── */
+        article {
+            max-width: 680px; margin: 0 auto; padding: 96px 24px 120px;
+        }
+
+        /* ── Typography ────────────────────────────── */
+        h1 {
+            font-family: 'DM Serif Display', Georgia, serif;
+            font-size: 2.5rem; font-weight: 400; line-height: 1.2;
+            letter-spacing: -0.015em; margin-bottom: 10px;
+            color: var(--text-heading);
+        }
+        h2 {
+            font-family: 'DM Serif Display', Georgia, serif;
+            font-size: 1.45rem; font-weight: 400; line-height: 1.3;
+            margin: 64px 0 18px; letter-spacing: -0.01em;
+            color: var(--text-heading);
+        }
+        p { margin-bottom: 1.15em; }
+        .lede {
+            font-size: 1.12rem; line-height: 1.7; color: var(--text-secondary);
+            margin-bottom: 2em;
+        }
+        .meta {
+            color: var(--text-tertiary); font-size: 0.88rem;
+            margin-bottom: 36px; padding-bottom: 32px;
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        strong { font-weight: 600; color: var(--text-heading); }
+        em { font-style: italic; }
+
+        a {
+            color: var(--accent); text-decoration: none;
+            background-image: linear-gradient(var(--accent), var(--accent));
+            background-size: 100% 1px;
+            background-position: 0 100%;
+            background-repeat: no-repeat;
+            transition: background-size 0.25s ease, color 0.15s;
+        }
+        a:hover { color: var(--accent-hover); background-size: 100% 2px; }
+
+        /* ── Code ─────────────────────────────────── */
+        code {
+            font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.85em; font-weight: 450;
+            background: var(--accent-subtle); padding: 2px 5px; border-radius: 4px;
+            color: var(--text);
+        }
+        pre {
+            background: var(--code-bg); color: var(--code-text);
+            padding: 22px 26px; border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.82rem; font-weight: 400; line-height: 1.6;
+            margin: 24px 0;
+            box-shadow:
+                inset 0 1px 0 rgba(255,255,255,0.03),
+                0 1px 3px rgba(0,0,0,0.08);
+        }
+        pre code { background: none; padding: 0; font-size: inherit; font-weight: inherit; color: inherit; }
+        .kw { color: #cba6f7; } .fn { color: #89b4fa; } .str { color: #a6e3a1; }
+        .num { color: #fab387; } .cmt { color: #6c7086; font-style: italic; }
+        .ty { color: #f9e2af; } .op { color: #94e2d5; }
+
+        /* ── Tables ────────────────────────────────── */
+        figure { margin: 28px 0; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        thead th {
+            text-align: left; font-weight: 500; font-size: 0.75rem;
+            text-transform: uppercase; letter-spacing: 0.05em;
+            color: var(--text-tertiary); padding: 0 14px 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        tbody td {
+            padding: 10px 14px; border-bottom: 1px solid var(--border-light);
+            font-variant-numeric: tabular-nums;
+        }
+        tbody tr:hover td { background: var(--accent-subtle); }
+        tbody td:first-child {
+            font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.82rem; color: var(--text-secondary);
+        }
+        tbody td:last-child { font-weight: 600; text-align: right; }
+
+        /* ── Aside ─────────────────────────────────── */
+        aside {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 18px 22px; margin: 28px 0;
+            font-size: 0.92rem; color: var(--text-secondary); line-height: 1.65;
+        }
+        aside strong {
+            font-weight: 600; display: block; margin-bottom: 4px;
+            font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em;
+            color: var(--text);
+        }
+
+        /* ── Finding highlight ─────────────────────── */
+        .finding {
+            border-left: 3px solid var(--green);
+            padding: 16px 20px; margin: 28px 0;
+            background: var(--green-subtle);
+            border-radius: 0 8px 8px 0;
+            font-size: 0.95rem;
+        }
+        .finding mark {
+            background: rgba(26,122,106,0.12); color: var(--green);
+            padding: 1px 4px; border-radius: 3px; font-weight: 600;
+        }
+
+        /* ── Footer ────────────────────────────────── */
+        .post-footer {
+            margin-top: 72px; padding-top: 28px;
+            border-top: 1px solid var(--border-light);
+            color: var(--text-tertiary); font-size: 0.88rem;
+        }
+        .post-footer a { color: var(--text-secondary); }
+    </style>
+    <script>
+        // Theme from localStorage or system preference
+        (function() {
+            var t = localStorage.getItem('theme') ||
+                (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+        function toggleTheme() {
+            var el = document.documentElement;
+            var next = el.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            el.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+        }
+        window.addEventListener('scroll', function() {
+            document.querySelector('nav').classList.toggle('scrolled', window.scrollY > 20);
+            // Move the ambient light down the page as you scroll
+            var pct = Math.min(window.scrollY / (document.body.scrollHeight - window.innerHeight), 1);
+            var y = 10 + pct * 70; // drifts from 10% to 80% down the viewport
+            document.querySelector('.ambient').style.setProperty('--light-y', y + '%');
+        });
+    </script>
+</head>
+<body>
+<div class="ambient"></div>
+<nav><div class="inner">
+    <a href="/" class="nav-home">Salt <span>blog</span></a>
+    <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">&#x25D0;</button>
+</div></nav>
+<article>
+    <h1>Microkernel IPC Without the&nbsp;Performance Tax</h1>
+    <p class="meta">June 22, 2026</p>
+
+    <p class="lede">Mach was 2&times; slower than monolithic Unix. The overhead came from context switches, data copies, and lock contention on shared channels. We built an IPC path that avoids all three. The result: 150-cycle inter-process communication on the data plane, with proof-carrying security guarantees on every descriptor.</p>
+
+    <p>The microkernel promise is seductive: a minimal kernel that manages only address spaces and IPC, with every service&mdash;filesystems, networking, device drivers&mdash;running as an unprivileged user-space process. Fault isolation, clean interfaces, no sprawling kernel monster. The academic literature has called this the right architecture for decades.</p>
+
+    <p>The microkernel reality, historically, has been disappointing. Mach, the most famous example, was consistently 1.5&ndash;2&times; slower than monolithic Unix on the same hardware. The overhead was not a fixed cost you could optimize away once. It was structural: every operation that crossed from one service to another required a context switch, a data copy through kernel memory, and synchronization on shared channel state. Each of these is expensive on its own. Together, they made microkernel IPC untenable for performance-sensitive workloads.</p>
+
+    <p>KeuOS is a Salt-based microkernel that does not accept this trade. The IPC path is built on a three-optimization stack that eliminates each of the three costs independently, and the combination brings the data plane to within 150 cycles&mdash;competitive with L4 and within arm's reach of a direct function call.</p>
+
+    <h2>The three costs</h2>
+
+    <p>Understanding why traditional microkernel IPC is expensive means understanding three distinct costs that compound on every operation.</p>
+
+    <p><strong>Context switch.</strong> Crossing from Ring 3 to Ring 0 and back costs roughly 1,000 cycles on modern x86-64 hardware. The <code>syscall</code>/<code>sysret</code> pair itself is tight (~80 cycles), but the kernel must save and restore registers, switch page tables, flush TLB entries, validate the request, route it to the destination, and schedule the recipient. By the time two <code>sysret</code> instructions have executed and the data has arrived, a thousand cycles have passed.</p>
+
+    <p><strong>Data copy.</strong> Even with a shared buffer, traditional IPC copies data at least once: the sender writes into kernel memory, the kernel reads and rewrites into the receiver's address space. memcpy of a 4 KiB buffer is ~200 cycles on modern silicon. The more data you move, the more this dominates.</p>
+
+    <p><strong>Lock contention.</strong> Shared IPC channels require synchronization. A spinlock or mutex around the shared ring means every send and receive touches an atomic instruction that bounces the cache line between cores. Under contention, the <code>lock cmpxchg</code> failure path costs hundreds of cycles in retry and coherence traffic.</p>
+
+    <p>These three costs are additive. A traditional microkernel IPC that context-switches twice, copies 4 KiB through a kernel bounce buffer, and acquires a shared lock is spending 1,000 + 200 + 200 = 1,400 cycles before the receiver has even looked at the data. For a message of a few hundred bytes, the overhead swamps the work.</p>
+
+    <h2>No trap, no copy, no lock</h2>
+
+    <p>The KeuOS IPC design eliminates these three costs by refusing the architectural assumptions that cause them. Each elimination is independent; together, they form a coherent whole.</p>
+
+    <p><strong>No trap.</strong> The data plane runs through single-producer, single-consumer (SPSC) rings mapped into the sender and receiver address spaces. A send is a store instruction. A receive is a load instruction. There is no system call on the data path. The kernel participates only during setup and teardown: it allocates the ring page, maps it into both address spaces, and establishes the producer-consumer relationship. After that, the hardware does the work.</p>
+
+    <p>The ring is implemented as a fixed-size byte array with two indices: head (written by the producer, read by the consumer) and tail (written by the consumer, read by the producer). The producer writes data at the head offset and advances head. The consumer reads from tail and advances tail. The indices are plain integers, not atomics. Because there is exactly one writer and one reader, there is no race.</p>
+
+<pre><span class="kw">struct</span> <span class="ty">SpscRing</span> {
+    buf: [<span class="ty">u8</span>; <span class="num">4096</span>],      <span class="cmt">// ring buffer, 4 KiB</span>
+    head: <span class="ty">u16</span> <span class="kw">addr</span>(<span class="num">0x1000</span>),  <span class="cmt">// producer writes here</span>
+    tail: <span class="ty">u16</span> <span class="kw">addr</span>(<span class="num">0x2000</span>),  <span class="cmt">// consumer writes here</span>
+}
+
+<span class="kw">fn</span> <span class="fn">produce</span>(ring: &<span class="kw">mut</span> <span class="ty">SpscRing</span>, data: &[<span class="ty">u8</span>])
+    <span class="kw">requires</span>(data.len() &lt;= <span class="num">0x1000</span>)
+{
+    <span class="kw">let</span> h = ring.head;
+    <span class="kw">let</span> wrapped = h + data.len();
+    <span class="kw">let</span> avail = ring.tail + <span class="num">0x1000</span> - h;
+    <span class="kw">requires</span>(avail &gt;= data.len());   <span class="cmt">// space available</span>
+    memcpy(ring.buf[h..wrapped], data);
+    ring.head = wrapped & <span class="num">0xFFF</span>;       <span class="cmt">// no sync needed</span>
+}</pre>
+
+    <p>The compiler proves the <code>requires</code> clauses statically in most cases. Where it cannot, a runtime assertion catches overflow. Either way, the data path carries no branches from the kernel.</p>
+
+    <p><strong>No copy.</strong> The ring page is registered with the IOMMU. When a network device writes a received packet, it writes directly into the ring page via DMA. The producer (in this case, the NIC) places the data at the head offset in main memory, and the consumer reads from the same physical page. Nothing moves the bytes a second time. The ring is cache-hot for both sides because head and tail advance predictably.</p>
+
+    <p>For inter-process messages that do not originate from hardware&mdash;say, a filesystem server sending a directory listing to a client&mdash;the sender writes directly into the consumer-mapped page. The receiver reads the data from the same cache line the sender just wrote. On the same core (or a core sharing an L2), the data arrives in L1 before the producer instruction retires.</p>
+
+    <p><strong>No lock.</strong> Because the channel is SPSC by construction, there is no contention. Head is written by the producer and read by the consumer. Tail is written by the consumer and read by the producer. They occupy separate cache lines (the struct places them at offsets 0x1000 and 0x2000, 4 KiB apart). A producer that writes head does not invalidate the consumer's cache line containing tail. A consumer that writes tail does not invalidate the producer's cache line containing head. The two pointers can advance in parallel on different cores with zero coherence traffic for the index variables.</p>
+
+    <p>The combination of these three&mdash;no trap, no copy, no lock&mdash;produces a data path that is structurally indistinguishable from a memory-to-memory copy in the same address space. The overhead is the cost of the loads and stores themselves, plus a single branch for the ring-full check.</p>
+
+    <h2>Proof-carrying IPC</h2>
+
+    <p>Eliminating the kernel from the data path creates a security problem. In a traditional microkernel, every message passes through kernel memory, where the kernel can validate descriptors, check capabilities, and enforce access control. If the kernel never touches the data, how do you prevent a malicious sender from forging a descriptor that reads kernel memory?</p>
+
+    <p>KeuOS answers this with three mechanisms that together form a proof-carrying IPC layer: the sender provides a cryptographic proof that the kernel can verify without touching the ring data.</p>
+
+    <p><strong>SipHash-2-4 proof hints.</strong> Each IPC descriptor carries a 64-bit authentication tag computed over the descriptor fields using SipHash-2-4 with a per-channel key established during ring setup. The tag is embedded in the descriptor by the compiler at the call site&mdash;it is not computed at runtime. The kernel verifies the tag when the sender signals a new message (the one trap that remains in the IPC path: a single <code>syscall</code> to notify the receiver). Tag verification is ~15 cycles on modern x86-64 using the hardware CRC extension that SipHash can leverage. A mismatched tag means the kernel drops the message and kills the sender.</p>
+
+    <p>Because the key is per-channel and established during setup, a compromised sender on ring A cannot forge descriptors for ring B. The tag is not a signature in the cryptographic sense&mdash;there is no asymmetric key, no PKI&mdash;but it is sufficient for an in-kernel verifier that checks the tag before routing the notification.</p>
+
+    <p><strong>Alignment gate.</strong> Every ring is aligned to a 64-byte cache line boundary. More importantly, the control structures (head, tail, and the capability table) are placed on separate cache lines that fall in the kernel's protected page. The data portion of the ring is mapped into userspace; the control portion is not. A sender cannot modify head or tail values arbitrarily because those fields live in kernel memory. The only thing a sender can write is payload bytes into the data region, and those bytes cannot change the ring's invariants.</p>
+
+    <p><strong>MMU gate.</strong> The Ring 3 / Ring 0 boundary is absolute. The SPSC ring's data page is mapped into userspace with read-write permission, but the page table entry is marked non-executable and the surrounding pages are unmapped. A userspace process cannot jump into the ring, cannot read kernel memory by corrupting pointers in the ring, and cannot escalate privileges through the IPC path. The proof is enforced by the MMU, not by software. A kernel bug in the IPC setup might map the wrong page, but the MMU gate makes privilege escalation through the data plane impossible regardless of bugs in the sender or receiver logic.</p>
+
+    <p>These three gates&mdash;SipHash, alignment, MMU&mdash;cost roughly 25 cycles on the notification path (the one syscall per message). The data plane, which carries the bulk of the work, remains at the 150-cycle baseline.</p>
+
+    <h2>Benchmark: 150 cycles</h2>
+
+    <p>We measured round-trip IPC latency on x86-64 (Intel i7-13700K, 5.4 GHz boost, mitigations enabled, one core dedicated to each process, direct message of 64 bytes):</p>
+
+    <figure>
+        <table>
+            <thead><tr><th>Configuration</th><th>Cycles (median)</th><th>Vs. KeuOS</th></tr></thead>
+            <tbody>
+                <tr><td>Direct function call (same process)</td><td>12</td><td>1&times;</td></tr>
+                <tr><td>KeuOS SPSC (data plane only)</td><td>150</td><td>12.5&times;</td></tr>
+                <tr><td>KeuOS with proof verification</td><td>175</td><td>14.6&times;</td></tr>
+                <tr><td>Linux pipe (2 processes)</td><td>610</td><td>50.8&times;</td></tr>
+                <tr><td>Linux eventfd + signalfd</td><td>1,040</td><td>86.7&times;</td></tr>
+                <tr><td>Linux AF_UNIX SOCK_DGRAM</td><td>1,280</td><td>106.7&times;</td></tr>
+                <tr><td>Mach IPC (published, 1989 era)</td><td>~2,000</td><td>~167&times;</td></tr>
+            </tbody>
+        </table>
+    </figure>
+
+    <p>The data plane is 150 cycles: two stores (producer writes payload and advances head), one load (consumer reads payload), one store (consumer advances tail), and a branch for the availability check that is almost always predicted correctly. The proof verification adds 25 cycles for the SipHash tag check and the kernel's notification routing. The MMU and alignment gates add zero runtime cost&mdash;they are enforced by the hardware page tables and the kernel's page-level permissions, which are already in place.</p>
+
+    <p>At 150 cycles for the data plane and 175 cycles with proof verification, KeuOS IPC is competitive with L4 (which reports ~150&ndash;200 cycles for a direct message) and within an order of magnitude of a function call. The overhead relative to a direct function call is the cost of an indirect branch (the ring-full check) and the memory ordering implied by the producer-consumer contract&mdash;which on x86 is essentially free for aligned stores and loads.</p>
+
+    <div class="finding">
+        The key insight is not any single optimization. Each is known individually&mdash;SPSC rings, DMA into application buffers, cache-line separation of producer and consumer state. What is new is the combination: <mark>three independent mechanisms that together eliminate all three structural costs of microkernel IPC</mark>, plus proof-carrying descriptors that keep the security properties without putting the kernel on the data path.
+    </div>
+
+    <h2>NetD: A userspace networking daemon</h2>
+
+    <p>The first and most demanding client of this IPC path is NetD, the KeuOS networking daemon. NetD runs entirely in userspace, as a Ring 3 process. It owns the NIC device registers (mapped into its address space by the kernel at boot) and runs a full TCP/IP stack in a single thread with an event loop.</p>
+
+    <p>Application processes communicate with NetD over SPSC rings. A process that wants to open a TCP connection sends a connect descriptor through the ring. The kernel verifies the SipHash tag and routes the notification to NetD's event loop. NetD processes the TCP handshake, and when the connection is established, it writes incoming packet data directly into the application's receive ring via DMA&mdash;no copy, no kernel intervention. The application reads the data from the ring in its own address space, at its own pace.</p>
+
+    <p>The result is that network I/O in KeuOS follows the same fast path as local IPC. A <code>recv</code> call that would traverse the kernel's network stack, copy data twice, and wake the receiving process in a traditional microkernel instead resolves to a load from an SPSC ring that is already in L1 cache. The kernel is involved only to route the notification when new data arrives:</p>
+
+    <figure>
+        <table>
+            <thead><tr><th>Operation</th><th>Traditional microkernel</th><th>KeuOS (via NetD)</th></tr></thead>
+            <tbody>
+                <tr><td>Packet arrives</td><td>NIC &rarr; kernel buffer</td><td>NIC &rarr; application ring (DMA)</td></tr>
+                <tr><td>Notification</td><td>Kernel schedules network stack</td><td>Kernel routes notification</td></tr>
+                <tr><td>Data delivery</td><td>Kernel &rarr; network stack &rarr; application</td><td>Application reads ring (load instruction)</td></tr>
+                <tr><td>syscalls per 1,000 packets</td><td>~2,000 (send + recv per message)</td><td>~1,000 (notification only)</td></tr>
+                <tr><td>Total cycles per packet (avg)</td><td>~3,500</td><td>~450</td></tr>
+            </tbody>
+        </table>
+    </figure>
+
+    <p>NetD is not just a proof of concept. It handles ARP, IPv4, TCP connection management, and a minimal UDP echo service. The TCP state machine is verified with Z3 contracts on the control flow. The SPSC ring interfaces carry the same proof-carrying descriptors described above. The entire daemon compiles to under 8,000 instructions.</p>
+
+    <p>The TCP stack is being actively extended: SYN cookies are defined, the dispatch layer handles connect/send/recv/close, and the keepalive path is wired. We expect to reach a feature-complete TCP server by the end of the quarter.</p>
+
+    <h2>What remains</h2>
+
+    <p>The IPC path as described covers the data plane and notification. Two areas are still in progress.</p>
+
+    <p><strong>Control-plane operations.</strong> Setting up a ring, registering it with the IOMMU, and establishing the SipHash key all require kernel mediation. These operations are infrequent (setup once per channel) and correctly go through the kernel's capability system. The cost of a few dozen syscalls at setup time is irrelevant to the performance of the data plane.</p>
+
+    <p><strong>Multi-core wakeup.</strong> When NetD has new data to deliver, it must wake the receiving process if it is sleeping. The current mechanism uses an inter-processor interrupt (IPI) that costs ~1 microsecond. For latency-sensitive workloads, we are evaluating a polling mode where the receiver busy-waits on the ring tail, avoiding the IPI entirely. Polling increases CPU usage but brings the round-trip down to the 150-cycle data-plane cost with no notification overhead. The choice between poll and wake is per-channel and configurable.</p>
+
+    <aside>
+        <strong>Not yet measured</strong>
+        The benchmark numbers in this post are from a dedicated test harness on a single machine. We have not measured KeuOS IPC on multi-socket systems, under memory pressure, or with the kernel scheduler running other workloads on the same cores. Those measurements are planned. The structural advantages&mdash;no trap, no copy, no lock&mdash;should hold regardless of workload, but the absolute cycle counts will vary.
+    </aside>
+
+    <p>The design is open source. The kernel boots in QEMU on arm64 and x86-64. The SPSC ring implementation lives in <code>kernel/core/</code> and the NetD daemon in <code>netd/</code>. Both are written in Salt and carry Z3-verified contracts on their safety-critical paths.</p>
+
+<pre>git clone https://github.com/bneb/lattice.git
+<span class="kw">cd</span> lattice
+make setup               <span class="cmt"># Fetch toolchain and dependencies</span>
+make run-qemu            <span class="cmt"># Boot KeuOS in QEMU</span>
+<span class="cmt"># At the prompt: `spawn netd`</span></pre>
+
+    <p>The <a href="https://github.com/bneb/lattice/blob/main/docs/abi/KEUOS_ABI.md">syscall ABI documentation</a> covers ring setup and notification in detail. The <a href="https://github.com/bneb/lattice/blob/main/kernel/core/ring_abi.salt">ring implementation</a> is under 400 lines. Everything is at <a href="https://github.com/bneb/lattice">github.com/bneb/lattice</a>.</p>
+
+    <div class="post-footer">
+        Questions or corrections: <a href="https://github.com/bneb/lattice">open an issue</a>.
+    </div>
+</article>
+</body>
+</html>

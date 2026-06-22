@@ -1,4 +1,4 @@
-# Chapter 4: Structs & Enums
+# Chapter 5: Structs & Enums
 
 ## Structs
 
@@ -257,4 +257,4 @@ The package name becomes the namespace. Public items from `package geometry` are
 | Auto traits | `@derive(Clone, Eq, Hash, Ord)` |
 | Import | `use package.module.Type` |
 
-Next: [Chapter 5: Generics](05-generics.md)
+Next: [Chapter 6: Error Handling](06-error-handling.md)
