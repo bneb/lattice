@@ -1,0 +1,20 @@
+{
+  "/Users/kevin/projects/lattice/user/syscall_stubs.S": {
+    "hash": "e8bbec5348176a0492d3080de0e45ff788132795e0af1b7dfad022905a4df99d"
+  },
+  "/Users/kevin/projects/lattice/user/test_memory.salt": {
+    "hash": "4321437d038fd120e9c12a201a2846744eec6e4754ba7ca6280db7dda5dee04d"
+  },
+  "/Users/kevin/projects/lattice/user/lib/syscall.salt": {
+    "hash": "9cd3a9675a6f69aa60b2e9d36822f905b92f3f8bd05adfcbc40fe88e2a6d1497"
+  },
+  "/Users/kevin/projects/lattice/user/std/stdio.salt": {
+    "hash": "406be63e7c0ec2b8e4992539b224cc19ffaabcb372cb073194b2b5c6454b4b95"
+  },
+  "/Users/kevin/projects/lattice/user/ring3_test_b.salt": {
+    "hash": "d7b01f74eaf1137ffcbb1f724951ea05da8698677295a511ab7eafebaa3878a6"
+  },
+  "/Users/kevin/projects/lattice/user/hello.salt": {
+    "hash": "5287bb4c66ee4e635dbc345afaf6046cf75ca9c032066b94d34fdfe630f8dde2"
+  }
+}
