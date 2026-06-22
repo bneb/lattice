@@ -105,6 +105,8 @@ The kernel files met all 5 quality goals, but `salt-front/src/` has major gaps:
 - [x] Zero mutant markers confirmed — both grep hits are false positives
 
 ## Log
+- 2026-06-22: **seeker.rs split** — 699→430 lines (-38%), deep nests 78→48 (-38%). Created seeker_resolve.rs (315 lines).
+- 2026-06-22: **type_bridge.rs extract cast_numeric** — 3,219→3,019 lines (-200). Created type_casts.rs (227 lines).
 - 2026-06-20: **Clippy zero (P1 complete).** S1-002 done — 15 mechanical fixes, 24 categories deferred via Cargo.toml [lints]. Clippy sprint plan created for incremental elimination.
 - 2026-06-20: **Quality Goals complete.** All 5 goals met or explicitly deferred:
   1. <500 LOC/file ✅ (11/12 kernel files; scheduler.salt = legitimate exception)
