@@ -111,6 +111,25 @@ pub fn salt_yield_check() {
 // ═══════════════════════════════════════════════════════════════════
 
 @no_mangle
+pub @no_mangle
+pub fn spawn_and_run(id: u64, elf_addr: u64, pml4: u64) -> u64 {
+    let slot = exec_spawn_process(elf_addr, pml4);
+    if slot == 0 {
+        serial.print("[test] ");
+        serial.print_u64(id);
+        serial.print(": FAIL (no slot)\n");
+        return 0;
+    }
+    process_set_state(slot, PROC_RUNNING);
+    serial.print("[test] ");
+    serial.print_u64(id);
+    serial.print(": spawned slot=");
+    serial.print_u64(slot);
+    serial.print("\n");
+    return slot;
+}
+
+@no_mangle
 pub fn kmain(magic: u32, mb_info: &u8) {
     serial.print("\n\n=== KeuOS v0.10.0 — NetD Ring 3 ===\n\n");
 
@@ -199,11 +218,20 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     process_set_state(slot_task0, PROC_READY);
     serial.print("[KeuOS] Task 0 (dispatcher) spawned\n");
 
-    // First user process — spawn grit BEFORE MoE pipeline
-    // (MoE IPC fastpath test never returns, so grit must start first)
-    let slot_user = spawn_first_user(kernel_pml4);
+    // Userspace integration tests — spawn all programs, let scheduler run them
+    serial.print("[test] Spawning userspace programs...\n");
+    let slot_echo = spawn_and_run(1, get_user_elf_e_addr(), kernel_pml4);
+
+    // Spawn grit from embedded ELF
+    serial.print("[KeuOS] /grit.elf not found, falling back to embedded ELF...\n");
+    let grit_elf = get_user_elf_d_addr();
+    let slot_user = exec_spawn_process(grit_elf, kernel_pml4);
+    serial.print("[debug] exec_spawn_process returned slot=");
+    serial.print_u64(slot_user);
+    serial.print("\n");
     process_set_current(slot_user);
     process_set_state(slot_user, PROC_RUNNING);
+    serial.print("[debug] process_set_state done\n");
 
     let new_rsp  = process_get_kernel_rsp(slot_user);
     let new_pml4 = process_get_pml4(slot_user);
@@ -214,9 +242,10 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     tss_set_rsp0(new_rsp0);
     set_syscall_kernel_rsp0(new_rsp0);
 
-    // Start scheduler just before switching to first user process
+    // Start scheduler so it runs all RUNNING processes (tests first, then grit)
     sched_start();
     serial.print("[KeuOS] Scheduler started on BSP\n");
+    serial.print("[test] Scheduler running — test programs will execute...\n");
     serial.print("[KeuOS] Switching to first user process (pid=");
     serial.print_u64(slot_user);
     serial.print(")...\n");
