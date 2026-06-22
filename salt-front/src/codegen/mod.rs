@@ -2,6 +2,7 @@ pub mod context;
 pub mod phases;
 pub mod abi;
 pub mod type_bridge;
+pub mod type_casts;
 pub mod expr;
 pub mod stmt;
 pub mod intrinsics;
