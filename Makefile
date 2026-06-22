@@ -62,3 +62,6 @@ lettuce-run: build
 
 bench: build
 	@bash benchmarks/lettuce_bench.sh 2>&1 | grep -v 'zoxide\|_ZO_DOCTOR\|GENERIC WARNING\|Blocking functions'
+
+bench-long: build
+	@bash benchmarks/lettuce_bench.sh --long 2>&1 | grep -v 'zoxide\|_ZO_DOCTOR\|GENERIC WARNING\|Blocking functions'

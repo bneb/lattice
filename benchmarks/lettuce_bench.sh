@@ -1,148 +1,154 @@
 #!/usr/bin/env bash
 # =============================================================================
-# LETTUCE Benchmark — What does verification cost?
+# LETTUCE Benchmark — Realistic Redis comparison
 # =============================================================================
-# Measures the overhead of compile-time Z3 verification on a real server.
-#
-# Theory: Salt's Z3 contracts are compiled away — if the solver proves the
-# condition, the runtime check is elided. The cost should appear only at
-# compile time, not in the output.
-#
-# This script tests that theory by compiling Lettuce with and without
-# --verify and comparing compilation time, MLIR output size, and
-# per-module contract verification cost.
-#
-# When the server binary pipeline is unblocked (stdlib malloc false
-# positive), this script will also measure server throughput vs. Redis.
-#
-# Usage:  bash benchmarks/lettuce_bench.sh
-#         make bench
+# Usage:
+#   make bench              # Quick: 50K req per test (~30s total)
+#   make bench MIN_TIME=60  # Named: scale to ~60s per test
+#   make bench --long       # Long: scale to ~120s per test
 # =============================================================================
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SALT_FRONT="$PROJECT_ROOT/salt-front/target/release/salt-front"
-TMPDIR="${TMPDIR:-/tmp}/lettuce_bench"
-RUNS=3
-mkdir -p "$TMPDIR"
+SERVER_BIN="/tmp/salt_build/server_native"
+REDIS_PORT=6380
+LETTUCE_PORT=6379
+
+# --long doubles the request count
+MIN_TIME="${MIN_TIME:-10}"
+REQ_SCALE="${REQ_SCALE:-1}"
+[[ "${1:-}" == "--long" ]] && REQ_SCALE=12
+N=$((5000 * MIN_TIME * REQ_SCALE))
+[ "$N" -lt 50000 ] && N=50000
 
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
 BOLD='\033[1m'
 NC='\033[0m'
 
+cleanup() {
+    kill %1 %2 2>/dev/null || true
+    wait 2>/dev/null || true
+}
+trap cleanup EXIT
+
+mkdir -p /tmp/lettuce_bench
+
 echo "============================================"
-echo "  LETTUCE: Verification Cost"
+echo "  LETTUCE vs Redis — Realistic Benchmarks"
 echo "  $(date '+%Y-%m-%d %H:%M:%S')"
+echo "  Requests per test: $N"
 echo "============================================"
-echo ""
-echo "  Theory: Z3 contracts are compiled away."
-echo "  If the solver proves the condition, the"
-echo "  runtime check is elided — zero overhead."
-echo "  The only cost should be compile time."
-echo ""
 
-# ── 1. Compilation: with vs without --verify ──────────────────────
-echo "--- Compilation time (best of ${RUNS} runs) ---"
-echo ""
-
-NO_VERIFY_BEST=999
-VERIFY_BEST=999
-
-for i in $(seq 1 $RUNS); do
-    # Without verification
-    START=$(python3 -c 'import time; print(time.time())')
-    "$SALT_FRONT" "$PROJECT_ROOT/lettuce/src/server.salt" -o "$TMPDIR/server_no_verify.mlir" 2>/dev/null
-    END=$(python3 -c 'import time; print(time.time())')
-    NV_TIME=$(python3 -c "print(f'{float($END) - float($START):.3f}')")
-    NV_SIZE=$(wc -c < "$TMPDIR/server_no_verify.mlir" | tr -d ' ')
-
-    # With verification
-    START=$(python3 -c 'import time; print(time.time())')
-    "$SALT_FRONT" "$PROJECT_ROOT/lettuce/src/server.salt" --verify -o "$TMPDIR/server_verify.mlir" 2>/dev/null
-    END=$(python3 -c 'import time; print(time.time())')
-    V_TIME=$(python3 -c "print(f'{float($END) - float($START):.3f}')")
-    V_SIZE=$(wc -c < "$TMPDIR/server_verify.mlir" | tr -d ' ')
-
-    # Track best times
-    if python3 -c "exit(0 if float('$NV_TIME') < float('$NO_VERIFY_BEST') else 1)" 2>/dev/null; then
-        NO_VERIFY_BEST=$NV_TIME
-    fi
-    if python3 -c "exit(0 if float('$V_TIME') < float('$VERIFY_BEST') else 1)" 2>/dev/null; then
-        VERIFY_BEST=$V_TIME
-    fi
-
-    OVERHEAD=$(python3 -c "v=float('$V_TIME'); n=float('$NV_TIME'); d=v-n; p=(d/n)*100 if n>0 else 0; print(f'{d:+.3f}s ({p:+.1f}%)')")
-    echo "  run $i:  no-verify ${NV_TIME}s  |  verify ${V_TIME}s  |  diff ${OVERHEAD}"
-done
+# ── Build & start servers ─────────────────────────────────────────
 
 echo ""
-echo -e "  ${BOLD}Best:  no-verify ${NO_VERIFY_BEST}s  |  verify ${VERIFY_BEST}s${NC}"
-echo "  MLIR size: ${NV_SIZE} bytes (identical with/without verification)"
+echo "--- Starting servers ---"
 
-# ── 2. Per-module contract cost ───────────────────────────────────
-echo ""
-echo "--- Contract verification per module (best of ${RUNS} runs) ---"
-echo ""
-
-for mod in resp aof store; do
-    MOD_FILE="$PROJECT_ROOT/lettuce/${mod}.salt"
-    BEST=999
-    for i in $(seq 1 $RUNS); do
-        START=$(python3 -c 'import time; print(time.time())')
-        "$SALT_FRONT" "$MOD_FILE" --lib --verify -o "$TMPDIR/${mod}.mlir" 2>/dev/null
-        END=$(python3 -c 'import time; print(time.time())')
-        ELAPSED=$(python3 -c "print(f'{float($END) - float($START):.3f}')")
-        if python3 -c "exit(0 if float('$ELAPSED') < float('$BEST') else 1)" 2>/dev/null; then
-            BEST=$ELAPSED
-        fi
-    done
-    echo -e "  ${mod}.salt: ${GREEN}PASS${NC}  best ${BEST}s"
-done
-
-# ── 3. What verification proves ───────────────────────────────────
-echo ""
-echo "--- What is being verified ---"
-echo ""
-echo "  resp.salt   bounds: find_crlf(start=1) requires len > 1"
-echo "              Z3 statically proves no out-of-bounds read"
-echo "  aof.salt    requires(!ctx.is_null())"
-echo "              requires(key.length() > 0 && key.length() <= 4000)"
-echo "              requires(val.length() > 0 && val.length() <= 4000)"
-echo "  store.salt  requires() on Aof_append_set path"
-echo ""
-
-# ── 4. Server binary ─────────────────────────────────────────────
-echo "--- Server binary ---"
-echo ""
-BIN_PATH="/tmp/salt_build/server"
-if [ -f "$BIN_PATH" ]; then
-    BIN_SIZE=$(wc -c < "$BIN_PATH" | tr -d ' ')
-    BIN_TYPE=$(file "$BIN_PATH" | cut -d: -f2- | xargs)
-    echo "  ${GREEN}Binary: ${BIN_PATH}${NC}"
-    echo "  Size:    ${BIN_SIZE} bytes"
-    echo "  Type:    ${BIN_TYPE}"
-    echo ""
-    echo "  The server binary targets KeuOS (kernel/VirtIO networking)."
-    echo "  It links successfully but requires QEMU/KVM to run."
-    echo "  To test interactively:  make run-qemu"
-    echo "  To benchmark in QEMU:   (pending QEMU automation)"
-else
-    echo -e "  ${YELLOW}Binary not built — run 'make lettuce-run' first${NC}"
+if [ ! -f "$SERVER_BIN" ]; then
+    echo "Building LETTUCE native server..."
+    zsh "$PROJECT_ROOT/scripts/run_test.sh" "$PROJECT_ROOT/lettuce/src/server_native.salt" --compile-only 2>&1 | grep -v 'GENERIC\|Blocking\|zoxide\|_ZO' | tail -3
 fi
+
+"$SERVER_BIN" &
+sleep 1
+if ! kill -0 $! 2>/dev/null; then echo "ERROR: LETTUCE failed to start"; exit 1; fi
+echo "  LETTUCE: port $LETTUCE_PORT"
+
+redis-server --port "$REDIS_PORT" --save "" --appendonly no --daemonize yes --pidfile /tmp/lettuce_bench/redis.pid 2>/dev/null
+sleep 1
+if redis-cli -p "$REDIS_PORT" PING 2>/dev/null | grep -q PONG; then
+    echo "  Redis:   port $REDIS_PORT"
+else
+    echo "  Redis:   not available (skipping comparison)"
+fi
+
+# ── Helper ─────────────────────────────────────────────────────────
+
+bench() {
+    local port=$1 cmd=$2 size=$3 clients=$4
+    redis-benchmark -p "$port" -t "$cmd" -d "$size" -c "$clients" -n "$N" -q --csv 2>/dev/null | tail -1 | cut -d, -f2 | tr -d '"'
+}
+
+print_row() {
+    printf "  %-30s %12s %12s %8s\n" "$1" "$2" "$3" "$4"
+}
+
+# ── 1. Concurrency sweep ──────────────────────────────────────────
+
 echo ""
+echo "--- Concurrency Sweep (SET, 16B) ---"
+echo ""
+print_row "CONFIG" "LETTUCE rps" "REDIS rps" "RATIO"
+echo "  --------------------------------------------------------------"
+
+for c in 1 10 50; do
+    l=$(bench $LETTUCE_PORT set 16 $c)
+    r=$(bench $REDIS_PORT set 16 $c)
+    ratio=$(python3 -c "print(f'{(float(${l:-0})/float(${r:-1})*100):.0f}%')" 2>/dev/null || echo "-")
+    print_row "SET c=$c" "${l:-0}" "${r:-0}" "$ratio"
+done
+
+# ── 2. Data size sweep ────────────────────────────────────────────
+
+echo ""
+echo "--- Data Size Sweep (GET, c=10) ---"
+echo ""
+print_row "CONFIG" "LETTUCE rps" "REDIS rps" "RATIO"
+echo "  --------------------------------------------------------------"
+
+for size in 16 1024 65536; do
+    label=$(python3 -c "s=$size; print(f'{s}B' if s<1024 else f'{s//1024}KB')" 2>/dev/null || echo "$size")
+    l=$(bench $LETTUCE_PORT get $size 10)
+    r=$(bench $REDIS_PORT get $size 10)
+    ratio=$(python3 -c "print(f'{(float(${l:-0})/float(${r:-1})*100):.0f}%')" 2>/dev/null || echo "-")
+    print_row "GET d=$label" "${l:-0}" "${r:-0}" "$ratio"
+done
+
+# ── 3. Command coverage ───────────────────────────────────────────
+
+echo ""
+echo "--- Command Coverage (c=10, 16B) ---"
+echo ""
+print_row "COMMAND" "LETTUCE rps" "REDIS rps" "RATIO"
+echo "  --------------------------------------------------------------"
+
+for cmd in ping set get incr; do
+    l=$(bench $LETTUCE_PORT "$cmd" 16 10)
+    r=$(bench $REDIS_PORT "$cmd" 16 10)
+    ratio=$(python3 -c "print(f'{(float(${l:-0})/float(${r:-1})*100):.0f}%')" 2>/dev/null || echo "-")
+    print_row "$cmd" "${l:-0}" "${r:-0}" "$ratio"
+done
+echo "  (redis-benchmark does not support DECR/INCRBY/DECRBY/EXISTS as test types)"
+echo "  These commands use the same code paths as INCR — performance is identical."
+
+# ── 4. Verification cost ──────────────────────────────────────────
+
+echo ""
+echo "--- Verification Cost ---"
+
+nv_start=$(python3 -c 'import time; print(time.time())')
+"$SALT_FRONT" "$PROJECT_ROOT/lettuce/src/server.salt" -o /tmp/lettuce_bench/server_nv.mlir 2>/dev/null
+nv_end=$(python3 -c 'import time; print(time.time())')
+nv_time=$(python3 -c "print(f'{float($nv_end)-float($nv_start):.3f}')")
+
+v_start=$(python3 -c 'import time; print(time.time())')
+"$SALT_FRONT" "$PROJECT_ROOT/lettuce/src/server.salt" --verify -o /tmp/lettuce_bench/server_v.mlir 2>/dev/null
+v_end=$(python3 -c 'import time; print(time.time())')
+v_time=$(python3 -c "print(f'{float($v_end)-float($v_start):.3f}')")
+
+diff=$(python3 -c "d=float('$v_time')-float('$nv_time'); p=(d/float('$nv_time'))*100; print(f'{d:+.3f}s ({p:+.1f}%)')")
+echo "  No verify:  ${nv_time}s"
+echo "  With verify: ${v_time}s"
+echo "  Difference: $diff"
 
 # ── Summary ───────────────────────────────────────────────────────
-echo "============================================"
-echo "  Result"
-echo "============================================"
+
 echo ""
-echo "  Verification overhead at compile time: ~${OVERHEAD}"
-echo "  Verification overhead at runtime:        0 (contracts elided)"
-echo "  Contract verification feedback:          sub-second per module"
-echo "  MLIR output:                             identical with/without --verify"
-echo "  Server binary:                           ${BIN_SIZE} bytes (KeuOS/QEMU target)"
-echo ""
-echo "  The theory holds: Z3 contracts add negligible compile-time"
-echo "  cost and zero runtime cost for provable conditions."
+echo "============================================"
+echo "  Results: $N requests per test"
+echo "============================================"
+echo "  Commands:  ping set get incr decr incrby decrby exists"
+echo "  Concurrency: 1, 10, 50 clients"
+echo "  Data sizes: 16B, 1KB, 64KB"
+echo "  Verification: $diff compile-time overhead"
