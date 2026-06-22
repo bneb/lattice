@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -14,21 +14,45 @@
     <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600&family=JetBrains+Mono:wght@400;450&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        /* ═══ Light mode ═══════════════════════════ */
         :root {
             --bg: #f9f8f5;
             --text: #1a1a28;
             --text-secondary: #555566;
             --text-tertiary: #888898;
             --accent: #3d6d8e;
-            --accent-subtle: rgba(61,109,142,0.08);
+            --accent-hover: #234b63;
+            --accent-subtle: rgba(61,109,142,0.07);
             --green: #1a7a6a;
+            --green-subtle: rgba(26,122,106,0.06);
             --border: #e4e0d8;
             --border-light: #eeebe3;
             --surface: #ffffff;
             --surface-hover: #f4f1ea;
             --code-bg: #1e1e2e;
             --code-text: #cdd6f4;
-            --radius: 8px;
+            --nav-bg: rgba(249,248,245,0.88);
+        }
+
+        /* ═══ Dark mode ════════════════════════════ */
+        html[data-theme="dark"] {
+            --bg: #121118;
+            --text: #d8d8e2;
+            --text-secondary: #9898a8;
+            --text-tertiary: #6a6a7a;
+            --accent: #7bb4d4;
+            --accent-hover: #9ccae2;
+            --accent-subtle: rgba(123,180,212,0.08);
+            --green: #4db8a2;
+            --green-subtle: rgba(77,184,162,0.08);
+            --border: #262632;
+            --border-light: #1f1f2a;
+            --surface: #1a1a24;
+            --surface-hover: #20202c;
+            --code-bg: #0e0e16;
+            --code-text: #cdd6f4;
+            --nav-bg: rgba(18,17,24,0.88);
         }
 
         body {
@@ -37,15 +61,16 @@
             color: var(--text);
             line-height: 1.75;
             -webkit-font-smoothing: antialiased;
+            transition: background 0.3s, color 0.3s;
         }
 
         /* ── Navigation ───────────────────────────── */
         nav {
             position: fixed; top: 0; left: 0; right: 0; z-index: 10;
-            background: rgba(249,248,245,0.88);
+            background: var(--nav-bg);
             backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
             border-bottom: 1px solid transparent;
-            transition: border-color 0.3s;
+            transition: border-color 0.3s, background 0.3s;
         }
         nav.scrolled { border-bottom-color: var(--border); }
         nav .inner {
@@ -57,6 +82,15 @@
             font-size: 1.1rem; color: var(--text); text-decoration: none;
         }
         .nav-home span { color: var(--text-tertiary); font-size: 0.85rem; margin-left: 4px; }
+
+        .theme-toggle {
+            background: none; border: 1px solid var(--border);
+            border-radius: 6px; padding: 4px 10px; cursor: pointer;
+            font-size: 0.9rem; color: var(--text-tertiary);
+            transition: border-color 0.2s, color 0.2s;
+            line-height: 1;
+        }
+        .theme-toggle:hover { border-color: var(--text-tertiary); color: var(--text-secondary); }
 
         /* ── Article layout ───────────────────────── */
         article {
@@ -73,11 +107,9 @@
             font-family: 'DM Serif Display', Georgia, serif;
             font-size: 1.45rem; font-weight: 400; line-height: 1.3;
             margin: 64px 0 18px; letter-spacing: -0.01em;
-            color: #111122;
+            color: var(--text);
         }
         p { margin-bottom: 1.15em; }
-        p + p { text-indent: 0; }
-
         .lede {
             font-size: 1.12rem; line-height: 1.7; color: var(--text-secondary);
             margin-bottom: 2em;
@@ -88,7 +120,7 @@
             border-bottom: 1px solid var(--border-light);
         }
 
-        strong { font-weight: 600; color: #111; }
+        strong { font-weight: 600; }
         em { font-style: italic; }
 
         a {
@@ -96,24 +128,24 @@
             text-underline-offset: 4px; text-decoration-thickness: 1px;
             transition: color 0.15s;
         }
-        a:hover { color: #234b63; }
+        a:hover { color: var(--accent-hover); }
 
         /* ── Code ─────────────────────────────────── */
         code {
             font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
             font-size: 0.85em; font-weight: 450;
-            background: rgba(0,0,0,0.05); padding: 2px 5px; border-radius: 4px;
+            background: var(--accent-subtle); padding: 2px 5px; border-radius: 4px;
+            color: var(--text);
         }
         pre {
             background: var(--code-bg); color: var(--code-text);
-            padding: 22px 26px; border-radius: var(--radius);
+            padding: 22px 26px; border-radius: 8px;
             overflow-x: auto;
             font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
             font-size: 0.82rem; font-weight: 400; line-height: 1.6;
             margin: 24px 0;
-            position: relative;
         }
-        pre code { background: none; padding: 0; font-size: inherit; font-weight: inherit; }
+        pre code { background: none; padding: 0; font-size: inherit; font-weight: inherit; color: inherit; }
         .kw { color: #cba6f7; } .fn { color: #89b4fa; } .str { color: #a6e3a1; }
         .num { color: #fab387; } .cmt { color: #6c7086; font-style: italic; }
         .ty { color: #f9e2af; } .op { color: #94e2d5; }
@@ -132,30 +164,32 @@
             font-variant-numeric: tabular-nums;
         }
         tbody tr:hover td { background: var(--accent-subtle); }
-        tbody td:first-child { font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace; font-size: 0.82rem; color: var(--text-secondary); }
-        tbody td:last-child { font-weight: 600; text-align: right; }
-
-        .table-caption {
-            font-size: 0.8rem; color: var(--text-tertiary);
-            margin-top: 8px; text-align: center;
+        tbody td:first-child {
+            font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.82rem; color: var(--text-secondary);
         }
+        tbody td:last-child { font-weight: 600; text-align: right; }
 
         /* ── Aside ─────────────────────────────────── */
         aside {
             background: var(--surface);
             border: 1px solid var(--border);
-            border-radius: var(--radius);
+            border-radius: 8px;
             padding: 18px 22px; margin: 28px 0;
             font-size: 0.92rem; color: var(--text-secondary); line-height: 1.65;
         }
-        aside strong { font-weight: 600; display: block; margin-bottom: 4px; color: var(--text); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; }
+        aside strong {
+            font-weight: 600; display: block; margin-bottom: 4px;
+            font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em;
+            color: var(--text);
+        }
 
         /* ── Finding highlight ─────────────────────── */
         .finding {
             border-left: 3px solid var(--green);
             padding: 16px 20px; margin: 28px 0;
-            background: rgba(26,122,106,0.04);
-            border-radius: 0 var(--radius) var(--radius) 0;
+            background: var(--green-subtle);
+            border-radius: 0 8px 8px 0;
             font-size: 0.95rem;
         }
         .finding mark {
@@ -172,13 +206,28 @@
         .post-footer a { color: var(--text-secondary); }
     </style>
     <script>
+        // Theme from localStorage or system preference
+        (function() {
+            var t = localStorage.getItem('theme') ||
+                (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+        function toggleTheme() {
+            var el = document.documentElement;
+            var next = el.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            el.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+        }
         window.addEventListener('scroll', function() {
             document.querySelector('nav').classList.toggle('scrolled', window.scrollY > 20);
         });
     </script>
 </head>
 <body>
-<nav><div class="inner"><a href="/" class="nav-home">Salt <span>blog</span></a></div></nav>
+<nav><div class="inner">
+    <a href="/" class="nav-home">Salt <span>blog</span></a>
+    <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">◐</button>
+</div></nav>
 <article>
     <h1>Compile-time verification with&nbsp;negative overhead</h1>
     <p class="meta">June 24, 2026</p>
