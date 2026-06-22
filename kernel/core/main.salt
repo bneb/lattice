@@ -212,8 +212,6 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     let slot_a = boot_moe_pipeline(kernel_pml4);
 
     // First user process
-
-    // First user process
     let path: [u8; 11] = [47, 103, 114, 105, 116, 46, 101, 108, 102, 0, 0];
     let path_ptr = (&path) as Ptr<u8>;
     let inode = sys_vfs_lookup(path_ptr as u64);
