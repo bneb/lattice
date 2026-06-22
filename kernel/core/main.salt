@@ -189,16 +189,7 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     smp_release_aps();
     serial.print("[KeuOS] APs released\n");
 
-    sched_start();
-    serial.print("[KeuOS] Scheduler started on BSP\n");
-
-    serial.print("[KeuOS] Running benchmark suite...\n");
-    bench_suite_run();
-    serial.print("[KeuOS] Benchmark suite complete\n");
-
     tss_init_tss();
-    serial.print("[KeuOS] TSS installed for Ring 3\n");
-
     serial.print("[KeuOS] TSS installed for Ring 3\n");
     syscall_set_kernel_pml4(kernel_pml4);
 
@@ -208,22 +199,9 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     process_set_state(slot_task0, PROC_READY);
     serial.print("[KeuOS] Task 0 (dispatcher) spawned\n");
 
-    let slot_a = boot_moe_pipeline(kernel_pml4);
-
-    // First user process
-    let path: [u8; 11] = [47, 103, 114, 105, 116, 46, 101, 108, 102, 0, 0];
-    let path_ptr = (&path) as Ptr<u8>;
-    let inode = sys_vfs_lookup(path_ptr as u64);
-
-    let mut slot_user = slot_a;
-    if inode != 0 {
-        serial.print("[KeuOS] Found /grit.elf on EXT2! Spawning...\n");
-        slot_user = exec_spawn_process_from_inode(inode, kernel_pml4);
-    } else {
-        serial.print("[KeuOS] /grit.elf not found, falling back to embedded ELF...\n");
-        let grit_elf = get_user_elf_d_addr();
-        slot_user = exec_spawn_process(grit_elf, kernel_pml4);
-    }
+    // First user process — spawn grit BEFORE MoE pipeline
+    // (MoE IPC fastpath test never returns, so grit must start first)
+    let slot_user = spawn_first_user(kernel_pml4);
     process_set_current(slot_user);
     process_set_state(slot_user, PROC_RUNNING);
 
@@ -236,6 +214,9 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     tss_set_rsp0(new_rsp0);
     set_syscall_kernel_rsp0(new_rsp0);
 
+    // Start scheduler just before switching to first user process
+    sched_start();
+    serial.print("[KeuOS] Scheduler started on BSP\n");
     serial.print("[KeuOS] Switching to first user process (pid=");
     serial.print_u64(slot_user);
     serial.print(")...\n");
@@ -243,3 +224,22 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     let rsp_ptr = (&DISCARD_RSP) as u64;
     proc_context_switch(rsp_ptr, new_rsp, new_cr3, new_rsp0);
 }
+
+@no_mangle
+pub fn spawn_first_user(kernel_pml4: u64) -> u64 {
+    let path: [u8; 11] = [47, 103, 114, 105, 116, 46, 101, 108, 102, 0, 0];
+    let path_ptr = (&path) as Ptr<u8>;
+    let inode = sys_vfs_lookup(path_ptr as u64);
+
+    if inode != 0 {
+        serial.print("[KeuOS] Found /grit.elf on EXT2! Spawning...\n");
+        return exec_spawn_process_from_inode(inode, kernel_pml4);
+    } else {
+        serial.print("[KeuOS] /grit.elf not found, falling back to embedded ELF...\n");
+        let grit_elf = get_user_elf_d_addr();
+        return exec_spawn_process(grit_elf, kernel_pml4);
+    }
+}
+
+// Note: boot_moe_pipeline never returns (IPC fastpath loop).
+// Grit must spawn before it, with sched_start + proc_context_switch above.

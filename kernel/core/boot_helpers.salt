@@ -286,8 +286,6 @@ pub fn terminal_tx_poll_thread() {
 pub fn boot_nvme_and_ext2() {
     let nvme_bar = sys_discover_nvme_bar();
     if nvme_bar != 0 {
-        // NVMe init requires type-safe Ptr parameters — use the higher-level
-        // wrapper in kernel/drivers/nvme.salt when the ABI wrapper is added.
         serial.print("[KeuOS] NVMe BAR found at 0x");
         serial.print_u64(nvme_bar);
         serial.print(" — driver ABI wrapper pending\n");
