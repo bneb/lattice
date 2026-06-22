@@ -21,6 +21,35 @@ pub fn parse(mb_info_phys: u64) {
         serial.print("[multiboot] Found Memory Map\n");
         parse_mmap(mmap_addr as u64, mmap_length);
     }
+
+    // Check if bit 12 is set (framebuffer info available from Multiboot)
+    if (flags & 4096) != 0 {
+        let fb_addr = *((mb_info_virt + 0x80) as &u64);
+        let fb_pitch = *((mb_info_virt + 0x88) as &u32);
+        let fb_width = *((mb_info_virt + 0x8C) as &u32);
+        let fb_height = *((mb_info_virt + 0x90) as &u32);
+        let fb_bpp = *((mb_info_virt + 0x94) as &u8);
+        let fb_type = *((mb_info_virt + 0x95) as &u8);
+
+        if fb_addr != 0 && fb_width > 0 && fb_height > 0 {
+            framebuffer.init(fb_addr, fb_width, fb_height, fb_pitch, fb_bpp, fb_type);
+            serial.print("[multiboot] Framebuffer: ");
+            serial.print_u64(fb_width as u64);
+            serial.print("x");
+            serial.print_u64(fb_height as u64);
+            serial.print(" @ 0x");
+            serial.print_u64(fb_addr);
+            serial.print("\n");
+        }
+    }
+
+    // Fallback: QEMU std VGA linear framebuffer at 0xFD000000.
+    // When Multiboot doesn't provide framebuffer info (common with -kernel),
+    // use the known PCI VGA BAR address. QEMU maps std VGA at 1024×768×32.
+    if (flags & 4096) == 0 {
+        framebuffer.init(0xFD000000, 1024, 768, 4096, 32, 2);
+        serial.print("[multiboot] Framebuffer (fallback): 1024x768 @ 0xFD000000\n");
+    }
 }
 
 extern fn get_kernel_end_phys() -> u64;
