@@ -1166,7 +1166,7 @@ fn collect_self_concrete_args(ctx: &mut LoweringContext, struct_name: &str) -> O
             crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
             crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
         };
-        let Some(arg) = ctx.current_type_map().get(&p_name).cloned() else { return None; };
+        let arg = ctx.current_type_map().get(&p_name).cloned()?;
         args.push(arg);
     }
     if args.is_empty() { None } else { Some(args) }
@@ -1197,33 +1197,6 @@ fn resolve_codegen_type_self(ctx: &mut LoweringContext, _flattened: &Type) -> Ty
     } else {
         panic!("MonomorphizationError: Failed to resolve SelfType. Map keys: {:?}", ctx.current_type_map().keys().collect::<Vec<_>>());
     }
-}
-
-fn try_infer_struct_params(ctx: &mut LoweringContext, resolved_base: &str) -> Vec<Type> {
-    let template = match ctx.struct_templates().get(resolved_base) {
-        Some(t) => t,
-        None => return vec![],
-    };
-    let generics = match &template.generics {
-        Some(g) => g,
-        None => return vec![],
-    };
-    let current_args = ctx.current_generic_args();
-    if current_args.len() == generics.params.len() {
-        return current_args.clone();
-    }
-    let mut inferred = Vec::new();
-    for param in &generics.params {
-        let p_name = match param {
-            crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-            crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-        };
-        match ctx.current_type_map().get(&p_name).cloned() {
-            Some(arg) => inferred.push(arg),
-            None => return vec![],
-        }
-    }
-    inferred
 }
 
 fn resolve_codegen_type_struct(ctx: &mut LoweringContext, ty: &Type, name: &str) -> Type {

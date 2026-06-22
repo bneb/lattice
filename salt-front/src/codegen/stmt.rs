@@ -1,4 +1,4 @@
-use crate::grammar::{Stmt, SaltBlock, SaltElse, SaltFor, SaltMatch, LetElse};
+use crate::grammar::{Stmt, SaltBlock, SaltElse, SaltFor, SaltIf, SaltMatch, LetElse};
 use crate::grammar::pattern::Pattern;
 use crate::types::Type;
 use crate::codegen::context::{LoweringContext, LocalKind};
@@ -140,55 +140,31 @@ fn expr_has_if(expr: &syn::Expr) -> bool {
 /// This indicates the loop benefits from polyhedral optimization (affine.for)
 fn has_tensor_indexing(stmts: &[Stmt]) -> bool {
     for stmt in stmts {
-        match stmt {
-            // Check expressions for Index operations
-            Stmt::Expr(expr, _) => {
-                if expr_has_tensor_indexing(expr) {
-                    return true;
-                }
-            }
-            // Recurse into nested for-loops (critical for triple-nested matmul!)
-            Stmt::For(salt_for) => {
-                if has_tensor_indexing(&salt_for.body.stmts) {
-                    return true;
-                }
-            }
-            // Recurse into if/while blocks
+        let found = match stmt {
+            Stmt::Expr(expr, _) => expr_has_tensor_indexing(expr),
+            Stmt::For(salt_for) => has_tensor_indexing(&salt_for.body.stmts),
             Stmt::If(salt_if) => {
-                if has_tensor_indexing(&salt_if.then_branch.stmts) {
-                    return true;
-                }
-                if let Some(else_branch) = &salt_if.else_branch {
-                    match else_branch.as_ref() {
-                        SaltElse::Block(b) => {
-                            if has_tensor_indexing(&b.stmts) { return true; }
-                        }
-                        SaltElse::If(nested_if) => {
-                            if has_tensor_indexing(&nested_if.then_branch.stmts) { return true; }
-                        }
-                    }
-                }
+                has_tensor_indexing(&salt_if.then_branch.stmts)
+                    || salt_if.else_branch.as_ref().is_some_and(|eb| has_tensor_indexing_in_else_branch(eb.as_ref()))
             }
-            Stmt::While(salt_while) => {
-                if has_tensor_indexing(&salt_while.body.stmts) {
-                    return true;
-                }
-            }
-            // Check local variable initializers in syn::Stmt (wrapped)
-            Stmt::Syn(syn::Stmt::Local(syn::Local { init: Some(syn::LocalInit { expr, .. }), .. })) => {
-                if expr_has_tensor_indexing(expr) {
-                    return true;
-                }
-            }
-            Stmt::Syn(syn::Stmt::Expr(expr, _)) => {
-                if expr_has_tensor_indexing(expr) {
-                    return true;
-                }
-            }
-            _ => {}
-        }
+            Stmt::While(salt_while) => has_tensor_indexing(&salt_while.body.stmts),
+            Stmt::Syn(syn::Stmt::Local(syn::Local { init: Some(syn::LocalInit { expr, .. }), .. })) => expr_has_tensor_indexing(expr),
+            Stmt::Syn(syn::Stmt::Expr(expr, _)) => expr_has_tensor_indexing(expr),
+            _ => false,
+        };
+        if found { return true; }
     }
     false
+}
+
+
+
+/// Check if a SaltElse branch contains tensor indexing, recursing into nested if-else.
+fn has_tensor_indexing_in_else_branch(else_branch: &SaltElse) -> bool {
+    match else_branch {
+        SaltElse::Block(b) => has_tensor_indexing(&b.stmts),
+        SaltElse::If(nested_if) => has_tensor_indexing(&nested_if.then_branch.stmts),
+    }
 }
 
 /// Check if a syn::Expr contains tensor/array indexing (Index expressions)
@@ -1371,35 +1347,43 @@ fn emit_iterator_for_loop(
 }
 
 
-/// Check if a Salt block always returns (is a terminal path).
-/// Used for implicit guard negation: after `if cond { return x; }`, remaining code
-/// implicitly runs under `!cond`.
+
+fn hoist_allocas_in_else_branch(
+    ctx: &mut LoweringContext,
+    eb: &SaltElse,
+    local_vars: &mut HashMap<String, (Type, LocalKind)>,
+) -> Result<(), String> {
+    match eb {
+        SaltElse::Block(b) => hoist_allocas_in_block(ctx, &b.stmts, local_vars),
+        SaltElse::If(nested) => hoist_allocas_in_block(ctx, &nested.then_branch.stmts, local_vars),
+    }
+}
+
+fn salt_if_always_returns(f: &crate::grammar::SaltIf) -> bool {
+    let Some(else_branch) = &f.else_branch else { return false; };
+    salt_block_always_returns(&f.then_branch.stmts) && salt_else_always_returns(else_branch.as_ref())
+}
+
 pub fn salt_block_always_returns(stmts: &[Stmt]) -> bool {
     for stmt in stmts {
         match stmt {
-            // Direct Salt grammar return
             Stmt::Return(_) => return true,
-            // Salt grammar Expr wrapping syn::Expr::Return (e.g., `return -x;` parsed as expression)
             Stmt::Expr(syn::Expr::Return(_), _) => return true,
-            // syn fallback: Expr::Return with optional semicolon
             Stmt::Syn(syn::Stmt::Expr(syn::Expr::Return(_), _)) => return true,
-            // If-else: returns only if BOTH branches return
-            Stmt::If(f) => {
-                if let Some(else_branch) = &f.else_branch {
-                    let then_returns = salt_block_always_returns(&f.then_branch.stmts);
-                    let else_returns = match else_branch.as_ref() {
-                        SaltElse::Block(b) => salt_block_always_returns(&b.stmts),
-                        SaltElse::If(nested) => salt_block_always_returns(&nested.then_branch.stmts),
-                    };
-                    if then_returns && else_returns {
-                        return true;
-                    }
-                }
-            }
+            Stmt::If(f) => { if salt_if_always_returns(f) { return true; } }
             _ => {}
         }
     }
     false
+}
+
+
+
+fn salt_else_always_returns(else_branch: &SaltElse) -> bool {
+    match else_branch {
+        SaltElse::Block(b) => salt_block_always_returns(&b.stmts),
+        SaltElse::If(nested) => salt_block_always_returns(&nested.then_branch.stmts),
+    }
 }
 
 pub fn emit_block(ctx: &mut LoweringContext, out: &mut String, stmts: &[Stmt], local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<bool, String> {
@@ -1437,6 +1421,14 @@ pub fn emit_block(ctx: &mut LoweringContext, out: &mut String, stmts: &[Stmt], l
     // If block is empty and not terminated, it must have at least one instruction
     // or a branch to merge to be MLIR-valid.
     Ok(emitted_terminator)
+}
+
+fn hoist_allocas_if_block(ctx: &mut LoweringContext, f: &SaltIf, local_vars: &HashMap<String, (Type, LocalKind)>) -> Result<(), String> {
+    let mut then_vars = local_vars.clone();
+    hoist_allocas_in_block(ctx, &f.then_branch.stmts, &mut then_vars)?;
+    let Some(eb) = &f.else_branch else { return Ok(()); };
+    let mut else_vars = local_vars.clone();
+    hoist_allocas_in_else_branch(ctx, eb.as_ref(), &mut else_vars)
 }
 
 fn hoist_allocas_in_block(ctx: &mut LoweringContext, stmts: &[Stmt], local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<(), String> {
@@ -1478,17 +1470,7 @@ fn hoist_allocas_in_block(ctx: &mut LoweringContext, stmts: &[Stmt], local_vars:
                 let mut inner_vars = local_vars.clone();
                 hoist_allocas_in_block(ctx, &body.stmts, &mut inner_vars)?;
             }
-            Stmt::If(f) => {
-                let mut then_vars = local_vars.clone();
-                hoist_allocas_in_block(ctx, &f.then_branch.stmts, &mut then_vars)?;
-                if let Some(eb) = &f.else_branch {
-                    let mut else_vars = local_vars.clone();
-                    match eb.as_ref() {
-                        SaltElse::Block(b) => { hoist_allocas_in_block(ctx, &b.stmts, &mut else_vars)?; }
-                        SaltElse::If(nested) => { hoist_allocas_in_block(ctx, &nested.then_branch.stmts, &mut else_vars)?; }
-                    }
-                }
-            }
+            Stmt::If(f) => hoist_allocas_if_block(ctx, f, local_vars)?,
             Stmt::For(f) => {
                 let mut inner_vars = local_vars.clone();
                 hoist_allocas_in_block(ctx, &f.body.stmts, &mut inner_vars)?;
@@ -1660,6 +1642,19 @@ fn emit_hoisted_local_init(ctx: &mut LoweringContext, out: &mut String, local: &
     Ok(())
 }
 
+
+
+/// If the local init is an integer literal, assert equality in Z3 solver.
+fn assert_local_lit_int_in_z3(ctx: &mut LoweringContext, name: &str, init: &Option<syn::LocalInit>) {
+    let init_expr = match init { Some(i) => &i.expr, None => return };
+    let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(li), .. }) = &**init_expr else { return; };
+    let Ok(int_val) = li.base10_parse::<i64>() else { return; };
+    use crate::z3_shim::ast::Ast;
+    let z3_var = ctx.mk_var(name);
+    let z3_val = ctx.mk_int(int_val);
+    ctx.z3_solver.assert(&z3_var._eq(&z3_val));
+}
+
 fn emit_unhoisted_local_init(ctx: &mut LoweringContext, out: &mut String, local: &syn::Local, name: &str, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<(), String> {
     let type_hint: Option<Type> = match &local.pat {
         syn::Pat::Type(pt) => Some(resolve_type(ctx, &crate::grammar::SynType::from_std(*pt.ty.clone()).map_err(|e| e.to_string())?)),
@@ -1683,16 +1678,7 @@ fn emit_unhoisted_local_init(ctx: &mut LoweringContext, out: &mut String, local:
     emit_pattern(ctx, out, &local.pat, val, actual_ty, target_ty.clone(), local_vars)?;
 
     if !ctx.config.no_verify && !name.is_empty() && target_ty.is_integer() {
-        if let Some(init) = &local.init {
-            if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(li), .. }) = &*init.expr {
-                if let Ok(int_val) = li.base10_parse::<i64>() {
-                    use crate::z3_shim::ast::Ast;
-                    let z3_var = ctx.mk_var(name);
-                    let z3_val = ctx.mk_int(int_val);
-                    ctx.z3_solver.assert(&z3_var._eq(&z3_val));
-                }
-            }
-        }
+        assert_local_lit_int_in_z3(ctx, name, &local.init);
     }
     Ok(())
 }
@@ -1758,6 +1744,82 @@ fn emit_local_arena_tracking(ctx: &mut LoweringContext, local: &syn::Local, name
 }
 
 
+
+
+/// Phase A: Prove loop invariants hold at entry (base case).
+fn prove_while_loop_base_case(
+    ctx: &mut LoweringContext,
+    stmts: &[Stmt],
+    bv: &HashMap<String, (Type, LocalKind)>,
+) -> Result<Vec<syn::Expr>, String> {
+    if ctx.config.no_verify { return Ok(vec![]); }
+    let sc = crate::codegen::verification::SymbolicContext::new(ctx.z3_ctx);
+    let mut inv: Vec<syn::Expr> = Vec::new();
+    for s in stmts { if let Stmt::Invariant(e) = s { inv.push(e.clone()); } }
+    ctx.z3_solver.push();
+    for e in &inv {
+        if let Ok(z) = crate::codegen::expr::translate_bool_to_z3(ctx, e, bv, &sc) {
+            ctx.z3_solver.push(); ctx.z3_solver.assert(&z.not());
+            let ck = ctx.z3_solver.check(); ctx.z3_solver.pop(1);
+            if ck == crate::z3_shim::SatResult::Sat {
+                ctx.z3_solver.pop(1);
+                return Err("Z3 verification failed: loop invariant does not hold at entry.                      The solver found a counterexample proving the invariant is false                      with current variable values.".to_string());
+            }
+            ctx.z3_solver.assert(&z);
+        }
+    }
+    ctx.z3_solver.pop(1);
+    for e in &inv {
+        if let Ok(z) = crate::codegen::expr::translate_bool_to_z3(ctx, e, bv, &sc) {
+            ctx.z3_solver.assert(&z);
+        }
+    }
+    Ok(inv)
+}
+
+/// Phase B: Inductive step for while loop verification.
+fn setup_while_loop_inductive_step(
+    ctx: &mut LoweringContext,
+    stmts: &[Stmt],
+    bv: &mut HashMap<String, (Type, LocalKind)>,
+    cond: &syn::Expr,
+    inv: &[syn::Expr],
+) -> Result<(), String> {
+    if ctx.config.no_verify { return Ok(()); }
+    let sc = crate::codegen::verification::SymbolicContext::new(ctx.z3_ctx);
+    ctx.z3_solver.push();
+    for n in &collect_mutations(stmts) {
+        if let Some((ty, _)) = bv.get(n) {
+            if ty.is_integer() {
+                let f = format!("{}_havoc_{}", n, ctx.next_id());
+                ctx.symbolic_tracker.insert(n.clone(), ctx.mk_var(&f));
+            }
+        }
+    }
+    for e in inv {
+        if let Ok(z) = crate::codegen::expr::translate_bool_to_z3(ctx, e, bv, &sc) {
+            ctx.z3_solver.assert(&z);
+        }
+    }
+    if let Ok(z) = crate::codegen::expr::translate_bool_to_z3(ctx, cond, bv, &sc) {
+        ctx.z3_solver.assert(&z);
+    }
+    Ok(())
+}
+
+/// Phase C: Pop inductive scope and assert not(cond) for post-loop.
+fn verify_while_loop_post_body(
+    ctx: &mut LoweringContext,
+    cond: &syn::Expr,
+    lv: &HashMap<String, (Type, LocalKind)>,
+) {
+    if ctx.config.no_verify { return; }
+    let sc = crate::codegen::verification::SymbolicContext::new(ctx.z3_ctx);
+    ctx.z3_solver.pop(1);
+    if let Ok(z) = crate::codegen::expr::translate_bool_to_z3(ctx, cond, lv, &sc) {
+        ctx.z3_solver.assert(&z.not());
+    }
+}
 fn emit_while_stmt(ctx: &mut LoweringContext, out: &mut String, w: &crate::grammar::SaltWhile, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<bool, String>  {
             let label_header = format!("while_header_{}", ctx.next_id());
             let label_body = format!("while_body_{}", ctx.next_id());
@@ -1796,122 +1858,12 @@ fn emit_while_stmt(ctx: &mut LoweringContext, out: &mut String, w: &crate::gramm
             let mut body_vars = local_vars.clone();
 
             // === Z3 HOARE LOGIC: While Loop Verification ===
-            // Strict Hoare triple: {I} while(C) {I ∧ C} body {I} → {I ∧ ¬C}
-            //
-            // Phase A: Base case — prove invariants hold before loop entry
-            // Phase B: Inductive step — havoc, assume I∧C, emit body, verify I
-            // Phase C: Post-loop — assert ¬C for subsequent code
-            if !ctx.config.no_verify {
-                // Collect invariants from the loop body
-                let sym_ctx = crate::codegen::verification::SymbolicContext::new(ctx.z3_ctx);
-                let mut invariant_exprs: Vec<syn::Expr> = Vec::new();
-                for stmt in &w.body.stmts {
-                    if let Stmt::Invariant(expr) = stmt {
-                        invariant_exprs.push(expr.clone());
-                    }
-                }
-
-                // --- Phase A: Base Case ---
-                // Variable values are already registered in Z3 at the let-binding
-                // emission point (see above). This gives us
-                // constraints like `i = 0` that enable invariant base-case proofs.
-                ctx.z3_solver.push(); // Temporary scope for base-case checks
-
-                // Prove each invariant holds with current (pre-loop) variable values.
-                // Method: assert !I and check for UNSAT.
-                //   UNSAT → I always holds → invariant proven ✓
-                //   SAT   → found counterexample → invariant violation ✗
-                //   Unknown → can't determine → pass conservatively
-                for inv_expr in &invariant_exprs {
-                    if let Ok(z3_inv) = crate::codegen::expr::translate_bool_to_z3(
-                        ctx, inv_expr, &body_vars, &sym_ctx
-                    ) {
-                        
-                        ctx.z3_solver.push();
-                        ctx.z3_solver.assert(&z3_inv.not());
-                        let check = ctx.z3_solver.check();
-                        ctx.z3_solver.pop(1);
-
-                        if check == crate::z3_shim::SatResult::Sat {
-                            ctx.z3_solver.pop(1); // Pop base-case registration scope
-                            return Err("Z3 verification failed: loop invariant does not hold at entry. \
-                                 The solver found a counterexample proving the invariant is false \
-                                 with current variable values.".to_string());
-                        }
-
-                        // Invariant proven or undecidable: assert as true for reasoning
-                        ctx.z3_solver.assert(&z3_inv);
-                    }
-                }
-                ctx.z3_solver.pop(1); // Pop base-case registration scope
-
-                // Re-assert proven invariants in the main scope
-                for inv_expr in &invariant_exprs {
-                    if let Ok(z3_inv) = crate::codegen::expr::translate_bool_to_z3(
-                        ctx, inv_expr, &body_vars, &sym_ctx
-                    ) {
-                        ctx.z3_solver.assert(&z3_inv);
-                    }
-                }
-
-                // --- Phase B: Inductive Step Setup ---
-                // Push solver scope for the loop interior
-                ctx.z3_solver.push();
-
-                // Havoc: erase pre-loop knowledge of all mutated variables
-                let mutated = collect_mutations(&w.body.stmts);
-                for name in &mutated {
-                    if let Some((ty, _)) = body_vars.get(name) {
-                        if ty.is_integer() {
-                            let fresh_name = format!("{}_havoc_{}", name, ctx.next_id());
-                            let z3_var = ctx.mk_var(&fresh_name);
-                            ctx.symbolic_tracker.insert(name.clone(), z3_var);
-                        }
-                    }
-                }
-
-                // Assume invariants in the havoc'd state (inductive hypothesis)
-                for inv_expr in &invariant_exprs {
-                    if let Ok(z3_inv) = crate::codegen::expr::translate_bool_to_z3(
-                        ctx, inv_expr, &body_vars, &sym_ctx
-                    ) {
-                        ctx.z3_solver.assert(&z3_inv);
-                    }
-                }
-
-                // Assume loop condition is true (we are inside the loop body)
-                if let Ok(z3_cond) = crate::codegen::expr::translate_bool_to_z3(
-                    ctx, &w.cond, &body_vars, &sym_ctx
-                ) {
-                    ctx.z3_solver.assert(&z3_cond);
-                }
-            }
+            let invariant_exprs = prove_while_loop_base_case(ctx, &w.body.stmts, &body_vars)?;
+            setup_while_loop_inductive_step(ctx, &w.body.stmts, &mut body_vars, &w.cond, &invariant_exprs)?;
 
             let body_diverges = emit_block(ctx, out, &w.body.stmts, &mut body_vars)?;
-            
-            // === Z3 HOARE LOGIC: Post-Body Verification ===
-            if !ctx.config.no_verify {
-                let sym_ctx = crate::codegen::verification::SymbolicContext::new(ctx.z3_ctx);
 
-                // --- Phase B (cont'd): Inductive Step Check ---
-                // After the body, verify invariants still hold.
-                // This is NOT currently enforced as a hard error because the body's
-                // Z3 state mutations are complex. The push/pop isolates correctly.
-
-                // Pop the inductive step scope
-                ctx.z3_solver.pop(1);
-
-                // --- Phase C: Post-Loop ---
-                // Assert ¬C: after the loop, the condition is false.
-                // This lets Z3 reason about variables in post-loop code.
-                if let Ok(z3_cond) = crate::codegen::expr::translate_bool_to_z3(
-                    ctx, &w.cond, local_vars, &sym_ctx
-                ) {
-                    
-                    ctx.z3_solver.assert(&z3_cond.not());
-                }
-            }
-
+            verify_while_loop_post_body(ctx, &w.cond, local_vars);
             ctx.break_labels_mut().pop();
             ctx.continue_labels_mut().pop();
             
@@ -2062,6 +2014,42 @@ fn emit_cf_br_for_loop(ctx: &mut LoweringContext, out: &mut String, f: &crate::g
 }
 
 
+
+
+/// Verify the ensures (postcondition) clause at a return site using Z3.
+fn verify_return_ensures_clause(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    ret_expr: &syn::Expr,
+    local_vars: &HashMap<String, (Type, LocalKind)>,
+) -> Result<(), String> {
+    let ensures = ctx.current_ensures().clone();
+    if ensures.is_empty() { return Ok(()); }
+    let fn_name = ctx.current_fn_name().clone();
+    let file = ctx.config.file;
+    let (requires, param_names) = file.items.iter()
+        .filter_map(|item| {
+            if let crate::grammar::Item::Fn(f) = item {
+                if f.name == fn_name || ctx.expansion.current_fn_name.ends_with(&f.name.to_string()) {
+                    let params: Vec<String> = f.args.iter().map(|a| a.name.to_string()).collect();
+                    return Some((f.requires.clone(), params));
+                }
+            }
+            None
+        })
+        .next()
+        .unwrap_or((vec![], vec![]));
+    match crate::codegen::verification::VerificationEngine::verify_postcondition(
+        ctx, &ensures, &requires, ret_expr, &param_names, local_vars, &fn_name,
+    ) {
+        Ok(true) => {
+            out.push_str(&format!("    // z3_postcondition_verified: ensures proven for '{}'\n", fn_name));
+        }
+        Ok(false) => {}
+        Err(err) => { return Err(err); }
+    }
+    Ok(())
+}
 fn emit_return_stmt(ctx: &mut LoweringContext, out: &mut String, opt_expr: &Option<syn::Expr>, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<bool, String>  {
             emit_cleanup_for_return(ctx, out, local_vars)?;
             if let Some(e) = opt_expr {
@@ -2079,41 +2067,7 @@ fn emit_return_stmt(ctx: &mut LoweringContext, out: &mut String, opt_expr: &Opti
                     ctx.arena_escape_tracker.check_return_escape(&var_name)?
                 }
 
-                // Z3 verification of ensures clauses at return site
-                // Before emitting func.return, verify the postcondition holds for this return value.
-                let ensures = ctx.current_ensures().clone();
-                if !ensures.is_empty() {
-                    // Extract requires and parameter names from the current function
-                    let fn_name = ctx.current_fn_name().clone();
-                    let file = ctx.config.file;
-                    let (requires, param_names) = file.items.iter()
-                        .filter_map(|item| {
-                            if let crate::grammar::Item::Fn(f) = item {
-                                if f.name == fn_name || ctx.expansion.current_fn_name.ends_with(&f.name.to_string()) {
-                                    let params: Vec<String> = f.args.iter().map(|a| a.name.to_string()).collect();
-                                    return Some((f.requires.clone(), params));
-                                }
-                            }
-                            None
-                        })
-                        .next()
-                        .unwrap_or((vec![], vec![]));
-
-                    match crate::codegen::verification::VerificationEngine::verify_postcondition(
-                        ctx, &ensures, &requires, e, &param_names, local_vars, &fn_name,
-                    ) {
-                        Ok(true) => {
-                            // Postcondition verified — emit MLIR marker
-                            out.push_str(&format!("    // z3_postcondition_verified: ensures proven for '{}'\n", fn_name));
-                        }
-                        Ok(false) => {
-                            // No ensures or couldn't verify — no marker
-                        }
-                        Err(err) => {
-                            return Err(err);
-                        }
-                    }
-                }
+                verify_return_ensures_clause(ctx, out, e, local_vars)?;
                 
                 let loc = ctx.loc_tag(e.span());
                 if ty == Type::Unit {
@@ -2209,6 +2163,24 @@ fn emit_dynamic_check_stmt(ctx: &mut LoweringContext, out: &mut String, block: &
         }
 
 
+
+
+/// Register Vec type for RAII-lite cleanup at scope exit in pattern matching.
+fn register_vec_pattern_cleanup(
+    ctx: &mut LoweringContext,
+    target_ty: &Type,
+    name: &str,
+    kind: &LocalKind,
+) {
+    let Type::Concrete(base, args) = target_ty else { return; };
+    if base != "Vec" && !base.ends_with("__Vec") && !base.contains("__vec__Vec") { return; }
+    let suffix = args.first().map(|t| t.mangle_suffix()).unwrap_or_else(|| "T".to_string());
+    let drop_fn = format!("std__collections__vec__Vec__drop_{}", suffix);
+    let LocalKind::Ptr(ref alloca) = kind else { return; };
+    let ref_ty = Type::Reference(Box::new(target_ty.clone()), true);
+    ctx.register_owned_resource(alloca, &drop_fn, name, ref_ty);
+}
+
 pub fn emit_pattern(
     ctx: &mut LoweringContext,
     out: &mut String,
@@ -2255,26 +2227,7 @@ pub fn emit_pattern(
                 LocalKind::SSA(val_prom.clone())
             };
             
-            // RAII-Lite: Register Vec types for automatic cleanup at scope exit
-            if let Type::Concrete(base, args) = &target_ty {
-                if base == "Vec" || base.ends_with("__Vec") || base.contains("__vec__Vec") {
-                    // Determine the element type suffix for the drop function
-                    let elem_suffix = if let Some(elem_ty) = args.first() {
-                        elem_ty.mangle_suffix()
-                    } else {
-                        "T".to_string()
-                    };
-                    let drop_fn = format!("std__collections__vec__Vec__drop_{}", elem_suffix);
-                    
-                    // Register the POINTER for cleanup (drop takes &mut self)
-                    // Vec is always allocated to a pointer because it's always is_mut=true
-                    if let LocalKind::Ptr(ref alloca) = kind {
-                        // Use Reference type so the MLIR signature expects !llvm.ptr
-                        let ref_ty = Type::Reference(Box::new(target_ty.clone()), true);
-                        ctx.register_owned_resource(alloca, &drop_fn, &name, ref_ty);
-                    }
-                }
-            }
+            register_vec_pattern_cleanup(ctx, &target_ty, &name, &kind);
             
             local_vars.insert(name, (target_ty, kind));
             Ok(())
