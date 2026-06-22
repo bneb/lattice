@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 use std::fmt::Write;
-use crate::grammar::{SaltFile, SaltBlock, Stmt, SaltIf, SaltElse, Item};
+use crate::grammar::{SaltFile, SaltBlock, SaltWhile, SaltFor, Stmt, SaltIf, SaltElse, Item};
 
 /// Runtime value.
 #[derive(Clone, Debug)]
@@ -139,32 +139,11 @@ impl Interpreter {
 
         // Built-in functions
         match name {
-            "println" => {
-                if let Some(arg) = args.first() {
-                    writeln!(self.stdout, "{}", arg).ok();
-                } else {
-                    writeln!(self.stdout).ok();
-                }
-                return Ok(Value::Unit);
-            }
-            "print" => {
-                if let Some(arg) = args.first() {
-                    write!(self.stdout, "{}", arg).ok();
-                }
-                return Ok(Value::Unit);
-            }
-            "abs" => {
-                if let Some(arg) = args.first() { return Ok(Value::I64(arg.as_i64().abs())); }
-                return Ok(Value::I64(0));
-            }
-            "max" => {
-                if args.len() >= 2 { return Ok(Value::I64(args[0].as_i64().max(args[1].as_i64()))); }
-                return Ok(Value::I64(0));
-            }
-            "min" => {
-                if args.len() >= 2 { return Ok(Value::I64(args[0].as_i64().min(args[1].as_i64()))); }
-                return Ok(Value::I64(0));
-            }
+            "println" => return self.call_builtin_println(args),
+            "print" => return self.call_builtin_print(args),
+            "abs" => return Ok(args.first().map(|a| Value::I64(a.as_i64().abs())).unwrap_or(Value::I64(0))),
+            "max" => return Ok(if args.len() >= 2 { Value::I64(args[0].as_i64().max(args[1].as_i64())) } else { Value::I64(0) }),
+            "min" => return Ok(if args.len() >= 2 { Value::I64(args[0].as_i64().min(args[1].as_i64())) } else { Value::I64(0) }),
             _ => {}
         }
 
@@ -183,6 +162,22 @@ impl Interpreter {
         // control-flow signal for stopping block execution inside the function.
         // The caller must receive the plain value.
         Ok(result.unwrap_return())
+    }
+
+    fn call_builtin_println(&mut self, args: &[Value]) -> Result<Value, String> {
+        if let Some(arg) = args.first() {
+            writeln!(self.stdout, "{}", arg).ok();
+        } else {
+            writeln!(self.stdout).ok();
+        }
+        Ok(Value::Unit)
+    }
+
+    fn call_builtin_print(&mut self, args: &[Value]) -> Result<Value, String> {
+        if let Some(arg) = args.first() {
+            write!(self.stdout, "{}", arg).ok();
+        }
+        Ok(Value::Unit)
     }
 
     fn exec_block(&mut self, block: &SaltBlock, scope: &mut HashMap<String, Value>) -> Result<Value, String> {
@@ -208,41 +203,8 @@ impl Interpreter {
             // Salt's own If
             Stmt::If(salt_if) => self.exec_salt_if(salt_if, scope),
 
-            // Salt's own While
-            Stmt::While(salt_while) => {
-                loop {
-                    let cond = self.eval_expr(&salt_while.cond, scope)?;
-                    if cond.is_return() { return Ok(cond); }
-                    if !cond.as_bool() { break; }
-                    let result = self.exec_block(&salt_while.body, scope)?;
-                    if result.is_return() { return Ok(result); }
-                }
-                Ok(Value::Unit)
-            }
-
-            // Salt's own For..in
-            Stmt::For(salt_for) => {
-                let iter_name = self.extract_pat_name(&salt_for.pat);
-
-                // Expect a range expression
-                if let syn::Expr::Range(range) = &salt_for.iter {
-                    let start = if let Some(s) = &range.start {
-                        self.eval_expr(s, scope)?.as_i64()
-                    } else { 0 };
-                    let end = if let Some(e) = &range.end {
-                        self.eval_expr(e, scope)?.as_i64()
-                    } else { return Err("Unbounded range".to_string()); };
-
-                    for i in start..end {
-                        scope.insert(iter_name.clone(), Value::I64(i));
-                        let result = self.exec_block(&salt_for.body, scope)?;
-                        if result.is_return() { return Ok(result); }
-                    }
-                    Ok(Value::Unit)
-                } else {
-                    Err("Only range-based for loops supported in interpreter".to_string())
-                }
-            }
+            Stmt::While(salt_while) => self.exec_stmt_while(salt_while, scope),
+            Stmt::For(salt_for) => self.exec_stmt_for(salt_for, scope),
 
             // Return
             Stmt::Return(expr) => {
@@ -271,6 +233,33 @@ impl Interpreter {
 
             // Invariant, Move, MapWindow, WithRegion, Unsafe, LetElse — skip
             _ => Ok(Value::Unit),
+        }
+    }
+
+    fn exec_stmt_while(&mut self, sw: &SaltWhile, scope: &mut HashMap<String, Value>) -> Result<Value, String> {
+        loop {
+            let cond = self.eval_expr(&sw.cond, scope)?;
+            if cond.is_return() { return Ok(cond); }
+            if !cond.as_bool() { break; }
+            let result = self.exec_block(&sw.body, scope)?;
+            if result.is_return() { return Ok(result); }
+        }
+        Ok(Value::Unit)
+    }
+
+    fn exec_stmt_for(&mut self, sf: &SaltFor, scope: &mut HashMap<String, Value>) -> Result<Value, String> {
+        let iter_name = self.extract_pat_name(&sf.pat);
+        if let syn::Expr::Range(range) = &sf.iter {
+            let start = if let Some(s) = &range.start { self.eval_expr(s, scope)?.as_i64() } else { 0 };
+            let end = if let Some(e) = &range.end { self.eval_expr(e, scope)?.as_i64() } else { return Err("Unbounded range".to_string()); };
+            for i in start..end {
+                scope.insert(iter_name.clone(), Value::I64(i));
+                let result = self.exec_block(&sf.body, scope)?;
+                if result.is_return() { return Ok(result); }
+            }
+            Ok(Value::Unit)
+        } else {
+            Err("Only range-based for loops supported in interpreter".to_string())
         }
     }
 
@@ -449,38 +438,14 @@ impl Interpreter {
     }
 
     fn eval_expr_binary(&mut self, bin: &syn::ExprBinary, scope: &mut HashMap<String, Value>) -> Result<Value, String> {
-        match &bin.op {
-            syn::BinOp::AddAssign(_) | syn::BinOp::SubAssign(_) |
-            syn::BinOp::MulAssign(_) | syn::BinOp::DivAssign(_) |
-            syn::BinOp::RemAssign(_) => {
-                let right = self.eval_expr(&bin.right, scope)?;
-                if right.is_return() { return Ok(right); }
-                if let syn::Expr::Path(p) = &*bin.left {
-                    if let Some(ident) = p.path.get_ident() {
-                        let name = ident.to_string();
-                        let current = scope.get(&name).cloned().unwrap_or(Value::I64(0));
-                        let l = current.as_i64();
-                        let r = right.as_i64();
-                        let new_val = match &bin.op {
-                            syn::BinOp::AddAssign(_) => Value::I64(l.wrapping_add(r)),
-                            syn::BinOp::SubAssign(_) => Value::I64(l.wrapping_sub(r)),
-                            syn::BinOp::MulAssign(_) => Value::I64(l.wrapping_mul(r)),
-                            syn::BinOp::DivAssign(_) => if r != 0 { Value::I64(l / r) } else { return Err("Division by zero".into()); },
-                            syn::BinOp::RemAssign(_) => if r != 0 { Value::I64(l % r) } else { return Err("Modulo by zero".into()); },
-                            _ => unreachable!(),
-                        };
-                        scope.insert(name, new_val);
-                        return Ok(Value::Unit);
-                    }
-                }
-                return Ok(Value::Unit);
-            }
-            _ => {}
+        if let Some(val) = self.try_eval_compound_assign(bin, scope)? {
+            return Ok(val);
         }
 
         let left = self.eval_expr(&bin.left, scope)?;
         if left.is_return() { return Ok(left); }
 
+        // Short-circuit evaluation (And, Or)
         match &bin.op {
             syn::BinOp::And(_) => {
                 if !left.as_bool() { return Ok(Value::Bool(false)); }
@@ -502,17 +467,10 @@ impl Interpreter {
         let r = right.as_i64();
 
         match &bin.op {
-            syn::BinOp::Add(_) => Ok(Value::I64(l.wrapping_add(r))),
-            syn::BinOp::Sub(_) => Ok(Value::I64(l.wrapping_sub(r))),
-            syn::BinOp::Mul(_) => Ok(Value::I64(l.wrapping_mul(r))),
-            syn::BinOp::Div(_) => { if r == 0 { return Err("Division by zero".into()); } Ok(Value::I64(l / r)) },
-            syn::BinOp::Rem(_) => { if r == 0 { return Err("Modulo by zero".into()); } Ok(Value::I64(l % r)) },
-            syn::BinOp::Eq(_) => Ok(Value::Bool(l == r)),
-            syn::BinOp::Ne(_) => Ok(Value::Bool(l != r)),
-            syn::BinOp::Lt(_) => Ok(Value::Bool(l < r)),
-            syn::BinOp::Le(_) => Ok(Value::Bool(l <= r)),
-            syn::BinOp::Gt(_) => Ok(Value::Bool(l > r)),
-            syn::BinOp::Ge(_) => Ok(Value::Bool(l >= r)),
+            syn::BinOp::Add(_) | syn::BinOp::Sub(_) | syn::BinOp::Mul(_) |
+            syn::BinOp::Div(_) | syn::BinOp::Rem(_) => self.eval_arithmetic_op(&bin.op, l, r),
+            syn::BinOp::Eq(_) | syn::BinOp::Ne(_) | syn::BinOp::Lt(_) |
+            syn::BinOp::Le(_) | syn::BinOp::Gt(_) | syn::BinOp::Ge(_) => self.eval_comparison_op(&bin.op, l, r),
             syn::BinOp::BitAnd(_) => Ok(Value::I64(l & r)),
             syn::BinOp::BitOr(_) => Ok(Value::I64(l | r)),
             syn::BinOp::BitXor(_) => Ok(Value::I64(l ^ r)),
@@ -520,6 +478,53 @@ impl Interpreter {
             syn::BinOp::Shr(_) => Ok(Value::I64(l >> r)),
             _ => Ok(Value::Unit),
         }
+    }
+
+    fn try_eval_compound_assign(
+        &mut self, bin: &syn::ExprBinary, scope: &mut HashMap<String, Value>,
+    ) -> Result<Option<Value>, String> {
+        if !matches!(bin.op, syn::BinOp::AddAssign(_) | syn::BinOp::SubAssign(_) |
+            syn::BinOp::MulAssign(_) | syn::BinOp::DivAssign(_) | syn::BinOp::RemAssign(_))
+        {
+            return Ok(None);
+        }
+        let right = self.eval_expr(&bin.right, scope)?;
+        if right.is_return() { return Ok(Some(right)); }
+        let syn::Expr::Path(p) = &*bin.left else { return Ok(Some(Value::Unit)); };
+        let Some(ident) = p.path.get_ident() else { return Ok(Some(Value::Unit)); };
+        let name = ident.to_string();
+        let current = scope.get(&name).cloned().unwrap_or(Value::I64(0));
+        let (l, r) = (current.as_i64(), right.as_i64());
+        let new_val = match &bin.op {
+            syn::BinOp::AddAssign(_) => Value::I64(l.wrapping_add(r)),
+            syn::BinOp::SubAssign(_) => Value::I64(l.wrapping_sub(r)),
+            syn::BinOp::MulAssign(_) => Value::I64(l.wrapping_mul(r)),
+            syn::BinOp::DivAssign(_) => { if r == 0 { return Err("Division by zero".into()); } Value::I64(l / r) }
+            syn::BinOp::RemAssign(_) => { if r == 0 { return Err("Modulo by zero".into()); } Value::I64(l % r) }
+            _ => unreachable!(),
+        };
+        scope.insert(name, new_val);
+        Ok(Some(Value::Unit))
+    }
+
+    fn eval_arithmetic_op(&self, op: &syn::BinOp, l: i64, r: i64) -> Result<Value, String> {
+        match op {
+            syn::BinOp::Add(_) => Ok(Value::I64(l.wrapping_add(r))),
+            syn::BinOp::Sub(_) => Ok(Value::I64(l.wrapping_sub(r))),
+            syn::BinOp::Mul(_) => Ok(Value::I64(l.wrapping_mul(r))),
+            syn::BinOp::Div(_) => { if r == 0 { return Err("Division by zero".into()); } Ok(Value::I64(l / r)) }
+            syn::BinOp::Rem(_) => { if r == 0 { return Err("Modulo by zero".into()); } Ok(Value::I64(l % r)) }
+            _ => unreachable!(),
+        }
+    }
+
+    fn eval_comparison_op(&self, op: &syn::BinOp, l: i64, r: i64) -> Result<Value, String> {
+        Ok(Value::Bool(match op {
+            syn::BinOp::Eq(_) => l == r, syn::BinOp::Ne(_) => l != r,
+            syn::BinOp::Lt(_) => l < r, syn::BinOp::Le(_) => l <= r,
+            syn::BinOp::Gt(_) => l > r, syn::BinOp::Ge(_) => l >= r,
+            _ => unreachable!(),
+        }))
     }
 
     fn eval_expr_unary(&mut self, un: &syn::ExprUnary, scope: &mut HashMap<String, Value>) -> Result<Value, String> {

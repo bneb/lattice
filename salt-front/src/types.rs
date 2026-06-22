@@ -613,13 +613,9 @@ impl Type {
         clean1 == clean2
     }
 
-    pub fn size_of(&self, struct_registry: &HashMap<TypeKey, StructInfo>) -> usize {
-        self.internal_size_of(struct_registry, 0)
-    }
-
-    fn internal_size_of(&self, struct_registry: &HashMap<TypeKey, StructInfo>, depth: usize) -> usize {
-        if depth > 32 { return 8; }
-        
+    pub fn size_of(&self, struct_registry: &HashMap<TypeKey, StructInfo>) -> usize { self.internal_size_of(struct_registry, 0) }
+    fn internal_size_of(&self, r: &HashMap<TypeKey, StructInfo>, d: usize) -> usize {
+        if d > 32 { return 8; }
         match self {
             Type::I8 | Type::U8 | Type::Bool => 1,
             Type::Never => 0,
@@ -627,84 +623,88 @@ impl Type {
             Type::I32 | Type::U32 | Type::F32 => 4,
             Type::I64 | Type::U64 | Type::Usize | Type::F64 => 8,
             Type::Pointer { .. } | Type::Reference(_, _) | Type::Owned(_) | Type::Fn(_, _) | Type::Generic(_) | Type::SelfType | Type::Unit => 8,
-            // Atomic<T> storage is T, not a pointer. Delegate to inner type.
-            Type::Atomic(inner) => inner.internal_size_of(struct_registry, depth + 1),
-            Type::Array(inner, len, _) => inner.internal_size_of(struct_registry, depth + 1) * len,
-            Type::Tensor(inner, dims) => inner.internal_size_of(struct_registry, depth + 1) * dims.iter().product::<usize>(),
-            Type::Tuple(elems) => {
-                if elems.is_empty() { return 0; }
-                let mut offset = 0;
-                let mut max_align = 1;
-                for ty in elems {
-                    let align = ty.internal_align_of(struct_registry, depth + 1);
-                    max_align = max_align.max(align);
-                    offset = (offset + align - 1) & !(align - 1);
-                    offset += ty.internal_size_of(struct_registry, depth + 1);
-                }
-                (offset + max_align - 1) & !(max_align - 1)
-            }
-            Type::Struct(name) | Type::Enum(name) | Type::Concrete(name, _) => {
-                if name == "Option" { return 16; } // Special case for Option enum test
-                let lookup_name = match self {
-                    Type::Concrete(_, _) => self.mangle_suffix(),
-                    _ => name.clone(),
-                };
-                if let Some(info) = struct_registry.values().find(|info| info.name == lookup_name) {
-                    let mut offset = 0;
-                    let mut max_align = 1;
-                    for (i, ty) in info.field_order.iter().enumerate() {
-                        let mut align = ty.internal_align_of(struct_registry, depth + 1);
-                        if let Some(Some(explicit_align)) = info.field_alignments.get(i) {
-                            align = align.max(*explicit_align as usize);
-                        }
-                        max_align = max_align.max(align);
-                        offset = (offset + align - 1) & !(align - 1);
-                        offset += ty.internal_size_of(struct_registry, depth + 1);
-                    }
-                    (offset + max_align - 1) & !(max_align - 1)
-                } else { 8 }
-            }
+            Type::Atomic(inner) => inner.internal_size_of(r, d + 1),
+            Type::Array(inner, len, _) => inner.internal_size_of(r, d + 1) * len,
+            Type::Tensor(inner, dims) => inner.internal_size_of(r, d + 1) * dims.iter().product::<usize>(),
+            Type::Tuple(..) => self.size_of_tuple(r, d),
+            Type::Struct(..) => self.size_of_struct(r, d),
+            Type::Enum(..) => self.size_of_enum(r, d),
+            Type::Concrete(..) => self.size_of_concrete(r, d),
             Type::Window(_, _) => 16,
         }
     }
-
-    pub fn align_of(&self, struct_registry: &HashMap<TypeKey, StructInfo>) -> usize {
-        self.internal_align_of(struct_registry, 0)
+    fn size_of_tuple(&self, r: &HashMap<TypeKey, StructInfo>, d: usize) -> usize {
+        let Type::Tuple(elems) = self else { unreachable!() };
+        if elems.is_empty() { return 0; }
+        let (off, max_a) = elems.iter().fold((0usize, 1usize), |(off, max_a), ty| {
+            let a = ty.internal_align_of(r, d + 1);
+            (((off + a - 1) & !(a - 1)) + ty.internal_size_of(r, d + 1), max_a.max(a))
+        });
+        (off + max_a - 1) & !(max_a - 1)
     }
-
-    fn internal_align_of(&self, struct_registry: &HashMap<TypeKey, StructInfo>, depth: usize) -> usize {
-        if depth > 32 { return 8; }
-
+    fn size_of_fields(&self, info: &StructInfo, r: &HashMap<TypeKey, StructInfo>, d: usize) -> usize {
+        let (off, max_a) = info.field_order.iter().enumerate().fold((0usize, 1usize), |(off, max_a), (i, ty)| {
+            let a = ty.internal_align_of(r, d + 1).max(info.field_alignments.get(i).and_then(|o| *o).unwrap_or(0) as usize);
+            (((off + a - 1) & !(a - 1)) + ty.internal_size_of(r, d + 1), max_a.max(a))
+        });
+        (off + max_a - 1) & !(max_a - 1)
+    }
+    fn size_of_struct(&self, r: &HashMap<TypeKey, StructInfo>, d: usize) -> usize {
+        let Type::Struct(name) = self else { unreachable!() };
+        let Some(info) = r.values().find(|i| i.name == *name) else { return 8; };
+        self.size_of_fields(info, r, d)
+    }
+    fn size_of_enum(&self, r: &HashMap<TypeKey, StructInfo>, d: usize) -> usize {
+        let Type::Enum(name) = self else { unreachable!() };
+        if name == "Option" { return 16; }
+        let Some(info) = r.values().find(|i| i.name == *name) else { return 8; };
+        self.size_of_fields(info, r, d)
+    }
+    fn size_of_concrete(&self, r: &HashMap<TypeKey, StructInfo>, d: usize) -> usize {
+        let n = self.mangle_suffix();
+        let Some(info) = r.values().find(|i| i.name == n) else { return 8; };
+        self.size_of_fields(info, r, d)
+    }
+    pub fn align_of(&self, struct_registry: &HashMap<TypeKey, StructInfo>) -> usize { self.internal_align_of(struct_registry, 0) }
+    fn internal_align_of(&self, r: &HashMap<TypeKey, StructInfo>, d: usize) -> usize {
+        if d > 32 { return 8; }
         match self {
             Type::I8 | Type::U8 | Type::Bool | Type::Never | Type::Unit => 1,
             Type::I16 | Type::U16 => 2,
             Type::I32 | Type::U32 | Type::F32 => 4,
             Type::I64 | Type::U64 | Type::Usize | Type::F64 => 8,
             Type::Pointer { .. } | Type::Reference(_, _) | Type::Owned(_) | Type::Fn(_, _) | Type::Generic(_) | Type::SelfType => 8,
-            // Atomic<T> alignment follows inner type T.
-            Type::Atomic(inner) => inner.internal_align_of(struct_registry, depth + 1),
-            Type::Array(inner, _, _) | Type::Tensor(inner, _) => inner.internal_align_of(struct_registry, depth + 1),
-            Type::Tuple(elems) => {
-                elems.iter().map(|ty| ty.internal_align_of(struct_registry, depth + 1)).max().unwrap_or(1)
-            }
-            Type::Struct(name) | Type::Enum(name) | Type::Concrete(name, _) => {
-                let lookup_name = match self {
-                    Type::Concrete(_, _) => self.mangle_suffix(),
-                    _ => name.clone(),
-                };
-                if let Some(info) = struct_registry.values().find(|info| info.name == lookup_name) {
-                    info.field_order.iter().enumerate().map(|(i, ty)| {
-                        let mut align = ty.internal_align_of(struct_registry, depth + 1);
-                        if let Some(Some(explicit_align)) = info.field_alignments.get(i) {
-                            align = align.max(*explicit_align as usize);
-                        }
-                        align
-                    }).max().unwrap_or(1)
-                } else { 8 }
-            }
+            Type::Atomic(inner) => inner.internal_align_of(r, d + 1),
+            Type::Array(inner, _, _) | Type::Tensor(inner, _) => inner.internal_align_of(r, d + 1),
+            Type::Tuple(elems) => elems.iter().map(|ty| ty.internal_align_of(r, d + 1)).max().unwrap_or(1),
+            Type::Struct(..) => self.align_of_struct(r, d),
+            Type::Enum(..) => self.align_of_enum(r, d),
+            Type::Concrete(..) => self.align_of_concrete(r, d),
             Type::Window(_, _) => 8,
         }
-    }}
+    }
+    fn align_of_fields(&self, info: &StructInfo, r: &HashMap<TypeKey, StructInfo>, d: usize) -> usize {
+        info.field_order.iter().enumerate().map(|(i, ty)|
+            ty.internal_align_of(r, d + 1).max(info.field_alignments.get(i).and_then(|o| *o).unwrap_or(0) as usize)
+        ).max().unwrap_or(1)
+    }
+    fn align_of_struct(&self, r: &HashMap<TypeKey, StructInfo>, d: usize) -> usize {
+        let Type::Struct(name) = self else { unreachable!() };
+        let Some(info) = r.values().find(|i| i.name == *name) else { return 8; };
+        self.align_of_fields(info, r, d)
+    }
+    fn align_of_enum(&self, r: &HashMap<TypeKey, StructInfo>, d: usize) -> usize {
+        let Type::Enum(name) = self else { unreachable!() };
+        if name == "Option" { return 16; }
+        let Some(info) = r.values().find(|i| i.name == *name) else { return 8; };
+        self.align_of_fields(info, r, d)
+    }
+    fn align_of_concrete(&self, r: &HashMap<TypeKey, StructInfo>, d: usize) -> usize {
+        let n = self.mangle_suffix();
+        let Some(info) = r.values().find(|i| i.name == n) else { return 8; };
+        self.align_of_fields(info, r, d)
+    }
+}
 
 // =============================================================================
 // Unit Tests - TDD for Generic HashMap Monomorphization

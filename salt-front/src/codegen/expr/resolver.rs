@@ -128,53 +128,8 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
              }
 
              // Wildcard Import Resolution: Check `use X::*` imports via Registry
-             // When import has no alias AND no group, search that module's exports for the symbol.
-             let resolved_name = resolved_name.or_else(|| {
-                 if let Some(reg) = self.ctx.config.registry {
-                     for imp in self.ctx.imports().iter() {
-                         // Wildcard import: has path, no alias, no group
-                         let is_wildcard = imp.alias.is_none() && imp.group.is_none() && !imp.name.is_empty();
-                         let import_path = imp.name.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(".");
-                        
-                         if is_wildcard {
-                             if let Some(mod_info) = reg.modules.get(&import_path) {
-                                 let pkg_prefix = mod_info.package.replace(".", "__");
-
-                                 
-                                 // Check if first segment (type name) exists in this module's exports
-                                 if !segments.is_empty() {
-                                     let type_name = &segments[0];
-                                     
-                                     // Check struct templates (e.g., InterpolatedStringHandler)
-                                     if mod_info.struct_templates.contains_key(type_name) {
-                                         let fqn = format!("{}__{}",pkg_prefix, mangled);
-                                         return Some(fqn);
-                                     }
-                                     
-                                     // Check concrete structs
-                                     if mod_info.structs.contains_key(type_name) {
-                                         let fqn = format!("{}__{}",pkg_prefix, mangled);
-                                         return Some(fqn);
-                                     }
-                                     
-                                     // Check standalone functions
-                                     if segments.len() == 1 && mod_info.functions.contains_key(type_name) {
-                                         let fqn = format!("{}__{}",pkg_prefix, type_name);
-                                         return Some(fqn);
-                                     }
-                                     
-                                     // Check enums
-                                     if mod_info.enum_templates.contains_key(type_name) {
-                                         let fqn = format!("{}__{}",pkg_prefix, mangled);
-                                         return Some(fqn);
-                                     }
-                                 }
-                             } 
-                         }
-                     }
-                 }
-                 None
-             }).unwrap_or(mangled);
+             let resolved_name = resolved_name.or_else(|| self.resolve_wildcard_import(&segments, &mangled))
+                 .unwrap_or(mangled);
 
 
              Ok((resolved_name, generics))
@@ -242,201 +197,145 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         Ok(generics)
     }
 
-    fn identify_target(&mut self, 
-        name: &str, 
+    fn identify_target(&mut self,
+        name: &str,
         _generics: &[Type],
         _args_exprs: &syn::punctuated::Punctuated<syn::Expr, syn::token::Comma>,
         _local_vars: &HashMap<String, (Type, crate::codegen::context::LocalKind)>
     ) -> Option<ResolutionTarget> {
-        
+
         let (canonical_name, _is_external) = self.resolve_canonical_name(name);
-        
-        // 1. Check Local Definitions (File Scope) using Canonical Name
-        {
-             let file = self.ctx.config.file;
-             for item in &file.items {
-                 if let crate::grammar::Item::Fn(f) = item {
-                      let m = self.ctx.mangle_fn_name(&f.name.to_string());
-                      if m == canonical_name || f.name == name {
-                          return Some(ResolutionTarget {
-                              template: f.clone(),
-                              base_name: if f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" ) { f.name.to_string() } else { m.to_string() }, // Use the canonical mangled name
-                              self_ty: None,
-                              imports: self.ctx.imports().clone(),
-                          });
-                      }
-                 }
-                 // Handle Externs - always use C symbol name (never mangle)
-                 if let crate::grammar::Item::ExternFn(f) = item {
-                     let m = f.name.to_string();
-                     if m == canonical_name || f.name == name {
-                         let wrapper = SaltFn {
-                             attributes: f.attributes.clone(),
-                             is_pub: f.is_pub,
-                             name: syn::Ident::new(&f.name.to_string(), proc_macro2::Span::call_site()),
-                             generics: None,
-                             args: f.args.clone(),
-                             ret_type: f.ret_type.clone(),
-                             body: crate::grammar::SaltBlock { stmts: vec![] },
-                             requires: f.requires.clone(),
-                             ensures: f.ensures.clone(),
-                         };
-                         return Some(ResolutionTarget {
-                               template: wrapper,
-                               base_name: m,
-                               self_ty: None,
-                               imports: vec![],
-                         });
-                     }
-                 }
-             }
+
+        if let Some(target) = self.try_identify_local(name, &canonical_name) {
+            return Some(target);
+        }
+        if let Some(target) = self.try_identify_generic_impl(&canonical_name) {
+            return Some(target);
+        }
+        if let Some(target) = self.try_identify_hierarchical(name, &canonical_name) {
+            return Some(target);
+        }
+        if let Some(target) = self.try_identify_registry_probe(&canonical_name) {
+            return Some(target);
+        }
+        if let Some(target) = self.try_identify_static_method(&canonical_name) {
+            return Some(target);
         }
 
-        // 2. Check Generic Impls (Global) using Canonical Name
-        if let Some((f, imports)) = self.ctx.generic_impls().get(&canonical_name) {
-             return Some(ResolutionTarget {
-                 template: f.clone(),
-                 base_name: canonical_name.clone(),
-                 self_ty: None,
-                 imports: imports.clone(),
-             });
-        }
-        
-        // 2.5 Hierarchical Scope Resolution
-        // Check Registry for module-level functions in current package.
-        // This enables EMPTY(), DELETED() etc. to be visible from impl blocks.
+        None
+    }
 
-        if let Some(registry) = self.ctx.config.registry {
-            let current_pkg = &*self.ctx.current_package;
-            if let Some(pkg) = current_pkg.as_ref() {
-                let pkg_path = pkg.name.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(".");
-                if let Some(mod_info) = registry.modules.get(&pkg_path) {
-                    // Try to find the raw function name in this module's function_templates
-                    // First try the raw name parameter
-                    if let Some(func) = mod_info.function_templates.get(name) {
-                        let pkg_mangled = pkg_path.replace(".", "__");
-
-                        return Some(ResolutionTarget {
-                            template: func.clone(),
-                            base_name: format!("{}__{}", pkg_mangled, name),
-                            self_ty: None,
-                            imports: mod_info.imports.clone(),
-                        });
-                    }
-                    
-                    // Also try the simple name from canonical_name's last segment
-                    // This handles cases where name was already mangled (e.g., HashMap__DELETED -> DELETED)
-                    let simple_name = canonical_name.rsplit("__").next().unwrap_or(&canonical_name);
-                    if simple_name != name {
-                        if let Some(func) = mod_info.function_templates.get(simple_name) {
-                            let pkg_mangled = pkg_path.replace(".", "__");
-
-                            return Some(ResolutionTarget {
-                                template: func.clone(),
-                                base_name: format!("{}__{}", pkg_mangled, simple_name),
-                                self_ty: None,
-                                imports: mod_info.imports.clone(),
-                            });
-                        }
-                    }
+    fn try_identify_local(&mut self, name: &str, canonical_name: &str) -> Option<ResolutionTarget> {
+        for item in &self.ctx.config.file.items {
+            if let crate::grammar::Item::Fn(f) = item {
+                let m = self.ctx.mangle_fn_name(&f.name.to_string());
+                if m == canonical_name || f.name == name {
+                    let base_name = if f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export") { f.name.to_string() } else { m.to_string() };
+                    return Some(ResolutionTarget { template: f.clone(), base_name, self_ty: None, imports: self.ctx.imports().clone() });
+                }
+            } else if let crate::grammar::Item::ExternFn(f) = item {
+                let m = f.name.to_string();
+                if m == canonical_name || f.name == name {
+                    let wrapper = SaltFn {
+                        attributes: f.attributes.clone(), is_pub: f.is_pub,
+                        name: syn::Ident::new(&f.name.to_string(), proc_macro2::Span::call_site()),
+                        generics: None, args: f.args.clone(), ret_type: f.ret_type.clone(),
+                        body: crate::grammar::SaltBlock { stmts: vec![] },
+                        requires: f.requires.clone(), ensures: f.ensures.clone(),
+                    };
+                    return Some(ResolutionTarget { template: wrapper, base_name: m, self_ty: None, imports: vec![] });
                 }
             }
         }
-        
-        // 2.6 Direct Registry Probing for Module-Level Functions  
-        // When the canonical_name looks like HashMap__DELETED but the actual function is
-        // at module level (hash_map__DELETED), we extract the simple name and search
-        // ALL registry modules for it. This handles hydration context where imports are lost.
-        if let Some(registry) = self.ctx.config.registry {
-            // Extract the simple function name from the end of canonical_name
-            // e.g., "std__collections__hash_map__HashMap__DELETED" -> "DELETED"
-            let simple_name = canonical_name.rsplit("__").next().unwrap_or(&canonical_name);
-            
-            // Also extract what we think is the package prefix from canonical (for matching)
-            // e.g., "std__collections__hash_map__HashMap__DELETED" 
-            // We want to check if DELETED exists in std.collections.hash_map module
-            
-            // Direct Registry Probe: Check ALL modules for this simple function name
-            for (pkg_path, mod_info) in &registry.modules {
-                if let Some(func) = mod_info.function_templates.get(simple_name) {
-                    // Found! Construct the correctly mangled name
-                    let pkg_mangled = pkg_path.replace(".", "__");
-                    let correct_name = format!("{}__{}", pkg_mangled, simple_name);
-                    
+        None
+    }
 
-                    return Some(ResolutionTarget {
-                        template: func.clone(),
-                        base_name: correct_name,
-                        self_ty: None,
-                        imports: mod_info.imports.clone(),
-                    });
-                }
+    fn try_identify_generic_impl(&mut self, canonical_name: &str) -> Option<ResolutionTarget> {
+        if let Some((f, imports)) = self.ctx.generic_impls().get(canonical_name) {
+            return Some(ResolutionTarget { template: f.clone(), base_name: canonical_name.to_string(), self_ty: None, imports: imports.clone() });
+        }
+        None
+    }
+
+    fn try_identify_hierarchical(&mut self, name: &str, canonical_name: &str) -> Option<ResolutionTarget> {
+        let registry = self.ctx.config.registry.as_ref()?;
+        let current_pkg = self.ctx.current_package.as_ref()?;
+        let pkg_path = current_pkg.name.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(".");
+        let mod_info = registry.modules.get(&pkg_path)?;
+        if let Some(func) = mod_info.function_templates.get(name) {
+            let pkg_mangled = pkg_path.replace(".", "__");
+            return Some(ResolutionTarget { template: func.clone(), base_name: format!("{}__{}", pkg_mangled, name), self_ty: None, imports: mod_info.imports.clone() });
+        }
+        let simple_name = canonical_name.rsplit("__").next().unwrap_or(canonical_name);
+        if simple_name != name {
+            if let Some(func) = mod_info.function_templates.get(simple_name) {
+                let pkg_mangled = pkg_path.replace(".", "__");
+                return Some(ResolutionTarget { template: func.clone(), base_name: format!("{}__{}", pkg_mangled, simple_name), self_ty: None, imports: mod_info.imports.clone() });
             }
         }
-        
-        // 3. Static Method Resolution
-        // Uses canonical name to split
+        None
+    }
+
+    fn try_identify_registry_probe(&mut self, canonical_name: &str) -> Option<ResolutionTarget> {
+        let registry = self.ctx.config.registry.as_ref()?;
+        let simple_name = canonical_name.rsplit("__").next().unwrap_or(canonical_name);
+        for (pkg_path, mod_info) in &registry.modules {
+            if let Some(func) = mod_info.function_templates.get(simple_name) {
+                let pkg_mangled = pkg_path.replace(".", "__");
+                return Some(ResolutionTarget { template: func.clone(), base_name: format!("{}__{}", pkg_mangled, simple_name), self_ty: None, imports: mod_info.imports.clone() });
+            }
+        }
+        None
+    }
+
+    fn try_identify_static_method(&mut self, canonical_name: &str) -> Option<ResolutionTarget> {
         let parts: Vec<&str> = canonical_name.split("__").collect();
-        if parts.len() >= 2 {
-             let method = parts.last()?;
-             
-             // Iterative Split Attempt: Try to find where Path ends and Name begins
-             // e.g. std__collections__vec__Vec -> Path=[std, collections, vec], Name=Vec
-             for i in (0..parts.len()-1).rev() {
-                 let name_part = parts[i];
-                 let path_parts = &parts[..i];
-                 
-                 let possible_path: Vec<String> = path_parts.iter().map(|s| s.to_string()).collect();
-                 
-                 let template_key = TypeKey { 
-                     path: possible_path.clone(), 
-                     name: name_part.to_string(), 
-                     specialization: None 
-                 };
-                 
-                 // Use TraitRegistry for method lookup
-                 if let Some((func, self_ty, imports)) = self.ctx.trait_registry().get_legacy(&template_key, method) {
-                     return Some(ResolutionTarget {
-                         template: func.clone(),
-                         base_name: canonical_name.clone(),
-                         self_ty: self_ty.clone(),
-                         imports: imports.clone(),
-                     }); 
-                 }
-                 
-                 // Also try ignoring path entirely if Registry used flattened keys (unlikely but safe fallback)
-                 // (Omitted to avoid pollution)
-             }
-             
-             // Fallback: Try "path=[] name=Base" (Old Logic)
-             let base = Mangler::mangle(&parts[..parts.len()-1]);
-             let template_key = TypeKey { path: vec![], name: base.clone(), specialization: None };
-             // Use TraitRegistry for method lookup
-             if let Some((func, self_ty, imports)) = self.ctx.trait_registry().get_legacy(&template_key, method) {
-                 return Some(ResolutionTarget {
-                     template: func.clone(),
-                     base_name: canonical_name.clone(),
-                     self_ty: self_ty.clone(),
-                     imports: imports.clone(),
-                 }); 
-             }
-             
-             // [STANDALONE FIX] On-demand method discovery for static method calls.
-             // When TraitRegistry doesn't have the method (standalone compilation),
-             // try resolve_method which triggers lazy hydration of impl blocks.
-             // This handles f-string expansion calling std::string::InterpolatedStringHandler::new()
-             // where ensure_struct_exists loaded the struct but didn't hydrate impl methods.
-             let struct_ty = Type::Struct(base.clone());
-             if let Ok((func, self_ty, imports)) = self.ctx.resolve_method(&struct_ty, method) {
-                 return Some(ResolutionTarget {
-                     template: func,
-                     base_name: canonical_name.clone(),
-                     self_ty,
-                     imports,
-                 });
-             }
+        if parts.len() < 2 { return None; }
+        let method = parts.last()?;
+        for i in (0..parts.len()-1).rev() {
+            let possible_path: Vec<String> = parts[..i].iter().map(|s| s.to_string()).collect();
+            let key = TypeKey { path: possible_path, name: parts[i].to_string(), specialization: None };
+            if let Some((func, self_ty, imports)) = self.ctx.trait_registry().get_legacy(&key, method) {
+                return Some(ResolutionTarget { template: func.clone(), base_name: canonical_name.to_string(), self_ty: self_ty.clone(), imports: imports.clone() });
+            }
         }
-        
+        let base = Mangler::mangle(&parts[..parts.len()-1]);
+        if let Some((func, self_ty, imports)) = self.ctx.trait_registry().get_legacy(&TypeKey { path: vec![], name: base.clone(), specialization: None }, method) {
+            return Some(ResolutionTarget { template: func.clone(), base_name: canonical_name.to_string(), self_ty: self_ty.clone(), imports: imports.clone() });
+        }
+        if let Ok((func, self_ty, imports)) = self.ctx.resolve_method(&Type::Struct(base), method) {
+            return Some(ResolutionTarget { template: func, base_name: canonical_name.to_string(), self_ty, imports });
+        }
+        None
+    }
+
+    fn resolve_wildcard_import(&mut self, segments: &[String], mangled: &str) -> Option<String> {
+        let reg = self.ctx.config.registry.as_ref()?;
+        for imp in self.ctx.imports().iter() {
+            let is_wildcard = imp.alias.is_none() && imp.group.is_none() && !imp.name.is_empty();
+            if !is_wildcard { continue; }
+            let import_path = imp.name.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(".");
+            let mod_info = match reg.modules.get(&import_path) {
+                Some(m) => m,
+                None => continue,
+            };
+            let pkg_prefix = mod_info.package.replace(".", "__");
+            if !segments.is_empty() {
+                let type_name = &segments[0];
+                if mod_info.struct_templates.contains_key(type_name) {
+                    return Some(format!("{}__{}", pkg_prefix, mangled));
+                }
+                if mod_info.structs.contains_key(type_name) {
+                    return Some(format!("{}__{}", pkg_prefix, mangled));
+                }
+                if segments.len() == 1 && mod_info.functions.contains_key(type_name) {
+                    return Some(format!("{}__{}", pkg_prefix, type_name));
+                }
+                if mod_info.enum_templates.contains_key(type_name) {
+                    return Some(format!("{}__{}", pkg_prefix, mangled));
+                }
+            }
+        }
         None
     }
 
