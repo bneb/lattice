@@ -750,6 +750,34 @@ fn emit_affine_for_reduction(
     Ok(false)
 }
 
+/// Register a for-loop induction variable with the Z3 solver and assert domain bounds.
+/// Extracted to eliminate duplication across three for-loop emitting functions.
+fn emit_z3_for_loop_bounds(
+    ctx: &mut LoweringContext,
+    var_name: &str,
+    iter: &syn::Expr,
+    local_vars: &HashMap<String, (Type, LocalKind)>,
+) -> bool {
+    if !ctx.config.no_verify {
+        let z3_i = ctx.mk_var(var_name);
+        ctx.symbolic_tracker.insert(var_name.to_string(), z3_i.clone());
+        ctx.z3_solver.push();
+        let z3_zero = ctx.mk_int(0);
+        ctx.z3_solver.assert(&z3_i.ge(&z3_zero));
+        if let syn::Expr::Range(r) = iter {
+            if let Some(end_expr) = &r.end {
+                if let Ok(z3_end) = crate::codegen::expr::translate_to_z3(ctx, end_expr, local_vars) { ctx.z3_solver.assert(&z3_i.lt(&z3_end)) }
+            }
+            if let Some(start_expr) = &r.start {
+                if let Ok(z3_start) = crate::codegen::expr::translate_to_z3(ctx, start_expr, local_vars) { ctx.z3_solver.assert(&z3_i.ge(&z3_start)) }
+            }
+        }
+        true
+    } else {
+        false
+    }
+}
+
 /// Emit scf.for with iter_args for runtime-bound reduction patterns.
 /// Unlike emit_affine_for_reduction which uses constant bounds, this works with
 /// dynamic bounds like `for j in 0..cols` where `cols` is a runtime variable.
@@ -880,31 +908,7 @@ fn emit_scf_for_runtime_reduction(
     );
 
     // === Z3 HOARE LOGIC: For Loop Induction Variable Bounds ===
-    let _z3_for_loop_active = if !ctx.config.no_verify {
-        let z3_i = ctx.mk_var(&z3_iv_name);
-        ctx.symbolic_tracker.insert(z3_iv_name.clone(), z3_i.clone());
-        
-        ctx.z3_solver.push();
-        
-        let z3_zero = ctx.mk_int(0);
-        ctx.z3_solver.assert(&z3_i.ge(&z3_zero));
-        
-        if let syn::Expr::Range(r) = &f.iter {
-            if let Some(end_expr) = &r.end {
-                if let Ok(z3_end) = crate::codegen::expr::translate_to_z3(ctx, end_expr, local_vars) {
-                     ctx.z3_solver.assert(&z3_i.lt(&z3_end));
-                }
-            }
-            if let Some(start_expr) = &r.start {
-                if let Ok(z3_start) = crate::codegen::expr::translate_to_z3(ctx, start_expr, local_vars) {
-                    ctx.z3_solver.assert(&z3_i.ge(&z3_start));
-                }
-            }
-        }
-        true
-    } else {
-        false
-    };
+    let _z3_for_loop_active = emit_z3_for_loop_bounds(ctx, &z3_iv_name, &f.iter, &*local_vars);
     
     // Enable fast-math context for reduction body
     // Allows LLVM to reorder FP operations for vectorization
@@ -1034,31 +1038,7 @@ fn emit_scf_for_simple(
     
     // === Z3 HOARE LOGIC: For Loop Induction Variable Bounds ===
     // Register the induction variable with Z3 and assert domain constraints.
-    let _z3_for_loop_active = if !ctx.config.no_verify {
-        let z3_i = ctx.mk_var(&iv_i64);
-        ctx.symbolic_tracker.insert(iv_i64.clone(), z3_i.clone());
-        
-        ctx.z3_solver.push();
-        
-        let z3_zero = ctx.mk_int(0);
-        ctx.z3_solver.assert(&z3_i.ge(&z3_zero));
-        
-        if let syn::Expr::Range(r) = &f.iter {
-            if let Some(end_expr) = &r.end {
-                if let Ok(z3_end) = crate::codegen::expr::translate_to_z3(ctx, end_expr, local_vars) {
-                     ctx.z3_solver.assert(&z3_i.lt(&z3_end));
-                }
-            }
-            if let Some(start_expr) = &r.start {
-                if let Ok(z3_start) = crate::codegen::expr::translate_to_z3(ctx, start_expr, local_vars) {
-                    ctx.z3_solver.assert(&z3_i.ge(&z3_start));
-                }
-            }
-        }
-        true
-    } else {
-        false
-    };
+    let _z3_for_loop_active = emit_z3_for_loop_bounds(ctx, &iv_i64, &f.iter, &*local_vars);
     
     ctx.enter_affine_context();
     
@@ -1961,25 +1941,8 @@ fn emit_cf_br_for_loop(ctx: &mut LoweringContext, out: &mut String, f: &crate::g
         body_vars.insert(id.ident.to_string(), (loop_ty.clone(), LocalKind::SSA(current_i.clone())));
     }
     
-    let _z3_for_loop_active = if !ctx.config.no_verify && (matches!(&f.pat, syn::Pat::Ident(_)) || matches!(&f.pat, syn::Pat::Wild(_))) {
-        let z3_i = ctx.mk_var(&current_i);
-        ctx.symbolic_tracker.insert(current_i.clone(), z3_i.clone());
-        ctx.z3_solver.push();
-        let z3_zero = ctx.mk_int(0);
-        ctx.z3_solver.assert(&z3_i.ge(&z3_zero));
-        if let syn::Expr::Range(r) = &f.iter {
-            if let Some(end_expr) = &r.end {
-                if let Ok(z3_end) = crate::codegen::expr::translate_to_z3(ctx, end_expr, local_vars) {
-                     ctx.z3_solver.assert(&z3_i.lt(&z3_end));
-                }
-            }
-            if let Some(start_expr) = &r.start {
-                if let Ok(z3_start) = crate::codegen::expr::translate_to_z3(ctx, start_expr, local_vars) {
-                    ctx.z3_solver.assert(&z3_i.ge(&z3_start));
-                }
-            }
-        }
-        true
+    let _z3_for_loop_active = if matches!(&f.pat, syn::Pat::Ident(_)) || matches!(&f.pat, syn::Pat::Wild(_)) {
+        emit_z3_for_loop_bounds(ctx, &current_i, &f.iter, &*local_vars)
     } else {
         false
     };
@@ -2638,6 +2601,128 @@ pub fn emit_match(
     Ok(!any_non_diverging)
 }
 
+/// Emit condition for a variant pattern match (discriminant comparison).
+fn emit_variant_pattern_condition(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    path: &[syn::Ident],
+    scrutinee: &str,
+    scrutinee_ty: &Type,
+) -> Result<String, String> {
+    if path.is_empty() {
+        return Err("Empty variant path".to_string());
+    }
+    let variant_name = path.last().ok_or_else(|| "Failed to get variant name".to_string())?.to_string();
+    let enum_name = match scrutinee_ty {
+        Type::Enum(name) => name.clone(),
+        Type::Concrete(_, _) => scrutinee_ty.mangle_suffix(),
+        _ => return Err(format!("Cannot match variant on non-enum type: {:?}", scrutinee_ty)),
+    };
+    let info = ctx.enum_registry().values()
+        .find(|i| i.name == enum_name || i.name.ends_with(&format!("__{}", enum_name)))
+        .cloned()
+        .ok_or_else(|| format!("Unknown enum '{}' in pattern match", enum_name))?;
+    let (_, _, discriminant) = info.variants.iter()
+        .find(|(n, _, _)| n == &variant_name)
+        .ok_or_else(|| format!("Unknown variant '{}' in enum '{}'", variant_name, enum_name))?;
+    let struct_ty = scrutinee_ty.to_mlir_type(ctx)?;
+    let tag_val = format!("%match_tag_{}", ctx.next_id());
+    ctx.emit_extractvalue(out, &tag_val, scrutinee, 0, &struct_ty);
+    let disc_const = format!("%disc_const_{}", ctx.next_id());
+    let result = format!("%match_variant_{}", ctx.next_id());
+    ctx.emit_const_int(out, &disc_const, *discriminant as i64, "i32");
+    out.push_str(&format!("    {} = arith.cmpi eq, {}, {} : i32\n", result, tag_val, disc_const));
+    Ok(result)
+}
+
+/// Emit condition for a tuple pattern match (AND of all element conditions).
+fn emit_tuple_pattern_condition(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    sub_patterns: &[Pattern],
+    scrutinee: &str,
+    scrutinee_ty: &Type,
+) -> Result<String, String> {
+    let field_types = match scrutinee_ty {
+        Type::Tuple(tys) => tys.clone(),
+        _ => return Err(format!("Cannot match tuple pattern on non-tuple type: {:?}", scrutinee_ty)),
+    };
+    if sub_patterns.len() != field_types.len() {
+        return Err(format!("Tuple pattern has {} elements but type has {} fields",
+            sub_patterns.len(), field_types.len()));
+    }
+    let mut result = format!("%tuple_match_init_{}", ctx.next_id());
+    out.push_str(&format!("    {} = arith.constant true\n", result));
+    let struct_ty = scrutinee_ty.to_mlir_type(ctx)?;
+    for (i, (sub_pat, field_ty)) in sub_patterns.iter().zip(field_types.iter()).enumerate() {
+        let field_val = format!("%tuple_field_{}_{}", i, ctx.next_id());
+        ctx.emit_extractvalue(out, &field_val, scrutinee, i, &struct_ty);
+        let sub_result = emit_pattern_condition(ctx, out, sub_pat, &field_val, field_ty)?;
+        let combined = format!("%tuple_match_and_{}", ctx.next_id());
+        out.push_str(&format!("    {} = arith.andi {}, {} : i1\n", combined, result, sub_result));
+        result = combined;
+    }
+    Ok(result)
+}
+
+/// Emit condition for a struct pattern match (AND of all field conditions).
+fn emit_struct_pattern_condition(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    name: &syn::Ident,
+    fields: &[crate::grammar::pattern::PatternField],
+    scrutinee: &str,
+    scrutinee_ty: &Type,
+) -> Result<String, String> {
+    let struct_name = match scrutinee_ty {
+        Type::Struct(n) | Type::Concrete(n, _) => n.clone(),
+        _ => return Err(format!("Cannot match struct pattern on non-struct type: {:?}", scrutinee_ty)),
+    };
+    if !struct_name.ends_with(&name.to_string()) && *name != struct_name {
+        return Err(format!("Struct pattern '{}' doesn't match scrutinee type '{}'", name, struct_name));
+    }
+    let info = ctx.struct_registry().values()
+        .find(|i| i.name == struct_name || i.name.ends_with(&format!("__{}", name)))
+        .cloned()
+        .ok_or_else(|| format!("Unknown struct '{}' in pattern match", name))?;
+    let mut result = format!("%struct_match_init_{}", ctx.next_id());
+    out.push_str(&format!("    {} = arith.constant true\n", result));
+    let struct_mlir_ty = scrutinee_ty.to_mlir_type(ctx)?;
+    for pat_field in fields {
+        emit_struct_field_condition(ctx, out, pat_field, &info.fields, &info.name, scrutinee, &struct_mlir_ty, &mut result)?;
+    }
+    Ok(result)
+}
+
+/// Process one field of a struct pattern, updating the accumulator condition.
+#[allow(clippy::too_many_arguments)]
+// REASON: 8 args are context, out, scrutinee, field, idx, cond, local_vars, pattern_vars —
+// each independently meaningful; bundling would obscure the data flow
+fn emit_struct_field_condition(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    pat_field: &crate::grammar::pattern::PatternField,
+    fields: &HashMap<String, (usize, Type)>,
+    struct_name: &str,
+    scrutinee: &str,
+    struct_mlir_ty: &str,
+    result: &mut String,
+) -> Result<(), String> {
+    let (field_offset, field_ty) = fields.get(&pat_field.name.to_string())
+        .ok_or_else(|| format!("Unknown field '{}' in struct '{}'", pat_field.name, struct_name))?
+        .clone();
+    let field_val = format!("%struct_field_{}_{}", pat_field.name, ctx.next_id());
+    ctx.emit_extractvalue(out, &field_val, scrutinee, field_offset, struct_mlir_ty);
+    let sub_pat = pat_field.pattern.as_ref()
+        .cloned()
+        .unwrap_or_else(|| Pattern::Ident { name: pat_field.name.clone(), mutable: false });
+    let sub_result = emit_pattern_condition(ctx, out, &sub_pat, &field_val, &field_ty)?;
+    let combined = format!("%struct_match_and_{}", ctx.next_id());
+    out.push_str(&format!("    {} = arith.andi {}, {} : i1\n", combined, result, sub_result));
+    *result = combined;
+    Ok(())
+}
+
 /// Emit condition for a pattern (returns SSA value of type i1)
 fn emit_pattern_condition(
     ctx: &mut LoweringContext,
@@ -2697,148 +2782,89 @@ fn emit_pattern_condition(
             Ok(result)
         }
         Pattern::Variant { path, fields: _ } => {
-            // Get the enum name (all segments except the last) and variant name (last segment)
-            if path.is_empty() {
-                return Err("Empty variant path".to_string());
-            }
-            let variant_name = path.last().ok_or_else(|| "Failed to get variant name".to_string())?.to_string();
-            
-            // The scrutinee_ty should be an enum type
-            // For specialized generic enums (e.g. Result<File, IOError>), 
-            // we need the fully-mangled name to match the enum_registry entry.
-            let enum_name = match scrutinee_ty {
-                Type::Enum(name) => name.clone(),
-                Type::Concrete(_, _) => scrutinee_ty.mangle_suffix(),
-                _ => return Err(format!("Cannot match variant on non-enum type: {:?}", scrutinee_ty)),
-            };
-            
-            // Look up the enum in the registry to get the discriminant
-            let registry_keys: Vec<_> = ctx.enum_registry().values().map(|i| i.name.clone()).collect();
-            let info = ctx.enum_registry().values()
-                .find(|i| i.name == enum_name || i.name.ends_with(&format!("__{}", enum_name)))
-                .cloned()
-                .ok_or_else(|| format!("Unknown enum '{}' in pattern match. Available enums: {:?}", enum_name, registry_keys))?;
-            
-            // Find the variant and its discriminant
-            let (_variant_name, _payload_ty, discriminant) = info.variants.iter()
-                .find(|(n, _, _)| n == &variant_name)
-                .ok_or_else(|| format!("Unknown variant '{}' in enum '{}'", variant_name, enum_name))?;
-            
-            // Extract the discriminant from the scrutinee (index 0)
-            let struct_ty = scrutinee_ty.to_mlir_type(ctx)?;
-            let tag_val = format!("%match_tag_{}", ctx.next_id());
-            ctx.emit_extractvalue(out, &tag_val, scrutinee, 0, &struct_ty);
-            
-            // Compare discriminant with expected value
-            let disc_const = format!("%disc_const_{}", ctx.next_id());
-            let result = format!("%match_variant_{}", ctx.next_id());
-            ctx.emit_const_int(out, &disc_const, *discriminant as i64, "i32");
-            out.push_str(&format!("    {} = arith.cmpi eq, {}, {} : i32\n", result, tag_val, disc_const));
-            
-            Ok(result)
+            emit_variant_pattern_condition(ctx, out, path, scrutinee, scrutinee_ty)
         }
         Pattern::Tuple(sub_patterns) => {
-            // Tuple patterns always match (unless sub-patterns fail)
-            // For condition, we just check all sub-patterns match
-            // Tuple type should be Type::Tuple(fields)
-            let field_types = match scrutinee_ty {
-                Type::Tuple(tys) => tys.clone(),
-                _ => return Err(format!("Cannot match tuple pattern on non-tuple type: {:?}", scrutinee_ty)),
-            };
-            
-            if sub_patterns.len() != field_types.len() {
-                return Err(format!(
-                    "Tuple pattern has {} elements but type has {} fields",
-                    sub_patterns.len(), field_types.len()
-                ));
-            }
-            
-            // Start with true (all sub-patterns must match)
-            let mut result = {
-                let r = format!("%tuple_match_init_{}", ctx.next_id());
-                out.push_str(&format!("    {} = arith.constant true\n", r));
-                r
-            };
-            
-            let struct_ty = scrutinee_ty.to_mlir_type(ctx)?;
-            
-            for (i, (sub_pat, field_ty)) in sub_patterns.iter().zip(field_types.iter()).enumerate() {
-                // Extract field from tuple
-                let field_val = format!("%tuple_field_{}_{}", i, ctx.next_id());
-                ctx.emit_extractvalue(out, &field_val, scrutinee, i, &struct_ty);
-                
-                // Match sub-pattern
-                let sub_result = emit_pattern_condition(ctx, out, sub_pat, &field_val, field_ty)?;
-                
-                // AND with accumulator
-                let combined = format!("%tuple_match_and_{}", ctx.next_id());
-                out.push_str(&format!("    {} = arith.andi {}, {} : i1\n", combined, result, sub_result));
-                result = combined;
-            }
-            
-            Ok(result)
+            emit_tuple_pattern_condition(ctx, out, sub_patterns, scrutinee, scrutinee_ty)
         }
         Pattern::Struct { name, fields } => {
-            // Struct patterns: match field patterns against struct fields
-            // First verify the scrutinee is a struct type matching 'name'
-            let struct_name = match scrutinee_ty {
-                Type::Struct(n) => n.clone(),
-                Type::Concrete(n, _) => n.clone(),
-                _ => return Err(format!("Cannot match struct pattern on non-struct type: {:?}", scrutinee_ty)),
-            };
-            
-            // Check the struct name matches (allowing mangled variants)
-            if !struct_name.ends_with(&name.to_string()) && *name != struct_name {
-                return Err(format!(
-                    "Struct pattern '{}' doesn't match scrutinee type '{}'",
-                    name, struct_name
-                ));
-            }
-            
-            // Look up the struct in the registry
-            let info = ctx.struct_registry().values()
-                .find(|i| i.name == struct_name || i.name.ends_with(&format!("__{}", name)))
-                .cloned()
-                .ok_or_else(|| format!("Unknown struct '{}' in pattern match", name))?;
-            
-            // Start with true
-            let mut result = {
-                let r = format!("%struct_match_init_{}", ctx.next_id());
-                out.push_str(&format!("    {} = arith.constant true\n", r));
-                r
-            };
-            
-            let struct_mlir_ty = scrutinee_ty.to_mlir_type(ctx)?;
-            
-            for pat_field in fields {
-                // Find the field in the struct info
-                let (field_offset, field_ty) = info.fields.get(&pat_field.name.to_string())
-                    .ok_or_else(|| format!("Unknown field '{}' in struct '{}'", pat_field.name, name))?
-                    .clone();
-                
-                // Extract the field value
-                let field_val = format!("%struct_field_{}_{}", pat_field.name, ctx.next_id());
-                ctx.emit_extractvalue(out, &field_val, scrutinee, field_offset, &struct_mlir_ty);
-                
-                // Match the sub-pattern (if any)
-                let sub_pat = pat_field.pattern.as_ref()
-                    .cloned()
-                    .unwrap_or_else(|| Pattern::Ident { name: pat_field.name.clone(), mutable: false });
-                
-                let sub_result = emit_pattern_condition(ctx, out, &sub_pat, &field_val, &field_ty)?;
-                
-                // AND with accumulator
-                let combined = format!("%struct_match_and_{}", ctx.next_id());
-                out.push_str(&format!("    {} = arith.andi {}, {} : i1\n", combined, result, sub_result));
-                result = combined;
-            }
-            
-            Ok(result)
+            emit_struct_pattern_condition(ctx, out, name, fields, scrutinee, scrutinee_ty)
         }
         Pattern::Rest => {
             Err("Rest pattern (..) cannot appear as top-level match pattern".to_string())
         }
     }
+}
+
+/// Emit bindings for a variant pattern: extract payload and bind sub-patterns.
+fn emit_variant_pattern_bindings(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    path: &[syn::Ident],
+    fields: &Option<Vec<Pattern>>,
+    scrutinee: &str,
+    scrutinee_ty: &Type,
+    local_vars: &mut HashMap<String, (Type, LocalKind)>,
+) -> Result<(), String> {
+    let field_patterns = match fields {
+        Some(fp) if !fp.is_empty() => fp,
+        _ => return Ok(()),
+    };
+    let enum_name = match scrutinee_ty {
+        Type::Enum(name) => name.clone(),
+        Type::Concrete(_, _) => scrutinee_ty.mangle_suffix(),
+        _ => return Err(format!("Cannot bind variant on non-enum type: {:?}", scrutinee_ty)),
+    };
+    let variant_name = path.last().map(|i| i.to_string()).unwrap_or_default();
+    let info = ctx.enum_registry().values()
+        .find(|i| i.name == enum_name || i.name.ends_with(&format!("__{}", enum_name)))
+        .cloned()
+        .ok_or_else(|| format!("Unknown enum '{}' in pattern binding", enum_name))?;
+    let (_, payload_ty, _) = info.variants.iter()
+        .find(|(n, _, _)| n == &variant_name)
+        .ok_or_else(|| format!("Unknown variant '{}'", variant_name))?;
+    if let Some(inner_ty) = payload_ty {
+        emit_variant_payload_bindings(ctx, out, field_patterns, inner_ty,
+            scrutinee, scrutinee_ty, info.max_payload_size, local_vars)?;
+    }
+    Ok(())
+}
+
+/// Extract variant payload from an enum and bind field sub-patterns.
+#[allow(clippy::too_many_arguments)]
+// REASON: 8 args are ctx, out, variant_name, payload_ty, field_patterns,
+// scrutinee, idx, local_vars — each independently meaningful
+fn emit_variant_payload_bindings(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    field_patterns: &[Pattern],
+    inner_ty: &Type,
+    scrutinee: &str,
+    scrutinee_ty: &Type,
+    max_payload_size: usize,
+    local_vars: &mut HashMap<String, (Type, LocalKind)>,
+) -> Result<(), String> {
+    let struct_ty = scrutinee_ty.to_mlir_type(ctx)?;
+    let payload_array = format!("%payload_array_{}", ctx.next_id());
+    ctx.emit_extractvalue(out, &payload_array, scrutinee, 1, &struct_ty);
+    let array_mlir_ty = format!("!llvm.array<{} x i8>", max_payload_size);
+    let buf_ptr = format!("%payload_buf_{}", ctx.next_id());
+    ctx.emit_alloca(out, &buf_ptr, &array_mlir_ty);
+    ctx.emit_store(out, &payload_array, &buf_ptr, &array_mlir_ty);
+    let payload_val = format!("%payload_val_{}", ctx.next_id());
+    let inner_mlir_ty = inner_ty.to_mlir_type(ctx)?;
+    ctx.emit_load(out, &payload_val, &buf_ptr, &inner_mlir_ty);
+    if field_patterns.len() == 1 {
+        emit_pattern_bindings(ctx, out, &field_patterns[0], &payload_val, inner_ty, local_vars)?;
+    } else if let Type::Tuple(field_tys) = inner_ty {
+        let tuple_mlir_ty = inner_ty.to_mlir_type(ctx)?;
+        for (i, (field_pat, field_ty)) in field_patterns.iter().zip(field_tys.iter()).enumerate() {
+            let field_val = format!("%variant_field_{}_{}", i, ctx.next_id());
+            ctx.emit_extractvalue(out, &field_val, &payload_val, i, &tuple_mlir_ty);
+            emit_pattern_bindings(ctx, out, field_pat, &field_val, field_ty, local_vars)?;
+        }
+    }
+    Ok(())
 }
 
 /// Emit pattern bindings (introduce variables from pattern into scope)
@@ -2867,64 +2893,7 @@ fn emit_pattern_bindings(
             Ok(())
         }
         Pattern::Variant { path, fields } => {
-            // Extract payload if there are fields to bind
-            if let Some(field_patterns) = fields {
-                if field_patterns.is_empty() {
-                    return Ok(());
-                }
-                
-                // Get enum info
-                // For specialized generic enums, use fully-mangled name
-                let enum_name = match scrutinee_ty {
-                    Type::Enum(name) => name.clone(),
-                    Type::Concrete(_, _) => scrutinee_ty.mangle_suffix(),
-                    _ => return Err(format!("Cannot bind variant on non-enum type: {:?}", scrutinee_ty)),
-                };
-                
-                let variant_name = path.last().map(|i| i.to_string()).unwrap_or_default();
-                
-                let registry_keys: Vec<_> = ctx.enum_registry().values().map(|i| i.name.clone()).collect();
-                let info = ctx.enum_registry().values()
-                    .find(|i| i.name == enum_name || i.name.ends_with(&format!("__{}", enum_name)))
-                    .cloned()
-                    .ok_or_else(|| format!("Unknown enum '{}' in pattern binding. Available enums: {:?}", enum_name, registry_keys))?;
-                
-                // Find the variant's payload type
-                let (_, payload_ty, _) = info.variants.iter()
-                    .find(|(n, _, _)| n == &variant_name)
-                    .ok_or_else(|| format!("Unknown variant '{}' in enum '{}'", variant_name, enum_name))?;
-                
-                if let Some(inner_ty) = payload_ty {
-                    // Extract payload array from enum (index 1)
-                    let struct_ty = scrutinee_ty.to_mlir_type(ctx)?;
-                    let payload_array = format!("%payload_array_{}", ctx.next_id());
-                    ctx.emit_extractvalue(out, &payload_array, scrutinee, 1, &struct_ty);
-                    
-                    // Store array to memory and load as the payload type
-                    let array_mlir_ty = format!("!llvm.array<{} x i8>", info.max_payload_size);
-                    let buf_ptr = format!("%payload_buf_{}", ctx.next_id());
-                    ctx.emit_alloca(out, &buf_ptr, &array_mlir_ty);
-                    ctx.emit_store(out, &payload_array, &buf_ptr, &array_mlir_ty);
-                    
-                    let payload_val = format!("%payload_val_{}", ctx.next_id());
-                    let inner_mlir_ty = inner_ty.to_mlir_type(ctx)?;
-                    ctx.emit_load(out, &payload_val, &buf_ptr, &inner_mlir_ty);
-                    
-                    // If there's a single field pattern, bind it
-                    if field_patterns.len() == 1 {
-                        emit_pattern_bindings(ctx, out, &field_patterns[0], &payload_val, inner_ty, local_vars)?;
-                    } else if let Type::Tuple(field_tys) = inner_ty {
-                        // Multiple fields - payload is a tuple
-                        let tuple_mlir_ty = inner_ty.to_mlir_type(ctx)?;
-                        for (i, (field_pat, field_ty)) in field_patterns.iter().zip(field_tys.iter()).enumerate() {
-                            let field_val = format!("%variant_field_{}_{}", i, ctx.next_id());
-                            ctx.emit_extractvalue(out, &field_val, &payload_val, i, &tuple_mlir_ty);
-                            emit_pattern_bindings(ctx, out, field_pat, &field_val, field_ty, local_vars)?;
-                        }
-                    }
-                }
-            }
-            Ok(())
+            emit_variant_pattern_bindings(ctx, out, path, fields, scrutinee, scrutinee_ty, local_vars)
         }
         Pattern::Tuple(sub_patterns) => {
             let field_types = match scrutinee_ty {

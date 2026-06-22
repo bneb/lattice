@@ -376,78 +376,71 @@ impl<'a> CodegenContext<'a> {
         let mut tasks = Vec::new();
         for item in &self.file.borrow().items {
             match item {
-                Item::Fn(f) => {
-                    let is_no_mangle = f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export" );
-                    let is_pub = f.is_pub;
-                    if is_no_mangle || is_pub {
-                        if let Some(task) = self.create_main_task(&f.name.to_string()) {
-                            tasks.push(task);
-                        }
-                    }
-                }
+                Item::Fn(f) => tasks.extend(self.collect_fn_tasks(f)),
                 Item::Impl(imp) => {
-                    if let SaltImpl::Methods { target_ty, methods, generics } = imp {
-                        if generics.is_none() {
-                            if let Some(parsed_ty) = crate::types::Type::from_syn(target_ty) {
-                                let target_name_full = self.bridge_resolve_codegen_type(&parsed_ty).mangle_suffix();
-                                let pkg_path = if let Some(pkg) = &self.file.borrow().package {
-                                    pkg.name.iter().map(|id| id.to_string()).collect()
-                                } else {
-                                    vec![]
-                                };
-                                for m in methods {
-                                    if m.is_pub && m.generics.is_none() {
-                                        let m_name_str = m.name.to_string();
-                                        let mangled_name = Mangler::mangle(&[target_name_full.as_str(), m_name_str.as_str()]);
-                                        tasks.push(crate::codegen::collector::MonomorphizationTask {
-                                            identity: crate::types::TypeKey { path: pkg_path.clone(), name: m_name_str, specialization: None },
-                                            mangled_name,
-                                            func: m.clone(),
-                                            concrete_tys: vec![],
-                                            self_ty: Some(parsed_ty.clone()),
-                                            imports: CodegenContext::compute_full_imports(&self.file.borrow()),
-                                            type_map: std::collections::BTreeMap::new(),
-                                        });
-                                    }
-                                }
-                            }
+                    match imp {
+                        SaltImpl::Methods { target_ty, methods, generics } => {
+                            tasks.extend(self.collect_methods_impl_tasks(target_ty, methods, generics)?);
                         }
-                    } else if let SaltImpl::Trait { trait_name: _, target_ty, methods, generics } = imp {
-                        if generics.is_none() {
-                            if let Some(parsed_ty) = crate::types::Type::from_syn(target_ty) {
-                                let target_name_full = self.bridge_resolve_codegen_type(&parsed_ty).mangle_suffix();
-                                let pkg_path = if let Some(pkg) = &self.file.borrow().package {
-                                    pkg.name.iter().map(|id| id.to_string()).collect()
-                                } else {
-                                    vec![]
-                                };
-                                for m in methods {
-                                    if m.generics.is_none() {
-                                        let m_name_str = m.name.to_string();
-                                        let mangled_name = Mangler::mangle(&[target_name_full.as_str(), m_name_str.as_str()]);
-                                        tasks.push(crate::codegen::collector::MonomorphizationTask {
-                                            identity: crate::types::TypeKey { path: pkg_path.clone(), name: m_name_str, specialization: None },
-                                            mangled_name,
-                                            func: m.clone(),
-                                            concrete_tys: vec![],
-                                            self_ty: Some(parsed_ty.clone()),
-                                            imports: CodegenContext::compute_full_imports(&self.file.borrow()),
-                                            type_map: std::collections::BTreeMap::new(),
-                                        });
-                                    }
-                                }
-                            }
+                        SaltImpl::Trait { target_ty, methods, generics, .. } => {
+                            tasks.extend(self.collect_trait_impl_tasks(target_ty, methods, generics)?);
                         }
+                        _ => {}
                     }
                 }
                 _ => {}
             }
         }
-
-        for task in tasks {
-            self.hydrate_specialization(task)?;
-        }
+        for task in tasks { self.hydrate_specialization(task)?; }
         Ok(())
+    }
+
+    fn collect_fn_tasks(&self, f: &SaltFn) -> Vec<crate::codegen::collector::MonomorphizationTask> {
+        if !f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export") && !f.is_pub {
+            return vec![];
+        }
+        self.create_main_task(&f.name.to_string()).map(|t| vec![t]).unwrap_or_default()
+    }
+
+    fn collect_impl_tasks(
+        &self, target_ty: &crate::grammar::SynType, methods: &[SaltFn],
+        generics: &Option<crate::grammar::Generics>, only_pub: bool,
+    ) -> Result<Vec<crate::codegen::collector::MonomorphizationTask>, String> {
+        if generics.is_some() { return Ok(vec![]); }
+        let Some(parsed_ty) = crate::types::Type::from_syn(target_ty) else { return Ok(vec![]); };
+        let target = self.bridge_resolve_codegen_type(&parsed_ty).mangle_suffix();
+        let pkg_path = match &self.file.borrow().package {
+            Some(pkg) => pkg.name.iter().map(|id| id.to_string()).collect(),
+            None => vec![],
+        };
+        let imports = CodegenContext::compute_full_imports(&self.file.borrow());
+        let mut tasks = Vec::new();
+        for m in methods {
+            if (only_pub && !m.is_pub) || m.generics.is_some() { continue; }
+            let name = m.name.to_string();
+            tasks.push(crate::codegen::collector::MonomorphizationTask {
+                identity: crate::types::TypeKey { path: pkg_path.clone(), name: name.clone(), specialization: None },
+                mangled_name: Mangler::mangle(&[&target, &name]),
+                func: m.clone(), concrete_tys: vec![],
+                self_ty: Some(parsed_ty.clone()), imports: imports.clone(),
+                type_map: std::collections::BTreeMap::new(),
+            });
+        }
+        Ok(tasks)
+    }
+
+    fn collect_methods_impl_tasks(
+        &self, target_ty: &crate::grammar::SynType, methods: &[SaltFn],
+        generics: &Option<crate::grammar::Generics>,
+    ) -> Result<Vec<crate::codegen::collector::MonomorphizationTask>, String> {
+        self.collect_impl_tasks(target_ty, methods, generics, true)
+    }
+
+    fn collect_trait_impl_tasks(
+        &self, target_ty: &crate::grammar::SynType, methods: &[SaltFn],
+        generics: &Option<crate::grammar::Generics>,
+    ) -> Result<Vec<crate::codegen::collector::MonomorphizationTask>, String> {
+        self.collect_impl_tasks(target_ty, methods, generics, false)
     }
 
     fn seed_executable_mode(&mut self) -> Result<(), String> {
@@ -873,88 +866,24 @@ impl<'a> CodegenContext<'a> {
 
         let struct_map: HashMap<_, _> = struct_entries.into_iter().collect();
         let enum_map: HashMap<_, _> = enum_entries.into_iter().collect();
-        
+
         // 1. Build Dependency Graph
-        let mut adj: HashMap<crate::types::TypeKey, Vec<crate::types::TypeKey>> = HashMap::new();
-        
-        for key in &all_keys {
-            let mut deps = Vec::new();
-            
-            if let Some(info) = struct_map.get(key) {
-                for field_ty in &info.field_order {
-                    self.collect_dependencies(field_ty, &mut deps);
-                }
-            }
-            // Enums: no dependencies (opaque byte-array payload)
-            adj.insert(key.clone(), deps);
-        }
-        
+        let adj = self.build_struct_dep_graph(&all_keys, &struct_map);
+
         // 2. Topological Sort (DFS Post-Order)
         let mut sorted_keys = Vec::new();
         let mut temp_mark = HashSet::new();
         let mut perm_mark = HashSet::new();
-        
-        // Deterministic iteration for stability
+
         let mut sorted_starts = all_keys.clone();
-        for _k in &all_keys {
-        }
         sorted_starts.sort_by_key(|a| a.mangle());
-        
+
         for key in &sorted_starts {
             self.topo_visit(key, &adj, &mut temp_mark, &mut perm_mark, &mut sorted_keys);
         }
-        
-        // 3. Emit in Sorted Order (no Ref guards alive — safe to call resolve_mlir_storage_type)
-        let enum_names: HashSet<String> = enum_map.values()
-            .map(|e| e.name.clone()).collect();
-        let mut emitted_canonical_aliases: HashSet<String> = HashSet::new();
-        for key in sorted_keys {
-            let _mangled = key.mangle();
-            if let Some(info) = struct_map.get(&key) {
-                // [GHOST STRUCT FILTER] Skip struct type aliases whose fields contain
-                // unresolved generic parameters.
-                let has_ghost_fields = info.field_order.iter().any(|ty| {
-                    !ty.is_fully_concrete(&struct_map, &enum_names)
-                });
-                if has_ghost_fields {
-                    continue;
-                }
 
-                let mut type_str = format!("!llvm.struct<\"{}\", (", info.name);
-                for (i, ty) in info.field_order.iter().enumerate() {
-                    if i > 0 { type_str.push_str(", "); }
-                    match self.resolve_mlir_storage_type(ty) {
-                        Ok(s) => type_str.push_str(&s),
-                        Err(_) => type_str.push_str("!llvm.ptr"),
-                    }
-                }
-                type_str.push_str(")>");
-                out.push_str(&format!("!struct_{} = {}\n", info.name, type_str));
-                
-                // [CANONICAL ALIAS] Emit canonical alias for all namespace-prefixed types
-                let canonical_name = Type::Struct(info.name.clone()).to_canonical_name();
-
-                if canonical_name != info.name && !emitted_canonical_aliases.contains(&canonical_name) {
-                    emitted_canonical_aliases.insert(canonical_name.clone());
-                    out.push_str(&format!("!struct_{} = !struct_{}\n", canonical_name, info.name));
-                }
-            } else if let Some(info) = enum_map.get(&key) {
-                // Emit Enum Definition
-                let mut type_str = format!("!llvm.struct<\"{}\", (i32", info.name);
-                if info.max_payload_size > 0 {
-                    type_str.push_str(&format!(", !llvm.array<{} x i8>", info.max_payload_size));
-                }
-                type_str.push_str(")>");
-                out.push_str(&format!("!struct_{} = {}\n", info.name, type_str));
-
-                // [CANONICAL ALIAS] Emit canonical alias for all namespace-prefixed enums
-                let canonical_name = Type::Enum(info.name.clone()).to_canonical_name();
-                if canonical_name != info.name && !emitted_canonical_aliases.contains(&canonical_name) {
-                    emitted_canonical_aliases.insert(canonical_name.clone());
-                    out.push_str(&format!("!struct_{} = !struct_{}\n", canonical_name, info.name));
-                }
-            }
-        }
+        // 3. Emit in Sorted Order
+        self.emit_sorted_type_defs(out, &sorted_keys, &struct_map, &enum_map);
 
         // [SENTINEL] Always emit StringView type alias.
         let sv_name = "std__core__str__StringView";
@@ -964,6 +893,51 @@ impl<'a> CodegenContext<'a> {
                 "!struct_{} = !llvm.struct<\"{}\", (!llvm.ptr, i64)>\n",
                 sv_name, sv_name
             ));
+        }
+    }
+
+    fn build_struct_dep_graph(
+        &self, all_keys: &[crate::types::TypeKey],
+        struct_map: &HashMap<crate::types::TypeKey, crate::registry::StructInfo>,
+    ) -> HashMap<crate::types::TypeKey, Vec<crate::types::TypeKey>> {
+        let mut adj = HashMap::new();
+        for key in all_keys {
+            let mut deps = Vec::new();
+            if let Some(info) = struct_map.get(key) {
+                for field_ty in &info.field_order {
+                    self.collect_dependencies(field_ty, &mut deps);
+                }
+            }
+            adj.insert(key.clone(), deps);
+        }
+        adj
+    }
+
+    fn emit_sorted_type_defs(&self, out: &mut String, sorted_keys: &[crate::types::TypeKey], struct_map: &HashMap<crate::types::TypeKey, crate::registry::StructInfo>, enum_map: &HashMap<crate::types::TypeKey, crate::registry::EnumInfo>) {
+        let et: HashSet<String> = enum_map.values().map(|e| e.name.clone()).collect();
+        let mut emitted: HashSet<String> = HashSet::new();
+        for key in sorted_keys {
+            if let Some(info) = struct_map.get(key) {
+                if info.field_order.iter().any(|ty| !ty.is_fully_concrete(struct_map, &et)) { continue; }
+                let mut ts = format!("!llvm.struct<\"{}\", (", info.name);
+                for (i, ty) in info.field_order.iter().enumerate() {
+                    if i > 0 { ts.push_str(", "); }
+                    ts.push_str(&self.resolve_mlir_storage_type(ty).unwrap_or_else(|_| "!llvm.ptr".to_string()));
+                }
+                ts.push_str(")>");
+                out.push_str(&format!("!struct_{} = {}\n", info.name, ts));
+                let cn = Type::Struct(info.name.clone()).to_canonical_name();
+                if cn != info.name && !emitted.contains(&cn) {
+                    emitted.insert(cn.clone());
+                    out.push_str(&format!("!struct_{} = !struct_{}\n", cn, info.name));
+                }
+            } else if let Some(info) = enum_map.get(key) {
+                let payload = if info.max_payload_size > 0 { format!(", !llvm.array<{} x i8>", info.max_payload_size) } else { String::new() };
+                let ts = format!("!llvm.struct<\"{}\", (i32{})>", info.name, payload);
+                out.push_str(&format!("!struct_{} = {}\n", info.name, ts));
+                let cn = Type::Enum(info.name.clone()).to_canonical_name();
+                if cn != info.name && !emitted.contains(&cn) { emitted.insert(cn.clone()); out.push_str(&format!("!struct_{} = !struct_{}\n", cn, info.name)); }
+            }
         }
     }
 
@@ -1933,102 +1907,26 @@ fn register_impl_signatures(ctx: &CodegenContext, imp: &SaltImpl) -> Result<(), 
 fn resolve_type_safe(ctx: &CodegenContext, ty: &crate::grammar::SynType) -> Type {
     if let Some(parsed_ty) = crate::types::Type::from_syn(ty) {
         match parsed_ty {
-            Type::Struct(name) => {
-                 // TOP MINDS: Check for 'Self' keyword - resolve to current impl target
-                 if name == "Self" {
-                     if let Some(self_ty) = ctx.current_self_ty().as_ref() {
-                         return self_ty.clone();
-                     }
-                     eprintln!("CRITICAL: Use of 'Self' outside of an implementation block");
-                     return Type::Concrete("Unknown_Self".to_string(), vec![]);
-                 }
-                 
-                 // [CROSS-MODULE STRUCT] Split qualified names like "addr::PhysAddr" into
-                 // segments ["addr", "PhysAddr"] so bridge_resolve_package_prefix can match
-                 // the module alias against the import table.
-                 let segments: Vec<String> = name.split("::").map(|s| s.to_string()).collect();
-                 // RESOLVE TO FQN
-                 let resolved_name = if let Some((pkg, item)) = ctx.bridge_resolve_package_prefix(&segments) {
-                     
-                     if item.is_empty() { pkg } else if pkg.is_empty() { item } else { Mangler::mangle(&[&pkg, &item]) }
-                 } else {
-                     // TOP MINDS: Check if this is the impl target struct (Self-referential scope injection)
-                     // This handles cases like `impl Point { fn sum(self: &Point) }` where Point isn't imported
-                     if let Some(Type::Struct(self_name)) = ctx.current_self_ty().as_ref() {
-                         let self_short = self_name.rsplit("__").next().unwrap_or(self_name);
-                         if name == self_short || name == *self_name {
-                             let _ = ctx.ensure_struct_exists(self_name, &[]);
-                             return Type::Struct(self_name.clone());
-                         }
-                     }
-                     eprintln!("CRITICAL: resolve_type_safe failed to resolve '{}'. Imports: {:?}", name, ctx.imports().iter().map(|i| i.alias.as_ref().map(|a| a.to_string()).unwrap_or("?".to_string())).collect::<Vec<_>>());
-                     return Type::Concrete(format!("Unknown_{}", name), vec![]);
-                 };
-                 
-                 let _ = ctx.ensure_struct_exists(&resolved_name, &[]); 
-                 Type::Struct(resolved_name)
-            },
+            Type::Struct(name) => resolve_type_safe_struct(ctx, &name),
             Type::Enum(name) => {
-                 let segments = vec![name.clone()];
-                 let resolved_name = if let Some((pkg, item)) = ctx.bridge_resolve_package_prefix(&segments) {
-                     if item.is_empty() { pkg } else if pkg.is_empty() { item } else { format!("{}__{}", pkg, item) }
-                 } else {
-                     name
-                 };
-                 
-                 let _ = ctx.ensure_enum_exists(&resolved_name, &[]);
-                 Type::Enum(resolved_name)
+                let segments = vec![name.clone()];
+                let resolved_name = if let Some((pkg, item)) = ctx.bridge_resolve_package_prefix(&segments) {
+                    if item.is_empty() { pkg } else if pkg.is_empty() { item } else { format!("{}__{}", pkg, item) }
+                } else {
+                    name
+                };
+                let _ = ctx.ensure_enum_exists(&resolved_name, &[]);
+                Type::Enum(resolved_name)
             },
             Type::Reference(inner, is_mut) => {
-                // Safely recurse for references
                 if let crate::grammar::SynType::Reference(inner_syn, _) = ty {
                     Type::Reference(Box::new(resolve_type_safe(ctx, inner_syn)), is_mut)
                 } else {
                     Type::Reference(inner, is_mut)
                 }
             }
-            Type::Concrete(base, params) => {
-                 // [CROSS-MODULE STRUCT] Split qualified names like "addr::PhysAddr" into segments
-                 let segments: Vec<String> = base.split("::").map(|s| s.to_string()).collect();
-                 let resolved_base = if let Some((pkg, item)) = ctx.bridge_resolve_package_prefix(&segments) {
-                     if item.is_empty() { pkg } else { format!("{}__{}", pkg, item) }
-                 } else {
-                     base
-                 };
-                 
-                 // Recurse params? resolve_type_safe doesn't take params list in signature but returns Type.
-                 // Need to map params.
-                 // But params in Type::Concrete are already Types.
-                 // We should resolve them too!
-                 let resolved_params: Vec<Type> = params.iter().map(|p| {
-                     // We don't have the original syn for params here easily unless we fetch from ty...
-                     // But Type::Concrete params are Types. We can't map Type -> Syn -> Type.
-                     // But we can recurse on Type if we had a "resolve_type_safe_inner(Type)".
-                     // For now, assume params are primitives or simple? 
-                     // Or better: resolve_package_prefix logic on Type::Struct params.
-                     match p {
-                         Type::Struct(n) => {
-                             let segs = vec![n.clone()];
-                             if let Some((pkg, item)) = ctx.bridge_resolve_package_prefix(&segs) {
-                                 let fqn = if item.is_empty() { pkg } else { format!("{}__{}", pkg, item) };
-                                 Type::Struct(fqn)
-                             } else { p.clone() }
-                         },
-                         _ => p.clone() 
-                     }
-                 }).collect();
-                 
-                 // Check if it's an Enum Template
-                 if ctx.enum_templates().contains_key(&resolved_base) {
-                     let _ = ctx.ensure_enum_exists(&resolved_base, &resolved_params);
-                 } else {
-                     let _ = ctx.ensure_struct_exists(&resolved_base, &resolved_params);
-                 }
-                 
-                 Type::Concrete(resolved_base, resolved_params)
-            },
+            Type::Concrete(base, params) => resolve_type_safe_concrete(ctx, &base, &params),
             _ => {
-                // Primitives and other simple types are safe to resolve fully
                 if parsed_ty.is_numeric() || matches!(parsed_ty, Type::Bool | Type::Unit) {
                     ctx.bridge_resolve_type(ty)
                 } else {
@@ -2039,6 +1937,57 @@ fn resolve_type_safe(ctx: &CodegenContext, ty: &crate::grammar::SynType) -> Type
     } else {
         Type::Unit
     }
+}
+
+fn resolve_type_safe_struct(ctx: &CodegenContext, name: &str) -> Type {
+    if name == "Self" {
+        if let Some(self_ty) = ctx.current_self_ty().as_ref() { return self_ty.clone(); }
+        eprintln!("CRITICAL: Use of 'Self' outside of an implementation block");
+        return Type::Concrete("Unknown_Self".to_string(), vec![]);
+    }
+    let segments: Vec<String> = name.split("::").map(|s| s.to_string()).collect();
+    let resolved_name = if let Some((pkg, item)) = ctx.bridge_resolve_package_prefix(&segments) {
+        if item.is_empty() { pkg } else if pkg.is_empty() { item } else { Mangler::mangle(&[&pkg, &item]) }
+    } else {
+        if let Some(Type::Struct(self_name)) = ctx.current_self_ty().as_ref() {
+            let self_short = self_name.rsplit("__").next().unwrap_or(self_name);
+            if name == self_short || name == *self_name {
+                let _ = ctx.ensure_struct_exists(self_name, &[]);
+                return Type::Struct(self_name.clone());
+            }
+        }
+        eprintln!("CRITICAL: resolve_type_safe failed to resolve '{}'. Imports: {:?}", name, ctx.imports().iter().map(|i| i.alias.as_ref().map(|a| a.to_string()).unwrap_or("?".to_string())).collect::<Vec<_>>());
+        return Type::Concrete(format!("Unknown_{}", name), vec![]);
+    };
+    let _ = ctx.ensure_struct_exists(&resolved_name, &[]);
+    Type::Struct(resolved_name)
+}
+
+fn resolve_type_safe_concrete(ctx: &CodegenContext, base: &str, params: &[Type]) -> Type {
+    let segments: Vec<String> = base.split("::").map(|s| s.to_string()).collect();
+    let resolved_base = if let Some((pkg, item)) = ctx.bridge_resolve_package_prefix(&segments) {
+        if item.is_empty() { pkg } else { format!("{}__{}", pkg, item) }
+    } else {
+        base.to_string()
+    };
+    let resolved_params: Vec<Type> = params.iter().map(|p| {
+        match p {
+            Type::Struct(n) => {
+                let segs = vec![n.clone()];
+                if let Some((pkg, item)) = ctx.bridge_resolve_package_prefix(&segs) {
+                    let fqn = if item.is_empty() { pkg } else { format!("{}__{}", pkg, item) };
+                    Type::Struct(fqn)
+                } else { p.clone() }
+            },
+            _ => p.clone()
+        }
+    }).collect();
+    if ctx.enum_templates().contains_key(&resolved_base) {
+        let _ = ctx.ensure_enum_exists(&resolved_base, &resolved_params);
+    } else {
+        let _ = ctx.ensure_struct_exists(&resolved_base, &resolved_params);
+    }
+    Type::Concrete(resolved_base, resolved_params)
 }
 
 // CV-3 FIX: Removed unsafe transmute.

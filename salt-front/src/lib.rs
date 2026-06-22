@@ -118,149 +118,90 @@ pub fn preprocess(source: &str) -> String {
     expand_derive_annotations(&result)
 }
 
+/// Parse a single struct field declaration from a line like `pub field_name: FieldType,`
+fn parse_field_declaration(line: &str) -> Option<(String, String)> {
+    let trimmed = line.trim();
+    if !trimmed.contains(':') || trimmed.starts_with("//") || trimmed.contains("struct") {
+        return None;
+    }
+    let trimmed = trimmed.strip_prefix("pub ").unwrap_or(trimmed);
+    let colon_pos = trimmed.find(':')?;
+    let field_name = trimmed[..colon_pos].trim().to_string();
+    let mut field_type = trimmed[colon_pos + 1..].trim().to_string();
+    if field_type.ends_with(',') { field_type.pop(); }
+    if let Some(comment_pos) = field_type.find("//") {
+        field_type = field_type[..comment_pos].trim().to_string();
+    }
+    if field_name.is_empty() || field_type.is_empty() || field_name == "_phantom" {
+        return None;
+    }
+    Some((field_name, field_type))
+}
+
+/// Scan struct body lines to extract fields and track brace depth.
+fn parse_struct_definition<'a>(lines: &'a [&'a str], start: usize) -> (Vec<&'a str>, Vec<(String, String)>, usize) {
+    let mut fields: Vec<(String, String)> = Vec::new();
+    let mut brace_depth = 0;
+    let mut body_lines: Vec<&str> = Vec::new();
+    let mut i = start;
+    while i < lines.len() {
+        let line = lines[i];
+        body_lines.push(line);
+        for ch in line.chars() {
+            if ch == '{' { brace_depth += 1; }
+            if ch == '}' { brace_depth -= 1; }
+        }
+        if let Some(field) = parse_field_declaration(line) {
+            fields.push(field);
+        }
+        if brace_depth == 0 {
+            i += 1;
+            break;
+        }
+        i += 1;
+    }
+    (body_lines, fields, i)
+}
+
 /// Expand @derive(Clone, Hash, Eq, Ord) annotations on structs.
-/// Scans for `@derive(Trait1, Trait2, ...)` followed by `pub struct Name { fields }`.
-/// Generates trait impl blocks and appends them after the struct definition.
 fn expand_derive_annotations(source: &str) -> String {
     let lines: Vec<&str> = source.lines().collect();
     let mut result = String::new();
     let mut i = 0;
-
     while i < lines.len() {
         let trimmed = lines[i].trim();
-
-        // Detect @derive(Trait1, Trait2, ...)
         if trimmed.starts_with("@derive(") && trimmed.ends_with(")") {
-            let inner = &trimmed[8..trimmed.len() - 1]; // e.g. "Clone, Hash, Eq, Ord"
+            let inner = &trimmed[8..trimmed.len() - 1];
             let traits: Vec<&str> = inner.split(',').map(|s| s.trim()).collect();
-
-            // Consume the @derive line
             result.push_str(lines[i]);
             result.push('\n');
             i += 1;
-
-            // Now expect "pub struct Name {" (possibly on one line or multi-line)
-            if i >= lines.len() {
-                continue;
-            }
-
-            // Collect the struct definition lines
-            let _struct_start = i;
-            let mut struct_name = String::new();
-            let mut fields: Vec<(String, String)> = Vec::new(); // (name, type)
-            let mut brace_depth = 0;
-            let mut found_struct = false;
-            let mut __struct_end = i;
-
+            if i >= lines.len() { continue; }
             // Parse struct header
             let header = lines[i].trim();
-            if let Some(name_start) = header.find("struct ") {
+            let (struct_name, found_struct) = if let Some(name_start) = header.find("struct ") {
                 let after_struct = &header[name_start + 7..];
                 let name_end = after_struct.find(|c: char| !c.is_alphanumeric() && c != '_')
                     .unwrap_or(after_struct.len());
-                struct_name = after_struct[..name_end].to_string();
-                found_struct = true;
-            }
-
-            if !found_struct {
-                // Not a struct definition following @derive — skip
-                continue;
-            }
-
-            // Scan through struct body to find fields and closing brace
-            while i < lines.len() {
-                let line = lines[i];
+                (after_struct[..name_end].to_string(), true)
+            } else {
+                (String::new(), false)
+            };
+            if !found_struct { continue; }
+            let (body_lines, fields, new_i) = parse_struct_definition(&lines, i);
+            for line in &body_lines {
                 result.push_str(line);
                 result.push('\n');
-
-                for ch in line.chars() {
-                    if ch == '{' { brace_depth += 1; }
-                    if ch == '}' { brace_depth -= 1; }
-                }
-
-                // Parse field declarations: "pub field_name: FieldType" or "field_name: FieldType"
-                let field_line = line.trim();
-                if field_line.contains(':') && !field_line.starts_with("//") && !field_line.contains("struct") {
-                    let field_line = field_line.strip_prefix("pub ").unwrap_or(field_line);
-                    if let Some(colon_pos) = field_line.find(':') {
-                        let field_name = field_line[..colon_pos].trim().to_string();
-                        let mut field_type = field_line[colon_pos + 1..].trim().to_string();
-                        // Remove trailing comma
-                        if field_type.ends_with(',') {
-                            field_type.pop();
-                        }
-                        // Remove trailing comment
-                        if let Some(comment_pos) = field_type.find("//") {
-                            field_type = field_type[..comment_pos].trim().to_string();
-                        }
-                        if !field_name.is_empty() && !field_type.is_empty() && field_name != "_phantom" {
-                            fields.push((field_name, field_type));
-                        }
-                    }
-                }
-
-                if brace_depth == 0 && found_struct {
-                    __struct_end = i;
-                    break;
-                }
-                i += 1;
             }
-            i += 1;
-
-            // Generate trait impls
+            i = new_i;
             if !struct_name.is_empty() && !fields.is_empty() {
                 for trait_name in &traits {
                     match *trait_name {
-                        "Clone" => {
-                            result.push_str(&format!("\nimpl Clone for {} {{\n", struct_name));
-                            result.push_str(&format!("    fn clone(&self) -> {} {{\n", struct_name));
-                            result.push_str(&format!("        return {} {{ ", struct_name));
-                            let field_inits: Vec<String> = fields.iter()
-                                .map(|(name, _)| format!("{}: self.{}", name, name))
-                                .collect();
-                            result.push_str(&field_inits.join(", "));
-                            result.push_str(" };\n    }\n}\n");
-                        }
-                        "Eq" => {
-                            result.push_str(&format!("\nimpl Eq for {} {{\n", struct_name));
-                            result.push_str(&format!("    fn eq(&self, other: &{}) -> bool {{\n", struct_name));
-                            let conditions: Vec<String> = fields.iter()
-                                .map(|(name, _)| format!("self.{} == other.{}", name, name))
-                                .collect();
-                            result.push_str(&format!("        return {};\n", conditions.join(" && ")));
-                            result.push_str("    }\n}\n");
-                        }
-                        "Hash" => {
-                            result.push_str(&format!("\nimpl Hash for {} {{\n", struct_name));
-                            result.push_str("    fn hash(&self) -> u64 {\n");
-                            if fields.len() == 1 {
-                                result.push_str(&format!("        return (self.{} as u64);\n", fields[0].0));
-                            } else {
-                                // Combine field hashes with XOR + rotation
-                                result.push_str(&format!("        let mut h: u64 = self.{} as u64;\n", fields[0].0));
-                                for field in &fields[1..] {
-                                    result.push_str(&format!("        h = h ^ ((self.{} as u64) << 16) ^ ((self.{} as u64) >> 48);\n", field.0, field.0));
-                                }
-                                result.push_str("        return h;\n");
-                            }
-                            result.push_str("    }\n}\n");
-                        }
-                        "Ord" => {
-                            result.push_str(&format!("\nimpl Ord for {} {{\n", struct_name));
-                            result.push_str(&format!("    fn cmp(&self, other: &{}) -> i32 {{\n", struct_name));
-                            for (idx, (name, _)) in fields.iter().enumerate() {
-                                if idx < fields.len() - 1 {
-                                    result.push_str(&format!("        let c{} = self.{}.cmp(&other.{});\n", idx, name, name));
-                                    result.push_str(&format!("        if c{} != 0 {{ return c{}; }}\n", idx, idx));
-                                } else {
-                                    result.push_str(&format!("        return self.{}.cmp(&other.{});\n", name, name));
-                                }
-                            }
-                            result.push_str("    }\n}\n");
-                        }
-                        _ => {
-                            // Unknown trait — skip silently
-                        }
+                        "Clone" => result.push_str(&emit_clone_impl(&struct_name, &fields)),
+                        "Eq" => result.push_str(&emit_eq_impl(&struct_name, &fields)),
+                        "Hash" => result.push_str(&emit_hash_impl(&struct_name, &fields)),
+                        "Ord" => result.push_str(&emit_ord_impl(&struct_name, &fields)),
+                        _ => {}
                     }
                 }
             }
@@ -270,134 +211,165 @@ fn expand_derive_annotations(source: &str) -> String {
             i += 1;
         }
     }
-
     result
 }
 
+fn emit_clone_impl(struct_name: &str, fields: &[(String, String)]) -> String {
+    let mut out = format!("\nimpl Clone for {} {{\n", struct_name);
+    out.push_str(&format!("    fn clone(&self) -> {} {{\n", struct_name));
+    out.push_str(&format!("        return {} {{ ", struct_name));
+    let field_inits: Vec<String> = fields.iter()
+        .map(|(name, _)| format!("{}: self.{}", name, name))
+        .collect();
+    out.push_str(&field_inits.join(", "));
+    out.push_str(" };\n    }\n}\n");
+    out
+}
+
+fn emit_eq_impl(struct_name: &str, fields: &[(String, String)]) -> String {
+    let mut out = format!("\nimpl Eq for {} {{\n", struct_name);
+    out.push_str(&format!("    fn eq(&self, other: &{}) -> bool {{\n", struct_name));
+    let conditions: Vec<String> = fields.iter()
+        .map(|(name, _)| format!("self.{} == other.{}", name, name))
+        .collect();
+    out.push_str(&format!("        return {};\n", conditions.join(" && ")));
+    out.push_str("    }\n}\n");
+    out
+}
+
+fn emit_hash_impl(struct_name: &str, fields: &[(String, String)]) -> String {
+    let mut out = format!("\nimpl Hash for {} {{\n", struct_name);
+    out.push_str("    fn hash(&self) -> u64 {\n");
+    if fields.len() == 1 {
+        out.push_str(&format!("        return (self.{} as u64);\n", fields[0].0));
+    } else {
+        out.push_str(&format!("        let mut h: u64 = self.{} as u64;\n", fields[0].0));
+        for field in &fields[1..] {
+            out.push_str(&format!("        h = h ^ ((self.{} as u64) << 16) ^ ((self.{} as u64) >> 48);\n", field.0, field.0));
+        }
+        out.push_str("        return h;\n");
+    }
+    out.push_str("    }\n}\n");
+    out
+}
+
+fn emit_ord_impl(struct_name: &str, fields: &[(String, String)]) -> String {
+    let mut out = format!("\nimpl Ord for {} {{\n", struct_name);
+    out.push_str(&format!("    fn cmp(&self, other: &{}) -> i32 {{\n", struct_name));
+    for (idx, (name, _)) in fields.iter().enumerate() {
+        if idx < fields.len() - 1 {
+            out.push_str(&format!("        let c{} = self.{}.cmp(&other.{});\n", idx, name, name));
+            out.push_str(&format!("        if c{} != 0 {{ return c{}; }}\n", idx, idx));
+        } else {
+            out.push_str(&format!("        return self.{}.cmp(&other.{});\n", name, name));
+        }
+    }
+    out.push_str("    }\n}\n");
+    out
+}
+
+/// Try to convert `.f"..."` (target f-string) to `__target_fstring__!(target, "...")`.
+fn try_convert_target_fstring(
+    c: char,
+    result: &mut String,
+    chars: &mut std::iter::Peekable<std::str::Chars>,
+) -> bool {
+    if c != '.' || chars.peek() != Some(&'f') {
+        return false;
+    }
+    let mut peek = chars.clone();
+    if peek.next() != Some('f') || peek.next() != Some('"') {
+        return false;
+    }
+    let target = extract_target_expression(result);
+    if target.is_empty() {
+        return false;
+    }
+    let target_len = target.len();
+    result.truncate(result.len() - target_len);
+    chars.next(); // 'f'
+    chars.next(); // '"'
+    let content = collect_string_content(chars);
+    result.push_str(&format!("__target_fstring__!({}, \"{}\")", target.trim(), content));
+    true
+}
+
+/// Try to convert `f"..."` (f-string) to `__fstring__!("...")`.
+fn try_convert_fstring(
+    c: char,
+    result: &mut String,
+    chars: &mut std::iter::Peekable<std::str::Chars>,
+) -> bool {
+    if c != 'f' || chars.peek() != Some(&'"') {
+        return false;
+    }
+    let is_standalone = result.is_empty() || !result.chars().last().unwrap().is_alphanumeric();
+    if !is_standalone || result.ends_with('.') {
+        return false;
+    }
+    chars.next(); // '"'
+    let content = collect_string_content(chars);
+    result.push_str(&format!("__fstring__!(\"{}\")", content));
+    true
+}
+
+/// Try to convert `hex"..."` to `__hex__!("...")`.
+fn try_convert_hex(
+    c: char,
+    result: &mut String,
+    chars: &mut std::iter::Peekable<std::str::Chars>,
+) -> bool {
+    if c != 'h' || chars.peek() != Some(&'e') {
+        return false;
+    }
+    let mut peek = chars.clone();
+    if peek.next() != Some('e') || peek.next() != Some('x') || peek.next() != Some('"') {
+        return false;
+    }
+    let is_standalone = result.is_empty() || !result.chars().last().unwrap().is_alphanumeric();
+    if !is_standalone {
+        return false;
+    }
+    chars.next(); // 'e'
+    chars.next(); // 'x'
+    chars.next(); // '"'
+    let content = collect_string_content(chars);
+    result.push_str(&format!("__hex__!(\"{}\")", content));
+    true
+}
+
 /// Convert prefixed string literals to macro calls
-/// `f"Hello {name}"` -> `__fstring__!("Hello {name}")`
-/// `hex"DEADBEEF"` -> `__hex__!("DEADBEEF")`
-/// Also converts target expressions:
-/// `console.f"Hello {x}"` -> `__target_fstring__!(console, "Hello {x}")`
-/// This converts the syntax to something syn can parse as a macro invocation,
-/// which codegen then intercepts and expands via native_fstring_expand/native_hex_expand.
-/// 
-/// IMPORTANT: We must track string context to avoid converting prefixes inside
-/// existing string literals (e.g., `@string_prefix("f")` should NOT become `@string_prefix("__fstring__!(")")`).
 fn convert_prefixed_string_syntax(line: &str) -> String {
-    // Quick check: must contain a prefix followed by a quote
     if !line.contains("f\"") && !line.contains("hex\"") {
         return line.to_string();
     }
-    
     let mut result = String::new();
     let mut chars = line.chars().peekable();
-    let mut in_string = false; // Track if we're inside a string literal
-    
+    let mut in_string = false;
     while let Some(c) = chars.next() {
-        // Track string context (but not prefixed string we're converting)
         if c == '"' && !in_string {
-            // Check if previous char indicates this might be a prefixed string
-            let _prev_char = result.chars().last().unwrap_or(' ');
-            // If we just wrote "__fstring__!(", "__hex__!(", or "__target_fstring__!(", this is our generated string
             if result.ends_with("__fstring__!(") || result.ends_with("__hex__!(") || result.ends_with(", ") {
-                // We're entering our generated string - don't set in_string
                 result.push(c);
                 continue;
             }
-            // Otherwise, we're entering a regular string literal
             in_string = true;
             result.push(c);
             continue;
         }
-        
         if c == '"' && in_string {
-            // Check for escaped quote
-            let escaped = result.ends_with('\\');
-            if !escaped {
-                in_string = false;
-            }
+            if !result.ends_with('\\') { in_string = false; }
             result.push(c);
             continue;
         }
-        
-        // Skip all conversions if we're inside a string
         if in_string {
             result.push(c);
             continue;
         }
-        
-        // Check for '.f"' pattern (target.f"...")
-        // This is the target expression syntax for streaming to Writers
-        if c == '.' && chars.peek() == Some(&'f') {
-            // Peek ahead to verify pattern: .f"
-            let mut peek_chars = chars.clone();
-            if peek_chars.next() == Some('f') && peek_chars.next() == Some('"') {
-                // We have a .f" pattern - extract the target expression from result
-                // The target is everything back to the last separator (=, ;, (, {, ,, space after let/mut)
-                let target = extract_target_expression(&result);
-                
-                if !target.is_empty() {
-                    // Remove the target from result (we'll re-emit it in the macro)
-                    let target_len = target.len();
-                    result.truncate(result.len() - target_len);
-                    
-                    // Consume .f"
-                    chars.next(); // f
-                    chars.next(); // "
-                    
-                    // Collect the f-string content
-                    let content = collect_string_content(&mut chars);
-                    
-                    // Emit as __target_fstring__!(target, "content")
-                    result.push_str(&format!("__target_fstring__!({}, \"{}\")", target.trim(), content));
-                    continue;
-                }
-            }
-        }
-        
-        // Check for 'f"' prefix (f-string) - only outside strings
-        if c == 'f' && chars.peek() == Some(&'"') {
-            // Check this isn't part of a longer identifier (e.g., "if\"...")
-            let is_standalone = result.is_empty() || !result.chars().last().unwrap().is_alphanumeric();
-            if is_standalone {
-                // Also check this isn't preceded by a '.' (which would be target.f")
-                let is_target_pattern = result.ends_with('.');
-                if !is_target_pattern {
-                    // Consume the opening quote
-                    chars.next();
-                    // Collect the string content (this is the f-string content)
-                    let content = collect_string_content(&mut chars);
-                    result.push_str(&format!("__fstring__!(\"{}\")", content));
-                    continue;
-                }
-            }
-        }
-        
-        // Check for 'hex"' prefix - only outside strings
-        if c == 'h' && chars.peek() == Some(&'e') {
-            // Peek ahead to check for "hex\""
-            let mut peek_chars = chars.clone();
-            if peek_chars.next() == Some('e') 
-                && peek_chars.next() == Some('x') 
-                && peek_chars.next() == Some('"') 
-            {
-                let is_standalone = result.is_empty() || !result.chars().last().unwrap().is_alphanumeric();
-                if is_standalone {
-                    // Consume "ex\""
-                    chars.next(); // e
-                    chars.next(); // x
-                    chars.next(); // "
-                    let content = collect_string_content(&mut chars);
-                    result.push_str(&format!("__hex__!(\"{}\")", content));
-                    continue;
-                }
-            }
-        }
-        
+        if try_convert_target_fstring(c, &mut result, &mut chars) { continue; }
+        if try_convert_fstring(c, &mut result, &mut chars) { continue; }
+        if try_convert_hex(c, &mut result, &mut chars) { continue; }
         result.push(c);
     }
-    
     result
 }
 
@@ -465,34 +437,62 @@ fn collect_string_content(chars: &mut std::iter::Peekable<std::str::Chars>) -> S
     content
 }
 
-/// [C++ STYLE GENERICS] Convert Salt-style generic calls to syn-compatible turbofish syntax.
-/// 
-/// Salt syntax uses C++/Java-style generics in expression position:
-///   - `HashMap<i64, i64>::new()`  → `HashMap::<i64, i64>::new()`
-///   - `identity<i32>(42)`         → `identity::<i32>(42)`
-///   - `Option<i32>::Some(42)`     → `Option::<i32>::Some(42)`
-///
-/// Disambiguation rules:
-///   - `>` followed by `::` is always a generic instantiation (static method path)
-///   - `>` followed by `(` is always a generic function call
-///   - `<` preceded by an identifier (not by `::`) starts generic args
-///   - Regular comparisons like `if x < y` never have `>::` or `>(` after them
+/// Find matching `>` for a `<` at `start` in generic position.
+/// Returns `(close_pos, is_call_site)` where `is_call_site` is true if `>(` pattern.
+fn find_matching_generic_close(chars: &[char], start: usize, len: usize) -> Option<(usize, bool)> {
+    let mut depth = 1;
+    let mut j = start;
+    while j < len && depth > 0 {
+        match chars[j] {
+            '<' => depth += 1,
+            '>' => {
+                depth -= 1;
+                if depth == 0 {
+                    if j + 2 < len && chars[j + 1] == ':' && chars[j + 2] == ':' {
+                        return Some((j, false));
+                    } else if j + 1 < len && chars[j + 1] == '(' {
+                        return Some((j, true));
+                    }
+                }
+            }
+            '"' => break,
+            ';' | '{' | '}' if depth <= 1 => break,
+            _ => {}
+        }
+        j += 1;
+    }
+    None
+}
+
+/// Check if the token before an identifier at position `i` is a definition keyword.
+fn is_definition_keyword_before(chars: &[char], i: usize, result: &str) -> bool {
+    let mut ident_start = i - 1;
+    while ident_start > 0 && (chars[ident_start - 1].is_alphanumeric() || chars[ident_start - 1] == '_') {
+        ident_start -= 1;
+    }
+    let ident_len = i - ident_start;
+    let before_ident = &result[..result.len() - ident_len];
+    let trimmed = before_ident.trim_end();
+    trimmed.ends_with("fn")
+        || trimmed.ends_with("struct")
+        || trimmed.ends_with("impl")
+        || trimmed.ends_with("enum")
+        || trimmed.ends_with("trait")
+        || trimmed.ends_with("type")
+}
+
+/// Convert Salt-style generics `identity<i32>(42)` to `identity::<i32>(42)` for syn.
 fn convert_generic_call_syntax(line: &str) -> String {
-    // Quick check: must contain < to be relevant
     if !line.contains('<') {
         return line.to_string();
     }
-    
     let mut result = String::new();
     let chars: Vec<char> = line.chars().collect();
     let len = chars.len();
     let mut i = 0;
     let mut in_string = false;
-    
     while i < len {
         let c = chars[i];
-        
-        // Track string literals
         if c == '"' && !in_string {
             in_string = true;
             result.push(c);
@@ -501,9 +501,7 @@ fn convert_generic_call_syntax(line: &str) -> String {
         }
         if c == '"' && in_string {
             let escaped = i > 0 && chars[i - 1] == '\\';
-            if !escaped {
-                in_string = false;
-            }
+            if !escaped { in_string = false; }
             result.push(c);
             i += 1;
             continue;
@@ -513,83 +511,25 @@ fn convert_generic_call_syntax(line: &str) -> String {
             i += 1;
             continue;
         }
-        
-        // Look for pattern: Ident<...>:: or Ident<...>(
-        // We detect `<` that starts generic args by checking:
-        //   1. The char before `<` is alphanumeric or _ (end of identifier)
-        //   2. The char before that is NOT ':' (not already turbofish ::< )
-        //   3. There's a matching `>` followed by `::` or `(` somewhere ahead
         if c == '<' {
             let prev_is_ident = i > 0 && (chars[i - 1].is_alphanumeric() || chars[i - 1] == '_');
             let already_turbofish = i >= 2 && chars[i - 1] == ':' && chars[i - 2] == ':';
-            
             if prev_is_ident && !already_turbofish {
-                // Try to find matching > followed by :: or (
-                let mut depth = 1;
-                let mut j = i + 1;
-                let mut found_close = false;
-                let mut is_call_site = false; // true if >( pattern, false if >:: pattern
-                
-                while j < len && depth > 0 {
-                    match chars[j] {
-                        '<' => depth += 1,
-                        '>' => {
-                            depth -= 1;
-                            if depth == 0 {
-                                // Check if > is followed by :: (static method path)
-                                if j + 2 < len && chars[j + 1] == ':' && chars[j + 2] == ':' {
-                                    found_close = true;
-                                    is_call_site = false;
-                                }
-                                // Check if > is followed by ( (generic function call)
-                                else if j + 1 < len && chars[j + 1] == '(' {
-                                    found_close = true;
-                                    is_call_site = true;
-                                }
-                            }
-                        }
-                        '"' => break, // Hit string, bail
-                        ';' | '{' | '}' if depth <= 1 => break, // Statement boundary, bail
-                        _ => {}
-                    }
-                    j += 1;
-                }
-                
-                if found_close {
-                    // For >( pattern, we must exclude function/struct/impl definitions.
-                    // Walk backwards from < to find the start of the identifier, then
-                    // check if the token before the identifier is a definition keyword.
-                    if is_call_site {
-                        // Find the start of the identifier before <
-                        let mut ident_start = i - 1;
-                        while ident_start > 0 && (chars[ident_start - 1].is_alphanumeric() || chars[ident_start - 1] == '_') {
-                            ident_start -= 1;
-                        }
-                        // Check what precedes the identifier
-                        let prefix = &result[..result.len() - (i - ident_start)];
-                        let trimmed_prefix = prefix.trim_end();
-                        let is_definition = trimmed_prefix.ends_with("fn")
-                            || trimmed_prefix.ends_with("struct")
-                            || trimmed_prefix.ends_with("impl")
-                            || trimmed_prefix.ends_with("enum")
-                            || trimmed_prefix.ends_with("trait")
-                            || trimmed_prefix.ends_with("type");
-                        
-                        if !is_definition {
-                            result.push_str("::");
-                        }
+                if let Some((_close_pos, is_call_site)) = find_matching_generic_close(&chars, i + 1, len) {
+                    let should_insert = if is_call_site {
+                        !is_definition_keyword_before(&chars, i, &result)
                     } else {
-                        // >:: pattern — always convert
+                        true
+                    };
+                    if should_insert {
                         result.push_str("::");
                     }
                 }
             }
         }
-        
         result.push(c);
         i += 1;
     }
-    
     result
 }
 
@@ -1202,108 +1142,82 @@ pub fn compile(source: &str, release_mode: bool, registry: Option<&crate::regist
     compile_ast(&mut file, release_mode, registry, skip_scan, vverify, false, false, false, false, false, "<stdin>")
 }
 
+/// Find the matching angle bracket `>` for generic args starting at `open_pos`.
+fn find_matching_angle_close(chars: &[char], open_pos: usize) -> Option<usize> {
+    let mut depth = 0;
+    for (j, &ch) in chars.iter().enumerate().skip(open_pos) {
+        match ch {
+            '<' => depth += 1,
+            '>' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(j + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Scan a single line for Rust-style turbofish `::<T>(` and return the fix.
+/// Returns `(ident, original, fixed)` for the error message.
+fn find_turbofish_on_line(code: &str) -> Option<(String, String, String)> {
+    let chars: Vec<char> = code.chars().collect();
+    let len = chars.len();
+    let mut in_string = false;
+    for i in 0..len {
+        if chars[i] == '"' {
+            if in_string {
+                if i == 0 || chars[i - 1] != '\\' { in_string = false; }
+            } else {
+                in_string = true;
+            }
+            continue;
+        }
+        if in_string { continue; }
+        if i + 2 < len && i > 0 && chars[i] == ':' && chars[i + 1] == ':' && chars[i + 2] == '<'
+            && (chars[i - 1].is_alphanumeric() || chars[i - 1] == '_')
+        {
+            if let Some(gen_end) = find_matching_angle_close(&chars, i + 2) {
+                let after_trimmed: String = chars[gen_end..].iter().collect();
+                if !after_trimmed.trim_start().starts_with('(') { continue; }
+                let mut ident_start = i - 1;
+                while ident_start > 0 && (chars[ident_start - 1].is_alphanumeric() || chars[ident_start - 1] == '_') {
+                    ident_start -= 1;
+                }
+                let ident: String = chars[ident_start..i].iter().collect();
+                let original: String = chars[ident_start..gen_end].iter().collect();
+                let fixed: String = format!("{}{}", ident, chars[(i + 2)..gen_end].iter().collect::<String>());
+                return Some((ident, original, fixed));
+            }
+        }
+    }
+    None
+}
+
 /// Detect Rust-style turbofish `::<` in Salt source and emit a helpful error.
-///
-/// Salt uses C++/Java-style generics: `identity<i32>(42)`, not `identity::<i32>(42)`.
-/// This function scans the raw source for `::<` patterns in expression context
-/// (outside string literals) and produces a clear diagnostic with a suggested fix.
-///
-/// **Scope**: Only flags `::<T>(` (function call turbofish). Ignores `::<T>::` (static
-/// method paths) and `::<T> {` (struct literals) because the preprocessor already
-/// handles `Ident<T>::method()` → `Ident::<T>::method()` conversion, and struct
-/// literals like `Container<i32> { ... }` are ambiguous with comparisons for syn.
 fn check_turbofish_syntax(source: &str) -> anyhow::Result<()> {
     for (line_num, line) in source.lines().enumerate() {
         let trimmed = line.trim();
-        // Skip comment-only lines
-        if trimmed.starts_with("//") {
-            continue;
-        }
-        // Strip trailing comments
+        if trimmed.starts_with("//") { continue; }
         let code = if let Some(idx) = trimmed.find("//") {
             &trimmed[..idx]
         } else {
             trimmed
         };
-        
-        // Scan for ::< outside string literals
-        let chars: Vec<char> = code.chars().collect();
-        let len = chars.len();
-        let mut in_string = false;
-        
-        for i in 0..len {
-            // Track string context
-            if chars[i] == '"' {
-                if in_string {
-                    let escaped = i > 0 && chars[i - 1] == '\\';
-                    if !escaped { in_string = false; }
-                } else {
-                    in_string = true;
-                }
-                continue;
-            }
-            if in_string { continue; }
-            
-            // Detect ::< pattern
-            if i + 2 < len && chars[i] == ':' && chars[i + 1] == ':' && chars[i + 2] == '<' {
-                // Must be preceded by an identifier (not start of line, not another ::)
-                if i > 0 && (chars[i - 1].is_alphanumeric() || chars[i - 1] == '_') {
-                    // Find the matching > to determine what follows
-                    let mut depth = 0;
-                    let mut gen_end = i + 2;
-                    for (j, &ch) in chars.iter().enumerate().skip(i + 2) {
-                        match ch {
-                            '<' => depth += 1,
-                            '>' => {
-                                depth -= 1;
-                                if depth == 0 {
-                                    gen_end = j + 1;
-                                    break;
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                    
-                    // Check what follows the closing >
-                    // Only flag if > is followed by ( — a function call turbofish
-                    // Skip if followed by :: (static method path — preprocessor handles this)
-                    // Skip if followed by { or whitespace+{ (struct literal — no Salt equivalent yet)
-                    let after = &chars[gen_end..];
-                    let after_trimmed: String = after.iter().collect::<String>();
-                    let after_trimmed = after_trimmed.trim_start();
-                    
-                    let is_function_call = after_trimmed.starts_with('(');
-                    let is_static_path = after_trimmed.starts_with("::");
-                    let is_struct_literal = after_trimmed.starts_with('{');
-                    
-                    if is_function_call && !is_static_path && !is_struct_literal {
-                        // Extract the identifier before ::<
-                        let mut ident_start = i - 1;
-                        while ident_start > 0 && (chars[ident_start - 1].is_alphanumeric() || chars[ident_start - 1] == '_') {
-                            ident_start -= 1;
-                        }
-                        let ident: String = chars[ident_start..i].iter().collect();
-                        let original: String = chars[ident_start..gen_end].iter().collect();
-                        let fixed: String = format!("{}{}", ident, chars[(i + 2)..gen_end].iter().collect::<String>());
-                        
-                        anyhow::bail!(
-                            "Line {}: Salt uses `Name<T>` syntax, not Rust-style turbofish `Name::<T>`\n\
-                             \n\
-                             \x1b[31m  {} |\x1b[0m  {}\n\
-                             \x1b[31m     |\x1b[0m  {}  \x1b[31m^^ remove this\x1b[0m\n\
-                             \n\
-                             \x1b[32m  help:\x1b[0m write `{}` instead of `{}`",
-                            line_num + 1,
-                            line_num + 1,
-                            trimmed,
-                            " ".repeat(code.find(&original).unwrap_or(0) + ident.len()),
-                            fixed,
-                            original,
-                        );
-                    }
-                }
-            }
+        if let Some((ident, original, fixed)) = find_turbofish_on_line(code) {
+            anyhow::bail!(
+                "Line {}: Salt uses `Name<T>` syntax, not Rust-style turbofish `Name::<T>`\n\
+                 \n\
+                 \x1b[31m  {} |\x1b[0m  {}\n\
+                 \x1b[31m     |\x1b[0m  {}  \x1b[31m^^ remove this\x1b[0m\n\
+                 \n\
+                 \x1b[32m  help:\x1b[0m write `{}` instead of `{}`",
+                line_num + 1, line_num + 1, trimmed,
+                " ".repeat(code.find(&original).unwrap_or(0) + ident.len()),
+                fixed, original,
+            );
         }
     }
     Ok(())
