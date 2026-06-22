@@ -220,13 +220,10 @@ pub fn kmain(magic: u32, mb_info: &u8) {
 
     // Userspace integration tests — spawn all programs, let scheduler run them
     serial.print("[test] Spawning userspace programs...\n");
-    let slot_echo = spawn_and_run(1, get_user_elf_e_addr(), kernel_pml4);
-
     // Spawn grit from embedded ELF
-    serial.print("[KeuOS] /grit.elf not found, falling back to embedded ELF...\n");
-    let grit_elf = get_user_elf_d_addr();
-    let slot_user = exec_spawn_process(grit_elf, kernel_pml4);
-    serial.print("[debug] exec_spawn_process returned slot=");
+    serial.print("[KeuOS] Spawning grit from embedded ELF...\n");
+    let slot_user = spawn_and_run(6, get_user_elf_d_addr(), kernel_pml4);
+    serial.print("[debug] grit spawn returned slot=");
     serial.print_u64(slot_user);
     serial.print("\n");
     process_set_current(slot_user);

@@ -361,12 +361,13 @@ def build_user_programs():
                 os.path.join(user_dir, "lib", "socket.salt"),
             ],
         },
-        # Grit: Structural Shell
+        # Grit: Minimal serial-only shell for QEMU testing
         {
             "name": "grit",
             "salt_files": [
-                os.path.join(user_dir, "lib", "syscall.salt"),
+                os.path.join(user_dir, "grit", "shell_minimal.salt"),
                 os.path.join(user_dir, "std", "stdio.salt"),
+                os.path.join(user_dir, "lib", "syscall.salt"),
             ],
         },
     ]
