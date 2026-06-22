@@ -73,6 +73,7 @@ extern fn process_alloc_pid() -> u64;
 extern fn smp_release_aps();
 
 extern fn proc_context_switch(old_rsp_ptr: u64, new_rsp: u64, new_cr3: u64, new_rsp0: u64);
+extern fn user_paging_translate_user_addr(pml4_phys: u64, vaddr: u64) -> u64;
 
 extern fn fb_get_width() -> u32;
 extern fn fb_get_height() -> u32;
@@ -221,7 +222,7 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     let tx_page = pmm_alloc();
     serial.print("[KeuOS] Pre-allocated ring pages\n");
     set_kernel_pml4_stash(kernel_pml4);
-    boot_terminal_and_netd_sips(kernel_pml4, rx_page, tx_page);
+    // boot_terminal_and_netd_sips skipped for user program testing
 
     let active_cpus = run_percpu_tests();
     serial.print("[KeuOS] Active CPUs: ");
@@ -276,20 +277,19 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     serial.print_u64(slot_user);
     serial.print(")...\n");
 
-    // Dump IRETQ frame — it is above saved_rsp after 6 pops + ret
-    // saved_rsp = sp - 96. After 6 pops, RSP = sp - 48. ret pops trampoline.
-    // IRETQ frame is at sp-40 (RIP), sp-32 (CS), sp-24 (RFLAGS), sp-16 (RSP), sp-8 (SS)
-    // = saved_rsp + 56 (RIP), +64 (CS), +72 (RFLAGS), +80 (RSP), +88 (SS)
-    let r0 = process_get_kernel_rsp(slot_user);
-    serial.print("[iretq] RIP=0x");
-    serial.print_u64(*((r0 + 56) as &u64));
-    serial.print(" CS=0x");
-    serial.print_u64(*((r0 + 64) as &u64));
-    serial.print(" RSP=0x");
-    serial.print_u64(*((r0 + 80) as &u64));
+    serial.print("[iretq] switching to pid=");
+    serial.print_u64(slot_user);
+    serial.print("\n");
+
+    // Verify user code page 0x400000 is present by reading first byte
+    let upml4 = process_get_pml4(slot_user);
+    let user_phys = user_paging_translate_user_addr(upml4, 0x400000);
+    serial.print("[diag] user code 0x400000 -> phys 0x");
+    serial.print_u64(user_phys);
     serial.print("\n");
 
     let rsp_ptr = (&DISCARD_RSP) as u64;
+    let r0 = process_get_kernel_rsp(slot_user);
     let r1 = process_get_pml4(slot_user) | 0;
     let r2 = process_get_kernel_stack_top(slot_user);
     proc_context_switch(rsp_ptr, r0, r1, r2);
