@@ -156,10 +156,12 @@ pub fn alloc_pid() -> u64 {
 import kernel.core.process_resource
 
 // =============================================================================
-// alloc_kernel_stack — Delegates to process_resource.salt
+// alloc_kernel_stack — Delegates to process_resource.salt via @no_mangle
 // =============================================================================
+extern fn alloc_kernel_stack() -> u64;
+
 pub fn alloc_kernel_stack() -> u64 {
-    return process_resource.alloc_kernel_stack();
+    return alloc_kernel_stack();
 }
 
 @no_mangle

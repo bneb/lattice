@@ -16,6 +16,7 @@ const KSTACK_SIZE: u64 = KSTACK_PAGES * PAGE_SIZE;
 // =============================================================================
 // alloc_kernel_stack — Allocate and zero kernel stack pages
 // =============================================================================
+@no_mangle
 pub fn alloc_kernel_stack() -> u64 {
     let mut base: u64 = 0;
     let mut i: u64 = 0;
