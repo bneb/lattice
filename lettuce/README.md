@@ -1,82 +1,84 @@
-# LETTUCE 🥬
+# LETTUCE
 
-**An experimental in-memory data store written entirely in Salt, exploring zero-cost abstraction with Arenas and formal verification.**
-
-LETTUCE serves as a proof-of-concept for the Salt language, demonstrating how to build a networked key-value store without `malloc`, garbage collection, or lifetime annotations. 
-
----
-
-## Why Is It Interesting?
-
-LETTUCE does not use `malloc`, `free`, garbage collection, or reference counting in the hot path. Every architectural choice eliminates a class of overhead that conventional key-value stores pay on every request.
-
-### 1. Zero-Copy RESP Parsing
-
-The RESP parser never allocates. It returns `StringView` (pointer + length) into the recv buffer. A `SET foo bar` command produces zero heap allocations — the key and value are views directly into the kernel's TCP read buffer.
-
-### 2. Arena-Backed SwissTable (`StringMap`)
-
-The data store is a SwissTable hash map with SWAR (SIMD Within A Register) probe matching, backed by a bump-allocator arena. This gives O(1) allocation with zero fragmentation and zero `free` overhead.
-
-### 3. kqueue Event Loop with Single-Syscall Dispatch
-
-The server uses macOS `kqueue` for I/O multiplexing via Salt's `std.net.poller` module. 
-
-### 4. The Compilation Pipeline
-
-Salt compiles to native arm64 through MLIR, inheriting LLVM's full optimization pipeline. The final binary is a statically-linked native executable.
-
----
-
-## Architecture
+A Redis-compatible server written in [Salt](https://github.com/bneb/lattice), a systems language with compile-time Z3 verification. Supports PING, SET, GET, DEL over the Redis protocol (RESP) on port 6379.
 
 ```
-user/lettuce/
-├── server.salt          # Event loop + Reactor
-├── store.salt           # Command execution + Database Engine
-└── resp.salt            # RESP Parser
-
-Dependencies (Salt stdlib):
-├── std.collections.string_map   # 480 lines — SoA SwissTable + Arena
-├── std.net.tcp                  # 75 lines  — TcpListener, TcpStream
-├── std.net.poller               # 64 lines  — kqueue wrapper
-└── std.core.str                 # StringView (zero-copy string slices)
+$ make lettuce
+$ redis-cli -p 6379 PING → PONG
+$ redis-cli -p 6379 SET k v → OK
 ```
-
-**Total application code: ~567 lines of Salt.**  
-
-### Supported Commands
-
-| Command | Description | Response |
-|---|---|---|
-| `PING` | Health check (inline + RESP) | `+PONG\r\n` |
-| `SET key value` | Store a key-value pair | `+OK\r\n` |
-| `GET key` | Retrieve value by key | `$N\r\n<data>\r\n` or `$-1\r\n` |
-| `DEL key` | Delete a key | `:1\r\n` or `:0\r\n` |
 
 ---
 
-## Build & Run
+## Verification
 
-**Prerequisites**: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 21+ (`brew install llvm@21`).
+Salt supports `requires` and `ensures` clauses on functions. The compiler translates these to Z3 formulas and checks them at compile time. If Z3 can prove the condition always holds, the runtime check is elided. If Z3 finds a counterexample, it's reported as a warning. If Z3 cannot decide within the timeout, a runtime assertion is emitted as a safe fallback.
+
+LETTUCE uses this on its persistence layer. From `aof.salt`:
+
+```salt
+fn Aof_append_set(ctx: Ptr<AofContext>, key: StringView, val: StringView) {
+    requires(!ctx.is_null())
+    requires(key.length() > 0 && key.length() <= 4000)
+    requires(val.length() > 0 && val.length() <= 4000)
+    // ...
+}
+```
+
+The RESP parser also carries bounds annotations that Z3 can statically prove, eliminating bounds checks in the generated code.
+
+Run the contract suite:
 
 ```bash
-# 1. Build the Salt compiler (one-time)
-cd salt-front && cargo build && cd ..
-
-# 2. Compile LETTUCE → native binary
-./scripts/run_test.sh lettuce/src/server.salt --compile-only
-
-# 3. Start the server (Z3 must be on library path)
-DYLD_LIBRARY_PATH=/opt/homebrew/lib /tmp/salt_build/server
-
-# 4. Test with redis-cli
-redis-cli -p 6379 PING          # → PONG
-redis-cli -p 6379 SET foo bar   # → OK
+$ make lettuce-verify
+  resp_contracts: PASS (Z3 contracts verified)
+  aof_contracts:  PASS (Z3 contracts verified)
+  store_module:   PASS
 ```
+
+---
+
+## Commands
+
+| Command | Response |
+|---------|----------|
+| `PING` | `+PONG` |
+| `SET key value` | `+OK` |
+| `GET key` | bulk string or `$-1` (null) |
+| `DEL key` | `:1` or `:0` |
+
+Works with `redis-cli` and `redis-benchmark`.
+
+---
+
+## Build
+
+Prerequisites: Rust 1.75+, Z3 4.12+, LLVM 21+.
+
+```bash
+git clone https://github.com/bneb/lattice.git
+cd lattice
+make lettuce          # compiler + contract verification + MLIR output
+```
+
+MLIR is written to `/tmp/lettuce_server.mlir`.
+
+---
+
+## How it works
+
+`server.salt` (314 lines) runs an event loop over `kqueue`/`epoll`. Each connection gets a 16KB sliding window buffer allocated from a `Slab<ClientSession>`. The RESP parser (`resp.salt`) returns `StringView` pointers into the buffer — zero-copy, zero-alloc on the read path. The key-value store (`store.salt`) uses an arena-backed hash map with SWAR probing. Persistence (`aof.salt`) writes commands to an append-only file with Z3-verified buffer bounds.
+
+---
+
+## Further reading
+
+- [Salt tutorial](https://github.com/bneb/lattice/tree/main/docs/tutorial) — build your first verified Salt program
+- [Salt language spec](https://github.com/bneb/lattice/blob/main/docs/SPEC.md)
+- [KeuOS kernel](https://github.com/bneb/lattice/tree/main/kernel) — the OS Salt was built for
 
 ---
 
 ## License
 
-Part of the KeuOS project. See root `LICENSE` for details.
+Part of the KeuOS project. See repository root `LICENSE`.
