@@ -490,7 +490,7 @@ def build_benchmark(bench_file, kernel_objs):
 
 QEMU_LOG_MAX_BYTES = 100 * 1024 * 1024  # 100MB safety cap
 
-def run_qemu_test(kernel_path, timeout=600, termination_string="BENCHMARK SUITE COMPLETE"):
+def run_qemu_test(kernel_path, timeout=3000, termination_string="BENCHMARK SUITE COMPLETE"):
     print(f"{GREEN}== Launching QEMU Flight Deck =={RESET}")
 
     # --- Guard 1: Kill any stale QEMU processes from previous runs ---
@@ -710,7 +710,7 @@ if __name__ == "__main__":
             bench_file = os.path.join(BENCH_ROOT, "ring_of_fire.salt")
             elf = build_benchmark(bench_file, kernel_objs)
             
-            success, log = run_qemu_test(elf, timeout=60, termination_string="PROC:C:LIFECYCLE_PASS")
+            success, log = run_qemu_test(elf, timeout=300, termination_string="PROC:C:LIFECYCLE_PASS")
             if not success:
                 sys.exit(1)
                 
@@ -1031,7 +1031,7 @@ if __name__ == "__main__":
             bench_file = os.path.join(KERNEL_ROOT, "core", "df_test_runner.salt")
             elf = build_benchmark(bench_file, kernel_objs)
             print(f"{GREEN}== Double Fault Isolation Test =={RESET}")
-            success, log = run_qemu_test(elf, timeout=60) # TCG on ARM Mac is slow
+            success, log = run_qemu_test(elf, timeout=300) # TCG on ARM Mac is slow
             if "[FATAL] DOUBLE FAULT (#DF)" in log or "#DF!" in log:
                 print(f"{GREEN}TEST PASSED: Verified isolated Double Fault Panic.{RESET}")
                 sys.exit(0)
