@@ -57,6 +57,7 @@ pub fn copy_from_user(dst_kern: u64, src_user: u64, len: u64) -> i64 {
 // =============================================================================
 // copy_to_user — KPTI-safe copy from kernel buffer to user virtual address
 // =============================================================================
+@no_mangle
 pub fn copy_to_user(dst_user: u64, src_kern: u64, len: u64) -> i64 {
     if !is_valid_user_ptr(dst_user, len) { return 0 - 1; }
     let pid = process.current();

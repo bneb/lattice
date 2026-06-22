@@ -27,7 +27,7 @@ extern fn salt_yield_check();
 // structure, binds it to the port, and returns the FD.
 // Z3: next_fd_ptr points to a valid u64 in the caller's stack frame.
 // ============================================================================
-fn handle_bind(port: u64, next_fd_ptr: u64) -> u64 {
+pub fn handle_bind(port: u64, next_fd_ptr: u64) -> u64 {
     let fd = *((next_fd_ptr) as &u64);
     *((next_fd_ptr) as &mut u64) = fd + 1;
     return fd;
@@ -39,7 +39,7 @@ fn handle_bind(port: u64, next_fd_ptr: u64) -> u64 {
 // Accepts a pending connection and returns a new FD for the connected socket.
 // Stub: returns the same FD. When wired, dequeues from the accept backlog.
 // ============================================================================
-fn handle_accept(fd: u64) -> u64 {
+pub fn handle_accept(fd: u64) -> u64 {
     return fd;
 }
 
@@ -50,7 +50,7 @@ fn handle_accept(fd: u64) -> u64 {
 // Stub: no-op. When wired, frees the socket structure and tears down
 // the connection state.
 // ============================================================================
-fn handle_close(fd: u64) {
+pub fn handle_close(fd: u64) {
     // stub: no-op
 }
 
@@ -61,7 +61,7 @@ fn handle_close(fd: u64) {
 // Stub: returns FD 1. When wired, performs the three-way handshake
 // and returns the connected socket FD.
 // ============================================================================
-fn handle_connect(ip: u32, port: u64) -> u64 {
+pub fn handle_connect(ip: u32, port: u64) -> u64 {
     return 1;
 }
 
