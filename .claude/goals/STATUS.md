@@ -70,9 +70,17 @@
 - [x] Future: split remaining I/O functions from syscall.salt — **BLOCKED**: cross-package u64↔Ptr<T> cast limitations in Salt compiler. Tracked as compiler feature request.
 
 ## Active Goal
-**Current:** Clippy Zero Sprint — **COMPLETE** ✅ (2026-06-20).
-All 13 categories fixed, 0 crate-level allows remain. `cargo clippy -- -D warnings` is clean.
-Plan (historical): `.claude/goals/CLIPPY_SPRINT.md`.
+**Current:** LETTUCE Launch — Phase 1 of Six-Month Sprint.
+Plan: `.claude/goals/SIX_MONTH_SPRINT.md` (3 phases across 24 weeks).
+
+Progress:
+- [x] `make lettuce` target — one command: build compiler, verify Z3 contracts, compile server
+- [x] 4/4 contract verification tests pass (resp, aof, store, e2e)
+- [x] Lettuce server compiles with `--verify`, MLIR emitted
+- [ ] Benchmark against nginx/Redis
+- [ ] Lettuce tutorial
+- [ ] Blog post 1: "Zero-Cost Safety: How Salt Proves Memory Safety at Compile Time"
+- [ ] HN launch
 
 ## Next Frontier: salt-front Structural Quality
 The kernel files met all 5 quality goals, but `salt-front/src/` has major gaps:
