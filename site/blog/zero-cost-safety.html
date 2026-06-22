@@ -18,7 +18,8 @@
         /* ═══ Light mode ═══════════════════════════ */
         :root {
             --bg: #f9f8f5;
-            --text: #1a1a28;
+            --text: #1d1d2e;
+            --text-heading: #253040;
             --text-secondary: #555566;
             --text-tertiary: #888898;
             --accent: #3d6d8e;
@@ -38,7 +39,8 @@
         /* ═══ Dark mode ════════════════════════════ */
         html[data-theme="dark"] {
             --bg: #121118;
-            --text: #d8d8e2;
+            --text: #e0e0e8;
+            --text-heading: #c4cdd8;
             --text-secondary: #9898a8;
             --text-tertiary: #6a6a7a;
             --accent: #7bb4d4;
@@ -112,12 +114,13 @@
             font-family: 'DM Serif Display', Georgia, serif;
             font-size: 2.5rem; font-weight: 400; line-height: 1.2;
             letter-spacing: -0.015em; margin-bottom: 10px;
+            color: var(--text-heading);
         }
         h2 {
             font-family: 'DM Serif Display', Georgia, serif;
             font-size: 1.45rem; font-weight: 400; line-height: 1.3;
             margin: 64px 0 18px; letter-spacing: -0.01em;
-            color: var(--text);
+            color: var(--text-heading);
         }
         p { margin-bottom: 1.15em; }
         .lede {
@@ -130,7 +133,7 @@
             border-bottom: 1px solid var(--border-light);
         }
 
-        strong { font-weight: 600; }
+        strong { font-weight: 600; color: var(--text-heading); }
         em { font-style: italic; }
 
         a {
