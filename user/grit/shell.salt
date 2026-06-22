@@ -47,9 +47,9 @@ fn strcmp(s1_ptr: u64, len1: u32, s2_ptr: u64, len2: u32) -> bool {
 }
 
 fn cmd_help() {
-    let msg: &u8 = "\x1B[36mKeuOS Terminal Help\x1B[0m\n  clear : Clear the screen\n  help  : Show this help\n  hello : Say hello\n";
-    console.print(msg as u64, 94);
-    tx_print(msg as u64, 94);
+    let msg: &u8 = "\x1B[36mKeuOS Terminal Help\x1B[0m\n  clear : Clear the screen\n  echo  : Print arguments\n  help  : Show this help\n  hello : Spawn hello.elf\n  ipc   : IPC ping-pong test\n";
+    console.print(msg as u64, 144);
+    tx_print(msg as u64, 144);
 }
 
 fn cmd_hello() {
@@ -68,6 +68,31 @@ fn cmd_hello() {
     tx_print(msg2 as u64, 16);
 }
 
+fn cmd_echo() {
+    // Echo everything after "echo " (5 chars)
+    if LINE_LEN > 5 {
+        console.print((&LINE_BUFFER[5]) as u64, (LINE_LEN - 5) as u32);
+        tx_print((&LINE_BUFFER[5]) as u64, LINE_LEN - 5);
+    }
+    let nl: &u8 = "\n";
+    console.print(nl as u64, 1);
+    tx_print(nl as u64, 1);
+}
+
+fn cmd_ipc() {
+    let msg: &u8 = "Spawning /ipc_ping.elf...\n";
+    console.print(msg as u64, 26);
+    tx_print(msg as u64, 26);
+
+    let path: &u8 = "/ipc_ping.elf";
+    let pid = syscall.spawn(path as u64, 15);
+    let code = syscall.wait(pid);
+
+    let done: &u8 = "IPC ping-pong complete.\n";
+    console.print(done as u64, 24);
+    tx_print(done as u64, 24);
+}
+
 fn cmd_unknown() {
     let msg: &u8 = "Command not found.\n";
     console.print(msg as u64, 19);
@@ -78,11 +103,13 @@ pub fn parse_command() {
     console.putc(10); // newline
     let nl: &u8 = "\n";
     tx_print(nl as u64, 1);
-    
+
     let help_cmd: &u8 = "help";
     let clear_cmd: &u8 = "clear";
     let hello_cmd: &u8 = "hello";
-    
+    let echo_cmd: &u8 = "echo";
+    let ipc_cmd: &u8 = "ipc";
+
     if LINE_LEN == 0 {
         // Do nothing
     } else if strcmp((&LINE_BUFFER) as u64, LINE_LEN, help_cmd as u64, 4) {
@@ -91,10 +118,14 @@ pub fn parse_command() {
         cmd_hello();
     } else if strcmp((&LINE_BUFFER) as u64, LINE_LEN, clear_cmd as u64, 5) {
         console.clear();
+    } else if strcmp((&LINE_BUFFER) as u64, LINE_LEN, ipc_cmd as u64, 3) {
+        cmd_ipc();
+    } else if LINE_LEN >= 4 && strcmp((&LINE_BUFFER) as u64, 4, echo_cmd as u64, 4) {
+        cmd_echo();
     } else {
         cmd_unknown();
     }
-    
+
     LINE_LEN = 0;
     prompt();
 }

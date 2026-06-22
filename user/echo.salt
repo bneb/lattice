@@ -1,0 +1,13 @@
+// echo — prints arguments to stdout via sys_write
+// Usage: spawned by grit shell as /echo.elf
+// Each call prints a fixed banner demonstrating process lifecycle.
+
+package user.echo
+
+import user.lib.syscall
+import user.std.stdio
+
+pub fn main() {
+    stdio.print("echo: ready\n");
+    syscall.exit(0);
+}
