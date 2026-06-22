@@ -8,6 +8,11 @@
 //   SET key value  → +OK\r\n
 //   GET key        → $N\r\ndata\r\n  or  $-1\r\n
 //   DEL key        → :1\r\n  or  :0\r\n
+//   EXISTS key     → :1\r\n  or  :0\r\n
+//   INCR key       → :N\r\n  (parsed i64 + 1)
+//   DECR key       → :N\r\n  (parsed i64 - 1)
+//   INCRBY key N   → :N\r\n  (parsed i64 + delta)
+//   DECRBY key N   → :N\r\n  (parsed i64 - delta)
 //   COMMAND        → *0\r\n             (stub for redis-cli/benchmark)
 //   CONFIG ...     → *0\r\n             (stub for redis-benchmark)
 //   Unknown        → -ERR unknown command\r\n
@@ -189,6 +194,158 @@ fn handle_del(smap: Ptr<StringMap>, elems: StringView, arg0: RespValue, consumed
     return ExecResult { resp_len: r0, input_consumed: consumed, context_ptr: 0 };
 }
 
+// Parse an i64 from a StringView. Returns the value. ok_ptr is set to 0 on error, 1 on success.
+fn parse_i64(sv: StringView, ok_ptr: Ptr<i64>) -> i64 {
+    if sv.length() == 0 {
+        *((ok_ptr) as &mut i64) = 0;
+        return 0;
+    }
+    let mut neg: i64 = 0;
+    let mut start: i64 = 0;
+    if sv.byte_at(0) == 45 {
+        neg = 1;
+        start = 1;
+    }
+    let mut val: i64 = 0;
+    let mut i = start;
+    while i < sv.length() {
+        let b = sv.byte_at(i);
+        if b < 48 || b > 57 {
+            *((ok_ptr) as &mut i64) = 0;
+            return 0;
+        }
+        val = val * 10 + ((b - 48) as i64);
+        i = i + 1;
+    }
+    if neg != 0 {
+        val = -val;
+    }
+    *((ok_ptr) as &mut i64) = 1;
+    return val;
+}
+
+// Helper: get current i64 value at key, or 0 if missing. Sets ok.
+fn get_i64_or_zero(smap: Ptr<StringMap>, key: StringView, ok_ptr: Ptr<i64>) -> i64 {
+    let slot: i64 = StringMap_get(smap, key);
+    if slot < 0 {
+        *((ok_ptr) as &mut i64) = 1;
+        return 0;
+    }
+    let sv = StringMap_value_at(smap, slot);
+    let val = parse_i64(sv, ok_ptr);
+    return val;
+}
+
+// Write integer to a buffer as an ASCII decimal string. Returns bytes written.
+fn write_i64_str(buf: Ptr<u8>, val: i64) -> i64 {
+    if val == 0 {
+        buf.write(48);
+        return 1;
+    }
+    let mut v = if val < 0 { -val } else { val };
+    let mut end: i64 = 0;
+    while v > 0 {
+        buf.offset(end).write(((v % 10) as u8) + 48);
+        v = v / 10;
+        end = end + 1;
+    }
+    if val < 0 {
+        buf.offset(end).write(45);
+        end = end + 1;
+    }
+    // Reverse in place
+    let mut lo: i64 = 0;
+    let mut hi: i64 = end - 1;
+    while lo < hi {
+        let tmp = *((buf.offset(lo)) as &u8);
+        *((buf.offset(lo)) as &mut u8) = *((buf.offset(hi)) as &u8);
+        *((buf.offset(hi)) as &mut u8) = tmp;
+        lo = lo + 1;
+        hi = hi - 1;
+    }
+    return end;
+}
+
+fn get_key_from_args(elems: StringView, arg0: RespValue) -> StringView {
+    let rest1 = elems.slice(arg0.bytes_consumed, elems.length());
+    let arg1 = resp_parse(rest1);
+    return StringView::from_raw(arg1.str_ptr, arg1.str_len);
+}
+
+fn handle_exists(smap: Ptr<StringMap>, elems: StringView, arg0: RespValue, consumed: i64, out_buf: Ptr<u8>) -> ExecResult {
+    let key = get_key_from_args(elems, arg0);
+    let slot = StringMap_get(smap, key);
+    let r = write_integer(out_buf, if slot >= 0 { 1 } else { 0 });
+    return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
+}
+
+// Read the existing value for a key, apply a delta via a closure.
+fn handle_incr_op(
+    smap: Ptr<StringMap>, elems: StringView, arg0: RespValue,
+    consumed: i64, out_buf: Ptr<u8>, delta: i64,
+) -> ExecResult {
+    let key = get_key_from_args(elems, arg0);
+    let mut ok: i64 = 0;
+    let current: i64 = get_i64_or_zero(smap, key, &ok as Ptr<i64>);
+    if ok == 0 {
+        let r = write_error(out_buf, "ERR value is not an integer" as StringView);
+        return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
+    }
+    let new_val: i64 = current + delta;
+    let mut tmp: [u8; 24] = [0; 24];
+    let n_len = write_i64_str(&tmp[0] as Ptr<u8>, new_val);
+    let new_sv = StringView::from_raw(&tmp[0] as Ptr<u8>, n_len);
+    StringMap_set(smap, key, new_sv);
+    let r = write_integer(out_buf, new_val);
+    return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
+}
+
+fn handle_incr(smap: Ptr<StringMap>, elems: StringView, arg0: RespValue, consumed: i64, out_buf: Ptr<u8>) -> ExecResult {
+    return handle_incr_op(smap, elems, arg0, consumed, out_buf, 1);
+}
+
+fn handle_decr(smap: Ptr<StringMap>, elems: StringView, arg0: RespValue, consumed: i64, out_buf: Ptr<u8>) -> ExecResult {
+    return handle_incr_op(smap, elems, arg0, consumed, out_buf, -1);
+}
+
+fn handle_incrby_op(
+    smap: Ptr<StringMap>, elems: StringView, arg0: RespValue,
+    consumed: i64, out_buf: Ptr<u8>, sign: i64,
+) -> ExecResult {
+    let rest1 = elems.slice(arg0.bytes_consumed, elems.length());
+    let arg1 = resp_parse(rest1);
+    let key = StringView::from_raw(arg1.str_ptr, arg1.str_len);
+    let rest2 = rest1.slice(arg1.bytes_consumed, rest1.length());
+    let arg2 = resp_parse(rest2);
+    let mut ok: i64 = 0;
+    let delta: i64 = parse_i64(StringView::from_raw(arg2.str_ptr, arg2.str_len), &ok as Ptr<i64>);
+    if ok == 0 {
+        let r = write_error(out_buf, "ERR value is not an integer" as StringView);
+        return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
+    }
+    let mut ok2: i64 = 0;
+    let current: i64 = get_i64_or_zero(smap, key, &ok2 as Ptr<i64>);
+    if ok2 == 0 {
+        let r = write_error(out_buf, "ERR value is not an integer" as StringView);
+        return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
+    }
+    let new_val: i64 = current + sign * delta;
+    let mut tmp: [u8; 24] = [0; 24];
+    let n_len = write_i64_str(&tmp[0] as Ptr<u8>, new_val);
+    let new_sv = StringView::from_raw(&tmp[0] as Ptr<u8>, n_len);
+    StringMap_set(smap, key, new_sv);
+    let r = write_integer(out_buf, new_val);
+    return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
+}
+
+fn handle_incrby(smap: Ptr<StringMap>, elems: StringView, arg0: RespValue, consumed: i64, out_buf: Ptr<u8>) -> ExecResult {
+    return handle_incrby_op(smap, elems, arg0, consumed, out_buf, 1);
+}
+
+fn handle_decrby(smap: Ptr<StringMap>, elems: StringView, arg0: RespValue, consumed: i64, out_buf: Ptr<u8>) -> ExecResult {
+    return handle_incrby_op(smap, elems, arg0, consumed, out_buf, -1);
+}
+
 pub fn execute(smap: Ptr<StringMap>, input: StringView, out_buf: Ptr<u8>) -> ExecResult {
     if input.length() > 0 && input.byte_at(0) != 42 {
         return handle_inline_command(input, out_buf);
@@ -253,6 +410,41 @@ pub fn execute(smap: Ptr<StringMap>, input: StringView, out_buf: Ptr<u8>) -> Exe
             return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
         }
         return handle_del(smap, elems, arg0, consumed, out_buf);
+    }
+    if cmd_eq6(cmd_name, 101, 120, 105, 115, 116, 115) {
+        if cmd.array_count < 2 {
+            let r = write_error(out_buf, "ERR wrong number of arguments for 'EXISTS'" as StringView);
+            return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
+        }
+        return handle_exists(smap, elems, arg0, consumed, out_buf);
+    }
+    if cmd_eq4(cmd_name, 105, 110, 99, 114) {
+        if cmd.array_count < 2 {
+            let r = write_error(out_buf, "ERR wrong number of arguments for 'INCR'" as StringView);
+            return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
+        }
+        return handle_incr(smap, elems, arg0, consumed, out_buf);
+    }
+    if cmd_eq4(cmd_name, 100, 101, 99, 114) {
+        if cmd.array_count < 2 {
+            let r = write_error(out_buf, "ERR wrong number of arguments for 'DECR'" as StringView);
+            return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
+        }
+        return handle_decr(smap, elems, arg0, consumed, out_buf);
+    }
+    if cmd_eq6(cmd_name, 105, 110, 99, 114, 98, 121) {
+        if cmd.array_count < 3 {
+            let r = write_error(out_buf, "ERR wrong number of arguments for 'INCRBY'" as StringView);
+            return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
+        }
+        return handle_incrby(smap, elems, arg0, consumed, out_buf);
+    }
+    if cmd_eq6(cmd_name, 100, 101, 99, 114, 98, 121) {
+        if cmd.array_count < 3 {
+            let r = write_error(out_buf, "ERR wrong number of arguments for 'DECRBY'" as StringView);
+            return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 };
+        }
+        return handle_decrby(smap, elems, arg0, consumed, out_buf);
     }
 
     let r_err = write_error(out_buf, "ERR unknown command" as StringView);
