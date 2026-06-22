@@ -1,4 +1,4 @@
-.PHONY: setup build test clean run-qemu lettuce lettuce-verify lettuce-run
+.PHONY: setup build test clean run-qemu lettuce lettuce-verify lettuce-run bench
 
 # =============================================================================
 # Salt + KeuOS — Top-Level Makefile
@@ -60,3 +60,6 @@ lettuce-run: lettuce
 	@echo ""
 	@echo "Binary at /tmp/salt_build/server"
 	@echo "Run: DYLD_LIBRARY_PATH=/opt/homebrew/lib /tmp/salt_build/server"
+
+bench: build
+	@bash benchmarks/lettuce_bench.sh 2>&1 | grep -v 'zoxide\|_ZO_DOCTOR\|GENERIC WARNING\|Blocking functions'
