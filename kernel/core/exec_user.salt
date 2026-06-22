@@ -223,6 +223,11 @@ pub fn spawn_process(elf_base: u64, kernel_pml4: u64) -> u64 {
     process.init_slot(slot, user_pml4, kstack_base_virt, kstack_top_virt, entry, USER_STACK_TOP);
     map_kernel_stack(user_pml4, kstack_base_phys, kstack_top_phys);
     process.set_kernel_rsp(slot, saved_rsp_virt);
+    serial.print("[spawn] IRETQ at 0x");
+    serial.print_u64(saved_rsp_virt);
+    serial.print(" RIP=0x");
+    serial.print_u64(*((saved_rsp_virt - 40) as &u64));
+    serial.print("\n");
 
     let heap_start = (highest_elf_vaddr + 0xFFF) & 0xFFFFFFFFFFFFF000;
     process.set_brk_base(slot, heap_start);

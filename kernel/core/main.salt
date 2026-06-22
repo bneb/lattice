@@ -276,9 +276,20 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     serial.print_u64(slot_user);
     serial.print(")...\n");
 
-    // Read values fresh from process table right before context switch
-    let rsp_ptr = (&DISCARD_RSP) as u64;
+    // Dump IRETQ frame — it is above saved_rsp after 6 pops + ret
+    // saved_rsp = sp - 96. After 6 pops, RSP = sp - 48. ret pops trampoline.
+    // IRETQ frame is at sp-40 (RIP), sp-32 (CS), sp-24 (RFLAGS), sp-16 (RSP), sp-8 (SS)
+    // = saved_rsp + 56 (RIP), +64 (CS), +72 (RFLAGS), +80 (RSP), +88 (SS)
     let r0 = process_get_kernel_rsp(slot_user);
+    serial.print("[iretq] RIP=0x");
+    serial.print_u64(*((r0 + 56) as &u64));
+    serial.print(" CS=0x");
+    serial.print_u64(*((r0 + 64) as &u64));
+    serial.print(" RSP=0x");
+    serial.print_u64(*((r0 + 80) as &u64));
+    serial.print("\n");
+
+    let rsp_ptr = (&DISCARD_RSP) as u64;
     let r1 = process_get_pml4(slot_user) | 0;
     let r2 = process_get_kernel_stack_top(slot_user);
     proc_context_switch(rsp_ptr, r0, r1, r2);

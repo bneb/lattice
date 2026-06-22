@@ -33,6 +33,11 @@ const KSTACK_SIZE: u64     = 4096;
 @no_mangle
 pub fn setup_kernel_stack(kstack_top_virt: u64, entry: u64) -> u64 {
     let sp = kstack_top_virt;
+    serial.print("[kstack] entry=0x");
+    serial.print_u64(entry);
+    serial.print(" sp=0x");
+    serial.print_u64(sp);
+    serial.print("\n");
 
     *((sp - 8) as &mut u64)  = 0x23;             // SS (User Data)
     *((sp - 16) as &mut u64) = USER_STACK_TOP;   // RSP
