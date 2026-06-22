@@ -111,7 +111,6 @@ pub fn salt_yield_check() {
 // ═══════════════════════════════════════════════════════════════════
 
 @no_mangle
-@no_mangle
 pub fn kmain(magic: u32, mb_info: &u8) {
     serial.print("\n\n=== KeuOS v0.10.0 — NetD Ring 3 ===\n\n");
 
