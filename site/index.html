@@ -71,43 +71,13 @@
             overflow-x: hidden;
         }
 
-        /* ─── Ambient glow ──────────────────────────────────────────── */
-        .glow-orb {
-            position: fixed;
-            border-radius: 50%;
-            filter: blur(120px);
-            opacity: 0.03;
-            pointer-events: none;
-            z-index: 0;
-            will-change: transform;
-            transition: transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1);
-        }
-
-        .glow-orb.purple {
-            width: 600px;
-            height: 600px;
-            background: #7ba7c9;
-            top: -100px;
-            right: -100px;
-            opacity: 0.04;
-        }
-
-        .glow-orb.blue {
-            width: 500px;
-            height: 500px;
-            background: #c9a962;
-            bottom: 20%;
-            left: -150px;
-            opacity: 0.04;
-        }
-
-        .glow-orb.green {
-            width: 400px;
-            height: 400px;
-            background: #2a9d8f;
-            bottom: -100px;
-            right: 20%;
-            opacity: 0.04;
+        /* ─── Ambient light — scrolls with reader ──────────────────── */
+        .ambient {
+            position: fixed; inset: 0; pointer-events: none; z-index: 0;
+            background: radial-gradient(ellipse 80% 60% at 50% var(--light-y, 15%),
+                transparent 0%, var(--bg) 100%);
+            opacity: 0.45;
+            transition: opacity 0.8s;
         }
 
         /* ─── Layout ────────────────────────────────────────────────── */
@@ -809,11 +779,6 @@
                 gap: 12px !important;
             }
 
-            .glow-orb {
-                opacity: 0.015;
-                filter: blur(180px);
-            }
-
             .container {
                 padding: 0 16px;
             }
@@ -867,9 +832,6 @@
                 font-size: 1.4rem;
             }
 
-            .glow-orb {
-                display: none;
-            }
         }
 
         /* ─── Ergonomics comparison ────────────────────────────────── */
@@ -1120,32 +1082,7 @@
                 background: var(--accent) !important;
             }
 
-            /* Glow orbs — much more diffuse in dark mode */
-            .glow-orb {
-                opacity: 0.035;
-                filter: blur(400px);
-            }
-
-            .glow-orb.purple {
-                background: #7bb4d4;
-                width: 1000px;
-                height: 1000px;
-                opacity: 0.04;
-            }
-
-            .glow-orb.blue {
-                background: #4db8a2;
-                width: 900px;
-                height: 900px;
-                opacity: 0.035;
-            }
-
-            .glow-orb.green {
-                background: #d4a84b;
-                width: 800px;
-                height: 800px;
-                opacity: 0.035;
-            }
+            .ambient { opacity: 0.35; }
 
             /* Hero badge */
             .hero-badge {
@@ -1355,9 +1292,7 @@
 </head>
 
 <body>
-    <div class="glow-orb purple"></div>
-    <div class="glow-orb blue"></div>
-    <div class="glow-orb green"></div>
+    <div class="ambient"></div>
 
     <!-- ═══ Nav ════════════════════════════════════════════════════ -->
     <nav>
@@ -2501,36 +2436,13 @@ process(&amp;buf);     <span class="cmt">// ✗ compile error: use of moved valu
                 pain.querySelector('.ergo-code-' + lang).classList.add('visible');
             });
         });
-        /* ─── Ambient Glow Parallax ─────────────────────────────────── */
-        const orbs = document.querySelectorAll('.glow-orb');
-        let rafId = null;
-        let lastScrollY = window.scrollY;
-
-        // Different scroll speed multipliers for each orb to create depth (parallax)
-        const speeds = [0.15, -0.1, 0.05];
-
-        function updateOrbs() {
-            const scrollY = window.scrollY;
-            if (scrollY === lastScrollY) {
-                rafId = window.requestAnimationFrame(updateOrbs);
-                return;
-            }
-            lastScrollY = scrollY;
-
-            orbs.forEach((orb, i) => {
-                // translate3d forces GPU hardware acceleration
-                const yOffset = scrollY * speeds[i % speeds.length];
-                const xOffset = scrollY * (speeds[i % speeds.length] * 0.5); // Slight diagonal drift
-                orb.style.transform = `translate3d(${xOffset}px, ${yOffset}px, 0)`;
-            });
-
-            rafId = window.requestAnimationFrame(updateOrbs);
-        }
-
-        // Only animate if not on a small mobile device (preserves battery/perf)
-        if (window.innerWidth > 480) {
-            rafId = window.requestAnimationFrame(updateOrbs);
-        }
+        // ─── Ambient light — drifts down the viewport as you scroll ──
+        window.addEventListener('scroll', function() {
+            var amb = document.querySelector('.ambient');
+            if (!amb) return;
+            var pct = Math.min(window.scrollY / (document.body.scrollHeight - window.innerHeight), 1);
+            amb.style.setProperty('--light-y', (10 + pct * 70) + '%');
+        });
     </script>
 </body>
 
