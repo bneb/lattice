@@ -108,6 +108,27 @@ write_gs_u64:
     ret
 
 // =============================================================================
+// Atomics: atomic_or_u64 / atomic_and_u64
+// =============================================================================
+
+// atomic_or_u64(rdi: ptr, rsi: val) — Atomic bitwise OR (void return)
+.global atomic_or_u64
+atomic_or_u64:
+    lock or qword ptr [rdi], rsi
+    ret
+
+// atomic_and_u64(rdi: ptr, rsi: val) -> rax: old value
+.global atomic_and_u64
+atomic_and_u64:
+    mov rax, qword ptr [rdi]
+.Land_retry:
+    mov rcx, rax
+    and rcx, rsi
+    lock cmpxchg qword ptr [rdi], rcx
+    jnz .Land_retry
+    ret
+
+// =============================================================================
 // Atomics: atomic_fetch_add_i32 / atomic_load_i32
 // =============================================================================
 

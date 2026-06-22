@@ -394,11 +394,11 @@ def build_kernel():
     # Exclude files that don't compile yet (WIP / incomplete dependencies)
     # Exclude files that don't compile yet (WIP / incomplete dependencies)
     EXCLUDE_BASENAMES = {
-        "teardown",        # WIP: needs sched.bitmap_disp re-export
         "syscall_test",    # uses module-qualified syscall.sys_shm_grant() — needs
                            # compiler support for dual mangled+unmangled exports
-        "bitmap_disp",     # WIP: needs atomic_or_u64 intrinsic (not yet implemented)
-        "irq",             # WIP: needs process.get_process_by_cap (extracted from process.salt)
+        # teardown — FIXED: uncommented bitmap_disp import
+        # bitmap_disp — FIXED: added atomic_or_u64/atomic_and_u64 as extern fn + assembly stubs
+        # irq — FIXED: restructured to not require process.get_process_by_cap/get_cpu_context
         # df_test_runner — FIXED: renamed bench_suite_run → df_test_suite_run
         # fastpath is now buildable (included in build — no longer blocked)
     }

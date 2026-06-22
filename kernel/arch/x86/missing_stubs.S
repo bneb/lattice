@@ -275,6 +275,31 @@ kernel__core__keuos_reclaim__disable_nic_rings:
     ret
 
 // =============================================================================
+// Teardown / IRQ Stubs — WIP until proper implementations are extracted
+// =============================================================================
+
+// unmap_flat_bitmap — WIP stub for teardown.salt Phase 3
+.weak unmap_flat_bitmap
+unmap_flat_bitmap:
+    ret
+
+// disable_dma_queues — WIP stub for teardown.salt Phase 2
+.weak disable_dma_queues
+disable_dma_queues:
+    ret
+
+// tlb_flush_all — WIP stub for teardown.salt Phase 3
+.weak tlb_flush_all
+tlb_flush_all:
+    ret
+
+// lapic_eoi — WIP stub for irq.salt (LAPIC EOI)
+// Real implementation in kernel/arch/x86/apic.salt
+.weak lapic_eoi
+lapic_eoi:
+    ret
+
+// =============================================================================
 // Syscall Aliases for C-ABI Internal Kernel Linkage
 // =============================================================================
 // sys_write: now @no_mangle in kernel/core/syscall_io.salt

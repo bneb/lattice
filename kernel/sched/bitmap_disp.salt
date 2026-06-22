@@ -17,6 +17,10 @@ package kernel.sched.bitmap_disp
 // Resolved at link time — avoids the HAL import/mangling issue.
 extern fn find_first_set(bitmap: u64) -> u32;
 
+// Atomic bitmap operations — implemented in kernel/arch/x86/smp_helpers.S
+extern fn atomic_or_u64(addr: &u64, val: u64);
+extern fn atomic_and_u64(addr: &u64, val: u64) -> u64;
+
 const IDLE_TASK_ID: u32 = 0xFFFFFFFF;
 const MAX_TASKS: u32 = 4096;
 

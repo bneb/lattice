@@ -18,12 +18,8 @@
 
 package kernel.arch.x86_64.irq
 
-import kernel.arch.x86_64.cpu
-import kernel.core.process
+import kernel.core.capability
 import kernel.sched.bitmap_disp
-
-// Compiler intrinsic: read TSC for high-resolution timestamps
-extern fn rdtsc() -> u64;
 
 // LAPIC End-of-Interrupt: write 0 to the LAPIC EOI register
 extern fn lapic_eoi();
@@ -73,25 +69,15 @@ pub fn register_irq_capability(vector: u8, cap_id: u64) {
 @no_mangle
 pub fn handle_hardware_irq(vector: u8) {
     let target_cap = IRQ_CAP_MAP[vector as u64];
-    
+
     if target_cap != 0 {
-        // Resolve the target process from the capability handle
-        let target = process.get_process_by_cap(target_cap);
-        let target_addr = target as u64;
-        
-        if target_addr != 0 {
-            // Inject the IRQ event as a Fast-Path IPC payload
-            // Payload 1: The IRQ vector (identifies which device fired)
-            // Payload 2: TSC timestamp (for latency measurement)
-            let target_ctx = process.get_cpu_context(target);
-            cpu.inject_ipc_payload(target_ctx, vector as u64, rdtsc());
-            
-            // Wake the target process via the O(1) bitmap
-            let target_id = process.get_pid(target);
-            bitmap_disp.mark_runnable(target_id);
-        }
+        // WIP: IPC payload injection (RSI/RDX in saved CpuContext) deferred until
+        // process.get_cpu_context is extracted. For now, just wake the target.
+        // The target process will see a pending wakeup on the next bitmap poll.
+        let owner_pid = capability.get_owner_pid(target_cap);
+        bitmap_disp.mark_runnable(owner_pid as u32);
     }
-    
+
     // Acknowledge the interrupt (LAPIC EOI)
     lapic_eoi();
 }

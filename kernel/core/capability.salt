@@ -105,6 +105,19 @@ pub fn get_flags(pid: u64, cap_id: u64) -> u64 {
 }
 
 // =============================================================================
+// get_owner_pid — Return the owner PID of a capability
+// =============================================================================
+// Used by the IRQ handler to resolve an interrupt's target process
+// from its bound capability without requiring a process slot lookup.
+// =============================================================================
+pub fn get_owner_pid(cap_id: u64) -> u64 {
+    if cap_id == 0 || cap_id >= MAX_CAPABILITIES {
+        return 0;
+    }
+    return cap_table_owner[cap_id];
+}
+
+// =============================================================================
 // sys_ring_map — Map a Physical SPSC Ring to a Capability (Syscall 11)
 // =============================================================================
 // arg0 = capability_id
