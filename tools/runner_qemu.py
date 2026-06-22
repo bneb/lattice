@@ -304,6 +304,51 @@ def build_user_programs():
                 os.path.join(user_dir, "std", "stdio.salt"),
             ],
         },
+        # Process E: echo
+        {
+            "name": "echo",
+            "salt_files": [
+                os.path.join(user_dir, "echo.salt"),
+                os.path.join(user_dir, "lib", "syscall.salt"),
+                os.path.join(user_dir, "std", "stdio.salt"),
+            ],
+        },
+        # Process F: ipc_ping
+        {
+            "name": "ipc_ping",
+            "salt_files": [
+                os.path.join(user_dir, "ipc_ping.salt"),
+                os.path.join(user_dir, "lib", "syscall.salt"),
+                os.path.join(user_dir, "std", "stdio.salt"),
+            ],
+        },
+        # Process G: ps
+        {
+            "name": "ps",
+            "salt_files": [
+                os.path.join(user_dir, "ps.salt"),
+                os.path.join(user_dir, "lib", "syscall.salt"),
+                os.path.join(user_dir, "std", "stdio.salt"),
+            ],
+        },
+        # Process H: free
+        {
+            "name": "free",
+            "salt_files": [
+                os.path.join(user_dir, "free.salt"),
+                os.path.join(user_dir, "lib", "syscall.salt"),
+                os.path.join(user_dir, "std", "stdio.salt"),
+            ],
+        },
+        # Process I: uptime
+        {
+            "name": "uptime",
+            "salt_files": [
+                os.path.join(user_dir, "uptime.salt"),
+                os.path.join(user_dir, "lib", "syscall.salt"),
+                os.path.join(user_dir, "std", "stdio.salt"),
+            ],
+        },
         # NetD: Ring 3 Network Daemon (Zero-Trap SPSC Data Plane)
         {
             "name": "netd",

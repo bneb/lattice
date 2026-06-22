@@ -143,6 +143,36 @@ get_sip_elf_addr:
     lea rax, [rip + sip_elf_start]
     ret
 
+/* get_user_elf_e_addr() -> u64 */
+.global get_user_elf_e_addr
+get_user_elf_e_addr:
+    lea rax, [rip + user_elf_e_start]
+    ret
+
+/* get_user_elf_f_addr() -> u64 */
+.global get_user_elf_f_addr
+get_user_elf_f_addr:
+    lea rax, [rip + user_elf_f_start]
+    ret
+
+/* get_user_elf_g_addr() -> u64 */
+.global get_user_elf_g_addr
+get_user_elf_g_addr:
+    lea rax, [rip + user_elf_g_start]
+    ret
+
+/* get_user_elf_h_addr() -> u64 */
+.global get_user_elf_h_addr
+get_user_elf_h_addr:
+    lea rax, [rip + user_elf_h_start]
+    ret
+
+/* get_user_elf_i_addr() -> u64 */
+.global get_user_elf_i_addr
+get_user_elf_i_addr:
+    lea rax, [rip + user_elf_i_start]
+    ret
+
 /* get_netd_elf_addr() -> u64
  * Returns the address of the embedded NetD Ring 3 ELF binary.
  * Hard link-time dependency — the build must embed netd.elf.

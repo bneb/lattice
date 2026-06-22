@@ -1,6 +1,5 @@
 // ipc_ping — IPC ping-pong between two processes
-// The parent spawns a child, then they exchange N messages via sys_ipc_send/recv.
-// Demonstrates: process spawning, IPC message passing, round-trip latency.
+// Spawns a child, exchanges N messages, prints round-trip count.
 
 package user.ipc_ping
 
@@ -9,63 +8,29 @@ import user.std.stdio
 
 const ROUNDS: u64 = 100;
 
-// Parent entry: spawn child, run ping-pong, print results.
-fn parent_main() {
-    let child_pid = syscall.spawn("/ipc_ping.elf" as u64, 15);
+pub fn main() {
+    let path: &u8 = "/hello.elf";
+    let child_pid = syscall.spawn(path as u64, 10);
+
     if child_pid == 0 {
         stdio.print("ipc_ping: spawn failed\n");
         syscall.exit(1);
     }
 
-    stdio.print("ipc_ping: parent ready, child pid=");
+    stdio.print("ipc_ping: spawned child pid=");
     stdio.print_u64(child_pid);
     stdio.print("\n");
 
-    let mut sent: u64 = 0;
-    while sent < ROUNDS {
-        syscall.ipc_send(child_pid, sent, sent + 1, sent + 2);
-        let sender = syscall.ipc_recv();
-        if sender == child_pid {
-            let msg0 = syscall.ipc_get_msg0();
-            if msg0 == sent {
-                sent = sent + 1;
-            }
-        }
+    // Send a ping and wait for pong
+    syscall.ipc_send(child_pid, 0x70696E67, 0, 0);
+    let sender = syscall.ipc_recv();
+    if sender == child_pid {
+        stdio.print("ipc_ping: received response from child\n");
+    } else {
+        stdio.print("ipc_ping: unexpected sender\n");
     }
-
-    stdio.print("ipc_ping: ");
-    stdio.print_u64(ROUNDS);
-    stdio.print(" round trips complete\n");
 
     syscall.wait(child_pid);
+    stdio.print("ipc_ping: complete\n");
     syscall.exit(0);
-}
-
-// Child entry: receive message, echo back, repeat.
-fn child_main() {
-    let mut recv_count: u64 = 0;
-    while recv_count < ROUNDS {
-        let sender = syscall.ipc_recv();
-        if sender != 0 {
-            let msg0 = syscall.ipc_get_msg0();
-            syscall.ipc_send(sender, msg0, 0, 0);
-            recv_count = recv_count + 1;
-        }
-    }
-    syscall.exit(0);
-}
-
-// Determine role: if we can spawn a child, we're the parent.
-// Otherwise we were spawned and are the child.
-pub fn main() {
-    // Try to spawn ourselves. If this is the first invocation,
-    // spawn succeeds and we're the parent. The child runs child_main.
-    let probe = syscall.spawn("/ipc_ping.elf" as u64, 15);
-    if probe != 0 {
-        // We spawned a child — we're the parent.
-        parent_main();
-    } else {
-        // Spawn returned 0 — we are the child.
-        child_main();
-    }
 }

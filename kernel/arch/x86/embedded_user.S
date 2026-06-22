@@ -62,3 +62,35 @@ sip_elf_start:
     .incbin "/tmp/sip_app"
 sip_elf_end:
 
+// --- Process E: Echo ---
+.global user_elf_e_start, user_elf_e_end
+user_elf_e_start:
+    .incbin "/tmp/echo"
+user_elf_e_end:
+
+// --- Process F: IPC Ping-Pong ---
+.global user_elf_f_start, user_elf_f_end
+user_elf_f_start:
+    .incbin "/tmp/ipc_ping"
+user_elf_f_end:
+
+// --- Process G: Process List ---
+.global user_elf_g_start, user_elf_g_end
+user_elf_g_start:
+    .incbin "/tmp/ps"
+user_elf_g_end:
+
+// --- Process H: Free ---
+.global user_elf_h_start, user_elf_h_end
+user_elf_h_start:
+    .incbin "/tmp/free"
+user_elf_h_end:
+
+// --- Process I: Uptime ---
+.global user_elf_i_start, user_elf_i_end
+user_elf_i_start:
+    .incbin "/tmp/uptime"
+user_elf_i_end:
+
+// --- Process J: Fetch (network-dependent, spawned by grit on demand) ---
+
