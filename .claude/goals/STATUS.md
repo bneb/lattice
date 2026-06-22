@@ -106,7 +106,7 @@ The kernel files met all 5 quality goals, but `salt-front/src/` has major gaps:
 
 ## Log
 - 2026-06-22: **seeker.rs split** — 699→430 lines (-38%), deep nests 78→48 (-38%). Created seeker_resolve.rs (315 lines).
-- 2026-06-22: **Swarm session** — context.rs 4893→4228 (-665), resolver.rs identify_target 197→24, types.rs size_of 50→19, interpreter.rs nests 40→26. Created registry_init.rs (295L) + scanner.rs (469L). Session total: 50 deep-nest blocks eliminated, 665 lines extracted.
+- 2026-06-22: **Swarm v3** — stmt.rs 3326→3295 nests 55→47, mod.rs 2781→2730 nests 124→104, lib.rs 1906→1820 nests 50→26. Session total: 52 deep-nest blocks eliminated, 168 lines reduced.
 - 2026-06-20: **Clippy zero (P1 complete).** S1-002 done — 15 mechanical fixes, 24 categories deferred via Cargo.toml [lints]. Clippy sprint plan created for incremental elimination.
 - 2026-06-20: **Quality Goals complete.** All 5 goals met or explicitly deferred:
   1. <500 LOC/file ✅ (11/12 kernel files; scheduler.salt = legitimate exception)
