@@ -1,0 +1,118 @@
+// =============================================================================
+// std.net.tcp_native — macOS-native TcpListener + TcpStream (BSD sockets)
+// =============================================================================
+// Drop-in replacement for std.net.tcp that uses real BSD sockets + kqueue
+// instead of KeuOS SPSC ring IPC. Used for local benchmarking on macOS.
+// =============================================================================
+
+package std.net.tcp_native
+
+import std.core.ptr.Ptr
+import std.core.result.Result
+import std.status.Status
+
+// ─── Native socket operations (provided by tcp_native_bridge.c) ──────────────
+extern fn native_tcp_listen(port: i32) -> i32;
+extern fn native_tcp_accept(fd: i32) -> i32;
+extern fn native_tcp_recv(fd: i32, buf: Ptr<u8>, len: i64) -> i64;
+extern fn native_tcp_send(fd: i32, buf: Ptr<u8>, len: i64) -> i64;
+extern fn native_tcp_close(fd: i32);
+extern fn native_kq_create() -> i32;
+extern fn native_kq_register(kq: i32, fd: i32, filter: i32) -> i32;
+extern fn native_kq_wait(kq: i32, events: Ptr<i64>, max: i32, timeout: i32) -> i32;
+
+// ─── TcpListener ─────────────────────────────────────────────────────────────
+pub struct TcpListener {
+    fd: i32
+}
+
+impl TcpListener {
+    pub fn bind(port: i32) -> Result<TcpListener> {
+        let fd = native_tcp_listen(port);
+        if fd < 0 {
+            return Result::<TcpListener>::Err(Status::from_code(13));
+        }
+        return Result::<TcpListener>::Ok(TcpListener { fd: fd });
+    }
+
+    pub fn accept(&self) -> Result<TcpStream> {
+        let fd = native_tcp_accept(self.fd);
+        if fd < 0 {
+            return Result::<TcpStream>::Err(Status::from_code(13));
+        }
+        return Result::<TcpStream>::Ok(TcpStream { fd: fd });
+    }
+
+    pub fn fd(&self) -> i32 {
+        return self.fd;
+    }
+
+    pub fn close(&self) {
+        native_tcp_close(self.fd);
+    }
+}
+
+// ─── TcpStream ───────────────────────────────────────────────────────────────
+pub struct TcpStream {
+    fd: i32
+}
+
+impl TcpStream {
+    pub fn recv(&self, buf: Ptr<u8>, len: i64) -> i64 {
+        return native_tcp_recv(self.fd, buf, len);
+    }
+
+    pub fn send(&self, buf: Ptr<u8>, len: i64) -> i64 {
+        return native_tcp_send(self.fd, buf, len);
+    }
+
+    pub fn fd(&self) -> i32 {
+        return self.fd;
+    }
+
+    pub fn close(&self) {
+        native_tcp_close(self.fd);
+    }
+}
+
+// ─── PollFilter ──────────────────────────────────────────────────────────────
+pub enum PollFilter {
+    Read,
+    Write
+}
+
+pub fn poll_filter_read() -> i32 { return 1; }
+pub fn poll_filter_write() -> i32 { return 2; }
+
+// ─── Poller ──────────────────────────────────────────────────────────────────
+pub struct Poller {
+    kq: i32
+}
+
+impl Poller {
+    pub fn new() -> Result<Poller> {
+        let kq = native_kq_create();
+        if kq < 0 {
+            return Result::<Poller>::Err(Status::from_code(13));
+        }
+        return Result::<Poller>::Ok(Poller { kq: kq });
+    }
+
+    pub fn register(&self, fd: i32, filter: PollFilter) {
+        let f = match filter {
+            PollFilter::Read => 1,
+            PollFilter::Write => 2
+        };
+        native_kq_register(self.kq, fd, f);
+    }
+
+    pub fn deregister(&self, fd: i32) {
+        native_kq_close_fd(self.kq, fd);
+    }
+
+    pub fn wait(&self, events: Ptr<i64>, max_events: i32, timeout_ms: i32) -> i32 {
+        return native_kq_wait(self.kq, events, max_events, timeout_ms);
+    }
+}
+
+extern fn native_kq_close_fd(kq: i32, fd: i32);

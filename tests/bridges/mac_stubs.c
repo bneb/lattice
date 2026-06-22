@@ -6,6 +6,12 @@ __attribute__((weak)) void sys_mfence(void) { __sync_synchronize(); }
 
 __attribute__((weak)) void sys_sleep_ms(uint32_t ms) { usleep(ms * 1000); }
 
+// Stub: VFS connection (returns NULL — native builds don't use AOF persistence)
+__attribute__((weak)) void* std__fs__fs__vfs_connect(void) { return 0; }
+
+// Stub: yield (no-op on macOS — the kqueue wait handles blocking)
+__attribute__((weak)) void r3_sys_yield(void) {}
+
 __attribute__((weak)) unsigned long long
 ext_hpack_get_static_key(unsigned int index) {
   return 0;

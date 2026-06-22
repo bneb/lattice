@@ -63,8 +63,12 @@ is_ecs_test=false
 is_standalone=false
 is_basalt_test=false
 is_lettuce_test=false
+is_native=false
 if [[ "$BASENAME" == *lettuce* ]] || [[ "$SALT_FILE" == *lettuce* ]]; then
     is_lettuce_test=true
+fi
+if [[ "$BASENAME" == *native* ]] || [[ "$SALT_FILE" == *native* ]]; then
+    is_native=true
 fi
 if [[ "$BASENAME" == *ecs* ]] || [[ "$BASENAME" == *scheduler* ]] || [[ "$BASENAME" == *ipc* ]] || [[ "$BASENAME" == *epoch* ]] || [[ "$SALT_FILE" == *ecs* ]]; then
     is_ecs_test=true
@@ -83,24 +87,34 @@ BIN_OUT="$TMP_DIR/${BASENAME}"
 
 # Determine which C bridges to link
 BRIDGES=("$SALT_FRONT/runtime.c")
+
+# KeuOS stubs — needed for linking (StringMap, AOF pull in OS primitives)
 BRIDGES+=("$PROJECT_ROOT/user/os/facet_os.c")
 BRIDGES+=("$PROJECT_ROOT/tests/bridges/ipc_bridge.c")
 BRIDGES+=("$PROJECT_ROOT/tests/bridges/mac_stubs.c")
+
+if [[ "$is_native" == true ]]; then
+    # macOS-native: override networking with real BSD sockets + kqueue
+    BRIDGES+=("$SALT_FRONT/std/net/tcp_native_bridge.c")
+elif [[ "$is_lettuce_test" == true ]]; then
+    BRIDGES+=("$PROJECT_ROOT/lettuce/tests/dummy_ebr.c")
+fi
+
 if [[ "$is_ecs_test" == false ]] && [[ "$is_standalone" == false ]] && [[ "$is_basalt_test" == false ]] && [[ "$is_lettuce_test" == false ]] && [[ "$BENCHMARK_MODE" == false ]] && [[ "$BASENAME" != "test_e2e_integration" ]] && ! grep -q 'sys_exec_capture_stdout' "$SALT_FILE" 2>/dev/null; then
     # Removed JSC bridge logic
 fi
 
 BRIDGES+=("$PROJECT_ROOT/vendor/openlibm/libopenlibm.a")
-if [[ "$is_lettuce_test" == true ]]; then
-    BRIDGES+=("$PROJECT_ROOT/lettuce/tests/dummy_ebr.c")
-fi
 
 # Add C flags
 C_FLAGS_ARR=(-I"$PROJECT_ROOT/vendor/openlibm/include" -I"$PROJECT_ROOT/vendor/openlibm/src" -Wno-implicit-fallthrough -Wno-int-conversion -D_GNU_SOURCE)
 
 # Auto-detect bridges needed based on imports in the salt file
-if grep -q 'std\.net\|std\.http\|std\.io\.reactor\|TcpListener\|TcpStream\|Poller\|KqueueReactor\|http_tcp_connect\|salt_http_get' "$SALT_FILE" 2>/dev/null; then
-    BRIDGES+=("$PROJECT_ROOT/std/net/http_bridge.c")
+# Skip for native builds — tcp_native_bridge.c already linked above
+if [[ "$is_native" == false ]]; then
+    if grep -q 'std\.net\|std\.http\|std\.io\.reactor\|TcpListener\|TcpStream\|Poller\|KqueueReactor\|http_tcp_connect\|salt_http_get' "$SALT_FILE" 2>/dev/null; then
+        BRIDGES+=("$PROJECT_ROOT/std/net/http_bridge.c")
+    fi
 fi
 
 # Detect TLS pipeline bridge (BearSSL)

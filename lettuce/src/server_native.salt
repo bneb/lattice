@@ -1,0 +1,186 @@
+// =============================================================================
+// LETTUCE — macOS-native variant (BSD sockets + kqueue)
+// =============================================================================
+// Identical to server.salt but uses std.net.tcp_native for real sockets
+// instead of KeuOS SPSC ring IPC. Use for local benchmarking.
+// =============================================================================
+
+package main
+
+import std.core.ptr.Ptr
+import std.core.str.StringView
+import std.core.result.Result
+import std.net.tcp_native.{TcpListener, TcpStream, Poller, PollFilter}
+import std.collections.string_map.{StringMap, StringMap_new, StringMap_drop}
+import std.collections.slab.Slab
+import lettuce.store.{execute, ExecResult}
+import lettuce.resp.write_simple_string
+
+extern fn puts(s: Ptr<u8>) -> i32;
+extern fn memmove(dst: Ptr<u8>, src: Ptr<u8>, n: i64) -> Ptr<u8>;
+const PORT: i32 = 6379;
+const MAX_EVENTS: i32 = 64;
+const MAX_FDS: i32 = 10000;
+const SESSION_BUF_SIZE: i64 = 16384;
+
+struct ClientSession {
+    read_cursor: i64,
+    parse_cursor: i64,
+    buffer: [u8; 16384],
+    state: i32,
+    generation: i64,
+}
+
+fn accept_client(
+    listener: &TcpListener,
+    slab: &mut Slab<ClientSession>,
+    poll: &Poller,
+    next_generation: i64
+) -> i64 {
+    let client_result = listener.accept();
+    if client_result.is_ok() {
+        let client = client_result.unwrap();
+        let client_fd = client.fd();
+        if client_fd < MAX_FDS {
+            slab.reset(client_fd);
+            let session = slab.get(client_fd);
+            session.generation = next_generation;
+            poll.register(client_fd, PollFilter::Read);
+            return next_generation + 1;
+        } else {
+            client.close();
+        }
+    }
+    return next_generation;
+}
+
+fn main() -> i32 {
+    puts("LETTUCE (native) starting on port 6379..." as Ptr<u8>);
+
+    let listener_result = TcpListener::bind(PORT);
+    if listener_result.is_err() {
+        puts("ERROR: Failed to bind" as Ptr<u8>);
+        return 1;
+    }
+    let listener = listener_result.unwrap();
+    let listen_fd = listener.fd();
+
+    let poll_result = Poller::new();
+    if poll_result.is_err() {
+        puts("ERROR: Failed to create poller" as Ptr<u8>);
+        return 1;
+    }
+    let mut poll = poll_result.unwrap();
+    poll.register(listen_fd, PollFilter::Read);
+
+    let mut smap = StringMap_new();
+    let mut slab = Slab::<ClientSession>::new(MAX_FDS);
+
+    puts("LETTUCE listening on :6379 (native sockets)" as Ptr<u8>);
+
+    let mut events: [i64; 128] = [0; 128];
+    let mut next_generation: i64 = 1;
+
+    while true {
+        let nev = poll.wait(&events[0] as Ptr<i64>, MAX_EVENTS, -1);
+
+        let mut i: i32 = 0;
+        while i < nev {
+            let idx = (i * 2) as i64;
+            let event_fd = events[idx] as i32;
+
+            if event_fd == listen_fd {
+                next_generation = accept_client(&listener, &mut slab, &poll, next_generation);
+            } else if event_fd >= 0 && event_fd < MAX_FDS {
+                handle_client(event_fd, &mut poll, &mut smap, &mut slab);
+            }
+
+            i = i + 1;
+        }
+    }
+
+    StringMap_drop(smap);
+    slab.drop();
+    listener.close();
+    return 0;
+}
+
+fn handle_client(fd: i32, poll: &mut Poller, smap: Ptr<StringMap>, slab: &mut Slab<ClientSession>) {
+    let mut send_buf: [u8; 32768] = [0; 32768];
+    let send_ptr = &send_buf[0] as Ptr<u8>;
+    let send_buf_cap: i64 = 4096;
+
+    let stream = TcpStream { fd: fd };
+    let session = slab.get(fd);
+
+    let read_cur = session.read_cursor;
+    let buf = &session.buffer[0] as Ptr<u8>;
+    let read_ptr = buf.offset(read_cur);
+    let space_left = SESSION_BUF_SIZE - read_cur;
+
+    if space_left <= 0 {
+        poll.deregister(fd);
+        stream.close();
+        slab.reset(fd);
+        return;
+    }
+
+    let n = stream.recv(read_ptr, space_left);
+    if n <= 0 {
+        poll.deregister(fd);
+        stream.close();
+        slab.reset(fd);
+        return;
+    }
+
+    let new_read_cur = read_cur + n;
+    session.read_cursor = new_read_cur;
+
+    let mut parse_cur = session.parse_cursor;
+    let mut total_resp: i64 = 0;
+
+    while parse_cur < new_read_cur {
+        let unparsed_len = new_read_cur - parse_cur;
+
+        let result = execute(smap, StringView::from_raw(buf.offset(parse_cur), unparsed_len), send_ptr.offset(total_resp));
+
+        if result.input_consumed <= 0 {
+            break;
+        }
+
+        if result.resp_len > send_buf_cap {
+            if total_resp > 0 {
+                stream.send(send_ptr, total_resp);
+                total_resp = 0;
+            }
+            let oversized_result = execute(smap, StringView::from_raw(buf.offset(parse_cur), unparsed_len), send_ptr);
+            stream.send(send_ptr, oversized_result.resp_len);
+        } else if total_resp + result.resp_len > send_buf_cap {
+            stream.send(send_ptr, total_resp);
+            total_resp = 0;
+            let retry_result = execute(smap, StringView::from_raw(buf.offset(parse_cur), unparsed_len), send_ptr);
+            total_resp = retry_result.resp_len;
+        } else {
+            total_resp = total_resp + result.resp_len;
+        }
+
+        parse_cur = parse_cur + result.input_consumed;
+    }
+
+    if total_resp > 0 {
+        stream.send(send_ptr, total_resp);
+    }
+
+    let unparsed_len = new_read_cur - parse_cur;
+    if unparsed_len == 0 {
+        session.read_cursor = 0;
+        session.parse_cursor = 0;
+    } else if new_read_cur > SESSION_BUF_SIZE - 2048 {
+        memmove(buf, buf.offset(parse_cur), unparsed_len);
+        session.read_cursor = unparsed_len;
+        session.parse_cursor = 0;
+    } else {
+        session.read_cursor = new_read_cur;
+        session.parse_cursor = parse_cur;
+    }
+}
