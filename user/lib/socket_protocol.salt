@@ -30,6 +30,7 @@ pub const NETD_PID: u64 = 5;
 pub const CMD_BIND: u64   = 0x10;  // Bind a port: msg1 = port
 pub const CMD_ACCEPT: u64 = 0x11;  // Accept connection: msg1 = fd
 pub const CMD_CLOSE: u64  = 0x12;  // Close socket: msg1 = fd
+pub const CMD_CONNECT: u64 = 0x13;  // Connect to remote: msg1=ip, msg2=port
 
 // =============================================================================
 // Control Plane Responses (NetD → Application)
@@ -44,6 +45,13 @@ pub const ERR_PORT_IN_USE: u64  = 1;  // Requested port already bound
 pub const ERR_NO_FDS: u64       = 2;  // FD table exhausted
 pub const ERR_INVALID_FD: u64   = 3;  // FD not found in NetD's table
 pub const ERR_NOT_BOUND: u64    = 4;  // Socket not in BOUND state
+
+// =============================================================================
+// Socket State Constants
+// =============================================================================
+pub const SOCKET_STATE_CLOSED: u64    = 0;
+pub const SOCKET_STATE_BOUND: u64     = 1;
+pub const SOCKET_STATE_CONNECTED: u64 = 2;
 
 // =============================================================================
 // Data Plane Constants

@@ -1,0 +1,27 @@
+// =============================================================================
+// user/ping.salt
+// ICMP Echo Client — Placeholder
+// =============================================================================
+//
+// ICMP Echo (RFC 792):
+//   Type 8 (echo request) / Type 0 (echo reply)
+//   [8b type][8b code][16b checksum][16b id][16b seq][payload...]
+//
+// When kernel ICMP support and a raw socket syscall are added:
+//   1. sys_socket(SOCK_RAW, IPPROTO_ICMP) → raw socket fd
+//   2. Construct ICMP echo request at a buffer
+//   3. sys_sendto(fd, buf, len, dst_ip) → send
+//   4. sys_recvfrom(fd, buf, len) → await reply, compute RTT
+//
+// Until then, this stub documents the protocol and exits cleanly.
+// =============================================================================
+
+package user.ping
+
+import user.lib.syscall
+import user.std.stdio
+
+pub fn main() {
+    stdio.print("ping: ICMP not yet available — requires kernel ICMP support\n");
+    syscall.exit(0);
+}

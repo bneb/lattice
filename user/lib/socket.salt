@@ -235,6 +235,37 @@ pub fn close(sock: &mut Socket) {
     }
 }
 
+/// Connect to a remote host. Sends CMD_CONNECT to NetD and blocks for response.
+/// On success, updates sock with fd / ring vaddrs and sets state to CONNECTED.
+/// Returns true on success, false on failure.
+pub fn connect(sock: &mut Socket, ip: u32, port: u64) -> bool {
+    if sock.state != STATE_CLOSED {
+        return false;
+    }
+
+    // Send: CMD_CONNECT, ip, port
+    syscall.ipc_send(socket_protocol.NETD_PID, socket_protocol.CMD_CONNECT, ip as u64, port);
+
+    // Block until NetD replies
+    let msg_buf: [u64; 4] = [0; 4];
+    sys_ipc_recv_full((&msg_buf) as u64);
+
+    let sender = msg_buf[0];
+    let resp = msg_buf[1];
+    let fd = msg_buf[2];
+
+    if sender == socket_protocol.NETD_PID && resp == socket_protocol.RESP_OK {
+        sock.fd = fd;
+        sock.rx_ring = rx_vaddr(fd);
+        sock.tx_ring = tx_vaddr(fd);
+        sock.port = port;
+        sock.state = STATE_CONNECTED;
+        return true;
+    }
+
+    return false;
+}
+
 // =============================================================================
 // Data Plane — Zero Kernel Traps
 // =============================================================================

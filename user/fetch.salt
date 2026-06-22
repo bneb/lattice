@@ -1,0 +1,44 @@
+// =============================================================================
+// user/fetch.salt — HTTP GET Client
+// =============================================================================
+
+package user.fetch
+
+import user.lib.socket
+import user.lib.socket_protocol
+import user.lib.syscall
+import user.std.stdio
+
+pub fn main() {
+    let ip: u32 = 0x7F000001;
+    let port: u64 = 80;
+    let mut sock = socket.Socket {
+        fd: 0, rx_ring: 0, tx_ring: 0, port: 0,
+        state: socket_protocol.SOCKET_STATE_CLOSED,
+    };
+
+    if socket.connect(&mut sock, ip, port) == false {
+        stdio.print("fetch: connect failed\n");
+        syscall.exit(1);
+    }
+
+    let req: [u8; 35] = [
+        71,69,84,32,47,32,72,84,84,80,47,49,46,48,13,10,
+        72,111,115,116,58,32,108,111,99,97,108,104,111,115,116,13,10,13,10,
+    ];
+    socket.write(&sock, (&req[0]) as u64, 35);
+
+    let mut resp: [u8; 4096] = [0; 4096];
+    let n = socket.read(&sock, (&resp[0]) as u64, 4096);
+
+    if n > 0 {
+        let end = if n < 4096 { n } else { 4095 };
+        resp[end] = 0;
+        stdio.print(&resp[0]);
+    } else {
+        stdio.print("fetch: no response\n");
+    }
+
+    socket.close(&mut sock);
+    syscall.exit(0);
+}
