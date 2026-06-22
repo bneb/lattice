@@ -101,10 +101,14 @@ pub fn copy_to_user(dst_user: u64, src_kern: u64, len: u64) -> i64 {
 pub fn sys_write(fd: u64, buf: u64, len: u64) -> u64 {
     let mut actual_len = len;
     if actual_len > 4096 { actual_len = 4096; }
-    if !is_valid_user_ptr(buf, actual_len) { return 0; }
+    if !is_valid_user_ptr(buf, actual_len) {
+        serial.print("[sys_write] REJECT: invalid user ptr\n");
+        return 0;
+    }
 
     if fd == 1 {
         // Serial stdout (legacy)
+        serial.print("[sys_write] called from Ring 3\n");
         let pid = process.current();
         let user_pml4 = process.get_pml4(pid);
         let mut remaining = actual_len;
