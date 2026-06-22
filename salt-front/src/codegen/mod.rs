@@ -8,6 +8,7 @@ pub mod intrinsics;
 pub mod module_loader;
 pub mod collector;
 pub mod seeker;
+pub mod seeker_resolve;
 pub mod tracer;
 pub mod verification;
 pub mod const_eval;
@@ -124,7 +125,6 @@ use crate::codegen::context::{CodegenContext, GenericContextGuard};
 use crate::codegen::stmt::emit_block;
 use crate::codegen::module_loader::ModuleLoader;
 use crate::common::mangling::Mangler;
-
 use crate::types::Type;
 use crate::registry::Registry;
 use std::collections::{HashMap, HashSet};

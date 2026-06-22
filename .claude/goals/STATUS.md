@@ -70,15 +70,17 @@
 - [x] Future: split remaining I/O functions from syscall.salt — **BLOCKED**: cross-package u64↔Ptr<T> cast limitations in Salt compiler. Tracked as compiler feature request.
 
 ## Active Goal
-**Current:** Clippy Zero Sprint — Final Plan.
-Plan: `.claude/goals/CLIPPY_SPRINT.md` (4 phases, 13 categories, ~70 instances, ~19 sessions).
-Loop prompt: `.claude/goals/CLIPPY_LOOP_PROMPT.md`.
+**Current:** Clippy Zero Sprint — **COMPLETE** ✅ (2026-06-20).
+All 13 categories fixed, 0 crate-level allows remain. `cargo clippy -- -D warnings` is clean.
+Plan (historical): `.claude/goals/CLIPPY_SPRINT.md`.
 
-Progress: 12/23 original categories complete. Remaining organized into:
-- Phase A: Medium (if_same_then_else, only_used_in_recursion, etc.) — 4 sessions
-- Phase B: Pattern Merge (collapsible_match/if) — 7 sessions
-- Phase C: Structural (too_many_arguments, type_complexity, etc.) — 7 sessions
-- Phase D: Cleanup — 1 session
+## Next Frontier: salt-front Structural Quality
+The kernel files met all 5 quality goals, but `salt-front/src/` has major gaps:
+- **38 files > 500 LOC** (top: context.rs 4,893, stmt.rs 3,326, type_bridge.rs 3,219)
+- **Hundreds of deep-nest blocks** (top: mod.rs 124, type_bridge.rs 90, context.rs 88, resolver.rs 90)
+- **Giant functions**: `init_registry_definitions` 1,231 LOC, `hydrate_specialization` 297 LOC
+- **Mutants**: 0 real (all false positives — `temp_ptr`, `temp_mark` are legitimate variable names)
+- **Clippy**: Clean ✅
 
 ## Quality Goals Progress
 - [x] **Infrastructure**: .editorconfig, blank-line hook, clippy tightening, blocking CI
