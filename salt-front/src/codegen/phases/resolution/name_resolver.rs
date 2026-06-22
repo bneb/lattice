@@ -1,5 +1,6 @@
 use crate::grammar::*;
-use crate::grammar::pattern::Pattern;
+use crate::grammar::pattern::{Pattern, PatternField};
+use proc_macro2::Ident;
 use std::collections::{HashMap, HashSet};
 use crate::common::mangling::Mangler;
 
@@ -24,7 +25,7 @@ impl NameResolver {
         };
 
         resolver.build_import_map(file);
-        
+
         // Add all local types defined in the file to the import map
         // clone items temporarily to avoid borrow check issues on file
         let items_copy = file.items.clone();
@@ -64,14 +65,19 @@ impl NameResolver {
             let pkg_path: Vec<String> = imp.name.iter().map(|id| id.to_string()).collect();
             let base_pkg = Mangler::mangle(&pkg_path);
 
-            if let Some(alias) = &imp.alias {
-                self.import_map.insert(alias.to_string(), base_pkg.clone());
-            } else if let Some(group) = &imp.group {
-                for g in group {
-                    self.import_map.insert(g.to_string(), format!("{}__{}", base_pkg, g));
+            match (&imp.alias, &imp.group, pkg_path.last()) {
+                (Some(alias), _, _) => {
+                    self.import_map.insert(alias.to_string(), base_pkg.clone());
                 }
-            } else if let Some(last) = pkg_path.last() {
-                self.import_map.insert(last.clone(), base_pkg.clone());
+                (_, Some(group), _) => {
+                    group.iter().for_each(|g| {
+                        self.import_map.insert(g.to_string(), format!("{}__{}", base_pkg, g));
+                    });
+                }
+                (_, _, Some(last)) => {
+                    self.import_map.insert(last.clone(), base_pkg.clone());
+                }
+                _ => {}
             }
         }
     }
@@ -84,116 +90,117 @@ impl NameResolver {
 
     fn visit_item(&mut self, item: &mut Item) {
         match item {
-            Item::Struct(s) => {
-                self.with_generics(&s.generics, |this| {
-                    for field in &mut s.fields {
-                        this.visit_syn_type(&mut field.ty);
-                    }
-                });
+            Item::Struct(s) => self.visit_struct_item(s),
+            Item::Enum(e) => self.visit_enum_item(e),
+            Item::Fn(f) => self.visit_fn_item(f),
+            Item::ExternFn(f) => self.visit_extern_fn_item(f),
+            Item::Impl(i) => self.visit_impl_item(i),
+            Item::Global(g) => self.visit_syn_type(&mut g.ty),
+            Item::Const(c) => self.visit_syn_type(&mut c.ty),
+            Item::Trait(t) => self.visit_trait_item(t),
+            Item::Concept(c) => self.visit_concept_item(c),
+        }
+    }
+
+    fn visit_struct_item(&mut self, s: &mut StructDef) {
+        self.with_generics(&s.generics, |this| {
+            for field in &mut s.fields {
+                this.visit_syn_type(&mut field.ty);
             }
-            Item::Enum(e) => {
-                self.with_generics(&e.generics, |this| {
-                    for variant in &mut e.variants {
-                        if let Some(ty) = &mut variant.ty {
-                            this.visit_syn_type(ty);
-                        }
-                    }
-                });
+        });
+    }
+
+    fn visit_enum_item(&mut self, e: &mut EnumDef) {
+        self.with_generics(&e.generics, |this| {
+            for variant in &mut e.variants {
+                let Some(ty) = &mut variant.ty else { continue; };
+                this.visit_syn_type(ty);
             }
-            Item::Fn(f) => {
-                self.with_generics(&f.generics, |this| {
-                    for arg in f.args.iter_mut() {
-                        if let Some(ty) = &mut arg.ty {
-                            this.visit_syn_type(ty);
-                        }
-                    }
-                    if let Some(ty) = &mut f.ret_type {
-                        this.visit_syn_type(ty);
-                    }
-                    // For a full AST pass we would visit Exprs inside f.body to mutate type annotations.
-                    // Let's implement that.
-                    this.visit_block(&mut f.body);
-                });
+        });
+    }
+
+    fn visit_fn_item(&mut self, f: &mut SaltFn) {
+        self.with_generics(&f.generics, |this| {
+            for arg in f.args.iter_mut() {
+                let Some(ty) = &mut arg.ty else { continue; };
+                this.visit_syn_type(ty);
             }
-            Item::ExternFn(f) => {
-                for arg in f.args.iter_mut() {
-                    if let Some(ty) = &mut arg.ty {
-                        self.visit_syn_type(ty);
-                    }
-                }
-                if let Some(ty) = &mut f.ret_type {
-                    self.visit_syn_type(ty);
-                }
+            if let Some(ty) = &mut f.ret_type {
+                this.visit_syn_type(ty);
             }
-            Item::Impl(i) => {
-                match i {
-                    SaltImpl::Methods { target_ty, methods, generics } => {
-                        self.with_generics(generics, |this| {
-                            this.visit_syn_type(target_ty);
-                            for m in methods {
-                                this.with_generics(&m.generics, |this2| {
-                                    for arg in m.args.iter_mut() {
-                                        if let Some(ty) = &mut arg.ty {
-                                            this2.visit_syn_type(ty);
-                                        }
-                                    }
-                                    if let Some(ty) = &mut m.ret_type {
-                                        this2.visit_syn_type(ty);
-                                    }
-                                    this2.visit_block(&mut m.body);
-                                });
-                            }
-                        });
-                    }
-                    SaltImpl::Trait { target_ty, methods, generics, .. } => {
-                        self.with_generics(generics, |this| {
-                            this.visit_syn_type(target_ty);
-                            for m in methods {
-                                this.with_generics(&m.generics, |this2| {
-                                    for arg in m.args.iter_mut() {
-                                        if let Some(ty) = &mut arg.ty {
-                                            this2.visit_syn_type(ty);
-                                        }
-                                    }
-                                    if let Some(ty) = &mut m.ret_type {
-                                        this2.visit_syn_type(ty);
-                                    }
-                                    this2.visit_block(&mut m.body);
-                                });
-                            }
-                        });
-                    }
-                    SaltImpl::Concept { target_ty, .. } => {
-                        self.visit_syn_type(target_ty);
-                    }
-                }
-            }
-            Item::Global(g) => {
-                self.visit_syn_type(&mut g.ty);
-            }
-            Item::Const(c) => {
-                self.visit_syn_type(&mut c.ty);
-            }
-            Item::Trait(t) => {
-                self.with_generics(&t.generics, |this| {
-                    for m in &mut t.methods {
-                        for arg in m.args.iter_mut() {
-                            if let Some(ty) = &mut arg.ty {
-                                this.visit_syn_type(ty);
-                            }
-                        }
-                        if let Some(ty) = &mut m.ret_type {
-                            this.visit_syn_type(ty);
-                        }
-                    }
-                });
-            }
-            Item::Concept(c) => {
-                self.with_generics(&c.generics, |this| {
-                    this.visit_syn_type(&mut c.param_ty);
-                });
+            this.visit_block(&mut f.body);
+        });
+    }
+
+    fn visit_extern_fn_item(&mut self, f: &mut ExternFnDecl) {
+        for arg in f.args.iter_mut() {
+            if let Some(ty) = &mut arg.ty {
+                self.visit_syn_type(ty);
             }
         }
+        if let Some(ty) = &mut f.ret_type {
+            self.visit_syn_type(ty);
+        }
+    }
+
+    fn visit_impl_item(&mut self, i: &mut SaltImpl) {
+        match i {
+            SaltImpl::Methods { target_ty, methods, generics } => {
+                self.visit_impl_methods_body(target_ty, methods, generics);
+            }
+            SaltImpl::Trait { target_ty, methods, generics, .. } => {
+                self.visit_impl_methods_body(target_ty, methods, generics);
+            }
+            SaltImpl::Concept { target_ty, .. } => {
+                self.visit_syn_type(target_ty);
+            }
+        }
+    }
+
+    fn visit_impl_methods_body(&mut self, target_ty: &mut SynType, methods: &mut Vec<SaltFn>, generics: &Option<Generics>) {
+        self.with_generics(generics, |this| {
+            this.visit_syn_type(target_ty);
+            for m in methods {
+                this.visit_single_impl_method(m);
+            }
+        });
+    }
+
+    fn visit_single_impl_method(&mut self, m: &mut SaltFn) {
+        self.with_generics(&m.generics, |this| {
+            for arg in m.args.iter_mut() {
+                let Some(ty) = &mut arg.ty else { continue; };
+                this.visit_syn_type(ty);
+            }
+            if let Some(ty) = &mut m.ret_type {
+                this.visit_syn_type(ty);
+            }
+            this.visit_block(&mut m.body);
+        });
+    }
+
+    fn visit_trait_item(&mut self, t: &mut SaltTrait) {
+        self.with_generics(&t.generics, |this| {
+            for m in &mut t.methods {
+                this.visit_trait_method_sig(m);
+            }
+        });
+    }
+
+    fn visit_trait_method_sig(&mut self, m: &mut TraitMethodSig) {
+        for arg in m.args.iter_mut() {
+            let Some(ty) = &mut arg.ty else { continue; };
+            self.visit_syn_type(ty);
+        }
+        if let Some(ty) = &mut m.ret_type {
+            self.visit_syn_type(ty);
+        }
+    }
+
+    fn visit_concept_item(&mut self, c: &mut SaltConcept) {
+        self.with_generics(&c.generics, |this| {
+            this.visit_syn_type(&mut c.param_ty);
+        });
     }
 
     fn visit_block(&mut self, block: &mut SaltBlock) {
@@ -210,91 +217,89 @@ impl NameResolver {
             }
             Stmt::While(w) => self.visit_block(&mut w.body),
             Stmt::For(f) => self.visit_block(&mut f.body),
-            Stmt::If(i) => {
-                self.visit_block(&mut i.then_branch);
-                if let Some(eb) = &mut i.else_branch {
-                    self.visit_else(eb);
-                }
-            }
-            Stmt::Match(m) => {
-                for arm in &mut m.arms {
-                    self.visit_pattern(&mut arm.pattern);
-                    self.visit_block(&mut arm.body);
-                }
-            }
+            Stmt::If(i) => self.visit_if_stmt(i),
+            Stmt::Match(m) => self.visit_match_stmt(m),
             Stmt::MapWindow { body, .. } => self.visit_block(body),
             Stmt::WithRegion { body, .. } => self.visit_block(body),
             Stmt::Unsafe(b) => self.visit_block(b),
             Stmt::Loop(b) => self.visit_block(b),
-            #[allow(clippy::collapsible_match)] // Stmt::Syn matches all Syn variants; Local is a subset
-            Stmt::Syn(s) => {
-                if let syn::Stmt::Local(_l) = s {
-                    // But we don't have access to mutate syn::Type easily here unless we parse it to SynType,
-                    // mutate, and convert back. Actually, Salt compiler ignores type annotations in Stmt::Syn
-                    // except when doing from_syn in statements.rs. 
-                    // To do a FULL HIR pass, we shouldn't use syn::Stmt. But we can't change the whole AST now.
-                    // Wait, `statements.rs` parses `SynType::from_std(ty)`. So if we don't mutate `syn::Stmt`,
-                    // we will STILL have un-resolved names in local vars!
-                    // Oh, that's why we had the bug in method_resolution! `let res: Result<i32> = ...` was un-resolved!
-                }
-            }
+            #[allow(clippy::collapsible_match)]
+            Stmt::Syn(s) => self.visit_syn_stmt(s),
             _ => {}
+        }
+    }
+
+    fn visit_if_stmt(&mut self, i: &mut SaltIf) {
+        self.visit_block(&mut i.then_branch);
+        if let Some(eb) = &mut i.else_branch {
+            self.visit_else(eb);
+        }
+    }
+
+    fn visit_match_stmt(&mut self, m: &mut SaltMatch) {
+        for arm in &mut m.arms {
+            self.visit_pattern(&mut arm.pattern);
+            self.visit_block(&mut arm.body);
+        }
+    }
+
+    fn visit_syn_stmt(&mut self, s: &mut syn::Stmt) {
+        if let syn::Stmt::Local(_l) = s {
+            // Cannot mutate syn::Type here without parsing to SynType and converting back.
+            // Salt compiler ignores type annotations in Stmt::Syn except when doing from_syn
+            // in statements.rs. This is why `let res: Result<i32> = ...` was unresolved.
         }
     }
 
     fn visit_else(&mut self, el: &mut SaltElse) {
         match el {
             SaltElse::Block(b) => self.visit_block(b),
-            SaltElse::If(i) => {
-                self.visit_block(&mut i.then_branch);
-                if let Some(eb) = &mut i.else_branch {
-                    self.visit_else(eb);
-                }
-            }
+            SaltElse::If(i) => self.visit_if_stmt(i),
         }
     }
 
     fn visit_pattern(&mut self, pat: &mut Pattern) {
         match pat {
-            Pattern::Variant { path, fields } => {
-                if !path.is_empty() {
-                    let first = path[0].to_string();
-                    if let Some(fqn) = self.import_map.get(&first).or_else(|| self.available_global_types.get(&first)) {
-                        let mut new_path = vec![syn::Ident::new(fqn, path[0].span())];
-                        if path.len() > 1 {
-                            new_path.extend(path[1..].iter().cloned());
-                        }
-                        *path = new_path;
-                    }
-                }
-                if let Some(fields) = fields {
-                    for f in fields {
-                        self.visit_pattern(f);
-                    }
-                }
-            }
-            Pattern::Struct { name, fields } => {
-                let base = name.to_string();
-                if let Some(fqn) = self.import_map.get(&base).or_else(|| self.available_global_types.get(&base)) {
-                    *name = syn::Ident::new(fqn, name.span());
-                }
-                for f in fields {
-                    if let Some(p) = &mut f.pattern {
-                        self.visit_pattern(p);
-                    }
-                }
-            }
-            Pattern::Tuple(fields) => {
-                for f in fields {
-                    self.visit_pattern(f);
-                }
-            }
-            Pattern::Or(alts) => {
-                for alt in alts {
-                    self.visit_pattern(alt);
-                }
-            }
+            Pattern::Variant { path, fields } => self.resolve_variant_pattern(path, fields),
+            Pattern::Struct { name, fields } => self.resolve_struct_pattern(name, fields),
+            Pattern::Tuple(fields) => self.visit_patterns(fields),
+            Pattern::Or(alts) => self.visit_patterns(alts),
             _ => {}
+        }
+    }
+
+    fn visit_patterns(&mut self, pats: &mut Vec<Pattern>) {
+        for p in pats {
+            self.visit_pattern(p);
+        }
+    }
+
+    fn resolve_variant_pattern(&mut self, path: &mut Vec<Ident>, fields: &mut Option<Vec<Pattern>>) {
+        if let Some(first_ident) = path.first() {
+            let first = first_ident.to_string();
+            if let Some(fqn) = self.import_map.get(&first).or_else(|| self.available_global_types.get(&first)) {
+                let new_path: Vec<Ident> = std::iter::once(syn::Ident::new(fqn, path[0].span()))
+                    .chain(path[1..].iter().cloned())
+                    .collect();
+                *path = new_path;
+            }
+        }
+        if let Some(fields) = fields {
+            for f in fields {
+                self.visit_pattern(f);
+            }
+        }
+    }
+
+    fn resolve_struct_pattern(&mut self, name: &mut Ident, fields: &mut Vec<PatternField>) {
+        let base = name.to_string();
+        if let Some(fqn) = self.import_map.get(&base).or_else(|| self.available_global_types.get(&base)) {
+            *name = syn::Ident::new(fqn, name.span());
+        }
+        for f in fields {
+            if let Some(p) = &mut f.pattern {
+                self.visit_pattern(p);
+            }
         }
     }
 
@@ -303,25 +308,22 @@ impl NameResolver {
         let mut added = Vec::new();
         if let Some(g) = generics {
             for param in &g.params {
-                match param {
-                    GenericParam::Type { name, .. } => {
-                        if self.local_generics.insert(name.to_string()) {
-                            added.push(name.to_string());
-                        }
-                    }
-                    GenericParam::Const { name: _, ty: _ } => {
-                        // ty might need resolution
-                        // We can't mutate ty here because it's borrowed immutable via with_generics.
-                        // Wait, generics is &Option, we can't mutate ty.
-                    }
-                }
+                self.register_generic_param(param, &mut added);
             }
         }
-        
+
         f(self);
 
         for a in added {
             self.local_generics.remove(&a);
+        }
+    }
+
+    fn register_generic_param(&mut self, param: &GenericParam, added: &mut Vec<String>) {
+        if let GenericParam::Type { name, .. } = param {
+            if self.local_generics.insert(name.to_string()) {
+                added.push(name.to_string());
+            }
         }
     }
 
@@ -330,78 +332,78 @@ impl NameResolver {
             SynType::Pointer(inner) => self.visit_syn_type(inner),
             SynType::Reference(inner, _) => self.visit_syn_type(inner),
             SynType::Array(inner, _) => self.visit_syn_type(inner),
-            SynType::Tuple(t) => {
-                for e in &mut t.elems {
-                    self.visit_syn_type(e);
-                }
-            }
-            SynType::FnPtr(args, ret) => {
-                for a in args {
-                    self.visit_syn_type(a);
-                }
-                if let Some(r) = ret {
-                    self.visit_syn_type(r);
-                }
-            }
+            SynType::Tuple(t) => self.visit_syn_tuple(t),
+            SynType::FnPtr(args, ret) => self.visit_fn_ptr_types(args, ret),
             SynType::ShapedTensor { element, .. } => self.visit_syn_type(element),
-            SynType::Path(p) => {
-                // Resolve path!
-                for seg in &mut p.segments {
-                    for arg in &mut seg.args {
-                        self.visit_syn_type(arg);
-                    }
-                }
-
-                if p.segments.len() == 1 {
-                    let name = p.segments[0].ident.to_string();
-                    if self.local_generics.contains(&name) {
-                        return; // It's a local generic, keep it raw
-                    }
-                    if let Some(fqn) = self.import_map.get(&name) {
-                        // Replace segment identifier with fully qualified identifier!
-                        // Actually, identifiers shouldn't contain `__` if they are parsed by standard tools,
-                        // but SynType::Path just holds `Ident`. We can create a new Ident with the FQN string.
-                        // Wait, syn::Ident cannot contain `::` or `__` in strictly parsed code?
-                        // `proc_macro2::Ident` CAN contain `__`.
-                        // But can it contain `::`? NO. Ident cannot contain `::`.
-                        // FQNs in our system use `__`. e.g. `std__core__result__Result`.
-                        p.segments[0].ident = proc_macro2::Ident::new(fqn, p.segments[0].ident.span());
-                    } else if !self.import_map.contains_key(&name) {
-                        // Suffix Fallback check
-                        // Does it uniquely match an available global type?
-                        let mut matches = Vec::new();
-                        for gt in &self.available_global_types {
-                            if gt == &name || gt.ends_with(&format!("__{}", name)) {
-                                matches.push(gt.clone());
-                            }
-                        }
-                        if matches.len() == 1 {
-                            p.segments[0].ident = proc_macro2::Ident::new(&matches[0], p.segments[0].ident.span());
-                        }
-                    }
-                } else if p.segments.len() > 1 {
-                    // It's like `addr::PhysAddr`.
-                    let first = p.segments[0].ident.to_string();
-                    if let Some(pkg_fqn) = self.import_map.get(&first) {
-                        // Combine pkg_fqn and the rest of segments.
-                        let rest = p.segments[1..].iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("__");
-                        let full = format!("{}__{}", pkg_fqn, rest);
-                        
-                        // We flatten this into a SINGLE segment containing the full mangled FQN!
-                        // This allows Type::from_syn to see it as a single struct name.
-                        let mut args = Vec::new();
-                        for seg in &mut p.segments {
-                            args.append(&mut seg.args); // Usually only the last segment has args anyway
-                        }
-                        
-                        p.segments = vec![SynPathSegment {
-                            ident: proc_macro2::Ident::new(&full, p.segments[0].ident.span()),
-                            args,
-                        }];
-                    }
-                }
-            }
+            SynType::Path(p) => self.resolve_syn_type_path(p),
             SynType::Other(_) => {}
         }
+    }
+
+    fn visit_syn_tuple(&mut self, t: &mut SynTuple) {
+        for e in &mut t.elems {
+            self.visit_syn_type(e);
+        }
+    }
+
+    fn visit_fn_ptr_types(&mut self, args: &mut Vec<SynType>, ret: &mut Option<Box<SynType>>) {
+        for a in args {
+            self.visit_syn_type(a);
+        }
+        if let Some(r) = ret {
+            self.visit_syn_type(r);
+        }
+    }
+
+    fn resolve_syn_type_path(&mut self, p: &mut SynPath) {
+        for seg in &mut p.segments {
+            for arg in &mut seg.args {
+                self.visit_syn_type(arg);
+            }
+        }
+        if p.segments.len() == 1 {
+            let name = p.segments[0].ident.to_string();
+            if self.local_generics.contains(&name) {
+                return;
+            }
+            if let Some(fqn) = self.import_map.get(&name) {
+                p.segments[0].ident = proc_macro2::Ident::new(fqn, p.segments[0].ident.span());
+            } else if !self.import_map.contains_key(&name) {
+                self.suffix_fallback_resolve(p);
+            }
+        } else if p.segments.len() > 1 {
+            self.resolve_multi_segment_path(p);
+        }
+    }
+
+    fn suffix_fallback_resolve(&mut self, p: &mut SynPath) {
+        let name = p.segments[0].ident.to_string();
+        let mut matches = Vec::new();
+        for gt in &self.available_global_types {
+            if gt == &name || gt.ends_with(&format!("__{}", name)) {
+                matches.push(gt.clone());
+            }
+        }
+        if matches.len() == 1 {
+            p.segments[0].ident = proc_macro2::Ident::new(&matches[0], p.segments[0].ident.span());
+        }
+    }
+
+    fn resolve_multi_segment_path(&mut self, p: &mut SynPath) {
+        let first = p.segments[0].ident.to_string();
+        let pkg_fqn = match self.import_map.get(&first) {
+            Some(fqn) => fqn,
+            None => return,
+        };
+        let rest = p.segments[1..].iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("__");
+        let full = format!("{}__{}", pkg_fqn, rest);
+        let mut args = Vec::new();
+        for seg in &mut p.segments {
+            args.append(&mut seg.args);
+        }
+        p.segments = vec![SynPathSegment {
+            ident: proc_macro2::Ident::new(&full, p.segments[0].ident.span()),
+            args,
+        }];
     }
 }
