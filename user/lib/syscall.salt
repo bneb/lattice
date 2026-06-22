@@ -179,3 +179,32 @@ pub fn ipc_reg_send(target_cap: u64, p1: u64, p2: u64) -> i64 {
 pub fn ipc_ring_await(cap_id: u64) -> i64 {
     return sys_ipc_ring_await(cap_id);
 }
+
+// =============================================================================
+// System Information
+// =============================================================================
+
+extern fn sys_ps(buf_ptr: u64) -> u64;
+extern fn sys_meminfo(buf_ptr: u64) -> u64;
+extern fn sys_uptime() -> u64;
+extern fn sys_getpid() -> u64;
+
+/// Fill buffer with process info. Returns count.
+pub fn ps(buf_ptr: u64) -> u64 {
+    return sys_ps(buf_ptr);
+}
+
+/// Fill buffer with memory info. Returns 0 on success.
+pub fn meminfo(buf_ptr: u64) -> u64 {
+    return sys_meminfo(buf_ptr);
+}
+
+/// Returns system tick count.
+pub fn uptime() -> u64 {
+    return sys_uptime();
+}
+
+/// Returns calling process PID.
+pub fn getpid() -> u64 {
+    return sys_getpid();
+}

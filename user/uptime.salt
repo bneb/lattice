@@ -1,0 +1,20 @@
+// =============================================================================
+// user/uptime.salt
+// System uptime reporter (ticks → seconds)
+// =============================================================================
+
+package user.uptime
+
+import user.lib.syscall
+import user.std.stdio
+
+pub fn main() {
+    let ticks = syscall.uptime();
+    let seconds = ticks / 100; // 100 ticks/sec = PIT frequency
+
+    stdio.print("up ");
+    stdio.print_u64(seconds);
+    stdio.print(" seconds\n");
+
+    syscall.exit(0);
+}

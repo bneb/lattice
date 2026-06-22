@@ -289,6 +289,11 @@ pub fn available_total() -> u64 {
     return total;
 }
 
+// Total physical pages known to PMM (set during add_region)
+pub fn get_total_pages() -> u64 {
+    return PMM_RESOURCE.total_pages;
+}
+
 // ============================================================================
 // @no_mangle ABI Wrappers
 // ============================================================================
@@ -315,3 +320,8 @@ pub fn pmm_init_cpu_count(count: u64) { init_cpu_count(count); }
 
 @no_mangle
 pub fn pmm_retain(page: u64) { retain(page); }
+
+@no_mangle
+pub fn pmm_get_total_pages() -> u64 {
+    return get_total_pages();
+}

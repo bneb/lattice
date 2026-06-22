@@ -1,0 +1,29 @@
+// user/free.salt — Memory information utility
+//
+// Calls syscall.meminfo to retrieve physical memory page counts,
+// converts pages to KB (4 KB per page), and prints the result.
+
+package user.free
+
+import user.lib.syscall
+import user.std.stdio
+
+pub fn main() {
+    let buf: [u64; 4] = [0; 4];
+    let ptr = &buf as u64;
+    if syscall.meminfo(ptr) != 0 {
+        stdio.print("meminfo failed\n");
+        syscall.exit(1);
+    }
+    let total = buf[0] * 4;
+    let free  = buf[1] * 4;
+    let used  = buf[2] * 4;
+    stdio.print("total: ");
+    stdio.print_u64(total);
+    stdio.print(" KB, free: ");
+    stdio.print_u64(free);
+    stdio.print(" KB, used: ");
+    stdio.print_u64(used);
+    stdio.print(" KB\n");
+    syscall.exit(0);
+}

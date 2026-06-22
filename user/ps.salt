@@ -1,0 +1,40 @@
+// =============================================================================
+// user/ps.salt
+// Process listing utility
+// =============================================================================
+
+package user.ps
+
+import user.lib.syscall
+import user.std.stdio
+
+pub fn main() {
+    let mut buf: [u8; 256] = [0; 256];
+    let buf_ptr = (&buf[0]) as u64;
+    let _ = syscall.ps(buf_ptr);
+    let proc_count = *(buf_ptr as &u64);
+
+    stdio.print("ps: ");
+    stdio.print_u64(proc_count);
+    stdio.print(" processes\n");
+
+    let mut i: u64 = 0;
+    while i < proc_count {
+        let pid = *((buf_ptr + 8 + i * 16) as &u64);
+        let state = *((buf_ptr + 8 + i * 16 + 8) as &u64);
+        stdio.print("  PID ");
+        stdio.print_u64(pid);
+        stdio.print(": ");
+
+        if state == 0 { stdio.print("FREE\n"); }
+        else if state == 1 { stdio.print("READY\n"); }
+        else if state == 2 { stdio.print("RUNNING\n"); }
+        else if state == 3 { stdio.print("ZOMBIE\n"); }
+        else if state == 4 { stdio.print("IPC_BLOCKED\n"); }
+        else { stdio.print("UNKNOWN\n"); }
+
+        i = i + 1;
+    }
+
+    syscall.exit(0);
+}
