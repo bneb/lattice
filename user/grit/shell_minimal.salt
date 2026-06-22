@@ -1,14 +1,8 @@
-// Minimal grit shell — serial-only, no framebuffer dependency.
-// Used for automated QEMU testing where the framebuffer isn't mapped.
-
+// Minimal grit shell — just exits immediately to verify Ring 3 execution.
 package user.grit.shell_minimal
 
-import user.std.stdio
 import user.lib.syscall
 
 pub fn main() {
-    stdio.print("grit: READY\n");
-    loop {
-        syscall.sys_yield_thread();
-    }
+    syscall.exit(42);
 }

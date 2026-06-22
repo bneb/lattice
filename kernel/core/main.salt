@@ -130,6 +130,33 @@ pub fn spawn_and_run(id: u64, elf_addr: u64, pml4: u64) -> u64 {
 }
 
 @no_mangle
+pub fn verify_user_pml4(user_pml4_phys: u64, kernel_pml4: u64) {
+    let kern_virt = KERNEL_BASE + kernel_pml4;
+    let user_virt = KERNEL_BASE + user_pml4_phys;
+    let mut i: u64 = 256;
+    let mut ok: u64 = 1;
+    while i < 512 {
+        let k_entry = *((kern_virt + i * 8) as &u64);
+        let u_entry = *((user_virt + i * 8) as &u64);
+        if k_entry != u_entry {
+            serial.print("[pml4] mismatch at entry ");
+            serial.print_u64(i);
+            serial.print(": kern=0x");
+            serial.print_u64(k_entry);
+            serial.print(" user=0x");
+            serial.print_u64(u_entry);
+            serial.print("\n");
+            ok = 0;
+            break;
+        }
+        i = i + 1;
+    }
+    if ok == 1 {
+        serial.print("[pml4] kernel entries 256-511 verified OK\n");
+    }
+}
+
+@no_mangle
 pub fn kmain(magic: u32, mb_info: &u8) {
     serial.print("\n\n=== KeuOS v0.10.0 — NetD Ring 3 ===\n\n");
 
@@ -210,6 +237,8 @@ pub fn kmain(magic: u32, mb_info: &u8) {
 
     tss_init_tss();
     serial.print("[KeuOS] TSS installed for Ring 3\n");
+    init_syscall_msrs();
+    serial.print("[KeuOS] Syscall MSRs configured\n");
     syscall_set_kernel_pml4(kernel_pml4);
 
     // Task 0: Immortal Ring 0 Dispatcher
@@ -247,8 +276,12 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     serial.print_u64(slot_user);
     serial.print(")...\n");
 
+    // Read values fresh from process table right before context switch
     let rsp_ptr = (&DISCARD_RSP) as u64;
-    proc_context_switch(rsp_ptr, new_rsp, new_cr3, new_rsp0);
+    let r0 = process_get_kernel_rsp(slot_user);
+    let r1 = process_get_pml4(slot_user) | 0;
+    let r2 = process_get_kernel_stack_top(slot_user);
+    proc_context_switch(rsp_ptr, r0, r1, r2);
 }
 
 @no_mangle

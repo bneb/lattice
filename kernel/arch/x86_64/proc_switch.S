@@ -39,13 +39,17 @@ proc_context_switch:
     /* Switch to new kernel stack */
     mov rsp, rsi
 
+    /* Save CR3 (RDX) before debug serial output clobbers dx */
+    push rdx
+
     mov dx, 0x3F8
     mov al, 0x31  /* '1' */
     out dx, al
     mov al, 10
     out dx, al
 
-    /* Switch CR3 (address space) */
+    /* Restore CR3 value and switch address space */
+    pop rdx
     mov cr3, rdx
 
     mov dx, 0x3F8

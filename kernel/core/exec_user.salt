@@ -146,6 +146,17 @@ pub fn spawn_process(elf_base: u64, kernel_pml4: u64) -> u64 {
     let entry     = *((elf_base + ELF_ENTRY_OFF) as &u64);
     let phoff     = *((elf_base + ELF_PHOFF_OFF) as &u64);
     let phentsize = *((elf_base + ELF_PHENTSIZE_OFF) as &u16);
+
+    // Debug: dump raw bytes at entry offset
+    serial.print("[spawn] raw entry bytes: ");
+    let mut di: u64 = 0;
+    while di < 8 {
+        let b = *((elf_base + ELF_ENTRY_OFF + di) as &u8);
+        serial.print_u64(b as u64);
+        serial.print(" ");
+        di = di + 1;
+    }
+    serial.print("\n");
     let phnum     = *((elf_base + ELF_PHNUM_OFF) as &u16);
 
     let slot = process.alloc_pid();
