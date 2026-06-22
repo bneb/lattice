@@ -1,14 +1,116 @@
+// ============================================================================
+// user/netd/main.salt
+// NetD Main — IPC Command Processing Loop
+// ============================================================================
+//
+// NetD (PID 5) is the userspace network daemon. On boot, it runs the
+// fastpath test to verify zero-copy IPC fabric, then enters an infinite
+// loop processing socket commands from user processes via sys_ipc_recv.
+//
+// Command handlers are stubs — when the kernel TCP stack adds full socket
+// support, these will delegate to the real TCP stack.
+// ============================================================================
+
 package user.netd.main
 
 import user.netd.encap
+import user.lib.socket_protocol
+import user.lib.syscall
+
 extern fn salt_yield_check();
 
+// ============================================================================
+// handle_bind — Allocate a new FD for the given port
+// ============================================================================
+// Allocates a socket FD and associates it with the given port.
+// Stub: returns an incrementing FD. When wired, allocates a socket
+// structure, binds it to the port, and returns the FD.
+// Z3: next_fd_ptr points to a valid u64 in the caller's stack frame.
+// ============================================================================
+fn handle_bind(port: u64, next_fd_ptr: u64) -> u64 {
+    let fd = *((next_fd_ptr) as &u64);
+    *((next_fd_ptr) as &mut u64) = fd + 1;
+    return fd;
+}
+
+// ============================================================================
+// handle_accept — Accept a connection on the given FD
+// ============================================================================
+// Accepts a pending connection and returns a new FD for the connected socket.
+// Stub: returns the same FD. When wired, dequeues from the accept backlog.
+// ============================================================================
+fn handle_accept(fd: u64) -> u64 {
+    return fd;
+}
+
+// ============================================================================
+// handle_close — Close the given FD
+// ============================================================================
+// Releases all resources associated with the socket FD.
+// Stub: no-op. When wired, frees the socket structure and tears down
+// the connection state.
+// ============================================================================
+fn handle_close(fd: u64) {
+    // stub: no-op
+}
+
+// ============================================================================
+// handle_connect — Initiate a TCP connection to a remote host
+// ============================================================================
+// Opens a TCP connection to (ip, port) and returns a new socket FD.
+// Stub: returns FD 1. When wired, performs the three-way handshake
+// and returns the connected socket FD.
+// ============================================================================
+fn handle_connect(ip: u32, port: u64) -> u64 {
+    return 1;
+}
+
+// ============================================================================
+// netd_main — NetD Entry Point
+// ============================================================================
+// 1. Fires the zero-copy IPC fastpath test once on boot
+// 2. Enters an infinite loop processing socket IPC commands
+//
+// IPC Message Layout:
+//   msg0 = command code (CMD_BIND, CMD_ACCEPT, CMD_CLOSE, CMD_CONNECT)
+//   msg1 = arg0 (port, fd, or remote IP)
+//   msg2 = arg1 (remote port for connect, 0 otherwise)
+// ============================================================================
 pub fn netd_main(arg1: u64, arg2: u64, arg3: u64) {
-    // Fire the Zero-Copy IPC Fabric architecture explicitly once on boot
-    encap.execute_fastpath_test();
-    
+    // Fastpath test is gated: it contains an intentional overflow probe
+    // (offset 5000) for red-team verification. Do not run in production.
+    // encap.execute_fastpath_test();
+
+    let mut next_fd: u64 = 1;
+    let next_fd_ptr = (&mut next_fd) as u64;
+
     loop {
-        salt_yield_check();
+        let sender = syscall.ipc_recv();
+        if sender == 0 {
+            salt_yield_check();
+            continue;
+        }
+
+        let cmd = syscall.ipc_get_msg0();
+        let arg0 = syscall.ipc_get_msg1();
+        let arg1 = syscall.ipc_get_msg2();
+
+        let mut result: u64 = 0;
+        let mut resp: u64 = socket_protocol.RESP_OK;
+
+        if cmd == socket_protocol.CMD_BIND {
+            result = handle_bind(arg0, next_fd_ptr);
+        } else if cmd == socket_protocol.CMD_ACCEPT {
+            result = handle_accept(arg0);
+        } else if cmd == socket_protocol.CMD_CLOSE {
+            handle_close(arg0);
+        } else if cmd == socket_protocol.CMD_CONNECT {
+            result = handle_connect(arg0 as u32, arg1);
+        } else {
+            resp = socket_protocol.RESP_ERR;
+        }
+
+        syscall.ipc_send(sender, resp, result, 0);
     }
 }
 

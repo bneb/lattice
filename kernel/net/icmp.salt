@@ -1,0 +1,80 @@
+// =============================================================================
+// kernel/net/icmp.salt
+// ICMP Echo Reply Handler — Responds to Ping (RFC 792)
+// =============================================================================
+//
+// ICMP Echo Request/Reply (8 bytes minimum):
+//   [8b type][8b code][16b checksum]
+//   [16b identifier][16b sequence_number]
+//   [optional data...]
+//
+// Echo Request  (type=8) → Echo Reply (type=0)
+// Checksum: RFC 1071 one's complement of the ICMP message
+// =============================================================================
+
+package kernel.net.icmp
+
+import kernel.drivers.serial
+
+const ICMP_TYPE_ECHO_REPLY: u8 = 0;
+const ICMP_TYPE_ECHO_REQUEST: u8 = 8;
+
+// =============================================================================
+// ICMP Checksum (RFC 1071)
+// =============================================================================
+pub fn icmp_checksum(data: u64, len: u32) -> u16 {
+    let mut sum: u32 = 0;
+    let mut i: u32 = 0;
+
+    while i + 1 < len {
+        let hi = *((data + i as u64) as &u8) as u32;
+        let lo = *((data + i as u64 + 1) as &u8) as u32;
+        sum = sum + ((hi << 8) | lo);
+        i = i + 2;
+    }
+
+    if i < len {
+        let hi = *((data + i as u64) as &u8) as u32;
+        sum = sum + (hi << 8);
+    }
+
+    while (sum >> 16) != 0 {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+
+    return (sum ^ 0xFFFF) as u16;
+}
+
+// =============================================================================
+// Handle Incoming ICMP Packet
+// =============================================================================
+// Modifies the packet in-place to convert an Echo Request into an Echo Reply.
+// Returns true if the packet was handled (was an Echo Request).
+pub fn handle_icmp(packet: u64, len: u32, src_ip: u32) -> bool {
+    if len < 8 {
+        return false;
+    }
+
+    let icmp_type = *(packet as &u8);
+    if icmp_type != ICMP_TYPE_ECHO_REQUEST {
+        return false;
+    }
+
+    // Convert type: Echo Request (8) → Echo Reply (0)
+    *(packet as &mut u8) = ICMP_TYPE_ECHO_REPLY;
+
+    // Zero checksum field (bytes 2-3) before recomputation
+    *((packet + 2) as &mut u8) = 0;
+    *((packet + 3) as &mut u8) = 0;
+
+    // Compute new checksum
+    let csum = icmp_checksum(packet, len);
+    *((packet + 2) as &mut u8) = (csum >> 8) as u8;
+    *((packet + 3) as &mut u8) = (csum & 0xFF) as u8;
+
+    serial.print("[ICMP] Echo Request from ");
+    serial.print_u64(src_ip as u64);
+    serial.print(" -> Echo Reply\n");
+
+    return true;
+}
