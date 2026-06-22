@@ -121,6 +121,9 @@ proc_trampoline:
     out dx, al
 
 .global proc_trampoline_iretq
+    /* Flush TLB before IRETQ: reload CR3 to ensure user page walks succeed */
+    mov rax, cr3
+    mov cr3, rax
 proc_trampoline_iretq:
     iretq
 
