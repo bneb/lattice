@@ -942,57 +942,34 @@ pub fn prove_layout_compatibility_ctx(ctx: &mut LoweringContext, from: &Type, to
     prove_layout_compatibility(reg, from, to)
 }
 
+/// Returns true when a type_map entry maps `name` back to itself.
+fn is_self_ref(n: &str, c: &Type) -> bool {
+    matches!(c, Type::Struct(s) | Type::Generic(s) if s == n)
+}
+
+fn sub_through(m: &std::collections::BTreeMap<String, Type>, n: &str, ty: &Type) -> Type {
+    let Some(c) = m.get(n) else { return ty.clone(); };
+    if is_self_ref(n, c) { return Type::Generic(n.to_string()); }
+    substitute_generics(m, c)
+}
+
+fn try_suffix(m: &std::collections::BTreeMap<String, Type>, n: &str) -> Option<Type> {
+    let f = m.get(n);
+    let s = if n.contains("__") { m.get(n.rsplit("__").next()?) } else { None };
+    f.or(s).map(|c| substitute_generics(m, c))
+}
+
 /// Recursively substitute generic placeholders using current_type_map.
 /// This is the "Secret of $i64$" - when HashMap<i64, i64> looks at Entry<K, V>,
 /// this function transforms it to Entry<i64, i64> by consulting the active type context.
 pub fn substitute_generics(type_map: &std::collections::BTreeMap<String, Type>, ty: &Type) -> Type {
     match ty {
-        // Generics stored as Struct names (parser artifact) — check type_map
-        Type::Struct(name) if type_map.contains_key(name) => {
-            let concrete = &type_map[name].clone();
-            // Guard against self-referential mappings that cause infinite loops
-            if let Type::Struct(concrete_name) = concrete {
-                if concrete_name == name {
-                    return Type::Generic(name.clone());
-                }
-            }
-            if let Type::Generic(concrete_name) = concrete {
-                if concrete_name == name {
-                    return Type::Generic(name.clone());
-                }
-            }
-
-            substitute_generics(type_map, concrete)
-        }
-        // Explicit Generic type
-        Type::Generic(name) => {
-            if let Some(concrete) = type_map.get(name) {
-                if let Type::Generic(concrete_name) = concrete {
-                    if concrete_name == name {
-                        return Type::Generic(name.clone());
-                    }
-                }
-                if let Type::Struct(concrete_name) = concrete {
-                    if concrete_name == name {
-                        return Type::Generic(name.clone());
-                    }
-                }
-                substitute_generics(type_map, concrete)
-            } else {
-                ty.clone()
-            }
-        }
-        // Concrete types with generic args (e.g., Entry<K, V>)
+        Type::Struct(name) if type_map.contains_key(name) => sub_through(type_map, name, ty),
+        Type::Generic(name) => sub_through(type_map, name, ty),
         Type::Concrete(name, args) => {
             if args.is_empty() {
-                if let Some(concrete) = type_map.get(name) {
-                    return substitute_generics(type_map, concrete);
-                }
-                if name.contains("__") {
-                    let suffix = name.rsplit("__").next().unwrap_or(name);
-                    if let Some(concrete) = type_map.get(suffix) {
-                        return substitute_generics(type_map, concrete);
-                    }
+                if let Some(result) = try_suffix(type_map, name) {
+                    return result;
                 }
             }
             let substituted_args: Vec<Type> = args.iter()
@@ -1001,11 +978,8 @@ pub fn substitute_generics(type_map: &std::collections::BTreeMap<String, Type>, 
             Type::Concrete(name.clone(), substituted_args)
         }
         Type::SelfType => {
-            if let Some(concrete) = type_map.get("Self") {
-                substitute_generics(type_map, concrete)
-            } else {
-                ty.clone()
-            }
+            let Some(concrete) = type_map.get("Self") else { return ty.clone(); };
+            substitute_generics(type_map, concrete)
         }
         // Pointer types
         Type::Pointer { element, provenance, is_mutable } => {
@@ -1043,6 +1017,21 @@ pub fn substitute_generics(type_map: &std::collections::BTreeMap<String, Type>, 
 pub fn substitute_generics_ctx(ctx: &mut LoweringContext, ty: &Type) -> Type {
     let type_map = ctx.current_type_map();
     substitute_generics(type_map, ty)
+}
+
+fn canonicalize_struct_arg_t(ctx: &mut LoweringContext, t: &Type) -> Type {
+    if let Type::Struct(sname) = t {
+        if !sname.contains("__") {
+            let suffix = format!("__{}", sname);
+            if let Some(canonical) = ctx.struct_templates().keys()
+                .find(|k| k.ends_with(&suffix))
+                .cloned()
+            {
+                return Type::Struct(canonical);
+            }
+        }
+    }
+    t.clone()
 }
 
 /// Top-level helper for MLIR Type Lowering
@@ -1140,20 +1129,7 @@ pub fn to_mlir_type(ctx: &mut LoweringContext, ty: &Type) -> Result<String, Stri
             // Canonicalize Struct args before mangling.
             // to_canonical_name() has no context, so Struct("Node") mangles to "Node"
             // producing Box_Node instead of Box_main__Node. We canonicalize here.
-            let canonical_args: Vec<Type> = args.iter().map(|t| {
-                if let Type::Struct(sname) = t {
-                    if !sname.contains("__") {
-                        let suffix = format!("__{}", sname);
-                        if let Some(canonical) = ctx.struct_templates().keys()
-                            .find(|k| k.ends_with(&suffix))
-                            .cloned()
-                        {
-                            return Type::Struct(canonical);
-                        }
-                    }
-                }
-                t.clone()
-            }).collect();
+            let canonical_args: Vec<Type> = args.iter().map(|t| canonicalize_struct_arg_t(ctx, t)).collect();
             let suffix = canonical_args.iter().map(|t| t.to_canonical_name()).collect::<Vec<_>>().join("_");
             let mangled = if args.is_empty() { full_base } else { format!("{}_{}", full_base, suffix) };
             Ok(format!("!struct_{}", mangled))
@@ -1181,10 +1157,33 @@ pub fn to_mlir_type(ctx: &mut LoweringContext, ty: &Type) -> Result<String, Stri
 }
 
 
+fn collect_self_concrete_args(ctx: &mut LoweringContext, struct_name: &str) -> Option<Vec<Type>> {
+    let template = ctx.struct_templates().get(struct_name)?;
+    let generics = template.generics.as_ref()?;
+    let mut args = Vec::with_capacity(generics.params.len());
+    for param in &generics.params {
+        let p_name = match param {
+            crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+            crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+        };
+        let Some(arg) = ctx.current_type_map().get(&p_name).cloned() else { return None; };
+        args.push(arg);
+    }
+    if args.is_empty() { None } else { Some(args) }
+}
+
+fn resolve_struct_self_opt(ctx: &mut LoweringContext, r: Type) -> Type {
+    if let Type::Struct(name) = &r {
+        if let Some(args) = collect_self_concrete_args(ctx, name) {
+            return Type::Concrete(name.clone(), args);
+        }
+    }
+    r
+}
+
 fn resolve_codegen_type_self(ctx: &mut LoweringContext, _flattened: &Type) -> Type {
     let mut res = None;
-    let self_concrete_opt = ctx.current_type_map().get("Self").cloned();
-    if let Some(concrete_ty) = self_concrete_opt {
+    if let Some(concrete_ty) = ctx.current_type_map().get("Self").cloned() {
         res = Some(concrete_ty);
     }
     if res.is_none() {
@@ -1194,34 +1193,37 @@ fn resolve_codegen_type_self(ctx: &mut LoweringContext, _flattened: &Type) -> Ty
     }
 
     if let Some(r) = res {
-        if let Type::Struct(name) = &r {
-             if let Some(template) = ctx.struct_templates().get(name) {
-                 if let Some(generics) = &template.generics {
-                     let mut args = Vec::new();
-                     let mut all_found = true;
-                     for param in &generics.params {
-                          let p_name = match param {
-                              crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-                              crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-                          };
-                          let arg_opt = ctx.current_type_map().get(&p_name).cloned();
-                          if let Some(arg) = arg_opt {
-                              args.push(arg);
-                          } else {
-                              all_found = false; 
-                              break;
-                          }
-                     }
-                     if all_found && !args.is_empty() {
-                         return Type::Concrete(name.clone(), args);
-                     }
-                 }
-             }
-        }
-        r
+        resolve_struct_self_opt(ctx, r)
     } else {
         panic!("MonomorphizationError: Failed to resolve SelfType. Map keys: {:?}", ctx.current_type_map().keys().collect::<Vec<_>>());
     }
+}
+
+fn try_infer_struct_params(ctx: &mut LoweringContext, resolved_base: &str) -> Vec<Type> {
+    let template = match ctx.struct_templates().get(resolved_base) {
+        Some(t) => t,
+        None => return vec![],
+    };
+    let generics = match &template.generics {
+        Some(g) => g,
+        None => return vec![],
+    };
+    let current_args = ctx.current_generic_args();
+    if current_args.len() == generics.params.len() {
+        return current_args.clone();
+    }
+    let mut inferred = Vec::new();
+    for param in &generics.params {
+        let p_name = match param {
+            crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
+            crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
+        };
+        match ctx.current_type_map().get(&p_name).cloned() {
+            Some(arg) => inferred.push(arg),
+            None => return vec![],
+        }
+    }
+    inferred
 }
 
 fn resolve_codegen_type_struct(ctx: &mut LoweringContext, ty: &Type, name: &str) -> Type {
