@@ -1,7 +1,13 @@
 # Salt Language & Compiler Specification
 
-> **Version**: 2.0 (February 2026)
+> **Version**: 3.0 (June 2026)
 > **Canonical Syntax Reference**: [SYNTAX.md](../SYNTAX.md)
+> **Architecture Reference**: [ARCH.md](ARCH.md)
+
+**Changes since 2.0**: Rewrote Section 2 to match the current Rust-based compiler
+pipeline (the legacy C++ MLIR dialect backend is no longer active). Added
+Stability Guarantees (Section 6). Updated Implementation Status (Section 5).
+Marked aspirational features as experimental.
 
 ---
 
@@ -12,7 +18,7 @@
 
 * **Immutability by default:** `let` for immutable bindings, `let mut` for mutable.
 * **No Exceptions:** Errors are values (`Result<T>` with `Status`). Use `|?>` or `?` to propagate.
-* **Explicit return:** Every function with a return type uses `return`.
+* **Explicit return:** Every function with a return type uses `return`. (Expression-statement tail returns also work but `return` is the canonical style.)
 
 ### 1.2 Syntax & Ergonomics
 
@@ -59,51 +65,60 @@ fn safe_div(a: i32, b: i32) -> i32
 
 ---
 
-## 2. The MLIR Backend (Compiler-Facing)
+## 2. Compiler Pipeline
 
-### 2.1 The `salt` Dialect
-The Intermediate Representation bridging Salt source and LLVM IR.
+The Salt compiler (`salt-front/`) is a Rust implementation that compiles Salt source
+to MLIR (standard dialects), then to LLVM IR, then to native code.
 
-| Operation | Purpose | Lowering Strategy |
-| :--- | :--- | :--- |
-| `salt.func` | Function def | Inject implicit `%region` argument. |
-| *(removed)* | ~~`salt.verify`~~ | Replaced by Z3 Proof-or-Panic: proven contracts are elided; unproven lower to `scf.if` + `@__salt_contract_violation`. |
-| `salt.call` | Function call | Forward current `%region` to callee. |
-| `salt.region_alloc` | Allocation | Lower to `llvm.alloca` (Stack) or Ptr Increment (Heap). |
-| `salt.match` | Pattern Matching | Lower to `scf.if` tree or `cf.switch`. |
-| `salt.asm` | Inline Assembly | Lower to `llvm.inline_asm` (for Kernel Ops). |
-| `salt.panic` | Abort execution | Lower to trap intrinsic. |
-| `salt.constant` | Typed literal | Lower to `arith.constant`. |
+### 2.1 Pipeline Phases
 
-### 2.2 The Verification Pipeline
+```
+Source (.salt) → Preprocessor → Parser (syn-based) → HIR Lowering →
+  Type Resolution → Z3 Verification → MLIR Emission → [Optional: SIR emission] →
+    [mlir-opt → mlir-translate → llc → native binary]
+```
+
+| Phase | Responsibility |
+|-------|---------------|
+| **Preprocessor** | Converts Salt syntax to syn-compatible form. Handles `\|>`, `\|?>`, `@` matmul, f-strings, hex literals, `~` force-unwrap, `use`/`import` conversion, `@derive` expansion, module struct literals, C++-style generics. |
+| **Parser** | Recursive-descent parser built on `syn`. Produces Salt AST (grammar types). |
+| **HIR Lowering** | Lowers Salt AST to HIR (High Intermediate Representation) with type inference. |
+| **Type Resolution** | Resolves types, monomorphizes generics, checks mutation and ownership. |
+| **Z3 Verification** | Proves `requires`/`ensures` contracts and loop invariants. Falls back to runtime assertions on failure. |
+| **MLIR Emission** | Generates standard MLIR ops: `func.func`, `func.call`, `arith.*`, `scf.*`, `llvm.*`, `cf.br`. |
+| **SIR Emission** | (optional, `--emit-sir`) Exports Salt Intermediate Representation as JSON for tooling. |
+
+### 2.2 Standard MLIR Dialects Used
+
+- **`arith`**: Integer/float math (mapped to Z3)
+- **`scf`**: Structured control flow (`if`, `for`, `while`)
+- **`memref`**: Typed memory buffers
+- **`func`**: Standard call/return
+- **`llvm`**: Inline assembly (`llvm.inline_asm`), pointer ops
+
+### 2.3 Bare Metal Bridge
+
+- **Inline Assembly**: `salt.asm` grammar → `llvm.inline_asm`
+- **Freestanding**: `-ffreestanding` for kernel/embedded targets (via `--target keuos`)
+
+### 2.4 Verification Pipeline Detail
 
 ```mermaid
 graph LR
-    A[Parse] --> B[salt Dialect IR]
-    B --> C[Z3 Verify Pass]
-    C --> D[Region Inference]
-    D --> E[Monomorphization]
+    A[Parse] --> B[HIR Lowering]
+    B --> C[Type Resolution]
+    C --> D[Z3 Verify Pass]
+    D --> E[MLIR Emission]
     E --> F[Lower to LLVM]
     F --> G[Object Code]
 ```
 
 | Pass | Responsibility |
 |------|----------------|
-| **Z3 Verify** | Inter-procedural contract checking |
-| **Region Inference** | Escape analysis → stack vs heap |
-| **Monomorphization** | Generic instantiation |
-
-### 2.3 Standard Dialects Used
-
-- **`arith`**: Integer/float math (mapped to Z3)
-- **`scf`**: Structured control flow (`if`, `for`, `while`)
-- **`memref`**: Typed memory buffers
-- **`func`**: Standard call/return
-
-### 2.4 Bare Metal Bridge
-
-- **Inline Assembly**: `salt.asm` → `llvm.inline_asm`
-- **Freestanding**: `-ffreestanding` for kernel/embedded targets
+| **Z3 Verify** | Inter-procedural contract checking; loop invariant base-case + inductive-step |
+| **Pulse Injection** | Inject yield checks at loop back-edges for `@pulse`/`@yielding` functions |
+| **Yield Injection** | Cooperative scheduling yield points |
+| **Binary Audit** | Post-link disassembly checks (KeuOS targets) |
 
 ---
 
@@ -116,9 +131,10 @@ keuos/
 ├── docs/ARCH.md                 # Compiler pipeline & component reference
 ├── salt-front/                  # Rust Frontend (Parser, Typechecker, Z3, MLIR Emitter)
 │   ├── src/grammar/             # Custom recursive-descent parser
-│   └── src/codegen/             # MLIR code generation (30+ modules)
-├── salt/                        # C++ Backend (Legacy — dialect definitions)
-│   ├── src/dialect/SaltOps.td   # Dialect Definition
+│   ├── src/codegen/             # MLIR code generation (30+ modules)
+│   └── std/                     # Standard library (70+ modules)
+├── salt/                        # C++ Backend (Legacy — dialect definitions, no longer active)
+│   ├── src/dialect/SaltOps.td   # Dialect Definition (archived)
 │   └── src/passes/Z3Verify.cpp  # Original Z3 pass (superseded by Rust impl)
 ├── benchmarks/                  # Performance Harness
 │   └── BENCHMARKS.md            # Official results and methodology
@@ -159,7 +175,7 @@ WARNING: Could not formally prove contract. Emitting runtime check.
 
 ---
 
-## 5. Implementation Status (February 2026)
+## 5. Implementation Status (June 2026)
 
 | Feature | Status |
 |---------|--------|
@@ -169,8 +185,89 @@ WARNING: Could not formally prove contract. Emitting runtime check.
 | Full ADT/`match` lowering | ✅ Complete |
 | Trait resolution | ✅ Complete |
 | Generic monomorphization | ✅ Complete |
-| RAII-Lite (Automatic cleanup) | ✅ Complete |
-| Vector intrinsics (SIMD) | ✅ Complete |
+| RAII-Lite (Automatic cleanup via Drop trait) | ✅ Complete |
+| Vector intrinsics (SIMD) — `v_load`, `v_store`, `v_fma`, `v_hsum` | ✅ Complete |
 | SSA Reduction (iter_args) | ✅ Complete |
 | Function pointer types (`fn(T) -> R`) | ✅ Complete |
+| SIR emission (`--emit-sir`) | ✅ Complete |
+| Binary audit (post-link verification) | ✅ Complete |
+| Pipeline operator (`\|>`), Railway (`\|?>`) | ✅ Complete |
+| F-strings / hex literals / force-unwrap | ✅ Complete |
+| `@matmul` operator | ✅ Complete |
+| `@derive` annotation expansion | ✅ Complete |
+| `@inline`, `@pure`, `@trusted`, `@export` attributes | ✅ Complete |
+| `@yielding` / `@pulse` cooperative scheduling | ✅ Complete |
+| `concept` keyword (type constraints) | ✅ Complete |
 | LLVM JIT execution | 📋 Planned |
+| `_` placeholder forwarding in method chains | ⚠ Experimental |
+| Wasm32 target (z3-stub, no native Z3 link) | 📋 Planned |
+
+---
+
+## 6. Stability Guarantees
+
+The following interfaces are **frozen** and should not change without a major
+version bump and migration path:
+
+### Frozen (Stable)
+
+1. **Core syntax**: `fn`, `let`/`let mut`, `return`, `if`/`else`, `while`, `for`,
+   `loop`, `match`, `struct`, `enum`, `impl`, `trait`, `package`, `import`
+2. **Type system**: `i8`-`i64`, `u8`-`u64`, `f32`, `f64`, `bool`, `Ptr<T>`,
+   `&T`/`&mut T`, `[T; N]`, `(T, U)`, `fn(T) -> R`, `String`, `StringView`
+3. **Contracts**: `requires(expr)`, `ensures(expr)` grammar and Z3 verification
+4. **Standard library paths**: `std.core.*`, `std.string.*`, `std.io.*`,
+   `std.net.*`, `std.http.*`, `std.json.*`, `std.sync.*`, `std.channel.*`,
+   `std.collections.*`, `std.process.*`, `std.thread.*`
+5. **CLI flags**: `--release`, `--binary`, `-c`, `--target`, `--verify`,
+   `--emit-sir`, `-g`/`--debug-info`, `--lib`, `--sip`, `-o`,
+   `--skip-scan`, `--disable-alias-scopes`
+6. **MLIR output**: The compiler emits standard MLIR dialects (`func`, `arith`,
+   `scf`, `llvm`, `memref`, `cf`). No custom `salt` dialect ops are emitted.
+7. **ABI**: Function call ABI (C ABI via extern), syscall ABI (see
+   `docs/abi/KEUOS_ABI.md`)
+
+### Experimental (May Change)
+
+1. **`_` placeholder forwarding**: Using `_` in method chains to forward the
+   previous result (documented in SYNTAX.md). Not yet implemented.
+2. **`concept` keyword**: Grammar and AST nodes exist; integration with type
+   constraint checking is partial.
+3. **LLVM JIT execution**: No implementation yet.
+4. **Wasm32 target**: Backend stub exists but is not production-ready.
+5. **`@pulse_budget` attribute**: Grammar and attr parsing done; scheduling
+   backend integration is in progress.
+6. **`async`/`await` (state machine lowering)**: The `async_to_state` pass
+   exists but is not yet wired into the default pipeline.
+7. **`std.autograd`**: Module exists but is in early development.
+
+### Deprecated
+
+1. **`--no-verify`**: Replaced by `--danger-no-verify`. Will be removed.
+2. **Legacy C++ `salt/` backend**: Dialect definitions archived. The Rust
+   frontend emits standard MLIR ops directly.
+
+---
+
+## 7. CLI Reference
+
+```
+Usage: salt-front <file.salt> [-o output] [--release] [--binary] [-c]
+       [--target <target>] [--lib] [-g] [--emit-sir] [--skip-scan]
+       [--verify] [--danger-no-verify] [--disable-alias-scopes]
+
+Flags:
+  --release            Enable optimizations
+  --binary             Produce native Mach-O/ELF binary via Iron Driver
+  -c                   Produce .o object file (like clang -c)
+  --target T           Target: macos, linux-arm64, keuos, keuos-x86_64
+  --verify             Run Z3 verification passes
+  --skip-scan          Skip import scanning
+  --lib                Library mode (no main entry point required)
+  --sip                Mode B SIP safety enforcement
+  -g / --debug-info    Emit DWARF debug info (MLIR loc annotations)
+  --disable-alias-scopes  Suppress LLVM alias scope metadata
+  --emit-sir           Emit SIR (Salt Intermediate Representation) as JSON
+  --danger-no-verify   Skip ALL Z3/ownership verification (debug builds only)
+  -o <path>            Output path (MLIR or binary)
+```

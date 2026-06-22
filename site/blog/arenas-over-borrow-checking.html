@@ -441,6 +441,12 @@ make test               <span class="cmt"># Run the test suite</span>
 
     <p>The <a href="https://github.com/bneb/lattice/blob/main/docs/tutorial/README.md">tutorial</a> walks through building a request handler with arena allocation from scratch. The <a href="https://github.com/bneb/lattice/blob/main/benchmarks/ARENA_BENCH.md">benchmark methodology</a> compares bump allocation against <code>malloc</code>/<code>free</code> across request sizes. Everything is at <a href="https://github.com/bneb/lattice">github.com/bneb/lattice</a>.</p>
 
+    <div style="margin: 48px 0 24px; padding: 20px 0; border-top: 1px solid var(--border-light); border-bottom: 1px solid var(--border-light);">
+        <p style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary); margin-bottom: 12px; font-weight: 500;">Read next</p>
+        <p style="margin-bottom: 8px;"><a href="zero-cost-safety.html" style="font-weight: 500;">Compile-time verification with negative overhead</a><br><span style="font-size: 0.85rem; color: var(--text-tertiary);">Adding a Z3 theorem prover made the compiler faster, not slower.</span></p>
+        <p><a href="microkernel-ipc.html" style="font-weight: 500;">Microkernel IPC Without the Performance Tax</a><br><span style="font-size: 0.85rem; color: var(--text-tertiary);">Salt&rsquo;s Ring&nbsp;3 TCP stack and zero-trap socket API bring IPC to within 150 cycles.</span></p>
+    </div>
+
     <div class="post-footer">
         Questions or corrections: <a href="https://github.com/bneb/lattice">open an issue</a>.
     </div>

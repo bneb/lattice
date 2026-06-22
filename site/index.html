@@ -176,6 +176,89 @@
             box-shadow: 0 4px 20px var(--accent-glow);
         }
 
+        /* ─── Blog dropdown ──────────────────────────────────────────── */
+        .nav-dropdown {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            cursor: default;
+        }
+
+        .nav-dropdown-trigger {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            font-weight: 500;
+            text-decoration: none;
+            transition: color 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .nav-dropdown-trigger::after {
+            content: '';
+            display: inline-block;
+            width: 0;
+            height: 0;
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-top: 4px solid var(--text-muted);
+            margin-top: 1px;
+            transition: transform 0.2s;
+        }
+
+        .nav-dropdown:hover .nav-dropdown-trigger { color: var(--text); }
+        .nav-dropdown:hover .nav-dropdown-trigger::after { transform: rotate(180deg); border-top-color: var(--text); }
+
+        .nav-dropdown-menu {
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%) translateY(6px);
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 6px;
+            min-width: 220px;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.08);
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s, visibility 0.2s, transform 0.2s;
+            pointer-events: none;
+        }
+
+        .nav-dropdown:hover .nav-dropdown-menu {
+            opacity: 1;
+            visibility: visible;
+            transform: translateX(-50%) translateY(10px);
+            pointer-events: auto;
+        }
+
+        .nav-dropdown-menu a {
+            display: block;
+            padding: 8px 14px;
+            border-radius: 8px;
+            color: var(--text) !important;
+            font-size: 0.85rem !important;
+            font-weight: 500 !important;
+            text-decoration: none;
+            transition: background 0.15s;
+            white-space: nowrap;
+        }
+
+        .nav-dropdown-menu a:hover {
+            background: var(--bg-card-hover);
+            color: var(--accent) !important;
+        }
+
+        .nav-dropdown-menu .post-date {
+            display: block;
+            font-size: 0.72rem;
+            font-weight: 400;
+            color: var(--text-muted);
+            margin-top: 1px;
+        }
+
         /* ─── Hero ──────────────────────────────────────────────────── */
         .hero {
             padding: 140px 0 80px;
@@ -732,7 +815,8 @@
                 grid-template-columns: 1fr;
             }
 
-            .nav-links a:not(.nav-cta) {
+            .nav-links a:not(.nav-cta),
+            .nav-links .nav-dropdown {
                 display: none;
             }
 
@@ -1305,7 +1389,23 @@
                 <a href="#stdlib">Stdlib</a>
                 <a href="#tooling">Tooling</a>
                 <a href="./playground/" id="nav-playground">Playground</a>
-                <a href="./blog/zero-cost-safety.html">Blog</a>
+                <div class="nav-dropdown">
+                    <a href="./blog/" class="nav-dropdown-trigger">Blog</a>
+                    <div class="nav-dropdown-menu">
+                        <a href="./blog/zero-cost-safety.html">
+                            Compile-time verification with negative overhead
+                            <span class="post-date">June 24, 2026</span>
+                        </a>
+                        <a href="./blog/arenas-over-borrow-checking.html">
+                            Why we chose arenas over borrow checking
+                            <span class="post-date">June 22, 2026</span>
+                        </a>
+                        <a href="./blog/microkernel-ipc.html">
+                            Microkernel IPC Without the Performance Tax
+                            <span class="post-date">June 22, 2026</span>
+                        </a>
+                    </div>
+                </div>
                 <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">☀️</button>
                 <a href="https://github.com/bneb/lattice" class="nav-cta">⭐ GitHub</a>
             </div>

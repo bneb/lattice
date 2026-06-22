@@ -5,6 +5,7 @@
 Salt is an experimental, ahead-of-time compiled systems language exploring the intersection of MLIR (Multi-Level Intermediate Representation) lowering and Z3-based formal verification. KeuOS is an accompanying proof-of-concept microkernel built entirely in Salt to demonstrate the language's capabilities in a bare-metal environment.
 
 [![Experimental](https://img.shields.io/badge/Status-Experimental-orange?style=flat-square)]()
+[![CI](https://github.com/bneb/lattice/actions/workflows/ci.yml/badge.svg)](https://github.com/bneb/lattice/actions/workflows/ci.yml)
 [![Z3 Verified](https://img.shields.io/badge/Safety-Z3_Verified-blue?style=flat-square)](docs/ARCH.md)
 [![70+ Stdlib Modules](https://img.shields.io/badge/Stdlib-70%2B_Modules-orange?style=flat-square)](salt-front/std/README.md)
 [![KeuOS Kernel](https://img.shields.io/badge/Kernel-KeuOS_Microkernel-purple?style=flat-square)](kernel/)

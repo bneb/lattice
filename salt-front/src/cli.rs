@@ -1,6 +1,6 @@
 use std::fs;
-use std::path::PathBuf;
-use std::str::FromStr;
+
+use crate::cli_build;
 
 
 pub struct CliConfig {
@@ -43,24 +43,36 @@ pub fn parse_args(args: Vec<String>) -> anyhow::Result<Option<CliConfig>> {
         if arg == "--release" {
             release_mode = true;
         } else if arg == "--help" || arg == "-h" {
-            println!("Usage: salt-front <file.salt> [-o output] [--release] [--binary] [-c] [--target <target>] [--lib] [-g] [--emit-sir] [--skip-scan] [--verify] [--danger-no-verify] [--disable-alias-scopes]");
+            println!("Usage: saltc <file.salt> [options]");
             println!();
-            println!("Flags:");
-            println!("  --release    Enable optimizations");
-            println!("  --binary     Produce native Mach-O/ELF binary via Iron Driver");
-            println!("  -c           Produce .o object file (like clang -c)");
-            println!("  --target T   Target: macos, linux-arm64, keuos, keuos-x86_64");
-            println!("  --verify     Run Z3 verification passes");
-            println!("  --skip-scan  Skip import scanning");
-            println!("  --lib        Library mode (no main entry point required)");
-            println!("  --sip        Mode B SIP safety enforcement (rejects raw pointer creation)");
-            println!("  -g           Emit DWARF debug info (MLIR loc annotations)");
-            println!("  --debug-info Emit DWARF debug info (same as -g)");
-            println!("  --disable-alias-scopes  Suppress LLVM alias scope metadata (for mlir-opt compatibility)");
-            println!("  --emit-sir  Emit SIR (Salt Intermediate Representation) as JSON alongside MLIR");
-            println!("  --danger-no-verify  Skip ALL Z3/ownership verification (NOT for production)");
-            println!("  -o <path>    Output path (MLIR or binary)");
+            println!("Options:");
+            println!("  -o <file>          Output MLIR file");
+            println!("  --release          Enable optimizations");
+            println!("  --binary           Produce native Mach-O/ELF binary via Iron Driver");
+            println!("  -c                 Produce .o object file (like clang -c)");
+            println!("  --target <triple>  Target: macos, linux-arm64, keuos, keuos-x86_64");
+            println!("  --verify           Enable Z3 contract verification");
+            println!("  --lib              Library mode (no main entry point required)");
+            println!("  --sip              Mode B SIP safety enforcement (rejects raw pointer creation)");
+            println!("  --skip-scan        Skip import scanning");
+            println!("  -g, --debug-info   Emit DWARF debug info (MLIR loc annotations)");
+            println!("  --emit-sir         Emit SIR (Salt Intermediate Representation) as JSON");
+            println!("  --disable-alias-scopes  Suppress LLVM alias scope metadata");
+            println!("  --danger-no-verify      Skip ALL Z3/ownership verification (NOT for production)");
+            println!("  --explain <code>        Show detailed explanation of an error code");
+            println!("  --version               Show version information");
+            println!("  --help                  Show this help message");
             return Ok(None);
+        } else if arg == "--version" || arg == "-V" {
+            println!("saltc {}", env!("CARGO_PKG_VERSION"));
+            return Ok(None);
+        } else if arg == "--explain" {
+            if i + 1 < args.len() {
+                cli_build::explain_error_code(&args[i + 1]);
+                return Ok(None);
+            } else {
+                anyhow::bail!("[E004] --explain requires an error code argument (e.g. --explain E001)");
+            }
         } else if arg == "--skip-scan" {
             skip_scan = true;
         } else if arg == "--vverify" || arg == "--verify" {
@@ -78,14 +90,14 @@ pub fn parse_args(args: Vec<String>) -> anyhow::Result<Option<CliConfig>> {
                 target_name = Some(args[i+1].clone());
                 i += 1;
             } else {
-                anyhow::bail!("--target requires an argument (e.g. keuos, macos, linux-arm64)");
+                anyhow::bail!("[E004] --target requires an argument (e.g. keuos, macos, linux-arm64)");
             }
         } else if arg == "--disable-alias-scopes" {
             disable_alias_scopes = true;
         } else if arg == "--danger-no-verify" {
             #[cfg(not(debug_assertions))]
             {
-                panic!("FATAL: Z3 verification cannot be disabled in release builds.");
+                panic!("[E007] FATAL: Z3 verification cannot be disabled in release builds.");
             }
             #[cfg(debug_assertions)]
             {
@@ -116,10 +128,10 @@ pub fn parse_args(args: Vec<String>) -> anyhow::Result<Option<CliConfig>> {
                 output_path = Some(args[i+1].clone());
                 i += 1;
             } else {
-                anyhow::bail!("-o requires an argument");
+                anyhow::bail!("[E004] -o requires an argument");
             }
         } else if arg.starts_with("-") {
-            anyhow::bail!("Unknown argument: {}", arg);
+            anyhow::bail!("[E004] Unknown argument: {}", arg);
         } else {
             path_opt = Some(arg.clone());
         }
@@ -129,7 +141,7 @@ pub fn parse_args(args: Vec<String>) -> anyhow::Result<Option<CliConfig>> {
     let path = match path_opt {
         Some(p) => p,
         None => {
-            println!("Usage: salt-front <file.salt> [-o output] [--release] [--binary] [-c] [--target <target>] [--lib] [-g] [--skip-scan] [--verify] [--no-verify] [--disable-alias-scopes]");
+            println!("Usage: saltc <file.salt> [options]");
             return Ok(None);
         }
     };
@@ -152,137 +164,6 @@ pub fn parse_args(args: Vec<String>) -> anyhow::Result<Option<CliConfig>> {
     }))
 }
 
-fn emit_sir_file(file: &crate::grammar::SaltFile, module_name: &str, output_path: Option<&str>) {
-    use crate::codegen::sir::types::*;
-    use crate::codegen::sir::sir_emit::*;
-
-    let sir_module = extract_sir_from_ast(file, module_name);
-    let sir_json = sir_module.to_json();
-    let sir_path = output_path
-        .map(|p| format!("{}.sir.json", p.trim_end_matches(".mlir")))
-        .unwrap_or_else(|| format!("{}.sir.json", module_name));
-
-    if let Err(e) = std::fs::write(&sir_path, &sir_json) {
-        eprintln!("⚠️  SIR emission failed: {}", e);
-    } else {
-        eprintln!("📋 SIR emitted: {} ({} structs, {} functions, v{})",
-            sir_path, sir_module.structs.len(), sir_module.functions.len(), SIR_VERSION);
-    }
-}
-
-fn handle_binary_synthesis(mlir: &str, basename: &str, config: &CliConfig) {
-    let output_bin = config.output_path
-        .as_ref()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(basename));
-    
-    let build_dir = std::env::temp_dir().join("salt-build");
-    let mut driver = crate::driver::SaltDriver::new(build_dir);
-    if let Some(ref t) = config.target_name {
-        let t_parsed = crate::driver::DriverTarget::from_str(t)
-            .unwrap_or_else(|e| {
-                eprintln!("❌ {}", e);
-                std::process::exit(1);
-            });
-        driver = driver.with_target(t_parsed);
-    }
-    
-    eprintln!("🏛️  [KeuOS] Driving MLIR → native binary...");
-    eprintln!("    Target: {:?}", driver.target);
-    
-    let is_keuos = matches!(driver.target,
-        crate::driver::DriverTarget::KeuOSArm64 |
-        crate::driver::DriverTarget::KeuOSX86_64
-    );
-
-    let compile_result = if is_keuos {
-        eprintln!("    Linker: ld.lld (freestanding ELF)");
-        driver.compile_keuos_binary(mlir, basename)
-    } else {
-        eprintln!("    Runtime: {:?}", driver.runtime_obj);
-        driver.compile(mlir, basename)
-    };
-
-    match compile_result {
-        Ok(produced_path) => {
-            if produced_path != output_bin {
-                if let Err(e) = std::fs::copy(&produced_path, &output_bin) {
-                    eprintln!("❌ Failed to copy binary to {:?}: {}", output_bin, e);
-                    std::process::exit(1);
-                }
-            }
-            
-            eprintln!("⚖️  [KeuOS] Running KeuOS Audit...");
-            if let Ok(output) = std::process::Command::new("otool").arg("-tV").arg(&output_bin).output() {
-                let disasm = String::from_utf8_lossy(&output.stdout);
-                let audit_config = crate::codegen::passes::binary_audit::BinaryAuditConfig::standard(
-                    crate::codegen::passes::io_backend::TargetPlatform::Darwin
-                );
-                let results = crate::codegen::passes::binary_audit::run_audit(&audit_config, &disasm);
-                let mut all_passed = true;
-                for res in results {
-                    if !res.passed {
-                        all_passed = false;
-                        eprintln!("    ❌ Rule failed: {:?}", res.rule);
-                        eprintln!("       {}", res.detail);
-                    }
-                }
-                if all_passed {
-                    eprintln!("    ✅ Audit passed.");
-                } else {
-                    eprintln!("    ⚠️ Audit found violations.");
-                }
-            } else {
-                eprintln!("    ⚠️ Could not run otool to audit binary.");
-            }
-            eprintln!("✅  [KeuOS] Binary synthesized: {:?}", output_bin);
-            eprintln!("    Pipeline: mlir-opt → mlir-translate → llc (x19 reserved) → clang (-nostdlib)");
-        }
-        Err(e) => {
-            eprintln!("❌  [KeuOS] Binary synthesis failed: {}", e);
-            eprintln!("    Ensure LLVM tools are installed at /opt/homebrew/opt/llvm/bin/");
-            eprintln!("    Ensure keuos_rt.o is built (cd keuos_rt && make)");
-            std::process::exit(1);
-        }
-    }
-}
-
-fn handle_object_synthesis(mlir: &str, basename: &str, config: &CliConfig) {
-    let output_obj = config.output_path
-        .as_ref()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(format!("{}.o", basename)));
-
-    let build_dir = std::env::temp_dir().join("salt-build");
-    let mut driver = crate::driver::SaltDriver::new(build_dir)
-        .with_debug_info(config.debug_info);
-    if let Some(ref t) = config.target_name {
-        let t_parsed = crate::driver::DriverTarget::from_str(t)
-            .unwrap_or_else(|e| {
-                eprintln!("❌ {}", e);
-                std::process::exit(1);
-            });
-        driver = driver.with_target(t_parsed);
-    }
-
-    eprintln!("🔧 [Object] Compiling to .o...");
-
-    match driver.compile_object(mlir, basename) {
-        Ok(produced_path) => {
-            if produced_path != output_obj {
-                if let Err(e) = std::fs::copy(&produced_path, &output_obj) {
-                    eprintln!("❌ Failed to copy object to {:?}: {}", output_obj, e);
-                    std::process::exit(1);
-                }
-            }
-            eprintln!("✅ Object file: {:?}", output_obj);
-        }
-        Err(e) => {
-            eprintln!("❌ Object compilation failed: {}", e);
-            std::process::exit(1);
-        }
-    }
-}
 
 
 pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
@@ -292,7 +173,7 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
     };
 
     let code = fs::read_to_string(&config.path).map_err(|e| {
-        anyhow::anyhow!("Failed to read source file '{}': {}", config.path, e)
+        anyhow::anyhow!("[E001] Failed to read source file '{}': {}", config.path, e)
     })?;
 
     let processed = crate::preprocess(&code);
@@ -326,22 +207,22 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
                 .unwrap_or("output");
 
             if config.emit_sir {
-                emit_sir_file(&file, basename, config.output_path.as_deref());
+                cli_build::emit_sir_file(&file, basename, config.output_path.as_deref());
             }
 
             if config.binary_mode {
-                handle_binary_synthesis(&mlir, basename, &config);
+                cli_build::handle_binary_synthesis(&mlir, basename, &config);
             } else if config.object_mode {
-                handle_object_synthesis(&mlir, basename, &config);
+                cli_build::handle_object_synthesis(&mlir, basename, &config);
             } else {
                 let out_p = config.output_path.clone().unwrap_or_else(|| "out.mlir".to_string());
-                fs::write(&out_p, &mlir).map_err(|e| anyhow::anyhow!("Failed to write MLIR: {}", e))?;
+                fs::write(&out_p, &mlir).map_err(|e| anyhow::anyhow!("[E001] Failed to write MLIR: {}", e))?;
                 eprintln!("✅ MLIR compiled successfully.");
                 eprintln!("📄 Wrote MLIR to: {}", out_p);
             }
         }
         Err(e) => {
-            eprintln!("❌ Compilation failed:");
+            eprintln!("[E003] Compilation failed:");
             eprintln!("{}", e);
             std::process::exit(1);
         }
@@ -477,7 +358,7 @@ pub fn load_imports(file: &crate::grammar::SaltFile, registry: &mut crate::regis
                     // Break the fallback loop as we found the module
                     break;
                 } else if let Err(e) = syn::parse_str::<crate::grammar::SaltFile>(&processed) {
-                    eprintln!("Warning: Failed to parse imported file {}: {}", found_path, e);
+                    eprintln!("[E008] Warning: Failed to parse imported file {}: {}", found_path, e);
                     // If parsing fails, we probably shouldn't try fallback? 
                     // Or maybe we should if the path ended up pointing to a non-Salt file by accident (unlikely)
                     // Let's assume hard failure on parse error for matched file.
@@ -489,7 +370,7 @@ pub fn load_imports(file: &crate::grammar::SaltFile, registry: &mut crate::regis
                     parts.pop();
                     // Continue loop to try parent path
                 } else {
-                    eprintln!("Warning: Could not find imported file: {} (scanned parents)", original_parts.join("."));
+                    eprintln!("[E008] Warning: Could not find imported file: {} (scanned parents)", original_parts.join("."));
                     break;
                 }
             }

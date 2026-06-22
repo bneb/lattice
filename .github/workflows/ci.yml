@@ -1,11 +1,11 @@
 # =============================================================================
-# Lattice CI — Linux Build Verification
+# Lattice CI — Build Verification
 # =============================================================================
 # Triggered on push/PR to main. Builds salt-front (Rust) and salt-opt (C++/MLIR)
-# on Ubuntu with LLVM 19 to verify cross-platform compatibility.
+# on Linux and macOS to verify cross-platform compatibility.
 # =============================================================================
 
-name: CI — Linux Build
+name: CI
 
 on:
   push:
@@ -54,6 +54,35 @@ jobs:
         with:
           name: salt-front
           path: salt-front/target/release/salt-front
+
+  build-salt-front-macos:
+    name: Build salt-front (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            salt-front/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('salt-front/Cargo.lock') }}
+
+      - name: Install dependencies
+        run: brew install z3
+
+      - name: Build salt-front
+        run: cargo build --release
+        working-directory: salt-front
+
+      - name: Run salt-front tests
+        run: cargo test --release
+        working-directory: salt-front
 
   build-salt-opt:
     name: Build salt-opt (C++/MLIR)
@@ -182,7 +211,7 @@ jobs:
   kernel-smoke-test:
     name: Kernel smoke test (QEMU)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -213,16 +242,7 @@ jobs:
         timeout-minutes: 10
 
       - name: Boot kernel in QEMU (smoke test)
-        run: |
-          timeout 30 qemu-system-x86_64 \
-            -kernel qemu_build/kernel.elf \
-            -display none \
-            -serial stdio \
-            -m 256M \
-            -no-reboot \
-            2>&1 | tee /tmp/qemu_output.txt
-          # Verify kernel booted by checking for expected boot message
-          grep -q "KeuOS" /tmp/qemu_output.txt && echo "SMOKE TEST PASSED" || echo "WARNING: boot message not found"
+        run: timeout 15 qemu-system-x86_64 -kernel qemu_build/kernel.elf -display none -serial stdio -m 256M -no-reboot 2>&1 | grep -q "\[KeuOS\]"
 
   coverage:
     name: Code coverage (llvm-cov)

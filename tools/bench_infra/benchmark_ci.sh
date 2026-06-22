@@ -22,12 +22,22 @@ FIRST=true
 REGRESSIONS=0
 TOTAL=0
 
-# ── Helper: extract timing from benchmark output ──────────────────
-# Benchmarks output: "BENCH:name:value unit" or similar patterns
-extract_timing() {
-    local output="$1"
-    local pattern="$2"
-    echo "$output" | grep -oE "$pattern" | grep -oE '[0-9]+(\.[0-9]+)?' | head -1
+# ── Helper: convert time(1) output to seconds ─────────────────────
+# Input format: "0m2.345s"  Output: "2.345"
+time_to_seconds() {
+    local t="$1"
+    if [[ "$t" == "N/A" || -z "$t" ]]; then
+        echo "N/A"
+        return
+    fi
+    python3 -c "
+import re
+m = re.match(r'(\d+)m([\d.]+)s', '$t')
+if m:
+    print(int(m.group(1)) * 60 + float(m.group(2)))
+else:
+    print('N/A')
+" 2>/dev/null || echo "N/A"
 }
 
 # ── Run a single benchmark and compare to baseline ────────────────
@@ -64,20 +74,38 @@ run_bench() {
         rust_time="N/A"
     fi
 
-    # Check baseline for regression
+    # Look up baseline from benchmark_results.json (format: {"name": {"salt": {"time_s": float}}})
     local baseline_salt="N/A"
     if [ -f "$BASELINE_FILE" ]; then
         baseline_salt=$(python3 -c "
 import json
 try:
     data = json.load(open('$BASELINE_FILE'))
-    for b in data.get('benchmarks', []):
-        if b.get('name') == '$name':
-            print(b.get('salt_ms', 'N/A'))
-            break
-except: pass
-print('N/A')
+    entry = data.get('$name')
+    if entry and 'salt' in entry and 'time_s' in entry['salt']:
+        print(entry['salt']['time_s'])
+    else:
+        print('N/A')
+except Exception:
+    print('N/A')
 " 2>/dev/null || echo "N/A")
+    fi
+
+    # Compare: flag regression if Salt time is >5% worse than baseline
+    local salt_sec
+    salt_sec=$(time_to_seconds "$salt_time")
+    if [ "$salt_sec" != "N/A" ] && [ "$baseline_salt" != "N/A" ]; then
+        if python3 -c "
+import sys
+cur = float('$salt_sec')
+base = float('$baseline_salt')
+sys.exit(0 if base > 0 and cur > base * 1.05 else 1)
+" 2>/dev/null; then
+            REGRESSIONS=$((REGRESSIONS + 1))
+            local pct_diff
+            pct_diff=$(python3 -c "print(f'{((float('$salt_sec')-float('$baseline_salt'))/float('$baseline_salt')*100):.1f}')" 2>/dev/null)
+            echo "  >> REGRESSION: $name is ${pct_diff}% slower than baseline (${salt_sec}s vs ${baseline_salt}s)" | tee -a "$REGRESSION_FILE"
+        fi
     fi
 
     # Write JSON entry
@@ -123,6 +151,7 @@ echo ']}' >> "$RESULTS_FILE"
 if [ "$REGRESSIONS" -gt 0 ]; then
     echo "REGRESSION DETECTED: $REGRESSIONS benchmarks changed >5%."
     echo "See $REGRESSION_FILE for details."
+    exit 1
 else
     echo "No regressions detected across $TOTAL benchmarks."
 fi

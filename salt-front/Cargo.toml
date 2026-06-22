@@ -3,6 +3,10 @@ name = "salt-front"
 version = "0.8.0"
 edition = "2021"
 
+[[bin]]
+name = "saltc"
+path = "src/main.rs"
+
 [features]
 default = ["z3-backend"]
 z3-backend = ["dep:z3"]

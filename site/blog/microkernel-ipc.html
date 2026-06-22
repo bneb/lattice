@@ -402,6 +402,12 @@ make run-qemu            <span class="cmt"># Boot KeuOS in QEMU</span>
 
     <p>The <a href="https://github.com/bneb/lattice/blob/main/docs/abi/KEUOS_ABI.md">syscall ABI documentation</a> covers ring setup and notification in detail. The <a href="https://github.com/bneb/lattice/blob/main/kernel/core/ring_abi.salt">ring implementation</a> is under 400 lines. Everything is at <a href="https://github.com/bneb/lattice">github.com/bneb/lattice</a>.</p>
 
+    <div style="margin: 48px 0 24px; padding: 20px 0; border-top: 1px solid var(--border-light); border-bottom: 1px solid var(--border-light);">
+        <p style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary); margin-bottom: 12px; font-weight: 500;">Read next</p>
+        <p style="margin-bottom: 8px;"><a href="zero-cost-safety.html" style="font-weight: 500;">Compile-time verification with negative overhead</a><br><span style="font-size: 0.85rem; color: var(--text-tertiary);">Adding a Z3 theorem prover made the compiler faster, not slower.</span></p>
+        <p><a href="arenas-over-borrow-checking.html" style="font-weight: 500;">Why we chose arenas over borrow checking</a><br><span style="font-size: 0.85rem; color: var(--text-tertiary);">Salt has no lifetime annotations. Here is how we still guarantee safety.</span></p>
+    </div>
+
     <div class="post-footer">
         Questions or corrections: <a href="https://github.com/bneb/lattice">open an issue</a>.
     </div>

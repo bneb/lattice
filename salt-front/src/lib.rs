@@ -6,7 +6,7 @@
 #[macro_export]
 macro_rules! ice {
     ($($arg:tt)*) => ({
-        eprintln!("INTERNAL COMPILER ERROR: {}", format_args!($($arg)*));
+        eprintln!("[E007] INTERNAL COMPILER ERROR: {}", format_args!($($arg)*));
         eprintln!("This is a bug in the Salt compiler. Please report it.");
         panic!("ICE: {}", format_args!($($arg)*));
     })
@@ -16,6 +16,7 @@ pub mod grammar;
 pub mod codegen;
 pub mod evaluator;
 pub mod cli;
+pub mod cli_build;
 pub mod driver;
 pub mod passes;
 pub mod keywords;

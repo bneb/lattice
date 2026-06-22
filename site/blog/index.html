@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Salt blog</title>
+    <meta name="description" content="Technical deep-dives into the Salt language, its compiler, kernel projects, and verified systems programming.">
+    <meta property="og:title" content="Salt blog">
+    <meta property="og:description" content="Technical deep-dives into the Salt language, its compiler, kernel projects, and verified systems programming.">
+    <meta property="og:type" content="website">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600&family=JetBrains+Mono:wght@400;450&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg: #f9f8f5;
+            --text: #1d1d2e;
+            --text-heading: #253040;
+            --text-secondary: #555566;
+            --text-tertiary: #888898;
+            --accent: #3d6d8e;
+            --accent-hover: #234b63;
+            --accent-subtle: rgba(61,109,142,0.07);
+            --border: #e4e0d8;
+            --border-light: #eeebe3;
+            --surface: #ffffff;
+            --surface-hover: #f4f1ea;
+            --nav-bg: rgba(249,248,245,0.88);
+        }
+
+        html[data-theme="dark"] {
+            --bg: #121118;
+            --text: #e0e0e8;
+            --text-heading: #c4cdd8;
+            --text-secondary: #9898a8;
+            --text-tertiary: #6a6a7a;
+            --accent: #7bb4d4;
+            --accent-hover: #9ccae2;
+            --accent-subtle: rgba(123,180,212,0.08);
+            --border: #262632;
+            --border-light: #1f1f2a;
+            --surface: #1a1a24;
+            --surface-hover: #20202c;
+            --nav-bg: rgba(18,17,24,0.88);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.75;
+            -webkit-font-smoothing: antialiased;
+            transition: background 0.3s, color 0.3s;
+        }
+
+        .ambient {
+            position: fixed; inset: 0; pointer-events: none; z-index: 0;
+            background: radial-gradient(ellipse 80% 60% at 50% var(--light-y, 15%),
+                transparent 0%, var(--bg) 100%);
+            opacity: 0.5;
+            transition: opacity 0.8s;
+        }
+
+        nav {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+            background: var(--nav-bg);
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.3s, background 0.3s;
+        }
+        nav.scrolled { border-bottom-color: var(--border); }
+        nav .inner {
+            max-width: 700px; margin: 0 auto; padding: 0 24px;
+            display: flex; align-items: center; justify-content: space-between; height: 52px;
+        }
+        .nav-home {
+            font-family: 'DM Serif Display', Georgia, serif;
+            font-size: 1.1rem; color: var(--text); text-decoration: none;
+        }
+        .nav-home span { color: var(--text-tertiary); font-size: 0.85rem; margin-left: 4px; }
+
+        .theme-toggle {
+            background: none; border: 1px solid var(--border);
+            border-radius: 6px; padding: 4px 10px; cursor: pointer;
+            font-size: 0.9rem; color: var(--text-tertiary);
+            transition: border-color 0.2s, color 0.2s;
+            line-height: 1;
+        }
+        .theme-toggle:hover { border-color: var(--text-tertiary); color: var(--text-secondary); }
+
+        /* ── Layout ───────────────────────────── */
+        .page {
+            max-width: 680px; margin: 0 auto; padding: 96px 24px 120px;
+        }
+
+        h1 {
+            font-family: 'DM Serif Display', Georgia, serif;
+            font-size: 2.5rem; font-weight: 400; line-height: 1.2;
+            letter-spacing: -0.015em; margin-bottom: 10px;
+            color: var(--text-heading);
+        }
+
+        .page-sub {
+            color: var(--text-tertiary);
+            font-size: 0.95rem;
+            margin-bottom: 48px;
+            padding-bottom: 32px;
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        a {
+            color: var(--accent); text-decoration: none;
+            background-image: linear-gradient(var(--accent), var(--accent));
+            background-size: 100% 1px;
+            background-position: 0 100%;
+            background-repeat: no-repeat;
+            transition: background-size 0.25s ease, color 0.15s;
+        }
+        a:hover { color: var(--accent-hover); background-size: 100% 2px; }
+
+        /* ── Post list ─────────────────────────── */
+        .post-list { list-style: none; }
+
+        .post-item {
+            padding: 28px 0;
+            border-bottom: 1px solid var(--border-light);
+        }
+        .post-item:last-child { border-bottom: none; }
+
+        .post-title {
+            font-family: 'DM Serif Display', Georgia, serif;
+            font-size: 1.25rem; font-weight: 400; line-height: 1.3;
+            margin-bottom: 6px;
+        }
+        .post-title a {
+            color: var(--text-heading);
+            background: none;
+        }
+        .post-title a:hover {
+            color: var(--accent);
+            background-image: linear-gradient(var(--accent), var(--accent));
+            background-size: 100% 1px;
+            background-position: 0 100%;
+            background-repeat: no-repeat;
+        }
+
+        .post-meta {
+            color: var(--text-tertiary);
+            font-size: 0.85rem;
+            margin-bottom: 8px;
+        }
+
+        .post-excerpt {
+            color: var(--text-secondary);
+            font-size: 0.92rem;
+            line-height: 1.65;
+        }
+
+        /* ── Responsive ────────────────────────── */
+        @media (max-width: 600px) {
+            .page { padding: 84px 20px 80px; }
+            h1 { font-size: 1.8rem; }
+            .post-title { font-size: 1.1rem; }
+        }
+    </style>
+    <script>
+        (function() {
+            var t = localStorage.getItem('theme') ||
+                (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+        function toggleTheme() {
+            var el = document.documentElement;
+            var next = el.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            el.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+        }
+        window.addEventListener('scroll', function() {
+            document.querySelector('nav').classList.toggle('scrolled', window.scrollY > 20);
+            var pct = Math.min(window.scrollY / (document.body.scrollHeight - window.innerHeight), 1);
+            var y = 10 + pct * 70;
+            document.querySelector('.ambient').style.setProperty('--light-y', y + '%');
+        });
+    </script>
+</head>
+<body>
+<div class="ambient"></div>
+<nav><div class="inner">
+    <a href="/" class="nav-home">Salt <span>blog</span></a>
+    <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">&#x25D1;</button>
+</div></nav>
+<div class="page">
+    <h1>Salt blog</h1>
+    <p class="page-sub">Technical deep-dives into the Salt language, its compiler, kernel projects, and verified systems programming.</p>
+
+    <ul class="post-list">
+        <li class="post-item">
+            <div class="post-title"><a href="zero-cost-safety.html">Compile-time verification with negative overhead</a></div>
+            <div class="post-meta">June 24, 2026</div>
+            <div class="post-excerpt">When we added a Z3 theorem prover to the Salt compiler, compilation became faster&mdash;not in spite of the proofs, but because of them.</div>
+        </li>
+        <li class="post-item">
+            <div class="post-title"><a href="arenas-over-borrow-checking.html">Why we chose arenas over borrow checking</a></div>
+            <div class="post-meta">June 22, 2026</div>
+            <div class="post-excerpt">Salt has no lifetime annotations. Here is how we still guarantee safety&mdash;with arena allocation, scope ladders, and epoch tracking.</div>
+        </li>
+        <li class="post-item">
+            <div class="post-title"><a href="microkernel-ipc.html">Microkernel IPC Without the Performance Tax</a></div>
+            <div class="post-meta">June 22, 2026</div>
+            <div class="post-excerpt">Mach was 2&times; slower than monolithic Unix. Salt&rsquo;s Ring&nbsp;3 TCP stack and zero-trap socket API bring IPC to within 150 cycles.</div>
+        </li>
+    </ul>
+</div>
+</body>
+</html>
