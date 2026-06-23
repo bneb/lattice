@@ -21,12 +21,14 @@
 
 package kernel.ecs.world
 
+import kernel.drivers.serial
 import kernel.ecs.entity.{
     Entity, EntityAllocator, new_entity_allocator,
     entity_allocator_allocate, entity_allocator_free,
     entity_allocator_is_alive, entity_allocator_count
 }
 import kernel.ecs.events.ecs_events_init
+import kernel.ecs.scheduling_sets.{ThreadSparseSet}
 import kernel.ecs.sparse_set.{
     ThreadSparseSet, PrioritySparseSet, MemoryMapSparseSet,
     IpcCapSparseSet, OpenSocketSparseSet, CpuAffinitySparseSet,
@@ -127,4 +129,20 @@ pub fn ecs_world_init() -> u64 {
     let w = new_world();
     ecs_events_init();
     return w as u64;
+}
+
+// ecs_world_dump — Print ECS World statistics to serial for diagnostics
+@no_mangle
+pub fn ecs_world_dump(world_ptr: u64) {
+    let w = world_ptr as Ptr<World>;
+    if (w as u64) == 0 { return; }
+    let w_ref = w as &World;
+
+    serial.print("[ECS] World: ");
+    serial.print_u64(world_entity_count(w) as u64);
+    serial.print(" entities (");
+    serial.print_u64((w_ref.threads as &ThreadSparseSet).count as u64);
+    serial.print(" threads, max ");
+    serial.print_u64(MAX_ENTITIES as u64);
+    serial.print(")\n");
 }

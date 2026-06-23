@@ -1153,6 +1153,11 @@ if __name__ == "__main__":
                 "desc": "NetD Ring 3 daemon spawns successfully",
                 "expected": ["NetD Ring 3 process spawned"],
             },
+            {
+                "name": "ecs_world_init",
+                "desc": "ECS World initialized with entity allocator",
+                "expected": ["ECS World initialized", "[ECS] World: 0 entities"],
+            },
         ]
 
         # Allow filtering tests by name: test <name_substring>

@@ -42,7 +42,8 @@ extern fn pmm_alloc() -> u64;
 extern fn pmm_add_region(phys_start: u64, phys_end: u64);
 extern fn slab_cache_init();
 extern fn vma_init();
-extern fn ecs_world_init();
+extern fn ecs_world_init() -> u64;
+extern fn ecs_world_dump(world_ptr: u64);
 extern fn sched_init();
 extern fn percpu_init_bsp();
 extern fn percpu_set_kernel_cr3(logical_id: u64, cr3: u64);
@@ -210,8 +211,9 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     sched_init();
     slab_cache_init();
     vma_init();
-    ecs_world_init();
+    let world_ptr = ecs_world_init();
     serial.print("[KeuOS] ECS World initialized\n");
+    ecs_world_dump(world_ptr);
 
     boot_nvme_and_ext2();
 
