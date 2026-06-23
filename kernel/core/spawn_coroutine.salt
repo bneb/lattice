@@ -40,7 +40,10 @@ pub fn setup_kernel_stack(kstack_top_virt: u64, entry: u64) -> u64 {
     serial.print("\n");
 
     *((sp - 8) as &mut u64)  = 0x23;             // SS (User Data)
-    *((sp - 16) as &mut u64) = USER_STACK_TOP;   // RSP
+    // Offset RSP by 8: LLVM codegen expects call-return misalignment
+    // (call pushes 8 bytes, so function entry expects RSP ≡ 8 mod 16).
+    // IRETQ doesn't push a return address, so we simulate it here.
+    *((sp - 16) as &mut u64) = USER_STACK_TOP - 8;  // RSP
     *((sp - 24) as &mut u64) = 0x202;            // RFLAGS (IF=1)
     *((sp - 32) as &mut u64) = 0x2B;             // CS (User Code 64)
     *((sp - 40) as &mut u64) = entry;            // RIP

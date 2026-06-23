@@ -121,6 +121,8 @@ proc_trampoline:
     out dx, al
 
 .global proc_trampoline_iretq
+    /* Clear CR0.TS so SSE instructions don't #NM in Ring 3 */
+    clts
     /* Flush TLB before IRETQ: reload CR3 to ensure user page walks succeed */
     mov rax, cr3
     mov cr3, rax

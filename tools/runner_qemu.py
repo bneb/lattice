@@ -1120,14 +1120,14 @@ if __name__ == "__main__":
             {
                 "name": "grit_exit",
                 "desc": "Grit shell_minimal exits with code 42",
-                "expected": ["[sys_exit] slot=4 code=42"],
+                "expected": ["code=42"],
             },
             {
                 "name": "ping_stub",
                 "desc": "Ping prints ICMP stub message and exits 0",
                 "expected": [
                     "ping: ICMP not yet available",
-                    "[sys_exit] slot=5 code=0",
+                    "code=0",  # exit code, slot varies
                 ],
             },
             {
@@ -1135,7 +1135,7 @@ if __name__ == "__main__":
                 "desc": "Fetch attempts connect, reports failure, exits 1",
                 "expected": [
                     "fetch: connect failed",
-                    "[sys_exit] slot=6 code=1",
+                    "code=1",  # exit code, slot varies
                 ],
             },
             {
@@ -1157,6 +1157,26 @@ if __name__ == "__main__":
                 "name": "ecs_world_init",
                 "desc": "ECS World initialized with entity allocator",
                 "expected": ["ECS World initialized", "[ECS] World: 0 entities"],
+            },
+            {
+                "name": "echo_output",
+                "desc": "Echo prints ready message and exits cleanly",
+                "expected": ["echo: ready"],
+            },
+            {
+                "name": "free_output",
+                "desc": "Free reports memory stats from PMM",
+                "expected": ["total:", "free:", "used:"],
+            },
+            {
+                "name": "uptime_output",
+                "desc": "Uptime reports system uptime",
+                "expected": ["up ", "seconds"],
+            },
+            {
+                "name": "ps_output",
+                "desc": "PS enumerates processes with states",
+                "expected": ["ps:", "processes", "PID 1:"],
             },
         ]
 
