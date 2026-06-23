@@ -159,3 +159,30 @@ pub fn serial_print(msg: Ptr<u8>) {
 }
 @no_mangle
 pub fn serial_print_u64(val: u64) { print_u64(val); }
+
+// serial_rx_available — Returns number of bytes available in the RX ring
+@no_mangle
+pub fn serial_rx_available() -> u64 {
+    let rx_ring = RX_RING_VIRT;
+    if rx_ring == 0 { return 0; }
+    let head = *((rx_ring + 0) as &u64);
+    let tail = *((rx_ring + 64) as &u64);
+    if head == tail { return 0; }
+    return head - tail;
+}
+
+// serial_read_byte — Read a single byte from the RX ring (blocking)
+// Returns 0 if no data available (ring empty).
+@no_mangle
+pub fn serial_read_byte() -> u8 {
+    let rx_ring = RX_RING_VIRT;
+    if rx_ring == 0 { return 0; }
+    let head = *((rx_ring + 0) as &u64);
+    let tail = *((rx_ring + 64) as &u64);
+    if head == tail { return 0; }
+    let capacity = *((rx_ring + 8) as &u64);
+    let c = *((rx_ring + 192 + tail) as &u8);
+    let new_tail = (tail + 1) % capacity;
+    *((rx_ring + 64) as &mut u64) = new_tail;
+    return c;
+}

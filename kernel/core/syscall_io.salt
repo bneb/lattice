@@ -14,6 +14,8 @@ import kernel.core.memory
 import kernel.sys.vfs
 
 extern fn is_valid_user_ptr(ptr: u64, len: u64) -> bool;
+extern fn serial_rx_available() -> u64;
+extern fn serial_read_byte() -> u8;
 
 const PAGE_SIZE: u64 = 4096;
 
@@ -106,9 +108,8 @@ pub fn sys_write(fd: u64, buf: u64, len: u64) -> u64 {
         return 0;
     }
 
-    if fd == 1 {
-        // Serial stdout (legacy)
-        serial.print("[sys_write] called from Ring 3\n");
+    if fd <= 2 {
+        // Serial stdout/stderr (fd 0, 1, 2 → serial device)
         let pid = process.current();
         let user_pml4 = process.get_pml4(pid);
         let mut remaining = actual_len;
@@ -172,7 +173,7 @@ pub fn sys_write(fd: u64, buf: u64, len: u64) -> u64 {
 }
 
 // =============================================================================
-// sys_read — Read from file descriptor (VFS only)
+// sys_read — Read from file descriptor (fd=0 serial, else VFS)
 // =============================================================================
 @no_mangle
 pub fn sys_read(fd: u64, buf: u64, len: u64) -> u64 {
@@ -180,6 +181,34 @@ pub fn sys_read(fd: u64, buf: u64, len: u64) -> u64 {
     if actual_len > 4096 { actual_len = 4096; }
     if !is_valid_user_ptr(buf, actual_len) { return 0 - 1; }
 
+    // fd 0 (stdin) → serial RX ring
+    if fd == 0 {
+        let pid = process.current();
+        let user_pml4 = process.get_pml4(pid);
+        let mut bytes_read: u64 = 0;
+        let mut current_va = buf;
+
+        while bytes_read < actual_len {
+            if serial_rx_available() == 0 { break; }
+            let c = serial_read_byte();
+            if c == 0 && bytes_read == 0 {
+                // Ring was empty (serial_read_byte returns 0 for empty)
+                // Don't count this as a byte — break
+                break;
+            }
+
+            let phys = user_paging.translate_user_addr(user_pml4, current_va);
+            if phys == 0 { break; }
+            let kern_ptr = memory.phys_to_virt_raw(phys) as Ptr<u8>;
+            kern_ptr.offset(0).write(c);
+
+            current_va = current_va + 1;
+            bytes_read = bytes_read + 1;
+        }
+        return bytes_read;
+    }
+
+    // VFS Path for fd >= 1
     let pid = process.current();
     let fd_table_addr = process.get_fd_table(pid);
     if fd_table_addr == 0 { return 0 - 1; }
