@@ -398,12 +398,15 @@ fn send_udp_reply(dst_ip: u32, dst_mac: [u8; 6], dst_port: u16, src_port: u16, p
 // machine (netd_tcp.salt).
 
 fn handle_tcp_notify(buf: u64, len: u32, src_ip: u32, src_mac: [u8; 6]) {
+    // Check if HTTP client handler wants this packet
+    if http_handle_incoming(buf, len, src_ip, 0x0A00020F) {
+        return;  // Consumed by HTTP client
+    }
+
+    // Forward other TCP packets to NetD
     if RX_NOTIFY_PTR != 0 {
         if ring_push_u64(RX_NOTIFY_PTR, buf) {
             ring_push_u32(RX_NOTIFY_PTR, len);
-            serial.print("[TCP] Notified Ring 3 NetD: len=");
-            serial.print_u64(len as u64);
-            serial.print("\n");
         }
         if NETD_NOTIFY_PID != 0 {
             sys_ipc_send(NETD_NOTIFY_PID, CMD_RX_NOTIFY, src_ip as u64, 0);
@@ -415,6 +418,7 @@ fn handle_tcp_notify(buf: u64, len: u32, src_ip: u32, src_mac: [u8; 6]) {
 extern fn send_icmp_reply(buf: u64, payload_len: u32, dst_ip: u32);
 extern fn netcore_send_icmp_request(dst_ip: u32) -> bool;
 extern fn icmp_checksum(data: u64, len: u32) -> u16;
+extern fn http_handle_incoming(buf: u64, len: u32, src_ip: u32, dst_ip: u32) -> bool;
 
 // =============================================================================
 // Poll Loop (drain all pending RX packets)

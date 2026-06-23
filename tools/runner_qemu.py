@@ -1128,11 +1128,11 @@ if __name__ == "__main__":
                 "expected": ["PING 10.0.2.2:", "ms"],
             },
             {
-                "name": "fetch_stub",
-                "desc": "Fetch attempts connect, reports failure",
-                "expected": ["fetch: connect failed"],
-                # Note: exit code not asserted — post-exit scheduler
-                # crash (#DF loop) occurs before sys_exit prints.
+                "name": "fetch_http",
+                "desc": "Fetch sends HTTP GET via TCP syscall",
+                "expected": ["fetch: GET 10.0.2.2:80"],
+                # TCP handshake requires an HTTP server on the host.
+                # In QEMU CI, this will timeout with "request failed".
             },
             {
                 "name": "no_triple_fault",

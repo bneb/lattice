@@ -188,11 +188,17 @@ extern fn sys_ps(buf_ptr: u64) -> u64;
 extern fn sys_meminfo(buf_ptr: u64) -> u64;
 extern fn sys_uptime() -> u64;
 extern fn sys_ping(ip: u32) -> u64;
+extern fn sys_http_get(ip: u32) -> u64;
 extern fn sys_getpid() -> u64;
 
 /// Send ICMP echo request, return RTT in ms or 0 on timeout.
 pub fn ping(ip: u32) -> u64 {
     return sys_ping(ip);
+}
+
+/// TCP connect + HTTP GET to 10.0.2.2:80, returns bytes received.
+pub fn http_get(ip: u32) -> u64 {
+    return sys_http_get(ip);
 }
 
 /// Fill buffer with process info. Returns count.
