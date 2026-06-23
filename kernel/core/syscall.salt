@@ -140,9 +140,18 @@ pub fn handle_syscall(num: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
         // SYS_PING: arg0 = dst_ip (u32), returns RTT in ms or 0 on timeout
         return sys_ping(arg0 as u32);
     } else if num == 21 {
-        // SYS_TCP_SEND_RECV: arg0 = dst_ip, arg1 = send_buf, arg2 = send_len
-        // Returns bytes received or 0 on failure
-        return sys_tcp_send_recv(arg0 as u32, arg1, arg2);
+        // SYS_TCP_CONNECT: arg0 = dst_ip (u32), returns conn_id or 0 on failure
+        return sys_tcp_connect(arg0 as u32);
+    } else if num == 22 {
+        // SYS_TCP_SEND: arg0 = conn_id, arg1 = buf, arg2 = len
+        return sys_tcp_send(arg0, arg1, arg2);
+    } else if num == 23 {
+        // SYS_TCP_RECV: arg0 = conn_id, arg1 = buf, arg2 = len
+        return sys_tcp_recv(arg0, arg1, arg2);
+    } else if num == 24 {
+        // SYS_TCP_CLOSE: arg0 = conn_id
+        sys_tcp_close(arg0);
+        return 0;
     } else if num == 119 {
         // Ring ABI: drain submission queue before yielding
         let yield_pid = process.current();
@@ -395,10 +404,39 @@ fn sys_ping(dst_ip: u32) -> u64 {
 }
 
 // =============================================================================
-// sys_tcp_send_recv — TCP connect + HTTP GET (SYS_TCP_SEND_RECV, num=21)
+// sys_tcp_connect — TCP active open (SYS_TCP_CONNECT, num=21)
 // =============================================================================
-extern fn http_get(dst_ip: u32, dst_port: u16) -> u32;
+extern fn tcp_client_connect(dst_ip: u32, dst_port: u16) -> u64;
 
-fn sys_tcp_send_recv(dst_ip: u32, _send_buf: u64, _send_len: u64) -> u64 {
-    return http_get(dst_ip, 80) as u64;
+fn sys_tcp_connect(dst_ip: u32) -> u64 {
+    return tcp_client_connect(dst_ip, 80);
+}
+
+// =============================================================================
+// sys_tcp_send — TCP send data (SYS_TCP_SEND, num=22)
+// =============================================================================
+extern fn tcp_send_data(conn_id: u64, buf: u64, len: u64) -> u64;
+
+fn sys_tcp_send(conn_id: u64, buf: u64, len: u64) -> u64 {
+    if !is_valid_user_ptr(buf, len) { return 0; }
+    return tcp_send_data(conn_id, buf, len);
+}
+
+// =============================================================================
+// sys_tcp_recv — TCP receive data (SYS_TCP_RECV, num=23)
+// =============================================================================
+extern fn tcp_recv_data(conn_id: u64, buf: u64, len: u64) -> u64;
+
+fn sys_tcp_recv(conn_id: u64, buf: u64, len: u64) -> u64 {
+    if !is_valid_user_ptr(buf, len) { return 0; }
+    return tcp_recv_data(conn_id, buf, len);
+}
+
+// =============================================================================
+// sys_tcp_close — TCP close connection (SYS_TCP_CLOSE, num=24)
+// =============================================================================
+extern fn tcp_close_conn(conn_id: u64);
+
+fn sys_tcp_close(conn_id: u64) {
+    tcp_close_conn(conn_id);
 }

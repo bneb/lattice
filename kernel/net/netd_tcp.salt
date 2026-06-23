@@ -378,3 +378,27 @@ pub fn netd_cookie_init(k0: u64, k1: u64) {
     cookie_set_secret(k0, k1);
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Client-side TCP stubs — implemented in T2/T3
+// ═══════════════════════════════════════════════════════════════
+
+@no_mangle
+pub fn tcp_client_connect(dst_ip: u32, dst_port: u16) -> u64 {
+    return 0;  // stub
+}
+
+@no_mangle
+pub fn tcp_send_data(conn_id: u64, buf: u64, len: u64) -> u64 {
+    return 0;  // stub
+}
+
+@no_mangle
+pub fn tcp_recv_data(conn_id: u64, buf: u64, len: u64) -> u64 {
+    return 0;  // stub
+}
+
+@no_mangle
+pub fn tcp_close_conn(conn_id: u64) {
+    // stub
+}
+
