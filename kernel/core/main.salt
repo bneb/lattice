@@ -43,6 +43,7 @@ extern fn vma_init();
 extern fn ecs_world_init();
 extern fn sched_init();
 extern fn percpu_init_bsp();
+extern fn percpu_set_kernel_cr3(logical_id: u64, cr3: u64);
 extern fn smp_boot_aps();
 extern fn sched_start();
 
@@ -222,7 +223,7 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     let tx_page = pmm_alloc();
     serial.print("[KeuOS] Pre-allocated ring pages\n");
     set_kernel_pml4_stash(kernel_pml4);
-    // boot_terminal_and_netd_sips skipped for user program testing
+    boot_terminal_and_netd_sips(kernel_pml4, rx_page, tx_page);
 
     let active_cpus = run_percpu_tests();
     serial.print("[KeuOS] Active CPUs: ");
@@ -241,6 +242,7 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     init_syscall_msrs();
     serial.print("[KeuOS] Syscall MSRs configured\n");
     syscall_set_kernel_pml4(kernel_pml4);
+    percpu_set_kernel_cr3(0, kernel_pml4);  // Set gs:[64] for KPTI CR3 swap in syscall_entry_fast
 
     // Task 0: Immortal Ring 0 Dispatcher
     let task0_entry = get_kernel_event_loop_addr();

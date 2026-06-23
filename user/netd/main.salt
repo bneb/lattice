@@ -76,6 +76,9 @@ pub fn handle_connect(ip: u32, port: u64) -> u64 {
 //   msg1 = arg0 (port, fd, or remote IP)
 //   msg2 = arg1 (remote port for connect, 0 otherwise)
 // ============================================================================
+@no_mangle
+pub fn main() { netd_main(0, 0, 0); }
+
 pub fn netd_main(arg1: u64, arg2: u64, arg3: u64) {
     // Fastpath test is gated: it contains an intentional overflow probe
     // (offset 5000) for red-team verification. Do not run in production.
