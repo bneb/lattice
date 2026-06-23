@@ -152,11 +152,10 @@ pub fn boot_terminal_and_netd_sips(_unused_pml4: u64, rx_ring_phys: u64, tx_ring
     process_set_state(slot_tx, PROC_READY);
     serial.print("[KeuOS] TX_RING Supervisor C2 Thread spawned\n");
 
-    // NetD spawn deferred — post-exit scheduler crash under investigation
-    //let netd_elf = get_netd_elf_addr();
-    //let slot_netd = exec_spawn_process(netd_elf, kernel_pml4);
-    //process_set_state(slot_netd, PROC_READY);
-    serial.print("[KeuOS] NetD spawn skipped for user program testing\n");
+    let netd_elf = get_netd_elf_addr();
+    let slot_netd = exec_spawn_process(netd_elf, kernel_pml4);
+    process_set_state(slot_netd, PROC_READY);
+    serial.print("[KeuOS] NetD Ring 3 process spawned (Zero-Trap SPSC Data Plane)\n");
 }
 
 // ── MoE Pipeline ───────────────────────────────────────────────────
