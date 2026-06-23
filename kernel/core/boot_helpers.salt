@@ -88,6 +88,11 @@ pub fn get_ecs_world_ptr() -> u64 {
     return KERNEL_ECS_WORLD;
 }
 
+@no_mangle
+pub fn set_ecs_world_ptr(ptr: u64) {
+    KERNEL_ECS_WORLD = ptr;
+}
+
 fn strcmp(s1_ptr: u64, len1: u32, s2_ptr: u64, len2: u32) -> bool {
     if len1 != len2 { return false; }
     let mut i: u32 = 0;

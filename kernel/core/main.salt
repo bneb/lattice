@@ -18,6 +18,7 @@ extern fn boot_moe_pipeline(kernel_pml4: u64) -> u64;
 extern fn boot_nvme_and_ext2();
 extern fn terminal_tx_poll_thread();
 extern fn get_ecs_world_ptr() -> u64;
+extern fn set_ecs_world_ptr(ptr: u64);
 
 extern fn get_user_elf_b_addr() -> u64;
 extern fn get_user_elf_c_addr() -> u64;
@@ -44,6 +45,7 @@ extern fn slab_cache_init();
 extern fn vma_init();
 extern fn ecs_world_init() -> u64;
 extern fn ecs_world_dump(world_ptr: u64);
+extern fn ecs_bridge_spawn_thread(step_fn: u64, stack_ptr: u64, stack_base: u64) -> u64;
 extern fn sched_init();
 extern fn percpu_init_bsp();
 extern fn percpu_set_kernel_cr3(logical_id: u64, cr3: u64);
@@ -212,8 +214,16 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     slab_cache_init();
     vma_init();
     let world_ptr = ecs_world_init();
+    set_ecs_world_ptr(world_ptr);  // Store for ecs_bridge access
     serial.print("[KeuOS] ECS World initialized\n");
     ecs_world_dump(world_ptr);
+
+    // ECS smoke test: spawn a thread entity to verify allocator + sparse sets
+    let ecs_test_entity = ecs_bridge_spawn_thread(0, 0, 0);
+    serial.print("[ECS] Test entity spawned: 0x");
+    serial.print_u64(ecs_test_entity);
+    serial.print("\n");
+    ecs_world_dump(world_ptr);  // Should show 1 entity now
 
     boot_nvme_and_ext2();
 
