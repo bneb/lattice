@@ -1108,5 +1108,149 @@ if __name__ == "__main__":
             print(f"{RED}BUILD FAILED: {e}{RESET}")
             sys.exit(1)
 
+    elif len(sys.argv) > 1 and sys.argv[1] == "test":
+        # ══════════════════════════════════════════════════════════════════
+        # Automated User Program Test Harness (Tier 0.1)
+        # ══════════════════════════════════════════════════════════════════
+        # Each test case: name + expected serial markers.
+        # Add new tests by appending to TEST_CASES below.
+        # The kernel spawns programs per main.salt; tests validate output.
+        # ══════════════════════════════════════════════════════════════════
+        TEST_CASES = [
+            {
+                "name": "grit_exit",
+                "desc": "Grit shell_minimal exits with code 42",
+                "expected": ["[sys_exit] slot=4 code=42"],
+            },
+            {
+                "name": "ping_stub",
+                "desc": "Ping prints ICMP stub message and exits 0",
+                "expected": [
+                    "ping: ICMP not yet available",
+                    "[sys_exit] slot=5 code=0",
+                ],
+            },
+            {
+                "name": "fetch_stub",
+                "desc": "Fetch attempts connect, reports failure, exits 1",
+                "expected": [
+                    "fetch: connect failed",
+                    "[sys_exit] slot=6 code=1",
+                ],
+            },
+            {
+                "name": "no_triple_fault",
+                "desc": "Kernel boots without triple fault or double fault",
+                "unexpected": ["Triple fault", "#DF!"],
+            },
+            {
+                "name": "dispatcher_alive",
+                "desc": "Kernel dispatcher continues running after user programs exit",
+                "expected": ["345"],  # kernel_trampoline markers
+            },
+            {
+                "name": "netd_spawn",
+                "desc": "NetD Ring 3 daemon spawns successfully",
+                "expected": ["NetD Ring 3 process spawned"],
+            },
+        ]
+
+        # Allow filtering tests by name: test <name_substring>
+        test_filter = sys.argv[2] if len(sys.argv) > 2 else None
+
+        try:
+            TOOLCHAIN.validate()
+            build_sip()
+            build_user_programs()
+            kernel_objs = build_kernel()
+            # Use the main kernel build (not ring_of_fire benchmark)
+            # Re-link without benchmark: just kernel objects
+            linker_script = os.path.join(KERNEL_ROOT, "arch/x86/linker.ld")
+            elf = os.path.join(BUILD_DIR, "kernel.elf")
+
+            print(f"{GREEN}== User Program Test Suite =={RESET}")
+            print(f"{GREEN}  Booting KeuOS, running user programs, validating output...{RESET}")
+
+            # Run QEMU with serial output to file
+            serial_log = "/tmp/keuos_test_serial.log"
+            qemu_log = os.path.join(WORKSPACE_ROOT, "qemu.log")
+
+            cmd = [
+                'qemu-system-x86_64',
+                '-kernel', elf,
+                '-nographic',
+                '-m', '1G',
+                '-cpu', 'qemu64,+fxsr,+mmx,+sse,+sse2,+xsave,+pcid,+invpcid',
+                '-smp', '1',
+                '-no-reboot',
+                '-serial', f'file:{serial_log}',
+            ]
+
+            process = subprocess.Popen(cmd, stdin=subprocess.PIPE,
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                       text=True, errors='replace')
+            try:
+                process.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                process.terminate()
+                process.wait()
+
+            # Read serial output
+            with open(serial_log, 'r') as f:
+                serial_output = f.read()
+
+            # ── Evaluate test cases ──
+            passed = 0
+            failed = 0
+            filtered = 0
+
+            for tc in TEST_CASES:
+                if test_filter and test_filter.lower() not in tc["name"].lower():
+                    filtered += 1
+                    continue
+
+                expects = tc.get("expected", [])
+                unexpects = tc.get("unexpected", [])
+
+                all_found = all(e in serial_output for e in expects)
+                none_found = all(e not in serial_output for e in unexpects)
+
+                if all_found and none_found:
+                    print(f"  {GREEN}PASS{RESET} {tc['name']}: {tc['desc']}")
+                    passed += 1
+                else:
+                    print(f"  {RED}FAIL{RESET} {tc['name']}: {tc['desc']}")
+                    for e in expects:
+                        if e not in serial_output:
+                            print(f"        missing: '{e}'")
+                    for e in unexpects:
+                        if e in serial_output:
+                            print(f"        unexpected: '{e}'")
+                    failed += 1
+
+            # ── Summary ──
+            total = passed + failed
+            DIM = "\033[2m"
+
+            print(f"\n{GREEN}{'─'*60}{RESET}")
+            if failed == 0:
+                print(f"  {GREEN}All {total} tests passed{RESET}")
+                if filtered:
+                    print(f"  {DIM}({filtered} tests skipped by filter){RESET}")
+                sys.exit(0)
+            else:
+                print(f"  {RED}{failed}/{total} tests failed{RESET}")
+                if filtered:
+                    print(f"  {DIM}({filtered} tests skipped by filter){RESET}")
+                # Print serial tail on failure for debugging
+                print(f"\n{DIM}  Serial output (last 30 lines):{RESET}")
+                for line in serial_output.split('\n')[-30:]:
+                    print(f"    {DIM}{line}{RESET}")
+                sys.exit(1)
+
+        except subprocess.CalledProcessError as e:
+            print(f"{RED}BUILD FAILED: {e}{RESET}")
+            sys.exit(1)
+
     else:
-        print("Usage: tools/runner_qemu.py [build|run|bench|test_net|test_df]")
+        print("Usage: tools/runner_qemu.py [build|run|bench|test|test_net|test_df]")

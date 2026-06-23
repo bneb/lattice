@@ -1,4 +1,4 @@
-.PHONY: setup build test clean run-qemu lettuce lettuce-verify lettuce-run bench
+.PHONY: setup build test test-userspace clean run-qemu lettuce lettuce-verify lettuce-run bench
 
 # =============================================================================
 # Salt + KeuOS — Top-Level Makefile
@@ -14,6 +14,13 @@ build:
 test:
 	cd salt-front && cargo test
 	@echo "Tests complete."
+
+test-userspace: build
+	@echo "=== KeuOS User Program Test Suite ==="
+	@python3 tools/runner_qemu.py test
+	@echo ""
+
+.PHONY: test-userspace
 
 clean:
 	cd salt-front && cargo clean
