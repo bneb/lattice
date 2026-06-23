@@ -92,5 +92,15 @@ user_elf_i_start:
     .incbin "/tmp/uptime"
 user_elf_i_end:
 
-// --- Process J: Fetch (network-dependent, spawned by grit on demand) ---
+// --- Process J: Ping (ICMP Echo Client) ---
+.global user_elf_j_start, user_elf_j_end
+user_elf_j_start:
+    .incbin "/tmp/ping"
+user_elf_j_end:
+
+// --- Process K: Fetch (HTTP GET Client via NetD Socket IPC) ---
+.global user_elf_k_start, user_elf_k_end
+user_elf_k_start:
+    .incbin "/tmp/fetch"
+user_elf_k_end:
 

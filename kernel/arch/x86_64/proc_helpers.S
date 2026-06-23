@@ -173,6 +173,18 @@ get_user_elf_i_addr:
     lea rax, [rip + user_elf_i_start]
     ret
 
+/* get_user_elf_j_addr() -> u64 */
+.global get_user_elf_j_addr
+get_user_elf_j_addr:
+    lea rax, [rip + user_elf_j_start]
+    ret
+
+/* get_user_elf_k_addr() -> u64 */
+.global get_user_elf_k_addr
+get_user_elf_k_addr:
+    lea rax, [rip + user_elf_k_start]
+    ret
+
 /* get_netd_elf_addr() -> u64
  * Returns the address of the embedded NetD Ring 3 ELF binary.
  * Hard link-time dependency — the build must embed netd.elf.

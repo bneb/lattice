@@ -32,7 +32,8 @@ pub fn main() {
     let n = socket.read(&sock, (&resp[0]) as u64, 4096);
 
     if n > 0 {
-        let end = if n < 4096 { n } else { 4095 };
+        // end = min(n, 4095) — null-terminate response buffer
+        let end: u64 = if n < 4096 { n } else { 4095 as u64 };
         resp[end] = 0;
         stdio.print(&resp[0]);
     } else {

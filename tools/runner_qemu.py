@@ -349,6 +349,26 @@ def build_user_programs():
                 os.path.join(user_dir, "std", "stdio.salt"),
             ],
         },
+        # Process J: ping (ICMP echo client, stub until kernel ICMP lands)
+        {
+            "name": "ping",
+            "salt_files": [
+                os.path.join(user_dir, "ping.salt"),
+                os.path.join(user_dir, "lib", "syscall.salt"),
+                os.path.join(user_dir, "std", "stdio.salt"),
+            ],
+        },
+        # Process K: fetch (HTTP GET client via NetD socket IPC)
+        {
+            "name": "fetch",
+            "salt_files": [
+                os.path.join(user_dir, "fetch.salt"),
+                os.path.join(user_dir, "lib", "socket.salt"),
+                os.path.join(user_dir, "lib", "socket_protocol.salt"),
+                os.path.join(user_dir, "lib", "syscall.salt"),
+                os.path.join(user_dir, "std", "stdio.salt"),
+            ],
+        },
         # NetD: Ring 3 Network Daemon (Zero-Trap SPSC Data Plane)
         {
             "name": "netd",
