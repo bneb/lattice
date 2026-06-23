@@ -16,6 +16,7 @@ extern fn multiboot_parse(mb_info: u64);
 extern fn boot_terminal_and_netd_sips(kernel_pml4: u64, rx_page: u64, tx_page: u64);
 extern fn boot_moe_pipeline(kernel_pml4: u64) -> u64;
 extern fn boot_nvme_and_ext2();
+extern fn moe_net_init() -> bool;
 extern fn terminal_tx_poll_thread();
 extern fn get_ecs_world_ptr() -> u64;
 extern fn set_ecs_world_ptr(ptr: u64);
@@ -226,6 +227,11 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     ecs_world_dump(world_ptr);  // Should show 1 entity now
 
     boot_nvme_and_ext2();
+
+    // Initialize VirtIO-net for network syscalls (ping, fetch)
+    if moe_net_init() {
+        serial.print("[KeuOS] VirtIO-net initialized\n");
+    }
 
     process_init();
     serial.print("[KeuOS] Process table initialized\n");

@@ -136,6 +136,9 @@ pub fn handle_syscall(num: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
     } else if num == 19 {
         // SYS_GETPID: no args
         return sys_getpid();
+    } else if num == 20 {
+        // SYS_PING: arg0 = dst_ip (u32), returns RTT in ms or 0 on timeout
+        return sys_ping(arg0 as u32);
     } else if num == 119 {
         // Ring ABI: drain submission queue before yielding
         let yield_pid = process.current();
@@ -355,4 +358,34 @@ fn sys_uptime() -> u64 {
 // =============================================================================
 fn sys_getpid() -> u64 {
     return process.current();
+}
+
+// =============================================================================
+// sys_ping — Send ICMP Echo Request and wait for reply (SYS_PING, num=20)
+// =============================================================================
+extern fn netcore_send_icmp_request(dst_ip: u32) -> bool;
+extern fn netcore_icmp_reply_received() -> u32;
+extern fn netcore_clear_icmp_reply();
+extern fn netcore_poll_all() -> u32;
+
+fn sys_ping(dst_ip: u32) -> u64 {
+    netcore_clear_icmp_reply();
+    if !netcore_send_icmp_request(dst_ip) {
+        return 0;  // send failed
+    }
+
+    // Poll for reply with timeout (~3 seconds at 100 ticks/sec)
+    let mut waited: u64 = 0;
+    while waited < 300 {
+        netcore_poll_all();
+        let reply_ip = netcore_icmp_reply_received();
+        if reply_ip != 0 {
+            return waited * 10;  // ticks → ms (100 Hz = 10ms per tick)
+        }
+        // Busy-wait one tick
+        let mut spin: u64 = 0;
+        while spin < 50000 { spin = spin + 1; }
+        waited = waited + 1;
+    }
+    return 0;  // timeout
 }

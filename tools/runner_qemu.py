@@ -1123,9 +1123,9 @@ if __name__ == "__main__":
                 "expected": ["code=42"],
             },
             {
-                "name": "ping_stub",
-                "desc": "Ping prints ICMP stub message",
-                "expected": ["ping: ICMP not yet available"],
+                "name": "ping_icmp",
+                "desc": "Ping sends ICMP echo to 10.0.2.2 and reports RTT",
+                "expected": ["PING 10.0.2.2:", "ms"],
             },
             {
                 "name": "fetch_stub",
@@ -1200,10 +1200,12 @@ if __name__ == "__main__":
                 'qemu-system-x86_64',
                 '-kernel', elf,
                 '-nographic',
-                '-m', '1G',
+                '-m', '2G',
                 '-cpu', 'qemu64,+fxsr,+mmx,+sse,+sse2,+xsave,+pcid,+invpcid',
                 '-smp', '1',
                 '-no-reboot',
+                '-device', 'virtio-net-pci,netdev=net0',
+                '-netdev', 'user,id=net0',
                 '-serial', f'file:{serial_log}',
             ]
 

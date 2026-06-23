@@ -187,7 +187,13 @@ pub fn ipc_ring_await(cap_id: u64) -> i64 {
 extern fn sys_ps(buf_ptr: u64) -> u64;
 extern fn sys_meminfo(buf_ptr: u64) -> u64;
 extern fn sys_uptime() -> u64;
+extern fn sys_ping(ip: u32) -> u64;
 extern fn sys_getpid() -> u64;
+
+/// Send ICMP echo request, return RTT in ms or 0 on timeout.
+pub fn ping(ip: u32) -> u64 {
+    return sys_ping(ip);
+}
 
 /// Fill buffer with process info. Returns count.
 pub fn ps(buf_ptr: u64) -> u64 {

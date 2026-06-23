@@ -22,6 +22,15 @@ import user.lib.syscall
 import user.std.stdio
 
 pub fn main() {
-    stdio.print("ping: ICMP not yet available — requires kernel ICMP support\n");
+    // Ping QEMU gateway (10.0.2.2 = 0x0A000202)
+    let gw_ip: u32 = 0x0A000202;
+    stdio.print("PING 10.0.2.2: ");
+    let rtt = syscall.ping(gw_ip);
+    if rtt > 0 {
+        stdio.print_u64(rtt);
+        stdio.print(" ms\n");
+    } else {
+        stdio.print("timeout\n");
+    }
     syscall.exit(0);
 }
