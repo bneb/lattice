@@ -1178,7 +1178,7 @@ fn emit_iterator_for_loop(
     out.push_str(&format!("    cf.br ^{}\n", label_header));
     out.push_str(&format!("  ^{}:\n", label_header));
 
-    // [PILLAR 2: Global LVN] Clear cache at loop header entry
+    // Clear LVN cache at loop header entry
     ctx.emission.global_lvn.clear();
 
     // Heartbeat Injection 
@@ -2023,7 +2023,7 @@ fn emit_return_stmt(ctx: &mut LoweringContext, out: &mut String, opt_expr: &Opti
                 // Recursive escape marking.
                 crate::codegen::expr::mark_expression_escaped(ctx, e);
 
-                // [ARENA ESCAPE ANALYSIS] Law I: The Return Rule.
+                // Arena escape analysis: enforce the return rule
                 // return x is valid iff depth(x) <= 1.
                 // A pointer from a local arena (depth >= 2) cannot escape.
                 if let Some(var_name) = extract_return_var_name(e) {
@@ -2356,7 +2356,7 @@ pub fn emit_salt_if(
     let state_before = ctx.consumed_vars().clone();
     let locs_before = ctx.consumption_locs().clone();
 
-    // [SSA DOMINANCE] Save LVN cache before then-branch
+    // Save LVN cache before then-branch
     ctx.emission.global_lvn.push_snapshot();
 
     out.push_str(&format!("  ^{}:\n", label_then));
@@ -2369,7 +2369,7 @@ pub fn emit_salt_if(
         out.push_str(&format!("    cf.br ^{}\n", label_merge));
     }
 
-    // [SSA DOMINANCE] Restore LVN cache after then-branch — discard branch-local values
+    // Restore LVN cache after then-branch — discard branch-local values
     ctx.emission.global_lvn.pop_snapshot();
 
     // Restore Pre-If state for Else/Merge (pop "Then" scope)
@@ -2401,7 +2401,7 @@ pub fn emit_salt_if(
             }
         }
 
-        // [SSA DOMINANCE] Save LVN cache before else-branch
+        // Save LVN cache before else-branch
         ctx.emission.global_lvn.push_snapshot();
 
         out.push_str(&format!("  ^{}:\n", label_else));
@@ -2428,7 +2428,7 @@ pub fn emit_salt_if(
             out.push_str(&format!("    cf.br ^{}\n", label_merge));
         }
 
-        // [SSA DOMINANCE] Restore LVN cache after else-branch
+        // Restore LVN cache after else-branch
         ctx.emission.global_lvn.pop_snapshot();
 
         // Restore Pre-If state for Merge (pop "Else" scope)
@@ -2502,16 +2502,13 @@ pub fn emit_match(
         return Err("Match expression must have at least one arm".to_string());
     }
     
-    // [Z3 VERIFICATION] Check exhaustiveness for enum types
+    // Check exhaustiveness for enum types
     use crate::codegen::verification::{check_exhaustiveness, ExhaustivenessResult};
     match check_exhaustiveness(ctx, &scrutinee_ty, &match_expr.arms) {
         ExhaustivenessResult::Exhaustive => {
             // Good - all variants covered
         }
-        ExhaustivenessResult::MissingVariants(missing) => {
-            // Report warning (could make this an error in strict mode)
-            eprintln!("WARNING: Non-exhaustive match on {:?}, missing variants: {:?}", 
-                scrutinee_ty, missing);
+        ExhaustivenessResult::MissingVariants(_missing) => {
         }
         ExhaustivenessResult::Unverifiable(_reason) => {
             // Can't verify - skip silently for non-enum types
@@ -2553,7 +2550,7 @@ pub fn emit_match(
             let cond = emit_pattern_condition(ctx, out, &arm.pattern, &scrutinee_val, &scrutinee_ty)?;
             
             let final_cond = if let Some(guard) = &arm.guard {
-                // [MATCH GUARD FIX] Pattern bindings must be available in the guard scope.
+                // Pattern bindings must be available in the guard scope
                 // For example, `Ok(v) if v > 0 => ...` needs `v` to resolve in the guard.
                 // We emit bindings into a temporary scope for guard evaluation.
                 let mut guard_vars = local_vars.clone();
@@ -3153,7 +3150,7 @@ fn collect_mutations_in_stmt(visitor: &mut MutationVisitor, stmt: &Stmt) {
                 }
             }
         }
-        // [MUT PARAM FIX] Handle bare expression statements (e.g., `x = x + 1;`)
+        // Handle bare expression statements (e.g., `x = x + 1;`)
         // Without this, assignments at function body level are not detected by
         // collect_mutations, so mutated parameters aren't promoted to alloca.
         Stmt::Expr(e, _) => visitor.visit_expr(e),
