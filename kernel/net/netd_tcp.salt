@@ -16,6 +16,8 @@
 package kernel.net.netd_tcp
 
 import kernel.drivers.serial
+import kernel.core.pmm
+import kernel.core.memory
 
 // RFC 793 TCP States
 pub const TCP_CLOSED: u8       = 0;
@@ -43,26 +45,26 @@ pub struct TcpConnection {
     pub local_port: u16,
     pub remote_port: u16,
     pub remote_ip: u32,
-    pub seq_snd: u32,       // Next sequence number to send
-    pub seq_rcv: u32,       // Next sequence number expected to receive
-    pub wnd_snd: u16,       // Remote receiver's advertised window
-    pub wnd_rcv: u16,       // Our advertised window
-    pub last_activity: u64, // Monotonic timestamp
+    pub seq_snd: u32,
+    pub seq_rcv: u32,
+    pub wnd_snd: u16,
+    pub wnd_rcv: u16,
+    pub last_activity: u64,
+    pub owner_pid: u64,        // Process that owns this connection
+    pub recv_buf_phys: u64,    // Physical page for 4KB RX buffer (0=none)
+    pub recv_head: u32,        // Write cursor into recv_buf
+    pub recv_tail: u32,        // Read cursor (advanced by sys_tcp_recv)
+    pub recv_fin: bool,        // True if FIN received from remote
 }
 
-// Zero-Allocation Connection Pool — 1024 entries = ~32KB
 pub const MAX_TCP_SOCKETS: u64 = 1024;
 
 global TCP_POOL: [TcpConnection; 1024] = [TcpConnection {
-    state: 0,
-    local_port: 0,
-    remote_port: 0,
-    remote_ip: 0,
-    seq_snd: 0,
-    seq_rcv: 0,
-    wnd_snd: 0,
-    wnd_rcv: 0,
+    state: 0, local_port: 0, remote_port: 0, remote_ip: 0,
+    seq_snd: 0, seq_rcv: 0, wnd_snd: 0, wnd_rcv: 0,
     last_activity: 0,
+    owner_pid: 0, recv_buf_phys: 0, recv_head: 0, recv_tail: 0,
+    recv_fin: false,
 }; 1024];
 
 global TCP_ISN_COUNTER: u32 = 0x12345678;
@@ -98,6 +100,12 @@ pub fn free(idx: u64) {
     TCP_POOL[idx].wnd_snd = 0;
     TCP_POOL[idx].wnd_rcv = 0;
     TCP_POOL[idx].last_activity = 0;
+    TCP_POOL[idx].owner_pid = 0;
+    // recv_buf_phys freed separately before calling free()
+    TCP_POOL[idx].recv_buf_phys = 0;
+    TCP_POOL[idx].recv_head = 0;
+    TCP_POOL[idx].recv_tail = 0;
+    TCP_POOL[idx].recv_fin = false;
 }
 
 // =============================================================================
@@ -376,6 +384,40 @@ pub fn netd_handle_ack(src_ip: u32, dst_ip: u32, src_port: u16, dst_port: u16,
 @no_mangle
 pub fn netd_cookie_init(k0: u64, k1: u64) {
     cookie_set_secret(k0, k1);
+}
+
+// =============================================================================
+// tcp_alloc_client — Allocate TCB with recv buffer for a client connection
+// =============================================================================
+pub fn tcp_alloc_client(pid: u64, local_port: u16, remote_ip: u32,
+                         remote_port: u16) -> u64 {
+    let slot = alloc();
+    if slot == 0xFFFFFFFF { return 0xFFFFFFFF; }
+    // Allocate 4KB receive buffer
+    let buf_phys = pmm.alloc();
+    if buf_phys == 0 {
+        free(slot);
+        return 0xFFFFFFFF;
+    }
+    TCP_POOL[slot].owner_pid = pid;
+    TCP_POOL[slot].local_port = local_port;
+    TCP_POOL[slot].remote_ip = remote_ip;
+    TCP_POOL[slot].remote_port = remote_port;
+    TCP_POOL[slot].recv_buf_phys = buf_phys;
+    TCP_POOL[slot].recv_head = 0;
+    TCP_POOL[slot].recv_tail = 0;
+    TCP_POOL[slot].recv_fin = false;
+    return slot;
+}
+
+// =============================================================================
+// tcp_get_recv_buf_virt — Return kernel virtual address of recv buffer
+// =============================================================================
+pub fn tcp_get_recv_buf_virt(slot: u64) -> u64 {
+    if slot >= MAX_TCP_SOCKETS { return 0; }
+    let phys = TCP_POOL[slot].recv_buf_phys;
+    if phys == 0 { return 0; }
+    return memory.phys_to_virt_raw(phys);
 }
 
 // ═══════════════════════════════════════════════════════════════
