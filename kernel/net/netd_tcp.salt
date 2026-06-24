@@ -386,6 +386,9 @@ pub fn netd_cookie_init(k0: u64, k1: u64) {
     cookie_set_secret(k0, k1);
 }
 
+// TCP incoming packet handler extracted to kernel/net/tcp_dispatch.salt
+extern fn tcp_handle_incoming(buf: u64, len: u32, src_ip: u32, dst_ip: u32) -> bool;
+
 // =============================================================================
 // tcp_alloc_client — Allocate TCB with recv buffer for a client connection
 // =============================================================================
@@ -421,7 +424,7 @@ pub fn tcp_get_recv_buf_virt(slot: u64) -> u64 {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Client-side TCP stubs and @no_mangle wrappers
+// Client-side @no_mangle wrappers for cross-package access
 // ═══════════════════════════════════════════════════════════════
 
 @no_mangle
@@ -442,17 +445,38 @@ pub fn tcp_get_recv_buf_virt_extern(slot: u64) -> u64 {
 }
 
 @no_mangle
-pub fn tcp_send_data(conn_id: u64, buf: u64, len: u64) -> u64 {
-    return 0;  // stub
-}
+pub fn tcp_pool_get_state(slot: u64) -> u8 { return TCP_POOL[slot].state; }
 
 @no_mangle
-pub fn tcp_recv_data(conn_id: u64, buf: u64, len: u64) -> u64 {
-    return 0;  // stub
-}
+pub fn tcp_pool_set_state(slot: u64, st: u8) { TCP_POOL[slot].state = st; }
 
 @no_mangle
-pub fn tcp_close_conn(conn_id: u64) {
-    // stub
-}
+pub fn tcp_pool_get_recv_head(slot: u64) -> u32 { return TCP_POOL[slot].recv_head; }
+
+@no_mangle
+pub fn tcp_pool_set_recv_head(slot: u64, v: u32) { TCP_POOL[slot].recv_head = v; }
+
+@no_mangle
+pub fn tcp_pool_get_recv_tail(slot: u64) -> u32 { return TCP_POOL[slot].recv_tail; }
+
+@no_mangle
+pub fn tcp_pool_set_recv_tail(slot: u64, v: u32) { TCP_POOL[slot].recv_tail = v; }
+
+@no_mangle
+pub fn tcp_pool_get_recv_fin(slot: u64) -> bool { return TCP_POOL[slot].recv_fin; }
+
+@no_mangle
+pub fn tcp_pool_set_recv_fin(slot: u64, v: bool) { TCP_POOL[slot].recv_fin = v; }
+
+@no_mangle
+pub fn tcp_pool_get_seq_rcv(slot: u64) -> u32 { return TCP_POOL[slot].seq_rcv; }
+
+@no_mangle
+pub fn tcp_pool_set_seq_rcv(slot: u64, v: u32) { TCP_POOL[slot].seq_rcv = v; }
+
+@no_mangle
+pub fn tcp_pool_get_recv_buf_phys(slot: u64) -> u64 { return TCP_POOL[slot].recv_buf_phys; }
+
+@no_mangle
+pub fn tcp_lookup_extern(lp: u16, rip: u32, rp: u16) -> u64 { return lookup(lp, rip, rp); }
 
