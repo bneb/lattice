@@ -24,7 +24,7 @@ extern fn allocate_pcid() -> u64;
 // =============================================================================
 // Constants
 // =============================================================================
-pub const MAX_PROCS: u64 = 16;
+pub const MAX_PROCS: u64 = 32;
 const PAGE_SIZE: u64 = 4096;
 
 
@@ -81,7 +81,7 @@ pub struct Process {
 // =============================================================================
 // Global Process Table
 // =============================================================================
-global PROC_TABLE: [Process; 16] = [Process {
+global PROC_TABLE: [Process; 32] = [Process {
     pid: 0, parent_pid: 0, state: 0, user_pml4: 0, kernel_rsp: 0,
     kernel_stack_base: 0, kernel_stack_top: 0,
     user_entry: 0, user_stack_top: 0,
@@ -93,7 +93,7 @@ global PROC_TABLE: [Process; 16] = [Process {
     ring_active: 0, ring_sq_kern: 0, ring_cq_kern: 0,
     ring_sq_phys: 0, ring_cq_phys: 0, ring_capacity: 0,
     fd_table: 0
-}; 16];
+}; 32];
 
 global CURRENT_PID: u64 = 0;
 global NEXT_PID: u64 = 1;
