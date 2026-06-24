@@ -54,6 +54,14 @@ netd_elf_start:
     .incbin "/tmp/netd"
 netd_elf_end:
 
+// --- echo_server: TCP Echo Daemon ---
+.global echo_server_elf_start
+.global echo_server_elf_end
+
+echo_server_elf_start:
+    .incbin "/tmp/echo_server"
+echo_server_elf_end:
+
 // --- Mode B SIP: Ring 0 Software-Isolated Process ---
 .global sip_elf_start
 .global sip_elf_end
@@ -103,4 +111,10 @@ user_elf_j_end:
 user_elf_k_start:
     .incbin "/tmp/fetch"
 user_elf_k_end:
+
+// --- Process L: Echo Server (TCP listen/accept test) ---
+.global user_elf_l_start, user_elf_l_end
+user_elf_l_start:
+    .incbin "/tmp/echo_server"
+user_elf_l_end:
 

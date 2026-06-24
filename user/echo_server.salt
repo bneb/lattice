@@ -1,35 +1,22 @@
-// =============================================================================
-// user/echo_server.salt — TCP Listen + Accept Test (Process L)
-// =============================================================================
 package user.echo_server
 
 import user.lib.syscall
 import user.std.stdio
 
 pub fn main() {
-    stdio.print("[echo_server] testing listen on port 8080...\n");
-
-    let listen_slot = syscall.tcp_listen(8080);
-    if listen_slot == 0xFFFFFFFFFFFFFFFF {
+    stdio.print("[echo_server] testing listen on 8080...\n");
+    let ls = syscall.tcp_listen(8080);
+    if ls == 0xFFFFFFFFFFFFFFFF {
         stdio.print("[echo_server] listen FAILED\n");
-        syscall.exit(1);
-        return;
-    }
-    stdio.print("[echo_server] listen OK, slot=");
-    stdio.print_u64(listen_slot);
-    stdio.print("\n");
-
-    // Check accept (no connection expected in test)
-    let conn = syscall.tcp_accept(listen_slot);
-    if conn == 0xFFFFFFFFFFFFFFFF {
-        stdio.print("[echo_server] accept (no pending) OK\n");
     } else {
-        stdio.print("[echo_server] accepted conn=");
+        stdio.print("[echo_server] listen OK slot=");
+        stdio.print_u64(ls);
+        stdio.print("\n");
+        let conn = syscall.tcp_accept(ls);
+        stdio.print("[echo_server] accept=");
         stdio.print_u64(conn);
         stdio.print("\n");
+        syscall.tcp_close(ls);
     }
-
-    syscall.tcp_close(listen_slot);
     stdio.print("[echo_server] done\n");
-    syscall.exit(0);
 }

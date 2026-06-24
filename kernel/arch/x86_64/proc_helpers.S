@@ -185,6 +185,11 @@ get_user_elf_k_addr:
     lea rax, [rip + user_elf_k_start]
     ret
 
+.global get_user_elf_l_addr
+get_user_elf_l_addr:
+    lea rax, [rip + user_elf_l_start]
+    ret
+
 /* get_netd_elf_addr() -> u64
  * Returns the address of the embedded NetD Ring 3 ELF binary.
  * Hard link-time dependency — the build must embed netd.elf.
@@ -192,6 +197,11 @@ get_user_elf_k_addr:
 .global get_netd_elf_addr
 get_netd_elf_addr:
     lea rax, [rip + netd_elf_start]
+    ret
+
+.global get_echo_server_elf_addr
+get_echo_server_elf_addr:
+    lea rax, [rip + echo_server_elf_start]
     ret
 
 /* get_pml4_phys() -> u64
