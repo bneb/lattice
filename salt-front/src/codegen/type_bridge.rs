@@ -7,11 +7,6 @@ use crate::codegen::abi::Layout;
 
 pub use super::type_casts::cast_numeric;
 
-// ============================================================================
-
-
-
-
 pub fn get_numeric_idx(ty: &Type) -> Option<usize> {
     match ty {
         Type::I8 => Some(0),
@@ -169,7 +164,7 @@ impl Type {
     // across alloca, store, load, and GEP operations.
     match self {
         Type::Struct(name) => {
-            // [SIMD] Intercept vector type aliases BEFORE struct alias resolution
+            // Intercept vector type aliases before struct alias resolution
             match name.as_str() {
                 "Vector4f32"  => return Ok("vector<4xf32>".to_string()),
                 "Vector8f32"  => return Ok("vector<8xf32>".to_string()),
@@ -198,7 +193,7 @@ impl Type {
             return Ok(format!("!struct_{}", full_name));
         }
         Type::Concrete(base, args) => {
-            // [SIMD] Intercept vector type aliases BEFORE struct alias resolution
+            // Intercept vector type aliases before struct alias resolution
             if args.is_empty() {
                 match base.as_str() {
                     "Vector4f32"  => return Ok("vector<4xf32>".to_string()),
@@ -229,21 +224,6 @@ impl Type {
     Ok(layout.to_mlir_storage(ctx))
 }
 } // End impl Type
-
-// ============================================================================
-// Recursively flatten nested pointers to a single indirection level
-// ============================================================================
-
-
-
-// ============================================================================
-// Validate that two types are bit-identical before allowing a cast
-// ============================================================================
-
-
-
-
-
 pub fn get_arith_op(op: &syn::BinOp, ty: &Type) -> String {
     let is_float = matches!(ty, Type::F32 | Type::F64);
     let is_unsigned = ty.is_unsigned();
@@ -648,40 +628,6 @@ pub(crate) fn get_bit_width(ty: &Type) -> u32 {
     }
 }
 
-/// Detects if a struct name is already specialized (e.g., "std__core__node_ptr__NodePtr_TrieNode")
-/// and extracts the template name and type arguments from it.
-/// This prevents "Pointer Inception" bugs where NodePtr<TrieNode> becomes NodePtr<NodePtr<TrieNode>>.
-#[allow(dead_code)]
-fn peel_already_specialized_name(ctx: &mut LoweringContext, name: &str) -> Option<(String, Vec<Type>)> {
-    // Look for known templates that may have been specialized into this name
-    // Pattern: "template_suffix_TypeArg" where suffix marks specialization
-    
-    // Check if this matches a known template pattern with type arg suffix
-    // e.g., "std__core__node_ptr__NodePtr_TrieNode" -> template="std__core__node_ptr__NodePtr", arg="TrieNode"
-    for template_name in ctx.struct_templates().keys() {
-        // Check if name starts with template and has a suffix
-        let prefix = format!("{}_", template_name);
-        if name.starts_with(&prefix) && name.len() > prefix.len() {
-            let type_arg_name = &name[prefix.len()..];
-            // The type arg should be resolvable as a struct
-            if !type_arg_name.is_empty() {
-                // Phase 5: Use centralized struct lookup
-                let arg_ty = if ctx.struct_registry().values().any(|i| i.name == type_arg_name) {
-                    Type::Struct(type_arg_name.to_string())
-                } else if let Some(info) = ctx.find_struct_by_name(type_arg_name) {
-                    Type::Struct(info.name)
-                } else {
-                    // Use as-is
-                    Type::Struct(type_arg_name.to_string())
-                };
-
-                return Some((template_name.clone(), vec![arg_ty]));
-            }
-        }
-    }
-    None
-}
-
 impl Type {
     /// Pointers and References always lower to !llvm.ptr.
     pub fn to_mlir_type(&self, ctx: &mut LoweringContext) -> Result<String, String> {
@@ -853,7 +799,7 @@ pub fn to_mlir_type(ctx: &mut LoweringContext, ty: &Type) -> Result<String, Stri
         Type::Usize => Ok("index".to_string()),
         Type::Unit => Ok("!llvm.void".to_string()),
         Type::Struct(name) => {
-            // [SIMD] Intercept vector type aliases BEFORE struct alias resolution
+            // Intercept vector type aliases before struct alias resolution
             match name.as_str() {
                 "Vector4f32"  => return Ok("vector<4xf32>".to_string()),
                 "Vector8f32"  => return Ok("vector<8xf32>".to_string()),
@@ -888,7 +834,7 @@ pub fn to_mlir_type(ctx: &mut LoweringContext, ty: &Type) -> Result<String, Stri
             Ok(format!("!struct_{}", full_name))
         },
         Type::Concrete(name, args) => {
-            // [SIMD] Intercept vector type aliases BEFORE struct alias resolution
+            // Intercept vector type aliases before struct alias resolution
             if args.is_empty() {
                 match name.as_str() {
                     "Vector4f32"  => return Ok("vector<4xf32>".to_string()),
@@ -912,7 +858,6 @@ pub fn to_mlir_type(ctx: &mut LoweringContext, ty: &Type) -> Result<String, Stri
             }
             
             if args.iter().any(has_unresolved_generic) {
-                eprintln!("WARNING: Unresolved generic in Concrete type '{}' - using !llvm.ptr fallback", name);
                 return Ok("!llvm.ptr".to_string());
             }
             
@@ -1230,9 +1175,8 @@ pub fn resolve_codegen_type(ctx: &mut LoweringContext, ty: &Type) -> Type {
 
 /// Bridges the gap between Rust's syn::Type (legacy/helper) and Salt's Type system.
 pub fn resolve_type(ctx: &mut LoweringContext, ty: &crate::grammar::SynType) -> Type {
-    // Type Resolution Hardening
     // Handle context-dependent types (Array, Tensor) here.
-    
+
     if let crate::grammar::SynType::Array(inner, len_expr) = ty {
         let inner_ty = resolve_type(ctx, inner);
         return match ctx.evaluator.eval_expr(len_expr) {
@@ -1436,8 +1380,6 @@ pub fn check_trait_constraint(
     let trait_exists = ctx.trait_registry().get_trait(trait_name).is_some();
     if !trait_exists {
         // If trait doesn't exist yet, we allow it (forward reference or external trait)
-        // In a stricter mode, we could return an error here
-        eprintln!("WARN: Trait '{}' not found in registry, allowing forward reference", trait_name);
         return Ok(());
     }
     
@@ -1704,11 +1646,9 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         let mangled = override_name.to_string();
         
         // Check strict map
-        // Check strict map
         if let Some(existing) = self.specializations().get(&(func_name.to_string(), concrete_tys.clone())) {
 
-            
-            // Fix: If it exists in map, but is NOT defined or pending, we must queue it!
+            // If it exists in map but isn't defined or pending, queue it
             let defined = self.defined_functions().contains(existing);
             let pending = self.pending_generations().iter().any(|task| task.mangled_name == *existing);
             
@@ -1781,11 +1721,8 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             }
 
             self.enqueue_monomorphization_task(func_name, &mangled, func.clone(), concrete_tys.clone(), s_ty.clone(), imports.clone(), spec_map);
-
-        } else {
-             eprintln!("Error: Function '{}' not found for specialization.", func_name);
         }
-        
+
         mangled
     }
 
@@ -1810,8 +1747,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             flatten_nested_ptr(&ty, 0, &debug_ctx)
         }).collect();
 
-
-        // [Generic Wall] Security Check: Ensure NO generics leak into the queue
+        // Security check: ensure no generics leak into the monomorphization queue
         // Check for both Generic("T") and Struct("F") where F is not a known struct/enum
         if concrete_tys.iter().any(|t| has_unresolved_type_params(self, t)) {
 
@@ -1872,13 +1808,10 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         };
 
         if let Some((func, s_ty, imports)) = found {
-            // Trait Constraint Solver: Validate constraints before specialization
-            if let Err(e) = validate_trait_constraints(self, &func.generics, &concrete_tys) {
-                eprintln!("ERROR: Trait constraint validation failed for '{}': {}", func_name, e);
-                // If trait constraint is unsatisfied, warn rather than error
-            }
-            
-            // [Fix] Scan specialized function for new dependencies (e.g. return types, local vars)
+            // Validate trait constraints before specialization
+            let _ = validate_trait_constraints(self, &func.generics, &concrete_tys);
+
+            // Scan specialized function for new dependencies (e.g. return types, local vars)
             // This prevents "Frozen Emission" panics by discovering deps during Expansion phase.
             let spec_map;
             {
@@ -1966,10 +1899,8 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                 
                 // Scan!
 
-                // Inline type scanning (scan_types_in_fn expects CodegenContext)
-                if let Err(e) = self.scan_types_in_fn_lctx(&func) {
-                    eprintln!("Warning: Failed to scan dependencies for {}: {}", mangled, e);
-                }
+                // Scan for new dependencies discovered during specialization
+                let _ = self.scan_types_in_fn_lctx(&func);
                 
                 // Capture the specialized map before restoring context
                 spec_map = self.current_type_map().clone();
@@ -2112,9 +2043,8 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
              });
         }
 
-        // 7. Defer Work (Commit to Queue)
-        // 7. Recursive Expansion (Immediate - Stack Based)
-        // Instead of queuing, we process immediately to ensure Deps are sized before Dependents.
+        // 7. Recursive expansion: process immediately to ensure
+        // dependencies are sized before dependents
         {
             self.monomorphizer_mut().pending_set.insert(mangled.clone());
         }
@@ -2204,9 +2134,8 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             // Mark as Done (Remove from pending_set is optional if we check registry first, but good for cleanup)
             self.monomorphizer_mut().pending_set.remove(&task.mangled_name);
 
-            // [Header Hoisting] Immediate Emission
-            // We force the emission of the struct/enum definition into decl_out immediately after specialization.
-            // This ensures the type is fully defined before any function body (generated later) attempts to use it.
+            // Emit the struct/enum definition into decl_out immediately after
+            // specialization so the type is defined before any function body uses it.
             let full_ty = if task.is_enum { crate::types::Type::Enum(task.mangled_name.clone()) } else { crate::types::Type::Struct(task.mangled_name.clone()) };
             
             // Generate the full body definition string (e.g. !llvm.struct<"Vec_u8", (...)>)
@@ -2214,9 +2143,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             if let Ok(mlir_def) = full_ty.to_mlir_storage_type(self) {
                 // Only hoist if the returned string contains a body definition (i.e. has fields or explicitly empty body).
                 // If it returns an opaque reference (e.g. !llvm.struct<"Foo">), it means it was already emitted elsewhere.
-                if mlir_def.contains(", (") || mlir_def.contains(", ()") { 
-                    // Construct a private dummy global to force the type definition into the module scope.
-                    // This satisfies the "Definition Precedence" requirement.
+                if mlir_def.contains(", (") || mlir_def.contains(", ()") {
                     let dummy_name = format!("__typedef_{}", task.mangled_name);
                     let d = self.decl_out_mut();
                     d.push_str(&format!("  llvm.mlir.global private @{}() : {} {{\n", dummy_name, mlir_def));
@@ -2224,8 +2151,6 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                     d.push_str(&format!("    llvm.return %0 : {}\n", mlir_def));
                     d.push_str("  }\n");
                 }
-            } else {
-                 eprintln!("WARNING: Failed to generate storage type for hoisted task: {}", task.mangled_name);
             }
         }
         
@@ -2390,8 +2315,6 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             if field.attributes.iter().any(|a| a.name == "packed") {
                  if let Type::Array(inner, len, _) = field_ty {
                       field_ty = Type::Array(inner, len, true);
-                 } else {
-                      eprintln!("Warning: @packed attribute ignored on non-array field '{}' in struct '{}'", field.name, template_name);
                  }
             }
             
@@ -2582,7 +2505,7 @@ pub fn emit_const(ctx: &mut LoweringContext, _out: &mut String, c: &crate::gramm
         // MVP: Just support primitives or use zero-init if complex (incorrect, but safe fallback?)
         // Better: error if complex const emission not supported yet.
         _ => {
-             // [SCALAR WRAPPER FIX] Check if this is a scalar wrapper struct (single i32 field)
+             // Check if this is a scalar wrapper struct (single i32 field)
              // e.g., Prot { bits: 1 } should emit { 1 : i32 }, not zero
              if let syn::Expr::Struct(s) = &c.value {
                  if s.fields.len() == 1 {
@@ -2606,7 +2529,7 @@ pub fn emit_const(ctx: &mut LoweringContext, _out: &mut String, c: &crate::gramm
              // Fallback to zero-init region for complex types (Structs/Arrays)
              // This is crucial for things like GLOBAL_ALLOC which resolve to Item::Const but are complex.
              // We drop 'constant' to be safe for 'var' mapping.
-             // [ALIGNMENT ENFORCER] Calculate mandatory alignment
+             // Calculate mandatory alignment
              let alignment = match &ty {
                  Type::Array(_, len, _) if *len >= 16 => 64,  // Cache-line aligned for large arrays
                  Type::Struct(_) | Type::Concrete(_, _) => 16, // 16-byte for aggregates
@@ -2698,7 +2621,7 @@ pub fn emit_global_def(ctx: &mut LoweringContext, _out: &mut String, g: &crate::
     let linkage = if g.is_pub { "external" } else { "internal" };
     
     if init_val.is_empty() {
-        // [ALIGNMENT ENFORCER] Calculate mandatory alignment based on type size
+        // Calculate mandatory alignment based on type size
         let alignment = match &ty_storage {
             Type::Array(_, len, _) if *len >= 16 => 64,  // Cache-line aligned for large arrays
             Type::Struct(_) | Type::Concrete(_, _) => 16, // 16-byte for aggregates
