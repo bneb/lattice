@@ -3,33 +3,28 @@ package user.echo_server
 import user.lib.syscall
 
 pub fn main() {
-    // Silent daemon - no stdio (may not work pre-scheduler)
-    let listen_slot = syscall.tcp_listen(8080);
-    if listen_slot == 0xFFFFFFFFFFFFFFFF {
+    let ls = syscall.tcp_listen(8080);
+    if ls == 0xFFFFFFFFFFFFFFFF {
         syscall.exit(1);
         return;
     }
 
-    // Poll for a connection
+    // Accept loop - keep trying forever
     let mut conn: u64 = 0xFFFFFFFFFFFFFFFF;
-    let mut waited: u64 = 0;
-    while conn == 0xFFFFFFFFFFFFFFFF && waited < 200 {
-        conn = syscall.tcp_accept(listen_slot);
+    while conn == 0xFFFFFFFFFFFFFFFF {
+        conn = syscall.tcp_accept(ls);
         if conn == 0xFFFFFFFFFFFFFFFF {
             syscall.sys_yield_thread();
-            waited = waited + 1;
         }
     }
 
-    if conn != 0xFFFFFFFFFFFFFFFF {
-        let mut buf: [u8; 256] = [0; 256];
-        let total = syscall.tcp_recv(conn, &buf as u64, 256);
-        if total > 0 && total != 0xFFFFFFFFFFFFFFFF {
-            let _sent = syscall.tcp_send(conn, &buf as u64, total);
-        }
-        syscall.tcp_close(conn);
+    // Echo: receive then send back
+    let mut buf: [u8; 256] = [0; 256];
+    let total = syscall.tcp_recv(conn, &buf as u64, 256);
+    if total > 0 && total != 0xFFFFFFFFFFFFFFFF {
+        let _sent = syscall.tcp_send(conn, &buf as u64, total);
     }
-
-    syscall.tcp_close(listen_slot);
+    syscall.tcp_close(conn);
+    syscall.tcp_close(ls);
     syscall.exit(0);
 }

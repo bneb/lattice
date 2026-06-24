@@ -10,8 +10,15 @@ import user.lib.syscall
 import user.std.stdio
 
 pub fn main() {
-    let ip: u32 = 0x0A000202;
-    stdio.print("fetch: TCP connect to 10.0.2.2:8080...\n");
+    let ip: u32 = 0x7F000001;
+    stdio.print("fetch: TCP connect to 127.0.0.1:8080...\n");
+
+    // Yield to let daemon start
+    let mut _s: u64 = 0;
+    while _s < 30 {
+        syscall.sys_yield_thread();
+        _s = _s + 1;
+    }
 
     let conn = syscall.tcp_connect(ip);
     if conn == 0xFFFFFFFFFFFFFFFF {

@@ -10,7 +10,7 @@
 // Lookup is 4-tuple: (local_port, remote_ip, remote_port, protocol).
 // Allocation is linear scan for first CLOSED slot.
 //
-// "Aerospace Brutalism": deterministic 32KB footprint, bounded scan time.
+// Static pre-allocation: deterministic footprint, bounded scan time.
 // =============================================================================
 
 package kernel.net.netd_tcp
@@ -61,14 +61,14 @@ pub struct TcpConnection {
 
 pub const MAX_TCP_SOCKETS: u64 = 1024;
 
-global TCP_POOL: [TcpConnection; 1024] = [TcpConnection {
+global TCP_POOL: [TcpConnection; MAX_TCP_SOCKETS] = [TcpConnection {
     state: 0, local_port: 0, remote_port: 0, remote_ip: 0,
     seq_snd: 0, seq_rcv: 0, wnd_snd: 0, wnd_rcv: 0,
     last_activity: 0,
     owner_pid: 0, recv_buf_phys: 0, recv_head: 0, recv_tail: 0,
     recv_fin: false,
     pending_accept: 0xFFFFFFFFFFFFFFFF, listen_slot: 0xFFFFFFFFFFFFFFFF,
-}; 1024];
+}; MAX_TCP_SOCKETS];
 
 global TCP_ISN_COUNTER: u32 = 0x12345678;
 

@@ -369,6 +369,14 @@ def build_user_programs():
                 os.path.join(user_dir, "std", "stdio.salt"),
             ],
         },
+        # echo_server: TCP echo daemon
+        {
+            "name": "echo_server",
+            "salt_files": [
+                os.path.join(user_dir, "echo_server.salt"),
+                os.path.join(user_dir, "lib", "syscall.salt"),
+            ],
+        },
         # NetD: Ring 3 Network Daemon (Zero-Trap SPSC Data Plane)
         {
             "name": "netd",
@@ -1130,7 +1138,7 @@ if __name__ == "__main__":
             {
                 "name": "fetch_http",
                 "desc": "Fetch sends HTTP GET via TCP syscall",
-                "expected": ["fetch: TCP connect to 10.0.2.2:8080"],
+                "expected": ["fetch: TCP connect to 127.0.0.1:8080"],
                 # TCP handshake requires an HTTP server on the host.
                 # In QEMU CI, this will timeout with "request failed".
             },

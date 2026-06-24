@@ -50,7 +50,7 @@ extern fn switch_to_next_ready(slot: u64);
 // User Pointer Validation
 // =============================================================================
 // Local copies of process.salt constants (avoids cross-TU addressof failure)
-const MAX_PROCS: u64   = 16;
+const MAX_PROCS: u64 = 64;
 const PROC_FREE: u64   = 0;
 const PROC_READY: u64  = 1;
 const PROC_RUNNING: u64 = 2;
@@ -453,8 +453,15 @@ fn sys_tcp_close(conn_id: u64) {
 extern fn tcp_listen_extern(port: u16, owner_pid: u64) -> u64;
 
 fn sys_tcp_listen(port: u16) -> u64 {
+    serial.print("[TCP] listen port=");
+    serial.print_u64(port as u64);
+    serial.print("\n");
     let pid: u64 = 1;
-    return tcp_listen_extern(port, pid);
+    let r = tcp_listen_extern(port, pid);
+    serial.print("[TCP] listen result=");
+    serial.print_u64(r);
+    serial.print("\n");
+    return r;
 }
 
 // =============================================================================

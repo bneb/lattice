@@ -24,7 +24,7 @@ extern fn allocate_pcid() -> u64;
 // =============================================================================
 // Constants
 // =============================================================================
-pub const MAX_PROCS: u64 = 32;
+pub const MAX_PROCS: u64 = 64;
 const PAGE_SIZE: u64 = 4096;
 
 
@@ -39,7 +39,7 @@ pub const PROC_IPC_BLOCKED: u64 = 4;   // Blocked on IPC receive
 // MUST be 1 page because alloc_kernel_stack uses pmm.alloc() which
 // returns non-contiguous pages. kstack_top = base + SIZE assumes contiguity.
 pub const KSTACK_PAGES: u64 = 1;
-pub const KSTACK_SIZE: u64  = KSTACK_PAGES * PAGE_SIZE;
+pub const KSTACK_SIZE: u64 = KSTACK_PAGES * PAGE_SIZE;
 
 // =============================================================================
 // Process Control Block
@@ -81,7 +81,7 @@ pub struct Process {
 // =============================================================================
 // Global Process Table
 // =============================================================================
-global PROC_TABLE: [Process; 32] = [Process {
+global PROC_TABLE: [Process; MAX_PROCS] = [Process {
     pid: 0, parent_pid: 0, state: 0, user_pml4: 0, kernel_rsp: 0,
     kernel_stack_base: 0, kernel_stack_top: 0,
     user_entry: 0, user_stack_top: 0,
@@ -93,7 +93,7 @@ global PROC_TABLE: [Process; 32] = [Process {
     ring_active: 0, ring_sq_kern: 0, ring_cq_kern: 0,
     ring_sq_phys: 0, ring_cq_phys: 0, ring_capacity: 0,
     fd_table: 0
-}; 32];
+}; MAX_PROCS];
 
 global CURRENT_PID: u64 = 0;
 global NEXT_PID: u64 = 1;

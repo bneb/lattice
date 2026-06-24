@@ -31,8 +31,8 @@ extern fn get_user_elf_h_addr() -> u64;
 extern fn get_user_elf_i_addr() -> u64;
 extern fn get_user_elf_j_addr() -> u64;
 extern fn get_user_elf_k_addr() -> u64;
-extern fn get_user_elf_l_addr() -> u64;
 extern fn get_netd_elf_addr() -> u64;
+extern fn get_echo_server_elf_addr() -> u64;
 extern fn get_kernel_event_loop_addr() -> u64;
 extern fn bench_suite_run();
 extern fn init_syscall_msrs();
@@ -274,6 +274,14 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     // Userspace integration tests — spawn user programs, let scheduler run them
     serial.print("[test] Spawning userspace programs...\n");
 
+    // Spawn echo_server daemon (post-scheduler, runs alongside user programs)
+    let es_elf = get_echo_server_elf_addr();
+    let slot_es = exec_spawn_process(es_elf, kernel_pml4);
+    process_set_state(slot_es, PROC_RUNNING);
+    serial.print("[test] echo_server daemon spawned (slot=");
+    serial.print_u64(slot_es);
+    serial.print(")\n");
+
     // Spawn all user programs for integration testing
     let slot_user = spawn_and_run(0, get_user_elf_d_addr(), kernel_pml4);   // grit
     spawn_and_run(1, get_user_elf_e_addr(), kernel_pml4);                    // echo
@@ -282,8 +290,7 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     spawn_and_run(4, get_user_elf_i_addr(), kernel_pml4);                    // uptime
     spawn_and_run(5, get_user_elf_j_addr(), kernel_pml4);                    // ping
     spawn_and_run(6, get_user_elf_k_addr(), kernel_pml4);                    // fetch
-    spawn_and_run(7, get_user_elf_l_addr(), kernel_pml4);                    // echo_server
-    serial.print("[test] spawned 8 user programs\n");
+    serial.print("[test] spawned 7 user programs\n");
 
     process_set_current(slot_user);
     process_set_state(slot_user, PROC_RUNNING);
