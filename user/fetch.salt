@@ -41,13 +41,25 @@ pub fn main() {
     let sent = syscall.tcp_send(conn, &req as u64, 53);
     stdio.print("fetch: sent ");
     stdio.print_u64(sent);
-    stdio.print(" bytes\n");
+    stdio.print(" bytes, waiting for response...\n");
+
+    // Yield a few times to let the kernel poll for the response
+    let mut _y: u64 = 0;
+    while _y < 10 {
+        syscall.sys_yield_thread();
+        _y = _y + 1;
+    }
 
     let mut rbuf: [u8; 256] = [0; 256];
     let total = syscall.tcp_recv(conn, &rbuf as u64, 256);
     stdio.print("fetch: recv returned ");
     stdio.print_u64(total);
     stdio.print("\n");
+    if total > 0 && total != 0xFFFFFFFFFFFFFFFF {
+        stdio.print("--- HTTP RESPONSE ---\n");
+        stdio.print_str(&rbuf as u64, total);
+        stdio.print("\n--- END ---\n");
+    }
 
     syscall.tcp_close(conn);
     stdio.print("fetch: done\n");

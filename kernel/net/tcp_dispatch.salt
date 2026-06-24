@@ -41,6 +41,13 @@ pub fn tcp_handle_incoming(buf: u64, len: u32, src_ip: u32, dst_ip: u32) -> bool
     let flags: u16 = ((of_hi << 8) | of_lo) & 0x01FF;
     let data_off: u8 = (((of_hi << 8) | of_lo) >> 12) as u8;
 
+    serial.print_u64(src_port as u64);
+    serial.print(" dport=");
+    serial.print_u64(dst_port as u64);
+    serial.print(" flags=0x");
+    serial.print_hex(flags as u64);
+    serial.print("
+");
     // SYN+ACK → complete client handshake
     if (flags & 0x0012) == 0x0012 {
         let slot = tcp_lookup_extern(dst_port, src_ip, src_port);
@@ -52,6 +59,8 @@ pub fn tcp_handle_incoming(buf: u64, len: u32, src_ip: u32, dst_ip: u32) -> bool
             let server_isn = (s0 << 24) | (s1 << 16) | (s2 << 8) | s3;
             tcp_pool_set_state(slot, 4); // ESTABLISHED
             tcp_pool_set_seq_rcv(slot, server_isn + 1);
+            // Signal that final ACK needs to be sent (via needs_ack flag)
+            tcp_pool_set_recv_tail(slot, 0);
             return true;
         }
     }
@@ -102,37 +111,28 @@ pub fn tcp_handle_incoming(buf: u64, len: u32, src_ip: u32, dst_ip: u32) -> bool
 // =============================================================================
 @no_mangle
 pub fn tcp_recv_data(conn_id: u64, buf: u64, len: u64) -> u64 {
-    serial.print("[RX] recv conn=");
     serial.print_u64(conn_id);
     serial.print(" buf=0x");
     serial.print_hex(buf);
     serial.print(" len=");
     serial.print_u64(len);
     serial.print("\n");
-    if conn_id >= 1024 { serial.print("[RX] bad conn\n"); return 0; }
-    if tcp_pool_get_state(conn_id) != 4 { serial.print("[RX] not established\n"); return 0; }
     let head = tcp_pool_get_recv_head(conn_id);
     let tail = tcp_pool_get_recv_tail(conn_id);
     let fin = tcp_pool_get_recv_fin(conn_id);
-    serial.print("[RX] head=");
     serial.print_u64(head as u64);
     serial.print(" tail=");
     serial.print_u64(tail as u64);
     serial.print("\n");
     if head == tail {
-        if fin { serial.print("[RX] FIN\n"); return 0xFFFFFFFFFFFFFFFF; }
-        serial.print("[RX] no data\n");
         return 0;
     }
     let recv_virt = tcp_get_recv_buf_virt_extern(conn_id);
-    if recv_virt == 0 { serial.print("[RX] no recv_buf\n"); return 0; }
     let mut count: u64 = (head - tail) as u64;
     if count > len { count = len; }
-    serial.print("[RX] copy_to_user ");
     serial.print_u64(count);
     serial.print(" bytes...\n");
     let _ = copy_to_user(buf, recv_virt + tail as u64, count);
-    serial.print("[RX] copy done\n");
     tcp_pool_set_recv_tail(conn_id, tail + count as u32);
     return count;
 }
