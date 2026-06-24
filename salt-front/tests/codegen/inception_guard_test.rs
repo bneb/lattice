@@ -9,7 +9,7 @@
 #[cfg(test)]
 mod tests {
     use salt_front::types::Type;
-    use salt_front::codegen::type_bridge::{flatten_inception_recursive, extract_ptr_inner};
+    use salt_front::codegen::type_bridge::{flatten_nested_ptr, extract_ptr_inner};
 
     // ============================================================================
     // Test: extract_ptr_inner helper
@@ -59,7 +59,7 @@ mod tests {
     }
     
     // ============================================================================
-    // Test: flatten_inception_recursive for Concrete types
+    // Test: flatten_nested_ptr for Concrete types
     // ============================================================================
     
     #[test]
@@ -69,7 +69,7 @@ mod tests {
         let inner = Type::Concrete("NodePtr".to_string(), vec![inner_inner.clone()]);
         let outer = Type::Concrete("NodePtr".to_string(), vec![inner]);
         
-        let result = flatten_inception_recursive(&outer, 0, "test");
+        let result = flatten_nested_ptr(&outer, 0, "test");
         
         // Should extract to the innermost non-pointer type
         assert_eq!(result, inner_inner, "NodePtr<NodePtr<T>> should flatten to T");
@@ -81,7 +81,7 @@ mod tests {
         let inner = Type::Struct("TrieNode".to_string());
         let outer = Type::Concrete("NodePtr".to_string(), vec![inner.clone()]);
         
-        let result = flatten_inception_recursive(&outer, 0, "test");
+        let result = flatten_nested_ptr(&outer, 0, "test");
         
         // Concrete<NodePtr, [TrieNode]> - inner is not a pointer, so no change
         // BUT the function returns the original outer since TrieNode is not k_is_ptr_type()
@@ -93,13 +93,13 @@ mod tests {
         // NodePtr<i32> should stay the same
         let outer = Type::Concrete("NodePtr".to_string(), vec![Type::I32]);
         
-        let result = flatten_inception_recursive(&outer, 0, "test");
+        let result = flatten_nested_ptr(&outer, 0, "test");
         
         assert_eq!(result, outer, "NodePtr<i32> should not change");
     }
     
     // ============================================================================
-    // Test: flatten_inception_recursive for Struct types
+    // Test: flatten_nested_ptr for Struct types
     // ============================================================================
     
     #[test]
@@ -107,7 +107,7 @@ mod tests {
         // Struct("NodePtr_TrieNode") should extract to Struct("TrieNode")
         let ty = Type::Struct("NodePtr_TrieNode".to_string());
         
-        let result = flatten_inception_recursive(&ty, 0, "test");
+        let result = flatten_nested_ptr(&ty, 0, "test");
         
         assert_eq!(result, Type::Struct("TrieNode".to_string()));
     }
@@ -117,7 +117,7 @@ mod tests {
         // Struct("NodePtr_NodePtr_TrieNode") should flatten recursively
         let ty = Type::Struct("NodePtr_NodePtr_TrieNode".to_string());
         
-        let result = flatten_inception_recursive(&ty, 0, "test");
+        let result = flatten_nested_ptr(&ty, 0, "test");
         
         // First extracts "NodePtr_TrieNode", then extracts "TrieNode"
         assert_eq!(result, Type::Struct("TrieNode".to_string()));
@@ -128,7 +128,7 @@ mod tests {
         // Regular structs should be unchanged
         let ty = Type::Struct("MyStruct".to_string());
         
-        let result = flatten_inception_recursive(&ty, 0, "test");
+        let result = flatten_nested_ptr(&ty, 0, "test");
         
         assert_eq!(result, ty);
     }
@@ -147,7 +147,7 @@ mod tests {
         }
         
         // Should not panic, and should return something
-        let _ = flatten_inception_recursive(&ty, 0, "depth_test");
+        let _ = flatten_nested_ptr(&ty, 0, "depth_test");
     }
     
     // ============================================================================
@@ -159,7 +159,7 @@ mod tests {
         // Concrete with empty args should be unchanged
         let ty = Type::Concrete("NodePtr".to_string(), vec![]);
         
-        let result = flatten_inception_recursive(&ty, 0, "test");
+        let result = flatten_nested_ptr(&ty, 0, "test");
         
         assert_eq!(result, ty);
     }
@@ -169,7 +169,7 @@ mod tests {
         // Non-pointer Concrete types should be unchanged
         let ty = Type::Concrete("Vec".to_string(), vec![Type::I32]);
         
-        let result = flatten_inception_recursive(&ty, 0, "test");
+        let result = flatten_nested_ptr(&ty, 0, "test");
         
         assert_eq!(result, ty);
     }
@@ -179,7 +179,7 @@ mod tests {
         // Primitives should be unchanged
         let ty = Type::I64;
         
-        let result = flatten_inception_recursive(&ty, 0, "test");
+        let result = flatten_nested_ptr(&ty, 0, "test");
         
         assert_eq!(result, ty);
     }
@@ -189,7 +189,7 @@ mod tests {
         // References should be unchanged (handled elsewhere)
         let ty = Type::Reference(Box::new(Type::I32), false);
         
-        let result = flatten_inception_recursive(&ty, 0, "test");
+        let result = flatten_nested_ptr(&ty, 0, "test");
         
         assert_eq!(result, ty);
     }
