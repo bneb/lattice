@@ -188,12 +188,36 @@ extern fn sys_ps(buf_ptr: u64) -> u64;
 extern fn sys_meminfo(buf_ptr: u64) -> u64;
 extern fn sys_uptime() -> u64;
 extern fn sys_ping(ip: u32) -> u64;
+extern fn sys_tcp_connect(ip: u32) -> u64;
+extern fn sys_tcp_send(conn: u64, buf: u64, len: u64) -> u64;
+extern fn sys_tcp_recv(conn: u64, buf: u64, len: u64) -> u64;
+extern fn sys_tcp_close(conn: u64);
 extern fn sys_http_get(ip: u32) -> u64;
 extern fn sys_getpid() -> u64;
 
 /// Send ICMP echo request, return RTT in ms or 0 on timeout.
 pub fn ping(ip: u32) -> u64 {
     return sys_ping(ip);
+}
+
+/// TCP active open. Returns conn_id (> 0) or 0 on failure.
+pub fn tcp_connect(ip: u32) -> u64 {
+    return sys_tcp_connect(ip);
+}
+
+/// TCP send data. Returns bytes sent or 0 on failure.
+pub fn tcp_send(conn: u64, buf: u64, len: u64) -> u64 {
+    return sys_tcp_send(conn, buf, len);
+}
+
+/// TCP receive data. Returns bytes read or 0xFFFFFFFFFFFFFFFF if FIN received.
+pub fn tcp_recv(conn: u64, buf: u64, len: u64) -> u64 {
+    return sys_tcp_recv(conn, buf, len);
+}
+
+/// TCP close connection.
+pub fn tcp_close(conn: u64) {
+    sys_tcp_close(conn);
 }
 
 /// TCP connect + HTTP GET to 10.0.2.2:80, returns bytes received.

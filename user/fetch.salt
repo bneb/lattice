@@ -1,5 +1,5 @@
 // =============================================================================
-// user/fetch.salt — HTTP GET Client via sys_http_get
+// user/fetch.salt — HTTP GET Client via TCP syscalls
 // =============================================================================
 
 package user.fetch
@@ -10,14 +10,63 @@ import user.std.stdio
 pub fn main() {
     // QEMU gateway IP = 10.0.2.2 = 0x0A000202
     let ip: u32 = 0x0A000202;
-    stdio.print("fetch: GET 10.0.2.2:80\n");
-    let result = syscall.http_get(ip);
-    if result > 0 {
-        stdio.print("fetch: response received (");
-        stdio.print_u64(result);
-        stdio.print(" bytes)\n");
-    } else {
-        stdio.print("fetch: request failed or timed out\n");
+    stdio.print("fetch: connecting to 10.0.2.2:80...\n");
+
+    let conn = syscall.tcp_connect(ip);
+    if conn == 0 {
+        stdio.print("fetch: connect failed\n");
+        syscall.exit(1);
+        return;
     }
+
+    stdio.print("fetch: connected (conn=");
+    stdio.print_u64(conn);
+    stdio.print("), sending HTTP GET...\n");
+
+    // Build HTTP GET request inline
+    let mut req: [u8; 64] = [0; 64];
+    req[0] = 0x47; req[1] = 0x45; req[2] = 0x54; req[3] = 0x20; // GET
+    req[4] = 0x2F; req[5] = 0x20; req[6] = 0x48; req[7] = 0x54; // / HT
+    req[8] = 0x54; req[9] = 0x50; req[10] = 0x2F; req[11] = 0x31; // TP/1
+    req[12] = 0x2E; req[13] = 0x31; req[14] = 0x0D; req[15] = 0x0A; // .1..
+    req[16] = 0x48; req[17] = 0x6F; req[18] = 0x73; req[19] = 0x74; // Host
+    req[20] = 0x3A; req[21] = 0x20; req[22] = 0x31; req[23] = 0x30; // : 10
+    req[24] = 0x2E; req[25] = 0x30; req[26] = 0x2E; req[27] = 0x32; // .0.2
+    req[28] = 0x2E; req[29] = 0x32; req[30] = 0x0D; req[31] = 0x0A; // .2..
+    req[32] = 0x43; req[33] = 0x6F; req[34] = 0x6E; req[35] = 0x6E; // Conn
+    req[36] = 0x65; req[37] = 0x63; req[38] = 0x74; req[39] = 0x69; // ecti
+    req[40] = 0x6F; req[41] = 0x6E; req[42] = 0x3A; req[43] = 0x20; // on:
+    req[44] = 0x63; req[45] = 0x6C; req[46] = 0x6F; req[47] = 0x73; // clos
+    req[48] = 0x65; req[49] = 0x0D; req[50] = 0x0A; req[51] = 0x0D; // e...
+    req[52] = 0x0A; // .
+
+    let req_len: u64 = 53;
+    let sent = syscall.tcp_send(conn, &req as u64, req_len);
+    if sent == 0 {
+        stdio.print("fetch: send failed\n");
+        syscall.tcp_close(conn);
+        syscall.exit(1);
+        return;
+    }
+
+    stdio.print("fetch: sent request, receiving...\n");
+
+    // Receive response
+    let mut rbuf: [u8; 512] = [0; 512];
+    let total = syscall.tcp_recv(conn, &rbuf as u64, 512);
+    if total == 0 {
+        stdio.print("fetch: no response (timeout?)\n");
+    } else if total == 0xFFFFFFFFFFFFFFFF {
+        stdio.print("fetch: connection closed by server\n");
+    } else {
+        stdio.print("fetch: received ");
+        stdio.print_u64(total);
+        stdio.print(" bytes:\n");
+        stdio.print_str(&rbuf as u64, total);
+        stdio.print("\n");
+    }
+
+    syscall.tcp_close(conn);
+    stdio.print("fetch: done\n");
     syscall.exit(0);
 }

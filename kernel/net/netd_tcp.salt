@@ -478,5 +478,20 @@ pub fn tcp_pool_set_seq_rcv(slot: u64, v: u32) { TCP_POOL[slot].seq_rcv = v; }
 pub fn tcp_pool_get_recv_buf_phys(slot: u64) -> u64 { return TCP_POOL[slot].recv_buf_phys; }
 
 @no_mangle
+pub fn tcp_pool_get_seq_snd(slot: u64) -> u32 { return TCP_POOL[slot].seq_snd; }
+
+@no_mangle
+pub fn tcp_pool_set_seq_snd(slot: u64, v: u32) { TCP_POOL[slot].seq_snd = v; }
+
+@no_mangle
+pub fn tcp_pool_get_local_port(slot: u64) -> u16 { return TCP_POOL[slot].local_port; }
+
+@no_mangle
+pub fn tcp_pool_get_remote_port(slot: u64) -> u16 { return TCP_POOL[slot].remote_port; }
+
+@no_mangle
+pub fn tcp_pool_get_remote_ip(slot: u64) -> u32 { return TCP_POOL[slot].remote_ip; }
+
+@no_mangle
 pub fn tcp_lookup_extern(lp: u16, rip: u32, rp: u16) -> u64 { return lookup(lp, rip, rp); }
 
