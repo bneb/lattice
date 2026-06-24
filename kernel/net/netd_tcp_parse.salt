@@ -212,3 +212,16 @@ pub fn tcp_checksum(tcp_buf: u64, tcp_hdr_len: u32, payload_len: u32,
     // 5. One's complement
     return ((sum ^ 0xFFFF) & 0xFFFF) as u16;
 }
+
+// @no_mangle wrappers for cross-package access
+@no_mangle
+pub fn tcp_build_extern(buf: u64, src_port: u16, dst_port: u16,
+                         seq: u32, ack: u32, flags: u16, window: u16) -> u32 {
+    return build_tcp(buf, src_port, dst_port, seq, ack, flags, window);
+}
+
+@no_mangle
+pub fn tcp_checksum_extern(tcp_buf: u64, hdr_len: u32, payload_len: u32,
+                            src_ip: u32, dst_ip: u32) -> u16 {
+    return tcp_checksum(tcp_buf, hdr_len, payload_len, src_ip, dst_ip);
+}

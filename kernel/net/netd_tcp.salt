@@ -421,12 +421,24 @@ pub fn tcp_get_recv_buf_virt(slot: u64) -> u64 {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Client-side TCP stubs — implemented in T2/T3
+// Client-side TCP stubs and @no_mangle wrappers
 // ═══════════════════════════════════════════════════════════════
 
 @no_mangle
-pub fn tcp_client_connect(dst_ip: u32, dst_port: u16) -> u64 {
-    return 0;  // stub
+pub fn tcp_alloc_client_extern(pid: u64, local_port: u16, remote_ip: u32,
+                                remote_port: u16) -> u64 {
+    return tcp_alloc_client(pid, local_port, remote_ip, remote_port);
+}
+
+@no_mangle
+pub fn tcp_free_extern(slot: u64) { free(slot); }
+
+@no_mangle
+pub fn tcp_get_state_extern(slot: u64) -> u8 { return get_state(slot); }
+
+@no_mangle
+pub fn tcp_get_recv_buf_virt_extern(slot: u64) -> u64 {
+    return tcp_get_recv_buf_virt(slot);
 }
 
 @no_mangle
