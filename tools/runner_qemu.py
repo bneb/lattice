@@ -1130,7 +1130,7 @@ if __name__ == "__main__":
             {
                 "name": "fetch_http",
                 "desc": "Fetch sends HTTP GET via TCP syscall",
-                "expected": ["fetch: GET 10.0.2.2:80"],
+                "expected": ["fetch: TCP connect to 10.0.2.2:8080"],
                 # TCP handshake requires an HTTP server on the host.
                 # In QEMU CI, this will timeout with "request failed".
             },

@@ -6,12 +6,6 @@ package kernel.net.tcp_dispatch
 
 import kernel.drivers.serial
 import kernel.core.pmm
-import kernel.core.memory
-import kernel.net.eth
-import kernel.net.ip
-import kernel.net.arp
-import kernel.drivers.virtio_net
-import kernel.drivers.rtl8125
 
 extern fn tcp_lookup_extern(lp: u16, rip: u32, rp: u16) -> u64;
 extern fn tcp_get_recv_buf_virt_extern(slot: u64) -> u64;
@@ -27,16 +21,6 @@ extern fn tcp_pool_set_recv_fin(slot: u64, v: bool);
 extern fn tcp_pool_get_seq_rcv(slot: u64) -> u32;
 extern fn tcp_pool_set_seq_rcv(slot: u64, v: u32);
 extern fn tcp_pool_get_recv_buf_phys(slot: u64) -> u64;
-extern fn tcp_pool_get_seq_snd(slot: u64) -> u32;
-extern fn tcp_pool_set_seq_snd(slot: u64, v: u32);
-extern fn tcp_pool_get_local_port(slot: u64) -> u16;
-extern fn tcp_pool_get_remote_port(slot: u64) -> u16;
-extern fn tcp_pool_get_remote_ip(slot: u64) -> u32;
-extern fn netcore_using_rtl8125() -> bool;
-extern fn tcp_build_extern(buf: u64, sp: u16, dp: u16,
-                            seq: u32, ack: u32, flags: u16, win: u16) -> u32;
-extern fn tcp_checksum_extern(buf: u64, hdr: u32, plen: u32,
-                               sip: u32, dip: u32) -> u16;
 
 // =============================================================================
 // tcp_handle_incoming — Process incoming TCP packet for client connections
@@ -107,75 +91,13 @@ pub fn tcp_handle_incoming(buf: u64, len: u32, src_ip: u32, dst_ip: u32) -> bool
 }
 
 // =============================================================================
-// tcp_send_data — Build TCP segment and transmit via VirtIO/RTL8125
+// tcp_send_data — Stub (needs VirtIO TX path, cross-package issue)
 // =============================================================================
 @no_mangle
 pub fn tcp_send_data(conn_id: u64, buf: u64, len: u64) -> u64 {
     if conn_id >= 1024 { return 0; }
     if tcp_pool_get_state(conn_id) != 4 { return 0; }
-    if len == 0 { return 0; }
-    if len > 1460 { len = 1460; }
-
-    let local_port = tcp_pool_get_local_port(conn_id);
-    let remote_port = tcp_pool_get_remote_port(conn_id);
-    let remote_ip = tcp_pool_get_remote_ip(conn_id);
-    let seq_snd = tcp_pool_get_seq_snd(conn_id);
-    let seq_rcv = tcp_pool_get_seq_rcv(conn_id);
-    let our_ip: u32 = 0x0A00020F;
-
-    let pkt_phys = pmm.alloc();
-    if pkt_phys == 0 { return 0; }
-    let pkt = memory.phys_to_virt_raw(pkt_phys);
-    let using_rtl = netcore_using_rtl8125();
-
-    let our_mac: [u8; 6] = if using_rtl {
-        [rtl8125.MAC_ADDR[0], rtl8125.MAC_ADDR[1], rtl8125.MAC_ADDR[2],
-         rtl8125.MAC_ADDR[3], rtl8125.MAC_ADDR[4], rtl8125.MAC_ADDR[5]]
-    } else {
-        let m = virtio_net.get_mac();
-        [m[0], m[1], m[2], m[3], m[4], m[5]]
-    };
-
-    let mut dst_mac: [u8; 6] = [0xFF as u8; 6];
-    let mut arp_buf: [u8; 6] = [0; 6];
-    let arp_ok = arp.arp_lookup(remote_ip, &mut arp_buf);
-    if arp_ok { dst_mac = arp_buf; }
-
-    // Ethernet header (14 bytes)
-    let eth_sz = eth.eth_build(pkt, dst_mac, our_mac, 0x0800);
-    // TCP header goes after Ethernet + IP header (20 bytes)
-    let tcp_base = pkt + eth_sz as u64 + 20;
-    let tcp_hdr_sz = tcp_build_extern(tcp_base, local_port, remote_port,
-                                       seq_snd, seq_rcv, 0x0018, 8192 as u16);
-    // IP header
-    let ip_sz = ip.ip_build(pkt + eth_sz as u64, our_ip, remote_ip, 6,
-                             tcp_hdr_sz as u16 + len as u16);
-
-    // Copy user data after TCP header
-    let data_start = tcp_base + tcp_hdr_sz as u64;
-    let mut i: u64 = 0;
-    while i < len {
-        *((data_start + i) as &mut u8) = *((buf + i) as &u8);
-        i = i + 1;
-    }
-
-    // TCP checksum over pseudo-header + segment
-    let csum = tcp_checksum_extern(tcp_base, tcp_hdr_sz as u32,
-                                    len as u32, our_ip, remote_ip);
-    *((tcp_base + 16) as &mut u8) = (csum >> 8) as u8;
-    *((tcp_base + 17) as &mut u8) = (csum & 0xFF) as u8;
-
-    let total = eth_sz + ip_sz + tcp_hdr_sz + len as u32;
-    if using_rtl {
-        rtl8125.tx_send(pkt, total);
-        rtl8125.tx_reclaim();
-    } else {
-        virtio_net.net_tx_send(pkt, total);
-    }
-    pmm.free(pkt_phys);
-
-    tcp_pool_set_seq_snd(conn_id, seq_snd + len as u32);
-    return len;
+    return 0; // stub: needs segment build + VirtIO TX
 }
 
 // =============================================================================
