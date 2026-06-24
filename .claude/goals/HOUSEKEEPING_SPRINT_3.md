@@ -18,7 +18,7 @@ stuff. Now each needs a full read to catch subtle contamination: comments
 that over-explain, first-person voice, redundant descriptions, comments that
 say what the code does rather than why.
 
-- **H3-001:** Deep-read type_bridge.rs (3258 lines) — was the most tagged
+- [x] **H3-001:** Deep-read type_bridge.rs (3019→2942 lines) — cleaned: dead code, 7 eprintln!, 10 bracket labels, orphaned separators
 - **H3-002:** Deep-read context.rs (4901 lines) — largest file, had disabled Z3 block
 - **H3-003:** Deep-read stmt.rs (3389 lines) — had V25.8/CONSTITUTIONAL GUARD
 - **H3-004:** Deep-read mod.rs (2793 lines) — had COUNCIL tags
