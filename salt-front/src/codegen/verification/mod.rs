@@ -93,7 +93,7 @@ impl VerificationEngine {
         let sym_ctx = SymbolicContext::new(ctx.z3_ctx);
 
         // 1. Translate Arguments to Z3 values
-        // We need to keep these alive for the duration of verification
+        // These must be kept alive for the duration of verification
         let mut call_vals_z3 = Vec::new();
         
         for arg_expr in arg_exprs {
@@ -112,8 +112,8 @@ impl VerificationEngine {
         }
 
         // 2. Prepare Substitution Map
-        // We create fresh constants for the parameters: "p0", "p1", etc.
-        // And we map them to the actual argument values.
+        // Fresh constants are created for the parameters: "p0", "p1", etc.
+        // And they are mapped to the actual argument values.
         
         let mut created_symbols = Vec::new(); // Owner of parameter symbols
         let mut dummy_locals = HashMap::new(); // For resolving parameter names in `requires` exprs
@@ -123,7 +123,7 @@ impl VerificationEngine {
                  let sym = crate::z3_shim::ast::Int::new_const(ctx.z3_ctx, p_name.clone());
                  created_symbols.push(sym);
                  
-                 // We use SSA kind which will trigger fallback in translate_to_z3 to mk_var,
+                 // SSA kind is used which triggers fallback in translate_to_z3 to mk_var,
                  // ensuring consistent name usage.
                  dummy_locals.insert(p_name.clone(), (Type::Unit, crate::codegen::context::LocalKind::SSA(p_name.clone())));
              }
@@ -145,7 +145,7 @@ impl VerificationEngine {
         // 3. Verify Each Clause
         for req in requires {
             // Unwrap Block: Grammar parses `requires { expr }` as Expr::Block
-            // We need to extract the inner expression for Z3 translation.
+            // The inner expression must be extracted for Z3 translation.
             let actual_req = if let syn::Expr::Block(block) = req {
                 if let Some(syn::Stmt::Expr(inner, _)) = block.block.stmts.first() {
                     inner
@@ -193,7 +193,7 @@ impl VerificationEngine {
                  // - If requirement is definitely true → PASS
                  // - If Z3 can't determine (uninterpreted functions) → PASS (conservative)
 
-                 // We check if the negation of the requirement is satisfiable.
+                 // The negation of the requirement is checked for satisfiability.
                  // If NOT(req) is UNSAT, then req is ALWAYS TRUE (proven).
                  let solver = crate::z3_shim::Solver::new(ctx.z3_ctx);
                  let mut solver_params = crate::z3_shim::Params::new(ctx.z3_ctx);

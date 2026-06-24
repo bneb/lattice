@@ -369,7 +369,7 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                  } else {
                      promote_numeric(ctx, out, &raw_idx_val, &raw_idx_ty, &Type::I64)?
                  };
-                                // Use LValueKind to determine if we need to load.
+                                // Use LValueKind to determine if a load is needed.
                   // If kind is Ptr or Local, base_ptr is an alloca containing the pointer - must load first.
                   // If kind is SSA, base_ptr IS the pointer value (no load needed).
                   // For Reference types, the SSA value IS the pointer - don't load!
@@ -436,7 +436,7 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
 fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, inner: &Type, shape: &[usize]) -> Result<(String, Type), String> {
 // Tensors are memref types (SSA values from memref.alloc)
                  // For SSA, base_ptr is already the memref value
-                 // For Ptr/Local, we would need memref.load from a ptr, but tensors should always be SSA
+                 // For Ptr/Local, a memref.load from a ptr would be needed, but tensors should always be SSA
                  let tensor_ptr = base_ptr.clone();
 
                  // Unwrap Paren: (i, j) may be wrapped in syn::Expr::Paren
@@ -469,8 +469,8 @@ fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprI
                          let mut v = Vec::new();
                          // Need the MLIR type of the tuple for extractvalue? 
                          // llvm.extractvalue takes the aggregate.
-                         // But we need the type of the aggregate logic.
-                         // Usually type is inferred or we pass the struct type.
+                         // But the type of the aggregate logic is needed.
+                         // Usually type is inferred or the struct type is passed.
                          // In MLIR llvm.extractvalue: `llvm.extractvalue %struct[0] : !llvm.struct<(...)>`
                          let tuple_mlir_ty = idx_ty.to_mlir_type(ctx)?;
                          
@@ -562,7 +562,7 @@ fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprI
                  let _ = (sym_ctx, all_safe); // Suppress unused warnings for now
 
                  // TENSOR LOAD : Use memref.load with multi-dimensional indices
-                 // Tensors are allocated as memref<DxMxT>, so we must use memref ops, not llvm.gep
+                 // Tensors are allocated as memref<DxMxT>, so memref ops must be used, not llvm.gep
                  
                  let elem_mlir = inner.to_mlir_storage_type(ctx)?;
                  
@@ -772,8 +772,8 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
              let info = crate::codegen::verification::ptr_bounds_verifier::PtrBoundsInfo::new(&func_name);
              
              // Extract loop invariant upper bounds or known local array sizes
-             // Note: In an advanced version we would query MallocTracker or loop invariants
-             // but for now, we rely on the Z3 context having the path conditions mapped.
+             // Note: An advanced version would query MallocTracker or loop invariants
+             // For now, the Z3 context has the path conditions mapped.
              let proof_result = crate::codegen::verification::ptr_bounds_verifier::verify_ptr_dynamic_index(ctx.z3_ctx, ctx.z3_solver, &info);
              
              match proof_result {
@@ -781,8 +781,8 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
                      *ctx.elided_checks += 1;
                  }
                  _ => {
-                     // Since Ptr<T> has no runtime length, we cannot emit a runtime bounds check.
-                     // Therefore, to enforce memory safety, we MUST reject unproven pointer indexing at compile time.
+                     // Since Ptr<T> has no runtime length, a runtime bounds check cannot be emitted.
+                     // Therefore, to enforce memory safety, unproven pointer indexing MUST be rejected at compile time.
                      if !ctx.config.no_verify && !*ctx.is_unsafe_block() {
                          return Err(format!("Unsafe pointer indexing in '{}': Z3 could not prove bounds safety for raw pointer indexing. You must provide explicit bounds constraints via @requires, loop invariants, or wrap the access in an unsafe block.", func_name));
                      }

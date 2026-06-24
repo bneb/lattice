@@ -122,7 +122,7 @@ impl MallocTracker {
             return Ok(());
         }
 
-        let (var, info) = self.active_allocs.iter().next().unwrap();
+        let (var, info) = self.active_allocs.iter().next().expect("verify called with non-empty active_allocs");
         Err(format!(
             "Memory Leak Detected: Allocation '{}' ({}) was neither freed nor returned.",
             var, info

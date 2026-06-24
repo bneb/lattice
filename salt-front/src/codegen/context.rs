@@ -1270,7 +1270,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                 // Check if this method belongs to the receiver's type.
                 // Keys may be registered with either short names (e.g. "Ptr_T__offset")
                 // or fully-qualified names (e.g. "std__core__ptr__Ptr__offset").
-                // We must check both the full prefix and the basename.
+                // Both the full prefix and the basename must be checked.
                 let matches_receiver = if let Some(ref prefix) = receiver_prefix {
                     if key.starts_with(prefix) {
                         true
@@ -2171,7 +2171,7 @@ impl<'a> CodegenContext<'a> {
         // Check for literal patterns
         if expr_trimmed.starts_with('"') || expr_trimmed.starts_with("&\"") {
             // String literal - use write_str
-            // We need to extract the length... for now fall back to write_str pattern
+            // The length needs to be extracted... for now fall back to write_str pattern
             return ("write_str".to_string(), format!("{}, strlen({})", expr, expr));
         }
         
@@ -2480,7 +2480,7 @@ impl<'a> CodegenContext<'a> {
     /// Phase 5: Identity-Based Struct Lookup by TypeID
     /// Resolves a TypeID to its physical StructInfo with zero string matching.
     /// 
-    /// This is the core of the suffix-based deduplication - we use the TypeID (structural hash)
+    /// This is the core of the suffix-based deduplication - the TypeID (structural hash) is used
     /// to directly locate the exact struct, bypassing all `ends_with()` heuristics.
     pub fn lookup_struct_by_id(&self, id: crate::codegen::types::TypeID) -> Option<crate::registry::StructInfo> {
         let registry = self.type_id_registry();
@@ -2499,7 +2499,7 @@ impl<'a> CodegenContext<'a> {
     /// Convenience method that extracts TypeID from a Type and looks up the StructInfo.
     /// 
     /// This is the primary entry point for field access hardening.
-    /// Instead of suffix matching, we compute the TypeID and do a direct lookup.
+    /// Instead of suffix matching, the TypeID is computed and a direct lookup is performed.
     pub fn lookup_struct_by_type(&self, ty: &crate::types::Type) -> Option<crate::registry::StructInfo> {
         // First, try to resolve via TypeID
         let canonical_name = ty.to_canonical_name();
@@ -2742,7 +2742,7 @@ impl<'a> CodegenContext<'a> {
                 
                 // Z3 Ownership Ledger: Register MOVE event
                 self.ownership_tracker.borrow_mut().mark_moved(
-                    value, // We track by value name in SSA
+                    value, // Tracks by value name in SSA
                     &self.z3_solver.borrow()
                 )?;
                 return Ok(());
@@ -2824,8 +2824,8 @@ impl<'a> CodegenContext<'a> {
     }
 
     /// Unified Pointer Peeling
-    /// Instead of checking Reference/Owned/NativePtr separately, we peel the 
-    /// first-class Type::Pointer variant.
+    /// Instead of checking Reference/Owned/NativePtr separately, the
+    /// first-class Type::Pointer variant is peeled.
     pub fn resolve_method(&self, receiver_ty: &Type, method_name: &str) -> Result<(SaltFn, Option<Type>, Vec<ImportDecl>), String> {
         let mut current_ty = receiver_ty.clone();
         let mut depth = 0;
@@ -2879,7 +2879,7 @@ impl<'a> CodegenContext<'a> {
 
     pub fn resolve_gep(
         &self,
-        out: &mut String, // Assuming we write to string buffer usually? Or do we return value?
+        out: &mut String, // Assumes writing to string buffer usually; or return value?
         // User snippet returned mlir::Value and used `self.builder`.
         // Current codegen writes to `out: &mut String`.
         // I will adapt to current style: return register name string.
@@ -2892,17 +2892,17 @@ impl<'a> CodegenContext<'a> {
         
         // 2. Resolve the MLIR struct type
         // logic to get mlir type string
-        // We can construct a dummy Type::Struct/Concrete from key to get mlir type string
+        // A dummy Type::Struct/Concrete can be constructed from the key to get the mlir type string
         let _dummy_ty = if let Some(args) = &key.specialization {
              Type::Concrete(key.mangle(), args.clone()) // This might be circular if mangle uses args?
              // Actually Type::Concrete expects "BaseName".
-             // We should reconstruct the Type from Key.
+             // The Type should be reconstructed from Key.
         } else {
              Type::Struct(key.mangle())
         };
         // Use TypeKey to reconstruct Type properly for to_mlir_type lookup?
         // Actually to_mlir_type uses registry lookup.
-        // We can just use the mangled name for the explicit struct type in GEP?
+        // The mangled name can be used for the explicit struct type in GEP?
         // LLVM GEP needs the type Pointee.
         
         let struct_mlir_ty = format!("!llvm.struct<\"{}\">", key.mangle());
@@ -2989,7 +2989,7 @@ impl<'a> CodegenContext<'a> {
         }
         let mut map = HashMap::new();
         // Iterate over struct_registry (keyed by TypeKey)
-        // We use info.name for the string map key (mangled name)
+        // info.name is used for the string map key (mangled name)
         for (_key, info) in self.struct_registry().iter() {
             // ...
             let n: String = info.name.clone();
@@ -3024,7 +3024,7 @@ impl<'a> CodegenContext<'a> {
              let fqn_base = if item.is_empty() { pkg } else { format!("{}__{}", pkg, item) };
              
              // 3. Construct the TypeKey
-             // We assume the first part of the FQN is the namespace path, 
+             // The first part of the FQN is assumed to be the namespace path,
              // and the last part is the template name.
              let parts: Vec<&str> = fqn_base.split("__").collect();
              let name = parts.last().unwrap_or(&"").to_string();
@@ -3141,7 +3141,7 @@ impl<'a> CodegenContext<'a> {
                      if def.fields.len() == 1 {
                          // Check if field is primitive (this is hard without mapping args, 
                          // but for now Ptr is the main target).
-                         // We can rely on k_is_ptr_type covering the Ptr case.
+                         // k_is_ptr_type covers the Ptr case.
                      }
                  }
         }
@@ -3460,7 +3460,7 @@ pub fn hydrate_specialization(&self, task: MonomorphizationTask) -> Result<(), S
              return Ok(());
          }
          
-         // If it starts with llvm., we assume it's an intrinsic that doesn't need explicit decl (or handled elsewhere)
+         // If it starts with llvm., it is assumed to be an intrinsic that doesn't need explicit decl (or handled elsewhere)
          if mangled_name.starts_with("llvm.") {
              return Ok(());
          }
@@ -3503,7 +3503,7 @@ pub fn hydrate_specialization(&self, task: MonomorphizationTask) -> Result<(), S
         
         // 2. Wildcard Import Expansion: Check `use X::*` imports
         // When import has no alias AND no group, it's a wildcard import from that module.
-        // We look up the query_name in that module's symbols from Registry.
+        // query_name is looked up in that module's symbols from Registry.
         if let Some(reg) = self.registry {
             for imp in self.imports().iter() {
                 // Wildcard import: has path, no alias, no group
@@ -3548,7 +3548,7 @@ pub fn hydrate_specialization(&self, task: MonomorphizationTask) -> Result<(), S
         }
         
         // 3. Fallback: Try current package prefix
-        // This handles cases where imports are missing but we are in the correct package context
+        // This handles cases where imports are missing but the correct package context applies
         let pkg_mangled = self.mangle_fn_name(mangled_name).to_string();
         if pkg_mangled != *mangled_name {
             if let Some(ty) = self.globals().get(&pkg_mangled) {
@@ -3693,7 +3693,7 @@ pub fn hydrate_specialization(&self, task: MonomorphizationTask) -> Result<(), S
         "salt_yield_check".to_string()
     }
 
-    /// Check if we are currently inside an affine.for context
+    /// Check if currently inside an affine.for context
     /// Used to decide whether to emit affine.load/store vs memref.load/store
     pub fn is_in_affine_context(&self) -> bool {
         *self.affine_depth() > 0
@@ -4076,8 +4076,8 @@ pub fn hydrate_specialization(&self, task: MonomorphizationTask) -> Result<(), S
         let scope_id = format!("@alias_scope_{}_{}", region_name, id);
         
         // This is a simplification. Real MLIR would need these in the metadata section.
-        // For now, we'll store them in CodegenContext to be emitted later if needed,
-        // or emit them as LLVM IR metadata if we were targeting LLVM directly.
+        // For now, store them in CodegenContext to be emitted later if needed,
+        // or emit them as LLVM IR metadata if targeting LLVM directly.
         // In MLIR, these are often dialect attributes.
         (scope_id, scope_domain)
     }

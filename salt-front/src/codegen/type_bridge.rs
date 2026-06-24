@@ -660,8 +660,8 @@ pub fn flatten_nested_ptr(ty: &Type, depth: usize, debug_ctx: &str) -> Type {
                 // Drill down to the innermost non-pointer type
                 return flatten_nested_ptr(&args[0], depth + 1, debug_ctx);
             }
-            // If it's a pointer but the inner is NOT a pointer, we stay as is
-            // EXCEPT if we are already in a recursion (depth > 0), in which case we strip this last layer too
+            // If it's a pointer but the inner is NOT a pointer, stay as is
+            // EXCEPT if already in a recursion (depth > 0), in which case this last layer is stripped too
             if depth > 0 { return args[0].clone(); }
             ty.clone()
         }
@@ -873,7 +873,7 @@ pub fn to_mlir_type(ctx: &mut LoweringContext, ty: &Type) -> Result<String, Stri
             };
             // Canonicalize Struct args before mangling.
             // to_canonical_name() has no context, so Struct("Node") mangles to "Node"
-            // producing Box_Node instead of Box_main__Node. We canonicalize here.
+            // producing Box_Node instead of Box_main__Node. Canonicalization is performed here.
             let canonical_args: Vec<Type> = args.iter().map(|t| canonicalize_struct_arg_t(ctx, t)).collect();
             let suffix = canonical_args.iter().map(|t| t.to_canonical_name()).collect::<Vec<_>>().join("_");
             let mangled = if args.is_empty() { full_base } else { format!("{}_{}", full_base, suffix) };
@@ -1365,7 +1365,7 @@ pub fn type_to_type_key(ty: &Type) -> TypeKey {
 /// Checks whether a concrete type satisfies a trait constraint.
 /// 
 /// This is called during generic instantiation when a type parameter has a bound:
-/// `fn foo<T: Formattable>(x: T)` - when T is replaced with i64, we verify i64: Formattable.
+/// `fn foo<T: Formattable>(x: T)` - when T is replaced with i64, i64: Formattable is verified.
 /// 
 /// Returns Ok(()) if the constraint is satisfied, Err with message if not.
 pub fn check_trait_constraint(
@@ -1379,7 +1379,7 @@ pub fn check_trait_constraint(
     // Check if the trait exists in the registry
     let trait_exists = ctx.trait_registry().get_trait(trait_name).is_some();
     if !trait_exists {
-        // If trait doesn't exist yet, we allow it (forward reference or external trait)
+        // If trait doesn't exist yet, it is allowed (forward reference or external trait)
         return Ok(());
     }
     
@@ -1868,7 +1868,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                 
                 // Method-level generics (e.g., mmap<T> on File struct)
                 // CRITICAL: func.generics.params includes BOTH impl-level and method-level params.
-                // We must only map method-level ones (skip struct_generic_count from func.generics).
+                // Only method-level ones must be mapped (skip struct_generic_count from func.generics).
                 if let Some(fn_generics) = &func.generics {
                     // Use the CALLER's self_ty for correct struct_generic_count
                     let struct_generic_count = self_ty.as_ref()
@@ -2131,7 +2131,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             // Restore Context
             *self.current_self_ty_mut() = old_self;
 
-            // Mark as Done (Remove from pending_set is optional if we check registry first, but good for cleanup)
+            // Mark as Done (Removing from pending_set is optional if registry is checked first, but good for cleanup)
             self.monomorphizer_mut().pending_set.remove(&task.mangled_name);
 
             // Emit the struct/enum definition into decl_out immediately after
@@ -2139,7 +2139,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             let full_ty = if task.is_enum { crate::types::Type::Enum(task.mangled_name.clone()) } else { crate::types::Type::Struct(task.mangled_name.clone()) };
             
             // Generate the full body definition string (e.g. !llvm.struct<"Vec_u8", (...)>)
-            // We use to_mlir_storage_type which triggers the registry lookup and body formatting.
+            // to_mlir_storage_type triggers the registry lookup and body formatting.
             if let Ok(mlir_def) = full_ty.to_mlir_storage_type(self) {
                 // Only hoist if the returned string contains a body definition (i.e. has fields or explicitly empty body).
                 // If it returns an opaque reference (e.g. !llvm.struct<"Foo">), it means it was already emitted elsewhere.
@@ -2194,7 +2194,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         args: &[Type],
     ) -> Result<StructInfo, String> {
         // 1. Transactional Read: Extract Template Data
-        // We clone generics and fields to free struct_templates for the next level of recursion.
+        // generics and fields are cloned to free struct_templates for the next level of recursion.
         let templates = self.struct_templates();
         let template = match templates.get(template_name) {
             Some(t) => t.clone(),
@@ -2499,9 +2499,9 @@ pub fn emit_const(ctx: &mut LoweringContext, _out: &mut String, c: &crate::gramm
              format!("{} : {}", f, suffix)
         }
         ConstValue::Bool(b) => format!("{} : i1", if b { 1 } else { 0 }),
-        // For complex consts (Structs/Arrays), we need recursive attribute printing.
+        // Complex consts (Structs/Arrays) need recursive attribute printing.
         // Current Evaluator might return Complex?
-        // If it's complex, we need a way to print it.
+        // If it's complex, a way to print it is needed.
         // MVP: Just support primitives or use zero-init if complex (incorrect, but safe fallback?)
         // Better: error if complex const emission not supported yet.
         _ => {
@@ -2528,7 +2528,7 @@ pub fn emit_const(ctx: &mut LoweringContext, _out: &mut String, c: &crate::gramm
              
              // Fallback to zero-init region for complex types (Structs/Arrays)
              // This is crucial for things like GLOBAL_ALLOC which resolve to Item::Const but are complex.
-             // We drop 'constant' to be safe for 'var' mapping.
+             // 'constant' is dropped to be safe for 'var' mapping.
              // Calculate mandatory alignment
              let alignment = match &ty {
                  Type::Array(_, len, _) if *len >= 16 => 64,  // Cache-line aligned for large arrays

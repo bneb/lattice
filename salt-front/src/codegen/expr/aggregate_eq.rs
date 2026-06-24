@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_nested_tuple_array_equality() {
-        let file: SaltFile = syn::parse_str("fn main() {}").unwrap();
+        let file: SaltFile = syn::parse_str("fn main() {}").expect("hardcoded fn main is valid SaltFile");
         let z3_cfg = crate::z3_shim::Config::new();
         let _z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let z3_cfg = crate::z3_shim::Config::new();
@@ -268,7 +268,7 @@ mod tests {
         let ty = Type::Tuple(vec![Type::I32, arr, inner_tuple]);
         
         let mut out = String::new();
-        let op: syn::BinOp = syn::parse_str("==").unwrap();
+        let op: syn::BinOp = syn::parse_str("==").expect("hardcoded == is valid BinOp");
         let res = ctx.with_lowering_ctx(|lctx| emit_aggregate_eq(lctx, &mut out, &op, "%lhs", "%rhs", &ty));
         
         assert!(res.is_ok());

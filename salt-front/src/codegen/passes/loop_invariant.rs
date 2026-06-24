@@ -215,13 +215,13 @@ mod tests {
 
     /// Helper: parse a pattern using Pat::parse_single
     fn parse_pat(s: &str) -> syn::Pat {
-        syn::parse::Parser::parse_str(syn::Pat::parse_single, s).unwrap()
+        syn::parse::Parser::parse_str(syn::Pat::parse_single, s).expect("test pattern is valid Rust syntax")
     }
 
     /// Helper: create a SaltFor from `for i in 0..10 { body }`
     fn make_for_range(var: &str, start: i64, end: i64) -> SaltFor {
         let pat = parse_pat(var);
-        let iter: syn::Expr = syn::parse_str(&format!("{}..{}", start, end)).unwrap();
+        let iter: syn::Expr = syn::parse_str(&format!("{}..{}", start, end)).expect("test expr is valid Rust syntax");
         SaltFor {
             pat,
             iter,
@@ -232,7 +232,7 @@ mod tests {
     /// Helper: create a SaltFor with variable end bound `for i in 0..n`
     fn make_for_range_var(var: &str, start: i64, end_var: &str) -> SaltFor {
         let pat = parse_pat(var);
-        let iter: syn::Expr = syn::parse_str(&format!("{}..{}", start, end_var)).unwrap();
+        let iter: syn::Expr = syn::parse_str(&format!("{}..{}", start, end_var)).expect("test expr is valid Rust syntax");
         SaltFor {
             pat,
             iter,
@@ -243,7 +243,7 @@ mod tests {
     #[test]
     fn test_extract_range_literal() {
         let for_stmt = make_for_range("i", 0, 10);
-        let inv = extract_range_invariant(&for_stmt).unwrap();
+        let inv = extract_range_invariant(&for_stmt).expect("known-good range yields invariants");
         assert_eq!(inv.var_name, "i");
         assert!(matches!(inv.start, RangeBound::Literal(0)));
         assert!(matches!(inv.end, RangeBound::Literal(10)));
@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn test_extract_range_variable_end() {
         let for_stmt = make_for_range_var("i", 0, "n");
-        let inv = extract_range_invariant(&for_stmt).unwrap();
+        let inv = extract_range_invariant(&for_stmt).expect("known-good range yields invariants");
         assert_eq!(inv.var_name, "i");
         assert!(matches!(inv.start, RangeBound::Literal(0)));
         assert!(matches!(&inv.end, RangeBound::Variable(name) if name == "n"));
@@ -268,7 +268,7 @@ mod tests {
         let solver = crate::z3_shim::Solver::new(&z3_ctx);
 
         let for_stmt = make_for_range("i", 0, 10);
-        let inv = extract_range_invariant(&for_stmt).unwrap();
+        let inv = extract_range_invariant(&for_stmt).expect("known-good range yields invariants");
         let analysis = LoopInvariantAnalysis { invariants: vec![inv] };
 
         let mut tracker = HashMap::new();
@@ -276,7 +276,7 @@ mod tests {
         assert_eq!(injected, 1);
 
         // Now try to prove that i >= 10 is impossible (should be UNSAT)
-        let i = tracker.get("i").unwrap();
+        let i = tracker.get("i").expect("loop var i was just inserted");
         let ten = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 10);
         let violation = i.ge(&ten);
         solver.assert(&violation);
@@ -293,7 +293,7 @@ mod tests {
         let solver = crate::z3_shim::Solver::new(&z3_ctx);
 
         let for_stmt = make_for_range_var("i", 0, "n");
-        let inv = extract_range_invariant(&for_stmt).unwrap();
+        let inv = extract_range_invariant(&for_stmt).expect("known-good range yields invariants");
         let analysis = LoopInvariantAnalysis { invariants: vec![inv] };
 
         let mut tracker = HashMap::new();
@@ -301,12 +301,12 @@ mod tests {
         assert_eq!(injected, 1);
 
         // Assert n > 0 (precondition)
-        let n = tracker.get("n").unwrap();
+        let n = tracker.get("n").expect("loop var n was just inserted");
         let zero = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 0);
         solver.assert(&n.gt(&zero));
 
         // Prove that i >= n is impossible (should be UNSAT)
-        let i = tracker.get("i").unwrap();
+        let i = tracker.get("i").expect("loop var i was just inserted");
         let violation = i.ge(n);
         solver.assert(&violation);
 
@@ -320,7 +320,7 @@ mod tests {
         let inner_for = make_for_range_var("j", 0, "i");
         let outer_for = SaltFor {
             pat: parse_pat("i"),
-            iter: syn::parse_str("0..10").unwrap(),
+            iter: syn::parse_str("0..10").expect("test expr is valid Rust syntax"),
             body: SaltBlock {
                 stmts: vec![Stmt::For(inner_for)],
             },
@@ -342,7 +342,7 @@ mod tests {
     fn test_non_range_for_returns_none() {
         // for item in some_iter() → no range invariant
         let pat = parse_pat("item");
-        let iter: syn::Expr = syn::parse_str("some_iter()").unwrap();
+        let iter: syn::Expr = syn::parse_str("some_iter()").expect("test expr is valid Rust syntax");
         let for_stmt = SaltFor {
             pat,
             iter,
@@ -361,14 +361,14 @@ mod tests {
     fn test_inclusive_range() {
         // for i in 0..=9 → i >= 0 && i <= 9
         let pat = parse_pat("i");
-        let iter: syn::Expr = syn::parse_str("0..=9").unwrap();
+        let iter: syn::Expr = syn::parse_str("0..=9").expect("test expr is valid Rust syntax");
         let for_stmt = SaltFor {
             pat,
             iter,
             body: SaltBlock { stmts: vec![] },
         };
 
-        let inv = extract_range_invariant(&for_stmt).unwrap();
+        let inv = extract_range_invariant(&for_stmt).expect("known-good range yields invariants");
         assert_eq!(inv.var_name, "i");
         assert!(matches!(inv.start, RangeBound::Literal(0)));
         assert!(matches!(inv.end, RangeBound::Literal(9)));
@@ -383,7 +383,7 @@ mod tests {
         let injected = inject_invariants_z3(&z3_ctx, &solver, &analysis, &mut tracker);
         assert_eq!(injected, 1);
 
-        let i = tracker.get("i").unwrap();
+        let i = tracker.get("i").expect("loop var i was just inserted");
         let ten = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 10);
         solver.assert(&i.ge(&ten));
         assert_eq!(solver.check(), crate::z3_shim::SatResult::Unsat,
@@ -394,14 +394,14 @@ mod tests {
     fn test_variable_to_variable_range() {
         // for i in a..b → i >= a && i < b
         let pat = parse_pat("i");
-        let iter: syn::Expr = syn::parse_str("a..b").unwrap();
+        let iter: syn::Expr = syn::parse_str("a..b").expect("test expr is valid Rust syntax");
         let for_stmt = SaltFor {
             pat,
             iter,
             body: SaltBlock { stmts: vec![] },
         };
 
-        let inv = extract_range_invariant(&for_stmt).unwrap();
+        let inv = extract_range_invariant(&for_stmt).expect("known-good range yields invariants");
         assert_eq!(inv.var_name, "i");
         assert!(matches!(&inv.start, RangeBound::Variable(name) if name == "a"));
         assert!(matches!(&inv.end, RangeBound::Variable(name) if name == "b"));
@@ -416,12 +416,12 @@ mod tests {
         assert_eq!(injected, 1);
 
         // Constrain a=2, b=8
-        let a = tracker.get("a").unwrap();
-        let b = tracker.get("b").unwrap();
+        let a = tracker.get("a").expect("loop var a was just inserted");
+        let b = tracker.get("b").expect("loop var b was just inserted");
         solver.assert(&a._eq(&crate::z3_shim::ast::Int::from_i64(&z3_ctx, 2)));
         solver.assert(&b._eq(&crate::z3_shim::ast::Int::from_i64(&z3_ctx, 8)));
 
-        let i = tracker.get("i").unwrap();
+        let i = tracker.get("i").expect("loop var i was just inserted");
         let violation = i.ge(b);
         solver.assert(&violation);
         assert_eq!(solver.check(), crate::z3_shim::SatResult::Unsat,
@@ -435,7 +435,7 @@ mod tests {
         // Our extract_bound only handles Lit and Path, so this returns None for start.
         // This test documents the current limitation.
         let pat = parse_pat("i");
-        let iter: syn::Expr = syn::parse_str("-5..5").unwrap();
+        let iter: syn::Expr = syn::parse_str("-5..5").expect("test expr is valid Rust syntax");
         let for_stmt = SaltFor {
             pat,
             iter,
@@ -446,7 +446,7 @@ mod tests {
         // Current limitation: negative literal start is not extracted (Expr::Unary)
         // The invariant should still be extracted with default start (0)
         // because extract_bound returns None → unwrap_or(Literal(0))
-        let inv = inv.unwrap();
+        let inv = inv.expect("negative start falls back to default 0");
         assert_eq!(inv.var_name, "i");
         // Start defaults to 0 because -5 is Expr::Unary(Neg), not Expr::Lit
         assert!(matches!(inv.start, RangeBound::Literal(0)),
@@ -458,7 +458,7 @@ mod tests {
     fn test_zero_iteration_range() {
         // for i in 5..5 → range is empty, but invariant still extracted: i >= 5 && i < 5
         let for_stmt = make_for_range("i", 5, 5);
-        let inv = extract_range_invariant(&for_stmt).unwrap();
+        let inv = extract_range_invariant(&for_stmt).expect("known-good range yields invariants");
         assert_eq!(inv.var_name, "i");
         assert!(matches!(inv.start, RangeBound::Literal(5)));
         assert!(matches!(inv.end, RangeBound::Literal(5)));
@@ -480,7 +480,7 @@ mod tests {
     fn test_large_range() {
         // for i in 0..1000000 → Z3 handles large bounds correctly
         let for_stmt = make_for_range("i", 0, 1_000_000);
-        let inv = extract_range_invariant(&for_stmt).unwrap();
+        let inv = extract_range_invariant(&for_stmt).expect("known-good range yields invariants");
 
         let z3_cfg = crate::z3_shim::Config::new();
         let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
@@ -490,7 +490,7 @@ mod tests {
         inject_invariants_z3(&z3_ctx, &solver, &analysis, &mut tracker);
 
         // Prove i >= 1000000 is UNSAT
-        let i = tracker.get("i").unwrap();
+        let i = tracker.get("i").expect("loop var i was just inserted");
         let million = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 1_000_000);
         solver.assert(&i.ge(&million));
         assert_eq!(solver.check(), crate::z3_shim::SatResult::Unsat,
@@ -513,7 +513,7 @@ mod tests {
 
         // Step 1: Create loop invariant for `for i in 0..256`
         let for_stmt = make_for_range("i", 0, 256);
-        let inv = extract_range_invariant(&for_stmt).unwrap();
+        let inv = extract_range_invariant(&for_stmt).expect("known-good range yields invariants");
         let analysis = LoopInvariantAnalysis { invariants: vec![inv] };
 
         // Step 2: Inject into Z3
@@ -543,7 +543,7 @@ mod tests {
         let inner_for = make_for_range("j", 0, 8);
         let outer_for = SaltFor {
             pat: parse_pat("i"),
-            iter: syn::parse_str("0..4").unwrap(),
+            iter: syn::parse_str("0..4").expect("test expr is valid Rust syntax"),
             body: SaltBlock {
                 stmts: vec![Stmt::For(inner_for)],
             },
@@ -562,8 +562,8 @@ mod tests {
         inject_invariants_z3(&z3_ctx, &solver, &analysis, &mut tracker);
 
         // Prove: i*8 + j < 32 is always true
-        let i = tracker.get("i").unwrap();
-        let j = tracker.get("j").unwrap();
+        let i = tracker.get("i").expect("loop var i was just inserted");
+        let j = tracker.get("j").expect("loop var j was just inserted");
         let eight = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 8);
         let thirty_two = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 32);
 

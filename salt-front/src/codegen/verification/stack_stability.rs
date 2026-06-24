@@ -87,7 +87,7 @@ pub fn verify_stack_stability() -> StackStabilityResult {
             StackStabilityResult::proven("Stack depth constant under MustTail: ∀n: depth(dispatch^n) = 1")
         }
         crate::z3_shim::SatResult::Sat => {
-            let model = solver.get_model().unwrap();
+            let model = solver.get_model().expect("Z3 returned Sat so model is available");
             let ce = format!("Counterexample: n={:?}, depth={:?}",
                 model.eval(&n, true),
                 model.eval(&depth_at_n_plus_1, true),

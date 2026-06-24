@@ -26,14 +26,14 @@ pub fn emit_if_expr(ctx: &mut LoweringContext, out: &mut String, if_expr: &syn::
     let then_block = format!("then_{}", ctx.next_id());
     let else_block = format!("else_{}", ctx.next_id());
 
-    // KeuOS Heuristic Removed. We must unify.
-    // To do this, we need to know types of branches.
-    // We can't emit alloc for result yet because we don't know the type.
-    // We will assume that if we are in a block that returns, we allocate result ptr?
+    // KeuOS Heuristic Removed. Unification is required.
+    // To do this, the types of branches must be known.
+    // Alloc cannot be emitted for result yet because the type is unknown.
+    // Assume that if the block is in a return context, allocate a result ptr?
     // Actually, MLIR supports block arguments. But Salt uses allocas.
-    // Since we can't know the type beforehand without analyzing the branches (which requires emitting them or a separate pass),
-    // and we want to emit into `out` linearly...
-    // We will use temporary buffers for branches to determine type.
+    // Since the type cannot be known beforehand without analyzing the branches (which requires emitting them or a separate pass),
+    // and the output must be emitted into `out` linearly...
+    // Temporary buffers are used for branches to determine type.
     
     let mut then_out = String::new();
     // Push branch condition as path constraint for Z3 postcondition verification
@@ -238,9 +238,9 @@ pub fn emit_match(ctx: &mut LoweringContext, out: &mut String, m: &syn::ExprMatc
 
     let merge_block = format!("match_merge_{}", ctx.next_id());
     
-    // We track target labels for each arm to emit blocks in order
+    // Target labels are tracked for each arm to emit blocks in order
     let mut arm_targets = Vec::new();
-    // We track explicit switch cases
+    // Explicit switch cases are tracked
     let mut switch_cases_map = Vec::new();
     // Default label (if Wild pattern exists)
     let mut explicit_default = None;

@@ -6,7 +6,7 @@
 //!
 //! ## The Solution: MethodKey with Parameter Signature Hash
 //!
-//! We extend the key to include a hash of the parameter types, enabling:
+//! The key is extended to include a hash of the parameter types, enabling:
 //! - `append_formatted(&mut self, val: i64)` → key: (Handler, "append_formatted", hash([i64]))
 //! - `append_formatted(&mut self, fmt: FormattedHex)` → key: (Handler, "append_formatted", hash([FormattedHex]))
 //!
@@ -31,7 +31,7 @@ pub struct MethodKey {
     /// The method name (e.g., "append_formatted")
     pub method_name: String,
     /// Hash of parameter types for overload disambiguation
-    /// We use a hash rather than the full signature for efficiency
+    /// A hash rather than the full signature is used for efficiency
     pub param_signature_hash: u64,
 }
 
@@ -398,7 +398,7 @@ impl TraitRegistry {
     }
     
     /// Find a method by matching receiver type name/mangle and method name.
-    /// Used for hydration where we don't have the exact TypeKey.
+    /// Used for hydration where the exact TypeKey is unavailable.
     pub fn find_method_by_name(
         &self,
         type_name: &str,

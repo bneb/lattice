@@ -18,7 +18,7 @@ pub struct MonomorphizationTask {
 }
 
 /// A specialized function definition ready for emission.
-/// This is what we store in the Closed Graph.
+/// This is stored in the Closed Graph.
 #[derive(Clone, Debug)]
 pub struct SpecializedFn {
     pub func: SaltFn,

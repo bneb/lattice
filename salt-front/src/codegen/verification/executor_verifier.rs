@@ -71,8 +71,8 @@ pub fn verify_index_wrap() -> ExecutorProofResult {
             ExecutorProofResult::proven("index_wrap: ∀b: b % 1024 ∈ [0, 1024)")
         }
         crate::z3_shim::SatResult::Sat => {
-            let model = solver.get_model().unwrap();
-            let b_val = model.eval(&b, true).unwrap();
+            let model = solver.get_model().expect("Z3 returned Sat so model is available");
+            let b_val = model.eval(&b, true).expect("Z3 model evaluates known constant b");
             ExecutorProofResult::failed(
                 "index_wrap",
                 format!("Counterexample: b = {}", b_val),
@@ -110,9 +110,9 @@ pub fn verify_empty_queue_returns_null() -> ExecutorProofResult {
             ExecutorProofResult::proven("empty_pop: ∀t,b: t > b ⟹ pop returns null")
         }
         crate::z3_shim::SatResult::Sat => {
-            let model = solver.get_model().unwrap();
-            let t_val = model.eval(&top, true).unwrap();
-            let b_val = model.eval(&bottom, true).unwrap();
+            let model = solver.get_model().expect("Z3 returned Sat so model is available");
+            let t_val = model.eval(&top, true).expect("Z3 model evaluates known constant top");
+            let b_val = model.eval(&bottom, true).expect("Z3 model evaluates known constant bottom");
             ExecutorProofResult::failed(
                 "empty_pop",
                 format!("Counterexample: top={}, bottom={}", t_val, b_val),
@@ -158,8 +158,8 @@ pub fn verify_cas_theft_safety() -> ExecutorProofResult {
             ExecutorProofResult::proven("cas_theft: CAS prevents double-steal")
         }
         crate::z3_shim::SatResult::Sat => {
-            let model = solver.get_model().unwrap();
-            let t_val = model.eval(&top_initial, true).unwrap();
+            let model = solver.get_model().expect("Z3 returned Sat so model is available");
+            let t_val = model.eval(&top_initial, true).expect("Z3 model evaluates known constant top_initial");
             ExecutorProofResult::failed(
                 "cas_theft",
                 format!("Counterexample: top_initial={} allows double steal", t_val),
@@ -444,9 +444,9 @@ pub fn verify_shutdown_integrity() -> ExecutorProofResult {
             )
         }
         crate::z3_shim::SatResult::Sat => {
-            let model = solver.get_model().unwrap();
-            let at_val = model.eval(&active_tasks, true).unwrap();
-            let mp_val = model.eval(&mailbox_pending, true).unwrap();
+            let model = solver.get_model().expect("Z3 returned Sat so model is available");
+            let at_val = model.eval(&active_tasks, true).expect("Z3 model evaluates known constant active_tasks");
+            let mp_val = model.eval(&mailbox_pending, true).expect("Z3 model evaluates known constant mailbox_pending");
             ExecutorProofResult::failed(
                 "shutdown_integrity",
                 format!("Counterexample: active_tasks={}, mailbox_pending={}", at_val, mp_val),

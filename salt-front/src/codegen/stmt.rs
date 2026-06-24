@@ -210,7 +210,7 @@ fn emit_affine_for(
     };
     
     // Check if this is a reduction loop (sum = sum + expr pattern)
-    // If so, we can emit iter_args for register-resident accumulation
+    // If so, iter_args can be emitted for register-resident accumulation
     if let Some(reduction_info) = detect_reduction_pattern(&f.body.stmts, local_vars) {
         return emit_affine_for_reduction(ctx, out, f, lb, ub, local_vars, &var_name, reduction_info);
     }
@@ -541,7 +541,7 @@ fn emit_affine_for_reduction(
     let result_ssa = format!("%reduction_result_{}", ctx.next_id());
     let iter_acc = format!("%iter_acc_{}", ctx.next_id());
     
-    // For alloca-based accumulators, we need to load the initial value first
+    // For alloca-based accumulators, the initial value must be loaded first
     let init_value_ssa = if reduction.is_alloca {
         let load_ssa = format!("%reduction_init_{}", ctx.next_id());
         out.push_str(&format!(
@@ -553,7 +553,7 @@ fn emit_affine_for_reduction(
         reduction.init_ssa.clone()
     };
     
-    // KeuOS Narrowing: Determine if we can use i32 for the body
+    // KeuOS Narrowing: Determine if i32 can be used for the body
     // scf.for requires index type for bounds
     let can_narrow = ub < 2_147_483_647 && lb >= 0;
     
@@ -754,7 +754,7 @@ fn emit_scf_for_runtime_reduction(
     };
     
     // Convert bounds to index type for scf.for (required by MLIR)
-    // Determine if we can narrow the IV to i32 inside the loop
+    // Determine if the IV can be narrowed to i32 inside the loop
     let can_narrow = matches!(start_ty, Type::I32 | Type::U32) && 
                      matches!(end_ty, Type::I32 | Type::U32);
     
@@ -790,7 +790,7 @@ fn emit_scf_for_runtime_reduction(
     let result_ssa = format!("%reduction_result_{}", ctx.next_id());
     let iter_acc = format!("%iter_acc_{}", ctx.next_id());
     
-    // For alloca-based accumulators, we need to load the initial value first
+    // For alloca-based accumulators, the initial value must be loaded first
     let init_value_ssa = if reduction.is_alloca {
         let load_ssa = format!("%reduction_init_{}", ctx.next_id());
         out.push_str(&format!(
@@ -1286,9 +1286,9 @@ fn hoist_allocas_in_block(ctx: &mut LoweringContext, stmts: &[Stmt], local_vars:
                             resolve_type(ctx, &crate::grammar::SynType::from_std(*pt.ty.clone()).map_err(|e| e.to_string())?)
                         } else if let Some(_init) = &local.init {
                             // HEURISTIC: Try to infer type from init expression ONLY if it's a simple literal or known variable.
-                            // In a real compiler, we'd do a full type inference pass.
-                            // For Salt, we prefer explicit types or well-behaved inference.
-                            // We'll let emit_stmt handle inferring and hoisting if we skip it here.
+                            // In a real compiler, a full type inference pass would be done.
+                            // Salt prefers explicit types or well-behaved inference.
+                            // emit_stmt handles inferring and hoisting if this is skipped here.
                             continue;
                         } else {
                             Type::I32
@@ -2013,8 +2013,8 @@ pub fn emit_pattern(
     local_vars: &mut HashMap<String, (Type, LocalKind)>,
 ) -> Result<(), String> {
     // Loop Induction Isolation
-    // If we are binding an induction variable (actual=Usize or integer), 
-    // we must NOT allow it to be 'magnetized' by a Pointer target.
+    // If binding an induction variable (actual=Usize or integer),
+    // it must NOT be allowed to be 'magnetized' by a Pointer target.
     // This prevents the "Usize to Pointer" contamination from loop bodies.
     let final_target = if (actual_ty == Type::Usize || actual_ty.is_integer()) && target_ty.k_is_ptr_type() {
         actual_ty.clone() // Use the actual type, not the magnetized Pointer target
@@ -2028,7 +2028,7 @@ pub fn emit_pattern(
             let val_prom = crate::codegen::type_bridge::promote_numeric(ctx, out, &val, &actual_ty, &final_target)?;
             let is_mut = id.mutability.is_some() || matches!(final_target, Type::Struct(_) | Type::Array(..) | Type::Owned(_));
 
-            // TENSOR SPECIAL CASE: Tensors (memrefs) are always SSA - we mutate their contents, not the value
+            // TENSOR SPECIAL CASE: Tensors (memrefs) are always SSA - their contents are mutated, not the value
             if matches!(target_ty, Type::Tensor(..)) {
                 local_vars.insert(name, (target_ty, LocalKind::SSA(val_prom)));
                 return Ok(());
@@ -2303,14 +2303,14 @@ pub fn emit_salt_if(
     // MERGE: Union of consumed vars, but filtered to outer scope
     // We only care about variables that existed BEFORE the if (in local_vars)
     // Local vars defined inside branches are out of scope, so their consumption status is irrelevant
-    // UNLESS we want to prevent reuse of names? No, reuse is fine if new definition.
+    // UNLESS preventing reuse of names? No, reuse is fine if new definition.
     
     // Safety: If a variable is consumed in ANY branch executed, it is consumed.
-    // Since we don't know which branch took, we must assume consumed if used in EITHER (for safety).
+    // Since the taken branch is unknown, consumption must be assumed if used in EITHER (for safety).
     // But logically, if I check `if x { move y } else { keep y }`. After: y is maybe moved.
     // Salt requires definitive move? Or partial move tracking?
     // For now, Union is safe (over-conservative).
-    // Filtering by `local_vars` ensures we don't leak inner names.
+    // Filtering by `local_vars` prevents leaking inner names.
     
     let mut final_consumed = state_before.clone();
     let mut final_locs = locs_before.clone();
@@ -2387,7 +2387,7 @@ pub fn emit_match(
         }
     }
     
-    // Track if any arm doesn't diverge (we need merge block)
+    // Track if any arm doesn't diverge (merge block needed)
     let mut any_non_diverging = false;
     
     // Emit chain of checks

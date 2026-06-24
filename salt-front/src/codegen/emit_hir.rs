@@ -626,7 +626,7 @@ mod tests {
         let result = emit_hir_stmt(&mut ctx, &mut out, &assume_stmt, 2);
 
         assert!(result.is_ok());
-        assert!(!result.unwrap(), "Assume should not be a terminator");
+        assert!(!result.expect("Assume stmt emission succeeded"), "Assume should not be a terminator");
         assert!(out.is_empty(), "Assume must emit zero bytes, got: '{}'", out);
     }
 
@@ -648,7 +648,7 @@ mod tests {
         let result = emit_hir_expr(&mut ctx, &mut out, &requires_expr, 2);
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "%unit");
+        assert_eq!(result.expect("Requires expr emission succeeded"), "%unit");
         assert!(out.is_empty(), "Requires must emit zero bytes, got: '{}'", out);
     }
 
@@ -739,7 +739,7 @@ mod tests {
         assert!(mlir.contains("[1] : !llvm.struct<(i32, i64)>"),
             "Missing insertvalue at [1] for payload in: {}", mlir);
         // Result register should be %poll_ready_*
-        assert!(result.unwrap().starts_with("%poll_ready_"),
+        assert!(result.expect("Poll::Ready emission succeeded").starts_with("%poll_ready_"),
             "Result should be a poll_ready register");
     }
 

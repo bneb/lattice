@@ -193,8 +193,8 @@ mod tests {
         // Simulate fstring_perf loop iteration
         verifier.register_mark("loop_mark");
         verifier.register_alloc("formatted_string");
-        verifier.register_use("formatted_string").unwrap(); // Use BEFORE reset
-        verifier.register_reset("loop_mark").unwrap();
+        verifier.register_use("formatted_string").expect("freshly allocated pointer is safe to use"); // Use BEFORE reset
+        verifier.register_reset("loop_mark").expect("registered mark is valid for reset");
 
         // Should pass - no use-after-free
         let result = verifier.verify_no_use_after_free();
@@ -212,8 +212,8 @@ mod tests {
             
             verifier.register_mark(&mark_id);
             verifier.register_alloc(&ptr_id);
-            verifier.register_use(&ptr_id).unwrap();
-            verifier.register_reset(&mark_id).unwrap();
+            verifier.register_use(&ptr_id).expect("ptr just allocated in this iteration");
+            verifier.register_reset(&mark_id).expect("mark registered this iteration");
         }
 
         let result = verifier.verify_no_use_after_free();
@@ -231,8 +231,8 @@ mod tests {
 
         verifier.register_mark("mark1");
         verifier.register_alloc("ptr1");
-        verifier.register_reset("mark1").unwrap();
-        verifier.register_use("ptr1").unwrap(); // USE AFTER RESET!
+        verifier.register_reset("mark1").expect("mark1 registered above");
+        verifier.register_use("ptr1").expect("ptr1 allocated before reset"); // USE AFTER RESET!
 
         let result = verifier.verify_no_use_after_free();
         assert!(result.is_err(), "Use-after-reset should be detected");
@@ -252,8 +252,8 @@ mod tests {
         verifier.register_mark("outer_mark");
         verifier.register_mark("inner_mark");
         verifier.register_alloc("inner_ptr");
-        verifier.register_reset("inner_mark").unwrap();
-        verifier.register_use("inner_ptr").unwrap(); // UAF - inner ptr invalid after inner reset
+        verifier.register_reset("inner_mark").expect("inner_mark registered above");
+        verifier.register_use("inner_ptr").expect("inner_ptr allocated before inner reset"); // UAF - inner ptr invalid after inner reset
 
         let result = verifier.verify_no_use_after_free();
         assert!(result.is_err(), "Inner ptr use after inner reset should fail");
@@ -268,8 +268,8 @@ mod tests {
         verifier.register_alloc("outer_ptr");  // Born at epoch 1
         verifier.register_mark("inner_mark");  // Epoch 2
         verifier.register_alloc("inner_ptr");  // Born at epoch 2
-        verifier.register_reset("inner_mark").unwrap(); // Invalidates epoch >= 2
-        verifier.register_use("outer_ptr").unwrap(); // outer_ptr.birth=1 < 2, SAFE!
+        verifier.register_reset("inner_mark").expect("inner_mark registered above"); // Invalidates epoch >= 2
+        verifier.register_use("outer_ptr").expect("outer_ptr.birth=1 < 2, SAFE!"); // outer_ptr.birth=1 < 2, SAFE!
 
         let result = verifier.verify_no_use_after_free();
         assert!(result.is_ok(), "Outer ptr should survive inner reset: {:?}", result);
@@ -302,10 +302,10 @@ mod tests {
             verifier.register_alloc(&formatted_id);
             
             // Use the formatted string (before reset)
-            verifier.register_use(&formatted_id).unwrap();
-            
+            verifier.register_use(&formatted_id).expect("formatted string used before reset");
+
             // arena::reset_to(__arena_mark);
-            verifier.register_reset(&mark_id).unwrap();
+            verifier.register_reset(&mark_id).expect("mark registered this iteration");
         }
 
         // This pattern is safe
@@ -325,7 +325,7 @@ mod tests {
 
         verifier.register_mark("mark1");
         verifier.register_alloc("unused_ptr");
-        verifier.register_reset("mark1").unwrap();
+        verifier.register_reset("mark1").expect("mark1 registered above");
         // No use - should be safe (no UAF to detect)
 
         let result = verifier.verify_no_use_after_free();

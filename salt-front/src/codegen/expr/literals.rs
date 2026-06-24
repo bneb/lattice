@@ -698,7 +698,7 @@ pub fn emit_array(ctx: &mut LoweringContext, out: &mut String, a: &syn::ExprArra
             elem_ty = ty;
         } else if ty != elem_ty {
              // Basic type unification: strict MLIR type equality.
-             // We do not silently promote to supertypes to maintain predictable bounds.
+             // Supertypes are not silently promoted to maintain predictable bounds.
              if ty.to_mlir_type(ctx)? != elem_ty.to_mlir_type(ctx)? {
                  return Err(format!("Array element type mismatch at index {}: expected {:?}, found {:?}", i, elem_ty, ty));
              }
@@ -866,8 +866,8 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
     let resolved_ty = raw_resolved_ty.substitute(ctx.current_type_map());
     
     // Check if this struct literal matches the current impl context
-    // If we're inside RawVec<T>::new() and the struct literal is RawVec { ... }, 
-    // we should apply the current generic arguments (T=u8) to produce RawVec_u8
+    // If inside RawVec<T>::new() and the struct literal is RawVec { ... },
+    // the current generic arguments (T=u8) are applied to produce RawVec_u8
     let resolved_ty_with_context = match &resolved_ty {
         Type::Struct(name) => {
             // Check if this struct has a template in the registry
@@ -956,10 +956,10 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
         // RawVec inside RawVec<T>::new() becomes RawVec_u8 when T=u8.
         let mlir_ty = resolved_ty_with_context.to_mlir_type(ctx)?;
 
-        // SCALAR OPTIMIZATION: If struct lowers to i64 (implied wrapper like Ptr or SlabCache), 
+        // SCALAR OPTIMIZATION: If struct lowers to i64 (implied wrapper like Ptr or SlabCache),
         // return the single field value directly.
         if mlir_ty == "i64" {
-             // We assume there is exactly one field populated (or we take the first/only one)
+             // Exactly one field is assumed to be populated (or the first/only one is taken)
              if let Some((val_expr, _)) = field_vals.values().next() {
                  return Ok((val_expr.clone(), struct_ty));
              } else {

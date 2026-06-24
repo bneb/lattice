@@ -524,13 +524,13 @@ mod tests {
 
     #[test]
     fn test_extract_literal_u64_integer() {
-        let expr: syn::Expr = syn::parse_str("42").unwrap();
+        let expr: syn::Expr = syn::parse_str("42").expect("hardcoded 42 is a valid expression");
         assert_eq!(extract_literal_u64(&expr), Some(42));
     }
 
     #[test]
     fn test_extract_literal_u64_non_literal() {
-        let expr: syn::Expr = syn::parse_str("n").unwrap();
+        let expr: syn::Expr = syn::parse_str("n").expect("hardcoded n is a valid expression");
         assert_eq!(extract_literal_u64(&expr), None);
     }
 
@@ -539,7 +539,7 @@ mod tests {
         // Build a SaltFor with iter = 0..100
         let for_stmt = SaltFor {
             pat: make_pat_ident("i"),
-            iter: syn::parse_str("0..100").unwrap(),
+            iter: syn::parse_str("0..100").expect("hardcoded 0..100 is a valid range expr"),
             body: SaltBlock { stmts: vec![] },
         };
         let config = YieldInjectionConfig::default();
@@ -553,7 +553,7 @@ mod tests {
         // Build a SaltFor with iter = 10..50 → should extract 40
         let for_stmt = SaltFor {
             pat: make_pat_ident("i"),
-            iter: syn::parse_str("10..50").unwrap(),
+            iter: syn::parse_str("10..50").expect("hardcoded 10..50 is a valid range expr"),
             body: SaltBlock { stmts: vec![] },
         };
         let config = YieldInjectionConfig::default();
@@ -567,7 +567,7 @@ mod tests {
         // Build a SaltFor with iter = 0..n (variable bound → None)
         let for_stmt = SaltFor {
             pat: make_pat_ident("i"),
-            iter: syn::parse_str("0..n").unwrap(),
+            iter: syn::parse_str("0..n").expect("hardcoded 0..n is a valid range expr"),
             body: SaltBlock { stmts: vec![] },
         };
         let config = YieldInjectionConfig::default();
@@ -598,7 +598,7 @@ mod tests {
         // Verify handle_for_loop propagates extracted bound into YieldPoint
         let for_stmt = SaltFor {
             pat: make_pat_ident("i"),
-            iter: syn::parse_str("0..100").unwrap(),
+            iter: syn::parse_str("0..100").expect("hardcoded 0..100 is a valid range expr"),
             body: SaltBlock { stmts: vec![] },
         };
         let config = YieldInjectionConfig::default();

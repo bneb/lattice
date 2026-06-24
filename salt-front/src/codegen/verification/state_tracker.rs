@@ -39,7 +39,7 @@ struct StateTransition {
 /// ## Design Principle: Deferred Assertion for Scope Safety
 /// - Z3 variables persist in HashMap (survive solver push/pop)
 /// - State transitions are RECORDED during execution
-/// - At verify_leak_free time, we assert ALL transitions at function-level scope
+/// - At verify_leak_free time, ALL transitions are asserted at function-level scope
 /// - This ensures Z3 sees the complete picture for path-sensitive analysis
 pub struct Z3StateTracker<'ctx> {
     ctx: &'ctx crate::z3_shim::Context,
@@ -125,13 +125,13 @@ impl<'ctx> Z3StateTracker<'ctx> {
 
 
     /// THE CORONER'S AUDIT: The Mathematical Proof
-    /// 
-    /// For each tracked resource, we check if it has a terminal transition (Released/Moved).
+    ///
+    /// For each tracked resource, check whether it has a terminal transition (Released/Moved).
     /// If any resource lacks a transition, it's a leak.
-    /// 
-    /// Note: We use the transitions Vec to verify, because Z3 assertions for
+    ///
+    /// Note: The transitions Vec is used for verification because Z3 assertions for
     /// "state = Owned" AND "state = Released" create a contradiction (UNSAT),
-    /// which would propagate globally. Instead we check the transition log.
+    /// which would propagate globally. Instead, the transition log is checked.
     pub fn verify_leak_free(&self, _solver: &crate::z3_shim::Solver<'ctx>) -> Result<(), String> {
         // For each tracked resource, verify it has a terminal transition
         for id in self.states.keys() {

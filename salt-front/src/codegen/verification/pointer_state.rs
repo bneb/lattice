@@ -289,7 +289,7 @@ mod tests {
         assert_eq!(tracker.get_state("p"), Some(PointerState::Valid));
 
         // Exit branch: restore outer scope
-        let saved = tracker.pop_scope().unwrap();
+        let saved = tracker.pop_scope().expect("scope was pushed earlier in test");
         tracker.states = saved; // restore
 
         // Outside the branch, p is still Optional
@@ -360,7 +360,7 @@ mod tests {
         assert_eq!(tracker.get_state("q"), Some(PointerState::Empty));
 
         // Pop: restore
-        let saved = tracker.pop_scope().unwrap();
+        let saved = tracker.pop_scope().expect("scope was pushed earlier in test");
         tracker.states = saved;
 
         assert_eq!(tracker.get_state("p"), Some(PointerState::Optional));

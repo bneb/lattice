@@ -330,20 +330,20 @@ mod tests {
 
     #[test]
     fn test_salt_type_to_msl_i32() {
-        let ty: SynType = syn::parse_str("i32").unwrap();
-        assert_eq!(salt_type_to_msl(&ty).unwrap(), "int");
+        let ty: SynType = syn::parse_str("i32").expect("hardcoded i32 type string is valid SynType");
+        assert_eq!(salt_type_to_msl(&ty).expect("salt_type_to_msl succeeds for i32"), "int");
     }
 
     #[test]
     fn test_salt_type_to_msl_f32() {
-        let ty: SynType = syn::parse_str("f32").unwrap();
-        assert_eq!(salt_type_to_msl(&ty).unwrap(), "float");
+        let ty: SynType = syn::parse_str("f32").expect("hardcoded f32 type string is valid SynType");
+        assert_eq!(salt_type_to_msl(&ty).expect("salt_type_to_msl succeeds for f32"), "float");
     }
 
     #[test]
     fn test_salt_type_to_msl_u32() {
-        let ty: SynType = syn::parse_str("u32").unwrap();
-        assert_eq!(salt_type_to_msl(&ty).unwrap(), "uint");
+        let ty: SynType = syn::parse_str("u32").expect("hardcoded u32 type string is valid SynType");
+        assert_eq!(salt_type_to_msl(&ty).expect("salt_type_to_msl succeeds for u32"), "uint");
     }
 }
 

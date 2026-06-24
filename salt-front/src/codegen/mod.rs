@@ -904,9 +904,9 @@ impl<'a> CodegenContext<'a> {
         // if ty.k_is_ptr_type() { return; } // Pointers break dependencies - REMOVED for Ptr struct info
         match ty {
             Type::Struct(name) | Type::Enum(name) => {
-                // Find Key from Mangled Name (Reverse Lookup or assume we can derive it?)
-                // Registry is keyed by TypeKey. We have the mangled name.
-                // We need to match it to a Key.
+                // Find Key from Mangled Name (Reverse Lookup or derive from mangled name?)
+                // Registry is keyed by TypeKey. The mangled name is available.
+                // The name must be matched to a Key.
                 // Only if it exists in struct_registry.
                 if let Some((k, _)) = self.struct_registry().iter().find(|(_, v)| v.name == *name) {
                     deps.push(k.clone());
@@ -916,11 +916,11 @@ impl<'a> CodegenContext<'a> {
             },
             Type::Concrete(_base, _params) => {
                  // Should be resolved to mangled name by now in storage type?
-                 // But here we are analyzing Type structure from registry which might store Concrete.
+                 // But here the analysis is on the Type structure from the registry which might store Concrete.
                  // Actually expand_template_structure stores Concrete types in fields?
                  // Most likely fields are resolved to Type::Struct(mangled) or Type::Concrete(resolved).
-                 // We need to find the registry entry.
-                 // For Concrete, we construct a key.
+                 // The registry entry must be found.
+                 // For Concrete, a key is constructed.
                  // (Simplified: rely on mangled name lookup)
                  if let Some((k, _)) = self.struct_registry().iter().find(|(k, _)| k.mangle() == ty.mangle_suffix()) {
                      deps.push(k.clone());
@@ -941,8 +941,8 @@ impl<'a> CodegenContext<'a> {
         if temp.contains(key) {
             // Cycle detected! Break cycle by emitting current.
             // In Salt, struct cycles must be via pointers.
-            // If we found a cycle via non-pointers, it's an Infinite Size type (compile error usually).
-            // We ignore for now and proceed.
+            // A cycle via non-pointers indicates an Infinite Size type (compile error usually).
+            // This is ignored; proceed.
             return;
         }
         
@@ -2162,7 +2162,7 @@ fn scan_expr_method_call(ctx: &CodegenContext, m: &syn::ExprMethodCall) -> Resul
                 if let Some((func_def, impl_ty, _imports)) = method_result
                 {
                      // Found generic impl or static method?
-                     // We need to request specialization if:
+                     // Specialization must be requested if:
                      // A. Receiver is specialized (recv_ty has args)
                      // B. Method has generics (method_generics not empty)
                      
@@ -2177,7 +2177,7 @@ fn scan_expr_method_call(ctx: &CodegenContext, m: &syn::ExprMethodCall) -> Resul
                      concrete_tys.extend(method_generics);
                      
                      // Check if method generics are fully satisfied by turbofish.
-                     // scan_expr cannot do argument inference. If inference is needed, we SKIP creating the task.
+                     // scan_expr cannot do argument inference. If inference is needed, skip creating the task.
                      // emit_method_call will create the correct task with inference later.
                      let method_generic_count = func_def.generics.as_ref().map(|g| g.params.len()).unwrap_or(0);
                      let turbofish_count = if let Some(t) = &m.turbofish { t.args.len() } else { 0 };
@@ -2207,7 +2207,7 @@ fn scan_expr_method_call(ctx: &CodegenContext, m: &syn::ExprMethodCall) -> Resul
                          
                          // Substitute generic placeholders in concrete_tys using current_type_map
                          // This fixes internal method calls inside with_capacity where recv_ty is Concrete(HashMap, [Struct(K), Struct(V)])
-                         // We need to convert [Struct(K), Struct(V)] → [I64, I64] using the active type_map
+                         // [Struct(K), Struct(V)] must be converted to [I64, I64] using the active type_map
                          let current_map = ctx.current_type_map().clone();
 
                          let substituted_tys: Vec<crate::types::Type> = concrete_tys.iter()

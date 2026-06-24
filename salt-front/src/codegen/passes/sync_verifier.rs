@@ -222,7 +222,7 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert!(!results[0].is_sync,
             "Blocking function should fail sync verification");
-        assert!(results[0].io_violation.as_ref().unwrap().contains("blocking"),
+        assert!(results[0].io_violation.as_ref().expect("expected io_violation to be Some for blocking fn").contains("blocking"),
             "Violation should mention blocking: {:?}", results[0].io_violation);
     }
 
@@ -243,9 +243,9 @@ mod tests {
         let mut verifier = SyncVerifier::new();
         let results = verifier.verify_with_call_graph(&file, &cg);
 
-        let handler_result = results.iter().find(|r| r.function_name == "handler").unwrap();
-        let process_result = results.iter().find(|r| r.function_name == "process").unwrap();
-        let doio_result = results.iter().find(|r| r.function_name == "do_io").unwrap();
+        let handler_result = results.iter().find(|r| r.function_name == "handler").expect("handler must be in results");
+        let process_result = results.iter().find(|r| r.function_name == "process").expect("process must be in results");
+        let doio_result = results.iter().find(|r| r.function_name == "do_io").expect("do_io must be in results");
 
         assert!(!handler_result.is_sync,
             "handler should fail: transitively calls blocking");

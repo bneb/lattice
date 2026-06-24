@@ -53,8 +53,8 @@ impl EntityRegistry {
         let mut hasher = DefaultHasher::new();
         template_name.hash(&mut hasher);
         for ty in concrete_types {
-            // Assuming Type implements Hash, otherwise we might need a custom hash helper
-            // If Type doesn't implement Hash, we might need to rely on its Debug string or similar.
+            // Assuming Type implements Hash, otherwise a custom hash helper is needed
+            // If Type doesn't implement Hash, a Debug string or similar must be used.
             // For now, let's assume standard Hash derive on Type or use to_string proxy.
             format!("{:?}", ty).hash(&mut hasher);
         }
@@ -85,13 +85,13 @@ impl EntityRegistry {
     
     // specialized helper for main/roots
     pub fn register_root(&mut self, name: &str) {
-        // Roots don't really have template types, but we treat them as empty
+        // Roots don't have template types, but are treated as empty
         let task = HydrationTask {
             template_name: name.to_string(),
             concrete_types: vec![],
             mangle_id: name.to_string(),
         };
-        // Avoid calculating hash for main if we want, or just be consistent
+        // Avoid calculating hash for main if hash calculation is unnecessary; be consistent
         let hash = Self::calculate_hash(name, &[]);
         if !self.identity_map.contains_key(&hash) {
             self.identity_map.insert(hash, name.to_string());

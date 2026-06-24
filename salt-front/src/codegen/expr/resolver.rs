@@ -474,7 +474,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         // 4. STRUCT-LEVEL GENERIC INFERENCE
         // For static methods on generic structs (e.g., Ptr::empty(), Ptr::from_addr()),
         // T is a struct-level generic, NOT a function-level generic.
-        // We infer it by unifying the template return type against expected_ret_ty.
+        // It is inferred by unifying the template return type against expected_ret_ty.
         if let Some(sty) = self_ty {
             // Extract unbound struct-level generic names from self_ty
             // e.g., Concrete("Ptr", [Generic("T")]) -> ["T"]
@@ -532,7 +532,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         };
 
         // Handle nested returns (e.g., -> Ptr<T> or -> Result<T, E>)
-        // We perform a "structural match" to find the generic usage position
+        // A "structural match" is performed to find the generic usage position.
         // This is effectively `unify_types` but extracting the other side.
         
 

@@ -399,7 +399,7 @@ impl CallGraphAnalyzer {
         queue.push_back(vec![start.to_string()]);
 
         while let Some(path) = queue.pop_front() {
-            let current = path.last().unwrap();
+            let current = path.last().expect("path always has start element");
             if visited.contains(current) {
                 continue;
             }
@@ -674,7 +674,7 @@ mod tests {
 
         let chain = analyzer.find_blocking_chain("root");
         assert!(chain.is_some());
-        let chain = chain.unwrap();
+        let chain = chain.expect("chain was verified Some above");
         assert_eq!(chain[0], "root");
         assert!(chain.len() >= 2, "Chain should trace through multiple hops");
     }
