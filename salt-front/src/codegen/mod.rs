@@ -168,9 +168,7 @@ use std::collections::{HashMap, HashSet};
             std::path::PathBuf::from("../../std"),
         ]);
         for imp in &file.get_use_namespaces() {
-            if let Err(e) = loader.load_module(imp, &mut loader_registry) {
-                eprintln!("Warning: Failed to load module '{}': {}", imp, e);
-            }
+            let _ = loader.load_module(imp, &mut loader_registry);
         }
         Ok((loader, loader_registry))
     }
@@ -254,48 +252,25 @@ use std::collections::{HashMap, HashSet};
         Ok(())
     }
 
-    fn run_call_graph_analysis(file: &SaltFile, release_mode: bool) -> passes::call_graph::CallGraphAnalyzer {
+    fn run_call_graph_analysis(file: &SaltFile, _release_mode: bool) -> passes::call_graph::CallGraphAnalyzer {
         use passes::call_graph::CallGraphAnalyzer;
         let mut cg = CallGraphAnalyzer::new();
-        let call_graph_analysis = cg.analyze(file);
+        let _call_graph_analysis = cg.analyze(file);
 
-        if !release_mode {
-            let blocking: Vec<&str> = call_graph_analysis.fn_attributes.iter()
-                .filter(|(_, a)| a.is_blocking)
-                .map(|(n, _)| n.as_str())
-                .collect();
-            if !blocking.is_empty() {
-                eprintln!("[KeuOS] Blocking functions detected: {:?}", blocking);
-            }
-        }
-
-        for v in &call_graph_analysis.violations {
-            eprintln!(
-                "[KeuOS] WARNING: @pulse function '{}' transitively calls blocking '{}'\n  chain: {}",
-                v.pulse_fn, v.blocking_fn, v.call_chain.join(" → ")
-            );
-        }
         cg
     }
 
-    fn run_pulse_analysis(ctx: &mut CodegenContext, file: &SaltFile, call_graph_analyzer: &passes::call_graph::CallGraphAnalyzer, release_mode: bool) {
+    fn run_pulse_analysis(ctx: &mut CodegenContext, file: &SaltFile, call_graph_analyzer: &passes::call_graph::CallGraphAnalyzer, _release_mode: bool) {
         use passes::pulse_injection::PulseInjectionContext;
         let mut pulse_ctx = PulseInjectionContext::new();
         pulse_ctx.analyze_with_call_graph(file, call_graph_analyzer);
-        
-        if !release_mode && !pulse_ctx.pulse_info.is_empty() {
-            eprintln!("[KeuOS] Found {} @pulse functions:", pulse_ctx.pulse_info.len());
-            for info in &pulse_ctx.pulse_info {
-                eprintln!("  - {} @ {}Hz (Tier {})", info.name, info.frequency_hz, info.tier);
-            }
-        }
         
         for info in pulse_ctx.pulse_info {
             ctx.register_pulse_function(&info.name, info.frequency_hz, info.tier);
         }
     }
 
-    fn run_liveness_analysis(ctx: &mut CodegenContext, file: &SaltFile, release_mode: bool) {
+    fn run_liveness_analysis(ctx: &mut CodegenContext, file: &SaltFile, _release_mode: bool) {
         use passes::liveness::CrossYieldAnalyzer;
 
         for item in &file.items {
@@ -304,12 +279,6 @@ use std::collections::{HashMap, HashSet};
                 let result = analyzer.analyze(func);
                 if result.needs_transform {
                     let name = func.name.to_string();
-                    if !release_mode {
-                        eprintln!(
-                            "[KeuOS] @yielding function '{}': {} yield points, {} frame members",
-                            name, result.yield_points.len(), result.frame_members.len()
-                        );
-                    }
                     ctx.register_liveness(name, result);
                 }
             }
@@ -617,7 +586,7 @@ impl<'a> CodegenContext<'a> {
         drop(string_lits);
     }
 
-    /// [FORMAL SHADOW] Verify all struct alignment constraints:
+    /// Verify all struct alignment constraints:
     ///   - @atomic fields: 16-byte alignment for cmpxchg16b
     ///   - @align(N) fields: N-byte alignment (cache-line isolation)
     ///   - @atomic structs: stride alignment (sizeof % 16 == 0)
@@ -677,7 +646,6 @@ impl<'a> CodegenContext<'a> {
 
         match solver.check() {
             crate::z3_shim::SatResult::Unsat => {
-                eprintln!("[Formal Shadow] Z3 PROVED: @atomic field '{}' in struct '{}' is 16-byte aligned at offset {} (z3_aligned)", f.name, s_name, byte_offset);
                 Ok(())
             }
             _ => Err(format!("[Formal Shadow] ALIGNMENT VIOLATION: @atomic field '{}' in struct '{}' is at byte offset {}, which is NOT 16-byte aligned. The Z3 SMT solver proved this layout violates the hardware alignment contract for cmpxchg16b. Fix: reorder fields or add padding so @atomic fields start at offsets that are multiples of 16.", f.name, s_name, byte_offset))
@@ -713,7 +681,6 @@ impl<'a> CodegenContext<'a> {
 
             match solver.check() {
                 crate::z3_shim::SatResult::Unsat => {
-                    eprintln!("[Formal Shadow] Z3 PROVED: @align({}) field '{}' in struct '{}' is {}-byte aligned at offset {} (z3_align_verified)", n, f.name, s_name, n, byte_offset);
                     let struct_id = crate::codegen::verification::proof_hint::struct_name_to_id(s_name);
                     let hint = crate::codegen::verification::proof_hint::hash_combine(struct_id, byte_offset as u64, n as u64);
                     self.proof_hints.borrow_mut().push((format!("{}_{}", s_name, f.name), hint));
@@ -743,7 +710,6 @@ impl<'a> CodegenContext<'a> {
 
         match solver.check() {
             crate::z3_shim::SatResult::Unsat => {
-                eprintln!("[Formal Shadow] Z3 PROVED: @atomic struct '{}' has size {} bytes, which is 16-byte stride-safe for cmpxchg16b arrays (z3_stride_aligned)", s_name, byte_offset);
                 Ok(())
             }
             _ => Err(format!("[Formal Shadow] STRIDE VIOLATION: @atomic struct '{}' has size {} bytes. {} % 16 != 0, so array elements would NOT be 16-byte aligned. The Z3 SMT solver proved this layout violates the hardware alignment contract for cmpxchg16b. Fix: ensure sizeof(@atomic struct) is a multiple of 16 bytes.", s_name, byte_offset, byte_offset))
@@ -787,7 +753,6 @@ impl<'a> CodegenContext<'a> {
 
         match solver.check() {
             crate::z3_shim::SatResult::Unsat => {
-                eprintln!("[Formal Shadow] Z3 PROVED: @packed struct '{}' has {} bytes with ZERO implicit padding (z3_packed_verified)", s_name, abi_total);
                 Ok(())
             }
             _ => Err(format!("[Formal Shadow] PACKED VIOLATION: @packed struct '{}' has implicit padding. ABI layout = {} bytes, but raw field sum = {} bytes ({} bytes of hidden padding). The Z3 SMT solver proved this layout violates the zero-padding contract. Fix: reorder fields or add explicit padding fields to eliminate gaps.", s_name, abi_total, unpadded_sum, abi_total - unpadded_sum))
@@ -846,7 +811,7 @@ impl<'a> CodegenContext<'a> {
     // finalize_module removed/merged into drive_codegen
 
     fn emit_structure_defs(&self, out: &mut String) {
-        // [KEY-EXTRACTION PATTERN] Clone registry data into owned collections
+        // Clone registry data into owned collections
         // to drop the RefCell Ref guards before calling resolve_mlir_storage_type,
         // which needs with_lowering_ctx → discovery.borrow_mut().
         let (struct_entries, enum_entries, all_keys) = {
@@ -885,7 +850,7 @@ impl<'a> CodegenContext<'a> {
         // 3. Emit in Sorted Order
         self.emit_sorted_type_defs(out, &sorted_keys, &struct_map, &enum_map);
 
-        // [SENTINEL] Always emit StringView type alias.
+        // Always emit StringView type alias.
         let sv_name = "std__core__str__StringView";
         let sv_already_emitted = struct_map.values().any(|info| info.name == sv_name);
         if !sv_already_emitted {
@@ -1942,7 +1907,6 @@ fn resolve_type_safe(ctx: &CodegenContext, ty: &crate::grammar::SynType) -> Type
 fn resolve_type_safe_struct(ctx: &CodegenContext, name: &str) -> Type {
     if name == "Self" {
         if let Some(self_ty) = ctx.current_self_ty().as_ref() { return self_ty.clone(); }
-        eprintln!("CRITICAL: Use of 'Self' outside of an implementation block");
         return Type::Concrete("Unknown_Self".to_string(), vec![]);
     }
     let segments: Vec<String> = name.split("::").map(|s| s.to_string()).collect();
@@ -1956,7 +1920,6 @@ fn resolve_type_safe_struct(ctx: &CodegenContext, name: &str) -> Type {
                 return Type::Struct(self_name.clone());
             }
         }
-        eprintln!("CRITICAL: resolve_type_safe failed to resolve '{}'. Imports: {:?}", name, ctx.imports().iter().map(|i| i.alias.as_ref().map(|a| a.to_string()).unwrap_or("?".to_string())).collect::<Vec<_>>());
         return Type::Concrete(format!("Unknown_{}", name), vec![]);
     };
     let _ = ctx.ensure_struct_exists(&resolved_name, &[]);
