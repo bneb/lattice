@@ -10,9 +10,8 @@
 use crate::grammar::pattern::Pattern;
 use crate::grammar::MatchArm;
 use crate::types::Type;
-use crate::codegen::context::{CodegenContext, LoweringContext};
+use crate::codegen::context::LoweringContext;
 use crate::registry::EnumInfo;
-use crate::z3_shim::ast::Ast;
 
 /// Result of exhaustiveness checking
 #[derive(Debug)]
@@ -139,141 +138,6 @@ fn matches_all(pattern: &Pattern) -> bool {
         Pattern::Ident { .. } => true, // Binding without destructuring matches all
         Pattern::Or(patterns) => patterns.iter().any(matches_all),
         _ => false,
-    }
-}
-
-/// Use Z3 to verify exhaustiveness (more sophisticated approach)
-/// This can handle complex patterns with guards
-#[allow(dead_code)]
-pub fn verify_exhaustiveness_z3<'a>(
-    ctx: &CodegenContext<'a>,
-    enum_info: &EnumInfo,
-    arms: &[MatchArm],
-) -> ExhaustivenessResult {
-    // Create a symbolic discriminant variable
-    let discrim = crate::z3_shim::ast::Int::new_const(ctx.z3_ctx, "discriminant");
-    
-    // Build constraint: discriminant must be one of the valid values
-    let valid_values: Vec<crate::z3_shim::ast::Int> = enum_info.variants.iter()
-        .map(|(_, _, tag)| crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, *tag as i64))
-        .collect();
-    
-    let valid_constraints: Vec<crate::z3_shim::ast::Bool> = valid_values.iter()
-        .map(|v| discrim._eq(v))
-        .collect();
-    
-    let valid_refs: Vec<&crate::z3_shim::ast::Bool> = valid_constraints.iter().collect();
-    let is_valid = crate::z3_shim::ast::Bool::or(ctx.z3_ctx, &valid_refs);
-    
-    // Build constraint: discriminant is NOT covered by any arm
-    let mut covered_constraints: Vec<crate::z3_shim::ast::Bool> = Vec::new();
-    
-    for arm in arms {
-        if let Some(constraint) = pattern_to_z3_constraint(ctx, &arm.pattern, &discrim, enum_info) {
-            covered_constraints.push(constraint);
-        } else {
-            // Wildcard or catch-all - covers everything
-            return ExhaustivenessResult::Exhaustive;
-        }
-    }
-    
-    if covered_constraints.is_empty() {
-        // No patterns - nothing is covered
-        let missing: Vec<String> = enum_info.variants.iter()
-            .map(|(name, _, _)| name.clone())
-            .collect();
-        return ExhaustivenessResult::MissingVariants(missing);
-    }
-    
-    let covered_refs: Vec<&crate::z3_shim::ast::Bool> = covered_constraints.iter().collect();
-    let is_covered = crate::z3_shim::ast::Bool::or(ctx.z3_ctx, &covered_refs);
-    
-    // Query: exists discriminant such that (is_valid AND NOT is_covered)?
-    let uncovered = crate::z3_shim::ast::Bool::and(ctx.z3_ctx, &[&is_valid, &is_covered.not()]);
-    
-    let solver = crate::z3_shim::Solver::new(ctx.z3_ctx);
-    let mut params = crate::z3_shim::Params::new(ctx.z3_ctx);
-    params.set_u32("timeout", 100);
-    solver.set_params(&params);
-    
-    solver.assert(&uncovered);
-    
-    match solver.check() {
-        crate::z3_shim::SatResult::Unsat => ExhaustivenessResult::Exhaustive,
-        crate::z3_shim::SatResult::Sat => {
-            // Find which variants are missing by checking the model
-            let model = solver.get_model();
-            if let Some(model) = model {
-                if let Some(val) = model.eval(&discrim, true) {
-                    // Find the variant with this discriminant
-                    if let Some(val_i64) = val.as_i64() {
-                        for (name, _, tag) in &enum_info.variants {
-                            if *tag as i64 == val_i64 {
-                                return ExhaustivenessResult::MissingVariants(vec![name.clone()]);
-                            }
-                        }
-                    }
-                }
-            }
-            // Fallback: compute missing via set difference
-            let covered_variants = extract_covered_variants(arms);
-            let missing: Vec<String> = enum_info.variants.iter()
-                .filter(|(name, _, _)| !covered_variants.contains(name))
-                .map(|(name, _, _)| name.clone())
-                .collect();
-            ExhaustivenessResult::MissingVariants(missing)
-        }
-        crate::z3_shim::SatResult::Unknown => {
-            ExhaustivenessResult::Unverifiable("Z3 timeout during exhaustiveness check".to_string())
-        }
-    }
-}
-
-/// Convert a pattern to a Z3 constraint on the discriminant
-fn pattern_to_z3_constraint<'a>(
-    ctx: &CodegenContext<'a>,
-    pattern: &Pattern,
-    discrim: &crate::z3_shim::ast::Int<'a>,
-    enum_info: &EnumInfo,
-) -> Option<crate::z3_shim::ast::Bool<'a>> {
-    match pattern {
-        Pattern::Wildcard | Pattern::Ident { .. } => {
-            // Matches everything
-            None
-        }
-        Pattern::Variant { path, .. } => {
-            // Extract variant name and find its discriminant
-            let variant_name = path.last().map(|id| id.to_string()).unwrap_or_default();
-            for (v_name, _, tag) in &enum_info.variants {
-                if *v_name == variant_name {
-                    let tag_val = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, *tag as i64);
-                    return Some(discrim._eq(&tag_val));
-                }
-            }
-            // Variant not found - this would be a type error, but return false constraint
-            Some(crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, false))
-        }
-        Pattern::Or(patterns) => {
-            let mut constraints: Vec<crate::z3_shim::ast::Bool> = Vec::new();
-            for p in patterns {
-                if let Some(c) = pattern_to_z3_constraint(ctx, p, discrim, enum_info) {
-                    constraints.push(c);
-                } else {
-                    // One of the or-branches is a wildcard
-                    return None;
-                }
-            }
-            if constraints.is_empty() {
-                None
-            } else {
-                let refs: Vec<&crate::z3_shim::ast::Bool> = constraints.iter().collect();
-                Some(crate::z3_shim::ast::Bool::or(ctx.z3_ctx, &refs))
-            }
-        }
-        _ => {
-            // Other patterns (Literal, Tuple, Struct) - assume they don't cover discriminants
-            Some(crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, false))
-        }
     }
 }
 

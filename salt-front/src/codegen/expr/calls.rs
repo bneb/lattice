@@ -1,8 +1,6 @@
 use crate::types::Type;
 use crate::codegen::context::{LoweringContext, LocalKind};
-use super::utils::*;
 use crate::codegen::type_bridge::*;
-use crate::common::mangling::Mangler;
 use super::resolver;
 use std::collections::HashMap;
 use super::emit_expr;
@@ -96,53 +94,6 @@ pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall,
              emit_function_call(ctx, out, c, local_vars, _expected, mangled_name, ret_ty, arg_tys, lazy_task)
         }
     }
-}
-
-#[allow(dead_code)]
-pub(crate) fn resolve_call_path(ctx: &mut LoweringContext, func_expr: &syn::Expr) -> Result<Option<(String, Vec<Type>)>, String> {
-     if let Some(segments) = get_path_from_expr(func_expr) {
-        let mut g_args: Vec<Type> = Vec::new();
-        if let syn::Expr::Path(p) = func_expr {
-             for seg in &p.path.segments {
-                if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
-                    for arg in &args.args {
-                        match arg {
-                            syn::GenericArgument::Type(ty) => {
-                                let syn_ty = crate::grammar::SynType::from_std(ty.clone()).map_err(|e| e.to_string())?;
-                                g_args.push(resolve_type(ctx, &syn_ty));
-                            }
-                            syn::GenericArgument::Const(expr) => {
-                                 if let Ok(crate::evaluator::ConstValue::Integer(val)) = ctx.evaluator.eval_expr(expr) {
-                                     g_args.push(crate::types::Type::Struct(val.to_string()));
-                                 } else {
-                                     g_args.push(crate::types::Type::Struct("0".to_string()));
-                                 }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-             }
-        }
-        
-        let name = if let Some((pkg, item)) = resolve_package_prefix_ctx(ctx, &segments) {
-             if item.is_empty() { pkg } else if pkg.is_empty() { item } else { format!("{}__{}", pkg, item) }
-        } else {
-             // Imports resolution fallback
-             if segments.len() >= 2 {
-                 // ... (Keep existing logic or rely on resolve_package_prefix being robust?)
-                 // resolve_package_prefix handles exact alias and tail match.
-                 // If it returned None, we join with __.
-                 Mangler::mangle(&segments)
-             } else {
-                 Mangler::mangle(&segments)
-             }
-        };
-        
-        Ok(Some((name, g_args)))
-     } else {
-         Ok(None)
-     }
 }
 
 pub fn emit_method_call(ctx: &mut LoweringContext, out: &mut String, m: &syn::ExprMethodCall, local_vars: &mut HashMap<String, (Type, LocalKind)>, expected_ty: Option<&Type>) -> Result<(String, Type), String> {

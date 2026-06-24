@@ -1092,68 +1092,6 @@ fn resolve_method_generics(
     Ok(())
 }
 
-
-
-#[allow(dead_code)]
-fn resolve_generic_signature(
-    ctx: &mut LoweringContext,
-    original_mangled: &str,
-    receiver_ty: &Type,
-    emitted_tys: &[Type],
-    expected_ty: Option<&Type>,
-) -> Option<(String, Type, Vec<Type>)> {
-    let func_data = ctx.generic_impls().get(original_mangled).map(|(func_def, _)| {
-        (func_def.generics.clone(), func_def.args.clone(), func_def.ret_type.clone())
-    });
-    
-    let (Some(generics), func_args, func_ret_type) = func_data? else { return None; };
-    if generics.params.is_empty() { return None; }
-
-    let generic_names: std::collections::HashSet<String> = generics.params.iter().map(|p| match p {
-        crate::grammar::GenericParam::Type { name, .. } => name.to_string(),
-        crate::grammar::GenericParam::Const { name, .. } => name.to_string(),
-    }).collect();
-    
-    let mut params: Vec<Type> = func_args.iter()
-         .filter_map(|arg| arg.ty.as_ref().and_then(|t| Type::from_syn_with_generics(t, &generic_names)))
-         .collect();
-    let mut args_for_infer = emitted_tys.to_vec();
-    
-    // Infer from Return Type expectation
-    if let Some(ret_def) = &func_ret_type {
-         if let Some(exp) = expected_ty {
-              if let Some(ret_ty_gen) = Type::from_syn_with_generics(ret_def, &generic_names) {
-                   params.push(ret_ty_gen);
-                   args_for_infer.push(exp.clone());
-              }
-         }
-    }
-
-    let concrete = crate::codegen::expr::infer_generics(&params, &args_for_infer, &generics);
-    let mangled = ctx.request_specialization(original_mangled, concrete.clone(), Some(receiver_ty.clone()));
-
-    // Substitute generics in return type and args locally
-    let mut subst_map = std::collections::BTreeMap::new();
-    for (i, param) in generics.params.iter().enumerate() {
-        if let crate::grammar::GenericParam::Type { name, .. } = param {
-             if let Some(c) = concrete.get(i) {
-                  subst_map.insert(name.to_string(), c.clone());
-             }
-        }
-    }
-
-    let ret_ty_base = if let Some(rt) = &func_ret_type {
-        Type::from_syn_with_generics(rt, &generic_names).unwrap_or(Type::Unit)
-    } else { Type::Unit };
-    let ret_ty_subst = ret_ty_base.substitute(&subst_map);
-
-    let args_subst = func_args.iter().filter_map(|arg| {
-         arg.ty.as_ref().and_then(|t| Type::from_syn_with_generics(t, &generic_names)).map(|t| t.substitute(&subst_map))
-    }).collect::<Vec<_>>();
-    
-    Some((mangled, ret_ty_subst, args_subst))
-}
-
 fn resolve_typed_method_signature(
     ctx: &mut LoweringContext,
     receiver_ty: &Type,

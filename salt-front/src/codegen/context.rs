@@ -2862,41 +2862,6 @@ impl<'a> CodegenContext<'a> {
         Err(format!("Method '{}' not found for type '{}' (peeled depth: {})", method_name, receiver_ty.mangle_suffix(), depth))
     }
 
-    #[allow(dead_code)]
-    fn find_template_base(&self, name: &str) -> Option<String> {
-        // 1. Check Registry Metadata
-        if let Some(info) = self.struct_registry().values().find(|i| i.name == name) {
-            if let Some(tn) = &info.template_name { return Some(tn.clone()); }
-        }
-        if let Some(info) = self.enum_registry().values().find(|i| i.name == name) {
-            if let Some(tn) = &info.template_name { return Some(tn.clone()); }
-        }
-
-        // 2. Suffix Heuristic (Deep Search)
-        // Check Struct Templates
-        {
-            let templates = self.struct_templates();
-            for t_name in templates.keys() {
-                if name.starts_with(t_name) && name.len() > t_name.len()
-                    && name.chars().nth(t_name.len()) == Some('_') {
-                        return Some(t_name.clone()); 
-                    }
-            }
-        }
-        // Check Enum Templates
-        {
-            let templates = self.enum_templates();
-            for t_name in templates.keys() {
-                if name.starts_with(t_name) && name.len() > t_name.len()
-                    && name.chars().nth(t_name.len()) == Some('_') {
-                        return Some(t_name.clone());
-                    }
-            }
-        }
-        
-        None
-    }
-
     /// Resolves a field name to its stable MLIR index for GEP operations.
     pub fn get_field_index(&self, key: &TypeKey, field_name: &str) -> Result<usize, String> {
         let registry = self.struct_registry();
