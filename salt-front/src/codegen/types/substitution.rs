@@ -2,8 +2,8 @@ use crate::types::Type;
 use crate::codegen::context::LoweringContext;
 
 /// Recursively substitute generic placeholders using current_type_map.
-/// This is the "Secret of $i64$" - when HashMap<i64, i64> looks at Entry<K, V>,
-/// this function transforms it to Entry<i64, i64> by consulting the active type context.
+/// When HashMap<i64, i64> references Entry<K, V>, this function consults the
+/// active type context to produce Entry<i64, i64>.
 pub fn substitute_generics(type_map: &std::collections::BTreeMap<String, Type>, ty: &Type) -> Type {
     match ty {
         // Generics stored as Struct names (parser artifact) — check type_map
