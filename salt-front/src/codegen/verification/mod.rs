@@ -289,12 +289,10 @@ impl VerificationEngine {
                          return Err(failure.format_error());
                      }
                      crate::z3_shim::SatResult::Unsat => {
-                         eprintln!("DEBUG VERIFY: result UNSAT (proven)");
                          // The negation CANNOT be satisfied → the requirement is PROVEN!
                          *ctx.elided_checks += 1;
                      }
                      crate::z3_shim::SatResult::Unknown => {
-                         eprintln!("DEBUG VERIFY: result UNKNOWN (pass)");
                          // Z3 can't determine → conservative PASS
                          *ctx.elided_checks += 1;
                      }
@@ -315,7 +313,6 @@ impl VerificationEngine {
         params: &[String],
         arg_exprs: &[syn::Expr],
     ) {
-        eprintln!("[DEBUG] Applying postconditions for {}", ensures.len());
         for ens in ensures {
             let actual_ens = if let syn::Expr::Block(block) = ens {
                 if let Some(syn::Stmt::Expr(inner, _)) = block.block.stmts.first() {
@@ -334,32 +331,27 @@ impl VerificationEngine {
                     "".to_string()
                 };
 
-                eprintln!("[DEBUG] apply_postconditions: func_name={}", func_name);
 
                 if (func_name == "valid" || func_name == "freed") && call.args.len() == 1 {
                     // Check if it's `result`
                     if let syn::Expr::Path(p) = &call.args[0] {
                         let arg_name = p.path.get_ident().map(|i| i.to_string()).unwrap_or_default();
-                        eprintln!("[DEBUG] apply_postconditions: arg_name={}", arg_name);
                         if arg_name == "result" {
                             let state = if func_name == "valid" {
                                 crate::codegen::verification::PointerState::Valid
                             } else {
                                 crate::codegen::verification::PointerState::Freed
                             };
-                            eprintln!("[DEBUG] Marking result as {:?}", state);
                             *ctx.pending_pointer_state = Some(state);
                             continue;
                         }
 
                         // Otherwise find which parameter this corresponds to
                         let arg_idx = params.iter().position(|name| name == &arg_name);
-                        eprintln!("[DEBUG] apply_postconditions: param idx={:?}", arg_idx);
 
                         if let Some(idx) = arg_idx {
                             if let Some(arg_expr) = arg_exprs.get(idx) {
                                 if let Some(var_name) = crate::codegen::expr::extract_ident_name(arg_expr) {
-                                    eprintln!("[DEBUG] apply_postconditions: marking var {} as {}", var_name, func_name);
                                     if func_name == "valid" {
                                         ctx.pointer_tracker.mark_valid(&var_name);
                                     } else if func_name == "freed" {
@@ -526,7 +518,6 @@ impl VerificationEngine {
                             // PROVEN: No input can violate the postcondition
                             *ctx.elided_checks += 1;
                             verified = true;
-                            eprintln!("[Z3 POSTCONDITION] ✓ ensures verified for '{}' (UNSAT — proven)", fn_name);
                         }
                         crate::z3_shim::SatResult::Sat => {
                             // VIOLATION: Z3 found inputs that violate the postcondition
@@ -536,9 +527,6 @@ impl VerificationEngine {
                             // not a genuine violation. Defer to runtime assertion.
                             let return_uses_untracked = Self::expr_uses_untracked_local(return_expr, params);
                             if return_uses_untracked {
-                                // Incompleteness Gate: defer to runtime assertion
-                                eprintln!("[Z3 WARNING] Postcondition deferred to runtime assertion for '{}' \
-                                           (return expression uses untracked local variable)", fn_name);
                             } else {
                                 // Genuine violation: the return expression only uses tracked params/literals
                                 let model = solver.get_model();
@@ -567,7 +555,6 @@ impl VerificationEngine {
                         }
                         crate::z3_shim::SatResult::Unknown => {
                             // TIMEOUT: Z3 couldn't determine — deferred to runtime
-                            eprintln!("[Z3 WARNING] Complex proof deferred to runtime assertion ({}:ensures)", fn_name);
                         }
                     }
                     solver.pop(1);

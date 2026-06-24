@@ -243,13 +243,11 @@ impl<'a> CodegenContext<'a> {
             Some(m) => m,
             None => return,
         };
-        if let Err(e) = self.register_trait_impl(
+        let _ = self.register_trait_impl(
             target_mangled,
             trait_name.to_string(),
             pkg_prefix.trim_end_matches("__").to_string(),
-        ) {
-            eprintln!("Warning: {}", e);
-        }
+        );
     }
 
     fn scan_def_extern_fn(&self, e: &ExternFnDecl) -> Result<(), String> {
@@ -323,10 +321,6 @@ impl<'a> CodegenContext<'a> {
         if let Type::Array(inner, len, _) = ty {
             return Type::Array(inner.clone(), *len, true);
         }
-        eprintln!(
-            "Warning: @packed attribute ignored on non-array field '{}'",
-            f.name,
-        );
         ty.clone()
     }
 
@@ -453,11 +447,6 @@ fn z3_prove_atomic_alignment(
     solver.assert(&field_addr.modulo(&sixteen)._eq(&zero).not());
     match solver.check() {
         crate::z3_shim::SatResult::Unsat => {
-            eprintln!(
-                "[Formal Shadow] Z3 PROVED: @atomic field '{}' in struct '{}' \
-                 is 16-byte aligned at offset {} (z3_aligned)",
-                field_name, struct_name, byte_offset,
-            );
             Ok(())
         }
         _ => Err(format!(

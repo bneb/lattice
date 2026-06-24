@@ -96,8 +96,6 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
             if field.attributes.iter().any(|a| a.name == "packed") {
                  if let Type::Array(inner, len, _) = field_ty {
                       field_ty = Type::Array(inner, len, true);
-                 } else {
-                      eprintln!("Warning: @packed attribute ignored on non-array field '{}' in struct '{}'", field.name, template_name);
                  }
             }
             let align = crate::grammar::attr::extract_align(&field.attributes);

@@ -128,12 +128,8 @@ impl CrossYieldAnalyzer {
                 continue; // ZST pruning
             }
 
-            // DEBUG: Print lifetime info
-            eprintln!("[KeuOS Liveness Debug] Var {}: def={}, last_use={}, crosses_yield?", name, lifetime.def_position, lifetime.last_use_position);
-
             // Check if this variable crosses any yield point
             let crosses_yield = self.yield_points.iter().any(|yp| {
-                eprintln!("  - check vs yield at {}: def < yield? {}, last_use > yield? {}", yp.position, lifetime.def_position < yp.position, lifetime.last_use_position > yp.position);
                 lifetime.def_position < yp.position
                     && lifetime.last_use_position > yp.position
             });
@@ -257,15 +253,12 @@ impl CrossYieldAnalyzer {
 
     /// Record variable uses in an expression (updates last_use_position)
     fn record_uses_in_expr(&mut self, expr: &syn::Expr) {
-        // eprintln!("[KeuOS Liveness Debug] visiting expr: {:?}", expr);
         match expr {
             syn::Expr::Path(path) => {
                 if let Some(ident) = path.path.get_ident() {
                     let name = ident.to_string();
-                    eprintln!("[KeuOS Liveness Debug]    found path use: {}, pos={}", name, self.position);
                     if let Some(lt) = self.var_lifetimes.get_mut(&name) {
                         lt.last_use_position = self.position;
-                        eprintln!("[KeuOS Liveness Debug]      updated last_use to {}", self.position);
                     }
                 }
             }

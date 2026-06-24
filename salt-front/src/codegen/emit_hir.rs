@@ -914,12 +914,6 @@ mod tests {
         // ── Stage 2: MLIR Emission ────────────────────────────────────
         let mlir_output = emit_hir_items(&items).expect("emit_hir_items failed");
 
-        // Print for diagnostic visibility
-        eprintln!("=== MLIR Output ===");
-        for (i, line) in mlir_output.lines().enumerate() {
-            eprintln!("{:4}: {}", i + 1, line);
-        }
-        eprintln!("===================");
 
         // ── Stage 3: Structural Assertions ────────────────────────────
 

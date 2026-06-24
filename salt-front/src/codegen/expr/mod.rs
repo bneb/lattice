@@ -547,10 +547,6 @@ fn macro_fstring_append_expr(ctx: &mut LoweringContext, out: &mut String, tokens
             format!("{}.append_str({})", handler_name, expr_str)
         }
         Some(the_ty @ (Type::Struct(_) | Type::Concrete(_, _))) => {
-            let name = match the_ty {
-                Type::Struct(n) | Type::Concrete(n, _) => n.clone(),
-                _ => unreachable!(),
-            };
             let type_key = crate::codegen::type_bridge::type_to_type_key(the_ty);
             if ctx.trait_registry().contains_method(&type_key, "fmt") {
                 let fmt_id = ctx.next_id();
@@ -563,7 +559,6 @@ fn macro_fstring_append_expr(ctx: &mut LoweringContext, out: &mut String, tokens
                     handler = handler_name
                 )
             } else {
-                eprintln!("WARNING: Struct '{}' has no fmt() method in f-string", name);
                 format!("{}.append_i32({})", handler_name, expr_str)
             }
         }

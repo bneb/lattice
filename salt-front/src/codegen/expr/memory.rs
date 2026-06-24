@@ -724,7 +724,6 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
     }
 
     // Fallback R-Value (Handles basic pointers and arrays)
-    eprintln!("EMIT_INDEX_FALLBACK_RVALUE");
     let (base_val, base_ty) = emit_expr(ctx, out, &i.expr, local_vars, None)?;
     let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I64))?;
     let idx_prom = promote_numeric(ctx, out, &idx_val, &idx_ty, &Type::I64)?;

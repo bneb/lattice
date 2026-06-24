@@ -56,8 +56,6 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         
         if let Some((func, s_ty, imports)) = found {
             self.prepare_and_enqueue_specialization(func_name, &mangled, func, concrete_tys, s_ty, imports, self_ty);
-        } else {
-             eprintln!("Error: Function '{}' not found for specialization.", func_name);
         }
         
         mangled
@@ -339,8 +337,6 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                              old_const_vals.push((pname.clone(), self.discovery.evaluator.set_const(&pname, ConstValue::Integer(val))));
                          }
                     }
-                } else {
-                    eprintln!("WARNING: Missing generic argument for {} in template {}", pname, template_name);
                 }
             }
         }

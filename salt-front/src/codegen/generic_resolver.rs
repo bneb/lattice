@@ -576,10 +576,6 @@ pub fn unify_types(
                     // explicit binding is authoritative.
                     // A genuine type confusion will be caught downstream by the
                     // type checker during argument emission.
-                    eprintln!(
-                        "[GENERIC WARNING] Type parameter '{}' bound to {:?} but argument has type {:?}",
-                        name, existing, concrete
-                    );
                 }
             } else {
                 map.insert(name.clone(), concrete.clone());
