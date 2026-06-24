@@ -455,7 +455,7 @@ mod tests {
     }
 
     // =========================================================================
-    // [CODE RED] Adversarial Diagnostic Tests
+    // Adversarial Diagnostic Tests
     // =========================================================================
     //
     // The Code Red suite verifies that the Z3 Formal Shadow is a RIGOROUS

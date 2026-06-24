@@ -111,15 +111,15 @@ pub struct EmissionState {
     /// Maps local variable names to their element types for Buffer<T>
     pub provenance_map: ProvenanceMap,
     
-    /// [PILLAR 1] Origin-Aware Hoisting: Maps SSA values to source variables
+    /// Origin-Aware Hoisting: Maps SSA values to source variables
     /// Enables Buffer pinning even when struct is loaded into SSA register
     pub origin_map: OriginMap,
     
-    /// [PILLAR 2] Global Value Pinning (LVN): Caches global loads in a block
+    /// Global Value Pinning (LVN): Caches global loads in a block
     /// Eliminates redundant addressof + load for globals like COUNTER
     pub global_lvn: GlobalLVN,
     
-    /// [SSA PROMOTION] Ephemeral Pointer Registry
+    /// Ephemeral Pointer Registry
     /// SSA values that ARE pointers but lack Type::Reference wrapper.
     /// Used by reinterpret_cast to avoid spilling pointer values to stack.
     /// Example: `let p = reinterpret_cast::<&Pixel>(addr)` → p is kept in register
@@ -144,11 +144,11 @@ pub struct EmissionState {
     /// Flag indicating alias preamble has been emitted
     pub alias_preamble_emitted: bool,
     
-    /// [v0.9.2] Path condition stack for Z3 postcondition verification.
+    /// Path condition stack for Z3 postcondition verification.
     /// Tracks the branch conditions that are known to hold at the current code point.
     /// Pushed when entering if-then (condition) or if-else (negated condition),
     /// popped when leaving the branch.
-    /// [v0.9.3] Function-level @trusted flag.
+    /// Function-level @trusted flag.
     /// When true, bounds verification for raw pointer indexing is skipped.
     pub in_trusted_fn: bool,
     /// Tier 3 Temporal Safety: Function-level @dynamic_check flag.

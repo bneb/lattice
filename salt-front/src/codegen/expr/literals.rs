@@ -876,7 +876,7 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
             if template_name.is_some() && !ctx.current_type_map().is_empty() {
                 let full_name = template_name.clone().expect("Template name must exist");
                 let _has_template = ctx.struct_templates().contains_key(&full_name);
-                // [ORDERING FIX] Build args in template's declared generic parameter order,
+                // Build args in template's declared generic parameter order,
                 // NOT HashMap::values() order which is non-deterministic.
                 // Without this, Vec<T, A> with {T: I64, A: HeapAllocator} could produce
                 // [HeapAllocator, I64] instead of [I64, HeapAllocator].
@@ -893,7 +893,7 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
         // Handle Concrete types with empty args in specialized method context
         // If we have Concrete(RawVec, []) inside RawVec<T>::new() with T=u8, produce Concrete(RawVec, [u8])
         Type::Concrete(base, args) if args.is_empty() && !ctx.current_type_map().is_empty() => {
-            // [ORDERING FIX] Build args in template's declared generic parameter order,
+            // Build args in template's declared generic parameter order,
             // NOT HashMap::values() order which is non-deterministic.
             let type_map_args: Vec<Type> = infer_struct_generics(ctx, s, base, local_vars);
             Type::Concrete(base.clone(), type_map_args)
@@ -923,7 +923,7 @@ pub fn emit_struct(ctx: &mut LoweringContext, out: &mut String, s: &syn::ExprStr
     // Phase 5: Use centralized struct lookup
     let info_opt = ctx.find_struct_by_name(&mangled_name);
     if let Some(info) = info_opt {
-        // [GENERIC SCOPE FIX] Temporarily swap type_map to include the struct's own
+        // Temporarily swap type_map to include the struct's own
         // generic bindings during field emission. This prevents generic name collisions
         // when constructing a struct whose params shadow the enclosing scope
         // (e.g., Map<I,F,T> inside Filter<I,F>::map where I/F have different meanings).

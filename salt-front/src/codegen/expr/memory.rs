@@ -358,8 +358,8 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                      }
                  }
 
-                 // [DEBUG] Trace array-ref indexing path
-                 // [ZERO-TRUST INDEX EVALUATION] Pass None to sever Context Contamination
+                 // Trace array-ref indexing path
+                 // Pass None to sever Context Contamination
                  let idx_expr = &*i.index;
                  let (raw_idx_val, raw_idx_ty) = emit_expr(ctx, out, idx_expr, local_vars, None)?;
                  

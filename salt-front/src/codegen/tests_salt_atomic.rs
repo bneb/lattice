@@ -388,7 +388,7 @@ mod tests {
     //   atomic_add_i64, atomic_load_i64, atomic_store_i64
     // =========================================================================
 
-    /// [RED] spin_loop_hint() must emit x86 PAUSE via inline asm.
+    /// spin_loop_hint() must emit x86 PAUSE via inline asm.
     #[test]
     fn test_spin_loop_hint_emits_x86_pause() {
         let mlir = compile_to_mlir(r#"
@@ -406,7 +406,7 @@ mod tests {
         );
     }
 
-    /// [RED] PAUSE must be marked has_side_effects to prevent DCE.
+    /// PAUSE must be marked has_side_effects to prevent DCE.
     #[test]
     fn test_spin_loop_hint_has_side_effects() {
         let mlir = compile_to_mlir(r#"
@@ -424,7 +424,7 @@ mod tests {
         );
     }
 
-    /// [RED] PAUSE must use llvm.inline_asm, not func.call.
+    /// PAUSE must use llvm.inline_asm, not func.call.
     #[test]
     fn test_spin_loop_hint_uses_inline_asm_not_call() {
         let mlir = compile_to_mlir(r#"
@@ -446,7 +446,7 @@ mod tests {
         );
     }
 
-    /// [RED] cycle_counter() must emit llvm.intr.readcyclecounter.
+    /// cycle_counter() must emit llvm.intr.readcyclecounter.
     #[test]
     fn test_cycle_counter_emits_readcyclecounter() {
         let mlir = compile_to_mlir(r#"
@@ -464,7 +464,7 @@ mod tests {
         );
     }
 
-    /// [RED] cycle_counter() must return i64.
+    /// cycle_counter() must return i64.
     #[test]
     fn test_cycle_counter_returns_i64() {
         let mlir = compile_to_mlir(r#"
@@ -482,7 +482,7 @@ mod tests {
         );
     }
 
-    /// [RED] read_tls_deadline() must read from register x19.
+    /// read_tls_deadline() must read from register x19.
     #[test]
     fn test_read_tls_deadline_reads_x19() {
         let mlir = compile_to_mlir(r#"
@@ -500,7 +500,7 @@ mod tests {
         );
     }
 
-    /// [RED] atomic_add_i64 must emit llvm.atomicrmw.
+    /// atomic_add_i64 must emit llvm.atomicrmw.
     #[test]
     fn test_atomic_add_i64_emits_atomicrmw() {
         let mlir = compile_to_mlir(r#"
@@ -520,7 +520,7 @@ mod tests {
         );
     }
 
-    /// [RED] atomic_add_i64 must use SeqCst ordering (5).
+    /// atomic_add_i64 must use SeqCst ordering (5).
     #[test]
     fn test_atomic_add_i64_has_seqcst_ordering() {
         let mlir = compile_to_mlir(r#"
@@ -540,7 +540,7 @@ mod tests {
         );
     }
 
-    /// [RED] atomic_load_i64 must use Acquire ordering (4).
+    /// atomic_load_i64 must use Acquire ordering (4).
     #[test]
     fn test_atomic_load_uses_acquire_ordering() {
         let mlir = compile_to_mlir(r#"
@@ -560,7 +560,7 @@ mod tests {
         );
     }
 
-    /// [RED] atomic_store_i64 must use Release ordering (5).
+    /// atomic_store_i64 must use Release ordering (5).
     #[test]
     fn test_atomic_store_uses_release_ordering() {
         let mlir = compile_to_mlir(r#"
@@ -584,7 +584,7 @@ mod tests {
     // LAYER 8: [RED] Integration — Full Pattern Compositions
     // =========================================================================
 
-    /// [RED] CAS retry loop + PAUSE — all primitives must compose.
+    /// CAS retry loop + PAUSE — all primitives must compose.
     #[test]
     fn test_cas_retry_loop_with_pause_compiles() {
         let mlir = compile_to_mlir(r#"
@@ -603,7 +603,7 @@ mod tests {
         assert!(mlir.contains("asm_string = \"pause\""), "CAS loop must contain PAUSE hint");
     }
 
-    /// [RED] Treiber stack push pattern: load + CAS + PAUSE + cycle_counter.
+    /// Treiber stack push pattern: load + CAS + PAUSE + cycle_counter.
     #[test]
     fn test_treiber_push_pattern_compiles() {
         let mlir = compile_to_mlir(r#"

@@ -76,7 +76,7 @@ pub fn preprocess(source: &str) -> String {
             };
 
             
-            // [C++ STYLE GENERICS] Convert HashMap<i64, i64>::new() to HashMap::<i64, i64>::new()
+            // Convert HashMap<i64, i64>::new() to HashMap::<i64, i64>::new()
             // so that syn can parse it (syn requires turbofish in expression position)
             let line = convert_generic_call_syntax(&line);
             
@@ -102,11 +102,11 @@ pub fn preprocess(source: &str) -> String {
             // hex"DEADBEEF" -> __hex__!("DEADBEEF")
             let line = convert_prefixed_string_syntax(&line);
             
-            // [KEUOS] Convert postfix ~ (force-unwrap) to __force_unwrap__! macro
+            // Convert postfix ~ (force-unwrap) to __force_unwrap__! macro
             // val~ -> __force_unwrap__!(val)
             let line = convert_force_unwrap(&line);
             
-            // [CROSS-MODULE STRUCT] Convert module.StructName { ... } to module::StructName { ... }
+            // Convert module.StructName { ... } to module::StructName { ... }
             // so syn parses it as a struct literal, not field access + block.
             
             
@@ -590,7 +590,7 @@ fn convert_tensor_shape_syntax(line: &str) -> String {
             ) && !contents.trim().is_empty();
             
             if is_shape {
-                // [AUTO-RANK] Convert to __Shape_Rank_D1_D2...__ format
+                // Convert to __Shape_Rank_D1_D2...__ format
                 // The rank is automatically computed from the number of dimensions
                 let parts: Vec<&str> = contents.split(',')
                     .map(|s| s.trim())
@@ -946,7 +946,7 @@ fn convert_railway_operator(line: &str) -> String {
     result
 }
 
-/// [KEUOS] Convert postfix force-unwrap operator.
+/// Convert postfix force-unwrap operator.
 /// `expr~` -> `__force_unwrap__!(expr)` when ~ follows an expression-ending char.
 /// Prefix `~x` (bitwise NOT) is preserved unchanged.
 fn convert_force_unwrap(line: &str) -> String {
@@ -1224,7 +1224,7 @@ fn check_turbofish_syntax(source: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// [CROSS-MODULE STRUCT] Convert `module.StructName { ... }` to `module::StructName { ... }`
+/// Convert `module.StructName { ... }` to `module::StructName { ... }`
 /// so that syn parses it as a struct literal construction, not a field access + block.
 ///
 /// Detection heuristic: `ident.UpperCaseIdent` followed by ` {` or `{`.

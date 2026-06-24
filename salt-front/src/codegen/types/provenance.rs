@@ -88,7 +88,7 @@ impl OriginMap {
 // The first load is performed; subsequent reads in the SAME function reuse
 // the cached SSA value. Different functions get their own cache entries.
 //
-// [SSA SCOPE FIX] Uses composite key (FuncName, Symbol) to prevent 
+// Uses composite key (FuncName, Symbol) to prevent 
 // cross-function SSA value reuse. Each function resolves constants independently.
 
 /// Local Value Numbering cache for global variables.

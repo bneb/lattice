@@ -35,7 +35,7 @@ pub fn flatten_nested_ptr(ty: &Type, depth: usize, debug_ctx: &str) -> Type {
     }
 }
 
-/// [ZERO-TRUST] Layout Prover
+/// Layout Prover
 pub fn prove_layout_compatibility(struct_registry: &std::collections::HashMap<crate::types::TypeKey, crate::registry::StructInfo>, from: &Type, to: &Type) -> bool {
     if from == to { return true; }
     from.size_of(struct_registry) == to.size_of(struct_registry) && from.align_of(struct_registry) == to.align_of(struct_registry)

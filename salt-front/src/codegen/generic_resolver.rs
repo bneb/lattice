@@ -568,7 +568,7 @@ pub fn unify_types(
                     }
                 };
                 if !is_equivalent {
-                    // [SEC-03] Type consistency check: log a diagnostic warning when
+                    // Type consistency check: log a diagnostic warning when
                     // a generic parameter is bound to one type but a subsequent argument
                     // infers a different type. This catches genuine type confusion
                     // (e.g., swap(1, "hello") where T binds to Int then sees String)

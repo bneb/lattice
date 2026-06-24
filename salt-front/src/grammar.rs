@@ -299,7 +299,7 @@ impl Parse for SynType {
             return Ok(SynType::Reference(Box::new(inner), is_mut));
         }
 
-        // [CROSS-MODULE STRUCT] Intercept dotted module paths: module.StructName
+        // Intercept dotted module paths: module.StructName
         // Salt uses `.` as the module separator (not `::`), so `addr.PhysAddr`
         // in type position is parsed as a field access by syn::Type. We intercept
         // `Ident.Ident` and build a multi-segment SynPath.
@@ -413,7 +413,7 @@ impl SynType {
                  Ok(SynType::Reference(Box::new(inner), tr.mutability.is_some()))
              },
              syn::Type::BareFn(bf) => {
-                 // [KEUOS] First-class function pointer types
+                 // First-class function pointer types
                  let mut args = Vec::new();
                  for arg in &bf.inputs {
                      args.push(Self::from_std(arg.ty.clone())?);

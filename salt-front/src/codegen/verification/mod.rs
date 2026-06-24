@@ -565,7 +565,7 @@ impl VerificationEngine {
         Ok(verified)
     }
 
-    /// [v0.9.2] Check if a return expression uses local variables that aren't tracked
+    /// Check if a return expression uses local variables that aren't tracked
     /// as function parameters. Mutated locals like `acc` are unconstrained in Z3,
     /// leading to false SAT (violation) results.
     fn expr_uses_untracked_local(expr: &syn::Expr, params: &[String]) -> bool {

@@ -104,7 +104,7 @@ pub fn emit_method_call(ctx: &mut LoweringContext, out: &mut String, m: &syn::Ex
         super::mark_expression_escaped(ctx, arg_expr);
     }
 
-    // [OWNERSHIP TRACKING] When .free() or .drop() is called on a variable,
+    // When .free() or .drop() is called on a variable,
     // mark it as released in the Z3 ownership tracker so verify_leak_free passes.
     // Also remove from cleanup stack to prevent double-free in RAII cleanup.
     let method_name = m.method.to_string();
@@ -130,7 +130,7 @@ pub fn emit_method_call(ctx: &mut LoweringContext, out: &mut String, m: &syn::Ex
          return Ok(res);
     }
     
-    // [RECEIVER MEMOIZATION - CRITICAL FIX]
+
     // Emit the receiver expression EXACTLY ONCE at the top of emit_method_call.
     let (cached_receiver_val, cached_receiver_ty): (Option<String>, Type) = 
         if let syn::Expr::Path(p) = &*m.receiver {
@@ -666,7 +666,7 @@ fn emit_low_level_call(
     for (i, arg_expr) in args_vec.iter().enumerate() {
         super::mark_expression_escaped(ctx, arg_expr);
         
-        // [SALT MEMORY MODEL] Conservative Aliasing (Interprocedural Purity + Arena-Immunity)
+        // Conservative Aliasing (Interprocedural Purity + Arena-Immunity)
         let is_extern = ctx.external_decls().contains(mangled_name);
         if mangled_name != "free" && mangled_name != "drop"
             && (is_extern || ctx.config.freeing_functions.contains(mangled_name)) {

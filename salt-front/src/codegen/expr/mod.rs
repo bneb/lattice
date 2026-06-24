@@ -133,11 +133,11 @@ pub fn emit_expr(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, 
              }
 
             // 2. Global Lookup - ONLY for actual values, NOT function symbols
-            // [GLOBAL-LVN FIX] Skip function types - they should be handled by emit_call, not loaded as values
+            // Skip function types - they should be handled by emit_call, not loaded as values
             if let Some(target_ty) = ctx.resolve_global(&mangled_name) {
                 // Function types are symbols, not loadable values - skip to let emit_path handle
                 if !matches!(target_ty, crate::types::Type::Fn(..)) {
-                    // [PILLAR 2: Global LVN] Check cache FIRST
+                    // Check cache FIRST
                     // Within a basic block, we reuse the cached value instead of reloading
                     {
                         let cache = &ctx.emission;
@@ -154,7 +154,7 @@ pub fn emit_expr(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, 
                     let val_loaded = format!("%global_resolved_val_{}", ctx.next_id());
                     ctx.emit_load_logical(out, &val_loaded, &ptr, &target_ty)?;
                     
-                    // [PILLAR 2: Global LVN] Cache the loaded value for future reuse
+                    // Cache the loaded value for future reuse
                     ctx.emission.global_lvn.cache_value(mangled_name.clone(), val_loaded.clone());
                     
                     return Ok((val_loaded, target_ty.clone()));
@@ -198,7 +198,7 @@ pub fn emit_expr(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, 
                  return Err("Cannot take reference to packed array element (bit)".to_string());
              }
 
-             // [FIELD BORROW] &ptr.field returns Ptr<FieldType> — zero-copy field address.
+             // &ptr.field returns Ptr<FieldType> — zero-copy field address.
              // Only applies when the base expression is actually a Ptr<T> type.
              // Stack-spilled struct locals also use GEP (LValueKind::Ptr) but should
              // produce &FieldType (Reference), not Ptr<FieldType>.
@@ -237,7 +237,7 @@ pub fn emit_expr(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr, 
 
 fn emit_try_expr(ctx: &mut LoweringContext, out: &mut String, t: &syn::ExprTry, local_vars: &mut HashMap<String, (Type, LocalKind)>) -> Result<(String, Type), String> {
             let (val, ty) = emit_expr(ctx, out, &t.expr, local_vars, None)?;
-            // [UNIFIED] Structural Result<T> detection via enum registry
+            // Structural Result<T> detection via enum registry
             if let Some(_enum_info) = ctx.is_result_enum(&ty) {
                 let result_mlir = ty.to_mlir_type(ctx)?;
                 // Extract the tag (discriminant) — always at index 0
@@ -604,7 +604,7 @@ fn emit_return_expr(ctx: &mut LoweringContext, out: &mut String, r: &syn::ExprRe
                 // handling casts, pointer arithmetic, method calls, etc.
                 mark_expression_escaped(ctx, e);
 
-                // [ARENA ESCAPE ANALYSIS] Law I: The Return Rule.
+                // Law I: The Return Rule.
                 // return x is valid iff depth(x) <= 1.
                 // A pointer from a local arena (depth >= 2) cannot escape.
                 if let Some(var_name) = extract_return_var_name_from_expr(e) {
@@ -696,7 +696,7 @@ pub(crate) fn extract_ident_name(expr: &syn::Expr) -> Option<String> {
     }
 }
 
-/// [ARENA ESCAPE ANALYSIS] Extract the root receiver variable from a field access chain.
+/// Extract the root receiver variable from a field access chain.
 /// For `ctx.saved_ptr`, returns Some("ctx"). For `a.b.c`, returns Some("a").
 /// Returns None if the LHS is not a field-access expression.
 fn extract_field_assign_receiver(expr: &syn::Expr) -> Option<String> {
@@ -718,7 +718,7 @@ fn extract_field_assign_receiver(expr: &syn::Expr) -> Option<String> {
     }
 }
 
-/// [ARENA ESCAPE ANALYSIS] Extract the simple variable name from a return expression.
+/// Extract the simple variable name from a return expression.
 /// For `n`, returns Some("n"). For `n as Ptr<T>`, also returns Some("n").
 fn extract_return_var_name_from_expr(expr: &syn::Expr) -> Option<String> {
     match expr {

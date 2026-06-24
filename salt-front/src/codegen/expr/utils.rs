@@ -17,7 +17,7 @@ pub fn get_path_from_expr(expr: &syn::Expr) -> Option<Vec<String>> {
             } else { None }
         }
         syn::Expr::Index(_) => {
-            // [IDT FIX] Array indexing breaks the namespace chain.
+            // Array indexing breaks the namespace chain.
             // `TABLE[idx].low` is a field access on a computed value, NOT a module path `TABLE.low`.
             // Return None to force through the proper LValue/field access path.
             None
@@ -26,7 +26,7 @@ pub fn get_path_from_expr(expr: &syn::Expr) -> Option<Vec<String>> {
     };
 
     if let Some(ref s) = res {
-        // [Fix] 'self' is an instance value, never a static package.
+        // 'self' is an instance value, never a static package.
         // Prevent "self.field" from being resolved as static path "self::field".
         if s.first().map(|x| x.as_str()) == Some("self") {
             return None;

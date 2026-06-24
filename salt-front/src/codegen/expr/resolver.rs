@@ -121,7 +121,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                 } else { None }
              });
              
-             // [KERNEL FIX] Extern fn declarations take priority over wildcard imports.
+             // Extern fn declarations take priority over wildcard imports.
              // If the symbol is declared as `extern fn` in this file, don't expand it.
              if segments.len() == 1 && self.ctx.external_decls().contains(&mangled) {
                  return Ok((mangled, generics));
@@ -165,21 +165,21 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         name == "vector_load" || name == "vector_store" || name == "vector_fma" || name == "vector_reduce_add" || name == "vector_splat" ||
         // Target Feature Detection
         name.starts_with("target__") ||
-        // [std.nn] Neural network building blocks
+        // Neural network building blocks
         name == "add_bias" ||
-        // [OPERATION MATH KERNEL] std.math → LLVM intrinsics
+        // std.math → LLVM intrinsics
         name.starts_with("std__math__") ||
         name == "expf" || name == "logf" || name == "sqrtf" || name == "powf" ||
         name == "sinf" || name == "cosf" || name == "fabsf" || name == "floorf" || name == "ceilf" ||
         // Atomic intrinsics for kernel lock-free data structures
         name == "cmpxchg" || name.contains("atomic_cas") || name.contains("ptr_is_null") ||
-        // [salt.atomic] Concurrency primitives — must bypass package mangling
+        // Concurrency primitives — must bypass package mangling
         // so they route to the intrinsic handler in intrinsics.rs
         name == "spin_loop_hint" || name == "cycle_counter" || name == "read_tls_deadline" ||
         name == "atomic_add_i64" || name == "atomic_load_i64" || name == "atomic_store_i64" ||
         name == "atomic_load_ptr" || name == "atomic_swap_ptr" ||
         name == "m4_wfe" || name == "m4_dmb_ish" || name == "m4_sev" || name == "trap" ||
-        // [salt.fn_ptr] Function pointer address extraction
+        // Function pointer address extraction
         name == "fn_addr"
     }
     
@@ -695,7 +695,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         
         let mut suffix_parts = Vec::new();
         
-        // [DETERMINISTIC ORDERING FIX]
+
         // Priority 1: Use the STRUCT TEMPLATE's declared parameter order when this is a method.
         // The function template's generics may be in non-deterministic order (from HashMap
         // iteration during impl block registration), e.g. [A, T] instead of [T, A].

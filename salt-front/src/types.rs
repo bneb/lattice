@@ -117,7 +117,7 @@ impl Type {
              }
              SynType::Path(tp) => {
                  let seg = tp.segments.last()?;
-                 // [CROSS-MODULE STRUCT] When there are multiple segments (e.g. [addr, PhysAddr]),
+                 // When there are multiple segments (e.g. [addr, PhysAddr]),
                  // join them with "::" to create a qualified name. Single-segment paths are bare names.
                  // The codegen resolve_type_safe and bridge_resolve_package_prefix handle "::" paths.
                  let name = if tp.segments.len() > 1 {
@@ -330,7 +330,7 @@ impl Type {
             Type::Usize => "index".to_string(),
             Type::Unit => "!llvm.void".to_string(),
             Type::Struct(name) => {
-                // [SIMD] Vector type aliases → MLIR vector types
+                // Vector type aliases → MLIR vector types
                 match name.as_str() {
                     "Vector4f32"  => return "vector<4xf32>".to_string(),
                     "Vector8f32"  => return "vector<8xf32>".to_string(),
@@ -342,7 +342,7 @@ impl Type {
             }
             Type::Enum(name) => format!("!enum_{}", name),
             Type::Concrete(name, _) => {
-                // [SIMD] Vector type aliases → MLIR vector types
+                // Vector type aliases → MLIR vector types
                 match name.as_str() {
                     "Vector4f32"  => return "vector<4xf32>".to_string(),
                     "Vector8f32"  => return "vector<8xf32>".to_string(),
@@ -371,7 +371,7 @@ impl Type {
         if self.k_is_ptr_type() || matches!(self, Type::Reference(_, _)) {
             return "!llvm.ptr".to_string();
         }
-        // [SIMD] Vector type aliases → MLIR vector types (bypass struct_ path)
+        // Vector type aliases → MLIR vector types (bypass struct_ path)
         match self {
             Type::Struct(name) | Type::Concrete(name, _) => {
                 match name.as_str() {
@@ -854,7 +854,7 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
-    // [TDD] Test: Vector4f32 emits vector<4xf32>, NOT !struct_Vector4f32
+    // Test: Vector4f32 emits vector<4xf32>, NOT !struct_Vector4f32
     // -------------------------------------------------------------------------
     #[test]
     fn test_vector4f32_struct_emits_mlir_vector_type() {

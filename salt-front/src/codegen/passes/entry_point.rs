@@ -38,7 +38,7 @@ impl Default for EntryPointConfig {
 pub fn emit_entry_point(config: &EntryPointConfig) -> String {
     let mut out = String::new();
 
-    out.push_str("    // [KEUOS] Synthesized entry point: _salt_main\n");
+    out.push_str("    // Synthesized entry point: _salt_main\n");
     out.push_str("    // Bypasses crt0 initialization for zero-overhead startup\n");
 
     // Target-specific I/O init comment

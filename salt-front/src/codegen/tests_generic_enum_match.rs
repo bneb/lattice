@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn test_status_is_not_builtin_enum() {
-        // [UNIFIED] Status is now a struct defined in std/status.salt,
+        // Status is now a struct defined in std/status.salt,
         // discovered through normal import pipeline — NOT a builtin enum.
         let (file, _z3_cfg, z3_ctx) = make_ctx();
         let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);

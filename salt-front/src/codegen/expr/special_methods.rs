@@ -201,7 +201,7 @@ fn emit_matmul_method(
             let b_memref_ty = format!("memref<{}x{}>", k_dim, elem_mlir);
             let c_memref_ty = format!("memref<{}x{}>", m_dim, elem_mlir);
             
-            // [MECHANICAL SYMPATHY] JIT MemRef Casting
+            // JIT MemRef Casting
             // Zero-cost metadata wrap: !llvm.ptr → memref via unrealized_conversion_cast
             // This tells MLIR the exact strides/sizes for tiling optimization
             
@@ -225,7 +225,7 @@ fn emit_matmul_method(
             out.push_str(&format!("    linalg.fill ins({} : {}) outs({} : {})\n", 
                 zero, elem_mlir, c_memref, c_memref_ty));
             
-            // [CORE] Emit linalg.matvec - enables register blocking, software pipelining, AMX
+            // Emit linalg.matvec - enables register blocking, software pipelining, AMX
             out.push_str(&format!("    linalg.matvec ins({} : {}, {} : {}) outs({} : {})\n",
                 a_memref, a_memref_ty, b_memref, b_memref_ty, c_memref, c_memref_ty));
             
@@ -472,7 +472,7 @@ fn emit_ufcs_method(
                 Ok(Some((receiver_val, receiver_ty)))
             },
             _ => {
-                // [GENERALIZED PLACEHOLDER] Universal _ forwarding for ANY method.
+                // Universal _ forwarding for ANY method.
                 // Inject receiver SSA value as a synthetic local, replace Expr::Infer
                 // nodes with Expr::Path referencing it, then recurse through normal dispatch.
                 let placeholder_name = format!("__placeholder_{}", ctx.next_id());

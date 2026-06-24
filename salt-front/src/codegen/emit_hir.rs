@@ -882,8 +882,8 @@ mod tests {
 
         // ── Stage 1: Frontend Lowering ────────────────────────────────
         // lower_async_fn_cfg decomposes the async fn into:
-        //   [0] Item::Struct  — __AsyncState_process { __state, x, __local_1 }
-        //   [1] Item::Fn      — __step_process(ctx: &mut __AsyncState_process) -> Poll<I64>
+        //   Item::Struct  — __AsyncState_process { __state, x, __local_1 }
+        //   Item::Fn      — __step_process(ctx: &mut __AsyncState_process) -> Poll<I64>
         let items = lower_async_fn_cfg("process", &func, &crossing, 200);
 
         assert_eq!(items.len(), 2, "lower_async_fn_cfg must produce exactly 2 items");

@@ -46,7 +46,7 @@ pub struct ExpansionState {
     pub current_self_ty: Option<Type>,
     /// Current return type being compiled
     pub current_ret_ty: Option<Type>,
-    /// [v0.9.2] Current postcondition (ensures) expressions for Z3 verification at return sites
+    /// Current postcondition (ensures) expressions for Z3 verification at return sites
     pub current_ensures: Vec<syn::Expr>,
     /// Current function name being compiled
     pub current_fn_name: String,

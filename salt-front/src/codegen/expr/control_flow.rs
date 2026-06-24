@@ -36,7 +36,7 @@ pub fn emit_if_expr(ctx: &mut LoweringContext, out: &mut String, if_expr: &syn::
     // We will use temporary buffers for branches to determine type.
     
     let mut then_out = String::new();
-    // [v0.9.2] Push branch condition as path constraint for Z3 postcondition verification
+    // Push branch condition as path constraint for Z3 postcondition verification
     ctx.emission.path_conditions.push((*if_expr.cond).clone());
     
     // : Prevent global loads in then-branch from leaking to merge block
@@ -48,7 +48,7 @@ pub fn emit_if_expr(ctx: &mut LoweringContext, out: &mut String, if_expr: &syn::
     
     let mut else_out = String::new();
     let (else_val, else_actual) = if let Some((_, else_branch)) = &if_expr.else_branch {
-        // [v0.9.2] Push negated condition for else branch
+        // Push negated condition for else branch
         let negated_cond = syn::Expr::Unary(syn::ExprUnary {
             attrs: vec![],
             op: syn::UnOp::Not(syn::token::Not::default()),
@@ -67,7 +67,7 @@ pub fn emit_if_expr(ctx: &mut LoweringContext, out: &mut String, if_expr: &syn::
         ctx.emission.path_conditions.pop();
         result
     } else {
-        // [v0.9.2] No else-branch: if the then-branch always terminates (returns),
+        // No else-branch: if the then-branch always terminates (returns),
         // then any subsequent code only runs when condition is FALSE.
         // Push the negated condition as a permanent path constraint.
         if then_actual == Type::Never {

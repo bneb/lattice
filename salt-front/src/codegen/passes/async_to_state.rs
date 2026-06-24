@@ -57,7 +57,7 @@ impl StateMachineEmitter {
         let frame_name = format!("TaskFrame_{}", self.config.fn_name);
 
         out.push_str(&format!(
-            "    // [KEUOS] TaskFrame for '{}' ({} captured vars, {} yield points)\n",
+            "    // TaskFrame for '{}' ({} captured vars, {} yield points)\n",
             self.config.fn_name,
             liveness.frame_members.len(),
             liveness.yield_points.len(),
@@ -97,7 +97,7 @@ impl StateMachineEmitter {
         let num_states = liveness.yield_points.len() + 1; // +1 for initial state
 
         out.push_str(&format!(
-            "    // [KEUOS] Dispatch hub for '{}' ({})\n",
+            "    // Dispatch hub for '{}' ({})\n",
             self.config.fn_name, num_states,
         ));
 
@@ -139,7 +139,7 @@ impl StateMachineEmitter {
         let next_state = yield_point.index + 1;
 
         out.push_str(&format!(
-            "    // [KEUOS] Suspension at {} (→ state {})\n",
+            "    // Suspension at {} (→ state {})\n",
             yield_point.label, next_state,
         ));
 
@@ -184,7 +184,7 @@ impl StateMachineEmitter {
         let frame_name = format!("TaskFrame_{}", self.config.fn_name);
 
         out.push_str(&format!(
-            "    // [KEUOS] Launcher for '{}'\n",
+            "    // Launcher for '{}'\n",
             self.config.fn_name,
         ));
 
@@ -230,7 +230,7 @@ impl StateMachineEmitter {
         let mut out = String::new();
 
         out.push_str(&format!(
-            "    // [KEUOS] Completion for '{}'\n",
+            "    // Completion for '{}'\n",
             self.config.fn_name,
         ));
 
@@ -271,7 +271,7 @@ impl StateMachineEmitter {
         let num_states = liveness.yield_points.len() + 1; // +1 for initial state
 
         out.push_str(&format!(
-            "    // [KEUOS] Jump table for '{}' ({} states, O(1) dispatch)\n",
+            "    // Jump table for '{}' ({} states, O(1) dispatch)\n",
             self.config.fn_name, num_states,
         ));
 
@@ -310,7 +310,7 @@ impl StateMachineEmitter {
         let num_states = liveness.yield_points.len() + 1;
 
         out.push_str(&format!(
-            "    // [KEUOS] Indirect dispatch for '{}' (GEP + br)\n",
+            "    // Indirect dispatch for '{}' (GEP + br)\n",
             self.config.fn_name,
         ));
 
@@ -372,7 +372,7 @@ impl StateMachineEmitter {
             let fn_name = format!("{}_state_{}", self.config.fn_name, state_idx);
 
             out.push_str(&format!(
-                "    // [KEUOS] State {} entry point\n",
+                "    // State {} entry point\n",
                 state_idx,
             ));
             out.push_str(&format!(
@@ -433,7 +433,7 @@ impl StateMachineEmitter {
         let next_state = state_idx + 1;
 
         out.push_str(&format!(
-            "      // [KEUOS] Spill: save live vars before yield (state {} → {})\n",
+            "      // Spill: save live vars before yield (state {} → {})\n",
             state_idx, next_state,
         ));
 
@@ -473,7 +473,7 @@ impl StateMachineEmitter {
         let mut out = String::new();
 
         out.push_str(&format!(
-            "      // [KEUOS] Reload: restore live vars for state {}\n",
+            "      // Reload: restore live vars for state {}\n",
             state_idx,
         ));
 
