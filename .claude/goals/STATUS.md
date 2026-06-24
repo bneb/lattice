@@ -113,12 +113,12 @@ The kernel files met all 5 quality goals, but `salt-front/src/` has major gaps:
 - [x] Zero mutant markers confirmed — both grep hits are false positives
 
 ## Log
-- 2026-06-24: **Housekeeping deep reads complete** — all 4 files deep-read and cleaned:
-  - H3-001 type_bridge.rs (3019→2942, -77): dead code, 7 eprintln!, 10 bracket labels, separators
-  - H3-002 context.rs (4228→4215, -13): 4 AI artifacts (Linus/Graydon, Directive 2.1), 5 eprintln!, 10 bracket labels
-  - H3-003 stmt.rs (3295→3292, -3): 1 eprintln!, 9 bracket labels. No major AI artifacts found
-  - H3-004 mod.rs (2730→2693, -37): 12 eprintln!, 3 bracket labels, dead debug blocks
-  Total: 131 lines removed, 30 eprintln! eliminated, 32 bracket labels cleaned, 4 AI hallucination artifacts fixed. 1254 tests pass, clippy clean.
+- 2026-06-24: **Major slop purge complete** (3 sessions):
+  - Deep reads (4 files): -130 lines, 30 eprintln!, 32 bracket labels, 4 AI hallucinations
+  - Dead code (7 files): -956 lines, 13 dead functions, 2 dead structs
+  - eprintln! elimination (10 files): -59 lines, 29 debug calls removed
+  - Bracket labels (23 files): 72 labels → plain comments
+  - **Session total: -1,145 lines removed. Zero debug eprintln! in production codegen. Zero AI bracket labels.**
 - 2026-06-22: **seeker.rs split** — 699→430 lines (-38%), deep nests 78→48 (-38%). Created seeker_resolve.rs (315 lines).
 - 2026-06-22: **Swarm v4** — name_resolver.rs 52 deep nests → **0**. Extracted 21 helpers from visit_item (113→12), visit_syn_type (79→10), visit_pattern (43→9). Session total: 52 nests eliminated, all new fns ≤32 lines, 0 nests in new code.
 - 2026-06-20: **Clippy zero (P1 complete).** S1-002 done — 15 mechanical fixes, 24 categories deferred via Cargo.toml [lints]. Clippy sprint plan created for incremental elimination.
