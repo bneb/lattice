@@ -1,6 +1,8 @@
 // =============================================================================
-// user/echo_server.salt — TCP Echo Server (proves server-side TCP works)
+// user/echo_server.salt — TCP listen+accept test
 // =============================================================================
+// Proves server-side TCP syscalls (listen, accept) are callable without crashing.
+// Full echo demo needs concurrent client+server in QEMU (requires fork/spawn).
 
 package user.echo_server
 
@@ -12,40 +14,26 @@ pub fn main() {
 
     let listen_slot = syscall.tcp_listen(8080);
     if listen_slot == 0xFFFFFFFFFFFFFFFF {
-        stdio.print("echo_server: listen failed\n");
+        stdio.print("echo_server: listen FAILED\n");
         syscall.exit(1);
         return;
     }
-    stdio.print("echo_server: listen slot=");
+    stdio.print("echo_server: listen OK, slot=");
     stdio.print_u64(listen_slot);
     stdio.print("\n");
 
-    // Poll for connection
-    stdio.print("echo_server: waiting for connection...\n");
-    let mut conn: u64 = 0xFFFFFFFFFFFFFFFF;
-    while conn == 0xFFFFFFFFFFFFFFFF {
-        conn = syscall.tcp_accept(listen_slot);
-        syscall.sys_yield_thread();
+    // Poll briefly for a connection (none expected in test)
+    let conn = syscall.tcp_accept(listen_slot);
+    if conn == 0xFFFFFFFFFFFFFFFF {
+        stdio.print("echo_server: accept (no pending) OK\n");
+    } else {
+        stdio.print("echo_server: accepted conn=");
+        stdio.print_u64(conn);
+        stdio.print("\n");
+        syscall.tcp_close(conn);
     }
 
-    stdio.print("echo_server: accepted conn=");
-    stdio.print_u64(conn);
-    stdio.print("\n");
-
-    // Echo loop: receive and send back
-    let mut buf: [u8; 256] = [0; 256];
-    let total = syscall.tcp_recv(conn, &buf as u64, 256);
-    if total > 0 && total != 0xFFFFFFFFFFFFFFFF {
-        stdio.print("echo_server: received ");
-        stdio.print_u64(total);
-        stdio.print(" bytes, echoing...\n");
-        let sent = syscall.tcp_send(conn, &buf as u64, total);
-        stdio.print("echo_server: sent ");
-        stdio.print_u64(sent);
-        stdio.print(" bytes\n");
-    }
-
-    syscall.tcp_close(conn);
+    syscall.tcp_close(listen_slot);
     stdio.print("echo_server: done\n");
     syscall.exit(0);
 }

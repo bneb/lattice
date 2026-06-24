@@ -275,8 +275,8 @@ fn handle_ipv4(buf: u64, len: u32, src_mac: [u8; 6]) {
         return;
     }
 
-    // Check if destined for us
-    if ip_hdr.dst_ip != 0x0A00020F {  // 10.0.2.15
+    // Check if destined for us (our IP or loopback)
+    if ip_hdr.dst_ip != 0x0A00020F && ip_hdr.dst_ip != 0x7F000001 {  // 10.0.2.15 or 127.0.0.1
         return;
     }
 
@@ -448,4 +448,10 @@ pub fn poll_all() -> u32 {
 
 pub fn get_udp_count() -> u64 {
     return UDP_PACKETS_HANDLED;
+}
+
+// Loopback injection — called from icmp_xmit when dst is localhost
+@no_mangle
+pub fn netcore_handle_ipv4_extern(buf: u64, len: u32, src_mac: [u8; 6]) {
+    handle_ipv4(buf, len, src_mac);
 }

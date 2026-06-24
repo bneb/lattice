@@ -39,6 +39,7 @@ extern fn tcp_pool_get_remote_port(slot: u64) -> u16;
 extern fn tcp_pool_get_remote_ip(slot: u64) -> u32;
 extern fn copy_from_user(dst_kern: u64, src_user: u64, len: u64) -> i64;
 extern fn copy_to_user(dst_user: u64, src_kern: u64, len: u64) -> i64;
+extern fn netcore_handle_ipv4_extern(buf: u64, len: u32, src_mac: [u8; 6]);
 extern fn tcp_lookup_listen_extern(port: u16) -> u64;
 extern fn tcp_accept_enqueue_extern(listen_slot: u64, child_slot: u64);
 extern fn tcp_listen_extern(port: u16, owner_pid: u64) -> u64;
@@ -190,7 +191,13 @@ pub fn tcp_client_connect(dst_ip: u32, dst_port: u16) -> u64 {
     serial.print("\n");
 
     let total = eth_sz + ip_sz + 20;
-    virtio_net.net_tx_send(pkt, total);
+    if dst_ip == 0x7F000001 || dst_ip == 0x0A00020F {
+        // Loopback: inject into RX path directly
+        let lb_mac: [u8; 6] = [0; 6];
+        netcore_handle_ipv4_extern(pkt + eth_sz as u64, ip_sz + 20, lb_mac);
+    } else {
+        virtio_net.net_tx_send(pkt, total);
+    }
     pmm.free(pkt_phys);
 
     let mut waited: u64 = 0;
@@ -229,7 +236,12 @@ pub fn tcp_client_connect(dst_ip: u32, dst_port: u16) -> u64 {
         let ack_csum = tcp_checksum_extern(ack_tcp, 20, 0, 0x0A00020F, dst_ip);
         *((ack_tcp + 16) as &mut u8) = (ack_csum >> 8) as u8;
         *((ack_tcp + 17) as &mut u8) = (ack_csum & 0xFF) as u8;
-        virtio_net.net_tx_send(ack_pkt, ack_eth + ack_ip + 20);
+        if dst_ip == 0x7F000001 || dst_ip == 0x0A00020F {
+            let lb_mac2: [u8; 6] = [0; 6];
+            netcore_handle_ipv4_extern(ack_pkt + ack_eth as u64, ack_ip + 20, lb_mac2);
+        } else {
+            virtio_net.net_tx_send(ack_pkt, ack_eth + ack_ip + 20);
+        }
         pmm.free(ack_phys);
     }
 
@@ -291,7 +303,10 @@ pub fn tcp_send_data(conn_id: u64, buf: u64, len: u64) -> u64 {
     *((tcp_base + 17) as &mut u8) = (csum & 0xFF) as u8;
 
     let total = eth_sz + ip_sz + tcp_hdr_sz + len as u32;
-    if using_rtl {
+    if remote_ip == 0x7F000001 || remote_ip == 0x0A00020F {
+        let lb_mac: [u8; 6] = [0; 6];
+        netcore_handle_ipv4_extern(pkt + eth_sz as u64, ip_sz + tcp_hdr_sz + len as u32, lb_mac);
+    } else if using_rtl {
         rtl8125.tx_send(pkt, total);
         rtl8125.tx_reclaim();
     } else {
@@ -302,6 +317,35 @@ pub fn tcp_send_data(conn_id: u64, buf: u64, len: u64) -> u64 {
     tcp_pool_set_seq_snd(conn_id, seq_snd + len as u32);
     return len;
 }
+
+// =============================================================================
+// net_tx — Transmit a packet via hardware or loopback
+// =============================================================================
+// If dst_ip is loopback or our own IP, inject into the receive path directly
+// instead of sending via VirtIO/RTL8125. This enables client+server on the
+// same KeuOS instance without external networking.
+fn net_tx(pkt: u64, total: u32, eth_sz: u32, ip_sz: u32, dst_ip: u32) {
+    if dst_ip == 0x7F000001 || dst_ip == 0x0A00020F {
+        // Loopback: feed into the IPv4 receive handler
+        let ip_start = pkt + eth_sz as u64;
+        let ip_len = total - eth_sz;
+        let dummy_mac: [u8; 6] = [0; 6];
+        netcore_handle_ipv4_extern(ip_start, ip_len, dummy_mac);
+        return;
+    }
+    // Hardware TX
+    let using_rtl = netcore_using_rtl8125();
+    if using_rtl {
+        rtl8125.tx_send(pkt, total);
+        rtl8125.tx_reclaim();
+    } else {
+        virtio_net.net_tx_send(pkt, total);
+    }
+}
+
+// Extern for handle_ipv4 (for loopback injection)
+extern fn netcore_handle_ipv4_extern(buf: u64, len: u32, src_mac: [u8; 6]);
+
 // =============================================================================
 // handle_server_syn — Respond to incoming SYN with SYN-ACK
 // =============================================================================
@@ -356,7 +400,12 @@ pub fn handle_server_syn(buf: u64, len: u32, src_ip: u32) -> bool {
     *((tcp + 17) as &mut u8) = (csum & 0xFF) as u8;
 
     let total = eth_sz + ip_sz + 20;
-    virtio_net.net_tx_send(pkt, total);
+    if src_ip == 0x7F000001 || src_ip == 0x0A00020F {
+        let lb_mac: [u8; 6] = [0; 6];
+        netcore_handle_ipv4_extern(pkt + eth_sz as u64, ip_sz + 20, lb_mac);
+    } else {
+        virtio_net.net_tx_send(pkt, total);
+    }
     pmm.free(pkt_phys);
 
     // Set state to SYN_RECEIVED and enqueue for accept
