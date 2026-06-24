@@ -1,17 +1,20 @@
 # Network Stack Sprint — Checkpoint
 
 **Date:** 2026-06-24
-**Last commit:** `9c67de3` — T1: delete http_client.salt, add TCP syscall stubs (21-24)
+**Last commit:** `56d5f1b` — T3b+T4: wire TCP RX dispatch + implement recv/close
 **Tests:** 11/11 passing
 
 ## Current State
 
-### What's done (T1)
-- `http_client.salt` deleted — HTTP byte arrays removed from kernel
-- Syscall dispatch cleaned up: 21-24 reserved for TCP
-- netcore.salt cleaned: http_handle_incoming removed
-- Stub @no_mangle functions in netd_tcp.salt: tcp_client_connect, tcp_send_data, tcp_recv_data, tcp_close_conn (all return 0)
-- 11/11 tests pass
+### All tasks complete (T1-T6)
+
+**T1:** http_client.salt deleted. Syscalls 21-24 reserved.
+**T2:** TCB extended with owner_pid, recv_buf, recv_head/tail, recv_fin.
+**T3:** tcp_client_connect implemented in icmp_xmit.salt (SYN→poll→timeout).
+**T3b:** TCP RX wired in tcp_dispatch.salt → netcore handle_tcp_notify.
+**T4:** tcp_recv_data (real), tcp_close_conn (real), tcp_send_data (stub).
+**T5:** Kernel has zero HTTP code. fetch calls syscall 21.
+**T6:** 11/11 tests pass.
 
 ### Architecture (from NETWORK_DESIGN.md)
 ```
