@@ -7,6 +7,8 @@ package kernel.net.tcp_dispatch
 import kernel.drivers.serial
 import kernel.core.pmm
 
+extern fn copy_to_user(dst_user: u64, src_kern: u64, len: u64) -> i64;
+
 extern fn tcp_lookup_extern(lp: u16, rip: u32, rp: u16) -> u64;
 extern fn tcp_get_recv_buf_virt_extern(slot: u64) -> u64;
 extern fn tcp_free_extern(slot: u64);
@@ -93,36 +95,44 @@ pub fn tcp_handle_incoming(buf: u64, len: u32, src_ip: u32, dst_ip: u32) -> bool
 // =============================================================================
 // tcp_send_data — Stub (needs VirtIO TX path, cross-package issue)
 // =============================================================================
-@no_mangle
-pub fn tcp_send_data(conn_id: u64, buf: u64, len: u64) -> u64 {
-    if conn_id >= 1024 { return 0; }
-    if tcp_pool_get_state(conn_id) != 4 { return 0; }
-    return 0; // stub: needs segment build + VirtIO TX
-}
+// tcp_send_data moved to icmp_xmit.salt (needs eth/ip/virtio imports)
 
 // =============================================================================
 // tcp_recv_data — Read received data from connection
 // =============================================================================
 @no_mangle
 pub fn tcp_recv_data(conn_id: u64, buf: u64, len: u64) -> u64 {
-    if conn_id >= 1024 { return 0; }
-    if tcp_pool_get_state(conn_id) != 4 { return 0; }
+    serial.print("[RX] recv conn=");
+    serial.print_u64(conn_id);
+    serial.print(" buf=0x");
+    serial.print_hex(buf);
+    serial.print(" len=");
+    serial.print_u64(len);
+    serial.print("\n");
+    if conn_id >= 1024 { serial.print("[RX] bad conn\n"); return 0; }
+    if tcp_pool_get_state(conn_id) != 4 { serial.print("[RX] not established\n"); return 0; }
     let head = tcp_pool_get_recv_head(conn_id);
     let tail = tcp_pool_get_recv_tail(conn_id);
     let fin = tcp_pool_get_recv_fin(conn_id);
+    serial.print("[RX] head=");
+    serial.print_u64(head as u64);
+    serial.print(" tail=");
+    serial.print_u64(tail as u64);
+    serial.print("\n");
     if head == tail {
-        if fin { return 0xFFFFFFFFFFFFFFFF; }
+        if fin { serial.print("[RX] FIN\n"); return 0xFFFFFFFFFFFFFFFF; }
+        serial.print("[RX] no data\n");
         return 0;
     }
     let recv_virt = tcp_get_recv_buf_virt_extern(conn_id);
-    if recv_virt == 0 { return 0; }
+    if recv_virt == 0 { serial.print("[RX] no recv_buf\n"); return 0; }
     let mut count: u64 = (head - tail) as u64;
     if count > len { count = len; }
-    let mut i: u64 = 0;
-    while i < count {
-        *((buf + i) as &mut u8) = *((recv_virt + tail as u64 + i) as &u8);
-        i = i + 1;
-    }
+    serial.print("[RX] copy_to_user ");
+    serial.print_u64(count);
+    serial.print(" bytes...\n");
+    let _ = copy_to_user(buf, recv_virt + tail as u64, count);
+    serial.print("[RX] copy done\n");
     tcp_pool_set_recv_tail(conn_id, tail + count as u32);
     return count;
 }

@@ -1,6 +1,8 @@
 // =============================================================================
-// user/fetch.salt — TCP connect test (handshake only, no data)
+// user/fetch.salt — TCP client (connect → send → recv → close)
 // =============================================================================
+// Note: uses hex bytes for HTTP request because Salt's StringView type cannot
+// be cast to u64 (raw pointer) for passing to kernel send/recv syscalls.
 
 package user.fetch
 
@@ -8,7 +10,6 @@ import user.lib.syscall
 import user.std.stdio
 
 pub fn main() {
-    // QEMU gateway IP = 10.0.2.2 = 0x0A000202
     let ip: u32 = 0x0A000202;
     stdio.print("fetch: TCP connect to 10.0.2.2:8080...\n");
 
@@ -19,13 +20,36 @@ pub fn main() {
         return;
     }
 
-    stdio.print("fetch: connected! conn_id=");
-    stdio.print_u64(conn);
+    stdio.print("fetch: connected, sending HTTP GET...\n");
+
+    let mut req: [u8; 53] = [0; 53];
+    req[0] = 0x47; req[1] = 0x45; req[2] = 0x54; req[3] = 0x20;
+    req[4] = 0x2F; req[5] = 0x20; req[6] = 0x48; req[7] = 0x54;
+    req[8] = 0x54; req[9] = 0x50; req[10] = 0x2F; req[11] = 0x31;
+    req[12] = 0x2E; req[13] = 0x31; req[14] = 0x0D; req[15] = 0x0A;
+    req[16] = 0x48; req[17] = 0x6F; req[18] = 0x73; req[19] = 0x74;
+    req[20] = 0x3A; req[21] = 0x20; req[22] = 0x31; req[23] = 0x30;
+    req[24] = 0x2E; req[25] = 0x30; req[26] = 0x2E; req[27] = 0x32;
+    req[28] = 0x2E; req[29] = 0x32; req[30] = 0x0D; req[31] = 0x0A;
+    req[32] = 0x43; req[33] = 0x6F; req[34] = 0x6E; req[35] = 0x6E;
+    req[36] = 0x65; req[37] = 0x63; req[38] = 0x74; req[39] = 0x69;
+    req[40] = 0x6F; req[41] = 0x6E; req[42] = 0x3A; req[43] = 0x20;
+    req[44] = 0x63; req[45] = 0x6C; req[46] = 0x6F; req[47] = 0x73;
+    req[48] = 0x65; req[49] = 0x0D; req[50] = 0x0A; req[51] = 0x0D;
+    req[52] = 0x0A;
+
+    let sent = syscall.tcp_send(conn, &req as u64, 53);
+    stdio.print("fetch: sent ");
+    stdio.print_u64(sent);
+    stdio.print(" bytes\n");
+
+    let mut rbuf: [u8; 256] = [0; 256];
+    let total = syscall.tcp_recv(conn, &rbuf as u64, 256);
+    stdio.print("fetch: recv returned ");
+    stdio.print_u64(total);
     stdio.print("\n");
 
-    // tcp_send_data and tcp_recv_data need user-buffer access fixes
-    // before data transfer works. For now, just prove the handshake.
     syscall.tcp_close(conn);
-    stdio.print("fetch: connection closed, test complete\n");
+    stdio.print("fetch: done\n");
     syscall.exit(0);
 }
