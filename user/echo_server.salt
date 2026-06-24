@@ -1,39 +1,35 @@
 // =============================================================================
-// user/echo_server.salt — TCP listen+accept test
+// user/echo_server.salt — TCP Listen + Accept Test (Process L)
 // =============================================================================
-// Proves server-side TCP syscalls (listen, accept) are callable without crashing.
-// Full echo demo needs concurrent client+server in QEMU (requires fork/spawn).
-
 package user.echo_server
 
 import user.lib.syscall
 import user.std.stdio
 
 pub fn main() {
-    stdio.print("echo_server: listening on port 8080...\n");
+    stdio.print("[echo_server] testing listen on port 8080...\n");
 
     let listen_slot = syscall.tcp_listen(8080);
     if listen_slot == 0xFFFFFFFFFFFFFFFF {
-        stdio.print("echo_server: listen FAILED\n");
+        stdio.print("[echo_server] listen FAILED\n");
         syscall.exit(1);
         return;
     }
-    stdio.print("echo_server: listen OK, slot=");
+    stdio.print("[echo_server] listen OK, slot=");
     stdio.print_u64(listen_slot);
     stdio.print("\n");
 
-    // Poll briefly for a connection (none expected in test)
+    // Check accept (no connection expected in test)
     let conn = syscall.tcp_accept(listen_slot);
     if conn == 0xFFFFFFFFFFFFFFFF {
-        stdio.print("echo_server: accept (no pending) OK\n");
+        stdio.print("[echo_server] accept (no pending) OK\n");
     } else {
-        stdio.print("echo_server: accepted conn=");
+        stdio.print("[echo_server] accepted conn=");
         stdio.print_u64(conn);
         stdio.print("\n");
-        syscall.tcp_close(conn);
     }
 
     syscall.tcp_close(listen_slot);
-    stdio.print("echo_server: done\n");
+    stdio.print("[echo_server] done\n");
     syscall.exit(0);
 }
