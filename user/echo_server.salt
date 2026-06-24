@@ -3,6 +3,7 @@ package user.echo_server
 import user.lib.syscall
 
 pub fn main() {
+    // Silent daemon - no stdio (pre-scheduler serial may not work)
     let ls = syscall.tcp_listen(8080);
     if ls == 0xFFFFFFFFFFFFFFFF {
         syscall.exit(1);
