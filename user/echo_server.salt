@@ -1,22 +1,5 @@
 package user.echo_server
 
-import user.lib.syscall
-import user.std.stdio
-
 pub fn main() {
-    stdio.print("[echo_server] testing listen on 8080...\n");
-    let ls = syscall.tcp_listen(8080);
-    if ls == 0xFFFFFFFFFFFFFFFF {
-        stdio.print("[echo_server] listen FAILED\n");
-    } else {
-        stdio.print("[echo_server] listen OK slot=");
-        stdio.print_u64(ls);
-        stdio.print("\n");
-        let conn = syscall.tcp_accept(ls);
-        stdio.print("[echo_server] accept=");
-        stdio.print_u64(conn);
-        stdio.print("\n");
-        syscall.tcp_close(ls);
-    }
-    stdio.print("[echo_server] done\n");
+    let _x: u64 = 0;
 }
