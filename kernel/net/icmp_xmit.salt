@@ -29,14 +29,19 @@ extern fn tcp_build_extern(buf: u64, sp: u16, dp: u16,
 extern fn tcp_checksum_extern(buf: u64, hdr: u32, plen: u32,
                                sip: u32, dip: u32) -> u16;
 extern fn tcp_pool_get_state(slot: u64) -> u8;
+extern fn tcp_pool_set_state(slot: u64, v: u8);
 extern fn tcp_pool_get_seq_snd(slot: u64) -> u32;
 extern fn tcp_pool_set_seq_snd(slot: u64, v: u32);
 extern fn tcp_pool_get_seq_rcv(slot: u64) -> u32;
+extern fn tcp_pool_set_seq_rcv(slot: u64, v: u32);
 extern fn tcp_pool_get_local_port(slot: u64) -> u16;
 extern fn tcp_pool_get_remote_port(slot: u64) -> u16;
 extern fn tcp_pool_get_remote_ip(slot: u64) -> u32;
 extern fn copy_from_user(dst_kern: u64, src_user: u64, len: u64) -> i64;
 extern fn copy_to_user(dst_user: u64, src_kern: u64, len: u64) -> i64;
+extern fn tcp_lookup_listen_extern(port: u16) -> u64;
+extern fn tcp_accept_enqueue_extern(listen_slot: u64, child_slot: u64);
+extern fn tcp_listen_extern(port: u16, owner_pid: u64) -> u64;
 
 // =============================================================================
 // Send ICMP Echo Reply
@@ -296,4 +301,67 @@ pub fn tcp_send_data(conn_id: u64, buf: u64, len: u64) -> u64 {
 
     tcp_pool_set_seq_snd(conn_id, seq_snd + len as u32);
     return len;
+}
+// =============================================================================
+// handle_server_syn — Respond to incoming SYN with SYN-ACK
+// =============================================================================
+// Called from netcore.salt when a SYN arrives for a listening port.
+// Allocates a new TCB, sends SYN-ACK, and enqueues for accept().
+@no_mangle
+pub fn handle_server_syn(buf: u64, len: u32, src_ip: u32) -> bool {
+    if len < 20 { return false; }
+    let sp_hi = *(buf as &u8) as u16;
+    let sp_lo = *((buf + 1) as &u8) as u16;
+    let src_port: u16 = (sp_hi << 8) | sp_lo;
+    let dp_hi = *((buf + 2) as &u8) as u16;
+    let dp_lo = *((buf + 3) as &u8) as u16;
+    let dst_port: u16 = (dp_hi << 8) | dp_lo;
+
+    // Look for a listening socket on dst_port
+    let listen_slot = tcp_lookup_listen_extern(dst_port);
+    if listen_slot == 0xFFFFFFFF { return false; }
+
+    // Read client ISN
+    let s0 = *((buf + 4) as &u8) as u32;
+    let s1 = *((buf + 5) as &u8) as u32;
+    let s2 = *((buf + 6) as &u8) as u32;
+    let s3 = *((buf + 7) as &u8) as u32;
+    let client_isn = (s0 << 24) | (s1 << 16) | (s2 << 8) | s3;
+
+    // Allocate TCB for new connection
+    let child_slot = tcp_alloc_client_extern(0, dst_port, src_ip, src_port);
+    if child_slot == 0xFFFFFFFF { return false; }
+
+    // Generate server ISN and set up connection state
+    let server_isn: u32 = 0xFEEDC0DE + child_slot as u32;
+    tcp_pool_set_seq_snd(child_slot, server_isn);
+    tcp_pool_set_seq_rcv(child_slot, client_isn + 1);
+
+    // Send SYN-ACK
+    let our_ip: u32 = 0x0A00020F;
+    let pkt_phys = pmm.alloc();
+    if pkt_phys == 0 { tcp_free_extern(child_slot); return false; }
+    let pkt = memory.phys_to_virt_raw(pkt_phys);
+
+    let m = virtio_net.get_mac();
+    let our_mac: [u8; 6] = [m[0], m[1], m[2], m[3], m[4], m[5]];
+    let dst_mac: [u8; 6] = [0xFF as u8; 6];
+
+    let eth_sz = eth.eth_build(pkt, dst_mac, our_mac, 0x0800);
+    let ip_sz = ip.ip_build(pkt + eth_sz as u64, our_ip, src_ip, 6, 20);
+    let tcp = pkt + eth_sz as u64 + ip_sz as u64;
+    tcp_build_extern(tcp, dst_port, src_port, server_isn, client_isn + 1, 0x0012, 8192);
+    let csum = tcp_checksum_extern(tcp, 20, 0, our_ip, src_ip);
+    *((tcp + 16) as &mut u8) = (csum >> 8) as u8;
+    *((tcp + 17) as &mut u8) = (csum & 0xFF) as u8;
+
+    let total = eth_sz + ip_sz + 20;
+    virtio_net.net_tx_send(pkt, total);
+    pmm.free(pkt_phys);
+
+    // Set state to SYN_RECEIVED and enqueue for accept
+    tcp_pool_set_state(child_slot, 3); // SYN_RECEIVED
+    tcp_accept_enqueue_extern(listen_slot, child_slot);
+
+    return true;
 }

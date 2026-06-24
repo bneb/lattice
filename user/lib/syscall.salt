@@ -192,6 +192,8 @@ extern fn sys_tcp_connect(ip: u32) -> u64;
 extern fn sys_tcp_send(conn: u64, buf: u64, len: u64) -> u64;
 extern fn sys_tcp_recv(conn: u64, buf: u64, len: u64) -> u64;
 extern fn sys_tcp_close(conn: u64);
+extern fn sys_tcp_listen(port: u16) -> u64;
+extern fn sys_tcp_accept(slot: u64) -> u64;
 extern fn sys_http_get(ip: u32) -> u64;
 extern fn sys_getpid() -> u64;
 
@@ -218,6 +220,16 @@ pub fn tcp_recv(conn: u64, buf: u64, len: u64) -> u64 {
 /// TCP close connection.
 pub fn tcp_close(conn: u64) {
     sys_tcp_close(conn);
+}
+
+/// TCP passive open — create listening socket on port.
+pub fn tcp_listen(port: u16) -> u64 {
+    return sys_tcp_listen(port);
+}
+
+/// TCP accept — wait for incoming connection on listening socket.
+pub fn tcp_accept(listen_slot: u64) -> u64 {
+    return sys_tcp_accept(listen_slot);
 }
 
 /// TCP connect + HTTP GET to 10.0.2.2:80, returns bytes received.

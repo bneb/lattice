@@ -65,6 +65,15 @@ pub fn tcp_handle_incoming(buf: u64, len: u32, src_ip: u32, dst_ip: u32) -> bool
         }
     }
 
+    // ACK (no SYN, no data) — complete server-side handshake (SYN_RECEIVED → ESTABLISHED)
+    if (flags & 0x0010) != 0 && (flags & 0x0002) == 0 {
+        let slot = tcp_lookup_extern(dst_port, src_ip, src_port);
+        if slot != 0xFFFFFFFF && tcp_pool_get_state(slot) == 3 {
+            tcp_pool_set_state(slot, 4); // SYN_RECEIVED → ESTABLISHED
+            return true;
+        }
+    }
+
     // Data → buffer in recv_buf
     if (flags & 0x0010) != 0 && (flags & 0x0002) == 0 {
         let slot = tcp_lookup_extern(dst_port, src_ip, src_port);

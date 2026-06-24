@@ -152,6 +152,12 @@ pub fn handle_syscall(num: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
         // SYS_TCP_CLOSE: arg0 = conn_id
         sys_tcp_close(arg0);
         return 0;
+    } else if num == 25 {
+        // SYS_TCP_LISTEN: arg0 = port (u16)
+        return sys_tcp_listen(arg0 as u16);
+    } else if num == 26 {
+        // SYS_TCP_ACCEPT: arg0 = listen_slot
+        return sys_tcp_accept(arg0);
     } else if num == 119 {
         // Ring ABI: drain submission queue before yielding
         let yield_pid = process.current();
@@ -439,4 +445,23 @@ extern fn tcp_close_conn(conn_id: u64);
 
 fn sys_tcp_close(conn_id: u64) {
     tcp_close_conn(conn_id);
+}
+
+// =============================================================================
+// sys_tcp_listen — TCP passive open (SYS_TCP_LISTEN, num=25)
+// =============================================================================
+extern fn tcp_listen_extern(port: u16, owner_pid: u64) -> u64;
+
+fn sys_tcp_listen(port: u16) -> u64 {
+    let pid: u64 = 1;
+    return tcp_listen_extern(port, pid);
+}
+
+// =============================================================================
+// sys_tcp_accept — TCP accept connection (SYS_TCP_ACCEPT, num=26)
+// =============================================================================
+extern fn tcp_accept_extern(slot: u64) -> u64;
+
+fn sys_tcp_accept(listen_slot: u64) -> u64 {
+    return tcp_accept_extern(listen_slot);
 }

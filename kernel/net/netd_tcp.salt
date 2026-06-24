@@ -55,6 +55,8 @@ pub struct TcpConnection {
     pub recv_head: u32,        // Write cursor into recv_buf
     pub recv_tail: u32,        // Read cursor (advanced by sys_tcp_recv)
     pub recv_fin: bool,        // True if FIN received from remote
+    pub pending_accept: u64,   // Listen socket: child slot waiting for accept (0xFF..FF=none)
+    pub listen_slot: u64,      // Accepted conn: parent listen slot
 }
 
 pub const MAX_TCP_SOCKETS: u64 = 1024;
@@ -65,6 +67,7 @@ global TCP_POOL: [TcpConnection; 1024] = [TcpConnection {
     last_activity: 0,
     owner_pid: 0, recv_buf_phys: 0, recv_head: 0, recv_tail: 0,
     recv_fin: false,
+    pending_accept: 0xFFFFFFFFFFFFFFFF, listen_slot: 0xFFFFFFFFFFFFFFFF,
 }; 1024];
 
 global TCP_ISN_COUNTER: u32 = 0x12345678;
@@ -495,3 +498,54 @@ pub fn tcp_pool_get_remote_ip(slot: u64) -> u32 { return TCP_POOL[slot].remote_i
 @no_mangle
 pub fn tcp_lookup_extern(lp: u16, rip: u32, rp: u16) -> u64 { return lookup(lp, rip, rp); }
 
+// =============================================================================
+// Server-Side TCP: Listen, Accept
+// =============================================================================
+pub fn lookup_listen(port: u16) -> u64 {
+    let mut i: u64 = 0;
+    while i < MAX_TCP_SOCKETS {
+        if TCP_POOL[i].state == TCP_LISTEN && TCP_POOL[i].local_port == port {
+            return i;
+        }
+        i = i + 1;
+    }
+    return 0xFFFFFFFF;
+}
+
+pub fn tcp_listen(port: u16, owner_pid: u64) -> u64 {
+    let slot = alloc();
+    if slot == 0xFFFFFFFF { return 0xFFFFFFFF; }
+    TCP_POOL[slot].state = TCP_LISTEN;
+    TCP_POOL[slot].local_port = port;
+    TCP_POOL[slot].owner_pid = owner_pid;
+    TCP_POOL[slot].pending_accept = 0xFFFFFFFFFFFFFFFF;
+    return slot;
+}
+
+pub fn tcp_accept(listen_slot: u64) -> u64 {
+    if listen_slot >= MAX_TCP_SOCKETS { return 0xFFFFFFFFFFFFFFFF; }
+    if TCP_POOL[listen_slot].state != TCP_LISTEN { return 0xFFFFFFFFFFFFFFFF; }
+    let child = TCP_POOL[listen_slot].pending_accept;
+    if child != 0xFFFFFFFFFFFFFFFF {
+        TCP_POOL[listen_slot].pending_accept = 0xFFFFFFFFFFFFFFFF;
+    }
+    return child;
+}
+
+pub fn accept_enqueue(listen_slot: u64, child_slot: u64) {
+    if listen_slot >= MAX_TCP_SOCKETS || child_slot >= MAX_TCP_SOCKETS { return; }
+    TCP_POOL[listen_slot].pending_accept = child_slot;
+    TCP_POOL[child_slot].listen_slot = listen_slot;
+}
+
+@no_mangle
+pub fn tcp_listen_extern(port: u16, owner_pid: u64) -> u64 { return tcp_listen(port, owner_pid); }
+
+@no_mangle
+pub fn tcp_accept_extern(slot: u64) -> u64 { return tcp_accept(slot); }
+
+@no_mangle
+pub fn tcp_lookup_listen_extern(port: u16) -> u64 { return lookup_listen(port); }
+
+@no_mangle
+pub fn tcp_accept_enqueue_extern(listen_slot: u64, child_slot: u64) { accept_enqueue(listen_slot, child_slot); }

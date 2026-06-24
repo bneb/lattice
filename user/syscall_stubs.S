@@ -280,6 +280,28 @@ sys_tcp_close:
     syscall
     ret
 
+/* sys_tcp_listen(port: u16) -> u64
+ * Syscall 25 — TCP passive open, returns listen_slot or 0xFF..FF on failure.
+ *   RDI = port (u16)
+ *   Returns: RAX = listen_slot
+ */
+.global sys_tcp_listen
+sys_tcp_listen:
+    mov rax, 25
+    syscall
+    ret
+
+/* sys_tcp_accept(listen_slot: u64) -> u64
+ * Syscall 26 — TCP accept, returns conn_slot or 0xFF..FF if none pending.
+ *   RDI = listen_slot
+ *   Returns: RAX = conn_slot
+ */
+.global sys_tcp_accept
+sys_tcp_accept:
+    mov rax, 26
+    syscall
+    ret
+
 /* sys_http_get(ip: u32) -> u64
  * Syscall 21 — TCP connect + HTTP GET, returns bytes received or 0 on failure.
  *   RDI = dst_ip (u32)
