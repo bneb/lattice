@@ -409,7 +409,7 @@ fn sys_ping(dst_ip: u32) -> u64 {
 extern fn tcp_client_connect(dst_ip: u32, dst_port: u16) -> u64;
 
 fn sys_tcp_connect(dst_ip: u32) -> u64 {
-    return tcp_client_connect(dst_ip, 80);
+    return tcp_client_connect(dst_ip, 8080);
 }
 
 // =============================================================================

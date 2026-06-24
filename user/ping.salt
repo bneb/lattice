@@ -1,19 +1,16 @@
 // =============================================================================
 // user/ping.salt
-// ICMP Echo Client — Placeholder
+// ICMP Echo Client — syscall.ping(ip) Based
 // =============================================================================
 //
-// ICMP Echo (RFC 792):
-//   Type 8 (echo request) / Type 0 (echo reply)
-//   [8b type][8b code][16b checksum][16b id][16b seq][payload...]
+// Sends an ICMP echo request to the target IP and reports the result.
+// Uses the kernel's built-in ICMP echo infrastructure (sys_ping) rather
+// than raw sockets — the kernel handles ICMP packet construction and
+// checksum computation internally.
 //
-// When kernel ICMP support and a raw socket syscall are added:
-//   1. sys_socket(SOCK_RAW, IPPROTO_ICMP) → raw socket fd
-//   2. Construct ICMP echo request at a buffer
-//   3. sys_sendto(fd, buf, len, dst_ip) → send
-//   4. sys_recvfrom(fd, buf, len) → await reply, compute RTT
-//
-// Until then, this stub documents the protocol and exits cleanly.
+// Output markers (parsed by runner_qemu.py):
+//   PING 10.0.2.2: <rtt> ms  — echo reply received with RTT in ticks
+//   PING 10.0.2.2: timeout    — no reply within kernel timeout
 // =============================================================================
 
 package user.ping

@@ -288,11 +288,9 @@ fn handle_ipv4(buf: u64, len: u32, src_mac: [u8; 6]) {
         // UDP
         handle_udp(payload_buf, payload_len, ip_hdr.src_ip, src_mac);
     }
-    // Protocol 6: TCP — dispatch to NetD TCP state machine
+    // Protocol 6: TCP — always dispatch through client-side handler first
     if ip_hdr.protocol == 6 {
-        if RX_NOTIFY_PTR != 0 {
-            handle_tcp_notify(payload_buf, payload_len, ip_hdr.src_ip, src_mac);
-        }
+        handle_tcp_notify(payload_buf, payload_len, ip_hdr.src_ip, src_mac);
     }
     // Protocol 1: ICMP — Echo Reply handler
     if ip_hdr.protocol == 1 {

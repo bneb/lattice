@@ -23,7 +23,7 @@ pub fn main() {
     stdio.print_u64(conn);
     stdio.print("), sending HTTP GET...\n");
 
-    // Build HTTP GET request inline
+    // "GET / HTTP/1.1\r\nHost: 10.0.2.2\r\nConnection: close\r\n\r\n"
     let mut req: [u8; 64] = [0; 64];
     req[0] = 0x47; req[1] = 0x45; req[2] = 0x54; req[3] = 0x20; // GET
     req[4] = 0x2F; req[5] = 0x20; req[6] = 0x48; req[7] = 0x54; // / HT
@@ -40,20 +40,13 @@ pub fn main() {
     req[48] = 0x65; req[49] = 0x0D; req[50] = 0x0A; req[51] = 0x0D; // e...
     req[52] = 0x0A; // .
 
-    let req_len: u64 = 53;
-    let sent = syscall.tcp_send(conn, &req as u64, req_len);
-    if sent == 0 {
-        stdio.print("fetch: send failed\n");
-        syscall.tcp_close(conn);
-        syscall.exit(1);
-        return;
-    }
+    let sent = syscall.tcp_send(conn, &req as u64, 53);
+    stdio.print("fetch: sent ");
+    stdio.print_u64(sent);
+    stdio.print(" bytes, receiving...\n");
 
-    stdio.print("fetch: sent request, receiving...\n");
-
-    // Receive response
-    let mut rbuf: [u8; 512] = [0; 512];
-    let total = syscall.tcp_recv(conn, &rbuf as u64, 512);
+    let mut rbuf: [u8; 256] = [0; 256];
+    let total = syscall.tcp_recv(conn, &rbuf as u64, 256);
     if total == 0 {
         stdio.print("fetch: no response (timeout?)\n");
     } else if total == 0xFFFFFFFFFFFFFFFF {
