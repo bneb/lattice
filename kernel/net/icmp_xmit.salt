@@ -166,14 +166,6 @@ pub fn tcp_client_connect(dst_ip: u32, dst_port: u16) -> u64 {
     let arp_ok = arp.arp_lookup(dst_ip, &mut arp_buf);
     if arp_ok { dst_mac = arp_buf; }
 
-    serial.print_u64(dst_ip as u64);
-    serial.print(" port=");
-    serial.print_u64(dst_port as u64);
-    serial.print(" slot=");
-    serial.print_u64(slot);
-    serial.print(" arp=");
-    if arp_ok { serial.print("yes"); } else { serial.print("no"); }
-    serial.print("\n");
 
     let eth_sz = eth.eth_build(pkt, dst_mac, our_mac, 0x0800);
     let ip_sz = ip.ip_build(pkt + eth_sz as u64, 0x0A00020F, dst_ip, 6, 20);
@@ -183,12 +175,6 @@ pub fn tcp_client_connect(dst_ip: u32, dst_port: u16) -> u64 {
     *((tcp + 16) as &mut u8) = (csum >> 8) as u8;
     *((tcp + 17) as &mut u8) = (csum & 0xFF) as u8;
 
-    serial.print_hex(csum as u64);
-    serial.print(" dport=");
-    serial.print_u64(dst_port as u64);
-    serial.print(" sport=");
-    serial.print_u64(local_port as u64);
-    serial.print("\n");
 
     let total = eth_sz + ip_sz + 20;
     if dst_ip == 0x7F000001 || dst_ip == 0x0A00020F {
@@ -204,15 +190,8 @@ pub fn tcp_client_connect(dst_ip: u32, dst_port: u16) -> u64 {
     while waited < 50 {
         let polled = netcore_poll_all();
         let st = tcp_get_state_extern(slot);
-        if polled > 0 || waited == 0 {
-            serial.print_u64(waited);
-            serial.print(": rx_count=");
-            serial.print_u64(polled as u64);
-            serial.print(" state=");
-            serial.print_u64(st as u64);
-            serial.print("\n");
-        }
         if st == 4 { break; }   // ESTABLISHED
+        if st == 0 { tcp_free_extern(slot); return 0xFFFFFFFFFFFFFFFF; }  // CLOSED
         let mut spin: u64 = 0;
         while spin < 50000 { spin = spin + 1; }
         waited = waited + 1;
@@ -292,10 +271,7 @@ pub fn tcp_send_data(conn_id: u64, buf: u64, len: u64) -> u64 {
 
     // Copy user data via KPTI-safe copy_from_user
     let data_start = tcp_base + tcp_hdr_sz as u64;
-    let copied = copy_from_user(data_start, buf, len);
-    serial.print_u64(copied as u64);
-    serial.print("
-");
+    let _copied = copy_from_user(data_start, buf, len);
 
     let csum = tcp_checksum_extern(tcp_base, tcp_hdr_sz as u32,
                                     len as u32, 0x0A00020F, remote_ip);

@@ -109,6 +109,8 @@ pub fn free(idx: u64) {
     TCP_POOL[idx].recv_head = 0;
     TCP_POOL[idx].recv_tail = 0;
     TCP_POOL[idx].recv_fin = false;
+    TCP_POOL[idx].pending_accept = 0xFFFFFFFFFFFFFFFF;
+    TCP_POOL[idx].listen_slot = 0xFFFFFFFFFFFFFFFF;
 }
 
 // =============================================================================
