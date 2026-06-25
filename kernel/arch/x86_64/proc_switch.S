@@ -183,6 +183,6 @@ kernel_trampoline:
 .extern schedule_next
     call schedule_next
     /* schedule_next should never return here — it switches context.
-     * If it does (all processes exited), halt. */
-    hlt
-    jmp . - 1
+     * If it does (all processes exited), halt forever. */
+1:  hlt
+    jmp 1b

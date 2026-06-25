@@ -375,6 +375,7 @@ def build_user_programs():
             "salt_files": [
                 os.path.join(user_dir, "echo_server.salt"),
                 os.path.join(user_dir, "lib", "syscall.salt"),
+                os.path.join(user_dir, "std", "stdio.salt"),
             ],
         },
         # NetD: Ring 3 Network Daemon (Zero-Trap SPSC Data Plane)
