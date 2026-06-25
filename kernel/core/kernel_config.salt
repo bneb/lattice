@@ -1,0 +1,3 @@
+package kernel.core.kernel_config
+
+pub const MAX_PROCS: u64 = 64;

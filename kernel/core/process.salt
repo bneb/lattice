@@ -13,6 +13,7 @@
 
 package kernel.core.process
 
+import kernel.core.kernel_config
 import kernel.drivers.serial
 import kernel.core.pmm
 import kernel.core.memory
@@ -24,7 +25,7 @@ extern fn allocate_pcid() -> u64;
 // =============================================================================
 // Constants
 // =============================================================================
-pub const MAX_PROCS: u64 = 64;
+pub const MAX_PROCS: u64 = 64;  // synced with kernel_config.MAX_PROCS
 const PAGE_SIZE: u64 = 4096;
 
 

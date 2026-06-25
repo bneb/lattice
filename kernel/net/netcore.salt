@@ -136,6 +136,18 @@ fn ring_push_u32(ptr: u64, val: u32) -> bool {
 // Returns true if a packet was processed, false if the RX queue was empty.
 
 pub fn process_one() -> bool {
+    // Drain loopback queue first (avoids recursion in loopback TX path)
+    if LOOPBACK_BUF != 0 {
+        let lb_buf = LOOPBACK_BUF;
+        let lb_len = LOOPBACK_LEN;
+        let lb_mac = LOOPBACK_SRC_MAC;
+        LOOPBACK_BUF = 0;
+        LOOPBACK_LEN = 0;
+        // Process the loopback packet through the normal IPv4 path
+        handle_ipv4(lb_buf, lb_len, lb_mac);
+        return true;
+    }
+
     let mut buf_addr: u64 = 0;
     let mut pkt_len: u32 = 0;
 
@@ -424,11 +436,30 @@ fn handle_tcp_notify(buf: u64, len: u32, src_ip: u32, src_mac: [u8; 6]) {
 extern fn send_icmp_reply(buf: u64, payload_len: u32, dst_ip: u32);
 extern fn netcore_send_icmp_request(dst_ip: u32) -> bool;
 extern fn icmp_checksum(data: u64, len: u32) -> u16;
+// Loopback packet queue — single slot, processed by process_one() before VirtIO RX
+global LOOPBACK_BUF: u64 = 0;
+global LOOPBACK_LEN: u32 = 0;
+global LOOPBACK_SRC_MAC: [u8; 6] = [0; 6];
+
 extern fn tcp_handle_incoming(buf: u64, len: u32, src_ip: u32, dst_ip: u32) -> bool;
 extern fn handle_server_syn(buf: u64, len: u32, src_ip: u32) -> bool;
 
 // =============================================================================
-// Poll Loop (drain all pending RX packets)
+// Loopback TX — enqueue a packet for processing by the RX poll loop
+// =============================================================================
+// Instead of recursively calling handle_ipv4 (which overflows the 4KB kernel
+// stack), loopback packets are enqueued here and processed when the caller
+// invokes netcore_poll_all().
+@no_mangle
+pub fn loopback_enqueue(buf: u64, len: u32, src_mac: [u8; 6]) {
+    LOOPBACK_BUF = buf;
+    LOOPBACK_LEN = len;
+    LOOPBACK_SRC_MAC = src_mac;
+}
+
+// =============================================================================
+// Poll Loop
+ (drain all pending RX packets)
 // =============================================================================
 @no_mangle
 pub fn netcore_poll_all() -> u32 {
