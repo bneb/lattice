@@ -32,6 +32,7 @@ extern fn get_user_elf_i_addr() -> u64;
 extern fn get_user_elf_j_addr() -> u64;
 extern fn get_user_elf_k_addr() -> u64;
 extern fn get_user_elf_l_addr() -> u64;
+extern fn get_user_elf_l_addr() -> u64;
 extern fn get_netd_elf_addr() -> u64;
 extern fn get_echo_server_elf_addr() -> u64;
 extern fn get_kernel_event_loop_addr() -> u64;
