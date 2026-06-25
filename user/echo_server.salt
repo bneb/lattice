@@ -1,13 +1,45 @@
-// echo_server: creates persistent TCP listen socket on port 8080.
-// The socket stays in TCP_POOL after exit so fetch can connect via loopback.
-// Echo response requires daemon to stay alive (needs Ring 0 preemption fix).
 package user.echo_server
 import user.lib.syscall
 import user.std.stdio
+
 pub fn main() {
-    stdio.print("[echo_server] creating listen socket on 8080\n");
+    stdio.print("[echo_server] listening on 8080\n");
     let ls = syscall.tcp_listen(8080);
-    if ls == 0xFFFFFFFFFFFFFFFF { stdio.print("[echo_server] listen FAILED\n"); syscall.exit(1); return; }
-    stdio.print("[echo_server] listen OK — socket persists after exit\n");
-    syscall.exit(0);
+    if ls == 0xFFFFFFFFFFFFFFFF {
+        stdio.print("[echo_server] listen FAILED\n");
+        syscall.exit(1);
+        return;
+    }
+    stdio.print("[echo_server] listen OK\n");
+
+    // Accept loop with timeout — yield to let fetch connect
+    let mut conn: u64 = 0xFFFFFFFFFFFFFFFF;
+    let mut waited: u64 = 0;
+    while conn == 0xFFFFFFFFFFFFFFFF && waited < 100 {
+        conn = syscall.tcp_accept(ls);
+        if conn == 0xFFFFFFFFFFFFFFFF {
+            syscall.sys_yield_thread();
+            waited = waited + 1;
+        }
+    }
+
+    if conn != 0xFFFFFFFFFFFFFFFF {
+        stdio.print("[echo_server] accepted, echoing...\n");
+        let mut buf: [u8; 256] = [0; 256];
+        let total = syscall.tcp_recv(conn, &buf as u64, 256);
+        if total > 0 && total != 0xFFFFFFFFFFFFFFFF {
+            let sent = syscall.tcp_send(conn, &buf as u64, total);
+            stdio.print("[echo_server] echoed ");
+            stdio.print_u64(total);
+            stdio.print(" bytes (sent=");
+            stdio.print_u64(sent);
+            stdio.print(")\n");
+        }
+        syscall.tcp_close(conn);
+    } else {
+        stdio.print("[echo_server] no connection\n");
+    }
+
+    syscall.tcp_close(ls);
+    stdio.print("[echo_server] done\n");
 }
