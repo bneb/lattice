@@ -165,7 +165,7 @@ pub fn boot_terminal_and_netd_sips(_unused_pml4: u64, rx_ring_phys: u64, tx_ring
 
     let es_elf = get_echo_server_elf_addr();
     let slot_es = exec_spawn_process(es_elf, kernel_pml4);
-    process_set_state(slot_es, PROC_READY);
+    process_set_state(slot_es, PROC_RUNNING);
     serial.print("[KeuOS] echo_server daemon slot=");
     serial.print_u64(slot_es);
     serial.print("\n");

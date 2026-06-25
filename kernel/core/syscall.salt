@@ -90,6 +90,13 @@ pub fn is_valid_user_ptr(ptr: u64, len: u64) -> bool {
 //   119 = sched_yield
 @no_mangle
 pub fn handle_syscall(num: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
+    if num != 119 && num != 0 && num != 1 {
+        serial.print("[syscall] num=");
+        serial.print_u64(num);
+        serial.print(" from slot=");
+        serial.print_u64(process.current());
+        serial.print("\n");
+    }
     if num == 0 {
         return sys_read(arg0, arg1, arg2);
     } else if num == 1 {

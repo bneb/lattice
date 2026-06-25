@@ -273,6 +273,20 @@ pub fn kmain(magic: u32, mb_info: &u8) {
 
     // Userspace integration tests — spawn user programs, let scheduler run them
     serial.print("[test] Spawning userspace programs...\n");
+    // Dump all non-FREE process slots for debugging
+    serial.print("[test] Process table dump:\n");
+    let mut _pd: u64 = 0;
+    while _pd < 8 {
+        let _ps = process_get_state(_pd);
+        if _ps != 0 {  // not FREE
+            serial.print("[test]   slot=");
+            serial.print_u64(_pd);
+            serial.print(" state=");
+            serial.print_u64(_ps);
+            serial.print("\n");
+        }
+        _pd = _pd + 1;
+    }
 
     // Spawn echo_server daemon (post-scheduler, runs alongside user programs)
     let es_elf = get_echo_server_elf_addr();
