@@ -108,15 +108,14 @@ fn switch_to_next_ready(slot: u64) {
     serial_print("[kernel] All processes exited. Idle.\n");
     loop { idle_halt(); }
 }
+global LAST_DISPATCHED: u64 = 0;
+
 @no_mangle
 pub fn schedule_next() {
     let current = process_current();
     let count = process_get_count();
-    if count <= 1 {
-        return; // Only one or zero processes
-    }
+    if count <= 1 { return; }
 
-    // REACTIVE FAST-PATH: Priority dispatch to Task 0 when events pending
     if pulse_is_empty() == false {
         let task0_state = process_get_state(0);
         if current != 0 && (task0_state == PROC_READY || task0_state == PROC_RUNNING) {
@@ -125,13 +124,13 @@ pub fn schedule_next() {
         }
     }
 
-    // Normal round-robin for Ring 3 processes
     let mut i: u64 = 1;
     while i < MAX_PROCS {
-        let next = (current + i) % MAX_PROCS;
+        let next = (LAST_DISPATCHED + i) % MAX_PROCS;
         let state = process_get_state(next);
         if state == PROC_READY || state == PROC_RUNNING {
             if next != current {
+                LAST_DISPATCHED = next;
                 switch_to_process(current, next);
                 return;
             }

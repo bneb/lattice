@@ -1,25 +1,13 @@
 package user.echo_server
-
 import user.lib.syscall
-
 pub fn main() {
-    // Silent daemon - no stdio (pre-scheduler serial may not work)
     let ls = syscall.tcp_listen(8080);
-    if ls == 0xFFFFFFFFFFFFFFFF {
-        syscall.exit(1);
-        return;
-    }
-
-    // Accept loop - keep trying forever
+    if ls == 0xFFFFFFFFFFFFFFFF { syscall.exit(1); return; }
     let mut conn: u64 = 0xFFFFFFFFFFFFFFFF;
     while conn == 0xFFFFFFFFFFFFFFFF {
         conn = syscall.tcp_accept(ls);
-        if conn == 0xFFFFFFFFFFFFFFFF {
-            syscall.sys_yield_thread();
-        }
+        if conn == 0xFFFFFFFFFFFFFFFF { syscall.sys_yield_thread(); }
     }
-
-    // Echo: receive then send back
     let mut buf: [u8; 256] = [0; 256];
     let total = syscall.tcp_recv(conn, &buf as u64, 256);
     if total > 0 && total != 0xFFFFFFFFFFFFFFFF {
