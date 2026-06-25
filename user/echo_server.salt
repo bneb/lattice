@@ -1,15 +1,13 @@
+// echo_server: creates persistent TCP listen socket on port 8080.
+// The socket stays in TCP_POOL after exit so fetch can connect via loopback.
+// Echo response requires daemon to stay alive (needs Ring 0 preemption fix).
 package user.echo_server
 import user.lib.syscall
 import user.std.stdio
 pub fn main() {
     stdio.print("[echo_server] creating listen socket on 8080\n");
     let ls = syscall.tcp_listen(8080);
-    if ls == 0xFFFFFFFFFFFFFFFF {
-        stdio.print("[echo_server] listen FAILED\n");
-        syscall.exit(1);
-        return;
-    }
+    if ls == 0xFFFFFFFFFFFFFFFF { stdio.print("[echo_server] listen FAILED\n"); syscall.exit(1); return; }
     stdio.print("[echo_server] listen OK — socket persists after exit\n");
-    // Do NOT close — listen socket stays in TCP_POOL for fetch to connect
     syscall.exit(0);
 }
