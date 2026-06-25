@@ -178,4 +178,11 @@ kernel_trampoline:
     out dx, al
     pop rax
     call rax
-    ud2                     /* Should never reach here */
+    /* If the kernel thread returns, yield to the scheduler instead of
+     * crashing via ud2. This allows daemons at higher slots to run. */
+.extern schedule_next
+    call schedule_next
+    /* schedule_next should never return here — it switches context.
+     * If it does (all processes exited), halt. */
+    hlt
+    jmp . - 1
