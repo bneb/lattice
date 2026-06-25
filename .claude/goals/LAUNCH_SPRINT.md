@@ -68,18 +68,17 @@ The launch needs:
 
 **Goal:** A self-contained loopback demo with echo response. Runs on `make demo`.
 
-#### S1: Fix pre-scheduler daemon execution (1 session)
-- **Problem:** Daemon spawned via `exec_spawn_process` in `boot_helpers` never executes.
-  Process dump shows slot 3 exists with state=PROC_READY but never makes a syscall.
-- **Root cause:** `schedule_next` is called from dispatcher (slot 0) which always
-  searches from `(current+1)`. Kernel threads at slots 1-2 are found first and
-  monopolize CPU. With LAST_DISPATCHED, the cursor advances but the timer ISR only
-  preempts Ring 3, so kernel threads never yield control back.
-- **Fix options:**
-  a. Run daemon as Ring 3 user program (Process L) — works but 8 programs cause crash
-  b. Add `schedule_next()` call to kernel thread loops
-  c. Fix timer ISR to preempt Ring 0 (context save/restore needed)
-  d. Move daemon spawn to post-scheduler (main.salt) where user programs run
+#### S1: Fix daemon execution ✅ (architecture done, end-to-end blocked by S3)
+- [x] Blocking accept() syscall architecture (commit 2154d6c)
+  - Added PROC_BLOCKED_ACCEPT (state 5), accept() sleeps until connection arrives
+  - sched_wake_accept() wakes blocked listener from handle_server_syn
+  - switch_to_process() preserves blocked state (does not overwrite BLOCKED→READY)
+  - Fixed sys_tcp_listen() to store real process slot (was hardcoded 1)
+  - Fixed MAX_PROCS 16→64 in scheduler to match process table
+  - Added Task 0 fairness cooldown to prevent pulse-driven starvation
+  - echo_server.salt: clean blocking accept, no yield/timeout loop
+- [ ] End-to-end echo response blocked by S3 (fetch/ping do not execute at high slot numbers)
+- [ ] Dual-scheduler integration: ECS fiber scheduler (do_dispatch) coexists with process scheduler (schedule_next); kernel threads use ECS, Ring 3 uses process — they don't yield to each other cleanly
 
 #### S2: Fix build system flake (1 session)
 - **Problem:** First build after `rm -rf qemu_build` produces a kernel where user
