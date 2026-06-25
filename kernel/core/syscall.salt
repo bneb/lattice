@@ -56,6 +56,7 @@ const PROC_READY: u64  = 1;
 const PROC_RUNNING: u64 = 2;
 const PROC_ZOMBIE: u64 = 3;
 const PROC_IPC_BLOCKED: u64 = 4;
+const PROC_BLOCKED_ACCEPT: u64 = 5;
 
 const PAGE_SIZE: u64 = 4096;
 const USER_PAGE_FLAGS: u64 = 0x7;  // PRESENT | WRITE | USER
@@ -458,24 +459,24 @@ fn sys_tcp_close(conn_id: u64) {
 // sys_tcp_listen — TCP passive open (SYS_TCP_LISTEN, num=25)
 // =============================================================================
 extern fn tcp_listen_extern(port: u16, owner_pid: u64) -> u64;
+extern fn tcp_accept_extern(slot: u64) -> u64;
 
 fn sys_tcp_listen(port: u16) -> u64 {
-    serial.print("[TCP] listen port=");
-    serial.print_u64(port as u64);
-    serial.print("\n");
-    let pid: u64 = 1;
-    let r = tcp_listen_extern(port, pid);
-    serial.print("[TCP] listen result=");
-    serial.print_u64(r);
-    serial.print("\n");
+    let slot = process.current();
+    let r = tcp_listen_extern(port, slot);
     return r;
 }
 
-// =============================================================================
-// sys_tcp_accept — TCP accept connection (SYS_TCP_ACCEPT, num=26)
-// =============================================================================
-extern fn tcp_accept_extern(slot: u64) -> u64;
-
 fn sys_tcp_accept(listen_slot: u64) -> u64 {
-    return tcp_accept_extern(listen_slot);
+    let mut result = tcp_accept_extern(listen_slot);
+    while result == 0xFFFFFFFFFFFFFFFF {
+        // No pending connection — block until sched_wake_accept wakes us
+        let slot = process.current();
+        process.set_ipc_msg(slot, 0, listen_slot, 0, 0);
+        process.set_state(slot, PROC_BLOCKED_ACCEPT);
+        schedule_next();
+        // When we return here, we've been woken — re-check
+        result = tcp_accept_extern(listen_slot);
+    }
+    return result;
 }

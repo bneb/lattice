@@ -56,12 +56,13 @@ extern fn process_set_vma_list_head(slot: u64, val: u64);
 extern fn vma_alloc(start: u64, end: u64, flags: u64) -> u64;
 
 const PAGE_SIZE: u64 = 4096;
-const MAX_PROCS: u64 = 16;
+const MAX_PROCS: u64 = 64;
 const PROC_FREE: u64 = 0;
 const PROC_READY: u64 = 1;
 const PROC_RUNNING: u64 = 2;
 const PROC_ZOMBIE: u64 = 3;
 const PROC_IPC_BLOCKED: u64 = 4;
+const PROC_BLOCKED_ACCEPT: u64 = 5;
 const USER_PAGE_FLAGS: u64 = 0x7;
 const USER_ADDR_LIMIT: u64 = 0x0000800000000000;
 const PTE_PRESENT: u64 = 0x1;
@@ -109,6 +110,7 @@ fn switch_to_next_ready(slot: u64) {
     loop { idle_halt(); }
 }
 global LAST_DISPATCHED: u64 = 0;
+global TASK0_COOLDOWN: u64 = 0;
 
 @no_mangle
 pub fn schedule_next() {
@@ -116,9 +118,17 @@ pub fn schedule_next() {
     let count = process_get_count();
     if count <= 1 { return; }
 
-    if pulse_is_empty() == false {
+    // Task 0 fairness: pulse-driven preemption to Task 0 is rate-limited.
+    // Without this, every timer tick (18 Hz) pushes PULSE_TIMER right
+    // before schedule_next, starving Ring 3 processes.
+    let pulse_ready = pulse_is_empty() == false;
+    if TASK0_COOLDOWN > 0 {
+        TASK0_COOLDOWN = TASK0_COOLDOWN - 1;
+    }
+    if pulse_ready && TASK0_COOLDOWN == 0 {
         let task0_state = process_get_state(0);
         if current != 0 && (task0_state == PROC_READY || task0_state == PROC_RUNNING) {
+            TASK0_COOLDOWN = 4; // Let 4 user-process schedule_next calls through
             switch_to_process(current, 0);
             return;
         }
@@ -146,7 +156,12 @@ pub fn schedule_next() {
 fn switch_to_process(current: u64, next: u64) {
     // Ring ABI: drain outgoing process's submission queue before switching
     ring_abi_drain_sq(current);
-    process_set_state(current, PROC_READY);
+    // Preserve blocked state: only set to READY if current was RUNNING.
+    // Blocked processes (accept, recv, IPC) stay blocked until explicitly woken.
+    let cur_state = process_get_state(current);
+    if cur_state == PROC_RUNNING {
+        process_set_state(current, PROC_READY);
+    }
     process_set_state(next, PROC_RUNNING);
     process_set_current(next);
 
@@ -343,4 +358,22 @@ pub fn sys_wait(target_pid: u64) -> u64 {
     let exit_code = process_get_ipc_msg0(child_slot);
     process_set_state(child_slot, PROC_FREE);
     return exit_code;
+}
+
+// =============================================================================
+// sched_wake_accept — Wake a process blocked on accept() for the given listen slot
+// Called from handle_server_syn after enqueuing a new connection.
+// =============================================================================
+@no_mangle
+pub fn sched_wake_accept(listen_slot: u64) {
+    let mut i: u64 = 0;
+    while i < MAX_PROCS {
+        if process_get_state(i) == PROC_BLOCKED_ACCEPT {
+            if process_get_ipc_msg0(i) == listen_slot {
+                process_set_state(i, PROC_READY);
+                return;
+            }
+        }
+        i = i + 1;
+    }
 }

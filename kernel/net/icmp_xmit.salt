@@ -44,6 +44,7 @@ extern fn tcp_lookup_listen_extern(port: u16) -> u64;
 extern fn tcp_lookup_extern(lp: u16, rip: u32, rp: u16) -> u64;
 extern fn tcp_accept_enqueue_extern(listen_slot: u64, child_slot: u64);
 extern fn tcp_listen_extern(port: u16, owner_pid: u64) -> u64;
+extern fn sched_wake_accept(listen_slot: u64);
 
 // =============================================================================
 // Send ICMP Echo Reply
@@ -419,6 +420,8 @@ pub fn handle_server_syn(buf: u64, len: u32, src_ip: u32) -> bool {
     // Set state to SYN_RECEIVED and enqueue for accept
     tcp_pool_set_state(child_slot, 3); // SYN_RECEIVED
     tcp_accept_enqueue_extern(listen_slot, child_slot);
+    // Wake any process blocked in accept() on this listen socket
+    sched_wake_accept(listen_slot);
 
     return true;
 }

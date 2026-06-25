@@ -28,13 +28,13 @@ extern fn allocate_pcid() -> u64;
 pub const MAX_PROCS: u64 = 64;  // synced with kernel_config.MAX_PROCS
 const PAGE_SIZE: u64 = 4096;
 
-
 // Process states
 pub const PROC_FREE: u64        = 0;   // Slot is unused
 pub const PROC_READY: u64       = 1;   // Runnable, waiting for scheduler
 pub const PROC_RUNNING: u64     = 2;   // Currently executing
 pub const PROC_ZOMBIE: u64      = 3;   // Exited, awaiting cleanup
 pub const PROC_IPC_BLOCKED: u64 = 4;   // Blocked on IPC receive
+pub const PROC_BLOCKED_ACCEPT: u64 = 5;  // Blocked on TCP accept()
 
 // Kernel stack size per process: 1 page = 4KB
 // MUST be 1 page because alloc_kernel_stack uses pmm.alloc() which
@@ -58,7 +58,7 @@ pub struct Process {
     pub brk_base: u64,          // Rigid start of the heap (right after ELF .bss)
     pub brk_current: u64,       // Dynamic top of the heap (advanced by sys_brk)
     pub mmap_base: u64,         // Starting search address for anonymous mappings
-    pub vma_list_head: u64,     // Pointer to first Vma struct (slab-allocated linked list)
+    pub vma_list_head: u64,     // Vma linked-list head (slab-allocated)
     pub pcid: u64,              // PCID (12-bit, 1..4095) for TLB tagging
     // --- Namespaces ---
     pub fs_namespace_id: u64,
