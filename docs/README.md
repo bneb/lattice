@@ -80,6 +80,8 @@ Salt is a systems programming language with Z3-verified safety, arena-based memo
 
 | Doc | Description |
 |-----|-------------|
+| [Your First Verified Program](tutorial/your-first-verified-program.md) | Build a verified KV store in 15 minutes |
+| [Salt by Example](tutorial/README.md) | 9-chapter hands-on introduction |
 | [Zero to Kernel](tutorial/zero-to-kernel.md) | Boot a KeuOS kernel in QEMU |
 
 ## Quick Start

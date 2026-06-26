@@ -36,6 +36,10 @@ Run `make setup` (or `./scripts/bootstrap.sh`) from the repository root to insta
 | 8 | [Async, Yield, and State Machines](08-async.md) | `@yielding`, `yield` keyword, Poll ABI, stackless state machines, `Context` |
 | 9 | [Z3 Contracts](09-contracts.md) | `requires`, `ensures`, compile-time proofs, counterexamples, `@trusted` |
 
+## Quick Start
+
+New to Salt? Start here: [Your First Verified Salt Program](your-first-verified-program.md) — a 15-minute walkthrough that builds a verified key-value store with Z3 contracts.
+
 ## Going Further
 
 - [Language Specification](../SPEC.md) — Formal language definition
