@@ -452,7 +452,7 @@ def build_kernel():
     objects = []
     
     # Compile all Salt files in kernel/core, kernel/drivers, kernel/mem, kernel/sched
-    salt_files = glob.glob(f"{KERNEL_ROOT}/core/*.salt") + \
+    salt_files = sorted(glob.glob(f"{KERNEL_ROOT}/core/*.salt") + \
                  glob.glob(f"{KERNEL_ROOT}/drivers/*.salt") + \
                  glob.glob(f"{KERNEL_ROOT}/mem/*.salt") + \
                  glob.glob(f"{KERNEL_ROOT}/sched/*.salt") + \
@@ -464,7 +464,7 @@ def build_kernel():
                  glob.glob(f"{KERNEL_ROOT}/arch/x86/*.salt") + \
                  glob.glob(f"{KERNEL_ROOT}/arch/x86_64/*.salt") + \
                  glob.glob(f"{KERNEL_ROOT}/arch/*.salt") + \
-                 glob.glob(f"{KERNEL_ROOT}/boot/*.salt")
+                 glob.glob(f"{KERNEL_ROOT}/boot/*.salt"))
     # User-space programs (reactor, terminal, lib, grit) are built separately by build_user_programs()
     # Exclude files that don't compile yet (WIP / incomplete dependencies)
     # Exclude files that don't compile yet (WIP / incomplete dependencies)
@@ -488,8 +488,8 @@ def build_kernel():
             sys.exit(1)
 
     # Compile Arch Assembly
-    asm_files = glob.glob(f"{KERNEL_ROOT}/arch/x86/*.S") + \
-                glob.glob(f"{KERNEL_ROOT}/arch/x86_64/*.S")
+    asm_files = sorted(glob.glob(f"{KERNEL_ROOT}/arch/x86/*.S") + \
+                glob.glob(f"{KERNEL_ROOT}/arch/x86_64/*.S"))
     for f in asm_files:
         objects.append(compile_asm(f))
         
@@ -557,8 +557,16 @@ def build_benchmark(bench_file, kernel_objs):
             seen.add(arg)
         unique_linker_args.append(arg)
     
-    print(f"LINKING OBJS: {[obj for obj in unique_linker_args if obj.endswith('.o')]}")
-    cmd = [TOOLCHAIN.rust_lld, "-flavor", "gnu", "-T", linker_script, "-o", output_elf, "-z", "max-page-size=0x1000"] + unique_linker_args
+    # Sort object files for deterministic linking (mitigates glob.glob non-determinism).
+    # Does NOT fix salt-front's HashMap-based non-determinism, which is addressed by
+    # the double-build workaround in the build entry points.
+    # Separate .o files from linker flags, sort the .o files, then reassemble.
+    obj_files = [a for a in unique_linker_args if a.endswith('.o')]
+    other_args = [a for a in unique_linker_args if not a.endswith('.o')]
+    obj_files.sort()
+    sorted_linker_args = other_args + obj_files
+    print(f"LINKING OBJS: {obj_files}")
+    cmd = [TOOLCHAIN.rust_lld, "-flavor", "gnu", "-T", linker_script, "-o", output_elf, "-z", "max-page-size=0x1000"] + sorted_linker_args
     subprocess.check_call(cmd)
     
     return output_elf
