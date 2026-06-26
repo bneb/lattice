@@ -925,6 +925,28 @@ pub fn translate_to_z3<'a, 'ctx>(
     }
 }
 
+/// Translate a Salt expression to a Z3 String value.
+/// Handles string literals (compile-time constants) and variable references.
+fn translate_string_to_z3<'a, 'ctx>(
+    ctx: &mut LoweringContext<'a, 'ctx>,
+    expr: &syn::Expr,
+    _local_vars: &HashMap<String, (Type, LocalKind)>,
+) -> Result<crate::z3_shim::ast::String<'a>, String> {
+    match expr {
+        syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) => {
+            crate::z3_shim::ast::String::from_str(ctx.z3_ctx, &s.value())
+                .map_err(|e| format!("invalid string literal: {}", e))
+        }
+        syn::Expr::Path(p) => {
+            let name = p.path.segments.last()
+                .ok_or_else(|| "Empty path in string context".to_string())?
+                .ident.to_string();
+            Ok(crate::z3_shim::ast::String::new_const(ctx.z3_ctx, name))
+        }
+        _ => Err("Expected a string expression (literal or variable)".to_string()),
+    }
+}
+
 #[allow(clippy::only_used_in_recursion)] // pub API: params passed in recursive calls
 pub fn translate_bool_to_z3<'a, 'ctx>(
     ctx: &mut LoweringContext<'a, 'ctx>,
@@ -1001,6 +1023,30 @@ pub fn translate_bool_to_z3<'a, 'ctx>(
         }
         syn::Expr::MethodCall(mc) => {
             let method_name = mc.method.to_string();
+
+            // String content operations — Z3-str
+            if method_name == "contains" || method_name == "starts_with" || method_name == "ends_with" {
+                let receiver = translate_string_to_z3(ctx, &mc.receiver, local_vars)?;
+                let arg = translate_string_to_z3(ctx, &mc.args[0], local_vars)?;
+                return Ok(match method_name.as_str() {
+                    "contains" => receiver.contains(&arg),
+                    "starts_with" => receiver.prefix(&arg),
+                    "ends_with" => receiver.suffix(&arg),
+                    _ => unreachable!(),
+                });
+            }
+            if method_name == "matches" {
+                let receiver = translate_string_to_z3(ctx, &mc.receiver, local_vars)?;
+                let pattern = if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = &mc.args[0] {
+                    s.value()
+                } else {
+                    return Err("regex pattern must be a string literal".to_string());
+                };
+                let regex = crate::z3_shim::ast::Regexp::literal(ctx.z3_ctx, &pattern);
+                return Ok(receiver.regex_matches(&regex));
+            }
+
+            // Generic: uninterpreted boolean function
             let mut arg_z3s: Vec<crate::z3_shim::ast::Int<'a>> = Vec::new();
             arg_z3s.push(translate_to_z3(ctx, &mc.receiver, local_vars)?);
             for arg in &mc.args {

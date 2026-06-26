@@ -1,0 +1,25 @@
+// Z3 Contract Test: String content operations
+// Expected: PASS (all contracts proved by Z3-str)
+package main
+use std.core.str.StringView
+
+// String contains — should prove when arg is a known substring
+pub fn has_prefix(key: StringView) -> bool
+    requires(key.starts_with("salt-"))
+{ return true; }
+
+pub fn has_suffix(key: StringView) -> bool
+    requires(key.ends_with(".salt"))
+{ return true; }
+
+// Regex match — should prove when arg matches the pattern
+pub fn is_hex(s: StringView) -> bool
+    requires(s.matches("^[0-9a-fA-F]+$"))
+{ return true; }
+
+pub fn main() -> i32 {
+    let _a = has_prefix("salt-lang");
+    let _b = has_suffix("program.salt");
+    let _c = is_hex("deadbeef");
+    return 0;
+}

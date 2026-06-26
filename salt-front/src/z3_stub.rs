@@ -62,6 +62,7 @@ pub struct Sort<'a>(PhantomData<&'a ()>);
 impl<'a> Sort<'a> {
     pub fn int(_ctx: &'a Context) -> Self { Sort(PhantomData) }
     pub fn bool(_ctx: &'a Context) -> Self { Sort(PhantomData) }
+    pub fn string(_ctx: &'a Context) -> Self { Sort(PhantomData) }
     pub fn bitvector(_ctx: &'a Context, _sz: u32) -> Self { Sort(PhantomData) }
 }
 
@@ -305,24 +306,26 @@ pub mod ast {
     // ─── Z3 String ──────────────────────────────────────────────────
 
     #[derive(Debug, Clone)]
-    pub struct Z3String<'a>(pub(crate) PhantomData<&'a ()>);
+    pub struct String<'a>(pub(crate) PhantomData<&'a ()>);
 
-    impl<'a> Z3String<'a> {
-        pub fn new_const(_ctx: &'a Context, _name: impl Into<String>) -> Self { Z3String(PhantomData) }
-        pub fn from_str(_ctx: &'a Context, _s: &str) -> Self { Z3String(PhantomData) }
+    impl<'a> String<'a> {
+        pub fn new_const(_ctx: &'a Context, _name: impl Into<std::string::String>) -> Self { String(PhantomData) }
+        pub fn fresh_const(_ctx: &'a Context, _prefix: &str) -> Self { String(PhantomData) }
+        pub fn from_str(_ctx: &'a Context, _s: &str) -> Result<Self, std::ffi::NulError> { Ok(String(PhantomData)) }
         pub fn length(&self) -> Int<'a> { Int(PhantomData) }
-        pub fn _eq(&self, _other: &Z3String<'a>) -> Bool<'a> { Bool(PhantomData) }
-        pub fn contains(&self, _substr: &Z3String<'a>) -> Bool<'a> { Bool(PhantomData) }
-        pub fn prefixof(&self, _prefix: &Z3String<'a>) -> Bool<'a> { Bool(PhantomData) }
-        pub fn suffixof(&self, _suffix: &Z3String<'a>) -> Bool<'a> { Bool(PhantomData) }
-        pub fn substr(&self, _offset: &Int<'a>, _length: &Int<'a>) -> Z3String<'a> { Z3String(PhantomData) }
+        pub fn _eq(&self, _other: &String<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn contains(&self, _substr: &String<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn prefix(&self, _prefix: &String<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn suffix(&self, _suffix: &String<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn substr(&self, _offset: &Int<'a>, _length: &Int<'a>) -> String<'a> { String(PhantomData) }
+        pub fn regex_matches(&self, _regex: &Regexp<'a>) -> Bool<'a> { Bool(PhantomData) }
     }
 
-    impl<'a> fmt::Display for Z3String<'a> {
+    impl<'a> fmt::Display for String<'a> {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "<z3_stub::String>") }
     }
 
-    impl<'a> Ast for Z3String<'a> {}
+    impl<'a> Ast for String<'a> {}
 
     // ─── Regexp ─────────────────────────────────────────────────────
 
@@ -330,7 +333,7 @@ pub mod ast {
     pub struct Regexp<'a>(pub(crate) PhantomData<&'a ()>);
 
     impl<'a> Regexp<'a> {
-        pub fn from_str(_ctx: &'a Context, _pattern: &str) -> Self { Regexp(PhantomData) }
+        pub fn literal(_ctx: &'a Context, _pattern: &str) -> Self { Regexp(PhantomData) }
     }
 
     impl<'a> fmt::Display for Regexp<'a> {

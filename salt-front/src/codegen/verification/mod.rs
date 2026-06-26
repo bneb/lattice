@@ -171,7 +171,7 @@ impl VerificationEngine {
 
             // Tier 1: try compile-time evaluation with known argument values.
             // If the expression resolves to a concrete boolean, skip Z3 entirely.
-            if let Some(value) = fold_constants::try_eval(actual_req, &known_lengths) {
+            if let Some(value) = fold_constants::try_eval(actual_req, &known_lengths, params, arg_exprs) {
                 if let crate::evaluator::ConstValue::Bool(false) = value {
                     return Err(
                         "VERIFICATION ERROR: contract evaluates to false with the given arguments".to_string()

@@ -176,6 +176,35 @@ impl StringView {
             && self.ptr.offset(2).read() == c
             && self.ptr.offset(3).read() == d;
     }
+
+    // Z3-verifiable string operations — used in requires/ensures contracts.
+    // Runtime implementations delegate to existing primitives.
+
+    pub fn contains(&self, substr: &StringView) -> bool {
+        let mut i: i64 = 0;
+        while i <= self.len - substr.len {
+            let slice = self.slice(i, i + substr.len);
+            if slice.eq_bytes(substr) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    pub fn starts_with(&self, prefix: &StringView) -> bool {
+        if self.len < prefix.len { return false; }
+        return self.slice(0, prefix.len).eq_bytes(prefix);
+    }
+
+    pub fn ends_with(&self, suffix: &StringView) -> bool {
+        if self.len < suffix.len { return false; }
+        return self.slice(self.len - suffix.len, self.len).eq_bytes(suffix);
+    }
+
+    pub fn matches(&self, _pattern: &StringView) -> bool {
+        // Regex matching is Z3-only for contracts.
+        // Runtime implementation would need a regex engine.
+        return false;
+    }
 }
 
 pub fn _force_export_str() {
