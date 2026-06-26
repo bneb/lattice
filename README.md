@@ -3,7 +3,7 @@
 **A systems language where the compiler proves your code correct at compile time.** Z3 contracts, arena memory, MLIR codegen. No garbage collector, no borrow checker, no lifetime annotations.
 
 [![CI](https://github.com/bneb/lattice/actions/workflows/ci.yml/badge.svg)](https://github.com/bneb/lattice/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.8.0-blue)](https://github.com/bneb/lattice)
+[![Version](https://img.shields.io/badge/version-0.10.0-blue)](https://github.com/bneb/lattice)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ```salt
@@ -31,14 +31,54 @@ fn binary_search(arr: &[i64], target: i64) -> i64
 ```bash
 git clone https://github.com/bneb/lattice.git
 cd lattice
+make setup              # Install dependencies (once)
 make build              # Build the compiler (~2 min)
+make test               # 11/11 kernel tests pass
 make lettuce-verify     # 4/4 Z3 contracts pass
 make bench              # LETTUCE vs Redis comparison
 ```
 
-Prerequisites: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 21+.
+Prerequisites: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 21+ (`brew install llvm@21`), QEMU (`brew install qemu`).
+
+Your first Salt program:
+
+```salt
+// hello.salt
+package main
+
+fn main() -> i32 {
+    println("Hello, Salt!");
+    return 0;
+}
+```
+
+```bash
+salt-front hello.salt --lib --disable-alias-scopes -o /tmp/hello && /tmp/hello
+```
+
+[Full tutorial →](docs/tutorial/your-first-verified-program.md) — build a verified key-value store in 15 minutes.
 
 ---
+
+## Architecture
+
+```
+Salt Source (.salt)
+    │
+    ▼
+Parser → Type Checker → Z3 Verifier → MLIR Emitter    [salt-front/]
+    │
+    ▼
+mlir-opt → mlir-translate → LLVM IR → clang -O3       [LLVM backend]
+    │
+    ▼
+KeuOS Kernel: boot.S → kmain → Drivers → Ring 3        [kernel/]
+    │
+    ▼
+User Programs: LETTUCE, Basalt, FACET, NetD            [user/]
+```
+
+[Full architecture reference →](docs/ARCH.md)
 
 ## What's here
 
@@ -46,9 +86,9 @@ Prerequisites: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 21+.
 |---|---|
 | `salt-front/` | Compiler (Rust → MLIR → LLVM → native) |
 | `salt-front/std/` | Standard library (arenas, collections, networking, I/O) |
-| `docs/tutorial/` | [Salt by Example](docs/tutorial/) — 9 chapters |
-| `docs/SPEC.md` | [Language specification](docs/SPEC.md) |
-| `site/` | [salt-lang.dev](https://salt-lang.dev) — website, blog, playground |
+| `kernel/` | KeuOS microkernel — SMP, SPSC IPC, TCP stack, Ring 3 daemons |
+| `user/` | User-space programs (echo_server, fetch, NetD, FACET) |
+| `docs/` | [Documentation](docs/) — tutorials, blog, specs, deep-dives |
 | `tools/salt-lsp/` | LSP server (VS Code extension) |
 
 ## Built with Salt
@@ -89,13 +129,13 @@ LETTUCE leads at every concurrency level. The structural advantage is the arena 
 
 ## Further reading
 
-- [Tutorial: build a verified server](lettuce/TUTORIAL.md)
-- [Blog: Compile-time verification with negative overhead](https://salt-lang.dev/blog/zero-cost-safety.html)
-- [Blog: Microkernel IPC without the performance tax](https://salt-lang.dev/blog/microkernel-ipc.html)
-- [Blog: Why we chose arenas over borrow checking](https://salt-lang.dev/blog/arenas-over-borrow-checking.html)
-- [Language specification](docs/SPEC.md)
-- [Package manager design](docs/package-manager/DESIGN.md)
-- [Contributor guide](CONTRIBUTING.md)
+- [Tutorial: Your First Verified Program](docs/tutorial/your-first-verified-program.md) — 15-minute walkthrough
+- [Blog: Zero-Cost Safety](docs/blog/zero-cost-safety.md) — how Z3 contracts work
+- [LETTUCE vs Redis](benchmarks/LETTUCE_BENCH.md) — benchmark data and analysis
+- [Architecture Reference](docs/ARCH.md) — compiler pipeline, kernel design, memory model
+- [Language Specification](docs/SPEC.md) — formal language definition
+- [Tutorial: Salt by Example](docs/tutorial/README.md) — 9-chapter hands-on guide
+- [Contributor Guide](CONTRIBUTING.md)
 
 ## License
 
