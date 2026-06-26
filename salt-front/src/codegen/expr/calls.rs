@@ -534,7 +534,7 @@ fn emit_function_args(
     param_names: &[String],
 ) -> Result<(Vec<String>, Vec<Type>), String> {
     if !requires.is_empty() {
-        crate::codegen::verification::VerificationEngine::verify(ctx, requires, param_names, args_vec, local_vars)?;
+        crate::codegen::verification::VerificationEngine::verify(ctx, requires, param_names, args_vec, local_vars, arg_tys)?;
     }
 
     let mut args_vals = Vec::new();

@@ -85,6 +85,7 @@ impl VerificationEngine {
         params: &[String],
         arg_exprs: &[syn::Expr],
         local_vars: &HashMap<String, (Type, crate::codegen::context::LocalKind)>,
+        param_tys: &[Type],
     ) -> Result<(), String> {
         if requires.is_empty() {
             return Ok(());
@@ -230,12 +231,59 @@ impl VerificationEngine {
                  // Also add path conditions from the caller's context to constrain the arguments
                  let path_conditions = ctx.emission.path_conditions.clone();
                  for pc in &path_conditions {
-                     let dummy_locals_for_pc = local_vars.clone(); // The path condition uses caller's locals
+                     let dummy_locals_for_pc = local_vars.clone();
                      if let Ok(z3_pc) = crate::codegen::expr::translate_bool_to_z3(ctx, pc, &dummy_locals_for_pc, &sym_ctx) {
                          solver.assert(&z3_pc);
                      }
                  }
-                 
+
+                 // Inject type-based bounds so Z3 can prove contracts
+                 // implied by the type system (e.g., u8 ∈ [0, 255]).
+                 // Assert on the argument Z3 values — after substitution,
+                 // these are what Z3 actually checks against the contract.
+                 for (i, arg_val) in call_vals_z3.iter().enumerate() {
+                     if i < param_tys.len() {
+                         let zero = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 0);
+                         match &param_tys[i] {
+                             Type::U8 => {
+                                 let max = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 255);
+                                 solver.assert(&arg_val.ge(&zero));
+                                 solver.assert(&arg_val.le(&max));
+                             }
+                             Type::U16 => {
+                                 let max = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 65535);
+                                 solver.assert(&arg_val.ge(&zero));
+                                 solver.assert(&arg_val.le(&max));
+                             }
+                             Type::U32 | Type::U64 | Type::Usize => {
+                                 solver.assert(&arg_val.ge(&zero));
+                             }
+                             Type::I8 => {
+                                 let min = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, -128);
+                                 let max = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 127);
+                                 solver.assert(&arg_val.ge(&min));
+                                 solver.assert(&arg_val.le(&max));
+                             }
+                             Type::I16 => {
+                                 let min = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, -32768);
+                                 let max = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 32767);
+                                 solver.assert(&arg_val.ge(&min));
+                                 solver.assert(&arg_val.le(&max));
+                             }
+                             Type::I32 | Type::I64 => {
+                                 // Full i32/i64 range is unbounded for Z3 ints;
+                                 // no useful constraints to add.
+                             }
+                             Type::Bool => {
+                                 let one = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 1);
+                                 solver.assert(&arg_val.ge(&zero));
+                                 solver.assert(&arg_val.le(&one));
+                             }
+                             _ => {}
+                         }
+                     }
+                 }
+
                  // Inject Pointer State Tokens
                  // For each argument that is a known variable, map its pointer state into Z3
                  for (i, _p_name) in params.iter().enumerate() {
