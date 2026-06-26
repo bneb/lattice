@@ -138,26 +138,59 @@ assertion rather than a compile error. The program compiles but panics
 if the contract is violated. We have not been able to trigger this
 path with realistic contracts.
 
+## Float Literals
+
+Float literals (e.g., `0.0`, `3.14`) in contracts are truncated to
+integers for Z3 comparison. This handles zero-checking and sign checks:
+
+```salt
+pub fn safe_fdiv(a: f64, b: f64) -> f64
+    requires(b != 0.0)          // Z3 proves 7.0 != 0.0 at call site
+{ return a / b; }
+```
+
+Full `Real` (exact rational) support via `Z3Numeric` is designed.
+The z3_stub has `Real` types. Bridge wiring is in progress.
+
+## String Operations
+
+StringView `.length()` in contracts compiles to an integer expression.
+Z3 can prove length properties on function bodies but cannot yet
+constant-fold string literals at call sites:
+
+```salt
+pub fn check(key: StringView) -> i32
+    requires(key.length() > 0)    // parses and checks
+{ return key.length() as i32; }
+```
+
+String content operations (equality, contains, prefix, suffix) are
+supported by Z3-str but not yet wired in the compiler bridge. The
+z3_stub has `Z3String` and `Regexp` types ready.
+
 ## The Frontier
 
-**Proved or rejected at compile time (everything we have tested):**
+**Proved or rejected at compile time:**
 - Integer arithmetic with all six comparison operators
 - Multiplication, including multi-variable and polynomial (`x*x + y*y`)
 - Division and modulus safety (`requires(b != 0)`)
+- Float literals via truncation (`requires(b != 0.0)`)
 - Bitwise AND/OR with constant operands
 - Compound boolean conditions with `&&` and `||`
 - Path-sensitive reasoning through nested if/else chains
 - Postconditions across any number of return paths
 - Struct field bounds
 - Pointer non-null
-- StringView length ranges
+- StringView `.length()` (in function bodies)
 
-**Not currently translated (Z3 supports these, the compiler bridge does not):**
-- Floating-point arithmetic — Z3 has `Z3_mk_fpa_*`. Use integer arithmetic for contracts.
-- String content — Z3-str handles substrings, concatenation, regex. `.length()` works because it's an integer.
-- Quantifiers — Z3 supports `forall`/`exists`. Salt has no syntax for them in contracts.
+**Infrastructure ready, bridge wiring in progress:**
+- `Real` (exact rational arithmetic) — stub type, Z3Numeric designed
+- `String` content (Z3-str: equality, contains, prefix, suffix) — stub type
+- `Regexp` (pattern matching) — stub type
+- `BV` (bitvectors for masks and flags) — stub type
 
-**Outside Z3's domain entirely:**
+**Not currently expressible:**
+- Quantifiers (`forall`/`exists`) — Z3 supports them; Salt has no syntax
 - Heap reachability (no cycles, no dangling pointers)
 - Temporal properties (eventually, always)
 
