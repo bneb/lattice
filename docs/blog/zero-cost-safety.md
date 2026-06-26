@@ -1,227 +1,164 @@
-# Zero-Cost Safety: How Salt Proves Memory Safety at Compile Time
+# How Salt Eliminates Runtime Checks You Didn't Write
 
 **Published:** June 2026 | **Author:** The KeuOS Team | **Reading time:** 12 minutes
 
 ---
 
-Every CVE is a memory bug. Bounds overflows, use-after-free, null dereferences — year after year, the same classes of vulnerability dominate the CVE database. The industry has tried everything: static analysis (Coverity), sanitizers (ASAN, UBSAN), safer dialects (MISRA C). Each catches some bugs. None provides certainty.
-
-Rust changed the conversation. Its borrow checker proves memory safety at compile time — no use-after-free, no data races. But the proof comes with a cost: lifetime annotations on every reference, `Arc<Mutex<T>>` for shared state, `unsafe` blocks for FFI. The cognitive overhead is real.
-
-Zig takes the opposite approach: no hidden control flow, no implicit allocations, full C interop. But its safety story is runtime checks in debug builds — stripped in release. You ship without the net.
-
-Salt asks a different question: **what if the compiler could prove your safety properties mathematically, and simply not emit the check?**
-
----
-
-## The Idea: Proof-or-Panic
-
-Salt embeds the [Z3 theorem prover](https://github.com/Z3Prover/z3) directly in the compiler. Every `requires` clause on a function becomes a Z3 proof obligation at compile time. The outcome is binary:
-
-1. **Z3 proves it** → The check is **completely elided**. Zero instructions emitted. Zero runtime cost.
-2. **Z3 can't prove it** → A runtime assertion fires if the contract is violated. Safe fallback, no UB.
-
-There is no third path. Every contract is either mathematically proven or runtime-enforced.
-
-Here's the simplest example:
+Here is a function that indexes a 256-element lookup table. It takes a
+`u8` — an unsigned byte, range 0 to 255. It has a bounds check:
 
 ```salt
-fn safe_div(a: i32, b: i32) -> i32
-    requires(b != 0)
-{
-    return a / b;
-}
-
-fn main() -> i32 {
-    let x = safe_div(100, 7);    // ✓ Z3 proves 7 != 0 — check elided
-    // let y = safe_div(100, 0); // ✗ COMPILE ERROR: Z3 finds counterexample b=0
-    return 0;
-}
+pub fn lookup(table: &[i32; 256], idx: u8) -> i32
+    requires(idx < 256)
+{ return table[idx as i64]; }
 ```
 
-When you call `safe_div(100, 7)`, Z3 proves `7 != 0` is always true, so the generated binary contains **no branch, no assertion, no overhead**. The `requires` clause evaporates.
-
-When you call `safe_div(100, 0)`, the compiler reports:
-
-```
-VERIFICATION ERROR: could not prove '(b != 0)'
-  context: precondition check at call site
-  counterexample:
-    b = 0
-  hint: the argument 'b' must be non-zero
-```
-
-This isn't a runtime panic. It's a **compile error** — your program never ships with a provably-violated contract.
-
----
-
-## How It Works: From `requires` to Z3 to MLIR
-
-The verification pipeline has three stages:
-
-```
-Salt source with requires(b != 0)
-        │
-        ▼
-Translate to Z3 formula: (assert (not (= b 0)))
-        │
-        ▼
-Z3 checks satisfiability (100ms timeout):
-        │
-        ├── UNSAT (no counterexample exists)
-        │       → Condition ALWAYS holds
-        │       → ELIDE CHECK — emit nothing
-        │
-        ├── SAT (counterexample found: b = 0)
-        │       → Condition CAN be violated
-        │       → COMPILE ERROR with counterexample
-        │
-        └── UNKNOWN (Z3 timeout)
-                → Cannot determine
-                → Emit runtime assertion as safe fallback
-```
-
-The critical insight: when Z3 returns UNSAT, it has **mathematically proven that no input can violate the contract**. There is no counterexample in the entire input space. The check is redundant — and the compiler removes it.
-
-When Z3 returns UNKNOWN (typically a 100-millisecond timeout on complex path conditions), the compiler emits a standard MLIR runtime assertion:
-
-```mlir
-%violated = arith.xori %cond, %true : i1
-scf.if %violated {
-    func.call @__salt_contract_violation() : () -> ()
-    scf.yield
-}
-```
-
-This uses only standard MLIR dialects — `arith`, `scf`, `func`. No custom dialect ops. No special runtime. The fallback is a plain conditional branch that any LLVM backend can optimize.
-
----
-
-## Concrete Example: Bounds-Checked Binary Search
-
-Here's a binary search with a `requires` contract that Z3 can prove:
+Call it with a runtime variable — no constant, no literal:
 
 ```salt
-fn binary_search(arr: &[i32], target: i32) -> Result<i32>
-    requires(arr.len() > 0)
-{
-    let mut lo: i64 = 0;
-    let mut hi: i64 = arr.len() - 1;
-
-    while lo <= hi {
-        let mid = lo + (hi - lo) / 2;
-        if arr[mid] == target {
-            return Result::Ok::<i32>(mid as i32);
-        }
-        if arr[mid] < target {
-            lo = mid + 1;
-        } else {
-            hi = mid - 1;
-        }
-    }
-    return Result::Err::<i32>(-1);
-}
-
-fn main() -> i32 {
-    let sorted: [i32; 5] = [1, 3, 5, 7, 9];
-    let found = binary_search(&sorted, 5);
-    // Z3 proves: arr.len() == 5 > 0 ✓
-    // Z3 proves: all array accesses are in-bounds ✓
-    return 0;
-}
+let idx: u8 = some_runtime_value();
+let result = lookup(&table, idx);
 ```
 
-At the call site `binary_search(&sorted, 5)`, Z3 proves two things:
+A conventional compiler emits `cmp idx, 256; jae panic`. Salt emits
+nothing. The bounds check does not exist in the binary.
 
-1. **The precondition holds**: `arr.len()` is 5, and `5 > 0` is true for all possible execution paths reaching this call site.
-2. **All array accesses are in-bounds**: every `arr[mid]` is accessed with `mid` in the range `[0, arr.len() - 1]`, which Z3 verifies by analyzing the loop bounds.
+Why? Because the compiler knows `u8` ∈ [0, 255]. Before codegen, it asks: "can any value of type `u8` violate `idx < 256`?" The answer is no.
+The check is mathematically redundant. It evaporates.
 
-Neither check exists in the generated binary. The binary search compiles to the same machine code you'd write by hand — minus the safety annotations.
+You didn't have to prove it. You didn't have to annotate it. The type
+system proved it for you.
 
 ---
 
-## Contracts on Kernel Operations
+## Two Tiers, Zero Overhead
 
-KeuOS uses Z3 contracts throughout the kernel. Here's a real example from the Physical Memory Manager:
+Salt's contract verification runs in two tiers:
+
+**Tier 1: Compile-time evaluation.** Before Z3 ever sees a contract, the
+constant folder attempts to resolve it using the compiler's built-in
+evaluator. If the expression reduces to `true`, Z3 is skipped entirely.
+This handles string operations on literal arguments, integer arithmetic
+on constants, and anything the compiler can evaluate without a solver.
+
+**Tier 2: Z3 symbolic proof.** For contracts with symbolic (runtime)
+parameters, the compiler translates the expression to a Z3 formula and
+checks satisfiability. The solver has 100ms per obligation. In
+empirical testing, Z3 resolves every contract we have thrown at it —
+including 10-variable polynomial constraints — within that window.
+
+If Z3 proves the contract, the check is elided from the binary. If Z3
+finds a counterexample, the compiler stops with the specific violating
+values. If Z3 times out, a runtime assertion is emitted as a safe
+fallback.
+
+---
+
+## The Type System Is a Proof System
+
+Every integer type carries bounds that the solver receives as hard
+constraints. You don't opt into this. It's automatic.
+
+| Type | Constraint | Contract | Proved because |
+|------|-----------|----------|---------------|
+| `u8` | [0, 255] | `requires(idx < 256)` | 255 < 256 |
+| `u16` | [0, 65535] | `requires(idx < 65536)` | 65535 < 65536 |
+| `u32` | ≥ 0 | `requires(x >= 0)` | type guarantees it |
+| `i8` | [-128, 127] | `requires(x >= -128)` | type guarantees it |
+| `bool` | {0, 1} | `requires(b == 0 \|\| b == 1)` | exhaustive |
+
+These compose via AND with whatever contracts you write. A
+`requires(idx < 100)` on `u8` gives Z3 the effective bound
+`idx ∈ [0, 99]`. Tighter constraints from either source only help
+the proof.
+
+This is not a special case for `u8`. It's the general mechanism: the
+compiler extracts the domain of every integer type and asserts it into
+the solver before checking any contract.
+
+---
+
+## Z3 Handles the Hard Cases
+
+When the type system isn't enough, Z3 takes over. Here is a function
+with a postcondition that depends on the input's sign:
 
 ```salt
-// Prevents invalid memory regions at the compiler level
-pub fn init(start: u64, end: u64)
-    requires(start < end)
+pub fn my_abs(x: i32) -> i32
+    ensures(result >= 0)
 {
-    // Z3 proves start < end at every call site
-    // ... initialize the page allocator ...
+    if x < 0 { return -x; }    // Z3 proves: x < 0 → -x >= 0
+    return x;                   // Z3 proves: x >= 0 → x >= 0
 }
 ```
 
-And from the IPC subsystem:
+Z3 tracks path conditions through every branch. It knows that after
+`if x < 0`, the else branch executes with `x >= 0`. Each return site
+is verified independently.
+
+Multiplication, division safety, bitwise operations, and 10-variable
+polynomial constraints all resolve within the 100ms window. Z3
+handles non-linear integer arithmetic — it's not limited to linear
+constraints.
+
+---
+
+## String Validation at Compile Time
+
+String operations on literal arguments never reach Z3. They're
+evaluated in Rust at compile time:
 
 ```salt
-// Prevents wrap-around and oversized rings
-fn map_ring(descriptor: RingDescriptor)
-    requires(descriptor.size > 0 && descriptor.size <= 0x100000)
-{
-    // Z3 proves the ring is non-empty and under 1MB
-    // ... map SPSC ring pages into the caller's address space ...
-}
+pub fn validate_url(url: StringView) -> bool
+    requires(url.starts_with("https://"))
+    requires(url.contains(".com"))
+    requires(url.ends_with("/api/v1/"))
+{ return true; }
+
+// Called with a literal:
+validate_url("https://salt-lang.com/api/v1/");
 ```
 
-These aren't examples from a whitepaper. They ship in the kernel. Every call site that passes a compile-time-known value gets the check elided. Every call site with a runtime value gets a branch — just like Rust's `assert!`, but with Z3 doing the work of removing the provably-redundant ones.
+Three string operations, all resolved before codegen. The constant
+folder substitutes `"https://salt-lang.com/api/v1/"` for `url`, then
+evaluates `.starts_with("https://")` → `true` using Rust's standard
+library. Z3 never runs.
+
+The Z3-str bridge is also wired — for symbolic strings, `.contains()`,
+`.starts_with()`, `.ends_with()`, and `.matches(regex)` translate
+directly to Z3's native string solver.
 
 ---
 
-## The Limits: What Z3 Can't Prove
+## What Ships, What Doesn't
 
-Z3 handles linear integer arithmetic, bounded multiplication, bitwise operations, and comparisons across conditional branches. What it can't prove:
+**Proved at compile time, zero runtime cost:**
+- Integer bounds and comparisons (all six operators)
+- Division and modulus safety
+- Multiplication (including polynomial: `x*x + y*y`)
+- Float zero-checking (`requires(b != 0.0)`)
+- Postconditions across conditional branches
+- String length, prefix, suffix, and containment (with literal args)
+- Type-bound proofs for all integer types
+- Bitwise AND/OR with constants
 
-- **Non-linear integer arithmetic**: `a * b` where both `a` and `b` are unbounded variables. Z3 can reason about multiplication when at least one operand is bounded.
-- **Floating-point**: Z3's float theory is incomplete. Use integers for contract properties.
-- **Deeply nested loops and pointer-chasing**: path explosion hits the 100ms timeout.
-- **String operations**: not in the solver domain.
+**Runtime assertion (Z3 can't decide, safe fallback):**
+- Contracts with unbounded symbolic parameters not implied by type bounds
 
-When Z3 can't decide, the compiler emits a runtime assertion. This is **progressive verification**: add contracts incrementally, prove what you can, runtime-check the rest.
-
-[Full capability reference →](deep-dives/z3-capabilities.md)
-
----
-
-## Comparison: Salt vs. Rust vs. C
-
-| | Salt | Rust | C |
-|---|---|---|---|
-| **Memory safety guarantee** | Arena model + contracts | Borrow checker | None (manual) |
-| **Lifetime annotations** | None (inferred) | Required on references | N/A |
-| **Compile-time proofs** | Z3 on `requires`/`ensures` | Trait bounds, type system | None |
-| **Bounds check cost** | Elided when Z3 proves | `unwrap()` panic path | Silent UB if missed |
-| **FFI safety** | `@trusted` with explicit reason | `unsafe { }` blocks | Everything is unsafe |
-| **What ships** | Proven code only | Safe + unsafe code | All code |
-
-Rust's borrow checker is a remarkable achievement — it proves absence of aliasing bugs without a GC. But it proves them through a type system that requires explicit annotation. Salt's arena model achieves equivalent safety through region-based allocation with inferred lifetimes, and adds mathematical proofs on top.
-
-C's approach — "trust the programmer" — has been empirically disproven by 30 years of CVEs.
+**Not yet wired (Z3 supports, bridge pending):**
+- Full `Real` exact-rational arithmetic
+- `BV` bitvector reasoning
+- `forall`/`exists` quantifiers (no Salt syntax)
 
 ---
 
-## What This Enables
+## The Proposition
 
-The Salt compiler is open source. The KeuOS kernel boots in QEMU. The `requires` and `ensures` contracts are documented and tested.
+You write types. You write a few `requires` clauses on the boundaries.
+The compiler proves what it can, runtime-checks the rest, and tells you
+exactly which is which.
 
-Here's what you can build with compile-time proofs:
+No separate verification tool. No annotation language. No proof
+assistant. Just a compiler that understands your types and acts on them.
 
-- **Verified kernel operations**: PMM allocations, IPC ring mappings, interrupt handler registrations — all with `requires` clauses that Z3 proves at compile time
-- **Bounds-checked data structures**: Binary search, ring buffers, hash tables — array accesses proven in-bounds before the binary ships
-- **Contract-carrying libraries**: Publish a library with `requires` on its public API — consumers get compile-time verification of correct usage
-
----
-
-## Try It
-
-The compiler ships with a tutorial that walks through contracts in Chapter 9:
-
-```bash
-git clone https://github.com/bneb/keuos
-cd keuos/docs/tutorial
-cat 09-contracts.md
-```
-
-Read the [full tutorial](/docs/tutorial/), check out the [language specification](/docs/SPEC.md), and open a PR. We're building a language where safety is a proof, not a prayer.
+[Try the tutorial →](/docs/tutorial/your-first-verified-program.md)
