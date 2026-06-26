@@ -167,10 +167,23 @@ impl VerificationEngine {
                 req
             };
 
-            // Fold compile-time-known constants before Z3 sees the expression
-            let folded_req = fold_constants::fold_constants(actual_req, &known_lengths);
+            // Tier 1: try compile-time evaluation with known argument values.
+            // If the expression resolves to a concrete boolean, skip Z3 entirely.
+            if let Some(value) = fold_constants::try_eval(actual_req, &known_lengths) {
+                if let crate::evaluator::ConstValue::Bool(false) = value {
+                    return Err(
+                        "VERIFICATION ERROR: contract evaluates to false with the given arguments".to_string()
+                    );
+                }
+                // Bool(true): proven at compile time, skip Z3
+                if matches!(value, crate::evaluator::ConstValue::Bool(true)) {
+                    continue;
+                }
+                // Non-bool result: fall through to Z3
+            }
 
-            if let Ok(z3_req_sym) = crate::codegen::expr::translate_bool_to_z3(ctx, &folded_req, &dummy_locals, &sym_ctx) {
+            // Tier 2: Z3 symbolic verification
+            if let Ok(z3_req_sym) = crate::codegen::expr::translate_bool_to_z3(ctx, actual_req, &dummy_locals, &sym_ctx) {
                  let z3_req_subst = z3_req_sym.substitute(&substitutions);
                  
                  // ═══════════════════════════════════════════════════════════════

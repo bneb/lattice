@@ -1,44 +1,65 @@
 // Constant folder for Z3 contract expressions.
 //
 // Before a requires/ensures expression is translated to Z3, this pass
-// evaluates any sub-expression that can be resolved at compile time:
-//   - String literal .length() → integer
-//   - Arithmetic on constants → literal result
-//   - String literal comparisons → boolean
+// evaluates sub-expressions using the compiler's built-in Evaluator.
+// The Evaluator handles integer/float/bool literals, binary ops,
+// comparisons, and path lookups via a constant table.
 //
-// This runs in the verification engine, not the Z3 translation layer.
-// Z3 sees only the simplified expression with constants folded.
+// This pass adds MethodCall resolution (.length() → int) which the
+// Evaluator does not handle, then delegates everything else.
 
 use std::collections::HashMap;
+use crate::evaluator::{ConstValue, Evaluator};
 
-/// Fold compile-time-known values in a requires/ensures expression.
-/// `known_lengths` maps parameter names to their known string lengths
-/// (when the argument was a string literal).
-pub fn fold_constants(
+/// Resolve an expression to a concrete ConstValue, or return None
+/// if it depends on symbolic (runtime) values.
+pub fn try_eval(
     expr: &syn::Expr,
     known_lengths: &HashMap<String, i64>,
-) -> syn::Expr {
+) -> Option<ConstValue> {
+    // Build constant table from known argument values
+    let mut constant_table: HashMap<String, ConstValue> = HashMap::new();
+    for (param, &len) in known_lengths {
+        // Insert the parameter as an integer (its known length)
+        constant_table.insert(param.clone(), ConstValue::Integer(len));
+    }
+
+    let evaluator = Evaluator {
+        depth_limit: 100,
+        constant_table,
+    };
+
+    // First pass: resolve .length() method calls to integers
+    let resolved = resolve_methods(expr, known_lengths);
+
+    // Second pass: use the Evaluator for everything else
+    evaluator.eval_expr(&resolved).ok()
+}
+
+/// Resolve .length() and .len() method calls to integer literals.
+/// This is the one operation the Evaluator doesn't handle.
+fn resolve_methods(expr: &syn::Expr, known_lengths: &HashMap<String, i64>) -> syn::Expr {
     match expr {
-        // .length() or .len() on a known parameter → literal int
         syn::Expr::MethodCall(mc) => {
             let method = mc.method.to_string();
             if method == "length" || method == "len" {
-                if let syn::Expr::Path(p) = &*mc.receiver {
-                    if let Some(ident) = p.path.get_ident() {
-                        if let Some(len) = known_lengths.get(&ident.to_string()) {
-                            return make_int_literal(*len);
-                        }
-                    }
-                }
-                // Also handle .length() on a string literal directly
+                // String literal receiver
                 if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = &*mc.receiver {
                     return make_int_literal(s.value().len() as i64);
                 }
+                // Known parameter
+                if let syn::Expr::Path(p) = &*mc.receiver {
+                    if let Some(ident) = p.path.get_ident() {
+                        if let Some(&len) = known_lengths.get(&ident.to_string()) {
+                            return make_int_literal(len);
+                        }
+                    }
+                }
             }
-            // Recurse into receiver and args
-            let folded_receiver = Box::new(fold_constants(&mc.receiver, known_lengths));
+            // Recurse
+            let folded_receiver = Box::new(resolve_methods(&mc.receiver, known_lengths));
             let folded_args: Vec<syn::Expr> = mc.args.iter()
-                .map(|a| fold_constants(a, known_lengths))
+                .map(|a| resolve_methods(a, known_lengths))
                 .collect();
             syn::Expr::MethodCall(syn::ExprMethodCall {
                 attrs: mc.attrs.clone(),
@@ -50,110 +71,41 @@ pub fn fold_constants(
                 args: syn::punctuated::Punctuated::from_iter(folded_args),
             })
         }
-
-        // Binary operations: fold operands, then evaluate if both are literals
-        syn::Expr::Binary(b) => {
-            let left = fold_constants(&b.left, known_lengths);
-            let right = fold_constants(&b.right, known_lengths);
-            // Try to constant-fold the operation
-            if let (Some(lv), Some(rv)) = (int_literal_value(&left), int_literal_value(&right)) {
-                if let Some(result) = eval_binary_i64(&b.op, lv, rv) {
-                    return make_bool_literal(result);
-                }
-                if let Some(result) = eval_binary_comparison(&b.op, lv, rv) {
-                    return make_bool_literal(result);
-                }
-            }
-            syn::Expr::Binary(syn::ExprBinary {
-                attrs: b.attrs.clone(),
-                left: Box::new(left),
-                op: b.op,
-                right: Box::new(right),
-            })
-        }
-
-        // Paren/Group: transparent
+        syn::Expr::Binary(b) => syn::Expr::Binary(syn::ExprBinary {
+            attrs: b.attrs.clone(),
+            left: Box::new(resolve_methods(&b.left, known_lengths)),
+            op: b.op,
+            right: Box::new(resolve_methods(&b.right, known_lengths)),
+        }),
         syn::Expr::Paren(p) => syn::Expr::Paren(syn::ExprParen {
-            attrs: p.attrs.clone(),
-            paren_token: p.paren_token,
-            expr: Box::new(fold_constants(&p.expr, known_lengths)),
+            attrs: p.attrs.clone(), paren_token: p.paren_token,
+            expr: Box::new(resolve_methods(&p.expr, known_lengths)),
         }),
         syn::Expr::Group(g) => syn::Expr::Group(syn::ExprGroup {
-            attrs: g.attrs.clone(),
-            group_token: g.group_token,
-            expr: Box::new(fold_constants(&g.expr, known_lengths)),
+            attrs: g.attrs.clone(), group_token: g.group_token,
+            expr: Box::new(resolve_methods(&g.expr, known_lengths)),
         }),
-
-        // Unary: fold inner
         syn::Expr::Unary(u) => syn::Expr::Unary(syn::ExprUnary {
-            attrs: u.attrs.clone(),
-            op: u.op,
-            expr: Box::new(fold_constants(&u.expr, known_lengths)),
+            attrs: u.attrs.clone(), op: u.op,
+            expr: Box::new(resolve_methods(&u.expr, known_lengths)),
         }),
-
-        // Block: fold inner expression
         syn::Expr::Block(block) => {
             if let Some(syn::Stmt::Expr(inner, _semi)) = block.block.stmts.first() {
-                let folded = fold_constants(inner, known_lengths);
+                let folded = resolve_methods(inner, known_lengths);
                 let mut new_block = block.clone();
                 if let Some(syn::Stmt::Expr(_, semi)) = new_block.block.stmts.first_mut() {
                     *new_block.block.stmts.first_mut().unwrap() = syn::Stmt::Expr(folded, *semi);
                 }
                 syn::Expr::Block(new_block)
-            } else {
-                expr.clone()
-            }
+            } else { expr.clone() }
         }
-
-        // Everything else: clone as-is
         _ => expr.clone(),
     }
 }
 
-/// Create an integer literal expression
 fn make_int_literal(val: i64) -> syn::Expr {
-    use syn::Lit;
     syn::Expr::Lit(syn::ExprLit {
         attrs: vec![],
-        lit: Lit::Int(syn::LitInt::new(&val.to_string(), proc_macro2::Span::call_site())),
+        lit: syn::Lit::Int(syn::LitInt::new(&val.to_string(), proc_macro2::Span::call_site())),
     })
-}
-
-/// Create a boolean literal expression
-fn make_bool_literal(val: bool) -> syn::Expr {
-    use syn::Lit;
-    syn::Expr::Lit(syn::ExprLit {
-        attrs: vec![],
-        lit: Lit::Bool(syn::LitBool::new(val, proc_macro2::Span::call_site())),
-    })
-}
-
-/// Extract an i64 value from a literal expression
-fn int_literal_value(expr: &syn::Expr) -> Option<i64> {
-    if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(li), .. }) = expr {
-        li.base10_parse::<i64>().ok()
-    } else {
-        None
-    }
-}
-
-/// Evaluate a binary comparison on two integer literals, returning a boolean
-fn eval_binary_comparison(op: &syn::BinOp, left: i64, right: i64) -> Option<bool> {
-    match op {
-        syn::BinOp::Eq(_) => Some(left == right),
-        syn::BinOp::Ne(_) => Some(left != right),
-        syn::BinOp::Lt(_) => Some(left < right),
-        syn::BinOp::Le(_) => Some(left <= right),
-        syn::BinOp::Gt(_) => Some(left > right),
-        syn::BinOp::Ge(_) => Some(left >= right),
-        _ => None,
-    }
-}
-
-/// Evaluate a binary arithmetic/logical operation on two integers, returning a boolean
-fn eval_binary_i64(op: &syn::BinOp, left: i64, right: i64) -> Option<bool> {
-    match op {
-        syn::BinOp::And(_) => Some((left != 0) && (right != 0)),
-        _ => None,
-    }
 }
