@@ -330,6 +330,13 @@ then checks `requires(idx < 256)`, it finds the negation (`idx >= 256`)
 is unsatisfiable — impossible under the type constraints. No
 counterexample exists. The check is elided.
 
+Type bounds and user contracts compose via AND. If you write
+`requires(idx < 100)` on a `u8` parameter, Z3 knows `idx ∈ [0, 99]` —
+the intersection of the type bound and the contract. A tighter contract
+narrows the search space further. A contract that's implied by the type
+(like `idx < 256` for `u8`) becomes a no-op — Z3 proves it trivially
+and elides the check.
+
 This means every contract that is a logical consequence of the
 parameter's type is proved at compile time with zero runtime cost.
 No concrete value needed at the call site. No runtime assertion
