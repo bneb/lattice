@@ -150,6 +150,7 @@ pub mod ast {
         pub fn add(_ctx: &'a Context, _args: &[&Int<'a>]) -> Self { Int(PhantomData) }
         pub fn sub(_ctx: &'a Context, _args: &[&Int<'a>]) -> Self { Int(PhantomData) }
         pub fn mul(_ctx: &'a Context, _args: &[&Int<'a>]) -> Self { Int(PhantomData) }
+        pub fn to_real(&self) -> Real<'a> { Real(PhantomData) }
 
         pub fn ge(&self, _other: &Int<'a>) -> Bool<'a> { Bool(PhantomData) }
         pub fn gt(&self, _other: &Int<'a>) -> Bool<'a> { Bool(PhantomData) }
@@ -245,4 +246,96 @@ pub mod ast {
     }
 
     impl<'a> Ast for Bool<'a> {}
+
+    // ─── Real (exact rational arithmetic) ──────────────────────────
+
+    #[derive(Debug, Clone)]
+    pub struct Real<'a>(pub(crate) PhantomData<&'a ()>);
+
+    impl<'a> Real<'a> {
+        pub fn new_const(_ctx: &'a Context, _name: impl Into<String>) -> Self { Real(PhantomData) }
+        pub fn fresh_const(_ctx: &'a Context, _prefix: &str) -> Self { Real(PhantomData) }
+        pub fn from_int(_int: &Int<'a>) -> Self { Real(PhantomData) }
+        pub fn from_real_str(_ctx: &'a Context, _num: &str, _den: &str) -> Option<Self> { Some(Real(PhantomData)) }
+        pub fn to_real(&self) -> Real<'a> { Real(PhantomData) }
+
+        // Comparisons
+        pub fn lt(&self, _other: &Real<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn le(&self, _other: &Real<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn gt(&self, _other: &Real<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn ge(&self, _other: &Real<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn _eq(&self, _other: &Real<'a>) -> Bool<'a> { Bool(PhantomData) }
+    }
+
+    impl<'a> fmt::Display for Real<'a> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "<z3_stub::Real>") }
+    }
+
+    impl<'a> Ast for Real<'a> {}
+
+    impl<'a> std::ops::Add for &Real<'a> { type Output = Real<'a>; fn add(self, _: &Real<'a>) -> Real<'a> { Real(PhantomData) } }
+    impl<'a> std::ops::Sub for &Real<'a> { type Output = Real<'a>; fn sub(self, _: &Real<'a>) -> Real<'a> { Real(PhantomData) } }
+    impl<'a> std::ops::Mul for &Real<'a> { type Output = Real<'a>; fn mul(self, _: &Real<'a>) -> Real<'a> { Real(PhantomData) } }
+    impl<'a> std::ops::Div for &Real<'a> { type Output = Real<'a>; fn div(self, _: &Real<'a>) -> Real<'a> { Real(PhantomData) } }
+    impl<'a> std::ops::Neg for &Real<'a> { type Output = Real<'a>; fn neg(self) -> Real<'a> { Real(PhantomData) } }
+
+    // ─── BV (bitvector) ────────────────────────────────────────────
+
+    #[derive(Debug, Clone)]
+    pub struct BV<'a>(pub(crate) PhantomData<&'a ()>);
+
+    impl<'a> BV<'a> {
+        pub fn new_const(_ctx: &'a Context, _name: impl Into<String>, _sz: u32) -> Self { BV(PhantomData) }
+        pub fn from_i64(_ctx: &'a Context, _val: i64, _sz: u32) -> Self { BV(PhantomData) }
+        pub fn _eq(&self, _other: &BV<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn bvand(&self, _other: &BV<'a>) -> BV<'a> { BV(PhantomData) }
+        pub fn bvor(&self, _other: &BV<'a>) -> BV<'a> { BV(PhantomData) }
+        pub fn bvxor(&self, _other: &BV<'a>) -> BV<'a> { BV(PhantomData) }
+        pub fn bvnot(&self) -> BV<'a> { BV(PhantomData) }
+        pub fn bvshl(&self, _other: &BV<'a>) -> BV<'a> { BV(PhantomData) }
+        pub fn bvashr(&self, _other: &BV<'a>) -> BV<'a> { BV(PhantomData) }
+    }
+
+    impl<'a> fmt::Display for BV<'a> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "<z3_stub::BV>") }
+    }
+
+    impl<'a> Ast for BV<'a> {}
+
+    // ─── Z3 String ──────────────────────────────────────────────────
+
+    #[derive(Debug, Clone)]
+    pub struct Z3String<'a>(pub(crate) PhantomData<&'a ()>);
+
+    impl<'a> Z3String<'a> {
+        pub fn new_const(_ctx: &'a Context, _name: impl Into<String>) -> Self { Z3String(PhantomData) }
+        pub fn from_str(_ctx: &'a Context, _s: &str) -> Self { Z3String(PhantomData) }
+        pub fn length(&self) -> Int<'a> { Int(PhantomData) }
+        pub fn _eq(&self, _other: &Z3String<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn contains(&self, _substr: &Z3String<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn prefixof(&self, _prefix: &Z3String<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn suffixof(&self, _suffix: &Z3String<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn substr(&self, _offset: &Int<'a>, _length: &Int<'a>) -> Z3String<'a> { Z3String(PhantomData) }
+    }
+
+    impl<'a> fmt::Display for Z3String<'a> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "<z3_stub::String>") }
+    }
+
+    impl<'a> Ast for Z3String<'a> {}
+
+    // ─── Regexp ─────────────────────────────────────────────────────
+
+    #[derive(Debug, Clone)]
+    pub struct Regexp<'a>(pub(crate) PhantomData<&'a ()>);
+
+    impl<'a> Regexp<'a> {
+        pub fn from_str(_ctx: &'a Context, _pattern: &str) -> Self { Regexp(PhantomData) }
+    }
+
+    impl<'a> fmt::Display for Regexp<'a> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "<z3_stub::Regexp>") }
+    }
+
+    impl<'a> Ast for Regexp<'a> {}
 }
