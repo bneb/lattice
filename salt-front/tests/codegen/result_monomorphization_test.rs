@@ -12,7 +12,7 @@
 use salt_front::compile;
 
 fn check_compiles(name: &str, source: &str, expected_error: Option<&str>) {
-    match compile(source, false, None, true, false) {
+    match compile(source, false, None, true) {
         Ok(_) => {
             if let Some(err_msg) = expected_error {
                 panic!("Test '{}' should have failed with '{}', but compiled successfully.", name, err_msg);

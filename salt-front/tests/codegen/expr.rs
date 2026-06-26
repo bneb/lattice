@@ -11,7 +11,7 @@ fn test_eq(a: Point, b: Point) -> bool {
 }
 fn main() -> i32 { return 0; }
 "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Struct equality failed: {:?}", result.err());
 }
 
@@ -24,7 +24,7 @@ fn test_array() -> i32 {
 }
 fn main() -> i32 { return test_array(); }
 "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Array ops failed: {:?}", result.err());
 }
 
@@ -37,7 +37,7 @@ fn test_tuple() -> i32 {
 }
 fn main() -> i32 { return test_tuple(); }
 "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Tuple ops failed: {:?}", result.err());
 }
 
@@ -53,7 +53,7 @@ fn main() -> i32 {
     return c.get();
 }
 "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Method call failed: {:?}", result.err());
 }
 
@@ -69,7 +69,7 @@ fn main() -> i32 {
     return 0;
 }
 "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Ptr to int failed: {:?}", result.err());
 }
 
@@ -81,7 +81,7 @@ fn test_int_ptr(addr: i64) -> &i32 {
 }
 fn main() -> i32 { return 0; }
 "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Int to ptr failed: {:?}", result.err());
 }
 
@@ -96,7 +96,7 @@ fn test_f64(a: f64, b: f64) -> f64 {
 }
 fn main() -> i32 { return 0; }
 "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Float arithmetic failed: {:?}", result.err());
 }
 
@@ -109,7 +109,7 @@ fn test_u64(a: u64, b: u64) -> u64 { return a / b + 1; }
 fn test_usize(a: usize, b: usize) -> usize { return a + b; }
 fn main() -> i32 { return 0; }
 "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Unsigned arithmetic failed: {:?}", result.err());
 }
 
@@ -133,7 +133,7 @@ fn main() -> i32 {
     return x;
 }
 "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Enum codegen failed: {:?}", result.err());
     let mlir = result.unwrap();
     // Check for switch
@@ -197,7 +197,7 @@ fn test_array_assign() {
             return arr[1];
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Array assign failed: {:?}", result.err());
 }
 
@@ -213,7 +213,7 @@ fn test_all_arithmetic_ops() {
             return a + b + c + d + e;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Arithmetic ops failed: {:?}", result.err());
 }
 
@@ -229,7 +229,7 @@ fn test_all_bitwise_ops() {
             return a + b + c + d + e;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Bitwise ops failed: {:?}", result.err());
 }
 
@@ -246,7 +246,7 @@ fn test_comparison_ops() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Comparison ops failed: {:?}", result.err());
 }
 
@@ -260,7 +260,7 @@ fn test_logical_ops() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Logical ops failed: {:?}", result.err());
 }
 
@@ -277,7 +277,7 @@ fn test_assign_ops() {
             return x;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Assign ops failed: {:?}", result.err());
 }
 
@@ -293,7 +293,7 @@ fn test_numeric_casts() {
             return e;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Numeric casts failed: {:?}", result.err());
 }
 
@@ -306,7 +306,7 @@ fn test_ref_deref() {
             return *r;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Ref/deref failed: {:?}", result.err());
 }
 
@@ -320,7 +320,7 @@ fn test_mut_ref() {
             return x;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Mut ref failed: {:?}", result.err());
 }
 
@@ -335,7 +335,7 @@ fn test_float_arithmetic_coverage() {
             return a as i32;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Float arith failed: {:?}", result.err());
 }
 
@@ -351,7 +351,7 @@ fn test_float_comparison() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Float cmp failed: {:?}", result.err());
 }
 
@@ -366,7 +366,7 @@ fn test_unary_ops() {
             return a;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Unary ops failed: {:?}", result.err());
 }
 
@@ -379,7 +379,7 @@ fn test_popcount_intrinsic() {
             return count;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Popcount failed: {:?}", result.err());
 }
 
@@ -392,7 +392,7 @@ fn test_leading_zeros_intrinsic() {
             return lz;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Leading zeros failed: {:?}", result.err());
 }
 
@@ -404,7 +404,7 @@ fn test_popcount_method() {
             return x.popcount();
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "popcount failed: {:?}", result.err());
 }
 
@@ -416,7 +416,7 @@ fn test_leading_zeros_method() {
             return x.leading_zeros();
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "leading_zeros failed: {:?}", result.err());
 }
 
@@ -428,7 +428,7 @@ fn test_trailing_zeros_method() {
             return x.trailing_zeros();
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "trailing_zeros failed: {:?}", result.err());
 }
 
@@ -443,7 +443,7 @@ fn test_bitwise_assign_ops() {
             return x;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "bitwise assign failed: {:?}", result.err());
 }
 
@@ -457,7 +457,7 @@ fn test_shift_assign_ops() {
             return x;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "shift assign failed: {:?}", result.err());
 }
 
@@ -474,7 +474,7 @@ fn test_pointer_equality() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "pointer equality failed: {:?}", result.err());
 }
 
@@ -488,7 +488,7 @@ fn test_deref_and_assign() {
             return x;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "deref assign failed: {:?}", result.err());
 }
 
@@ -500,7 +500,7 @@ fn test_mixed_tuple_access() {
             return t.0 + t.2;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "tuple access failed: {:?}", result.err());
 }
 
@@ -514,7 +514,7 @@ fn test_tuple_field_assign() {
             return t.0 + t.1;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "tuple assign failed: {:?}", result.err());
 }
 
@@ -531,7 +531,7 @@ fn test_simple_enum_match() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "enum match failed: {:?}", result.err());
 }
 
@@ -544,7 +544,7 @@ fn test_array_variable_index() {
             return arr[0] + arr[idx as usize];
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     // May fail if variable index not supported
     let _ = result;
 }
@@ -560,7 +560,7 @@ fn test_array_in_loop() {
             return arr[4];
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     // May fail if array assignment in loop not supported
     let _ = result;
 }
@@ -573,6 +573,6 @@ fn test_string_literal() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "string literal failed: {:?}", result.err());
 }

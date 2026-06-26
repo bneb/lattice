@@ -16,7 +16,7 @@ fn test_cmpxchg_codegen() {
     }
     "#;
     
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "cmpxchg compilation failed: {:?}", result.err());
     
     let mlir = result.unwrap();

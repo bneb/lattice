@@ -29,7 +29,7 @@ fn test_saturation_attack_salt_file() {
     let torture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/torture/coverage_torture.salt");
     let code = std::fs::read_to_string(torture_path).expect("Failed to read coverage_torture.salt");
     
-    let result = salt_front::compile(&code, false, None, true, false);
+    let result = salt_front::compile(&code, false, None, true);
     match result {
         Ok(mlir) => {
             // Salt-opt verification if available

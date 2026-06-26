@@ -23,7 +23,7 @@ fn main() {
     let res = use_types(d.x, 100, d.y, 0, true, 1);
 }
     "#;
-    let res = salt_front::compile(code, false, None, true, false);
+    let res = salt_front::compile(code, false, None, true);
     assert!(res.is_ok());
     println!("{}", res.unwrap());
 }

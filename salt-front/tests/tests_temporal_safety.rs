@@ -15,7 +15,7 @@ fn test_use_after_free_fails_to_compile() {
         }
     "#;
     
-    let mlir_or_err = compile(src, false, None, true, false);
+    let mlir_or_err = compile(src, false, None, true);
     
     assert!(mlir_or_err.is_err(), "UAF should fail to compile");
     let err = mlir_or_err.unwrap_err();
@@ -38,7 +38,7 @@ fn test_alias_invalidated_across_call() {
         }
     "#;
     
-    let mlir_or_err = compile(src, false, None, true, false);
+    let mlir_or_err = compile(src, false, None, true);
     
     assert!(mlir_or_err.is_err(), "Deref after opaque call should fail to compile");
     let err = mlir_or_err.unwrap_err();
@@ -66,7 +66,7 @@ fn test_interprocedural_validity() {
         }
     "#;
     
-    let mlir_or_err = compile(src, false, None, true, false);
+    let mlir_or_err = compile(src, false, None, true);
     assert!(mlir_or_err.is_err(), "Expected compilation to fail, but it succeeded with: \n{}", mlir_or_err.unwrap());
     let err_str = mlir_or_err.unwrap_err().to_string();
     assert!(err_str.contains("Precondition violated") || err_str.contains("valid"), "Expected precondition error, got: {}", err_str);
@@ -94,7 +94,7 @@ fn test_dynamic_check_tier3() {
     "#;
     
     // It should compile and emit salt_verify_epoch and mask out the tag.
-    let mlir_or_err = compile(src, false, None, true, false);
+    let mlir_or_err = compile(src, false, None, true);
     assert!(mlir_or_err.is_ok(), "Expected compilation to succeed: {:?}", mlir_or_err);
     
     let mlir = mlir_or_err.unwrap();

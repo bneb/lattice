@@ -84,7 +84,7 @@ fn test_if_else_no_cross_branch_ssa_leak() {
         }
     "#;
 
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "If/else with globals failed: {:?}", result.err());
 
     let mlir = result.unwrap();
@@ -119,7 +119,7 @@ fn test_global_pointer_store_uses_ptr_type() {
         }
     "#;
 
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Global pointer store failed: {:?}", result.err());
 
     let mlir = result.unwrap();
@@ -146,7 +146,7 @@ fn test_fetch_add_emits_atomicrmw() {
         }
     "#;
 
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "fetch_add compilation failed: {:?}", result.err());
 
     let mlir = result.unwrap();
@@ -165,7 +165,7 @@ fn test_fetch_sub_emits_atomicrmw() {
         }
     "#;
 
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "fetch_sub compilation failed: {:?}", result.err());
 
     let mlir = result.unwrap();
@@ -184,7 +184,7 @@ fn test_atomic_load_emits_atomic_load() {
         }
     "#;
 
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Atomic load compilation failed: {:?}", result.err());
 
     let mlir = result.unwrap();
@@ -203,7 +203,7 @@ fn test_atomic_store_emits_atomic_store() {
         }
     "#;
 
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Atomic store compilation failed: {:?}", result.err());
 
     let mlir = result.unwrap();

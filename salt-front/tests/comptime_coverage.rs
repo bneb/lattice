@@ -9,7 +9,7 @@ fn test_comptime_basic() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -21,7 +21,7 @@ fn test_comptime_const() {
             return X;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -33,7 +33,7 @@ fn test_comptime_global() {
             return G;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -46,7 +46,7 @@ fn test_comptime_const_expr() {
             return B;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -58,7 +58,7 @@ fn test_comptime_hex_const() {
             return MASK;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -70,7 +70,7 @@ fn test_comptime_binary_const() {
             return FLAGS;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -85,7 +85,7 @@ fn test_comptime_bool_const() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -98,7 +98,7 @@ fn test_comptime_const_in_array() {
             return arr[0];
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -112,6 +112,6 @@ fn test_complex_arithmetic() {
             return C;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }

@@ -14,7 +14,7 @@ fn test_undefined_type() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_err());
 }
 
@@ -26,7 +26,7 @@ fn test_wrong_arg_count() {
             return add(1);
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     // May or may not error depending on arg checking
     let _ = result;
 }
@@ -40,7 +40,7 @@ fn test_missing_field_in_struct() {
             return p.x;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     // Should error for missing field
     let _ = result;
 }
@@ -52,7 +52,7 @@ fn test_double_definition() {
         fn foo() -> i32 { return 2; }
         fn main() -> i32 { return foo(); }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     // May or may not error
     let _ = result;
 }
@@ -70,7 +70,7 @@ fn test_empty_block() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -82,7 +82,7 @@ fn test_single_statement_function() {
         }
         fn main() -> i32 { return just_return(); }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -112,7 +112,7 @@ fn test_very_long_function() {
         }
         fn main() -> i32 { return long_fn(); }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -124,7 +124,7 @@ fn test_many_function_args() {
         }
         fn main() -> i32 { return many_args(1, 2, 3, 4, 5); }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -137,7 +137,7 @@ fn test_cascade_calls() {
         fn f4() -> i32 { return f3() + 1; }
         fn main() -> i32 { return f4(); }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -149,7 +149,7 @@ fn test_complex_arithmetic_expr() {
             return x;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -164,7 +164,7 @@ fn test_bool_to_int() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -188,7 +188,7 @@ fn test_multiple_returns_in_branches() {
         }
         fn main() -> i32 { return classify(50); }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -203,7 +203,7 @@ fn test_deeply_nested_structs() {
             return o.middle.inner.value;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -218,7 +218,7 @@ fn test_assign_through_struct() {
             return p.a + p.b;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -231,7 +231,7 @@ fn test_array_of_complex() {
             return arr[0].val + arr[1].val + arr[2].val;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -243,7 +243,7 @@ fn test_large_array() {
             return arr[0] + arr[9];
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -258,7 +258,7 @@ fn test_return_from_if() {
         }
         fn main() -> i32 { return cond_return(5); }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -273,6 +273,6 @@ fn test_early_return() {
         }
         fn main() -> i32 { return early(25); }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }

@@ -16,7 +16,7 @@ fn test_parse_public_fn() {
             return public_func();
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Public fn failed: {:?}", result.err());
 }
 
@@ -30,7 +30,7 @@ fn test_parse_multiple_functions() {
             return func1() + func2() + func3();
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Multiple fns failed: {:?}", result.err());
 }
 
@@ -45,7 +45,7 @@ fn test_parse_attributes() {
             return hot_function();
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Attribute parsing failed: {:?}", result.err());
 }
 
@@ -62,7 +62,7 @@ fn test_parse_multiple_structs() {
             return p.x + r.width + c.radius;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Multiple structs failed: {:?}", result.err());
 }
 
@@ -77,7 +77,7 @@ fn test_parse_generic_struct() {
             return c.value;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Generic struct failed: {:?}", result.err());
 }
 
@@ -92,7 +92,7 @@ fn test_parse_enum() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Enum failed: {:?}", result.err());
 }
 
@@ -104,7 +104,7 @@ fn test_parse_const() {
             return VALUE;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Const failed: {:?}", result.err());
 }
 
@@ -116,7 +116,7 @@ fn test_parse_global() {
             return COUNTER;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Global failed: {:?}", result.err());
 }
 
@@ -130,7 +130,7 @@ fn test_parse_function_with_args() {
             return add(10, 20);
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Fn with args failed: {:?}", result.err());
 }
 
@@ -143,7 +143,7 @@ fn test_parse_nested_generics() {
             return b.value;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Nested generics failed: {:?}", result.err());
 }
 
@@ -162,7 +162,7 @@ fn test_parse_impl_with_method() {
             return p.sum();
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Impl method failed: {:?}", result.err());
 }
 
@@ -176,7 +176,7 @@ fn test_parse_let_with_pattern() {
             return x + y;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Let pattern failed: {:?}", result.err());
 }
 
@@ -190,7 +190,7 @@ fn test_parse_empty_function() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Empty function failed: {:?}", result.err());
 }
 
@@ -202,7 +202,7 @@ fn test_parse_usize_type() {
             return x as i32;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Usize type failed: {:?}", result.err());
 }
 
@@ -215,7 +215,7 @@ fn test_parse_float_types() {
             return f32_val as i32;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Float types failed: {:?}", result.err());
 }
 
@@ -227,7 +227,7 @@ fn test_parse_hex_literal() {
             return x;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Hex literal failed: {:?}", result.err());
 }
 
@@ -239,6 +239,6 @@ fn test_parse_binary_literal() {
             return x;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Binary literal failed: {:?}", result.err());
 }

@@ -223,6 +223,6 @@ fn test_file_mlir_emits_correct_syscall_types() {
             return 0;
         }
     "#;
-    let res = salt_front::compile(src, false, None, true, false);
+    let res = salt_front::compile(src, false, None, true);
     assert!(res.is_ok(), "Syscall types failed: {:?}", res.err());
 }

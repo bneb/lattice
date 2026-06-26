@@ -91,7 +91,7 @@ mod tests {
         }}
         "#, prelude());
 
-        let result = crate::compile(&code, false, None, true, false);
+        let result = crate::compile(&code, false, None, true);
         assert!(result.is_ok(), "fold should compile:\n{}", result.unwrap_err());
     }
 
@@ -141,7 +141,7 @@ mod tests {
         }}
         "#, prelude());
 
-        let result = crate::compile(&code, false, None, true, false);
+        let result = crate::compile(&code, false, None, true);
         assert!(result.is_ok(), "Map struct should compile:\n{}", result.unwrap_err());
     }
 
@@ -195,7 +195,7 @@ mod tests {
         }}
         "#, prelude());
 
-        let result = crate::compile(&code, false, None, true, false);
+        let result = crate::compile(&code, false, None, true);
         assert!(result.is_ok(), "Filter struct should compile:\n{}", result.unwrap_err());
     }
 
@@ -247,7 +247,7 @@ mod tests {
         }}
         "#, prelude());
 
-        let result = crate::compile(&code, false, None, true, false);
+        let result = crate::compile(&code, false, None, true);
         assert!(result.is_ok(), "Map in for-in loop should compile:\n{}", result.unwrap_err());
     }
 
@@ -286,7 +286,7 @@ mod tests {
         }}
         "#, prelude());
 
-        let result = crate::compile(&code, false, None, true, false);
+        let result = crate::compile(&code, false, None, true);
         assert!(result.is_ok(), "Generic wrapper delegating to inner.next() should compile:\n{}", result.unwrap_err());
     }
 
@@ -337,7 +337,7 @@ mod tests {
         }}
         "#, prelude());
 
-        let result = crate::compile(&code, false, None, true, false);
+        let result = crate::compile(&code, false, None, true);
         assert!(result.is_ok(), "Map::next with func call should compile:\n{}", result.unwrap_err());
     }
 
@@ -418,7 +418,7 @@ mod tests {
         }}
         "#, prelude());
 
-        let result = crate::compile(&code, false, None, true, false);
+        let result = crate::compile(&code, false, None, true);
         assert!(result.is_ok(), "filter().map() chain should compile:\n{}", result.unwrap_err());
     }
 
@@ -468,7 +468,7 @@ mod tests {
         // Run in a thread with 4MB stack as safety net against deep recursion
         let builder = std::thread::Builder::new().stack_size(4 * 1024 * 1024);
         let handler = builder.spawn(|| {
-            let result = crate::compile(code, false, None, true, false);
+            let result = crate::compile(code, false, None, true);
             assert!(result.is_ok(), "Generic name collision (Container<T>.wrap -> Wrapper<Container<T>>) should compile:\n{}", result.unwrap_err());
         }).unwrap();
         handler.join().unwrap();
@@ -565,7 +565,7 @@ mod tests {
         }}
         "#, prelude());
 
-        let result = crate::compile(&code, false, None, true, false);
+        let result = crate::compile(&code, false, None, true);
         assert!(result.is_ok(), "Combinator chain should compile:\n{}", result.unwrap_err());
     }
 
@@ -603,7 +603,7 @@ mod tests {
         }}
         "#, prelude());
 
-        let result = crate::compile(&code, false, None, true, false);
+        let result = crate::compile(&code, false, None, true);
         assert!(result.is_ok(), "fold should compile for IR inspection:\n{}", result.unwrap_err());
 
         let ir = result.unwrap();
@@ -641,7 +641,7 @@ mod tests {
         }}
         "#, prelude());
 
-        let result = crate::compile(&code, false, None, true, false);
+        let result = crate::compile(&code, false, None, true);
         assert!(result.is_ok(), "sum() should compile:\n{}", result.unwrap_err());
     }
 
@@ -702,7 +702,7 @@ mod tests {
         }}
         "#, prelude());
 
-        let result = crate::compile(&code, false, None, true, false);
+        let result = crate::compile(&code, false, None, true);
         assert!(result.is_ok(), "count() should compile:\n{}", result.unwrap_err());
     }
 
@@ -747,7 +747,7 @@ mod tests {
         }}
         "#, prelude());
 
-        let result = crate::compile(&code, false, None, true, false);
+        let result = crate::compile(&code, false, None, true);
         assert!(result.is_ok(), "any()/all() should compile:\n{}", result.unwrap_err());
     }
 
@@ -807,7 +807,7 @@ mod tests {
         }}
         "#, prelude());
 
-        let result = crate::compile(&code, false, None, true, false);
+        let result = crate::compile(&code, false, None, true);
         assert!(result.is_ok(), "filter().sum() chain should compile:\n{}", result.unwrap_err());
     }
 }

@@ -45,7 +45,7 @@ mod tests {
                 return 0;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_ok(),
             "Iterator for-loop should compile, got: {}",
             result.err().map(|e| format!("{}", e)).unwrap_or_default());
@@ -90,7 +90,7 @@ mod tests {
                 return 0;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_ok(),
             "Iterator with next() should compile, got: {}",
             result.err().map(|e| format!("{}", e)).unwrap_or_default());
@@ -140,7 +140,7 @@ mod tests {
                 return 0;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_ok(),
             "Iterator with tag check should compile, got: {}",
             result.err().map(|e| format!("{}", e)).unwrap_or_default());
@@ -167,7 +167,7 @@ mod tests {
                 return 0;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_ok(),
             "Existing 0..N range loop should still compile, got: {}",
             result.err().map(|e| format!("{}", e)).unwrap_or_default());
@@ -212,7 +212,7 @@ mod tests {
                 return 0;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_ok(),
             "Empty iterator should compile, got: {}",
             result.err().map(|e| format!("{}", e)).unwrap_or_default());

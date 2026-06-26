@@ -60,7 +60,7 @@ fn test_canonical_struct_resolution() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Canonical struct resolution failed: {:?}", result.err());
 }
 
@@ -84,6 +84,6 @@ fn test_canonical_struct_resolution_custom_package() {
             return p.x;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Custom package struct resolution failed: {:?}", result.err());
 }

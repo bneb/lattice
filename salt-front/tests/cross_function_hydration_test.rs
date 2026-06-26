@@ -18,7 +18,7 @@ fn test_struct_literal_in_helper_function() {
             return p.x + p.y;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Cross-function struct literal failed: {:?}", result.err());
 }
 
@@ -44,7 +44,7 @@ fn test_nested_struct_literal_helper_functions() {
             return sum.x as i32;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Nested struct helper functions failed: {:?}", result.err());
 }
 
@@ -67,7 +67,7 @@ fn test_struct_literal_with_llvm_ptr() {
             return result;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Struct with llvm.ptr field failed: {:?}", result.err());
 }
 
@@ -86,7 +86,7 @@ fn test_reinterpret_cast_in_helper_function() {
             return v as i32;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "reinterpret_cast in helper function failed: {:?}", result.err());
 }
 
@@ -104,7 +104,7 @@ fn test_multiple_struct_types_in_helper() {
             return d.x;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Multiple struct fields in helper failed: {:?}", result.err());
 }
 
@@ -122,6 +122,6 @@ fn test_deep_call_chain_struct_literal() {
             return d.value;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Deep call chain struct literal failed: {:?}", result.err());
 }

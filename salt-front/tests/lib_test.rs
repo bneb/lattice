@@ -5,7 +5,7 @@ use salt_front::compile;
 #[test]
 fn test_compile_empty_file() {
     let code = "";
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     // Empty file with no main fn is expected to fail or produce no executable code
     // Either success (valid but empty) or error (no entry point) is acceptable
     assert!(result.is_err() || result.is_ok(), "Unexpected empty file handling");
@@ -18,14 +18,14 @@ fn test_compile_release_mode() {
             return 42;
         }
     "#;
-    let result = compile(code, true, None, true, false);
+    let result = compile(code, true, None, true);
     assert!(result.is_ok());
 }
 
 #[test]
 fn test_compile_syntax_error() {
     let code = "fn main( { return 0; }";  // Missing closing paren
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_err());
 }
 
@@ -41,7 +41,7 @@ fn test_compile_with_struct() {
             return p.x;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -57,7 +57,7 @@ fn test_compile_with_enum() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -69,7 +69,7 @@ fn test_compile_extern_fn() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -85,7 +85,7 @@ fn test_compile_generic_fn() {
             return x;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Generic fn failed: {:?}", result.err());
 }
 
@@ -107,7 +107,7 @@ fn test_compile_impl_block() {
             return c.get_value();
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Compile failed: {:?}", result.err());
 }
 
@@ -128,7 +128,7 @@ fn test_compile_hot_path() {
             return hot_loop();
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -142,6 +142,6 @@ fn test_compile_region_block() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }

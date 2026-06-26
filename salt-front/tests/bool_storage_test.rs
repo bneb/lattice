@@ -21,7 +21,7 @@ fn test_bool_field_assignment() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Bool field assignment failed: {:?}", result.err());
 }
 
@@ -44,7 +44,7 @@ fn test_bool_with_other_fields() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Mixed struct with bool failed: {:?}", result.err());
 }
 
@@ -68,7 +68,7 @@ fn test_bool_field_in_helper() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Bool field in helper function failed: {:?}", result.err());
 }
 
@@ -94,7 +94,7 @@ fn test_struct_with_ptr_array_and_bool() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Trie-like struct with bool failed: {:?}", result.err());
 }
 
@@ -115,6 +115,6 @@ fn test_native_malloc() {
             return p.x + p.y;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Native malloc failed: {:?}", result.err());
 }

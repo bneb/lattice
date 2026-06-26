@@ -9,7 +9,7 @@ fn test_global_read_write() {
             return COUNTER;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "global rw failed: {:?}", result.err());
 }
 
@@ -22,6 +22,6 @@ fn test_const_in_expression() {
             return x;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "const expr failed: {:?}", result.err());
 }

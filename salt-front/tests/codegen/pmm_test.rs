@@ -13,7 +13,7 @@ fn test_pmm_compilation() {
     // However, pmm.salt might have package declaration `package kernel.core.pmm`.
     // The compiler handles this. 
     
-    let result = compile(&code, false, None, true, false);
+    let result = compile(&code, false, None, true);
     assert!(result.is_ok(), "PMM compilation failed: {:?}", result.err());
     
     let mlir = result.unwrap();

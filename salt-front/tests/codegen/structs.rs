@@ -11,7 +11,7 @@ fn test_nested() -> i32 {
 }
 fn main() -> i32 { return test_nested(); }
 "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Nested struct failed: {:?}", result.err());
 }
 
@@ -25,7 +25,7 @@ fn test_arr_struct() -> i32 {
 }
 fn main() -> i32 { return test_arr_struct(); }
 "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Array in struct failed: {:?}", result.err());
 }
 
@@ -39,7 +39,7 @@ fn test_pair() -> i32 {
 }
 fn main() -> i32 { return test_pair(); }
 "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Generic struct failed: {:?}", result.err());
 }
 
@@ -52,7 +52,7 @@ fn test_struct_field_access() {
             return p.x + p.y;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Struct access failed: {:?}", result.err());
 }
 
@@ -67,7 +67,7 @@ fn test_struct_field_assign() {
             return p.x + p.y;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Struct assign failed: {:?}", result.err());
 }
 
@@ -84,7 +84,7 @@ fn test_struct_equality_check() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "struct equality failed: {:?}", result.err());
 }
 
@@ -101,6 +101,6 @@ fn test_struct_inequality() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "struct inequality failed: {:?}", result.err());
 }

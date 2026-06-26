@@ -6,8 +6,8 @@ fn test_release_mode() {
 fn main() -> i32 { return 42; }
 "#;
     // Test both debug and release modes
-    let debug_result = compile(code, false, None, true, false);
-    let release_result = compile(code, true, None, true, false);
+    let debug_result = compile(code, false, None, true);
+    let release_result = compile(code, true, None, true);
     assert!(debug_result.is_ok());
     assert!(release_result.is_ok());
 }
@@ -18,11 +18,11 @@ fn test_codegen_error_paths() {
     // (Note: Some may be caught by parser first)
     
     // Unknown variable - may be caught by codegen
-    let result = compile("fn main() -> i32 { return unknown_var; }", false, None, true, false);
+    let result = compile("fn main() -> i32 { return unknown_var; }", false, None, true);
     assert!(result.is_err());
     
     // Field on non-struct
-    let result = compile("fn main() -> i32 { let x = 42; return x.field; }", false, None, true, false);
+    let result = compile("fn main() -> i32 { let x = 42; return x.field; }", false, None, true);
     assert!(result.is_err());
 }
 
@@ -41,7 +41,7 @@ fn test_alloca_hoisting_invariant() {
         }
     "#;
 
-    let result = compile(code, false, None, true, false).expect("Compilation failed");
+    let result = compile(code, false, None, true).expect("Compilation failed");
     
     // The invariant: No llvm.alloca between loop header and loop exit.
     // We search for ^while_header and ^while_exit and ensure no "llvm.alloca" exists between them.
@@ -83,7 +83,7 @@ fn test_nested_alloca_hoisting() {
         }
     "#;
 
-    let result = compile(code, false, None, true, false).expect("Compilation failed");
+    let result = compile(code, false, None, true).expect("Compilation failed");
     
     let lines: Vec<&str> = result.lines().collect();
     let mut in_loop_depth = 0;
@@ -117,7 +117,7 @@ fn test_block_expression() {
             return x;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Block expr failed: {:?}", result.err());
 }
 
@@ -134,7 +134,7 @@ fn test_if_else() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "If-else failed: {:?}", result.err());
 }
 
@@ -149,7 +149,7 @@ fn test_while_loop() {
             return x;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "While loop failed: {:?}", result.err());
 }
 
@@ -164,7 +164,7 @@ fn test_for_loop() {
             return sum;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "For loop failed: {:?}", result.err());
 }
 
@@ -182,7 +182,7 @@ fn test_break_in_loop() {
             return i;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "Break failed: {:?}", result.err());
 }
 
@@ -196,7 +196,7 @@ fn test_region_block() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "region block failed: {:?}", result.err());
 }
 
@@ -217,7 +217,7 @@ fn test_deeply_nested_if() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "nested if failed: {:?}", result.err());
 }
 
@@ -238,7 +238,7 @@ fn test_nested_while_loops() {
             return sum;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok(), "nested while failed: {:?}", result.err());
 }
 
@@ -261,7 +261,7 @@ fn test_while_inside_for_uses_cf_fallback() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false).expect("Compilation failed");
+    let result = compile(code, false, None, true).expect("Compilation failed");
     
     // Outer for should NOT be affine.for (while loop inside)
     assert!(!result.contains("affine.for"), 
@@ -286,7 +286,7 @@ fn test_triple_nested_for_uses_affine() {
             return sum;
         }
     "#;
-    let result = compile(code, false, None, true, false).expect("Compilation failed");
+    let result = compile(code, false, None, true).expect("Compilation failed");
     
     // All three loops should be affine.for
     let affine_count = result.matches("affine.for").count();
@@ -310,7 +310,7 @@ fn test_deep_while_propagates_fallback() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false).expect("Compilation failed");
+    let result = compile(code, false, None, true).expect("Compilation failed");
     
     // No affine.for should be present
     assert!(!result.contains("affine.for"), 
@@ -332,7 +332,7 @@ fn test_for_with_if_uses_cf_fallback() {
             return sum;
         }
     "#;
-    let result = compile(code, false, None, true, false).expect("Compilation failed");
+    let result = compile(code, false, None, true).expect("Compilation failed");
     
     // Should NOT use affine.for (if statement creates blocks)
     assert!(!result.contains("affine.for"), 

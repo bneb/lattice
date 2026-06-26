@@ -378,7 +378,10 @@ impl<'a> CodegenContext<'a> {
     }
 
     fn collect_fn_tasks(&self, f: &SaltFn) -> Vec<crate::codegen::collector::MonomorphizationTask> {
-        if !f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export") && !f.is_pub {
+        // Hydrate any function with contracts so requires/ensures are
+        // verified at call sites, regardless of visibility.
+        let has_contracts = !f.requires.is_empty() || !f.ensures.is_empty();
+        if !f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export") && !f.is_pub && !has_contracts {
             return vec![];
         }
         self.create_main_task(&f.name.to_string()).map(|t| vec![t]).unwrap_or_default()

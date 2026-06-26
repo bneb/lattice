@@ -13,7 +13,7 @@ fn test_fail_undefined_variable() {
             return undefined_var;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_err());
 }
 
@@ -24,7 +24,7 @@ fn test_fail_undefined_function() {
             return nonexistent_fn();
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_err());
 }
 
@@ -39,7 +39,7 @@ fn test_fail_type_mismatch_return() {
             return returns_int();
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     // This may or may not fail depending on type checking
     // The test is valuable either way for coverage
     let _ = result;
@@ -53,7 +53,7 @@ fn test_fail_break_outside_loop() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     // Should fail - break outside loop
     assert!(result.is_err(), "Expected error for break outside loop");
 }
@@ -68,7 +68,7 @@ fn test_fail_missing_return() {
             return no_return();
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     // Should fail - function missing return
     assert!(result.is_err(), "Expected error for missing return");
 }
@@ -81,7 +81,7 @@ fn test_fail_undefined_struct() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_err(), "Expected error for undefined struct");
 }
 
@@ -94,7 +94,7 @@ fn test_fail_undefined_field() {
             return p.z;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_err(), "Expected error for undefined field");
 }
 
@@ -105,7 +105,7 @@ fn test_special_llvm_ptr() {
             return 0;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -121,7 +121,7 @@ fn test_zero_initialized_array() {
             return arr[0];
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -133,7 +133,7 @@ fn test_deeply_nested_expr() {
             return x;
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -153,7 +153,7 @@ fn test_multiple_returns() {
             return early_return(50);
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -170,7 +170,7 @@ fn test_recursive_function() {
             return factorial(5);
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
 
@@ -189,6 +189,6 @@ fn test_mutual_recursion() {
             return is_even(10);
         }
     "#;
-    let result = compile(code, false, None, true, false);
+    let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }

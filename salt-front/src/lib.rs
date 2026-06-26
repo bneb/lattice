@@ -1074,7 +1074,7 @@ fn extract_force_unwrap_expr(s: &str) -> String {
 // F-strings are now handled by codegen/context.rs::native_fstring_expand
 // with full TraitRegistry context for signature-aware format spec dispatch.
 #[allow(clippy::too_many_arguments)] // REASON: all 11 params independently meaningful; bundling would obscure intent
-pub fn compile_ast(file: &mut SaltFile, release_mode: bool, registry: Option<&crate::registry::Registry>, skip_scan: bool, _vverify: bool, disable_alias_scopes: bool, no_verify: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> anyhow::Result<String> {
+pub fn compile_ast(file: &mut SaltFile, release_mode: bool, registry: Option<&crate::registry::Registry>, skip_scan: bool, disable_alias_scopes: bool, no_verify: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> anyhow::Result<String> {
     // Inject implicit stdlib imports for built-in types.
     // Ptr<T> is a built-in type whose methods (write, read, offset) live in std/core/ptr.salt.
     // Without this import, standalone files can use Ptr<T> but can't call its methods.
@@ -1123,7 +1123,7 @@ pub fn compile_ast(file: &mut SaltFile, release_mode: bool, registry: Option<&cr
     Ok(mlir)
 }
 
-pub fn compile(source: &str, release_mode: bool, registry: Option<&crate::registry::Registry>, skip_scan: bool, vverify: bool) -> anyhow::Result<String> {
+pub fn compile(source: &str, release_mode: bool, registry: Option<&crate::registry::Registry>, skip_scan: bool) -> anyhow::Result<String> {
     // Reject `import` keyword — Salt uses `use` exclusively
     for (i, line) in source.lines().enumerate() {
         let trimmed = line.trim();
@@ -1140,7 +1140,7 @@ pub fn compile(source: &str, release_mode: bool, registry: Option<&crate::regist
     
     let processed = preprocess(source);
     let mut file: SaltFile = parse_str(&processed)?;
-    compile_ast(&mut file, release_mode, registry, skip_scan, vverify, false, false, false, false, false, "<stdin>")
+    compile_ast(&mut file, release_mode, registry, skip_scan, false, false, false, false, false, "<stdin>")
 }
 
 /// Find the matching angle bracket `>` for generic args starting at `open_pos`.

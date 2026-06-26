@@ -283,7 +283,7 @@ mod tests {
                 return 0;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_err(), "compile() with malloc and no free should error");
         let err = format!("{}", result.unwrap_err());
         assert!(err.contains("Memory Leak Detected"),
@@ -306,7 +306,7 @@ mod tests {
                 return 0;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_ok(),
             "compile() with malloc + free(!llvm.ptr) should succeed, got: {}", result.err().map(|e| format!("{}", e)).unwrap_or_default());
     }
@@ -329,7 +329,7 @@ mod tests {
                 return r;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_ok(),
             "compile() with malloc + call + free should succeed, got: {}", result.err().map(|e| format!("{}", e)).unwrap_or_default());
     }
@@ -349,7 +349,7 @@ mod tests {
                 return 0;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_err(), "Partial free should produce a leak error");
         let err = format!("{}", result.unwrap_err());
         assert!(err.contains("malloc:b"),
@@ -379,7 +379,7 @@ mod tests {
                 return do_work();
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_ok(),
             "malloc+free in helper function should compile cleanly, got: {}",
             result.err().map(|e| format!("{}", e)).unwrap_or_default());
@@ -406,7 +406,7 @@ mod tests {
                 return 0;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_ok(),
             "malloc returned from helper (ownership transfer) should compile, got: {}",
             result.err().map(|e| format!("{}", e)).unwrap_or_default());
@@ -428,7 +428,7 @@ mod tests {
                 return buf;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_ok(),
             "main() returning malloc'd pointer should compile (escape via return), got: {}",
             result.err().map(|e| format!("{}", e)).unwrap_or_default());
@@ -449,7 +449,7 @@ mod tests {
                 return 0;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         // alloc() is never called, so it won't be hydrated.
         // This test just verifies parsing. The real test is G and F.
         assert!(result.is_ok(),
@@ -480,7 +480,7 @@ mod tests {
                 return 0;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_ok(),
             "Cast return `return p as T` must escape malloc:p, got: {}",
             result.err().map(|e| format!("{}", e)).unwrap_or_default());
@@ -501,7 +501,7 @@ mod tests {
                 return 0;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_ok(),
             "Nested cast return must escape malloc:p, got: {}",
             result.err().map(|e| format!("{}", e)).unwrap_or_default());
@@ -526,7 +526,7 @@ mod tests {
                 return 0;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_ok(),
             "Both cast-return helpers must escape cleanly, got: {}",
             result.err().map(|e| format!("{}", e)).unwrap_or_default());

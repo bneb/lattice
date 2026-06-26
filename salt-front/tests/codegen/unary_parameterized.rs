@@ -16,7 +16,7 @@ fn test_parameterized_unary_not() {
     for (ty, val, should_pass) in types {
         let source = format!("fn main() {{ let x: {} = {}; let y = !x; }}", ty, val);
         
-        let res = salt_front::compile(&source, false, None, true, false);
+        let res = salt_front::compile(&source, false, None, true);
         if should_pass {
             if res.is_err() {
                 failures.push(format!("Failed to compile !{} ({}): {:?}", ty, val, res.err()));
@@ -65,7 +65,7 @@ fn test_parameterized_unary_neg() {
     for (ty, val, should_pass) in types {
         let source = format!("fn main() {{ let x: {} = {}; let y = -x; }}", ty, val);
         
-        let res = salt_front::compile(&source, false, None, true, false);
+        let res = salt_front::compile(&source, false, None, true);
         if should_pass {
             if res.is_err() {
                 failures.push(format!("Failed to compile -{} ({}): {:?}", ty, val, res.err()));

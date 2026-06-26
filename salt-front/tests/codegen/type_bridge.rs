@@ -43,7 +43,7 @@ fn test_usize_to_i64(x: usize) -> i64 { return x as i64; }
 fn test_i64_to_usize(x: i64) -> usize { return x as usize; }
 fn main() -> i32 { return 0; }
 "#;
-    let result = compile(saturation_code, false, None, true, false);
+    let result = compile(saturation_code, false, None, true);
     assert!(result.is_ok(), "Saturation code failed: {:?}", result.err());
 }
 
@@ -60,7 +60,7 @@ fn test_boolean_law_storage() {
         }
     "#;
 
-    let result = compile(code, false, None, true, false).expect("Compilation failed");
+    let result = compile(code, false, None, true).expect("Compilation failed");
     
     // Check if the struct type in MLIR uses i8 for booleans
     // The struct should look something like !llvm.struct<"Flag", (i8, i8)>
@@ -80,7 +80,7 @@ fn test_boolean_law_computation() {
         }
     "#;
 
-    let result = compile(code, false, None, true, false).expect("Compilation failed");
+    let result = compile(code, false, None, true).expect("Compilation failed");
     
     // Check for logical computation in i1
     // Search for arith.trunci ... i8 to i1
@@ -103,7 +103,7 @@ fn test_never_invariant() {
             return i;
         }
     "#;
-    let result = compile(code, false, None, true, false).expect("Compilation failed");
+    let result = compile(code, false, None, true).expect("Compilation failed");
     // Should compile successfully (unification of i32 and Never -> i32).
     assert!(result.contains("func.call @abort"), "Should emit abort call");
 }
@@ -122,7 +122,7 @@ fn test_fiber_structural_integrity() {
         }
     "#;
 
-    let result = compile(code, false, None, true, false).expect("Compilation failed");
+    let result = compile(code, false, None, true).expect("Compilation failed");
     
     // Proof: sizeof(Fiber) = u64(8) + u64(8) + bool(1) + pad(7) = 24 bytes.
     // In MLIR, this often shows up as !llvm.struct<"Fiber", (i64, i64, i8, array<7 x i8>)>

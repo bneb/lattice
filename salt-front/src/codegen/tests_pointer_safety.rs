@@ -9,7 +9,7 @@
 #[cfg(test)]
 mod tests {
     fn check_safety(name: &str, source: &str, expected_error: Option<&str>) {
-        let result = crate::compile(source, false, None, true, false);
+        let result = crate::compile(source, false, None, true);
 
         match result {
             Ok(_) => {

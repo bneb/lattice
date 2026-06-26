@@ -13,7 +13,7 @@ mod tests {
         let processed = crate::preprocess(&full);
         let mut file: crate::grammar::SaltFile = syn::parse_str(&processed)
             .map_err(|e| format!("Parse error: {}", e))?;
-        crate::compile_ast(&mut file, false, None, true, false, false, false, false, false, false, "test.salt")
+        crate::compile_ast(&mut file, false, None, true, false, false, false, false, false, "test.salt")
             .map_err(|e| format!("Codegen error: {}", e))
     }
 

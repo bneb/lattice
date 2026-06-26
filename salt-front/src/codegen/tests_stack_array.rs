@@ -16,7 +16,7 @@ mod tests {
                 return 0;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_ok(),
             "Stack array declaration and write should compile, got: {}",
             result.err().map(|e| format!("{}", e)).unwrap_or_default());
@@ -34,7 +34,7 @@ mod tests {
                 return x;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_ok(),
             "Stack array read should compile, got: {}",
             result.err().map(|e| format!("{}", e)).unwrap_or_default());
@@ -53,7 +53,7 @@ mod tests {
                 return 0;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_ok(),
             "Stack array loop init should compile, got: {}",
             result.err().map(|e| format!("{}", e)).unwrap_or_default());
@@ -72,7 +72,7 @@ mod tests {
                 return 0;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_ok(),
             "Stack array should not trigger leak tracking, got: {}",
             result.err().map(|e| format!("{}", e)).unwrap_or_default());
@@ -90,7 +90,7 @@ mod tests {
                 return v as i32;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_ok(),
             "Stack array of u8 should compile, got: {}",
             result.err().map(|e| format!("{}", e)).unwrap_or_default());
@@ -114,7 +114,7 @@ mod tests {
                 return 0;
             }
         "#;
-        let result = crate::compile(code, false, None, true, false);
+        let result = crate::compile(code, false, None, true);
         assert!(result.is_ok(),
             "Stack array passed to function should compile, got: {}",
             result.err().map(|e| format!("{}", e)).unwrap_or_default());

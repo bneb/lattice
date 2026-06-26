@@ -11,7 +11,7 @@
 mod tests {
     /// Helper: compile Salt source through the full pipeline and return MLIR.
     fn compile_to_mlir(source: &str) -> String {
-        crate::compile(source, false, None, true, false)
+        crate::compile(source, false, None, true)
             .unwrap_or_else(|e| panic!("Compile failed: {}", e))
     }
 

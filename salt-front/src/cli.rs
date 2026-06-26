@@ -8,7 +8,6 @@ pub struct CliConfig {
     pub output_path: Option<String>,
     pub release_mode: bool,
     pub skip_scan: bool,
-    pub vverify: bool,
     pub binary_mode: bool,
     pub object_mode: bool,
     pub disable_alias_scopes: bool,
@@ -25,7 +24,6 @@ pub fn parse_args(args: Vec<String>) -> anyhow::Result<Option<CliConfig>> {
     let mut output_path: Option<String> = None;
     let mut release_mode = false;
     let mut skip_scan = false;
-    let mut vverify = false;
     let mut binary_mode = false;
     let mut object_mode = false;
     let mut disable_alias_scopes = false;
@@ -51,14 +49,13 @@ pub fn parse_args(args: Vec<String>) -> anyhow::Result<Option<CliConfig>> {
             println!("  --binary           Produce native Mach-O/ELF binary via Iron Driver");
             println!("  -c                 Produce .o object file (like clang -c)");
             println!("  --target <triple>  Target: macos, linux-arm64, keuos, keuos-x86_64");
-            println!("  --verify           Enable Z3 contract verification");
             println!("  --lib              Library mode (no main entry point required)");
             println!("  --sip              Mode B SIP safety enforcement (rejects raw pointer creation)");
             println!("  --skip-scan        Skip import scanning");
             println!("  -g, --debug-info   Emit DWARF debug info (MLIR loc annotations)");
             println!("  --emit-sir         Emit SIR (Salt Intermediate Representation) as JSON");
             println!("  --disable-alias-scopes  Suppress LLVM alias scope metadata");
-            println!("  --danger-no-verify      Skip ALL Z3/ownership verification (NOT for production)");
+            println!("  --danger-no-verify  Disable Z3 contract verification (verification is on by default)");
             println!("  --explain <code>        Show detailed explanation of an error code");
             println!("  --version               Show version information");
             println!("  --help                  Show this help message");
@@ -75,8 +72,6 @@ pub fn parse_args(args: Vec<String>) -> anyhow::Result<Option<CliConfig>> {
             }
         } else if arg == "--skip-scan" {
             skip_scan = true;
-        } else if arg == "--vverify" || arg == "--verify" {
-            vverify = true;
         } else if arg == "--bench" {
             release_mode = true; 
         } else if arg == "--binary" {
@@ -151,7 +146,6 @@ pub fn parse_args(args: Vec<String>) -> anyhow::Result<Option<CliConfig>> {
         output_path,
         release_mode,
         skip_scan,
-        vverify,
         binary_mode,
         object_mode,
         disable_alias_scopes,
@@ -199,7 +193,7 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
 
     load_imports(&file, &mut registry);
 
-    match crate::compile_ast(&mut file, config.release_mode, Some(&registry), config.skip_scan, config.vverify, config.disable_alias_scopes, config.no_verify, config.lib_mode, config.sip_mode, config.debug_info, &config.path) {
+    match crate::compile_ast(&mut file, config.release_mode, Some(&registry), config.skip_scan, config.disable_alias_scopes, config.no_verify, config.lib_mode, config.sip_mode, config.debug_info, &config.path) {
         Ok(mlir) => {
             let basename = std::path::Path::new(&config.path)
                 .file_stem()

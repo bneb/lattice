@@ -15,7 +15,7 @@
 mod tests {
 
     fn compile_program(code: &str) -> Result<String, String> {
-        crate::compile(code, false, None, true, false)
+        crate::compile(code, false, None, true)
             .map_err(|e| format!("{}", e))
     }
 

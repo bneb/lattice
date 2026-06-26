@@ -43,7 +43,7 @@ fn test_mut_param_promoted_to_alloca() {
         }
     "#;
 
-    let mlir = compile(code, false, None, true, false)
+    let mlir = compile(code, false, None, true)
         .expect("Failed to compile Salt code");
 
     // CRITICAL ASSERTION: The mut parameter must be promoted to an alloca.
@@ -84,7 +84,7 @@ fn test_mut_param_loaded_in_loop_condition() {
         }
     "#;
 
-    let mlir = compile(code, false, None, true, false)
+    let mlir = compile(code, false, None, true)
         .expect("Failed to compile Salt code");
 
     // The parameter must be promoted
@@ -117,7 +117,7 @@ fn test_immutable_param_stays_ssa() {
         }
     "#;
 
-    let mlir = compile(code, false, None, true, false)
+    let mlir = compile(code, false, None, true)
         .expect("Failed to compile Salt code");
 
     // Should NOT have an alloca for x
@@ -143,7 +143,7 @@ fn test_implicitly_mutated_param_promoted() {
         }
     "#;
 
-    let mlir = compile(code, false, None, true, false)
+    let mlir = compile(code, false, None, true)
         .expect("Failed to compile Salt code");
 
     // Should be promoted because it's assigned in the body
