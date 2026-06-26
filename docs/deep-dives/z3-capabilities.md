@@ -1,123 +1,116 @@
-# Z3 Contract Verification — Capabilities and Limits
+# Z3 Contract Verification — Boundary and Frontier
 
-Empirically verified against the Salt compiler (2026-06-26).
+Empirically verified against the Salt compiler. Last updated 2026-06-26.
 
-Contracts must be on `pub` functions in `--lib` mode. Non-pub functions
-skip verification silently.
+Verification is active by default. Disable with `--danger-no-verify`.
 
-## What Z3 Proves (UNSAT → check elided, zero runtime cost)
+## The Contract Model
 
-**Integer bounds at call sites with constant arguments:**
+Salt supports two contract forms:
 
-```salt
-pub fn checked_get(arr: &[i32; 10], idx: i32) -> i32
-    requires(idx >= 0 && idx < 10)
-{ return arr[idx as i64]; }
+| Form | When checked | Failure mode |
+|------|-------------|--------------|
+| `requires(cond)` | At every call site | Compile error with counterexample |
+| `ensures(cond)` | At every return site in the function body | Compile error with counterexample |
 
-fn main() { checked_get(&data, 5); }  // Z3 proves 0 <= 5 < 10
-```
+Contracts are checked on **all functions** regardless of visibility.
 
-**Division and modulus safety:**
+## What Z3 Proves
 
-```salt
-pub fn safe_div(a: i32, b: i32) -> i32
-    requires(b != 0)
-{ return a / b; }
+The compiler translates `requires` and `ensures` expressions into Z3 integer
+formulas. At call sites with constant or range-constrained arguments, Z3
+proves the precondition and elides the runtime check. In function bodies,
+Z3 proves the postcondition for each return path under the path condition.
 
-fn main() { safe_div(100, 7); }  // Z3 proves 7 != 0
-```
+### Integer arithmetic
 
-**Compound bounds (all comparison operators):**
+All basic operations with constant or range-constrained operands:
 
-```salt
-pub fn bounded_add(a: i32, b: i32) -> i32
-    requires(a >= 0 && a <= 10 && b >= 0 && b <= 10)
-    ensures(result >= 0 && result <= 20)
-{ return a + b; }
-```
+| Operation | Example | Status |
+|-----------|---------|--------|
+| Add/Sub | `requires(a + b >= 0)` | Proved |
+| Multiply (one operand bounded) | `requires(a * 2 >= 0)` | Proved |
+| Multiply (both bounded) | `requires(a >= 0 && a <= 10 && b >= 0 && b <= 10)` ensures `result >= 0 && result <= 100` | Proved |
+| Multiply (both unbounded) | `requires(a >= 0 && b >= 0)` ensures `result >= 0` | Proved (sign only) |
+| Multiply (fully unbounded) | `a * b` where neither has bounds | TIMEOUT — runtime assertion |
+| Div/Mod safety | `requires(b != 0)` | Proved |
+| Div/Mod result bounds | `ensures(result >= 0)` | Not proved (division semantics are complex) |
 
-**Multiplication with bounded inputs:**
+### Comparisons
 
-```salt
-pub fn multiply_bounded(a: i32, b: i32) -> i32
-    requires(a >= 0 && a <= 10 && b >= 0 && b <= 10)
-    ensures(result >= 0 && result <= 100)
-{ return a * b; }
-```
+All six operators work: `==`, `!=`, `<`, `<=`, `>`, `>=`.
 
-**Multiplication with unbounded inputs (sign only):**
+Compound conditions with `&&` and `||` are supported. Z3 proves each
+conjunct independently under the combined path condition.
 
-```salt
-pub fn multiply_any(a: i32, b: i32) -> i32
-    requires(a >= 0 && b >= 0)
-    ensures(result >= 0)
-{ return a * b; }  // Z3 proves non-negative * non-negative >= 0
-```
+### Bitwise operations
 
-**Postconditions across conditional branches:**
+Bitwise AND/OR with constant operands, when the variable has bounds:
 
 ```salt
-pub fn absolute(x: i32) -> i32
-    ensures(result >= 0)
-{
-    if x < 0 { return -x; }   // Z3 proves: x < 0 → -x >= 0
-    return x;                   // Z3 proves: x >= 0 → x >= 0
-}
-```
-
-**Nested conditionals (clamp):**
-
-```salt
-pub fn clamp(val: i32, lo: i32, hi: i32) -> i32
-    requires(lo <= hi)
-    ensures(result >= lo && result <= hi)
-{
-    if val < lo { return lo; }
-    if val > hi { return hi; }
-    return val;
-}
-// Z3 proves the postcondition for all three return paths
-```
-
-**Bitwise operations with bounded inputs:**
-
-```salt
-pub fn bitwise_range(x: i32) -> i32
+pub fn mask(x: i32) -> i32
     requires(x >= 0 && x <= 255)
     ensures(result >= 0 && result <= 255)
-{ return x & 0xFF; }  // Z3 proves AND with 0xFF stays in [0, 255]
-
-pub fn bitwise_or_min(x: i32) -> i32
-    requires(x >= 0)
-    ensures(result >= x)
-{ return x | 0x0F; }  // Z3 proves OR always increases magnitude
+{ return x & 0xFF; }  // proved
 ```
 
-**Logical implication through branches:**
+Left shift by constants, right shift, and XOR have not been tested.
+Bitwise NOT and variable-to-variable bitwise operations are outside
+the solver domain.
+
+### Conditionals and path sensitivity
+
+Z3 is path-sensitive. It tracks the branch condition to narrow the
+possible values of variables at each return site:
 
 ```salt
-pub fn implies_test(x: i32) -> i32
-    requires(x >= 0)
+pub fn abs(x: i32) -> i32
     ensures(result >= 0)
 {
-    if x > 10 { return x; }  // Z3 proves: x > 10 → x >= 0
-    return 10;                 // Z3 proves: 10 >= 0
+    if x < 0 { return -x; }   // path: x < 0, Z3 proves -x >= 0
+    return x;                   // path: x >= 0, Z3 proves x >= 0
 }
 ```
 
-**Division chains (multiple preconditions):**
+This works for nested conditionals, guard clauses with early returns,
+and chained if/else if/else.
+
+### Struct field access
+
+Bounds on struct fields are checked:
 
 ```salt
-pub fn div_chain(a: i32, b: i32, c: i32) -> i32
-    requires(b != 0 && c != 0)
-{ return (a / b) / c; }
-// Z3 proves both divisors non-zero at call sites with constants
+pub fn arena_alloc(arena: Arena, id: i64) -> i64
+    requires(id >= 0 && id < arena.max_cores)
+{ return id; }
 ```
 
-## What Z3 Rejects (SAT → compile error with counterexample)
+### Pointer non-null
 
-When all arguments are compile-time constants that violate the contract,
-Z3 reports the specific values and stops compilation:
+```salt
+pub fn use_ptr(p: Ptr<T>) -> T
+    requires(!p.is_null())
+{ return *p; }
+```
+
+### StringView length
+
+```salt
+pub fn process(key: StringView) -> StringView
+    requires(key.length() > 0 && key.length() <= 4000)
+{ return key; }
+```
+
+## What Z3 Rejects
+
+When all arguments at a call site are compile-time constants that violate
+a precondition, Z3 reports the counterexample and stops compilation:
+
+```salt
+fn main() {
+    safe_div(100, 0);  // compile error
+}
+```
 
 ```
 VERIFICATION ERROR: could not prove '(not (= 0 0))'
@@ -127,42 +120,80 @@ VERIFICATION ERROR: could not prove '(not (= 0 0))'
     b = 0
 ```
 
-**Rejection examples tested and confirmed:**
+The binary is never produced. This is not a warning or a runtime check —
+it is a hard compile error.
 
-| Call | Contract | Counterexample |
-|------|----------|----------------|
-| `safe_div(x, 0)` | `requires(b != 0)` | `b = 0` |
-| `needs_positive(0)` | `requires(x > 0)` | `x = 0` |
-| `needs_positive(-5)` | `requires(x > 0)` | `x = -5` |
-| `bounded_add(15, 5)` | `requires(a <= 10)` | `a = 15` |
-| `clamp(v, 100, 0)` | `requires(lo <= hi)` | `lo = 100, hi = 0` |
-| `broken_ensures` returning -1 | `ensures(result >= 0)` | `x = 0` |
+Similarly, if any return path in a function body violates an `ensures`
+clause, Z3 finds a counterexample and stops compilation.
 
-## Runtime Assertions (TIMEOUT / UNKNOWN)
+## What Becomes a Runtime Assertion
 
-When arguments are not compile-time constants, or when Z3 cannot decide
-within 100ms, the compiler emits a runtime assertion (`@__salt_contract_violation`).
-The program compiles but panics at runtime if the contract is violated.
+When Z3 cannot decide within the 100ms timeout per obligation, the
+compiler emits a runtime assertion. The program compiles but panics
+if the contract is violated at runtime.
 
-## What Z3 Cannot Handle
+This happens when:
+- Arguments are not compile-time constants (e.g., function parameters
+  passed through from a caller)
+- Both operands of multiplication are unbounded variables
+- The formula is too complex for Z3 to resolve within the timeout
 
-- **Non-linear integer arithmetic**: `a * b` where both `a` and `b` are
-  unbounded variables. Z3 can reason about `a * b` when at least one
-  operand is bounded (constant or range-constrained).
-- **Floating-point**: Z3's float theory is incomplete. Use integer
-  arithmetic for contract properties.
-- **String operations**: Not in the solver domain.
-- **Contracts on non-`pub` functions** in `--lib` mode: silently skipped.
+## The Frontier
+
+**Solvable (proved or rejected at compile time):**
+- Integer arithmetic with at least one operand constant or bounded
+- All comparison operators
+- Compound boolean conditions
+- Bitwise AND/OR with constants
+- Path-sensitive reasoning through if/else chains
+- Struct field bounds
+- Pointer non-null
+- StringView length ranges
+- Postconditions across multiple return paths
+
+**Not solvable (runtime assertion):**
+- Fully unbounded integer multiplication (no bounds on either operand)
+- Division result bounds (e.g., `a / b` where b is a variable)
+- Floating-point operations
+- String content constraints
+- Loop invariants (the solver does not symbolically execute loops)
+- Bitwise operations with two variable operands
+
+**Not expressible (outside the integer theory):**
+- Quantifiers (forall, exists)
+- Heap reachability (no cycles, no dangling pointers)
+- Temporal properties (eventually, always)
 
 ## How to Use
 
-```bash
-# Verification is active by default (no --verify flag needed)
-salt-front program.salt --lib --disable-alias-scopes -o /dev/null
+Verification is active by default. No flag needed.
 
-# Explicitly disable for fast iteration
+```bash
+salt-front program.salt --lib --disable-alias-scopes -o /dev/null
+```
+
+Disable for fast iteration:
+
+```bash
 salt-front program.salt --lib --disable-alias-scopes --danger-no-verify -o /dev/null
 ```
 
-The `--verify` flag is a no-op — verification runs whenever `--danger-no-verify`
-is not passed.
+## Writing Effective Contracts
+
+1. **Use constants at call sites.** `checked_get(&data, 5)` proves `5 < 10`.
+   `checked_get(&data, idx)` where `idx` comes from a function parameter
+   becomes a runtime assertion unless the caller also carries a contract
+   that bounds `idx`.
+
+2. **Bound your inputs.** Z3 proves `a * b` when `a` and `b` both have
+   range constraints (`0 <= a <= 10`). Without bounds, it can only
+   prove sign properties.
+
+3. **Prefer preconditions to postconditions.** `requires(idx < len)` at
+   every call site is more tractable than `ensures(result >= 0)` on
+   a function with complex internal logic.
+
+4. **Keep contracts small.** A single `requires` with one comparison
+   resolves in microseconds. A compound `requires` with 5 conjuncts
+   and 3 variables takes longer. Compound conditions are fine, but
+   prefer clarity over density.
