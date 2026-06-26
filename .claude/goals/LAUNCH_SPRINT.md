@@ -119,11 +119,13 @@ The launch needs:
 - [ ] Review pass by another person (sprint requirement)
 - Post 2 (S11) and Post 3 (S12) remain for Week 4
 
-#### S5: Tutorial — "Your First Verified Salt Program" (2 sessions)
-- **Topic:** Install Salt, write a key-value store with `requires` and `ensures`,
-  compile with `--verify`, see Z3 prove the contracts.
-- **Deliverable:** Step-by-step tutorial with copy-pasteable code. Should work
-  in under 15 minutes on a fresh macOS/Linux machine.
+#### S5: Tutorial — "Your First Verified Salt Program" ✅ (published)
+- [x] Written and committed: `docs/tutorial/your-first-verified-program.md`
+- [x] 8-step walkthrough: hello world → data structures → insert → lookup →
+  verify → Z3 counterexample → postconditions → full picture
+- [x] Builds a verified key-value store with requires/ensures contracts
+- [x] Shows Z3 contract violation as compile error (not runtime crash)
+- [x] Added to tutorial README and docs index
 
 #### S6: Lettuce benchmark (2 sessions)
 - **Topic:** Benchmark Lettuce against nginx and Redis on equivalent workloads.
