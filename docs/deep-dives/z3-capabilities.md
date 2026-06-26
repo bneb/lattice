@@ -152,10 +152,12 @@ path with realistic contracts.
 - Pointer non-null
 - StringView length ranges
 
-**Not expressible (outside the integer theory):**
-- Floating-point arithmetic
-- String content constraints (length is fine, content is not)
-- Quantifiers (forall, exists)
+**Not currently translated (Z3 supports these, the compiler bridge does not):**
+- Floating-point arithmetic — Z3 has `Z3_mk_fpa_*`. Use integer arithmetic for contracts.
+- String content — Z3-str handles substrings, concatenation, regex. `.length()` works because it's an integer.
+- Quantifiers — Z3 supports `forall`/`exists`. Salt has no syntax for them in contracts.
+
+**Outside Z3's domain entirely:**
 - Heap reachability (no cycles, no dangling pointers)
 - Temporal properties (eventually, always)
 
