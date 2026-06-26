@@ -816,6 +816,13 @@ pub fn translate_to_z3<'a, 'ctx>(
             let val = li.base10_parse::<i64>().map_err(|e| e.to_string())?;
             Ok(ctx.mk_int(val))
         }
+        syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Float(lf), .. }) => {
+            // Float literals are truncated to integers for Z3 comparison.
+            // This handles zero-checks (0.0 != 0) and basic comparisons.
+            // Full Real support requires Z3Numeric (see verification/numeric.rs).
+            let val = lf.base10_parse::<f64>().map_err(|e| e.to_string())?;
+            Ok(ctx.mk_int(val as i64))
+        }
         syn::Expr::Path(p) => {
             let name = p.path.segments.last().ok_or_else(|| "Empty path segments".to_string())?.ident.to_string();
             // First check local variables for SSA value
