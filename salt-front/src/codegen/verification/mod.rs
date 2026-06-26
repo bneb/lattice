@@ -144,12 +144,13 @@ impl VerificationEngine {
             .map(|(f, t)| (*f, *t))
             .collect();
 
-        // 2.5. Build known-length map from string literal arguments
+        // 2.5. Build known-length map for .length()/.len() constant folding
         let mut known_lengths: HashMap<String, i64> = HashMap::new();
         for (i, arg) in arg_exprs.iter().enumerate() {
-            if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = arg {
-                if i < params.len() {
-                    known_lengths.insert(params[i].clone(), s.value().len() as i64);
+            if i < params.len() {
+                let param = &params[i];
+                if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = arg {
+                    known_lengths.insert(param.clone(), s.value().len() as i64);
                 }
             }
         }
@@ -237,52 +238,9 @@ impl VerificationEngine {
                      }
                  }
 
-                 // Inject type-based bounds so Z3 can prove contracts
+                 // Inject type-based bounds so Z3 proves contracts
                  // implied by the type system (e.g., u8 ∈ [0, 255]).
-                 // Assert on the argument Z3 values — after substitution,
-                 // these are what Z3 actually checks against the contract.
-                 for (i, arg_val) in call_vals_z3.iter().enumerate() {
-                     if i < param_tys.len() {
-                         let zero = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 0);
-                         match &param_tys[i] {
-                             Type::U8 => {
-                                 let max = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 255);
-                                 solver.assert(&arg_val.ge(&zero));
-                                 solver.assert(&arg_val.le(&max));
-                             }
-                             Type::U16 => {
-                                 let max = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 65535);
-                                 solver.assert(&arg_val.ge(&zero));
-                                 solver.assert(&arg_val.le(&max));
-                             }
-                             Type::U32 | Type::U64 | Type::Usize => {
-                                 solver.assert(&arg_val.ge(&zero));
-                             }
-                             Type::I8 => {
-                                 let min = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, -128);
-                                 let max = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 127);
-                                 solver.assert(&arg_val.ge(&min));
-                                 solver.assert(&arg_val.le(&max));
-                             }
-                             Type::I16 => {
-                                 let min = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, -32768);
-                                 let max = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 32767);
-                                 solver.assert(&arg_val.ge(&min));
-                                 solver.assert(&arg_val.le(&max));
-                             }
-                             Type::I32 | Type::I64 => {
-                                 // Full i32/i64 range is unbounded for Z3 ints;
-                                 // no useful constraints to add.
-                             }
-                             Type::Bool => {
-                                 let one = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 1);
-                                 solver.assert(&arg_val.ge(&zero));
-                                 solver.assert(&arg_val.le(&one));
-                             }
-                             _ => {}
-                         }
-                     }
-                 }
+                 assert_type_bounds(ctx, &call_vals_z3, param_tys, &solver);
 
                  // Inject Pointer State Tokens
                  // For each argument that is a known variable, map its pointer state into Z3
@@ -710,6 +668,59 @@ impl VerificationEngine {
                 for arg in &mc.args {
                     Self::axiomatize_intrin_find_byte(ctx, arg, solver, local_vars);
                 }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Assert type-based bounds into a Z3 solver so contracts implied by
+/// the type system are proved at compile time. Covers all integer types,
+/// bool, and unwraps Atomic<T> to the inner type.
+fn assert_type_bounds<'ctx>(
+    ctx: &mut LoweringContext<'_, '_>,
+    call_vals_z3: &[crate::z3_shim::ast::Int<'ctx>],
+    param_tys: &[Type],
+    solver: &crate::z3_shim::Solver<'ctx>,
+) {
+    for (i, arg_val) in call_vals_z3.iter().enumerate() {
+        if i >= param_tys.len() { continue; }
+        let zero = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 0);
+        // Unwrap Atomic<T> to the storage type for bounds
+        let ty = match &param_tys[i] {
+            Type::Atomic(inner) => inner.as_ref(),
+            other => other,
+        };
+        match ty {
+            Type::U8 => {
+                let max = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 255);
+                solver.assert(&arg_val.ge(&zero));
+                solver.assert(&arg_val.le(&max));
+            }
+            Type::U16 => {
+                let max = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 65535);
+                solver.assert(&arg_val.ge(&zero));
+                solver.assert(&arg_val.le(&max));
+            }
+            Type::U32 | Type::U64 | Type::Usize => {
+                solver.assert(&arg_val.ge(&zero));
+            }
+            Type::I8 => {
+                let min = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, -128);
+                let max = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 127);
+                solver.assert(&arg_val.ge(&min));
+                solver.assert(&arg_val.le(&max));
+            }
+            Type::I16 => {
+                let min = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, -32768);
+                let max = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 32767);
+                solver.assert(&arg_val.ge(&min));
+                solver.assert(&arg_val.le(&max));
+            }
+            Type::Bool => {
+                let one = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 1);
+                solver.assert(&arg_val.ge(&zero));
+                solver.assert(&arg_val.le(&one));
             }
             _ => {}
         }
