@@ -401,25 +401,58 @@ saltc struct.salt --lib --disable-alias-scopes -o /dev/null
 
 ---
 
+## 8. String Content and Regex (not yet wired)
+
+The Z3 solver supports string equality, substring, prefix/suffix,
+contains, and regex matching through Z3-str. The compiler has stub types
+for `Z3String` and `Regexp` ready in `z3_stub.rs`. The translation bridge
+does not yet translate these operations — they are the next items on the
+roadmap.
+
+When wired, contracts like these will work:
+
+```salt
+// String equality
+pub fn check_key(key: StringView) -> bool
+    requires(key == "expected_key")
+{ return true; }
+
+// Substring containment
+pub fn valid_path(path: StringView) -> bool
+    requires(path.contains("/valid/"))
+{ return true; }
+
+// Regex match (Z3-str regex)
+pub fn is_hex(s: StringView) -> bool
+    requires(s.matches("^[0-9a-fA-F]+$"))
+{ return true; }
+```
+
+These examples will not compile today — the bridge needs wiring. The
+infrastructure is in place.
+
+---
+
 ## The Frontier
 
-**What Z3 proves or rejects.** Every contract type listed above has been
+**What Z3 proves or rejects.** Every contract type in sections 1–7 has been
 empirically verified. Z3 resolves all tested cases within its 100ms
 timeout window.
 
-**What Z3 cannot express.** These are outside the integer theory that the
-compiler bridge translates:
+**Not yet wired (Z3 supports these; the compiler bridge does not translate them):**
 
-- **Floating-point arithmetic** (IEEE 754). Z3 has a float theory; the
-  compiler bridge uses truncation-to-int for literals. Full `Real` support
-  (exact rationals) is designed but not yet wired.
-- **String content operations** (`.contains()`, `.startsWith()`,
-  `.endsWith()`, regex). Z3-str handles these; the compiler bridge does
-  not translate them yet. String `.length()` works.
-- **Quantifiers** (`forall`, `exists`). Z3 supports them; Salt has no
-  contract syntax for them.
-- **Heap reachability** (no cycles, no dangling pointers). Outside Z3's
-  domain — these require separation logic or a dedicated memory model.
+| Feature | Z3 support | Bridge status |
+|---------|-----------|---------------|
+| String equality, `.contains()`, `.startsWith()` | Z3-str | Stub type ready |
+| Regex (`.matches()`) | Z3-str `Regexp` | Stub type ready |
+| Float theory (IEEE 754) | Z3 FPA | Truncation-to-int for literals |
+| `Real` (exact rationals) | Z3 Real | `Z3Numeric` type designed |
+| `BV` (bitvectors) | Z3 BV | Stub type ready |
+| Quantifiers (`forall`, `exists`) | Z3 | No Salt syntax |
+
+**Outside Z3's domain:**
+- Heap reachability (no cycles, no dangling pointers) — requires separation logic.
+- Temporal properties (eventually, always) — requires a model checker.
 
 **What becomes a runtime assertion.** When arguments are symbolic
 (variables from an outer caller) and the contract is not implied by type
