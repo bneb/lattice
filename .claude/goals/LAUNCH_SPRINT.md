@@ -147,10 +147,16 @@ The launch needs:
 - [x] Docs cross-referenced: blog, tutorial, benchmarks, LETTUCE all indexed
 - [x] Verified: 11/11 kernel tests pass, salt-front tests pass, clippy clean
 
-#### S8: HN launch prep (1 session)
-- Write the "Show HN" post
-- Prepare FAQ for common questions ("Why not Rust?", "Is this production-ready?")
-- Set up a landing page (GitHub Pages or similar)
+#### S8: HN launch prep ✅ (complete)
+- [x] Show HN post written: `docs/launch/hn_post.md`
+  - Engineering voice: factual, specific, honest about limitations
+  - Concrete numbers from LETTUCE benchmarks and kernel tests
+  - Architecture summary: Z3 compiler pass, progressive verification
+- [x] FAQ written: `docs/launch/faq.md`
+  - 12 anticipated questions: Rust comparison, production readiness,
+    Z3 limits, unsafe story, proc macros, performance, team, license
+- [x] Landing page: root README serves as landing page (updated in S7)
+- [ ] S9: actual posting to HN and Reddit (manual step)
 
 #### S9: Launch (1 session)
 - Post to HN
