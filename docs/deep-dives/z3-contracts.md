@@ -323,6 +323,18 @@ saltc type_bounds.salt --lib --disable-alias-scopes -o /dev/null
 The arguments at the call site are variables, not literals. Z3 proves
 the contracts because it knows `u8` ∈ [0, 255] and `bool` ∈ {0, 1}.
 
+**How it works.** Before checking a contract, the compiler asserts the
+parameter's type bounds into the Z3 solver. For `fn index(idx: u8)`,
+Z3 receives `idx >= 0` and `idx <= 255` as hard constraints. When it
+then checks `requires(idx < 256)`, it finds the negation (`idx >= 256`)
+is unsatisfiable — impossible under the type constraints. No
+counterexample exists. The check is elided.
+
+This means every contract that is a logical consequence of the
+parameter's type is proved at compile time with zero runtime cost.
+No concrete value needed at the call site. No runtime assertion
+emitted. The type system does the work.
+
 | Type | Bounds injected | Examples proved |
 |------|----------------|----------------|
 | `u8` | [0, 255] | `requires(idx < 256)`, `requires(x >= 0)` |
