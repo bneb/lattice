@@ -43,7 +43,7 @@ The buffer layout is pre-negotiated at ring setup: the kernel reserves the first
 
 A multi-producer ring needs locks or compare-and-swap on the head pointer. An SPSC ring doesn't. The producer owns the tail, the consumer owns the head, and neither touches the other's index. The only synchronization is memory ordering — the producer needs a release store on tail, and the consumer needs an acquire load on head.
 
-On x86-64, which is total-store-order, those atomics compile to plain `mov` instructions. The ring costs ~20 cycles per operation — comparable to a function call.
+On x86-64, which is total-store-order, those atomics compile to plain `mov` instructions. A ring operation costs on the order of tens of cycles — comparable to a function call.
 
 ---
 
@@ -100,7 +100,7 @@ The trade is that SPSC rings work for point-to-point communication between exact
 
 The C10M echo server benchmark measures TCP throughput under 10 million concurrent connections. KeuOS's SPSC-based userspace networking achieves 27.2k requests per second — within 7.5% of a bare-metal C implementation using kqueue directly (29.5k RPS), and ahead of Rust/Tokio async (26.4k RPS).
 
-The C implementation has an advantage: it calls `kevent` directly. Salt's networking stack goes through the NetD daemon, which adds one ring round-trip. The 7.5% gap is that round-trip — and it's within the noise floor of system load. With further optimization (batching multiple frames per ring notification), the gap should close.
+The C implementation has an advantage: it calls `kevent` directly. Salt's networking stack goes through the NetD daemon, which adds one ring round-trip. The 7.5% gap is that round-trip. Batching multiple frames per ring notification would reduce it further.
 
 ---
 

@@ -124,9 +124,10 @@ folder substitutes `"https://salt-lang.com/api/v1/"` for `url`, then
 evaluates `.starts_with("https://")` → `true` using Rust's standard
 library. Z3 never runs.
 
-The Z3-str bridge is also wired — for symbolic strings, `.contains()`,
-`.starts_with()`, `.ends_with()`, and `.matches(regex)` translate
-directly to Z3's native string solver.
+For symbolic (runtime) strings, the compiler can translate these
+operations to Z3-str's native solver but cannot yet prove them — the
+substitution mechanism currently handles only `Int`-typed parameters.
+Extending it to Z3 `String` types is in progress.
 
 ---
 

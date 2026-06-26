@@ -4,7 +4,7 @@
 
 ---
 
-Salt has no lifetime annotations. No `'a`, no `Box<dyn Future>`, no `Arc<Mutex<T>>`. Despite this, it catches use-after-free, dangling pointers, and cross-lifetime stores at compile time — without a borrow checker.
+Salt has no lifetime annotations. No `'a`, no `Box<dyn Future>`, no `Arc<Mutex<T>>`. Despite this, it catches dangling pointer returns and cross-lifetime stores at compile time — without a borrow checker.
 
 How? Arenas.
 
@@ -97,7 +97,7 @@ The Scope Ladder catches the three classic memory bugs:
 | Dangling return | Return pointer to local arena | Rule 1 (compile time) |
 | Cross-lifetime store | Store local pointer in global struct | Rule 2 (compile time) |
 
-The compile-time checks have zero runtime cost. The debug checks (poison fills, epoch tracking) are enabled with `SALT_DEBUG` and add ~5% overhead — comparable to ASAN.
+The compile-time checks have zero runtime cost. The debug checks (poison fills, epoch tracking) are enabled with `SALT_DEBUG` and use the same technique as ASAN's use-after-free detection — filling freed memory with a poison value that traps on access.
 
 ---
 
@@ -147,7 +147,7 @@ Compile-time checks catch escape. Debug checks catch use-after-reset.
 
 When `SALT_DEBUG` is enabled, every `arena.reset()` fills the freed region with `0xAA`. Any subsequent read from a dangling pointer hits the poison value and traps. This is the same technique as ASAN's use-after-free detection, but scoped to arena boundaries.
 
-Z3 verification adds a second layer: an epoch counter per arena, incremented on each `reset()`. Every pointer carries the epoch of its allocation. Before each pointer dereference, the compiler emits a Z3 proof obligation: `ptr.epoch == arena.epoch`. If Z3 can't prove it, you get a runtime assertion. If Z3 can prove it always holds (e.g., the pointer is used before the first `reset()`), the check is elided.
+Z3 verification adds a second layer in the design: an epoch counter per arena, incremented on each `reset()`. Every pointer carries the epoch of its allocation. Before each pointer dereference, the compiler can emit a Z3 proof obligation checking that the pointer's epoch matches the arena's current epoch. This is an active area of development in the compiler.
 
 ---
 
