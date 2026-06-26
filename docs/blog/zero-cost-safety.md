@@ -124,10 +124,12 @@ folder substitutes `"https://salt-lang.com/api/v1/"` for `url`, then
 evaluates `.starts_with("https://")` → `true` using Rust's standard
 library. Z3 never runs.
 
-For symbolic (runtime) strings, the compiler can translate these
-operations to Z3-str's native solver but cannot yet prove them — the
-substitution mechanism currently handles only `Int`-typed parameters.
-Extending it to Z3 `String` types is in progress.
+For symbolic (runtime) strings, these contracts will be rejected even
+when the argument satisfies them — the substitution mechanism currently
+handles only `Int`-typed parameters, so Z3 sees an unconstrained string
+variable and finds a counterexample. Use string content contracts only
+with literal arguments until the substitution mechanism is extended to
+handle Z3 `String` types.
 
 ---
 

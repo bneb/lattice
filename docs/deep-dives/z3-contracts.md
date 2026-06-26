@@ -430,11 +430,12 @@ expression. `"https://salt-lang.com/api/v1/".starts_with("https://")`
 is `true` — the constant folder evaluates it, returns a boolean literal,
 and the `requires` clause becomes `true`. No solver, no runtime check.
 
-For symbolic (runtime) strings, the compiler falls through to Z3-str —
-Z3's native string solver with prefix, suffix, containment, and regex.
-The substitution mechanism currently handles only `Int`-typed
-parameters, so proof of symbolic string properties requires additional
-solver constraints.
+**Important limitation:** String content contracts only work with
+literal arguments (compile-time constants). With a symbolic (runtime)
+string parameter, Z3 will reject the contract even if every caller
+satisfies it — the substitution mechanism is `Int`-only, so the
+parameter appears as an unconstrained variable. Use `.starts_with()`,
+`.ends_with()`, and `.contains()` on literals, not on parameters.
 
 ---
 
@@ -448,8 +449,9 @@ timeout window.
 
 | Feature | Z3 support | Bridge status |
 |---------|-----------|---------------|
-| String equality, `.contains()`, `.startsWith()` | Z3-str | Stub type ready |
-| Regex (`.matches()`) | Z3-str `Regexp` | Stub type ready |
+| String `.contains()`, `.startsWith()`, `.endsWith()` | Z3-str | Literal args only (substitution Int-only) |
+| Regex (`.matches()`) | Z3-str `Regexp` | Literal args only |
+| String parameter substitution | Z3 `substitute` | Int-only — String type pending |
 | Float theory (IEEE 754) | Z3 FPA | Truncation-to-int for literals |
 | `Real` (exact rationals) | Z3 Real | `Z3Numeric` type designed |
 | `BV` (bitvectors) | Z3 BV | Stub type ready |
