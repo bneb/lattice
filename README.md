@@ -130,11 +130,12 @@ LETTUCE leads at every concurrency level. The structural advantage is the arena 
 ## Further reading
 
 - [Tutorial: Your First Verified Program](docs/tutorial/your-first-verified-program.md) — 15-minute walkthrough
-- [Blog: Zero-Cost Safety](docs/blog/zero-cost-safety.md) — how Z3 contracts work
+- [Blog: Zero-Cost Safety](docs/blog/zero-cost-safety.md) — Z3 contracts at compile time
+- [Blog: Microkernel IPC](docs/blog/microkernel-ipc.md) — SPSC rings, zero-copy, proof-carrying IPC
+- [Blog: Arenas Over Borrow Checking](docs/blog/arenas-over-borrow-checking.md) — Scope Ladder escape analysis
 - [LETTUCE vs Redis](benchmarks/LETTUCE_BENCH.md) — benchmark data and analysis
 - [Architecture Reference](docs/ARCH.md) — compiler pipeline, kernel design, memory model
 - [Language Specification](docs/SPEC.md) — formal language definition
-- [Tutorial: Salt by Example](docs/tutorial/README.md) — 9-chapter hands-on guide
 - [Contributor Guide](CONTRIBUTING.md)
 
 ## License
