@@ -80,16 +80,20 @@ The launch needs:
 - [ ] End-to-end echo response blocked by S3 (fetch/ping do not execute at high slot numbers)
 - [ ] Dual-scheduler integration: ECS fiber scheduler (do_dispatch) coexists with process scheduler (schedule_next); kernel threads use ECS, Ring 3 uses process — they don't yield to each other cleanly
 
-#### S2: Fix build system flake ✅ (partial — mitigated, root cause identified)
-- [x] Identified root cause: salt-front compiler emits globals in non-deterministic
-  order (HashMap iteration in MLIR pipeline). ~6 unique MLIR outputs from 10
-  compilations of the same file.
-- [x] Mitigation: sorted glob.glob results + sorted linker inputs (cc9caad)
-- [x] Documented workaround: if clean build produces broken kernel, rebuild (cached
-  objects stabilize the output)
-- [ ] Full fix requires compiler work: sort HashMap iterations or switch to BTreeMap
-  in salt-front/src/codegen/type_bridge.rs emit_global_def and related emission paths.
-  Deferred — the workaround is sufficient for development.
+#### S2: Fix build system flake ✅ (fixed — deterministic builds)
+- [x] Root cause: HashMap iteration order in salt-front compiler caused
+  non-deterministic constant/global emission. `dependency_graph.keys()` and
+  `loaded_files.values()` iterated in HashMap order, producing different
+  topological sort and different MLIR output each run.
+- [x] Fix 1: sort `dependency_graph.keys()` in `get_compilation_order()` (module_loader.rs)
+- [x] Fix 2: replace `loaded_files.values()` iterations with sorted-order lookup (mod.rs)
+- [x] Fix 3: add `sort_global_decls()` post-processing step that sorts all
+  `llvm.mlir.global` declarations by symbol name (mod.rs)
+- [x] Fix 4: sort glob results + linker inputs in runner_qemu.py
+- [x] Fix 5: binary name corrected (saltc, not salt-front) in runner_qemu.py
+- [x] Verification: 20/20 salt-front compilations produce identical MLIR.
+  Kernel binaries are byte-identical across clean builds.
+  Test results are now deterministic (9/11 pass consistently).
 
 #### S3: Stabilize 8-program test suite (1 session)
 - **Problem:** Adding Process L (8th user program) causes `AB#DF!` crash at RIP=0.
