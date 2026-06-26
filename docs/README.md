@@ -67,7 +67,9 @@ Salt is a systems programming language with Z3-verified safety, arena-based memo
 
 | Doc | Description |
 |-----|-------------|
-| [Benchmarks](../benchmarks/BENCHMARKS.md) | Official performance results |
+| [Algorithm Benchmarks](../benchmarks/BENCHMARKS.md) | 12 algorithms: Salt vs C/Rust (fib, matmul, LRU cache, TCP echo...) |
+| [Lettuce vs Redis](../benchmarks/LETTUCE_BENCH.md) | KV store benchmark: commands, concurrency, pipelining, verification cost |
+| [Benchmark Script](../benchmarks/lettuce_bench.sh) | Reproducible `redis-benchmark` comparison harness |
 | [Measurement](benchmarks/science-of-measurement.md) | Benchmarking methodology |
 
 ### Blog
