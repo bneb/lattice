@@ -164,3 +164,6 @@ fail_semantic_*.salt
 # Basalt benchmark cache
 .bench_basalt/
 salt/build_linux/
+docs/BLOG_OUTLINE.md
+docs/launch/
+tools/blog-style.css
