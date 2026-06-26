@@ -295,62 +295,57 @@ VERIFICATION ERROR: contract evaluates to false with the given arguments
 ## 5. Type-Bound Proofs
 
 Z3 receives type bounds for every integer parameter. Contracts that are
-implied by the type are proved **without a concrete call-site value**:
+implied by the type are proved **without a concrete call-site value**.
+
+The canonical use case: array indexing with `u8`. The bounds check is
+free because the type already guarantees the index is in range:
 
 ```bash
-cat > type_bounds.salt << 'EOF'
+cat > index.salt << 'EOF'
 package main
-pub fn index(idx: u8) -> i32
-    requires(idx < 256)      // always true: u8 ∈ [0, 255]
-    requires(idx >= 0)        // always true: u8 ∈ [0, 255]
-{ return idx as i32; }
-pub fn check(b: bool) -> i32
-    requires(b == 0 || b == 1)  // always true: bool ∈ {0, 1}
-{ return b as i32; }
+
+// A 256-element lookup table. Any u8 indexes it safely.
+pub fn lookup(table: &[i32; 256], idx: u8) -> i32
+    requires(idx < 256)       // Z3 proves: u8 ∈ [0, 255] ⊂ [0, 255]
+{ return table[idx as i64]; }
+
 pub fn main() -> i32 {
-    let a: u8 = 200;
-    let b: bool = true;
-    return index(a) + check(b);
+    let table: [i32; 256] = [0; 256];
+    let idx: u8 = 200;         // not a literal — a runtime variable
+    return lookup(&table, idx);
 }
 EOF
-saltc type_bounds.salt --lib --disable-alias-scopes -o /dev/null
+saltc index.salt --lib --disable-alias-scopes -o /dev/null
 ```
 
 ```
 ✅ MLIR compiled successfully.
 ```
 
-The arguments at the call site are variables, not literals. Z3 proves
-the contracts because it knows `u8` ∈ [0, 255] and `bool` ∈ {0, 1}.
+`idx` is a runtime variable, not a constant. Despite this, Z3 proves
+`idx < 256` because it knows `u8` ∈ [0, 255]. The bounds check does not
+exist in the binary. A conventional compiler would emit `cmp idx, 256;
+jae panic`. Salt emits nothing.
 
 **How it works.** Before checking a contract, the compiler asserts the
-parameter's type bounds into the Z3 solver. For `fn index(idx: u8)`,
-Z3 receives `idx >= 0` and `idx <= 255` as hard constraints. When it
-then checks `requires(idx < 256)`, it finds the negation (`idx >= 256`)
-is unsatisfiable — impossible under the type constraints. No
-counterexample exists. The check is elided.
+parameter's type bounds as Z3 solver constraints. For `fn lookup(idx: u8)`,
+Z3 receives `idx >= 0` and `idx <= 255`. The negation of the contract
+(`idx >= 256`) is unsatisfiable under these constraints — no
+counterexample can exist. The check is elided.
 
-Type bounds and user contracts compose via AND. If you write
-`requires(idx < 100)` on a `u8` parameter, Z3 knows `idx ∈ [0, 99]` —
-the intersection of the type bound and the contract. A tighter contract
-narrows the search space further. A contract that's implied by the type
-(like `idx < 256` for `u8`) becomes a no-op — Z3 proves it trivially
-and elides the check.
+This is not a special case for `u8`. Every integer type gets its bounds:
 
-This means every contract that is a logical consequence of the
-parameter's type is proved at compile time with zero runtime cost.
-No concrete value needed at the call site. No runtime assertion
-emitted. The type system does the work.
+| Type | Bounds injected | Contract | Proved because |
+|------|----------------|----------|---------------|
+| `u8` | [0, 255] | `idx < 256` | 255 < 256 |
+| `u16` | [0, 65535] | `idx < 65536` | 65535 < 65536 |
+| `u32` | ≥ 0 | `x >= 0` | type guarantees it |
+| `i8` | [-128, 127] | `x >= -128` | type guarantees it |
+| `bool` | {0, 1} | `b == 0 \|\| b == 1` | exhaustive |
 
-| Type | Bounds injected | Examples proved |
-|------|----------------|----------------|
-| `u8` | [0, 255] | `requires(idx < 256)`, `requires(x >= 0)` |
-| `u16` | [0, 65535] | `requires(idx < 65536)` |
-| `u32`, `u64`, `usize` | ≥ 0 | `requires(x >= 0)` |
-| `i8` | [-128, 127] | `requires(x >= -128)`, `requires(x <= 127)` |
-| `i16` | [-32768, 32767] | same pattern |
-| `bool` | {0, 1} | `requires(b == 0 \|\| b == 1)` |
-| `Atomic<T>` | unwraps to T | same as inner type |
+User contracts compose with type bounds via AND. `requires(idx < 100)`
+on `u8` gives Z3 the effective bound `idx ∈ [0, 99]`. Tighter
+constraints from either source only help the proof.
 
 ---
 
@@ -401,51 +396,45 @@ saltc struct.salt --lib --disable-alias-scopes -o /dev/null
 
 ---
 
-## 8. String Content — Prefix, Suffix, Contains
+## 8. String Content — Compile-Time Validation
 
-String content operations are evaluated at compile time when the
-arguments are literals:
+String operations on literal arguments are evaluated in Rust at compile
+time. Z3 never runs. Here is a URL validation pipeline — three checks,
+all resolved before codegen:
 
 ```bash
-cat > str_ops.salt << 'EOF'
+cat > validate.salt << 'EOF'
 package main
 use std.core.str.StringView
 
-pub fn has_prefix(key: StringView) -> bool
-    requires(key.starts_with("salt-"))
-{ return true; }
-
-pub fn has_suffix(key: StringView) -> bool
-    requires(key.ends_with(".salt"))
+pub fn validate_url(url: StringView) -> bool
+    requires(url.starts_with("https://"))
+    requires(url.contains(".com"))
+    requires(url.ends_with("/api/v1/"))
 { return true; }
 
 pub fn main() -> i32 {
-    let _a = has_prefix("salt-lang");
-    let _b = has_suffix("program.salt");
+    let _ok = validate_url("https://salt-lang.com/api/v1/");
     return 0;
 }
 EOF
-saltc str_ops.salt --lib --disable-alias-scopes -o /dev/null
+saltc validate.salt --lib --disable-alias-scopes -o /dev/null
 ```
 
 ```
 ✅ MLIR compiled successfully.
 ```
 
-`"salt-lang".starts_with("salt-")` is evaluated in Rust at compile time.
-The constant folder substitutes the argument and resolves the method call
-before Z3 ever sees it. Zero Z3 overhead.
+Three string operations, all resolved in Rust before Z3 sees the
+expression. `"https://salt-lang.com/api/v1/".starts_with("https://")`
+is `true` — the constant folder evaluates it, returns a boolean literal,
+and the `requires` clause becomes `true`. No solver, no runtime check.
 
-For symbolic (runtime) string values, the compiler falls through to
-Z3-str — Z3's native string solver. Prefix, suffix, containment, and
-regex are all available. The substitution mechanism currently only
-handles `Int`-typed parameters, so proof of symbolic string properties
-requires the Z3 solver to have additional constraints (from path
-conditions or type bounds).
-
-`.matches(regex)` — Z3 regex via Z3-str `Regexp` — is translated but
-can only prove with literal arguments (same constant-folding path as
-`.starts_with()`).
+For symbolic (runtime) strings, the compiler falls through to Z3-str —
+Z3's native string solver with prefix, suffix, containment, and regex.
+The substitution mechanism currently handles only `Int`-typed
+parameters, so proof of symbolic string properties requires additional
+solver constraints.
 
 ---
 
