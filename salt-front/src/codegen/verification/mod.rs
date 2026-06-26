@@ -23,6 +23,7 @@ pub mod pointer_state;
 pub mod arena_escape;
 pub mod ptr_bounds_verifier;
 pub mod proof_hint;
+mod fold_constants;
 
 pub use state_tracker::{OwnershipState, Z3StateTracker};
 pub use malloc_tracker::MallocTracker;
@@ -142,6 +143,16 @@ impl VerificationEngine {
             .map(|(f, t)| (*f, *t))
             .collect();
 
+        // 2.5. Build known-length map from string literal arguments
+        let mut known_lengths: HashMap<String, i64> = HashMap::new();
+        for (i, arg) in arg_exprs.iter().enumerate() {
+            if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = arg {
+                if i < params.len() {
+                    known_lengths.insert(params[i].clone(), s.value().len() as i64);
+                }
+            }
+        }
+
         // 3. Verify Each Clause
         for req in requires {
             // Unwrap Block: Grammar parses `requires { expr }` as Expr::Block
@@ -155,8 +166,11 @@ impl VerificationEngine {
             } else {
                 req
             };
-            
-            if let Ok(z3_req_sym) = crate::codegen::expr::translate_bool_to_z3(ctx, actual_req, &dummy_locals, &sym_ctx) {
+
+            // Fold compile-time-known constants before Z3 sees the expression
+            let folded_req = fold_constants::fold_constants(actual_req, &known_lengths);
+
+            if let Ok(z3_req_sym) = crate::codegen::expr::translate_bool_to_z3(ctx, &folded_req, &dummy_locals, &sym_ctx) {
                  let z3_req_subst = z3_req_sym.substitute(&substitutions);
                  
                  // ═══════════════════════════════════════════════════════════════

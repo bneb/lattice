@@ -1,0 +1,20 @@
+// Z3 Contract Test: String operations
+// Expected: PASS (Z3 proves all contracts)
+package main
+use std.core.str.StringView
+
+// Test 1: String literal length — Z3 proves known length > 0
+pub fn require_nonempty(key: StringView) -> i32
+    requires(key.length() > 0)
+{ return key.length() as i32; }
+
+// Test 2: String literal length bounds — Z3 proves 5 <= 10
+pub fn require_bounded(key: StringView) -> i32
+    requires(key.length() > 0 && key.length() <= 10)
+{ return key.length() as i32; }
+
+pub fn main() -> i32 {
+    let a = require_nonempty("hello");
+    let b = require_bounded("hello");
+    return a + b;
+}
