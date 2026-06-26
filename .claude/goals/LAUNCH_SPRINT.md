@@ -139,11 +139,13 @@ The launch needs:
 
 ### Week 3: The Launch (Package and Ship)
 
-#### S7: Documentation sweep (1 session)
-- Update README with current architecture
-- Verify all `docs/` files match current code
-- Add architecture diagram
-- Add "Getting Started" guide
+#### S7: Documentation sweep ✅ (complete)
+- [x] Updated root README: version 0.10.0, architecture diagram, Getting Started
+  with hello world, fixed broken blog links, added kernel/user dirs
+- [x] Architecture diagram added (ASCII pipeline: Salt → MLIR → LLVM → KeuOS)
+- [x] Getting Started guide: `make setup/build/test/bench`, hello world, tutorial link
+- [x] Docs cross-referenced: blog, tutorial, benchmarks, LETTUCE all indexed
+- [x] Verified: 11/11 kernel tests pass, salt-front tests pass, clippy clean
 
 #### S8: HN launch prep (1 session)
 - Write the "Show HN" post
