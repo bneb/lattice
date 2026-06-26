@@ -172,11 +172,16 @@ These aren't examples from a whitepaper. They ship in the kernel. Every call sit
 
 ## The Limits: What Z3 Can't Prove
 
-Z3 is an SMT solver, not a crystal ball. The 100ms timeout per proof obligation means complex path conditions — deeply nested loops, pointer-chasing through linked structures, non-linear arithmetic — will hit `UNKNOWN`. In those cases, the compiler falls back to runtime assertions.
+Z3 handles linear integer arithmetic, bounded multiplication, bitwise operations, and comparisons across conditional branches. What it can't prove:
 
-This is the key design tradeoff: **progressive verification**. You don't have to rewrite your codebase. You add `requires` clauses incrementally, and the compiler proves the ones it can. The ones it can't become runtime checks — still correct, still safe, just not free.
+- **Non-linear integer arithmetic**: `a * b` where both `a` and `b` are unbounded variables. Z3 can reason about multiplication when at least one operand is bounded.
+- **Floating-point**: Z3's float theory is incomplete. Use integers for contract properties.
+- **Deeply nested loops and pointer-chasing**: path explosion hits the 100ms timeout.
+- **String operations**: not in the solver domain.
 
-The fallback isn't a separate toolchain or a special mode. It's standard MLIR, compiled through the same LLVM pipeline as the rest of your code. The runtime assertion is a single `scf.if` branch — predictable, debuggable, and strip-able if you choose.
+When Z3 can't decide, the compiler emits a runtime assertion. This is **progressive verification**: add contracts incrementally, prove what you can, runtime-check the rest.
+
+[Full capability reference →](deep-dives/z3-capabilities.md)
 
 ---
 
