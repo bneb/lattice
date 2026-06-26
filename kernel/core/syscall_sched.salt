@@ -94,8 +94,11 @@ fn switch_to_next_ready(slot: u64) {
         if next != 0 {
             let state = process_get_state(next);
             if state == PROC_READY || state == PROC_RUNNING {
-                // Only dispatch Ring 3 processes (have a user PML4)
-                if process_get_pml4(next) != 0 {
+                // Only dispatch Ring 3 processes. Kernel threads (including
+                // Task 0) share the kernel PML4 (slot 0's PML4). Ring 3
+                // processes each have a unique user PML4.
+                let kernel_pml4 = process_get_pml4(0);
+                if process_get_pml4(next) != kernel_pml4 {
                     switch_to_slot(next, 0);
                     return;
                 }
