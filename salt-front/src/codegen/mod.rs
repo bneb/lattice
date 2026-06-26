@@ -196,13 +196,18 @@ use std::collections::{HashMap, HashSet};
             }
         };
         
-        for ast in loader.loaded_files.values() {
-            collect_globals(ast, &mut global_types);
+        let comp_order = loader.get_compilation_order()?;
+        for ns in &comp_order {
+            if let Some(ast) = loader.loaded_files.get(ns) {
+                collect_globals(ast, &mut global_types);
+            }
         }
         collect_globals(file, &mut global_types);
 
-        for (_, ast) in loader.loaded_files.iter_mut() {
-            crate::codegen::phases::resolution::name_resolver::NameResolver::resolve_file(ast, &global_types);
+        for ns in &comp_order {
+            if let Some(ast) = loader.loaded_files.get_mut(ns) {
+                crate::codegen::phases::resolution::name_resolver::NameResolver::resolve_file(ast, &global_types);
+            }
         }
         crate::codegen::phases::resolution::name_resolver::NameResolver::resolve_file(file, &global_types);
         Ok(())
@@ -212,8 +217,11 @@ use std::collections::{HashMap, HashSet};
     // REASON: all 9 parameters are independently meaningful; bundling would obscure intent
     fn initialize_context<'a>(ctx: &mut CodegenContext<'a>, file: &SaltFile, loader: &ModuleLoader, no_verify: bool, disable_alias_scopes: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) {
         let mut all_files = Vec::new();
-        for ast in loader.loaded_files.values() {
-            all_files.push(ast);
+        let comp_order = loader.get_compilation_order().unwrap_or_default();
+        for ns in &comp_order {
+            if let Some(ast) = loader.loaded_files.get(ns) {
+                all_files.push(ast);
+            }
         }
         all_files.push(file);
         ctx.freeing_functions = crate::codegen::phases::purity::PurityAnalyzer::analyze(&all_files);
@@ -228,13 +236,18 @@ use std::collections::{HashMap, HashSet};
     }
 
     fn register_all_templates_and_signatures(ctx: &CodegenContext, file: &SaltFile, loader: &ModuleLoader) -> Result<(), String> {
-        for ast in loader.loaded_files.values() {
-            register_templates(ctx, ast)?;
+        let order = loader.get_compilation_order()?;
+        for ns in &order {
+            if let Some(ast) = loader.loaded_files.get(ns) {
+                register_templates(ctx, ast)?;
+            }
         }
         register_templates(ctx, file)?;
 
-        for ast in loader.loaded_files.values() {
-            register_signatures(ctx, ast)?;
+        for ns in &order {
+            if let Some(ast) = loader.loaded_files.get(ns) {
+                register_signatures(ctx, ast)?;
+            }
         }
         register_signatures(ctx, file)?;
         Ok(())
@@ -455,7 +468,10 @@ impl<'a> CodegenContext<'a> {
         
         {
             let emission = self.emission.borrow();
-            out.push_str(&emission.decl_out);
+            // Sort global declarations for deterministic output.
+            // HashMap-based import scanning emits globals in non-deterministic order.
+            let sorted_decls = Self::sort_global_decls(&emission.decl_out);
+            out.push_str(&sorted_decls);
             for (name, decl) in &emission.pending_func_decls {
                 if !emission.defined_functions.contains(name) {
                     out.push_str(decl);
@@ -506,6 +522,93 @@ impl<'a> CodegenContext<'a> {
             format!(", \"salt.proof_hints\" = {{{}}}", entries.join(", "))
         };
         out.push_str(&format!("module attributes {{llvm.data_layout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\", llvm.target_triple = \"x86_64-unknown-none-elf\"{}{}}} {{\n", sip_attr, proof_hints_attr));
+    }
+
+    /// Sort global declarations for deterministic output.
+    /// The scanner emits globals and consts in HashMap-dependent order
+    /// (imported files' consts are interleaved with the main file's items).
+    /// This function extracts all `llvm.mlir.global` blocks, sorts them by
+    /// symbol name, and reassembles the output.
+    fn sort_global_decls(decl_out: &str) -> String {
+        let mut result = String::with_capacity(decl_out.len());
+        let mut pending_global: Option<String> = None;
+        let mut globals: Vec<String> = Vec::new();
+        let mut non_global_lines = String::new();
+
+        for line in decl_out.lines() {
+            if line.trim().starts_with("llvm.mlir.global") {
+                // Start of a global declaration
+                if let Some(g) = pending_global.take() {
+                    // Multi-line global (region-based zero init): capture until '}'
+                    globals.push(g);
+                }
+                if line.contains('{') && !line.contains('}') {
+                    // Multi-line: region-based init
+                    let mut global_text = line.to_string();
+                    global_text.push('\n');
+                    pending_global = Some(global_text);
+                } else if line.trim().ends_with('{') {
+                    // Multi-line variant
+                    let mut global_text = line.to_string();
+                    global_text.push('\n');
+                    pending_global = Some(global_text);
+                } else {
+                    // Single-line global
+                    globals.push(line.to_string());
+                }
+            } else if pending_global.is_some() {
+                // Continue or end a multi-line global
+                let mut g = pending_global.take().unwrap();
+                g.push_str(line);
+                if line.trim() == "}" {
+                    // End of multi-line global
+                    g.push('\n');
+                    globals.push(g);
+                } else {
+                    g.push('\n');
+                    pending_global = Some(g);
+                }
+            } else {
+                // Non-global line (e.g. comments, func.func declarations, etc.)
+                non_global_lines.push_str(line);
+                non_global_lines.push('\n');
+            }
+        }
+        // Flush any remaining pending global
+        if let Some(g) = pending_global.take() {
+            globals.push(g);
+        }
+
+        // Sort globals by their symbol name (extracted from @name pattern)
+        globals.sort_by(|a, b| {
+            let extract_name = |s: &str| {
+                s.lines().next()
+                    .and_then(|first| {
+                        let trimmed = first.trim();
+                        if let Some(at_pos) = trimmed.find('@') {
+                            let after_at = &trimmed[at_pos + 1..];
+                            if let Some(paren_pos) = after_at.find('(') {
+                                Some(after_at[..paren_pos].to_string())
+                            } else {
+                                Some(after_at.split_whitespace().next()?.to_string())
+                            }
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_default()
+            };
+            extract_name(a).cmp(&extract_name(b))
+        });
+
+        result.push_str(&non_global_lines);
+        for g in &globals {
+            result.push_str(g);
+            if !g.ends_with('\n') {
+                result.push('\n');
+            }
+        }
+        result
     }
 
     fn assemble_bootstrap_patches(&mut self, out: &mut String) {

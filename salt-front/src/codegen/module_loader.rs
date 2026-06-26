@@ -304,7 +304,11 @@ impl ModuleLoader {
         let mut visited = HashSet::new();
         let mut temp_mark = HashSet::new();
 
-        for module in self.dependency_graph.keys() {
+        // Sort keys for deterministic compilation order.
+        // HashMap iteration is non-deterministic in Rust.
+        let mut modules: Vec<&String> = self.dependency_graph.keys().collect();
+        modules.sort();
+        for module in modules {
             self.topological_visit(module, &mut visited, &mut temp_mark, &mut order)?;
         }
 
