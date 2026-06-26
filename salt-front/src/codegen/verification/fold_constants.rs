@@ -224,3 +224,104 @@ fn make_bool_literal(val: bool) -> syn::Expr {
         lit: syn::Lit::Bool(syn::LitBool::new(val, proc_macro2::Span::call_site())),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn empty_lengths() -> HashMap<String, i64> { HashMap::new() }
+    fn empty_params() -> Vec<String> { vec![] }
+    fn empty_args() -> Vec<syn::Expr> { vec![] }
+
+    fn parse_expr(s: &str) -> syn::Expr {
+        syn::parse_str(s).expect("failed to parse test expression")
+    }
+
+    #[test]
+    fn test_int_literal_folds() {
+        let expr = parse_expr("42");
+        let result = try_eval(&expr, &empty_lengths(), &empty_params(), &empty_args());
+        assert_eq!(result, Some(crate::evaluator::ConstValue::Integer(42)));
+    }
+
+    #[test]
+    fn test_string_length_literal() {
+        let expr = parse_expr("\"hello\".length()");
+        let result = try_eval(&expr, &empty_lengths(), &empty_params(), &empty_args());
+        assert_eq!(result, Some(crate::evaluator::ConstValue::Integer(5)));
+    }
+
+    #[test]
+    fn test_string_length_known_param() {
+        let expr = parse_expr("key.length()");
+        let mut lengths = HashMap::new();
+        lengths.insert("key".to_string(), 5);
+        let result = try_eval(&expr, &lengths, &empty_params(), &empty_args());
+        assert_eq!(result, Some(crate::evaluator::ConstValue::Integer(5)));
+    }
+
+    #[test]
+    fn test_starts_with_true() {
+        let expr = parse_expr("\"hello\".starts_with(\"hel\")");
+        let result = try_eval(&expr, &empty_lengths(), &empty_params(), &empty_args());
+        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
+    }
+
+    #[test]
+    fn test_starts_with_false() {
+        let expr = parse_expr("\"hello\".starts_with(\"xyz\")");
+        let result = try_eval(&expr, &empty_lengths(), &empty_params(), &empty_args());
+        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(false)));
+    }
+
+    #[test]
+    fn test_ends_with_true() {
+        let expr = parse_expr("\"program.salt\".ends_with(\".salt\")");
+        let result = try_eval(&expr, &empty_lengths(), &empty_params(), &empty_args());
+        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
+    }
+
+    #[test]
+    fn test_contains_true() {
+        let expr = parse_expr("\"hello world\".contains(\"lo w\")");
+        let result = try_eval(&expr, &empty_lengths(), &empty_params(), &empty_args());
+        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
+    }
+
+    #[test]
+    fn test_param_substitution_starts_with() {
+        let requires_expr = parse_expr("key.starts_with(\"salt-\")");
+        let params = vec!["key".to_string()];
+        let args = vec![parse_expr("\"salt-lang\"")];
+        let result = try_eval(&requires_expr, &empty_lengths(), &params, &args);
+        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
+    }
+
+    #[test]
+    fn test_param_substitution_false_case() {
+        let requires_expr = parse_expr("key.starts_with(\"salt-\")");
+        let params = vec!["key".to_string()];
+        let args = vec![parse_expr("\"wrong-key\"")];
+        let result = try_eval(&requires_expr, &empty_lengths(), &params, &args);
+        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(false)));
+    }
+
+    #[test]
+    fn test_compound_comparison_substitution() {
+        let requires_expr = parse_expr("key.length() > 0");
+        let params = vec!["key".to_string()];
+        let args = vec![parse_expr("\"hello\"")];
+        let result = try_eval(&requires_expr, &empty_lengths(), &params, &args);
+        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
+    }
+
+    #[test]
+    fn test_symbolic_returns_none() {
+        let requires_expr = parse_expr("x > 0");
+        let params = vec!["x".to_string()];
+        let args = vec![parse_expr("x")]; // variable, not literal
+        let result = try_eval(&requires_expr, &empty_lengths(), &params, &args);
+        assert_eq!(result, None); // symbolic — can't evaluate
+    }
+}
