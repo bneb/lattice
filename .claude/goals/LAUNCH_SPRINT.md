@@ -95,17 +95,19 @@ The launch needs:
   Kernel binaries are byte-identical across clean builds.
   Test results are now deterministic (9/11 pass consistently).
 
-#### S3: Stabilize 8-program test suite ✅ (10/11 — #DF on exit remains)
+#### S3: Stabilize 8-program test suite ✅ (11/11 — all pass)
 - [x] Root cause: pre-scheduler kernel threads at slots 0-1 starved higher-slot
   Ring 3 processes. Timer ISR resets LAST_DISPATCHED to 0 on each pulse-driven
   dispatch, so round-robin never reaches slots 12+ (ping, fetch).
-- [x] Fix: block pre-scheduler processes (terminal, TX Poll, NetD, echo_server)
+- [x] Fix 1: block pre-scheduler processes (terminal, TX Poll, NetD, echo_server)
   with PROC_IPC_BLOCKED so process scheduler skips them
+- [x] Fix 2: kernel PML4 comparison in exit-path dispatch filter. Kernel threads
+  have user_pml4 == kernel_pml4 (non-zero). Compare against slot 0's PML4 instead
+  of zero to correctly identify Ring 3 processes.
 - [x] Bridge ECS/process schedulers: salt_yield_check calls schedule_next()
 - [x] Prevent stack overflow: dispatchable-count check in schedule_next
 - [x] Fix stale MAX_PROCS=16 in exec_user, spawn_coroutine, spawn_inode, syscall_ipc
-- [ ] Remaining: #DF at RIP=3 during final context switch when all Ring 3 exit.
-  Non-critical for demo — all user programs complete before the crash.
+- [x] Verified: 11/11 tests pass consistently
 
 ### Week 2: The Story (Write What We Built)
 
