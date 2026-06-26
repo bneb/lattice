@@ -103,7 +103,6 @@ fn switch_to_next_ready(slot: u64) {
         }
         i = i + 1;
     }
-    serial_print("[kernel] All Ring 3 processes exited. Idle.\n");
     loop { idle_halt(); }
 }
 global LAST_DISPATCHED: u64 = 0;
