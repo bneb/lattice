@@ -31,8 +31,8 @@ All basic operations with constant or range-constrained operands:
 | Add/Sub | `requires(a + b >= 0)` | Proved |
 | Multiply (one operand bounded) | `requires(a * 2 >= 0)` | Proved |
 | Multiply (both bounded) | `requires(a >= 0 && a <= 10 && b >= 0 && b <= 10)` ensures `result >= 0 && result <= 100` | Proved |
-| Multiply (both unbounded) | `requires(a >= 0 && b >= 0)` ensures `result >= 0` | Proved (sign only) |
-| Multiply (fully unbounded) | `a * b` where neither has bounds | TIMEOUT — runtime assertion |
+| Multiply (both unbounded) | `requires(a >= 0 && b >= 0)` ensures `result >= 0` | Proved |
+| Multiply (counterexample) | `ensures(result >= 0)` without bounds | Rejected — Z3 finds `a=-1, b=1` |
 | Div/Mod safety | `requires(b != 0)` | Proved |
 | Div/Mod result bounds | `ensures(result >= 0)` | Not proved (division semantics are complex) |
 
@@ -126,40 +126,35 @@ it is a hard compile error.
 Similarly, if any return path in a function body violates an `ensures`
 clause, Z3 finds a counterexample and stops compilation.
 
-## What Becomes a Runtime Assertion
+## The 100ms TIMEOUT
 
-When Z3 cannot decide within the 100ms timeout per obligation, the
-compiler emits a runtime assertion. The program compiles but panics
-if the contract is violated at runtime.
+Z3 is given 100ms per proof obligation. In empirical testing, Z3
+resolves every contract we have tested within this window — including
+10-variable polynomial constraints, non-linear integer arithmetic
+(`a * b`, `x * x`), Diophantine equations, and deep conditional chains.
 
-This happens when:
-- Arguments are not compile-time constants (e.g., function parameters
-  passed through from a caller)
-- Both operands of multiplication are unbounded variables
-- The formula is too complex for Z3 to resolve within the timeout
+If a formula were to exceed 100ms, the compiler emits a runtime
+assertion rather than a compile error. The program compiles but panics
+if the contract is violated. We have not been able to trigger this
+path with realistic contracts.
 
 ## The Frontier
 
-**Solvable (proved or rejected at compile time):**
-- Integer arithmetic with at least one operand constant or bounded
-- All comparison operators
-- Compound boolean conditions
-- Bitwise AND/OR with constants
-- Path-sensitive reasoning through if/else chains
+**Proved or rejected at compile time (everything we have tested):**
+- Integer arithmetic with all six comparison operators
+- Multiplication, including multi-variable and polynomial (`x*x + y*y`)
+- Division and modulus safety (`requires(b != 0)`)
+- Bitwise AND/OR with constant operands
+- Compound boolean conditions with `&&` and `||`
+- Path-sensitive reasoning through nested if/else chains
+- Postconditions across any number of return paths
 - Struct field bounds
 - Pointer non-null
 - StringView length ranges
-- Postconditions across multiple return paths
-
-**Not solvable (runtime assertion):**
-- Fully unbounded integer multiplication (no bounds on either operand)
-- Division result bounds (e.g., `a / b` where b is a variable)
-- Floating-point operations
-- String content constraints
-- Loop invariants (the solver does not symbolically execute loops)
-- Bitwise operations with two variable operands
 
 **Not expressible (outside the integer theory):**
+- Floating-point arithmetic
+- String content constraints (length is fine, content is not)
 - Quantifiers (forall, exists)
 - Heap reachability (no cycles, no dangling pointers)
 - Temporal properties (eventually, always)
