@@ -58,7 +58,7 @@ extern fn vma_alloc(start: u64, end: u64, flags: u64) -> u64;
 extern fn sched_yield();
 extern fn switch_to_process(current: u64, next: u64);
 const PAGE_SIZE: u64 = 4096;
-const MAX_PROCS: u64 = 16;
+const MAX_PROCS: u64 = 64;
 const PROC_FREE: u64 = 0;
 const PROC_READY: u64 = 1;
 const PROC_RUNNING: u64 = 2;

@@ -21,7 +21,7 @@ extern fn setup_kernel_stack(kstack_top_virt: u64, entry: u64) -> u64;
 extern fn map_kernel_stack(user_pml4: u64, kstack_base_phys: u64, kstack_top_phys: u64);
 extern fn get_proc_trampoline_addr() -> u64;
 
-const MAX_PROCS: u64   = 16;
+const MAX_PROCS: u64   = 64;
 const KSTACK_SIZE: u64  = 4096;
 const PAGE_SIZE: u64    = 4096;
 const USER_STACK_TOP: u64  = 0x7FFFFFFFE000;

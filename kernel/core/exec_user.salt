@@ -37,7 +37,7 @@ const USER_PAGE_FLAGS: u64 = 0x7;             // PRESENT | WRITE | USER
 const PT_LOAD: u32         = 1;
 const USER_ADDR_LIMIT: u64 = 0x0000800000000000;
 
-const MAX_PROCS: u64   = 16;
+const MAX_PROCS: u64   = 64;
 const KSTACK_PAGES: u64 = 1;
 const KSTACK_SIZE: u64  = 4096;  // KSTACK_PAGES * PAGE_SIZE — MUST match process.salt
 

@@ -24,7 +24,7 @@ extern fn get_proc_trampoline_addr() -> u64;
 const USER_STACK_TOP: u64  = 0x7FFFFFFFE000;
 const PAGE_SIZE: u64       = 4096;
 const USER_PAGE_FLAGS: u64 = 0x7;
-const MAX_PROCS: u64       = 16;
+const MAX_PROCS: u64       = 64;
 const KSTACK_SIZE: u64     = 4096;
 
 // =============================================================================

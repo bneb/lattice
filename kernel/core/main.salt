@@ -94,6 +94,10 @@ extern fn set_kernel_pml4_stash(val: u64);
 extern fn syscall_set_kernel_pml4(pml4: u64);
 extern fn do_dispatch();
 
+// Kernel dispatcher slot — used by the scheduler's pulse-driven
+// preemption path. Set by kmain after spawning Task 0.
+global DISPATCHER_SLOT: u64 = 0;
+
 // ── Stubs ──────────────────────────────────────────────────────────
 
 @no_mangle
@@ -112,9 +116,12 @@ global KERNEL_PML4: u64 = 0;
 
 // ── Cooperative Yield ──────────────────────────────────────────────
 
+extern fn schedule_next();
+
 @no_mangle
 pub fn salt_yield_check() {
     do_dispatch();
+    schedule_next();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -271,7 +278,10 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     let task0_entry = get_kernel_event_loop_addr();
     let slot_task0 = exec_spawn_kernel_thread(task0_entry, 0, 0, 0, kernel_pml4);
     process_set_state(slot_task0, PROC_READY);
-    serial.print("[KeuOS] Task 0 (dispatcher) spawned\n");
+    DISPATCHER_SLOT = slot_task0;
+    serial.print("[KeuOS] Task 0 (dispatcher) spawned at slot=");
+    serial.print_u64(slot_task0);
+    serial.print("\n");
 
     // Userspace integration tests — spawn user programs, let scheduler run them
     serial.print("[test] Spawning userspace programs...\n");

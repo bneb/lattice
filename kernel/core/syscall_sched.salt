@@ -115,8 +115,19 @@ global TASK0_COOLDOWN: u64 = 0;
 @no_mangle
 pub fn schedule_next() {
     let current = process_current();
-    let count = process_get_count();
-    if count <= 1 { return; }
+    // Count dispatchable processes (READY or RUNNING) excluding current.
+    // process_get_count() includes blocked/zombie processes, which can
+    // cause schedule_next to fall through repeatedly and overflow the stack.
+    let mut dcount: u64 = 0;
+    let mut ci: u64 = 0;
+    while ci < MAX_PROCS {
+        let st = process_get_state(ci);
+        if st == PROC_READY || st == PROC_RUNNING {
+            if ci != current { dcount = dcount + 1; }
+        }
+        ci = ci + 1;
+    }
+    if dcount == 0 { return; }
 
     // Task 0 fairness: pulse-driven preemption to Task 0 is rate-limited.
     // Without this, every timer tick (18 Hz) pushes PULSE_TIMER right
