@@ -80,11 +80,16 @@ The launch needs:
 - [ ] End-to-end echo response blocked by S3 (fetch/ping do not execute at high slot numbers)
 - [ ] Dual-scheduler integration: ECS fiber scheduler (do_dispatch) coexists with process scheduler (schedule_next); kernel threads use ECS, Ring 3 uses process — they don't yield to each other cleanly
 
-#### S2: Fix build system flake (1 session)
-- **Problem:** First build after `rm -rf qemu_build` produces a kernel where user
-  programs don't execute. Second build (cached) works.
-- **Fix:** Investigate build cache interaction with embedded_user.S incbin.
-  May need to ensure user programs are built before kernel compilation.
+#### S2: Fix build system flake ✅ (partial — mitigated, root cause identified)
+- [x] Identified root cause: salt-front compiler emits globals in non-deterministic
+  order (HashMap iteration in MLIR pipeline). ~6 unique MLIR outputs from 10
+  compilations of the same file.
+- [x] Mitigation: sorted glob.glob results + sorted linker inputs (cc9caad)
+- [x] Documented workaround: if clean build produces broken kernel, rebuild (cached
+  objects stabilize the output)
+- [ ] Full fix requires compiler work: sort HashMap iterations or switch to BTreeMap
+  in salt-front/src/codegen/type_bridge.rs emit_global_def and related emission paths.
+  Deferred — the workaround is sufficient for development.
 
 #### S3: Stabilize 8-program test suite (1 session)
 - **Problem:** Adding Process L (8th user program) causes `AB#DF!` crash at RIP=0.
