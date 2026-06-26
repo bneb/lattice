@@ -77,8 +77,12 @@ The launch needs:
   - Fixed MAX_PROCS 16→64 in scheduler to match process table
   - Added Task 0 fairness cooldown to prevent pulse-driven starvation
   - echo_server.salt: clean blocking accept, no yield/timeout loop
-- [ ] End-to-end echo response blocked by S3 (fetch/ping do not execute at high slot numbers)
-- [ ] Dual-scheduler integration: ECS fiber scheduler (do_dispatch) coexists with process scheduler (schedule_next); kernel threads use ECS, Ring 3 uses process — they don't yield to each other cleanly
+- [x] End-to-end echo response: loopback data now delivered synchronously via
+  netcore_poll_all() in sys_tcp_recv before buffer check (commit 2f0f6b7)
+- [x] Blocking recv infrastructure (PROC_BLOCKED_RECV, sched_wake_recv) in place
+  for when 4KB kernel stack limit is resolved
+- [x] Dual-scheduler integration: pre-scheduler kernel threads blocked with
+  PROC_IPC_BLOCKED; exit-path PML4 filter prevents kernel thread dispatch crash
 
 #### S2: Fix build system flake ✅ (fixed — deterministic builds)
 - [x] Root cause: HashMap iteration order in salt-front compiler caused
