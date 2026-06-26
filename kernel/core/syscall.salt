@@ -57,6 +57,7 @@ const PROC_RUNNING: u64 = 2;
 const PROC_ZOMBIE: u64 = 3;
 const PROC_IPC_BLOCKED: u64 = 4;
 const PROC_BLOCKED_ACCEPT: u64 = 5;
+const PROC_BLOCKED_RECV: u64 = 6;
 
 const PAGE_SIZE: u64 = 4096;
 const USER_PAGE_FLAGS: u64 = 0x7;  // PRESENT | WRITE | USER
@@ -438,11 +439,14 @@ fn sys_tcp_send(conn_id: u64, buf: u64, len: u64) -> u64 {
 
 // =============================================================================
 // sys_tcp_recv — TCP receive data (SYS_TCP_RECV, num=23)
+// Blocks until data arrives or FIN is received.
 // =============================================================================
 extern fn tcp_recv_data(conn_id: u64, buf: u64, len: u64) -> u64;
 
 fn sys_tcp_recv(conn_id: u64, buf: u64, len: u64) -> u64 {
     if !is_valid_user_ptr(buf, len) { return 0; }
+    // Drain loopback before checking — data may be queued from sender
+    let _ = netcore_poll_all();
     return tcp_recv_data(conn_id, buf, len);
 }
 

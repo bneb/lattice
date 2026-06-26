@@ -23,6 +23,7 @@ extern fn tcp_pool_set_recv_fin(slot: u64, v: bool);
 extern fn tcp_pool_get_seq_rcv(slot: u64) -> u32;
 extern fn tcp_pool_set_seq_rcv(slot: u64, v: u32);
 extern fn tcp_pool_get_recv_buf_phys(slot: u64) -> u64;
+extern fn sched_wake_recv(conn_id: u64);
 
 // =============================================================================
 // tcp_handle_incoming — Process incoming TCP packet for client connections
@@ -87,6 +88,7 @@ pub fn tcp_handle_incoming(buf: u64, len: u32, src_ip: u32, dst_ip: u32) -> bool
                     tcp_pool_set_seq_rcv(slot, tcp_pool_get_seq_rcv(slot) + payload_len);
                 }
             }
+            sched_wake_recv(slot);
             return true;
         }
     }

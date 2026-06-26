@@ -35,6 +35,7 @@ pub const PROC_RUNNING: u64     = 2;   // Currently executing
 pub const PROC_ZOMBIE: u64      = 3;   // Exited, awaiting cleanup
 pub const PROC_IPC_BLOCKED: u64 = 4;   // Blocked on IPC receive
 pub const PROC_BLOCKED_ACCEPT: u64 = 5;  // Blocked on TCP accept()
+pub const PROC_BLOCKED_RECV: u64   = 6;  // Blocked on TCP recv()
 
 // Kernel stack size per process: 1 page = 4KB
 // MUST be 1 page because alloc_kernel_stack uses pmm.alloc() which

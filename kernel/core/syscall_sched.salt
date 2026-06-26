@@ -63,6 +63,7 @@ const PROC_RUNNING: u64 = 2;
 const PROC_ZOMBIE: u64 = 3;
 const PROC_IPC_BLOCKED: u64 = 4;
 const PROC_BLOCKED_ACCEPT: u64 = 5;
+const PROC_BLOCKED_RECV: u64 = 6;
 const USER_PAGE_FLAGS: u64 = 0x7;
 const USER_ADDR_LIMIT: u64 = 0x0000800000000000;
 const PTE_PRESENT: u64 = 0x1;
@@ -380,6 +381,21 @@ pub fn sched_wake_accept(listen_slot: u64) {
     while i < MAX_PROCS {
         if process_get_state(i) == PROC_BLOCKED_ACCEPT {
             if process_get_ipc_msg0(i) == listen_slot {
+                process_set_state(i, PROC_READY);
+                return;
+            }
+        }
+        i = i + 1;
+    }
+}
+
+// sched_wake_recv — Wake a process blocked on recv() for a conn_id.
+@no_mangle
+pub fn sched_wake_recv(conn_id: u64) {
+    let mut i: u64 = 0;
+    while i < MAX_PROCS {
+        if process_get_state(i) == PROC_BLOCKED_RECV {
+            if process_get_ipc_msg0(i) == conn_id {
                 process_set_state(i, PROC_READY);
                 return;
             }
