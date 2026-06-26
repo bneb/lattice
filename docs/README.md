@@ -42,8 +42,9 @@ Salt is a systems programming language with Z3-verified safety, arena-based memo
 
 | Doc | Description |
 |-----|-------------|
-| [Arena Safety](deep-dives/arena-safety.md) | Compile-time arena escape analysis (the repo's best doc) |
-| [Stand-up](deep-dives/stand-up.md) | Technology stack overview |
+| [Z3 Contracts in Action](deep-dives/z3-in-action.md) | Terminal walkthrough — 10 examples with real output |
+| [Z3 Capabilities & Frontier](deep-dives/z3-capabilities.md) | What Z3 proves, rejects, and cannot express |
+| [Arena Safety](deep-dives/arena-safety.md) | Compile-time arena escape analysis |
 | [Universal ABI](deep-dives/universal-abi.md) | KeuOS Universal ABI design |
 | [VirtIO MOE Convergence](deep-dives/virtio-moe-convergence.md) | Network stack convergence and Virtue Driver |
 
