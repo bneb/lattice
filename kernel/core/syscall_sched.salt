@@ -86,27 +86,24 @@ fn switch_to_slot(next: u64, old_rsp_ptr: u64) {
 
 @no_mangle
 fn switch_to_next_ready(slot: u64) {
-    let count = process_get_count();
-    if count > 0 {
-        let mut i: u64 = 1;
-        while i < MAX_PROCS {
-            let next = (slot + i) % MAX_PROCS;
-            if next != 0 {
-                let state = process_get_state(next);
-                if state == PROC_READY || state == PROC_RUNNING {
+    // Only dispatch Ring 3 processes from the exit path. Kernel threads
+    // use the ECS scheduler and are dispatched via schedule_next.
+    let mut i: u64 = 1;
+    while i < MAX_PROCS {
+        let next = (slot + i) % MAX_PROCS;
+        if next != 0 {
+            let state = process_get_state(next);
+            if state == PROC_READY || state == PROC_RUNNING {
+                // Only dispatch Ring 3 processes (have a user PML4)
+                if process_get_pml4(next) != 0 {
                     switch_to_slot(next, 0);
                     return;
                 }
             }
-            i = i + 1;
         }
-        let task0_state = process_get_state(0);
-        if task0_state == PROC_READY || task0_state == PROC_RUNNING {
-            switch_to_slot(0, 0);
-            return;
-        }
+        i = i + 1;
     }
-    serial_print("[kernel] All processes exited. Idle.\n");
+    serial_print("[kernel] All Ring 3 processes exited. Idle.\n");
     loop { idle_halt(); }
 }
 global LAST_DISPATCHED: u64 = 0;
