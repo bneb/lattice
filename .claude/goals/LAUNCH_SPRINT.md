@@ -111,11 +111,13 @@ The launch needs:
 
 ### Week 2: The Story (Write What We Built)
 
-#### S4: Blog post 1 — "Zero-Cost Safety" (2 sessions)
-- **Topic:** How Salt proves memory safety at compile time without runtime overhead.
-  Walk through a `requires`/`ensures` example with Z3. Show the MLIR output.
-  Contrast with Rust's borrow checker and Zig's comptime.
-- **Deliverable:** 2000-word post with code snippets, diagrams, MLIR output.
+#### S4: Blog post 1 — "Zero-Cost Safety" ✅ (published)
+- [x] Written and committed: `docs/blog/zero-cost-safety.md`
+- [x] Covers Z3 Proof-or-Panic architecture, safe_div/binary_search/kernel examples,
+  MLIR emission paths, progressive verification, comparison table
+- [x] Added to docs README index
+- [ ] Review pass by another person (sprint requirement)
+- Post 2 (S11) and Post 3 (S12) remain for Week 4
 
 #### S5: Tutorial — "Your First Verified Salt Program" (2 sessions)
 - **Topic:** Install Salt, write a key-value store with `requires` and `ensures`,
