@@ -70,6 +70,12 @@ Salt is a systems programming language with Z3-verified safety, arena-based memo
 | [Benchmarks](../benchmarks/BENCHMARKS.md) | Official performance results |
 | [Measurement](benchmarks/science-of-measurement.md) | Benchmarking methodology |
 
+### Blog
+
+| Post | Date | Description |
+|------|------|-------------|
+| [Zero-Cost Safety](blog/zero-cost-safety.md) | 2026-06-25 | How Salt proves memory safety at compile time with Z3 |
+
 ### Tutorials
 
 | Doc | Description |
