@@ -1,6 +1,5 @@
 # Lettuce — Verified HTTP Key-Value Server
 
-**Status:** Goal C deliverable
 **Safety model:** Z3 compile-time verification of all buffer accesses
 
 ## Architecture

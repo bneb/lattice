@@ -1,6 +1,5 @@
 # NetD Ring 3 Migration — Design & Implementation Plan
 
-**Status:** In Progress
 **Target:** v1.0.0
 
 ## Summary
