@@ -401,35 +401,51 @@ saltc struct.salt --lib --disable-alias-scopes -o /dev/null
 
 ---
 
-## 8. String Content and Regex (not yet wired)
+## 8. String Content — Prefix, Suffix, Contains
 
-The Z3 solver supports string equality, substring, prefix/suffix,
-contains, and regex matching through Z3-str. The compiler has stub types
-for `Z3String` and `Regexp` ready in `z3_stub.rs`. The translation bridge
-does not yet translate these operations — they are the next items on the
-roadmap.
+String content operations are evaluated at compile time when the
+arguments are literals:
 
-When wired, contracts like these will work:
+```bash
+cat > str_ops.salt << 'EOF'
+package main
+use std.core.str.StringView
 
-```salt
-// String equality
-pub fn check_key(key: StringView) -> bool
-    requires(key == "expected_key")
+pub fn has_prefix(key: StringView) -> bool
+    requires(key.starts_with("salt-"))
 { return true; }
 
-// Substring containment
-pub fn valid_path(path: StringView) -> bool
-    requires(path.contains("/valid/"))
+pub fn has_suffix(key: StringView) -> bool
+    requires(key.ends_with(".salt"))
 { return true; }
 
-// Regex match (Z3-str regex)
-pub fn is_hex(s: StringView) -> bool
-    requires(s.matches("^[0-9a-fA-F]+$"))
-{ return true; }
+pub fn main() -> i32 {
+    let _a = has_prefix("salt-lang");
+    let _b = has_suffix("program.salt");
+    return 0;
+}
+EOF
+saltc str_ops.salt --lib --disable-alias-scopes -o /dev/null
 ```
 
-These examples will not compile today — the bridge needs wiring. The
-infrastructure is in place.
+```
+✅ MLIR compiled successfully.
+```
+
+`"salt-lang".starts_with("salt-")` is evaluated in Rust at compile time.
+The constant folder substitutes the argument and resolves the method call
+before Z3 ever sees it. Zero Z3 overhead.
+
+For symbolic (runtime) string values, the compiler falls through to
+Z3-str — Z3's native string solver. Prefix, suffix, containment, and
+regex are all available. The substitution mechanism currently only
+handles `Int`-typed parameters, so proof of symbolic string properties
+requires the Z3 solver to have additional constraints (from path
+conditions or type bounds).
+
+`.matches(regex)` — Z3 regex via Z3-str `Regexp` — is translated but
+can only prove with literal arguments (same constant-folding path as
+`.starts_with()`).
 
 ---
 
