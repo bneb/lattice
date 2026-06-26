@@ -95,11 +95,17 @@ The launch needs:
   Kernel binaries are byte-identical across clean builds.
   Test results are now deterministic (9/11 pass consistently).
 
-#### S3: Stabilize 8-program test suite (1 session)
-- **Problem:** Adding Process L (8th user program) causes `AB#DF!` crash at RIP=0.
-- **Root cause:** Likely process table or stack exhaustion. MAX_PROCS=64 should be
-  sufficient, but something else overflows.
-- **Fix:** Debug with GDB to find the exact crash site.
+#### S3: Stabilize 8-program test suite ✅ (10/11 — #DF on exit remains)
+- [x] Root cause: pre-scheduler kernel threads at slots 0-1 starved higher-slot
+  Ring 3 processes. Timer ISR resets LAST_DISPATCHED to 0 on each pulse-driven
+  dispatch, so round-robin never reaches slots 12+ (ping, fetch).
+- [x] Fix: block pre-scheduler processes (terminal, TX Poll, NetD, echo_server)
+  with PROC_IPC_BLOCKED so process scheduler skips them
+- [x] Bridge ECS/process schedulers: salt_yield_check calls schedule_next()
+- [x] Prevent stack overflow: dispatchable-count check in schedule_next
+- [x] Fix stale MAX_PROCS=16 in exec_user, spawn_coroutine, spawn_inode, syscall_ipc
+- [ ] Remaining: #DF at RIP=3 during final context switch when all Ring 3 exit.
+  Non-critical for demo — all user programs complete before the crash.
 
 ### Week 2: The Story (Write What We Built)
 
