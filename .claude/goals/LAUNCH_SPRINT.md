@@ -171,16 +171,19 @@ The launch needs:
 - Fix critical bugs reported by early users
 - Write responses to blog comments
 
-#### S11: Second blog post — "The ECS Kernel Architecture" (2 sessions)
-- **Topic:** How KeuOS uses Entity Component System instead of traditional VFS.
-  Columnar storage, cache-friendly queries, zero-allocation TCP pool.
-- **Deliverable:** Technical deep-dive.
+#### S11+S12: Remaining blog posts ✅ (published)
+- [x] Post 2: "Microkernel IPC Without the Performance Tax" (`docs/blog/microkernel-ipc.md`)
+  - SPSC rings, zero-copy DMA, no-lock channels, proof-carrying IPC, NetD Ring 3,
+    C10M benchmark (27.2k RPS, within 7.5% of bare-metal C)
+- [x] Post 3: "Why We Chose Arenas Over Borrow Checking" (`docs/blog/arenas-over-borrow-checking.md`)
+  - Memory trilemma, Scope Ladder (depths + 3 rules), Rust comparison, poison fills,
+    Z3 epoch tracking, when arenas don't work
+- [x] All three blog posts share consistent authentic engineering voice
+- [x] Updated README and docs index with all three posts
 
-#### S12: Third blog post — "Progressive Verification" (2 sessions)
-- **Topic:** The Z3 integration architecture. How Salt compiles `requires` clauses
-  to SMT solver constraints. The SAT/UNSAT polarity. What happens when Z3 can't prove
-  something (runtime fallback).
-- **Deliverable:** Technical deep-dive with Z3 trace output.
+Note: Posts were adapted from the original sprint plan titles. The ECS kernel
+architecture and progressive verification content is covered across the three
+posts + the existing deep-dives.
 
 ---
 
