@@ -14,6 +14,9 @@ pub mod mlir;
 pub mod zero_attr;
 pub mod emit;
 pub mod traits;
+pub mod specialization;
+pub mod spec_template;
+pub mod expansion;
 
 pub use canonical::{TypeID, TypeIDRegistry};
 pub use provenance::{ProvenanceMap, OriginMap, GlobalLVN};
