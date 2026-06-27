@@ -18,7 +18,8 @@ pub mod trait_registry;  // Signature-aware method resolution
 pub mod types;
 pub mod interleaved_gen;  // FFB: Fused Forward-Backward codegen
 pub mod passes;           // KeuOS: Pulse injection, yield injection, sync verification
-pub mod generic_resolver; // Consolidated generic type resolution
+pub mod generic_resolver;
+pub mod generic_unify;
 pub mod shader;           // Metal Shading Language codegen for @shader functions
 pub mod emit_hir;         // HIR-to-MLIR emitter for async lowering Items
 #[cfg(test)]
