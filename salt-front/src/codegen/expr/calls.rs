@@ -5,6 +5,7 @@ use super::resolver;
 use std::collections::HashMap;
 use super::emit_expr;
 use super::literals::emit_enum_constructor;
+use super::call_helpers::{emit_low_level_call, handle_post_call_state};
 #[allow(clippy::too_many_arguments)] // REASON: all 9 params independently meaningful; bundling would obscure intent
 fn emit_function_call(
     ctx: &mut LoweringContext,
@@ -17,12 +18,8 @@ fn emit_function_call(
     arg_tys: Vec<Type>,
     lazy_task: Option<Box<crate::codegen::collector::MonomorphizationTask>>,
 ) -> Result<(String, Type), String> {
-             // Active resolution agent
-
-             hydrate_function_if_needed(ctx, &mangled_name, &arg_tys, &ret_ty, &lazy_task)?;
-
              let args_vec: Vec<syn::Expr> = c.args.iter().cloned().collect();
-
+             hydrate_function_if_needed(ctx, &mangled_name, &arg_tys, &ret_ty, &lazy_task)?;
              let (requires, ensures, param_names) = extract_verification_data(ctx, &mangled_name, &lazy_task);
 
              let (args_vals, inferred_tys) = emit_function_args(
@@ -571,127 +568,4 @@ fn emit_function_args(
     }
     
     Ok((args_vals, inferred_tys))
-}
-
-#[allow(clippy::too_many_arguments)] // REASON: all 9 params independently meaningful; bundling would obscure intent
-fn emit_low_level_call(
-    ctx: &mut LoweringContext,
-    out: &mut String,
-    mangled_name: &str,
-    args_vec: &[syn::Expr],
-    args_vals: &[String],
-    final_arg_tys: &[Type],
-    ret_ty: &Type,
-    ensures: &[syn::Expr],
-    param_names: &[String],
-) -> Result<(String, Type), String> {
-    ctx.ensure_func_declared(mangled_name, final_arg_tys, ret_ty)?;
-
-    let mut args_tys_code = Vec::new();
-    let args_str = args_vals.join(", ");
-    for t in final_arg_tys {
-        args_tys_code.push(t.to_mlir_type(ctx)?);
-    }
-    let args_tys_str = args_tys_code.join(", ");
-    
-    let res_val = if *ret_ty != Type::Unit {
-        format!("%call_{}_{}", mangled_name, ctx.next_id())
-    } else {
-        "".to_string() 
-    };
-
-    if mangled_name == "memcpy" && args_vals.len() == 3 {
-        let is_ptr = |t: &Type| {
-            match t {
-                Type::Struct(name) => name.contains("Ptr"),
-                _ => false,
-            }
-        };
-        let dest_ptr = if is_ptr(&final_arg_tys[0]) {
-            args_vals[0].clone()
-        } else {
-            let p = format!("%memcpy_dest_{}", ctx.next_id());
-            out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", p, args_vals[0]));
-            p
-        };
-        
-        let src_ptr = if is_ptr(&final_arg_tys[1]) {
-            args_vals[1].clone()
-        } else {
-            let p = format!("%memcpy_src_{}", ctx.next_id());
-            out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", p, args_vals[1]));
-            p
-        };
-        
-        let size_val = if is_ptr(&final_arg_tys[2]) {
-            let s = format!("%memcpy_size_{}", ctx.next_id());
-            out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", s, args_vals[2]));
-            s
-        } else {
-            args_vals[2].clone()
-        };
-
-        out.push_str(&format!("    \"llvm.intr.memcpy\"({}, {}, {}) <{{isVolatile = false}}> : (!llvm.ptr, !llvm.ptr, i64) -> ()\n", 
-            dest_ptr, src_ptr, size_val));
-        
-        let ret_val = if *ret_ty != Type::Unit {
-            crate::codegen::type_bridge::cast_numeric(ctx, out, &args_vals[0], &final_arg_tys[0], ret_ty)?
-        } else {
-            "".to_string()
-        };
-        
-        return Ok((ret_val, ret_ty.clone()));
-    } else if mangled_name == "free" && !args_vals.is_empty() {
-        if let Some(first_arg) = args_vec.first() {
-            if let Some(var_name) = super::extract_ident_name(first_arg) {
-                let alloc_id = format!("malloc:{}", var_name);
-                ctx.ownership_tracker.mark_released(&alloc_id, ctx.z3_solver)?;
-                ctx.malloc_tracker.free(&alloc_id);
-                ctx.pointer_tracker.mark_freed(&var_name);
-            }
-        }
-        out.push_str(&format!("    func.call @{}({}) : ({}) -> ()\n", mangled_name, args_str, args_tys_str));
-    } else if res_val.is_empty() {
-        out.push_str(&format!("    func.call @{}({}) : ({}) -> ()\n", mangled_name, args_str, args_tys_str));
-    } else {
-        out.push_str(&format!("    {} = func.call @{}({}) : ({}) -> {}\n", res_val, mangled_name, args_str, args_tys_str, ret_ty.to_mlir_type(ctx)?));
-    }
-    
-    ctx.emission.global_lvn.clear();
-
-    if mangled_name == "malloc" && !res_val.is_empty() {
-        *ctx.pending_malloc_result = Some(res_val.clone());
-    }
-
-    for (i, arg_expr) in args_vec.iter().enumerate() {
-        super::mark_expression_escaped(ctx, arg_expr);
-        
-        // Conservative Aliasing (Interprocedural Purity + Arena-Immunity)
-        let is_extern = ctx.external_decls().contains(mangled_name);
-        if mangled_name != "free" && mangled_name != "drop"
-            && (is_extern || ctx.config.freeing_functions.contains(mangled_name)) {
-                if let Some(Type::Pointer { .. }) = final_arg_tys.get(i) {
-                    if let Some(var_name) = super::extract_ident_name(arg_expr) {
-                        ctx.pointer_tracker.mark_optional(&var_name);
-                    }
-                }
-            }
-    }
-
-    if !ensures.is_empty() {
-        crate::codegen::verification::VerificationEngine::apply_postconditions(ctx, ensures, param_names, args_vec);
-    }
-
-    Ok((res_val, ret_ty.clone()))
-}
-
-fn handle_post_call_state(ctx: &mut LoweringContext, call_name: &str) {
-    if call_name.contains("__empty") && call_name.contains("Ptr") {
-        *ctx.pending_pointer_state = Some(crate::codegen::verification::PointerState::Empty);
-    } else if (call_name.contains("__new") && call_name.contains("Box"))
-        || ((call_name.contains("__alloc") || call_name.contains("__place")) && call_name.contains("Arena"))
-        || call_name == "malloc" || call_name.ends_with("__malloc")
-    {
-        *ctx.pending_pointer_state = Some(crate::codegen::verification::PointerState::Valid);
-    }
 }

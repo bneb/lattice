@@ -13,6 +13,7 @@ pub mod while_loop;
 pub mod resolver;
 pub mod tensor_ops;
 use while_loop::emit_while;
+pub(crate) mod call_helpers;
 
 pub(crate) mod binary_ops;
 pub(crate) mod literals;
