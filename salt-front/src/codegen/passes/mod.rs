@@ -11,6 +11,7 @@
 
 pub mod pulse_injection;
 pub mod yield_injection;
+pub mod yield_mlir;
 pub mod sync_verifier;
 pub mod call_graph;
 pub mod liveness;
