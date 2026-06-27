@@ -15,7 +15,6 @@
 //! 1. **Backward Compatible**: Legacy lookups still work via fallback
 //! 2. **Monomorphization-Aware**: Works with the existing hydration/collector system
 //! 3. **Minimal Diff**: Extends rather than replaces existing infrastructure
-
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
@@ -34,7 +33,6 @@ pub struct MethodKey {
     /// A hash rather than the full signature is used for efficiency
     pub param_signature_hash: u64,
 }
-
 impl MethodKey {
     /// Create a new method key from receiver type, method name, and parameter types.
     pub fn new(receiver: TypeKey, name: String, param_types: &[Type]) -> Self {
@@ -105,7 +103,6 @@ pub struct TraitDef {
     /// Method signatures required by this trait
     pub method_signatures: Vec<TraitMethodSig>,
 }
-
 /// A method signature within a trait definition.
 #[derive(Debug, Clone)]
 pub struct TraitMethodSig {
@@ -167,7 +164,6 @@ impl Default for TraitRegistry {
         Self::new()
     }
 }
-
 impl TraitRegistry {
     /// Create a new empty trait registry.
     pub fn new() -> Self {
