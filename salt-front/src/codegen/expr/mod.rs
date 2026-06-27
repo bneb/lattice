@@ -27,7 +27,7 @@ use literals::{emit_lit, emit_path, emit_array, emit_tuple, emit_repeat, emit_st
 pub(crate) use calls::{emit_call, emit_method_call};
 use control_flow::{emit_if_expr, emit_block_expr, emit_match};
 use memory::{emit_field, emit_index};
-pub(crate) use memory::{translate_to_z3, translate_bool_to_z3, translate_string_to_z3};
+pub(crate) use memory::{translate_to_z3, translate_bool_to_z3};
 
 /// Parse __target_fstring__!(target, "content") macro arguments
 /// Returns (target_expression, fstring_content)
