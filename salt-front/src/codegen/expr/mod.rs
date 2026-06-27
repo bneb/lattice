@@ -1291,44 +1291,6 @@ pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr
 }
 
 
-/// Structural unification for bidirectional type inference.
-/// Walks two types in parallel, extracting bindings for generic placeholders.
-/// Handles both Type::Generic("T") and Type::Struct("T") (single-char uppercase names).
-#[allow(dead_code)]
-pub(crate) fn unify_types_recursive(template: &Type, concrete: &Type, map: &mut std::collections::BTreeMap<String, Type>) {
-    match (template, concrete) {
-        // Type::Generic("T") — explicit generic marker
-        (Type::Generic(name), _) => {
-            if !map.contains_key(name) {
-                map.insert(name.clone(), concrete.clone());
-            }
-        }
-        // Recurse into Pointer { element }
-        (Type::Pointer { element: e1, .. }, Type::Pointer { element: e2, .. }) => {
-            unify_types_recursive(e1, e2, map);
-        }
-        // Recurse into Concrete args  
-        (Type::Concrete(n1, args1), Type::Concrete(n2, args2)) if args1.len() == args2.len() => {
-            // Allow matching even if base names differ slightly (qualified vs unqualified)
-            // e.g., "std__core__result__Result" vs "std__core__result__Result"
-            if n1 == n2 || n1.ends_with(&format!("__{}", n2)) || n2.ends_with(&format!("__{}", n1)) {
-                for (a1, a2) in args1.iter().zip(args2.iter()) {
-                    unify_types_recursive(a1, a2, map);
-                }
-            }
-        }
-        // Recurse into Reference
-        (Type::Reference(inner1, _), Type::Reference(inner2, _)) => {
-            unify_types_recursive(inner1, inner2, map);
-        }
-        // Recurse into Array
-        (Type::Array(inner1, _, _), Type::Array(inner2, _, _)) => {
-            unify_types_recursive(inner1, inner2, map);
-        }
-        _ => {} // Base case: no unification possible
-    }
-}
-
 /// Infer phantom generics from resolved Fn return types.
 /// Example: Map<I, F, T> where F = Fn(i64)->i64 => T = i64
 /// This handles generics that don't appear in struct fields but represent

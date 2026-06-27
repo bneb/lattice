@@ -27,8 +27,6 @@ mod tests_ptr_and_comparison;
 mod tests_generic_enum_match;
 mod tests_result_monomorphization;
 #[cfg(test)]
-mod tests_bidir_inference;
-#[cfg(test)]
 mod tests_ptr_field_access;
 #[cfg(test)]
 mod tests_malloc_tracking;
@@ -135,22 +133,14 @@ use std::collections::{HashMap, HashSet};
         let (mut loader, loader_registry) = load_modules(file)?;
         
         resolve_names(file, &mut loader)?;
-
         let z3_cfg = crate::z3_shim::Config::new();
         let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
-        
         let mut ctx = CodegenContext::new(file, release_mode, Some(&loader_registry), &z3_ctx);
-
         initialize_context(&mut ctx, file, &loader, no_verify, disable_alias_scopes, lib_mode, sip_mode, debug_info, source_file);
-
         register_all_templates_and_signatures(&ctx, file, &loader)?;
-
         scan_definitions(&mut ctx, file, &loader)?;
-
         let call_graph_analyzer = run_call_graph_analysis(file, release_mode);
-
         run_pulse_analysis(&mut ctx, file, &call_graph_analyzer, release_mode);
-
         run_liveness_analysis(&mut ctx, file, release_mode);
 
         lower_state_machines(&mut ctx, file);
@@ -1318,6 +1308,11 @@ pub fn emit_fn(ctx: &CodegenContext, func: &crate::grammar::SaltFn, override_nam
     
     emit_requires_verification(ctx, func, &mut body_out, &mut local_vars)?;
 
+    // Push caller preconditions so callee verification benefits from them
+    if !func.requires.is_empty() {
+        for req in &func.requires { ctx.emission.borrow_mut().caller_preconditions.push(req.clone()); }
+    }
+
     let old_no_yield = *ctx.no_yield();
     let old_pulse = *ctx.current_pulse();
     let pulse = crate::grammar::attr::extract_yielding_pulse(&func.attributes);
@@ -1339,7 +1334,8 @@ pub fn emit_fn(ctx: &CodegenContext, func: &crate::grammar::SaltFn, override_nam
     ctx.emission.borrow_mut().in_dynamic_check_fn = has_dynamic_check;
 
     let terminator = ctx.with_lowering_ctx(|lctx| crate::codegen::stmt::emit_block(lctx, &mut body_out, &func.body.stmts, &mut local_vars))?;
-    
+    // Pop caller preconditions after body
+    for _ in 0..func.requires.len() { ctx.emission.borrow_mut().caller_preconditions.pop(); }
     ctx.emission.borrow_mut().in_fast_math_fn = old_fast_math_fn;
     ctx.emission.borrow_mut().in_trusted_fn = old_trusted_fn;
     ctx.emission.borrow_mut().in_dynamic_check_fn = old_dynamic_check_fn;
