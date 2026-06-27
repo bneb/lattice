@@ -4,6 +4,7 @@ use crate::codegen::expr::emit_expr;
 use std::collections::HashMap;
 
 pub mod memory;
+pub mod memory_ops;
 pub mod atomics;
 pub mod simd;
 pub mod math;
