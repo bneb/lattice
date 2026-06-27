@@ -7,6 +7,7 @@
 pub mod canonical;
 pub mod provenance;
 pub mod layout;
+pub mod substitution;
 
 pub use canonical::{TypeID, TypeIDRegistry};
 pub use provenance::{ProvenanceMap, OriginMap, GlobalLVN};
