@@ -11,6 +11,7 @@ pub fn extract_ptr_inner(name: &str) -> Option<String> {
 }
 
 /// Flattening Loop
+#[allow(clippy::only_used_in_recursion)]
 pub fn flatten_nested_ptr(ty: &Type, depth: usize, debug_ctx: &str) -> Type {
     if depth > 10 { return ty.clone(); }
     match ty {
@@ -44,5 +45,5 @@ pub fn prove_layout_compatibility(struct_registry: &std::collections::HashMap<cr
 /// Convenience wrapper: extracts struct_registry from CodegenContext.
 pub fn prove_layout_compatibility_ctx(ctx: &mut LoweringContext, from: &Type, to: &Type) -> bool {
     let reg = ctx.struct_registry();
-    prove_layout_compatibility(&reg, from, to)
+    prove_layout_compatibility(reg, from, to)
 }

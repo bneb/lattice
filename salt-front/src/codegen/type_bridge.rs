@@ -641,52 +641,10 @@ impl Type {
 // ============================================================================
 
 /// Extracts the inner type from mangled pointer names.
-pub fn extract_ptr_inner(name: &str) -> Option<String> {
-    if let Some(idx) = name.rfind("Ptr") {
-        let after = &name[idx + "Ptr".len()..];
-        let inner = after.trim_start_matches('_');
-        if !inner.is_empty() { return Some(inner.to_string()); }
-    }
-    None
-}
-
-/// Flattening Loop
-#[allow(clippy::only_used_in_recursion)] // pub API: depth passed for recursive calls
-pub fn flatten_nested_ptr(ty: &Type, depth: usize, debug_ctx: &str) -> Type {
-    if depth > 10 { return ty.clone(); }
-    match ty {
-        Type::Concrete(template, args) if template.contains("Ptr") && !args.is_empty() => {
-            if args[0].k_is_ptr_type() {
-                // Drill down to the innermost non-pointer type
-                return flatten_nested_ptr(&args[0], depth + 1, debug_ctx);
-            }
-            // If it's a pointer but the inner is NOT a pointer, stay as is
-            // EXCEPT if already in a recursion (depth > 0), in which case this last layer is stripped too
-            if depth > 0 { return args[0].clone(); }
-            ty.clone()
-        }
-        Type::Struct(name) if name.contains("Ptr") => {
-            if let Some(inner_name) = extract_ptr_inner(name) {
-                let t = Type::Struct(inner_name);
-                return flatten_nested_ptr(&t, depth + 1, debug_ctx);
-            }
-            ty.clone()
-        }
-        _ => ty.clone(),
-    }
-}
-
-/// Validate that two types share the same physical layout before a cast.
-pub fn prove_layout_compatibility(struct_registry: &std::collections::HashMap<crate::types::TypeKey, crate::registry::StructInfo>, from: &Type, to: &Type) -> bool {
-    if from == to { return true; }
-    from.size_of(struct_registry) == to.size_of(struct_registry) && from.align_of(struct_registry) == to.align_of(struct_registry)
-}
-
-/// Convenience wrapper: extracts struct_registry from CodegenContext.
-pub fn prove_layout_compatibility_ctx(ctx: &mut LoweringContext, from: &Type, to: &Type) -> bool {
-    let reg = ctx.struct_registry();
-    prove_layout_compatibility(reg, from, to)
-}
+pub use crate::codegen::types::layout::extract_ptr_inner;
+pub use crate::codegen::types::layout::flatten_nested_ptr;
+pub use crate::codegen::types::layout::prove_layout_compatibility;
+pub use crate::codegen::types::layout::prove_layout_compatibility_ctx;
 
 /// Returns true when a type_map entry maps `name` back to itself.
 fn is_self_ref(n: &str, c: &Type) -> bool {
