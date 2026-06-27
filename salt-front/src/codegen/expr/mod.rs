@@ -1,7 +1,6 @@
 pub mod special_methods;
 pub mod method_resolution;
 pub mod utils;
- 
 use crate::types::Type;
 use crate::codegen::context::{LoweringContext, LocalKind};
 use self::utils::*;
@@ -14,13 +13,13 @@ pub mod while_loop;
 pub mod resolver;
 pub mod tensor_ops;
 use while_loop::emit_while;
-// use crate::codegen::verification::SymbolicContext;
 
 pub(crate) mod binary_ops;
 pub(crate) mod literals;
 pub(crate) mod calls;
 pub(crate) mod control_flow;
 pub(crate) mod memory;
+pub(crate) mod z3_translate;
 
 // Re-exports from submodules
 use binary_ops::{emit_binary, emit_assign, emit_unary, emit_cast};
@@ -28,7 +27,7 @@ use literals::{emit_lit, emit_path, emit_array, emit_tuple, emit_repeat, emit_st
 pub(crate) use calls::{emit_call, emit_method_call};
 use control_flow::{emit_if_expr, emit_block_expr, emit_match};
 use memory::{emit_field, emit_index};
-pub(crate) use memory::{translate_to_z3, translate_bool_to_z3};
+pub(crate) use memory::{translate_to_z3, translate_bool_to_z3, translate_string_to_z3};
 
 /// Parse __target_fstring__!(target, "content") macro arguments
 /// Returns (target_expression, fstring_content)
@@ -1290,68 +1289,6 @@ pub fn emit_lvalue(ctx: &mut LoweringContext, out: &mut String, expr: &syn::Expr
         _ => Err(format!("Expression {:?} is not a valid L-Value (addressable memory location)", expr))
     }
 }
-
-
-// =========================================================================
-// Z3 Symbolic Translation
-// =========================================================================
-
-
-/*
-pub fn translate_bool_to_z3<'a, 'ctx>(
-    ctx: &mut LoweringContext<'a, 'ctx>, 
-    expr: &syn::Expr, 
-    local_vars: &HashMap<String, (Type, LocalKind)>,
-    sym_ctx: &SymbolicContext<'a>
-) -> Result<crate::z3_shim::ast::Bool<'a>, String> {
-    use crate::z3_shim::ast::Ast;
-    match expr {
-        syn::Expr::Binary(b) => {
-            match b.op {
-                syn::BinOp::Eq(_) | syn::BinOp::Ne(_) | syn::BinOp::Lt(_) | syn::BinOp::Le(_) | syn::BinOp::Gt(_) | syn::BinOp::Ge(_) => {
-                    let lhs = translate_to_z3(ctx, &b.left, local_vars, sym_ctx)?;
-                    let rhs = translate_to_z3(ctx, &b.right, local_vars, sym_ctx)?;
-                    match b.op {
-                        syn::BinOp::Eq(_) => Ok(lhs._eq(&rhs)),
-                        syn::BinOp::Ne(_) => Ok(lhs._eq(&rhs).not()),
-                        syn::BinOp::Lt(_) => Ok(lhs.lt(&rhs)),
-                        syn::BinOp::Le(_) => Ok(lhs.le(&rhs)),
-                        syn::BinOp::Gt(_) => Ok(lhs.gt(&rhs)),
-                        syn::BinOp::Ge(_) => Ok(lhs.ge(&rhs)),
-                        _ => unreachable!(),
-                    }
-                }
-                syn::BinOp::And(_) => {
-                    let bl = translate_bool_to_z3(ctx, &b.left, local_vars, sym_ctx)?;
-                    let br = translate_bool_to_z3(ctx, &b.right, local_vars, sym_ctx)?;
-                    Ok(crate::z3_shim::ast::Bool::and(ctx.z3_ctx, &[&bl, &br]))
-                }
-                syn::BinOp::Or(_) => {
-                    let bl = translate_bool_to_z3(ctx, &b.left, local_vars, sym_ctx)?;
-                    let br = translate_bool_to_z3(ctx, &b.right, local_vars, sym_ctx)?;
-                    Ok(crate::z3_shim::ast::Bool::or(ctx.z3_ctx, &[&bl, &br]))
-                }
-                _ => Err(format!("Unsupported symbolic boolean operator: {:?}", b.op)),
-            }
-        }
-        syn::Expr::Unary(u) => {
-             match u.op {
-                 syn::UnOp::Not(_) => {
-                      let inner = translate_bool_to_z3(ctx, &u.expr, local_vars, sym_ctx)?;
-                      Ok(inner.not())
-                 },
-                 _ => Err("Arithmetic unary op in boolean context".to_string()),
-             }
-        }
-        syn::Expr::Group(g) => translate_bool_to_z3(ctx, &g.expr, local_vars, sym_ctx),
-        syn::Expr::Paren(p) => translate_bool_to_z3(ctx, &p.expr, local_vars, sym_ctx),
-        syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Bool(b), .. }) => {
-            Ok(crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, b.value))
-        }
-        _ => Err("Unsupported symbolic boolean expression".to_string()),
-    }
-}
-*/
 
 
 /// Structural unification for bidirectional type inference.
