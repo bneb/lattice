@@ -13,6 +13,7 @@ pub mod resolution;
 pub mod mlir;
 pub mod zero_attr;
 pub mod emit;
+pub mod traits;
 
 pub use canonical::{TypeID, TypeIDRegistry};
 pub use provenance::{ProvenanceMap, OriginMap, GlobalLVN};
