@@ -11,6 +11,7 @@ pub mod substitution;
 pub mod numeric;
 pub mod resolution;
 pub mod mlir;
+pub mod zero_attr;
 
 pub use canonical::{TypeID, TypeIDRegistry};
 pub use provenance::{ProvenanceMap, OriginMap, GlobalLVN};
