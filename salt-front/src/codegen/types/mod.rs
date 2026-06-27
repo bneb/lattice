@@ -10,6 +10,7 @@ pub mod layout;
 pub mod substitution;
 pub mod numeric;
 pub mod resolution;
+pub mod mlir;
 
 pub use canonical::{TypeID, TypeIDRegistry};
 pub use provenance::{ProvenanceMap, OriginMap, GlobalLVN};
