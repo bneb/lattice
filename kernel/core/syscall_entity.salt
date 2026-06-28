@@ -31,6 +31,11 @@ extern fn sched_yield();
 extern fn ecs_bridge_set_thread_status(entity_val: u64, status: u32);
 extern fn ecs_bridge_get_thread_status(entity_val: u64) -> u64;
 extern fn ecs_bridge_destroy_thread(entity_val: u64);
+extern fn ecs_bridge_spawn_bare_entity() -> u64;
+extern fn ecs_bridge_grant_memory_map(entity_val: u64, pml4_phys: u64, size: u64);
+extern fn pmm_alloc() -> u64;
+extern fn map_user_page_extern(user_pml4: u64, vaddr: u64, paddr: u64, flags: u64);
+extern fn phys_to_virt(phys: u64) -> u64;
 
 const MAX_PROCS: u64 = 64;
 const PROC_FREE: u64   = 0;
@@ -106,4 +111,51 @@ pub fn sys_entity_wait(entity_val: u64) -> u64 {
     process_set_state(child_slot, PROC_FREE);
     process_set_ecs_entity(child_slot, 0);
     return exit_code;
+}
+
+// =============================================================================
+// sys_entity_map — Allocate memory region as an ECS entity
+// (SYS_ENTITY_MAP, num=405)
+// Takes parent_slot + size, returns entity_val for the new MemoryMap entity
+// =============================================================================
+const PAGE_SIZE: u64 = 4096;
+const USER_PAGE_FLAGS: u64 = 0x7; // PRESENT | WRITE | USER
+
+@no_mangle
+pub fn sys_entity_map(parent_slot: u64, size: u64) -> u64 {
+    if parent_slot >= MAX_PROCS { return 0; }
+    if size == 0 || size > (1 << 30) { return 0; } // max 1GB
+
+    let parent_pml4 = process_get_pml4(parent_slot);
+    if parent_pml4 == 0 { return 0; }
+
+    let entity_val = ecs_bridge_spawn_bare_entity();
+    if entity_val == 0 { return 0; }
+
+    let num_pages = (size + PAGE_SIZE - 1) / PAGE_SIZE;
+    let mut vaddr: u64 = 0x300000000000; // Start of mmap region
+    let mut allocated: u64 = 0;
+    let mut i: u64 = 0;
+    while i < num_pages {
+        let paddr = pmm_alloc();
+        if paddr == 0 {
+            // OOM: return what we have (caller can retry or check size)
+            serial_print("[sys_entity_map] OOM at page ");
+            serial_print_u64(i);
+            serial_print("\n");
+            break;
+        }
+        map_user_page_extern(parent_pml4, vaddr, paddr, USER_PAGE_FLAGS);
+        allocated = allocated + 1;
+        vaddr = vaddr + PAGE_SIZE;
+        i = i + 1;
+    }
+
+    if allocated == 0 {
+        ecs_bridge_destroy_thread(entity_val);
+        return 0;
+    }
+
+    ecs_bridge_grant_memory_map(entity_val, parent_pml4, allocated * PAGE_SIZE);
+    return entity_val;
 }
