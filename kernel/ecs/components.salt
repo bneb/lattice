@@ -110,6 +110,16 @@ pub struct PerfCounters {
     pub page_faults: u32,        // Number of page faults
 }
 
+/// Persistent data blob — entity-owned byte array backed by physical pages.
+/// Replaces file I/O: data entities can be passed between processes via
+/// capability transfer rather than open/read/write.
+pub struct DataBlob {
+    pub size: u64,             // Total data bytes
+    pub page_count: u32,       // Number of physical pages
+    pub _pad: u32,             // Alignment
+    pub page_list: u64,        // Ptr to array of physical page addresses
+}
+
 /// Test component for unit testing
 pub struct TestComponent {
     pub val: i32,

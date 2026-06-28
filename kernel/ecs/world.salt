@@ -32,13 +32,13 @@ import kernel.ecs.scheduling_sets.{ThreadSparseSet}
 import kernel.ecs.sparse_set.{
     ThreadSparseSet, PrioritySparseSet, MemoryMapSparseSet,
     IpcCapSparseSet, OpenSocketSparseSet, CpuAffinitySparseSet,
-    EpochInfoSparseSet, PerfCountersSparseSet,
+    EpochInfoSparseSet, PerfCountersSparseSet, DataBlobSparseSet,
     new_thread_set, new_priority_set, new_memmap_set,
     new_ipc_cap_set, new_socket_set, new_affinity_set,
-    new_epoch_info_set, new_perf_counters_set,
+    new_epoch_info_set, new_perf_counters_set, new_datablob_set,
     thread_set_remove, priority_set_remove, memmap_set_remove,
     ipc_cap_set_remove, socket_set_remove, affinity_set_remove,
-    epoch_info_set_remove, perf_counters_set_remove
+    epoch_info_set_remove, perf_counters_set_remove, datablob_set_remove
 }
 
 extern fn malloc(size: i64) -> Ptr<u8>;
@@ -51,6 +51,7 @@ pub struct World {
     pub threads: Ptr<ThreadSparseSet>,             // Thread execution state
     pub priorities: Ptr<PrioritySparseSet>,         // Scheduling priority
     pub mem_maps: Ptr<MemoryMapSparseSet>,          // Memory mappings (PML4)
+    pub datablobs: Ptr<DataBlobSparseSet>,          // Persistent data blobs (Tier 2.2)
 
     // === IPC/Network Tables ===
     pub ipc_caps: Ptr<IpcCapSparseSet>,            // IPC capability descriptors
@@ -69,18 +70,20 @@ pub fn new_world() -> Ptr<World> {
     let threads_res = new_thread_set();
     let priorities_res = new_priority_set();
     let mem_maps_res = new_memmap_set();
+    let datablobs_res = new_datablob_set();
     let ipc_caps_res = new_ipc_cap_set();
     let sockets_res = new_socket_set();
     let affinities_res = new_affinity_set();
     let epoch_infos_res = new_epoch_info_set();
     let perf_counters_res = new_perf_counters_set();
 
-    let w_ptr = malloc(80) as Ptr<World>;
+    let w_ptr = malloc(88) as Ptr<World>;
     w_ptr[0] = World {
         alloc: allocator_res,
         threads: threads_res,
         priorities: priorities_res,
         mem_maps: mem_maps_res,
+        datablobs: datablobs_res,
         ipc_caps: ipc_caps_res,
         open_sockets: sockets_res,
         cpu_affinities: affinities_res,
@@ -104,6 +107,7 @@ pub fn world_destroy(self: Ptr<World>, entity: Entity) {
     thread_set_remove(self[0].threads, entity);
     priority_set_remove(self[0].priorities, entity);
     memmap_set_remove(self[0].mem_maps, entity);
+    datablob_set_remove(self[0].datablobs, entity);
     ipc_cap_set_remove(self[0].ipc_caps, entity);
     socket_set_remove(self[0].open_sockets, entity);
     affinity_set_remove(self[0].cpu_affinities, entity);
