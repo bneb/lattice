@@ -1,6 +1,6 @@
 package kernel.ecs.ecs_bridge
 
-import kernel.ecs.world.{World, world_spawn, world_destroy}
+import kernel.ecs.world.{World, world_spawn, world_destroy, world_entity_count}
 import kernel.ecs.entity.{Entity}
 import kernel.ecs.components.{ThreadState, SchedulingPriority}
 import kernel.ecs.sparse_set.{thread_set_insert, thread_set_get_mut, priority_set_insert, memmap_set_insert, memmap_set_get, ipc_cap_set_insert}
@@ -140,4 +140,12 @@ pub fn ecs_bridge_update_memory_map(entity_val: u64, size: u64) {
         let m_ref = m as &mut MemoryMap;
         m_ref.size = size;
     }
+}
+
+@no_mangle
+pub fn ecs_bridge_entity_count() -> u64 {
+    let w_ptr = get_ecs_world_ptr() as Ptr<World>;
+    if (w_ptr as u64) == 0 { return 0; }
+    let w = w_ptr as &mut World;
+    return world_entity_count(w) as u64;
 }

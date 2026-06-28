@@ -35,6 +35,7 @@ extern fn ecs_bridge_destroy_thread(entity_val: u64);
 extern fn ecs_bridge_spawn_bare_entity() -> u64;
 extern fn ecs_bridge_grant_memory_map(entity_val: u64, pml4_phys: u64, size: u64);
 extern fn ecs_bridge_get_memory_map(entity_val: u64) -> u64;
+extern fn ecs_bridge_entity_count() -> u64;
 extern fn ecs_bridge_update_memory_map(entity_val: u64, size: u64);
 extern fn pmm_alloc() -> u64;
 extern fn map_user_page_extern(user_pml4: u64, vaddr: u64, paddr: u64, flags: u64);
@@ -202,4 +203,9 @@ pub fn sys_entity_brk(entity_val: u64, new_size: u64) -> u64 {
     let actual_size = cur_size + allocated * PAGE_SIZE;
     ecs_bridge_update_memory_map(entity_val, actual_size);
     return actual_size;
+}
+
+@no_mangle
+pub fn sys_entity_count() -> u64 {
+    return ecs_bridge_entity_count();
 }

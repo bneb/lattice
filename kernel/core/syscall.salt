@@ -32,6 +32,7 @@ extern fn sys_entity_wait(entity_val: u64) -> u64;
 extern fn sys_entity_write(entity_val: u64, buf_ptr: u64, buf_len: u64) -> u64;
 extern fn sys_entity_map(parent_slot: u64, size: u64) -> u64;
 extern fn sys_entity_brk(entity_val: u64, new_size: u64) -> u64;
+extern fn sys_entity_count() -> u64;
 extern fn schedule_next();
 extern fn timer_preempt();
 // Extern declarations for functions moved to syscall_ipc.salt
@@ -243,6 +244,9 @@ pub fn handle_syscall(num: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
     } else if num == 406 {
         // SYS_ENTITY_BRK: arg0 = entity_val, arg1 = new_size
         return sys_entity_brk(arg0, arg1);
+    } else if num == 407 {
+        // SYS_ENTITY_COUNT: returns total entities in ECS World
+        return sys_entity_count();
     }
     return 0;
 }
