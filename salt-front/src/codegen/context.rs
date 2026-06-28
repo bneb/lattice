@@ -49,6 +49,7 @@ pub mod registry_init;
 pub mod scanner;
 pub mod accessors;
 pub mod emit_helpers;
+pub mod emit_helpers_ctx;
 pub use fstring::FStringSegment;
 pub use guards::GenericContextGuard;
 pub use guards::ImportContextGuard;
