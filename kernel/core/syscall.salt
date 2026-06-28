@@ -15,6 +15,7 @@ import kernel.core.capability
 import kernel.sys.vfs
 import kernel.sys.ramfs
 import kernel.core.exec_user
+import kernel.ecs.ecs_bridge
 
 // FFI bridges — bypass module mangling, link against @no_mangle symbols
 extern fn sys_cap_bind(flags: u64) -> u64;
@@ -259,6 +260,11 @@ pub fn process_exit(exit_code: u64) {
     process.set_ipc_msg(slot, 0, exit_code, 0, 0);
     process.set_state(slot, PROC_ZOMBIE);
     process.dec_count();
+
+    let entity = process.get_ecs_entity(slot);
+    if entity != 0 {
+        ecs_bridge.ecs_bridge_destroy_thread(entity);
+    }
 
     switch_to_next_ready(slot);
 }

@@ -22,6 +22,7 @@ import kernel.core.pmm
 import kernel.drivers.serial
 import kernel.core.process
 import kernel.core.memory
+import kernel.ecs.ecs_bridge
 
 // Assembly FFI
 extern fn get_proc_trampoline_addr() -> u64;
@@ -237,6 +238,9 @@ pub fn spawn_process(elf_base: u64, kernel_pml4: u64) -> u64 {
 
     serial.print("[spawn] slot="); serial.print_u64(slot);
     serial.print(" entry=0x"); serial.print_u64(entry); serial.print("\n");
+
+    let entity = ecs_bridge.ecs_bridge_spawn_thread(entry, saved_rsp_virt, kstack_base_virt);
+    process.set_ecs_entity(slot, entity);
 
     return slot;
 }
