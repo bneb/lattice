@@ -66,4 +66,31 @@ mod tests {
         let ty = Type::Struct("Ptr_i32".into());
         assert_eq!(flatten_nested_ptr(&ty, 11, "test"), ty);
     }
+
+    #[test]
+    fn test_flatten_nested_ptr_single() {
+        let p = Type::Concrete("Ptr".into(), vec![Type::I32]);
+        assert_eq!(flatten_nested_ptr(&p, 0, "test"), p);
+        assert_eq!(flatten_nested_ptr(&p, 1, "test"), Type::I32);
+    }
+
+    #[test]
+    fn test_flatten_nested_ptr_nested() {
+        let inner = Type::Concrete("Ptr".into(), vec![Type::I32]);
+        let outer = Type::Concrete("Ptr".into(), vec![inner]);
+        assert_eq!(flatten_nested_ptr(&outer, 0, "test"), Type::I32);
+    }
+
+    #[test]
+    fn test_flatten_nested_ptr_non_ptr() {
+        assert_eq!(flatten_nested_ptr(&Type::I32, 0, "test"), Type::I32);
+        assert_eq!(flatten_nested_ptr(&Type::F64, 3, "test"), Type::F64);
+        assert_eq!(flatten_nested_ptr(&Type::Unit, 0, "test"), Type::Unit);
+    }
+
+    #[test]
+    fn test_flatten_nested_ptr_struct() {
+        let s = Type::Struct("Ptr_i32".into());
+        assert_eq!(flatten_nested_ptr(&s, 1, "test"), Type::Struct("i32".into()));
+    }
 }

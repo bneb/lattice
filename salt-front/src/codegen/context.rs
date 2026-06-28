@@ -1,8 +1,8 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::collections::{HashMap, HashSet, VecDeque};
-use crate::grammar::{SaltFile, SaltFn, Item, ImportDecl, StructDef, EnumDef};
-use crate::registry::{Registry, StructInfo, EnumInfo};
+use crate::grammar::{SaltFile, SaltFn, Item, ImportDecl};
+use crate::registry::{Registry, EnumInfo};
 use crate::types::{Type, TypeKey};
 use crate::evaluator::Evaluator;
 use crate::common::mangling::Mangler;
@@ -1360,31 +1360,6 @@ impl<'a> CodegenContext<'a> {
     // === Field Accessors (delegate to phased structs) ===
     // These provide backward-compatible access while state is organized by phase.
     
-    // Discovery phase accessors
-    pub fn struct_templates(&self) -> std::cell::Ref<'_, std::collections::HashMap<String, StructDef>> {
-        std::cell::Ref::map(self.discovery.borrow(), |d| &d.struct_templates)
-    }
-    pub fn struct_templates_mut(&self) -> std::cell::RefMut<'_, std::collections::HashMap<String, StructDef>> {
-        std::cell::RefMut::map(self.discovery.borrow_mut(), |d| &mut d.struct_templates)
-    }
-    pub fn enum_templates(&self) -> std::cell::Ref<'_, std::collections::HashMap<String, EnumDef>> {
-        std::cell::Ref::map(self.discovery.borrow(), |d| &d.enum_templates)
-    }
-    pub fn enum_templates_mut(&self) -> std::cell::RefMut<'_, std::collections::HashMap<String, EnumDef>> {
-        std::cell::RefMut::map(self.discovery.borrow_mut(), |d| &mut d.enum_templates)
-    }
-    pub fn struct_registry(&self) -> std::cell::Ref<'_, std::collections::HashMap<TypeKey, StructInfo>> {
-        std::cell::Ref::map(self.discovery.borrow(), |d| &d.struct_registry)
-    }
-    pub fn struct_registry_mut(&self) -> std::cell::RefMut<'_, std::collections::HashMap<TypeKey, StructInfo>> {
-        std::cell::RefMut::map(self.discovery.borrow_mut(), |d| &mut d.struct_registry)
-    }
-    pub fn enum_registry(&self) -> std::cell::Ref<'_, std::collections::HashMap<TypeKey, EnumInfo>> {
-        std::cell::Ref::map(self.discovery.borrow(), |d| &d.enum_registry)
-    }
-    pub fn enum_registry_mut(&self) -> std::cell::RefMut<'_, std::collections::HashMap<TypeKey, EnumInfo>> {
-        std::cell::RefMut::map(self.discovery.borrow_mut(), |d| &mut d.enum_registry)
-    }
 
     /// Structurally detect whether a type is a Result enum — any enum with Ok + Err variants.
     /// Returns the EnumInfo if matched. Uses enum registry lookup, zero string hacks.
@@ -1434,20 +1409,6 @@ impl<'a> CodegenContext<'a> {
                 && info.variants.iter().any(|(v, _, _)| v == "Some")
                 && info.variants.iter().any(|(v, _, _)| v == "None")
         }).cloned()
-    }
-    // Signature-aware method resolution - the ONLY method lookup path
-    pub fn trait_registry(&self) -> std::cell::Ref<'_, crate::codegen::trait_registry::TraitRegistry> {
-        std::cell::Ref::map(self.discovery.borrow(), |d| &d.trait_registry)
-    }
-    pub fn trait_registry_mut(&self) -> std::cell::RefMut<'_, crate::codegen::trait_registry::TraitRegistry> {
-        std::cell::RefMut::map(self.discovery.borrow_mut(), |d| &mut d.trait_registry)
-    }
-    // String prefix handlers for comptime string processing
-    pub fn string_prefix_handlers(&self) -> std::cell::Ref<'_, std::collections::HashMap<String, String>> {
-        std::cell::Ref::map(self.discovery.borrow(), |d| &d.string_prefix_handlers)
-    }
-    pub fn string_prefix_handlers_mut(&self) -> std::cell::RefMut<'_, std::collections::HashMap<String, String>> {
-        std::cell::RefMut::map(self.discovery.borrow_mut(), |d| &mut d.string_prefix_handlers)
     }
     
     /// Check if comptime is ready (std discovery complete)
@@ -1908,213 +1869,8 @@ impl<'a> CodegenContext<'a> {
         ("write_i32".to_string(), expr.to_string())
     }
     
-    pub fn globals(&self) -> std::cell::Ref<'_, std::collections::BTreeMap<String, Type>> {
-        std::cell::Ref::map(self.discovery.borrow(), |d| &d.globals)
-    }
-    pub fn globals_mut(&self) -> std::cell::RefMut<'_, std::collections::BTreeMap<String, Type>> {
-        std::cell::RefMut::map(self.discovery.borrow_mut(), |d| &mut d.globals)
-    }
-    pub fn imports(&self) -> std::cell::Ref<'_, Vec<ImportDecl>> {
-        std::cell::Ref::map(self.discovery.borrow(), |d| &d.imports)
-    }
-    pub fn imports_mut(&self) -> std::cell::RefMut<'_, Vec<ImportDecl>> {
-        std::cell::RefMut::map(self.discovery.borrow_mut(), |d| &mut d.imports)
-    }
-    pub fn generic_impls(&self) -> std::cell::Ref<'_, std::collections::HashMap<String, (SaltFn, Vec<ImportDecl>)>> {
-        std::cell::Ref::map(self.discovery.borrow(), |d| &d.generic_impls)
-    }
-    pub fn generic_impls_mut(&self) -> std::cell::RefMut<'_, std::collections::HashMap<String, (SaltFn, Vec<ImportDecl>)>> {
-        std::cell::RefMut::map(self.discovery.borrow_mut(), |d| &mut d.generic_impls)
-    }
-    pub fn entity_registry(&self) -> std::cell::Ref<'_, crate::codegen::collector::EntityRegistry> {
-        std::cell::Ref::map(self.discovery.borrow(), |d| &d.entity_registry)
-    }
-    pub fn entity_registry_mut(&self) -> std::cell::RefMut<'_, crate::codegen::collector::EntityRegistry> {
-        std::cell::RefMut::map(self.discovery.borrow_mut(), |d| &mut d.entity_registry)
-    }
     
-    // Expansion phase accessors
-    pub fn specializations(&self) -> std::cell::Ref<'_, std::collections::HashMap<(String, Vec<Type>), String>> {
-        std::cell::Ref::map(self.expansion.borrow(), |e| &e.specializations)
-    }
-    pub fn specializations_mut(&self) -> std::cell::RefMut<'_, std::collections::HashMap<(String, Vec<Type>), String>> {
-        std::cell::RefMut::map(self.expansion.borrow_mut(), |e| &mut e.specializations)
-    }
-    pub fn pending_generations(&self) -> std::cell::Ref<'_, std::collections::VecDeque<MonomorphizationTask>> {
-        std::cell::Ref::map(self.expansion.borrow(), |e| &e.pending_generations)
-    }
-    pub fn pending_generations_mut(&self) -> std::cell::RefMut<'_, std::collections::VecDeque<MonomorphizationTask>> {
-        std::cell::RefMut::map(self.expansion.borrow_mut(), |e| &mut e.pending_generations)
-    }
-    pub fn monomorphizer(&self) -> std::cell::Ref<'_, crate::codegen::phases::MonomorphizerState> {
-        std::cell::Ref::map(self.expansion.borrow(), |e| &e.monomorphizer)
-    }
-    pub fn monomorphizer_mut(&self) -> std::cell::RefMut<'_, crate::codegen::phases::MonomorphizerState> {
-        std::cell::RefMut::map(self.expansion.borrow_mut(), |e| &mut e.monomorphizer)
-    }
-    pub fn current_type_map(&self) -> std::cell::Ref<'_, std::collections::BTreeMap<String, Type>> {
-        std::cell::Ref::map(self.expansion.borrow(), |e| &e.current_type_map)
-    }
-    pub fn current_type_map_mut(&self) -> std::cell::RefMut<'_, std::collections::BTreeMap<String, Type>> {
-        std::cell::RefMut::map(self.expansion.borrow_mut(), |e| &mut e.current_type_map)
-    }
-    pub fn current_generic_args(&self) -> std::cell::Ref<'_, Vec<Type>> {
-        std::cell::Ref::map(self.expansion.borrow(), |e| &e.current_generic_args)
-    }
-    pub fn current_generic_args_mut(&self) -> std::cell::RefMut<'_, Vec<Type>> {
-        std::cell::RefMut::map(self.expansion.borrow_mut(), |e| &mut e.current_generic_args)
-    }
-    pub fn current_self_ty(&self) -> std::cell::Ref<'_, Option<Type>> {
-        std::cell::Ref::map(self.expansion.borrow(), |e| &e.current_self_ty)
-    }
-    pub fn current_self_ty_mut(&self) -> std::cell::RefMut<'_, Option<Type>> {
-        std::cell::RefMut::map(self.expansion.borrow_mut(), |e| &mut e.current_self_ty)
-    }
-    pub fn current_ret_ty(&self) -> std::cell::Ref<'_, Option<Type>> {
-        std::cell::Ref::map(self.expansion.borrow(), |e| &e.current_ret_ty)
-    }
-    pub fn current_ret_ty_mut(&self) -> std::cell::RefMut<'_, Option<Type>> {
-        std::cell::RefMut::map(self.expansion.borrow_mut(), |e| &mut e.current_ret_ty)
-    }
-    pub fn current_ensures(&self) -> std::cell::Ref<'_, Vec<syn::Expr>> {
-        std::cell::Ref::map(self.expansion.borrow(), |e| &e.current_ensures)
-    }
-    pub fn current_ensures_mut(&self) -> std::cell::RefMut<'_, Vec<syn::Expr>> {
-        std::cell::RefMut::map(self.expansion.borrow_mut(), |e| &mut e.current_ensures)
-    }
-    pub fn current_fn_name(&self) -> std::cell::Ref<'_, String> {
-        std::cell::Ref::map(self.expansion.borrow(), |e| &e.current_fn_name)
-    }
-    pub fn current_fn_name_mut(&self) -> std::cell::RefMut<'_, String> {
-        std::cell::RefMut::map(self.expansion.borrow_mut(), |e| &mut e.current_fn_name)
-    }
     
-    // Emission phase accessors
-    pub fn val_counter(&self) -> std::cell::Ref<'_, usize> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.val_counter)
-    }
-    pub fn val_counter_mut(&self) -> std::cell::RefMut<'_, usize> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.val_counter)
-    }
-    pub fn alloca_out(&self) -> std::cell::Ref<'_, String> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.alloca_out)
-    }
-    pub fn alloca_out_mut(&self) -> std::cell::RefMut<'_, String> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.alloca_out)
-    }
-    pub fn decl_out(&self) -> std::cell::Ref<'_, String> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.decl_out)
-    }
-    pub fn decl_out_mut(&self) -> std::cell::RefMut<'_, String> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.decl_out)
-    }
-    pub fn definitions_buffer(&self) -> std::cell::Ref<'_, String> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.definitions_buffer)
-    }
-    pub fn definitions_buffer_mut(&self) -> std::cell::RefMut<'_, String> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.definitions_buffer)
-    }
-    pub fn string_literals(&self) -> std::cell::Ref<'_, Vec<(String, String, usize)>> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.string_literals)
-    }
-    pub fn string_literals_mut(&self) -> std::cell::RefMut<'_, Vec<(String, String, usize)>> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.string_literals)
-    }
-    pub fn defined_functions(&self) -> std::cell::Ref<'_, std::collections::HashSet<String>> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.defined_functions)
-    }
-    pub fn defined_functions_mut(&self) -> std::cell::RefMut<'_, std::collections::HashSet<String>> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.defined_functions)
-    }
-    pub fn pending_func_decls_mut(&self) -> std::cell::RefMut<'_, std::collections::BTreeMap<String, String>> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.pending_func_decls)
-    }
-    pub fn defined_structs(&self) -> std::cell::Ref<'_, std::collections::HashSet<String>> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.defined_structs)
-    }
-    pub fn defined_structs_mut(&self) -> std::cell::RefMut<'_, std::collections::HashSet<String>> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.defined_structs)
-    }
-    pub fn defined_enums(&self) -> std::cell::Ref<'_, std::collections::HashSet<String>> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.defined_enums)
-    }
-    pub fn defined_enums_mut(&self) -> std::cell::RefMut<'_, std::collections::HashSet<String>> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.defined_enums)
-    }
-    pub fn emitted_types(&self) -> std::cell::Ref<'_, std::collections::HashSet<String>> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.emitted_types)
-    }
-    pub fn emitted_types_mut(&self) -> std::cell::RefMut<'_, std::collections::HashSet<String>> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.emitted_types)
-    }
-    pub fn external_decls(&self) -> std::cell::Ref<'_, std::collections::HashSet<String>> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.external_decls)
-    }
-    pub fn external_decls_mut(&self) -> std::cell::RefMut<'_, std::collections::HashSet<String>> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.external_decls)
-    }
-    pub fn initialized_globals(&self) -> std::cell::Ref<'_, std::collections::HashSet<String>> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.initialized_globals)
-    }
-    pub fn initialized_globals_mut(&self) -> std::cell::RefMut<'_, std::collections::HashSet<String>> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.initialized_globals)
-    }
-    pub fn layout_cache(&self) -> std::cell::Ref<'_, std::collections::HashMap<Type, (usize, usize)>> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.layout_cache)
-    }
-    pub fn layout_cache_mut(&self) -> std::cell::RefMut<'_, std::collections::HashMap<Type, (usize, usize)>> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.layout_cache)
-    }
-    pub fn tensor_layout_cache(&self) -> std::cell::Ref<'_, std::collections::HashMap<Type, crate::codegen::phases::TensorLayout>> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.tensor_layout_cache)
-    }
-    pub fn tensor_layout_cache_mut(&self) -> std::cell::RefMut<'_, std::collections::HashMap<Type, crate::codegen::phases::TensorLayout>> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.tensor_layout_cache)
-    }
-    pub fn mlir_type_cache(&self) -> std::cell::Ref<'_, std::collections::HashMap<Type, String>> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.mlir_type_cache)
-    }
-    pub fn mlir_type_cache_mut(&self) -> std::cell::RefMut<'_, std::collections::HashMap<Type, String>> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.mlir_type_cache)
-    }
-    pub fn struct_type_cache(&self) -> std::cell::Ref<'_, Option<std::collections::HashMap<String, Vec<Type>>>> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.struct_type_cache)
-    }
-    pub fn struct_type_cache_mut(&self) -> std::cell::RefMut<'_, Option<std::collections::HashMap<String, Vec<Type>>>> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.struct_type_cache)
-    }
-    pub fn interner(&self) -> std::cell::Ref<'_, crate::codegen::phases::StringInterner> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.interner)
-    }
-    pub fn interner_mut(&self) -> std::cell::RefMut<'_, crate::codegen::phases::StringInterner> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.interner)
-    }
-    pub fn metadata_id_counter(&self) -> std::cell::Ref<'_, usize> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.metadata_id_counter)
-    }
-    pub fn metadata_id_counter_mut(&self) -> std::cell::RefMut<'_, usize> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.metadata_id_counter)
-    }
-    pub fn pending_bootstrap_patches(&self) -> std::cell::Ref<'_, Vec<crate::codegen::const_eval::BootstrapPatch>> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.pending_bootstrap_patches)
-    }
-    pub fn pending_bootstrap_patches_mut(&self) -> std::cell::RefMut<'_, Vec<crate::codegen::const_eval::BootstrapPatch>> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.pending_bootstrap_patches)
-    }
-    pub fn linalg_initialized(&self) -> std::cell::Ref<'_, bool> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.linalg_initialized)
-    }
-    pub fn linalg_initialized_mut(&self) -> std::cell::RefMut<'_, bool> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.linalg_initialized)
-    }
-    
-    // TypeID Registry accessors
-    pub fn type_id_registry(&self) -> std::cell::Ref<'_, crate::codegen::types::TypeIDRegistry> {
-        std::cell::Ref::map(self.emission.borrow(), |e| &e.type_id_registry)
-    }
-    pub fn type_id_registry_mut(&self) -> std::cell::RefMut<'_, crate::codegen::types::TypeIDRegistry> {
-        std::cell::RefMut::map(self.emission.borrow_mut(), |e| &mut e.type_id_registry)
-    }
     
     // Phase 4: Body buffer accessors
     pub fn buffer_body(&self, code: &str) {
@@ -2304,91 +2060,6 @@ impl<'a> CodegenContext<'a> {
         best_match
     }
     
-    // Control flow phase accessors
-    pub fn loop_exit_stack(&self) -> std::cell::Ref<'_, Vec<String>> {
-        std::cell::Ref::map(self.control_flow.borrow(), |c| &c.loop_exit_stack)
-    }
-    pub fn loop_exit_stack_mut(&self) -> std::cell::RefMut<'_, Vec<String>> {
-        std::cell::RefMut::map(self.control_flow.borrow_mut(), |c| &mut c.loop_exit_stack)
-    }
-    pub fn break_labels(&self) -> std::cell::Ref<'_, Vec<String>> {
-        std::cell::Ref::map(self.control_flow.borrow(), |c| &c.break_labels)
-    }
-    pub fn break_labels_mut(&self) -> std::cell::RefMut<'_, Vec<String>> {
-        std::cell::RefMut::map(self.control_flow.borrow_mut(), |c| &mut c.break_labels)
-    }
-    pub fn continue_labels(&self) -> std::cell::Ref<'_, Vec<String>> {
-        std::cell::Ref::map(self.control_flow.borrow(), |c| &c.continue_labels)
-    }
-    pub fn continue_labels_mut(&self) -> std::cell::RefMut<'_, Vec<String>> {
-        std::cell::RefMut::map(self.control_flow.borrow_mut(), |c| &mut c.continue_labels)
-    }
-    pub fn region_stack(&self) -> std::cell::Ref<'_, Vec<String>> {
-        std::cell::Ref::map(self.control_flow.borrow(), |c| &c.region_stack)
-    }
-    pub fn region_stack_mut(&self) -> std::cell::RefMut<'_, Vec<String>> {
-        std::cell::RefMut::map(self.control_flow.borrow_mut(), |c| &mut c.region_stack)
-    }
-    pub fn cleanup_stack(&self) -> std::cell::Ref<'_, Vec<Vec<crate::codegen::phases::CleanupTask>>> {
-        std::cell::Ref::map(self.control_flow.borrow(), |c| &c.cleanup_stack)
-    }
-    pub fn cleanup_stack_mut(&self) -> std::cell::RefMut<'_, Vec<Vec<crate::codegen::phases::CleanupTask>>> {
-        std::cell::RefMut::map(self.control_flow.borrow_mut(), |c| &mut c.cleanup_stack)
-    }
-    pub fn mutated_vars(&self) -> std::cell::Ref<'_, std::collections::HashSet<String>> {
-        std::cell::Ref::map(self.control_flow.borrow(), |c| &c.mutated_vars)
-    }
-    pub fn mutated_vars_mut(&self) -> std::cell::RefMut<'_, std::collections::HashSet<String>> {
-        std::cell::RefMut::map(self.control_flow.borrow_mut(), |c| &mut c.mutated_vars)
-    }
-    pub fn consumed_vars(&self) -> std::cell::Ref<'_, std::collections::HashSet<String>> {
-        std::cell::Ref::map(self.control_flow.borrow(), |c| &c.consumed_vars)
-    }
-    pub fn consumed_vars_mut(&self) -> std::cell::RefMut<'_, std::collections::HashSet<String>> {
-        std::cell::RefMut::map(self.control_flow.borrow_mut(), |c| &mut c.consumed_vars)
-    }
-    pub fn consumption_locs(&self) -> std::cell::Ref<'_, std::collections::HashMap<String, String>> {
-        std::cell::Ref::map(self.control_flow.borrow(), |c| &c.consumption_locs)
-    }
-    pub fn consumption_locs_mut(&self) -> std::cell::RefMut<'_, std::collections::HashMap<String, String>> {
-        std::cell::RefMut::map(self.control_flow.borrow_mut(), |c| &mut c.consumption_locs)
-    }
-    pub fn devoured_vars(&self) -> std::cell::Ref<'_, std::collections::HashSet<String>> {
-        std::cell::Ref::map(self.control_flow.borrow(), |c| &c.devoured_vars)
-    }
-    pub fn devoured_vars_mut(&self) -> std::cell::RefMut<'_, std::collections::HashSet<String>> {
-        std::cell::RefMut::map(self.control_flow.borrow_mut(), |c| &mut c.devoured_vars)
-    }
-    pub fn affine_depth(&self) -> std::cell::Ref<'_, usize> {
-        std::cell::Ref::map(self.control_flow.borrow(), |c| &c.affine_depth)
-    }
-    pub fn affine_depth_mut(&self) -> std::cell::RefMut<'_, usize> {
-        std::cell::RefMut::map(self.control_flow.borrow_mut(), |c| &mut c.affine_depth)
-    }
-    pub fn is_unsafe_block(&self) -> std::cell::Ref<'_, bool> {
-        std::cell::Ref::map(self.control_flow.borrow(), |c| &c.is_unsafe_block)
-    }
-    pub fn is_unsafe_block_mut(&self) -> std::cell::RefMut<'_, bool> {
-        std::cell::RefMut::map(self.control_flow.borrow_mut(), |c| &mut c.is_unsafe_block)
-    }
-    pub fn no_yield(&self) -> std::cell::Ref<'_, bool> {
-        std::cell::Ref::map(self.control_flow.borrow(), |c| &c.no_yield)
-    }
-    pub fn no_yield_mut(&self) -> std::cell::RefMut<'_, bool> {
-        std::cell::RefMut::map(self.control_flow.borrow_mut(), |c| &mut c.no_yield)
-    }
-    pub fn current_pulse(&self) -> std::cell::Ref<'_, Option<u32>> {
-        std::cell::Ref::map(self.control_flow.borrow(), |c| &c.current_pulse)
-    }
-    pub fn current_pulse_mut(&self) -> std::cell::RefMut<'_, Option<u32>> {
-        std::cell::RefMut::map(self.control_flow.borrow_mut(), |c| &mut c.current_pulse)
-    }
-    pub fn is_hot_path(&self) -> std::cell::Ref<'_, bool> {
-        std::cell::Ref::map(self.control_flow.borrow(), |c| &c.is_hot_path)
-    }
-    pub fn is_hot_path_mut(&self) -> std::cell::RefMut<'_, bool> {
-        std::cell::RefMut::map(self.control_flow.borrow_mut(), |c| &mut c.is_hot_path)
-    }
 
     pub fn invalidate_type_cache(&self) {
         *self.struct_type_cache_mut() = None;
