@@ -1,0 +1,44 @@
+// =============================================================================
+// kernel/core/syscall_ecs.salt
+// ECS-backed syscalls — entity-based I/O (SYS_ENTITY_WRITE)
+// =============================================================================
+
+package kernel.core.syscall_ecs
+
+extern fn pmm_alloc() -> u64;
+extern fn pmm_free(page: u64);
+extern fn memory_phys_to_virt_raw(phys: u64) -> u64;
+extern fn copy_from_user(dst_kern: u64, src_user: u64, len: u64) -> i64;
+extern fn do_serial_print(ptr: u64, len: u64);
+
+const CONSOLE_ENTITY: u64 = 0xFFFFFFFE;
+const USER_ADDR_LIMIT: u64 = 0x0000800000000000;
+
+fn is_valid_ptr(ptr: u64, len: u64) -> bool {
+    if ptr >= USER_ADDR_LIMIT { return false; }
+    let end = ptr + len;
+    if end < ptr { return false; }
+    if end > USER_ADDR_LIMIT { return false; }
+    return true;
+}
+
+@no_mangle
+pub fn sys_entity_write(entity_val: u64, buf_ptr: u64, buf_len: u64) -> u64 {
+    if entity_val != CONSOLE_ENTITY { return 0 - 1; }
+    if !is_valid_ptr(buf_ptr, buf_len) { return 0 - 1; }
+    if buf_len > 4096 { return 0 - 1; }
+
+    let phys = pmm_alloc();
+    if phys == 0 { return 0 - 1; }
+    let kern_va = memory_phys_to_virt_raw(phys);
+
+    let bytes = copy_from_user(kern_va, buf_ptr, buf_len);
+    if bytes <= 0 {
+        pmm_free(phys);
+        return 0 - 1;
+    }
+
+    do_serial_print(kern_va, bytes as u64);
+    pmm_free(phys);
+    return buf_len;
+}

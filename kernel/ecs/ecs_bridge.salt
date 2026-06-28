@@ -51,6 +51,24 @@ pub fn ecs_bridge_set_thread_status(entity_val: u64, status: u32) {
 }
 
 @no_mangle
+pub fn ecs_bridge_get_thread_status(entity_val: u64) -> u64 {
+    let w_ptr = get_ecs_world_ptr() as Ptr<World>;
+    if (w_ptr as u64) == 0 { return 0xFFFFFFFF; }
+
+    let w = w_ptr as &mut World;
+    let id = (entity_val & 0xFFFFFFFF) as u32;
+    let gen = (entity_val >> 32) as u32;
+    let e = Entity { id: id, gen: gen };
+
+    let t = thread_set_get_mut(w.threads, e);
+    if (t as u64) != 0 {
+        let t_ref = t as &mut ThreadState;
+        return t_ref.status as u64;
+    }
+    return 0xFFFFFFFF;
+}
+
+@no_mangle
 pub fn ecs_bridge_destroy_thread(entity_val: u64) {
     let w_ptr = get_ecs_world_ptr() as Ptr<World>;
     if (w_ptr as u64) == 0 { return; }

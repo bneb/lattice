@@ -1,0 +1,109 @@
+// =============================================================================
+// kernel/core/syscall_entity.salt
+// Entity Lifecycle Syscalls — SYS_ENTITY_EXIT (402) and SYS_ENTITY_WAIT (403)
+// =============================================================================
+// These syscalls provide ECS-based thread lifecycle management. Each process
+// has an associated ECS entity (stored in ecs_entity_val). sys_entity_exit
+// marks the entity as ZOMBIE and exits the process; sys_entity_wait waits
+// for the entity to reach ZOMBIE status and reaps it.
+// =============================================================================
+
+package kernel.core.syscall_entity
+use std.core.ptr.Ptr
+
+extern fn process_current() -> u64;
+extern fn process_get_ecs_entity(slot: u64) -> u64;
+extern fn process_get_pml4(slot: u64) -> u64;
+extern fn process_get_ipc_msg0(slot: u64) -> u64;
+extern fn process_set_state(slot: u64, state: u64);
+extern fn process_set_ecs_entity(slot: u64, val: u64);
+extern fn process_set_ipc_msg(slot: u64, sender: u64, msg0: u64, msg1: u64, msg2: u64);
+extern fn process_dec_count();
+
+extern fn serial_print(msg: Ptr<u8>);
+extern fn serial_print_u64(val: u64);
+extern fn switch_cr3(pml4_phys: u64);
+extern fn user_paging_destroy_user_pml4(pml4: u64);
+extern fn destroy_fd_table(slot: u64);
+extern fn ring_abi_destroy_ring(slot: u64);
+extern fn switch_to_next_ready(slot: u64);
+extern fn sched_yield();
+extern fn ecs_bridge_set_thread_status(entity_val: u64, status: u32);
+extern fn ecs_bridge_get_thread_status(entity_val: u64) -> u64;
+extern fn ecs_bridge_destroy_thread(entity_val: u64);
+
+const MAX_PROCS: u64 = 64;
+const PROC_FREE: u64   = 0;
+const PROC_ZOMBIE: u64 = 3;
+
+// =============================================================================
+// sys_entity_exit — Entity lifecycle exit. KERNEL_PML4 passed from dispatch
+// to avoid cross-TU global access. NEVER RETURNS.
+// =============================================================================
+@no_mangle
+pub fn sys_entity_exit(exit_code: u64, kernel_pml4: u64) {
+    let slot = process_current();
+    serial_print("[sys_entity_exit] slot=");
+    serial_print_u64(slot);
+    serial_print(" code=");
+    serial_print_u64(exit_code);
+    serial_print("\n");
+
+    let entity = process_get_ecs_entity(slot);
+    if entity != 0 {
+        ecs_bridge_set_thread_status(entity, 4); // THREAD_ZOMBIE
+    }
+
+    let user_pml4 = process_get_pml4(slot);
+    switch_cr3(kernel_pml4);
+    user_paging_destroy_user_pml4(user_pml4);
+    destroy_fd_table(slot);
+    ring_abi_destroy_ring(slot);
+
+    process_set_ipc_msg(slot, 0, exit_code, 0, 0);
+    process_set_state(slot, PROC_ZOMBIE);
+    process_dec_count();
+    switch_to_next_ready(slot);
+}
+
+// =============================================================================
+// find_slot_by_entity — Scan process table for a slot with matching entity
+// =============================================================================
+fn find_slot_by_entity(entity_val: u64) -> u64 {
+    let mut i: u64 = 0;
+    while i < MAX_PROCS {
+        if process_get_ecs_entity(i) == entity_val {
+            return i;
+        }
+        i = i + 1;
+    }
+    return MAX_PROCS;
+}
+
+// =============================================================================
+// sys_entity_wait — Wait for entity to become ZOMBIE, reap, return exit code
+// (SYS_ENTITY_WAIT, num=403)
+// =============================================================================
+@no_mangle
+pub fn sys_entity_wait(entity_val: u64) -> u64 {
+    let child_slot = find_slot_by_entity(entity_val);
+    if child_slot >= MAX_PROCS {
+        return 0 - 1; // ECHILD
+    }
+
+    // Busy-wait until entity reaches ZOMBIE status
+    let mut status = ecs_bridge_get_thread_status(entity_val);
+    while status != 4 { // THREAD_ZOMBIE
+        sched_yield();
+        status = ecs_bridge_get_thread_status(entity_val);
+    }
+
+    // Reap: read exit code, destroy entity, free process slot
+    let exit_code = process_get_ipc_msg0(child_slot);
+    if entity_val != 0 {
+        ecs_bridge_destroy_thread(entity_val);
+    }
+    process_set_state(child_slot, PROC_FREE);
+    process_set_ecs_entity(child_slot, 0);
+    return exit_code;
+}
