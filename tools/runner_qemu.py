@@ -422,6 +422,15 @@ def build_user_programs():
                 os.path.join(user_dir, "std", "stdio.salt"),
             ],
         },
+        # Process O: entity_alloc_test (sys_entity_alloc + sys_entity_write)
+        {
+            "name": "entity_alloc_test",
+            "salt_files": [
+                os.path.join(user_dir, "entity_alloc_test.salt"),
+                os.path.join(user_dir, "lib", "syscall.salt"),
+                os.path.join(user_dir, "std", "stdio.salt"),
+            ],
+        },
     ]
 
     for prog in programs:
@@ -1223,6 +1232,11 @@ if __name__ == "__main__":
                 "name": "entity_map_output",
                 "desc": "Entity map syscall allocates pages as an ECS entity",
                 "expected": ["[EM] entity_map", "ENTITY_MAP_PASS"],
+            },
+            {
+                "name": "entity_alloc_output",
+                "desc": "Entity alloc syscall creates and extends ECS entity memory",
+                "expected": ["[EA] entity_alloc", "ENTITY_ALLOC_PASS"],
             },
         ]
 

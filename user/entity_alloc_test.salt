@@ -1,0 +1,50 @@
+// =============================================================================
+// user/entity_alloc_test.salt
+// Ring 3 test: ECS entity allocation via sys_entity_alloc
+// =============================================================================
+package user.entity_alloc_test
+
+import user.std.stdio
+
+const CONSOLE_ENTITY: u64 = 0xFFFFFFFE;
+
+extern fn sys_entity_alloc(entity_val: u64, size: u64) -> u64;
+extern fn sys_entity_write(entity_val: u64, buf_ptr: u64, buf_len: u64) -> u64;
+extern fn sys_getpid() -> u64;
+extern fn sys_exit(code: u64);
+
+pub fn main() {
+    let slot = sys_getpid();
+    stdio.print("[EA] pid=");
+    stdio.print_u64(slot);
+    stdio.print("\n");
+
+    // Create a new entity with 4096 bytes
+    let entity_val = sys_entity_alloc(0, 4096);
+
+    let msg: [u8; 20] = [91, 69, 65, 93, 32, 101, 110, 116, 105, 116,
+                         121, 95, 97, 108, 108, 111, 99, 10, 0, 0];
+    let buf_ptr = (&msg[0]) as u64;
+    let _ = sys_entity_write(CONSOLE_ENTITY, buf_ptr, 18);
+
+    if entity_val == 0 {
+        stdio.print("[EA] entity_alloc CREATE FAILED\n");
+        sys_exit(1);
+    }
+    stdio.print("[EA] created entity_val=");
+    stdio.print_u64(entity_val);
+    stdio.print("\n");
+
+    // Extend the entity by another 4096 bytes
+    let ret = sys_entity_alloc(entity_val, 8192);
+    if ret == 0 || ret != entity_val {
+        stdio.print("[EA] entity_alloc EXTEND FAILED\n");
+        sys_exit(1);
+    }
+    stdio.print("[EA] entity_alloc PASS (entity_val=");
+    stdio.print_u64(entity_val);
+    stdio.print(")\n");
+    stdio.print("ENTITY_ALLOC_PASS\n");
+
+    sys_exit(42);
+}

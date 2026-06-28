@@ -199,6 +199,7 @@ extern fn sys_getpid() -> u64;
 extern fn sys_entity_count() -> u64;
 extern fn sys_entity_list(buf_ptr: u64, max_count: u64) -> u64;
 extern fn sys_entity_map(parent_slot: u64, size: u64) -> u64;
+extern fn sys_entity_alloc(entity_val: u64, size: u64) -> u64;
 
 /// Returns total number of ECS entities.
 pub fn entity_count() -> u64 {
@@ -208,6 +209,14 @@ pub fn entity_count() -> u64 {
 /// Fill buffer with entity IDs and statuses. Returns count written.
 pub fn entity_list(buf_ptr: u64, max_count: u64) -> u64 {
     return sys_entity_list(buf_ptr, max_count);
+}
+
+/// Allocate or extend ECS entity memory.
+/// If entity_val is 0, creates a new entity with the given size.
+/// If entity_val is non-zero, extends the existing entity.
+/// Returns entity_val on success, 0 on failure.
+pub fn entity_alloc(entity_val: u64, size: u64) -> u64 {
+    return sys_entity_alloc(entity_val, size);
 }
 
 /// Send ICMP echo request, return RTT in ms or 0 on timeout.

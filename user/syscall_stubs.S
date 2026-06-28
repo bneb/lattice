@@ -371,3 +371,15 @@ sys_entity_list:
     mov rax, 408
     syscall
     ret
+
+/* sys_entity_alloc(entity_val: u64, size: u64) -> u64
+ * Syscall 409 — allocate or extend ECS entity memory.
+ *   RDI = entity_val (0 to create new, non-zero to extend existing)
+ *   RSI = size (bytes, rounded up to page boundary)
+ *   Returns: RAX = entity_val on success, 0 on failure
+ */
+.global sys_entity_alloc
+sys_entity_alloc:
+    mov rax, 409
+    syscall
+    ret
