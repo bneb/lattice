@@ -1,0 +1,33 @@
+// Z3 Contract Test: Symbolic string contracts (MUST prove)
+// Expected: PASS — all contracts proved via Z3 string substitution
+package main
+use std.core.str.StringView
+
+pub fn check_prefix(s: StringView) -> bool
+    requires(s.starts_with("salt-"))
+{ return true; }
+
+pub fn check_suffix(s: StringView) -> bool
+    requires(s.ends_with(".salt"))
+{ return true; }
+
+pub fn check_contains(s: StringView) -> bool
+    requires(s.contains("core"))
+{ return true; }
+
+pub fn check_regex(s: StringView) -> bool
+    requires(s.matches("^[0-9]+$"))
+{ return true; }
+
+pub fn check_combined(s: StringView) -> i32
+    requires(s.length() > 5 && s.starts_with("prefix"))
+{ return 0; }
+
+pub fn main() -> i32 {
+    let _a = check_prefix("salt-lang");
+    let _b = check_suffix("program.salt");
+    let _c = check_contains("std.core.str");
+    let _d = check_regex("42");
+    let _e = check_combined("prefix_example");
+    return 0;
+}

@@ -1,4 +1,4 @@
-.PHONY: setup build test test-userspace clean run-qemu lettuce lettuce-verify lettuce-run bench
+.PHONY: setup build test test-userspace clean run-qemu lettuce lettuce-verify lettuce-check lettuce-run bench bench-long
 
 # =============================================================================
 # Salt + KeuOS — Top-Level Makefile
@@ -9,7 +9,7 @@ setup:
 
 build:
 	cd salt-front && cargo build --release
-	@echo "Compiler built: salt-front/target/release/salt-front"
+	@echo "Compiler built: salt-front/target/release/saltc"
 
 test:
 	cd salt-front && cargo test
@@ -34,7 +34,7 @@ run-qemu:
 # LETTUCE — Verified HTTP/Redis Server
 # =============================================================================
 
-SALT_FRONT := salt-front/target/release/salt-front
+SALTC := salt-front/target/release/saltc
 LETTUCE_SRC := lettuce/src/server.salt
 LETTUCE_MLIR := /tmp/lettuce_server.mlir
 
@@ -55,9 +55,27 @@ lettuce-verify: build
 	@echo "=== Lettuce: Z3 Contract Verification ==="
 	@bash lettuce/tests/test_verified_http.sh
 	@echo ""
-	@echo "=== Lettuce: Compiling with --verify ==="
-	@$(SALT_FRONT) $(LETTUCE_SRC) --verify -o $(LETTUCE_MLIR) 2>&1 | grep -v 'GENERIC WARNING'
+	@echo "=== Lettuce: Compiling with verification (default-on) ==="
+	@$(SALTC) $(LETTUCE_SRC) -o $(LETTUCE_MLIR) 2>&1 | grep -v 'GENERIC WARNING'
 	@echo ""
+
+# Compile all Lettuce modules (library and server) and run Z3 verification tests.
+# This is a stricter check than lettuce-verify: it compiles every .salt file
+# under lettuce/ and runs the full test suite.
+lettuce-check: build
+	@echo "=== Lettuce: Compiling all modules ==="
+	@for f in resp.salt store.salt aof.salt list.salt hash.salt src/server.salt src/server_native.salt; do \
+	  printf "    $$f ... "; \
+	  if $(SALTC) lettuce/$$f --lib --disable-alias-scopes -o /dev/null 2>/dev/null; then \
+	    echo "OK"; \
+	  else \
+	    echo "FAIL"; \
+	    exit 1; \
+	  fi; \
+	done
+	@echo ""
+	@echo "=== Lettuce: Running Z3 contract verification tests ==="
+	@bash lettuce/tests/test_verified_http.sh
 
 lettuce-run: build
 	@echo "=== Building LETTUCE server binary ==="

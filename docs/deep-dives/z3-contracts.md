@@ -399,22 +399,23 @@ saltc struct.salt --lib --disable-alias-scopes -o /dev/null
 ## 8. String Content — Compile-Time Validation
 
 String operations on literal arguments are evaluated in Rust at compile
-time. Z3 never runs. Here is a URL validation pipeline — three checks,
-all resolved before codegen:
+time. Z3 never runs. Here is a compile-time prefix/suffix/contains check
+with a regex pattern — four checks, all resolved before codegen:
 
 ```bash
 cat > validate.salt << 'EOF'
 package main
 use std.core.str.StringView
 
-pub fn validate_url(url: StringView) -> bool
-    requires(url.starts_with("https://"))
-    requires(url.contains(".com"))
-    requires(url.ends_with("/api/v1/"))
+pub fn validate_key(key: StringView) -> bool
+    requires(key.starts_with("salt-"))
+    requires(key.contains("lang"))
+    requires(key.ends_with(".salt"))
+    requires(key.matches("^[a-z.-]+$"))
 { return true; }
 
 pub fn main() -> i32 {
-    let _ok = validate_url("https://salt-lang.com/api/v1/");
+    let _ok = validate_key("salt-lang.salt");
     return 0;
 }
 EOF
@@ -425,17 +426,19 @@ saltc validate.salt --lib --disable-alias-scopes -o /dev/null
 ✅ MLIR compiled successfully.
 ```
 
-Three string operations, all resolved in Rust before Z3 sees the
-expression. `"https://salt-lang.com/api/v1/".starts_with("https://")`
-is `true` — the constant folder evaluates it, returns a boolean literal,
-and the `requires` clause becomes `true`. No solver, no runtime check.
+Four string operations, all resolved in Rust before Z3 sees them.
+`"salt-lang.salt".starts_with("salt-")` is `true` — the constant folder
+evaluates it, returns a boolean literal, and the `requires` clause becomes
+`true`. No solver, no runtime check. Same for `.contains()`, `.ends_with()`,
+and `.matches()` (regex evaluated via the regex crate).
 
 **Important limitation:** String content contracts only work with
 literal arguments (compile-time constants). With a symbolic (runtime)
 string parameter, Z3 will reject the contract even if every caller
 satisfies it — the substitution mechanism is `Int`-only, so the
 parameter appears as an unconstrained variable. Use `.starts_with()`,
-`.ends_with()`, and `.contains()` on literals, not on parameters.
+`.ends_with()`, `.contains()`, and `.matches()` on literals, not on
+parameters.
 
 ---
 
@@ -449,13 +452,13 @@ timeout window.
 
 | Feature | Z3 support | Bridge status |
 |---------|-----------|---------------|
-| String `.contains()`, `.startsWith()`, `.endsWith()` | Z3-str | Literal args only (substitution Int-only) |
-| Regex (`.matches()`) | Z3-str `Regexp` | Literal args only |
-| String parameter substitution | Z3 `substitute` | Int-only — String type pending |
-| Float theory (IEEE 754) | Z3 FPA | Truncation-to-int for literals |
-| `Real` (exact rationals) | Z3 Real | `Z3Numeric` type designed |
-| `BV` (bitvectors) | Z3 BV | Stub type ready |
-| Quantifiers (`forall`, `exists`) | Z3 | No Salt syntax |
+| String `.contains()`, `.startsWith()`, `.endsWith()`, `.matches()` | Z3-str | Literal args via constant folder, symbolic via substitution |
+| String parameter substitution | Z3 `substitute` | Wired (hash-conses with translate_string_to_z3) |
+| `Real` (exact rationals) | Z3 Real | Wired — symbolic + literal, all comparisons |
+| Float theory (IEEE 754) | Z3 FPA | Real covers exact-rational float literals |
+| `BV` (bitvectors) | Z3 BV | Wired — Int→BV→Int for bitwise ops (`&`, `\|`, `^`, `<<`, `>>`) |
+| Contract chaining (caller preconditions → callee obligations) | Z3 | Wired — `caller_preconditions` injected as solver assumptions |
+| Quantifiers (`forall`, `exists`) | Z3 | Z3 bridge wired (4 unit tests), awaiting Salt syntax |
 
 **Outside Z3's domain:**
 - Heap reachability (no cycles, no dangling pointers) — requires separation logic.

@@ -314,3 +314,158 @@ pub(crate) fn is_task_concrete(task: &MonomorphizationTask) -> bool {
     let name = &task.mangled_name;
     !(name.contains("_T") || name.contains("_E") || name.contains("_SIZE") || name.contains("_U"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_module_path_str_empty() {
+        assert_eq!(module_path_str(&[]), "");
+    }
+
+    #[test]
+    fn test_module_path_str_single() {
+        assert_eq!(module_path_str(&["core".to_string()]), "core");
+    }
+
+    #[test]
+    fn test_module_path_str_multiple() {
+        let path = vec!["std".to_string(), "collections".to_string(), "hashmap".to_string()];
+        assert_eq!(module_path_str(&path), "std.collections.hashmap");
+    }
+
+    #[test]
+    fn test_substitute_generics_struct_replaced() {
+        let mut map = BTreeMap::new();
+        map.insert("T".to_string(), Type::I32);
+        let ty = Type::Struct("T".to_string());
+        let result = substitute_generics(&ty, &map);
+        assert_eq!(result, Type::I32);
+    }
+
+    #[test]
+    fn test_substitute_generics_struct_unchanged() {
+        let map = BTreeMap::new();
+        let ty = Type::Struct("U".to_string());
+        let result = substitute_generics(&ty, &map);
+        assert_eq!(result, Type::Struct("U".to_string()));
+    }
+
+    #[test]
+    fn test_substitute_generics_concrete_nested() {
+        let mut map = BTreeMap::new();
+        map.insert("T".to_string(), Type::F32);
+        let ty = Type::Concrete("Vec".to_string(), vec![Type::Struct("T".to_string())]);
+        let result = substitute_generics(&ty, &map);
+        assert_eq!(result, Type::Concrete("Vec".to_string(), vec![Type::F32]));
+    }
+
+    #[test]
+    fn test_substitute_generics_reference() {
+        let mut map = BTreeMap::new();
+        map.insert("T".to_string(), Type::U64);
+        let ty = Type::Reference(Box::new(Type::Struct("T".to_string())), false);
+        let result = substitute_generics(&ty, &map);
+        assert_eq!(result, Type::Reference(Box::new(Type::U64), false));
+    }
+
+    #[test]
+    fn test_substitute_generics_array() {
+        let mut map = BTreeMap::new();
+        map.insert("T".to_string(), Type::I8);
+        let ty = Type::Array(Box::new(Type::Struct("T".to_string())), 16, false);
+        let result = substitute_generics(&ty, &map);
+        assert_eq!(result, Type::Array(Box::new(Type::I8), 16, false));
+    }
+
+    #[test]
+    fn test_substitute_generics_tuple() {
+        let mut map = BTreeMap::new();
+        map.insert("A".to_string(), Type::Bool);
+        map.insert("B".to_string(), Type::F64);
+        let ty = Type::Tuple(vec![Type::Struct("A".to_string()), Type::Struct("B".to_string())]);
+        let result = substitute_generics(&ty, &map);
+        assert_eq!(result, Type::Tuple(vec![Type::Bool, Type::F64]));
+    }
+
+    #[test]
+    fn test_substitute_generics_primitive_unchanged() {
+        let map = BTreeMap::new();
+        assert_eq!(substitute_generics(&Type::I32, &map), Type::I32);
+        assert_eq!(substitute_generics(&Type::Bool, &map), Type::Bool);
+        assert_eq!(substitute_generics(&Type::Unit, &map), Type::Unit);
+    }
+
+    #[test]
+    fn test_is_task_concrete_simple_name() {
+        let task = MonomorphizationTask {
+            identity: TypeKey { path: vec![], name: "foo".to_string(), specialization: None },
+            mangled_name: "foo".to_string(),
+            func: crate::grammar::SaltFn {
+                attributes: vec![],
+                is_pub: false,
+                name: syn::Ident::new("foo", proc_macro2::Span::call_site()),
+                generics: None,
+                args: syn::punctuated::Punctuated::new(),
+                ret_type: None,
+                requires: vec![],
+                ensures: vec![],
+                body: crate::grammar::SaltBlock { stmts: vec![] },
+            },
+            concrete_tys: vec![],
+            self_ty: None,
+            imports: vec![],
+            type_map: BTreeMap::new(),
+        };
+        assert!(is_task_concrete(&task));
+    }
+
+    #[test]
+    fn test_is_task_concrete_with_generic_type_param() {
+        let task = MonomorphizationTask {
+            identity: TypeKey { path: vec![], name: "foo_T".to_string(), specialization: None },
+            mangled_name: "foo_T".to_string(),
+            func: crate::grammar::SaltFn {
+                attributes: vec![],
+                is_pub: false,
+                name: syn::Ident::new("foo", proc_macro2::Span::call_site()),
+                generics: None,
+                args: syn::punctuated::Punctuated::new(),
+                ret_type: None,
+                requires: vec![],
+                ensures: vec![],
+                body: crate::grammar::SaltBlock { stmts: vec![] },
+            },
+            concrete_tys: vec![],
+            self_ty: None,
+            imports: vec![],
+            type_map: BTreeMap::new(),
+        };
+        assert!(!is_task_concrete(&task));
+    }
+
+    #[test]
+    fn test_is_task_concrete_with_size_param() {
+        let task = MonomorphizationTask {
+            identity: TypeKey { path: vec![], name: "foo_SIZE".to_string(), specialization: None },
+            mangled_name: "foo_SIZE".to_string(),
+            func: crate::grammar::SaltFn {
+                attributes: vec![],
+                is_pub: false,
+                name: syn::Ident::new("foo", proc_macro2::Span::call_site()),
+                generics: None,
+                args: syn::punctuated::Punctuated::new(),
+                ret_type: None,
+                requires: vec![],
+                ensures: vec![],
+                body: crate::grammar::SaltBlock { stmts: vec![] },
+            },
+            concrete_tys: vec![],
+            self_ty: None,
+            imports: vec![],
+            type_map: BTreeMap::new(),
+        };
+        assert!(!is_task_concrete(&task));
+    }
+}

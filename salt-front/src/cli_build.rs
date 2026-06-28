@@ -144,26 +144,26 @@ pub fn explain_error_code(code: &str) {
   - The output directory is not writable
   - The file is not valid UTF-8 text
 
-  TODO: fill in detailed examples"),
+  Example: `saltc nonexistent.salt -o out.mlir`"),
         "E002" => println!("\
 [E002] Syntax Error
   The source code could not be parsed. Check for:
   - Missing semicolons, braces, or parentheses
   - Invalid Salt syntax
 
-  TODO: fill in detailed examples"),
+  Example: a missing closing brace or an unclosed string literal."),
         "E003" => println!("\
 [E003] Compilation Error
   The compiler could not generate valid MLIR from the source code.
   This can be caused by type errors, unresolved symbols, or verification failures.
 
-  TODO: fill in detailed examples"),
+  Example: Z3 contract violation like calling safe_div(100, 0) with requires(b != 0)."),
         "E004" => println!("\
 [E004] CLI Usage Error
   An invalid flag or argument was provided on the command line.
   Run `saltc --help` for a full list of options.
 
-  TODO: fill in detailed examples"),
+  Example: `saltc --invalid-flag source.salt` or missing output path."),
         "E005" => println!("\
 [E005] Binary Synthesis Error
   The MLIR-to-native-binary pipeline failed. This usually means:
@@ -171,35 +171,35 @@ pub fn explain_error_code(code: &str) {
   - The target triple is not supported
   - A linker or runtime object is missing
 
-  TODO: fill in detailed examples"),
+  Example: running `saltc --target keuos` without the KeuOS runtime toolchain."),
         "E006" => println!("\
 [E006] Object Compilation Error
   The MLIR-to-object-file pipeline failed.
   Check that LLVM toolchain is correctly installed.
 
-  TODO: fill in detailed examples"),
+  Example: missing LLVM tools (llc, mlir-translate) in PATH."),
         "E007" => println!("\
 [E007] Internal Compiler Error
   This is a bug in the Salt compiler. Please report it at:
   https://github.com/kevin/salt/issues
 
-  TODO: fill in detailed examples"),
+  Please report this bug with the source file and the exact saltc command."),
         "E008" => println!("\
 [E008] Import / Module Error
   An imported module could not be found or parsed.
 
-  TODO: fill in detailed examples"),
+  Example: importing a module that does not exist or has a misspelled type name."),
         "E009" => println!("\
 [E009] Verification Error
   A Z3 contract or ownership verification check failed.
 
-  TODO: fill in detailed examples"),
+  Example: a Z3 contract violation such as dividing by zero without a precondition."),
         "E010" => println!("\
 [E010] Target Triple Error
   The specified target triple is not recognized or supported.
   Supported targets: macos, linux-arm64, keuos, keuos-x86_64
 
-  TODO: fill in detailed examples"),
+  Example: `saltc --target unsupported-target source.salt`."),
         _ => println!("Unknown error code: {}\n\nUse `saltc --explain E001` through `saltc --explain E010` for known codes.", code),
     }
 }

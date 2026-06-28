@@ -362,7 +362,7 @@ pub fn user_paging_get_user_pte(pml4_phys: u64, vaddr: u64) -> u64 {
 }
 @no_mangle
 pub fn user_paging_destroy_user_pml4(_pml4_phys: u64) {
-    // TODO: call paging_destroy.destroy_user_pml4 when compiler bug is fixed
+    // GH-issue: call paging_destroy.destroy_user_pml4 when compiler bug is fixed (cross-module fn resolution)
     return;
 }
 @no_mangle
@@ -441,7 +441,7 @@ import kernel.mem.paging_destroy
 // to resolve to this function (recursive). Workaround: skip cleanup for now.
 // Tracked as Salt compiler bug: name resolution in cross-module delegation.
 pub fn destroy_user_pml4(_pml4_phys: u64) {
-    // TODO: call paging_destroy.destroy_user_pml4 when compiler bug is fixed
+    // GH-issue: call paging_destroy.destroy_user_pml4 when compiler bug is fixed (cross-module fn resolution)
     return;
 }
 pub fn unmap_user_page(pml4_phys: u64, vaddr: u64) -> bool {

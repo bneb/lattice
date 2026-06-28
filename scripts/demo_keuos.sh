@@ -85,7 +85,7 @@ echo -e "${GREEN}[0/4]${NC} Prerequisites verified ✓"
 # ──────────────────────────────────────────────────────────
 # Step 1: Build the Salt compiler (if needed)
 # ──────────────────────────────────────────────────────────
-SALT_BIN="salt-front/target/release/salt-front"
+SALT_BIN="salt-front/target/release/saltc"
 if [ ! -f "$SALT_BIN" ]; then
     echo -e "${YELLOW}[1/4]${NC} Building Salt compiler (first-time only, ~60s)..."
     cd salt-front && cargo build --release 2>&1 | tail -1 && cd ..

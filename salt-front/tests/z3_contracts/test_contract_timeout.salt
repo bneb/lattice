@@ -20,7 +20,7 @@ fn complex_operation(x: i32, y: i32) -> i32
     return (x * y) / (x * x + y * y);
 }
 
-fn main() -> i32 {
+pub fn main() -> i32 {
     let result = complex_operation(3, 4);
     return result;
 }

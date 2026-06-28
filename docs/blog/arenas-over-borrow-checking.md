@@ -1,34 +1,34 @@
 # Why We Chose Arenas Over Borrow Checking
 
-**Published:** June 2026 | **Author:** The KeuOS Team | **Reading time:** 14 minutes
+**Published:** June 2026 | **Author:** The KeuOS Team | **Reading time:** 13 minutes
 
 ---
 
-Salt has no lifetime annotations. No `'a`, no `Box<dyn Future>`, no `Arc<Mutex<T>>`. Despite this, it catches dangling pointer returns and cross-lifetime stores at compile time — without a borrow checker.
+Here is a dangling pointer bug:
+
+```c
+int* create_dangling() {
+    int x = 42;
+    return &x;  // x dies when the function returns
+}
+```
+
+C compiles this with a warning. Rust rejects it at compile time via
+the borrow checker. Salt rejects it at compile time without one.
+
+Salt has no lifetime annotations. No `'a`, no `Box<dyn Future>`, no
+`Arc<Mutex<T>>`. Despite this, it catches the bug above, plus
+cross-lifetime stores and use-after-reset — all at compile time.
 
 How? Arenas.
 
 ---
 
-## The Memory Trilemma
+## Arenas: Allocate, Use, Reset
 
-Systems programming has three memory strategies, and each has a problem:
-
-| Strategy | Example | Fast? | Safe? | Annotation burden? |
-|----------|---------|-------|-------|--------------------|
-| Manual (`malloc`/`free`) | C | Yes | No | None (but you pay in bugs) |
-| Garbage collection | Go, Java | No (pause) | Yes | None (but you pay in latency) |
-| Borrow checking | Rust | Yes | Yes | Yes (lifetime annotations everywhere) |
-
-Rust solved the trilemma for most cases. But its solution requires explicit lifetime annotations on every reference, `Arc<Mutex<T>>` for shared mutable state, and `unsafe` blocks for FFI and self-referential structs. The cognitive overhead is real — and for systems code where allocation patterns are simple and predictable, it's more mechanism than the problem requires.
-
-Arenas offer a fourth option. One that doesn't try to solve the general case.
-
----
-
-## How Arenas Work
-
-An arena is a fixed-size memory region with a bump pointer. Allocation increments the pointer. Freeing resets it. Everything in the arena lives for the arena's entire lifetime, then dies together.
+An arena is a fixed-size memory region with a bump pointer. Allocation
+moves the pointer forward. Resetting moves it back to the start.
+Everything in the arena lives together and dies together.
 
 ```salt
 let arena = Arena::new(4096);   // 4KB region
@@ -38,17 +38,25 @@ let y = arena.alloc(99);       // bump pointer moves again
 arena.reset();                  // everything freed at once, O(1)
 ```
 
-There is no `free(x)`. No per-object deallocation. No fragmentation. No free list. The allocator is four instructions: load, add, compare, store.
+There is no `free(x)`. No per-object deallocation. No fragmentation.
+No free list. The allocator is four instructions: load current pointer,
+add size, compare against limit, store new pointer.
 
-This is the same model video games have used for decades. A frame starts, everything allocates from the frame arena, the frame ends, the arena resets. No individual deallocations. No memory leaks. No garbage collector pauses.
+This is the same model video games have used for decades. A frame
+starts, everything allocates from the frame arena, the frame ends, the
+arena resets. No individual deallocations. No memory leaks. No garbage
+collector pauses.
 
-The tradeoff is that individual objects can't outlive their arena. If you need a value to live longer, you either allocate it in a longer-lived arena or copy it.
+The tradeoff: individual objects can't outlive their arena. If you need
+a value to live longer, you allocate it in a longer-lived arena or copy
+it out.
 
 ---
 
-## The Scope Ladder: Compile-Time Escape Analysis
+## The Scope Ladder: Escape Analysis Without Annotations
 
-The arena model works because Salt can prove, at compile time, that no arena pointer outlives its arena. This is the **Scope Ladder**.
+The arena model works because Salt proves, at compile time, that no
+arena pointer outlives its arena. This is the Scope Ladder.
 
 Every variable gets an integer depth based on its lexical scope:
 
@@ -59,69 +67,92 @@ Every variable gets an integer depth based on its lexical scope:
 | 2 | Function-local variables |
 | 3+ | Block-scoped variables (`if`/`while`/`for`) |
 
-Arena pointers inherit the depth of the arena they were allocated from. Three rules govern all assignments and returns:
+Arena pointers inherit the depth of the arena they were allocated from.
+Three rules govern all assignments and returns:
 
-**Rule 1: Return Rule.** `return x` is valid only if `depth(x) <= 1`. You can't return a pointer into a local arena.
+**Rule 1: Return Rule.** `return x` is valid only if `depth(x) <= 1`.
+You can't return a pointer into a local arena.
 
 ```salt
 fn create_dangling() -> Ptr<Node> {
     let arena = Arena::new(4096);   // depth 2 (local)
-    let n = arena.alloc(Node{});    // depth 2 (inherits from arena)
-    return n;                       // ❌ depth 2 > 1 — REJECTED at compile time
+    let n = arena.alloc(Node{});    // depth 2 (inherits)
+    return n;                       // ❌ depth 2 > 1 — compile error
 }
 ```
 
-**Rule 2: Assignment Rule.** `a = b` is valid only if `depth(b) <= depth(a)`. You can't store a short-lived pointer in a long-lived container.
+**Rule 2: Assignment Rule.** `a = b` requires `depth(b) <= depth(a)`.
+You can't store a short-lived pointer in a long-lived container.
 
 ```salt
 fn store_escape(bucket: &Bucket) {
-    let arena = Arena::new(4096);   // depth 2 (local)
+    let arena = Arena::new(4096);   // depth 2
     let n = arena.alloc(Node{});    // depth 2
-    bucket.node = n;                // ❌ depth(bucket) ≤ 1, depth(n) = 2 — REJECTED
+    bucket.node = n;                // ❌ depth(bucket) ≤ 1 — compile error
 }
 ```
 
-**Rule 3: Transitivity Rule.** `s.field` inherits `depth(s)`. If you can't store `x` in `s`, you can't store `x` in `s.field` either.
+**Rule 3: Transitivity.** `s.field` inherits `depth(s)`. If you can't
+store `x` in `s`, you can't store `x` in `s.field` either.
 
-Three rules. No annotations. The compiler infers depths from the AST and checks every assignment and return statement.
+Three rules. No annotations. The compiler infers depths from the AST and
+checks every assignment and return statement during codegen.
 
 ---
 
-## What This Catches
-
-The Scope Ladder catches the three classic memory bugs:
+## What the Scope Ladder Catches
 
 | Bug | Example | Caught by |
 |-----|---------|-----------|
-| Use-after-free | Read after `arena.reset()` | Z3 epoch tracking (debug) + poison fills |
 | Dangling return | Return pointer to local arena | Rule 1 (compile time) |
-| Cross-lifetime store | Store local pointer in global struct | Rule 2 (compile time) |
+| Cross-lifetime store | Store local pointer in outer struct | Rule 2 (compile time) |
+| Use-after-reset | Read after `arena.reset()` | Debug layer (runtime) |
 
-The compile-time checks have zero runtime cost. The debug checks (poison fills, epoch tracking) are enabled with `SALT_DEBUG` and use the same technique as ASAN's use-after-free detection — filling freed memory with a poison value that traps on access.
+The compile-time checks have zero runtime cost — they're AST analysis,
+not codegen. Use-after-reset is caught at runtime in debug builds
+(`SALT_DEBUG`) via poison fills: `arena.reset()` fills the freed region
+with `0xAA`, and any subsequent read through a dangling pointer hits the
+poison value and traps. Same technique as ASAN's use-after-free
+detection, scoped to arena boundaries.
+
+Z3 epoch tracking — where each pointer carries the epoch of its
+allocation and the compiler proves the pointer's epoch matches the
+arena's current epoch before each dereference — is in development.
+The debug poison-fill layer handles this today; the compile-time proof
+is the long-term goal.
 
 ---
 
 ## When Arenas Don't Work
 
-Arenas work when your allocation pattern is: allocate many objects, use them for a bounded period, free them all at once. This describes request handlers, frame renderers, compiler passes, and kernel operations.
+Arenas work when your allocation pattern is: allocate many objects, use
+them for a bounded period, free them all at once. This describes request
+handlers, frame renderers, compiler passes, and kernel operations.
 
 Arenas don't work for:
 
-- **Arbitrary graph structures with independent lifetimes.** A DOM tree where nodes are created and destroyed independently needs either a GC or manual memory management.
-- **Long-lived caches.** If objects live for minutes or hours, an arena that can't be reset until the last object dies wastes memory.
-- **Cyclic references.** Arenas don't collect cycles. If A points to B and B points to A, both live until the arena resets.
+- **Arbitrary graph structures with independent lifetimes.** A DOM tree
+  where nodes are created and destroyed independently needs either a GC
+  or manual memory management.
+- **Long-lived caches.** If objects live for minutes or hours, an arena
+  that can't be reset until the last object dies wastes memory.
+- **Cyclic references.** Arenas don't collect cycles. If A points to B
+  and B points to A, both live until the arena resets.
 
-For these cases, Salt provides a separate `Heap` allocator with reference counting — `Rc<T>` and `Arc<T>`. It's slower but handles the general case. The convention is: use arenas by default, reach for `Rc` only when you need independent lifetimes.
+For these cases, Salt provides `Rc<T>` and `Arc<T>` — reference-counted
+heap allocation. Slower than arenas, but handles the general case. The
+convention: use arenas by default, reach for `Rc` only when you need
+independent lifetimes.
 
 ---
 
-## Comparison with Rust
+## Why Arenas Over Borrow Checking
 
 A Rust function with arena-allocated return values:
 
 ```rust
 fn create_node<'a>(arena: &'a Arena, val: i32) -> &'a Node {
-    arena.alloc(Node { val })  // lifetime 'a tied to arena
+    arena.alloc(Node { val })
 }
 ```
 
@@ -129,32 +160,39 @@ The equivalent Salt:
 
 ```salt
 fn create_node(arena: Arena, val: i32) -> Ptr<Node> {
-    return arena.alloc(Node { val });  // depth inferred from arena
+    return arena.alloc(Node { val });
 }
 ```
 
-Rust requires an explicit lifetime parameter `'a` on the function, the argument, and the return type. Salt infers it from the depth of `arena` (depth 1, because it's an argument) and propagates it to the return value.
+Rust requires an explicit lifetime parameter `'a` on the function, the
+argument, and the return type. Salt infers it from the depth of `arena`
+(depth 1, because it's an argument) and propagates it to the return
+value.
 
-Neither approach is strictly better. Rust's lifetime annotations are more expressive — they can express partial borrows, non-lexical lifetimes, and complex ownership graphs that the Scope Ladder can't. Salt's inference is simpler for the common cases: arena allocation, request scoping, and buffer management. The trade is expressiveness for annotation burden.
+Rust's borrow checker is more expressive. It handles partial borrows,
+non-lexical lifetimes, and complex ownership graphs that the Scope
+Ladder can't express. For a general-purpose systems language, that
+expressiveness is essential.
 
-For systems code where allocation patterns are simple — the kernel, a network server, a compiler — Salt's model covers ~90% of cases with zero annotations. For the remaining 10%, there's `Rc<T>` and `unsafe`.
+Salt isn't general-purpose. It's for kernels, network servers, and
+compilers — programs where allocation patterns are simple and
+predictable. In those domains, arenas handle ~90% of cases with zero
+annotations. For the remaining 10%, there's `Rc<T>` and `unsafe`.
 
----
-
-## The Debug Layer: Poison Fills and Z3 Epochs
-
-Compile-time checks catch escape. Debug checks catch use-after-reset.
-
-When `SALT_DEBUG` is enabled, every `arena.reset()` fills the freed region with `0xAA`. Any subsequent read from a dangling pointer hits the poison value and traps. This is the same technique as ASAN's use-after-free detection, but scoped to arena boundaries.
-
-Z3 verification adds a second layer in the design: an epoch counter per arena, incremented on each `reset()`. Every pointer carries the epoch of its allocation. Before each pointer dereference, the compiler can emit a Z3 proof obligation checking that the pointer's epoch matches the arena's current epoch. This is an active area of development in the compiler.
+The trade is real: Salt can't express the ownership patterns Rust can.
+But for the kernel, the network stack, and the compiler, it doesn't
+need to.
 
 ---
 
 ## The Bottom Line
 
-Salt's arena model isn't a general-purpose replacement for borrow checking. It's a specialized tool for the allocation patterns that dominate systems code: allocate, use, reset. For those patterns, it provides equivalent safety with zero annotations.
+Arenas aren't a new idea. They're used in video games, compilers, and
+every high-performance system where allocation patterns are predictable.
+What Salt adds is compile-time escape analysis that makes them safe by
+default — no annotations, no runtime overhead, no borrow checker.
 
-The trade is real: arenas can't express the complex ownership graphs that Rust's lifetimes can. But for the kernel, the network stack, and the compiler, they don't need to.
+Three rules. Zero annotations. The compiler catches the bugs before the
+binary exists.
 
 [Read the arena deep-dive →](/docs/deep-dives/arena-safety.md)

@@ -1,0 +1,104 @@
+// LETTUCE List — StringMap-indexed doubly-linked list
+// Redis: LPUSH, RPUSH, LPOP, RPOP, LLEN, LRANGE
+package lettuce.list
+import std.core.ptr.Ptr
+import std.core.str.StringView
+import std.collections.string_map.{StringMap, StringMap_new, StringMap_set, StringMap_get, StringMap_value_at}
+import lettuce.resp.{write_integer, write_bulk_string, write_null_bulk, write_empty_array, write_array_header}
+extern fn malloc(size: i64) -> Ptr<u8>;
+
+struct ListNode { val: StringView, prev: Ptr<ListNode>, next: Ptr<ListNode> }
+struct ListMeta { head: Ptr<ListNode>, tail: Ptr<ListNode>, len: i64 }
+var g_smap: Ptr<StringMap> = 0 as Ptr<StringMap>;
+
+fn map() -> Ptr<StringMap> { if g_smap.addr() == 0 { g_smap = StringMap_new(); } return g_smap; }
+fn get_meta(key: StringView) -> Ptr<ListMeta> {
+    let slot = StringMap_get(map(), key);
+    if slot < 0 { return 0 as Ptr<ListMeta>; }
+    return StringMap_value_at(map(), slot).ptr as Ptr<ListMeta>;
+}
+fn ensure_meta(key: StringView) -> Ptr<ListMeta> {
+    let m = get_meta(key);
+    if m.addr() != 0 { return m; }
+    let raw = malloc(24) as Ptr<ListMeta>;
+    raw.head = 0 as Ptr<ListNode>; raw.tail = 0 as Ptr<ListNode>; raw.len = 0;
+    StringMap_set(map(), key, StringView::from_raw(raw as Ptr<u8>, 8));
+    return raw;
+}
+fn new_node(value: StringView) -> Ptr<ListNode> {
+    let n = malloc(24) as Ptr<ListNode>;
+    n.val = value; n.prev = 0 as Ptr<ListNode>; n.next = 0 as Ptr<ListNode>;
+    return n;
+}
+
+pub fn handle_lpush_one(key: StringView, value: StringView, out_buf: Ptr<u8>) -> i64 {
+    let m = ensure_meta(key);
+    if m.addr() == 0 { return write_integer(out_buf, 0); }
+    let node = new_node(value);
+    node.next = m.head;
+    if m.head.addr() != 0 { m.head.prev = node; } else { m.tail = node; }
+    m.head = node; m.len = m.len + 1;
+    return write_integer(out_buf, m.len);
+}
+
+pub fn handle_rpush_one(key: StringView, value: StringView, out_buf: Ptr<u8>) -> i64 {
+    let m = ensure_meta(key);
+    if m.addr() == 0 { return write_integer(out_buf, 0); }
+    let node = new_node(value);
+    node.prev = m.tail;
+    if m.tail.addr() != 0 { m.tail.next = node; } else { m.head = node; }
+    m.tail = node; m.len = m.len + 1;
+    return write_integer(out_buf, m.len);
+}
+
+pub fn handle_lpop(key: StringView, out_buf: Ptr<u8>) -> i64 {
+    let m = get_meta(key);
+    if m.addr() == 0 { return write_null_bulk(out_buf); }
+    if m.head.addr() == 0 { return write_null_bulk(out_buf); }
+    let head = m.head;
+    let r = write_bulk_string(out_buf, head.val);
+    m.head = head.next;
+    if m.head.addr() != 0 { m.head.prev = 0 as Ptr<ListNode>; }
+    else { m.tail = 0 as Ptr<ListNode>; }
+    m.len = m.len - 1;
+    return r;
+}
+
+pub fn handle_rpop(key: StringView, out_buf: Ptr<u8>) -> i64 {
+    let m = get_meta(key);
+    if m.addr() == 0 { return write_null_bulk(out_buf); }
+    if m.tail.addr() == 0 { return write_null_bulk(out_buf); }
+    let tail = m.tail;
+    let r = write_bulk_string(out_buf, tail.val);
+    m.tail = tail.prev;
+    if m.tail.addr() != 0 { m.tail.next = 0 as Ptr<ListNode>; }
+    else { m.head = 0 as Ptr<ListNode>; }
+    m.len = m.len - 1;
+    return r;
+}
+
+pub fn handle_llen(key: StringView, out_buf: Ptr<u8>) -> i64 {
+    let m = get_meta(key);
+    if m.addr() == 0 { return write_integer(out_buf, 0); }
+    return write_integer(out_buf, m.len);
+}
+
+pub fn handle_lrange(key: StringView, start: i64, stop: i64, out_buf: Ptr<u8>) -> i64 {
+    let m = get_meta(key);
+    if m.addr() == 0 { return write_empty_array(out_buf); }
+    let list_len = m.len;
+    let mut s = start; let mut e = stop;
+    if s < 0 { s = list_len + s; } if e < 0 { e = list_len + e; }
+    if s < 0 { s = 0; } if e >= list_len { e = list_len - 1; }
+    if s > e || list_len == 0 { return write_empty_array(out_buf); }
+    let count = e - s + 1;
+    let mut total = write_array_header(out_buf, count);
+    let mut cur: Ptr<ListNode> = m.head; let mut i: i64 = 0;
+    while i < s && cur.addr() != 0 { cur = cur.next; i = i + 1; }
+    let mut j: i64 = 0;
+    while j < count && cur.addr() != 0 {
+        total = total + write_bulk_string(out_buf, cur.val);
+        cur = cur.next; j = j + 1;
+    }
+    return total;
+}

@@ -40,7 +40,7 @@ for SALT_FILE in "${KERNEL_SALT_FILES[@]}"; do
         LIB_FLAG="--lib"
     fi
 
-    "$PROJECT_ROOT/salt-front/target/release/salt-front" "$SALT_FILE" $LIB_FLAG \
+    "$PROJECT_ROOT/salt-front/target/release/saltc" "$SALT_FILE" $LIB_FLAG \
         -o "$TMP_DIR/${BASENAME}.mlir" 2>"$TMP_DIR/${BASENAME}_mlir.log" 2>/dev/null || {
         echo "  ✗ MLIR generation failed for $BASENAME"
         exit 1

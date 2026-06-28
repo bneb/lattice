@@ -1,0 +1,27 @@
+// Z3 Contract Test: BV (bitvector) contracts
+// Expected: PASS — bitwise operations proved via Int→BV→Int conversion
+package main
+
+// Bitwise identity: x & 0xFF == x means x fits in 8 bits
+pub fn mask_identity(x: i32) -> i32
+    requires(x & 0xFF == x)
+{ return x; }
+
+// Bitwise OR is monotonic: x | y >= x (for non-negative)
+pub fn or_monotonic(x: i32, y: i32) -> i32
+    requires(x >= 0 && y >= 0)
+    ensures(result >= x)
+{ return x | y; }
+
+// Bitwise AND bounds: x & 0xFF <= 255
+pub fn and_bounds(x: i32) -> i32
+    requires(x >= 0 && x <= 255)
+    ensures(result >= 0 && result <= 255)
+{ return x & 0xFF; }
+
+pub fn main() -> i32 {
+    let _a = mask_identity(127);
+    let _b = or_monotonic(3, 12);
+    let _c = and_bounds(128);
+    return 0;
+}

@@ -10,7 +10,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SALT_FRONT="$PROJECT_ROOT/salt-front/target/release/salt-front"
+SALTC="$PROJECT_ROOT/salt-front/target/release/saltc"
 SERVER_BIN="/tmp/salt_build/server_native"
 REDIS_PORT=6380
 LETTUCE_PORT=6379
@@ -128,12 +128,12 @@ echo ""
 echo "--- Verification Cost ---"
 
 nv_start=$(python3 -c 'import time; print(time.time())')
-"$SALT_FRONT" "$PROJECT_ROOT/lettuce/src/server.salt" -o /tmp/lettuce_bench/server_nv.mlir 2>/dev/null
+"$SALTC" "$PROJECT_ROOT/lettuce/src/server.salt" -o /tmp/lettuce_bench/server_nv.mlir 2>/dev/null
 nv_end=$(python3 -c 'import time; print(time.time())')
 nv_time=$(python3 -c "print(f'{float($nv_end)-float($nv_start):.3f}')")
 
 v_start=$(python3 -c 'import time; print(time.time())')
-"$SALT_FRONT" "$PROJECT_ROOT/lettuce/src/server.salt" --verify -o /tmp/lettuce_bench/server_v.mlir 2>/dev/null
+"$SALTC" "$PROJECT_ROOT/lettuce/src/server.salt" -o /tmp/lettuce_bench/server_v.mlir 2>/dev/null
 v_end=$(python3 -c 'import time; print(time.time())')
 v_time=$(python3 -c "print(f'{float($v_end)-float($v_start):.3f}')")
 

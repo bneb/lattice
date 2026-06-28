@@ -143,7 +143,6 @@ impl StringView {
         if self.len != other.len {
             return false;
         }
-        // Store pointers in locals to ensure correct MLIR type annotations on .offset() calls.
         let self_p = self.ptr;
         let other_p = other.ptr;
         let mut i: i64 = 0;
@@ -151,6 +150,22 @@ impl StringView {
             if self_p.offset(i).read() != other_p.offset(i).read() {
                 return false;
             }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    /// Case-insensitive byte comparison. 'A'-'Z' are treated as equal to 'a'-'z'.
+    /// Takes StringView by value so string literals work directly:
+    ///   cmd.eq_ignore_case("hset")
+    pub fn eq_ignore_case(&self, other: StringView) -> bool {
+        if self.len != other.len { return false; }
+        let self_p = self.ptr; let other_p = other.ptr;
+        let mut i: i64 = 0;
+        while i < self.len {
+            let a = self_p.offset(i).read() | 32;
+            let b = other_p.offset(i).read() | 32;
+            if a != b { return false; }
             i = i + 1;
         }
         return true;

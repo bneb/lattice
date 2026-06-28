@@ -117,7 +117,8 @@ pub fn check(
     let salt_front = find_salt_front(project_dir)?;
     let mut cmd = Command::new(&salt_front);
     cmd.arg(&entry);
-    cmd.arg("--verify");
+    cmd.arg("--lib");
+    cmd.arg("--disable-alias-scopes");
 
     if !search_roots.is_empty() {
         for root in search_roots {
@@ -128,7 +129,7 @@ pub fn check(
     }
 
     let output = cmd.output()
-        .map_err(|e| format!("failed to run salt-front: {}", e))?;
+        .map_err(|e| format!("failed to run saltc: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -144,14 +145,14 @@ pub fn output_path(manifest: &Manifest, project_dir: &Path, release: bool) -> Pa
     project_dir.join(target_dir).join(&manifest.package.name)
 }
 
-/// Find the salt-front binary by searching upward from the project directory.
+/// Find the saltc binary by searching upward from the project directory.
 pub fn find_salt_front(project_dir: &Path) -> Result<PathBuf, String> {
     let mut dir = project_dir
         .canonicalize()
         .unwrap_or_else(|_| project_dir.to_path_buf());
 
     loop {
-        for name in &["salt-front", "salt-front/target/release/salt-front", "salt-front/target/debug/salt-front"] {
+        for name in &["saltc", "salt-front/target/release/saltc", "salt-front/target/debug/saltc"] {
             let candidate = dir.join(name);
             if candidate.exists() && candidate.is_file() {
                 return Ok(candidate);
@@ -164,13 +165,13 @@ pub fn find_salt_front(project_dir: &Path) -> Result<PathBuf, String> {
     // Check SALT_REPO_ROOT environment variable
     if let Ok(repo_root) = std::env::var("SALT_REPO_ROOT") {
         let env_bin = PathBuf::from(&repo_root)
-            .join("salt-front/target/release/salt-front");
+            .join("salt-front/target/release/saltc");
         if env_bin.exists() {
             return Ok(env_bin);
         }
     }
 
-    Err("could not find salt-front binary — build it with: cd salt-front && cargo build --release\n\
+    Err("could not find saltc binary — build it with: cd salt-front && cargo build --release\n\
          Or set SALT_REPO_ROOT to the repository root.".to_string())
 }
 

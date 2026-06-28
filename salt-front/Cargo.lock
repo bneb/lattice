@@ -354,10 +354,12 @@ dependencies = [
  "paste",
  "proc-macro2",
  "quote",
+ "regex",
  "syn",
  "tempfile",
  "walkdir",
  "z3",
+ "z3-sys",
 ]
 
 [[package]]

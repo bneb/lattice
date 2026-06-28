@@ -105,3 +105,46 @@ pub fn emit_static_data(value: &ConstEvalValue, mlir_ty: &str) -> String {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scalar_no_bootstrap() {
+        let v = ConstEvalValue::Scalar(42, Type::I64);
+        assert!(!v.requires_bootstrap());
+    }
+
+    #[test]
+    fn test_symbolic_requires_bootstrap() {
+        let v = ConstEvalValue::SymbolicRef("other_global".to_string());
+        assert!(v.requires_bootstrap());
+    }
+
+    #[test]
+    fn test_nested_aggregate_bootstrap() {
+        let v = ConstEvalValue::Aggregate(vec![
+            ("x".to_string(), ConstEvalValue::Scalar(1, Type::I64)),
+            ("p".to_string(), ConstEvalValue::SymbolicRef("target".to_string())),
+        ]);
+        assert!(v.requires_bootstrap());
+    }
+
+    #[test]
+    fn test_emit_scalar() {
+        let v = ConstEvalValue::Scalar(10, Type::I64);
+        assert_eq!(emit_static_data(&v, "i64"), "10");
+    }
+
+    #[test]
+    fn test_emit_bool() {
+        assert_eq!(emit_static_data(&ConstEvalValue::Bool(true), "i8"), "1 : i8");
+        assert_eq!(emit_static_data(&ConstEvalValue::Bool(false), "i8"), "0 : i8");
+    }
+
+    #[test]
+    fn test_emit_null() {
+        assert_eq!(emit_static_data(&ConstEvalValue::Null, "i64"), "0 : i64");
+    }
+}

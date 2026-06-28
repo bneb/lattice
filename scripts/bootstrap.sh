@@ -181,7 +181,7 @@ info "Running: cargo build --release"
 
 if cargo build --release 2>&1 | tail -20; then
     ok "Salt compiler built successfully"
-    SALT_FRONT="$PROJECT_ROOT/salt-front/target/release/salt-front"
+    SALT_FRONT="$PROJECT_ROOT/salt-front/target/release/saltc"
     ok "Binary: $SALT_FRONT"
 else
     err "Salt compiler build failed. Check the output above for errors."

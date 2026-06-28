@@ -3,8 +3,6 @@ use crate::codegen::context::{LoweringContext, LocalKind};
 use crate::codegen::type_bridge::*;
 use std::collections::HashMap;
 use super::{emit_expr, emit_lvalue, LValueKind};
-
-
 fn emit_field_get_base(
     ctx: &mut LoweringContext,
     out: &mut String,
@@ -72,7 +70,6 @@ fn emit_field_safety_check(
     }
     Ok(None)
 }
-
 fn emit_field_auto_deref(
     ctx: &mut LoweringContext,
     out: &mut String,
@@ -118,7 +115,6 @@ fn emit_field_auto_deref(
     }
     Ok((current_ty, current_val, was_ref))
 }
-
 pub fn emit_field(
     ctx: &mut LoweringContext,
     out: &mut String,
@@ -328,7 +324,6 @@ pub fn emit_field(
     }
     Err(format!("Cannot access field {:?} on type {:?}", f.member, base_ty))
 }
-
 #[allow(clippy::too_many_arguments)] // REASON: all 8 params independently meaningful; bundling would obscure intent
 fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, kind: LValueKind, element: &Type) -> Result<(String, Type), String> {
 // Check deref validity
@@ -369,11 +364,7 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                  } else {
                      promote_numeric(ctx, out, &raw_idx_val, &raw_idx_ty, &Type::I64)?
                  };
-                                // Use LValueKind to determine if a load is needed.
-                  // If kind is Ptr or Local, base_ptr is an alloca containing the pointer - must load first.
-                  // If kind is SSA, base_ptr IS the pointer value (no load needed).
-                  // For Reference types, the SSA value IS the pointer - don't load!
-                  // A &u8 parameter like %arg_s is already the pointer to the data, not a pointer-to-pointer.
+                                // LValueKind: Ptr/Local → load alloca; SSA & Reference → use pointer directly.
                   let ptr_for_gep = if matches!(base_ty, Type::Reference(_, _)) {
                       // For references, base_ptr IS the address of the data (even if kind is Ptr)
                       base_ptr.clone()
@@ -432,7 +423,6 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                  
                  Ok((load_res, (*element).clone()))
 }
-
 fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, inner: &Type, shape: &[usize]) -> Result<(String, Type), String> {
 // Tensors are memref types (SSA values from memref.alloc)
                  // For SSA, base_ptr is already the memref value
@@ -509,10 +499,7 @@ fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprI
                      }
                  };
                  
-                 // Z3 Bounds Check Elision 
-                 // Attempts to prove bounds are safe at compile time using Z3.
-                 // If proven safe, emits no runtime check. Otherwise, falls through to memref.load
-                 // which has implicit bounds checking in debug mode.
+                 // Z3 Bounds Check Elision: proves index in bounds at compile time; fallback: runtime check.
                  let sym_ctx = crate::codegen::verification::SymbolicContext::new(ctx.z3_ctx);
                  let mut all_safe = true;
                  
@@ -579,7 +566,6 @@ fn emit_index_tensor(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprI
                  
                  Ok((res, (*inner).clone()))
 }
-
 #[allow(clippy::too_many_arguments)] // REASON: all 8 params independently meaningful; bundling would obscure intent
 fn emit_index_array(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, inner: &Type, packed: &bool) -> Result<(String, Type), String> {
 let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I64))?;
@@ -842,6 +828,8 @@ pub fn translate_to_z3<'a, 'ctx>(
                 syn::BinOp::Sub(_) => Ok(lhs - rhs),
                 syn::BinOp::Mul(_) => Ok(lhs * rhs),
                 syn::BinOp::Div(_) => Ok(lhs / rhs),
+                syn::BinOp::BitAnd(_) | syn::BinOp::BitOr(_) | syn::BinOp::BitXor(_)
+                | syn::BinOp::Shl(_) | syn::BinOp::Shr(_) => crate::codegen::expr::z3_translate::translate_bitwise_op(ctx, &lhs, &rhs, &b.op),
                 _ => Err(format!("Unsupported symbolic operator: {:?}", b.op)),
             }
         }
@@ -899,7 +887,6 @@ pub fn translate_to_z3<'a, 'ctx>(
             result.as_int().ok_or_else(|| "Function call did not return Int in Z3".to_string())
         }
         syn::Expr::MethodCall(mc) => {
-            // Model method calls as func(receiver, args...) → Int
             let method_name = mc.method.to_string();
             let mut arg_z3s = Vec::new();
             arg_z3s.push(translate_to_z3(ctx, &mc.receiver, local_vars)?);
@@ -927,7 +914,7 @@ pub fn translate_to_z3<'a, 'ctx>(
 
 /// Translate a Salt expression to a Z3 String value.
 /// Handles string literals (compile-time constants) and variable references.
-fn translate_string_to_z3<'a, 'ctx>(
+pub fn translate_string_to_z3<'a, 'ctx>(
     ctx: &mut LoweringContext<'a, 'ctx>,
     expr: &syn::Expr,
     _local_vars: &HashMap<String, (Type, LocalKind)>,
@@ -959,6 +946,19 @@ pub fn translate_bool_to_z3<'a, 'ctx>(
         syn::Expr::Binary(b) => {
             match b.op {
                 syn::BinOp::Eq(_) | syn::BinOp::Ne(_) | syn::BinOp::Lt(_) | syn::BinOp::Le(_) | syn::BinOp::Gt(_) | syn::BinOp::Ge(_) => {
+                    // Float operands: use Real (exact rational) comparison instead of Int truncation
+                    if crate::codegen::expr::z3_translate::is_float_expr(&b.left, local_vars)
+                        || crate::codegen::expr::z3_translate::is_float_expr(&b.right, local_vars)
+                    {
+                        let lhs = crate::codegen::expr::z3_translate::translate_real_to_z3(ctx, &b.left, local_vars)?;
+                        let rhs = crate::codegen::expr::z3_translate::translate_real_to_z3(ctx, &b.right, local_vars)?;
+                        return Ok(match b.op {
+                            syn::BinOp::Eq(_) => lhs._eq(&rhs), syn::BinOp::Ne(_) => lhs._eq(&rhs).not(),
+                            syn::BinOp::Lt(_) => lhs.lt(&rhs), syn::BinOp::Le(_) => lhs.le(&rhs),
+                            syn::BinOp::Gt(_) => lhs.gt(&rhs), syn::BinOp::Ge(_) => lhs.ge(&rhs),
+                            _ => unreachable!(),
+                        });
+                    }
                     let lhs = translate_to_z3(ctx, &b.left, local_vars)?;
                     let rhs = translate_to_z3(ctx, &b.right, local_vars)?;
                     match b.op {

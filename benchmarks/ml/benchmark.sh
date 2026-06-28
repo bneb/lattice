@@ -16,7 +16,7 @@ NC='\033[0m'
 
 # Paths
 # Paths
-SALT_BIN="../../salt-front/target/release/salt-front"
+SALT_BIN="../../salt-front/target/release/saltc"
 
 # Build Salt if missing
 if [ ! -f "$SALT_BIN" ]; then

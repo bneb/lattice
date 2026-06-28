@@ -61,6 +61,7 @@ pub struct Sort<'a>(PhantomData<&'a ()>);
 
 impl<'a> Sort<'a> {
     pub fn int(_ctx: &'a Context) -> Self { Sort(PhantomData) }
+    pub fn real(_ctx: &'a Context) -> Self { Sort(PhantomData) }
     pub fn bool(_ctx: &'a Context) -> Self { Sort(PhantomData) }
     pub fn string(_ctx: &'a Context) -> Self { Sort(PhantomData) }
     pub fn bitvector(_ctx: &'a Context, _sz: u32) -> Self { Sort(PhantomData) }
@@ -234,11 +235,25 @@ pub mod ast {
         pub fn or(_ctx: &'a Context, _args: &[&Bool<'a>]) -> Bool<'a> { Bool(PhantomData) }
         pub fn implies(&self, _other: &Bool<'a>) -> Bool<'a> { Bool(PhantomData) }
         pub fn ite(&self, _t: &Int<'a>, _e: &Int<'a>) -> Int<'a> { Int(PhantomData) }
-        pub fn substitute(&self, _pairs: &[(&Int<'a>, &Int<'a>)]) -> Bool<'a> { Bool(PhantomData) }
+        pub fn substitute<T: Ast>(&self, _pairs: &[(&T, &T)]) -> Bool<'a> { Bool(PhantomData) }
 
         // z3::ast::Ast trait methods as inherent methods
         pub fn _eq(&self, _other: &Bool<'a>) -> Bool<'a> { Bool(PhantomData) }
     }
+
+    #[derive(Debug, Clone)]
+    pub struct Pattern<'a>(pub(crate) PhantomData<&'a ()>);
+
+    impl<'a> Pattern<'a> {
+        pub fn new(_ctx: &'a Context, _terms: &[&dyn Ast]) -> Self { Pattern(PhantomData) }
+    }
+
+    impl<'a> fmt::Display for Pattern<'a> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "<z3_stub::Pattern>") }
+    }
+
+    pub fn forall_const<'a>(_ctx: &'a Context, _bound: &[&dyn Ast], _patterns: &[&Pattern<'a>], _body: &Bool<'a>) -> Bool<'a> { Bool(PhantomData) }
+    pub fn exists_const<'a>(_ctx: &'a Context, _bound: &[&dyn Ast], _patterns: &[&Pattern<'a>], _body: &Bool<'a>) -> Bool<'a> { Bool(PhantomData) }
 
     impl<'a> fmt::Display for Bool<'a> {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -287,13 +302,35 @@ pub mod ast {
 
     impl<'a> BV<'a> {
         pub fn new_const(_ctx: &'a Context, _name: impl Into<String>, _sz: u32) -> Self { BV(PhantomData) }
+        pub fn fresh_const(_ctx: &'a Context, _prefix: &str, _sz: u32) -> Self { BV(PhantomData) }
         pub fn from_i64(_ctx: &'a Context, _val: i64, _sz: u32) -> Self { BV(PhantomData) }
+        pub fn from_u64(_ctx: &'a Context, _val: u64, _sz: u32) -> Self { BV(PhantomData) }
+        pub fn as_i64(&self) -> Option<i64> { None }
+        pub fn to_int(&self, _signed: bool) -> Int<'a> { Int(PhantomData) }
+        pub fn from_int(_ast: &Int<'a>, _sz: u32) -> Self { BV(PhantomData) }
+        pub fn get_size(&self) -> u32 { 0 }
+        // Comparisons
         pub fn _eq(&self, _other: &BV<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn bvult(&self, _other: &BV<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn bvslt(&self, _other: &BV<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn bvule(&self, _other: &BV<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn bvsle(&self, _other: &BV<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn bvuge(&self, _other: &BV<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn bvsge(&self, _other: &BV<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn bvugt(&self, _other: &BV<'a>) -> Bool<'a> { Bool(PhantomData) }
+        pub fn bvsgt(&self, _other: &BV<'a>) -> Bool<'a> { Bool(PhantomData) }
+        // Arithmetic
+        pub fn bvadd(&self, _other: &BV<'a>) -> BV<'a> { BV(PhantomData) }
+        pub fn bvsub(&self, _other: &BV<'a>) -> BV<'a> { BV(PhantomData) }
+        pub fn bvmul(&self, _other: &BV<'a>) -> BV<'a> { BV(PhantomData) }
+        // Bitwise
         pub fn bvand(&self, _other: &BV<'a>) -> BV<'a> { BV(PhantomData) }
         pub fn bvor(&self, _other: &BV<'a>) -> BV<'a> { BV(PhantomData) }
         pub fn bvxor(&self, _other: &BV<'a>) -> BV<'a> { BV(PhantomData) }
         pub fn bvnot(&self) -> BV<'a> { BV(PhantomData) }
+        // Shifts
         pub fn bvshl(&self, _other: &BV<'a>) -> BV<'a> { BV(PhantomData) }
+        pub fn bvlshr(&self, _other: &BV<'a>) -> BV<'a> { BV(PhantomData) }
         pub fn bvashr(&self, _other: &BV<'a>) -> BV<'a> { BV(PhantomData) }
     }
 

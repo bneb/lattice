@@ -33,7 +33,7 @@ pub mod hir;
 #[cfg(not(feature = "z3-backend"))]
 pub mod z3_stub;
 pub mod interpreter;
-
+pub mod interpreter_helpers;
 #[cfg(feature = "z3-backend")]
 pub use z3 as z3_shim;
 

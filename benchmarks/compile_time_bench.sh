@@ -14,7 +14,7 @@ set -e
 
 LLVM_VERSION="${LLVM_VERSION:-21}"
 LLVM_BIN="/opt/homebrew/opt/llvm@${LLVM_VERSION}/bin"
-SALT_COMPILER="../salt-front/target/release/salt-front"
+SALT_COMPILER="../salt-front/target/release/saltc"
 MLIR_OPT="${LLVM_BIN}/mlir-opt"
 MLIR_TRANSLATE="${LLVM_BIN}/mlir-translate"
 OPT="${LLVM_BIN}/opt"

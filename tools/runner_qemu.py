@@ -18,8 +18,6 @@ WORKSPACE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SALT_FRONT = os.path.join(WORKSPACE_ROOT, "salt-front/target/release/saltc")
 if not os.path.exists(SALT_FRONT):
     SALT_FRONT = os.path.join(WORKSPACE_ROOT, "salt-front/target/debug/saltc")
-if not os.path.exists(SALT_FRONT):
-    SALT_FRONT = os.path.join(WORKSPACE_ROOT, "salt-front/target/debug/salt-front")
 SALT_OPT = os.path.join(WORKSPACE_ROOT, "salt/build/salt-opt")
 
 class ToolchainProvider:

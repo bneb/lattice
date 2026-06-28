@@ -95,10 +95,10 @@ fi
 echo -e "\n${BOLD}[3/3] Salt / kqueue${NC}"
 SALT_SIZE=0
 if [ -f "$SCRIPT_DIR/echo_salt.salt" ]; then
-    SALT_FRONT="$SCRIPT_DIR/../../salt-front/target/release/salt-front"
+    SALT_FRONT="$SCRIPT_DIR/../../salt-front/target/release/saltc"
     RUNTIME_C="$SCRIPT_DIR/../../salt-front/runtime.c"
     if [ ! -f "$SALT_FRONT" ]; then
-        fail "salt-front release binary not found (run: cargo build --release)"
+        fail "saltc release binary not found (run: cargo build --release)"
     else
         # Salt → MLIR → LLVM IR → native binary (with C bridge)
         DYLD_LIBRARY_PATH=/opt/homebrew/lib $SALT_FRONT "$SCRIPT_DIR/echo_salt.salt" --release 2>/dev/null \

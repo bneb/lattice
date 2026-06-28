@@ -164,6 +164,19 @@ fn resolve_methods(expr: &syn::Expr, known_lengths: &HashMap<String, i64>) -> sy
                 }
             }
 
+            // Regex match — resolve to boolean literal via regex crate
+            if method == "matches" && mc.args.len() == 1 {
+                if let (Some(text), Some(pattern)) = (
+                    string_literal_value(&mc.receiver),
+                    string_literal_value(&mc.args[0]),
+                ) {
+                    let result = regex::Regex::new(&pattern)
+                        .map(|re| re.is_match(&text))
+                        .unwrap_or(false);
+                    return make_bool_literal(result);
+                }
+            }
+
             // Recurse
             let folded_receiver = Box::new(resolve_methods(&mc.receiver, known_lengths));
             let folded_args: Vec<syn::Expr> = mc.args.iter()
@@ -314,6 +327,27 @@ mod tests {
         let args = vec![parse_expr("\"hello\"")];
         let result = try_eval(&requires_expr, &empty_lengths(), &params, &args);
         assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
+    }
+
+    #[test]
+    fn test_matches_true() {
+        let expr = parse_expr("\"deadbeef\".matches(\"^[0-9a-f]+$\")");
+        let result = try_eval(&expr, &empty_lengths(), &empty_params(), &empty_args());
+        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
+    }
+
+    #[test]
+    fn test_matches_false() {
+        let expr = parse_expr("\"hello\".matches(\"^[0-9]+$\")");
+        let result = try_eval(&expr, &empty_lengths(), &empty_params(), &empty_args());
+        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(false)));
+    }
+
+    #[test]
+    fn test_matches_invalid_regex() {
+        let expr = parse_expr("\"abc\".matches(\"[invalid\")");
+        let result = try_eval(&expr, &empty_lengths(), &empty_params(), &empty_args());
+        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(false)));
     }
 
     #[test]

@@ -1,0 +1,32 @@
+// Z3 Contract Test: Symbolic string contracts that MUST be rejected
+// Expected: FAIL — Z3 finds counterexamples for these violations
+package main
+use std.core.str.StringView
+
+pub fn check_prefix(s: StringView) -> bool
+    requires(s.starts_with("salt-"))
+{ return true; }
+
+pub fn check_suffix(s: StringView) -> bool
+    requires(s.ends_with(".salt"))
+{ return true; }
+
+pub fn check_length(s: StringView) -> i32
+    requires(s.length() > 0)
+{ return 0; }
+
+pub fn check_contains(s: StringView) -> bool
+    requires(s.contains("core"))
+{ return true; }
+
+pub fn main() -> i32 {
+    // Empty string violates requires(s.length() > 0)
+    let _a = check_length("");
+    // "wrong" does not start with "salt-"
+    let _b = check_prefix("wrong");
+    // "no" does not end with ".salt"
+    let _c = check_suffix("no");
+    // "other" does not contain "core"
+    let _d = check_contains("other");
+    return 0;
+}

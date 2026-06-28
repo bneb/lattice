@@ -155,6 +155,10 @@ pub struct EmissionState {
     /// When true, all pointer dereferences emit runtime epoch validation checks.
     pub in_dynamic_check_fn: bool,
     pub path_conditions: Vec<syn::Expr>,
+    /// Active caller preconditions (from requires clauses of the enclosing function).
+    /// Pushed when entering a function body, popped when leaving. Asserted to the Z3
+    /// solver alongside path_conditions when verifying callee contracts.
+    pub caller_preconditions: Vec<syn::Expr>,
 }
 
 impl EmissionState {

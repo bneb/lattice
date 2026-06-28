@@ -21,5 +21,5 @@ cmake .. \
 ninja salt-opt
 
 echo "=== Build complete ==="
-echo "  salt-front: /workspace/salt-front/target/release/salt-front"
+echo "  saltc: /workspace/salt-front/target/release/saltc"
 echo "  salt-opt:   /workspace/salt/build/salt-opt"

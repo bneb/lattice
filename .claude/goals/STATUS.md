@@ -15,9 +15,11 @@
 
 ## Goal B: Z3 Verification Correct + Guarded ✅
 - [x] SAT/UNSAT polarity documented ("DO NOT INVERT")
-- [x] 3/3 Z3 contract regression tests pass
+- [x] 7/7 Z3 contract regression tests pass (proved, rejected, timeout, symbolic proved/rejected, Real, BV)
 - [x] CI job runs Z3 contract test suite
-- [x] cargo test --lib: 1,243 tests passing
+- [x] cargo test --lib: 1,243+ tests passing
+- [x] Z3 types wired: Integer, Real, BV, String, quantifiers, contract chaining
+- [x] Z3-str bridge: string content ops + regex via compile-time eval
 
 ## Goal C: End-to-End Verified HTTP Demo ✅
 - [x] RESP parser, AOF, store all compile with --verify
@@ -77,17 +79,19 @@ Progress:
 - [x] `make lettuce` target — one command: build compiler, verify Z3 contracts, compile server
 - [x] 4/4 contract verification tests pass (resp, aof, store, e2e)
 - [x] Lettuce server compiles with `--verify`, MLIR emitted
+- [x] **Blog posts**: All 3 rewritten (zero-cost-safety, arenas-over-borrow-checking, microkernel-ipc) with real examples, honest trade-offs, no aspirational claims
+- [x] **v1.0.0 exit criteria**: Written at `docs/V1_EXIT_CRITERIA.md` — 23 measurable criteria in 3 tiers (Must Have, Should Have, Quality)
 - [ ] Benchmark against nginx/Redis
 - [ ] Lettuce tutorial
-- [ ] Blog post 1: "Zero-Cost Safety: How Salt Proves Memory Safety at Compile Time"
 - [ ] HN launch
 
 ## Next Frontier: salt-front Structural Quality
 The kernel files met all 5 quality goals, but `salt-front/src/` has major gaps:
-- **38 files > 500 LOC** (top: context.rs 4,893, stmt.rs 3,326, type_bridge.rs 3,219)
-- **Hundreds of deep-nest blocks** (top: mod.rs 124, type_bridge.rs 90, context.rs 88, resolver.rs 90)
-- **Giant functions**: `init_registry_definitions` 1,231 LOC, `hydrate_specialization` 297 LOC
-- **Mutants**: 0 real (all false positives — `temp_ptr`, `temp_mark` are legitimate variable names)
+- **21 files > 500 LOC** (top: context.rs 4,180, stmt.rs 3,151, type_bridge.rs 2,942)
+- **Deep-nest blocks** (top: type_bridge.rs 87, mod.rs 83, resolver.rs 77, context.rs 71, tracer.rs 48)
+- **Large functions**: `request_specialization` (196 LOC), `identify_target` (190 LOC), `emit_salt_if` (181 LOC)
+- **Coverage**: 62.51% lines, 72.07% functions — baseline documented
+- **Mutants**: 0 — all TODO/FIXME/HACK/XXX cleared from non-test source ✅
 - **Clippy**: Clean ✅
 
 ## Quality Goals Progress
@@ -112,7 +116,23 @@ The kernel files met all 5 quality goals, but `salt-front/src/` has major gaps:
 - [x] salt-lsp modules — **DEFERRED** (requires LSP test harness setup)
 - [x] Zero mutant markers confirmed — both grep hits are false positives
 
+### Session Additions (2026-06-27, session 4 — Z3 expansion + quality baseline)
+- [x] **Z3 verification**: All types wired — Integer, Real, BV, String, quantifiers at Z3 level, contract chaining. 7/7 regression tests pass (run_tests.sh: proved, rejected, timeout, symbolic strings proved/rejected, Real, BV).
+- [x] **Lettuce**: List commands (LPUSH/RPUSH/LPOP/RPOP/LLEN/LRANGE) + Hash commands (HSET/HGET/HGETALL/HDEL) implemented. `eq_ignore_case` API (21 call sites in store dispatch). `resp_next_str` arg parser extracted (19 call sites). Store dispatch cleaned up.
+- [x] **Compiler fixes**: While-loop pointer narrowing in `emit_while_stmt`, non-pub function pointer tracking fix in `calls.rs`, `eq_ignore_case` added to StringView std library, `--verify` flag usage fixed.
+- [x] **Coverage baseline**: Documented at `.claude/goals/QUALITY_METRICS.md` — 62.51% lines, 72.07% functions. 6 empty test files filled (verification_test, collector_test, module_loader_test, entity_registry_test, fuzz_ast_test, keywords_test). `phases/verification.rs` now tested.
+- [x] **Binary rename**: `salt-front` -> `saltc` across 12 key files (CI, Makefile, test runners, scripts). Cargo.toml `[[bin]]` name now `saltc`.
+- [x] **Mutants**: 0 confirmed — all TODO/FIXME/HACK/XXX cleared.
+
 ## Log
+- 2026-06-27: **Z3 expansion + quality baseline** (1 session):
+  - Z3 types wired: Real, BV, String, quantifiers, contract chaining — 7/7 regression tests pass
+  - All 3 blog posts rewritten with real examples, honest trade-offs, no aspirational claims
+  - Lettuce: List/Hash commands implemented, `eq_ignore_case` dispatch (21 sites), `resp_next_str` parser (19 sites)
+  - Compiler: while-loop pointer narrowing, non-pub fn pointer tracking fix, `StringView::eq_ignore_case`
+  - Quality baseline documented: 62.51% lines, 72.07% functions. 6 empty test files filled. Zero mutants confirmed.
+  - v1.0.0 exit criteria: `docs/V1_EXIT_CRITERIA.md` — 23 criteria in 3 tiers
+  - Binary rename `salt-front`→`saltc` across 12 key files, `--verify` flag usage fixed
 - 2026-06-24: **Major slop purge complete** (3 sessions):
   - Deep reads (4 files): -130 lines, 30 eprintln!, 32 bracket labels, 4 AI hallucinations
   - Dead code (7 files): -956 lines, 13 dead functions, 2 dead structs

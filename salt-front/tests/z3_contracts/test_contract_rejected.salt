@@ -16,7 +16,7 @@ fn safe_div(a: i32, b: i32) -> i32
     return a / b;
 }
 
-fn main() -> i32 {
+pub fn main() -> i32 {
     // Z3 must find: b = 0 violates requires(b != 0) → compile error expected
     // This SHOULD fail to compile with --verify flag
     let result = safe_div(100, 0);

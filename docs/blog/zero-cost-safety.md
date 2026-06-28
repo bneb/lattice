@@ -1,6 +1,6 @@
 # How Salt Eliminates Runtime Checks You Didn't Write
 
-**Published:** June 2026 | **Author:** The KeuOS Team | **Reading time:** 12 minutes
+**Published:** June 2026 | **Author:** The KeuOS Team | **Reading time:** 14 minutes
 
 ---
 
@@ -23,11 +23,12 @@ let result = lookup(&table, idx);
 A conventional compiler emits `cmp idx, 256; jae panic`. Salt emits
 nothing. The bounds check does not exist in the binary.
 
-Why? Because the compiler knows `u8` ∈ [0, 255]. Before codegen, it asks: "can any value of type `u8` violate `idx < 256`?" The answer is no.
-The check is mathematically redundant. It evaporates.
+Why? Because the compiler knows `u8` ∈ [0, 255]. Before codegen, it
+asks Z3: "can any value of type `u8` violate `idx < 256`?" The answer
+is no. The check is mathematically redundant. It evaporates.
 
-You didn't have to prove it. You didn't have to annotate it. The type
-system proved it for you.
+You didn't prove it. You didn't annotate it. The type system proved it
+for you.
 
 ---
 
@@ -78,6 +79,30 @@ the solver before checking any contract.
 
 ---
 
+## Contracts Chain Across Calls
+
+Preconditions compose. When a caller proves `x > 5` and passes `x` to a
+callee requiring `x > 0`, the compiler knows `x > 5 → x > 0` and elides
+the callee's check. No runtime work. No annotation propagation.
+
+```salt
+pub fn callee(x: i32) -> i32
+    requires(x > 0)
+{ return x; }
+
+pub fn caller(x: i32) -> i32
+    requires(x > 5)         // caller's precondition
+{ return callee(x); }       // Z3 proves: x > 5 ⇒ x > 0, check elided
+```
+
+If the caller can't prove the callee's contract — say, `requires(x > 5)`
+calling a function that needs `x > 10` — Z3 finds the counterexample
+(`x = 6` satisfies the caller but violates the callee) and the compiler
+reports the exact value. You fix the contract or the call site before
+the binary exists.
+
+---
+
 ## Z3 Handles the Hard Cases
 
 When the type system isn't enough, Z3 takes over. Here is a function
@@ -103,33 +128,76 @@ constraints.
 
 ---
 
-## String Validation at Compile Time
+## Exact Rational Arithmetic
 
-String operations on literal arguments never reach Z3. They're
-evaluated in Rust at compile time:
+Float literals in contracts use Z3's `Real` sort — exact rationals, not
+IEEE 754 approximations. `3.14` becomes 157/50. No floating-point error.
+No rounding artifacts.
 
 ```salt
-pub fn validate_url(url: StringView) -> bool
-    requires(url.starts_with("https://"))
-    requires(url.contains(".com"))
-    requires(url.ends_with("/api/v1/"))
-{ return true; }
+pub fn gt_pi(x: f64) -> f64
+    requires(x > 3.14)     // Z3 proves: x > 157/50
+{ return x; }
 
-// Called with a literal:
-validate_url("https://salt-lang.com/api/v1/");
+// Call with 4.0: 4.0 > 157/50 → proven, check elided
+// Call with 2.0: 2.0 > 157/50 → counterexample, compile error
 ```
 
-Three string operations, all resolved before codegen. The constant
-folder substitutes `"https://salt-lang.com/api/v1/"` for `url`, then
-evaluates `.starts_with("https://")` → `true` using Rust's standard
-library. Z3 never runs.
+The constant folder handles literals through Rust's `f64` parser,
+converting to exact rational strings for Z3. Comparisons use Z3's
+native real arithmetic. Integer operands in float contexts promote
+automatically via `Real::from_int`.
 
-For symbolic (runtime) strings, these contracts will be rejected even
-when the argument satisfies them — the substitution mechanism currently
-handles only `Int`-typed parameters, so Z3 sees an unconstrained string
-variable and finds a counterexample. Use string content contracts only
-with literal arguments until the substitution mechanism is extended to
-handle Z3 `String` types.
+---
+
+## Bitwise Operations Through BV
+
+Bitwise operators (`&`, `|`, `^`, `<<`, `>>`) translate through Z3's
+bitvector theory. The compiler converts integer operands to 64-bit
+bitvectors, applies the operation, and converts back — giving Z3
+bit-precise semantics for operations that need it.
+
+```salt
+pub fn mask(x: i32) -> i32
+    requires(x & 0xFF == x)    // Z3 proves via BV: x fits in 8 bits
+{ return x; }
+```
+
+The type-bound mechanism still applies: if `x` is `u8`, the compiler
+already knows `x ∈ [0, 255]`. The bitwise contract is redundant for
+`u8` but meaningful for wider types.
+
+---
+
+## String Validation at Compile Time
+
+String operations on literal arguments resolve at compile time. The
+constant folder evaluates them in Rust before Z3 runs:
+
+```salt
+pub fn validate_key(key: StringView) -> bool
+    requires(key.starts_with("salt-"))
+    requires(key.contains("lang"))
+    requires(key.ends_with(".salt"))
+    requires(key.matches("^[a-z.-]+$"))
+{ return true; }
+
+// Called with a literal — all four checks resolve in Rust:
+validate_key("salt-lang.salt");
+```
+
+For symbolic string parameters, Z3's string theory takes over. The
+compiler translates the parameter to a Z3 `String` constant via
+hash-consing — the same approach used for `Int` and `Real` substitution.
+When a caller passes a concrete string, the substitution connects the
+symbolic parameter to the literal value and Z3 proves the contract.
+
+`.starts_with()`, `.ends_with()`, and `.contains()` use Z3's native
+sequence prefix/suffix/containment operations. `.matches()` uses
+Z3's `Regexp` sort for regex patterns on symbolic strings. String
+length comparisons on literal arguments evaluate in Rust; symbolic
+length comparisons use Z3's uninterpreted function with path condition
+constraints from the caller.
 
 ---
 
@@ -139,19 +207,18 @@ handle Z3 `String` types.
 - Integer bounds and comparisons (all six operators)
 - Division and modulus safety
 - Multiplication (including polynomial: `x*x + y*y`)
-- Float zero-checking (`requires(b != 0.0)`)
+- Float comparisons via exact rational arithmetic (`Real` sort)
+- Bitwise operations via bitvector theory (`BV` sort)
 - Postconditions across conditional branches
-- String length, prefix, suffix, and containment (with literal args)
 - Type-bound proofs for all integer types
-- Bitwise AND/OR with constants
+- String length, prefix, suffix, containment, and regex (literal + symbolic)
+- Contract chaining across function calls (caller preconditions → callee obligations)
 
 **Runtime assertion (Z3 can't decide, safe fallback):**
 - Contracts with unbounded symbolic parameters not implied by type bounds
 
-**Not yet wired (Z3 supports, bridge pending):**
-- Full `Real` exact-rational arithmetic
-- `BV` bitvector reasoning
-- `forall`/`exists` quantifiers (no Salt syntax)
+**Z3 bridge wired, awaiting Salt syntax:**
+- `forall`/`exists` quantifiers (unit-tested, no parser support yet)
 
 ---
 

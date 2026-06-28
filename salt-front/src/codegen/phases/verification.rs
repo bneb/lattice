@@ -54,3 +54,16 @@ impl<'a> VerificationState<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_verification_state_new() {
+        let cfg = crate::z3_shim::Config::new();
+        let ctx = crate::z3_shim::Context::new(&cfg);
+        let state = super::VerificationState::new(&ctx);
+        assert_eq!(state.elided_checks, 0);
+        assert_eq!(state.total_checks, 0);
+        assert!(state.pending_malloc_result.is_none());
+    }
+}

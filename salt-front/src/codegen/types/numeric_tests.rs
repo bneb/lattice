@@ -139,4 +139,43 @@ mod tests {
     fn test_get_comparison_pred_default() {
         assert_eq!(get_comparison_pred(&syn::BinOp::Add(syn::token::Plus::default()), &Type::I32), "eq");
     }
+
+    #[test]
+    fn test_get_arith_op_assign_bitwise() {
+        assert_eq!(get_arith_op(&syn::BinOp::BitAndAssign(syn::token::AndEq::default()), &Type::I32), "arith.andi");
+        assert_eq!(get_arith_op(&syn::BinOp::BitOrAssign(syn::token::OrEq::default()), &Type::U64), "arith.ori");
+        assert_eq!(get_arith_op(&syn::BinOp::BitXorAssign(syn::token::CaretEq::default()), &Type::I8), "arith.xori");
+        assert_eq!(get_arith_op(&syn::BinOp::ShlAssign(syn::token::ShlEq::default()), &Type::I16), "arith.shli");
+        assert_eq!(get_arith_op(&syn::BinOp::ShrAssign(syn::token::ShrEq::default()), &Type::I8), "arith.shrsi");
+    }
+
+    #[test]
+    fn test_get_arith_op_shr_assign() {
+        assert_eq!(get_arith_op(&syn::BinOp::ShrAssign(syn::token::ShrEq::default()), &Type::U32), "arith.shrui");
+        assert_eq!(get_arith_op(&syn::BinOp::ShrAssign(syn::token::ShrEq::default()), &Type::I32), "arith.shrsi");
+        assert_eq!(get_arith_op(&syn::BinOp::ShrAssign(syn::token::ShrEq::default()), &Type::U64), "arith.shrui");
+        assert_eq!(get_arith_op(&syn::BinOp::ShrAssign(syn::token::ShrEq::default()), &Type::I64), "arith.shrsi");
+    }
+
+    #[test]
+    fn test_get_comparison_pred_edge_cases() {
+        let ref_i32 = Type::Reference(Box::new(Type::I32), false);
+        let owned_i32 = Type::Owned(Box::new(Type::I32));
+        assert_eq!(get_comparison_pred(&syn::BinOp::Gt(syn::token::Gt::default()), &ref_i32), "sgt");
+        assert_eq!(get_comparison_pred(&syn::BinOp::Ge(syn::token::Ge::default()), &ref_i32), "sge");
+        assert_eq!(get_comparison_pred(&syn::BinOp::Ne(syn::token::Ne::default()), &owned_i32), "ne");
+        assert_eq!(get_comparison_pred(&syn::BinOp::Lt(syn::token::Lt::default()), &owned_i32), "slt");
+        assert_eq!(get_comparison_pred(&syn::BinOp::Eq(syn::token::EqEq::default()), &ref_i32), "eq");
+    }
+
+    #[test]
+    fn test_promotion_ops_table() {
+        assert_eq!(PROMOTION_OPS[get_numeric_idx(&Type::I32).unwrap()][get_numeric_idx(&Type::I64).unwrap()], Some(("arith.extsi", "i32", "i64")));
+        assert_eq!(PROMOTION_OPS[get_numeric_idx(&Type::I16).unwrap()][get_numeric_idx(&Type::I32).unwrap()], Some(("arith.extsi", "i16", "i32")));
+        assert_eq!(PROMOTION_OPS[get_numeric_idx(&Type::F32).unwrap()][get_numeric_idx(&Type::F64).unwrap()], Some(("arith.extf", "f32", "f64")));
+        assert_eq!(PROMOTION_OPS[get_numeric_idx(&Type::U32).unwrap()][get_numeric_idx(&Type::I64).unwrap()], Some(("arith.extui", "i32", "i64")));
+        assert_eq!(PROMOTION_OPS[get_numeric_idx(&Type::I8).unwrap()][get_numeric_idx(&Type::I32).unwrap()], Some(("arith.extsi", "i8", "i32")));
+        assert_eq!(PROMOTION_OPS[get_numeric_idx(&Type::U16).unwrap()][get_numeric_idx(&Type::I32).unwrap()], Some(("arith.extui", "i16", "i32")));
+        assert_eq!(PROMOTION_OPS[get_numeric_idx(&Type::I64).unwrap()][get_numeric_idx(&Type::I8).unwrap()], None);
+    }
 }

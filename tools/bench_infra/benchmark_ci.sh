@@ -131,12 +131,12 @@ for bench in binary_tree_path_salt binary_tree_path_c; do
     fi
 done
 
-# Run any available .salt benchmarks directly via salt-front
+# Run any available .salt benchmarks directly via saltc
 for salt_file in "$PROJECT_ROOT"/benchmarks/*.salt; do
     if [ -f "$salt_file" ]; then
         name=$(basename "$salt_file" .salt)
         bin_path="/tmp/bench_${name}"
-        if "$PROJECT_ROOT/salt-front/target/release/salt-front" "$salt_file" --no-verify -o "$bin_path" > /dev/null 2>&1 2>/dev/null; then
+        if "$PROJECT_ROOT/salt-front/target/release/saltc" "$salt_file" --danger-no-verify -o "$bin_path" > /dev/null 2>&1 2>/dev/null; then
             if [ -x "$bin_path" ]; then
                 run_bench "$name" "$bin_path" "N/A" "N/A"
             fi

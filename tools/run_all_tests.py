@@ -6,9 +6,9 @@ import json
 import re
 
 def run_test(salt_file):
-    salt_front_cmd = "salt-front"
-    if os.path.exists("salt-front/target/release/salt-front"):
-        salt_front_cmd = "./salt-front/target/release/salt-front"
+    salt_front_cmd = "saltc"
+    if os.path.exists("salt-front/target/release/saltc"):
+        salt_front_cmd = "./salt-front/target/release/saltc"
         
     try:
         mlir_out = subprocess.check_output(
@@ -17,7 +17,7 @@ def run_test(salt_file):
     except subprocess.CalledProcessError as e:
         return {"status": "FAILED", "reason": "Compilation error", "output": e.output.decode()}
     except FileNotFoundError:
-        return {"status": "FAILED", "reason": "salt-front not found"}
+        return {"status": "FAILED", "reason": "saltc not found"}
 
     with open(salt_file, 'r') as f:
         checks = [line.split("CHECK:")[1].strip() for line in f if "CHECK:" in line]

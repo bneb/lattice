@@ -14,6 +14,8 @@ pub mod yield_injection;
 pub mod yield_mlir;
 pub mod sync_verifier;
 pub mod call_graph;
+#[cfg(test)]
+mod call_graph_tests;
 pub mod liveness;
 pub mod async_to_state;
 pub mod io_backend;

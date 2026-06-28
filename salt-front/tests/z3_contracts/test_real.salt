@@ -1,0 +1,31 @@
+// Z3 Contract Test: Real (exact rational) contracts
+// Expected: PASS — Z3 proves float contracts with exact rational semantics
+package main
+
+// Division by zero check — now uses Real equality (exact), not Int truncation
+pub fn safe_fdiv(a: f64, b: f64) -> f64
+    requires(b != 0.0)
+{ return a / b; }
+
+// Exact rational comparison: 4.0 > 3.14
+pub fn gt_pi(x: f64) -> f64
+    requires(x > 3.14)
+{ return x; }
+
+// Exact rational equality: 0.5 == 0.5
+pub fn half(x: f64) -> f64
+    requires(x == 0.5)
+{ return x; }
+
+// Float promotion: integer in float context
+pub fn int_ge(x: f64) -> f64
+    requires(x >= 0.0)
+{ return x; }
+
+pub fn main() -> i32 {
+    let _a = safe_fdiv(100.0, 7.0);
+    let _b = gt_pi(4.0);
+    let _c = half(0.5);
+    let _d = int_ge(0.0);
+    return 0;
+}

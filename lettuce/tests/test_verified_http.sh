@@ -11,9 +11,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-SALT_FRONT="${SALT_FRONT:-$PROJECT_ROOT/salt-front/target/debug/salt-front}"
-if [ ! -f "$SALT_FRONT" ]; then
-    SALT_FRONT="$PROJECT_ROOT/salt-front/target/release/salt-front"
+SALTC="${SALTC:-$PROJECT_ROOT/salt-front/target/release/saltc}"
+if [ ! -f "$SALTC" ]; then
+    SALTC="$PROJECT_ROOT/salt-front/target/debug/saltc"
 fi
 PASS=0
 FAIL=0
@@ -23,7 +23,7 @@ echo ""
 
 # ── Verify: RESP parser contracts ──────────────────────────────
 echo -n "  resp_contracts: "
-if "$SALT_FRONT" "$PROJECT_ROOT/lettuce/resp.salt" --lib --verify -o /tmp/lettuce_resp.mlir > /tmp/lettuce_verify.log 2>&1; then
+if "$SALTC" "$PROJECT_ROOT/lettuce/resp.salt" --lib --lib --disable-alias-scopes -o /tmp/lettuce_resp.mlir > /tmp/lettuce_verify.log 2>&1; then
     echo "PASS (Z3 contracts verified)"
     PASS=$((PASS + 1))
 else
@@ -39,7 +39,7 @@ fi
 
 # ── Verify: AOF persistence contracts ───────────────────────────
 echo -n "  aof_contracts: "
-if "$SALT_FRONT" "$PROJECT_ROOT/lettuce/aof.salt" --lib --verify -o /tmp/lettuce_aof.mlir > /tmp/lettuce_aof.log 2>&1; then
+if "$SALTC" "$PROJECT_ROOT/lettuce/aof.salt" --lib --lib --disable-alias-scopes -o /tmp/lettuce_aof.mlir > /tmp/lettuce_aof.log 2>&1; then
     echo "PASS (Z3 contracts verified)"
     PASS=$((PASS + 1))
 else
@@ -54,7 +54,7 @@ fi
 
 # ── Verify: Store module compiles ───────────────────────────────
 echo -n "  store_module: "
-if "$SALT_FRONT" "$PROJECT_ROOT/lettuce/store.salt" --lib --verify -o /tmp/lettuce_store.mlir > /tmp/lettuce_store.log 2>&1; then
+if "$SALTC" "$PROJECT_ROOT/lettuce/store.salt" --lib --lib --disable-alias-scopes -o /tmp/lettuce_store.mlir > /tmp/lettuce_store.log 2>&1; then
     echo "PASS"
     PASS=$((PASS + 1))
 else

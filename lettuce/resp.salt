@@ -349,3 +349,20 @@ pub fn write_null_bulk(buf: Ptr<u8>) -> i64 {
     buf.offset(4).write(10); // '\n'
     return 5;
 }
+
+pub fn write_empty_array(buf: Ptr<u8>) -> i64 {
+    buf.write(42);           // '*'
+    buf.offset(1).write(48); // '0'
+    buf.offset(2).write(13); // '\r'
+    buf.offset(3).write(10); // '\n'
+    return 4;
+}
+
+pub fn write_array_header(buf: Ptr<u8>, count: i64) -> i64 {
+    buf.write(42); // '*'
+    let len = write_i64_to_buf(buf.offset(1), count);
+    let pos = 1 + len;
+    buf.offset(pos).write(13);  // '\r'
+    buf.offset(pos + 1).write(10); // '\n'
+    return pos + 2;
+}

@@ -339,53 +339,30 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
         None
     }
 
-    fn resolve_canonical_name(&mut self, name: &str) -> (String, bool) {
-        // RECURSION ANCHOR: Check if we're calling ourselves
-        // If 'name' matches the unmangled suffix of current_fn_name, it's a recursive call
+    /// Check if `name` is a recursive call to the current function.
+    fn detect_recursion(&self, name: &str) -> Option<String> {
         let current_fn = self.ctx.current_fn_name();
-        if !current_fn.is_empty() {
-            // Extract the function's simple name from current_fn (e.g., "main__fib" -> "fib")
-            let current_simple = current_fn.rsplit("__").next().unwrap_or(current_fn);
-            // Extract simple name from input (e.g., "__fib" -> "fib", "fib" -> "fib")
-            let input_simple = name.trim_start_matches('_').trim_start_matches('_');
-            
-            if current_simple == input_simple {
-                return (current_fn.clone(), true);
-            }
-        }
+        if current_fn.is_empty() { return None; }
+        let current_simple = current_fn.rsplit("__").next().unwrap_or(current_fn);
+        let input_simple = name.trim_start_matches('_').trim_start_matches('_');
+        if current_simple == input_simple { Some(current_fn.clone()) } else { None }
+    }
 
-        let _ = current_fn;
-        
-        // If it already looks fully qualified (contains __), assume it is valid
-        if name.contains("__") {
-            return (name.to_string(), true);
-        }
-        
-        // Priority 1: Intrinsics (before package prefix to avoid main__popcount)
-        if self.is_intrinsic(name) {
-            return (name.to_string(), false);
-        }
-        
-        // Priority 2: Extern functions (use raw C symbol name, never mangle)
-        if self.ctx.external_decls().contains(name) {
-            return (name.to_string(), true);
-        }
-        
-        // Priority 3: Current Package Prefix
+    /// Mangle `name` with the current package prefix if one exists.
+    fn apply_package_prefix(&self, name: &str) -> String {
         let current_pkg = &*self.ctx.current_package;
-        let current_pkg_prefix = if let Some(pkg) = current_pkg.as_ref() {
-             Mangler::mangle(&pkg.name.iter().map(|id| id.to_string()).collect::<Vec<_>>())
-        } else {
-             "".to_string()
-        };
-        
-        let candidate = if current_pkg_prefix.is_empty() {
-            name.to_string()
-        } else {
-            format!("{}__{}", current_pkg_prefix, name)
-        };
-        
-        (candidate, false)
+        let prefix = if let Some(pkg) = current_pkg.as_ref() {
+            Mangler::mangle(&pkg.name.iter().map(|id| id.to_string()).collect::<Vec<_>>())
+        } else { "".to_string() };
+        if prefix.is_empty() { name.to_string() } else { format!("{}__{}", prefix, name) }
+    }
+
+    fn resolve_canonical_name(&mut self, name: &str) -> (String, bool) {
+        if let Some(canonical) = self.detect_recursion(name) { return (canonical, true); }
+        if name.contains("__") { return (name.to_string(), true); }
+        if self.is_intrinsic(name) { return (name.to_string(), false); }
+        if self.ctx.external_decls().contains(name) { return (name.to_string(), true); }
+        (self.apply_package_prefix(name), false)
     }
 
     pub(crate) fn unify_generics(&mut self, 

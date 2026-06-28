@@ -7,10 +7,10 @@ import os
 def run_test(salt_file):
     print(f"[TEST] {salt_file}")
     
-    # 0. Find salt-front
-    salt_front_cmd = "salt-front"
-    if os.path.exists("salt-front/target/release/salt-front"):
-        salt_front_cmd = "./salt-front/target/release/salt-front"
+    # 0. Find saltc
+    salt_front_cmd = "saltc"
+    if os.path.exists("salt-front/target/release/saltc"):
+        salt_front_cmd = "./salt-front/target/release/saltc"
     
     # 1. Compile to MLIR
     try:
@@ -26,7 +26,7 @@ def run_test(salt_file):
         print(f"FAILED: Compilation error\n{e.output.decode()}")
         return False
     except FileNotFoundError:
-        print("FAILED: salt-front not found in PATH")
+        print("FAILED: saltc not found in PATH")
         return False
 
     # 2. Extract CHECK comments from the Salt file

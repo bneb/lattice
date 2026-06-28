@@ -2,7 +2,7 @@
 # =============================================================================
 # Z3 Contract Regression Tests
 # =============================================================================
-# Runs each contract through salt-front --verify and checks the expected result.
+# Runs each contract through saltc --verify and checks the expected result.
 # Used to detect the Z3 SAT/UNSAT inversion and other verification regressions.
 #
 # Usage: bash $PROJECT_ROOT/salt-front/tests/z3_contracts/run_tests.sh
@@ -12,9 +12,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
-SALT_FRONT="${SALT_FRONT:-$PROJECT_ROOT/salt-front/target/release/salt-front}"
-if [ ! -f "$SALT_FRONT" ]; then
-    SALT_FRONT="$PROJECT_ROOT/salt-front/target/debug/salt-front"
+SALTC="${SALTC:-$PROJECT_ROOT/salt-front/target/release/saltc}"
+if [ ! -f "$SALTC" ]; then
+    SALTC="$PROJECT_ROOT/salt-front/target/debug/saltc"
 fi
 PASS=0
 FAIL=0
@@ -24,29 +24,26 @@ echo ""
 
 # ── Test 1: Contract MUST be proved ────────────────────────────
 echo -n "  test_contract_proved: "
-if "$SALT_FRONT" $PROJECT_ROOT/salt-front/tests/z3_contracts/test_contract_proved.salt \
-    --verify -o /tmp/z3_test_proved > /tmp/z3_out_proved.txt 2>&1; then
-    if grep -q 'UNSAT\|proven' /tmp/z3_out_proved.txt; then
-        echo "PASS (Z3 proved the contract)"
-        PASS=$((PASS + 1))
-    else
-        echo "PASS (compiled, but check output for verification status)"
-        PASS=$((PASS + 1))
-    fi
+if "$SALTC" "$SCRIPT_DIR/test_contract_proved.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_proved > /tmp/z3_out_proved.txt 2>&1; then
+    echo "PASS (Z3 proved the contract)"
+    PASS=$((PASS + 1))
 else
     echo "FAIL (unexpected compile error — possible SAT/UNSAT inversion)"
+    cat /tmp/z3_out_proved.txt | head -5
     FAIL=$((FAIL + 1))
 fi
 
 # ── Test 2: Contract MUST be rejected ──────────────────────────
 echo -n "  test_contract_rejected: "
-if ! "$SALT_FRONT" $PROJECT_ROOT/salt-front/tests/z3_contracts/test_contract_rejected.salt \
-    --verify -o /tmp/z3_test_rejected > /tmp/z3_out_rejected.txt 2>&1; then
-    if grep -q 'VERIFICATION ERROR\|counterexample' /tmp/z3_out_rejected.txt; then
-        echo "PASS (Z3 found counterexample, compile error as expected)"
+if ! "$SALTC" "$SCRIPT_DIR/test_contract_rejected.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_rejected > /tmp/z3_out_rejected.txt 2>&1; then
+    if grep -q 'VERIFICATION ERROR\|contract evaluates to false' /tmp/z3_out_rejected.txt; then
+        echo "PASS (contract violation caught)"
         PASS=$((PASS + 1))
     else
-        echo "FAIL (compile error but not from verification — check output)"
+        echo "FAIL (compile error but not from verification)"
+        cat /tmp/z3_out_rejected.txt | head -3
         FAIL=$((FAIL + 1))
     fi
 else
@@ -54,22 +51,71 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-# ── Test 3: Complex contract ───────────────────────────────────
+# ── Test 3: Complex contract (timeout/fallback) ─────────────────
 echo -n "  test_contract_timeout: "
-OUTCOME=$( "$SALT_FRONT" $PROJECT_ROOT/salt-front/tests/z3_contracts/test_contract_timeout.salt \
-    --verify -o /tmp/z3_test_timeout 2>&1 || true )
+OUTCOME=$( "$SALTC" "$SCRIPT_DIR/test_contract_timeout.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_timeout 2>&1 || true )
 if echo "$OUTCOME" | grep -q 'VERIFICATION ERROR'; then
     echo "PASS (Z3 could not prove, runtime assertion emitted)"
     PASS=$((PASS + 1))
-elif echo "$OUTCOME" | grep -q 'UNSAT\|proven'; then
-    echo "PASS (Z3 proved — contract was simpler than expected)"
-    PASS=$((PASS + 1))
 elif echo "$OUTCOME" | grep -q 'compiled successfully'; then
-    echo "PASS (compiled — runtime assertion fallback active)"
+    echo "PASS (compiled — contract proved within timeout)"
     PASS=$((PASS + 1))
 else
-    echo "INCONCLUSIVE (unexpected output — check /tmp/z3_test_timeout)"
-    echo "$OUTCOME" | head -5
+    echo "INCONCLUSIVE (unexpected output)"
+    echo "$OUTCOME" | head -3
+fi
+
+# ── Test 4: Symbolic string contracts MUST be proved ────────────
+echo -n "  test_strings_symbolic: "
+if "$SALTC" "$SCRIPT_DIR/test_strings_symbolic.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_strings_sym > /tmp/z3_out_strings_sym.txt 2>&1; then
+    echo "PASS (symbolic string contracts proved)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (unexpected verification error)"
+    cat /tmp/z3_out_strings_sym.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 5: Symbolic string contracts MUST be rejected ──────────
+echo -n "  test_strings_symbolic_rejected: "
+if ! "$SALTC" "$SCRIPT_DIR/test_strings_symbolic_rejected.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_strings_sym_rej > /tmp/z3_out_strings_sym_rej.txt 2>&1; then
+    if grep -q 'VERIFICATION ERROR\|contract evaluates to false' /tmp/z3_out_strings_sym_rej.txt; then
+        echo "PASS (contract violation caught)"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL (compile error but not from verification)"
+        FAIL=$((FAIL + 1))
+    fi
+else
+    echo "FAIL (unexpected compile success — should have been rejected)"
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 6: Real (exact rational) contracts MUST be proved ──────
+echo -n "  test_real: "
+if "$SALTC" "$SCRIPT_DIR/test_real.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_real > /tmp/z3_out_real.txt 2>&1; then
+    echo "PASS (Real contracts proved)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (unexpected verification error)"
+    cat /tmp/z3_out_real.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 7: BV (bitvector) contracts MUST be proved ──────────────
+echo -n "  test_bv: "
+if "$SALTC" "$SCRIPT_DIR/test_bv.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_bv > /tmp/z3_out_bv.txt 2>&1; then
+    echo "PASS (BV contracts proved)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (unexpected verification error)"
+    cat /tmp/z3_out_bv.txt | head -3
+    FAIL=$((FAIL + 1))
 fi
 
 echo ""

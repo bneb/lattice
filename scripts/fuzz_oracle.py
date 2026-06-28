@@ -7,13 +7,13 @@ import ctypes
 
 # Configuration
 ITERATIONS = 5000 # Start with 5k for initial test, plan says 100k
-SALT_FRONT = os.path.abspath("salt-front/target/release/salt-front")
+SALT_FRONT = os.path.abspath("salt-front/target/release/saltc")
 SALT_OPT = os.path.abspath("salt/build/salt-opt")
 CLANG = "clang" # Assumed in path
 TEMP_DIR = "fuzz_temp"
 
 if not os.path.exists(SALT_FRONT):
-    print(f"Error: salt-front not found at {SALT_FRONT}")
+    print(f"Error: saltc not found at {SALT_FRONT}")
     sys.exit(1)
 if not os.path.exists(SALT_OPT):
     print(f"Error: salt-opt not found at {SALT_OPT}")
