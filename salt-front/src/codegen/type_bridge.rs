@@ -1,3 +1,4 @@
+#[cfg(test)]
 use crate::types::{Type, TypeKey};
 pub use super::type_casts::cast_numeric;
 
