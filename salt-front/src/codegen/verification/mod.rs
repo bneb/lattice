@@ -14,6 +14,7 @@ pub mod arena_verifier;
 pub mod hash_loop_verifier;
 pub mod proof_witness;
 pub mod slice_verifier;
+#[cfg(test)] mod slice_verifier_tests;
 pub mod silicon_ingest;
 pub mod executor_verifier;
 pub mod hardware_target;
