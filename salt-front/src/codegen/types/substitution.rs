@@ -126,4 +126,52 @@ mod tests {
         let m = map_of(&[("T", Type::Generic("T".into()))]);
         assert_eq!(substitute_generics(&m, &Type::Struct("T".into())), Type::Generic("T".into()));
     }
+
+    #[test]
+    fn test_substitute_fn_type() {
+        let m = map_of(&[("T", Type::I64), ("R", Type::Bool)]);
+        let ty = Type::Fn(
+            vec![Type::Generic("T".into()), Type::I32],
+            Box::new(Type::Generic("R".into())),
+        );
+        let expected = Type::Fn(
+            vec![Type::I64, Type::I32],
+            Box::new(Type::Bool),
+        );
+        assert_eq!(substitute_generics(&m, &ty), expected);
+    }
+
+    #[test]
+    fn test_substitute_array_type() {
+        let m = map_of(&[("T", Type::I32)]);
+        let ty = Type::Array(Box::new(Type::Generic("T".into())), 10, false);
+        let expected = Type::Array(Box::new(Type::I32), 10, false);
+        assert_eq!(substitute_generics(&m, &ty), expected);
+    }
+
+    #[test]
+    fn test_substitute_tuple_type() {
+        let m = map_of(&[("A", Type::I32), ("B", Type::F64)]);
+        let ty = Type::Tuple(vec![Type::Generic("A".into()), Type::Generic("B".into())]);
+        let expected = Type::Tuple(vec![Type::I32, Type::F64]);
+        assert_eq!(substitute_generics(&m, &ty), expected);
+    }
+
+    #[test]
+    fn test_try_suffix_concrete_no_args() {
+        // Concrete("foo__Bar", []) with no args triggers try_suffix:
+        // last __ component "Bar" is looked up in the type_map
+        let m = map_of(&[("Bar", Type::I64)]);
+        let ty = Type::Concrete("foo__Bar".into(), vec![]);
+        assert_eq!(substitute_generics(&m, &ty), Type::I64);
+    }
+
+    #[test]
+    fn test_try_suffix_concrete_with_args_skips_suffix() {
+        // Concrete with args bypasses try_suffix and substitutes args instead
+        let m = map_of(&[("Bar", Type::I64)]);
+        let ty = Type::Concrete("foo__Bar".into(), vec![Type::I32]);
+        let expected = Type::Concrete("foo__Bar".into(), vec![Type::I32]);
+        assert_eq!(substitute_generics(&m, &ty), expected);
+    }
 }

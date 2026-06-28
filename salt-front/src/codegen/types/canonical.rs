@@ -188,4 +188,54 @@ mod tests {
         assert!(!null_id.is_valid());
         assert_eq!(null_id.raw(), 0);
     }
+
+    #[test]
+    fn test_registry_is_empty() {
+        let reg = TypeIDRegistry::new();
+        assert!(reg.is_empty());
+    }
+
+    #[test]
+    fn test_registry_len() {
+        let mut reg = TypeIDRegistry::new();
+        assert_eq!(reg.len(), 0);
+        reg.register("Foo");
+        assert_eq!(reg.len(), 1);
+        reg.register("Bar");
+        assert_eq!(reg.len(), 2);
+        // Duplicate registration doesn't increase len
+        reg.register("Foo");
+        assert_eq!(reg.len(), 2);
+    }
+
+    #[test]
+    fn test_registry_clear() {
+        let mut reg = TypeIDRegistry::new();
+        reg.register("Foo");
+        reg.register("Bar");
+        assert!(!reg.is_empty());
+        reg.clear();
+        assert!(reg.is_empty());
+        assert_eq!(reg.len(), 0);
+    }
+
+    #[test]
+    fn test_registry_iter() {
+        let mut reg = TypeIDRegistry::new();
+        reg.register("A");
+        reg.register("B");
+        let pairs: Vec<_> = reg.iter().collect();
+        assert_eq!(pairs.len(), 2);
+        for (id, name) in &pairs {
+            assert!(id.is_valid());
+            assert!(*name == "A" || *name == "B");
+        }
+    }
+
+    #[test]
+    fn test_type_id_display() {
+        let id = TypeID(0xdeadbeef);
+        let s = format!("{}", id);
+        assert_eq!(s, "TypeID(0x00000000deadbeef)");
+    }
 }
