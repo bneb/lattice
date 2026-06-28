@@ -102,6 +102,22 @@ mod tests {
     }
 
     #[test]
+    fn test_flatten_nested_ptr_triple() {
+        let inner = Type::Concrete("Ptr".into(), vec![Type::I32]);
+        let middle = Type::Concrete("Ptr".into(), vec![inner]);
+        let outer = Type::Concrete("Ptr".into(), vec![middle]);
+        assert_eq!(flatten_nested_ptr(&outer, 0, "test"), Type::I32);
+    }
+
+    #[test]
+    fn test_flatten_nested_ptr_struct_ptr_not_real() {
+        // Struct("Ptr") contains "Ptr" but is not a real Ptr<T> pointer
+        // extract_ptr_inner("Ptr") returns None because after is empty
+        let s = Type::Struct("Ptr".into());
+        assert_eq!(flatten_nested_ptr(&s, 0, "test"), s);
+    }
+
+    #[test]
     fn test_prove_layout_same_type() {
         let reg = empty_reg();
         assert!(prove_layout_compatibility(&reg, &Type::F64, &Type::F64));

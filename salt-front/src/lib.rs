@@ -18,6 +18,7 @@ pub mod evaluator;
 pub mod cli;
 pub mod cli_build;
 pub mod driver;
+#[cfg(test)] mod driver_tests;
 pub mod passes;
 pub mod keywords;
 pub mod fuzz_ast;
@@ -39,7 +40,6 @@ pub use z3 as z3_shim;
 
 #[cfg(not(feature = "z3-backend"))]
 pub use z3_stub as z3_shim;
-
 
 
 use syn::parse_str;
