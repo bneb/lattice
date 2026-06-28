@@ -10,6 +10,7 @@
 
 package kernel.core.syscall_entity
 use std.core.ptr.Ptr
+import kernel.ecs.components.{MemoryMap}
 
 extern fn process_current() -> u64;
 extern fn process_get_ecs_entity(slot: u64) -> u64;
@@ -33,6 +34,8 @@ extern fn ecs_bridge_get_thread_status(entity_val: u64) -> u64;
 extern fn ecs_bridge_destroy_thread(entity_val: u64);
 extern fn ecs_bridge_spawn_bare_entity() -> u64;
 extern fn ecs_bridge_grant_memory_map(entity_val: u64, pml4_phys: u64, size: u64);
+extern fn ecs_bridge_get_memory_map(entity_val: u64) -> u64;
+extern fn ecs_bridge_update_memory_map(entity_val: u64, size: u64);
 extern fn pmm_alloc() -> u64;
 extern fn map_user_page_extern(user_pml4: u64, vaddr: u64, paddr: u64, flags: u64);
 extern fn phys_to_virt(phys: u64) -> u64;
@@ -158,4 +161,45 @@ pub fn sys_entity_map(parent_slot: u64, size: u64) -> u64 {
 
     ecs_bridge_grant_memory_map(entity_val, parent_pml4, allocated * PAGE_SIZE);
     return entity_val;
+}
+
+// =============================================================================
+// sys_entity_brk — Extend/shrink entity memory region (entity-based sbrk)
+// (SYS_ENTITY_BRK, num=406)
+// Returns new size on success, 0 on failure
+// =============================================================================
+@no_mangle
+pub fn sys_entity_brk(entity_val: u64, new_size: u64) -> u64 {
+    if entity_val == 0 || new_size == 0 { return 0; }
+
+    let mem_ptr = ecs_bridge_get_memory_map(entity_val);
+    if mem_ptr == 0 { return 0; }
+    let mem = mem_ptr as &MemoryMap;
+    let cur_size = (*mem).size;
+    let pml4 = (*mem).pml4_phys;
+
+    if new_size <= cur_size {
+        ecs_bridge_update_memory_map(entity_val, new_size);
+        return new_size;
+    }
+
+    // Extend: allocate more pages
+    let cur_pages = (cur_size + PAGE_SIZE - 1) / PAGE_SIZE;
+    let new_pages = (new_size + PAGE_SIZE - 1) / PAGE_SIZE;
+    let base_vaddr: u64 = 0x300000000000 + cur_size;
+    let mut allocated: u64 = 0;
+    let mut i: u64 = cur_pages;
+    while i < new_pages {
+        let paddr = pmm_alloc();
+        if paddr == 0 { break; }
+        let vaddr = base_vaddr + allocated * PAGE_SIZE;
+        map_user_page_extern(pml4, vaddr, paddr, USER_PAGE_FLAGS);
+        allocated = allocated + 1;
+        i = i + 1;
+    }
+
+    if allocated == 0 { return 0; }
+    let actual_size = cur_size + allocated * PAGE_SIZE;
+    ecs_bridge_update_memory_map(entity_val, actual_size);
+    return actual_size;
 }

@@ -3,7 +3,7 @@ package kernel.ecs.ecs_bridge
 import kernel.ecs.world.{World, world_spawn, world_destroy}
 import kernel.ecs.entity.{Entity}
 import kernel.ecs.components.{ThreadState, SchedulingPriority}
-import kernel.ecs.sparse_set.{thread_set_insert, thread_set_get_mut, priority_set_insert, memmap_set_insert, ipc_cap_set_insert}
+import kernel.ecs.sparse_set.{thread_set_insert, thread_set_get_mut, priority_set_insert, memmap_set_insert, memmap_set_get, ipc_cap_set_insert}
 import kernel.ecs.components.{MemoryMap, IpcCapability}
 
 extern fn get_ecs_world_ptr() -> u64;
@@ -113,4 +113,31 @@ pub fn ecs_bridge_grant_ipc_cap(entity_val: u64, ring_phys: u64, proof_hint: u64
     let e = Entity { id: id, gen: gen };
     let c = IpcCapability { ring_phys: ring_phys, proof_hint: proof_hint, peer_entity_id: peer_id, direction: dir };
     ipc_cap_set_insert(w.ipc_caps, e, c);
+}
+
+@no_mangle
+pub fn ecs_bridge_get_memory_map(entity_val: u64) -> u64 {
+    let w_ptr = get_ecs_world_ptr() as Ptr<World>;
+    if (w_ptr as u64) == 0 { return 0; }
+    let w = w_ptr as &mut World;
+    let id = (entity_val & 0xFFFFFFFF) as u32;
+    let gen = (entity_val >> 32) as u32;
+    let e = Entity { id: id, gen: gen };
+    let m = memmap_set_get(w.mem_maps, e);
+    return m as u64;
+}
+
+@no_mangle
+pub fn ecs_bridge_update_memory_map(entity_val: u64, size: u64) {
+    let w_ptr = get_ecs_world_ptr() as Ptr<World>;
+    if (w_ptr as u64) == 0 { return; }
+    let w = w_ptr as &mut World;
+    let id = (entity_val & 0xFFFFFFFF) as u32;
+    let gen = (entity_val >> 32) as u32;
+    let e = Entity { id: id, gen: gen };
+    let m = memmap_set_get(w.mem_maps, e);
+    if (m as u64) != 0 {
+        let m_ref = m as &mut MemoryMap;
+        m_ref.size = size;
+    }
 }
