@@ -35,6 +35,7 @@ extern fn get_user_elf_l_addr() -> u64;
 extern fn get_user_elf_l_addr() -> u64;
 extern fn get_user_elf_m_addr() -> u64;
 extern fn get_user_elf_n_addr() -> u64;
+extern fn get_user_elf_o_addr() -> u64;
 extern fn get_netd_elf_addr() -> u64;
 extern fn get_echo_server_elf_addr() -> u64;
 extern fn get_kernel_event_loop_addr() -> u64;
@@ -321,7 +322,8 @@ pub fn kmain(magic: u32, mb_info: &u8) {
     spawn_and_run(7, get_user_elf_k_addr(), kernel_pml4);
     spawn_and_run(8, get_user_elf_m_addr(), kernel_pml4);                    // entity_write_test
     spawn_and_run(9, get_user_elf_n_addr(), kernel_pml4);                    // entity_map_test
-    serial.print("[test] spawned 10 user programs\n");
+    spawn_and_run(10, get_user_elf_o_addr(), kernel_pml4);                   // entity_alloc_test
+    serial.print("[test] spawned 11 user programs\n");
 
     process_set_current(slot_user);
     process_set_state(slot_user, PROC_RUNNING);

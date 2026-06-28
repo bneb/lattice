@@ -130,3 +130,9 @@ user_elf_m_end:
 user_elf_n_start:
     .incbin "/tmp/entity_map_test"
 user_elf_n_end:
+
+// --- Process O: Entity Alloc Test ---
+.global user_elf_o_start, user_elf_o_end
+user_elf_o_start:
+    .incbin "/tmp/entity_alloc_test"
+user_elf_o_end:
