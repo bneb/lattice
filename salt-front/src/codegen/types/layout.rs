@@ -47,3 +47,23 @@ pub fn prove_layout_compatibility_ctx(ctx: &mut LoweringContext, from: &Type, to
     let reg = ctx.struct_registry();
     prove_layout_compatibility(reg, from, to)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_ptr_inner() {
+        assert_eq!(extract_ptr_inner("FooPtr_i32"), Some("i32".into()));
+        assert_eq!(extract_ptr_inner("FooPtr_"), None);
+        assert_eq!(extract_ptr_inner("Foo"), None);
+        assert_eq!(extract_ptr_inner("Ptr_T"), Some("T".into()));
+        assert_eq!(extract_ptr_inner(""), None);
+    }
+
+    #[test]
+    fn test_flatten_nested_ptr_depth_guard() {
+        let ty = Type::Struct("Ptr_i32".into());
+        assert_eq!(flatten_nested_ptr(&ty, 11, "test"), ty);
+    }
+}

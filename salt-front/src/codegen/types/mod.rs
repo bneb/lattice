@@ -17,6 +17,7 @@ pub mod traits;
 pub mod specialization;
 pub mod spec_template;
 pub mod expansion;
+#[cfg(test)] mod numeric_tests;
 
 pub use canonical::{TypeID, TypeIDRegistry};
 pub use provenance::{ProvenanceMap, OriginMap, GlobalLVN};

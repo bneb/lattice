@@ -458,3 +458,28 @@ pub fn type_to_type_key(ty: &Type) -> TypeKey {
         _ => TypeKey { path: vec![], name: format!("{:?}", ty), specialization: None }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_type_to_type_key_struct() {
+        let k = type_to_type_key(&Type::Struct("foo".into()));
+        assert_eq!(k.name, "foo");
+        assert_eq!(k.path, vec![] as Vec<String>);
+    }
+
+    #[test]
+    fn test_type_to_type_key_pkg_path() {
+        let k = type_to_type_key(&Type::Struct("std__core__Vec".into()));
+        assert_eq!(k.name, "std__core__Vec");
+        assert_eq!(k.path, vec!["std", "core"]);
+    }
+
+    #[test]
+    fn test_type_to_type_key_reference() {
+        let k = type_to_type_key(&Type::Reference(Box::new(Type::Struct("foo".into())), true));
+        assert_eq!(k.name, "foo");
+    }
+}
