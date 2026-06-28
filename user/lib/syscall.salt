@@ -196,7 +196,13 @@ extern fn sys_tcp_listen(port: u16) -> u64;
 extern fn sys_tcp_accept(slot: u64) -> u64;
 extern fn sys_http_get(ip: u32) -> u64;
 extern fn sys_getpid() -> u64;
+extern fn sys_entity_count() -> u64;
 extern fn sys_entity_map(parent_slot: u64, size: u64) -> u64;
+
+/// Returns total number of ECS entities.
+pub fn entity_count() -> u64 {
+    return sys_entity_count();
+}
 
 /// Send ICMP echo request, return RTT in ms or 0 on timeout.
 pub fn ping(ip: u32) -> u64 {

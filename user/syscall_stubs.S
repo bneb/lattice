@@ -337,6 +337,17 @@ sys_entity_write:
     syscall
     ret
 
+/* sys_entity_count() -> u64
+ * Syscall 407 — returns total number of ECS entities.
+ *   No arguments.
+ *   Returns: RAX = entity count
+ */
+.global sys_entity_count
+sys_entity_count:
+    mov rax, 407
+    syscall
+    ret
+
 /* sys_entity_map(parent_slot: u64, size: u64) -> u64
  * Syscall 405 — allocate memory region as an ECS entity.
  *   RDI = parent_slot (process slot number)
