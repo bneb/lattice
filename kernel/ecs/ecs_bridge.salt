@@ -4,7 +4,7 @@ import kernel.ecs.world.{World, world_spawn, world_destroy, world_entity_count}
 import kernel.ecs.entity.{Entity}
 import kernel.ecs.components.{ThreadState, SchedulingPriority}
 import kernel.ecs.sparse_set.{thread_set_insert, thread_set_get_mut, priority_set_insert, memmap_set_insert, memmap_set_get, ipc_cap_set_insert, socket_set_insert}
-import kernel.ecs.components.{MemoryMap, IpcCapability, OpenSocket}
+import kernel.ecs.components.{MemoryMap, IpcCapability}
 
 extern fn get_ecs_world_ptr() -> u64;
 
@@ -148,16 +148,4 @@ pub fn ecs_bridge_entity_count() -> u64 {
     if (w_ptr as u64) == 0 { return 0; }
     let w = w_ptr as &mut World;
     return world_entity_count(w) as u64;
-}
-
-@no_mangle
-pub fn ecs_bridge_grant_open_socket(entity_val: u64, lp: u32, rp: u32, rip: u32, state: u32, ring_eid: u32) {
-    let w_ptr = get_ecs_world_ptr() as Ptr<World>;
-    if (w_ptr as u64) == 0 { return; }
-    let w = w_ptr as &mut World;
-    let id = (entity_val & 0xFFFFFFFF) as u32;
-    let gen = (entity_val >> 32) as u32;
-    let e = Entity { id: id, gen: gen };
-    let s = OpenSocket { local_port: lp, remote_port: rp, remote_ip: rip, state: state, ring_entity_id: ring_eid, _padding: 0 };
-    socket_set_insert(w.open_sockets, e, s);
 }

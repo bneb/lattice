@@ -1,0 +1,20 @@
+package kernel.ecs.socket_bridge
+
+import kernel.ecs.world.{World}
+import kernel.ecs.entity.{Entity}
+import kernel.ecs.components.{OpenSocket}
+import kernel.ecs.sparse_set.{socket_set_insert}
+
+extern fn get_ecs_world_ptr() -> u64;
+
+@no_mangle
+pub fn ecs_bridge_grant_open_socket(entity_val: u64, lp: u32, rp: u32, rip: u32, state: u32, ring_eid: u32) {
+    let w_ptr = get_ecs_world_ptr() as Ptr<World>;
+    if (w_ptr as u64) == 0 { return; }
+    let w = w_ptr as &mut World;
+    let id = (entity_val & 0xFFFFFFFF) as u32;
+    let gen = (entity_val >> 32) as u32;
+    let e = Entity { id: id, gen: gen };
+    let s = OpenSocket { local_port: lp, remote_port: rp, remote_ip: rip, state: state, ring_entity_id: ring_eid, _padding: 0 };
+    socket_set_insert(w.open_sockets, e, s);
+}
