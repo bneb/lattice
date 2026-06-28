@@ -336,3 +336,15 @@ sys_entity_write:
     mov rax, 404
     syscall
     ret
+
+/* sys_entity_map(parent_slot: u64, size: u64) -> u64
+ * Syscall 405 — allocate memory region as an ECS entity.
+ *   RDI = parent_slot (process slot number)
+ *   RSI = size (bytes, will be rounded up to page boundary)
+ *   Returns: RAX = entity_val (non-zero on success, 0 on failure)
+ */
+.global sys_entity_map
+sys_entity_map:
+    mov rax, 405
+    syscall
+    ret

@@ -222,3 +222,9 @@ get_pml4_phys:
 get_user_elf_m_addr:
     lea rax, [rip + user_elf_m_start]
     ret
+
+/* get_user_elf_n_addr() -> u64 */
+.global get_user_elf_n_addr
+get_user_elf_n_addr:
+    lea rax, [rip + user_elf_n_start]
+    ret

@@ -408,6 +408,15 @@ def build_user_programs():
                 os.path.join(user_dir, "std", "stdio.salt"),
             ],
         },
+        # Process N: entity_map_test (sys_entity_map + sys_entity_write)
+        {
+            "name": "entity_map_test",
+            "salt_files": [
+                os.path.join(user_dir, "entity_map_test.salt"),
+                os.path.join(user_dir, "lib", "syscall.salt"),
+                os.path.join(user_dir, "std", "stdio.salt"),
+            ],
+        },
     ]
 
     for prog in programs:
@@ -1204,6 +1213,11 @@ if __name__ == "__main__":
                 "name": "entity_write_output",
                 "desc": "Entity write syscall prints to serial via ECS entity",
                 "expected": ["[EW] ECS entity write test!", "ENTITY_WRITE_PASS"],
+            },
+            {
+                "name": "entity_map_output",
+                "desc": "Entity map syscall allocates pages as an ECS entity",
+                "expected": ["[EM] entity_map", "ENTITY_MAP_PASS"],
             },
         ]
 

@@ -124,3 +124,9 @@ user_elf_l_end:
 user_elf_m_start:
     .incbin "/tmp/entity_write_test"
 user_elf_m_end:
+
+// --- Process N: Entity Map Test ---
+.global user_elf_n_start, user_elf_n_end
+user_elf_n_start:
+    .incbin "/tmp/entity_map_test"
+user_elf_n_end:
