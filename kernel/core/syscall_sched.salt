@@ -51,9 +51,11 @@ extern fn process_get_state_addr(slot: u64) -> u64;
 extern fn process_get_ipc_sender_addr(slot: u64) -> u64;
 extern fn process_get_ipc_msg1(slot: u64) -> u64;
 extern fn process_get_ipc_msg2(slot: u64) -> u64;
+extern fn process_get_ecs_entity(slot: u64) -> u64;
 
 extern fn process_set_vma_list_head(slot: u64, val: u64);
 extern fn vma_alloc(start: u64, end: u64, flags: u64) -> u64;
+extern fn ecs_bridge_set_thread_status(entity_val: u64, status: u32);
 
 const PAGE_SIZE: u64 = 4096;
 const MAX_PROCS: u64 = 64;
@@ -73,6 +75,10 @@ const PTE_SHARED: u64 = 0x200;
 
 fn switch_to_slot(next: u64, old_rsp_ptr: u64) {
     process_set_state(next, PROC_RUNNING);
+    let next_entity = process_get_ecs_entity(next);
+    if next_entity != 0 {
+        ecs_bridge_set_thread_status(next_entity, 2); // THREAD_RUNNING
+    }
     process_set_current(next);
     let new_rsp = process_get_kernel_rsp(next);
     let new_pml4 = process_get_pml4(next);
@@ -174,6 +180,10 @@ fn switch_to_process(current: u64, next: u64) {
         process_set_state(current, PROC_READY);
     }
     process_set_state(next, PROC_RUNNING);
+    let next_entity = process_get_ecs_entity(next);
+    if next_entity != 0 {
+        ecs_bridge_set_thread_status(next_entity, 2); // THREAD_RUNNING
+    }
     process_set_current(next);
 
     let old_rsp_addr = process_get_rsp_addr(current);

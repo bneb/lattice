@@ -51,11 +51,13 @@ extern fn process_get_state_addr(slot: u64) -> u64;
 extern fn process_get_ipc_sender_addr(slot: u64) -> u64;
 extern fn process_get_ipc_msg1(slot: u64) -> u64;
 extern fn process_get_ipc_msg2(slot: u64) -> u64;
+extern fn process_get_ecs_entity(slot: u64) -> u64;
 
 extern fn process_set_vma_list_head(slot: u64, val: u64);
 extern fn vma_alloc(start: u64, end: u64, flags: u64) -> u64;
 
 extern fn sched_yield();
+extern fn ecs_bridge_set_thread_status(entity_val: u64, status: u32);
 extern fn switch_to_process(current: u64, next: u64);
 const PAGE_SIZE: u64 = 4096;
 const MAX_PROCS: u64 = 64;
@@ -111,6 +113,10 @@ pub fn sys_ipc_send(target_pid: u64, msg0: u64, msg1: u64, msg2: u64) -> u64 {
     let old = smp_cas_u64(state_addr, PROC_IPC_BLOCKED, PROC_READY);
     if old == PROC_IPC_BLOCKED {
         // WE won the race — we have exclusive access to the PCB IPC fields
+        let target_entity = process_get_ecs_entity(target_pid);
+        if target_entity != 0 {
+            ecs_bridge_set_thread_status(target_entity, 1); // THREAD_RUNNABLE
+        }
         process_set_ipc_msg(target_pid, sender, msg0, msg1, msg2);
         switch_to_process(sender, target_pid);
         return 0;
@@ -168,6 +174,10 @@ pub fn sys_ipc_recv() -> u64 {
 
     // No message pending — block and yield
     process_set_state(slot, PROC_IPC_BLOCKED);
+    let entity = process_get_ecs_entity(slot);
+    if entity != 0 {
+        ecs_bridge_set_thread_status(entity, 3); // THREAD_BLOCKED
+    }
     sched_yield();
 
     // ─── RESUME POINT ───
