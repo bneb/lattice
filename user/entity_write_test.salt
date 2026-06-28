@@ -1,0 +1,31 @@
+// =============================================================================
+// user/entity_write_test.salt
+// Ring 3 test: ECS-native I/O via sys_entity_write
+// =============================================================================
+package user.entity_write_test
+
+import user.std.stdio
+
+const CONSOLE_ENTITY: u64 = 0xFFFFFFFE;
+
+extern fn sys_entity_write(entity_val: u64, buf_ptr: u64, buf_len: u64) -> u64;
+extern fn sys_exit(code: u64);
+
+pub fn main() {
+    let buf: [u8; 29] = [91, 69, 87, 93, 32, 69, 67, 83, 32, 101, 110,
+                         116, 105, 116, 121, 32, 119, 114, 105, 116,
+                         101, 32, 116, 101, 115, 116, 33, 10, 0];
+    let buf_ptr = (&buf[0]) as u64;
+
+    let result = sys_entity_write(CONSOLE_ENTITY, buf_ptr, 29);
+
+    stdio.print("[EW] returned: ");
+    stdio.print_u64(result);
+    stdio.print("\n");
+
+    if result == 29 {
+        stdio.print("ENTITY_WRITE_PASS\n");
+    }
+
+    sys_exit(42);
+}

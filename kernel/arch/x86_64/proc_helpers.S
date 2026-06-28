@@ -217,3 +217,8 @@ get_pml4_phys:
     ret
 
 /* enable_interrupts is already defined in boot.S */
+
+.global get_user_elf_m_addr
+get_user_elf_m_addr:
+    lea rax, [rip + user_elf_m_start]
+    ret

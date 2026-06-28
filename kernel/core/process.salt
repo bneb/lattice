@@ -480,6 +480,9 @@ pub fn set_fd_table(slot: u64, table: u64) {
 @no_mangle
 pub fn process_set_ecs_entity(slot: u64, entity_val: u64) { set_ecs_entity(slot, entity_val); }
 
+@no_mangle
+pub fn process_get_ecs_entity(slot: u64) -> u64 { return get_ecs_entity(slot); }
+
 pub fn get_ecs_entity(slot: u64) -> u64 { return PROC_TABLE[slot].ecs_entity_val; }
 pub fn set_ecs_entity(slot: u64, val: u64) { if slot >= MAX_PROCS { return; } PROC_TABLE[slot].ecs_entity_val = val; }
 

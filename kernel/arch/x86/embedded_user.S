@@ -118,3 +118,9 @@ user_elf_l_start:
     .incbin "/tmp/echo_server"
 user_elf_l_end:
 
+
+// --- Process M: Entity Write Test ---
+.global user_elf_m_start, user_elf_m_end
+user_elf_m_start:
+    .incbin "/tmp/entity_write_test"
+user_elf_m_end:

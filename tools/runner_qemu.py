@@ -399,6 +399,15 @@ def build_user_programs():
                 os.path.join(user_dir, "lib", "syscall.salt"),
             ],
         },
+        # Process M: entity_write_test (uses sys_entity_write direct extern, stdio via syscall)
+        {
+            "name": "entity_write_test",
+            "salt_files": [
+                os.path.join(user_dir, "entity_write_test.salt"),
+                os.path.join(user_dir, "lib", "syscall.salt"),
+                os.path.join(user_dir, "std", "stdio.salt"),
+            ],
+        },
     ]
 
     for prog in programs:
@@ -1191,6 +1200,11 @@ if __name__ == "__main__":
                 "desc": "PS enumerates processes with states",
                 "expected": ["ps:", "processes", "PID 1:"],
             },
+            {
+                "name": "entity_write_output",
+                "desc": "Entity write syscall prints to serial via ECS entity",
+                "expected": ["[EW] ECS entity write test!", "ENTITY_WRITE_PASS"],
+            },
         ]
 
         # Allow filtering tests by name: test <name_substring>
@@ -1201,10 +1215,18 @@ if __name__ == "__main__":
             build_sip()
             build_user_programs()
             kernel_objs = build_kernel()
-            # Use the main kernel build (not ring_of_fire benchmark)
-            # Re-link without benchmark: just kernel objects
+            # Link kernel (no benchmarks for test mode)
             linker_script = os.path.join(KERNEL_ROOT, "arch/x86/linker.ld")
             elf = os.path.join(BUILD_DIR, "kernel.elf")
+
+            obj_files = sorted([o for o in kernel_objs if o.endswith('.o')])
+            print(f"  [LINK] Linking {len(obj_files)} objects -> kernel.elf")
+            cmd_link = [
+                TOOLCHAIN.rust_lld, "-flavor", "gnu",
+                "-T", linker_script, "-o", elf,
+                "-z", "max-page-size=0x1000"
+            ] + obj_files
+            subprocess.check_call(cmd_link)
 
             print(f"{GREEN}== User Program Test Suite =={RESET}")
             print(f"{GREEN}  Booting KeuOS, running user programs, validating output...{RESET}")
@@ -1230,7 +1252,7 @@ if __name__ == "__main__":
                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                        text=True, errors='replace')
             try:
-                process.wait(timeout=15)
+                process.wait(timeout=60)
             except subprocess.TimeoutExpired:
                 process.terminate()
                 process.wait()

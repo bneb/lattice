@@ -330,3 +330,9 @@ memset:
 2:
     mov rax, rdi
     ret
+
+.global sys_entity_write
+sys_entity_write:
+    mov rax, 404
+    syscall
+    ret
