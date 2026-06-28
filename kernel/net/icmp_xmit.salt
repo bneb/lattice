@@ -48,6 +48,7 @@ extern fn sched_wake_accept(listen_slot: u64);
 
 // ECS bridge functions for socket entity lifecycle
 extern fn ecs_bridge_spawn_bare_entity() -> u64;
+extern fn ecs_bridge_entity_count() -> u64;
 extern fn ecs_bridge_grant_open_socket(entity_val: u64, lp: u32, rp: u32, rip: u32, state: u32, ring_eid: u32);
 extern fn ecs_bridge_destroy_thread(entity_val: u64);
 extern fn tcp_socket_entity_set(slot: u64, val: u64);
@@ -170,6 +171,9 @@ pub fn tcp_client_connect(dst_ip: u32, dst_port: u16) -> u64 {
         tcp_socket_entity_set(slot, entity_val);
         serial.print("[TCP] socket entity=");
         serial.print_u64(entity_val);
+        let count = ecs_bridge_entity_count();
+        serial.print(" ECS entities: ");
+        serial.print_u64(count);
         serial.print("\n");
     }
 

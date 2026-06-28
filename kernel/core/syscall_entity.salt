@@ -144,3 +144,15 @@ pub fn sys_entity_count() -> u64 {
 pub fn sys_entity_list(buf_ptr: u64, max_count: u64) -> u64 {
     return ecs_bridge_list_threads(buf_ptr, max_count);
 }
+
+@no_mangle
+pub fn sys_entity_alloc(entity_val: u64, size: u64) -> u64 {
+    if entity_val == 0 {
+        let slot = process_current();
+        return sys_entity_map(slot, size);
+    } else {
+        let result = sys_entity_brk(entity_val, size);
+        if result == 0 { return 0; }
+        return entity_val;
+    }
+}
