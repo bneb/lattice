@@ -1,13 +1,7 @@
 // =============================================================================
 // kernel/core/syscall_entity.salt
-// Entity Lifecycle Syscalls — SYS_ENTITY_EXIT (402) and SYS_ENTITY_WAIT (403)
+// Entity Lifecycle Syscalls
 // =============================================================================
-// These syscalls provide ECS-based thread lifecycle management. Each process
-// has an associated ECS entity (stored in ecs_entity_val). sys_entity_exit
-// marks the entity as ZOMBIE and exits the process; sys_entity_wait waits
-// for the entity to reach ZOMBIE status and reaps it.
-// =============================================================================
-
 package kernel.core.syscall_entity
 use std.core.ptr.Ptr
 import kernel.ecs.components.{MemoryMap}
@@ -20,7 +14,6 @@ extern fn process_set_state(slot: u64, state: u64);
 extern fn process_set_ecs_entity(slot: u64, val: u64);
 extern fn process_set_ipc_msg(slot: u64, sender: u64, msg0: u64, msg1: u64, msg2: u64);
 extern fn process_dec_count();
-
 extern fn serial_print(msg: Ptr<u8>);
 extern fn serial_print_u64(val: u64);
 extern fn switch_cr3(pml4_phys: u64);
@@ -36,6 +29,7 @@ extern fn ecs_bridge_spawn_bare_entity() -> u64;
 extern fn ecs_bridge_grant_memory_map(entity_val: u64, pml4_phys: u64, size: u64);
 extern fn ecs_bridge_get_memory_map(entity_val: u64) -> u64;
 extern fn ecs_bridge_entity_count() -> u64;
+extern fn ecs_bridge_list_threads(buf_ptr: u64, max_count: u64) -> u64;
 extern fn ecs_bridge_update_memory_map(entity_val: u64, size: u64);
 extern fn pmm_alloc() -> u64;
 extern fn map_user_page_extern(user_pml4: u64, vaddr: u64, paddr: u64, flags: u64);
@@ -44,11 +38,9 @@ extern fn phys_to_virt(phys: u64) -> u64;
 const MAX_PROCS: u64 = 64;
 const PROC_FREE: u64   = 0;
 const PROC_ZOMBIE: u64 = 3;
+const PAGE_SIZE: u64 = 4096;
+const USER_PAGE_FLAGS: u64 = 0x7;
 
-// =============================================================================
-// sys_entity_exit — Entity lifecycle exit. KERNEL_PML4 passed from dispatch
-// to avoid cross-TU global access. NEVER RETURNS.
-// =============================================================================
 @no_mangle
 pub fn sys_entity_exit(exit_code: u64, kernel_pml4: u64) {
     let slot = process_current();
@@ -57,148 +49,86 @@ pub fn sys_entity_exit(exit_code: u64, kernel_pml4: u64) {
     serial_print(" code=");
     serial_print_u64(exit_code);
     serial_print("\n");
-
     let entity = process_get_ecs_entity(slot);
-    if entity != 0 {
-        ecs_bridge_set_thread_status(entity, 4); // THREAD_ZOMBIE
-    }
-
+    if entity != 0 { ecs_bridge_set_thread_status(entity, 4); }
     let user_pml4 = process_get_pml4(slot);
     switch_cr3(kernel_pml4);
     user_paging_destroy_user_pml4(user_pml4);
     destroy_fd_table(slot);
     ring_abi_destroy_ring(slot);
-
     process_set_ipc_msg(slot, 0, exit_code, 0, 0);
     process_set_state(slot, PROC_ZOMBIE);
     process_dec_count();
     switch_to_next_ready(slot);
 }
 
-// =============================================================================
-// find_slot_by_entity — Scan process table for a slot with matching entity
-// =============================================================================
 fn find_slot_by_entity(entity_val: u64) -> u64 {
     let mut i: u64 = 0;
     while i < MAX_PROCS {
-        if process_get_ecs_entity(i) == entity_val {
-            return i;
-        }
+        if process_get_ecs_entity(i) == entity_val { return i; }
         i = i + 1;
     }
     return MAX_PROCS;
 }
 
-// =============================================================================
-// sys_entity_wait — Wait for entity to become ZOMBIE, reap, return exit code
-// (SYS_ENTITY_WAIT, num=403)
-// =============================================================================
 @no_mangle
 pub fn sys_entity_wait(entity_val: u64) -> u64 {
     let child_slot = find_slot_by_entity(entity_val);
-    if child_slot >= MAX_PROCS {
-        return 0 - 1; // ECHILD
-    }
-
-    // Busy-wait until entity reaches ZOMBIE status
+    if child_slot >= MAX_PROCS { return 0 - 1; }
     let mut status = ecs_bridge_get_thread_status(entity_val);
-    while status != 4 { // THREAD_ZOMBIE
-        sched_yield();
-        status = ecs_bridge_get_thread_status(entity_val);
-    }
-
-    // Reap: read exit code, destroy entity, free process slot
+    while status != 4 { sched_yield(); status = ecs_bridge_get_thread_status(entity_val); }
     let exit_code = process_get_ipc_msg0(child_slot);
-    if entity_val != 0 {
-        ecs_bridge_destroy_thread(entity_val);
-    }
+    if entity_val != 0 { ecs_bridge_destroy_thread(entity_val); }
     process_set_state(child_slot, PROC_FREE);
     process_set_ecs_entity(child_slot, 0);
     return exit_code;
 }
 
-// =============================================================================
-// sys_entity_map — Allocate memory region as an ECS entity
-// (SYS_ENTITY_MAP, num=405)
-// Takes parent_slot + size, returns entity_val for the new MemoryMap entity
-// =============================================================================
-const PAGE_SIZE: u64 = 4096;
-const USER_PAGE_FLAGS: u64 = 0x7; // PRESENT | WRITE | USER
-
 @no_mangle
 pub fn sys_entity_map(parent_slot: u64, size: u64) -> u64 {
     if parent_slot >= MAX_PROCS { return 0; }
-    if size == 0 || size > (1 << 30) { return 0; } // max 1GB
-
+    if size == 0 || size > (1 << 30) { return 0; }
     let parent_pml4 = process_get_pml4(parent_slot);
     if parent_pml4 == 0 { return 0; }
-
     let entity_val = ecs_bridge_spawn_bare_entity();
     if entity_val == 0 { return 0; }
-
     let num_pages = (size + PAGE_SIZE - 1) / PAGE_SIZE;
-    let mut vaddr: u64 = 0x300000000000; // Start of mmap region
+    let mut vaddr: u64 = 0x300000000000;
     let mut allocated: u64 = 0;
     let mut i: u64 = 0;
     while i < num_pages {
         let paddr = pmm_alloc();
-        if paddr == 0 {
-            // OOM: return what we have (caller can retry or check size)
-            serial_print("[sys_entity_map] OOM at page ");
-            serial_print_u64(i);
-            serial_print("\n");
-            break;
-        }
+        if paddr == 0 { break; }
         map_user_page_extern(parent_pml4, vaddr, paddr, USER_PAGE_FLAGS);
         allocated = allocated + 1;
         vaddr = vaddr + PAGE_SIZE;
         i = i + 1;
     }
-
-    if allocated == 0 {
-        ecs_bridge_destroy_thread(entity_val);
-        return 0;
-    }
-
+    if allocated == 0 { ecs_bridge_destroy_thread(entity_val); return 0; }
     ecs_bridge_grant_memory_map(entity_val, parent_pml4, allocated * PAGE_SIZE);
     return entity_val;
 }
 
-// =============================================================================
-// sys_entity_brk — Extend/shrink entity memory region (entity-based sbrk)
-// (SYS_ENTITY_BRK, num=406)
-// Returns new size on success, 0 on failure
-// =============================================================================
 @no_mangle
 pub fn sys_entity_brk(entity_val: u64, new_size: u64) -> u64 {
     if entity_val == 0 || new_size == 0 { return 0; }
-
     let mem_ptr = ecs_bridge_get_memory_map(entity_val);
     if mem_ptr == 0 { return 0; }
     let mem = mem_ptr as &MemoryMap;
     let cur_size = (*mem).size;
     let pml4 = (*mem).pml4_phys;
-
-    if new_size <= cur_size {
-        ecs_bridge_update_memory_map(entity_val, new_size);
-        return new_size;
-    }
-
-    // Extend: allocate more pages
-    let cur_pages = (cur_size + PAGE_SIZE - 1) / PAGE_SIZE;
+    if new_size <= cur_size { ecs_bridge_update_memory_map(entity_val, new_size); return new_size; }
     let new_pages = (new_size + PAGE_SIZE - 1) / PAGE_SIZE;
     let base_vaddr: u64 = 0x300000000000 + cur_size;
     let mut allocated: u64 = 0;
-    let mut i: u64 = cur_pages;
+    let mut i: u64 = (cur_size + PAGE_SIZE - 1) / PAGE_SIZE;
     while i < new_pages {
         let paddr = pmm_alloc();
         if paddr == 0 { break; }
-        let vaddr = base_vaddr + allocated * PAGE_SIZE;
-        map_user_page_extern(pml4, vaddr, paddr, USER_PAGE_FLAGS);
+        map_user_page_extern(pml4, base_vaddr + allocated * PAGE_SIZE, paddr, USER_PAGE_FLAGS);
         allocated = allocated + 1;
         i = i + 1;
     }
-
     if allocated == 0 { return 0; }
     let actual_size = cur_size + allocated * PAGE_SIZE;
     ecs_bridge_update_memory_map(entity_val, actual_size);
@@ -208,4 +138,9 @@ pub fn sys_entity_brk(entity_val: u64, new_size: u64) -> u64 {
 @no_mangle
 pub fn sys_entity_count() -> u64 {
     return ecs_bridge_entity_count();
+}
+
+@no_mangle
+pub fn sys_entity_list(buf_ptr: u64, max_count: u64) -> u64 {
+    return ecs_bridge_list_threads(buf_ptr, max_count);
 }

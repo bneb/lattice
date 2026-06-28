@@ -8,6 +8,7 @@ import kernel.drivers.serial
 import kernel.core.pmm
 
 extern fn copy_to_user(dst_user: u64, src_kern: u64, len: u64) -> i64;
+extern fn ecs_bridge_destroy_thread(entity_val: u64);
 
 extern fn tcp_lookup_extern(lp: u16, rip: u32, rp: u16) -> u64;
 extern fn tcp_get_recv_buf_virt_extern(slot: u64) -> u64;
@@ -24,6 +25,27 @@ extern fn tcp_pool_get_seq_rcv(slot: u64) -> u32;
 extern fn tcp_pool_set_seq_rcv(slot: u64, v: u32);
 extern fn tcp_pool_get_recv_buf_phys(slot: u64) -> u64;
 extern fn sched_wake_recv(conn_id: u64);
+
+// =============================================================================
+// Socket entity tracking — side-channel map for ECS entity lifecycle
+// =============================================================================
+// Associates a TCP connection slot with an ECS entity. The entity is created
+// by tcp_client_connect and destroyed by tcp_close_conn. This avoids adding a
+// field to the TcpConnection struct in netd_tcp.salt.
+// =============================================================================
+global TCP_SOCKET_ENTITY_MAP: [u64; 1024] = [0; 1024];
+
+@no_mangle
+pub fn tcp_socket_entity_set(slot: u64, val: u64) {
+    if slot >= 1024 { return; }
+    TCP_SOCKET_ENTITY_MAP[slot] = val;
+}
+
+@no_mangle
+pub fn tcp_socket_entity_get(slot: u64) -> u64 {
+    if slot >= 1024 { return 0; }
+    return TCP_SOCKET_ENTITY_MAP[slot];
+}
 
 // =============================================================================
 // tcp_handle_incoming — Process incoming TCP packet for client connections
@@ -134,12 +156,17 @@ pub fn tcp_recv_data(conn_id: u64, buf: u64, len: u64) -> u64 {
 }
 
 // =============================================================================
-// tcp_close_conn — Close connection and free resources
+// tcp_close_conn — Close connection, destroy entity, free resources
 // =============================================================================
 @no_mangle
 pub fn tcp_close_conn(conn_id: u64) {
     if conn_id >= 1024 { return; }
     let buf_phys = tcp_pool_get_recv_buf_phys(conn_id);
     if buf_phys != 0 { pmm.free(buf_phys); }
+    let entity_val = TCP_SOCKET_ENTITY_MAP[conn_id];
+    if entity_val != 0 {
+        ecs_bridge_destroy_thread(entity_val);
+        TCP_SOCKET_ENTITY_MAP[conn_id] = 0;
+    }
     tcp_free_extern(conn_id);
 }

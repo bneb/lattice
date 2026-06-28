@@ -46,6 +46,12 @@ extern fn tcp_accept_enqueue_extern(listen_slot: u64, child_slot: u64);
 extern fn tcp_listen_extern(port: u16, owner_pid: u64) -> u64;
 extern fn sched_wake_accept(listen_slot: u64);
 
+// ECS bridge functions for socket entity lifecycle
+extern fn ecs_bridge_spawn_bare_entity() -> u64;
+extern fn ecs_bridge_grant_open_socket(entity_val: u64, lp: u32, rp: u32, rip: u32, state: u32, ring_eid: u32);
+extern fn ecs_bridge_destroy_thread(entity_val: u64);
+extern fn tcp_socket_entity_set(slot: u64, val: u64);
+
 // =============================================================================
 // Send ICMP Echo Reply
 // =============================================================================
@@ -157,8 +163,21 @@ pub fn tcp_client_connect(dst_ip: u32, dst_port: u16) -> u64 {
     let slot = tcp_alloc_client_extern(pid, local_port, dst_ip, dst_port);
     if slot == 0xFFFFFFFF { return 0xFFFFFFFFFFFFFFFF; }
 
+    // Spawn ECS entity and grant OpenSocket component for this connection
+    let entity_val = ecs_bridge_spawn_bare_entity();
+    if entity_val != 0 {
+        ecs_bridge_grant_open_socket(entity_val, local_port as u32, dst_port as u32, dst_ip, 2, 0);
+        tcp_socket_entity_set(slot, entity_val);
+        serial.print("[TCP] socket entity=");
+        serial.print_u64(entity_val);
+        serial.print("\n");
+    }
+
     let pkt_phys = pmm.alloc();
-    if pkt_phys == 0 { tcp_free_extern(slot); return 0xFFFFFFFFFFFFFFFF; }
+    if pkt_phys == 0 {
+        if entity_val != 0 { ecs_bridge_destroy_thread(entity_val); }
+        tcp_free_extern(slot); return 0xFFFFFFFFFFFFFFFF;
+    }
     let pkt = memory.phys_to_virt_raw(pkt_phys);
 
     let m = virtio_net.get_mac();
@@ -192,12 +211,16 @@ pub fn tcp_client_connect(dst_ip: u32, dst_port: u16) -> u64 {
         let polled = netcore_poll_all();
         let st = tcp_get_state_extern(slot);
         if st == 4 { break; }   // ESTABLISHED
-        if st == 0 { tcp_free_extern(slot); return 0xFFFFFFFFFFFFFFFF; }  // CLOSED
+        if st == 0 {   // CLOSED
+            ecs_bridge_destroy_thread(entity_val);
+            tcp_free_extern(slot); return 0xFFFFFFFFFFFFFFFF;
+        }
         let mut spin: u64 = 0;
         while spin < 50000 { spin = spin + 1; }
         waited = waited + 1;
     }
     if tcp_get_state_extern(slot) != 4 {  // ESTABLISHED
+        ecs_bridge_destroy_thread(entity_val);
         tcp_free_extern(slot);
         return 0xFFFFFFFFFFFFFFFF;
     }
@@ -357,6 +380,8 @@ pub fn handle_server_syn(buf: u64, len: u32, src_ip: u32) -> bool {
     // Allocate TCB for new connection
     let child_slot = tcp_alloc_client_extern(0, dst_port, src_ip, src_port);
     if child_slot == 0xFFFFFFFF { return false; }
+    // No entity for server-side sockets yet; clear any stale entity mapping
+    tcp_socket_entity_set(child_slot, 0);
 
     // Generate server ISN and set up connection state
     let server_isn: u32 = 0xFEEDC0DE + child_slot as u32;
