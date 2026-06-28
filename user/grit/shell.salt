@@ -46,10 +46,58 @@ fn strcmp(s1_ptr: u64, len1: u32, s2_ptr: u64, len2: u32) -> bool {
     return true;
 }
 
+fn print_u64(val: u64) {
+    let mut temp = val;
+    let mut ndigits: u32 = 0;
+    if temp == 0 { ndigits = 1; }
+    while temp > 0 {
+        ndigits = ndigits + 1;
+        temp = temp / 10;
+    }
+    let mut digit_buf: [u8; 20] = [0; 20];
+    let mut di: u32 = 0;
+    temp = val;
+    if temp == 0 {
+        digit_buf[0] = 48;
+        di = 1;
+    }
+    while temp > 0 {
+        digit_buf[(ndigits - 1 - di) as u64] = ((temp % 10) as u8) + 48;
+        temp = temp / 10;
+        di = di + 1;
+    }
+    console.print((&digit_buf[0]) as u64, ndigits);
+    tx_print((&digit_buf[0]) as u64, ndigits);
+}
+
+fn print_status(status: u64) {
+    if status == 0 {
+        let s: &u8 = "FREE";
+        console.print(s as u64, 4);
+        tx_print(s as u64, 4);
+    } else if status == 1 {
+        let s: &u8 = "RUNNABLE";
+        console.print(s as u64, 8);
+        tx_print(s as u64, 8);
+    } else if status == 2 {
+        let s: &u8 = "RUNNING";
+        console.print(s as u64, 7);
+        tx_print(s as u64, 7);
+    } else if status == 3 {
+        let s: &u8 = "BLOCKED";
+        console.print(s as u64, 7);
+        tx_print(s as u64, 7);
+    } else {
+        let s: &u8 = "ZOMBIE";
+        console.print(s as u64, 6);
+        tx_print(s as u64, 6);
+    }
+}
+
 fn cmd_help() {
-    let msg: &u8 = "\x1B[36mKeuOS Terminal Help\x1B[0m\n  clear : Clear the screen\n  echo  : Print arguments\n  ecs   : Show ECS entity count\n  free  : Show memory usage\n  help  : Show this help\n  hello : Spawn hello.elf\n  ipc   : IPC ping-pong test\n  ps    : Show process list\n  uptime: Show system uptime\n";
-    console.print(msg as u64, 279);
-    tx_print(msg as u64, 279);
+    let msg: &u8 = "\x1B[36mKeuOS Terminal Help\x1B[0m\n  clear : Clear the screen\n  echo  : Print arguments\n  ecs   : Show ECS entity count\n  free  : Show memory usage\n  free_ecs : Show ECS entity count (inline)\n  help  : Show this help\n  hello : Spawn hello.elf\n  ipc   : IPC ping-pong test\n  ps    : Show process list\n  ps_ecs   : Show ECS entity list (inline)\n  uptime: Show system uptime\n";
+    console.print(msg as u64, 328);
+    tx_print(msg as u64, 328);
 }
 
 fn cmd_hello() {
@@ -169,6 +217,46 @@ fn cmd_ecs() {
     tx_print(nl as u64, 1);
 }
 
+fn cmd_ps_ecs() {
+    let buf: [u64; 256] = [0; 256];
+    let count = syscall.entity_list((&buf) as u64, 255);
+    if count == 0 {
+        let msg: &u8 = "entity enumeration not yet available\n";
+        console.print(msg as u64, 35);
+        tx_print(msg as u64, 35);
+        return;
+    }
+    let mut i: u64 = 0;
+    while i < count {
+        let ev = buf[1 + i * 2];
+        let st = buf[1 + i * 2 + 1];
+        let id = ev & 0xFFFFFFFF;
+        let prefix: &u8 = "entity ";
+        console.print(prefix as u64, 7);
+        tx_print(prefix as u64, 7);
+        print_u64(id);
+        let colon: &u8 = ": status=";
+        console.print(colon as u64, 9);
+        tx_print(colon as u64, 9);
+        print_status(st);
+        let nl: &u8 = "\n";
+        console.print(nl as u64, 1);
+        tx_print(nl as u64, 1);
+        i = i + 1;
+    }
+}
+
+fn cmd_free_ecs() {
+    let count = syscall.entity_count();
+    let prefix: &u8 = "total entities: ";
+    console.print(prefix as u64, 16);
+    tx_print(prefix as u64, 16);
+    print_u64(count);
+    let nl: &u8 = "\n";
+    console.print(nl as u64, 1);
+    tx_print(nl as u64, 1);
+}
+
 fn cmd_unknown() {
     let msg: &u8 = "Command not found.\n";
     console.print(msg as u64, 19);
@@ -189,6 +277,8 @@ pub fn parse_command() {
     let ps_cmd: &u8 = "ps";
     let free_cmd: &u8 = "free";
     let uptime_cmd: &u8 = "uptime";
+    let ps_ecs_cmd: &u8 = "ps_ecs";
+    let free_ecs_cmd: &u8 = "free_ecs";
 
     if LINE_LEN == 0 {
         // Do nothing
@@ -208,6 +298,10 @@ pub fn parse_command() {
         cmd_free();
     } else if strcmp((&LINE_BUFFER) as u64, LINE_LEN, uptime_cmd as u64, 6) {
         cmd_uptime();
+    } else if strcmp((&LINE_BUFFER) as u64, LINE_LEN, ps_ecs_cmd as u64, 6) {
+        cmd_ps_ecs();
+    } else if strcmp((&LINE_BUFFER) as u64, LINE_LEN, free_ecs_cmd as u64, 8) {
+        cmd_free_ecs();
     } else if LINE_LEN >= 4 && strcmp((&LINE_BUFFER) as u64, 4, echo_cmd as u64, 4) {
         cmd_echo();
     } else {

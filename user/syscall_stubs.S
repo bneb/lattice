@@ -359,3 +359,15 @@ sys_entity_map:
     mov rax, 405
     syscall
     ret
+
+/* sys_entity_list(buf_ptr: u64, max_count: u64) -> u64
+ * Syscall 408 — fill buffer with ECS entity IDs and statuses.
+ *   RDI = buf_ptr (user-space buffer address)
+ *   RSI = max_count (max number of entries to write)
+ *   Returns: RAX = actual count written
+ */
+.global sys_entity_list
+sys_entity_list:
+    mov rax, 408
+    syscall
+    ret
