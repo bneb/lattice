@@ -20,6 +20,11 @@ if not os.path.exists(SALT_FRONT):
     SALT_FRONT = os.path.join(WORKSPACE_ROOT, "salt-front/target/debug/saltc")
 SALT_OPT = os.path.join(WORKSPACE_ROOT, "salt/build/salt-opt")
 
+# Make path roots absolute so glob patterns work regardless of CWD.
+# BUILD_DIR is kept relative for CI compatibility (used in -kernel qemu_build/kernel.elf).
+KERNEL_ROOT = os.path.join(WORKSPACE_ROOT, KERNEL_ROOT)
+BENCH_ROOT = os.path.join(WORKSPACE_ROOT, BENCH_ROOT)
+
 class ToolchainProvider:
     """Hermetic Toolchain Provider for KeuOS x86_64 target."""
     def __init__(self, target="x86_64-none-elf"):
