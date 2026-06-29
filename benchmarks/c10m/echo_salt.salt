@@ -1,7 +1,3 @@
-// =============================================================================
-// C10M Echo Server — Salt Native Batching (Safe Abstractions)
-// =============================================================================
-
 package main
 
 import std.core.ptr.Ptr
@@ -12,8 +8,6 @@ extern fn echo_server_init(port: i32) -> i32;
 extern fn echo_kq_create(listen_fd: i32) -> i32;
 extern fn echo_accept_all(kq: i32, listen_fd: i32);
 extern fn echo_get_port(default_port: i32) -> i32;
-
-// Raw OS Syscalls
 extern fn kevent(kq: i32, changelist: Ptr<u8>, nchanges: i32, eventlist: Ptr<KEvent>, nevents: i32, timeout: Ptr<u8>) -> i32;
 extern fn read(fd: i32, buf: Ptr<u8>, count: i64) -> i64;
 extern fn write(fd: i32, buf: Ptr<u8>, count: i64) -> i64;
@@ -21,94 +15,40 @@ extern fn close(fd: i32) -> i32;
 
 const BUF_SIZE: i64 = 4096;
 const MAX_EVENTS: i32 = 256;
-const EV_EOF: u16 = 32768; // 0x8000
+const EV_EOF: u16 = 32768;
 
-struct KEvent {
-    ident: u64,
-    filter: i16,
-    flags: u16,
-    fflags: u32,
-    data: i64,
-    udata: Ptr<u8>
-}
+struct KEvent { ident: u64, filter: i16, flags: u16, fflags: u32, data: i64, udata: Ptr<u8> }
 
 fn main() -> i32 {
     let port = echo_get_port(8080);
     println("=== Salt Echo Server (Batched, Safe) ===");
-
     let listen_fd = echo_server_init(port);
-    if listen_fd < 0 {
-        println("ERROR: server init failed");
-        return 1;
-    }
-    
+    if listen_fd < 0 { println("ERROR: server init failed"); return 1; }
     let kq = echo_kq_create(listen_fd);
-    if kq < 0 {
-        println("ERROR: kqueue init failed");
-        return 1;
-    }
-    
+    if kq < 0 { println("ERROR: kqueue init failed"); return 1; }
     let alloc = HeapAllocator { _pad: 0 };
-    
-    // Allocate buffer
     let mut buf = Vec::<u8, HeapAllocator>::new(alloc, BUF_SIZE);
-    let mut iter: i64 = 0;
-    while iter < BUF_SIZE {
-        buf.push(0);
-        iter = iter + 1;
-    }
-    
-    let empty_event = KEvent {
-        ident: 0,
-        filter: 0,
-        flags: 0,
-        fflags: 0,
-        data: 0,
-        udata: Ptr<u8>::empty()
-    };
-    
-    // Allocate 256 KEvents safely
+    let mut iter: i64 = 0; while iter < BUF_SIZE { buf.push(0); iter += 1; }
+    let empty_event = KEvent { ident: 0, filter: 0, flags: 0, fflags: 0, data: 0, udata: Ptr::<u8>::empty() };
     let mut events = Vec::<KEvent, HeapAllocator>::new(alloc, MAX_EVENTS as i64);
-    let mut ev_iter: i64 = 0;
-    while ev_iter < (MAX_EVENTS as i64) {
-        events.push(empty_event);
-        ev_iter = ev_iter + 1;
-    }
-    
+    let mut ev_iter: i64 = 0; while ev_iter < (MAX_EVENTS as i64) { events.push(empty_event); ev_iter += 1; }
     println("[Salt/kqueue] Echo server listening with batching (safe)");
-    
     let mut total_bytes: i64 = 0;
     while true {
-        let n = kevent(kq, Ptr<u8>::empty(), 0, events.as_ptr(), MAX_EVENTS, Ptr<u8>::empty());
-        if n < 0 {
-            // Should handle EINTR, but for benchmark we assume no signals
-            break;
-        }
-        
+        let n = kevent(kq, Ptr::<u8>::empty(), 0, events.as_ptr(), MAX_EVENTS, Ptr::<u8>::empty());
+        if n < 0 { break; }
         for i in 0..n {
-            let ev = events.get(i as i64);
+            let ev = events.get_unchecked(i as i64);
             let fd = ev.ident as i32;
             let flags = ev.flags;
-            
-            if fd == listen_fd {
-                echo_accept_all(kq, listen_fd);
-            } else if (flags & EV_EOF) != 0 {
-                close(fd);
-            } else {
+            if fd == listen_fd { echo_accept_all(kq, listen_fd); }
+            else if (flags & EV_EOF) != 0 { close(fd); }
+            else {
                 let bytes = read(fd, buf.as_ptr(), BUF_SIZE);
-                if bytes > 0 {
-                    let b0 = buf.get(0);
-                    buf.set(0, (b0 ^ 32) as u8); // 0x20
-                    write(fd, buf.as_ptr(), bytes);
-                    total_bytes = total_bytes + bytes;
-                } else if bytes == 0 {
-                    close(fd);
-                }
+                if bytes > 0 { let b0 = buf.get_unchecked(0); buf.set_unchecked(0, (b0 ^ 32) as u8); write(fd, buf.as_ptr(), bytes); total_bytes += bytes; }
+                else if bytes == 0 { close(fd); }
             }
         }
     }
-    
-    buf.free();
-    events.free();
-    return 0;
+    buf.free(); events.free(); return 0;
 }

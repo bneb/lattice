@@ -1,89 +1,36 @@
-// tests/test_channel.salt — TDD for std.channel
-// Tests bounded channel send/recv on a single thread.
 package main
-
 import std.channel.channel.Channel
 import std.core.result.Result
-
 extern fn exit(code: i32);
-
-fn assert_true(cond: bool, test_id: i32) {
-    if !cond {
-        println(f"FAIL test {test_id}");
-        exit(test_id);
-    }
-}
-
+fn assert_true(cond: bool, id: i32) { if !cond { println(f"FAIL test {id}"); exit(id); } }
 fn main() -> i32 {
     println("=== Channel Tests ===");
-
-    // Test 1: Create a bounded channel
     let mut ch = Channel::bounded(4);
-    assert_true(ch.capacity() == 4, 1);
-    assert_true(ch.len() == 0, 1);
+    assert_true(ch.capacity() == 4, 1); assert_true(ch.len() == 0, 1);
     println("  [PASS] Channel::bounded(4)");
-
-    // Test 2: Send a value
-    let r1 = ch.send(42);
-    assert_true(r1.is_ok(), 2);
-    assert_true(ch.len() == 1, 2);
+    assert_true(ch.send(42).is_ok(), 2); assert_true(ch.len() == 1, 2);
     println("  [PASS] send(42)");
-
-    // Test 3: Send more values
-    ch.send(100);
-    ch.send(200);
+    let _ = ch.send(100); let _ = ch.send(200);
     assert_true(ch.len() == 3, 3);
     println("  [PASS] send multiple values");
-
-    // Test 4: Receive a value (FIFO order)
-    let v1 = ch.try_recv();
-    assert_true(v1.is_some(), 4);
-    assert_true(v1.unwrap() == 42, 4);
+    let v1 = ch.try_recv(); assert_true(v1.is_ok(), 4); assert_true(v1.unwrap() == 42, 4);
     println("  [PASS] try_recv() == 42 (FIFO)");
-
-    // Test 5: Receive next value
-    let v2 = ch.try_recv();
-    assert_true(v2.is_some(), 5);
-    assert_true(v2.unwrap() == 100, 5);
+    let v2 = ch.try_recv(); assert_true(v2.unwrap() == 100, 5);
     println("  [PASS] try_recv() == 100");
-
-    // Test 6: Receive last value
-    let v3 = ch.try_recv();
-    assert_true(v3.is_some(), 6);
-    assert_true(v3.unwrap() == 200, 6);
+    let v3 = ch.try_recv(); assert_true(v3.unwrap() == 200, 6);
     println("  [PASS] try_recv() == 200");
-
-    // Test 7: Receive from empty channel returns None
-    let v4 = ch.try_recv();
-    assert_true(v4.is_none(), 7);
-    println("  [PASS] try_recv() == None (empty)");
-
-    // Test 8: Fill to capacity
-    ch.send(1);
-    ch.send(2);
-    ch.send(3);
-    ch.send(4);
-    assert_true(ch.len() == 4, 8);
-    assert_true(ch.is_full(), 8);
+    let v4 = ch.try_recv(); assert_true(v4.is_err(), 7);
+    println("  [PASS] try_recv() == Err (empty)");
+    let _ = ch.send(1); let _ = ch.send(2); let _ = ch.send(3); let _ = ch.send(4);
+    assert_true(ch.len() == 4, 8); assert_true(ch.is_full(), 8);
     println("  [PASS] channel full at capacity");
-
-    // Test 9: Send to full channel returns Err
-    let r2 = ch.try_send(5);
-    assert_true(r2.is_err(), 9);
-    println("  [PASS] try_send on full channel returns Err");
-
-    // Test 10: Drain and verify FIFO
-    let d1 = ch.try_recv();
-    assert_true(d1.unwrap() == 1, 10);
-    let d2 = ch.try_recv();
-    assert_true(d2.unwrap() == 2, 10);
-    let d3 = ch.try_recv();
-    assert_true(d3.unwrap() == 3, 10);
-    let d4 = ch.try_recv();
-    assert_true(d4.unwrap() == 4, 10);
+    assert_true(ch.try_send(5).is_err(), 9);
+    println("  [PASS] try_send on full returns Err");
+    assert_true(ch.try_recv().unwrap() == 1, 10);
+    assert_true(ch.try_recv().unwrap() == 2, 10);
+    assert_true(ch.try_recv().unwrap() == 3, 10);
+    assert_true(ch.try_recv().unwrap() == 4, 10);
     assert_true(ch.len() == 0, 10);
     println("  [PASS] FIFO drain 1,2,3,4");
-
-    println("\n=== All channel tests passed ===");
-    return 0;
+    println("\n=== All channel tests passed ==="); return 0;
 }

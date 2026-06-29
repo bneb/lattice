@@ -1,92 +1,35 @@
-// tests/test_channel_unbounded.salt — TDD for unbounded channel
 package main
-
 import std.channel.channel.UnboundedChannel
 import std.core.option.Option
-
 extern fn exit(code: i32);
-
-fn assert_true(cond: bool, test_id: i32) {
-    if !cond {
-        println(f"FAIL test {test_id}");
-        exit(test_id);
-    }
-}
-
+fn assert_true(cond: bool, id: i32) { if !cond { println(f"FAIL test {id}"); exit(id); } }
 fn main() -> i32 {
     println("=== Unbounded Channel Tests ===");
-
-    // Test 1: Create unbounded channel
     let mut ch = UnboundedChannel::new();
-    assert_true(ch.len() == 0, 1);
-    assert_true(ch.is_empty(), 1);
+    assert_true(ch.len() == 0, 1); assert_true(ch.is_empty(), 1);
     println("  [PASS] UnboundedChannel::new()");
-
-    // Test 2: Send values without limit
-    let mut i: i64 = 0;
-    while i < 100 {
-        ch.send(i);
-        i = i + 1;
-    }
+    let mut i: i64 = 0; while i < 100 { let _ = ch.send(i); i += 1; }
     assert_true(ch.len() == 100, 2);
     println("  [PASS] send 100 values");
-
-    // Test 3: Receive in FIFO order
-    let v1 = ch.try_recv();
-    assert_true(v1.is_some(), 3);
-    assert_true(v1.unwrap() == 0, 3);
-    let v2 = ch.try_recv();
-    assert_true(v2.unwrap() == 1, 3);
+    let v1 = ch.try_recv(); assert_true(v1.is_ok(), 3); assert_true(v1.unwrap() == 0, 3);
+    let v2 = ch.try_recv(); assert_true(v2.unwrap() == 1, 3);
     println("  [PASS] FIFO order preserved");
-
-    // Test 4: Drain remaining
-    i = 2;
-    while i < 100 {
-        let v = ch.try_recv();
-        assert_true(v.is_some(), 4);
-        assert_true(v.unwrap() == i, 4);
-        i = i + 1;
-    }
+    i = 2; while i < 100 { let v = ch.try_recv(); assert_true(v.is_ok(), 4); assert_true(v.unwrap() == i, 4); i += 1; }
     assert_true(ch.is_empty(), 4);
     println("  [PASS] drain all 100 values");
-
-    // Test 5: Recv from empty returns None
-    let empty = ch.try_recv();
-    assert_true(empty.is_none(), 5);
-    println("  [PASS] try_recv on empty returns None");
-
-    // Test 6: Grow beyond initial capacity (stress)
-    i = 0;
-    while i < 2000 {
-        ch.send(i * 3);
-        i = i + 1;
-    }
+    assert_true(ch.try_recv().is_err(), 5);
+    println("  [PASS] try_recv on empty returns Err");
+    i = 0; while i < 2000 { let _ = ch.send(i * 3); i += 1; }
     assert_true(ch.len() == 2000, 6);
-
-    // Verify a few values
-    let first = ch.try_recv();
-    assert_true(first.unwrap() == 0, 6);
-    let second = ch.try_recv();
-    assert_true(second.unwrap() == 3, 6);
+    assert_true(ch.try_recv().unwrap() == 0, 6); assert_true(ch.try_recv().unwrap() == 3, 6);
     println("  [PASS] 2000 values, grows as needed");
-
-    // Test 7: Interleave send/recv
-    // Drain the rest
-    while !ch.is_empty() {
-        ch.try_recv();
-    }
-    ch.send(10);
-    ch.send(20);
-    let a = ch.try_recv();
-    assert_true(a.unwrap() == 10, 7);
-    ch.send(30);
-    let b = ch.try_recv();
-    assert_true(b.unwrap() == 20, 7);
-    let c = ch.try_recv();
-    assert_true(c.unwrap() == 30, 7);
+    while !ch.is_empty() { let _ = ch.try_recv(); }
+    let _ = ch.send(10); let _ = ch.send(20);
+    assert_true(ch.try_recv().unwrap() == 10, 7);
+    let _ = ch.send(30);
+    assert_true(ch.try_recv().unwrap() == 20, 7);
+    assert_true(ch.try_recv().unwrap() == 30, 7);
     assert_true(ch.is_empty(), 7);
     println("  [PASS] interleaved send/recv");
-
-    println("\n=== All unbounded channel tests passed ===");
-    return 0;
+    println("\n=== All unbounded channel tests passed ==="); return 0;
 }

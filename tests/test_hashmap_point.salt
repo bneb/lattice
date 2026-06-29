@@ -1,171 +1,49 @@
-// test_hashmap_point.salt - Custom Struct HashMap Test
-// Demonstrates Point with Hash + Eq methods as HashMap key
 package main
-
 import std.collections.hash_map.HashMap
 import std.hash.wyhash_mix
-
-// =============================================================================
-// Point Struct - Custom HashMap Key
-// =============================================================================
-struct Point {
-    x: i64,
-    y: i64,
-}
-
-// Direct impl block methods - the compiler will find these via method resolution
+struct Point { x: i64, y: i64 }
 impl Point {
-    // Hash method for HashMap key hashing
-    @inline
-    pub fn hash(&self) -> u64 {
-        let h1 = wyhash_mix(self.x as u64);
-        let h2 = wyhash_mix(self.y as u64);
-        // Rotate-XOR combination for good distribution
+    @inline pub fn hash(&self) -> u64 {
+        let h1 = wyhash_mix(self.x as u64); let h2 = wyhash_mix(self.y as u64);
         return wyhash_mix(h1 ^ (h2 << 16) ^ (h2 >> 48));
     }
-    
-    // Eq method for HashMap key comparison
-    @inline
-    pub fn eq(&self, other: &Point) -> bool {
-        return self.x == other.x && self.y == other.y;
-    }
+    @inline pub fn eq(&self, other: &Point) -> bool { return self.x == other.x && self.y == other.y; }
 }
-
-// =============================================================================
-// Tests
-// =============================================================================
-
 fn test_point_basic() {
     let mut map = HashMap<Point, i64>::with_capacity(16);
-    
-    let p1 = Point { x: 0, y: 0 };
-    let p2 = Point { x: 1, y: 2 };
-    let p3 = Point { x: -5, y: 10 };
-    
-    map.insert(p1, 100);
-    map.insert(p2, 200);
-    map.insert(p3, 300);
-    
-    // Lookup with same values (not same instance)
-    let lookup1 = Point { x: 0, y: 0 };
-    let lookup2 = Point { x: 1, y: 2 };
-    let lookup3 = Point { x: -5, y: 10 };
-    
-    if map.get(&lookup1) == 100 {
-        println("PASS: Point(0,0) -> 100");
-    } else {
-        println("FAIL: Point(0,0) lookup");
-    }
-    
-    if map.get(&lookup2) == 200 {
-        println("PASS: Point(1,2) -> 200");
-    } else {
-        println("FAIL: Point(1,2) lookup");
-    }
-    
-    if map.get(&lookup3) == 300 {
-        println("PASS: Point(-5,10) -> 300");
-    } else {
-        println("FAIL: Point(-5,10) lookup");
-    }
-    
+    map.insert(Point { x: 0, y: 0 }, 100); map.insert(Point { x: 1, y: 2 }, 200); map.insert(Point { x: -5, y: 10 }, 300);
+    if map.get_unchecked(&Point { x: 0, y: 0 }) == 100 { println("PASS: Point(0,0) -> 100"); } else { println("FAIL: Point(0,0) lookup"); }
+    if map.get_unchecked(&Point { x: 1, y: 2 }) == 200 { println("PASS: Point(1,2) -> 200"); } else { println("FAIL: Point(1,2) lookup"); }
+    if map.get_unchecked(&Point { x: -5, y: 10 }) == 300 { println("PASS: Point(-5,10) -> 300"); } else { println("FAIL: Point(-5,10) lookup"); }
     map.drop();
 }
-
 fn test_point_collision() {
-    // Test that different points with same x OR y don't collide
     let mut map = HashMap<Point, i64>::with_capacity(16);
-    
-    let p1 = Point { x: 1, y: 0 };
-    let p2 = Point { x: 0, y: 1 };
-    let p3 = Point { x: 1, y: 1 };
-    
-    map.insert(p1, 10);
-    map.insert(p2, 20);
-    map.insert(p3, 30);
-    
-    let lookup1 = Point { x: 1, y: 0 };
-    let lookup2 = Point { x: 0, y: 1 };
-    let lookup3 = Point { x: 1, y: 1 };
-    
-    let mut errors: i64 = 0;
-    if map.get(&lookup1) != 10 { errors = errors + 1; }
-    if map.get(&lookup2) != 20 { errors = errors + 1; }
-    if map.get(&lookup3) != 30 { errors = errors + 1; }
-    
-    if errors == 0 {
-        println("PASS: Point collision handling");
-    } else {
-        println("FAIL: Point collision handling");
-    }
-    
+    map.insert(Point { x: 1, y: 0 }, 10); map.insert(Point { x: 0, y: 1 }, 20); map.insert(Point { x: 1, y: 1 }, 30);
+    let mut e: i64 = 0;
+    if map.get_unchecked(&Point { x: 1, y: 0 }) != 10 { e += 1; }
+    if map.get_unchecked(&Point { x: 0, y: 1 }) != 20 { e += 1; }
+    if map.get_unchecked(&Point { x: 1, y: 1 }) != 30 { e += 1; }
+    if e == 0 { println("PASS: Collision"); } else { println("FAIL: Collision"); }
     map.drop();
 }
-
 fn test_point_remove() {
     let mut map = HashMap<Point, i64>::with_capacity(16);
-    
-    let p1 = Point { x: 5, y: 5 };
-    map.insert(p1, 555);
-    
-    let lookup = Point { x: 5, y: 5 };
-    let removed = map.remove(&lookup);
-    
-    if removed {
-        println("PASS: Point removal");
-    } else {
-        println("FAIL: Point removal");
-    }
-    
-    let lookup2 = Point { x: 5, y: 5 };
-    if map.get(&lookup2) == 0 {
-        println("PASS: Point removed, get returns 0");
-    } else {
-        println("FAIL: Point still findable after remove");
-    }
-    
+    map.insert(Point { x: 5, y: 5 }, 555);
+    if map.remove(&Point { x: 5, y: 5 }) { println("PASS: Point removal"); } else { println("FAIL: Point removal"); }
+    if map.get(&Point { x: 5, y: 5 }).is_none() { println("PASS: removed, get None"); } else { println("FAIL: still findable"); }
     map.drop();
 }
-
 fn test_point_large_scale() {
     let mut map = HashMap<Point, i64>::with_capacity(16);
-    
-    // Insert 1000 points
-    let mut i: i64 = 0;
-    while i < 1000 {
-        let p = Point { x: i, y: i * 2 };
-        map.insert(p, i * 7);
-        i = i + 1;
-    }
-    
-    // Verify all retrievable
-    i = 0;
-    let mut errors: i64 = 0;
-    while i < 1000 {
-        let lookup = Point { x: i, y: i * 2 };
-        if map.get(&lookup) != i * 7 {
-            errors = errors + 1;
-        }
-        i = i + 1;
-    }
-    
-    if errors == 0 {
-        println("PASS: Point large scale (1000 entries)");
-    } else {
-        println(f"FAIL: Point large scale, {errors} errors");
-    }
-    
+    let mut i: i64 = 0; while i < 1000 { map.insert(Point { x: i, y: i * 2 }, i * 7); i += 1; }
+    i = 0; let mut e: i64 = 0;
+    while i < 1000 { if map.get_unchecked(&Point { x: i, y: i * 2 }) != i * 7 { e += 1; } i += 1; }
+    if e == 0 { println("PASS: large scale"); } else { println(f"FAIL: {e} errors"); }
     map.drop();
 }
-
 fn main() -> i32 {
     println("=== HashMap<Point, i64> Tests ===");
-    
-    test_point_basic();
-    test_point_collision();
-    test_point_remove();
-    test_point_large_scale();
-    
-    println("=== Tests Complete ===");
-    return 0;
+    test_point_basic(); test_point_collision(); test_point_remove(); test_point_large_scale();
+    println("=== Tests Complete ==="); return 0;
 }

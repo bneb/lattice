@@ -1,218 +1,63 @@
-// Test: HashMap<i64, i64> - Comprehensive TDD
-// Verifies insert, get, remove, overwrite, growth, and collision behavior
-//
-// NOTE: Key variables use explicit `i64` type because the compiler currently
-// defaults integer literals to i32. This is a known issue — the compiler should
-// eventually infer the type from usage context (e.g., HashMap<i64,V>::get(&k)
-// should cause k to be inferred as i64). Filed as: literal type inference.
-
 import std.collections.hash_map.HashMap
-
-fn assert_eq(actual: i64, expected: i64) -> bool {
-    return actual == expected;
-}
-
+fn assert_eq(a: i64, e: i64) -> bool { return a == e; }
 fn main() -> i32 {
-    let mut passed: i64 = 0;
-    let mut failed: i64 = 0;
-
+    let mut p: i64 = 0; let mut f: i64 = 0;
     println("=== HashMap<i64, i64> Tests ===");
-
-    // =========================================================================
-    // Section 1: Basic insert + get
-    // =========================================================================
     println("--- Section 1: Basic insert + get ---");
-
     let mut m1 = HashMap<i64, i64>::with_capacity(16);
-    m1.insert(42, 100);
-    let k1: i64 = 42;
-    let v1 = m1.get(&k1);
-    print("insert(42,100) then get(42) == 100");
-    if assert_eq(v1, 100) { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-
+    m1.insert(42, 100); let v1 = m1.get_unchecked(&42);
+    print("insert(42,100) then get_unchecked == 100");
+    if assert_eq(v1, 100) { println("  ... PASS"); p += 1; } else { println("  ... FAIL"); f += 1; }
     m1.insert(7, 200);
-    let k2: i64 = 7;
-    let v2 = m1.get(&k2);
-    print("insert(7,200) then get(7) == 200");
-    if assert_eq(v2, 200) { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-
-    // get on missing key returns 0
-    let k3: i64 = 999;
-    let v3 = m1.get(&k3);
-    print("get(999) on missing key == 0");
-    if assert_eq(v3, 0) { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-
+    print("insert(7,200) then get_unchecked == 200");
+    if assert_eq(m1.get_unchecked(&7), 200) { println("  ... PASS"); p += 1; } else { println("  ... FAIL"); f += 1; }
+    print("get(999) missing == None");
+    if m1.get(&999).is_none() { println("  ... PASS"); p += 1; } else { println("  ... FAIL"); f += 1; }
     m1.drop();
-
-    // =========================================================================
-    // Section 2: Overwrite existing key
-    // =========================================================================
     println("--- Section 2: Overwrite ---");
-
     let mut m2 = HashMap<i64, i64>::with_capacity(16);
-    m2.insert(10, 111);
-    m2.insert(10, 222);
-    let k4: i64 = 10;
-    let v4 = m2.get(&k4);
-    print("overwrite: get(10) == 222");
-    if assert_eq(v4, 222) { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-
-    let l2 = m2.len();
-    print("len after overwrite == 1");
-    if assert_eq(l2, 1) { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-
+    m2.insert(10, 111); m2.insert(10, 222);
+    if assert_eq(m2.get_unchecked(&10), 222) { println("  ... PASS"); p += 1; } else { println("  ... FAIL"); f += 1; }
+    if assert_eq(m2.len(), 1) { println("  ... PASS"); p += 1; } else { println("  ... FAIL"); f += 1; }
     m2.drop();
-
-    // =========================================================================
-    // Section 3: Remove
-    // =========================================================================
     println("--- Section 3: Remove ---");
-
     let mut m3 = HashMap<i64, i64>::with_capacity(16);
-    m3.insert(1, 10);
-    m3.insert(2, 20);
-    m3.insert(3, 30);
-
-    let l3a = m3.len();
-    print("len after 3 inserts == 3");
-    if assert_eq(l3a, 3) { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-
-    let rk1: i64 = 2;
-    let removed3 = m3.remove(&rk1);
-    print("remove(2) returns true");
-    if removed3 { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-
-    let rk1b: i64 = 2;
-    let v5 = m3.get(&rk1b);
-    print("get(2) after remove == 0");
-    if assert_eq(v5, 0) { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-
-    let l3b = m3.len();
-    print("len after remove == 2");
-    if assert_eq(l3b, 2) { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-
-    // Remove non-existent key
-    let rk2: i64 = 999;
-    let removed3b = m3.remove(&rk2);
-    print("remove(999) returns false");
-    if !removed3b { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-
-    // Remaining entries still accessible
-    let rk3: i64 = 1;
-    let v6 = m3.get(&rk3);
-    print("get(1) still 10 after removing 2");
-    if assert_eq(v6, 10) { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-    let rk4: i64 = 3;
-    let v7 = m3.get(&rk4);
-    print("get(3) still 30 after removing 2");
-    if assert_eq(v7, 30) { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-
+    m3.insert(1, 10); m3.insert(2, 20); m3.insert(3, 30);
+    if assert_eq(m3.len(), 3) { println("  ... PASS"); p += 1; } else { println("  ... FAIL"); f += 1; }
+    if m3.remove(&2) { println("  ... PASS"); p += 1; } else { println("  ... FAIL"); f += 1; }
+    if m3.get(&2).is_none() { println("  ... PASS"); p += 1; } else { println("  ... FAIL"); f += 1; }
+    if assert_eq(m3.len(), 2) { println("  ... PASS"); p += 1; } else { println("  ... FAIL"); f += 1; }
+    if !m3.remove(&999) { println("  ... PASS"); p += 1; } else { println("  ... FAIL"); f += 1; }
+    if assert_eq(m3.get_unchecked(&1), 10) { println("  ... PASS"); p += 1; } else { println("  ... FAIL"); f += 1; }
+    if assert_eq(m3.get_unchecked(&3), 30) { println("  ... PASS"); p += 1; } else { println("  ... FAIL"); f += 1; }
     m3.drop();
-
-    // =========================================================================
-    // Section 4: Growth (trigger resize)
-    // =========================================================================
     println("--- Section 4: Growth ---");
-
     let mut m4 = HashMap<i64, i64>::with_capacity(8);
-    for i in 0..20 {
-        m4.insert(i, i * 100);
-    }
-
-    let l4 = m4.len();
-    print("len after 20 inserts == 20");
-    if assert_eq(l4, 20) { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-
-    // Verify all entries survived growth
-    let mut all_ok: bool = true;
-    for j in 0..20 {
-        let jk: i64 = j;
-        let v = m4.get(&jk);
-        if v != j * 100 {
-            all_ok = false;
-        }
-    }
-    print("all 20 entries correct after growth");
-    if all_ok { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-
+    for i in 0..20 { m4.insert(i, i * 100); }
+    if assert_eq(m4.len(), 20) { println("  ... PASS"); p += 1; } else { println("  ... FAIL"); f += 1; }
+    let mut ok = true;
+    for j in 0..20 { if m4.get_unchecked(&j) != j * 100 { ok = false; } }
+    if ok { println("  ... PASS"); p += 1; } else { println("  ... FAIL"); f += 1; }
     m4.drop();
-
-    // =========================================================================
-    // Section 5: Delete + reinsert (tombstone reuse)
-    // =========================================================================
     println("--- Section 5: Tombstone reuse ---");
-
     let mut m5 = HashMap<i64, i64>::with_capacity(16);
-    m5.insert(50, 500);
-    let dk1: i64 = 50;
-    m5.remove(&dk1);
-
-    let dk1b: i64 = 50;
-    let v8 = m5.get(&dk1b);
-    print("get(50) after remove == 0");
-    if assert_eq(v8, 0) { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-
-    // Reinsert same key
+    m5.insert(50, 500); m5.remove(&50);
+    if m5.get(&50).is_none() { println("  ... PASS"); p += 1; } else { println("  ... FAIL"); f += 1; }
     m5.insert(50, 999);
-    let dk1c: i64 = 50;
-    let v9 = m5.get(&dk1c);
-    print("get(50) after reinsert == 999");
-    if assert_eq(v9, 999) { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-
+    if assert_eq(m5.get_unchecked(&50), 999) { println("  ... PASS"); p += 1; } else { println("  ... FAIL"); f += 1; }
     m5.drop();
-
-    // =========================================================================
-    // Section 6: Empty map behavior
-    // =========================================================================
     println("--- Section 6: Empty map ---");
-
     let m6 = HashMap<i64, i64>::new();
-    let l6 = m6.len();
-    print("new() len == 0");
-    if assert_eq(l6, 0) { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-    print("new() is_empty");
-    if m6.is_empty() { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-
-    let ek1: i64 = 1;
-    let v10 = m6.get(&ek1);
-    print("get on empty map == 0");
-    if assert_eq(v10, 0) { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-
-    // =========================================================================
-    // Section 7: Scale test (1000 entries)
-    // =========================================================================
+    if assert_eq(m6.len(), 0) && m6.is_empty() && m6.get(&1).is_none() { println("  ... PASS"); p += 1; } else { println("  ... FAIL"); f += 1; }
     println("--- Section 7: Scale test ---");
-
     let mut m7 = HashMap<i64, i64>::with_capacity(16);
-    for k in 0..1000 {
-        m7.insert(k, k * 7);
-    }
-
-    let l7 = m7.len();
-    print("len after 1000 inserts == 1000");
-    if assert_eq(l7, 1000) { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-
-    let mut checksum: i64 = 0;
-    for k in 0..1000 {
-        let kk: i64 = k;
-        checksum += m7.get(&kk);
-    }
-    // Sum of k*7 for k=0..999 = 7 * (999*1000/2) = 3496500
-    print("checksum of 1000 entries == 3496500");
-    if assert_eq(checksum, 3496500) { println("  ... PASS"); passed += 1; } else { println("  ... FAIL"); failed += 1; }
-
+    for k in 0..1000 { m7.insert(k, k * 7); }
+    if assert_eq(m7.len(), 1000) { println("  ... PASS"); p += 1; } else { println("  ... FAIL"); f += 1; }
+    let mut cs: i64 = 0;
+    for k in 0..1000 { cs += m7.get_unchecked(&k); }
+    if assert_eq(cs, 3496500) { println("  ... PASS"); p += 1; } else { println("  ... FAIL"); f += 1; }
     m7.drop();
-
-    // =========================================================================
-    // Summary
-    // =========================================================================
     println("=== Summary ===");
-
-    if failed == 0 {
-        println("ALL TESTS PASSED");
-    } else {
-        println("SOME TESTS FAILED");
-    }
-
-    return failed as i32;
+    if f == 0 { println("ALL TESTS PASSED"); } else { println("SOME TESTS FAILED"); }
+    return f as i32;
 }

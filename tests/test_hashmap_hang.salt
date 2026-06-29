@@ -1,265 +1,68 @@
-// Comprehensive HashMap test suite V6.2
-// Tests: basic ops, scaling, remove/reinsert, grow, collisions, correctness
 import std.collections.hash_map.HashMap
-
 fn main() -> i32 {
-    let mut passed: i64 = 0;
-    let mut failed: i64 = 0;
-    
-    // =========================================================================
-    // Test 1: Basic insert and get
-    // =========================================================================
+    let mut passed: i64 = 0; let mut failed: i64 = 0;
     println("Test 1: Basic insert/get");
     let mut m1 = HashMap<i64, i64>::with_capacity(16);
-    m1.insert(42, 100);
-    m1.insert(7, 200);
-    m1.insert(99, 300);
-    let k1a: i64 = 42;
-    let k1b: i64 = 7;
-    let k1c: i64 = 99;
-    let v1 = m1.get(&k1a);
-    let v2 = m1.get(&k1b);
-    let v3 = m1.get(&k1c);
-    if v1 == 100 && v2 == 200 && v3 == 300 {
-        println("  PASS");
-        passed = passed + 1;
-    } else {
-        print(f"  FAIL: got {v1}, ");
-        print(f"{v2}, ");
-        println(f"{v3}");
-        failed = failed + 1;
-    }
+    m1.insert(42, 100); m1.insert(7, 200); m1.insert(99, 300);
+    let v1 = m1.get_unchecked(&42); let v2 = m1.get_unchecked(&7); let v3 = m1.get_unchecked(&99);
+    if v1 == 100 && v2 == 200 && v3 == 300 { println("  PASS"); passed += 1; }
+    else { print(f"  FAIL: got {v1}, "); print(f"{v2}, "); println(f"{v3}"); failed += 1; }
     m1.drop();
-    
-    // =========================================================================
-    // Test 2: Get missing key returns 0
-    // =========================================================================
-    println("Test 2: Missing key returns 0");
+    println("Test 2: Missing key returns None");
     let mut m2 = HashMap<i64, i64>::with_capacity(16);
     m2.insert(1, 100);
-    let k2: i64 = 999;
-    let missing = m2.get(&k2);
-    if missing == 0 {
-        println("  PASS");
-        passed = passed + 1;
-    } else {
-        println(f"  FAIL: got {missing}");
-        failed = failed + 1;
-    }
+    if m2.get(&999).is_none() { println("  PASS"); passed += 1; } else { println("  FAIL"); failed += 1; }
     m2.drop();
-    
-    // =========================================================================
-    // Test 3: Update existing key
-    // =========================================================================
     println("Test 3: Update existing key");
     let mut m3 = HashMap<i64, i64>::with_capacity(16);
-    m3.insert(5, 100);
-    m3.insert(5, 999);
-    let k3: i64 = 5;
-    let updated = m3.get(&k3);
-    if updated == 999 && m3.len() == 1 {
-        println("  PASS");
-        passed = passed + 1;
-    } else {
-        print(f"  FAIL: val={updated}, ");
-        println(f"len={m3.len()}");
-        failed = failed + 1;
-    }
+    m3.insert(5, 100); m3.insert(5, 999);
+    if m3.get_unchecked(&5) == 999 && m3.len() == 1 { println("  PASS"); passed += 1; }
+    else { print(f"  FAIL: val={m3.get_unchecked(&5)}, len={m3.len()}\n"); failed += 1; }
     m3.drop();
-    
-    // =========================================================================
-    // Test 4: Remove
-    // =========================================================================
     println("Test 4: Remove");
     let mut m4 = HashMap<i64, i64>::with_capacity(16);
-    m4.insert(10, 100);
-    m4.insert(20, 200);
-    let k4a: i64 = 10;
-    let k4b: i64 = 20;
-    let removed = m4.remove(&k4a);
-    let after = m4.get(&k4a);
-    let still = m4.get(&k4b);
-    if removed && after == 0 && still == 200 && m4.len() == 1 {
-        println("  PASS");
-        passed = passed + 1;
-    } else {
-        println("  FAIL");
-        failed = failed + 1;
-    }
+    m4.insert(10, 100); m4.insert(20, 200);
+    let r4 = m4.remove(&10);
+    if r4 && m4.get(&10).is_none() && m4.get_unchecked(&20) == 200 && m4.len() == 1 { println("  PASS"); passed += 1; }
+    else { println("  FAIL"); failed += 1; }
     m4.drop();
-    
-    // =========================================================================
-    // Test 5: Remove non-existent key
-    // =========================================================================
     println("Test 5: Remove non-existent");
     let mut m5 = HashMap<i64, i64>::with_capacity(16);
     m5.insert(1, 100);
-    let k5: i64 = 999;
-    let not_removed = m5.remove(&k5);
-    if !not_removed && m5.len() == 1 {
-        println("  PASS");
-        passed = passed + 1;
-    } else {
-        println("  FAIL");
-        failed = failed + 1;
-    }
+    if !m5.remove(&999) && m5.len() == 1 { println("  PASS"); passed += 1; } else { println("  FAIL"); failed += 1; }
     m5.drop();
-    
-    // =========================================================================
-    // Test 6: Grow (insert > 87.5% of capacity)
-    // =========================================================================
-    println("Test 6: Grow (insert 20 into cap-16)");
+    println("Test 6: Grow");
     let mut m6 = HashMap<i64, i64>::with_capacity(16);
-    let mut i: i64 = 0;
-    while i < 20 {
-        m6.insert(i, i * 7);
-        i = i + 1;
-    }
-    // Verify all values survive grow
-    let mut ok6 = true;
-    i = 0;
-    while i < 20 {
-        let v = m6.get(&i);
-        if v != i * 7 {
-            print(f"  FAIL at key {i}: ");
-            print(f"expected {i * 7}, ");
-            println(f"got {v}");
-            ok6 = false;
-        }
-        i = i + 1;
-    }
-    if ok6 && m6.len() == 20 {
-        println("  PASS");
-        passed = passed + 1;
-    } else {
-        println(f"  FAIL: len={m6.len()}");
-        failed = failed + 1;
-    }
+    let mut i: i64 = 0; while i < 20 { m6.insert(i, i * 7); i += 1; }
+    let mut ok6 = true; i = 0;
+    while i < 20 { if m6.get_unchecked(&i) != i * 7 { ok6 = false; } i += 1; }
+    if ok6 && m6.len() == 20 { println("  PASS"); passed += 1; } else { println(f"  FAIL: len={m6.len()}"); failed += 1; }
     m6.drop();
-    
-    // =========================================================================
-    // Test 7: Scale to 100 entries (multiple grows: 16->32->64->128)
-    // =========================================================================
-    println("Test 7: Scale to 100 entries");
+    println("Test 7: Scale to 100");
     let mut m7 = HashMap<i64, i64>::with_capacity(16);
-    i = 0;
-    while i < 100 {
-        m7.insert(i, i * 13);
-        i = i + 1;
-    }
-    let mut ok7 = true;
-    i = 0;
-    while i < 100 {
-        let v = m7.get(&i);
-        if v != i * 13 {
-            println(f"  FAIL at {i}");
-            ok7 = false;
-        }
-        i = i + 1;
-    }
-    if ok7 && m7.len() == 100 {
-        println("  PASS");
-        passed = passed + 1;
-    } else {
-        println(f"  FAIL: len={m7.len()}");
-        failed = failed + 1;
-    }
+    i = 0; while i < 100 { m7.insert(i, i * 13); i += 1; }
+    let mut ok7 = true; i = 0;
+    while i < 100 { if m7.get_unchecked(&i) != i * 13 { ok7 = false; } i += 1; }
+    if ok7 && m7.len() == 100 { println("  PASS"); passed += 1; } else { println(f"  FAIL: len={m7.len()}"); failed += 1; }
     m7.drop();
-    
-    // =========================================================================
-    // Test 8: Remove + reinsert cycle (the benchmark pattern)
-    // =========================================================================
     println("Test 8: Remove/reinsert cycle");
     let mut m8 = HashMap<i64, i64>::with_capacity(16);
-    i = 0;
-    while i < 50 {
-        m8.insert(i, i * 7);
-        i = i + 1;
-    }
-    
-    // Remove even keys
-    i = 0;
-    while i < 25 {
-        let key = i * 2;
-        m8.remove(&key);
-        i = i + 1;
-    }
-    
-    // Reinsert even keys with different values
-    i = 0;
-    while i < 25 {
-        m8.insert(i * 2, i * 11);
-        i = i + 1;
-    }
-    
-    // Verify all values
-    let mut ok8 = true;
-    i = 0;
-    while i < 50 {
-        let v = m8.get(&i);
-        let expected = if i % 2 == 0 { (i / 2) * 11 } else { i * 7 };
-        if v != expected {
-            print(f"  FAIL key {i}: ");
-            print(f"expected {expected}, ");
-            println(f"got {v}");
-            ok8 = false;
-        }
-        i = i + 1;
-    }
-    if ok8 && m8.len() == 50 {
-        println("  PASS");
-        passed = passed + 1;
-    } else {
-        println(f"  FAIL: len={m8.len()}");
-        failed = failed + 1;
-    }
+    i = 0; while i < 50 { m8.insert(i, i * 7); i += 1; }
+    i = 0; while i < 25 { m8.remove(&(i * 2)); i += 1; }
+    i = 0; while i < 25 { m8.insert(i * 2, i * 11); i += 1; }
+    let mut ok8 = true; i = 0;
+    while i < 50 { let v = m8.get_unchecked(&i); let e = if i % 2 == 0 { (i / 2) * 11 } else { i * 7 }; if v != e { ok8 = false; } i += 1; }
+    if ok8 && m8.len() == 50 { println("  PASS"); passed += 1; } else { println("  FAIL"); failed += 1; }
     m8.drop();
-    
-    // =========================================================================
-    // Test 9: Empty map operations
-    // =========================================================================
     println("Test 9: Empty map ops");
     let mut m9 = HashMap<i64, i64>::new();
-    let k9: i64 = 1;
-    let empty_get = m9.get(&k9);
-    let empty_remove = m9.remove(&k9);
-    if empty_get == 0 && !empty_remove && m9.len() == 0 && m9.is_empty() {
-        println("  PASS");
-        passed = passed + 1;
-    } else {
-        println("  FAIL");
-        failed = failed + 1;
-    }
-    
-    // =========================================================================
-    // Test 10: Insert into new() (zero-cap, triggers grow from 0->16)
-    // =========================================================================
-    println("Test 10: Insert into new() (grow from 0)");
+    if m9.get(&1).is_none() && !m9.remove(&1) && m9.len() == 0 && m9.is_empty() { println("  PASS"); passed += 1; } else { println("  FAIL"); failed += 1; }
+    println("Test 10: Insert into new()");
     let mut m10 = HashMap<i64, i64>::new();
     m10.insert(42, 777);
-    let k10: i64 = 42;
-    let v10 = m10.get(&k10);
-    if v10 == 777 && m10.len() == 1 {
-        println("  PASS");
-        passed = passed + 1;
-    } else {
-        print(f"  FAIL: val={v10}, ");
-        println(f"len={m10.len()}");
-        failed = failed + 1;
-    }
+    if m10.get_unchecked(&42) == 777 && m10.len() == 1 { println("  PASS"); passed += 1; } else { println("  FAIL"); failed += 1; }
     m10.drop();
-    
-    // =========================================================================
-    // Summary
-    // =========================================================================
     println("===========================");
-    print(f"Passed: {passed} / ");
-    println(f"{passed + failed}");
-    if failed == 0 {
-        println("ALL TESTS PASSED");
-        return 0;
-    } else {
-        println(f"FAILED: {failed}");
-        return 1;
-    }
+    print(f"Passed: {passed} / "); println(f"{passed + failed}");
+    if failed == 0 { println("ALL TESTS PASSED"); return 0; } else { println(f"FAILED: {failed}"); return 1; }
 }

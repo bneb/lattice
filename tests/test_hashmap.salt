@@ -1,5 +1,4 @@
 // Comprehensive Unit Tests for KeuOS HashMap
-// Tests all methods and edge cases
 package main
 
 import std.collections.hash_map.HashMap
@@ -18,34 +17,23 @@ fn assert_eq(actual: i64, expected: i64, test_name: &u8) {
 }
 
 fn assert_true(val: bool, test_name: &u8) {
-    if !val {
-        println("FAIL");
-        exit(1);
-    }
+    if !val { println("FAIL"); exit(1); }
 }
 
 fn assert_false(val: bool, test_name: &u8) {
-    if val {
-        println("FAIL");
-        exit(1);
-    }
+    if val { println("FAIL"); exit(1); }
 }
 
-// =============================================================================
-// Test: new() creates empty map
-// =============================================================================
 fn test_new() {
     let map = HashMap<i64, i64>::new();
     assert_eq(map.len(), 0, "test_new: len should be 0");
     assert_true(map.is_empty(), "test_new: should be empty");
     let k: i64 = 42;
-    assert_eq(map.get(&k), 0, "test_new: get on empty returns 0");
+    let v = map.get(&k);
+    assert_true(v.is_none(), "test_new: get on empty returns None");
     println("PASS test_new");
 }
 
-// =============================================================================
-// Test: with_capacity() pre-allocates
-// =============================================================================
 fn test_with_capacity() {
     let map = HashMap<i64, i64>::with_capacity(100);
     assert_eq(map.len(), 0, "test_with_capacity: len should be 0");
@@ -65,276 +53,168 @@ fn test_with_capacity_negative() {
     println("PASS test_with_capacity_negative");
 }
 
-// =============================================================================
-// Test: insert and get
-// =============================================================================
 fn test_insert_get() {
     let mut map = HashMap<i64, i64>::with_capacity(16);
-    map.insert(1, 100);
-    map.insert(2, 200);
-    map.insert(3, 300);
-
-    let k1: i64 = 1;
-    let k2: i64 = 2;
-    let k3: i64 = 3;
-    assert_eq(map.get(&k1), 100, "test_insert_get: get(1)");
-    assert_eq(map.get(&k2), 200, "test_insert_get: get(2)");
-    assert_eq(map.get(&k3), 300, "test_insert_get: get(3)");
+    map.insert(1, 100); map.insert(2, 200); map.insert(3, 300);
+    let k1: i64 = 1; let k2: i64 = 2; let k3: i64 = 3;
+    assert_eq(map.get_unchecked(&k1), 100, "test_insert_get: get_unchecked(1)");
+    assert_eq(map.get_unchecked(&k2), 200, "test_insert_get: get_unchecked(2)");
+    assert_eq(map.get_unchecked(&k3), 300, "test_insert_get: get_unchecked(3)");
     assert_eq(map.len(), 3, "test_insert_get: len");
     println("PASS test_insert_get");
 }
 
-// =============================================================================
-// Test: insert overwrite
-// =============================================================================
 fn test_insert_overwrite() {
     let mut map = HashMap<i64, i64>::with_capacity(16);
-    map.insert(1, 100);
-    map.insert(1, 999);
-
+    map.insert(1, 100); map.insert(1, 999);
     let k: i64 = 1;
-    assert_eq(map.get(&k), 999, "test_insert_overwrite: should be 999");
+    assert_eq(map.get_unchecked(&k), 999, "test_insert_overwrite: should be 999");
     assert_eq(map.len(), 1, "test_insert_overwrite: len still 1");
     println("PASS test_insert_overwrite");
 }
 
-// =============================================================================
-// Test: get on missing key
-// =============================================================================
 fn test_get_missing() {
     let mut map = HashMap<i64, i64>::with_capacity(16);
     map.insert(1, 100);
-
     let k: i64 = 999;
-    assert_eq(map.get(&k), 0, "test_get_missing: returns 0");
+    let v = map.get(&k);
+    assert_true(v.is_none(), "test_get_missing: returns None");
     println("PASS test_get_missing");
 }
 
-// =============================================================================
-// Test: get on empty map
-// =============================================================================
 fn test_get_on_empty() {
     let map = HashMap<i64, i64>::new();
     let k: i64 = 1;
-    assert_eq(map.get(&k), 0, "test_get_on_empty: returns 0");
+    let v = map.get(&k);
+    assert_true(v.is_none(), "test_get_on_empty: returns None");
     println("PASS test_get_on_empty");
 }
 
-// =============================================================================
-// Test: remove existing key
-// =============================================================================
 fn test_remove_existing() {
     let mut map = HashMap<i64, i64>::with_capacity(16);
-    map.insert(1, 100);
-    map.insert(2, 200);
-
-    let k1: i64 = 1;
-    let k2: i64 = 2;
+    map.insert(1, 100); map.insert(2, 200);
+    let k1: i64 = 1; let k2: i64 = 2;
     let removed = map.remove(&k1);
     assert_true(removed, "test_remove_existing: should return true");
-    assert_eq(map.get(&k1), 0, "test_remove_existing: get returns 0");
+    assert_true(map.get(&k1).is_none(), "test_remove_existing: get returns None");
     assert_eq(map.len(), 1, "test_remove_existing: len decremented");
-    assert_eq(map.get(&k2), 200, "test_remove_existing: other key intact");
+    assert_eq(map.get_unchecked(&k2), 200, "test_remove_existing: other key intact");
     println("PASS test_remove_existing");
 }
 
-// =============================================================================
-// Test: remove missing key
-// =============================================================================
 fn test_remove_missing() {
     let mut map = HashMap<i64, i64>::with_capacity(16);
     map.insert(1, 100);
-
     let k: i64 = 999;
-    let removed = map.remove(&k);
-    assert_false(removed, "test_remove_missing: should return false");
+    assert_false(map.remove(&k), "test_remove_missing: should return false");
     assert_eq(map.len(), 1, "test_remove_missing: len unchanged");
     println("PASS test_remove_missing");
 }
 
-// =============================================================================
-// Test: remove and reinsert
-// =============================================================================
 fn test_remove_and_reinsert() {
     let mut map = HashMap<i64, i64>::new();
     map.insert(1, 100);
-
     let k: i64 = 1;
     map.remove(&k);
-    assert_eq(map.get(&k), 0, "test_remove_and_reinsert: after remove");
-
+    assert_true(map.get(&k).is_none(), "test_remove_and_reinsert: after remove");
     map.insert(1, 999);
-    assert_eq(map.get(&k), 999, "test_remove_and_reinsert: should be 999");
+    assert_eq(map.get_unchecked(&k), 999, "test_remove_and_reinsert: should be 999");
     assert_eq(map.len(), 1, "test_remove_and_reinsert: len is 1");
     println("PASS test_remove_and_reinsert");
 }
 
-// =============================================================================
-// Test: len and is_empty
-// =============================================================================
 fn test_len_tracking() {
     let mut map = HashMap<i64, i64>::with_capacity(16);
     assert_true(map.is_empty(), "test_len_tracking: initially empty");
     assert_eq(map.len(), 0, "test_len_tracking: initially 0");
-
     map.insert(1, 100);
     assert_false(map.is_empty(), "test_len_tracking: not empty after insert");
     assert_eq(map.len(), 1, "test_len_tracking: len 1");
-
     map.insert(2, 200);
     assert_eq(map.len(), 2, "test_len_tracking: len 2");
-
     let k: i64 = 1;
     map.remove(&k);
     assert_eq(map.len(), 1, "test_len_tracking: len 1 after remove");
     println("PASS test_len_tracking");
 }
 
-// =============================================================================
-// Test: many inserts (stress test)
-// =============================================================================
 fn test_many_inserts() {
     let mut map = HashMap<i64, i64>::with_capacity(8);
-    for i in 0..100 {
-        map.insert(i, i * 10);
-    }
+    for i in 0..100 { map.insert(i, i * 10); }
     assert_eq(map.len(), 100, "test_many_inserts: len 100");
-
-    // Verify every value
     for i in 0..100 {
-        if map.get(&i) != i * 10 {
-            println("FAIL test_many_inserts");
-            exit(1);
-        }
+        if map.get_unchecked(&i) != i * 10 { println("FAIL test_many_inserts"); exit(1); }
     }
     println("PASS test_many_inserts");
 }
 
-// =============================================================================
-// Test: collision handling — all keys hash to same bucket
-// =============================================================================
 fn test_collisions() {
     let mut map = HashMap<i64, i64>::with_capacity(8);
-    // Insert keys that are multiples of 8 (will cluster in swiss table)
-    for i in 0..10 {
-        map.insert(i * 8, i);
-    }
+    for i in 0..10 { map.insert(i * 8, i); }
     assert_eq(map.len(), 10, "test_collisions: len 10");
-
     for i in 0..10 {
-        let k = i * 8;
-        if map.get(&k) != i {
-            println("FAIL test_collisions");
-            exit(1);
-        }
+        if map.get_unchecked(&(i * 8)) != i { println("FAIL test_collisions"); exit(1); }
     }
     println("PASS test_collisions");
 }
 
-// =============================================================================
-// Test: negative keys
-// =============================================================================
 fn test_negative_keys() {
     let mut map = HashMap<i64, i64>::with_capacity(16);
-    map.insert(-1, 100);
-    map.insert(-999, 200);
-
-    let k1: i64 = -1;
-    let k2: i64 = -999;
-    assert_eq(map.get(&k1), 100, "test_negative: get(-1)");
-    assert_eq(map.get(&k2), 200, "test_negative: get(-999)");
+    map.insert(-1, 100); map.insert(-999, 200);
+    let k1: i64 = -1; let k2: i64 = -999;
+    assert_eq(map.get_unchecked(&k1), 100, "test_negative: get_unchecked(-1)");
+    assert_eq(map.get_unchecked(&k2), 200, "test_negative: get_unchecked(-999)");
     println("PASS test_negative_keys");
 }
 
-// =============================================================================
-// Test: zero key
-// =============================================================================
 fn test_zero_key() {
     let mut map = HashMap<i64, i64>::with_capacity(16);
     map.insert(0, 42);
-
     let k: i64 = 0;
-    assert_eq(map.get(&k), 42, "test_zero_key: get(0)");
-
+    assert_eq(map.get_unchecked(&k), 42, "test_zero_key: get_unchecked(0)");
     map.remove(&k);
-    assert_eq(map.get(&k), 0, "test_zero_key: after remove");
+    assert_true(map.get(&k).is_none(), "test_zero_key: after remove returns None");
     println("PASS test_zero_key");
 }
 
-// =============================================================================
-// Test: grow from zero capacity
-// =============================================================================
 fn test_grow_from_zero() {
     let mut map = HashMap<i64, i64>::new();
-    // new() starts with cap=0; insert triggers grow
-    map.insert(1, 100);
-    map.insert(2, 200);
-
-    let k1: i64 = 1;
-    let k2: i64 = 2;
-    assert_eq(map.get(&k1), 100, "test_grow_from_zero: get(1)");
-    assert_eq(map.get(&k2), 200, "test_grow_from_zero: get(2)");
+    map.insert(1, 100); map.insert(2, 200);
+    let k1: i64 = 1; let k2: i64 = 2;
+    assert_eq(map.get_unchecked(&k1), 100, "test_grow_from_zero: get(1)");
+    assert_eq(map.get_unchecked(&k2), 200, "test_grow_from_zero: get(2)");
     assert_eq(map.len(), 2, "test_grow_from_zero: len");
     println("PASS test_grow_from_zero");
 }
 
-// =============================================================================
-// Test: large scale insert/get/remove
-// =============================================================================
 fn test_large_scale() {
     let mut map = HashMap<i64, i64>::with_capacity(16);
-    for i in 0..1000 {
-        map.insert(i, i * 7);
-    }
+    for i in 0..1000 { map.insert(i, i * 7); }
     assert_eq(map.len(), 1000, "test_large_scale: len 1000");
-
-    let k0: i64 = 0;
-    let k500: i64 = 500;
-    let k999: i64 = 999;
-    assert_eq(map.get(&k0), 0, "test_large_scale: get(0)");
-    assert_eq(map.get(&k500), 3500, "test_large_scale: get(500)");
-    assert_eq(map.get(&k999), 6993, "test_large_scale: get(999)");
-
-    // Remove even keys
-    for i in 0..500 {
-        let k = i * 2;
-        map.remove(&k);
-    }
+    assert_eq(map.get_unchecked(&0), 0, "test_large_scale: get(0)");
+    assert_eq(map.get_unchecked(&500), 3500, "test_large_scale: get(500)");
+    assert_eq(map.get_unchecked(&999), 6993, "test_large_scale: get(999)");
+    for i in 0..500 { map.remove(&(i * 2)); }
     assert_eq(map.len(), 500, "test_large_scale: after remove");
-
-    // Verify odd keys still present
     for i in 0..500 {
         let k = i * 2 + 1;
-        if map.get(&k) != k * 7 {
-            println("FAIL test_large_scale: odd key");
-            exit(1);
-        }
+        if map.get_unchecked(&k) != k * 7 { println("FAIL test_large_scale"); exit(1); }
     }
     println("PASS test_large_scale");
 }
 
-// =============================================================================
-// Test: overwrite stress
-// =============================================================================
 fn test_overwrite_many() {
     let mut map = HashMap<i64, i64>::with_capacity(16);
-    for i in 0..100 {
-        map.insert(1, i);  // Same key, different values
-    }
+    for i in 0..100 { map.insert(1, i); }
     let k: i64 = 1;
-    assert_eq(map.get(&k), 99, "test_overwrite_many: last value");
+    assert_eq(map.get_unchecked(&k), 99, "test_overwrite_many: last value");
     assert_eq(map.len(), 1, "test_overwrite_many: len still 1");
     println("PASS test_overwrite_many");
 }
 
-// =============================================================================
-// Test: drop
-// =============================================================================
 fn test_drop() {
     let mut map = HashMap<i64, i64>::with_capacity(1000);
-    for i in 0..100 {
-        map.insert(i, i);
-    }
+    for i in 0..100 { map.insert(i, i); }
     map.drop();
     assert_eq(map.len(), 0, "test_drop: len 0");
     assert_eq(map.cap, 0, "test_drop: cap 0");
@@ -343,28 +223,11 @@ fn test_drop() {
 
 fn main() -> i32 {
     println("=== HashMap Unit Tests ===");
-
-    test_new();
-    test_with_capacity();
-    test_with_capacity_zero();
-    test_with_capacity_negative();
-    test_insert_get();
-    test_insert_overwrite();
-    test_get_missing();
-    test_get_on_empty();
-    test_remove_existing();
-    test_remove_missing();
-    test_remove_and_reinsert();
-    test_len_tracking();
-    test_many_inserts();
-    test_collisions();
-    test_negative_keys();
-    test_zero_key();
-    test_grow_from_zero();
-    test_large_scale();
-    test_overwrite_many();
-    test_drop();
-
+    test_new(); test_with_capacity(); test_with_capacity_zero(); test_with_capacity_negative();
+    test_insert_get(); test_insert_overwrite(); test_get_missing(); test_get_on_empty();
+    test_remove_existing(); test_remove_missing(); test_remove_and_reinsert();
+    test_len_tracking(); test_many_inserts(); test_collisions(); test_negative_keys();
+    test_zero_key(); test_grow_from_zero(); test_large_scale(); test_overwrite_many(); test_drop();
     println("=== All HashMap tests passed ===");
     return 0;
 }

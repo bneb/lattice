@@ -1,6 +1,5 @@
 // string_hashmap_bench.salt - String Key HashMap Benchmark
 package basalt
-// Tests FNV-1a hash performance for String keys
 
 import std.collections.hash_map.HashMap
 import std.string.String
@@ -10,38 +9,30 @@ import std.eq.Eq
 
 fn main() -> i32 {
     let mut checksum: i64 = 0;
-    
     for iter in 0..100 {
         let mut map = HashMap<String, i64>::with_capacity(16);
-        
         for i in 0..1000 {
             let key = f"key_{i}";
             map.insert(key, i * 7);
         }
-        
         for i in 0..1000 {
             let key = f"key_{i}";
-            checksum += map.get(&key);
+            checksum += map.get_unchecked(&key);
         }
-        
         for i in 0..500 {
             let key = f"key_{i * 2}";
             map.remove(&key);
         }
-        
         for i in 0..500 {
             let key = f"key_{i * 2}";
             map.insert(key, i * 11);
         }
-        
         for i in 0..1000 {
             let key = f"key_{i}";
-            checksum += map.get(&key);
+            checksum += map.get_unchecked(&key);
         }
-        
         map.drop();
     }
-    
     println(f"Checksum: {checksum}");
     return 0;
 }

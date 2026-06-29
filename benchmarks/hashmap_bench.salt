@@ -3,38 +3,30 @@ use std.collections.hash_map.HashMap
 
 fn main() -> i32 {
     let mut checksum: i64 = 0;
-    
     for iter in 0..1000 {
         let mut map = HashMap<i64, i64>::with_capacity(16);
-        
         for i in 0..1000 {
             let key = i as i64;
             map.insert(key, key * 7);
         }
-        
         for i in 0..1000 {
             let key = i as i64;
-            checksum += map.get(&key);
+            checksum += map.get_unchecked(&key);
         }
-        
         for i in 0..500 {
             let key: i64 = (i as i64) * 2;
             map.remove(&key);
         }
-        
         for i in 0..500 {
             let key = (i as i64) * 2;
             map.insert(key, (i as i64) * 11);
         }
-        
         for i in 0..1000 {
             let key = i as i64;
-            checksum += map.get(&key);
+            checksum += map.get_unchecked(&key);
         }
-        
         map.drop();
     }
-    
     println(f"Checksum: {checksum}");
     return 0;
 }

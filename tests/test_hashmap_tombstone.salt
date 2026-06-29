@@ -1,104 +1,38 @@
-// TDD: Focused test for tombstone contamination
 package main
-
 import std.collections.hash_map.HashMap
-
 extern fn exit(code: i32);
-
-fn assert_eq(actual: i64, expected: i64, label: &u8) {
-    if actual != expected {
-        println("FAIL");
-        exit(1);
-    }
-}
-
+fn assert_eq(a: i64, e: i64, l: &u8) { if a != e { println("FAIL"); exit(1); } }
 fn test_small_tombstone() {
     let mut map = HashMap<i64, i64>::with_capacity(16);
-    for i in 0..16 {
-        map.insert(i, i * 10);
-    }
-    for i in 0..8 {
-        let k = i * 2;
-        map.remove(&k);
-    }
-    for i in 0..8 {
-        let k = i * 2 + 1;
-        let expected = k * 10;
-        if map.get(&k) != expected {
-            println("FAIL test_small_tombstone");
-            exit(1);
-        }
-    }
+    for i in 0..16 { map.insert(i, i * 10); }
+    for i in 0..8 { map.remove(&(i * 2)); }
+    for i in 0..8 { let k = i * 2 + 1; if map.get_unchecked(&k) != k * 10 { println("FAIL test_small_tombstone"); exit(1); } }
     println("PASS test_small_tombstone");
 }
-
 fn test_medium_tombstone() {
     let mut map = HashMap<i64, i64>::with_capacity(16);
-    for i in 0..100 {
-        map.insert(i, i * 7);
-    }
-    for i in 0..50 {
-        let k = i * 2;
-        map.remove(&k);
-    }
+    for i in 0..100 { map.insert(i, i * 7); }
+    for i in 0..50 { map.remove(&(i * 2)); }
     assert_eq(map.len(), 50, "medium: len");
-    for i in 0..50 {
-        let k = i * 2 + 1;
-        if map.get(&k) != k * 7 {
-            println("FAIL test_medium_tombstone");
-            exit(1);
-        }
-    }
+    for i in 0..50 { let k = i * 2 + 1; if map.get_unchecked(&k) != k * 7 { println("FAIL test_medium_tombstone"); exit(1); } }
     println("PASS test_medium_tombstone");
 }
-
 fn test_large_tombstone() {
     let mut map = HashMap<i64, i64>::with_capacity(16);
-    for i in 0..1000 {
-        map.insert(i, i * 7);
-    }
-    for i in 0..500 {
-        let k = i * 2;
-        map.remove(&k);
-    }
+    for i in 0..1000 { map.insert(i, i * 7); }
+    for i in 0..500 { map.remove(&(i * 2)); }
     assert_eq(map.len(), 500, "large: len");
-    for i in 0..500 {
-        let k = i * 2 + 1;
-        if map.get(&k) != k * 7 {
-            println("FAIL test_large_tombstone");
-            exit(1);
-        }
-    }
+    for i in 0..500 { let k = i * 2 + 1; if map.get_unchecked(&k) != k * 7 { println("FAIL test_large_tombstone"); exit(1); } }
     println("PASS test_large_tombstone");
 }
-
 fn test_churn() {
     let mut map = HashMap<i64, i64>::with_capacity(16);
-    for i in 0..100 {
-        map.insert(i, i);
-    }
-    for i in 0..100 {
-        map.remove(&i);
-    }
+    for i in 0..100 { map.insert(i, i); }
+    for i in 0..100 { map.remove(&i); }
     assert_eq(map.len(), 0, "churn: empty");
-    for i in 0..100 {
-        map.insert(i + 1000, i);
-    }
+    for i in 0..100 { map.insert(i + 1000, i); }
     assert_eq(map.len(), 100, "churn: refill");
-    for i in 0..100 {
-        let k = i + 1000;
-        if map.get(&k) != i {
-            println("FAIL test_churn");
-            exit(1);
-        }
-    }
+    for i in 0..100 { if map.get_unchecked(&(i + 1000)) != i { println("FAIL test_churn"); exit(1); } }
     println("PASS test_churn");
 }
-
-fn main() -> i32 {
-    test_small_tombstone();
-    test_medium_tombstone();
-    test_large_tombstone();
-    test_churn();
-    return 0;
-}
+fn main() -> i32 { test_small_tombstone(); test_medium_tombstone(); test_large_tombstone(); test_churn(); return 0; }
