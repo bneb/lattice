@@ -1,0 +1,45 @@
+// std/arena/default - DefaultAllocator
+// Default arena allocator with 8MB initial capacity.
+// Calls the C runtime arena functions directly (no Arena struct dependency).
+
+package std.arena.default
+
+import std.core.ptr.Ptr
+
+// C runtime arena functions (singleton global arena)
+extern fn salt_arena_alloc(size: i64) -> i64;
+extern fn salt_arena_mark() -> i64;
+extern fn salt_arena_reset_to(mark: i64);
+
+// DefaultAllocator — default arena allocator for Vec and other collections.
+// Uses the global C arena with 8MB initial capacity.
+pub struct DefaultAllocator {
+    _capacity: i64
+}
+
+impl DefaultAllocator {
+    // Create a new DefaultAllocator with 8MB initial capacity.
+    pub fn new() -> DefaultAllocator {
+        return DefaultAllocator { _capacity: 8388608 };
+    }
+
+    // Allocate a block of memory.
+    pub fn alloc(self, size: i64) -> Ptr<u8> {
+        let addr = salt_arena_alloc(size);
+        return Ptr::<u8>::from_addr(addr as u64);
+    }
+
+    // Reallocate — arena cannot realloc in-place.
+    // Strategy: Alloc new, copy old data, abandon old.
+    pub fn realloc(self, ptr: Ptr<u8>, old_size: i64, new_size: i64) -> Ptr<u8> {
+        let new_ptr_addr = salt_arena_alloc(new_size);
+        let new_ptr = Ptr::<u8>::from_addr(new_ptr_addr as u64);
+        intrin::memcpy(new_ptr, ptr, old_size);
+        return new_ptr;
+    }
+
+    // Free — no-op. Arena frees all at once via mark/reset.
+    pub fn free(self, _ptr: Ptr<u8>) {
+        // No-op
+    }
+}

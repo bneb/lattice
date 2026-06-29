@@ -1075,14 +1075,11 @@ fn extract_force_unwrap_expr(s: &str) -> String {
 // with full TraitRegistry context for signature-aware format spec dispatch.
 #[allow(clippy::too_many_arguments)] // REASON: all 11 params independently meaningful; bundling would obscure intent
 pub fn compile_ast(file: &mut SaltFile, release_mode: bool, registry: Option<&crate::registry::Registry>, skip_scan: bool, disable_alias_scopes: bool, no_verify: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> anyhow::Result<String> {
-    // Inject implicit stdlib imports for built-in types.
-    // Ptr<T> is a built-in type whose methods (write, read, offset) live in std/core/ptr.salt.
-    // Without this import, standalone files can use Ptr<T> but can't call its methods.
-    // This acts as Salt's implicit prelude, similar to Rust's std::prelude.
     if registry.is_none() {
-        // Standalone mode only — multi-file builds handle imports via the registry.
         let prelude_imports = vec![
-            "use std::core::ptr::*;",
+            "use std::core::ptr::*;", "use std::core::option::*;",
+            "use std::core::result::*;", "use std::status::*;",
+            "use std::arena::default::*;", "use std::io::print::*;",
         ];
         for import_str in prelude_imports {
             let processed = preprocess(import_str);

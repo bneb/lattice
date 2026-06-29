@@ -1,0 +1,27 @@
+// std/prelude - Standard Library Prelude
+// Auto-injected by the compiler into every .salt file.
+// Provides the most common types, traits, and functions.
+
+package std.prelude
+
+// =============================================================================
+// Core Types
+// =============================================================================
+
+import std.core.ptr        // Ptr<T>
+import std.core.option     // Option<T>
+import std.core.result     // Result<T>
+import std.status          // Status
+import std.arena.default   // DefaultAllocator
+import std.io.print        // print, println
+
+// =============================================================================
+// Core Traits
+// =============================================================================
+
+import std.core.clone      // Clone
+import std.eq              // Eq
+import std.hash            // Hash
+import std.ord             // Ord
+
+

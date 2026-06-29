@@ -11,6 +11,7 @@ import std.core.ptr.Ptr
 import std.core.mem.{Layout, size_of}
 import std.mem.allocator.HeapAllocator
 import std.core.option.Option
+import std.arena.default.DefaultAllocator
 
 // =============================================================================
 // Vec<T, A> — The KeuOS Dynamic Array
@@ -160,5 +161,15 @@ impl<T> VecIter<T> {
             return Option::Some(val);
         }
         return Option::None;
+    }
+}
+
+// =============================================================================
+// DefaultAllocator specialization — Vec::<T>::new(cap) without allocator arg
+// =============================================================================
+
+impl<T> Vec<T, DefaultAllocator> {
+    pub fn new(cap_hint: i64) -> Vec<T, DefaultAllocator> {
+        return Vec::<T, DefaultAllocator>::new(DefaultAllocator::new(), cap_hint);
     }
 }
