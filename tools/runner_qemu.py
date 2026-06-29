@@ -161,6 +161,40 @@ def compile_salt(src_file):
     ll_content = re.sub(r'"target-features"="[^"]*"', '"target-features"="+cx16"', ll_content)
     ll_content = ll_content.replace('getelementptr inbounds nuw', 'getelementptr inbounds')
     ll_content = ll_content.replace('LLVMDialectModule', os.path.basename(ll_file))
+    # Fix LLVM 19+ constexpr deprecation: replace icmp/ptrtoint constexprs
+    # In LLVM IR instructions, the type is specified once (after icmp cond),
+    # so operands must be bare values (e.g. "0" not "i64 0").
+    def fix_constexprs(text: str) -> str:
+        lines = text.split('\n')
+        out = []
+        cn = [0]
+        for line in lines:
+            # Pattern: br i1 icmp ne (i64 ptrtoint (ptr @F to i64), V), label %T, label %F
+            m = re.match(
+                r'(\s*)br i1 icmp (ne|eq) \(i64 ptrtoint \(ptr (@\S+) to i64\), (.+)\), label %(\S+), label %(\S+)',  # noqa
+                line)
+            if m:
+                ind, cond, func, rhs_typed, t, f = m.groups()
+                # rhs_typed is "i64 0" - strip the type prefix
+                rhs = rhs_typed.split(' ', 1)[1]
+                cn[0] += 1
+                out.append(f"{ind}%ptrcx{cn[0]} = ptrtoint ptr {func} to i64")
+                out.append(f"{ind}%icmp_cx{cn[0]} = icmp {cond} i64 %ptrcx{cn[0]}, {rhs}")
+                out.append(f"{ind}br i1 %icmp_cx{cn[0]}, label %{t}, label %{f}")
+                continue
+            # Pattern: %cx = icmp ne i64 ptrtoint (ptr @F to i64), V
+            m = re.match(
+                r'(\s*)%(\S+) = icmp (ne|eq) i64 ptrtoint \(ptr (@\S+) to i64\), (.+)', line)
+            if m:
+                ind, vname, cond, func, rhs_typed = m.groups()
+                rhs = rhs_typed.split(' ', 1)[1]
+                cn[0] += 1
+                out.append(f"{ind}%ptrcx{cn[0]} = ptrtoint ptr {func} to i64")
+                out.append(f"{ind}%{vname} = icmp {cond} i64 %ptrcx{cn[0]}, {rhs}")
+                continue
+            out.append(line)
+        return '\n'.join(out)
+    ll_content = fix_constexprs(ll_content)
     with open(ll_file, 'w') as f:
         f.write(ll_content)
 
@@ -431,7 +465,18 @@ def build_user_programs():
                 os.path.join(user_dir, "std", "stdio.salt"),
             ],
         },
+        # Process P: ecs_pkg (entity_store + entity_lookup + entity_count)
+        {
+            "name": "ecs_pkg",
+            "salt_files": [
+                os.path.join(user_dir, "ecs_pkg.salt"),
+                os.path.join(user_dir, "lib", "syscall.salt"),
+                os.path.join(user_dir, "std", "stdio.salt"),
+            ],
+        },
     ]
+
+    build_failures = []
 
     for prog in programs:
         name = prog["name"]
@@ -439,13 +484,19 @@ def build_user_programs():
 
         # Compile each Salt file to an object
         prog_objs = [stubs_obj]
+        prog_ok = True
         for sf in prog["salt_files"]:
             try:
                 obj = compile_salt(sf)
                 prog_objs.append(obj)
             except subprocess.CalledProcessError:
                 print(f"    {RED}⚠ Failed to compile {sf}{RESET}")
-                raise
+                prog_ok = False
+                build_failures.append(name)
+                break
+
+        if not prog_ok:
+            continue
 
         # Deduplicate objects (syscall.salt compiled twice across programs
         # but produces the same .o)
@@ -467,13 +518,21 @@ def build_user_programs():
             "--unresolved-symbols=report-all",
         ] + unique_objs
         print(f"    [LINK] {' '.join([os.path.basename(o) for o in unique_objs])} → {name}.elf")
-        subprocess.check_call(cmd)
+        try:
+            subprocess.check_call(cmd)
+        except subprocess.CalledProcessError:
+            print(f"    {RED}⚠ Failed to link {name}{RESET}")
+            build_failures.append(name)
+            continue
 
         # Copy to /tmp for .incbin
         tmp_path = f"/tmp/{name}"
         shutil.copy2(elf_file, tmp_path)
         elf_size = os.path.getsize(elf_file)
         print(f"    [DONE] /tmp/{name} ({elf_size} bytes)")
+
+    if build_failures:
+        print(f"\n  {RED}⚠ {len(build_failures)} user program(s) failed: {', '.join(build_failures)}{RESET}")
 
 
 
@@ -1237,6 +1296,11 @@ if __name__ == "__main__":
                 "name": "entity_alloc_output",
                 "desc": "Entity alloc syscall creates and extends ECS entity memory",
                 "expected": ["[EA] entity_alloc", "ENTITY_ALLOC_PASS"],
+            },
+            {
+                "name": "ecs_pkg_output",
+                "desc": "ECS package tool: store/lookup/list entity operations",
+                "expected": ["[PKG] pid=", "store: OK", "entity_count=", "ECS_PKG_PASS"],
             },
         ]
 

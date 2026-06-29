@@ -136,3 +136,9 @@ user_elf_n_end:
 user_elf_o_start:
     .incbin "/tmp/entity_alloc_test"
 user_elf_o_end:
+
+// --- Process P: ECS Package Demo ---
+.global user_elf_p_start, user_elf_p_end
+user_elf_p_start:
+    .incbin "/tmp/ecs_pkg"
+user_elf_p_end:

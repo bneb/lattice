@@ -395,3 +395,10 @@ sys_entity_lookup:
     mov rax, 411
     syscall
     ret
+
+/* __salt_overflow_panic — called by compiler-inserted overflow checks.
+ * Halts the CPU when integer overflow is detected. */
+.global __salt_overflow_panic
+__salt_overflow_panic:
+    ud2
+    ret

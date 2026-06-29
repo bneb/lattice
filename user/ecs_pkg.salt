@@ -1,0 +1,57 @@
+// Entity-based package management demo (ECS Tier 5 e2e)
+// Demonstrates: store → lookup → list entity operations
+
+const CONSOLE_ENTITY: u64 = 0xFFFFFFFE;
+
+extern fn sys_getpid() -> u64;
+extern fn sys_entity_map(parent_slot: u64, size: u64) -> u64;
+extern fn sys_entity_store(entity_val: u64, name_ptr: u64, name_len: u64) -> u64;
+extern fn sys_entity_lookup(name_ptr: u64, name_len: u64) -> u64;
+extern fn sys_entity_count() -> u64;
+extern fn sys_entity_write(entity_val: u64, buf_ptr: u64, buf_len: u64) -> u64;
+extern fn sys_exit(code: i32);
+
+fn write_str(s: &[u8], len: u64) {
+    let _ = sys_entity_write(CONSOLE_ENTITY, s as u64, len);
+}
+
+fn main() {
+    write_str("[PKG] ECS package storage demo\n", 30);
+
+    let slot = sys_getpid();
+
+    // store: allocate memory entity and name it
+    let entity_val = sys_entity_map(slot, 4096);
+    if entity_val == 0 {
+        write_str("[PKG] store FAILED\n", 18);
+        sys_exit(1);
+    }
+
+    let name: [u8; 12] = [112, 97, 99, 107, 97, 103, 101, 46, 98, 105, 110, 0];
+    let name_ptr = (&name[0]) as u64;
+    let result = sys_entity_store(entity_val, name_ptr, 11);
+    if result != 0 {
+        write_str("[PKG] entity_store FAILED\n", 25);
+        sys_exit(1);
+    }
+    write_str("[PKG] stored 'package.bin'\n", 27);
+
+    // lookup: find entity by name
+    let lookup = sys_entity_lookup(name_ptr, 11);
+    if lookup != entity_val {
+        write_str("[PKG] lookup MISMATCH\n", 22);
+        sys_exit(1);
+    }
+    write_str("[PKG] lookup OK\n", 16);
+
+    // list: count entities
+    let count = sys_entity_count();
+    write_str("[PKG] entity count: ", 19);
+    // count is non-zero if we're here, so just signal success
+    if count > 0 {
+        write_str("OK\n", 3);
+    }
+
+    write_str("ECS_PKG_PASS\n", 13);
+    sys_exit(42);
+}

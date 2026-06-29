@@ -234,3 +234,9 @@ get_user_elf_n_addr:
 get_user_elf_o_addr:
     lea rax, [rip + user_elf_o_start]
     ret
+
+/* get_user_elf_p_addr() -> u64 */
+.global get_user_elf_p_addr
+get_user_elf_p_addr:
+    lea rax, [rip + user_elf_p_start]
+    ret

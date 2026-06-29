@@ -11,7 +11,7 @@ const CONSOLE_ENTITY: u64 = 0xFFFFFFFE;
 extern fn sys_getpid() -> u64;
 extern fn sys_entity_map(parent_slot: u64, size: u64) -> u64;
 extern fn sys_entity_write(entity_val: u64, buf_ptr: u64, buf_len: u64) -> u64;
-extern fn sys_exit(code: u64);
+extern fn sys_exit(code: i32);
 
 pub fn main() {
     let slot = sys_getpid();
