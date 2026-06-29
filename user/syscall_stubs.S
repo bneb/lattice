@@ -383,3 +383,13 @@ sys_entity_alloc:
     mov rax, 409
     syscall
     ret
+
+sys_entity_store:
+    mov rax, 410
+    syscall
+    ret
+
+sys_entity_lookup:
+    mov rax, 411
+    syscall
+    ret
