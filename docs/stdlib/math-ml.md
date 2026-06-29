@@ -1,86 +1,139 @@
 # Math, ML & Specialized Modules
 
-## `std.math` — Vectorized Mathematics
+## `std.math` — Mathematics
 
-SIMD-accelerated transcendentals with NEON register mapping.
+Compiler intrinsics lowered to LLVM native opcodes. Available in both `f32` and `f64` variants.
 
 ```salt
 use std.math
 ```
 
+### f32 functions
+
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `sin` | `(f64) -> f64` | Sine |
-| `cos` | `(f64) -> f64` | Cosine |
-| `tan` | `(f64) -> f64` | Tangent |
+| `expf` | `(f32) -> f32` | e^x |
+| `logf` | `(f32) -> f32` | Natural logarithm |
+| `powf` | `(f32, f32) -> f32` | x^y |
+| `sqrtf` | `(f32) -> f32` | Square root |
+| `sinf` | `(f32) -> f32` | Sine |
+| `cosf` | `(f32) -> f32` | Cosine |
+| `fabsf` | `(f32) -> f32` | Absolute value |
+| `floorf` | `(f32) -> f32` | Round down |
+| `ceilf` | `(f32) -> f32` | Round up |
+
+### f64 functions
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
 | `exp` | `(f64) -> f64` | e^x |
 | `log` | `(f64) -> f64` | Natural logarithm |
-| `sqrt` | `(f64) -> f64` | Square root |
 | `pow` | `(f64, f64) -> f64` | x^y |
-| `abs` | `(f64) -> f64` | Absolute value |
+| `sqrt` | `(f64) -> f64` | Square root |
+| `sin` | `(f64) -> f64` | Sine |
+| `cos` | `(f64) -> f64` | Cosine |
+| `fabs` | `(f64) -> f64` | Absolute value |
 | `floor` | `(f64) -> f64` | Round down |
 | `ceil` | `(f64) -> f64` | Round up |
-| `round` | `(f64) -> f64` | Round to nearest |
+
+### Bit manipulation (u64)
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `ctz_u64` | `(u64) -> u64` | Count trailing zeros |
+| `clz_u64` | `(u64) -> u64` | Count leading zeros |
+| `popcount_u64` | `(u64) -> u64` | Population count (set bits) |
 
 ## `std.simd` — Portable SIMD
 
-NEON/AVX vector operations using `f32x4` and `i32x4` types.
+Swiss-Table Group abstraction and SIMD vector types for cache-friendly data structures.
 
 ```salt
 use std.simd
 ```
 
-| Type | Width | Description |
-|------|-------|-------------|
-| `f32x4` | 128-bit | 4 × f32 (NEON v4sf) |
-| `i32x4` | 128-bit | 4 × i32 (NEON v4si) |
+### Group — Swiss-Table probing (8 bytes at a time)
 
-| Operation | Signature | Description |
-|-----------|-----------|-------------|
-| `vector_fma` | `(f32x4, f32x4, f32x4) -> f32x4` | Fused multiply-add (a*b + c) |
-| `vector_load` | `(Ptr<f32>) -> f32x4` | Load 4 floats |
-| `vector_store` | `(Ptr<f32>, f32x4) -> ()` | Store 4 floats |
-| `vector_reduce_add` | `(f32x4) -> f32` | Horizontal sum |
-| `vector_broadcast` | `(f32) -> f32x4` | Replicate scalar to all lanes |
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `load` | `(Ptr<i8>) -> Group` | Load 8 control bytes from memory |
+| `match_tag` | `(self, i8) -> u64` | Bitmask with high bit set for matches |
+| `first_empty` | `(self) -> i64` | Byte offset (0-7) of first EMPTY slot, or -1 |
+| `has_empty` | `(self) -> bool` | True if any EMPTY exists in this group |
+| `first_match` | `(self, i8) -> i64` | Byte offset of first match, or -1 |
+| `width` | `() -> i64` | Group width in bytes (always 8) |
+
+### u64x2 — 2-lane 64-bit vector
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `splat` | `(u64) -> u64x2` | Broadcast value to both lanes |
+| `new` | `(u64, u64) -> u64x2` | Create from two values |
+| `xor` | `(&self, u64x2) -> u64x2` | Lane-wise XOR |
+| `mul` | `(&self, u64x2) -> u64x2` | Lane-wise multiply |
+| `extract_lo` | `(&self) -> u64` | Extract lane 0 |
+| `extract_hi` | `(&self) -> u64` | Extract lane 1 |
+| `reduce_xor` | `(&self) -> u64` | Horizontal XOR reduction |
+
+### Prefetch intrinsics
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `prefetch_read` | `(Ptr<i8>) -> ()` | Prefetch for read (high locality) |
+| `prefetch_read_once` | `(Ptr<i8>) -> ()` | Prefetch for read (low locality) |
+| `prefetch_write` | `(Ptr<i8>) -> ()` | Prefetch for write |
+
+### Branch prediction hints
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `unlikely` | `(bool) -> bool` | Mark condition as unlikely (cold path) |
+| `likely` | `(bool) -> bool` | Mark condition as likely (hot path) |
 
 ## `std.linalg` — Linear Algebra
 
-Tensor operations with `linalg.matmul` lowering to AMX on Apple Silicon.
+Shape-safe tensor operations.
 
 ```salt
 use std.linalg
 ```
 
-| Type/Method | Signature | Description |
-|-------------|-----------|-------------|
-| `Tensor::new` | `(Ptr<f32>, Shape, Stride) -> Tensor` | Create tensor view |
-| `matmul` | `(&Tensor, &Tensor) -> Tensor` | Matrix multiply (`A @ B`) |
-| `transpose` | `(&Tensor) -> Tensor` | Transpose tensor |
-| `relu` | `(&Tensor) -> Tensor` | ReLU activation |
-| `softmax` | `(&Tensor) -> Tensor` | Softmax along last dimension |
-
-**Usage with `@` operator:**
-```salt
-use std.linalg.Tensor
-
-let output = weights @ input;  // matmul, compiles to linalg.matmul → AMX
-```
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `matmul` | `(Tensor<f32, [M,N]>, Tensor<f32, [N,P]>) -> Tensor<f32, [M,P]>` | Matrix multiply |
+| `fma_update` | `(&mut Tensor<f32, [R,C]>, f32, Tensor<f32, [R,K]>, Tensor<f32, [K,C]>) -> ()` | Fused multiply-add update: self += scale * (A @ B) |
 
 ## `std.nn` — Neural Network Operations
 
-Standard activation and loss functions.
+In-place element-wise operations on `Ptr<f32>` buffers. All activations operate on f32 (not f64).
 
 ```salt
 use std.nn
 ```
 
+### Activations (`std.nn.activations`)
+
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `relu` | `(f64) -> f64` | ReLU: max(0, x) |
-| `sigmoid` | `(f64) -> f64` | Sigmoid: 1/(1+e^(-x)) |
-| `softmax` | `(Ptr<f64>, i64) -> ()` | Softmax in-place |
-| `cross_entropy` | `(Ptr<f64>, Ptr<f64>, i64) -> f64` | Cross-entropy loss |
-| `mse` | `(Ptr<f64>, Ptr<f64>, i64) -> f64` | Mean squared error |
+| `relu` | `(Ptr<f32>, i64) -> ()` | ReLU: dst[i] = max(0, dst[i]), in-place |
+| `relu_grad` | `(f32) -> f32` | ReLU gradient: 1.0 if x > 0 else 0.0 |
+| `sigmoid` | `(Ptr<f32>, i64) -> ()` | Sigmoid: 1/(1+e^(-x)), in-place |
+| `tanh_activation` | `(Ptr<f32>, i64) -> ()` | Tanh: (e^(2x)-1)/(e^(2x)+1), in-place |
+
+### Ops (`std.nn.ops`)
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `add_bias` | `(Ptr<f32>, i64, Ptr<f32>) -> ()` | dst[i] += bias[i] |
+| `zeros` | `(Ptr<f32>, i64) -> ()` | Zero-fill: dst[i] = 0.0 |
+| `scale` | `(Ptr<f32>, i64, f32) -> ()` | dst[i] *= factor |
+| `argmax` | `(Ptr<f32>, i64) -> i64` | Return index of maximum element |
+
+### Loss (`std.nn.loss`)
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `softmax_cross_entropy_grad` | `(Ptr<f32>, Ptr<f32>, i64, i64) -> ()` | Fused softmax + cross-entropy gradient |
 
 ## `std.autograd` — Automatic Differentiation
 
@@ -100,14 +153,6 @@ use std.crypto.tls
 
 Delegates to BearSSL (`vendor/bearssl/`) for TLS 1.2 handshake, certificate validation, and encrypted transport. The Salt API provides a simplified wrapper around the C implementation.
 
-## `std.regex` — Regular Expressions
-
-Regex engine backed by QuickJS's `libregexp`.
-
-```salt
-use std.regex.regex
-```
-
 ## `std.encoding` — Data Encoding
 
 Base64 and hex encoding/decoding.
@@ -119,9 +164,9 @@ use std.encoding.encoding
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `base64_encode` | `(Ptr<u8>, i64, Ptr<u8>) -> i64` | Encode bytes to base64 |
-| `base64_decode` | `(Ptr<u8>, i64, Ptr<u8>) -> i64` | Decode base64 to bytes |
-| `hex_encode` | `(Ptr<u8>, i64, Ptr<u8>) -> i64` | Encode bytes to hex |
-| `hex_decode` | `(Ptr<u8>, i64, Ptr<u8>) -> i64` | Decode hex to bytes |
+| `base64_encoded_len` | `(i64) -> i64` | Compute base64 output length for input |
+| `hex_encode` | `(Ptr<u8>, i64, Ptr<u8>) -> i64` | Encode bytes to hex (lowercase) |
+| `hex_encoded_len` | `(i64) -> i64` | Compute hex output length for input |
 
 ## `std.json` — JSON Parsing & Writing
 
@@ -130,14 +175,6 @@ Zero-copy JSON parser and streaming writer.
 ```salt
 use std.json.json.{JsonParser, JsonWriter, JsonArray, JsonObject}
 ```
-
-**Type tags:**
-| Constant | Value | Meaning |
-|----------|-------|---------|
-| `JSON_NUMBER` | — | Numeric value |
-| `JSON_STRING` | — | String value |
-| `JSON_BOOL` | — | Boolean value |
-| `JSON_NULL` | — | null |
 
 **Parsing:**
 ```salt
@@ -174,20 +211,6 @@ let status = Command::new("/bin/echo")
     .execute();
 // status = exit code (0 = success)
 ```
-
-## `std.fs` — File System Operations
-
-```salt
-use std.fs
-```
-
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `exists` | `(StringView) -> bool` | Check if path exists |
-| `is_file` | `(StringView) -> bool` | Check if path is a regular file |
-| `is_dir` | `(StringView) -> bool` | Check if path is a directory |
-| `remove` | `(StringView) -> Result<()>` | Delete file |
-| `rename` | `(StringView, StringView) -> Result<()>` | Rename/move file |
 
 ## `std.path` — Path Manipulation
 

@@ -38,7 +38,7 @@ use std.core.result.Result
 
 enum Result<T> {
     Ok(T),
-    Err(i32),   // error code
+    Err(Status),   // canonical error status
 }
 ```
 
@@ -72,7 +72,7 @@ use std.core.str.StringView
 | Method | Signature | Description |
 |--------|-----------|-------------|
 | `length` | `() -> i64` | Number of bytes |
-| `byte_at` | `(i64) -> i64` | Byte value at index |
+| `byte_at` | `(i64) -> u8` | Byte value at index |
 | `as_ptr` | `() -> Ptr<u8>` | Raw pointer to underlying bytes |
 
 **Usage:**

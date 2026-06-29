@@ -41,10 +41,9 @@ use std.sync.Mutex
 | Method | Signature | Description |
 |--------|-----------|-------------|
 | `new` | `() -> Mutex` | Create unlocked mutex |
-| `lock` | `(&self) -> ()` | Acquire lock (blocks if held) |
-| `unlock` | `(&self) -> ()` | Release lock |
-| `try_lock` | `(&self) -> bool` | Non-blocking acquire (returns false if held) |
-| `destroy` | `(&self) -> ()` | Destroy mutex |
+| `lock` | `(&mut self) -> ()` | Acquire lock (blocks if held) |
+| `unlock` | `(&mut self) -> ()` | Release lock |
+| `destroy` | `(&mut self) -> ()` | Destroy mutex |
 
 **Usage:**
 ```salt
@@ -67,7 +66,7 @@ m.destroy();
 
 ## `std.sync.AtomicI64`
 
-C11-compatible 64-bit atomic integer. Lock-free operations with configurable memory ordering.
+C11-compatible 64-bit atomic integer. Lock-free operations with sequentially-consistent ordering.
 
 ```salt
 use std.sync.AtomicI64
@@ -77,16 +76,15 @@ use std.sync.AtomicI64
 |--------|-----------|-------------|
 | `new` | `(i64) -> AtomicI64` | Create with initial value |
 | `load` | `(&self) -> i64` | Atomic load (acquire semantics) |
-| `store` | `(&self, i64) -> ()` | Atomic store (release semantics) |
-| `fetch_add` | `(&self, i64) -> i64` | Atomic add, return previous value |
-| `fetch_sub` | `(&self, i64) -> i64` | Atomic subtract, return previous value |
-| `compare_exchange` | `(&self, i64, i64) -> bool` | CAS: if current==expected, set to desired |
+| `store` | `(&mut self, i64) -> ()` | Atomic store (release semantics) |
+| `fetch_add` | `(&mut self, i64) -> i64` | Atomic add, return previous value |
+| `compare_exchange` | `(&mut self, i64, i64) -> i64` | CAS: returns value at location (equals expected if swap succeeded) |
 
 **Usage:**
 ```salt
 use std.sync.AtomicI64
 
-let counter = AtomicI64::new(0);
+let mut counter = AtomicI64::new(0);
 counter.fetch_add(1);      // counter = 1
 let val = counter.load();  // val = 1
 ```
@@ -109,7 +107,7 @@ use std.sync.ring_buffer
 
 ## `std.channel.Channel`
 
-Bounded channel with fixed-capacity ring buffer. Sends block when full.
+Bounded channel with fixed-capacity ring buffer. Stores `i64` values. Sends fail when full.
 
 ```salt
 use std.channel.channel.Channel
@@ -117,22 +115,26 @@ use std.channel.channel.Channel
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `bounded` | `(i64) -> Channel<T>` | Create with fixed capacity |
-| `send` | `(&self, T) -> ()` | Send value (blocks if full) |
-| `try_recv` | `(&self) -> Option<T>` | Non-blocking receive |
+| `bounded` | `(i32) -> Channel` | Create with fixed capacity (max 1024) |
+| `capacity` | `(&self) -> i32` | Bounded capacity |
+| `len` | `(&self) -> i32` | Current number of elements |
+| `is_empty` | `(&self) -> bool` | True if empty |
+| `is_full` | `(&self) -> bool` | True if full |
+| `send` | `(&mut self, i64) -> Result<i32>` | Send value (fails if full) |
+| `try_recv` | `(&mut self) -> Option<i64>` | Non-blocking receive |
 
 **Usage:**
 ```salt
 use std.channel.channel.Channel
 
-let ch = Channel::bounded::<i32>(4);  // capacity 4
+let mut ch = Channel::bounded(4);  // capacity 4
 ch.send(42);
 let val = ch.try_recv();  // Option::Some(42)
 ```
 
 ## `std.channel.UnboundedChannel`
 
-Unbounded channel with heap-backed doubling ring buffer. Sends never block.
+Unbounded channel with heap-backed doubling ring buffer. Stores `i64` values. Sends never fail.
 
 ```salt
 use std.channel.channel.UnboundedChannel
@@ -140,15 +142,17 @@ use std.channel.channel.UnboundedChannel
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `new` | `() -> UnboundedChannel<T>` | Create unbounded channel |
-| `send` | `(&self, T) -> ()` | Send value (never blocks) |
-| `try_recv` | `(&self) -> Option<T>` | Non-blocking receive (FIFO) |
+| `new` | `() -> UnboundedChannel` | Create unbounded channel |
+| `len` | `(&self) -> i64` | Current number of elements |
+| `is_empty` | `(&self) -> bool` | True if empty |
+| `send` | `(&mut self, i64) -> ()` | Send value (never blocks, grows as needed) |
+| `try_recv` | `(&mut self) -> Option<i64>` | Non-blocking receive (FIFO) |
 
 **Usage:**
 ```salt
 use std.channel.channel.UnboundedChannel
 
-let uch = UnboundedChannel::new::<i32>();
+let mut uch = UnboundedChannel::new();
 uch.send(1);
 uch.send(2);
 uch.send(3);
