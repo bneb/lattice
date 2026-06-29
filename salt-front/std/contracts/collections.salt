@@ -1,0 +1,54 @@
+// std/contracts/collections — Collection predicates for Z3 contracts
+// Pure functions that iterate over in-memory data for runtime assertion
+// when Z3 cannot statically prove the predicate.
+//
+// Z3 treats collection predicates as uninterpreted functions (pointer
+// content is opaque), so these are provable only at runtime. They
+// document intent and provide safety even when Z3 cannot verify.
+
+package std.contracts.collections
+
+import std.core.ptr.Ptr
+
+/// True when elements are in non-decreasing order.
+pub fn is_sorted(data: Ptr<i64>, len: i64) -> bool {
+    let mut i: i64 = 0;
+    while i < len - 1 {
+        let cur = data.offset(i).read();
+        let nxt = data.offset(i + 1).read();
+        if cur > nxt {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+/// True when all elements are unique.
+pub fn no_duplicates(data: Ptr<i64>, len: i64) -> bool {
+    let mut i: i64 = 0;
+    while i < len {
+        let vi = data.offset(i).read();
+        let mut j: i64 = 0;
+        while j < len {
+            if i != j && vi == data.offset(j).read() {
+                return false;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+/// True when every element is strictly positive.
+pub fn all_positive(data: Ptr<i64>, len: i64) -> bool {
+    let mut i: i64 = 0;
+    while i < len {
+        if data.offset(i).read() <= 0 {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}

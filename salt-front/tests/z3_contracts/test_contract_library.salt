@@ -1,0 +1,53 @@
+// Z3 Contract Test: Standard Contract Library
+// =============================================================================
+// Tests that the std.contracts.bounds predicates can be used inside
+// `requires` clauses and are proved by Z3 or constant folding.
+//
+// Expected: PASS (all bounds contracts compile-time verified).
+// Collection predicates (is_sorted, etc.) use runtime assertion fallback
+// since Z3 treats pointer content as an uninterpreted function.
+// =============================================================================
+
+package test_contract_library
+
+use std.contracts.bounds
+
+// ── in_bounds — verified index access ────────────────────────────────────────
+fn get_element(len: i64, idx: i64) -> i64
+    requires(bounds::in_bounds(idx, len))
+{
+    return idx;
+}
+
+// ── in_range — verified range membership ────────────────────────────────────
+fn check_range(val: i64, lo: i64, hi: i64) -> i64
+    requires(bounds::in_range(val, lo, hi))
+{
+    return val;
+}
+
+// ── positive — verified divisor is positive ─────────────────────────────────
+fn divide_positive(a: i64, b: i64) -> i64
+    requires(bounds::positive(b))
+{
+    return a / b;
+}
+
+// ── non_negative — verified index is non-negative ────────────────────────────
+fn access_non_negative(idx: i64) -> i64
+    requires(bounds::non_negative(idx))
+{
+    return idx;
+}
+
+pub fn main() -> i64 {
+    // Z3 proves: in_bounds(2, 10) → true
+    let v1 = get_element(10, 2);
+    // Z3 proves: in_range(50, 0, 100) → true
+    let v2 = check_range(50, 0, 100);
+    // Z3 proves: positive(7) → true AND non_negative(42) → true
+    let v3 = divide_positive(42, 7);
+    // Z3 proves: non_negative(0) → true
+    let v4 = access_non_negative(0);
+    return v1 + v2 + v3 + v4;
+}

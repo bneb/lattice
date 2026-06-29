@@ -1,0 +1,25 @@
+// std/contracts/bounds — Integer bounds predicates for Z3 contracts
+// Pure functions (no side effects, no allocators) for use in requires/ensures.
+// When called with literal arguments, Z3 proves them at compile time.
+
+package std.contracts.bounds
+
+/// True when lo <= val < hi.
+pub fn in_range(val: i64, lo: i64, hi: i64) -> bool {
+    return lo <= val && val < hi;
+}
+
+/// True when 0 <= idx < len.
+pub fn in_bounds(idx: i64, len: i64) -> bool {
+    return 0 <= idx && idx < len;
+}
+
+/// True when x > 0.
+pub fn positive(x: i64) -> bool {
+    return x > 0;
+}
+
+/// True when x >= 0.
+pub fn non_negative(x: i64) -> bool {
+    return x >= 0;
+}

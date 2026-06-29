@@ -118,6 +118,18 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# ── Test 8: Contract library predicates MUST be proved ──────────
+echo -n "  test_contract_library: "
+if "$SALTC" "$SCRIPT_DIR/test_contract_library.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_contract_lib > /tmp/z3_out_contract_lib.txt 2>&1; then
+    echo "PASS (contract library predicates proved)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (unexpected compile error)"
+    cat /tmp/z3_out_contract_lib.txt | head -5
+    FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 if [ "$FAIL" -gt 0 ]; then

@@ -47,6 +47,12 @@ pub fn try_eval(
     // Resolve .length() and string content methods to literals
     let resolved = resolve_methods(&substituted, known_lengths);
 
+    // Resolve calls to known std.contracts.bounds predicates when
+    // all arguments are compile-time integer constants.
+    if let Some(result) = try_eval_contract_predicate(&resolved) {
+        return Some(result);
+    }
+
     // Use the Evaluator for everything else
     evaluator.eval_expr(&resolved).ok()
 }
@@ -101,6 +107,12 @@ fn substitute_param(expr: &syn::Expr, param: &str, arg: &syn::Expr) -> syn::Expr
         syn::Expr::Unary(u) => syn::Expr::Unary(syn::ExprUnary {
             attrs: u.attrs.clone(), op: u.op,
             expr: Box::new(substitute_param(&u.expr, param, arg)),
+        }),
+        syn::Expr::Call(call) => syn::Expr::Call(syn::ExprCall {
+            attrs: call.attrs.clone(),
+            func: Box::new(substitute_param(&call.func, param, arg)),
+            paren_token: call.paren_token,
+            args: call.args.iter().map(|a| substitute_param(a, param, arg)).collect(),
         }),
         syn::Expr::Block(block) => {
             if let Some(syn::Stmt::Expr(inner, _semi)) = block.block.stmts.first() {
@@ -231,6 +243,56 @@ fn make_int_literal(val: i64) -> syn::Expr {
     })
 }
 
+/// Evaluate calls to known contract library predicates when all arguments
+/// are compile-time integer constants. Returns `None` if the expression is
+/// not a contract predicate call or if any argument is symbolic.
+///
+/// Currently supports `std.contracts.bounds.{in_bounds, in_range, positive, non_negative}`.
+fn try_eval_contract_predicate(expr: &syn::Expr) -> Option<ConstValue> {
+    // Unwrap parentheses and groups
+    let inner = match expr {
+        syn::Expr::Paren(p) => &p.expr,
+        syn::Expr::Group(g) => &g.expr,
+        other => other,
+    };
+    match inner {
+        syn::Expr::Call(call) => {
+            let fn_name = if let syn::Expr::Path(p) = &*call.func {
+                p.path.segments.last()?.ident.to_string()
+            } else {
+                return None;
+            };
+            // Extract all arguments as integer literals
+            let mut args: Vec<i64> = Vec::new();
+            for arg in &call.args {
+                if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(li), .. }) = arg {
+                    args.push(li.base10_parse::<i64>().ok()?);
+                } else {
+                    return None; // non-constant argument
+                }
+            }
+            match fn_name.as_str() {
+                "in_range" if args.len() == 3 => {
+                    // in_range(val, lo, hi) => lo <= val && val < hi
+                    Some(ConstValue::Bool(args[1] <= args[0] && args[0] < args[2]))
+                }
+                "in_bounds" if args.len() == 2 => {
+                    // in_bounds(idx, len) => 0 <= idx && idx < len
+                    Some(ConstValue::Bool(0 <= args[0] && args[0] < args[1]))
+                }
+                "positive" if args.len() == 1 => {
+                    Some(ConstValue::Bool(args[0] > 0))
+                }
+                "non_negative" if args.len() == 1 => {
+                    Some(ConstValue::Bool(args[0] >= 0))
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 fn make_bool_literal(val: bool) -> syn::Expr {
     syn::Expr::Lit(syn::ExprLit {
         attrs: vec![],
@@ -357,5 +419,59 @@ mod tests {
         let args = vec![parse_expr("x")]; // variable, not literal
         let result = try_eval(&requires_expr, &empty_lengths(), &params, &args);
         assert_eq!(result, None); // symbolic — can't evaluate
+    }
+
+    #[test]
+    fn test_in_bounds_true() {
+        let expr = parse_expr("bounds::in_bounds(idx, len)");
+        let params = vec!["idx".to_string(), "len".to_string()];
+        let args = vec![parse_expr("3"), parse_expr("10")];
+        let result = try_eval(&expr, &empty_lengths(), &params, &args);
+        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
+    }
+
+    #[test]
+    fn test_in_bounds_false() {
+        let expr = parse_expr("bounds::in_bounds(idx, len)");
+        let params = vec!["idx".to_string(), "len".to_string()];
+        let args = vec![parse_expr("10"), parse_expr("5")];
+        let result = try_eval(&expr, &empty_lengths(), &params, &args);
+        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(false)));
+    }
+
+    #[test]
+    fn test_in_range_true() {
+        let expr = parse_expr("bounds::in_range(val, lo, hi)");
+        let params = vec!["val".to_string(), "lo".to_string(), "hi".to_string()];
+        let args = vec![parse_expr("50"), parse_expr("0"), parse_expr("100")];
+        let result = try_eval(&expr, &empty_lengths(), &params, &args);
+        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
+    }
+
+    #[test]
+    fn test_positive_true() {
+        let expr = parse_expr("bounds::positive(x)");
+        let params = vec!["x".to_string()];
+        let args = vec![parse_expr("7")];
+        let result = try_eval(&expr, &empty_lengths(), &params, &args);
+        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
+    }
+
+    #[test]
+    fn test_positive_false() {
+        let expr = parse_expr("bounds::positive(x)");
+        let params = vec!["x".to_string()];
+        let args = vec![parse_expr("0")];
+        let result = try_eval(&expr, &empty_lengths(), &params, &args);
+        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(false)));
+    }
+
+    #[test]
+    fn test_non_negative_true() {
+        let expr = parse_expr("bounds::non_negative(x)");
+        let params = vec!["x".to_string()];
+        let args = vec![parse_expr("0")];
+        let result = try_eval(&expr, &empty_lengths(), &params, &args);
+        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
     }
 }
