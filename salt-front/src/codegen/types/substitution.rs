@@ -174,4 +174,26 @@ mod tests {
         let expected = Type::Concrete("foo__Bar".into(), vec![Type::I32]);
         assert_eq!(substitute_generics(&m, &ty), expected);
     }
+
+    #[test]
+    fn test_substitute_reference_immutable() {
+        let m = map_of(&[("T", Type::I64)]);
+        let ty = Type::Reference(Box::new(Type::Generic("T".into())), false);
+        let expected = Type::Reference(Box::new(Type::I64), false);
+        assert_eq!(substitute_generics(&m, &ty), expected);
+    }
+
+    #[test]
+    fn test_substitute_reference_mutable() {
+        let m = map_of(&[("T", Type::I32)]);
+        let ty = Type::Reference(Box::new(Type::Generic("T".into())), true);
+        let expected = Type::Reference(Box::new(Type::I32), true);
+        assert_eq!(substitute_generics(&m, &ty), expected);
+    }
+
+    #[test]
+    fn test_substitute_self_type_not_in_map() {
+        let m = BTreeMap::new();
+        assert_eq!(substitute_generics(&m, &Type::SelfType), Type::SelfType);
+    }
 }

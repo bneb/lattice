@@ -238,4 +238,22 @@ mod tests {
         let s = format!("{}", id);
         assert_eq!(s, "TypeID(0x00000000deadbeef)");
     }
+
+    #[test]
+    fn test_get_canonical_name_unknown_id() {
+        let reg = TypeIDRegistry::new();
+        assert_eq!(reg.get_canonical_name(TypeID::null()), None);
+        assert_eq!(reg.get_canonical_name(TypeID(999)), None);
+    }
+
+    #[test]
+    fn test_register_duplicate_returns_same_id() {
+        let mut reg = TypeIDRegistry::new();
+        let id1 = reg.register("Foo");
+        assert_eq!(reg.len(), 1);
+        let id2 = reg.register("Foo");
+        assert_eq!(id1, id2, "Duplicate registration should return same ID");
+        assert_eq!(reg.len(), 1, "Duplicate should not increase registry size");
+        assert_eq!(reg.get_canonical_name(id1), Some("Foo"));
+    }
 }

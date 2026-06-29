@@ -178,4 +178,48 @@ mod tests {
         assert_eq!(PROMOTION_OPS[get_numeric_idx(&Type::U16).unwrap()][get_numeric_idx(&Type::I32).unwrap()], Some(("arith.extui", "i16", "i32")));
         assert_eq!(PROMOTION_OPS[get_numeric_idx(&Type::I64).unwrap()][get_numeric_idx(&Type::I8).unwrap()], None);
     }
+
+    #[test]
+    fn test_promotion_ops_table_some() {
+        let entries = [
+            ((0,1,"arith.extsi","i8","i16")),((0,5,"arith.extsi","i8","i16")),
+            ((0,2,"arith.extsi","i8","i32")),((0,6,"arith.extsi","i8","i32")),
+            ((0,3,"arith.extsi","i8","i64")),((0,7,"arith.extsi","i8","i64")),((0,8,"arith.extsi","i8","i64")),
+            ((1,2,"arith.extsi","i16","i32")),((1,6,"arith.extsi","i16","i32")),
+            ((1,3,"arith.extsi","i16","i64")),((1,7,"arith.extsi","i16","i64")),((1,8,"arith.extsi","i16","i64")),
+            ((2,3,"arith.extsi","i32","i64")),((2,7,"arith.extsi","i32","i64")),((2,8,"arith.extsi","i32","i64")),
+            ((4,1,"arith.extui","i8","i16")),((4,5,"arith.extui","i8","i16")),
+            ((4,2,"arith.extui","i8","i32")),((4,6,"arith.extui","i8","i32")),
+            ((4,3,"arith.extui","i8","i64")),((4,7,"arith.extui","i8","i64")),((4,8,"arith.extui","i8","i64")),
+            ((5,2,"arith.extui","i16","i32")),((5,6,"arith.extui","i16","i32")),
+            ((5,3,"arith.extui","i16","i64")),((5,7,"arith.extui","i16","i64")),((5,8,"arith.extui","i16","i64")),
+            ((6,3,"arith.extui","i32","i64")),((6,7,"arith.extui","i32","i64")),((6,8,"arith.extui","i32","i64")),
+            ((9,10,"arith.extf","f32","f64")),
+        ];
+        for &(from, to, op, src, dst) in &entries {
+            assert_eq!(PROMOTION_OPS[from][to], Some((op, src, dst)),
+                "PROMOTION_OPS[{}][{}] mismatch", from, to);
+        }
+    }
+
+    #[test]
+    fn test_promotion_ops_table_none() {
+        let some = vec![
+            (0,1),(0,5),(0,2),(0,6),(0,3),(0,7),(0,8),
+            (1,2),(1,6),(1,3),(1,7),(1,8),
+            (2,3),(2,7),(2,8),
+            (4,1),(4,5),(4,2),(4,6),(4,3),(4,7),(4,8),
+            (5,2),(5,6),(5,3),(5,7),(5,8),
+            (6,3),(6,7),(6,8),
+            (9,10),
+        ];
+        for n in 0i32..144 {
+            let (i, j) = ((n / 12) as usize, (n % 12) as usize);
+            if !some.contains(&(i, j)) {
+                assert_eq!(PROMOTION_OPS[i][j], None,
+                    "Expected None at PROMOTION_OPS[{}][{}], got {:?}",
+                    i, j, PROMOTION_OPS[i][j]);
+            }
+        }
+    }
 }
