@@ -1,16 +1,9 @@
-
 package std.core.str
 
 import std.core.ptr.Ptr
 
 // =============================================================================
 // StringView — Zero-Copy String Slice
-// =============================================================================
-// A non-owning view into a UTF-8 byte buffer. All slicing operations return
-// new StringView instances pointing into the SAME backing memory — zero copies.
-//
-// Distinguished from `String` (std.string) which is the heap-owning type.
-// Similar to C++ std::string_view or Rust &str.
 // =============================================================================
 
 pub struct StringView {
@@ -42,6 +35,11 @@ impl StringView {
     }
 
     @inline
+    pub fn len(&self) -> i64 {
+        return self.len;
+    }
+
+    @inline
     pub fn is_empty(&self) -> bool {
         return self.len == 0;
     }
@@ -61,6 +59,12 @@ impl StringView {
             ptr: self.ptr.offset(start),
             len: end - start
         };
+    }
+
+    /// Returns a substring starting at `start` with length `count`.
+    @inline
+    pub fn substr(&self, start: i64, count: i64) -> StringView {
+        return self.slice(start, start + count);
     }
 
     // =========================================================================
@@ -155,9 +159,6 @@ impl StringView {
         return true;
     }
 
-    /// Case-insensitive byte comparison. 'A'-'Z' are treated as equal to 'a'-'z'.
-    /// Takes StringView by value so string literals work directly:
-    ///   cmd.eq_ignore_case("hset")
     pub fn eq_ignore_case(&self, other: StringView) -> bool {
         if self.len != other.len { return false; }
         let self_p = self.ptr; let other_p = other.ptr;
@@ -192,9 +193,6 @@ impl StringView {
             && self.ptr.offset(3).read() == d;
     }
 
-    // Z3-verifiable string operations — used in requires/ensures contracts.
-    // Runtime implementations delegate to existing primitives.
-
     pub fn contains(&self, substr: &StringView) -> bool {
         let mut i: i64 = 0;
         while i <= self.len - substr.len {
@@ -216,8 +214,6 @@ impl StringView {
     }
 
     pub fn matches(&self, _pattern: &StringView) -> bool {
-        // Regex matching is Z3-only for contracts.
-        // Runtime implementation would need a regex engine.
         return false;
     }
 }
@@ -225,4 +221,3 @@ impl StringView {
 pub fn _force_export_str() {
     let _ = StringView::from_raw(0 as Ptr<u8>, 0);
 }
-

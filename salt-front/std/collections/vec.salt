@@ -11,7 +11,6 @@ import std.core.ptr.Ptr
 import std.core.mem.{Layout, size_of}
 import std.mem.allocator.HeapAllocator
 import std.core.option.Option
-import std.arena.default.DefaultAllocator
 
 // =============================================================================
 // Vec<T, A> — The KeuOS Dynamic Array
@@ -59,15 +58,27 @@ impl<T, A> Vec<T, A> {
         self.len = self.len + 1;
     }
 
-    pub fn pop(&mut self) -> T {
+    pub fn pop(&mut self) -> Option<T> {
+        if self.len == 0 {
+            return Option::None;
+        }
+        self.len = self.len - 1;
+        let target = self.data.offset(self.len);
+        return Option::Some(target.read());
+    }
+
+    pub fn pop_unchecked(&mut self) -> T {
         self.len = self.len - 1;
         let target = self.data.offset(self.len);
         return target.read();
     }
 
-    pub fn get(&self, idx: i64) -> T {
+    pub fn get(&self, idx: i64) -> Option<T> {
+        if idx < 0 || idx >= self.len {
+            return Option::None;
+        }
         let target = self.data.offset(idx);
-        return target.read();
+        return Option::Some(target.read());
     }
 
     pub fn set(&mut self, idx: i64, val: T) {
@@ -77,7 +88,8 @@ impl<T, A> Vec<T, A> {
 
     @inline
     pub fn get_unchecked(&self, idx: i64) -> T {
-        return self.get(idx);
+        let target = self.data.offset(idx);
+        return target.read();
     }
 
     @inline
@@ -110,9 +122,6 @@ impl<T, A> Vec<T, A> {
         let new_cap = self.cap * 2;
         let new_bytes = new_cap * size_of::<T>();
 
-        // POLYMORPHIC CALL:
-        // Compiles to realloc() for HeapAllocator
-        // Compiles to alloc()+memcpy() for ArenaAllocator
         let raw_new = self.allocator.realloc(self.data as Ptr<u8>, old_bytes, new_bytes);
         self.data = raw_new as Ptr<T>;
         self.cap = new_cap;
@@ -125,7 +134,7 @@ impl<T, A> Vec<T, A> {
 
 impl<T, A> Vec<T, A> {
     pub fn index(&self, idx: i64) -> T {
-        return self.get(idx);
+        return self.get_unchecked(idx);
     }
 
     pub fn index_mut(&mut self, idx: i64, val: T) {
@@ -136,7 +145,6 @@ impl<T, A> Vec<T, A> {
         self.push(b as T);
     }
 
-    /// Create an iterator over this Vec's elements.
     pub fn iter(&self) -> VecIter<T> {
         return VecIter::<T> { data: self.data, index: 0, len: self.len };
     }
@@ -153,7 +161,6 @@ pub struct VecIter<T> {
 }
 
 impl<T> VecIter<T> {
-    /// Iterator protocol: advance and return next item or None.
     pub fn next(&mut self) -> Option<T> {
         if self.index < self.len {
             let val = self.data.offset(self.index).read();
@@ -161,15 +168,5 @@ impl<T> VecIter<T> {
             return Option::Some(val);
         }
         return Option::None;
-    }
-}
-
-// =============================================================================
-// DefaultAllocator specialization — Vec::<T>::new(cap) without allocator arg
-// =============================================================================
-
-impl<T> Vec<T, DefaultAllocator> {
-    pub fn new(cap_hint: i64) -> Vec<T, DefaultAllocator> {
-        return Vec::<T, DefaultAllocator>::new(DefaultAllocator::new(), cap_hint);
     }
 }

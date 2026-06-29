@@ -30,8 +30,6 @@ pub struct Channel {
 }
 
 impl Channel {
-    /// Create a bounded channel with the given capacity.
-    /// Capacity is clamped to [1, 1024].
     pub fn bounded(capacity: i32) -> Channel {
         let mut cap = capacity;
         if cap < 1 { cap = 1; }
@@ -45,28 +43,23 @@ impl Channel {
         };
     }
 
-    /// Returns the bounded capacity.
     pub fn capacity(&self) -> i32 {
         return self.cap;
     }
 
-    /// Returns the current number of elements in the channel.
     pub fn len(&self) -> i32 {
         return self.count;
     }
 
-    /// Returns true if the channel is empty.
     pub fn is_empty(&self) -> bool {
         return self.count == 0;
     }
 
-    /// Returns true if the channel is full.
     pub fn is_full(&self) -> bool {
         return self.count >= self.cap;
     }
 
     /// Send a value into the channel.
-    /// Returns Ok(()) on success, Err if the channel is full.
     pub fn send(&mut self, val: i64) -> Result<i32> {
         if self.count >= self.cap {
             return Result::Err(Status::resource_exhausted("channel full"));
@@ -77,28 +70,30 @@ impl Channel {
         return Result::Ok(0);
     }
 
-    /// Non-blocking send. Returns Err if channel is full.
     pub fn try_send(&mut self, val: i64) -> Result<i32> {
         return self.send(val);
     }
 
-    /// Non-blocking receive. Returns None if channel is empty.
-    pub fn try_recv(&mut self) -> Option<i64> {
+    /// Non-blocking receive. Returns Err if channel is empty.
+    pub fn try_recv(&mut self) -> Result<i64> {
         if self.count == 0 {
-            return Option::None;
+            return Result::Err(Status::resource_exhausted("channel empty"));
         }
         let val = self.buf[self.head];
         self.head = (self.head + 1) % self.cap;
         self.count = self.count - 1;
-        return Option::Some(val);
+        return Result::Ok(val);
+    }
+
+    /// Blocking receive simulation. Returns Err if channel is empty.
+    pub fn recv(&mut self) -> Result<i64> {
+        return self.try_recv();
     }
 }
 
 // =============================================================================
 // UnboundedChannel — Growable Ring Buffer (Heap-Backed)
 // =============================================================================
-// Never blocks on send. Doubles capacity via malloc when full.
-// Initial capacity: 16 elements.
 
 const UNBOUNDED_INIT_CAP: i64 = 16;
 
@@ -112,7 +107,6 @@ pub struct UnboundedChannel {
 }
 
 impl UnboundedChannel {
-    /// Create a new unbounded channel with default initial capacity.
     pub fn new() -> UnboundedChannel {
         let cap = UNBOUNDED_INIT_CAP;
         let buf = malloc(cap * 8) as Ptr<i64>;
@@ -125,42 +119,43 @@ impl UnboundedChannel {
         };
     }
 
-    /// Returns the current number of elements.
     pub fn len(&self) -> i64 {
         return self.count;
     }
 
-    /// Returns true if the channel is empty.
     pub fn is_empty(&self) -> bool {
         return self.count == 0;
     }
 
-    /// Send a value into the channel. Never fails — grows as needed.
-    pub fn send(&mut self, val: i64) {
+    pub fn send(&mut self, val: i64) -> Result<i32> {
         if self.count >= self.cap {
             self.grow();
         }
         self.buf.offset(self.tail).write(val);
         self.tail = (self.tail + 1) % self.cap;
         self.count = self.count + 1;
+        return Result::Ok(0);
     }
 
-    /// Non-blocking receive. Returns None if empty.
-    pub fn try_recv(&mut self) -> Option<i64> {
+    /// Non-blocking receive. Returns Err if empty.
+    pub fn try_recv(&mut self) -> Result<i64> {
         if self.count == 0 {
-            return Option::None;
+            return Result::Err(Status::resource_exhausted("channel empty"));
         }
         let val = self.buf.offset(self.head).read();
         self.head = (self.head + 1) % self.cap;
         self.count = self.count - 1;
-        return Option::Some(val);
+        return Result::Ok(val);
     }
 
-    /// Double capacity — allocate new buffer, copy elements in FIFO order.
+    /// Blocking receive simulation. Returns Err if channel is empty.
+    pub fn recv(&mut self) -> Result<i64> {
+        return self.try_recv();
+    }
+
     fn grow(&mut self) {
         let new_cap = self.cap * 2;
         let new_buf = malloc(new_cap * 8) as Ptr<i64>;
-        // Copy elements in FIFO order from head to tail
         let mut i: i64 = 0;
         while i < self.count {
             let src_idx = (self.head + i) % self.cap;
