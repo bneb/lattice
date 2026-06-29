@@ -120,6 +120,12 @@ pub struct DataBlob {
     pub page_list: u64,        // Ptr to array of physical page addresses
 }
 
+/// Entity name for package/entity naming (Tier 5).
+pub struct NameComponent {
+    pub name_ptr: u64,    // Kernel VA of name buffer page
+    pub name_len: u64,    // Valid bytes in name
+}
+
 /// Test component for unit testing
 pub struct TestComponent {
     pub val: i32,
