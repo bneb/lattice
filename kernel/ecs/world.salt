@@ -23,15 +23,16 @@ package kernel.ecs.world
 
 import kernel.drivers.serial
 import kernel.ecs.entity.{
-    Entity, EntityAllocator, new_entity_allocator,
-    entity_allocator_allocate, entity_allocator_free,
-    entity_allocator_is_alive, entity_allocator_count
+    Entity, EntityAllocator, MAX_ENTITIES,
+    new_entity_allocator, entity_allocator_allocate,
+    entity_allocator_free, entity_allocator_is_alive,
+    entity_allocator_count
 }
 import kernel.ecs.events.ecs_events_init
 import kernel.ecs.scheduling_sets.{ThreadSparseSet}
 import kernel.ecs.sparse_set.{
-    ThreadSparseSet, PrioritySparseSet, MemoryMapSparseSet,
-    IpcCapSparseSet, OpenSocketSparseSet, CpuAffinitySparseSet,
+    ThreadSparseSet, PrioritySparseSet, MemMapSparseSet,
+    IpcCapSparseSet, SocketSparseSet, AffinitySparseSet,
     EpochInfoSparseSet, PerfCountersSparseSet, DataBlobSparseSet,
     NameSparseSet,
     new_thread_set, new_priority_set, new_memmap_set,
@@ -53,16 +54,16 @@ pub struct World {
     // === Core OS Tables ===
     pub threads: Ptr<ThreadSparseSet>,             // Thread execution state
     pub priorities: Ptr<PrioritySparseSet>,         // Scheduling priority
-    pub mem_maps: Ptr<MemoryMapSparseSet>,          // Memory mappings (PML4)
+    pub mem_maps: Ptr<MemMapSparseSet>,          // Memory mappings (PML4)
     pub datablobs: Ptr<DataBlobSparseSet>,          // Persistent data blobs (Tier 2.2)
     pub names: Ptr<NameSparseSet>,                  // Entity names (Tier 5)
 
     // === IPC/Network Tables ===
     pub ipc_caps: Ptr<IpcCapSparseSet>,            // IPC capability descriptors
-    pub open_sockets: Ptr<OpenSocketSparseSet>,    // Socket descriptors
+    pub open_sockets: Ptr<SocketSparseSet>,    // Socket descriptors
 
     // === SMP Tables ===
-    pub cpu_affinities: Ptr<CpuAffinitySparseSet>,  // CPU affinity + migration
+    pub cpu_affinities: Ptr<AffinitySparseSet>,  // CPU affinity + migration
 
     // === Reclamation / Telemetry Tables ===
     pub epoch_infos: Ptr<EpochInfoSparseSet>,      // Deferred reclamation metadata
@@ -139,6 +140,7 @@ pub fn world_entity_count(self: Ptr<World>) -> u32 {
 pub fn ecs_world_init() -> u64 {
     let w = new_world();
     ecs_events_init();
+    serial.print("[ECS] World initialized: 10 sparse sets\n");
     return w as u64;
 }
 
@@ -151,9 +153,27 @@ pub fn ecs_world_dump(world_ptr: u64) {
 
     serial.print("[ECS] World: ");
     serial.print_u64(world_entity_count(w) as u64);
-    serial.print(" entities (");
+    serial.print(" entities (t:");
     serial.print_u64((w_ref.threads as &ThreadSparseSet).count as u64);
-    serial.print(" threads, max ");
+    serial.print(" p:");
+    serial.print_u64((w_ref.priorities as &PrioritySparseSet).count as u64);
+    serial.print(" m:");
+    serial.print_u64((w_ref.mem_maps as &MemMapSparseSet).count as u64);
+    serial.print(" d:");
+    serial.print_u64((w_ref.datablobs as &DataBlobSparseSet).count as u64);
+    serial.print(" n:");
+    serial.print_u64((w_ref.names as &NameSparseSet).count as u64);
+    serial.print(" i:");
+    serial.print_u64((w_ref.ipc_caps as &IpcCapSparseSet).count as u64);
+    serial.print(" s:");
+    serial.print_u64((w_ref.open_sockets as &SocketSparseSet).count as u64);
+    serial.print(" a:");
+    serial.print_u64((w_ref.cpu_affinities as &AffinitySparseSet).count as u64);
+    serial.print(" e:");
+    serial.print_u64((w_ref.epoch_infos as &EpochInfoSparseSet).count as u64);
+    serial.print(" c:");
+    serial.print_u64((w_ref.perf_counters as &PerfCountersSparseSet).count as u64);
+    serial.print(" max:");
     serial.print_u64(MAX_ENTITIES as u64);
     serial.print(")\n");
 }

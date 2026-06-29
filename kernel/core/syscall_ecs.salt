@@ -15,6 +15,7 @@ extern fn copy_from_user(dst_kern: u64, src_user: u64, len: u64) -> i64;
 extern fn do_serial_print(ptr: u64, len: u64);
 extern fn ecs_bridge_lookup_ipc_cap(entity_val: u64) -> u64;
 extern fn ecs_bridge_increment_counter(entity_val: u64, counter_type: u32);
+extern fn ecs_bridge_verify_capability(entity_val: u64, required_dir: u32) -> u64;
 
 const CONSOLE_ENTITY: u64 = 0xFFFFFFFE;
 const IPC_PRODUCER: u32 = 0;
@@ -48,11 +49,12 @@ pub fn sys_entity_write(entity_val: u64, buf_ptr: u64, buf_len: u64) -> u64 {
         return buf_len;
     }
 
-    // Capability-based routing — check if entity has IpcCapability
-    let cap_ptr = ecs_bridge_lookup_ipc_cap(entity_val);
-    if cap_ptr == 0 { return 0 - 1; }
+    // Capability-based routing — verify producer direction and sealed proof
+    if ecs_bridge_verify_capability(entity_val, IPC_PRODUCER) == 0 { return 0 - 1; }
 
     // Read the ring buffer physical address from the capability
+    let cap_ptr = ecs_bridge_lookup_ipc_cap(entity_val);
+    if cap_ptr == 0 { return 0 - 1; }
     let cap = cap_ptr as Ptr<IpcCapability>;
     let ring_phys = (*cap).ring_phys;
     if ring_phys == 0 { return 0 - 1; }
