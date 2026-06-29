@@ -3,7 +3,7 @@
 # Salt Test Runner — Full MLIR Pipeline
 # =============================================================================
 # Compiles a .salt file through the full pipeline and runs it:
-#   salt-front → mlir-opt → mlir-translate → clang → execute
+#   saltc → mlir-opt → mlir-translate → clang → execute
 #
 # Usage:
 #   ./scripts/run_test.sh tests/test_thread.salt
@@ -259,9 +259,9 @@ for mod in "${TEST_DEPS[@]}"; do
         dep_ll="$TMP_DIR/${dep_base}.ll"
         echo "🔧 [LLVM] Compiling ${mod}..."
         if [[ "$NO_VERIFY" == true ]]; then
-            "$SALT_FRONT/target/release/salt-front" "$dep_path" --danger-no-verify --lib --release -o "${dep_ll}.mlir"
+            "$SALT_FRONT/target/release/saltc" "$dep_path" --danger-no-verify --lib --release -o "${dep_ll}.mlir"
         else
-            "$SALT_FRONT/target/release/salt-front" "$dep_path" --lib --release -o "${dep_ll}.mlir"
+            "$SALT_FRONT/target/release/saltc" "$dep_path" --lib --release -o "${dep_ll}.mlir"
         fi
         # Fix MLIR f32 literal emission: (0 : f32) -> (0. : f32)
         sed -i '' 's/(0 : f32)/(0. : f32)/g' "${dep_ll}.mlir"
@@ -294,19 +294,19 @@ for mod in "${TEST_DEPS[@]}"; do
     fi
 done
 
-# Step 1: salt-front → MLIR
-log "salt-front → MLIR"
+# Step 1: saltc → MLIR
+log "saltc → MLIR"
 if [[ "$LIB_MODE" == true ]]; then
     if [[ "$NO_VERIFY" == true ]]; then
-        "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --danger-no-verify --lib --release -o "$MLIR_OUT"
+        "$SALT_FRONT/target/release/saltc" "$SALT_FILE" --danger-no-verify --lib --release -o "$MLIR_OUT"
     else
-        "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --lib --release -o "$MLIR_OUT"
+        "$SALT_FRONT/target/release/saltc" "$SALT_FILE" --lib --release -o "$MLIR_OUT"
     fi
 else
     if [[ "$NO_VERIFY" == true ]]; then
-        "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --danger-no-verify --release -o "$MLIR_OUT"
+        "$SALT_FRONT/target/release/saltc" "$SALT_FILE" --danger-no-verify --release -o "$MLIR_OUT"
     else
-        "$SALT_FRONT/target/release/salt-front" "$SALT_FILE" --release -o "$MLIR_OUT"
+        "$SALT_FRONT/target/release/saltc" "$SALT_FILE" --release -o "$MLIR_OUT"
     fi
 fi
 echo "  ✓ MLIR generated"

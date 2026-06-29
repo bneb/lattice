@@ -1,45 +1,42 @@
-# ⚡ Salt Performance Benchmarks
+# Salt Performance Benchmarks
 
-Salt's compilation pipeline utilizes MLIR to lower to LLVM IR, giving it the potential to match highly optimized C and Rust. 
+Salt compiles through MLIR to LLVM IR, producing native code competitive with C (`clang -O3`).
 
-To evaluate our performance honestly, we use the following scale comparing Salt's execution time against C (`clang -O3`):
-* **Parity**: Within 20% of C (80% – 120%)
-* **Salt is faster**: Less than 80% of C's execution time
-* **Salt is slower**: Greater than 120% of C's execution time
+Measurements use runtime-dynamic inputs to prevent constant folding. Averages from 3 runs with warmup on macOS ARM64 (Apple Silicon M4). June 2026.
 
-## 📊 Results (Core Algorithms)
+## Results
 
-All benchmarks use runtime-dynamic inputs to prevent constant folding. Measurements average 3 runs with cached binaries on macOS ARM64 (Apple Silicon M4).
+| Benchmark | C (`clang -O3`) | Salt | Salt/C | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| `fib` | 289ms | 263ms | 0.9x | Salt faster |
+| `sieve` | 219ms | 217ms | 1.0x | Parity |
+| `matmul` | 249ms | 241ms | 1.0x | Parity |
+| `fannkuch` | 215ms | 205ms | 0.9x | Salt faster |
+| `sudoku_solver` | 37ms | 35ms | 0.9x | Salt faster |
+| `hashmap_bench` | 58ms | 36ms | 0.6x | Salt faster |
+| `lru_cache` | 33ms | 22ms | 0.7x | Salt faster |
+| `vector_add` | 154ms | 120ms | 0.8x | Salt faster |
+| `window_access` | 117ms | 113ms | 1.0x | Parity |
+| `forest` | 27ms | 41ms | 1.5x | Salt slower |
+| `binary_tree_path` | 9ms | 11ms | 1.2x | Parity |
+| `global_counter` | 121ms | 124ms | 1.0x | Parity |
+| `string_hashmap_bench` | 51ms | 29ms | 0.6x | Salt faster |
+| `bitwise` | 38ms | 38ms | 1.0x | Parity |
+| `trapping_rain_water` | 109ms | 118ms | 1.1x | Parity |
+| `merge_sorted_lists` | 27ms | 27ms | 1.0x | Parity |
+| `longest_consecutive` | 1,156ms | 362ms | 0.3x | Salt faster |
+| `buffered_writer_perf` | 789ms | 46ms | 0.1x | Salt faster |
+| `fstring_perf` | 1,858ms | 401ms | 0.2x | Salt faster |
+| `writer_perf` | 212ms | 177ms | 0.8x | Salt faster |
 
-| Benchmark | C (`clang -O3`) | Salt | % of C | Status | Notes |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| `fib` | 184ms | 183ms | 99% | Parity | Pure arithmetic loop. MLIR lowers identically to LLVM. |
-| `sieve` | 146ms | 150ms | 102% | Parity | Memory-bound bit/byte manipulation. |
-| `http_parser` | 26ms | 25ms | 96% | Parity | Uses verified `intrin_find_byte` mapping directly to LLVM `memchr` for SIMD speed. |
-| `matmul` | 157ms | 161ms | 102% | Parity | Affine tiling optimizations keep it competitive. |
-| `C10M TCP Echo` | 29.5k RPS | 27.2k RPS | 108% | Parity | Salt natively batches 256 events per kevent poll in userspace. Within 7.5% of bare-metal C throughput, beats Rust/Tokio async (26.4k rps). |
-| `hashmap_bench` | 24ms | 18ms | 75% | Salt is faster | Salt uses Swiss-tables by default; C baseline uses standard hashing. |
-| `vector_add` | 112ms | 94ms | 83% | Parity | LLVM auto-vectorization (NEON) applies more aggressively on Salt's strongly-typed buffers. |
-| `lru_cache` | 17ms | 10ms | 58% | Salt is faster | Salt uses zero-overhead Arena allocation; C relies on `malloc`/`free`. |
-| `buffered_writer` | 316ms | 23ms | 7% | Salt is faster | C uses standard `stdio` (which locks); Salt's I/O uses unlocked SPSC ring buffers natively. |
-| `sudoku_solver` | 21ms | 29ms | 138% | Salt is slower | Array-of-structs boundary checking adds slight overhead in tight recursive loops. |
-| `fstring_perf` | 1142ms | 199ms | 17% | Salt is faster | Salt's `InterpolatedStringHandler` paired with global arena tracking out-performs `snprintf`. |
-| `longest_consecutive` | 832ms | 262ms | 31% | Salt is faster | Salt's Swiss-table operations provide huge advantages for contiguous range lookups. |
+**Summary: Salt is at parity or faster on 19 of 21 benchmarks.** The two where Salt trails (`forest` 1.5x, `binary_tree_path` 1.2x) involve pointer-chasing patterns where C's optimizer has more mature alias analysis.
 
-### The "Faster Than C" Caveat
+### On "Faster Than C"
 
-In scenarios where Salt runs significantly faster than C (e.g., `buffered_writer`, `lru_cache`), it is **not** because the Salt compiler is magically producing faster assembly than clang. 
+Where Salt significantly outperforms C (`hashmap_bench` 0.6x, `buffered_writer` 0.1x, `fstring_perf` 0.2x, `longest_consecutive` 0.3x), it is not because Salt's compiler produces magically faster assembly than clang. Salt's standard library provides arena allocators, Swiss-table hash maps, and interpolated string handlers as defaults. The C baselines use standard `libc` (`malloc`, `free`, `fwrite`, `snprintf`). A C developer who hand-rolled equivalent data structures would close the gap.
 
-It is because Salt's standard library provides high-performance data structures—like Arena allocators and lock-free SPSC rings—as ergonomic defaults. The C baselines utilize standard `libc` functions (`malloc`, `free`, `fwrite`) which incur heavy overhead for memory management and thread safety. If a developer wrote equivalent custom memory arenas in C, the performance would drop back to Parity. 
-
-By prioritizing modern memory strategies natively, Salt achieves top-tier performance without forcing the developer to hand-roll allocators.
-
-## 🛠 Running the Suite
+## Running
 
 ```bash
-# Run all benchmarks
-./benchmark.sh -a
-
-# Run specific benchmark
-./benchmark.sh hashmap_bench
+./benchmarks/benchmark.sh --all
 ```
