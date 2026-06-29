@@ -13,7 +13,7 @@ Create a file called `kv.salt`:
 ```salt
 package main
 
-use std.core.result.Result
+import std.core.result.Result
 
 fn main() -> i32 {
     let store = new_store(16);
@@ -73,7 +73,7 @@ The `requires` clause tells Z3: "prove that every call site passes a valid capac
 
 ```salt
 fn put(store: &Store, key: StringView, value: i32)
-    requires(key.len() > 0)
+    requires(key.length() > 0)
 {
     let mut i: i64 = 0;
     while i < 16 {
@@ -88,7 +88,7 @@ fn put(store: &Store, key: StringView, value: i32)
 }
 ```
 
-The `requires(key.len() > 0)` contract means Z3 will reject any call site where it can prove the key might be empty.
+The `requires(key.length() > 0)` contract means Z3 will reject any call site where it can prove the key might be empty.
 
 ---
 
@@ -98,18 +98,18 @@ The `requires(key.len() > 0)` contract means Z3 will reject any call site where 
 
 ```salt
 fn get(store: &Store, key: StringView) -> Result<i32>
-    requires(key.len() > 0)
+    requires(key.length() > 0)
 {
     let mut i: i64 = 0;
     while i < 16 {
         if store.entries[i].occupied {
             if store.entries[i].key == key {
-                return Result::Ok::<i32>(store.entries[i].value);
+                return Result::Ok(store.entries[i].value);
             }
         }
         i = i + 1;
     }
-    return Result::Err::<i32>(-1);
+    return Result::Err(Status::from_code(-1));
 }
 ```
 
@@ -198,7 +198,7 @@ Change it back to `new_store(16)` before continuing.
 
 ```salt
 fn get(store: &Store, key: StringView) -> Result<i32>
-    requires(key.len() > 0)
+    requires(key.length() > 0)
     ensures(match_result_is_valid(result, key, store))
 ```
 
@@ -237,7 +237,8 @@ Here's the complete verified key-value store:
 ```salt
 package main
 
-use std.core.result.Result
+import std.core.result.Result
+import std.status.Status
 
 struct KeyValue {
     key: StringView,
@@ -260,7 +261,7 @@ fn new_store(capacity: i32) -> Store
 }
 
 fn put(store: &Store, key: StringView, value: i32)
-    requires(key.len() > 0)
+    requires(key.length() > 0)
 {
     let mut i: i64 = 0;
     while i < 16 {
@@ -275,25 +276,25 @@ fn put(store: &Store, key: StringView, value: i32)
 }
 
 fn get(store: &Store, key: StringView) -> Result<i32>
-    requires(key.len() > 0)
+    requires(key.length() > 0)
 {
     let mut i: i64 = 0;
     while i < 16 {
         if store.entries[i].occupied {
             if store.entries[i].key == key {
-                return Result::Ok::<i32>(store.entries[i].value);
+                return Result::Ok(store.entries[i].value);
             }
         }
         i = i + 1;
     }
-    return Result::Err::<i32>(-1);
+    return Result::Err(Status::from_code(-1));
 }
 
 fn main() -> i32 {
     // Z3 proves: 16 > 0 && 16 <= 16 ✓
     let store = new_store(16);
 
-    // Z3 proves: "hello".len() > 0 ✓
+    // Z3 proves: "hello".length() > 0
     put(&store, "hello", 42);
     put(&store, "world", 99);
 

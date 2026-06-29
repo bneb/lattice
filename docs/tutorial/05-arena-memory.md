@@ -5,7 +5,7 @@
 An arena is the simplest possible memory allocator: a bump pointer over a pre-allocated block. You allocate by advancing the pointer. You free by rewinding it to an earlier position. No free list, no malloc metadata, no garbage collector pauses — just increment and compare.
 
 ```salt
-use std.core.arena.Arena
+import std.core.arena.Arena
 
 fn main() -> i32 {
     // A 4 KiB arena (the kernel rounds up; this is an advisory capacity)
@@ -37,13 +37,13 @@ Key properties:
 Arenas excel when memory has a natural **epoch**: a request, a frame, a batch, or a single pass.
 
 ```salt
-use std.core.arena.Arena
+import std.core.arena.Arena
 
 struct Row { id: i64, name: StringView }
 
 fn read_rows(arena: &Arena, count: i64) -> Ptr<Row> {
     let rows = arena.alloc_array::<Row>(count);
-    var i: i64 = 0;
+    let mut i: i64 = 0;
     while i < count {
         rows[i] = Row { id: i, name: "item" };
         i += 1;
@@ -72,11 +72,11 @@ Arenas cannot free individual objects. If your data structure needs to release m
 struct Node { value: i64, next: Ptr<Node> }
 
 fn build_list(arena: &Arena, count: i64) -> Ptr<Node> {
-    let head = arena.alloc::<Node>(Node { value: 0, next: Ptr::null() });
-    var cur = head;
-    var i: i64 = 1;
+    let head = arena.alloc::<Node>(Node { value: 0, next: Ptr::empty() });
+    let mut cur = head;
+    let mut i: i64 = 1;
     while i < count {
-        let n = arena.alloc::<Node>(Node { value: i, next: Ptr::null() });
+        let n = arena.alloc::<Node>(Node { value: i, next: Ptr::empty() });
         cur.next = n;
         cur = n;
         i += 1;
@@ -97,8 +97,8 @@ Salt prevents arena pointers from outliving their region at compile time. Every 
 - **Transitivity**: `s.field` inherits `depth(s)`.
 
 ```salt
-use std.core.arena.Arena
-use std.core.ptr.Ptr
+import std.core.arena.Arena
+import std.core.ptr.Ptr
 
 fn return_ok(arena: &Arena) -> Ptr<i64> {
     // arena has depth 1 (function parameter)
@@ -109,7 +109,7 @@ fn return_bad() -> Ptr<i64> {
     let local = Arena::new(256);   // depth 2
     let p = local.alloc::<i64>(1); // depth 2
     // return p;                   // REJECTED: depth 2 > 1
-    return Ptr::null();            // OK
+    return Ptr::empty();            // OK
 }
 
 fn store_bad(arena: &Arena, out: &mut Ptr<i64>) {

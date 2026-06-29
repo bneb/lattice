@@ -11,7 +11,7 @@ Use `extern fn` to declare a function implemented in C (or any language that exp
 ```salt
 package main
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // C standard library functions, declared for Salt
 extern fn malloc(size: u64) -> Ptr<u8>;
@@ -38,7 +38,7 @@ Salt's `Ptr<T>` gives you controlled access to raw memory. Inside an `unsafe` bl
 ```salt
 package main
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 fn main() -> i32 {
     let mut val = 42i64;
@@ -115,7 +115,7 @@ A classic kernel use case: hardware registers mapped into the address space. Sal
 ```salt
 package kernel.uart
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 // x86 COM1: 0x3F8 (standard PC serial port)
 const UART_BASE: u64 = 0x3F8;
@@ -130,8 +130,10 @@ fn uart_putb(b: u8) {
 
 /// Write a string to the serial port.
 fn uart_puts(msg: StringView) {
-    for c in msg.bytes() {
-        uart_putb(c);
+    let mut i: i64 = 0;
+    while i < msg.length() {
+        uart_putb(msg.byte_at(i));
+        i += 1;
     }
     uart_putb(b'\n');
 }
@@ -146,7 +148,7 @@ For functions that wrap FFI calls, annotate the wrapper `@trusted` instead of ma
 ```salt
 package main
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 extern fn rand() -> i32;
 
@@ -195,4 +197,4 @@ The goal is not zero `unsafe` — it is zero **unchecked** `unsafe`. Every bound
 | Null check | `ptr.is_null()` |
 | FFI-safe types | `i32`, `u64`, `f64`, `bool`, `fn(...)`, `Ptr<T>` |
 
-Next: [Chapter 8: Arena Memory](07-arena-memory.md)
+Next: [Chapter 8: Async, Yield, and State Machines](08-async.md)

@@ -26,13 +26,13 @@ Run `make setup` (or `./scripts/bootstrap.sh`) from the repository root to insta
 
 | # | Chapter | What You'll Learn |
 |---|---------|-------------------|
-| 1 | [Hello, Salt](01-basics.md) | Package declaration, `fn main`, `println`, `let`, types, comments |
-| 2 | [Types & Values](02-types.md) | Integers, floats, bools, chars, arrays, tuples, String/StringView |
-| 3 | [Functions](03-functions.md) | Signatures, parameters, return values, function pointers, `@export` |
-| 4 | [Structs & Enums](04-structs-enums.md) | Struct definition, `impl` blocks, `&self`, enums, pattern matching |
-| 5 | [Generics](05-generics.md) | Type parameters, inference, `@derive`, concepts/trait bounds |
-| 6 | [Error Handling](06-error-handling.md) | `Result<T>`, `?` operator, `|?>` railway, `~` force-unwrap, `match` |
-| 7 | [Arena Memory](07-arena-memory.md) | Arena allocation, `mark`/`reset_to`, the Scope Ladder, escape analysis |
+| 1 | [Variables, Types, and Printing](01-basics.md) | Package declaration, `fn main`, `println`, `let`, types, comments |
+| 2 | [Functions, Contracts, and Verification](02-functions.md) | Function signatures, parameters, return values, `requires`/`ensures` |
+| 3 | [Structs, Enums, and Pattern Matching](03-structs-enums.md) | Struct definition, `impl` blocks, `&self`, enums, pattern matching |
+| 4 | [Generics and Monomorphization](04-generics.md) | Type parameters, inference, monomorphization, `where` bounds |
+| 5 | [Arenas and Memory](05-arena-memory.md) | Arena allocation, `mark`/`reset_to`, the Scope Ladder, escape analysis |
+| 6 | [Error Handling, Result, and Pipe](06-error-handling.md) | `Result<T>`, `?` operator, `|?>` railway, `~` force-unwrap, `match` |
+| 7 | [FFI, Extern, and Unsafe](07-ffi.md) | Extern declarations, `unsafe`, `Ptr<T>`, `@no_mangle`, `@export` |
 | 8 | [Async, Yield, and State Machines](08-async.md) | `@yielding`, `yield` keyword, Poll ABI, stackless state machines, `Context` |
 | 9 | [Z3 Contracts](09-contracts.md) | `requires`, `ensures`, compile-time proofs, counterexamples, `@trusted` |
 

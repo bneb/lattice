@@ -109,7 +109,8 @@ This example combines `requires` and `ensures` to verify a binary search:
 ```salt
 package main
 
-use std.core.result.Result
+import std.core.result.Result
+import std.status.Status
 
 fn binary_search(arr: &[i32], target: i32) -> Result<i32>
     requires(arr.len() > 0)
@@ -120,7 +121,7 @@ fn binary_search(arr: &[i32], target: i32) -> Result<i32>
     while lo <= hi {
         let mid = lo + (hi - lo) / 2;
         if arr[mid] == target {
-            return Result::Ok::<i32>(mid as i32);
+            return Result::Ok(mid as i32);
         }
         if arr[mid] < target {
             lo = mid + 1;
@@ -128,7 +129,7 @@ fn binary_search(arr: &[i32], target: i32) -> Result<i32>
             hi = mid - 1;
         }
     }
-    return Result::Err::<i32>(-1);
+    return Result::Err(Status::from_code(-1));
 }
 
 fn main() -> i32 {
@@ -156,4 +157,4 @@ The `requires(arr.len() > 0)` precondition ensures Z3 proves the array is non-em
 | Postcondition | `ensures(condition)` | Prove condition at return sites |
 | Return value | `return expr;` | Return a value from a function |
 
-Next: [Chapter 3: Types & Values](02-types.md)
+Next: [Chapter 3: Structs, Enums, and Pattern Matching](03-structs-enums.md)

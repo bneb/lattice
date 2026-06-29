@@ -11,7 +11,7 @@ Mark a function `@yielding` to opt into cooperative scheduling. The compiler inj
 ```salt
 package main
 
-use std.core.keuos.context.Context
+import std.core.keuos.context.Context
 
 @yielding
 fn process_batch(ctx: &Context, items: &[i64]) -> i64 {
@@ -48,7 +48,7 @@ The optional argument tunes the heartbeat: `@yielding(4096)` inserts a yield che
 Inside a `@yielding` function, `yield;` suspends execution immediately and returns control to the scheduler. The fiber resumes from the same point later:
 
 ```salt
-use std.io.keuos_poller.{KeuOSPoller, PollFilter}
+import std.io.keuos_poller.{KeuOSPoller, PollFilter}
 
 @yielding
 fn read_packet(ctx: &Context, poller: &KeuOSPoller, fd: i32) -> Packet {
@@ -175,7 +175,7 @@ The `Context` token is the lynchpin: it proves the fiber is under the scheduler,
 
 Salt's approach is closest to Rust's: both lower async functions to stackless state machines. The key difference is that Salt uses compiler-injected yield checks at loop edges (via `@yielding`) so long-running compute loops automatically cooperate without manual `.await` insertions. Go's goroutines are stackful and preempted by the runtime, which is more flexible but uses more memory per task (kilobytes vs. bytes).
 
-In KeuOS, this matters deeply. With 256 fibers per core at ~64 bytes of state each, the entire async dispatch fits in a single cache line.
+With 256 fibers per core at ~64 bytes of state each, the entire async dispatch fits in a single cache line.
 
 ## Summary
 

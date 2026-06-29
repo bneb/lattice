@@ -153,7 +153,7 @@ For FFI wrappers and hand-audited code, `@trusted` skips Z3 verification:
 ```salt
 package main
 
-use std.core.ptr.Ptr
+import std.core.ptr.Ptr
 
 extern fn external_library_init(config: Ptr<u8>) -> i32;
 
@@ -186,7 +186,8 @@ A realistic example combining contracts with error handling:
 ```salt
 package main
 
-use std.core.result.Result
+import std.core.result.Result
+import std.status.Status
 
 fn binary_search(arr: &[i32], target: i32) -> Result<i32>
     requires(arr.len() > 0)
@@ -197,7 +198,7 @@ fn binary_search(arr: &[i32], target: i32) -> Result<i32>
     while lo <= hi {
         let mid = lo + (hi - lo) / 2;
         if arr[mid] == target {
-            return Result::Ok::<i32>(mid as i32);
+            return Result::Ok(mid as i32);
         }
         if arr[mid] < target {
             lo = mid + 1;
@@ -205,7 +206,7 @@ fn binary_search(arr: &[i32], target: i32) -> Result<i32>
             hi = mid - 1;
         }
     }
-    return Result::Err::<i32>(-1);
+    return Result::Err(Status::from_code(-1));
 }
 
 fn main() -> i32 {
@@ -250,7 +251,6 @@ salt-front --no-verify my_program.salt -o my_program
 
 You now know Salt from basic syntax through Z3 formal verification. The language combines:
 
-- **Performance** within 10% of C (MLIR multi-dialect codegen)
 - **Safety** without lifetime annotations (arena allocation + Scope Ladder)
 - **Certainty** with zero runtime cost (Z3 compile-time proofs)
 

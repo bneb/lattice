@@ -135,4 +135,4 @@ Salt's `?` maps directly to Rust's `?` — both return early on error. The railw
 | `expr~` | Force-unwrap: panic on `Err` (use for verified invariants) |
 | `let Ok(v) = expr else { ... }` | Extract or execute fallback |
 
-Next: [Chapter 7: Arena Memory](07-arena-memory.md)
+Next: [Chapter 7: FFI, Extern, and Unsafe](07-ffi.md)

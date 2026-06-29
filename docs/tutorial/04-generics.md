@@ -158,4 +158,4 @@ Salt accepts unconstrained type parameters and verifies at each call site; a mis
 | Generic struct | `struct Pair<A, B> { ... }` |
 | impl on generics | `impl Pair<A, B> { fn method(self) { ... } }` |
 
-Next: [Chapter 5: Structs & Enums](05-structs-enums.md)
+Next: [Chapter 5: Arenas and Memory](05-arena-memory.md)
