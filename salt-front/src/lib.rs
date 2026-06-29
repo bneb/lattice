@@ -1075,9 +1075,13 @@ fn extract_force_unwrap_expr(s: &str) -> String {
 // with full TraitRegistry context for signature-aware format spec dispatch.
 #[allow(clippy::too_many_arguments)] // REASON: all 11 params independently meaningful; bundling would obscure intent
 pub fn compile_ast(file: &mut SaltFile, release_mode: bool, registry: Option<&crate::registry::Registry>, skip_scan: bool, disable_alias_scopes: bool, no_verify: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> anyhow::Result<String> {
-    // Auto-inject prelude for user code (not stdlib) when compiling without a package registry
-    let is_stdlib = source_file.contains("/std/") || source_file.starts_with("std/");
-    if registry.is_none() && !is_stdlib {
+    // Auto-inject prelude for user code only — skip stdlib, kernel, and any file
+    // with an existing package declaration that would conflict
+    let is_system = source_file.contains("/std/") || source_file.starts_with("std/")
+                 || source_file.contains("/kernel/") || source_file.starts_with("kernel/")
+                 || source_file.contains("/ecs/") || source_file.starts_with("ecs/");
+    let has_package = file.package.is_some();
+    if registry.is_none() && !is_system && !has_package {
         let prelude_imports = vec![
             "use std::core::ptr::*;", "use std::core::option::*;",
             "use std::core::result::*;", "use std::status::*;",
