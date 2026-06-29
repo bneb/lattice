@@ -1,5 +1,7 @@
 # Salt + KeuOS — Quality Standards & Six-Month Plan
 
+**Hard rule**: Never add `Co-Authored-By`, `Signed-off-by`, or any similar trailer to commit messages. Ever.
+
 ## Build
 - `cargo build --release` in salt-front/ for the compiler
 - `cargo test` in salt-front/ for unit tests
