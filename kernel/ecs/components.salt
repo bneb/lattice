@@ -120,6 +120,13 @@ pub struct DataBlob {
     pub page_list: u64,        // Ptr to array of physical page addresses
 }
 
+/// Entity name — mutable string for package/entity naming (Tier 5).
+/// name_ptr is a kernel virtual address pointing to a page containing the name.
+pub struct NameComponent {
+    pub name_ptr: u64,    // Kernel VA of name buffer (phys_to_virt_raw page)
+    pub name_len: u64,    // Number of valid bytes in name
+}
+
 /// Test component for unit testing
 pub struct TestComponent {
     pub val: i32,

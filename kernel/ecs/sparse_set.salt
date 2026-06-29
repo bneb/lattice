@@ -474,3 +474,22 @@ pub fn datablob_set_remove(set: Ptr<DataBlobSparseSet>, entity: Entity) {
         }
     }
 }
+
+// =============================================================================
+// Delegation wrappers — NameSparseSet (impl in name_set.salt)
+// =============================================================================
+import kernel.ecs.name_set.{NameSparseSet, new_name_set, name_set_insert, name_set_get, name_set_remove}
+import kernel.ecs.components.{NameComponent}
+
+pub fn new_name_set() -> Ptr<NameSparseSet> {
+    return new_name_set();
+}
+pub fn name_set_insert(set: Ptr<NameSparseSet>, entity: Entity, component: NameComponent) {
+    name_set_insert(set, entity, component);
+}
+pub fn name_set_get(set: Ptr<NameSparseSet>, entity: Entity) -> Ptr<NameComponent> {
+    return name_set_get(set, entity);
+}
+pub fn name_set_remove(set: Ptr<NameSparseSet>, entity: Entity) {
+    name_set_remove(set, entity);
+}

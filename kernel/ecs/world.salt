@@ -32,13 +32,13 @@ import kernel.ecs.scheduling_sets.{ThreadSparseSet}
 import kernel.ecs.sparse_set.{
     ThreadSparseSet, PrioritySparseSet, MemoryMapSparseSet,
     IpcCapSparseSet, OpenSocketSparseSet, CpuAffinitySparseSet,
-    EpochInfoSparseSet, PerfCountersSparseSet, DataBlobSparseSet,
+    EpochInfoSparseSet, PerfCountersSparseSet, DataBlobSparseSet, NameSparseSet,
     new_thread_set, new_priority_set, new_memmap_set,
     new_ipc_cap_set, new_socket_set, new_affinity_set,
-    new_epoch_info_set, new_perf_counters_set, new_datablob_set,
+    new_epoch_info_set, new_perf_counters_set, new_datablob_set, new_name_set,
     thread_set_remove, priority_set_remove, memmap_set_remove,
     ipc_cap_set_remove, socket_set_remove, affinity_set_remove,
-    epoch_info_set_remove, perf_counters_set_remove, datablob_set_remove
+    epoch_info_set_remove, perf_counters_set_remove, datablob_set_remove, name_set_remove
 }
 
 extern fn malloc(size: i64) -> Ptr<u8>;
@@ -63,6 +63,9 @@ pub struct World {
     // === Reclamation / Telemetry Tables ===
     pub epoch_infos: Ptr<EpochInfoSparseSet>,      // Deferred reclamation metadata
     pub perf_counters: Ptr<PerfCountersSparseSet>,  // Telemetry counters
+
+    // === Naming / Package Registry (Tier 5) ===
+    pub names: Ptr<NameSparseSet>,                 // Entity name lookup table
 }
 
 pub fn new_world() -> Ptr<World> {
@@ -76,8 +79,9 @@ pub fn new_world() -> Ptr<World> {
     let affinities_res = new_affinity_set();
     let epoch_infos_res = new_epoch_info_set();
     let perf_counters_res = new_perf_counters_set();
+    let names_res = new_name_set();
 
-    let w_ptr = malloc(88) as Ptr<World>;
+    let w_ptr = malloc(96) as Ptr<World>;
     w_ptr[0] = World {
         alloc: allocator_res,
         threads: threads_res,
@@ -89,6 +93,7 @@ pub fn new_world() -> Ptr<World> {
         cpu_affinities: affinities_res,
         epoch_infos: epoch_infos_res,
         perf_counters: perf_counters_res,
+        names: names_res,
     };
     return w_ptr;
 }
@@ -113,6 +118,7 @@ pub fn world_destroy(self: Ptr<World>, entity: Entity) {
     affinity_set_remove(self[0].cpu_affinities, entity);
     epoch_info_set_remove(self[0].epoch_infos, entity);
     perf_counters_set_remove(self[0].perf_counters, entity);
+    name_set_remove(self[0].names, entity);
 
     // Return entity ID to the free-list (bumps generation)
     entity_allocator_free(self[0].alloc, entity);
