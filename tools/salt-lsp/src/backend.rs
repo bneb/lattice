@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use crate::completion;
 use crate::diagnostics;
 use crate::semantic_tokens;
+use crate::source_check;
 use crate::sir_index::{SirIndex, SymbolKind as SirSymbolKind};
 
 pub struct DocumentState {
@@ -41,7 +42,7 @@ impl SaltBackend {
         let mut diags = diagnostics::diagnose(text);
 
         let module_name = uri.path_segments()
-            .and_then(|s| s.last())
+            .and_then(|mut s| s.next_back())
             .unwrap_or("unknown")
             .trim_end_matches(".salt")
             .to_string();
@@ -225,6 +226,16 @@ impl LanguageServer for SaltBackend {
         if let Some(location) = state.sir_index.find_definition(&word) {
             return Ok(Some(GotoDefinitionResponse::Scalar(location)));
         }
+        // Check local definitions (let bindings, params, struct fields)
+        if let Some((line, col)) = source_check::find_var_definition(text, &word, position.line as usize) {
+            return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                uri: uri.clone(),
+                range: Range {
+                    start: Position { line: line as u32, character: col as u32 },
+                    end: Position { line: line as u32, character: (col + word.len()) as u32 },
+                },
+            })));
+        }
         Ok(None)
     }
 
@@ -289,6 +300,7 @@ impl LanguageServer for SaltBackend {
                 },
                 children: None,
                 tags: None,
+                #[allow(deprecated)]
                 deprecated: None,
             }
         }).collect();

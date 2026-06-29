@@ -6,7 +6,7 @@
 mod lsp_tests {
     use crate::sir_index::{SirIndex, compile_in_memory};
     use crate::semantic_tokens;
-    use tower_lsp::lsp_types::Url;
+    use tower_lsp::lsp_types::{Url, Position};
 
     // ── Semantic Tokens Edge Cases ────────────────────────────────────
 
@@ -191,5 +191,17 @@ mod lsp_tests {
         let module = result.sir_module.unwrap();
         assert_eq!(module.functions.len(), 1);
         assert_eq!(module.functions[0].name, "identity");
+    }
+
+    // ── Completion Smoke Test ──────────────────────────────────────
+
+    #[test]
+    fn test_completion_smoke() {
+        let text = "package test\nfn main() -> i32 {\n    return 0;\n}";
+        let items = crate::completion::complete(text, Position { line: 0, character: 0 });
+        assert!(!items.is_empty(), "should return at least one completion");
+        // Should include keyword completions
+        assert!(items.iter().any(|i| i.label == "fn"), "should include fn keyword");
+        assert!(items.iter().any(|i| i.label == "i32"), "should include i32 type");
     }
 }

@@ -9,6 +9,7 @@
 use tower_lsp::lsp_types::*;
 
 use crate::sir_index;
+use crate::source_check;
 
 // =============================================================================
 // Fast-Path: Pattern-Based Lint Diagnostics
@@ -98,6 +99,7 @@ pub fn diagnose(text: &str) -> Vec<Diagnostic> {
         }
     }
 
+    diags.extend(source_check::diagnose_source(text));
     diags
 }
 
@@ -226,8 +228,8 @@ mod tests {
     #[test]
     fn test_import_keyword_error() {
         let diags = diagnose("import std.core.result.Result");
-        assert_eq!(diags.len(), 1);
-        assert!(diags[0].message.contains("abolished"));
+        assert!(diags.iter().any(|d| d.message.contains("abolished")),
+            "should flag import keyword: {:?}", diags);
     }
 
     #[test]
@@ -249,7 +251,8 @@ fn main() -> i32 {
 }
 "#;
         let diags = diagnose(code);
-        assert!(diags.is_empty(), "Clean code should have no diagnostics, got: {:?}", diags);
+        let errors: Vec<_> = diags.iter().filter(|d| d.severity == Some(DiagnosticSeverity::ERROR)).collect();
+        assert!(errors.is_empty(), "Clean code should have no ERROR diagnostics, got: {:?}", diags);
     }
 
     #[test]

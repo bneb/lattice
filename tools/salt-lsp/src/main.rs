@@ -9,8 +9,11 @@ mod diagnostics;
 pub mod sir_index;
 mod sir_display;
 mod semantic_tokens;
+mod source_check;
 #[cfg(test)]
 mod tests_lsp;
+#[cfg(test)]
+mod source_check_test;
 
 use tower_lsp::{LspService, Server};
 
@@ -19,7 +22,7 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(|client| backend::SaltBackend::new(client));
+    let (service, socket) = LspService::new(backend::SaltBackend::new);
 
     Server::new(stdin, stdout, socket).serve(service).await;
 }

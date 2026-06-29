@@ -35,9 +35,7 @@ pub fn legend() -> SemanticTokensLegend {
 
 // Token type indices (matching LEGEND order)
 const TK_KEYWORD: u32 = 1;
-const TK_FUNCTION: u32 = 2;
 const TK_TYPE: u32 = 3;
-const TK_PARAMETER: u32 = 4;
 const TK_VARIABLE: u32 = 5;
 const TK_STRING: u32 = 7;
 const TK_NUMBER: u32 = 8;
@@ -153,7 +151,7 @@ fn classify_word(word: &str) -> (u32, u32) {
         return (TK_MODIFIER, 0);
     }
     // Heuristic: capitalized words are types
-    if word.chars().next().map_or(false, |c| c.is_uppercase()) {
+    if word.chars().next().is_some_and(|c| c.is_uppercase()) {
         return (TK_TYPE, 0);
     }
     (TK_VARIABLE, 0)
@@ -257,7 +255,7 @@ mod tests {
     fn test_delta_encoding_same_line() {
         let raw = vec![
             RawToken { line: 0, col: 0, len: 2, ty: TK_KEYWORD, mod_bits: 0 },
-            RawToken { line: 0, col: 3, len: 4, ty: TK_FUNCTION, mod_bits: 0 },
+            RawToken { line: 0, col: 3, len: 4, ty: TK_KEYWORD, mod_bits: 0 },
         ];
         let encoded = delta_encode(&raw);
         assert_eq!(encoded.len(), 2);

@@ -616,8 +616,10 @@ dependencies = [
  "arbitrary",
  "proc-macro2",
  "quote",
+ "regex",
  "syn",
  "z3",
+ "z3-sys",
 ]
 
 [[package]]

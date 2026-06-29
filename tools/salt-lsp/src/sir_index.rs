@@ -19,6 +19,10 @@ pub struct SirIndex {
     modules: HashMap<Url, SirModule>,
 }
 
+impl Default for SirIndex {
+    fn default() -> Self { Self::new() }
+}
+
 impl SirIndex {
     pub fn new() -> Self {
         SirIndex { modules: HashMap::new() }
