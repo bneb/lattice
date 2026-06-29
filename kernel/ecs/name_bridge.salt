@@ -9,7 +9,7 @@ package kernel.ecs.name_bridge
 import kernel.ecs.world.{World}
 import kernel.ecs.entity.{Entity}
 import kernel.ecs.components.{NameComponent}
-import kernel.ecs.sparse_set.{name_set_insert, name_set_get}
+import kernel.ecs.sparse_set.{NameSparseSet, name_set_insert, name_set_get}
 
 extern fn get_ecs_world_ptr() -> u64;
 
@@ -36,4 +36,36 @@ pub fn ecs_bridge_lookup_name(entity_val: u64) -> u64 {
     let e = Entity { id: id, gen: gen };
     let c = name_set_get(w.names, e);
     return c as u64;
+}
+
+@no_mangle
+pub fn ecs_bridge_lookup_by_name(name_kern: u64, name_len: u64) -> u64 {
+    let w_ptr = get_ecs_world_ptr() as Ptr<World>;
+    if (w_ptr as u64) == 0 { return 0; }
+    let w = w_ptr as &mut World;
+    let names = w.names;
+    let names_ref = names as &NameSparseSet;
+    let count = names_ref.count;
+
+    let mut i: u32 = 0;
+    while i < count {
+        let component = names_ref.dense.offset(i as i64) as &NameComponent;
+        if component.name_len == name_len {
+            let stored_ptr = component.name_ptr;
+            let mut j: u64 = 0;
+            let mut matches = true;
+            while j < name_len {
+                let a = *((stored_ptr + j) as &u8);
+                let b = *((name_kern + j) as &u8);
+                if a != b { matches = false; break; }
+                j = j + 1;
+            }
+            if matches {
+                let e = *(names_ref.entity_map.offset(i as i64) as &Entity);
+                return (e.id as u64) | ((e.gen as u64) << 32);
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
 }
