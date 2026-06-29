@@ -3,16 +3,10 @@ package kernel.ecs.ecs_bridge
 import kernel.ecs.world.{World, world_spawn, world_destroy, world_entity_count}
 import kernel.ecs.entity.{Entity}
 import kernel.ecs.components.{ThreadState, SchedulingPriority}
-import kernel.ecs.scheduling_sets.{ThreadSparseSet}
 import kernel.ecs.sparse_set.{thread_set_insert, thread_set_get_mut, priority_set_insert, memmap_set_insert, memmap_set_get, ipc_cap_set_insert, socket_set_insert}
-import kernel.ecs.components.{MemoryMap, IpcCapability, NameComponent}
-import kernel.ecs.name_set.{name_set_insert, name_set_get}
+import kernel.ecs.components.{MemoryMap, IpcCapability}
 
 extern fn get_ecs_world_ptr() -> u64;
-extern fn pmm_alloc() -> u64;
-extern fn pmm_free(page: u64);
-extern fn memory_phys_to_virt_raw(phys: u64) -> u64;
-extern fn copy_to_user(dst_user: u64, src_kern: u64, len: u64) -> i64;
 
 @no_mangle
 pub fn ecs_bridge_spawn_thread(step_fn: u64, stack_ptr: u64, stack_base: u64) -> u64 {
@@ -227,79 +221,9 @@ pub fn ecs_bridge_entity_count() -> u64 {
 
 @no_mangle
 pub fn ecs_bridge_list_threads(buf_ptr: u64, max_count: u64) -> u64 {
-    let w_ptr = get_ecs_world_ptr() as Ptr<World>;
-    if (w_ptr as u64) == 0 { return 0; }
-
-    let threads = w_ptr[0].threads;
-    let threads_ref = threads as &ThreadSparseSet;
-    let count = threads_ref.count as u64;
-
-    // Cap at what fits in one kernel page: (4096 - 8) / 16 = 255 entries
-    let max_per_page: u64 = 255;
-    let mut actual = count;
-    if actual > max_count { actual = max_count; }
-    if actual > max_per_page { actual = max_per_page; }
-    if actual == 0 { return 0; }
-
-    let buf_size = (1 + actual * 2) * 8;
-
-    // Validate user pointer
-    if buf_ptr >= 0x0000800000000000 { return 0; }
-    let end = buf_ptr + buf_size;
-    if end < buf_ptr { return 0; }
-    if end > 0x0000800000000000 { return 0; }
-
-    // Allocate kernel buffer
-    let phys = pmm_alloc();
-    if phys == 0 { return 0; }
-    let kern_va = memory_phys_to_virt_raw(phys);
-    let p = kern_va as Ptr<u64>;
-
-    p.write(actual);
-
-    let mut i: u64 = 0;
-    while i < actual {
-        let t = threads_ref.dense.offset(i as i64) as &ThreadState;
-        let e_ptr = threads_ref.entity_map.offset(i as i64) as &Entity;
-        let e = *e_ptr;
-        let entity_val = (e.id as u64) | ((e.gen as u64) << 32);
-        let base = 1 + i * 2;
-        p.offset(base as i64).write(entity_val);
-        p.offset((base + 1) as i64).write(t.status as u64);
-        i = i + 1;
-    }
-
-    copy_to_user(buf_ptr, kern_va, buf_size);
-    pmm_free(phys);
-    return actual;
-}
-
-@no_mangle
-pub fn ecs_bridge_lookup_ipc_cap(entity_val: u64) -> u64 {
-    let w_ptr = get_ecs_world_ptr() as Ptr<World>;
-    if (w_ptr as u64) == 0 { return 0; }
-    let id = (entity_val & 0xFFFFFFFF) as u32;
-    let gen = (entity_val >> 32) as u32;
-    let e = Entity { id: id, gen: gen };
-    let cap = ipc_cap_set_get(w_ptr[0].ipc_caps, e);
-    return cap as u64;
-}
-
-@no_mangle
-pub fn ecs_bridge_store_name(entity_val: u64, name_ptr: u64, name_len: u64) -> u64 {
-    let w_ptr = get_ecs_world_ptr() as Ptr<World>;
-    if (w_ptr as u64) == 0 { return 0 - 1; }
-    let id = (entity_val & 0xFFFFFFFF) as u32;
-    let gen = (entity_val >> 32) as u32;
-    let e = Entity { id: id, gen: gen };
-    let n = NameComponent { name_ptr: name_ptr, name_len: name_len };
-    name_set_insert(w_ptr[0].names, e, n);
     return 0;
 }
-
-@no_mangle
-pub fn ecs_bridge_lookup_name(name_ptr: u64, name_len: u64) -> u64 {
-    // Stub — returns 0 (no match). Full implementation iterates
-    // the NameSparseSet dense array comparing name bytes.
-    return 0;
-}
+ENDFIX
+# Verify
+/Users/kevin/projects/lattice/salt-front/target/release/saltc /Users/kevin/projects/lattice/kernel/ecs/ecs_bridge.salt --lib --disable-alias-scopes -o /tmp/vb_restored.mlir 2>&1 | head -1
+/Users/kevin/projects/lattice/salt-front/target/release/saltc /Users/kevin/projects/lattice/kernel/core/syscall_entity.salt --lib --disable-alias-scopes -o /tmp/ve_restored.mlir 2>&1 | head -1

@@ -200,8 +200,6 @@ extern fn sys_entity_count() -> u64;
 extern fn sys_entity_list(buf_ptr: u64, max_count: u64) -> u64;
 extern fn sys_entity_map(parent_slot: u64, size: u64) -> u64;
 extern fn sys_entity_alloc(entity_val: u64, size: u64) -> u64;
-extern fn sys_entity_store(entity_val: u64, name_ptr: u64, name_len: u64) -> u64;
-extern fn sys_entity_lookup(name_ptr: u64, name_len: u64) -> u64;
 
 /// Returns total number of ECS entities.
 pub fn entity_count() -> u64 {
@@ -219,18 +217,6 @@ pub fn entity_list(buf_ptr: u64, max_count: u64) -> u64 {
 /// Returns entity_val on success, 0 on failure.
 pub fn entity_alloc(entity_val: u64, size: u64) -> u64 {
     return sys_entity_alloc(entity_val, size);
-}
-
-/// Give an entity a name for package/entity registry (Tier 5).
-/// Copies name from userspace and stores it on the entity.
-/// Returns 0 on success, -1 on failure.
-pub fn entity_store(entity_val: u64, name_ptr: u64, name_len: u64) -> u64 {
-    return sys_entity_store(entity_val, name_ptr, name_len);
-}
-
-/// Look up an entity by name (stub — returns 0 for now).
-pub fn entity_lookup(name_ptr: u64, name_len: u64) -> u64 {
-    return sys_entity_lookup(name_ptr, name_len);
 }
 
 /// Send ICMP echo request, return RTT in ms or 0 on timeout.

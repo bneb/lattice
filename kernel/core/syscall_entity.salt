@@ -32,22 +32,14 @@ extern fn ecs_bridge_entity_count() -> u64;
 extern fn ecs_bridge_list_threads(buf_ptr: u64, max_count: u64) -> u64;
 extern fn ecs_bridge_update_memory_map(entity_val: u64, size: u64);
 extern fn pmm_alloc() -> u64;
-extern fn pmm_free(page: u64);
 extern fn map_user_page_extern(user_pml4: u64, vaddr: u64, paddr: u64, flags: u64);
 extern fn phys_to_virt(phys: u64) -> u64;
-extern fn copy_from_user(dst_kern: u64, src_user: u64, len: u64) -> i64;
-extern fn is_valid_user_ptr(ptr: u64, len: u64) -> bool;
-extern fn ecs_bridge_store_name(entity_val: u64, name_ptr: u64, name_len: u64) -> u64;
-extern fn ecs_bridge_lookup_name(name_ptr: u64, name_len: u64) -> u64;
 
 const MAX_PROCS: u64 = 64;
 const PROC_FREE: u64   = 0;
 const PROC_ZOMBIE: u64 = 3;
 const PAGE_SIZE: u64 = 4096;
 const USER_PAGE_FLAGS: u64 = 0x7;
-const USER_ADDR_LIMIT: u64 = 0x0000800000000000;
-
-extern fn memory_phys_to_virt_raw(phys: u64) -> u64;
 
 @no_mangle
 pub fn sys_entity_exit(exit_code: u64, kernel_pml4: u64) {
@@ -163,33 +155,4 @@ pub fn sys_entity_alloc(entity_val: u64, size: u64) -> u64 {
         if result == 0 { return 0; }
         return entity_val;
     }
-}
-
-fn is_valid_ptr(ptr: u64, len: u64) -> bool {
-    if ptr >= USER_ADDR_LIMIT { return false; }
-    let end = ptr + len;
-    if end < ptr { return false; }
-    if end > USER_ADDR_LIMIT { return false; }
-    return true;
-}
-
-@no_mangle
-pub fn sys_entity_store(entity_val: u64, name_ptr: u64, name_len: u64) -> u64 {
-    if entity_val == 0 { return 0 - 1; }
-    if name_len == 0 || name_len > PAGE_SIZE { return 0 - 1; }
-    if !is_valid_ptr(name_ptr, name_len) { return 0 - 1; }
-    let phys = pmm_alloc();
-    if phys == 0 { return 0 - 1; }
-    let kern_va = memory_phys_to_virt_raw(phys);
-    let bytes = copy_from_user(kern_va, name_ptr, name_len);
-    if bytes <= 0 {
-        pmm_free(phys);
-        return 0 - 1;
-    }
-    return ecs_bridge_store_name(entity_val, kern_va, bytes as u64);
-}
-
-@no_mangle
-pub fn sys_entity_lookup(name_ptr: u64, name_len: u64) -> u64 {
-    return ecs_bridge_lookup_name(name_ptr, name_len);
 }

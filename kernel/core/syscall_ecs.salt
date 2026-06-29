@@ -10,11 +10,9 @@ extern fn pmm_free(page: u64);
 extern fn memory_phys_to_virt_raw(phys: u64) -> u64;
 extern fn copy_from_user(dst_kern: u64, src_user: u64, len: u64) -> i64;
 extern fn do_serial_print(ptr: u64, len: u64);
-extern fn ecs_bridge_lookup_ipc_cap(entity_val: u64) -> u64;
 
 const CONSOLE_ENTITY: u64 = 0xFFFFFFFE;
 const USER_ADDR_LIMIT: u64 = 0x0000800000000000;
-const IPC_PRODUCER: u32 = 0;
 
 fn is_valid_ptr(ptr: u64, len: u64) -> bool {
     if ptr >= USER_ADDR_LIMIT { return false; }
@@ -24,16 +22,11 @@ fn is_valid_ptr(ptr: u64, len: u64) -> bool {
     return true;
 }
 
-struct IpcCapability {
-    ring_phys: u64,
-    proof_hint: u64,
-    peer_entity_id: u32,
-    direction: u32,
-}
-
-fn write_to_ring(ring_phys: u64, buf_ptr: u64, buf_len: u64) -> u64 {
-    let ring_kva = memory_phys_to_virt_raw(ring_phys);
-    if ring_kva == 0 { return 0 - 1; }
+@no_mangle
+pub fn sys_entity_write(entity_val: u64, buf_ptr: u64, buf_len: u64) -> u64 {
+    if entity_val != CONSOLE_ENTITY { return 0 - 1; }
+    if !is_valid_ptr(buf_ptr, buf_len) { return 0 - 1; }
+    if buf_len > 4096 { return 0 - 1; }
 
     let phys = pmm_alloc();
     if phys == 0 { return 0 - 1; }
@@ -45,44 +38,7 @@ fn write_to_ring(ring_phys: u64, buf_ptr: u64, buf_len: u64) -> u64 {
         return 0 - 1;
     }
 
-    let mut i: u64 = 0;
-    while i < bytes as u64 {
-        *((ring_kva + i) as &mut u8) = *((kern_va + i) as &u8);
-        i = i + 1;
-    }
-
+    do_serial_print(kern_va, bytes as u64);
     pmm_free(phys);
     return buf_len;
-}
-
-@no_mangle
-pub fn sys_entity_write(entity_val: u64, buf_ptr: u64, buf_len: u64) -> u64 {
-    if entity_val == CONSOLE_ENTITY {
-        if !is_valid_ptr(buf_ptr, buf_len) { return 0 - 1; }
-        if buf_len > 4096 { return 0 - 1; }
-
-        let phys = pmm_alloc();
-        if phys == 0 { return 0 - 1; }
-        let kern_va = memory_phys_to_virt_raw(phys);
-
-        let bytes = copy_from_user(kern_va, buf_ptr, buf_len);
-        if bytes <= 0 {
-            pmm_free(phys);
-            return 0 - 1;
-        }
-
-        do_serial_print(kern_va, bytes as u64);
-        pmm_free(phys);
-        return buf_len;
-    }
-
-    let cap_ptr = ecs_bridge_lookup_ipc_cap(entity_val);
-    if cap_ptr == 0 { return 0 - 1; }
-    let cap = *(cap_ptr as &IpcCapability);
-    if cap.direction != IPC_PRODUCER { return 0 - 1; }
-
-    if !is_valid_ptr(buf_ptr, buf_len) { return 0 - 1; }
-    if buf_len > 4096 { return 0 - 1; }
-
-    return write_to_ring(cap.ring_phys, buf_ptr, buf_len);
 }
