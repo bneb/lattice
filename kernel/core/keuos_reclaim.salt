@@ -52,7 +52,7 @@ pub struct ReclaimResult {
 // =============================================================================
 
 pub fn keuos_reclaim(pid: u64) -> ReclaimResult {
-    let result = ReclaimResult {
+    let res = ReclaimResult {
         pages_freed: 0,
         rings_flushed: 0,
         elapsed_us: 0,
@@ -64,7 +64,7 @@ pub fn keuos_reclaim(pid: u64) -> ReclaimResult {
     // This must happen BEFORE unmapping memory, because the ring contents
     // reference shared pages that will become invalid after unmap.
     let rings_flushed = flush_and_fence_rings(pid);
-    result.rings_flushed = rings_flushed;
+    res.rings_flushed = rings_flushed;
 
     // === Phase 2: NIC Ring Disable ===
     // Signal the NIC hardware to stop polling this process's rings.
@@ -76,29 +76,29 @@ pub fn keuos_reclaim(pid: u64) -> ReclaimResult {
     // This replaces the naive recursive walk with O(entries) iteration.
     let pml4 = process.get_pml4(pid);
     let sweep_result = page_sweep.atomic_page_sweep(pml4);
-    result.pages_freed = sweep_result.pages_freed_4k + (sweep_result.pages_freed_2m * 512);
+    res.pages_freed = sweep_result.pages_freed_4k + (sweep_result.pages_freed_2m * 512);
 
     // === Phase 4: Kernel Resource Release ===
     // Free kernel stack and any remaining kernel-side allocations.
     let kernel_pages = release_kernel_resources(pid);
-    result.pages_freed = result.pages_freed + kernel_pages;
+    res.pages_freed = res.pages_freed + kernel_pages;
 
     // === Phase 5: Process Slot Cleanup ===
     // Mark the process slot as free for reuse.
     cleanup_process_slot(pid);
 
     // === Telemetry: Record to Histogram ===
-    reclaim_histogram.record(result.elapsed_us);
+    reclaim_histogram.record(res.elapsed_us);
 
     // === KPI Gate ===
-    if result.elapsed_us > 1000 {
-        result.kpi_violated = 1;
+    if res.elapsed_us > 1000 {
+        res.kpi_violated = 1;
         serial.print("[keuos_reclaim] WARNING: reclamation took ");
-        serial.print_u64(result.elapsed_us);
+        serial.print_u64(res.elapsed_us);
         serial.print("us (KPI limit: 1000us). Check PMM fragmentation.\n");
     }
 
-    return result;
+    return res;
 }
 
 // =============================================================================
