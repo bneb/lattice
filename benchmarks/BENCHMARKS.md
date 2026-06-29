@@ -33,7 +33,7 @@ Measurements use runtime-dynamic inputs to prevent constant folding. Averages fr
 
 ### On "Faster Than C"
 
-Where Salt significantly outperforms C (`hashmap_bench` 0.6x, `buffered_writer` 0.1x, `fstring_perf` 0.2x, `longest_consecutive` 0.3x), it is not because Salt's compiler produces magically faster assembly than clang. Salt's standard library provides arena allocators, Swiss-table hash maps, and interpolated string handlers as defaults. The C baselines use standard `libc` (`malloc`, `free`, `fwrite`, `snprintf`). A C developer who hand-rolled equivalent data structures would close the gap.
+Where Salt significantly outperforms C, it's because the standard library provides arena allocators, Swiss-table hash maps, lock-free SPSC rings, and interpolated string handlers as defaults. The C baselines use standard `libc` (`malloc`, `free`, `fwrite`, `snprintf`). A C developer who hand-rolled equivalent data structures would close the gap. The point is: with Salt, you don't have to.
 
 ## Running
 
