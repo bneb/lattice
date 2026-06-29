@@ -336,6 +336,13 @@ void __salt_contract_violation() {
   abort();
 }
 
+// Integer overflow panic — called when debug overflow checks detect overflow
+// in arithmetic operations (add, sub, mul) on i32/i64 types.
+void __salt_overflow_panic() {
+  fprintf(stderr, "FATAL: Salt integer overflow detected\n");
+  abort();
+}
+
 // Salt panic hook - explicit failure with clear message
 void __salt_panic(const char *message) {
   fprintf(stderr, "CRITICAL: Salt Runtime Panic: %s\n", message);

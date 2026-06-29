@@ -118,7 +118,6 @@ pub struct CodegenContext<'a> {
     pub ownership_tracker: RefCell<crate::codegen::verification::Z3StateTracker<'a>>,
     pub elided_checks: RefCell<usize>,
     pub total_checks: RefCell<usize>,
-    
     // === Immutable Configuration ===
     pub file: RefCell<&'a SaltFile>,
     pub registry: Option<&'a Registry>,
@@ -200,11 +199,11 @@ pub struct CodegenConfig<'a> {
     pub debug_info: bool,
     pub source_file: &'a str,
     pub freeing_functions: &'a std::collections::HashSet<String>,
+    /// When true, integer arithmetic emits overflow checks calling __salt_overflow_panic. Default: true in debug builds.
+    pub debug_overflow_checks: bool,
 }
 
-/// LoweringContext: A "view struct" holding direct &mut references to phase structs.
-/// Eliminates RefCell runtime panics by using Rust's compile-time borrow checker.
-/// Created from CodegenContext via as_lowering_ctx().
+/// LoweringContext: A "view struct" holding direct &mut references to phase structs, eliminating RefCell runtime panics via compile-time borrow checking.
 pub struct LoweringContext<'a, 'ctx> {
     pub discovery: &'a mut crate::codegen::phases::DiscoveryState,
     pub expansion: &'a mut crate::codegen::phases::ExpansionState,
@@ -1292,6 +1291,7 @@ impl<'a> CodegenContext<'a> {
                 debug_info: self.debug_info,
                 source_file: &self.source_file,
                 freeing_functions: &self.freeing_functions,
+                debug_overflow_checks: !self.release_mode,
             },
         };
 

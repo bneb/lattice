@@ -5,53 +5,42 @@ use std::collections::HashMap;
 use super::{emit_expr, emit_lvalue, LValueKind, extract_field_assign_receiver};
 use super::aggregate_eq::emit_aggregate_eq;
 
-
+fn emit_overflow_check(ctx: &mut LoweringContext, out: &mut String, op: &syn::BinOp, lhs_prom: &str, rhs_prom: &str, mlir_ty: &str, common_ty: &Type) {
+    let ext_op = if common_ty.is_unsigned() { "arith.extui" } else { "arith.extsi" };
+    let wide_ty = match mlir_ty { "i8"|"i16"|"i32" => "i64", "i64" => "i128", _ => return };
+    let wide_op = match op { syn::BinOp::Add(_) => "arith.addi", syn::BinOp::Sub(_) => "arith.subi", syn::BinOp::Mul(_) => "arith.muli", _ => return };
+    let _ = ctx.ensure_external_declaration("__salt_overflow_panic", &[], &Type::Unit);
+    let (lw, rw, rw2, rt, rc, ov) = (format!("%lw_{}", ctx.next_id()), format!("%rw_{}", ctx.next_id()), format!("%rw2_{}", ctx.next_id()), format!("%rt_{}", ctx.next_id()), format!("%rc_{}", ctx.next_id()), format!("%ov_{}", ctx.next_id()));
+    out.push_str(&format!("    {} = {} {} : {} to {}\n    {} = {} {} : {} to {}\n    {} = {} {}, {} : {}\n    {} = arith.trunci {} : {} to {}\n    {} = {} {} : {} to {}\n    {} = arith.cmpi \"ne\", {}, {} : {}\n    scf.if {} {{\n      func.call @__salt_overflow_panic() : () -> ()\n      scf.yield\n    }}\n", lw, ext_op, lhs_prom, mlir_ty, wide_ty, rw, ext_op, rhs_prom, mlir_ty, wide_ty, rw2, wide_op, lw, rw, wide_ty, rt, rw2, wide_ty, mlir_ty, rc, ext_op, rt, mlir_ty, wide_ty, ov, rw2, rc, wide_ty, ov));
+}
 fn emit_binary_ptr_add(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBinary, lhs_val: &str, lhs_ty: &Type, rhs_val: &str, rhs_ty: &Type) -> Result<Option<(String, Type)>, String> {
     if matches!(b.op, syn::BinOp::Add(_)) {
-        // Check Pointer/Reference + Integer pattern
         let lhs_is_ptr = matches!(lhs_ty, Type::Pointer { .. });
         let rhs_is_ptr = matches!(rhs_ty, Type::Pointer { .. });
-        
         if lhs_is_ptr && rhs_ty.is_integer() {
-            // Extract the element type
             let elem_ty = match &lhs_ty {
-
                 Type::Pointer { element, .. } => *element.clone(),
                 _ => return Err(format!("Cannot offset non-pointer type {:?}", lhs_ty)),
             };
-            
-            // Convert rhs to i64 for GEP
             let idx_i64 = promote_numeric(ctx, out, rhs_val, rhs_ty, &Type::I64)?;
-            
-            // Emit type-aware GEP
             let elem_mlir = elem_ty.to_mlir_type(ctx)?;
             let res = format!("%gep_{}", ctx.next_id());
             out.push_str(&format!("    {} = llvm.getelementptr {}[{}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n",
                 res, lhs_val, idx_i64, elem_mlir));
-            
-            // Propagate alias scope from base pointer to GEP result
             ctx.control_flow.propagate_scope_provenance(lhs_val, &res);
-            
             return Ok(Some((res, lhs_ty.clone())));
         }
-        
-        // Also support Integer + Pointer (commutative)
         if lhs_ty.is_integer() && rhs_is_ptr {
             let elem_ty = match &rhs_ty {
-
                 Type::Pointer { element, .. } => *element.clone(),
                 _ => return Err(format!("Cannot offset non-pointer type {:?}", rhs_ty)),
             };
-            
             let idx_i64 = promote_numeric(ctx, out, lhs_val, lhs_ty, &Type::I64)?;
             let elem_mlir = elem_ty.to_mlir_type(ctx)?;
             let res = format!("%gep_{}", ctx.next_id());
             out.push_str(&format!("    {} = llvm.getelementptr {}[{}] : (!llvm.ptr, i64) -> !llvm.ptr, {}\n",
                 res, rhs_val, idx_i64, elem_mlir));
-            
-            // Propagate alias scope from base pointer to GEP result
             ctx.control_flow.propagate_scope_provenance(rhs_val, &res);
-            
             return Ok(Some((res, rhs_ty.clone())));
         }
     }
@@ -462,6 +451,9 @@ pub fn emit_binary(ctx: &mut LoweringContext, out: &mut String, b: &syn::ExprBin
             ctx.emit_binop_fast(out, &res, &op, &lhs_prom, &rhs_prom, &mlir_ty);
         } else {
             ctx.emit_binop(out, &res, &op, &lhs_prom, &rhs_prom, &mlir_ty);
+        }
+        if !is_fp && (ctx.config.debug_overflow_checks || ctx.emission.in_checked_fn) && matches!(b.op, syn::BinOp::Add(_) | syn::BinOp::Sub(_) | syn::BinOp::Mul(_)) {
+            emit_overflow_check(ctx, out, &b.op, &lhs_prom, &rhs_prom, &mlir_ty, &common_ty);
         }
         Ok((res.to_string(), common_ty))
     }

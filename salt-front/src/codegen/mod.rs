@@ -133,7 +133,6 @@ use std::collections::{HashMap, HashSet};
     // REASON: all 10 parameters are independently meaningful; bundling would obscure intent
     pub fn emit_mlir(file: &mut SaltFile, release_mode: bool, _registry: Option<&Registry>, _skip_scan: bool, no_verify: bool, disable_alias_scopes: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> Result<String, String> {
         let (mut loader, loader_registry) = load_modules(file)?;
-        
         resolve_names(file, &mut loader)?;
         let z3_cfg = crate::z3_shim::Config::new();
         let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
@@ -144,9 +143,7 @@ use std::collections::{HashMap, HashSet};
         let call_graph_analyzer = run_call_graph_analysis(file, release_mode);
         run_pulse_analysis(&mut ctx, file, &call_graph_analyzer, release_mode);
         run_liveness_analysis(&mut ctx, file, release_mode);
-
         lower_state_machines(&mut ctx, file);
-
         ctx.drive_codegen()
     }
 
@@ -261,7 +258,6 @@ use std::collections::{HashMap, HashSet};
         use passes::call_graph::CallGraphAnalyzer;
         let mut cg = CallGraphAnalyzer::new();
         let _call_graph_analysis = cg.analyze(file);
-
         cg
     }
 
@@ -277,7 +273,6 @@ use std::collections::{HashMap, HashSet};
 
     fn run_liveness_analysis(ctx: &mut CodegenContext, file: &SaltFile, _release_mode: bool) {
         use passes::liveness::CrossYieldAnalyzer;
-
         for item in &file.items {
             if let Item::Fn(func) = item {
                 let mut analyzer = CrossYieldAnalyzer::new();
@@ -1335,12 +1330,17 @@ pub fn emit_fn(ctx: &CodegenContext, func: &crate::grammar::SaltFn, override_nam
     let old_dynamic_check_fn = ctx.emission.borrow().in_dynamic_check_fn;
     ctx.emission.borrow_mut().in_dynamic_check_fn = has_dynamic_check;
 
+    let has_checked = func.attributes.iter().any(|a| a.name == "checked");
+    let old_checked_fn = ctx.emission.borrow().in_checked_fn;
+    ctx.emission.borrow_mut().in_checked_fn = has_checked;
+
     let terminator = ctx.with_lowering_ctx(|lctx| crate::codegen::stmt::emit_block(lctx, &mut body_out, &func.body.stmts, &mut local_vars))?;
     // Pop caller preconditions after body
     for _ in 0..func.requires.len() { ctx.emission.borrow_mut().caller_preconditions.pop(); }
     ctx.emission.borrow_mut().in_fast_math_fn = old_fast_math_fn;
     ctx.emission.borrow_mut().in_trusted_fn = old_trusted_fn;
     ctx.emission.borrow_mut().in_dynamic_check_fn = old_dynamic_check_fn;
+    ctx.emission.borrow_mut().in_checked_fn = old_checked_fn;
     *ctx.no_yield_mut() = old_no_yield;
     *ctx.current_pulse_mut() = old_pulse;
     

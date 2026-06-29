@@ -154,6 +154,10 @@ pub struct EmissionState {
     /// Tier 3 Temporal Safety: Function-level @dynamic_check flag.
     /// When true, all pointer dereferences emit runtime epoch validation checks.
     pub in_dynamic_check_fn: bool,
+    /// Function-level @checked flag.
+    /// When true, integer arithmetic (add, sub, mul) emits overflow checks
+    /// even in release mode. In debug mode, overflow checks are always on.
+    pub in_checked_fn: bool,
     pub path_conditions: Vec<syn::Expr>,
     /// Active caller preconditions (from requires clauses of the enclosing function).
     /// Pushed when entering a function body, popped when leaving. Asserted to the Z3
