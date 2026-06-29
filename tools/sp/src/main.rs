@@ -1,3 +1,4 @@
+#![allow(clippy::type_complexity)]
 //! sp — Salt Packaging
 //!
 //! Two keystrokes. Zero friction.
@@ -199,7 +200,7 @@ fn cmd_new(name: &str, lib: bool) -> Result<(), String> {
 
 // ─── sp build ────────────────────────────────────────────────────────────────
 
-fn cmd_build(path: &PathBuf, release: bool, _package: Option<&str>) -> Result<(), String> {
+fn cmd_build(path: &Path, release: bool, _package: Option<&str>) -> Result<(), String> {
     let start = Instant::now();
     let manifest_path = path.join("salt.toml");
     let manifest = manifest::load(&manifest_path)?;
@@ -253,7 +254,7 @@ fn cmd_build(path: &PathBuf, release: bool, _package: Option<&str>) -> Result<()
 
 // ─── sp run ──────────────────────────────────────────────────────────────────
 
-fn cmd_run(path: &PathBuf, release: bool, args: &[String]) -> Result<(), String> {
+fn cmd_run(path: &Path, release: bool, args: &[String]) -> Result<(), String> {
     cmd_build(path, release, None)?;
 
     let manifest_path = path.join("salt.toml");
@@ -291,7 +292,7 @@ fn find_test_files(path: &Path, filter: Option<&str>) -> Result<Vec<PathBuf>, St
     Ok(files)
 }
 
-fn cmd_test(path: &PathBuf, filter: Option<&str>) -> Result<(), String> {
+fn cmd_test(path: &Path, filter: Option<&str>) -> Result<(), String> {
     let start = Instant::now();
     let manifest = manifest::load(&path.join("salt.toml"))?;
 
@@ -319,7 +320,7 @@ fn cmd_test(path: &PathBuf, filter: Option<&str>) -> Result<(), String> {
 
 // ─── sp check ────────────────────────────────────────────────────────────────
 
-fn cmd_check(path: &PathBuf) -> Result<(), String> {
+fn cmd_check(path: &Path) -> Result<(), String> {
     let start = Instant::now();
     let manifest_path = path.join("salt.toml");
     let manifest = manifest::load(&manifest_path)?;
@@ -344,7 +345,7 @@ fn cmd_check(path: &PathBuf) -> Result<(), String> {
 
 // ─── sp clean ────────────────────────────────────────────────────────────────
 
-fn cmd_clean(path: &PathBuf) -> Result<(), String> {
+fn cmd_clean(path: &Path) -> Result<(), String> {
     let target_dir = path.join("target");
 
     if !target_dir.exists() {
@@ -361,7 +362,7 @@ fn cmd_clean(path: &PathBuf) -> Result<(), String> {
     Ok(())
 }
 
-fn dir_size(path: &PathBuf) -> u64 {
+fn dir_size(path: &Path) -> u64 {
     std::fs::read_dir(path)
         .map(|entries| {
             entries
@@ -381,7 +382,7 @@ fn dir_size(path: &PathBuf) -> u64 {
 
 // ─── sp add ──────────────────────────────────────────────────────────────────
 
-fn cmd_add(dep: &str, path: &PathBuf, dev: bool) -> Result<(), String> {
+fn cmd_add(dep: &str, path: &Path, dev: bool) -> Result<(), String> {
     let manifest_path = path.join("salt.toml");
     if !manifest_path.exists() {
         return Err("no salt.toml found. Run `sp new <name>` to create a project.".into());
@@ -426,7 +427,7 @@ fn cmd_add(dep: &str, path: &PathBuf, dev: bool) -> Result<(), String> {
 
 // ─── sp fetch ────────────────────────────────────────────────────────────────
 
-fn cmd_fetch(path: &PathBuf) -> Result<(), String> {
+fn cmd_fetch(path: &Path) -> Result<(), String> {
     let manifest_path = path.join("salt.toml");
     let manifest = manifest::load(&manifest_path)?;
 

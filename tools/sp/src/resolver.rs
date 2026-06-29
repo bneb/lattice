@@ -1,7 +1,7 @@
 //! Dependency Resolver — resolves the dependency graph and constructs search roots
 //!
-//! For Phase 1, this handles local path dependencies. Future phases will add
-//! PubGrub version solving and registry resolution.
+//! Handles path dependencies and version dependencies resolved from the
+//! local publish directory (~/.salt/publish/).
 
 use crate::manifest::{Manifest, Dependency};
 use std::collections::HashSet;
@@ -9,10 +9,13 @@ use std::path::{Path, PathBuf};
 
 /// Resolved dependency information.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct ResolvedDep {
     pub name: String,
     pub source: String,
     pub root_path: PathBuf,
+    /// The pinned version after resolution (None for path deps).
+    pub resolved_version: Option<String>,
 }
 
 /// Resolve the build order and search roots for a project.
@@ -20,13 +23,15 @@ pub struct ResolvedDep {
 /// Returns:
 ///   - build_order: list of .salt files in compilation order (deps first)
 ///   - search_roots: list of paths for the compiler's `--roots` flag
+///   - resolved_deps: resolved dependency metadata (for lockfile generation)
 pub fn resolve(
     manifest: &Manifest,
     project_dir: &Path,
-) -> Result<(Vec<PathBuf>, Vec<PathBuf>), String> {
+) -> Result<(Vec<PathBuf>, Vec<PathBuf>, Vec<ResolvedDep>), String> {
     let mut build_order = Vec::new();
     let mut search_roots = Vec::new();
     let mut resolved_names = HashSet::new();
+    let mut resolved_deps = Vec::new();
 
     // Resolve each dependency
     for (dep_name, dep) in &manifest.dependencies {
@@ -45,6 +50,9 @@ pub fn resolve(
             let dep_files = collect_salt_files(&r.root_path)?;
             build_order.extend(dep_files);
         }
+
+        // Track resolved dep metadata for lockfile
+        resolved_deps.extend(resolved);
     }
 
     // Add the project's own source
@@ -78,7 +86,7 @@ pub fn resolve(
         seen.insert(canonical)
     });
 
-    Ok((build_order, search_roots))
+    Ok((build_order, search_roots, resolved_deps))
 }
 
 /// Resolve a single dependency.
@@ -124,30 +132,18 @@ fn resolve_single(
                 root_path: dep_dir
                     .canonicalize()
                     .unwrap_or(dep_dir),
+                resolved_version: None,
             });
 
             Ok(result)
         }
 
         Dependency::Version(ver) => {
-            // Parse the version requirement and convert to a compatible path dep
-            // if the package exists in the local workspace
-            let dep_dir = resolve_version_to_path(name, ver, project_dir)?;
-            Err(format!(
-                "version dependency '{}@{}' requires a package registry.\n  \
-                 Hint: use a path dependency instead: '{} = {{ path = \"{}\" }}'\n  \
-                 Package registry support is planned for sp v0.3.0.",
-                name, ver, name, dep_dir.display()
-            ))
+            resolve_version_dep(name, ver, resolved)
         }
 
-        Dependency::Full { version, .. } => {
-            let dep_dir = resolve_version_to_path(name, version, project_dir)?;
-            Err(format!(
-                "version dependency '{}@{}' requires a package registry.\n  \
-                 Hint: use a path dependency instead: '{} = {{ path = \"{}\" }}'",
-                name, version, name, dep_dir.display()
-            ))
+        Dependency::Full { version, features: _ } => {
+            resolve_version_dep(name, version, resolved)
         }
 
         Dependency::Git { git, .. } => {
@@ -161,32 +157,79 @@ fn resolve_single(
     }
 }
 
-/// Attempt to resolve a version requirement to a local workspace path.
+/// Resolve a version-constrained dependency from the local publish directory.
 ///
-/// Searches upward from the project directory for a matching package.
-/// This is a heuristic for monorepo setups before the registry is implemented.
-fn resolve_version_to_path(
+/// Finds all published versions of `name`, parses `constraint_str` as semver
+/// constraints, picks the highest matching version, extracts it to the
+/// local packages cache, and recurses into transitive dependencies.
+fn resolve_version_dep(
     name: &str,
-    _version: &str,
-    project_dir: &Path,
-) -> Result<PathBuf, String> {
-    let mut dir = project_dir
-        .canonicalize()
-        .unwrap_or_else(|_| project_dir.to_path_buf());
+    constraint_str: &str,
+    resolved: &mut HashSet<String>,
+) -> Result<Vec<ResolvedDep>, String> {
+    if resolved.contains(name) {
+        return Ok(vec![]);
+    }
+    resolved.insert(name.to_string());
 
-    loop {
-        // Check for a matching directory in the repo root
-        for candidate in &[name, &format!("lib/{}", name)] {
-            let dep_dir = dir.join(candidate);
-            if dep_dir.exists() && dep_dir.join("salt.toml").exists() {
-                return Ok(dep_dir);
-            }
-        }
+    // Parse constraints
+    let constraints =
+        crate::semver::parse_constraints(constraint_str)
+            .map_err(|e| format!("invalid version constraint for '{}': {}", name, e))?;
 
-        if !dir.pop() { break; }
+    // Find published versions
+    let published = crate::publish::find_published(name)?;
+    if published.is_empty() {
+        return Err(format!(
+            "no published versions found for '{}'.\n  \
+             Hint: publish the package first with `sp publish` from its directory.",
+            name
+        ));
     }
 
-    Err(format!("no local workspace package found for '{}'", name))
+    // Pick the best matching version
+    let versions: Vec<crate::semver::Version> = published.iter().map(|(v, _)| v.clone()).collect();
+    let best = crate::semver::best_match(&versions, &constraints)
+        .ok_or_else(|| {
+            format!(
+                "no published version of '{}' matches constraints '{}'.\n  \
+                 Available versions: {}",
+                name,
+                constraint_str,
+                versions
+                    .iter()
+                    .map(|v| v.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })?
+        .clone();
+
+    // Extract the package
+    let dep_dir = crate::publish::extract_package(name, &best.to_string())?;
+
+    // Load its manifest and recurse
+    let dep_manifest_path = dep_dir.join("salt.toml");
+    let mut result = vec![];
+
+    if dep_manifest_path.exists() {
+        if let Ok(dep_manifest) = crate::manifest::load(&dep_manifest_path) {
+            for (trans_name, trans_dep) in &dep_manifest.dependencies {
+                let trans_resolved = resolve_single(trans_name, trans_dep, &dep_dir, resolved)?;
+                result.extend(trans_resolved);
+            }
+        }
+    }
+
+    let version_str = best.to_string();
+    result.push(ResolvedDep {
+        name: name.to_string(),
+        source: format!("v{}", version_str),
+        root_path: dep_dir.canonicalize().unwrap_or(dep_dir),
+        resolved_version: Some(version_str),
+    });
+
+    Ok(result)
 }
 
 /// Find the Salt stdlib by searching upward from the project directory.
@@ -246,7 +289,7 @@ fn collect_salt_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
                 continue;
             }
             files.extend(collect_salt_files(&path)?);
-        } else if path.extension().map_or(false, |e| e == "salt") {
+        } else if path.extension().is_some_and(|e| e == "salt") {
             files.push(path);
         }
     }
@@ -295,7 +338,7 @@ version = "0.1.0"
         fs::write(tmp.join("src/main.salt"), "package main\nfn main() -> i32 { return 0; }").unwrap();
 
         let manifest = crate::manifest::load(&tmp.join("salt.toml")).unwrap();
-        let (build_order, search_roots) = resolve(&manifest, &tmp).unwrap();
+        let (build_order, search_roots, _resolved_deps) = resolve(&manifest, &tmp).unwrap();
 
         assert_eq!(build_order.len(), 1, "should have 1 source file");
         assert!(!search_roots.is_empty(), "should have at least 1 search root");

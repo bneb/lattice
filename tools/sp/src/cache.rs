@@ -88,7 +88,7 @@ impl ArtifactCache {
             }
         }
         let deps_hash = dep_hasher.finalize();
-        hasher.update(&deps_hash);
+        hasher.update(deps_hash);
 
         let result = hasher.finalize();
         Ok(hex::encode(result))
@@ -185,7 +185,7 @@ fn hash_directory(hasher: &mut Sha256, dir: &Path) -> Result<(), String> {
             if !name.starts_with('.') && name != "target" {
                 hash_directory(hasher, &entry)?;
             }
-        } else if entry.extension().map_or(false, |e| e == "salt") {
+        } else if entry.extension().is_some_and(|e| e == "salt") {
             // Hash filename + content for determinism
             hasher.update(entry.file_name().unwrap().to_string_lossy().as_bytes());
             let content = std::fs::read(&entry)

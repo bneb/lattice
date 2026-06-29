@@ -13,6 +13,7 @@ use std::path::Path;
 
 /// Top-level salt.toml manifest structure.
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct Manifest {
     pub package: Package,
     #[serde(default)]
@@ -27,6 +28,7 @@ pub struct Manifest {
 
 /// Package metadata.
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct Package {
     pub name: String,
     pub version: String,
@@ -114,6 +116,7 @@ impl Dependency {
 
 /// Build configuration profiles.
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct BuildConfig {
     #[serde(default)]
     pub target: Option<String>,
@@ -136,6 +139,7 @@ pub struct ProfileConfig {
 
 /// Workspace configuration.
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct Workspace {
     #[serde(default)]
     pub members: Vec<String>,
