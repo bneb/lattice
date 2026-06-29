@@ -36,13 +36,13 @@ This ensures the compiler cannot optimize away the computation being measured.
 
 ## Platform
 
-The 22 tracked Salt-vs-C comparison benchmarks are collected on:
+The 12 tracked Salt-vs-C comparison benchmarks are collected on:
 - **Hardware**: Apple Silicon M4
 - **OS**: macOS ARM64
 - **Compiler flags**: Salt (default), C (`clang -O3`), Rust (`-O` / `--release`)
 
 > [!NOTE]
-> KeuOS kernel benchmarks (syscall latency, IPC, scheduler) run separately on **x86_64 KVM** (AWS z1d.metal). See [KEUOS_BENCHMARKS.md](KEUOS_BENCHMARKS.md) for those results.
+> KeuOS kernel benchmarks (syscall latency, IPC, scheduler) run separately on **x86_64 KVM** (AWS z1d.metal). See KEUOS_BENCHMARKS.md (removed — see benchmarks/BENCHMARKS.md) for those results.
 
 ## Reproducibility
 
@@ -50,7 +50,7 @@ Each benchmark includes matching C and Rust implementations that perform equival
 
 To run all benchmarks:
 ```bash
-bash benchmark_all.sh
+bash run_all_benchmarks.sh
 ```
 
 See [BENCHMARKS.md](../BENCHMARKS.md) for full results.

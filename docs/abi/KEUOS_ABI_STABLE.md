@@ -121,14 +121,9 @@ CAP_STATE_MAPPED = 2  — Active, pages mapped into process
 - Size: 64 entries (MAX_CAPABILITIES)
 - Each capability tracks: state, owner PID, ring physical address, ring virtual address, flags
 
-### Deterministic VADDR Layout
+### VADDR Layout
 
-SPSC rings are mapped at:
-
-| Ring | Virtual Address |
-|------|----------------|
-| Ring 0 (kernel) | Kernel-managed |
-| Ring 3 (user) | `0x6000_0000_0000` base |
+Ring virtual addresses are allocated dynamically from the process's `mmap_base` bump allocator. There is no fixed base address.
 
 ---
 
@@ -143,10 +138,10 @@ Offset  | Size | Field           | Cache Line
 0x08    | 8    | capacity (u64)  | 
 0x40    | 8    | tail (u64)      | Line 1 (bytes 64-127)
 0x80    | 8    | consumer_waiting | Line 2 (bytes 128-191)
-0xC0    | ...  | data region     | Lines 3+ (3920 bytes usable)
+0xC0    | ...  | data region     | Lines 3+ (3904 bytes usable)
 ```
 
-**Z3-verified invariant:** All ring fields are `@align(64)` with SipHash-2-4 proof hints validated by the IPC arbiter in O(1).
+Ring fields use `@align(64)` for cache-line isolation. SipHash-2-4 proof hints are validated at runtime by the IPC descriptor system.
 
 ---
 
@@ -155,8 +150,7 @@ Offset  | Size | Field           | Cache Line
 | Value | Name | Description |
 |-------|------|-------------|
 | `0` | Success | Operation completed |
-| `0 - 1` (`-1`) | ENOSYS / EINVAL | Not implemented or invalid argument |
-| Return 0 | Generic error | Operation failed |
+| `0 - 1` (`-1`) | ENOSYS / EINVAL | Not implemented, invalid argument, or operation failed |
 
 Extended error codes are planned for v1.1.0.
 

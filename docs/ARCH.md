@@ -276,10 +276,10 @@ kernel/
 │       └── context_switch_asm.S  # Fiber context switch (GPR + FXSAVE)
 ├── benchmarks/           # Self-hosted kernel benchmarks
 │   ├── suite.salt        # Benchmark harness + CPUID topology detection
-│   ├── alloc_bench.salt  # Arena allocation (60 cy KVM)
+│   ├── alloc_bench.salt  # Arena allocation 
 │   ├── ctx_switch_bench.salt # Context switch scaling (4/16/64 fibers)
-│   ├── ipc_bench.salt    # Fiber-to-fiber IPC (284 cy KVM)
-│   ├── pmm_bench.salt    # Physical page alloc/free (78 cy KVM)
+│   ├── ipc_bench.salt    # Fiber-to-fiber IPC 
+│   ├── pmm_bench.salt    # Physical page alloc/free 
 │   ├── smp_bench.salt    # Per-core PMM/slab throughput + AP boot verification
 │   ├── irq_latency_bench.salt  # PIT interrupt delivery
 │   ├── slab_stress_bench.salt  # Treiber stack CAS stress

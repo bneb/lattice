@@ -12,12 +12,6 @@ Salt is built on three non-negotiable pillars. Every design decision is weighed 
 
 Salt proves that safety and speed are not mutually exclusive. Through MLIR's optimization infrastructure and careful codegen, Salt achieves C-competitive performance without sacrificing ergonomics.
 
-### Evidence: KeuOS Benchmark (February 2026)
-
-| Implementation | Time | Factor |
-|----------------|------|--------|
-| C (`-O3 -ffast-math`) | 4.3s | 1.0x |
-| **Salt V1.0** | 5.1s | **1.2x** |
 
 ### Key Optimizations
 
@@ -64,7 +58,7 @@ fn safe_div(a: i32, b: i32) -> i32
 | Lifetime annotations | ✅ Inferred | ❌ Manual | N/A |
 | Compile-time contracts | ✅ Z3 | ❌ | ❌ |
 
-### The 140-LOC Neural Network
+### The 188-line Neural Network
 
 The KeuOS benchmark implements a complete 2-layer neural network training loop in **140 lines of Salt**, compared to 200+ lines in C. The high-level syntax doesn't sacrifice performance.
 
