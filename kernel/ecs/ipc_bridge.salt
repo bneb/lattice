@@ -1,0 +1,19 @@
+package kernel.ecs.ipc_bridge
+
+import kernel.ecs.world.{World}
+import kernel.ecs.entity.{Entity}
+import kernel.ecs.sparse_set.{ipc_cap_set_get}
+
+extern fn get_ecs_world_ptr() -> u64;
+
+@no_mangle
+pub fn ecs_bridge_lookup_ipc_cap(entity_val: u64) -> u64 {
+    let w_ptr = get_ecs_world_ptr() as Ptr<World>;
+    if (w_ptr as u64) == 0 { return 0; }
+    let w = w_ptr as &mut World;
+    let id = (entity_val & 0xFFFFFFFF) as u32;
+    let gen = (entity_val >> 32) as u32;
+    let e = Entity { id: id, gen: gen };
+    let c = ipc_cap_set_get(w.ipc_caps, e);
+    return c as u64;
+}

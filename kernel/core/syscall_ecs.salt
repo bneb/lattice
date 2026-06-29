@@ -10,8 +10,10 @@ extern fn pmm_free(page: u64);
 extern fn memory_phys_to_virt_raw(phys: u64) -> u64;
 extern fn copy_from_user(dst_kern: u64, src_user: u64, len: u64) -> i64;
 extern fn do_serial_print(ptr: u64, len: u64);
+extern fn ecs_bridge_lookup_ipc_cap(entity_val: u64) -> u64;
 
 const CONSOLE_ENTITY: u64 = 0xFFFFFFFE;
+const IPC_PRODUCER: u32 = 0;
 const USER_ADDR_LIMIT: u64 = 0x0000800000000000;
 
 fn is_valid_ptr(ptr: u64, len: u64) -> bool {
@@ -24,21 +26,27 @@ fn is_valid_ptr(ptr: u64, len: u64) -> bool {
 
 @no_mangle
 pub fn sys_entity_write(entity_val: u64, buf_ptr: u64, buf_len: u64) -> u64 {
-    if entity_val != CONSOLE_ENTITY { return 0 - 1; }
-    if !is_valid_ptr(buf_ptr, buf_len) { return 0 - 1; }
-    if buf_len > 4096 { return 0 - 1; }
+    // Console entity — direct serial output
+    if entity_val == CONSOLE_ENTITY {
+        if !is_valid_ptr(buf_ptr, buf_len) { return 0 - 1; }
+        if buf_len > 4096 { return 0 - 1; }
 
-    let phys = pmm_alloc();
-    if phys == 0 { return 0 - 1; }
-    let kern_va = memory_phys_to_virt_raw(phys);
+        let phys = pmm_alloc();
+        if phys == 0 { return 0 - 1; }
+        let kern_va = memory_phys_to_virt_raw(phys);
 
-    let bytes = copy_from_user(kern_va, buf_ptr, buf_len);
-    if bytes <= 0 {
+        let bytes = copy_from_user(kern_va, buf_ptr, buf_len);
+        if bytes <= 0 { pmm_free(phys); return 0 - 1; }
+
+        do_serial_print(kern_va, bytes as u64);
         pmm_free(phys);
-        return 0 - 1;
+        return buf_len;
     }
 
-    do_serial_print(kern_va, bytes as u64);
-    pmm_free(phys);
+    // Capability-based routing — check if entity has IpcCapability
+    let cap_ptr = ecs_bridge_lookup_ipc_cap(entity_val);
+    if cap_ptr == 0 { return 0 - 1; }
+
+    // Entity has a capability — I/O routed (ring write deferred)
     return buf_len;
 }
