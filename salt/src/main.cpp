@@ -98,7 +98,7 @@ int emitObjectFile(llvm::Module &llvmModule,
   // 1. Setup Target Triple
   auto tripleStr = llvm::sys::getDefaultTargetTriple();
   llvm::Triple triple(tripleStr);
-  llvmModule.setTargetTriple(triple);
+  llvmModule.setTargetTriple(triple.str());
 
   std::string error;
   auto target = llvm::TargetRegistry::lookupTarget(tripleStr, error);
@@ -113,7 +113,7 @@ int emitObjectFile(llvm::Module &llvmModule,
   llvm::TargetOptions opt;
   auto rm = std::optional<llvm::Reloc::Model>();
   auto targetMachine =
-      target->createTargetMachine(triple, cpu, features, opt, rm);
+      target->createTargetMachine(triple.str(), cpu, features, opt, rm);
 
   // 3. Configure Data Layout
   llvmModule.setDataLayout(targetMachine->createDataLayout());
@@ -184,7 +184,7 @@ void buildLoweringPipeline(mlir::PassManager &pm, mlir::ModuleOp module) {
     // B. "Bufferize" (Tensor -> MemRef)
     pm.addPass(mlir::bufferization::createEmptyTensorToAllocTensorPass());
 
-    mlir::bufferization::OneShotBufferizePassOptions bufferizationOpts;
+    mlir::bufferization::OneShotBufferizationOptions bufferizationOpts;
     bufferizationOpts.bufferizeFunctionBoundaries = true;
     bufferizationOpts.allowUnknownOps = true;
     pm.addPass(
@@ -204,7 +204,7 @@ void buildLoweringPipeline(mlir::PassManager &pm, mlir::ModuleOp module) {
   }
 
   // 5. Standard Lowering (scf/cf/arith/math/memref to LLVM)
-  pm.addPass(mlir::createSCFToControlFlowPass());
+  pm.addPass(mlir::createConvertSCFToCFPass());
   pm.addPass(mlir::createConvertControlFlowToLLVMPass());
   pm.addPass(mlir::createArithToLLVMConversionPass());
   pm.addPass(mlir::createConvertMathToLLVMPass());
@@ -267,9 +267,31 @@ int main(int argc, char **argv) {
 
   cl::ParseCommandLineOptions(argc, argv, "Salt Optimizer & Backend\n");
 
+  std::string errorMessage;
+
   if (!EmitObj && !EmitLLVM) {
-    return mlir::asMainReturnCode(
-        mlir::MlirOptMain(argc, argv, "Salt Optimizer", mlirRegistry));
+    // Direct parse + print — avoids the double-CLI-parse bug from
+    // MlirOptMain's argc/argv overload, where the already-parsed CLI
+    // makes registerAndParseCLIOptions a no-op, causing the input file
+    // to default to "-" (stdin) and producing an empty module.
+    auto file = mlir::openInputFile(InputFilename, &errorMessage);
+    if (!file) {
+      llvm::errs() << errorMessage << "\n";
+      return 1;
+    }
+
+    mlir::MLIRContext context(mlirRegistry);
+    llvm::SourceMgr sourceMgr;
+    sourceMgr.AddNewSourceBuffer(std::move(file), llvm::SMLoc());
+    auto module = mlir::parseSourceFile<mlir::ModuleOp>(sourceMgr, &context);
+    if (!module) {
+      llvm::errs() << "Parse failed.\n";
+      return 1;
+    }
+
+    module->print(llvm::outs());
+    llvm::outs() << "\n";
+    return 0;
   }
 
   // Backend Pipeline
@@ -278,7 +300,6 @@ int main(int argc, char **argv) {
   // Optimization Pipeline (Always enable for now or check flag)
   // Ideally checking opt level. Assuming -O3 behavior for benchmarks.
 
-  std::string errorMessage;
   auto file = mlir::openInputFile(InputFilename, &errorMessage);
   if (!file) {
     llvm::errs() << errorMessage << "\n";
