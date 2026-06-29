@@ -1,0 +1,87 @@
+// =============================================================================
+// kernel/ecs/name_set.salt
+// NameSparseSet — entity names for sys_entity_store / sys_entity_lookup
+// =============================================================================
+// Names are stored as NameComponent (kernel VA + length) in a sparse set.
+// The name data lives in a physical page allocated per entity.
+
+package kernel.ecs.name_set
+
+import kernel.ecs.entity.{Entity, MAX_ENTITIES}
+import std.core.mem.size_of
+import kernel.ecs.components.{NameComponent}
+
+extern fn malloc(size: i64) -> Ptr<u8>;
+
+pub struct NameSparseSet {
+    pub dense: Ptr<NameComponent>,
+    pub sparse: Ptr<u32>,
+    pub entity_map: Ptr<Entity>,
+    pub count: u32,
+}
+
+pub fn new_name_set() -> Ptr<NameSparseSet> {
+    let t_size = size_of::<NameComponent>();
+    let d_ptr = malloc((MAX_ENTITIES as i64) * t_size) as Ptr<NameComponent>;
+    let s_ptr = malloc((MAX_ENTITIES as i64) * 4) as Ptr<u32>;
+    let e_ptr = malloc((MAX_ENTITIES as i64) * 8) as Ptr<Entity>;
+
+    let mut i: u32 = 0;
+    while i < MAX_ENTITIES {
+        (*(( (s_ptr as u64) + (i as u64) * 4 ) as &mut u32)) = 0xFFFFFFFF;
+        i = i + 1;
+    }
+
+    let p = malloc(size_of::<NameSparseSet>() as i64) as Ptr<NameSparseSet>;
+    p[0] = NameSparseSet { dense: d_ptr, sparse: s_ptr, entity_map: e_ptr, count: 0 };
+    return p;
+}
+
+pub fn name_set_insert(set: Ptr<NameSparseSet>, entity: Entity, component: NameComponent) {
+    let id = entity.id;
+    if id >= MAX_ENTITIES { return; }
+    let s_ptr = set[0].sparse;
+    let dense_idx = (*(( (s_ptr as u64) + (id as u64) * 4 ) as &u32));
+    if dense_idx != 0xFFFFFFFF {
+        (*(( (set[0].dense as u64) + (dense_idx as u64) * (size_of::<NameComponent>() as u64) ) as &mut NameComponent)) = component;
+        (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &mut Entity)) = entity;
+        return;
+    }
+    let count = set[0].count;
+    if count >= MAX_ENTITIES { return; }
+    (*(( (set[0].dense as u64) + (count as u64) * (size_of::<NameComponent>() as u64) ) as &mut NameComponent)) = component;
+    (*(( (set[0].entity_map as u64) + (count as u64) * 8 ) as &mut Entity)) = entity;
+    (*(( (set[0].sparse as u64) + (id as u64) * 4 ) as &mut u32)) = count;
+    set[0].count = count + 1;
+}
+
+pub fn name_set_get(set: Ptr<NameSparseSet>, entity: Entity) -> Ptr<NameComponent> {
+    let sid = entity.id;
+    if sid >= MAX_ENTITIES { return 0 as Ptr<NameComponent>; }
+    let dense_idx = (*(( (set[0].sparse as u64) + (sid as u64) * 4 ) as &u32));
+    if dense_idx != 0xFFFFFFFF {
+        if (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &Entity)).gen == entity.gen {
+            return ((set[0].dense as u64) + (dense_idx as u64) * (size_of::<NameComponent>() as u64)) as Ptr<NameComponent>;
+        }
+    }
+    return 0 as Ptr<NameComponent>;
+}
+
+pub fn name_set_remove(set: Ptr<NameSparseSet>, entity: Entity) {
+    let sid = entity.id;
+    if sid >= MAX_ENTITIES { return; }
+    let dense_idx = (*(( (set[0].sparse as u64) + (sid as u64) * 4 ) as &u32));
+    if dense_idx != 0xFFFFFFFF {
+        if (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &Entity)).gen == entity.gen {
+            let last_idx = set[0].count - 1;
+            if dense_idx != last_idx {
+                (*(( (set[0].dense as u64) + (dense_idx as u64) * (size_of::<NameComponent>() as u64) ) as &mut NameComponent)) = (*(( (set[0].dense as u64) + (last_idx as u64) * (size_of::<NameComponent>() as u64) ) as &NameComponent));
+                let last_entity = (*(( (set[0].entity_map as u64) + (last_idx as u64) * 8 ) as &Entity));
+                (*(( (set[0].entity_map as u64) + (dense_idx as u64) * 8 ) as &mut Entity)) = last_entity;
+                (*(( (set[0].sparse as u64) + (last_entity.id as u64) * 4 ) as &mut u32)) = dense_idx;
+            }
+            (*(( (set[0].sparse as u64) + (sid as u64) * 4 ) as &mut u32)) = 0xFFFFFFFF;
+            set[0].count = last_idx;
+        }
+    }
+}

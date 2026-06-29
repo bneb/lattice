@@ -5,6 +5,9 @@
 
 package kernel.core.syscall_ecs
 
+import kernel.lib.ipc_shm.{spsc_push_bulk}
+import kernel.ecs.components.{IpcCapability}
+
 extern fn pmm_alloc() -> u64;
 extern fn pmm_free(page: u64);
 extern fn memory_phys_to_virt_raw(phys: u64) -> u64;
@@ -47,6 +50,28 @@ pub fn sys_entity_write(entity_val: u64, buf_ptr: u64, buf_len: u64) -> u64 {
     let cap_ptr = ecs_bridge_lookup_ipc_cap(entity_val);
     if cap_ptr == 0 { return 0 - 1; }
 
-    // Entity has a capability — I/O routed (ring write deferred)
+    // Read the ring buffer physical address from the capability
+    let cap = cap_ptr as Ptr<IpcCapability>;
+    let ring_phys = (*cap).ring_phys;
+    if ring_phys == 0 { return 0 - 1; }
+    if !is_valid_ptr(buf_ptr, buf_len) { return 0 - 1; }
+    if buf_len > 4096 { return 0 - 1; }
+
+    // Map the ring page to kernel virtual address
+    let ring_va = memory_phys_to_virt_raw(ring_phys);
+    if ring_va == 0 { return 0 - 1; }
+
+    // Allocate scratch page for safe copy from user space
+    let phys = pmm_alloc();
+    if phys == 0 { return 0 - 1; }
+    let kern_va = memory_phys_to_virt_raw(phys);
+
+    let bytes = copy_from_user(kern_va, buf_ptr, buf_len);
+    if bytes <= 0 { pmm_free(phys); return 0 - 1; }
+
+    // Push data to the SPSC ring buffer
+    let _written = spsc_push_bulk(ring_va, kern_va, buf_len);
+
+    pmm_free(phys);
     return buf_len;
 }

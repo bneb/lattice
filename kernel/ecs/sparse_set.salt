@@ -10,7 +10,8 @@ package kernel.ecs.sparse_set
 
 import kernel.ecs.entity.{Entity, MAX_ENTITIES}
 import std.core.mem.size_of
-import kernel.ecs.components.{MemoryMap, IpcCapability, OpenSocket, TestComponent}
+import kernel.ecs.components.{MemoryMap, IpcCapability, OpenSocket, TestComponent, NameComponent}
+import kernel.ecs.name_set.{NameSparseSet, new_name_set, name_set_insert, name_set_get, name_set_remove}
 import kernel.ecs.scheduling_sets.{ThreadSparseSet, new_thread_set, thread_set_insert, thread_set_get_mut, thread_set_remove, PrioritySparseSet, new_priority_set, priority_set_insert, priority_set_get, priority_set_remove, AffinitySparseSet, new_affinity_set, affinity_set_insert, affinity_set_get, affinity_set_remove, EpochInfoSparseSet, new_epoch_info_set, epoch_info_set_insert, epoch_info_set_get, epoch_info_set_remove, PerfCountersSparseSet, new_perf_counters_set, perf_counters_set_insert, perf_counters_set_get, perf_counters_set_remove}
 
 extern fn malloc(size: i64) -> Ptr<u8>;
@@ -473,4 +474,20 @@ pub fn datablob_set_remove(set: Ptr<DataBlobSparseSet>, entity: Entity) {
             set[0].count = last_idx;
         }
     }
+}
+
+// =============================================================================
+// Delegation wrappers — NameSparseSet (impl in name_set.salt)
+// =============================================================================
+pub fn new_name_set() -> Ptr<NameSparseSet> {
+    return new_name_set();
+}
+pub fn name_set_insert(set: Ptr<NameSparseSet>, entity: Entity, component: NameComponent) {
+    name_set_insert(set, entity, component);
+}
+pub fn name_set_get(set: Ptr<NameSparseSet>, entity: Entity) -> Ptr<NameComponent> {
+    return name_set_get(set, entity);
+}
+pub fn name_set_remove(set: Ptr<NameSparseSet>, entity: Entity) {
+    name_set_remove(set, entity);
 }
