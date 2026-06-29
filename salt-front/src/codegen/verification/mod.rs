@@ -25,6 +25,7 @@ pub mod arena_escape;
 pub mod ptr_bounds_verifier;
 pub mod proof_hint;
 mod fold_constants;
+#[cfg(test)] mod z3_smoke_tests;
 
 pub use state_tracker::{OwnershipState, Z3StateTracker};
 pub use malloc_tracker::MallocTracker;
@@ -38,6 +39,7 @@ use crate::codegen::context::LoweringContext;
 use crate::types::Type;
 use std::collections::HashMap;
 use crate::z3_shim::ast::Ast;
+use syn::spanned::Spanned;
 
 use std::rc::Rc;
 
@@ -82,13 +84,14 @@ pub struct VerificationEngine;
 impl VerificationEngine {
     pub fn verify(
         ctx: &mut LoweringContext<'_, '_>,
+        out: &mut String,
         requires: &[syn::Expr],
         params: &[String],
         arg_exprs: &[syn::Expr],
-        local_vars: &HashMap<String, (Type, crate::codegen::context::LocalKind)>,
+        local_vars: &mut HashMap<String, (Type, crate::codegen::context::LocalKind)>,
         param_tys: &[Type],
     ) -> Result<(), String> {
-        if requires.is_empty() {
+        if requires.is_empty() || ctx.config.no_verify {
             return Ok(());
         }
 
@@ -295,7 +298,14 @@ impl VerificationEngine {
                      crate::z3_shim::SatResult::Sat => {
                          // The negation CAN be satisfied → the requirement can be VIOLATED!
                          let constraint_str = format!("{}", z3_req_subst);
-                         
+                         let span = actual_req.span();
+                         let line = span.start().line;
+                         let source_info = if !ctx.config.source_file.is_empty() {
+                             format!("{}:{}", ctx.config.source_file, line)
+                         } else {
+                             format!("line {}", line)
+                         };
+
                          // Extract counterexample values from the substitution map
                          let mut counterexample_values = Vec::new();
                          if let Some(model) = solver.get_model() {
@@ -307,16 +317,16 @@ impl VerificationEngine {
                                  }
                              }
                          }
-                         
+
                          let failure = if counterexample_values.is_empty() {
                              proof_witness::VerificationFailure::new(
                                  constraint_str,
-                                 "precondition check".to_string(),
+                                 format!("precondition check ({})", source_info),
                              )
                          } else {
                              proof_witness::VerificationFailure::with_counterexample(
                                  constraint_str,
-                                 "precondition check".to_string(),
+                                 format!("precondition check ({})", source_info),
                                  counterexample_values,
                              )
                          };
@@ -327,8 +337,17 @@ impl VerificationEngine {
                          *ctx.elided_checks += 1;
                      }
                      crate::z3_shim::SatResult::Unknown => {
-                         // Z3 can't determine → conservative PASS
-                         *ctx.elided_checks += 1;
+                         // Z3 could not determine satisfiability (timeout / incomplete theory)
+                         let constraint_str = format!("{}", z3_req_subst);
+                         eprintln!(
+                             "WARNING: Z3 could not prove `requires({})` within 100ms. \
+                              Emitting runtime check.",
+                             constraint_str
+                         );
+                         emit_requires_runtime_check(
+                             ctx, out, actual_req, params, arg_exprs,
+                             local_vars, param_tys,
+                         )?;
                      }
                  }
             } else {
@@ -728,104 +747,44 @@ fn assert_type_bounds<'ctx>(
     }
 }
 
-#[cfg(test)]
-mod is_provably_safe_tests {
-    #[allow(unused_imports)]
-    use crate::z3_shim::ast::Ast;
-
-    /// Test that `is_provably_safe` returns true for trivially unsatisfiable violations
-    #[test]
-    fn test_trivially_safe_contradiction() {
-        let z3_cfg = crate::z3_shim::Config::new();
-        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
-        
-        // Create a contradiction: x > 0 AND x < 0 (impossible)
-        let x = crate::z3_shim::ast::Int::new_const(&z3_ctx, "x");
-        let zero = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 0);
-        
-        let gt_zero = x.gt(&zero);
-        let lt_zero = x.lt(&zero);
-        let contradiction = crate::z3_shim::ast::Bool::and(&z3_ctx, &[&gt_zero, &lt_zero]);
-        
-        // This should be UNSAT (no value of x satisfies both x > 0 and x < 0)
-        let solver = crate::z3_shim::Solver::new(&z3_ctx);
-        solver.assert(&contradiction);
-        assert_eq!(solver.check(), crate::z3_shim::SatResult::Unsat, 
-            "Contradiction should be unsatisfiable");
+/// Emit a runtime assertion for a `requires` clause that Z3 couldn't prove.
+/// Evaluates the clause as an MLIR boolean expression and calls
+/// `__salt_contract_violation` at runtime when the condition is false.
+fn emit_requires_runtime_check(
+    ctx: &mut LoweringContext<'_, '_>,
+    out: &mut String,
+    req: &syn::Expr,
+    params: &[String],
+    arg_exprs: &[syn::Expr],
+    local_vars: &mut HashMap<String, (Type, crate::codegen::context::LocalKind)>,
+    param_tys: &[Type],
+) -> Result<(), String> {
+    // Build temporary local bindings: parameter names -> argument SSA values
+    let mut temp_locals = local_vars.clone();
+    for (i, p_name) in params.iter().enumerate() {
+        if let Some(arg_expr) = arg_exprs.get(i) {
+            let (val, ty) = crate::codegen::expr::emit_expr(
+                ctx, out, arg_expr, local_vars, param_tys.get(i),
+            )?;
+            temp_locals.insert(p_name.clone(), (ty, crate::codegen::context::LocalKind::SSA(val)));
+        }
     }
 
-    /// Test that satisfiable violations return false
-    #[test]
-    fn test_satisfiable_violation_returns_false() {
-        let z3_cfg = crate::z3_shim::Config::new();
-        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
-        
-        // Create a satisfiable condition: x > 5 (counterexample: x = 6)
-        let x = crate::z3_shim::ast::Int::new_const(&z3_ctx, "x");
-        let five = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 5);
-        let gt_five = x.gt(&five);
-        
-        // This should be SAT (x = 6 satisfies x > 5)
-        let solver = crate::z3_shim::Solver::new(&z3_ctx);
-        solver.assert(&gt_five);
-        assert_eq!(solver.check(), crate::z3_shim::SatResult::Sat,
-            "x > 5 should be satisfiable");
-    }
+    // Emit the requires clause as an MLIR boolean expression
+    let (req_val, _) = crate::codegen::expr::emit_expr(
+        ctx, out, req, &mut temp_locals, Some(&Type::Bool),
+    )?;
 
-    /// Test that always-false conditions are UNSAT
-    #[test]
-    fn test_always_false_is_unsat() {
-        let z3_cfg = crate::z3_shim::Config::new();
-        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
-        
-        // Create: false (literal)
-        let always_false = crate::z3_shim::ast::Bool::from_bool(&z3_ctx, false);
-        
-        let solver = crate::z3_shim::Solver::new(&z3_ctx);
-        solver.assert(&always_false);
-        assert_eq!(solver.check(), crate::z3_shim::SatResult::Unsat,
-            "Always-false should be unsatisfiable");
-    }
-
-    /// Test that always-true conditions are SAT
-    #[test]
-    fn test_always_true_is_sat() {
-        let z3_cfg = crate::z3_shim::Config::new();
-        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
-        
-        // Create: true (literal)
-        let always_true = crate::z3_shim::ast::Bool::from_bool(&z3_ctx, true);
-        
-        let solver = crate::z3_shim::Solver::new(&z3_ctx);
-        solver.assert(&always_true);
-        assert_eq!(solver.check(), crate::z3_shim::SatResult::Sat,
-            "Always-true should be satisfiable");
-    }
-
-    /// Test bounds check scenario: i < len where len = 10 and i ∈ [0, 10)
-    #[test]
-    fn test_bounds_check_provable() {
-        let z3_cfg = crate::z3_shim::Config::new();
-        let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
-        
-        // Domain constraints: 0 <= i < 10, len = 10
-        let i = crate::z3_shim::ast::Int::new_const(&z3_ctx, "i");
-        let len = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 10);
-        let zero = crate::z3_shim::ast::Int::from_i64(&z3_ctx, 0);
-        
-        let i_ge_0 = i.ge(&zero);
-        let i_lt_10 = i.lt(&len);
-        
-        // Violation: i >= len (out of bounds)
-        let violation = i.ge(&len);
-        
-        // With domain constraints, violation should be UNSAT
-        let solver = crate::z3_shim::Solver::new(&z3_ctx);
-        solver.assert(&i_ge_0);
-        solver.assert(&i_lt_10);
-        solver.assert(&violation);
-        
-        assert_eq!(solver.check(), crate::z3_shim::SatResult::Unsat,
-            "With i ∈ [0, 10), violation i >= 10 should be unsatisfiable");
-    }
+    // Emit runtime violation check: scf.if violated { call @__salt_contract_violation() }
+    let true_val = format!("%verify_true_{}", ctx.emission.next_id());
+    let violated = format!("%verify_violated_{}", ctx.emission.next_id());
+    out.push_str(&format!("    {} = arith.constant true\n", true_val));
+    out.push_str(&format!("    {} = arith.xori {}, {} : i1\n", violated, req_val, true_val));
+    ctx.ensure_func_declared("__salt_contract_violation", &[], &Type::Unit).ok();
+    out.push_str(&format!("    scf.if {} {{\n", violated));
+    out.push_str("      func.call @__salt_contract_violation() : () -> ()\n");
+    out.push_str("      scf.yield\n");
+    out.push_str("    }\n");
+    Ok(())
 }
+
