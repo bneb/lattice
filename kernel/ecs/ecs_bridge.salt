@@ -2,8 +2,8 @@ package kernel.ecs.ecs_bridge
 
 import kernel.ecs.world.{World, world_spawn, world_destroy, world_entity_count}
 import kernel.ecs.entity.{Entity}
-import kernel.ecs.components.{ThreadState, SchedulingPriority}
-import kernel.ecs.sparse_set.{thread_set_insert, thread_set_get_mut, priority_set_insert, memmap_set_insert, memmap_set_get, ipc_cap_set_insert, socket_set_insert}
+import kernel.ecs.components.{ThreadState, SchedulingPriority, PerfCounters}
+import kernel.ecs.sparse_set.{thread_set_insert, thread_set_get_mut, priority_set_insert, memmap_set_insert, memmap_set_get, ipc_cap_set_insert, socket_set_insert, perf_counters_set_insert}
 import kernel.ecs.components.{MemoryMap, IpcCapability}
 
 extern fn get_ecs_world_ptr() -> u64;
@@ -28,7 +28,16 @@ pub fn ecs_bridge_spawn_thread(step_fn: u64, stack_ptr: u64, stack_base: u64) ->
     
     let p = SchedulingPriority { level: 128, tickets: 10 };
     priority_set_insert(w.priorities, e, p);
-    
+
+    let perf = PerfCounters {
+        cycles_total: 0,
+        context_switches: 0,
+        ipc_messages_sent: 0,
+        ipc_messages_recv: 0,
+        page_faults: 0,
+    };
+    perf_counters_set_insert(w.perf_counters, e, perf);
+
     let id_u64 = e.id as u64;
     let gen_u64 = e.gen as u64;
     return id_u64 | (gen_u64 << 32);

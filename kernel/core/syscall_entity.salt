@@ -32,6 +32,7 @@ extern fn ecs_bridge_entity_count() -> u64;
 extern fn ecs_bridge_list_threads(buf_ptr: u64, max_count: u64) -> u64;
 extern fn ecs_bridge_update_memory_map(entity_val: u64, size: u64);
 extern fn ecs_bridge_store_name(entity_val: u64, name_ptr: u64, name_len: u64) -> i64;
+extern fn ecs_bridge_get_context_switches(entity_val: u64) -> u64;
 extern fn pmm_alloc() -> u64;
 extern fn pmm_free(page: u64);
 extern fn map_user_page_extern(user_pml4: u64, vaddr: u64, paddr: u64, flags: u64);
@@ -142,6 +143,11 @@ pub fn sys_entity_brk(entity_val: u64, new_size: u64) -> u64 {
 @no_mangle
 pub fn sys_entity_count() -> u64 {
     return ecs_bridge_entity_count();
+}
+
+@no_mangle
+pub fn sys_entity_perf(entity_val: u64) -> u64 {
+    return ecs_bridge_get_context_switches(entity_val);
 }
 
 @no_mangle

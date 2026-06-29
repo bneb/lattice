@@ -1,0 +1,55 @@
+// =============================================================================
+// kernel/ecs/perf_bridge.salt
+// Performance counter bridge — ecs_bridge_increment_counter and
+// ecs_bridge_get_context_switches for ECS telemetry.
+// =============================================================================
+
+package kernel.ecs.perf_bridge
+
+import kernel.ecs.world.{World}
+import kernel.ecs.entity.{Entity}
+import kernel.ecs.components.{PerfCounters}
+import kernel.ecs.sparse_set.{perf_counters_set_get}
+
+extern fn get_ecs_world_ptr() -> u64;
+
+@no_mangle
+pub fn ecs_bridge_increment_counter(entity_val: u64, counter_type: u32) {
+    let w_ptr = get_ecs_world_ptr() as Ptr<World>;
+    if (w_ptr as u64) == 0 { return; }
+    let w = w_ptr as &mut World;
+    let id = (entity_val & 0xFFFFFFFF) as u32;
+    let gen = (entity_val >> 32) as u32;
+    let e = Entity { id: id, gen: gen };
+    let p = perf_counters_set_get(w.perf_counters, e);
+    if (p as u64) != 0 {
+        let p_ref = p as &mut PerfCounters;
+        if counter_type == 0 {
+            p_ref.cycles_total = p_ref.cycles_total + 1;
+        } else if counter_type == 1 {
+            p_ref.context_switches = p_ref.context_switches + 1;
+        } else if counter_type == 2 {
+            p_ref.ipc_messages_sent = p_ref.ipc_messages_sent + 1;
+        } else if counter_type == 3 {
+            p_ref.ipc_messages_recv = p_ref.ipc_messages_recv + 1;
+        } else if counter_type == 4 {
+            p_ref.page_faults = p_ref.page_faults + 1;
+        }
+    }
+}
+
+@no_mangle
+pub fn ecs_bridge_get_context_switches(entity_val: u64) -> u64 {
+    let w_ptr = get_ecs_world_ptr() as Ptr<World>;
+    if (w_ptr as u64) == 0 { return 0; }
+    let w = w_ptr as &mut World;
+    let id = (entity_val & 0xFFFFFFFF) as u32;
+    let gen = (entity_val >> 32) as u32;
+    let e = Entity { id: id, gen: gen };
+    let p = perf_counters_set_get(w.perf_counters, e);
+    if (p as u64) != 0 {
+        let p_ref = p as &mut PerfCounters;
+        return p_ref.context_switches as u64;
+    }
+    return 0;
+}

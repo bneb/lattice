@@ -56,6 +56,7 @@ extern fn process_get_ecs_entity(slot: u64) -> u64;
 extern fn process_set_vma_list_head(slot: u64, val: u64);
 extern fn vma_alloc(start: u64, end: u64, flags: u64) -> u64;
 extern fn ecs_bridge_set_thread_status(entity_val: u64, status: u32);
+extern fn ecs_bridge_increment_counter(entity_val: u64, counter_type: u32);
 
 const PAGE_SIZE: u64 = 4096;
 const MAX_PROCS: u64 = 64;
@@ -78,6 +79,7 @@ fn switch_to_slot(next: u64, old_rsp_ptr: u64) {
     let next_entity = process_get_ecs_entity(next);
     if next_entity != 0 {
         ecs_bridge_set_thread_status(next_entity, 2); // THREAD_RUNNING
+        ecs_bridge_increment_counter(next_entity, 1); // context_switches
     }
     process_set_current(next);
     let new_rsp = process_get_kernel_rsp(next);
@@ -183,6 +185,7 @@ fn switch_to_process(current: u64, next: u64) {
     let next_entity = process_get_ecs_entity(next);
     if next_entity != 0 {
         ecs_bridge_set_thread_status(next_entity, 2); // THREAD_RUNNING
+        ecs_bridge_increment_counter(next_entity, 1); // context_switches
     }
     process_set_current(next);
 
