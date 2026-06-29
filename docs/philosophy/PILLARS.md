@@ -75,7 +75,7 @@ Salt integrates the Z3 theorem prover directly into the compiler. Every `require
 
 There is no third path. Every contract is either mathematically proven or runtime-enforced.
 
-### The Proof-or-Panic Architecture
+### The Contract verification Architecture
 
 ```salt
 fn safe_div(a: i32, b: i32) -> i32
@@ -105,7 +105,7 @@ This uses only standard MLIR dialects (`arith`, `scf`, `func`); no custom dialec
 
 | Feature | Enforcement |
 |---------|-------------|
-| **Preconditions** (`requires`) | 🔒 Z3 Proof-or-Panic |
+| **Preconditions** (`requires`) | 🔒 Z3 Contract verification |
 | **Loop Invariants** | 🔒 Runtime-enforced via `scf.if` |
 | **Layout Compatibility** (struct casts) | 🔒 Hard-enforced |
 | **Numeric Promotions** | 🔒 Hard-enforced |

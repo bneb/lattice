@@ -1,3 +1,5 @@
+# Status: This document describes a v0.3 design target. The current sp binary (tools/sp/) implements basic scaffolding (new, build, run, test, add dep) but does not yet implement the full resolver, lockfile, registry, or verification cache described below.
+
 # Salt Package Manager ("sp") — Design Document
 
 > **Status**: v0.1 Design Proposal (June 2026)
