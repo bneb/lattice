@@ -81,8 +81,8 @@ fn find_slot_by_entity(entity_val: u64) -> u64 {
 pub fn sys_entity_wait(entity_val: u64) -> u64 {
     let child_slot = find_slot_by_entity(entity_val);
     if child_slot >= MAX_PROCS { return 0 - 1; }
-    let mut status = ecs_bridge_get_thread_status(entity_val);
-    while status != 4 { sched_yield(); status = ecs_bridge_get_thread_status(entity_val); }
+    let mut st = ecs_bridge_get_thread_status(entity_val);
+    while st != 4 { sched_yield(); st = ecs_bridge_get_thread_status(entity_val); }
     let exit_code = process_get_ipc_msg0(child_slot);
     if entity_val != 0 { ecs_bridge_destroy_thread(entity_val); }
     process_set_state(child_slot, PROC_FREE);
