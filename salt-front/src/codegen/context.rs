@@ -51,6 +51,8 @@ pub mod accessors;
 pub mod emit_helpers;
 pub mod emit_helpers_ctx;
 pub mod struct_lookup;
+pub mod bridge;
+pub mod raii;
 pub use fstring::FStringSegment;
 pub use guards::GenericContextGuard;
 pub use guards::ImportContextGuard;
@@ -1505,140 +1507,6 @@ impl<'a> CodegenContext<'a> {
         *self.struct_type_cache_mut() = None;
     }
 
-    // === RAII-Lite: Implicit Scoped Drop Methods ===
-
-    /// Enter a new lexical scope (e.g., function body, loop body)
-    pub fn push_cleanup_scope(&self) {
-        self.cleanup_stack_mut().push(Vec::new());
-    }
-
-    /// Register an owned resource for cleanup at scope exit
-    /// Also registers with Z3StateTracker for formal verification
-    pub fn register_owned_resource(&self, value: &str, drop_fn: &str, var_name: &str, ty: Type) {
-        if let Some(scope) = self.cleanup_stack_mut().last_mut() {
-            scope.push(crate::codegen::phases::CleanupTask {
-                value: value.to_string(),
-                drop_fn: drop_fn.to_string(),
-                var_name: var_name.to_string(),
-                ty,
-            });
-        }
-        
-        // Z3 Ownership Ledger: Register BIRTH event
-        // Use var_name for better error messages (maps to source variable)
-        self.ownership_tracker.borrow_mut().register_allocation(
-            var_name,
-            &self.z3_solver.borrow()
-        );
-    }
-
-    /// Pop the current scope and emit cleanup calls for all remaining resources
-    /// Also marks resources as Released in Z3StateTracker
-    pub fn pop_and_emit_cleanup(&self, out: &mut String) -> Result<(), String> {
-        if let Some(tasks) = self.cleanup_stack_mut().pop() {
-            // Emit in reverse order (LIFO - last allocated, first freed)
-            for task in tasks.into_iter().rev() {
-                self.ownership_tracker.borrow_mut().mark_released(
-                    &task.var_name,
-                    &self.z3_solver.borrow()
-                )?;
-                
-                // Emit the drop function call
-                let mlir_ty = self.resolve_mlir_type(&task.ty)?;
-                out.push_str(&format!("    func.call @{}({}) : ({}) -> ()\n", 
-                    task.drop_fn, task.value, mlir_ty));
-            }
-        }
-        Ok(())
-    }
-
-    /// Transfer ownership of a resource (e.g., when returning it)
-    /// Removes the resource from cleanup tracking so it won't be freed
-    /// Also marks as Moved in Z3StateTracker
-    pub fn transfer_ownership(&self, value: &str) -> Result<(), String> {
-        let mut stack = self.cleanup_stack_mut();
-        for scope in stack.iter_mut() {
-            if let Some(pos) = scope.iter().position(|t: &crate::codegen::phases::CleanupTask| t.value == value) {
-                let _task = scope.remove(pos);
-                
-                // Z3 Ownership Ledger: Register MOVE event
-                self.ownership_tracker.borrow_mut().mark_moved(
-                    value, // Tracks by value name in SSA
-                    &self.z3_solver.borrow()
-                )?;
-                return Ok(());
-            }
-        }
-        Ok(())
-    }
-
-    /// Remove a resource from the cleanup stack by its SOURCE variable name.
-    /// Called when the user explicitly calls .free() or .drop() on a variable,
-    /// so the RAII system won't emit a duplicate cleanup call.
-    pub fn release_by_var_name(&self, var_name: &str) {
-        let mut stack = self.cleanup_stack_mut();
-        for scope in stack.iter_mut() {
-            if let Some(pos) = scope.iter().position(|t: &crate::codegen::phases::CleanupTask| t.var_name == var_name) {
-                scope.remove(pos);
-                return;
-            }
-        }
-    }
-    pub fn mk_int(&self, val: i64) -> crate::z3_shim::ast::Int<'a> {
-        crate::z3_shim::ast::Int::from_i64(self.z3_ctx, val)
-    }
-    pub fn mk_var(&self, name: &str) -> crate::z3_shim::ast::Int<'a> {
-        crate::z3_shim::ast::Int::new_const(self.z3_ctx, name)
-    }
-    pub fn push_solver(&self) {
-        self.z3_solver.borrow().push();
-    }
-    pub fn pop_solver(&self) {
-        self.z3_solver.borrow().pop(1);
-    }
-    pub fn add_assertion(&self, expr: &crate::z3_shim::ast::Bool<'a>) {
-        self.z3_solver.borrow().assert(expr);
-    }
-    /// Check if a violation condition is provably unsatisfiable.
-    /// 
-    /// Returns `true` if Z3 can prove the violation is impossible (UNSAT),
-    /// meaning the code is provably safe. Returns `false` if Z3 finds a 
-    /// counterexample (SAT) or times out (Unknown).
-    pub fn is_provably_safe(&self, violation: &crate::z3_shim::ast::Bool<'a>) -> bool {
-        
-        
-        // Create a fresh solver for this check (isolated from main solver state)
-        let solver = crate::z3_shim::Solver::new(self.z3_ctx);
-        
-        // Set timeout to 100ms to prevent hangs on complex expressions
-        let mut params = crate::z3_shim::Params::new(self.z3_ctx);
-        params.set_u32("timeout", 100);
-        solver.set_params(&params);
-        
-        // Assert the violation and check if it's satisfiable
-        solver.assert(violation);
-        
-        match solver.check() {
-            crate::z3_shim::SatResult::Unsat => {
-                // No counterexample exists - code is provably safe
-                true
-            }
-            crate::z3_shim::SatResult::Sat => {
-                // Counterexample found - violation is possible
-                false
-            }
-            crate::z3_shim::SatResult::Unknown => {
-                false
-            }
-        }
-    }
-    pub fn register_symbolic_int(&self, ssa_name: String, val: crate::z3_shim::ast::Int<'a>) {
-        self.symbolic_tracker.borrow_mut().insert(ssa_name, val);
-    }
-    pub fn get_symbolic_int(&self, ssa_name: &str) -> Option<crate::z3_shim::ast::Int<'a>> {
-        self.symbolic_tracker.borrow().get(ssa_name).cloned()
-    }
-
     pub fn find_methods_for_template(&self, template_name: &str) -> Vec<String> {
         // Delegate to TraitRegistry
         self.trait_registry().find_methods_for_type(template_name)
@@ -1741,63 +1609,6 @@ impl<'a> CodegenContext<'a> {
             res, base_ptr, index, struct_mlir_ty));
             
         Ok(res)
-    }
-
-    // =========================================================================
-    // BRIDGE METHODS: CodegenContext → LoweringContext delegation
-    // These allow impl CodegenContext code to call functions that have been
-    // migrated to &mut LoweringContext. Each creates a temporary LoweringContext
-    // via with_lowering_ctx and delegates.
-    // =========================================================================
-
-    /// Bridge: specialize_template (migrated to LoweringContext in type_bridge.rs)
-    pub fn specialize_template(&self, base_name: &str, concrete_tys: &[Type], is_enum: bool) -> Result<crate::types::TypeKey, String> {
-        self.with_lowering_ctx(|lctx| lctx.specialize_template(base_name, concrete_tys, is_enum))
-    }
-
-    /// Bridge: scan_function_for_calls (migrated to LoweringContext in seeker.rs)
-    pub fn scan_function_for_calls(&self, func: &crate::grammar::SaltFn) -> Result<Vec<crate::codegen::collector::MonomorphizationTask>, String> {
-        self.with_lowering_ctx(|lctx| lctx.scan_function_for_calls(func))
-    }
-
-    /// Bridge: to_mlir_type via LoweringContext
-    pub fn resolve_mlir_type(&self, ty: &Type) -> Result<String, String> {
-        self.with_lowering_ctx(|lctx| ty.to_mlir_type(lctx))
-    }
-
-    /// Bridge: to_mlir_storage_type via LoweringContext
-    pub fn resolve_mlir_storage_type(&self, ty: &Type) -> Result<String, String> {
-        self.with_lowering_ctx(|lctx| ty.to_mlir_storage_type(lctx))
-    }
-
-    /// Bridge: resolve_type via LoweringContext (type_bridge)
-    pub fn bridge_resolve_type(&self, ty: &crate::grammar::SynType) -> Type {
-        self.with_lowering_ctx(|lctx| crate::codegen::type_bridge::resolve_type(lctx, ty))
-    }
-
-    /// Bridge: resolve_codegen_type via LoweringContext (type_bridge)
-    pub fn bridge_resolve_codegen_type(&self, ty: &Type) -> Type {
-        self.with_lowering_ctx(|lctx| crate::codegen::type_bridge::resolve_codegen_type(lctx, ty))
-    }
-
-    /// Bridge: emit_global_def via LoweringContext (type_bridge)
-    pub fn bridge_emit_global_def(&self, out: &mut String, g: &crate::grammar::GlobalDef) -> Result<(), String> {
-        self.with_lowering_ctx(|lctx| crate::codegen::type_bridge::emit_global_def(lctx, out, g))
-    }
-
-    /// Bridge: emit_const via LoweringContext (type_bridge)
-    pub fn bridge_emit_const(&self, out: &mut String, c: &crate::grammar::ConstDef) -> Result<(), String> {
-        self.with_lowering_ctx(|lctx| crate::codegen::type_bridge::emit_const(lctx, out, c))
-    }
-
-    /// Bridge: resolve_package_prefix_ctx via LoweringContext (expr/utils)
-    pub fn bridge_resolve_package_prefix(&self, segments: &[String]) -> Option<(String, String)> {
-        self.with_lowering_ctx(|lctx| crate::codegen::expr::utils::resolve_package_prefix_ctx(lctx, segments))
-    }
-
-    /// Bridge: request_specialization via LoweringContext (type_bridge)
-    pub fn request_specialization(&self, func_name: &str, concrete_tys: Vec<Type>, self_ty: Option<Type>) -> String {
-        self.with_lowering_ctx(|lctx| lctx.request_specialization(func_name, concrete_tys, self_ty))
     }
 }
 
