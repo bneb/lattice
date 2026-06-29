@@ -3,7 +3,7 @@
 **A systems language where the compiler proves your code correct at compile time.** Z3 contracts, arena memory, MLIR codegen. No garbage collector, no borrow checker, no lifetime annotations.
 
 [![CI](https://github.com/bneb/lattice/actions/workflows/ci.yml/badge.svg)](https://github.com/bneb/lattice/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.10.0-blue)](https://github.com/bneb/lattice)
+[![Version](https://img.shields.io/badge/version-0.8.0-blue)](https://github.com/bneb/lattice)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ```salt
@@ -33,12 +33,12 @@ git clone https://github.com/bneb/lattice.git
 cd lattice
 make setup              # Install dependencies (once)
 make build              # Build the compiler (~2 min)
-make test               # 11/11 kernel tests pass
-make lettuce-verify     # 4/4 Z3 contracts pass
+make test               # All compiler unit tests pass (1323+)
+make lettuce-verify     # Z3 contract verification tests pass
 make bench              # LETTUCE vs Redis comparison
 ```
 
-Prerequisites: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 21+ (`brew install llvm@21`), QEMU (`brew install qemu`).
+Prerequisites: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 18+ (`brew install llvm@18`), QEMU (`brew install qemu`).
 
 Your first Salt program:
 
@@ -96,7 +96,7 @@ User Programs: LETTUCE, Basalt, FACET, NetD            [user/]
 | Project | What it is | Lines |
 |---------|-----------|-------|
 | [KeuOS](kernel/) | Microkernel — 16-core SMP, SPSC IPC, Ring 3 daemons | — |
-| [LETTUCE](lettuce/) | Redis-compatible server — leads Redis at every concurrency level | 567 |
+| [LETTUCE](lettuce/) | Redis-compatible server — leads Redis at every concurrency level | ~1500 |
 | [Basalt](basalt/) | Llama 2 inference engine | ~600 |
 | [FACET](user/facet/) | GPU-accelerated 2D compositor with Metal shaders | — |
 

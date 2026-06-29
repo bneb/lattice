@@ -3,7 +3,7 @@
 > **Audience**: Engineers working on the Salt compiler, KeuOS kernel, or standard library.
 > For the 2 AM reader: every acronym is defined, every command is copy-pasteable, every data flow has a diagram.
 >
-> **Prerequisites**: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 21+ (`brew install llvm@21`), QEMU (`brew install qemu`)
+> **Prerequisites**: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 18+ (`brew install llvm@18`), QEMU (`brew install qemu`)
 
 ---
 
@@ -83,8 +83,8 @@ flowchart LR
     D --> E["LLVM Dialect"]
     E --> F["mlir-translate"]
     F --> G[".ll (LLVM IR)"]
-    G --> H["opt -O3"]
-    H --> I["clang"]
+    G --> H["llc -O3"]
+    H --> I["clang -nostdlib -static"]
     I --> J["Native Binary"]
     
     B -.-> K["Z3 Solver"]
@@ -101,9 +101,9 @@ flowchart LR
 | 2 | **Z3 Verification** | `salt-front` (Z3 embedded) | Proves `requires`/`ensures` contracts. Proven → elide. Unproven → runtime check. | Proof results |
 | 2.5 | **Async Lowering** | `salt-front` | `async fn` → state machine CFG. `@pulse` verifier asserts all paths yield within cycle budget. | `BasicBlock` CFG |
 | 3 | **MLIR Emission** | `salt-front` | Emits textual MLIR using `affine`, `scf`, `func`, `arith`, `memref`, `llvm` dialects | `.mlir` file |
-| 4 | **Dialect Lowering** | `mlir-opt` | `--convert-scf-to-cf`, `--convert-func-to-llvm`, `--finalize-memref-to-llvm`, etc. | LLVM dialect MLIR |
+| 4 | **Dialect Lowering** | `mlir-opt` | `--lower-affine`, `--convert-linalg-to-loops`, `--convert-vector-to-scf`, `--convert-scf-to-cf`, `--convert-cf-to-llvm`, `--convert-vector-to-llvm`, `--convert-math-to-llvm`, `--convert-arith-to-llvm`, `--finalize-memref-to-llvm`, `--convert-func-to-llvm`, `--cse`, `--reconcile-unrealized-casts` | LLVM dialect MLIR |
 | 5 | **LLVM IR Translation** | `mlir-translate` | `--mlir-to-llvmir` | `.ll` file |
-| 6 | **Native Compilation** | `opt -O3` + `clang` | Full LLVM optimization + native codegen | ARM64/x86_64 binary |
+| 6 | **Native Compilation** | `llc -O3` + `clang -nostdlib -static` | LLVM optimization + native codegen + link | ARM64/x86_64 binary |
 
 ### Multi-Dialect Emission
 
@@ -115,8 +115,7 @@ Salt's key compiler innovation is **body analysis**: the compiler inspects loop 
 | Scalar accumulation | No array indexing | `scf.for` with `iter_args` | Register allocation, SSA reduction |
 | SIMD operations | `@fma_update`, `vector_*` intrinsics | `vector` dialect | NEON/AVX mapping |
 
-> [!TIP]
-> This is why Salt achieves **10x faster than C** on matmul — the `affine.for` dialect triggers MLIR's polyhedral optimizer, which tiles loops for cache hierarchy and vectorizes across NEON registers.
+> This is why Salt achieves competitive performance on matmul — the `affine.for` dialect triggers MLIR's polyhedral optimizer, which tiles loops for cache hierarchy and vectorizes across NEON registers.
 
 ### Key Source Locations
 
@@ -145,7 +144,8 @@ flowchart TD
     B -->|Success| C{"Assert ¬(b ≠ 0)<br/>Check SAT"}
     B -->|Translation fails| F["Emit scf.if<br/>runtime check"]
     C -->|UNSAT<br/>No counterexample| D["✅ ELIDE<br/>Zero runtime cost"]
-    C -->|SAT or UNKNOWN| F
+    C -->|SAT| G["❌ Compile error<br/>counterexample"]
+    C -->|UNKNOWN| F["Emit scf.if<br/>runtime check"]
     
     style D fill:#38a169,color:#fff
     style F fill:#c05621,color:#fff
@@ -157,7 +157,7 @@ flowchart TD
 2. **Negate**: Z3 asserts the **negation** of the condition (`¬(b ≠ 0)`)
 3. **Solve**:
    - **UNSAT** → No counterexample exists → The condition is **always true** → Emit nothing. Zero overhead.
-   - **SAT** → A counterexample exists → Emit standard MLIR runtime assertion
+   - **SAT** → A counterexample exists → Compile-time error with counterexample values
    - **UNKNOWN** → Z3 timed out → Emit standard MLIR runtime assertion
 
 ### The Fallback: Standard MLIR
@@ -247,7 +247,7 @@ KeuOS is a **hybrid unikernel** with Ring 0/3 isolation. The kernel runs in Ring
 |---------------|---------|
 | Safety via MMU + Ring 0/3 isolation | Safety via Z3 compile-time proofs + hardware rings |
 | Driver crashes kernel | Driver is compiler-verified |
-| Runtime overhead for protection | Zero-overhead: protection at compile time |
+| Runtime overhead for protection | Proven checks elided at compile time |
 
 ### Directory Structure
 
@@ -660,7 +660,7 @@ Z3 proves at every call site that no null function pointer or zero-byte frame ca
 
 ### Performance (KVM — Intel Xeon)
 
-KeuOS uses highly optimized, lock-free, per-core sharded data structures. Actual cycle counts will vary significantly by hardware and KVM configuration, but the architecture aims to minimize overhead on critical paths such as IPC, context switching, and memory allocation.
+KeuOS uses highly optimized, lock-free, per-core sharded data structures. Actual cycle counts will vary significantly by hardware and KVM configuration, but the architecture uses lock-free, per-core sharded data structures on critical paths such as IPC, context switching, and memory allocation.
 
 ---
 
@@ -713,7 +713,7 @@ LIBRARY_PATH=/opt/homebrew/lib \
 cargo build --release
 
 # Compile a Salt program to native binary
-export PATH="/opt/homebrew/opt/llvm@21/bin:$PATH"
+export PATH="/opt/homebrew/opt/llvm@18/bin:$PATH"
 export DYLD_LIBRARY_PATH="/opt/homebrew/lib"
 
 ./target/release/salt-front ../examples/hello_world.salt
@@ -818,4 +818,4 @@ cd benchmarks/ml && ./benchmark.sh --salt
 
 ---
 
-*KeuOS: compiler-verified, zero-overhead, bare-metal systems programming.*
+*KeuOS: compiler-verified, bare-metal systems programming.*

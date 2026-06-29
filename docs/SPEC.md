@@ -182,6 +182,9 @@ WARNING: Could not formally prove contract. Emitting runtime check.
 | `requires` precondition verification | ✅ Complete |
 | `ensures` postcondition verification | ✅ Complete |
 | Loop invariant verification (havoc & induction) | ✅ Complete |
+| Contract runtime fallback (Z3 timeout / translation failure) | ✅ Complete |
+| Debug overflow checks in contracts | ✅ Complete |
+| Prelude auto-injection | ✅ Complete |
 | Full ADT/`match` lowering | ✅ Complete |
 | Trait resolution | ✅ Complete |
 | Generic monomorphization | ✅ Complete |
@@ -197,7 +200,7 @@ WARNING: Could not formally prove contract. Emitting runtime check.
 | `@derive` annotation expansion | ✅ Complete |
 | `@inline`, `@pure`, `@trusted`, `@export` attributes | ✅ Complete |
 | `@yielding` / `@pulse` cooperative scheduling | ✅ Complete |
-| `concept` keyword (type constraints) | ✅ Complete |
+| `concept` keyword (type constraints) | ⚠ Experimental |
 | LLVM JIT execution | 📋 Planned |
 | `_` placeholder forwarding in method chains | ⚠ Experimental |
 | Wasm32 target (z3-stub, no native Z3 link) | 📋 Planned |
@@ -225,7 +228,7 @@ version bump and migration path:
 6. **MLIR output**: The compiler emits standard MLIR dialects (`func`, `arith`,
    `scf`, `llvm`, `memref`, `cf`). No custom `salt` dialect ops are emitted.
 7. **ABI**: Function call ABI (C ABI via extern), syscall ABI (see
-   `docs/abi/KEUOS_ABI.md`)
+   `docs/abi/KEUOS_ABI_STABLE.md`)
 
 ### Experimental (May Change)
 
