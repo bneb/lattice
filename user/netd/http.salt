@@ -15,9 +15,6 @@ pub const HTTP_SEEK_N:  u8 = 1;
 pub const HTTP_SEEK_R2: u8 = 2;
 pub const HTTP_SEEK_N2: u8 = 3;
 
-// parse_http_headers — Searches raw memory capability pointers iteratively
-// Returns: The integer offset index exactly corresponding to the first byte 
-// of the HTTP payload Body natively traversing the \r\n\r\n vector.
 pub fn parse_http_headers(buffer_ptr: u64, len: u32) -> u32 {
     let mut state = HTTP_SEEK_R;
     let mut i: u32 = 0;

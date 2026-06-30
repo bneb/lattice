@@ -204,7 +204,6 @@ pub fn encapsulate_tcp_frame(
 }
 
 pub fn execute_fastpath_test() {
-    // 1. Allocate natively via capability bound architecture (no malloc/free)
     let cap_id = sys_cap_bind(1); 
     if cap_id == 0 { return; }
     
@@ -237,9 +236,5 @@ pub fn execute_fastpath_test() {
     let total_frame_len = 54 + payload_len;
     
     // 4. Trigger Ring 3 -> Ring 0 Hardware Transfer without Memcpy!
-    // EXPLOT VERIFICATION (Red Team Pass): Intentional Malicious Overflow Geometry
     fastpath_handoff_syscall(cap_id, 5000, total_frame_len);
-    
-    // CAPABILITY IS DESTROYED OVER THE IPC BOUNDARY
-    // Accessing ring_virt exactly here would induce an unrecoverable SEGFAULT natively.
 }

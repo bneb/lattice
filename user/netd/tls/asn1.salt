@@ -1,12 +1,5 @@
 package user.netd.tls.asn1
 
-// ============================================================================
-// ASN.1 TLV Decoder Architecture 
-// ============================================================================
-// Parses highly nested X.509 definitions explicitly circumventing memory pointer
-// boundary limits mathematically natively validating structural sequence checks
-// ============================================================================
-
 pub const TAG_INTEGER: u8   = 0x02;
 pub const TAG_BITSTRING: u8 = 0x03;
 pub const TAG_OCTET_STR: u8 = 0x04;
@@ -21,25 +14,20 @@ pub struct TlvNode {
     pub payload_offset: u32
 }
 
-// decode_length - Explictly packs two 32-bit capabilities dynamically inside 
-// generic 64-bit mathematical integer constructs tracking offset boundaries 
-// preventing OOB arrays internally natively.
 pub fn decode_length(buffer_ptr: u64, max_len: u32, offset: u32) -> u64 {
     if offset >= max_len { return 0; }
-    
+
     let length_byte = *((buffer_ptr + (offset as u64)) as &u8);
     let mut actual_len: u32 = 0;
     let mut header_bytes: u32 = 1;
-    
-    // Abstract execution tracking bitwise execution natively matching X.509 Short Form capabilities bounds
+
     if length_byte <= 0x7F {
         actual_len = (length_byte as u32);
     } else {
-        // Evaluate native Long Form capability math bounds evaluating execution pointers safely
         let num_bytes = (length_byte & 0x7F) as u32;
-        if num_bytes == 0 || num_bytes > 4 { return 0; } // Defend limits
+        if num_bytes == 0 || num_bytes > 4 { return 0; }
         if offset + 1 + num_bytes > max_len { return 0; }
-        
+
         let mut i: u32 = 0;
         while i < num_bytes {
             let next_byte = *((buffer_ptr + ((offset + 1 + i) as u64)) as &u8);
@@ -48,10 +36,9 @@ pub fn decode_length(buffer_ptr: u64, max_len: u32, offset: u32) -> u64 {
         }
         header_bytes = 1 + num_bytes;
     }
-    
+
     let packed_payload_offset = offset + header_bytes;
-    
-    // Pack explicit constraints mathematically returning dynamically safely 
+
     let packed_res = ((actual_len as u64) * 4294967296) + (packed_payload_offset as u64);
     return packed_res;
 }
@@ -59,25 +46,23 @@ pub fn decode_length(buffer_ptr: u64, max_len: u32, offset: u32) -> u64 {
 pub fn parse_tlv_node(buffer_ptr: u64, max_len: u32, target_idx: u32, out_node_ptr: u64) -> u32 {
     if target_idx >= max_len { return 0; }
     let tag = *((buffer_ptr + (target_idx as u64)) as &u8);
-    
+
     let packed_len_res = decode_length(buffer_ptr, max_len, target_idx + 1);
-    if packed_len_res == 0 { return 0; } // Mathematically restrict OOB pointer loops
-    
-    // Unpack explicit geometrical offsets natively mapping struct arrays
+    if packed_len_res == 0 { return 0; }
+
     let actual_len = (packed_len_res / 4294967296) as u32;
     let payload_offset = (packed_len_res % 4294967296) as u32;
-    
-    if payload_offset + actual_len > max_len { return 0; } // Deep bounds test dynamically checking OS matrices
-    
-    // Explicitly load tracking matrices into structural mapping boundaries manually safely using pointer constraints perfectly avoiding compiler cast AST limitations
+
+    if payload_offset + actual_len > max_len { return 0; }
+
     let out_tag_ptr = out_node_ptr;
     *(out_tag_ptr as &mut u8) = tag;
-    
+
     let out_len_ptr = out_node_ptr + 4;
     *(out_len_ptr as &mut u32) = actual_len;
-    
+
     let out_payload_ptr = out_node_ptr + 8;
     *(out_payload_ptr as &mut u32) = payload_offset;
-    
-    return payload_offset + actual_len; // Offset bounding array cursor capabilities natively
+
+    return payload_offset + actual_len;
 }

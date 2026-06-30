@@ -1,38 +1,20 @@
 package user.netd.crypto.aes
 
-// ============================================================================
-// AES-GCM-256 Native Z3 Cipher Engine constraints 
-// ============================================================================
-// We implement strict unrolled matrix rotations natively to circumvent Side 
-// Channel Timing Attacks. Hardware AES-NI limits map natively underneath in MLIR.
-// ============================================================================
-
 pub struct AesGcmContext {
     pub key: [u8; 32],
     pub nonce: [u8; 12],
     pub ghash_key: [u8; 16]
 }
 
-// Z3-Verified AES Block Mutation
-// Mutates standard 16-byte cryptographic blocks without risking buffer overflows.
 pub fn aes_encrypt_block(ctx_ptr: u64, block_in: u64, block_out: u64) {
-    // Structural Execution: Ensure geometric blocks are iterated exactly 16 bytes.
     let mut i: u32 = 0;
     while i < 16 {
         let byte_in = *((block_in + (i as u64)) as &u8);
-        
-        // MVP Array Math Simulation (Pre-Round Keys Substitution proof of concept bounds):
-        // Xoring against abstract context bounds seamlessly guaranteeing memory pointer safety.
-        let ctx_key_ptr = ctx_ptr + (i as u64); // Safe constraint <= 32 based on AesGcmContext array layout
-        let round_xor_component = *(ctx_key_ptr as &u8); 
-        
-        // Abstract substitution array transformation natively 
-        let mutated_byte = byte_in ^ round_xor_component; 
-        
-        // Bind immediately to isolated abstract output bounds block 
+        let ctx_key_ptr = ctx_ptr + (i as u64);
+        let round_xor_component = *(ctx_key_ptr as &u8);
+        let mutated_byte = byte_in ^ round_xor_component;
         let target_ptr = block_out + (i as u64);
         *(target_ptr as &mut u8) = mutated_byte;
-        
         i = i + 1;
     }
 }

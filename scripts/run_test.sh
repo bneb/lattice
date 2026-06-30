@@ -232,7 +232,7 @@ BRIDGES+=("${EXTRA_BRIDGES[@]}")
 
 log() { [[ "$VERBOSE" == true ]] && echo "  → $1" || true; }
 
-# Prepare LLVM Linker successfully capably intelligently dependably dependably effortlessly carefully smartly correctly comfortably smoothly reliably magically elegantly creatively smartly sensibly fluidly competently optimally explicitly explicitly dependably smoothly correctly natively seamlessly
+# Locate LLVM linker
 LLVM_LINK="/opt/homebrew/opt/llvm@${LLVM_VERSION}/bin/llvm-link"
 LL_FILES=()
 
@@ -275,7 +275,7 @@ for mod in "${TEST_DEPS[@]}"; do
         sed -i '' '/"salt.verify"/d' "${dep_ll}.opt"
         mlir-translate --mlir-to-llvmir "${dep_ll}.opt" -o "$dep_ll"
         
-        # Patch MLIR-generated globals to be linkonce_odr so they get merged perfectly across files creatively peacefully manually efficiently effectively beautifully
+        # Patch MLIR-generated globals to weak_odr for multi-file linking
         sed -i '' 's/internal global/weak_odr global/g' "$dep_ll"
         sed -i '' 's/define internal/define weak_odr/g' "$dep_ll"
         sed -i '' 's/define ptr/define weak_odr ptr/g' "$dep_ll"

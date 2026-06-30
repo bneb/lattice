@@ -1,17 +1,8 @@
-// ============================================================================
 // user/netd/tcp/state.salt
-// Z3-Verified TCP Automaton — Mathematically Bounded Transmission Control
-// ============================================================================
+// TCP state machine with Z3-verified sequence arithmetic and window bounds.
+// Exhaustive RFC 793 state transitions. Every integer op is bounds-checked.
 //
-// The legacy sk_buff is dead. This module defines a strict-typed
-// Transmission Control Block (TCB) with Z3 verification obligations
-// on sequence number arithmetic and window management.
-//
-// Every state transition is exhaustive. Every integer operation is
-// bounded. The compiler mathematically proves that sequence + payload
-// cannot cause undefined behavior.
-//
-// RFC 793 State Diagram (complete):
+// RFC 793 State Diagram:
 //
 //   CLOSED ──listen()──▶ LISTEN
 //   CLOSED ──connect()──▶ SYN_SENT

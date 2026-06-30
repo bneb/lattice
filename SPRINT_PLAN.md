@@ -1,6 +1,6 @@
 # KeuOS & Salt - Hardened Sprint Plan
 
-*This sprint plan has undergone a rigorous Red Team analysis. We are no longer simply "fixing bugs"; we are closing critical exploitation vectors and hardening the architecture against adversarial input.*
+*Security hardening sprint — closing exploitation vectors in IPC, syscalls, and memory management.*
 
 ## Sprint 1: Formal Verification & Soundness
 **Goal:** Prove the absence of vulnerabilities in the kernel boundaries using Z3 constraint solving.

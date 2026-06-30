@@ -144,7 +144,6 @@ pub fn invert_cursor() {
     let fg = ((packed >> 32) & 0xFFFFFF) as u32;
     let style = ((packed >> 56) & 0xFF) as u8;
     
-    // Output colors flipped locally natively
     font.draw_char(c, CUR_X * 8, CUR_Y * 16, bg, fg, style);
 }
 

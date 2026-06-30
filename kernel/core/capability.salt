@@ -233,10 +233,8 @@ pub fn sys_cap_unmap(capability_id: u64) -> u64 {
     // 2. Eradicate hardware cache line targeting the capability's shadow location locally
     invlpg_addr(vaddr);
     
-    // RED TEAM MITIGATION: TLB SHOOTDOWN IPI
-    // Broadcast fixed interrupt `0xFD` natively via APIC across the execution matrix,
-    // pausing all remote logical cores to synchronize the shadow hardware structures
-    // against maliciously overlapping cache geometries.
+    // TLB shootdown: broadcast IPI 0xFD via APIC to all cores
+    // to flush stale TLB entries after page table modification.
     ipi.initiate_tlb_shootdown();
     
     // 3. Demolish capability ownership state securely

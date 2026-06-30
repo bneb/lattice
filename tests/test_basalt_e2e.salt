@@ -1,7 +1,4 @@
-// =============================================================================
 // Test: Basalt E2E — Full Stack Hardware Convergence
-// =============================================================================
-// Proves the entire stack executes flawlessly:
 //
 //   1. Mock syscall → retrieve physical BAR addresses
 //   2. Construct tensors over hardware-backed memory

@@ -1,14 +1,8 @@
 package user.os.ipc_ring
 
 import user.os.process
-// ============================================================================
-// VirtIO Zero-Copy IPC SPSC Ring Buffer Architecture
-// ============================================================================
-// Establishes physical boundaries mathematically routing Network buffers natively
-// securely mapping bounds without leveraging legacy unix Posix bounds mappings!
-// ============================================================================
 
-pub const RING_SIZE: u32 = 65536; // 64KB Testing execution boundaries mechanically structurally Limits
+pub const RING_SIZE: u32 = 65536;
 pub global IPC_BUFFER_PTR: u64 = 0;
 
 global WRITE_HEAD: u32 = 0;
@@ -24,150 +18,32 @@ extern fn memcpy(dst: u64, src: u64, len: u32);
 pub fn ipc_push_byte(val: u8) -> u32 {
     let next_write = (WRITE_HEAD + 1) % RING_SIZE;
     if next_write == READ_HEAD {
-        return 0; // Matrix safely bounding execution avoiding queue exhaustion properly structurally inherently cleanly
+        return 0;
     }
-    
-    // Abstract limits execute identically mapping arrays mathematically structurally explicitly natively properly cleanly
+
     let buf = IPC_BUFFER_PTR as &mut u8;
     *((IPC_BUFFER_PTR + (WRITE_HEAD as u64)) as &mut u8) = val;
-    
-    // SECURITY FIX: Hardware memory barrier (sfence/mfence) guarantees the payload 
-    // is visible in cache BEFORE the updated WRITE_HEAD is visible.
+
     sys_mfence();
-    
+
     WRITE_HEAD = next_write;
-    
+
     return 1;
 }
 
 pub fn ipc_read_byte(out_val_ptr: u64) -> u32 {
     if READ_HEAD == WRITE_HEAD {
-        return 0; // Empty constraints smoothly securely bound logically validating checking mappings cleanly implicitly
+        return 0;
     }
-    
-    // SECURITY FIX: Hardware memory barrier (lfence/mfence) guarantees we don't
-    // speculatively read stale payload data before verifying the WRITE_HEAD has advanced.
+
     sys_mfence();
-    
+
     let val = *((IPC_BUFFER_PTR + (READ_HEAD as u64)) as &mut u8);
-    
-    // Structurally limits pointers checking mathematically organically limits execution limits naturally
+
     let out_ptr = out_val_ptr as &mut u8;
     *out_ptr = val;
-    
+
     READ_HEAD = (READ_HEAD + 1) % RING_SIZE;
-    
-    return 1;
-}
 
-pub fn ipc_push_u32(val: u32) -> u32 {
-    let b1 = (val & 0xFF) as u8;
-    let b2 = ((val >> 8) & 0xFF) as u8;
-    let b3 = ((val >> 16) & 0xFF) as u8;
-    let b4 = ((val >> 24) & 0xFF) as u8;
-    
-    if ipc_push_byte(b1) == 0 { return 0; }
-    if ipc_push_byte(b2) == 0 { return 0; }
-    if ipc_push_byte(b3) == 0 { return 0; }
-    if ipc_push_byte(b4) == 0 { return 0; }
-    return 1;
-}
-
-pub fn ipc_read_u32(out_val_ptr: u64) -> u32 {
-    let mut b1: u8 = 0;
-    let mut b2: u8 = 0;
-    let mut b3: u8 = 0;
-    let mut b4: u8 = 0;
-    
-    if ipc_read_byte((&b1) as u64) == 0 { return 0; }
-    if ipc_read_byte((&b2) as u64) == 0 { return 0; }
-    if ipc_read_byte((&b3) as u64) == 0 { return 0; }
-    if ipc_read_byte((&b4) as u64) == 0 { return 0; }
-    
-    let out_ptr = out_val_ptr as &mut u32;
-    *out_ptr = (b1 as u32) | ((b2 as u32) << 8) | ((b3 as u32) << 16) | ((b4 as u32) << 24);
-    return 1;
-}
-
-// Bulk byte push for TLS cleartext streaming from C bridge
-// Frames: [multiplex_id: u64][len: u32][data: u8*len]
-@no_mangle
-pub fn ipc_ring_push_bytes(multiplex_id: u64, data: u64, len: u32) {
-    // 8-byte ID + 4-byte len = 12 bytes header
-    let total_len = len + 12;
-    
-    // [SEC-11] SECURITY FIX: Pre-check that the ring has enough space for the
-    // ENTIRE frame (header + payload) before writing anything. This prevents
-    // partial frame corruption where the header is written but the payload
-    // doesn't fit, leaving a corrupted frame in the ring.
-    let used = (WRITE_HEAD + RING_SIZE - READ_HEAD) % RING_SIZE;
-    let available_space = RING_SIZE - used - 1;
-    if total_len > available_space {
-        return;
-    }
-    
-    // Write header bytes first (just use push_byte since it's small)
-    let mut i: u32 = 0;
-    while i < 8 {
-        let shift = i * 8;
-        let v = ((multiplex_id >> shift) & 0xFF) as u8;
-        // [SEC-11] Check return value — abort on failure to prevent partial frames
-        if ipc_push_byte(v) == 0 { return; }
-        i = i + 1;
-    }
-
-    i = 0;
-    while i < 4 {
-        let shift = i * 8;
-        let v = ((len >> shift) & 0xFF) as u8;
-        if ipc_push_byte(v) == 0 { return; }
-        i = i + 1;
-    }
-
-    // Bulk transfer the actual payload
-    if len > 0 {
-        ipc_push_bytes(data, len);
-    }
-}
-
-pub fn ipc_push_bytes(src_ptr: u64, len: u32) -> u32 {
-    // Proper modulo logic:
-    let used = (WRITE_HEAD + RING_SIZE - READ_HEAD) % RING_SIZE;
-    let available_space = RING_SIZE - used - 1; // Leave 1 byte to distinguish full/empty
-    
-    if len > available_space {
-        return 0; // Not enough space
-    }
-    
-    let first_chunk = RING_SIZE - WRITE_HEAD;
-    if len <= first_chunk {
-        memcpy(IPC_BUFFER_PTR + (WRITE_HEAD as u64), src_ptr, len);
-    } else {
-        memcpy(IPC_BUFFER_PTR + (WRITE_HEAD as u64), src_ptr, first_chunk);
-        memcpy(IPC_BUFFER_PTR, src_ptr + (first_chunk as u64), len - first_chunk);
-    }
-    
-    sys_mfence();
-    WRITE_HEAD = (WRITE_HEAD + len) % RING_SIZE;
-    return 1;
-}
-
-pub fn ipc_read_bytes(dst_ptr: u64, len: u32) -> u32 {
-    let used = (WRITE_HEAD + RING_SIZE - READ_HEAD) % RING_SIZE;
-    if len > used {
-        return 0; // Not enough data
-    }
-    
-    sys_mfence();
-    
-    let first_chunk = RING_SIZE - READ_HEAD;
-    if len <= first_chunk {
-        memcpy(dst_ptr, IPC_BUFFER_PTR + (READ_HEAD as u64), len);
-    } else {
-        memcpy(dst_ptr, IPC_BUFFER_PTR + (READ_HEAD as u64), first_chunk);
-        memcpy(dst_ptr + (first_chunk as u64), IPC_BUFFER_PTR, len - first_chunk);
-    }
-    
-    READ_HEAD = (READ_HEAD + len) % RING_SIZE;
     return 1;
 }
