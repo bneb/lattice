@@ -34,7 +34,7 @@ These MUST all pass. If any fails, the release is blocked.
   cd salt-front && cargo test --lib 2>&1 | tail -3
   # Must show: "test result: ok. N passed; 0 failed"
   ```
-- **Current:** PASS (1,268 passed, 0 failed)
+- **Current:** PASS (1,357 passed, 0 failed)
 
 ### M3. Z3 verification — all contract types functional
 - **Criterion:** Every contract type (Integer, String, Real, BV, contract
@@ -72,8 +72,8 @@ These MUST all pass. If any fails, the release is blocked.
     || echo "CLEAN"
   # Output must be "CLEAN" or the grep must exit 1
   ```
-- **Current:** FAIL (13 occurrences: 10 in `cli_build.rs` help text, 2 in
-  `user_paging.salt` comments, 1 in `backend.rs` string literal)
+- **Current:** PASS (all hits cleaned up: cli_build.rs reworded, user_paging.salt
+  comments updated, backend.rs LSP string literal de-TODO'd)
 
 ### M6. Clippy clean with `-D warnings`
 - **Criterion:** `cargo clippy -- -D warnings` exits 0 with zero warnings.
@@ -162,7 +162,7 @@ ship with justification documented.
   cargo llvm-cov --summary-only 2>&1 | grep 'lines.*%'
   # Must show >= 70%
   ```
-- **Current:** 62.51% (36,373 / 97,018 lines). Gap: 7,645 lines to cover.
+- **Current:** PASS — 70.13% (34,281 / 48,883 lines). Gap closed.
 
 ### S2. Blog posts published
 - **Criterion:** Three technical blog posts live in `docs/blog/`:

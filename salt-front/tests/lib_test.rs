@@ -132,7 +132,7 @@ fn test_compile_hot_path() {
     assert!(result.is_ok());
 }
 
-#[test] 
+#[test]
 fn test_compile_region_block() {
     let code = r#"
         fn main() -> i32 {
@@ -145,3 +145,87 @@ fn test_compile_region_block() {
     let result = compile(code, false, None, true);
     assert!(result.is_ok());
 }
+
+#[test] fn test_compile_if_else_chain() {
+    let code = r#"fn main() -> i32 { let x = 5; if x > 0 { return 1; } else if x < 0 { return -1; } else { return 0; } }"#;
+    assert!(compile(code, false, None, true).is_ok());
+}
+#[test] fn test_compile_while_loop() {
+    let code = r#"fn main() -> i32 { let mut i = 0; while i < 10 { i = i + 1; } return i; }"#;
+    assert!(compile(code, false, None, true).is_ok());
+}
+#[test] fn test_compile_match_on_int() {
+    let code = r#"fn main() -> i32 { let x = 2; match x { 1 => return 10, 2 => return 20, _ => return 0 } }"#;
+    assert!(compile(code, false, None, true).is_ok());
+}
+#[test] fn test_compile_fn_call() {
+    let code = r#"fn add(a: i32, b: i32) -> i32 { return a + b; } fn main() -> i32 { return add(3, 4); }"#;
+    assert!(compile(code, false, None, true).is_ok());
+}
+#[test] fn test_compile_bool_ops() {
+    let code = r#"fn main() -> i32 { let a = true; let b = false; if a && !b { return 1; } return 0; }"#;
+    assert!(compile(code, false, None, true).is_ok());
+}
+#[test] fn test_compile_ref_param() {
+    let code = r#"fn read(r: &i32) -> i32 { return *r; } fn main() -> i32 { let x = 42; return read(&x); }"#;
+    assert!(compile(code, false, None, true).is_ok());
+}
+#[test] fn test_compile_array_literal() {
+    let code = r#"fn main() -> i32 { let a: [i32; 3] = [1, 2, 3]; return a[0] + a[1] + a[2]; }"#;
+    assert!(compile(code, false, None, true).is_ok());
+}
+#[test] fn test_compile_return_expr() {
+    let code = r#"fn main() -> i32 { return 42; }"#;
+    assert!(compile(code, false, None, true).is_ok());
+}
+#[test] fn test_compile_let_else() {
+    let code = r#"fn main() -> i32 { let x = 5; let y = if x > 0 { x } else { 0 }; return y; }"#;
+    assert!(compile(code, false, None, true).is_ok());
+}
+#[test] fn test_compile_mut_ref() {
+    let code = r#"fn inc(p: &mut i32) { *p = *p + 1; } fn main() -> i32 { let mut x = 41; inc(&mut x); return x; }"#;
+    assert!(compile(code, false, None, true).is_ok());
+}
+
+#[test] fn test_compile_methods() {
+    let code = include_str!("cases/methods.salt");
+    assert!(compile(code, false, None, true).is_ok());
+}
+#[test] fn test_compile_arrays() {
+    let code = include_str!("cases/arrays.salt");
+    assert!(compile(code, false, None, true).is_ok());
+}
+#[test] fn test_compile_floats() {
+    let code = include_str!("cases/floats.salt");
+    assert!(compile(code, false, None, true).is_ok());
+}
+#[test] fn test_compile_control_flow() {
+    let code = include_str!("cases/control_flow.salt");
+    assert!(compile(code, false, None, true).is_ok());
+}
+#[test] fn test_compile_equality() {
+    let code = include_str!("cases/equality.salt");
+    assert!(compile(code, false, None, true).is_ok());
+}
+#[test] fn test_compile_numeric_promotion() {
+    let code = include_str!("cases/numeric_promotion.salt");
+    assert!(compile(code, false, None, true).is_ok());
+}
+#[test] fn test_compile_all_types() {
+    let code = include_str!("cases/all_types.salt");
+    assert!(compile(code, false, None, true).is_ok());
+}
+#[test] fn test_compile_field_ref() {
+    let code = include_str!("cases/field_ref.salt");
+    assert!(compile(code, false, None, true).is_ok());
+}
+#[test] fn test_compile_attributes() {
+    let code = include_str!("cases/attributes.salt");
+    assert!(compile(code, false, None, true).is_ok());
+}
+#[test] fn test_compile_blocks() { assert!(compile(include_str!("cases/blocks.salt"), false, None, true).is_ok()); }
+#[test] fn test_compile_comprehensive() { assert!(compile(include_str!("cases/comprehensive.salt"), false, None, true).is_ok()); }
+#[test] fn test_compile_const_global() { assert!(compile(include_str!("cases/const_global.salt"), false, None, true).is_ok()); }
+#[test] fn test_compile_packed_arrays() { assert!(compile(include_str!("cases/packed_arrays.salt"), false, None, true).is_ok()); }
+#[test] fn test_compile_global_uninit() { assert!(compile(include_str!("cases/global_uninit.salt"), false, None, true).is_ok()); }
+#[test] fn test_compile_externs() { assert!(compile(include_str!("cases/externs.salt"), false, None, true).is_ok()); }

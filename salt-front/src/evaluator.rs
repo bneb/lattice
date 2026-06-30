@@ -13,7 +13,7 @@ pub enum ConstValue {
     Complex, 
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum EvalError {
     NonConstExpression(String),
     TypeMismatch(String),
@@ -193,5 +193,61 @@ impl Evaluator {
 
             _ => Err(EvalError::TypeMismatch("Binary operation type mismatch".to_string())),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn eval(s: &str) -> Result<ConstValue, EvalError> {
+        let expr: Expr = syn::parse_str(s).expect("valid expr");
+        Evaluator::new().eval_expr(&expr)
+    }
+
+    #[test] fn test_int_literal() { assert_eq!(eval("42"), Ok(ConstValue::Integer(42))); }
+    #[test] fn test_hex_literal() { assert_eq!(eval("0xFF"), Ok(ConstValue::Integer(255))); }
+    #[test] fn test_float_literal() { assert_eq!(eval("3.14"), Ok(ConstValue::Float(3.14))); }
+    #[test] fn test_bool_true() { assert_eq!(eval("true"), Ok(ConstValue::Bool(true))); }
+    #[test] fn test_bool_false() { assert_eq!(eval("false"), Ok(ConstValue::Bool(false))); }
+    #[test] fn test_neg_int() { assert_eq!(eval("-5"), Ok(ConstValue::Integer(-5))); }
+    #[test] fn test_neg_float() { assert_eq!(eval("-2.5"), Ok(ConstValue::Float(-2.5))); }
+    #[test] fn test_not_bool() { assert_eq!(eval("!true"), Ok(ConstValue::Bool(false))); }
+    #[test] fn test_not_int() { assert_eq!(eval("!0"), Ok(ConstValue::Integer(-1))); }
+
+    #[test] fn test_add() { assert_eq!(eval("2 + 3"), Ok(ConstValue::Integer(5))); }
+    #[test] fn test_sub() { assert_eq!(eval("10 - 3"), Ok(ConstValue::Integer(7))); }
+    #[test] fn test_mul() { assert_eq!(eval("4 * 7"), Ok(ConstValue::Integer(28))); }
+    #[test] fn test_div() { assert_eq!(eval("15 / 3"), Ok(ConstValue::Integer(5))); }
+    #[test] fn test_rem() { assert_eq!(eval("17 % 5"), Ok(ConstValue::Integer(2))); }
+    #[test] fn test_div_by_zero() { assert!(eval("5 / 0").is_err()); }
+    #[test] fn test_rem_by_zero() { assert!(eval("5 % 0").is_err()); }
+    #[test] fn test_eq_int() { assert_eq!(eval("5 == 5"), Ok(ConstValue::Bool(true))); }
+    #[test] fn test_lt() { assert_eq!(eval("3 < 5"), Ok(ConstValue::Bool(true))); }
+    #[test] fn test_gt() { assert_eq!(eval("7 > 5"), Ok(ConstValue::Bool(true))); }
+    #[test] fn test_bit_and() { assert_eq!(eval("0xFF & 0x0F"), Ok(ConstValue::Integer(15))); }
+    #[test] fn test_shl() { assert_eq!(eval("1 << 4"), Ok(ConstValue::Integer(16))); }
+    #[test] fn test_shr() { assert_eq!(eval("16 >> 2"), Ok(ConstValue::Integer(4))); }
+    #[test] fn test_float_add() { assert_eq!(eval("2.0 + 3.0"), Ok(ConstValue::Float(5.0))); }
+    #[test] fn test_bool_or() { assert_eq!(eval("true || false"), Ok(ConstValue::Bool(true))); }
+    #[test] fn test_paren() { assert_eq!(eval("(2 + 3) * 4"), Ok(ConstValue::Integer(20))); }
+
+    #[test] fn test_constant_table() {
+        let mut e = Evaluator::new();
+        e.constant_table.insert("PI".into(), ConstValue::Float(3.14));
+        let expr: Expr = syn::parse_str("PI").expect("valid");
+        assert_eq!(e.eval_expr(&expr), Ok(ConstValue::Float(3.14)));
+    }
+
+    #[test] fn test_unknown_constant() {
+        let expr: Expr = syn::parse_str("UNDEFINED").expect("valid");
+        assert!(Evaluator::new().eval_expr(&expr).is_err());
+    }
+
+    #[test] fn test_recursion_limit() {
+        let mut e = Evaluator::new();
+        e.depth_limit = 0;
+        let expr: Expr = syn::parse_str("1 + 1").expect("valid");
+        assert!(matches!(e.eval_expr(&expr), Err(EvalError::RecursionLimitExceeded)));
     }
 }

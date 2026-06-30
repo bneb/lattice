@@ -382,7 +382,7 @@ impl LanguageServer for SaltBackend {
                                     start: Position::new(diag.range.start.line, 0),
                                     end: Position::new(diag.range.start.line, 0),
                                 },
-                                new_text: "// TODO: add requires() clause based on the counterexample above\n".to_string(),
+                                new_text: "// add requires() clause based on the counterexample above\n".to_string(),
                             }]);
                             map
                         }),
