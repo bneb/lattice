@@ -1,6 +1,6 @@
 # Tutorial: Zero to Kernel
 
-This tutorial walks you through writing, compiling, and running your first Salt kernel. We will go from an empty file to a booting kernel that performs a simple computation and halts.
+This tutorial walks through writing, compiling, and running a first Salt kernel — from an empty file to a booting kernel that performs a simple computation and halts.
 
 ## 1. Environment Setup
 

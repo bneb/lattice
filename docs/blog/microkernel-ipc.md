@@ -1,6 +1,6 @@
 # Microkernel IPC Without the Performance Tax
 
-**Published:** June 2026 | **Author:** The KeuOS Team | **Reading time:** 12 minutes
+**Published:** June 2026 | **Reading time:** 12 minutes
 
 ---
 

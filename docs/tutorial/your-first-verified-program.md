@@ -29,13 +29,13 @@ Compile and run:
 salt-front kv.salt --lib --disable-alias-scopes -o /tmp/kv
 ```
 
-It fails. We haven't defined `new_store`, `put`, or `get` yet. Let's add them.
+It fails — `new_store`, `put`, and `get` haven't been defined yet.
 
 ---
 
 ## Step 2: The Data Structure (3 min)
 
-We'll use a fixed-size array of key-value pairs with linear search. Add above `main`:
+Use a fixed-size array of key-value pairs with linear search. Add above `main`:
 
 ```salt
 struct KeyValue {
@@ -63,7 +63,7 @@ fn new_store(capacity: i32) -> Store
 }
 ```
 
-The `requires` clause tells Z3: "prove that every call site passes a valid capacity." We'll see this in action soon.
+The `requires` clause tells Z3: "prove that every call site passes a valid capacity." This comes into play shortly.
 
 ---
 

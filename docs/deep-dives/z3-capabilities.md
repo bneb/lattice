@@ -129,14 +129,14 @@ clause, Z3 finds a counterexample and stops compilation.
 ## The 100ms TIMEOUT
 
 Z3 is given 100ms per proof obligation. In empirical testing, Z3
-resolves every contract we have tested within this window — including
+resolves every contract tested within this window — including
 10-variable polynomial constraints, non-linear integer arithmetic
 (`a * b`, `x * x`), Diophantine equations, and deep conditional chains.
 
 If a formula were to exceed 100ms, the compiler emits a runtime
 assertion rather than a compile error. The program compiles but panics
-if the contract is violated. We have not been able to trigger this
-path with realistic contracts.
+if the contract is violated. This path has not been triggered with
+realistic contracts.
 
 ## Float Literals
 

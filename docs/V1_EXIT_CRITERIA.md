@@ -168,7 +168,7 @@ ship with justification documented.
 - **Criterion:** Three technical blog posts live in `docs/blog/`:
   1. "Zero-Cost Safety" (Z3 Proof-or-Panic architecture)
   2. "Microkernel IPC Without the Performance Tax" (SPSC rings, NetD)
-  3. "Why We Chose Arenas Over Borrow Checking" (arena memory model)
+  3. "Choosing Arenas Over Borrow Checking" (arena memory model)
 - **Verification:**
   ```bash
   ls -la docs/blog/arenas-over-borrow-checking.md \

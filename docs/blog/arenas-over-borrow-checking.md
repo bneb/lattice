@@ -1,6 +1,6 @@
-# Why We Chose Arenas Over Borrow Checking
+# Choosing Arenas Over Borrow Checking
 
-**Published:** June 2026 | **Author:** The KeuOS Team | **Reading time:** 13 minutes
+**Published:** June 2026 | **Reading time:** 13 minutes
 
 ---
 

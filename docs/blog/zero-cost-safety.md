@@ -1,6 +1,6 @@
 # How Salt Eliminates Runtime Checks You Didn't Write
 
-**Published:** June 2026 | **Author:** The KeuOS Team | **Reading time:** 14 minutes
+**Published:** June 2026 | **Reading time:** 14 minutes
 
 ---
 
@@ -45,7 +45,7 @@ on constants, and anything the compiler can evaluate without a solver.
 **Tier 2: Z3 symbolic proof.** For contracts with symbolic (runtime)
 parameters, the compiler translates the expression to a Z3 formula and
 checks satisfiability. The solver has 100ms per obligation. In
-empirical testing, Z3 resolves every contract we have thrown at it —
+empirical testing, Z3 resolves every contract thrown at it —
 including 10-variable polynomial constraints — within that window.
 
 If Z3 proves the contract, the check is elided from the binary. If Z3
