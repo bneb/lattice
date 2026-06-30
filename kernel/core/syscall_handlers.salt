@@ -291,13 +291,13 @@ pub fn sys_tcp_listen(port: u16) -> u64 {
 
 @no_mangle
 pub fn sys_tcp_accept(listen_slot: u64) -> u64 {
-    let mut result = tcp_accept_extern(listen_slot);
-    while result == 0xFFFFFFFFFFFFFFFF {
+    let mut ret = tcp_accept_extern(listen_slot);
+    while ret == 0xFFFFFFFFFFFFFFFF {
         let slot = process.current();
         process.set_ipc_msg(slot, 0, listen_slot, 0, 0);
         process.set_state(slot, PROC_BLOCKED_ACCEPT);
         schedule_next();
-        result = tcp_accept_extern(listen_slot);
+        ret = tcp_accept_extern(listen_slot);
     }
-    return result;
+    return ret;
 }

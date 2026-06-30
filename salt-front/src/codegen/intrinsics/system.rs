@@ -3,6 +3,78 @@ use crate::codegen::context::{LoweringContext, LocalKind};
 use crate::codegen::expr::emit_expr;
 use std::collections::HashMap;
 
+fn emit_prefetch_intrinsic(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    args: &[syn::Expr],
+    local_vars: &mut HashMap<String, (Type, LocalKind)>,
+    _expected_ty: Option<&Type>,
+) -> Result<Option<(String, Type)>, String> {
+    if args.len() != 4 {
+        return Err("intrin_prefetch expects 4 arguments: (addr, rw, locality, cache_type)".to_string());
+    }
+    let (ptr, _) = emit_expr(ctx, out, &args[0], local_vars, Some(&Type::I64))?;
+
+    let extract_int = |e: &syn::Expr| -> Result<i32, String> {
+        if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(ref i), .. }) = e {
+            i.base10_parse::<i32>().map_err(|e| e.to_string())
+        } else {
+            Err("prefetch arguments (rw, locality, cache_type) must be integer literals".to_string())
+        }
+    };
+
+    let rw = extract_int(&args[1])?;
+    let hint = extract_int(&args[2])?;
+    let cache = extract_int(&args[3])?;
+
+    let ptr_converted = format!("%prefetch_ptr_{}", ctx.next_id());
+    out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", ptr_converted, ptr));
+    out.push_str(&format!("    \"llvm.intr.prefetch\"({}) <{{rw = {} : i32, hint = {} : i32, cache = {} : i32}}> : (!llvm.ptr) -> ()\n",
+        ptr_converted, rw, hint, cache));
+
+    let res = format!("%prefetch_res_{}", ctx.next_id());
+    out.push_str(&format!("    {} = arith.constant 0 : i64\n", res));
+    Ok(Some((res, Type::I64)))
+}
+
+fn emit_macos_syscall(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    args: &[syn::Expr],
+    local_vars: &mut HashMap<String, (Type, LocalKind)>,
+    _expected_ty: Option<&Type>,
+) -> Result<Option<(String, Type)>, String> {
+    if args.len() != 4 {
+        return Err("intrin::macos_syscall expects 4 arguments: (syscall_num, fd, ptr, len)".to_string());
+    }
+    let (syscall_num, _) = emit_expr(ctx, out, &args[0], local_vars, Some(&Type::I64))?;
+    let (fd, _) = emit_expr(ctx, out, &args[1], local_vars, Some(&Type::I64))?;
+    let (ptr, ptr_ty) = emit_expr(ctx, out, &args[2], local_vars, None)?;
+    let (len, _) = emit_expr(ctx, out, &args[3], local_vars, None)?;
+
+    let ptr_i64 = if matches!(ptr_ty, Type::Struct(_) | Type::Concrete(_, _)) {
+        let ptr_ty_mlir = ptr_ty.to_mlir_storage_type(ctx)?;
+        let extracted = format!("%ptr_raw_{}", ctx.next_id());
+        if ptr_ty_mlir.contains("struct") || ptr_ty_mlir.starts_with("!struct_") || ptr_ty_mlir.starts_with("!llvm.struct") {
+            ctx.emit_extractvalue(out, &extracted, &ptr, 0, &ptr_ty_mlir);
+            extracted
+        } else {
+            ptr.clone()
+        }
+    } else if matches!(ptr_ty, Type::Reference(_, _)) {
+        let addr = format!("%ptr_addr_{}", ctx.next_id());
+        out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", addr, ptr));
+        addr
+    } else {
+        ptr.clone()
+    };
+
+    let res = format!("%sys_res_{}", ctx.next_id());
+    out.push_str(&format!("    {} = \"llvm.intr.aarch64.syscall\"({}, {}, {}, {}) : (i64, i64, i64, i64) -> i64\n",
+        res, syscall_num, fd, ptr_i64, len));
+    Ok(Some((res, Type::I64)))
+}
+
 pub fn emit_system_intrinsic(
     ctx: &mut LoweringContext,
     out: &mut String,
@@ -63,31 +135,7 @@ pub fn emit_system_intrinsic(
             Ok(Some((res, Type::U64)))
         }
         "intrin_prefetch" | "std__simd__intrin_prefetch" => {
-            if args.len() != 4 {
-                return Err("intrin_prefetch expects 4 arguments: (addr, rw, locality, cache_type)".to_string());
-            }
-            let (ptr, _) = emit_expr(ctx, out, &args[0], local_vars, Some(&Type::I64))?;
-            
-            let extract_int = |e: &syn::Expr| -> Result<i32, String> {
-                if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(ref i), .. }) = e {
-                    i.base10_parse::<i32>().map_err(|e| e.to_string())
-                } else {
-                    Err("prefetch arguments (rw, locality, cache_type) must be integer literals".to_string())
-                }
-            };
-            
-            let rw = extract_int(&args[1])?;
-            let hint = extract_int(&args[2])?;
-            let cache = extract_int(&args[3])?;
-            
-            let ptr_converted = format!("%prefetch_ptr_{}", ctx.next_id());
-            out.push_str(&format!("    {} = llvm.inttoptr {} : i64 to !llvm.ptr\n", ptr_converted, ptr));
-            out.push_str(&format!("    \"llvm.intr.prefetch\"({}) <{{rw = {} : i32, hint = {} : i32, cache = {} : i32}}> : (!llvm.ptr) -> ()\n",
-                ptr_converted, rw, hint, cache));
-            
-            let res = format!("%prefetch_res_{}", ctx.next_id());
-            out.push_str(&format!("    {} = arith.constant 0 : i64\n", res));
-            Ok(Some((res, Type::I64)))
+            emit_prefetch_intrinsic(ctx, out, args, local_vars, expected_ty)
         }
         "intrin_expect" | "std__simd__intrin_expect" => {
             if args.len() != 2 {
@@ -118,41 +166,13 @@ pub fn emit_system_intrinsic(
             Err("target::has_feature expects string literal".to_string())
         }
         name if name.contains("macos_syscall") => {
-            if args.len() != 4 {
-                return Err("intrin::macos_syscall expects 4 arguments: (syscall_num, fd, ptr, len)".to_string());
-            }
-            let (syscall_num, _) = emit_expr(ctx, out, &args[0], local_vars, Some(&Type::I64))?;
-            let (fd, _) = emit_expr(ctx, out, &args[1], local_vars, Some(&Type::I64))?;
-            let (ptr, ptr_ty) = emit_expr(ctx, out, &args[2], local_vars, None)?;
-            let (len, _) = emit_expr(ctx, out, &args[3], local_vars, None)?;
-
-            let ptr_i64 = if matches!(ptr_ty, Type::Struct(_) | Type::Concrete(_, _)) {
-                let ptr_ty_mlir = ptr_ty.to_mlir_storage_type(ctx)?;
-                let extracted = format!("%ptr_raw_{}", ctx.next_id());
-                if ptr_ty_mlir.contains("struct") || ptr_ty_mlir.starts_with("!struct_") || ptr_ty_mlir.starts_with("!llvm.struct") {
-                    ctx.emit_extractvalue(out, &extracted, &ptr, 0, &ptr_ty_mlir);
-                    extracted
-                } else {
-                    ptr.clone()
-                }
-            } else if matches!(ptr_ty, Type::Reference(_, _)) {
-                let addr = format!("%ptr_addr_{}", ctx.next_id());
-                out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", addr, ptr));
-                addr
-            } else {
-                ptr.clone()
-            };
-
-            let res = format!("%sys_res_{}", ctx.next_id());
-            out.push_str(&format!("    {} = \"llvm.intr.aarch64.syscall\"({}, {}, {}, {}) : (i64, i64, i64, i64) -> i64\n",
-                res, syscall_num, fd, ptr_i64, len));
-            Ok(Some((res, Type::I64)))
+            emit_macos_syscall(ctx, out, args, local_vars, expected_ty)
         }
         "pulse_io_submit" | "keuos__io_submit" => {
             if args.len() != 2 { return Err("pulse_io_submit expects 2 args: (ring, batch)".to_string()); }
             let (ring, _) = emit_expr(ctx, out, &args[0], local_vars, None)?;
             let (batch, _) = emit_expr(ctx, out, &args[1], local_vars, None)?;
-            
+
             ctx.entity_registry_mut().register_hook("salt_kqueue_submit");
             let res = format!("%io_res_{}", ctx.next_id());
             out.push_str(&format!("    {} = func.call @salt_kqueue_submit({}, {}) : (!llvm.ptr, !llvm.ptr) -> i64\n",
@@ -164,7 +184,7 @@ pub fn emit_system_intrinsic(
             let (ring, _) = emit_expr(ctx, out, &args[0], local_vars, None)?;
             let (batch, _) = emit_expr(ctx, out, &args[1], local_vars, None)?;
             let (timeout, _) = emit_expr(ctx, out, &args[2], local_vars, None)?;
-            
+
             ctx.entity_registry_mut().register_hook("salt_kqueue_reap");
             let res = format!("%io_res_{}", ctx.next_id());
             out.push_str(&format!("    {} = func.call @salt_kqueue_reap({}, {}, {}) : (!llvm.ptr, !llvm.ptr, i64) -> i64\n",
@@ -174,7 +194,7 @@ pub fn emit_system_intrinsic(
         "pulse_io_teardown" | "keuos__io_teardown" => {
             if args.len() != 1 { return Err("pulse_io_teardown expects 1 arg: (ring)".to_string()); }
             let (ring, _) = emit_expr(ctx, out, &args[0], local_vars, None)?;
-            
+
             ctx.entity_registry_mut().register_hook("salt_kqueue_teardown");
             out.push_str(&format!("    func.call @salt_kqueue_teardown({}) : (!llvm.ptr) -> ()\n", ring));
             Ok(Some(("".to_string(), Type::Unit)))

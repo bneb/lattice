@@ -75,8 +75,8 @@ impl OpenFlags {
 
 extern fn sys_open(path: &u8, flags: i32, mode: i32) -> i32;
 extern fn sys_close(fd: i32) -> i32;
-extern fn sys_read(fd: i32, buf: i64, len: i64) -> i64;
-extern fn sys_write(fd: i32, buf: &u8, len: i64) -> i64;
+extern fn sys_read(fd: u64, buf: u64, len: u64) -> u64;
+extern fn sys_write(fd: u64, buf: u64, len: u64) -> u64;
 extern fn sys_mmap(addr: u64, len: u64, prot: i32, flags: i32, fd: i32, offset: i64) -> u64;
 extern fn sys_munmap(addr: u64, len: u64) -> i32;
 

@@ -3,7 +3,7 @@ use crate::types::Type;
 use crate::codegen::context::{LoweringContext, LocalKind};
 use crate::codegen::expr::emit_expr;
 use crate::codegen::type_bridge::resolve_type;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use syn::spanned::Spanned;
 pub mod analysis;
 pub mod helpers;
@@ -411,6 +411,56 @@ pub(crate) fn get_narrowing_target(cond: &syn::Expr) -> Option<(String, bool)> {
     None
 }
 
+fn emit_cond_to_bool(ctx: &mut LoweringContext, out: &mut String, cond_val: String, cond_ty: Type) -> Result<String, String> {
+    if cond_ty.k_is_ptr_type() {
+        let id = ctx.next_id();
+        let int_val = format!("%ptrtoint_{}", id);
+        let zero_val = format!("%ptr_zero_{}", ctx.next_id());
+        let cmp_val = format!("%ptr_nonnull_{}", id);
+        out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", int_val, cond_val));
+        out.push_str(&format!("    {} = arith.constant 0 : i64\n", zero_val));
+        out.push_str(&format!("    {} = arith.cmpi ne, {}, {} : i64\n", cmp_val, int_val, zero_val));
+        Ok(cmp_val)
+    } else if cond_ty != Type::Bool {
+        Err(format!("If condition must be boolean, found {:?}", cond_ty))
+    } else {
+        Ok(cond_val)
+    }
+}
+
+fn apply_ptr_narrowing(ctx: &mut LoweringContext, narrowing: &Option<(String, bool)>, invert: bool) {
+    if let Some((var, is_neq)) = narrowing {
+        let mark_valid = if invert { !*is_neq } else { *is_neq };
+        if mark_valid {
+            ctx.pointer_tracker.mark_valid(var);
+        } else {
+            ctx.pointer_tracker.mark_empty(var);
+        }
+    }
+}
+
+fn merge_branch_consumed_vars(
+    base: &HashSet<String>,
+    base_locs: &HashMap<String, String>,
+    then_consumed: &HashSet<String>,
+    then_locs: &HashMap<String, String>,
+    else_consumed: &HashSet<String>,
+    else_locs: &HashMap<String, String>,
+    local_vars: &HashMap<String, (Type, LocalKind)>,
+) -> (HashSet<String>, HashMap<String, String>) {
+    let mut final_consumed = base.clone();
+    let mut final_locs = base_locs.clone();
+    for v in then_consumed.iter().chain(else_consumed.iter()) {
+        if local_vars.contains_key(v) {
+            final_consumed.insert(v.clone());
+            if let Some(l) = then_locs.get(v).or_else(|| else_locs.get(v)) {
+                final_locs.insert(v.clone(), l.clone());
+            }
+        }
+    }
+    (final_consumed, final_locs)
+}
+
 pub fn emit_salt_if(
     ctx: &mut LoweringContext,
     out: &mut String,
@@ -424,56 +474,23 @@ pub fn emit_salt_if(
     let label_merge = format!("merge_{}", ctx.next_id());
 
     let (cond_val, cond_ty) = emit_expr(ctx, out, cond, local_vars, None)?;
-    // Accept Pointer types as if conditions
-    let cond_val = if cond_ty.k_is_ptr_type() {
-        let id = ctx.next_id();
-        let int_val = format!("%ptrtoint_{}", id);
-        let zero_val = format!("%ptr_zero_{}", ctx.next_id());
-        let cmp_val = format!("%ptr_nonnull_{}", id);
-        out.push_str(&format!("    {} = llvm.ptrtoint {} : !llvm.ptr to i64\n", int_val, cond_val));
-        out.push_str(&format!("    {} = arith.constant 0 : i64\n", zero_val));
-        out.push_str(&format!("    {} = arith.cmpi ne, {}, {} : i64\n", cmp_val, int_val, zero_val));
-        cmp_val
-    } else if cond_ty != Type::Bool {
-        return Err(format!("If condition must be boolean, found {:?}", cond_ty));
-    } else {
-        cond_val
-    };
-
-    // Flow-Sensitive Narrowing
+    let cond_val = emit_cond_to_bool(ctx, out, cond_val, cond_ty)?;
     let narrowing = get_narrowing_target(cond);
-
-    // Save state (Push Scope) for Then branch
-    ctx.pointer_tracker.push_scope();
-
-    // Apply narrowing for Then
-    if let Some((var, is_neq)) = &narrowing {
-        if *is_neq {
-            // p != 0 -> Valid in Then
-            ctx.pointer_tracker.mark_valid(var);
-        } else {
-            // p == 0 -> Empty in Then
-            ctx.pointer_tracker.mark_empty(var);
-        }
-    }
-
-    let loc = ctx.loc_tag(cond.span());
     let has_else = else_branch.is_some();
-    if has_else {
-         out.push_str(&format!("    cf.cond_br {}, ^{}, ^{}{}\n", cond_val, label_then, label_else, loc));
-    } else {
-         out.push_str(&format!("    cf.cond_br {}, ^{}, ^{}{}\n", cond_val, label_then, label_merge, loc));
-    }
+    let loc = ctx.loc_tag(cond.span());
+
+    // Emit Then branch
+    ctx.pointer_tracker.push_scope();
+    apply_ptr_narrowing(ctx, &narrowing, false);
+    let dest_label = if has_else { &label_else } else { &label_merge };
+    out.push_str(&format!("    cf.cond_br {}, ^{}, ^{}{}\n", cond_val, label_then, dest_label, loc));
 
     let state_before = ctx.consumed_vars().clone();
     let locs_before = ctx.consumption_locs().clone();
-
-    // Save LVN cache before then-branch
     ctx.emission.global_lvn.push_snapshot();
 
     out.push_str(&format!("  ^{}:\n", label_then));
     let mut then_vars = local_vars.clone();
-    // Push branch condition for Z3 postcondition verification
     ctx.emission.path_conditions.push(cond.clone());
     let then_diverges = emit_block(ctx, out, &then_branch.stmts, &mut then_vars)?;
     ctx.emission.path_conditions.pop();
@@ -481,44 +498,26 @@ pub fn emit_salt_if(
         out.push_str(&format!("    cf.br ^{}\n", label_merge));
     }
 
-    // Restore LVN cache after then-branch — discard branch-local values
     ctx.emission.global_lvn.pop_snapshot();
-
-    // Restore Pre-If state for Else/Merge (pop "Then" scope)
     let pre_if_state_opt = ctx.pointer_tracker.pop_scope();
     if let Some(pre_if_state) = pre_if_state_opt {
         ctx.pointer_tracker.restore_state(pre_if_state);
     }
-
     let state_after_then = ctx.consumed_vars().clone();
     let locs_after_then = ctx.consumption_locs().clone();
 
-    // Restore state for Else branch
+    // Emit Else branch
     *ctx.consumed_vars_mut() = state_before.clone();
     *ctx.consumption_locs_mut() = locs_before.clone();
 
     let mut else_diverges = false;
     if has_else {
-        // Save state (Push Scope) for Else branch (which is Pre-If currently)
         ctx.pointer_tracker.push_scope();
-
-        // Apply narrowing for Else
-        if let Some((var, is_neq)) = &narrowing {
-            if *is_neq {
-                 // Else of != 0 (== 0) -> Empty
-                ctx.pointer_tracker.mark_empty(var);
-            } else {
-                 // Else of == 0 (!= 0) -> Valid
-                ctx.pointer_tracker.mark_valid(var);
-            }
-        }
-
-        // Save LVN cache before else-branch
+        apply_ptr_narrowing(ctx, &narrowing, true);
         ctx.emission.global_lvn.push_snapshot();
 
         out.push_str(&format!("  ^{}:\n", label_else));
         let mut else_vars = local_vars.clone();
-        // Push negated condition for else branch
         let negated_cond = syn::Expr::Unary(syn::ExprUnary {
             attrs: vec![],
             op: syn::UnOp::Not(syn::token::Not::default()),
@@ -529,7 +528,7 @@ pub fn emit_salt_if(
             match eb.as_ref() {
                 SaltElse::Block(b) => emit_block(ctx, out, &b.stmts, &mut else_vars)?,
                 SaltElse::If(nested) => {
-                     emit_salt_if(ctx, out, &nested.cond, &nested.then_branch, &nested.else_branch, &mut else_vars)?
+                    emit_salt_if(ctx, out, &nested.cond, &nested.then_branch, &nested.else_branch, &mut else_vars)?
                 }
             }
         } else {
@@ -540,10 +539,7 @@ pub fn emit_salt_if(
             out.push_str(&format!("    cf.br ^{}\n", label_merge));
         }
 
-        // Restore LVN cache after else-branch
         ctx.emission.global_lvn.pop_snapshot();
-
-        // Restore Pre-If state for Merge (pop "Else" scope)
         let pre_if_state_opt = ctx.pointer_tracker.pop_scope();
         if let Some(pre_if_state) = pre_if_state_opt {
             ctx.pointer_tracker.restore_state(pre_if_state);
@@ -553,36 +549,12 @@ pub fn emit_salt_if(
     let state_after_else = ctx.consumed_vars().clone();
     let locs_after_else = ctx.consumption_locs().clone();
 
-    // MERGE: Union of consumed vars, but filtered to outer scope
-    // We only care about variables that existed BEFORE the if (in local_vars)
-    // Local vars defined inside branches are out of scope, so their consumption status is irrelevant
-    // UNLESS preventing reuse of names? No, reuse is fine if new definition.
-
-    // Safety: If a variable is consumed in ANY branch executed, it is consumed.
-    // Since the taken branch is unknown, consumption must be assumed if used in EITHER (for safety).
-    // But logically, if I check `if x { move y } else { keep y }`. After: y is maybe moved.
-    // Salt requires definitive move? Or partial move tracking?
-    // For now, Union is safe (over-conservative).
-    // Filtering by `local_vars` prevents leaking inner names.
-
-    let mut final_consumed = state_before.clone();
-    let mut final_locs = locs_before.clone();
-
-    // Add Then-consumed outer vars
-    for v in state_after_then.iter() {
-        if local_vars.contains_key(v) {
-             final_consumed.insert(v.clone());
-             if let Some(l) = locs_after_then.get(v) { final_locs.insert(v.clone(), l.clone()); }
-        }
-    }
-    // Add Else-consumed outer vars
-    for v in state_after_else.iter() {
-        if local_vars.contains_key(v) {
-             final_consumed.insert(v.clone());
-             if let Some(l) = locs_after_else.get(v) { final_locs.insert(v.clone(), l.clone()); }
-        }
-    }
-
+    let (final_consumed, final_locs) = merge_branch_consumed_vars(
+        &state_before, &locs_before,
+        &state_after_then, &locs_after_then,
+        &state_after_else, &locs_after_else,
+        local_vars,
+    );
     *ctx.consumed_vars_mut() = final_consumed;
     *ctx.consumption_locs_mut() = final_locs;
 

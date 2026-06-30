@@ -22,7 +22,7 @@ package user.lib.syscall
 // =============================================================================
 // Raw Assembly Stubs (provided by user/syscall_stubs.S)
 // =============================================================================
-extern fn sys_write(fd: u64, buf: u64, len: u64);
+extern fn sys_write(fd: u64, buf: u64, len: u64) -> u64;
 extern fn sys_exit(code: u64);
 extern fn sys_brk(new_brk: u64) -> u64;
 extern fn sys_mmap(length: u64, prot: u64) -> u64;

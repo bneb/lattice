@@ -1,6 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use crate::grammar::{SaltFile, SaltFn, Item, ImportDecl};
 use crate::registry::{Registry, EnumInfo};
 use crate::types::{Type, TypeKey};
@@ -34,14 +34,6 @@ impl StringInterner {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct SpecializationTask {
-    pub template_name: String,
-    pub args: Vec<Type>,
-    pub mangled_name: String,
-    pub is_enum: bool,
-}
-
 pub mod fstring;
 pub mod resolver;
 pub mod guards;
@@ -56,28 +48,6 @@ pub mod raii;
 pub use fstring::FStringSegment;
 pub use guards::GenericContextGuard;
 pub use guards::ImportContextGuard;
-pub struct MonomorphizerState {
-    pub work_queue: VecDeque<SpecializationTask>,
-    pub pending_set: HashSet<String>,
-    pub is_frozen: bool,
-}
-
-impl Default for MonomorphizerState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl MonomorphizerState {
-    pub fn new() -> Self {
-        Self {
-            work_queue: VecDeque::new(),
-            pending_set: HashSet::new(),
-            is_frozen: false,
-        }
-    }
-}
-
 /// A cleanup task representing a resource that must be freed at scope exit.
 /// Used by the RAII-Lite system to implement Implicit Scoped Drop.
 #[derive(Clone, Debug)]
@@ -1753,8 +1723,8 @@ impl<'a> CodegenContext<'a> {
     pub fn register_builtins(&mut self) {
         self.struct_templates_mut().insert("Window".to_string(), syn::parse_str("struct Window<T, R> { data: &T, len: usize }").unwrap());
 
-        self.globals_mut().insert("sys_write".to_string(), Type::Fn(vec![Type::I32, Type::Reference(Box::new(Type::U8), false), Type::I64], Box::new(Type::I64)));
-        self.globals_mut().insert("sys_read".to_string(), Type::Fn(vec![Type::I32, Type::Reference(Box::new(Type::U8), false), Type::I64], Box::new(Type::I64)));
+        self.globals_mut().insert("sys_write".to_string(), Type::Fn(vec![Type::U64, Type::U64, Type::U64], Box::new(Type::U64)));
+        self.globals_mut().insert("sys_read".to_string(), Type::Fn(vec![Type::U64, Type::U64, Type::U64], Box::new(Type::U64)));
         self.globals_mut().insert("sys_exit".to_string(), Type::Fn(vec![Type::I32], Box::new(Type::Unit)));
         // Note: Do NOT add these to defined_functions — they are FFI functions
         // without emitted bodies. Adding them to defined_functions would suppress

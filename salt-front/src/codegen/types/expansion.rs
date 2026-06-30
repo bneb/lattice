@@ -1,4 +1,4 @@
-use crate::types::{Type, TypeKey};
+use crate::types::Type;
 use crate::codegen::context::LoweringContext;
 use crate::registry::{StructInfo, EnumInfo};
 use crate::evaluator::ConstValue;
@@ -6,72 +6,6 @@ use std::collections::HashMap;
 use crate::codegen::type_bridge::resolve_type;
 
 impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
-    pub fn drain_work_queue(&mut self) {
-        while let Some(task) = self.monomorphizer_mut().work_queue.pop_front() {
-            // Setup Context for Self-Resolution
-            let old_self = self.current_self_ty().clone();
-            let self_type = if task.is_enum { Type::Enum(task.mangled_name.clone()) } else { Type::Struct(task.mangled_name.clone()) };
-            *self.current_self_ty_mut() = Some(self_type);
-
-            // Construct Key for Registry Access
-            let base_name = &task.template_name;
-            let parts: Vec<&str> = base_name.split("__").collect();
-            let (path, name) = if parts.len() > 1 {
-                 (parts[..parts.len()-1].iter().map(|s| s.to_string()).collect::<Vec<_>>(), parts.last().expect("parts.len() > 1").to_string())
-            } else {
-                 (vec![], base_name.to_string())
-            };
-            let key = TypeKey {
-                 path,
-                 name,
-                 specialization: Some(task.args.clone()),
-            };
-
-            // EXPAND (No Registry Borrow Here, only Read Templates + Request Spec)
-            if task.is_enum {
-                if let Ok(info) = self.expand_enum_structure(&task.template_name, &task.args) {
-                    // Commit to Registry
-                    if let Some(entry) = self.enum_registry_mut().get_mut(&key) {
-                        *entry = info;
-                    }
-                }
-            } else if let Ok(info) = self.expand_template_structure(&task.template_name, &task.args) {
-                // Commit to Registry
-                if let Some(entry) = self.struct_registry_mut().get_mut(&key) {
-                    *entry = info;
-                }
-            };
-
-            // Restore Context
-            *self.current_self_ty_mut() = old_self;
-
-            // Mark as Done (Removing from pending_set is optional if registry is checked first, but good for cleanup)
-            self.monomorphizer_mut().pending_set.remove(&task.mangled_name);
-
-            // Emit the struct/enum definition into decl_out immediately after
-            // specialization so the type is defined before any function body uses it.
-            let full_ty = if task.is_enum { crate::types::Type::Enum(task.mangled_name.clone()) } else { crate::types::Type::Struct(task.mangled_name.clone()) };
-            
-            // Generate the full body definition string (e.g. !llvm.struct<"Vec_u8", (...)>)
-            // to_mlir_storage_type triggers the registry lookup and body formatting.
-            if let Ok(mlir_def) = full_ty.to_mlir_storage_type(self) {
-                // Only hoist if the returned string contains a body definition (i.e. has fields or explicitly empty body).
-                // If it returns an opaque reference (e.g. !llvm.struct<"Foo">), it means it was already emitted elsewhere.
-                if mlir_def.contains(", (") || mlir_def.contains(", ()") {
-                    let dummy_name = format!("__typedef_{}", task.mangled_name);
-                    let d = self.decl_out_mut();
-                    d.push_str(&format!("  llvm.mlir.global private @{}() : {} {{\n", dummy_name, mlir_def));
-                    d.push_str(&format!("    %0 = llvm.mlir.zero : {}\n", mlir_def));
-                    d.push_str(&format!("    llvm.return %0 : {}\n", mlir_def));
-                    d.push_str("  }\n");
-                }
-            }
-        }
-        
-        // Finalize (Freeze)
-        self.monomorphizer_mut().is_frozen = true;
-    }
-
     pub fn map_generics(&mut self, generics: &Option<crate::grammar::Generics>, args: &[Type], template_name: &str, old_const_vals: &mut Vec<(String, Option<ConstValue>)>) {
 
          if let Some(gen) = generics {

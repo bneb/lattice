@@ -346,3 +346,36 @@ sys_ipc_ring_await:
 .global sys_ipc_recv_full
 sys_ipc_recv_full:
     ud2
+
+// =============================================================================
+// Weak stubs for functions originally planned for kernel/mem/slab.salt (WiP)
+// =============================================================================
+// slab.salt is uncommitted WiP with cmpxchg16b i128 support not yet available
+// in salt-opt. These weak stubs keep the kernel buildable until slab is ready.
+
+.global __salt_overflow_panic
+.weak __salt_overflow_panic
+__salt_overflow_panic:
+    ud2
+
+.global pop_stack
+.weak pop_stack
+pop_stack:
+    xor eax, eax
+    ret
+
+.global push_stack
+.weak push_stack
+push_stack:
+    ret
+
+.global slab_watermark
+.weak slab_watermark
+slab_watermark:
+    xor eax, eax
+    ret
+
+.global init_cores
+.weak init_cores
+init_cores:
+    ret

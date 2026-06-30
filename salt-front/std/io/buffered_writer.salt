@@ -4,7 +4,7 @@
 package std.io.buffered_writer
 
 // Local extern declaration (externs can't be imported across packages)
-extern fn sys_write(fd: i32, buf: &u8, len: i64) -> i64;
+extern fn sys_write(fd: u64, buf: u64, len: u64) -> u64;
 
 // Buffer size: 8192 bytes (8KB) for optimal syscall batching
 const BUFFER_SIZE: i64 = 8192;

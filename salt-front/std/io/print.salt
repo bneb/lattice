@@ -8,7 +8,7 @@ import std.string.String
 
 // Extern declaration for low-level write (platform specific)
 @no_mangle
-extern fn sys_write(fd: i32, buf: &u8, len: i64) -> i64;
+extern fn sys_write(fd: u64, buf: u64, len: u64) -> u64;
 
 // Print a single displayable value
 pub fn print<T: Display>(value: &T) {

@@ -3,6 +3,58 @@ use crate::codegen::context::{LoweringContext, LocalKind};
 use crate::codegen::expr::emit_expr;
 use std::collections::HashMap;
 
+fn emit_neon_cmpeq(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    args: &[syn::Expr],
+    local_vars: &mut HashMap<String, (Type, LocalKind)>,
+) -> Result<Option<(String, Type)>, String> {
+    if args.len() != 2 {
+        return Err("Intrinsic 'm4_neon_cmpeq_i8' expects 2 arguments (vec, char)".to_string());
+    }
+    let (vec_var, _) = emit_expr(ctx, out, &args[0], local_vars, None)?;
+    let (char_var, _) = emit_expr(ctx, out, &args[1], local_vars, None)?;
+    let trunc = format!("%ceq_byte_{}", ctx.next_id());
+    out.push_str(&format!("    {} = arith.trunci {} : i64 to i8\n", trunc, char_var));
+    let splat = format!("%ceq_splat_{}", ctx.next_id());
+    out.push_str(&format!("    {} = \"llvm.mlir.undef\"() : () -> vector<16xi8>\n", splat));
+    let splat_full = format!("%ceq_splat_full_{}", ctx.next_id());
+    out.push_str(&format!("    {} = \"llvm.intr.aarch64.neon.dup.lane.v16i8\"({}, {}) : (vector<16xi8>, i32) -> vector<16xi8>\n", splat_full, splat, "0"));
+    let res = format!("%ceq_res_{}", ctx.next_id());
+    out.push_str(&format!("    {} = \"llvm.intr.aarch64.neon.cmeq.v16i8\"({}, {}) : (vector<16xi8>, vector<16xi8>) -> vector<16xi8>\n", res, vec_var, splat_full));
+    let reduced = format!("%ceq_max_{}", ctx.next_id());
+    out.push_str(&format!("    {} = \"llvm.intr.aarch64.neon.umaxv.i8.v16i8\"({}) : (vector<16xi8>) -> i8\n", reduced, res));
+    let ext = format!("%ceq_ext_{}", ctx.next_id());
+    out.push_str(&format!("    {} = arith.extui {} : i8 to i64\n", ext, reduced));
+    Ok(Some((ext, Type::I64)))
+}
+
+fn emit_vector_relu(
+    ctx: &mut LoweringContext,
+    out: &mut String,
+    args: &[syn::Expr],
+    local_vars: &mut HashMap<String, (Type, LocalKind)>,
+) -> Result<Option<(String, Type)>, String> {
+    if args.len() != 1 {
+        return Err("v_relu expects 1 argument".to_string());
+    }
+    let (a, ty_a) = emit_expr(ctx, out, &args[0], local_vars, None)?;
+    let res = format!("%vrelu_{}", ctx.next_id());
+    let mlir_ty = ty_a.to_mlir_type(ctx)?;
+    let (_shape, inner_ty) = if let Type::Concrete(_, args) = &ty_a {
+        if args.len() >= 2 { (0, &args[0]) } else { (0, &Type::F32) }
+    } else { (0, &Type::F32) };
+    let zero_const = format!("%cst_zero_{}", ctx.next_id());
+    if inner_ty.is_float() {
+        out.push_str(&format!("    {} = arith.constant dense<0.0> : {}\n", zero_const, mlir_ty));
+    } else {
+        out.push_str(&format!("    {} = arith.constant dense<0> : {}\n", zero_const, mlir_ty));
+    }
+    let op = if inner_ty.is_float() { "arith.maxnumf" } else { "arith.maxsi" };
+    out.push_str(&format!("    {} = {} {}, {} : {}\n", res, op, a, zero_const, mlir_ty));
+    Ok(Some((res, ty_a)))
+}
+
 pub fn emit_simd_intrinsic(
     ctx: &mut LoweringContext,
     out: &mut String,
@@ -27,26 +79,7 @@ pub fn emit_simd_intrinsic(
             out.push_str(&format!("    {} = llvm.extractvalue {}[0] : !llvm.array<2 x i64>\n", lo, cast));
             Ok(Some((lo, Type::I64)))
         }
-        "m4_neon_cmpeq_i8" | "keuos__neon_cmpeq" => {
-            if args.len() != 2 {
-                return Err("Intrinsic 'm4_neon_cmpeq_i8' expects 2 arguments (vec, char)".to_string());
-            }
-            let (vec_var, _) = emit_expr(ctx, out, &args[0], local_vars, None)?;
-            let (char_var, _) = emit_expr(ctx, out, &args[1], local_vars, None)?;
-            let trunc = format!("%ceq_byte_{}", ctx.next_id());
-            out.push_str(&format!("    {} = arith.trunci {} : i64 to i8\n", trunc, char_var));
-            let splat = format!("%ceq_splat_{}", ctx.next_id());
-            out.push_str(&format!("    {} = \"llvm.mlir.undef\"() : () -> vector<16xi8>\n", splat));
-            let splat_full = format!("%ceq_splat_full_{}", ctx.next_id());
-            out.push_str(&format!("    {} = \"llvm.intr.aarch64.neon.dup.lane.v16i8\"({}, {}) : (vector<16xi8>, i32) -> vector<16xi8>\n", splat_full, splat, "0"));
-            let res = format!("%ceq_res_{}", ctx.next_id());
-            out.push_str(&format!("    {} = \"llvm.intr.aarch64.neon.cmeq.v16i8\"({}, {}) : (vector<16xi8>, vector<16xi8>) -> vector<16xi8>\n", res, vec_var, splat_full));
-            let reduced = format!("%ceq_max_{}", ctx.next_id());
-            out.push_str(&format!("    {} = \"llvm.intr.aarch64.neon.umaxv.i8.v16i8\"({}) : (vector<16xi8>) -> i8\n", reduced, res));
-            let ext = format!("%ceq_ext_{}", ctx.next_id());
-            out.push_str(&format!("    {} = arith.extui {} : i8 to i64\n", ext, reduced));
-            Ok(Some((ext, Type::I64)))
-        }
+        "m4_neon_cmpeq_i8" | "keuos__neon_cmpeq" => emit_neon_cmpeq(ctx, out, args, local_vars),
         "m4_neon_movemask" | "keuos__neon_movemask" => {
             if args.len() != 1 {
                 return Err("Intrinsic 'm4_neon_movemask' expects 1 argument (vec)".to_string());
@@ -107,24 +140,7 @@ pub fn emit_simd_intrinsic(
              out.push_str(&format!("    {} = vector.fma {}, {}, {} : {}\n", res, a, b, acc, mlir_ty));
              Ok(Some((res, ty_acc)))
         }
-        "v_relu" => {
-             if args.len() != 1 { return Err("v_relu expects 1 argument".to_string()); }
-             let (a, ty_a) = emit_expr(ctx, out, &args[0], local_vars, None)?;
-             let res = format!("%vrelu_{}", ctx.next_id());
-             let mlir_ty = ty_a.to_mlir_type(ctx)?;
-             let (_shape, inner_ty) = if let Type::Concrete(_, args) = &ty_a {
-                  if args.len() >= 2 { (0, &args[0]) } else { (0, &Type::F32) }
-             } else { (0, &Type::F32) };
-             let zero_const = format!("%cst_zero_{}", ctx.next_id());
-             if inner_ty.is_float() {
-                 out.push_str(&format!("    {} = arith.constant dense<0.0> : {}\n", zero_const, mlir_ty));
-             } else {
-                 out.push_str(&format!("    {} = arith.constant dense<0> : {}\n", zero_const, mlir_ty));
-             }
-             let op = if inner_ty.is_float() { "arith.maxnumf" } else { "arith.maxsi" };
-             out.push_str(&format!("    {} = {} {}, {} : {}\n", res, op, a, zero_const, mlir_ty));
-             Ok(Some((res, ty_a)))
-        }
+        "v_relu" => emit_vector_relu(ctx, out, args, local_vars),
         "v_hsum" => {
              if args.len() != 1 { return Err("v_hsum expects 1 argument".to_string()); }
              let (v, ty) = emit_expr(ctx, out, &args[0], local_vars, None)?;
@@ -133,7 +149,7 @@ pub fn emit_simd_intrinsic(
                  if !args.is_empty() { args[0].clone() } else { Type::F32 }
              } else { Type::F32 };
              let scalar_mlir = inner_ty.to_mlir_type(ctx)?;
-             
+
              let res = format!("%vhsum_{}", ctx.next_id());
              out.push_str(&format!("    {} = vector.reduction <add>, {} : {} into {}\n", res, v, mlir_ty, scalar_mlir));
              Ok(Some((res, inner_ty)))

@@ -7,7 +7,7 @@ package std.io.buffered_reader
 import std.core.ptr.Ptr
 
 // Local extern declarations (externs can't be imported across packages)
-extern fn sys_read(fd: i32, buf: i64, len: i64) -> i64;
+extern fn sys_read(fd: u64, buf: u64, len: u64) -> u64;
 extern fn sys_close(fd: i32) -> i32;
 
 // Buffer size: 8KB for optimal syscall batching
