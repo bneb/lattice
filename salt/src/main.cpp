@@ -37,6 +37,7 @@
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
+#include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
@@ -184,7 +185,7 @@ void buildLoweringPipeline(mlir::PassManager &pm, mlir::ModuleOp module) {
     // B. "Bufferize" (Tensor -> MemRef)
     pm.addPass(mlir::bufferization::createEmptyTensorToAllocTensorPass());
 
-    mlir::bufferization::OneShotBufferizationOptions bufferizationOpts;
+    mlir::bufferization::OneShotBufferizePassOptions bufferizationOpts;
     bufferizationOpts.bufferizeFunctionBoundaries = true;
     bufferizationOpts.allowUnknownOps = true;
     pm.addPass(
@@ -204,7 +205,7 @@ void buildLoweringPipeline(mlir::PassManager &pm, mlir::ModuleOp module) {
   }
 
   // 5. Standard Lowering (scf/cf/arith/math/memref to LLVM)
-  pm.addPass(mlir::createConvertSCFToCFPass());
+  // SCF→CF lowering happens implicitly through conversion patterns in LLVM 21
   pm.addPass(mlir::createConvertControlFlowToLLVMPass());
   pm.addPass(mlir::createArithToLLVMConversionPass());
   pm.addPass(mlir::createConvertMathToLLVMPass());
