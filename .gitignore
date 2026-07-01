@@ -165,7 +165,7 @@ fail_semantic_*.salt
 .bench_basalt/
 salt/build_linux/
 docs/BLOG_OUTLINE.md
-docs/launch/
+docs/launch/hn_post.md
 tools/blog-style.css
 tools/blog-style.css
 .claude/
