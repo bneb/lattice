@@ -1,8 +1,6 @@
-# Salt Language — Syntax Reference
+# Salt — Syntax Reference
 
-> A systems language with formal verification, designed for performance without compromise.
-
-Salt compiles to MLIR → LLVM IR → native binary. It uses a Rust-like syntax with verification-first semantics.
+Salt looks like Rust but compiles through MLIR. The key difference: `requires` and `ensures` clauses are proved by Z3 at compile time.
 
 ---
 
@@ -13,72 +11,63 @@ package main
 
 fn main() -> i32 {
     let x: i32 = 42;
-    let mut counter = 0;      // Type inferred as i32
+    let mut counter = 0;      // type inferred as i32
     counter += 1;
     println("hello world");
     return 0;
 }
 ```
 
-- `let` for immutable bindings, `let mut` for mutable
-- Type inference for locals — annotations optional when unambiguous
-- `//` single-line comments (only style supported)
+`let` for immutable, `let mut` for mutable. Type annotations are optional when the compiler can infer them. `//` for comments (single-line only).
 
 ---
 
 ## Types
 
-| Type | Description |
-|------|-------------|
+| Type | What it is |
+|------|------------|
 | `i8`, `i16`, `i32`, `i64` | Signed integers |
 | `u8`, `u16`, `u32`, `u64` | Unsigned integers |
 | `f32`, `f64` | Floating point |
 | `bool` | Boolean |
 | `char` | Character (emitted as `i8`) |
-| `Ptr<T>` | Typed pointer with provenance |
+| `Ptr<T>` | Typed pointer with provenance tracking |
 | `&T`, `&mut T` | References |
 | `[T; N]` | Fixed-size arrays |
 | `(T, U)` | Tuples |
-| `fn(T1, T2) -> R` | Function pointer type (first-class) |
+| `fn(T1, T2) -> R` | Function pointer (first-class type) |
 | `String` | Heap-owning string (`{data, len, cap}`) |
 | `StringView` | Non-owning string slice (`{ptr, len}`) |
 
-### String Types
+### Strings
 
-`String` owns its memory (heap-allocated). `StringView` borrows existing bytes (zero-copy).
+Two string types. `String` owns its memory. `StringView` borrows existing bytes without copying.
 
 ```salt
 use std.string.String
 use std.core.str.StringView
 
-// Owned → Borrowed (zero-copy, no allocation)
 let s = String::with_capacity(16);
-let view = s.as_view();               // StringView { ptr, len }
+let view = s.as_view();               // zero-copy borrow
 
-// Borrowed → Owned (allocates + copies)
-let owned = String::from_view(&view);  // new String with copied bytes
+let owned = String::from_view(&view);  // allocates + copies
 
-// String literals are StringView by default (no cast needed)
-let sv = "hello";                     // StringView { ptr: ..., len: 5 }
+// String literals are StringView by default:
+let sv = "hello";                     // StringView
 let len = sv.length();                // 5
 let byte = sv.byte_at(0);            // 72 ('H')
-
-// Explicit cast still works for backward compat
-let sv2 = "hello" as StringView;      // Also valid (explicit)
 ```
 
-**Naming convention**: `as_*` = zero-cost/borrowing, `from_*` = allocating copy.
+Convention: `as_*` is zero-cost/borrowing. `from_*` allocates.
 
-
-### Character Literals
+### Characters
 
 ```salt
 let a: i8 = 'A';       // 65
 let nl: i8 = '\n';     // 10
-let nul: i8 = '\0';    // 0
 ```
 
-Character literals compile to `i8` constants representing the Unicode scalar value.
+Character literals become `i8` constants.
 
 ---
 
@@ -93,86 +82,77 @@ pub fn public_function(x: i64) -> i64 {
     return x * 2;
 }
 
-// Generic functions
+// Generics use monomorphization
 fn identity<T>(x: T) -> T {
     return x;
 }
 ```
 
-### Function Pointers
+### Function pointers
 
 ```salt
-// First-class function pointer types
 let f: fn(u64, u64) -> u64 = add;
-let result = f(3, 4);           // Indirect call through function pointer
+let result = f(3, 4);           // indirect call
 
-// Get raw address of a function
-let addr: u64 = fn_addr(add);   // For IDT vectors, dispatch tables
+// Get the raw address (for IDT vectors, dispatch tables):
+let addr: u64 = fn_addr(add);
 
-// Function pointers in struct fields (SIP dispatch tables)
+// Function pointers in structs:
 struct Handler {
     on_read: fn(u64) -> u64,
     on_write: fn(u64, u64) -> u64,
 }
 ```
 
-### Foreign Function Interface (FFI)
+### FFI
 
-Salt uses the standard C Application Binary Interface (ABI), making it trivial to interoperate with C, Rust, or Assembly.
+Salt uses the C ABI. `extern fn` declares a C function. `@export` stops name mangling so C code can call Salt.
 
-**Calling C from Salt (`extern fn`)**
 ```salt
 extern fn malloc(size: i64) -> Ptr<u8>;
 extern fn free(ptr: Ptr<u8>);
 
-@trusted // Skip Z3 verification for FFI wrappers
+@trusted  // skip Z3 verification for FFI wrappers
 fn allocate_buffer(size: i64) -> Ptr<u8> {
     return malloc(size);
 }
 ```
 
-**Calling Salt from C (`@export`)**
-By default, Salt mangles function names. Use `@export` to prevent name mangling and expose the function to external linkers.
 ```salt
 @export
 fn salt_compute(a: i32, b: i32) -> i32 {
     return a + b;
 }
 ```
-*Note on Types: The Salt compiler enforces FFI safety at compile time. Only primitive types (`i32`, `f64`), function pointers, and raw pointers (`Ptr<T>`) may cross the FFI boundary. Attempting to pass complex Salt types like `String` by value will result in a compile-time error.*
+
+Only primitives, function pointers, and `Ptr<T>` can cross the FFI boundary. Passing a `String` by value is a compile error.
 
 ### Attributes
 
 ```salt
-@inline
-fn fast_path(x: i32) -> i32 { return x + 1; }
+@inline     fn fast_path(x: i32) -> i32 { return x + 1; }
+@pure       fn hash(x: i64) -> i64 { return x * 2654435761; }
+@trusted    fn ffi_wrapper() -> i32 { return libc_call(); }
 
-@pure                    // Modeled as Z3 uninterpreted function
-fn hash(x: i64) -> i64 { return x * 2654435761; }
+@yielding              // cooperative scheduling at loop back-edges
+fn long_task() { ... }
 
-@yielding                // Enables cooperative scheduling
-fn long_task() { /* ... */ }
+@yielding(4096)        // custom heartbeat (iterations between yields)
+fn compute_loop() { ... }
 
-@yielding(4096)          // Custom heartbeat pulse (iterations between yields)
-fn compute_loop() { /* ... */ }
+@pulse(60)             // 60Hz tick rate for interactive tasks
+fn game_loop() { ... }
 
-@pulse(60)               // 60Hz tick rate for interactive tasks
-fn game_loop() { /* ... */ }
-
-@trusted                 // Skip Z3 verification (FFI wrappers)
-fn ffi_wrapper() -> i32 { return libc_call(); }
-
-@derive(Clone, Hash, Eq, Ord)  // Auto-generate trait impls from fields
+@derive(Clone, Hash, Eq, Ord)  // auto-generate trait impls from fields
 pub struct Point {
     pub x: i64,
     pub y: i64
 }
-// Expands to: impl Clone, Hash, Eq, Ord for Point (field-wise)
 ```
 
 ---
 
-## Structs & Methods
+## Structs and methods
 
 ```salt
 struct Point {
@@ -196,44 +176,9 @@ let d2 = p.distance_squared();     // 25.0
 
 ### Traits
 
-Salt provides built-in traits that types can implement:
+Four built-in traits: `Clone`, `Eq`, `Hash`, `Ord`. Implement them manually, or use `@derive` to generate field-wise implementations.
 
 ```salt
-use std.core.clone.Clone
-use std.eq.Eq
-use std.hash.Hash
-use std.ord.Ord
-
-// Manual implementation:
-impl Clone for Color {
-    fn clone(&self) -> Color {
-        return Color { r: self.r, g: self.g, b: self.b };
-    }
-}
-
-impl Eq for Color {
-    fn eq(&self, other: &Color) -> bool {
-        return self.r == other.r && self.g == other.g && self.b == other.b;
-    }
-}
-
-impl Hash for Color {
-    fn hash(&self) -> u64 {
-        let mut h: u64 = self.r as u64;
-        h = h ^ ((self.g as u64) << 16) ^ ((self.g as u64) >> 48);
-        return h;
-    }
-}
-
-impl Ord for Color {
-    fn cmp(&self, other: &Color) -> i32 {
-        let c = self.r.cmp(&other.r);
-        if c != 0 { return c; }
-        return self.g.cmp(&other.g);
-    }
-}
-
-// Or use @derive to auto-generate all of the above:
 @derive(Clone, Eq, Hash, Ord)
 pub struct Color {
     pub r: u8,
@@ -242,16 +187,16 @@ pub struct Color {
 }
 ```
 
-| Trait | Method | Description |
-|-------|--------|-------------|
-| `Clone` | `clone(&self) -> Self` | Produce a copy of the value |
-| `Eq` | `eq(&self, other: &Self) -> bool` | Field-wise equality |
-| `Hash` | `hash(&self) -> u64` | WyHash-based hashing for HashMap keys |
-| `Ord` | `cmp(&self, other: &Self) -> i32` | Lexicographic ordering (-1, 0, 1) |
+| Trait | Method |
+|-------|--------|
+| `Clone` | `clone(&self) -> Self` |
+| `Eq` | `eq(&self, other: &Self) -> bool` |
+| `Hash` | `hash(&self) -> u64` |
+| `Ord` | `cmp(&self, other: &Self) -> i32` |
 
 ---
 
-## Enums & Pattern Matching
+## Enums and pattern matching
 
 ```salt
 enum Shape {
@@ -267,7 +212,7 @@ fn area(s: Shape) -> f32 {
 }
 ```
 
-### Match Guards
+Match guards:
 
 ```salt
 match value {
@@ -277,7 +222,7 @@ match value {
 }
 ```
 
-### Let-Else
+Let-else for early return on `Option`/`Result`:
 
 ```salt
 let Some(val) = maybe_value else {
@@ -286,25 +231,18 @@ let Some(val) = maybe_value else {
 };
 ```
 
-### Tuple Destructuring
+Tuple destructuring:
 
 ```salt
-let pair = (42, 99);
-let (a, b) = pair;              // a = 42, b = 99
-
-let triple = (1, 2, 3);
-let (x, y, z) = triple;         // x = 1, y = 2, z = 3
-
-let nested = (10, (20, 30));
-let (a, (b, c)) = nested;       // a = 10, b = 20, c = 30
+let (a, b) = pair;
+let (x, (y, z)) = nested;
 ```
 
 ---
 
-## Control Flow
+## Control flow
 
 ```salt
-// If-else
 if x > 0 {
     println("positive");
 } else if x == 0 {
@@ -313,30 +251,25 @@ if x > 0 {
     println("negative");
 }
 
-// While loop
 while count < 10 {
     count += 1;
 }
 
-// For loop (range-based)
 for i in 0..10 {
     sum += i;
 }
 
-// Infinite loop (with break/continue)
 loop {
-    if done {
-        break;
-    }
+    if done { break; }
     continue;
 }
 ```
 
 ---
 
-## Formal Verification — `requires` / `ensures`
+## Verification — `requires` and `ensures`
 
-Salt integrates the **Z3 theorem prover** directly into the compiler. Preconditions are **proven at compile time** — not checked at runtime.
+This is what makes Salt different. You write contracts on functions. Z3 proves them at compile time.
 
 ```salt
 fn safe_div(a: i32, b: i32) -> i32
@@ -352,115 +285,75 @@ fn bounded_access(arr: &[i32; 10], idx: i32) -> i32
 }
 ```
 
-When verification fails, the compiler produces **actionable diagnostics** with counterexample values:
+When Z3 finds a violation, you get the counterexample:
 
 ```
 VERIFICATION ERROR: could not prove '(< 15 10)'
   context: precondition check
   counterexample:
     x = 15
-  = hint: add 'requires (< 15 10)' to the function signature
+  hint: add 'requires(x < 10)' to the function signature
 ```
 
-### Concepts (Type Constraints)
+Three outcomes: Z3 proves it (check elided, zero cost), Z3 finds a counterexample (compile error with values), or Z3 times out (runtime assertion emitted, program still compiles). The timeout is 100ms per obligation. Most contracts resolve in under 10ms.
+
+**Concepts** are type constraints with verification backing (experimental):
 
 ```salt
 concept Numeric(T) requires(T > 0)
-
-// Like Rust traits but with formal verification backing
-```
-
-### Invariants
-
-```salt
-invariant x > 0;   // Statement-level assertion for verification
 ```
 
 ---
 
-## Syntactic Sugar
+## Syntactic sugar
 
-### Pipe Operator `|>`
-
-Left-to-right function composition:
+### Pipe `|>`
 
 ```salt
 let result = 5 |> square() |> double() |> add_one();
-// Equivalent to: add_one(double(square(5)))
-// 5 → 25 → 50 → 51
+// Same as: add_one(double(square(5)))
 ```
 
-### Placeholder Forwarding `_`
+### Railway `|?>`
 
-Forward the receiver value into any argument position in a method chain:
-
-```salt
-// In method chains, _ represents the result of the previous expression
-(w1 @ input).add_bias(_, HIDDEN, b1).relu(_, HIDDEN)
-
-// _ can appear in any argument position, not just first
-result.transform(x, _, y)    // receiver inserted as second arg
-```
-
-This enables fluent pipelines where the data flows through a chain of transformations.
-
-### Matmul Operator `@`
-
-Matrix multiplication using `linalg.matmul` (enables AMX on Apple Silicon):
-
-```salt
-let output = weights @ input;    // Compiles to linalg.matmul
-```
-
-### `?` Operator (Early Return)
-
-Postfix operator for `Result<T>` — extracts `Ok(v)` or returns `Err(e)` from the enclosing function:
-
-```salt
-fn process(input: Result<i64>) -> Result<i64> {
-    let val = input?;           // Extracts Ok value, or early-returns Err
-    let doubled = transform(val)?;
-    return Result::Ok(doubled);
-}
-```
-
-### Railway Operator `|?>`
-
-Error-propagating pipeline (like `?` but composable in chains):
+Short-circuits on `Err`:
 
 ```salt
 let result = input |?> parse() |?> validate() |?> transform();
-// Short-circuits on first Err
 ```
 
-### F-Strings
+### Matmul `@`
 
-String interpolation:
+Uses `linalg.matmul`. Enables AMX acceleration on Apple Silicon:
 
 ```salt
-let name = "Salt";
-let year = 2026;
+let output = weights @ input;
+```
+
+### Placeholder `_`
+
+The previous result in a method chain goes wherever you put `_`:
+
+```salt
+(w1 @ input).add_bias(_, HIDDEN, b1).relu(_, HIDDEN)
+```
+
+### F-strings
+
+```salt
 let msg = f"Hello from {name} in {year}!";
-```
 
-### Targeted F-Strings (Writer Protocol)
-
-Stream formatted output to a writer:
-
-```salt
+// Targeted f-strings stream directly to a writer:
 buffer.f"Status: {code} - {message}\n"
-// Streams directly to buffer without intermediate allocation
 ```
 
-### Force-Unwrap `~`
-
-Postfix unwrap operator:
+### Force-unwrap `~`
 
 ```salt
-let val = maybe_result~;    // Panics if Err/None
+let val = maybe_result~;    // panics if Err/None
 ```
 
-### Hex Literals
+### Hex literals
 
 ```salt
 let magic = hex"DEADBEEF";
@@ -468,41 +361,37 @@ let magic = hex"DEADBEEF";
 
 ---
 
-## Modules & Imports
+## Modules and imports
 
 ```salt
 package mylib
 
-// Dot-separated imports (the only style supported)
 use std.string.String
 use std.core.ptr.*
 use std.io.file.{File, BufferedReader}
 ```
 
+Dot-separated paths only. No `::` style.
+
 ---
 
-## Unsafe & Memory Regions
+## Unsafe and memory regions
 
 ```salt
 unsafe {
     let raw: Ptr<u8> = malloc(1024);
-    // Raw pointer operations
 }
 
 with region arena {
-    // Scoped memory region — allocations freed at end of scope
+    // everything allocated here is freed at end of scope
 }
 ```
 
-### Move Semantics
-
-```salt
-move value;              // Explicit ownership transfer
-```
+`move value;` for explicit ownership transfer.
 
 ---
 
-## Iterator Combinators
+## Iterators
 
 ```salt
 use std.core.iter.Range
@@ -513,76 +402,64 @@ let evens = Range::new(0, 100)
     .sum();
 ```
 
-Available combinators: `.filter()`, `.map()`, `.sum()`, `.fold()`, `.count()`, `.any()`, `.all()`
+Combinators: `.filter()`, `.map()`, `.sum()`, `.fold()`, `.count()`, `.any()`, `.all()`.
 
 ---
 
-## Threading & Synchronization
+## Threading and synchronization
 
 ```salt
 use std.thread.Thread
 use std.sync.{Mutex, AtomicI64}
 
-fn worker() {
-    println("running on thread");
-}
+let handle = Thread::spawn(worker);
+handle.join();
 
-fn main() -> i32 {
-    // Spawn a thread
-    let handle = Thread::spawn(worker);   // Auto Fn→i64 coercion
-    handle.join();
+let counter = AtomicI64::new(0);
+counter.fetch_add(1);
+let val = counter.load();
 
-    // Atomic operations
-    let counter = AtomicI64::new(0);
-    counter.fetch_add(1);                    // Atomic increment
-    let val = counter.load();                // Atomic load
-
-    // Mutex
-    let m = Mutex::new();
-    m.lock();
-    // ... critical section ...
-    m.unlock();
-    m.destroy();
-
-    return 0;
-}
+let m = Mutex::new();
+m.lock();
+// ... critical section ...
+m.unlock();
+m.destroy();
 ```
 
-### Cooperative Concurrency
+### Cooperative concurrency
+
+`@yielding` functions get yield checks injected at loop back-edges. `@pulse(N)` sets the tick rate in Hz.
 
 ```salt
 @yielding
 fn worker() {
-    // Compiler injects yield checks at loop back-edges
+    // compiler injects yield checks
 }
 
-@pulse(1000)             // 1kHz tick rate
-fn high_frequency_task() { /* ... */ }
+@pulse(1000)  // 1kHz
+fn high_frequency_task() { ... }
 ```
 
-Salt uses **register-pinned deadlines** and fixed-point call-graph propagation for C10M-scale concurrency with sub-cycle yield check overhead.
+Yield checks use register-pinned deadlines with sub-cycle overhead.
 
 ### Channels
 
 ```salt
 use std.channel.channel.{Channel, UnboundedChannel}
 
-// Bounded channel (fixed-capacity ring buffer)
 let ch = Channel::bounded(4);
-ch.send(42);                        // Blocks if full
-let val = ch.try_recv();             // Option::Some(42) or Option::None
+ch.send(42);                  // blocks if full
+let val = ch.try_recv();       // Option::Some(42) or Option::None
 
-// Unbounded channel (heap-backed, doubles on overflow)
 let uch = UnboundedChannel::new();
 uch.send(1);
 uch.send(2);
-uch.send(3);
-let v = uch.try_recv();              // Option::Some(1) — FIFO order
+let v = uch.try_recv();        // FIFO
 ```
 
 ---
 
-## Process Execution
+## Process execution
 
 ```salt
 use std.process.Command
@@ -590,23 +467,21 @@ use std.process.Command
 let status = Command::new("/bin/echo")
     .arg1("hello")
     .execute();
-// status = exit code (0 = success)
 ```
 
 ---
 
-## HTTP Client
+## HTTP client
 
 ```salt
 use std.http.client
 
-// Low-level: connect, send, receive
 let fd = client::connect("127.0.0.1", 8080);
 client::send(fd, request_bytes, request_len);
 let n = client::recv(fd, response_buf, buf_size);
 client::close(fd);
 
-// High-level: GET request
+// Or just:
 let n = client::get_raw("127.0.0.1", 8080, "/health", buf, 4096);
 ```
 
@@ -616,62 +491,58 @@ let n = client::get_raw("127.0.0.1", 8080, "/health", buf, 4096);
 
 ```salt
 use std.json.json.{JsonParser, JsonWriter, JsonArray, JsonObject}
-use std.json.json.{JSON_NUMBER, JSON_BOOL, JSON_STRING, JSON_NULL}
 
-// Parsing primitives
 let mut p = JsonParser::new("42" as Ptr<u8>, 2);
-let val = p.parse_value();           // JsonValue { type_tag: JSON_NUMBER, num_val: 42.0 }
+let val = p.parse_value();
 
-// Parsing arrays
-let mut p2 = JsonParser::new("[1, true, null]" as Ptr<u8>, 15);
 let mut arr = JsonArray::new();
-p2.parse_array(&mut arr);            // arr.len == 3
-let first_type = arr.type_tags[0];   // JSON_NUMBER
-let first_val = arr.num_vals[0];     // 1.0
+p.parse_array(&mut arr);
 
-// Parsing objects
-let mut p3 = JsonParser::new("{\"name\":\"salt\"}" as Ptr<u8>, 15);
 let mut obj = JsonObject::new();
-p3.parse_object(&mut obj);           // obj.len == 1
+p.parse_object(&mut obj);
 
-// Writing JSON
 let mut w = JsonWriter::new(buf, 4096);
-w.write_object_start();              // {
-w.write_key("x" as Ptr<u8>, 1);     // "x":
-w.write_i64(42);                     // 42
-w.write_object_end();                // }
+w.write_object_start();
+w.write_key("x" as Ptr<u8>, 1);
+w.write_i64(42);
+w.write_object_end();
 // Result: {"x":42}
 ```
 
 ---
 
-## Compiler Flags
+## Compiler flags
 
 ```bash
-# Fast iteration — skip Z3 verification
-salt-front --no-verify my_program.salt
-
-# Full verification (default)
-salt-front my_program.salt
+saltc my_program.salt                        # full verification
+saltc my_program.salt --danger-no-verify     # skip Z3 (debug builds)
+saltc my_program.salt --release --binary     # optimized native binary
 ```
 
 ---
 
-## Design Decisions
+## Why things are the way they are
 
-| Decision | Rationale |
-|----------|-----------|
-| `requires`/`ensures` | Compile-time, not runtime — zero overhead |
-| `Ptr<T>` not `*T` | Typed pointers with provenance tracking |
-| `char` → `i8` | Simple, no Unicode complexity for systems code |
-| `loop` keyword | Cleaner than `while true`, direct `cf.br` codegen |
-| `_` placeholder | Enables fluent method chains without closures |
-| `@` matmul | Domain-specific syntax for ML — compiles to AMX |
-| MLIR backend | Enables dialect-specific optimizations (linalg, scf, affine) |
-| Explicit return | Simpler control flow analysis |
-| Result<T>, Not Result<T, E> | Status uses canonical gRPC codes + diagnostic messages |
-| `?` operator | Ergonomic error propagation with early return |
-| `fn(T) -> R` types | First-class function pointers: `fn(u64, u64) -> u64`, indirect call, `fn_addr()` |
-| `@derive` | Source-level expansion — zero magic, inspectable output |
-| Unbounded channels | Heap-backed doubling ring buffer — send never blocks |
+A few design choices that come up often:
 
+- **`requires`/`ensures` instead of runtime assertions.** The whole point. Checks that Z3 proves disappear from the binary entirely.
+
+- **`Ptr<T>` instead of `*T`.** Typed pointers carry provenance information. The compiler tracks what they point to.
+
+- **`char` is `i8`.** Systems code doesn't need Unicode complexity. If you're parsing UTF-8, use `StringView` and `byte_at()`.
+
+- **`loop` instead of `while true`.** Cleaner control flow. Maps directly to `cf.br` in MLIR. The intent is clearer.
+
+- **`_` placeholder in method chains.** Lets you write fluent pipelines without closures or lambda syntax. The previous result can fill any argument slot, not just the first one.
+
+- **`@` matmul.** Machine learning workloads shouldn't need function calls for the hottest operation in the program. Compiles to `linalg.matmul`, which LLVM can map to AMX instructions on Apple Silicon.
+
+- **MLIR backend.** Lets us use dialect-specific optimizations — `linalg` for tiling, `affine` for polyhedral transforms, `scf` for structured control flow. Writing our own codegen would mean reinventing all of this.
+
+- **Explicit `return`.** Simpler to analyze. Expression-statement tail returns work too, but `return` is the canonical style.
+
+- **`Result<T>` instead of `Result<T, E>`.** The error type is always `Status` — a gRPC-style canonical code plus a diagnostic string. One less generic parameter to thread through every function signature.
+
+- **`@derive`.** Source-level expansion. No compiler magic. Read the generated code if you want to.
+
+- **Unbounded channels use heap-backed doubling rings.** Senders never block. The cost is an occasional reallocation. For bounded channels (fixed ring buffer), senders block when full.
