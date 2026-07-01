@@ -1970,9 +1970,9 @@
                     <div class="feature-icon orange">⚡</div>
                     <h3>MLIR codegen</h3>
                     <p>Salt emits code through MLIR, the same compiler infrastructure behind TensorFlow and
-                        PyTorch. Tight loops lower to hardware-optimized instructions automatically; our matrix
-                        multiply runs 6.8× faster than <code>clang -O3</code> because the compiler picks the
-                        right tiling strategy for your chip.</p>
+                        PyTorch. The affine dialect enables automatic loop tiling without hand-tuned
+                        tile sizes — general matrix multiply runs at parity with <code>clang -O3</code>,
+                        and ML inference kernels benefit from L1-cache-aware tiling automatically.</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon blue">|&gt;</div>
@@ -2455,12 +2455,12 @@ process(&amp;buf);     <span class="cmt">// ✗ compile error: use of moved valu
             { name: 'buffered_writer', salt: 43, c: 556, rust: 58, speedup: '12×', file: 'buffered_writer_perf.salt' },
             { name: 'fstring_perf', salt: 240, c: 1112, rust: 768, speedup: '4.6×', file: 'fstring_perf.salt' },
             { name: 'longest_consecutive', salt: 260, c: 833, rust: 319, speedup: '3.2×', file: 'longest_consecutive.salt' },
-            { name: 'sudoku_solver', salt: 6, c: 15, rust: 5, speedup: '2.5×', file: 'sudoku_solver.salt' },
+            { name: 'sudoku_solver', salt: 37, c: 35, rust: 35, speedup: '~1×', parity: true, file: 'sudoku_solver.salt' },
             { name: 'writer_perf', salt: 107, c: 102, rust: 82, speedup: '~1×', parity: true, file: 'writer_perf.salt' },
             { name: 'sieve', salt: 149, c: 145, rust: 145, speedup: '~1×', parity: true, file: 'sieve.salt' },
             { name: 'fannkuch', salt: 181, c: 174, rust: 139, speedup: '~1×', parity: true, file: 'fannkuch.salt' },
             { name: 'fib', salt: 175, c: 175, rust: 188, speedup: '~1×', parity: true, file: 'fib.salt' },
-            { name: 'matmul', salt: 173, c: 150, rust: 150, speedup: '0.8×', parity: false, file: 'matmul.salt' },
+            { name: 'matmul', salt: 249, c: 241, rust: 242, speedup: '~1×', parity: true, file: 'matmul.salt' },
             { name: 'forest', salt: 27, c: 14, rust: 19, speedup: '0.5×', parity: false, file: 'forest.salt' },
         ];
 
