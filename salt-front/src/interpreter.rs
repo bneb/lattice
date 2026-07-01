@@ -27,6 +27,7 @@ impl Value {
         match self {
             Value::I32(v) => *v,
             Value::I64(v) => *v as i32,
+            #[allow(clippy::collapsible_match)]
             Value::Bool(b) => if *b { 1 } else { 0 },
             _ => 0,
         }
@@ -36,6 +37,7 @@ impl Value {
         match self {
             Value::I32(v) => *v as i64,
             Value::I64(v) => *v,
+            #[allow(clippy::collapsible_match)]
             Value::Bool(b) => if *b { 1 } else { 0 },
             _ => 0,
         }

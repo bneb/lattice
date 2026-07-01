@@ -229,6 +229,7 @@ fn has_unbounded_loop(stmts: &[Stmt]) -> bool {
                     if expr_has_unbounded_loop(expr) { return true; }
                 }
             }
+            #[allow(clippy::collapsible_match)]
             StmtKind::Expr(expr) | StmtKind::Semi(expr) | StmtKind::Return(Some(expr)) => {
                 if expr_has_unbounded_loop(expr) { return true; }
             }

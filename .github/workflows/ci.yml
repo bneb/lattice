@@ -233,6 +233,13 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             llvm-21-dev mlir-21-tools clang-21 lld-21 libz3-dev
 
+      - name: Symlink LLVM tools
+        run: |
+          for tool in llc clang clang++ opt mlir-opt; do
+            sudo ln -sf "/usr/bin/${tool}-21" "/usr/bin/${tool}" 2>/dev/null || true
+          done
+          sudo ln -sf /usr/bin/lld-21 /usr/bin/lld
+
       - name: Build salt-front
         run: cargo build --release
         working-directory: salt-front
