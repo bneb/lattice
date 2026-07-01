@@ -212,8 +212,18 @@ jobs:
     name: Kernel smoke test (QEMU)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: [build-salt-opt]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download salt-opt artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: salt-opt
+          path: salt/build
+
+      - name: Make salt-opt executable
+        run: chmod +x salt/build/salt-opt
 
       - name: Install dependencies
         run: |
