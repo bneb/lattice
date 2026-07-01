@@ -22,11 +22,6 @@ pub(crate) fn emit_sir_file(file: &crate::grammar::SaltFile, module_name: &str, 
 }
 
 pub(crate) fn handle_binary_synthesis(mlir: &str, basename: &str, config: &CliConfig) {
-    let output_bin = config.output_path
-        .as_ref()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(basename));
-
     let build_dir = std::env::temp_dir().join("salt-build");
     let mut driver = crate::driver::SaltDriver::new(build_dir);
     if let Some(ref t) = config.target_name {
@@ -36,6 +31,15 @@ pub(crate) fn handle_binary_synthesis(mlir: &str, basename: &str, config: &CliCo
                 std::process::exit(1);
             });
         driver = driver.with_target(t_parsed);
+    }
+
+    let mut output_bin = config.output_path
+        .as_ref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(basename));
+    // Windows executables need .exe extension
+    if driver.target.exe_suffix() == ".exe" && output_bin.extension().map_or(true, |e| e != "exe") {
+        output_bin.set_extension("exe");
     }
 
     eprintln!("[KeuOS] Driving MLIR -> native binary...");

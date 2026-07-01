@@ -48,7 +48,7 @@ pub fn parse_args(args: Vec<String>) -> anyhow::Result<Option<CliConfig>> {
             println!("  --release          Enable optimizations");
             println!("  --binary           Produce native Mach-O/ELF binary via Iron Driver");
             println!("  -c                 Produce .o object file (like clang -c)");
-            println!("  --target <triple>  Target: macos, linux-arm64, keuos, keuos-x86_64");
+            println!("  --target <triple>  Target: macos, linux-arm64, windows, keuos, keuos-x86_64");
             println!("  --lib              Library mode (no main entry point required)");
             println!("  --sip              Mode B SIP safety enforcement (rejects raw pointer creation)");
             println!("  --skip-scan        Skip import scanning");
@@ -85,7 +85,7 @@ pub fn parse_args(args: Vec<String>) -> anyhow::Result<Option<CliConfig>> {
                 target_name = Some(args[i+1].clone());
                 i += 1;
             } else {
-                anyhow::bail!("[E004] --target requires an argument (e.g. keuos, macos, linux-arm64)");
+                anyhow::bail!("[E004] --target requires an argument (e.g. macos, linux-arm64, windows, keuos)");
             }
         } else if arg == "--disable-alias-scopes" {
             disable_alias_scopes = true;

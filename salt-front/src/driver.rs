@@ -25,15 +25,25 @@ pub struct ToolchainPaths {
 
 impl Default for ToolchainPaths {
     fn default() -> Self {
-        // Use llvm@18 by default — matches the benchmark toolchain.
-        // llvm (latest, e.g. 21) does not support all flags we need.
-        let base = PathBuf::from("/opt/homebrew/opt/llvm@18/bin");
+        // Probe the OS-default LLVM installation path.
+        // On macOS, Homebrew installs to /opt/homebrew/opt/llvm@18/bin.
+        // On Linux, the tools are on PATH (symlinked by CI or system packages).
+        // On Windows, the official LLVM installer places them in Program Files.
+        let base = if cfg!(target_os = "macos") {
+            PathBuf::from("/opt/homebrew/opt/llvm@18/bin")
+        } else if cfg!(target_os = "windows") {
+            PathBuf::from("C:\\Program Files\\LLVM\\bin")
+        } else {
+            // Linux: assume tools are on PATH via symlinks or apt
+            PathBuf::from("/usr/bin")
+        };
+        let exe_suffix = if cfg!(target_os = "windows") { ".exe" } else { "" };
         Self {
-            mlir_opt: base.join("mlir-opt"),
-            mlir_translate: base.join("mlir-translate"),
-            llc: base.join("llc"),
-            clang: base.join("clang"),
-            lld: base.join("ld.lld"),
+            mlir_opt: base.join(format!("mlir-opt{}", exe_suffix)),
+            mlir_translate: base.join(format!("mlir-translate{}", exe_suffix)),
+            llc: base.join(format!("llc{}", exe_suffix)),
+            clang: base.join(format!("clang{}", exe_suffix)),
+            lld: base.join(format!("ld.lld{}", exe_suffix)),
         }
     }
 }
@@ -60,6 +70,8 @@ impl PipelineStep {
 pub enum DriverTarget {
     DarwinArm64,
     LinuxArm64,
+    /// Windows x86_64, PE/COFF format
+    WindowsX86_64,
     /// Bare-metal ARM64 ELF for KeuOS OS kernel/userspace
     KeuOSArm64,
     /// Bare-metal x86_64 ELF for KeuOS OS kernel/userspace
@@ -70,6 +82,8 @@ impl Default for DriverTarget {
     fn default() -> Self {
         if cfg!(target_os = "macos") {
             DriverTarget::DarwinArm64
+        } else if cfg!(target_os = "windows") {
+            DriverTarget::WindowsX86_64
         } else {
             DriverTarget::LinuxArm64
         }
@@ -82,8 +96,17 @@ impl DriverTarget {
         match self {
             DriverTarget::DarwinArm64 => "arm64-apple-macosx14.0.0",
             DriverTarget::LinuxArm64 => "aarch64-unknown-linux-gnu",
+            DriverTarget::WindowsX86_64 => "x86_64-pc-windows-msvc",
             DriverTarget::KeuOSArm64 => "aarch64-unknown-none-elf",
             DriverTarget::KeuOSX86_64 => "x86_64-unknown-none-elf",
+        }
+    }
+
+    /// Returns the output file extension for executables on this target.
+    pub fn exe_suffix(&self) -> &'static str {
+        match self {
+            DriverTarget::WindowsX86_64 => ".exe",
+            _ => "",
         }
     }
 
@@ -96,6 +119,7 @@ impl std::str::FromStr for DriverTarget {
         match s {
             "darwin-arm64" | "macos" => Ok(DriverTarget::DarwinArm64),
             "linux-arm64" => Ok(DriverTarget::LinuxArm64),
+            "windows" | "windows-x86_64" | "win32" => Ok(DriverTarget::WindowsX86_64),
             "keuos" | "keuos-arm64" => Ok(DriverTarget::KeuOSArm64),
             "keuos-x86" | "keuos-x86_64" => Ok(DriverTarget::KeuOSX86_64),
             _ => Err(format!("unknown target: {}", s)),
@@ -215,7 +239,7 @@ impl SaltDriver {
                             llc_args.push("-mcpu=cortex-a76".into());
                             llc_args.push("-mattr=+lse".into());
                         }
-                        DriverTarget::KeuOSX86_64 => {
+                        DriverTarget::KeuOSX86_64 | DriverTarget::WindowsX86_64 => {
                             // Generic x86_64 — no special CPU flags needed
                         }
                     }
