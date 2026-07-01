@@ -129,6 +129,12 @@
         <p>Salt is the language. KeuOS is the microkernel built alongside it for testing. The kernel's memory manager, IPC subsystem, and network stack use Z3 contracts. KeuOS proves that the language works for real systems code — not just benchmarks.</p>
         <p>Both are in the same repo. You can use Salt without KeuOS (the compiler targets macOS and Linux native). You cannot use KeuOS without Salt (the kernel is written in it).</p>
 
+        <h2>How does this compare to SPARK?</h2>
+        <p><a href="https://www.adacore.com/languages/spark">SPARK</a> is the closest production equivalent — an Ada subset with formal verification used in avionics, defense, and rail. It's been in development for decades. It's sound: if SPARK says a property holds, it holds.</p>
+        <p>Salt embeds the verifier directly in the compiler. SPARK uses a separate tool (GNATprove). Salt calls Z3 during normal compilation. The verification is not sound — it has a 100ms timeout and falls back to runtime checks when Z3 can't decide. This is a real trade-off.</p>
+        <p>SPARK is industrial and proven. Salt is one person's experiment. If you're building safety-critical systems today, use SPARK. Salt is exploring whether verification can be simpler, not whether it's possible.</p>
+        <p>For more on this comparison, see the <a href="https://github.com/bneb/lattice/blob/main/docs/FAQ.md">full FAQ</a>.</p>
+
         <h2>How many people work on this?</h2>
         <p>One developer. The commit history is public.</p>
 

@@ -77,6 +77,22 @@ Salt is the language. KeuOS is the microkernel built alongside it for testing. T
 
 Both are in the same repo. You can use Salt without KeuOS (the compiler targets macOS and Linux native). You cannot use KeuOS without Salt (the kernel is written in it).
 
+## How does this compare to SPARK?
+
+[SPARK](https://www.adacore.com/languages/spark) is the closest production equivalent. It's an Ada subset with formal verification — preconditions, postconditions, and invariants proved at compile time. It's used in avionics, defense, and rail systems. It's been in development for decades. It's sound: if SPARK says a property holds, it holds.
+
+Salt takes the same idea but embeds the verifier directly in the compiler pipeline. SPARK uses a separate tool (GNATprove) that runs alongside your build. Salt calls Z3 during normal compilation.
+
+The practical differences:
+
+- **Proof guarantees.** SPARK is deductive and sound — it won't miss a violation within its domain. Salt uses SMT with a 100ms timeout per obligation. When Z3 times out, the check becomes a runtime assertion. Salt skips verification silently in those cases, which is a real trade-off.
+- **What gets proved.** Both prove absence of runtime errors (bounds checks, division by zero, overflow). Salt additionally lets you express arbitrary functional properties in contracts — `ensures(result * b == a)` — which Z3 can sometimes prove. SPARK can do this too, but the proof burden is higher.
+- **Maturity.** SPARK is industrial. Salt is one person's research project. SPARK has an IDE, debugger, package manager, and a user base that builds safety-critical systems. Salt has a VS Code extension and a tutorial.
+- **Memory model.** SPARK uses ownership tracking derived from Rust's borrow checker. Salt uses arena allocation with escape analysis — no lifetimes, no borrow checking. The trade-off is that Salt's model only works for allocation patterns that fit the arena shape (request-response, frame-at-a-time).
+- **Language.** SPARK is based on Ada. Salt looks like Rust with a few syntactic differences. If you already know Rust, Salt is easier to pick up. If you work in aerospace or defense, you probably know Ada already.
+
+If you're building a safety-critical system today, use SPARK. It works now. Salt is an experiment in whether verification can be simpler, not in whether verification is possible.
+
 ## How many people work on this?
 
 One full-time developer, with occasional contributions. The commit history is public.
