@@ -69,8 +69,8 @@ pub fn compute_checksum(data_base: u64, len: u32) -> u16
     }
 
     // 4. One's complement
-    let result: u16 = (sum as u16) ^ 0xFFFF;
-    return result;
+    let res: u16 = (sum as u16) ^ 0xFFFF;
+    return res;
 }
 
 // ============================================================================
@@ -127,8 +127,8 @@ pub fn compute_tcp_checksum(src_ip: u32, dst_ip: u32, tcp_base: u64, tcp_len: u3
         sum = (sum & 0xFFFF) + (sum >> 16);
     }
 
-    let result: u16 = (sum as u16) ^ 0xFFFF;
-    return result;
+    let res: u16 = (sum as u16) ^ 0xFFFF;
+    return res;
 }
 
 // ============================================================================

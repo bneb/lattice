@@ -98,22 +98,22 @@ pub fn netd_main(arg1: u64, arg2: u64, arg3: u64) {
         let arg0 = syscall.ipc_get_msg1();
         let arg1 = syscall.ipc_get_msg2();
 
-        let mut result: u64 = 0;
+        let mut res: u64 = 0;
         let mut resp: u64 = socket_protocol.RESP_OK;
 
         if cmd == socket_protocol.CMD_BIND {
-            result = handle_bind(arg0, next_fd_ptr);
+            res = handle_bind(arg0, next_fd_ptr);
         } else if cmd == socket_protocol.CMD_ACCEPT {
-            result = handle_accept(arg0);
+            res = handle_accept(arg0);
         } else if cmd == socket_protocol.CMD_CLOSE {
             handle_close(arg0);
         } else if cmd == socket_protocol.CMD_CONNECT {
-            result = handle_connect(arg0 as u32, arg1);
+            res = handle_connect(arg0 as u32, arg1);
         } else {
             resp = socket_protocol.RESP_ERR;
         }
 
-        syscall.ipc_send(sender, resp, result, 0);
+        syscall.ipc_send(sender, resp, res, 0);
     }
 }
 
