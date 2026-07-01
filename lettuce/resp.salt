@@ -93,7 +93,7 @@ fn parse_int_from_view(&input: &StringView, start: i64, end: i64) -> i64 {
     if start < 0 || end > len || start > end {
         return 0;
     }
-    let mut result: i64 = 0;
+    let mut res: i64 = 0;
     let mut neg: bool = false;
     let mut i = start;
 
@@ -104,14 +104,14 @@ fn parse_int_from_view(&input: &StringView, start: i64, end: i64) -> i64 {
 
     while i < end {
         let b = input.byte_at(i) as i64;
-        result = result * 10 + (b - 48);
+        res = res * 10 + (b - 48);
         i = i + 1;
     }
 
     if neg {
-        return 0 - result;
+        return 0 - res;
     }
-    return result;
+    return res;
 }
 
 // ============================================================================
