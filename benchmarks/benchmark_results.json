@@ -1,20 +1,20 @@
 {
   "binary_trees": {
     "c": {
-      "time_s": 0.2390550840063952,
-      "peak_rss_kb": 4640,
+      "time_s": 0.22233216668246314,
+      "peak_rss_kb": 4736,
       "binary_size_kb": 32.84375,
       "ret_code": 96
     },
     "rs": {
-      "time_s": 0.2661775419837795,
-      "peak_rss_kb": 3872,
+      "time_s": 0.24941227798505375,
+      "peak_rss_kb": 4400,
       "binary_size_kb": 431.875,
       "ret_code": 96
     },
     "salt": {
-      "time_s": 0.06558870797744021,
-      "peak_rss_kb": 4640,
+      "time_s": 0.060177305344647415,
+      "peak_rss_kb": 4992,
       "binary_size_kb": 85.609375,
       "ret_code": 96
     },
@@ -27,20 +27,20 @@
   },
   "fannkuch": {
     "c": {
-      "time_s": 0.3232840410200879,
+      "time_s": 0.33422506967326626,
       "peak_rss_kb": 1168,
       "binary_size_kb": 32.8046875,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.3121782499947585,
-      "peak_rss_kb": 1312,
+      "time_s": 0.3256121946615167,
+      "peak_rss_kb": 1424,
       "binary_size_kb": 431.3828125,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.3064197920029983,
-      "peak_rss_kb": 2592,
+      "time_s": 0.32456969467845437,
+      "peak_rss_kb": 2640,
       "binary_size_kb": 85.4453125,
       "ret_code": 0
     },
@@ -53,20 +53,20 @@
   },
   "forest": {
     "c": {
-      "time_s": 0.03883137501543388,
+      "time_s": 0.038269055677422635,
       "peak_rss_kb": 99520,
       "binary_size_kb": 32.9140625,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.05487787502352148,
+      "time_s": 0.042204291676171124,
       "peak_rss_kb": 99728,
       "binary_size_kb": 449.7421875,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.04802133300108835,
-      "peak_rss_kb": 100912,
+      "time_s": 0.04759205567340056,
+      "peak_rss_kb": 101136,
       "binary_size_kb": 85.8046875,
       "ret_code": 0
     },
@@ -79,14 +79,14 @@
   },
   "hashmap_bench": {
     "c": {
-      "time_s": 0.06281470798421651,
-      "peak_rss_kb": 1248,
+      "time_s": 0.07357030602482457,
+      "peak_rss_kb": 2320,
       "binary_size_kb": 33.046875,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.06060637498740107,
-      "peak_rss_kb": 1904,
+      "time_s": 0.06650329200783744,
+      "peak_rss_kb": 2320,
       "binary_size_kb": 449.625,
       "ret_code": 0
     },
@@ -105,20 +105,20 @@
   },
   "lru_cache": {
     "c": {
-      "time_s": 0.04705391696188599,
-      "peak_rss_kb": 112688,
+      "time_s": 0.044281846979477756,
+      "peak_rss_kb": 112704,
       "binary_size_kb": 33.0234375,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.03960350004490465,
-      "peak_rss_kb": 33248,
+      "time_s": 0.04065677801069493,
+      "peak_rss_kb": 33360,
       "binary_size_kb": 431.984375,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.03453825000906363,
-      "peak_rss_kb": 2688,
+      "time_s": 0.027681513999899227,
+      "peak_rss_kb": 2720,
       "binary_size_kb": 86.1640625,
       "ret_code": 0
     },
@@ -131,22 +131,22 @@
   },
   "trie": {
     "c": {
-      "time_s": 0.07574354100506753,
+      "time_s": 0.07966719466882448,
       "peak_rss_kb": 125152,
       "binary_size_kb": 32.8828125,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.09383941697888076,
+      "time_s": 0.06061930568345512,
       "peak_rss_kb": 125312,
       "binary_size_kb": 432.6796875,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.06562041596043855,
-      "peak_rss_kb": 126592,
-      "binary_size_kb": 85.6796875,
-      "ret_code": 0
+      "time_s": 0,
+      "peak_rss_kb": 0,
+      "binary_size_kb": 0,
+      "ret_code": -1
     },
     "py": {
       "time_s": 0,
@@ -157,13 +157,13 @@
   },
   "buffered_writer_perf": {
     "c": {
-      "time_s": 2.508402042032685,
+      "time_s": 2.30382148566423,
       "peak_rss_kb": 1168,
       "binary_size_kb": 32.9453125,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.2156687089591287,
+      "time_s": 0.19987077733579403,
       "peak_rss_kb": 1376,
       "binary_size_kb": 431.8671875,
       "ret_code": 0
@@ -183,20 +183,20 @@
   },
   "fstring_perf": {
     "c": {
-      "time_s": 2.7970820000045933,
+      "time_s": 2.8460698749986477,
       "peak_rss_kb": 1168,
       "binary_size_kb": 32.796875,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 1.8371768340002745,
-      "peak_rss_kb": 1488,
+      "time_s": 1.7907832636653136,
+      "peak_rss_kb": 1504,
       "binary_size_kb": 449.96875,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.6406052499660291,
-      "peak_rss_kb": 316016,
+      "time_s": 0.6371991386598287,
+      "peak_rss_kb": 315648,
       "binary_size_kb": 86.078125,
       "ret_code": 0
     },
@@ -209,20 +209,20 @@
   },
   "writer_perf": {
     "c": {
-      "time_s": 0.3248352920054458,
+      "time_s": 0.3379204863255533,
       "peak_rss_kb": 1168,
       "binary_size_kb": 32.796875,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.1828424580162391,
+      "time_s": 0.1778587083487461,
       "peak_rss_kb": 1328,
       "binary_size_kb": 429.375,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.3775714169605635,
-      "peak_rss_kb": 2576,
+      "time_s": 0.31691638867293176,
+      "peak_rss_kb": 2832,
       "binary_size_kb": 86.0546875,
       "ret_code": 0
     },
@@ -235,20 +235,20 @@
   },
   "matmul": {
     "c": {
-      "time_s": 0.4717668329831213,
+      "time_s": 0.4253609583247453,
       "peak_rss_kb": 25776,
       "binary_size_kb": 32.7890625,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.4330490410211496,
+      "time_s": 0.44466348566735786,
       "peak_rss_kb": 25968,
       "binary_size_kb": 431.8671875,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.7760078340070322,
-      "peak_rss_kb": 27184,
+      "time_s": 0.4488550973474048,
+      "peak_rss_kb": 27424,
       "binary_size_kb": 85.4453125,
       "ret_code": 0
     },
@@ -261,20 +261,20 @@
   },
   "sieve": {
     "c": {
-      "time_s": 0.37112949998117983,
+      "time_s": 0.37132713897153735,
       "peak_rss_kb": 2192,
       "binary_size_kb": 32.8046875,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.3706834590411745,
+      "time_s": 0.3709884023410268,
       "peak_rss_kb": 2352,
       "binary_size_kb": 431.4296875,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.3719273750321008,
-      "peak_rss_kb": 3568,
+      "time_s": 0.37520991632482037,
+      "peak_rss_kb": 3584,
       "binary_size_kb": 85.5546875,
       "ret_code": 0
     },
@@ -287,13 +287,13 @@
   },
   "longest_consecutive": {
     "c": {
-      "time_s": 2.0004263749578968,
+      "time_s": 1.9959902220289223,
       "peak_rss_kb": 13968,
       "binary_size_kb": 33.0703125,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.8823070829967037,
+      "time_s": 0.847081069330064,
       "peak_rss_kb": 19264,
       "binary_size_kb": 450.4453125,
       "ret_code": 0
@@ -313,20 +313,20 @@
   },
   "sudoku_solver": {
     "c": {
-      "time_s": 0.06370195798808709,
+      "time_s": 0.056681374980447195,
       "peak_rss_kb": 1168,
       "binary_size_kb": 32.875,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.05072791699785739,
-      "peak_rss_kb": 1296,
+      "time_s": 0.05119358367907504,
+      "peak_rss_kb": 1376,
       "binary_size_kb": 429.0,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.05696562502998859,
-      "peak_rss_kb": 2784,
+      "time_s": 0.06138880566383401,
+      "peak_rss_kb": 2704,
       "binary_size_kb": 85.40625,
       "ret_code": 0
     },
@@ -339,20 +339,20 @@
   },
   "window_access": {
     "c": {
-      "time_s": 0.22692291595740244,
+      "time_s": 0.23400876368395984,
       "peak_rss_kb": 118384,
       "binary_size_kb": 32.6875,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.24724008300108835,
+      "time_s": 0.20840686132820943,
       "peak_rss_kb": 118544,
       "binary_size_kb": 431.609375,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.22487066604662687,
-      "peak_rss_kb": 120096,
+      "time_s": 0.2245233056601137,
+      "peak_rss_kb": 120000,
       "binary_size_kb": 85.4375,
       "ret_code": 0
     },
@@ -365,20 +365,20 @@
   },
   "vector_add": {
     "c": {
-      "time_s": 0.2671515420079231,
+      "time_s": 0.2734802636744765,
       "peak_rss_kb": 1168,
       "binary_size_kb": 16.5,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.2736405420000665,
+      "time_s": 0.2747474856635866,
       "peak_rss_kb": 1328,
       "binary_size_kb": 431.390625,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.2055878330138512,
-      "peak_rss_kb": 2576,
+      "time_s": 0.20713997199588144,
+      "peak_rss_kb": 2816,
       "binary_size_kb": 69.1640625,
       "ret_code": 0
     },
@@ -391,20 +391,20 @@
   },
   "fib": {
     "c": {
-      "time_s": 0.4615441669593565,
-      "peak_rss_kb": 1312,
+      "time_s": 0.4532716946559958,
+      "peak_rss_kb": 1168,
       "binary_size_kb": 16.4765625,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.49312274996191263,
-      "peak_rss_kb": 1424,
+      "time_s": 0.49454498568472144,
+      "peak_rss_kb": 1440,
       "binary_size_kb": 431.8515625,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.4674223340116441,
-      "peak_rss_kb": 2656,
+      "time_s": 0.4643014723357434,
+      "peak_rss_kb": 2624,
       "binary_size_kb": 69.203125,
       "ret_code": 0
     },
@@ -417,19 +417,19 @@
   },
   "global_counter": {
     "c": {
-      "time_s": 0.19436849997146055,
-      "peak_rss_kb": 1168,
+      "time_s": 0.21119613865933692,
+      "peak_rss_kb": 1184,
       "binary_size_kb": 16.53125,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.2137598330155015,
-      "peak_rss_kb": 1424,
+      "time_s": 0.20554881965896735,
+      "peak_rss_kb": 1312,
       "binary_size_kb": 431.453125,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.20460687496233732,
+      "time_s": 0.2063532083411701,
       "peak_rss_kb": 2592,
       "binary_size_kb": 85.4375,
       "ret_code": 0
@@ -443,20 +443,20 @@
   },
   "binary_tree_path": {
     "c": {
-      "time_s": 0.023323165951296687,
+      "time_s": 0.014241500020337602,
       "peak_rss_kb": 1296,
       "binary_size_kb": 32.90625,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.024772916978690773,
+      "time_s": 0.021326806008194883,
       "peak_rss_kb": 1552,
       "binary_size_kb": 432.46875,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.016722415981348604,
-      "peak_rss_kb": 2736,
+      "time_s": 0.020325291630191106,
+      "peak_rss_kb": 2848,
       "binary_size_kb": 85.578125,
       "ret_code": 0
     },
@@ -469,14 +469,14 @@
   },
   "string_hashmap_bench": {
     "c": {
-      "time_s": 0.0866140000289306,
-      "peak_rss_kb": 2880,
+      "time_s": 0.0871218609972857,
+      "peak_rss_kb": 3584,
       "binary_size_kb": 33.3203125,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.05246383300982416,
-      "peak_rss_kb": 3328,
+      "time_s": 0.051699764017636575,
+      "peak_rss_kb": 2432,
       "binary_size_kb": 450.7265625,
       "ret_code": 0
     },
@@ -495,19 +495,19 @@
   },
   "bitwise": {
     "c": {
-      "time_s": 0.05806279095122591,
+      "time_s": 0.058465666661504656,
       "peak_rss_kb": 1168,
       "binary_size_kb": 16.4453125,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.0589606249704957,
+      "time_s": 0.05723440297879279,
       "peak_rss_kb": 1312,
       "binary_size_kb": 431.3828125,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.06034304102649912,
+      "time_s": 0.06089775002328679,
       "peak_rss_kb": 2576,
       "binary_size_kb": 85.2890625,
       "ret_code": 0
@@ -521,20 +521,20 @@
   },
   "trapping_rain_water": {
     "c": {
-      "time_s": 0.18097012501675636,
+      "time_s": 0.18224901432404295,
       "peak_rss_kb": 9088,
       "binary_size_kb": 32.7734375,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.19218474999070168,
-      "peak_rss_kb": 7872,
+      "time_s": 0.193078013350411,
+      "peak_rss_kb": 9600,
       "binary_size_kb": 431.9921875,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.19369099999312311,
-      "peak_rss_kb": 3760,
+      "time_s": 0.1974461250162373,
+      "peak_rss_kb": 3984,
       "binary_size_kb": 85.359375,
       "ret_code": 0
     },
@@ -547,20 +547,20 @@
   },
   "merge_sorted_lists": {
     "c": {
-      "time_s": 0.042957749974448234,
+      "time_s": 0.043515833017105855,
       "peak_rss_kb": 1200,
       "binary_size_kb": 32.9453125,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.048135084041859955,
+      "time_s": 0.04249945866952961,
       "peak_rss_kb": 1424,
       "binary_size_kb": 432.4140625,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.04468562500551343,
-      "peak_rss_kb": 2592,
+      "time_s": 0.039823805661095925,
+      "peak_rss_kb": 2624,
       "binary_size_kb": 85.65625,
       "ret_code": 0
     },
@@ -729,19 +729,19 @@
   },
   "chase_lev_bench": {
     "c": {
-      "time_s": 0.020434417005162686,
-      "peak_rss_kb": 1168,
+      "time_s": 0.01768704199154551,
+      "peak_rss_kb": 1264,
       "binary_size_kb": 32.703125,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.017286250018514693,
+      "time_s": 0.016670736309606582,
       "peak_rss_kb": 1376,
       "binary_size_kb": 449.4375,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.021389708039350808,
+      "time_s": 0.01662869400267179,
       "peak_rss_kb": 2576,
       "binary_size_kb": 65.09375,
       "ret_code": 0
@@ -767,7 +767,7 @@
       "ret_code": -1
     },
     "salt": {
-      "time_s": 0.01864824997028336,
+      "time_s": 0.018132486011988174,
       "peak_rss_kb": 2576,
       "binary_size_kb": 69.25,
       "ret_code": 0
@@ -793,8 +793,8 @@
       "ret_code": -1
     },
     "salt": {
-      "time_s": 0.015538916981313378,
-      "peak_rss_kb": 2576,
+      "time_s": 0.021020722342655063,
+      "peak_rss_kb": 2752,
       "binary_size_kb": 69.171875,
       "ret_code": 0
     },
@@ -819,8 +819,8 @@
       "ret_code": -1
     },
     "salt": {
-      "time_s": 0.02446983300615102,
-      "peak_rss_kb": 2928,
+      "time_s": 0.025970444665290415,
+      "peak_rss_kb": 3152,
       "binary_size_kb": 85.7421875,
       "ret_code": 0
     },
@@ -833,20 +833,20 @@
   },
   "http_parser_bench": {
     "c": {
-      "time_s": 0.06674495799234137,
-      "peak_rss_kb": 1168,
+      "time_s": 0.06422668064866836,
+      "peak_rss_kb": 1392,
       "binary_size_kb": 32.796875,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.12256695801625028,
+      "time_s": 0.12354490265715867,
       "peak_rss_kb": 1344,
       "binary_size_kb": 449.1953125,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.06646579201333225,
-      "peak_rss_kb": 2800,
+      "time_s": 0.06619855534518138,
+      "peak_rss_kb": 2592,
       "binary_size_kb": 87.015625,
       "ret_code": 0
     },
@@ -871,7 +871,7 @@
       "ret_code": -1
     },
     "salt": {
-      "time_s": 0.01466270798118785,
+      "time_s": 0.016556236330264557,
       "peak_rss_kb": 2576,
       "binary_size_kb": 69.171875,
       "ret_code": 0
@@ -885,20 +885,20 @@
   },
   "sliding_window_bench": {
     "c": {
-      "time_s": 0.01754470798186958,
+      "time_s": 0.014870791366168609,
       "peak_rss_kb": 1168,
       "binary_size_kb": 32.7109375,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.020283083023969084,
+      "time_s": 0.020666111338262756,
       "peak_rss_kb": 1376,
       "binary_size_kb": 449.4453125,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.02623029099777341,
-      "peak_rss_kb": 2944,
+      "time_s": 0.01764175033895299,
+      "peak_rss_kb": 2576,
       "binary_size_kb": 65.1015625,
       "ret_code": 0
     },
@@ -923,8 +923,8 @@
       "ret_code": -1
     },
     "salt": {
-      "time_s": 0.017313166987150908,
-      "peak_rss_kb": 2576,
+      "time_s": 0.024573402653913945,
+      "peak_rss_kb": 2800,
       "binary_size_kb": 69.171875,
       "ret_code": 0
     },
@@ -949,7 +949,7 @@
       "ret_code": -1
     },
     "salt": {
-      "time_s": 0.016333957959432155,
+      "time_s": 0.01797015266492963,
       "peak_rss_kb": 2576,
       "binary_size_kb": 69.3125,
       "ret_code": 0

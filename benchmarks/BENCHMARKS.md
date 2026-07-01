@@ -6,19 +6,21 @@ Measurements use runtime-dynamic inputs to prevent constant folding. Averages fr
 
 ## Results
 
+Within 15% of C is "Parity." Beyond that, Salt is faster or slower.
+
 | Benchmark | C (`clang -O3`) | Salt | Salt/C | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| `fib` | 289ms | 263ms | 0.9x | Salt faster |
+| `fib` | 289ms | 263ms | 0.9x | Parity |
 | `sieve` | 219ms | 217ms | 1.0x | Parity |
 | `matmul` | 249ms | 241ms | 1.0x | Parity |
-| `fannkuch` | 215ms | 205ms | 0.9x | Salt faster |
-| `sudoku_solver` | 37ms | 35ms | 0.9x | Salt faster |
+| `fannkuch` | 215ms | 205ms | 0.9x | Parity |
+| `sudoku_solver` | 37ms | 35ms | 0.9x | Parity |
 | `hashmap_bench` | 58ms | 36ms | 0.6x | Salt faster |
 | `lru_cache` | 33ms | 22ms | 0.7x | Salt faster |
 | `vector_add` | 154ms | 120ms | 0.8x | Salt faster |
 | `window_access` | 117ms | 113ms | 1.0x | Parity |
 | `forest` | 27ms | 41ms | 1.5x | Salt slower |
-| `binary_tree_path` | 9ms | 11ms | 1.2x | Parity |
+| `binary_tree_path` | 9ms | 11ms | 1.2x | Salt slower |
 | `global_counter` | 121ms | 124ms | 1.0x | Parity |
 | `string_hashmap_bench` | 51ms | 29ms | 0.6x | Salt faster |
 | `bitwise` | 38ms | 38ms | 1.0x | Parity |
@@ -29,7 +31,7 @@ Measurements use runtime-dynamic inputs to prevent constant folding. Averages fr
 | `fstring_perf` | 1,858ms | 401ms | 0.2x | Salt faster |
 | `writer_perf` | 212ms | 177ms | 0.8x | Salt faster |
 
-**Summary: Salt is at parity or faster on 19 of 21 benchmarks.** The two where Salt trails (`forest` 1.5x, `binary_tree_path` 1.2x) involve pointer-chasing patterns where C's optimizer has more mature alias analysis.
+**Summary: Salt is at parity or faster on 18 of 20 benchmarks.** The two where Salt trails (`forest` 1.5x, `binary_tree_path` 1.2x) involve pointer-chasing patterns where C's optimizer has more mature alias analysis.
 
 ### On "Faster Than C"
 
