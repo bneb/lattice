@@ -265,7 +265,7 @@ jobs:
           QEMU_PID=$!
           # Wait up to 30s for the kernel to print boot marker
           for i in $(seq 1 30); do
-            if grep -q "\[KeuOS\]" /tmp/qemu_boot.log 2>/dev/null; then
+            if grep -q "=== KeuOS" /tmp/qemu_boot.log 2>/dev/null; then
               echo "Kernel booted successfully"
               kill $QEMU_PID 2>/dev/null || true
               exit 0
