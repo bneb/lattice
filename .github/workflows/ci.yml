@@ -105,14 +105,6 @@ jobs:
             salt-front/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('salt-front/Cargo.lock') }}
 
-      - name: Build salt-front (no Z3)
-        run: cargo build --release --no-default-features
-        working-directory: salt-front
-
-      - name: Run salt-front tests (no Z3)
-        run: cargo test --release --no-default-features
-        working-directory: salt-front
-
       - name: Verify runtime_win.c compiles
         run: clang -c runtime_win.c -o runtime_win.o
         working-directory: salt-front

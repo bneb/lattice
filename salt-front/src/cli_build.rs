@@ -38,7 +38,7 @@ pub(crate) fn handle_binary_synthesis(mlir: &str, basename: &str, config: &CliCo
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(basename));
     // Windows executables need .exe extension
-    if driver.target.exe_suffix() == ".exe" && !output_bin.extension().is_some_and(|e| e == "exe") {
+    if driver.target.exe_suffix() == ".exe" && output_bin.extension().is_none_or(|e| e != "exe") {
         output_bin.set_extension("exe");
     }
 
