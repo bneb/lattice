@@ -1,0 +1,19 @@
+// Z3 Contract Test: ensures(result != 0) MUST be rejected when violated
+// Expected: FAIL (COMPILE ERROR) — Z3 finds counterexample
+// This proves the contract catches the exact bug it's designed to prevent:
+// a SYN cookie function that returns 0 as a valid ISN, violating RFC 793.
+package test_ensures_nonzero_rejected
+
+fn broken_cookie(_client_isn: u32) -> u32
+    ensures(result != 0)
+{
+    // BUG: returns 0 unconditionally. Z3 must find counterexample.
+    return 0;
+}
+
+pub fn main() -> i32 {
+    // Z3 must prove: result is never 0. But the implementation
+    // always returns 0, so Z3 should report a postcondition violation.
+    let cookie = broken_cookie(0);
+    return cookie as i32;
+}

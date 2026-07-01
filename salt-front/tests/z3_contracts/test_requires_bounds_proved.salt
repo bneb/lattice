@@ -1,0 +1,19 @@
+// Z3 Contract Test: requires(idx < len) MUST be proved for valid input
+// Expected: PASS — Z3 proves the precondition holds at the call site
+// This validates the RESP parser pattern from lettuce/resp.salt:
+// a bounds precondition that Z3 can prove with a concrete argument.
+package test_requires_bounds_proved
+
+fn get_element(data: &i32, len: i32, idx: i32) -> i32
+    requires(idx >= 0 && idx < len)
+{
+    // Return the index itself as a value (avoids raw pointer access)
+    return idx;
+}
+
+pub fn main() -> i32 {
+    let x: i32 = 42;
+    // Z3 must prove: 0 >= 0 && 0 < 10 → UNSAT on negated condition
+    let val = get_element(&x, 10, 0);
+    return val;
+}

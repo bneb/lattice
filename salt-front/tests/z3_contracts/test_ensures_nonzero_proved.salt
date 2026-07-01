@@ -1,0 +1,22 @@
+// Z3 Contract Test: ensures(result != 0) MUST be proved
+// Expected: PASS — Z3 proves the postcondition cannot be violated
+// This validates the SYN cookie pattern: ensures(result != 0)
+package test_ensures_nonzero_proved
+
+// Mirrors kernel/net/tcp_syn_cookie.salt: generate_syn_cookie
+fn syn_cookie_mock(client_isn: u32) -> u32
+    ensures(result != 0)
+{
+    // Simulate the real cookie: hash + ISN, with zero-guard
+    let cookie: u32 = client_isn ^ 0xDEADBEEF;
+    if cookie == 0 {
+        return 1;  // Degenerate case: forced non-zero
+    }
+    return cookie;
+}
+
+pub fn main() -> i32 {
+    let cookie = syn_cookie_mock(42);
+    // Z3 must prove: for any u32 input, result is never 0
+    return cookie as i32;
+}

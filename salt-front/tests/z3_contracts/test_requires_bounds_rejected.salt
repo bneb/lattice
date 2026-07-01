@@ -1,0 +1,21 @@
+// Z3 Contract Test: requires(idx < len) MUST be rejected for invalid input
+// Expected: FAIL (COMPILE ERROR) — Z3 finds counterexample
+// This proves the contract catches OOB reads before they happen.
+// Mirrors lettuce/resp.salt: resp_next_str calls find_crlf(input, 1)
+// which requires len > 1 to be statically provable.
+package test_requires_bounds_rejected
+
+fn get_element(data: &i32, len: i32, idx: i32) -> i32
+    requires(idx >= 0 && idx < len)
+{
+    return idx;
+}
+
+pub fn main() -> i32 {
+    let x: i32 = 42;
+    // Z3 must reject: 150 >= 0 && 150 < 10 → SAT, counterexample found
+    // This is the bug the RESP parser contract prevents: an OOB access
+    // where the index exceeds the buffer length.
+    let val = get_element(&x, 10, 150);
+    return val;
+}

@@ -136,6 +136,64 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# ── Test 9: ensures(result != 0) MUST be proved ──────────────────
+echo -n "  test_ensures_nonzero_proved: "
+if "$SALTC" "$SCRIPT_DIR/test_ensures_nonzero_proved.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_ensures_proved > /tmp/z3_out_ensures_proved.txt 2>&1; then
+    echo "PASS (postcondition proved — result is never zero)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (unexpected verification error)"
+    cat /tmp/z3_out_ensures_proved.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 10: ensures(result != 0) MUST be rejected ───────────────
+echo -n "  test_ensures_nonzero_rejected: "
+if ! "$SALTC" "$SCRIPT_DIR/test_ensures_nonzero_rejected.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_ensures_rejected > /tmp/z3_out_ensures_rejected.txt 2>&1; then
+    if grep -q 'VERIFICATION ERROR\|contract evaluates to false\|Postcondition violation' /tmp/z3_out_ensures_rejected.txt; then
+        echo "PASS (postcondition violation caught — returns 0 despite ensures(result!=0))"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL (compile error but not from verification)"
+        cat /tmp/z3_out_ensures_rejected.txt | head -3
+        FAIL=$((FAIL + 1))
+    fi
+else
+    echo "FAIL (should have been rejected — Z3 missed the postcondition violation)"
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 11: requires(start < len) MUST be proved ────────────────
+echo -n "  test_requires_bounds_proved: "
+if "$SALTC" "$SCRIPT_DIR/test_requires_bounds_proved.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_bounds_proved > /tmp/z3_out_bounds_proved.txt 2>&1; then
+    echo "PASS (bounds precondition proved — valid array access)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (unexpected verification error)"
+    cat /tmp/z3_out_bounds_proved.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 12: requires(start < len) MUST be rejected ──────────────
+echo -n "  test_requires_bounds_rejected: "
+if ! "$SALTC" "$SCRIPT_DIR/test_requires_bounds_rejected.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_bounds_rejected > /tmp/z3_out_bounds_rejected.txt 2>&1; then
+    if grep -q 'VERIFICATION ERROR\|contract evaluates to false' /tmp/z3_out_bounds_rejected.txt; then
+        echo "PASS (bounds violation caught — idx=150 exceeds len=10)"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL (compile error but not from verification)"
+        cat /tmp/z3_out_bounds_rejected.txt | head -3
+        FAIL=$((FAIL + 1))
+    fi
+else
+    echo "FAIL (should have been rejected — Z3 missed the bounds violation)"
+    FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 if [ "$FAIL" -gt 0 ]; then
