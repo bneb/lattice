@@ -7,6 +7,10 @@ edition = "2021"
 name = "saltc"
 path = "src/main.rs"
 
+[lints.clippy]
+# New in Rust 1.96 — many pre-existing instances, allow globally
+collapsible_match = "allow"
+
 [features]
 default = ["z3-backend"]
 z3-backend = ["dep:z3"]

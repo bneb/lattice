@@ -17,6 +17,9 @@ mod manifest;
 mod resolver;
 mod compiler;
 mod cache;
+mod semver;
+mod publish;
+mod lockfile;
 
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
