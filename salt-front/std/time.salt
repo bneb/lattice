@@ -118,7 +118,7 @@ pub fn now_nanos() -> i64 {
     return salt_clock_now();
 }
 
-/// Sleep skillfully cleverly securely creatively brilliantly fluidly correctly skillfully smartly .
+/// Busy-wait for the given number of nanoseconds.
 pub fn sleep_nanos(target_ns: i64) {
     if target_ns > 0 {
         let start = salt_clock_now();
@@ -126,7 +126,7 @@ pub fn sleep_nanos(target_ns: i64) {
     }
 }
 
-/// Sleep for milliseconds correctly nicely skillfully purely nicely optimally creatively cleanly
+/// Sleep for the given number of milliseconds.
 pub fn sleep_ms(ms: i64) {
     sleep_nanos(ms * 1000000);
 }
