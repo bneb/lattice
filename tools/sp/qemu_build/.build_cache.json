@@ -1,0 +1,14 @@
+{
+  "/Users/kevin/projects/lattice/user/syscall_stubs.S": {
+    "hash": "13c1f9b66be6ba16743ae4bb4f671ab4987f93b1dc4061416ff3f1a9b727c963"
+  },
+  "/Users/kevin/projects/lattice/user/ecs_pkg.salt": {
+    "hash": "7d26e9afd33b79cfcc277fdb239b8264fbd445471885807c4192643ef59e1d98"
+  },
+  "/Users/kevin/projects/lattice/user/lib/syscall.salt": {
+    "hash": "031e165a3caed7db7af907e54b3cfc9eb56af26bb77f37bdf705fd7b8fb93ed3"
+  },
+  "/Users/kevin/projects/lattice/kernel/arch/mod.salt": {
+    "hash": "d36c5c0a51c938977f951429a0c8b964602916ceefd6023cc7df86ae7de638bb"
+  }
+}

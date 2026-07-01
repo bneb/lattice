@@ -82,6 +82,7 @@ impl<'ctx> SymbolicContext<'ctx> {
 pub struct VerificationEngine;
 
 impl VerificationEngine {
+    #[allow(clippy::cognitive_complexity)]
     pub fn verify(
         ctx: &mut LoweringContext<'_, '_>,
         out: &mut String,

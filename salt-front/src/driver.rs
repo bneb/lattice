@@ -156,7 +156,7 @@ impl SaltDriver {
 
     /// The runtime object that should be linked for a given target.
     /// Returns the path where the compiled .o file is expected.
-    pub fn runtime_for_target(target: &DriverTarget, build_dir: &PathBuf) -> PathBuf {
+    pub fn runtime_for_target(target: &DriverTarget, build_dir: &Path) -> PathBuf {
         match target {
             DriverTarget::KeuOSArm64 | DriverTarget::KeuOSX86_64 => build_dir.join("keuos_rt.o"),
             DriverTarget::WindowsX86_64 => build_dir.join("runtime_win.o"),

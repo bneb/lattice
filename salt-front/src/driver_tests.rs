@@ -78,12 +78,19 @@ mod tests {
     fn test_toolchain_paths_default() {
         let paths = ToolchainPaths::default();
 
-        assert!(paths.mlir_opt.to_str().unwrap().contains("/opt/homebrew/opt/llvm@18/bin/"),
-            "Default mlir-opt path must be in /opt/homebrew/opt/llvm@18/bin/");
+        let expected_dir = if cfg!(target_os = "macos") {
+            "/opt/homebrew/opt/llvm@18/bin/"
+        } else if cfg!(target_os = "windows") {
+            "C:\\Program Files\\LLVM\\bin\\"
+        } else {
+            "/usr/bin/"
+        };
+        assert!(paths.mlir_opt.to_str().unwrap().contains(expected_dir),
+            "Default mlir-opt path must be in {}: got {:?}", expected_dir, paths.mlir_opt);
         assert!(paths.llc.to_str().unwrap().contains("llc"),
-            "Default llc path must contain 'llc'");
+            "Default llc path must contain 'llc': {:?}", paths.llc);
         assert!(paths.clang.to_str().unwrap().contains("clang"),
-            "Default clang path must contain 'clang'");
+            "Default clang path must contain 'clang': {:?}", paths.clang);
     }
 
     // =================================================================
