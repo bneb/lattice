@@ -142,29 +142,29 @@ fn handle_client(fd: i32, poll: &mut Poller, smap: Ptr<StringMap>, slab: &mut Sl
     while parse_cur < new_read_cur {
         let unparsed_len = new_read_cur - parse_cur;
 
-        let result = execute(smap, StringView::from_raw(buf.offset(parse_cur), unparsed_len), send_ptr.offset(total_resp));
+        let res = execute(smap, StringView::from_raw(buf.offset(parse_cur), unparsed_len), send_ptr.offset(total_resp));
 
-        if result.input_consumed <= 0 {
+        if res.input_consumed <= 0 {
             break;
         }
 
-        if result.resp_len > send_buf_cap {
+        if res.resp_len > send_buf_cap {
             if total_resp > 0 {
                 stream.send(send_ptr, total_resp);
                 total_resp = 0;
             }
             let oversized_result = execute(smap, StringView::from_raw(buf.offset(parse_cur), unparsed_len), send_ptr);
             stream.send(send_ptr, oversized_result.resp_len);
-        } else if total_resp + result.resp_len > send_buf_cap {
+        } else if total_resp + res.resp_len > send_buf_cap {
             stream.send(send_ptr, total_resp);
             total_resp = 0;
             let retry_result = execute(smap, StringView::from_raw(buf.offset(parse_cur), unparsed_len), send_ptr);
             total_resp = retry_result.resp_len;
         } else {
-            total_resp = total_resp + result.resp_len;
+            total_resp = total_resp + res.resp_len;
         }
 
-        parse_cur = parse_cur + result.input_consumed;
+        parse_cur = parse_cur + res.input_consumed;
     }
 
     if total_resp > 0 {

@@ -49,8 +49,8 @@ pub fn handle_hset(key: StringView, field: StringView, value: StringView, out_bu
         node.next = meta.fields;
         meta.fields = node;
     }
-    let result: i64 = if existed { 0 } else { 1 };
-    return write_integer(out_buf, result);
+    let res: i64 = if existed { 0 } else { 1 };
+    return write_integer(out_buf, res);
 }
 
 pub fn handle_hget(key: StringView, field: StringView, out_buf: Ptr<u8>) -> i64 {
@@ -82,6 +82,6 @@ pub fn handle_hdel(key: StringView, field: StringView, out_buf: Ptr<u8>) -> i64 
     let meta = get_meta(key);
     if meta.addr() == 0 { return write_integer(out_buf, 0); }
     let deleted = StringMap_del(meta.inner, field);
-    let result: i64 = if deleted { 1 } else { 0 };
-    return write_integer(out_buf, result);
+    let res: i64 = if deleted { 1 } else { 0 };
+    return write_integer(out_buf, res);
 }

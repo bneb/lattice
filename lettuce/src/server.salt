@@ -233,38 +233,38 @@ fn handle_client(fd: i32, poll: &mut Poller, smap: Ptr<StringMap>, slab: &mut Sl
     while parse_cur < new_read_cur {
         let unparsed_len = new_read_cur - parse_cur;
 
-        let result = execute(smap, StringView::from_raw(buf.offset(parse_cur), unparsed_len), send_ptr.offset(total_resp));
+        let res = execute(smap, StringView::from_raw(buf.offset(parse_cur), unparsed_len), send_ptr.offset(total_resp));
 
-        if result.input_consumed <= 0 {
+        if res.input_consumed <= 0 {
             break;
         }
         
-        if result.resp_len == -1 {
+        if res.resp_len == -1 {
             let rx_head = *((ai_rx_ring + 0) as &u64);
             let rx_cap = *((ai_rx_ring + 8) as &u64);
             let rx_tail = *((ai_rx_ring + 64) as &u64);
             let rx_next = (rx_head + 8) % (rx_cap * 8);
             if rx_next != rx_tail {
-                let ctx_ptr = result.context_ptr as Ptr<u8>;
+                let ctx_ptr = res.context_ptr as Ptr<u8>;
                 *((ctx_ptr as u64) as &mut i32) = fd;
                 *((ctx_ptr as u64 + 8) as &mut i64) = session.generation;
                 
-                *((ai_rx_ring + 192 + rx_head) as &mut u64) = result.context_ptr;
+                *((ai_rx_ring + 192 + rx_head) as &mut u64) = res.context_ptr;
                 *((ai_rx_ring + 0) as &mut u64) = rx_next;
                 session.state = 1;
-                session.parse_cursor = session.parse_cursor + result.input_consumed;
+                session.parse_cursor = session.parse_cursor + res.input_consumed;
                 break;
             } else {
-                free(result.context_ptr);
+                free(res.context_ptr);
                 let err_view = "-ERR Basalt ring full\r\n" as StringView;
                 memmove(send_ptr.offset(total_resp), err_view.ptr, err_view.length());
                 total_resp = total_resp + err_view.length();
-                session.parse_cursor = session.parse_cursor + result.input_consumed;
+                session.parse_cursor = session.parse_cursor + res.input_consumed;
             }
         }
 
         // Deterministic capacity check BEFORE committing the append.
-        if result.resp_len > send_buf_cap {
+        if res.resp_len > send_buf_cap {
             // EDGE CASE: Single response exceeds buffer capacity.
             // Flush anything accumulated, then send the oversized response
             // directly from its current position (it was written at send_ptr + total_resp).
@@ -275,7 +275,7 @@ fn handle_client(fd: i32, poll: &mut Poller, smap: Ptr<StringMap>, slab: &mut Sl
             // Re-execute into the start of the buffer and send directly
             let oversized_result = execute(smap, StringView::from_raw(buf.offset(parse_cur), unparsed_len), send_ptr);
             stream.send(send_ptr, oversized_result.resp_len);
-        } else if total_resp + result.resp_len > send_buf_cap {
+        } else if total_resp + res.resp_len > send_buf_cap {
             // Would overflow — flush first, then append
             stream.send(send_ptr, total_resp);
             total_resp = 0;
@@ -284,10 +284,10 @@ fn handle_client(fd: i32, poll: &mut Poller, smap: Ptr<StringMap>, slab: &mut Sl
             total_resp = retry_result.resp_len;
         } else {
             // Normal case — safe to append
-            total_resp = total_resp + result.resp_len;
+            total_resp = total_resp + res.resp_len;
         }
 
-        parse_cur = parse_cur + result.input_consumed;
+        parse_cur = parse_cur + res.input_consumed;
     }
 
     // 3. Flush remaining

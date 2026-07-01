@@ -189,9 +189,9 @@ pub fn execute(smap: Ptr<StringMap>, input: StringView, out_buf: Ptr<u8>) -> Exe
         if cmd.array_count < 3 { let r = write_error(out_buf, "ERR wrong number of arguments for list push" as StringView); return ExecResult { resp_len: r, input_consumed: consumed, context_ptr: 0 }; }
         let mut off = arg0.bytes_consumed;
         let key = resp_next_str(elems, &mut off);
-        let mut result: i64 = 0; let mut n = cmd.array_count - 2;
-        while n > 0 { let val = resp_next_str(elems, &mut off); result = if is_lpush { handle_lpush_one(key, val, out_buf) } else { handle_rpush_one(key, val, out_buf) }; n = n - 1; }
-        return ExecResult { resp_len: result, input_consumed: consumed, context_ptr: 0 };
+        let mut res: i64 = 0; let mut n = cmd.array_count - 2;
+        while n > 0 { let val = resp_next_str(elems, &mut off); res = if is_lpush { handle_lpush_one(key, val, out_buf) } else { handle_rpush_one(key, val, out_buf) }; n = n - 1; }
+        return ExecResult { resp_len: res, input_consumed: consumed, context_ptr: 0 };
     }
     if cmd_name.eq_ignore_case("lpop") || cmd_name.eq_ignore_case("rpop") {
         let is_lpop = cmd_name.byte_at(0) | 32 == 'l' as u8;
