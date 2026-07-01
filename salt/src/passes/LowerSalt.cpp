@@ -77,7 +77,7 @@ struct SaltFuncSignatureConversion : public OpConversionPattern<func::FuncOp> {
     rewriter.modifyOpInPlace(op, [&] {
       op.setFunctionType(newFuncType);
       if (!op.isExternal()) {
-        rewriter.applySignatureConversion(&op.getBody(), result);
+        rewriter.applySignatureConversion(&op.getBody().front(), result);
       }
     });
     return success();

@@ -98,7 +98,7 @@ int emitObjectFile(llvm::Module &llvmModule,
   // 1. Setup Target Triple
   auto tripleStr = llvm::sys::getDefaultTargetTriple();
   llvm::Triple triple(tripleStr);
-  llvmModule.setTargetTriple(triple.str());
+  llvmModule.setTargetTriple(triple);
 
   std::string error;
   auto target = llvm::TargetRegistry::lookupTarget(tripleStr, error);
