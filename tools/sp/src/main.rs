@@ -215,7 +215,7 @@ fn cmd_build(path: &Path, release: bool, _package: Option<&str>) -> Result<(), S
     );
 
     // Resolve dependencies — collect search roots for the compiler
-    let (build_order, search_roots) = resolver::resolve(&manifest, path)?;
+    let (build_order, search_roots, _resolved) = resolver::resolve(&manifest, path)?;
 
     let dep_count = manifest.dependencies.len();
     if dep_count > 0 {
@@ -334,7 +334,7 @@ fn cmd_check(path: &Path) -> Result<(), String> {
     );
 
     // Resolve deps and compile with --verify flag
-    let (_build_order, search_roots) = resolver::resolve(&manifest, path)?;
+    let (_build_order, search_roots, _resolved) = resolver::resolve(&manifest, path)?;
     compiler::check(&manifest, path, &search_roots)?;
 
     let elapsed = start.elapsed();
@@ -440,7 +440,7 @@ fn cmd_fetch(path: &Path) -> Result<(), String> {
         return Ok(());
     }
 
-    let (_build_order, _search_roots) = resolver::resolve(&manifest, path)?;
+    let (_build_order, _search_roots, _resolved) = resolver::resolve(&manifest, path)?;
 
     println!(
         "📥 Fetched {} package(s)",

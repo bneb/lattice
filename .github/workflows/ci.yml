@@ -161,7 +161,6 @@ jobs:
   build-sp:
     name: Build sp (Rust)
     runs-on: ubuntu-latest
-    continue-on-error: true  # Package manager WIP — don't block CI
     steps:
       - uses: actions/checkout@v4
 
