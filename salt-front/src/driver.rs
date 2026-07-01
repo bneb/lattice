@@ -11,7 +11,7 @@
 // without executing them, so TDD tests can verify flag correctness.
 // =============================================================================
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Paths to the LLVM toolchain binaries.
 #[derive(Debug, Clone)]
