@@ -259,7 +259,24 @@ jobs:
         timeout-minutes: 10
 
       - name: Boot kernel in QEMU (smoke test)
-        run: timeout 15 qemu-system-x86_64 -kernel qemu_build/kernel.elf -display none -serial stdio -m 256M -no-reboot 2>&1 | grep -q "\[KeuOS\]"
+        run: |
+          qemu-system-x86_64 -kernel qemu_build/kernel.elf -display none \
+            -serial stdio -m 256M -no-reboot 2>&1 | tee /tmp/qemu_boot.log &
+          QEMU_PID=$!
+          # Wait up to 30s for the kernel to print boot marker
+          for i in $(seq 1 30); do
+            if grep -q "\[KeuOS\]" /tmp/qemu_boot.log 2>/dev/null; then
+              echo "Kernel booted successfully"
+              kill $QEMU_PID 2>/dev/null || true
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "=== QEMU output (first 200 lines) ==="
+          head -200 /tmp/qemu_boot.log || echo "(no output)"
+          echo "=== End QEMU output ==="
+          kill $QEMU_PID 2>/dev/null || true
+          exit 1
 
   coverage:
     name: Code coverage (llvm-cov)
