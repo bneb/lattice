@@ -1,0 +1,18 @@
+// Z3 Contract Test: requires(a.length() >= b.length()) MUST be proved
+// Expected: PASS — Z3 folds .length() to constants from string literals,
+// including through let-bindings (added in let-binding tracking extension).
+package test_string_length_proved
+
+use std.core.str.StringView
+
+fn merge_strings(a: StringView, b: StringView) -> i32
+    requires(a.length() >= b.length())
+{
+    return a.length() as i32;
+}
+
+pub fn main() -> i32 {
+    // Z3 folds: "hello world".length() = 11, "hi".length() = 2
+    // Proves: 11 >= 2 → UNSAT on negated condition
+    return merge_strings("hello world", "hi");
+}

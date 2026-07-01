@@ -74,7 +74,9 @@ pub struct EmissionState {
     pub pending_func_decls: BTreeMap<String, String>,
     /// Initialized global variables
     pub initialized_globals: HashSet<String>,
-    
+    /// Known string lengths for local variables (let x = "hello" → x.len() = 5)
+    pub known_string_lengths: HashMap<String, i64>,
+
     // Performance caches
     /// Type layout cache: Type -> (size, alignment)
     pub layout_cache: HashMap<Type, (usize, usize)>,

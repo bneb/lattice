@@ -156,6 +156,15 @@ impl VerificationEngine {
                 if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = arg {
                     known_lengths.insert(param.clone(), s.value().len() as i64);
                 }
+                // Also check let-bindings: `let x = "hello"; f(x)` →
+                // the path `x` resolves to a known string length from EmissionState.
+                if let syn::Expr::Path(p) = arg {
+                    if let Some(ident) = p.path.get_ident() {
+                        if let Some(&len) = ctx.emission.known_string_lengths.get(&ident.to_string()) {
+                            known_lengths.insert(param.clone(), len);
+                        }
+                    }
+                }
             }
         }
 

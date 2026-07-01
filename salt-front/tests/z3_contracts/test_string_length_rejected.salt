@@ -1,0 +1,18 @@
+// Z3 Contract Test: requires(a.length() >= b.length()) MUST be rejected
+// Expected: FAIL (COMPILE ERROR) — Z3 finds counterexample
+// Proves the contract catches inverted length arguments at compile time.
+package test_string_length_rejected
+
+use std.core.str.StringView
+
+fn merge_strings(a: StringView, b: StringView) -> i32
+    requires(a.length() >= b.length())
+{
+    return a.length() as i32;
+}
+
+pub fn main() -> i32 {
+    // "hi" = 2, "hello world" = 11 → 2 >= 11 is FALSE
+    // Z3 must find the contract violation.
+    return merge_strings("hi", "hello world");
+}

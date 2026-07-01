@@ -202,8 +202,25 @@ fn emit_hoisted_local_init(ctx: &mut LoweringContext, out: &mut String, local: &
                 ctx.z3_solver.assert(&z3_var._eq(&z3_val));
             }
         }
+        // Track string literal lengths for Z3 constant folding in requires/ensures.
+        // Enables `let x = "hello"; f(x)` where f has `requires(x.length() > 0)`.
+        if let Some(len) = string_lit_length(&init.expr) {
+            ctx.emission.known_string_lengths.insert(name.to_string(), len);
+        }
     }
     Ok(())
+}
+
+/// Extract the byte length of a string literal expression, including
+/// through `as` casts ("hello" as StringView → 5).
+fn string_lit_length(expr: &syn::Expr) -> Option<i64> {
+    match expr {
+        syn::Expr::Lit(lit) => {
+            if let syn::Lit::Str(s) = &lit.lit { Some(s.value().len() as i64) } else { None }
+        }
+        syn::Expr::Cast(cast) => string_lit_length(&cast.expr),
+        _ => None,
+    }
 }
 
 /// If the local init is an integer literal, assert equality in Z3 solver.
@@ -241,6 +258,14 @@ fn emit_unhoisted_local_init(ctx: &mut LoweringContext, out: &mut String, local:
 
     if !ctx.config.no_verify && !name.is_empty() && target_ty.is_integer() {
         assert_local_lit_int_in_z3(ctx, name, &local.init);
+    }
+    // Track string literal lengths for Z3 constant folding
+    if !ctx.config.no_verify && !name.is_empty() {
+        if let Some(init) = &local.init {
+            if let Some(len) = string_lit_length(&init.expr) {
+                ctx.emission.known_string_lengths.insert(name.to_string(), len);
+            }
+        }
     }
     Ok(())
 }

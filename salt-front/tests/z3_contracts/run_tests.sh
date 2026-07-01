@@ -194,6 +194,35 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# ── Test 13: requires(a.length() >= b.length()) MUST be proved ─────
+echo -n "  test_string_length_proved: "
+if "$SALTC" "$SCRIPT_DIR/test_string_length_proved.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_strlen_proved > /tmp/z3_out_strlen_proved.txt 2>&1; then
+    echo "PASS (string length comparison proved — .length() folded to constants)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (unexpected verification error)"
+    cat /tmp/z3_out_strlen_proved.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 14: requires(a.length() >= b.length()) MUST be rejected ────
+echo -n "  test_string_length_rejected: "
+if ! "$SALTC" "$SCRIPT_DIR/test_string_length_rejected.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_strlen_rejected > /tmp/z3_out_strlen_rejected.txt 2>&1; then
+    if grep -q 'VERIFICATION ERROR\|contract evaluates to false' /tmp/z3_out_strlen_rejected.txt; then
+        echo "PASS (string length violation caught — 2 >= 11 is false)"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL (compile error but not from verification)"
+        cat /tmp/z3_out_strlen_rejected.txt | head -3
+        FAIL=$((FAIL + 1))
+    fi
+else
+    echo "FAIL (should have been rejected — Z3 missed the length violation)"
+    FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 if [ "$FAIL" -gt 0 ]; then
