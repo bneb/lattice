@@ -1388,6 +1388,7 @@
                 <a href="#benchmarks">Benchmarks</a>
                 <a href="#stdlib">Stdlib</a>
                 <a href="#tooling">Tooling</a>
+                <a href="./faq.html">FAQ</a>
                 <a href="./playground/" id="nav-playground">Playground</a>
                 <div class="nav-dropdown">
                     <a href="./blog/" class="nav-dropdown-trigger">Blog</a>
@@ -1397,7 +1398,7 @@
                             <span class="post-date">June 24, 2026</span>
                         </a>
                         <a href="./blog/arenas-over-borrow-checking.html">
-                            Why we chose arenas over borrow checking
+                            Choosing arenas over borrow checking
                             <span class="post-date">June 22, 2026</span>
                         </a>
                         <a href="./blog/microkernel-ipc.html">
@@ -1477,7 +1478,7 @@
             <div class="projects-header">
                 <h2>Built with Salt.</h2>
                 <p class="section-sub centered">
-                    Salt is built alongside real systems to validate its compiler guarantees in practice. Here is what we've written with it so far.
+                    Salt is built alongside real systems to validate its compiler guarantees in practice.
                 </p>
             </div>
 
@@ -1865,8 +1866,8 @@
                         <p style="color: var(--text-muted); margin-top: 12px; line-height: 1.7;">
                             High-connection networking benchmarks measuring how Salt handles raw I/O.
                             Echo servers, arena-based connection pools, noisy-neighbor isolation.
-                            We test Salt against C, Rust, and Node on identical kqueue event loops —
-                            Salt matches C's throughput.
+                            Salt is tested against C, Rust, and Node on identical kqueue event loops —
+                            it matches C's throughput.
                         </p>
                         <div class="lettuce-stats">
                             <div class="stat-card">
@@ -1932,7 +1933,7 @@
 
             <p style="margin-top: 24px; font-size: 0.85rem; color: var(--text-muted);">
                 Platform: Apple M4, macOS ARM64. Baselines: C (<code>clang -O3</code>), Rust (<code>--release</code>).
-                Salt compiled with default flags. We publish everything.
+                Salt compiled with default flags. Full data is public.
                 <a href="https://github.com/bneb/lattice/blob/main/benchmarks/BENCHMARKS.md"
                     style="color: var(--accent);">Full methodology and raw data →</a>
             </p>

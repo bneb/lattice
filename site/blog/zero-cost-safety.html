@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Compile-time verification with negative overhead — Salt</title>
-    <meta name="description" content="When we added a Z3 theorem prover to the compiler, compilation got faster.">
+    <meta name="description" content="Adding a Z3 theorem prover to the compiler made compilation faster, not slower.">
     <meta property="og:title" content="Compile-time verification with negative overhead">
-    <meta property="og:description" content="When we added a Z3 theorem prover to the compiler, compilation got faster.">
+    <meta property="og:description" content="Adding a Z3 theorem prover to the compiler made compilation faster, not slower.">
     <meta property="og:type" content="article">
     <meta property="og:url" content="https://salt-lang.dev/blog/zero-cost-safety">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -256,7 +256,7 @@
     <h1>Compile-time verification with&nbsp;negative overhead</h1>
     <p class="meta">June 24, 2026</p>
 
-    <p class="lede">Most verified software pays a performance tax at compile time. We built a verifier that does the opposite. When we added a Z3 theorem prover to the Salt compiler, compilation became faster&mdash;not in spite of the proofs, but because of them.</p>
+    <p class="lede">Most verified software pays a performance tax at compile time. Salt's verifier does the opposite. Adding a Z3 theorem prover to the compiler made compilation faster&mdash;not in spite of the proofs, but because of them.</p>
 
     <p>Dafny extracts to C# after the proofs are done. F<sup style="font-size:0.7em;color:var(--text-tertiary)">*</sup> compiles to OCaml through a chain of intermediate languages whose verification artifacts are discarded before code generation. SPARK requires a separate verification harness that runs alongside the build. Each of these is a serious achievement. Each also adds a compile-time cost&mdash;sometimes by minutes, occasionally by hours. This is accepted as the price of correctness.</p>
 
@@ -390,7 +390,7 @@ make bench              <span class="cmt"># LETTUCE vs. Redis comparison</span><
     <div style="margin: 48px 0 24px; padding: 20px 0; border-top: 1px solid var(--border-light); border-bottom: 1px solid var(--border-light);">
         <p style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary); margin-bottom: 12px; font-weight: 500;">Read next</p>
         <p style="margin-bottom: 8px;"><a href="microkernel-ipc.html" style="font-weight: 500;">Microkernel IPC Without the Performance Tax</a><br><span style="font-size: 0.85rem; color: var(--text-tertiary);">Salt&rsquo;s Ring&nbsp;3 TCP stack and zero-trap socket API bring IPC to within 150 cycles.</span></p>
-        <p><a href="arenas-over-borrow-checking.html" style="font-weight: 500;">Why we chose arenas over borrow checking</a><br><span style="font-size: 0.85rem; color: var(--text-tertiary);">Salt has no lifetime annotations. Here is how we still guarantee safety.</span></p>
+        <p><a href="arenas-over-borrow-checking.html" style="font-weight: 500;">Choosing arenas over borrow checking</a><br><span style="font-size: 0.85rem; color: var(--text-tertiary);">Salt has no lifetime annotations. Arena allocation guarantees safety without borrow checking.</span></p>
     </div>
 
     <div class="post-footer">

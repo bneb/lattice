@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Why we chose arenas over borrow checking — Salt</title>
-    <meta name="description" content="Salt has no lifetime annotations. Here is how we still guarantee safety.">
-    <meta property="og:title" content="Why we chose arenas over borrow checking">
-    <meta property="og:description" content="Salt has no lifetime annotations. Here is how we still guarantee safety.">
+    <title>Choosing arenas over borrow checking — Salt</title>
+    <meta name="description" content="Salt has no lifetime annotations. Arena allocation with compile-time escape analysis guarantees safety without borrow checking.">
+    <meta property="og:title" content="Choosing arenas over borrow checking">
+    <meta property="og:description" content="Salt has no lifetime annotations. Arena allocation with compile-time escape analysis guarantees safety without borrow checking.">
     <meta property="og:type" content="article">
     <meta property="og:url" content="https://salt-lang.dev/blog/arenas-over-borrow-checking">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -253,10 +253,10 @@
     <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">◐</button>
 </div></nav>
 <article>
-    <h1>Why we chose arenas over&nbsp;borrow checking</h1>
+    <h1>Choosing arenas over&nbsp;borrow checking</h1>
     <p class="meta">June 22, 2026</p>
 
-    <p class="lede">Salt has no lifetime annotations. No <code>'a</code>, no <code>&amp;'b mut</code>, no <code>Rc&lt;RefCell&lt;T&gt;&gt;</code> escape hatches. The language never asks you to teach a borrow checker about the relative ordering of your objects. Here is how we still guarantee safety&mdash;and why arena allocation, paired with compile-time escape analysis, produces deterministic performance without the annotation burden.</p>
+    <p class="lede">Salt has no lifetime annotations. No <code>'a</code>, no <code>&amp;'b mut</code>, no <code>Rc&lt;RefCell&lt;T&gt;&gt;</code> escape hatches. The language never asks you to teach a borrow checker about the relative ordering of your objects. Arena allocation, paired with compile-time escape analysis, produces deterministic performance without the annotation burden.</p>
 
     <h2>The systems memory trilemma</h2>
 
@@ -297,7 +297,7 @@
 
     <h2>The scope ladder</h2>
 
-    <p>Salt&rsquo;s static escape analysis is built on a concept we call the <strong>scope ladder</strong>. Every expression and every block has an associated <em>scope depth</em>: a small integer that encodes how long the value can safely live.</p>
+    <p>Salt&rsquo;s static escape analysis is built on a concept called the <strong>scope ladder</strong>. Every expression and every block has an associated <em>scope depth</em>: a small integer that encodes how long the value can safely live.</p>
 
     <p>The scope ladder tracks three rules:</p>
 
@@ -338,7 +338,7 @@
 
     <p>Three classes of bugs are eliminated at compile time.</p>
 
-    <p><strong>Return escape.</strong> The most common mistake we saw in early arena-based prototypes was returning a pointer into an arena that was about to be reset. The scope ladder catches this automatically:</p>
+    <p><strong>Return escape.</strong> A common mistake in arena-based prototypes is returning a pointer into an arena that is about to be reset. The scope ladder catches this automatically:</p>
 
 <pre><span class="kw">fn</span> <span class="fn">process_connection</span>(conn: &<span class="ty">Connection</span>) -> <span class="ty">Response</span>
 {
@@ -420,9 +420,9 @@
 
     <p>Rust is the right language for projects that need the full power of individual-lifetime tracking across diverse allocation patterns. Salt is the right language for projects that work in request-response or frame-at-a-time patterns&mdash;servers, kernels, game engines, network stacks&mdash;where allocation is batch-shaped and the annotation burden of individual lifetimes would be pure overhead.</p>
 
-    <h2>What we learned</h2>
+    <h2>What this taught</h2>
 
-    <p>Building the scope ladder changed how we think about memory safety. We started with the goal of eliminating lifetime annotations. We ended up with a system that is not only annotation-free but also catches bugs that Rust&rsquo;s borrow checker does not: use-after-reset across <code>reset()</code> boundaries (tracked by epoch), store-escape into arbitrarily nested containers (tracked by transitive scope propagation), and cross-region pointer leaks (tracked by Z3).</p>
+    <p>Building the scope ladder forced a rethink of memory safety. The goal was eliminating lifetime annotations. The result is a system that is not only annotation-free but also catches bugs that Rust&rsquo;s borrow checker does not: use-after-reset across <code>reset()</code> boundaries (tracked by epoch), store-escape into arbitrarily nested containers (tracked by transitive scope propagation), and cross-region pointer leaks (tracked by Z3).</p>
 
     <p>The lesson is not that lifetime annotations are bad. The lesson is that matching the memory model to the allocation pattern<span style="color:var(--text-tertiary);">&#8212;</span>region-shaped allocation gets a region-shaped safety model, tree-shaped allocation gets a borrow checker, and graph-shaped allocation gets a separate collector<span style="color:var(--text-tertiary);">&#8212;</span>produces a language where each pattern pays only for what it needs.</p>
 

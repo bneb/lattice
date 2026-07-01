@@ -385,7 +385,7 @@
 
     <p><strong>Control-plane operations.</strong> Setting up a ring, registering it with the IOMMU, and establishing the SipHash key all require kernel mediation. These operations are infrequent (setup once per channel) and correctly go through the kernel's capability system. The cost of a few dozen syscalls at setup time is irrelevant to the performance of the data plane.</p>
 
-    <p><strong>Multi-core wakeup.</strong> When NetD has new data to deliver, it must wake the receiving process if it is sleeping. The current mechanism uses an inter-processor interrupt (IPI) that costs ~1 microsecond. For latency-sensitive workloads, we are evaluating a polling mode where the receiver busy-waits on the ring tail, avoiding the IPI entirely. Polling increases CPU usage but brings the round-trip down to the 150-cycle data-plane cost with no notification overhead. The choice between poll and wake is per-channel and configurable.</p>
+    <p><strong>Multi-core wakeup.</strong> When NetD has new data to deliver, it must wake the receiving process if it is sleeping. The current mechanism uses an inter-processor interrupt (IPI) that costs ~1 microsecond. For latency-sensitive workloads, a polling mode is under evaluation where the receiver busy-waits on the ring tail, avoiding the IPI entirely. Polling increases CPU usage but brings the round-trip down to the 150-cycle data-plane cost with no notification overhead. The choice between poll and wake is per-channel and configurable.</p>
 
     <aside>
         <strong>Not yet measured</strong>
@@ -405,7 +405,7 @@ make run-qemu            <span class="cmt"># Boot KeuOS in QEMU</span>
     <div style="margin: 48px 0 24px; padding: 20px 0; border-top: 1px solid var(--border-light); border-bottom: 1px solid var(--border-light);">
         <p style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary); margin-bottom: 12px; font-weight: 500;">Read next</p>
         <p style="margin-bottom: 8px;"><a href="zero-cost-safety.html" style="font-weight: 500;">Compile-time verification with negative overhead</a><br><span style="font-size: 0.85rem; color: var(--text-tertiary);">Adding a Z3 theorem prover made the compiler faster, not slower.</span></p>
-        <p><a href="arenas-over-borrow-checking.html" style="font-weight: 500;">Why we chose arenas over borrow checking</a><br><span style="font-size: 0.85rem; color: var(--text-tertiary);">Salt has no lifetime annotations. Here is how we still guarantee safety.</span></p>
+        <p><a href="arenas-over-borrow-checking.html" style="font-weight: 500;">Choosing arenas over borrow checking</a><br><span style="font-size: 0.85rem; color: var(--text-tertiary);">Salt has no lifetime annotations. Arena allocation guarantees safety without borrow checking.</span></p>
     </div>
 
     <div class="post-footer">
