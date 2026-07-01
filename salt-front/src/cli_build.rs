@@ -42,6 +42,23 @@ pub(crate) fn handle_binary_synthesis(mlir: &str, basename: &str, config: &CliCo
         output_bin.set_extension("exe");
     }
 
+    // Compile runtime if not already present
+    let rt_src = crate::driver::SaltDriver::runtime_source(&driver.target);
+    if !driver.runtime_obj.exists() {
+        let rt_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(rt_src);
+        if rt_path.exists() {
+            let mut compile_cmd = std::process::Command::new(&driver.toolchain.clang);
+            compile_cmd.arg("-c").arg(&rt_path).arg("-o").arg(&driver.runtime_obj);
+            if driver.target.exe_suffix() == ".exe" {
+                compile_cmd.arg("-target").arg("x86_64-pc-windows-msvc");
+            }
+            if let Err(e) = compile_cmd.status() {
+                eprintln!("[E005] Failed to compile {}: {}", rt_src, e);
+                std::process::exit(1);
+            }
+        }
+    }
+
     eprintln!("[KeuOS] Driving MLIR -> native binary...");
     eprintln!("    Target: {:?}", driver.target);
 

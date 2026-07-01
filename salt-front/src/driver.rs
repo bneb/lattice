@@ -142,18 +142,40 @@ pub struct SaltDriver {
 
 impl SaltDriver {
     pub fn new(build_dir: PathBuf) -> Self {
+        let target = DriverTarget::default();
+        let runtime_obj = Self::runtime_for_target(&target, &build_dir);
         Self {
-            target: DriverTarget::default(),
+            target,
             build_dir: build_dir.clone(),
             toolchain: ToolchainPaths::default(),
-            runtime_obj: build_dir.join("keuos_rt.o"),
+            runtime_obj,
             debug_info: false,
             keuos_mode: false,
         }
     }
 
+    /// The runtime object that should be linked for a given target.
+    /// Returns the path where the compiled .o file is expected.
+    pub fn runtime_for_target(target: &DriverTarget, build_dir: &PathBuf) -> PathBuf {
+        match target {
+            DriverTarget::KeuOSArm64 | DriverTarget::KeuOSX86_64 => build_dir.join("keuos_rt.o"),
+            DriverTarget::WindowsX86_64 => build_dir.join("runtime_win.o"),
+            _ => build_dir.join("runtime.o"),
+        }
+    }
+
+    /// The runtime source file for a given target.
+    pub fn runtime_source(target: &DriverTarget) -> &'static str {
+        match target {
+            DriverTarget::KeuOSArm64 | DriverTarget::KeuOSX86_64 => "keuos_rt.c",
+            DriverTarget::WindowsX86_64 => "runtime_win.c",
+            _ => "runtime.c",
+        }
+    }
+
     pub fn with_target(mut self, target: DriverTarget) -> Self {
         self.target = target;
+        self.runtime_obj = Self::runtime_for_target(&target, &self.build_dir);
         self
     }
 

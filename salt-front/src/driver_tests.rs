@@ -67,8 +67,11 @@ mod tests {
         let steps = driver.build_pipeline("echo_test");
         let link = &steps[3];
 
-        assert!(link.has_flag("keuos_rt.o"),
-            "Link step MUST include keuos_rt.o runtime object");
+        // Default target on macOS is DarwinArm64 → runtime.o
+        let expected_rt = SaltDriver::runtime_for_target(&DriverTarget::default(), &PathBuf::from("/tmp/salt-build"));
+        let rt_name = expected_rt.file_name().unwrap().to_str().unwrap();
+        assert!(link.has_flag(rt_name),
+            "Link step MUST include {} runtime object", rt_name);
     }
 
     #[test]
@@ -97,6 +100,27 @@ mod tests {
         assert_eq!(steps[0].name, "mlir-opt");
         assert_eq!(steps[1].name, "mlir-translate");
         assert_eq!(steps[2].name, "llc");
+    }
+
+    #[test]
+    fn test_windows_runtime_selection() {
+        let build_dir = PathBuf::from("/tmp/salt-build");
+        // Windows target selects runtime_win.o
+        let driver = test_driver().with_target(DriverTarget::WindowsX86_64);
+        let rt_name = driver.runtime_obj.file_name().unwrap().to_str().unwrap();
+        assert_eq!(rt_name, "runtime_win.o",
+            "Windows target must link runtime_win.o");
+        assert_eq!(driver.target.exe_suffix(), ".exe",
+            "Windows target must use .exe suffix");
+        assert!(driver.target.triple().contains("windows"),
+            "Windows target triple must contain 'windows': {}", driver.target.triple());
+    }
+
+    #[test]
+    fn test_runtime_source_selection() {
+        assert_eq!(SaltDriver::runtime_source(&DriverTarget::WindowsX86_64), "runtime_win.c");
+        assert_eq!(SaltDriver::runtime_source(&DriverTarget::DarwinArm64), "runtime.c");
+        assert_eq!(SaltDriver::runtime_source(&DriverTarget::KeuOSX86_64), "keuos_rt.c");
     }
 
     #[test]

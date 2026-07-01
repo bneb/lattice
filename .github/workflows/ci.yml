@@ -84,6 +84,36 @@ jobs:
         run: cargo test --release
         working-directory: salt-front
 
+  build-salt-front-windows:
+    name: Build salt-front (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            salt-front/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('salt-front/Cargo.lock') }}
+
+      - name: Build salt-front
+        run: cargo build --release
+        working-directory: salt-front
+
+      - name: Run salt-front tests
+        run: cargo test --release
+        working-directory: salt-front
+
+      - name: Verify runtime_win.c compiles
+        run: clang -c runtime_win.c -o runtime_win.o
+        working-directory: salt-front
+
   build-salt-opt:
     name: Build salt-opt (C++/MLIR)
     runs-on: ubuntu-latest
