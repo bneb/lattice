@@ -205,7 +205,7 @@ void buildLoweringPipeline(mlir::PassManager &pm, mlir::ModuleOp module) {
   }
 
   // 5. Standard Lowering (scf/cf/arith/math/memref to LLVM)
-  // SCF→CF lowering happens implicitly through conversion patterns in LLVM 21
+  pm.addPass(mlir::createSCFToControlFlowPass());
   pm.addPass(mlir::createConvertControlFlowToLLVMPass());
   pm.addPass(mlir::createArithToLLVMConversionPass());
   pm.addPass(mlir::createConvertMathToLLVMPass());
