@@ -1,0 +1,17 @@
+// Z3 Contract Test: requires(a.length() < N) MUST be proved for fixed arrays
+// Expected: PASS — Z3 folds array lengths from the type system
+// [T; N] carries its length N at compile time.
+// &[T; N] works too — references to arrays also have known lengths.
+package test_array_length_proved
+
+fn check_capacity(buf: &[u8; 100]) -> i32
+    requires(buf.length() < 200)
+{
+    return buf.length() as i32;
+}
+
+pub fn main() -> i32 {
+    let data: [u8; 100] = [0; 100];
+    // Z3 must prove: 100 < 200 → UNSAT on negated condition
+    return check_capacity(&data);
+}

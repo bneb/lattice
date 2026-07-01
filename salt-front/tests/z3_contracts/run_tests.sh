@@ -223,6 +223,18 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# ── Test 15: requires(a.length() < N) for fixed arrays ─────────────
+echo -n "  test_array_length_proved: "
+if "$SALTC" "$SCRIPT_DIR/test_array_length_proved.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_arr_len > /tmp/z3_out_arr_len.txt 2>&1; then
+    echo "PASS (array length from type — [u8;100].length() = 100 < 200 proved)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (unexpected verification error)"
+    cat /tmp/z3_out_arr_len.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 if [ "$FAIL" -gt 0 ]; then

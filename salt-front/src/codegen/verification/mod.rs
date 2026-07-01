@@ -153,16 +153,33 @@ impl VerificationEngine {
         for (i, arg) in arg_exprs.iter().enumerate() {
             if i < params.len() {
                 let param = &params[i];
+                // String literal arguments: .length() folds to byte count
                 if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = arg {
                     known_lengths.insert(param.clone(), s.value().len() as i64);
                 }
-                // Also check let-bindings: `let x = "hello"; f(x)` →
-                // the path `x` resolves to a known string length from EmissionState.
+                // Let-bound string literals: `let x = "hello"; f(x)`
                 if let syn::Expr::Path(p) = arg {
                     if let Some(ident) = p.path.get_ident() {
                         if let Some(&len) = ctx.emission.known_string_lengths.get(&ident.to_string()) {
                             known_lengths.insert(param.clone(), len);
                         }
+                    }
+                }
+                // Array-typed parameters: [T; N] has known length N.
+                // Unwrap references: &[T; N] still has compile-time-known length N.
+                if i < param_tys.len() {
+                    let ty = &param_tys[i];
+                    let array_ty = match ty {
+                        crate::types::Type::Array(..) => Some(ty),
+                        crate::types::Type::Reference(inner, _) => {
+                            if matches!(inner.as_ref(), crate::types::Type::Array(..)) {
+                                Some(inner.as_ref())
+                            } else { None }
+                        }
+                        _ => None,
+                    };
+                    if let Some(crate::types::Type::Array(_, len, _)) = array_ty {
+                        known_lengths.insert(param.clone(), *len as i64);
                     }
                 }
             }

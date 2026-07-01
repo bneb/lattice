@@ -297,6 +297,44 @@ VERIFICATION ERROR: could not prove '(< 15 10)'
 
 Three outcomes: Z3 proves it (check elided, zero cost), Z3 finds a counterexample (compile error with values), or Z3 times out (runtime assertion emitted, program still compiles). The timeout is 100ms per obligation. Most contracts resolve in under 10ms.
 
+### What Z3 can prove today
+
+Integer bounds and comparisons work reliably. String length comparisons work when the lengths are compile-time constants — the compiler folds `.length()` to an integer before Z3 sees it.
+
+```salt
+fn merge(a: StringView, b: StringView) -> i32
+    requires(a.length() >= b.length())
+{ return a.length() as i32; }
+
+merge("hello world", "hi");   // ✅ 11 >= 2 — proved
+
+let x = "hello";              // length 5, tracked through let-binding
+let y = "hi";                 // length 2
+merge(x, y);                  // ✅ 5 >= 2 — proved
+
+merge("hi", "hello world");   // ❌ 2 >= 11 — contract violation caught
+```
+
+`.contains()`, `.starts_with()`, and `.ends_with()` fold to booleans with literal strings. String methods on runtime values (from I/O, network) fall back to runtime checks — Z3's string theory is incomplete.
+
+Fixed-size arrays carry their length in the type (`[u8; 200]` is always 200 bytes). The compiler could use this to prove `requires(a.length() < 300)` for `a: [u8; 200]` without runtime cost. This is not yet implemented — the Z3 bridge doesn't query array lengths from the type system.
+
+### Postconditions (`ensures`)
+
+Postconditions are verified at every return site:
+
+```salt
+fn generate_cookie(input: u32) -> u32
+    ensures(result != 0)
+{
+    let cookie = input ^ 0xDEADBEEF;
+    if cookie == 0 { return 1; }  // guard required by Z3
+    return cookie;
+}
+```
+
+If the guard were omitted, Z3 would find `input = 0xDEADBEEF` producing `cookie = 0` and reject the compilation. This is the contract that forced the defensive guard in `kernel/net/tcp_syn_cookie.salt`.
+
 **Concepts** are type constraints with verification backing (experimental):
 
 ```salt
