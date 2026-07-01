@@ -1083,9 +1083,12 @@ pub fn compile_ast(file: &mut SaltFile, release_mode: bool, registry: Option<&cr
     let has_package = file.package.is_some();
     if registry.is_none() && !is_system && !has_package {
         let prelude_imports = vec![
-            "use std::core::ptr::*;", "use std::core::option::*;",
-            "use std::core::result::*;", "use std::status::*;",
-            "use std::arena::default::*;", "use std::io::print::*;",
+            "use std::core::ptr::Ptr;",
+            "use std::core::option::Option;",
+            "use std::core::result::Result;",
+            "use std::status::Status;",
+            "use std::arena::default::DefaultAllocator;",
+            "use std::io::print::*;",
         ];
         for import_str in prelude_imports {
             let processed = preprocess(import_str);

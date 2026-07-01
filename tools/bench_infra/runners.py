@@ -44,9 +44,12 @@ class SaltRunner(BaseRunner):
         basename = os.path.splitext(os.path.basename(source_path))[0]
         bin_path = f"/tmp/salt_build/{basename}"
         script_path = os.path.join(self.workspace_root, "scripts", "run_test.sh")
-        cmd = f"{script_path} --benchmark --compile-only {source_path}"
-        res = subprocess.run(cmd, shell=True, capture_output=True)
-        return bin_path if res.returncode == 0 else None
+        cmd = ["zsh", script_path, "--benchmark", "--compile-only", source_path]
+        res = subprocess.run(cmd, capture_output=True)
+        if res.returncode != 0:
+            print(f"  [SALT] compile failed: {res.stderr.decode()[:200]}")
+            return None
+        return bin_path
 
 class NodeRunner(BaseRunner):
     def compile(self, source_path: str) -> str:

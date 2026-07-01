@@ -182,9 +182,12 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
     registry.register(crate::registry::ModuleInfo::new(&main_pkg));
 
     let prelude_imports = [
-        "use std::core::ptr::*;", "use std::core::option::*;",
-        "use std::core::result::*;", "use std::status::*;",
-        "use std::arena::default::*;", "use std::io::print::*;",
+        "use std::core::ptr::Ptr;",
+        "use std::core::option::Option;",
+        "use std::core::result::Result;",
+        "use std::status::Status;",
+        "use std::arena::default::DefaultAllocator;",
+        "use std::io::print::*;",
     ];
     for import_str in &prelude_imports {
         let processed = crate::preprocess(import_str);

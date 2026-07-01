@@ -2,6 +2,18 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+// Provide malloc for native/benchmark builds — Salt's extern fn malloc
+// resolves to these symbols. The mangled names (_malloc_0, _malloc_1, etc.)
+// come from Salt's incremental symbol suffixing.
+__attribute__((weak)) void* malloc_0(uint64_t s) { return malloc((size_t)s); }
+__attribute__((weak)) void* malloc_1(uint64_t s) { return malloc((size_t)s); }
+__attribute__((weak)) void* malloc_2(uint64_t s) { return malloc((size_t)s); }
+__attribute__((weak)) void* malloc_3(uint64_t s) { return malloc((size_t)s); }
+__attribute__((weak)) void* free_0(void* p) { free(p); }
+__attribute__((weak)) void* free_1(void* p) { free(p); }
+__attribute__((weak)) void* free_2(void* p) { free(p); }
+__attribute__((weak)) void* free_3(void* p) { free(p); }
+
 __attribute__((weak)) void sys_mfence(void) { __sync_synchronize(); }
 
 __attribute__((weak)) void sys_sleep_ms(uint32_t ms) { usleep(ms * 1000); }
