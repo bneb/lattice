@@ -1536,37 +1536,34 @@ fn promote_mutated_args(ctx: &CodegenContext, func: &crate::grammar::SaltFn, bod
 }
 
 fn emit_requires_verification(ctx: &CodegenContext, func: &crate::grammar::SaltFn, body_out: &mut String, local_vars: &mut std::collections::HashMap<String, (Type, crate::codegen::context::LocalKind)>) -> Result<(), String> {
-    let has_trusted = func.attributes.iter().any(|a| a.name == "trusted");
-    if !has_trusted {
-        for req in &func.requires {
-            let proven = ctx.with_lowering_ctx(|lctx| {
-                let sym_ctx = crate::codegen::verification::SymbolicContext::new(lctx.z3_ctx);
-                let z3_result = crate::codegen::expr::translate_bool_to_z3(lctx, req, local_vars, &sym_ctx);
-                if let Ok(z3_req) = z3_result {
-                    lctx.z3_solver.push();
-                    lctx.z3_solver.assert(&z3_req.not());
-                    let result = lctx.z3_solver.check();
-                    lctx.z3_solver.pop(1);
-                    let is_proven = matches!(result, crate::z3_shim::SatResult::Unsat);
-                    lctx.z3_solver.assert(&z3_req);
-                    is_proven
-                } else {
-                    false
-                }
-            });
-            
-            if !proven && !ctx.no_verify {
-                let (req_val, _) = ctx.with_lowering_ctx(|lctx| crate::codegen::expr::emit_expr(lctx, body_out, req, local_vars, Some(&Type::Bool)))?;
-                let true_const = format!("%contract_true_{}", ctx.next_id());
-                let violated = format!("%contract_violated_{}", ctx.next_id());
-                body_out.push_str(&format!("    {} = arith.constant true\n", true_const));
-                body_out.push_str(&format!("    {} = arith.xori {}, {} : i1\n", violated, req_val, true_const));
-                ctx.ensure_external_declaration("__salt_contract_violation", &[], &Type::Unit)?;
-                body_out.push_str(&format!("    scf.if {} {{\n", violated));
-                body_out.push_str("      func.call @__salt_contract_violation() : () -> ()\n");
-                body_out.push_str("      scf.yield\n");
-                body_out.push_str("    }\n");
+    for req in &func.requires {
+        let proven = ctx.with_lowering_ctx(|lctx| {
+            let sym_ctx = crate::codegen::verification::SymbolicContext::new(lctx.z3_ctx);
+            let z3_result = crate::codegen::expr::translate_bool_to_z3(lctx, req, local_vars, &sym_ctx);
+            if let Ok(z3_req) = z3_result {
+                lctx.z3_solver.push();
+                lctx.z3_solver.assert(&z3_req.not());
+                let result = lctx.z3_solver.check();
+                lctx.z3_solver.pop(1);
+                let is_proven = matches!(result, crate::z3_shim::SatResult::Unsat);
+                lctx.z3_solver.assert(&z3_req);
+                is_proven
+            } else {
+                false
             }
+        });
+
+        if !proven && !ctx.no_verify {
+            let (req_val, _) = ctx.with_lowering_ctx(|lctx| crate::codegen::expr::emit_expr(lctx, body_out, req, local_vars, Some(&Type::Bool)))?;
+            let true_const = format!("%contract_true_{}", ctx.next_id());
+            let violated = format!("%contract_violated_{}", ctx.next_id());
+            body_out.push_str(&format!("    {} = arith.constant true\n", true_const));
+            body_out.push_str(&format!("    {} = arith.xori {}, {} : i1\n", violated, req_val, true_const));
+            ctx.ensure_external_declaration("__salt_contract_violation", &[], &Type::Unit)?;
+            body_out.push_str(&format!("    scf.if {} {{\n", violated));
+            body_out.push_str("      func.call @__salt_contract_violation() : () -> ()\n");
+            body_out.push_str("      scf.yield\n");
+            body_out.push_str("    }\n");
         }
     }
     Ok(())

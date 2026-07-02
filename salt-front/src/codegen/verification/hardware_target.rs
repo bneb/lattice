@@ -39,7 +39,7 @@ pub trait HardwareTarget {
     fn dispatch_cycles(&self) -> u64;
 
     /// Safety phase: bounds/null checks.
-    /// Salt: 0 (Z3 shadow elision — all checks proven at compile time)
+    /// Salt: 0 (aspirational — Z3 elision for provable subset)
     fn safety_cycles(&self) -> u64;
 
     /// Processing phase: SIMD parsing + body execution.
@@ -101,7 +101,7 @@ impl HardwareTarget for M4Target {
     }
 
     fn safety_cycles(&self) -> u64 {
-        // Z3 shadow elision: all bounds checks proven at compile time
+        // Aspirational: Z3 elision for provable subset; unprovable formulas hit 100ms timeout
         0
     }
 
@@ -180,7 +180,7 @@ mod tests {
     fn test_m4_safety_zero_cycles() {
         let m4 = M4Target;
         assert_eq!(m4.safety_cycles(), 0,
-            "Safety must be 0 cycles (Z3 shadow elision)");
+            "Safety must be 0 cycles (aspirational — Z3 elision for provable subset)");
     }
 
     #[test]

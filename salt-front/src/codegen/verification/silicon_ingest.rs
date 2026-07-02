@@ -14,7 +14,7 @@
 //! | C/io_uring | io_uring+zero-copy | scalar | manual (0 cost) | event loop |
 //! | Rust/Tokio | epoll via mio | scalar | runtime checks | async/await |
 //! | Rust/io_uring | io_uring+zero-copy | scalar | runtime checks | async/await |
-//! | Salt/KeuOS | io_uring+zero-copy | NEON SIMD | Z3 formal (0 cost) | stackless coroutine |
+//! | Salt/KeuOS | io_uring+zero-copy | NEON SIMD | Z3 formal (provable subset, 0 cost) | stackless coroutine |
 
 // =============================================================================
 // M4 Timing Constants (shared across all configurations)
@@ -404,7 +404,7 @@ pub fn simulate_salt_keuos(params: &WorkloadParams) -> ConfigResult {
         + m4_timing::IOURING_SQE_PREP
         + m4_timing::IOURING_CQE_HARVEST;
 
-    let safety = 0; // Z3: formal verification, checks ELIDED at compile time
+    let safety = 0; // Aspirational: Z3 elision for provable subset; unprovable formulas hit 100ms timeout
 
     // Stackless coroutine (lighter than async/await, heavier than event loop)
     let scheduling = m4_timing::STACKLESS_SWAP;
@@ -556,10 +556,10 @@ mod tests {
         let c = simulate_c_iouring(&params);
 
         assert_eq!(c.safety_cycles, 0, "C: no bounds checks");
-        assert_eq!(salt.safety_cycles, 0, "Salt: Z3 elides all checks");
+        assert_eq!(salt.safety_cycles, 0, "Salt: Z3 elides provable checks");
         assert!(rust.safety_cycles > 0, "Rust: must have runtime checks");
 
-        println!("Safety cost: C={}c (manual), Rust={}c ({}checks × {}c), Salt={}c (Z3 formal)",
+        println!("Safety cost: C={}c (manual), Rust={}c ({}checks × {}c), Salt={}c (Z3 provable subset)",
             c.safety_cycles, rust.safety_cycles,
             rust.bounds_checks, m4_timing::BOUNDS_CHECK,
             salt.safety_cycles);
