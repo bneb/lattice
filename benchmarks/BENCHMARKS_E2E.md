@@ -6,6 +6,6 @@ Automated, multi-iteration, high-fidelity benchmarks across the KeuOS macro-appl
 
 | Target | Binary Size (KB) | Peak RSS (KB) | execution_time_s |
 |---|---|---|---|
-| **matmul (C)** | 32.8 | 25776 | 0.21 |
-| **matmul (Rust)** | 431.9 | 25936 | 0.22 |
-| **matmul (Salt)** | 85.4 | 27216 | 0.34 |
+| **matmul (C)** | 32.8 | 25776 | 0.20 |
+| **matmul (Rust)** | 431.9 | 26032 | 0.20 |
+| **matmul (Salt)** | 85.4 | 27392 | 0.21 |
