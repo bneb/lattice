@@ -196,6 +196,10 @@ fn expand_derive_annotations(source: &str) -> String {
             }
             i = new_i;
             if !struct_name.is_empty() && !fields.is_empty() {
+                // Emit source-location comment so errors in generated
+                // impl blocks can be traced back to the @derive line.
+                let loc = format!("// @derive expanded from line {}\n", i);
+                result.push_str(&loc);
                 for trait_name in &traits {
                     match *trait_name {
                         "Clone" => result.push_str(&emit_clone_impl(&struct_name, &fields)),
