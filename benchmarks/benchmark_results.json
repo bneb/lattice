@@ -1,20 +1,20 @@
 {
   "matmul": {
     "c": {
-      "time_s": 0.2057452776740926,
+      "time_s": 0.2109959579538554,
       "peak_rss_kb": 25776,
       "binary_size_kb": 32.7890625,
       "ret_code": 0
     },
     "rs": {
-      "time_s": 0.21404718033348522,
+      "time_s": 0.2216294159879908,
       "peak_rss_kb": 25936,
       "binary_size_kb": 431.8671875,
       "ret_code": 0
     },
     "salt": {
-      "time_s": 0.21344877800826603,
-      "peak_rss_kb": 27392,
+      "time_s": 0.3376023750170134,
+      "peak_rss_kb": 27216,
       "binary_size_kb": 85.4453125,
       "ret_code": 0
     },
