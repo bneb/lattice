@@ -316,7 +316,24 @@ merge("hi", "hello world");   // ❌ 2 >= 11 — contract violation caught
 
 `.contains()`, `.starts_with()`, and `.ends_with()` fold to booleans with literal strings. String methods on runtime values (from I/O, network) fall back to runtime checks — Z3's string theory is incomplete.
 
-Fixed-size arrays carry their length in the type (`[u8; 200]` is always 200 bytes). The compiler could use this to prove `requires(a.length() < 300)` for `a: [u8; 200]` without runtime cost. This is not yet implemented — the Z3 bridge doesn't query array lengths from the type system.
+Fixed-size arrays carry their length in the type (`[u8; 200]` is always 200 bytes). The compiler uses this to prove `requires(a.length() < 300)` for `a: [u8; 200]` without runtime cost.
+
+### While-loop invariants
+
+Add `invariant` statements inside a while loop to constrain variables. Z3 checks the invariant holds at entry (base case) and is preserved by each iteration (inductive step). Invariants that bound an index variable enable array access without runtime checks:
+
+```salt
+while i < 5 {
+    invariant i >= 0 && i < 5;   // Z3 proves this holds, enabling arr[i]
+    let val = arr[i];             // ✅ bounds check elided
+    i = i + 1;
+}
+
+// Without the invariant, arr[i] gets a runtime bounds check.
+// With it, Z3 proves the access is safe at compile time.
+```
+
+Invariants can express any boolean condition on the current scope's variables. The induction step havocs (assigns fresh symbolic values to) any variable modified in the loop body, then re-checks the invariant. If the invariant fails at entry or after an iteration, compilation stops with a counterexample.
 
 ### Postconditions (`ensures`)
 

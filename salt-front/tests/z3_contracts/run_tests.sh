@@ -247,6 +247,23 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# ── Test 17: while-loop invariant MUST be rejected ─────────────────
+echo -n "  test_while_invariant_rejected: "
+if ! "$SALTC" "$SCRIPT_DIR/test_while_invariant_rejected.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_while_inv_rej > /tmp/z3_out_while_inv_rej.txt 2>&1; then
+    if grep -q 'invariant does not hold' /tmp/z3_out_while_inv_rej.txt; then
+        echo "PASS (invariant violation caught — i=5 violates i<5 at entry)"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL (compile error but not from invariant)"
+        cat /tmp/z3_out_while_inv_rej.txt | head -3
+        FAIL=$((FAIL + 1))
+    fi
+else
+    echo "FAIL (should have been rejected — Z3 missed the invariant violation)"
+    FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 if [ "$FAIL" -gt 0 ]; then

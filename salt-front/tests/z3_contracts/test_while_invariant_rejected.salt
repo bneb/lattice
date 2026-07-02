@@ -1,0 +1,14 @@
+// Z3 Contract Test: while-loop invariant violation MUST be rejected
+// Expected: FAIL (COMPILE ERROR) — Z3 finds counterexample at entry
+package test_while_invariant_rejected
+
+fn broken_search() -> i64 {
+    let mut i: i64 = 5;
+    while i < 5 {
+        invariant i >= 0 && i < 5;  // FALSE at entry: i=5 violates i<5
+        i = i + 1;
+    }
+    return i;
+}
+
+pub fn main() -> i32 { return broken_search() as i32; }
