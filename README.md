@@ -3,26 +3,30 @@
 **A systems language where the compiler proves your code correct at compile time.** Z3 contracts, arena memory, MLIR codegen. No garbage collector, no borrow checker, no lifetime annotations.
 
 [![CI](https://github.com/bneb/lattice/actions/workflows/ci.yml/badge.svg)](https://github.com/bneb/lattice/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.8.0-blue)](https://github.com/bneb/lattice)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/bneb/lattice/releases/tag/v1.0.0)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ```salt
-fn binary_search(arr: &[i64], target: i64) -> i64
-    requires(arr.len() > 0)
+package main
+
+use std.core.result.Result
+
+fn safe_div(a: i64, b: i64) -> Result<i64>
+    requires(b != 0)
 {
-    let mut lo: i64 = 0;
-    let mut hi: i64 = arr.len() - 1;
-    while lo <= hi {
-        let mid = (lo + hi) / 2;
-        if arr[mid] == target { return mid; }
-        if arr[mid] < target { lo = mid + 1; }
-        else { hi = mid - 1; }
+    return Result::Ok(a / b);
+}
+
+pub fn main() -> i32 {
+    // Z3 proves 7 != 0 at compile time — the check evaporates.
+    match safe_div(100, 7) {
+        Result::Ok(val) => { return val as i32; }
+        Result::Err(_) => { return -1; }
     }
-    return -1;
 }
 ```
 
-`requires(arr.len() > 0)` is checked by Z3 at compile time. Passing an empty array is a compile error with a counterexample. Passing a non-empty array elides the check — zero instructions emitted.
+`requires(b != 0)` is proved by Z3 at compile time. Call `safe_div(x, 7)` and the check evaporates — zero instructions emitted. Call `safe_div(x, 0)` and the compiler stops with a counterexample. No binary produced.
 
 ---
 
