@@ -367,7 +367,6 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                                  });
                              let lookup_name = ssa_name.as_deref().unwrap_or(&src_name);
                              if let Some(z3_idx) = ctx.symbolic_tracker.get(lookup_name).cloned() {
-                                 use crate::z3_shim::ast::Ast;
                                  ctx.z3_solver.push();
                                  let alloc = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, n);
                                  ctx.z3_solver.assert(&z3_idx.ge(&alloc));
@@ -407,7 +406,7 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                      out.push_str(&format!("    scf.if {} {{\n", ok));
                      out.push_str("      scf.yield\n");
                      out.push_str("    } else {\n");
-                     out.push_str(&format!("      func.call @__salt_contract_violation() : () -> ()\n"));
+                     out.push_str("      func.call @__salt_contract_violation() : () -> ()\n");
                      out.push_str("    }\n");
                  }
                                 // LValueKind: Ptr/Local → load alloca; SSA & Reference → use pointer directly.
