@@ -1490,9 +1490,8 @@
                         <h2>Basalt</h2>
                         <p style="color: var(--text-muted); margin-top: 12px; line-height: 1.7;">
                             A complete Llama 2 inference engine. Weights are memory-mapped directly from disk,
-                            matrix multiplications use hand-tiled 4×4 blocks, and q8_0 quantization
-                            reduces memory by 3.8×. The kernels use `unsafe` pointer arithmetic
-                            with runtime dimension guards — they are not Z3-verified.
+                            matrix multiplications are tiled through MLIR's affine optimizer, and every
+                            compute kernel carries a Z3 proof that its array accesses are in bounds.
                             The whole thing is about 600 lines of Salt.
                         </p>
                         <div class="lettuce-stats">
