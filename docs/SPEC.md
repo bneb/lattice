@@ -200,7 +200,7 @@ Generic type and function parameters are monomorphized at compile time. Each uni
 
 ### 2.6 Memory Layout
 
-`sizeof(T)` and `alignof(T)` are compiler-determined for each type T. The `@align(N)` attribute overrides the default alignment for a struct field. The compiler proves alignment satisfaction via Z3 when `@align(N)` is used.
+`sizeof(T)` and `alignof(T)` are compiler-determined for each type T. The `@align(N)` attribute overrides the default alignment for a struct field. If the requested alignment cannot be satisfied (e.g., `@align(64)` on a field at offset that is not a multiple of 64), the compiler reports an error.
 
 ---
 
@@ -238,7 +238,7 @@ Parentheses override precedence: `(expr)` evaluates `expr` before any enclosing 
 
 ### 3.3 Binary Operators
 
-**Arithmetic:** `+`, `-`, `*`, `/`, `%` work on integer and floating-point types. Both operands must have the same type after numeric promotion. Division by zero and signed overflow are runtime errors unless Z3 proves them impossible.
+**Arithmetic:** `+`, `-`, `*`, `/`, `%` work on integer and floating-point types. Both operands must have the same type after numeric promotion. Division by zero and signed overflow are runtime errors unless the compiler proves them impossible at compile time.
 
 **Bitwise:** `&`, `|`, `^`, `<<`, `>>` work on integer types. Shift amount must be non-negative.
 
@@ -266,7 +266,7 @@ A path expression refers to a named entity: a local variable, a function, a type
 
 ### 3.8 Index Expressions
 
-`e[i]` indexes into array `e` at position `i`. The index must be an integer type. Bounds are checked at runtime unless Z3 proves `0 <= i < e.length()`.
+`e[i]` indexes into array `e` at position `i`. The index must be an integer type. Bounds are checked at runtime unless the compiler proves `0 <= i < e.length()` at compile time.
 
 ### 3.9 Field Access
 
@@ -393,17 +393,18 @@ A function declares a named, callable computation. `pub` makes it visible outsid
 
 ### 5.2 Attributes
 
-Attributes modify compilation behavior:
+Attributes are prefixed with `@` and appear before the item they modify.
 
-| Attribute | Effect |
-|-----------|--------|
-| `@inline` | Hint to inline the function at call sites |
-| `@pure` | The function has no side effects; Z3 models it as an uninterpreted function |
-| `@trusted` | Skip Z3 verification of this function's body (used for FFI wrappers) |
-| `@export` | Emit with C-compatible symbol name (no name mangling) |
-| `@yielding(N)` | Inject yield checks every N loop iterations (cooperative scheduling) |
-| `@pulse(N)` | Set the scheduling tick rate to N Hz |
-| `@derive(T₁, ..., Tₙ)` | Auto-generate trait implementations for the annotated type |
+| Attribute | Valid on | Effect |
+|-----------|----------|--------|
+| `@inline` | Functions | Hint to inline at call sites |
+| `@pure` | Functions | Declares the function has no observable side effects. The compiler may use this to simplify contract proofs — a call to a `@pure` function in a `requires` or `ensures` clause is treated as returning an arbitrary value of the correct type, rather than being evaluated. The compiler does not verify that the function body is actually pure; annotating an impure function `@pure` is undefined behavior. |
+| `@trusted` | Functions | Bypass contract verification for the function body. Used for FFI wrappers and hand-audited code. |
+| `@export` | Functions | Emit with C-compatible symbol name (no name mangling) |
+| `@yielding(N)` | Functions | Inject a yield point every N loop iterations, enabling cooperative scheduling. If N is omitted, a default interval is used. |
+| `@pulse(N)` | Functions | Register the function to be invoked at N Hz by the scheduler's pulse timer. The function must take no arguments and return nothing. |
+| `@align(N)` | Struct fields | Override the field's alignment to N bytes. The compiler verifies the requested alignment is satisfiable. |
+| `@derive(T₁, ..., Tₙ)` | Structs, enums | Auto-generate trait implementations from the type's fields or variants.
 
 ### 5.3 Move Semantics
 
@@ -418,7 +419,7 @@ A function pointer type `fn(T₁, ..., Tₙ) -> R` designates the address of any
 ### 5.5 Extern Functions
 
 ```ebnf
-EXTERN_FN = "extern", "fn", IDENTIFIER, "(", [ PARAMS ], ")", [ "->", TYPE ],
+EXTERN_FN_DECL = "extern", "fn", IDENTIFIER, "(", [ PARAMS ], ")", [ "->", TYPE ],
             { CONTRACT_CLAUSE }, ";" ;
 ```
 
@@ -461,35 +462,41 @@ CONTRACT_CLAUSE = ( "requires" | "ensures" ), EXPRESSION, ";" ;
 
 A `requires` clause declares a precondition: a boolean expression that must hold at every call site. A `ensures` clause declares a postcondition: a boolean expression that must hold at every return site. The special identifier `result` in an `ensures` clause refers to the function's return value.
 
-### 7.2 Z3 Integration
+### 7.2 Verification Model
 
-Contracts are verified by the Z3 SMT solver at compile time. The verification model is:
+Contracts are checked at compile time using an SMT solver. The process for each contract clause is:
 
-1. For each call site with arguments `a₁, ..., aₙ`, the compiler substitutes the actual arguments into the `requires` expression.
-2. The constant folder attempts to reduce the expression. If it evaluates to `true`, the check is elided (zero runtime cost).
-3. If constant folding fails, the expression is translated to Z3 and its negation is checked for satisfiability.
-4. **UNSAT:** No counterexample exists. The condition is proved. The check is elided.
-5. **SAT:** A counterexample exists. The compiler emits an error with the violating values and stops.
-6. **Timeout (100ms):** Z3 cannot decide. The compiler emits a runtime assertion (`__salt_contract_violation`) as a fallback.
+1. The compiler substitutes the actual arguments into the expression.
+2. The constant folder attempts to reduce the expression. If it evaluates to `true`, the check is elided — zero runtime instructions are emitted.
+3. If constant folding fails, the compiler checks whether the negation of the expression is satisfiable.
+4. **Proved:** No input can violate the condition. The check is elided.
+5. **Counterexample:** A violating input exists. The compiler reports the specific values and stops with an error.
+6. **Timeout:** The solver cannot decide within a fixed time budget (100ms). The compiler emits a runtime assertion as a fallback. The program compiles and runs, but will trap if the condition is violated at runtime.
 
-Postconditions are verified similarly at each return site, with `result` bound to the returned expression.
+Postconditions are checked similarly at each return site, with `result` bound to the returned expression.
 
 ### 7.3 Type-Bound Proofs
 
-Before checking a contract, the compiler injects type range constraints into Z3. For a parameter `x: u8`, the solver is told `0 <= x <= 255`. This means `requires(x < 256)` on a `u8` parameter is trivially proved for any argument, including runtime variables.
+Before checking a contract, the compiler injects type range constraints into the solver. For a parameter `x: u8`, the solver is informed that `0 <= x <= 255`. This means `requires(x < 256)` on a `u8` parameter is trivially proved for any argument value, even when the argument is not a compile-time constant.
 
 ### 7.4 Pure Functions
 
-A function annotated `@pure` is modeled by Z3 as an uninterpreted function. When `@pure fn hash(x: u64) -> u64` appears in a contract, Z3 treats `hash(v)` as a fresh symbolic value, enabling contracts like `requires(hash(a) != hash(b))` without requiring the hash implementation to be inlined.
+A function annotated `@pure` declares that it has no observable side effects. When a `@pure` function is called within a `requires` or `ensures` clause, the compiler treats the call as producing an arbitrary value of the function's return type. This means:
+
+- `requires(hash(a) != hash(b))` is provable — the two calls to `hash` may return distinct values
+- `requires(hash(a) == hash(a))` is not provable — the two calls may return different values even with the same argument, because purity does not imply determinism
+
+The compiler does not verify that the body of a `@pure` function is actually free of side effects. Annotating a function with side effects as `@pure` is undefined behavior.
 
 ### 7.5 Limitations
 
-The following are known limitations of the Z3 integration:
+Contracts cannot prove all properties. Known limitations of the current implementation:
 
-- Floating-point properties are incomplete (Z3's float theory). Contracts with non-trivial float arithmetic may timeout.
-- String length and content constraints only fold to constants for literal strings. Runtime string properties rely on the timeout fallback.
-- Non-linear integer arithmetic (multiplication of two variables) may timeout.
+- Floating-point properties: the solver's theory of floating-point arithmetic is incomplete. Contracts with non-trivial float expressions may timeout.
+- String length and content: only compile-time-known string literals are reliably folded to constants. Properties of strings from runtime sources (I/O, network) rely on the timeout fallback.
+- Non-linear integer arithmetic: multiplication of two variables may timeout.
 - The `@trusted` attribute bypasses verification entirely for the annotated function body.
+- Loop invariants for `while` loops: the compiler does not currently infer or accept user-specified loop invariants for while loops. Array access inside while loops with non-trivial indices falls back to runtime bounds checks.
 
 ---
 
@@ -527,7 +534,19 @@ Violations are reported at compile time with reference to the specific rule viol
 
 ---
 
-## 9. Patterns
+## 9. Concurrency
+
+Salt supports cooperative concurrency through two function attributes.
+
+`@yielding(N)` annotates a function as cooperatively yielding. The compiler injects a yield point every N loop iterations, allowing the scheduler to preempt the function between iterations. If N is omitted, a default interval is used. The function must not hold locks across yield points.
+
+`@pulse(N)` registers a function to be invoked by the scheduler's pulse timer at N Hz. The function must take no arguments and return nothing. Pulse functions are used for periodic tasks like cursor blinking, keepalive packets, and I/O polling.
+
+These attributes target KeuOS's scheduler. In native (non-KeuOS) builds, `@yielding` has no effect and `@pulse` functions are never called.
+
+---
+
+## 10. Patterns
 
 ```ebnf
 PATTERN = "_"                                  (* wildcard *)
@@ -545,7 +564,7 @@ A pattern is *irrefutable* if it matches every value of the scrutinee type. A pa
 
 ---
 
-## 10. The Preprocessor
+## 11. The Preprocessor
 
 Before parsing, the Salt source text undergoes the following transformations:
 
@@ -565,7 +584,7 @@ These transformations are purely syntactic and do not affect the semantics of th
 
 ---
 
-## 11. Standard Library
+## 12. Standard Library
 
 The standard library is organized under `std.`. The module tree is:
 
@@ -602,7 +621,7 @@ The prelude implicitly imports `Ptr`, `Option`, `Result`, `Status`, `DefaultAllo
 
 ---
 
-## 12. FFI and Unsafe
+## 13. FFI and Unsafe
 
 ### 12.1 Extern Functions
 
@@ -628,24 +647,28 @@ The compiler does not verify memory safety within `unsafe` blocks. Safety is the
 
 ```ebnf
 (* Source file *)
-CompilationUnit = [ PackageDecl ], { ImportDecl }, { Item } ;
+COMPILATION_UNIT = [ PACKAGE_DECL ], { IMPORT_DECL }, { ITEM } ;
 
 (* Declarations *)
-PackageDecl     = "package", IDENTIFIER, { ".", IDENTIFIER }, ";" ;
-ImportDecl      = "import", PATH, [ ".", ( "*" | "{", IDENTIFIER, { ",", IDENTIFIER }, "}" ) ], ";" ;
+PACKAGE_DECL    = "package", IDENTIFIER, { ".", IDENTIFIER }, ";" ;
+IMPORT_DECL     = "import", PATH, [ ".", ( "*" | "{", IDENTIFIER, { ",", IDENTIFIER }, "}" ) ], ";" ;
 PATH            = IDENTIFIER, { ".", IDENTIFIER } ;
-
-Item            = FnDecl | StructDecl | EnumDecl | ConstDecl
-                | GlobalDecl | TraitDecl | ImplBlock | ConceptDecl
-                | ExternFnDecl ;
+ITEM            = FN_DECL | STRUCT_DECL | ENUM_DECL | CONST_DECL
+                | GLOBAL_DECL | TRAIT_DECL | IMPL_BLOCK | CONCEPT_DECL
+                | EXTERN_FN_DECL ;
 
 (* Functions *)
-FnDecl          = { Attribute }, [ "pub" ], "fn", IDENTIFIER,
+FN_DECL         = { ATTRIBUTE }, [ "pub" ], "fn", IDENTIFIER,
                   [ "<", GENERIC_PARAMS, ">" ],
                   "(", [ PARAMS ], ")", [ "->", TYPE ],
-                  { ContractClause }, Block ;
-PARAM_LIST      = PARAM, { ",", PARAM } ;
+                  { CONTRACT_CLAUSE }, BLOCK ;
+PARAMS          = PARAM, { ",", PARAM } ;
 PARAM           = PATTERN, ":", TYPE ;
+EXTERN_FN_DECL  = "extern", "fn", IDENTIFIER, "(", [ PARAMS ], ")", [ "->", TYPE ],
+                  { CONTRACT_CLAUSE }, ";" ;
+
+(* Generics *)
+GENERIC_PARAMS  = IDENTIFIER, { ",", IDENTIFIER } ;
 
 (* Types *)
 TYPE            = PRIMITIVE | PtrType | RefType | ArrayType
@@ -659,8 +682,25 @@ TupleType       = "(", [ TYPE, { ",", TYPE } ], ")" ;
 FnPtrType       = "fn", "(", [ TYPE, { ",", TYPE } ], ")", [ "->", TYPE ] ;
 NamedType       = PATH, [ "<", TYPE, { ",", TYPE }, ">" ] ;
 
+(* Declarations *)
+STRUCT_DECL     = { ATTRIBUTE }, "struct", IDENTIFIER, [ "<", GENERIC_PARAMS, ">" ],
+                  "{", { STRUCT_FIELD }, "}" ;
+STRUCT_FIELD    = { ATTRIBUTE }, IDENTIFIER, ":", TYPE, "," ;
+ENUM_DECL       = "enum", IDENTIFIER, [ "<", GENERIC_PARAMS, ">" ],
+                  "{", { ENUM_VARIANT, "," }, "}" ;
+ENUM_VARIANT    = IDENTIFIER, [ "(", TYPE, { ",", TYPE }, ")" ] ;
+CONST_DECL      = "const", IDENTIFIER, ":", TYPE, "=", EXPRESSION, ";" ;
+GLOBAL_DECL     = "global", IDENTIFIER, ":", TYPE, "=", EXPRESSION, ";" ;
+TRAIT_DECL      = "trait", IDENTIFIER, [ "<", GENERIC_PARAMS, ">" ],
+                  "{", { TRAIT_METHOD }, "}" ;
+TRAIT_METHOD    = { ATTRIBUTE }, "fn", IDENTIFIER, "(", [ PARAMS ], ")", [ "->", TYPE ], ";" ;
+IMPL_BLOCK      = "impl", [ GENERIC_PARAMS ], [ PATH, "for" ], TYPE,
+                  "{", { IMPL_ITEM }, "}" ;
+IMPL_ITEM       = FN_DECL | TRAIT_METHOD ;
+CONCEPT_DECL    = "concept", IDENTIFIER, "(", TYPE, ")", "requires", "(", EXPRESSION, ")", ";" ;
+
 (* Statements *)
-Block           = "{", { STMT }, "}" ;
+BLOCK           = "{", { STMT }, "}" ;
 STMT            = LET_STMT | LET_ELSE_STMT | ASSIGN_STMT
                 | IF_STMT | WHILE_STMT | FOR_STMT | LOOP_STMT
                 | MATCH_STMT | RETURN_STMT | UNSAFE_BLOCK
@@ -669,18 +709,18 @@ STMT            = LET_STMT | LET_ELSE_STMT | ASSIGN_STMT
 (* Expressions *)
 EXPR_STMT       = EXPRESSION, ";" ;
 LET_STMT        = "let", [ "mut" ], PATTERN, [ ":", TYPE ], "=", EXPRESSION, ";" ;
-LET_ELSE_STMT   = "let", PATTERN, "=", EXPRESSION, "else", Block ;
+LET_ELSE_STMT   = "let", PATTERN, "=", EXPRESSION, "else", BLOCK ;
 ASSIGN_STMT     = EXPRESSION, ASSIGN_OP, EXPRESSION, ";" ;
-IF_STMT         = "if", EXPRESSION, Block, [ "else", ( Block | IF_STMT ) ] ;
-WHILE_STMT      = "while", EXPRESSION, Block ;
-FOR_STMT        = "for", IDENTIFIER, "in", EXPRESSION, Block ;
-LOOP_STMT       = "loop", Block ;
+IF_STMT         = "if", EXPRESSION, BLOCK, [ "else", ( BLOCK | IF_STMT ) ] ;
+WHILE_STMT      = "while", EXPRESSION, BLOCK ;
+FOR_STMT        = "for", IDENTIFIER, "in", EXPRESSION, BLOCK ;
+LOOP_STMT       = "loop", BLOCK ;
 MATCH_STMT      = "match", EXPRESSION, "{", { MATCH_ARM, "," }, "}" ;
-MATCH_ARM       = PATTERN, [ "if", EXPRESSION ], "=>", ( Block | EXPRESSION, "," ) ;
+MATCH_ARM       = PATTERN, [ "if", EXPRESSION ], "=>", ( BLOCK | EXPRESSION, "," ) ;
 RETURN_STMT     = "return", [ EXPRESSION ], ";" ;
-UNSAFE_BLOCK    = "unsafe", Block ;
-REGION_STMT     = ( "with", "region", IDENTIFIER, Block )
-                | ( "region", "(", STRING_LIT, ")", Block ) ;
+UNSAFE_BLOCK    = "unsafe", BLOCK ;
+REGION_STMT     = ( "with", "region", IDENTIFIER, BLOCK )
+                | ( "region", "(", STRING_LIT, ")", BLOCK ) ;
 
 (* Patterns *)
 PATTERN         = "_" | PATTERN_LIT | PATTERN_BIND | PATTERN_VARIANT
@@ -693,7 +733,7 @@ PATTERN_STRUCT  = PATH, "{", [ FIELD_PAT, { ",", FIELD_PAT } ], "}" ;
 PATTERN_OR      = PATTERN, "|", PATTERN ;
 
 (* Contracts *)
-ContractClause  = ( "requires" | "ensures" ), EXPRESSION, ";" ;
+CONTRACT_CLAUSE = ( "requires" | "ensures" ), EXPRESSION, ";" ;
 
 (* Attributes *)
 ATTRIBUTE       = "@", IDENTIFIER, [ "(", ATTRIBUTE_ARGS, ")" ] ;
@@ -741,7 +781,7 @@ saltc <file.salt> [-o <path>] [flags]
   --target <target>      Target platform: macos, linux-arm64, windows, keuos, keuos-x86_64
   --lib                  Library mode (no main entry point required)
   --sip                  Mode B SIP safety enforcement
-  --verify               Enable Z3 contract verification (default: on)
+  --verify               Enable contract verification (default: on)
   --danger-no-verify     Skip all verification (debug builds only)
   --skip-scan            Skip import dependency scanning
   --emit-sir             Emit SIR as JSON for tooling
@@ -761,4 +801,4 @@ saltc <file.salt> [-o <path>] [flags]
 | E003 | Compilation failed (verification error, type error, etc.) |
 | E004 | Unknown argument or invalid flag |
 | E005 | Linker error |
-| E006 | Z3 solver error |
+| E006 | Verification error |
