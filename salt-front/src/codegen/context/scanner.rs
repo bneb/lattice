@@ -403,7 +403,14 @@ impl<'a> CodegenContext<'a> {
             let mut variants = Vec::new();
             let mut max_size = 0;
             for (i, v) in e.variants.iter().enumerate() {
-                let p_ty = v.ty.as_ref().map(|t| self.bridge_resolve_type(t));
+                let p_ty: Option<Type> = if v.tys.is_empty() {
+                    None
+                } else if v.tys.len() == 1 {
+                    Some(self.bridge_resolve_type(&v.tys[0]))
+                } else {
+                    let types: Vec<Type> = v.tys.iter().map(|t| self.bridge_resolve_type(t)).collect();
+                    Some(Type::Tuple(types))
+                };
                 let size = p_ty.as_ref()
                     .map(|ty| ty.size_of(&self.struct_registry()))
                     .unwrap_or(0);

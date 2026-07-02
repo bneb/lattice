@@ -172,13 +172,13 @@ impl LoweringContext {
         let generic_names = self.collect_generic_names(&e.generics);
 
         let variants: Vec<Variant> = e.variants.iter().map(|v| {
-            let data = match &v.ty {
-                Some(ty) => {
-                    let resolved = Type::from_syn_with_generics(ty, &generic_names)
-                        .unwrap_or(Type::Unit);
-                    VariantData::Tuple(vec![resolved])
-                }
-                None => VariantData::Unit,
+            let data = if v.tys.is_empty() {
+                VariantData::Unit
+            } else {
+                let resolved: Vec<Type> = v.tys.iter().map(|ty| {
+                    Type::from_syn_with_generics(ty, &generic_names).unwrap_or(Type::Unit)
+                }).collect();
+                VariantData::Tuple(resolved)
             };
             Variant {
                 name: v.name.to_string(),

@@ -1037,25 +1037,41 @@ pub(crate) fn emit_enum_constructor(
     if max_size > 0 {
         let array_mlir_ty = format!("!llvm.array<{} x i8>", max_size);
         let final_payload_val = if let Some(target_payload_ty) = &info.payload_ty {
-             if let Some(arg_expr) = args.first() {
+             let payload_val = if args.len() > 1 {
+                 // Multi-field variant: emit all args as a tuple, then store as bytes.
+                 let mut field_vals = Vec::new();
+                 let tuple_types: Vec<Type> = if let Type::Tuple(tys) = target_payload_ty { tys.clone() } else { vec![target_payload_ty.clone()] };
+                 for (i, arg) in args.iter().enumerate() {
+                     let expected = tuple_types.get(i).unwrap_or(target_payload_ty);
+                     let (v, _) = emit_expr(ctx, out, arg, local_vars, Some(expected))?;
+                     field_vals.push(v);
+                 }
+                 // Build the tuple value
+                 let tuple_mlir = target_payload_ty.to_mlir_type(ctx)?;
+                 let mut current = format!("%tuple_init_{}", ctx.next_id());
+                 out.push_str(&format!("    {} = llvm.mlir.undef : {}\n", current, tuple_mlir));
+                 for (i, fv) in field_vals.iter().enumerate() {
+                     let next = format!("%tuple_f{}_id{}", i, ctx.next_id());
+                     out.push_str(&format!("    {} = llvm.insertvalue {}, {}[{}] : {}\n", next, fv, current, i, tuple_mlir));
+                     current = next;
+                 }
+                 current
+             } else if let Some(arg_expr) = args.first() {
                  let (val, _ty) = emit_expr(ctx, out, arg_expr, local_vars, Some(target_payload_ty))?;
-                 // Store and Load
-                 let payload_buffer = format!("%payload_buf_{}", ctx.next_id());
-                 out.push_str(&format!("    {} = llvm.alloca %c1_i64 x {} {{alignment = 8 : i64}} : (i64) -> !llvm.ptr\n", payload_buffer, array_mlir_ty));
-                 
-                 let target_payload_mlir: String = target_payload_ty.to_mlir_type(ctx)?;
-                 out.push_str(&format!("    llvm.store {}, {} : {}, !llvm.ptr\n", val, payload_buffer, target_payload_mlir));
-                 
-                 let loaded_array = format!("%payload_loaded_{}", ctx.next_id());
-                 out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> {}\n", loaded_array, payload_buffer, array_mlir_ty));
-                 loaded_array
+                 val
              } else {
-                 // Missing payload arg? Logic error or Option::Some() without arg (invalid)?
-                 // For now zero.
                  let zero_array = format!("%zero_payload_{}", ctx.next_id());
                  out.push_str(&format!("    {} = llvm.mlir.zero : {}\n", zero_array, array_mlir_ty));
                  zero_array
-             }
+             };
+             // Store payload to buffer and load as byte array
+             let payload_buffer = format!("%payload_buf_{}", ctx.next_id());
+             out.push_str(&format!("    {} = llvm.alloca %c1_i64 x {} {{alignment = 8 : i64}} : (i64) -> !llvm.ptr\n", payload_buffer, array_mlir_ty));
+             let target_payload_mlir: String = target_payload_ty.to_mlir_type(ctx)?;
+             out.push_str(&format!("    llvm.store {}, {} : {}, !llvm.ptr\n", payload_val, payload_buffer, target_payload_mlir));
+             let loaded_array = format!("%payload_loaded_{}", ctx.next_id());
+             out.push_str(&format!("    {} = llvm.load {} : !llvm.ptr -> {}\n", loaded_array, payload_buffer, array_mlir_ty));
+             loaded_array
         } else {
              let zero_array = format!("%zero_payload_{}", ctx.next_id());
              out.push_str(&format!("    {} = llvm.mlir.zero : {}\n", zero_array, array_mlir_ty));

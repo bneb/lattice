@@ -262,7 +262,16 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         
         // 5. Recursive Discovery
         for (idx, v) in variants.iter().enumerate() {
-             let p_ty = v.ty.as_ref().map(|sy| crate::codegen::type_bridge::resolve_type(self, sy));
+             let p_ty: Option<Type> = if v.tys.is_empty() {
+                 None
+             } else if v.tys.len() == 1 {
+                 Some(crate::codegen::type_bridge::resolve_type(self, &v.tys[0]))
+             } else {
+                 let types: Vec<Type> = v.tys.iter()
+                     .map(|sy| crate::codegen::type_bridge::resolve_type(self, sy))
+                     .collect();
+                 Some(Type::Tuple(types))
+             };
              if let Some(ref ty) = p_ty {
                  let size = ty.size_of(self.struct_registry());
                  if size > max_payload_size { max_payload_size = size; }

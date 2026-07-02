@@ -484,7 +484,8 @@ pub struct EnumDef {
 #[derive(Clone, Debug)]
 pub struct EnumVariant {
     pub name: Ident,
-    pub ty: Option<SynType>, 
+    /// Zero or more associated types. `None` has 0, `Some(x)` has 1, `Pair(x, y)` has 2, etc.
+    pub tys: Vec<SynType>,
 }
 
 #[derive(Clone, Debug)]
@@ -860,14 +861,19 @@ impl Parse for EnumVariant {
             input.parse::<Token![pub]>()?;
         }
         let name: Ident = parse_user_ident(input)?;
-        let ty = if input.peek(syn::token::Paren) {
+        let tys = if input.peek(syn::token::Paren) {
              let content;
              parenthesized!(content in input);
-             Some(content.parse()?)
+             let mut types = Vec::new();
+             while !content.is_empty() {
+                 types.push(content.parse()?);
+                 if content.peek(Token![,]) { content.parse::<Token![,]>()?; }
+             }
+             types
         } else {
-             None
+             Vec::new()
         };
-        Ok(EnumVariant { name, ty })
+        Ok(EnumVariant { name, tys })
     }
 }
 

@@ -113,8 +113,7 @@ impl NameResolver {
     fn visit_enum_item(&mut self, e: &mut EnumDef) {
         self.with_generics(&e.generics, |this| {
             for variant in &mut e.variants {
-                let Some(ty) = &mut variant.ty else { continue; };
-                this.visit_syn_type(ty);
+                for ty in &mut variant.tys { this.visit_syn_type(ty); }
             }
         });
     }

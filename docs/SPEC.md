@@ -185,10 +185,10 @@ A struct defines a named product type. Fields are accessed with dot notation: `s
 ```ebnf
 ENUM_DECL = "enum", IDENTIFIER, [ "<", GENERIC_PARAMS, ">" ],
             "{", { ENUM_VARIANT, "," }, "}" ;
-ENUM_VARIANT = IDENTIFIER, [ "(", [ TYPE, { ",", TYPE } ], ")" ] ;
+ENUM_VARIANT = IDENTIFIER, [ "(", TYPE, { ",", TYPE }, ")" ] ;
 ```
 
-An enum defines a tagged union. Each variant carries zero or one associated value (there are no multi-field variants; use a tuple or struct as the associated type). Enum values are constructed as `VariantName(value)` and destroyed by `match`.
+An enum defines a tagged union. Each variant carries zero or more associated values. A variant with no values is a unit variant. A variant with one value carries that value directly. A variant with multiple values is stored as a tuple. Enum values are constructed as `VariantName(val₁, ..., valₙ)` and destroyed by `match`.
 
 ### 2.5 Generics
 
