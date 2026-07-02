@@ -1,17 +1,14 @@
 // =============================================================================
-// Basalt Kernels — Z3-Verified Core Compute
+// Basalt Kernels
 // =============================================================================
 //
-// The Engine Room of the Basalt inference engine. These functions know nothing
-// about neural networks — only flat Ptr<f32> arrays, dimension sizes, and
-// Z3 bounds contracts.
+// Flat Ptr<f32> compute kernels for LLM inference. No allocation — callers
+// pass pre-allocated buffers. 2D/3D indexing uses manual i*cols+j arithmetic.
 //
-// Design Rules:
-//   1. All memory is flat 1D Ptr<f32>. 2D/3D indexing uses i*cols+j.
-//   2. All loops are clean `for i in 0..N` — MLIR lowers to scf.for,
-//      then clang -O3 auto-vectorizes the tight inner loops.
-//   3. Every function has `requires` contracts proving dimensions > 0.
-//   4. No allocation. Callers pass pre-allocated buffers.
+// The matmul is manually tiled (4×4 blocks) with unrolled inner accumulators
+// targeting clang -O3 auto-vectorization. Dimension guards are runtime checks,
+// not Z3 contracts — these functions use `unsafe` blocks for raw pointer
+// access and are not verified.
 //
 // =============================================================================
 
