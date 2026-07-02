@@ -320,7 +320,7 @@ mlir-opt "$MLIR_OUT" \
     --allow-unregistered-dialect \
     --canonicalize --cse --loop-invariant-code-motion --sccp --canonicalize --cse \
     --convert-linalg-to-loops \
-    --lower-affine \
+	    --lower-affine \
     --convert-scf-to-cf \
     --convert-vector-to-llvm \
     --expand-strided-metadata \
