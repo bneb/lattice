@@ -107,7 +107,7 @@ fi
 BRIDGES+=("$PROJECT_ROOT/vendor/openlibm/libopenlibm.a")
 
 # Add C flags
-C_FLAGS_ARR=(-I"$PROJECT_ROOT/vendor/openlibm/include" -I"$PROJECT_ROOT/vendor/openlibm/src" -Wno-implicit-fallthrough -Wno-int-conversion -D_GNU_SOURCE)
+C_FLAGS_ARR=(-I"$PROJECT_ROOT/vendor/openlibm/include" -I"$PROJECT_ROOT/vendor/openlibm/src" -Wno-implicit-fallthrough -Wno-int-conversion -D_GNU_SOURCE -ffast-math -march=native)
 
 # Auto-detect bridges needed based on imports in the salt file
 # Skip for native builds — tcp_native_bridge.c already linked above

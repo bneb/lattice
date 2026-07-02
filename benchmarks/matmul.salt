@@ -1,16 +1,12 @@
 // Matrix Multiplication Benchmark
 //
-// Tensor<f64> with triple-nested loops. Salt emits affine.for which
-// mlir-opt lowers and clang -O3 auto-vectorizes.
+// Triple-nested loop with Tensor<f64>. Salt emits affine.for loops.
+// On M4, at parity with C (clang -O3 -ffast-math -march=native)
+// when both use the same i,j,k loop order.
 //
-// Note: this benchmark returns 0 without DCE prevention, unlike the
-// C/Rust versions which use argc-dependent checksums. Tensor does not
-// support runtime-dependent shapes or raw pointer inspection needed
-// for argc-dependent DCE prevention. The timing still measures real
-// work because clang -O3 at the LLVM IR level cannot eliminate the
-// linalg.matmul/memref operations emitted by the Tensor runtime.
-// The C and Rust versions verify via checksum; this version relies
-// on the optimizer not being able to elide linalg/memref ops.
+// The @ operator (linalg.matmul) would provide automatic tiling and
+// SIMD vectorization but has an MLIR type-mismatch bug with Tensor
+// in the general benchmark pipeline. Tracked separately.
 
 package basalt
 
@@ -18,7 +14,8 @@ extern fn salt_get_argc() -> i32;
 
 fn main() -> i32 {
     let n: i64 = 1024;
-    let a = Tensor::<f64>(1.0, [1024, 1024]);
+    let seed: f64 = (salt_get_argc() as f64) + 1.0;
+    let a = Tensor::<f64>(seed, [1024, 1024]);
     let b = Tensor::<f64>(2.0, [1024, 1024]);
     let mut res = Tensor::<f64>(0.0, [1024, 1024]);
 
@@ -32,5 +29,7 @@ fn main() -> i32 {
         }
     }
 
-    return 0;
+    let check = res[(0, 0)] as i64;
+    if check > 0 { return 0; }
+    return 1;
 }
