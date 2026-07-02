@@ -398,7 +398,6 @@ Attributes are prefixed with `@` and appear before the item they modify.
 | Attribute | Valid on | Effect |
 |-----------|----------|--------|
 | `@inline` | Functions | Hint to inline at call sites |
-| `@pure` | Functions | Declares the function has no observable side effects. The compiler may use this to simplify contract proofs — a call to a `@pure` function in a `requires` or `ensures` clause is treated as returning an arbitrary value of the correct type, rather than being evaluated. The compiler does not verify that the function body is actually pure; annotating an impure function `@pure` is undefined behavior. |
 | `@trusted` | Functions | Bypass contract verification for the function body. Used for FFI wrappers and hand-audited code. |
 | `@export` | Functions | Emit with C-compatible symbol name (no name mangling) |
 | `@yielding(N)` | Functions | Inject a yield point every N loop iterations, enabling cooperative scheduling. If N is omitted, a default interval is used. |
@@ -479,16 +478,7 @@ Postconditions are checked similarly at each return site, with `result` bound to
 
 Before checking a contract, the compiler injects type range constraints into the solver. For a parameter `x: u8`, the solver is informed that `0 <= x <= 255`. This means `requires(x < 256)` on a `u8` parameter is trivially proved for any argument value, even when the argument is not a compile-time constant.
 
-### 7.4 Pure Functions
-
-A function annotated `@pure` declares that it has no observable side effects. When a `@pure` function is called within a `requires` or `ensures` clause, the compiler treats the call as producing an arbitrary value of the function's return type. This means:
-
-- `requires(hash(a) != hash(b))` is provable — the two calls to `hash` may return distinct values
-- `requires(hash(a) == hash(a))` is not provable — the two calls may return different values even with the same argument, because purity does not imply determinism
-
-The compiler does not verify that the body of a `@pure` function is actually free of side effects. Annotating a function with side effects as `@pure` is undefined behavior.
-
-### 7.5 Limitations
+### 7.4 Limitations
 
 Contracts cannot prove all properties. Known limitations of the current implementation:
 

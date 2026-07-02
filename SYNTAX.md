@@ -131,7 +131,6 @@ Only primitives, function pointers, and `Ptr<T>` can cross the FFI boundary. Pas
 
 ```salt
 @inline     fn fast_path(x: i32) -> i32 { return x + 1; }
-@pure       fn hash(x: i64) -> i64 { return x * 2654435761; }
 @trusted    fn ffi_wrapper() -> i32 { return libc_call(); }
 
 @yielding              // cooperative scheduling at loop back-edges

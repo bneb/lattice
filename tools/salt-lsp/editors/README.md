@@ -95,7 +95,7 @@ export SALT_LSP_PATH=/path/to/salt-lsp
 |-----------------|---------------------------------------------|
 | **Keywords**    | `fn`, `let`, `mut`, `struct`, `enum`, `impl`, `match`, `return` |
 | **Verification**| `requires`, `ensures`, `invariant`          |
-| **Attributes**  | `@derive`, `@yielding`, `@pulse`, `@inline`, `@pure`, `@trusted` |
+| **Attributes**  | `@derive`, `@yielding`, `@pulse`, `@inline`, `@trusted` |
 | **Types**       | `i32`, `f64`, `bool`, `Ptr<T>`, `Result<T>`, `String`, `Vec` |
 | **F-strings**   | `f"Hello {name}"` with embedded expressions |
 | **Operators**   | `->`, `=>`, `::`, `..`, `?`, `|>`, `|?>`, `@` |

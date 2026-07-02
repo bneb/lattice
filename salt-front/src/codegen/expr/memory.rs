@@ -382,7 +382,7 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                          need_runtime_check = Some(n);
                      }
                  } else if !ctx.config.no_verify && !*ctx.is_unsafe_block() {
-                     let mut info = crate::codegen::verification::ptr_bounds_verifier::PtrBoundsInfo::new(&func_name);
+                     let info = crate::codegen::verification::ptr_bounds_verifier::PtrBoundsInfo::new(&func_name);
                      let proof_result = crate::codegen::verification::ptr_bounds_verifier::verify_ptr_dynamic_index(ctx.z3_ctx, ctx.z3_solver, &info);
                      if proof_result != crate::codegen::verification::ptr_bounds_verifier::PtrProofResult::Proven {
                          return Err(format!("Unsafe pointer indexing in '{}': Z3 could not prove bounds safety for raw pointer indexing. You must provide explicit bounds constraints via @requires, loop invariants, or wrap the access in an unsafe block.", func_name));
@@ -906,7 +906,7 @@ pub fn translate_to_z3<'a, 'ctx>(
                  _ => Err(format!("Unsupported symbolic unary operator: {:?}", u.op)),
              }
         }
-        // @pure function calls → Z3 uninterpreted functions
+        // Function calls in contracts → Z3 uninterpreted functions
         syn::Expr::Call(call) => {
             // Extract function name from the call expression
             let func_name = if let syn::Expr::Path(p) = &*call.func {
@@ -1044,7 +1044,7 @@ pub fn translate_bool_to_z3<'a, 'ctx>(
         syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Bool(b), .. }) => {
             Ok(crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, b.value))
         }
-        // @pure function calls returning bool → Z3 uninterpreted Bool functions
+        // Function calls returning bool in contracts → Z3 uninterpreted Bool functions
         syn::Expr::Call(call) => {
             let func_name = if let syn::Expr::Path(p) = &*call.func {
                 p.path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("_")

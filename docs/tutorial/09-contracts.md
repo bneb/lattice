@@ -165,20 +165,6 @@ fn init_library(config: Ptr<u8>) -> i32 {
 
 > **Rule**: Every `@trusted` function should have a comment explaining why verification is unnecessary or why the external dependency is trusted.
 
-## `@pure` — Uninterpreted Functions for Z3
-
-Mark a function `@pure` to allow Z3 to treat it as an uninterpreted function in proofs:
-
-```salt
-@pure
-fn hash(x: i64) -> i64 {
-    return x * 2654435761;
-}
-
-// Z3 can reason: if x == y then hash(x) == hash(y)
-// But cannot invert: given h, find x
-```
-
 ## Contracts in Practice
 
 A realistic example combining contracts with error handling:

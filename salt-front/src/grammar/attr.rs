@@ -63,13 +63,6 @@ pub fn has_attribute(attrs: &[Attribute], name: &str) -> bool {
     attrs.iter().any(|a| a.name == name)
 }
 
-/// Check if function is marked @pure
-/// Pure functions can be used in requires/ensures clauses and are modeled
-/// as Z3 uninterpreted functions for verification.
-pub fn is_pure(attrs: &[Attribute]) -> bool {
-    has_attribute(attrs, "pure")
-}
-
 /// Check if function is marked @fast_math
 /// Enables reassoc + contract fast-math flags on ALL floating-point ops
 /// in the function body, not just reduction patterns. This allows LLVM to

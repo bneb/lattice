@@ -6,7 +6,7 @@
 
 | File | Role |
 |------|------|
-| [`attr.rs`](./attr.rs) | **Attribute Parser.** Handles `@pulse(N)`, `@derive(Clone, Eq)`, `@yielding`, `@inline`, `@pure`, `@trusted`. |
+| [`attr.rs`](./attr.rs) | **Attribute Parser.** Handles `@pulse(N)`, `@derive(Clone, Eq)`, `@yielding`, `@inline`, `@trusted`. |
 | [`pattern.rs`](./pattern.rs) | **Pattern Parser.** Handles destructuring in `match` arms, `let` bindings, and `for` loops. Supports tuple, struct, enum, and wildcard (`_`) patterns. |
 
 ## Design Notes
