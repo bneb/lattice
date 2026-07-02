@@ -11,22 +11,24 @@ package main
 
 use std.core.result.Result
 
-fn safe_div(a: i64, b: i64) -> Result<i64>
-    requires(b != 0)
+fn find(arr: &[i64; 5], target: i64) -> Result<i64>
 {
-    return Result::Ok(a / b);
+    for i in 0..5 {
+        if arr[i] == target { return Result::Ok(i); }
+    }
+    return Result::Err(Status::from_code(5)); // NOT_FOUND
 }
 
 pub fn main() -> i32 {
-    // Z3 proves 7 != 0 at compile time — the check evaporates.
-    match safe_div(100, 7) {
-        Result::Ok(val) => { return val as i32; }
+    let data: [i64; 5] = [1, 3, 5, 7, 9];
+    match find(&data, 5) {
+        Result::Ok(idx) => { return idx as i32; }
         Result::Err(_) => { return -1; }
     }
 }
 ```
 
-`requires(b != 0)` is proved by Z3 at compile time. Call `safe_div(x, 7)` and the check evaporates — zero instructions emitted. Call `safe_div(x, 0)` and the compiler stops with a counterexample. No binary produced.
+Z3 proves every array access is in bounds at compile time. The loop index `i` is statically constrained to `0..5` by the `for` loop — Z3 sees this and elides all bounds checks. The `Result::Err` path returns `NOT_FOUND` instead of a sentinel value.
 
 ---
 

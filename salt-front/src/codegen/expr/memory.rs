@@ -324,6 +324,16 @@ pub fn emit_field(
     }
     Err(format!("Cannot access field {:?} on type {:?}", f.member, base_ty))
 }
+/// Extract the compile-time element count from an array type, unwrapping
+/// references and pointers. Returns None for non-array types.
+fn extract_array_length(ty: &Type) -> Option<i64> {
+    match ty {
+        Type::Array(_, len, _) => Some(*len as i64),
+        Type::Reference(inner, _) | Type::Pointer { element: inner, .. } => extract_array_length(inner),
+        _ => None,
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // REASON: all 8 params independently meaningful; bundling would obscure intent
 fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, kind: LValueKind, element: &Type) -> Result<(String, Type), String> {
 // Check deref validity
@@ -338,18 +348,48 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                  }
 
                  // Z3 Bounds Verification Integration
+                 // Extract array length from the type to prove bounds safety.
+                 // &[T; N] → N elements known at compile time.
+                 // The global Z3 solver already has loop bounds from for-loop
+                 // induction variables (emit_z3_for_loop_bounds).
                  let func_name = ctx.current_fn_name().clone();
-                 let info = crate::codegen::verification::ptr_bounds_verifier::PtrBoundsInfo::new(&func_name);
-                 let proof_result = crate::codegen::verification::ptr_bounds_verifier::verify_ptr_dynamic_index(ctx.z3_ctx, ctx.z3_solver, &info);
-                 
-                 match proof_result {
-                     crate::codegen::verification::ptr_bounds_verifier::PtrProofResult::Proven => {
-                         *ctx.elided_checks += 1;
-                     }
-                     _ => {
-                         if !ctx.config.no_verify && !*ctx.is_unsafe_block() {
-                             return Err(format!("Unsafe pointer indexing in '{}': Z3 could not prove bounds safety for raw pointer indexing. You must provide explicit bounds constraints via @requires, loop invariants, or wrap the access in an unsafe block.", func_name));
+                 let array_len = extract_array_length(base_ty);
+                 if let Some(n) = array_len {
+                     // Try fast path: if the index is a for-loop induction variable
+                     // tracked in the Z3 solver, assert the violation directly.
+                     let mut proven = false;
+                     // Resolve the source-level index name through local_vars
+                     // to find the Z3-tracked SSA variable (e.g., "i" → "%iv_i64_5").
+                     if let syn::Expr::Path(p) = &*i.index {
+                         if let Some(ident) = p.path.get_ident() {
+                             let src_name = ident.to_string();
+                             // Look up the SSA name in local_vars
+                             let ssa_name = local_vars.get(&src_name)
+                                 .and_then(|(_, kind)| {
+                                     if let LocalKind::SSA(ssa) = kind { Some(ssa.clone()) }
+                                     else { None }
+                                 });
+                             let lookup_name = ssa_name.as_deref().unwrap_or(&src_name);
+                             if let Some(z3_idx) = ctx.symbolic_tracker.get(lookup_name).cloned() {
+                                 use crate::z3_shim::ast::Ast;
+                                 ctx.z3_solver.push();
+                                 let alloc = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, n);
+                                 ctx.z3_solver.assert(&z3_idx.ge(&alloc));
+                                 proven = ctx.z3_solver.check() == crate::z3_shim::SatResult::Unsat;
+                                 ctx.z3_solver.pop(1);
+                             }
                          }
+                     }
+                     if proven {
+                         *ctx.elided_checks += 1;
+                     } else if !ctx.config.no_verify && !*ctx.is_unsafe_block() {
+                         return Err(format!("Unsafe pointer indexing in '{}': Z3 could not prove bounds safety for raw pointer indexing. The index may access element {} or beyond (array has {} elements). Use a for loop with known bounds (for i in 0..{}) or add a @requires contract.", func_name, n, n, n));
+                     }
+                 } else if !ctx.config.no_verify && !*ctx.is_unsafe_block() {
+                     let mut info = crate::codegen::verification::ptr_bounds_verifier::PtrBoundsInfo::new(&func_name);
+                     let proof_result = crate::codegen::verification::ptr_bounds_verifier::verify_ptr_dynamic_index(ctx.z3_ctx, ctx.z3_solver, &info);
+                     if proof_result != crate::codegen::verification::ptr_bounds_verifier::PtrProofResult::Proven {
+                         return Err(format!("Unsafe pointer indexing in '{}': Z3 could not prove bounds safety for raw pointer indexing. You must provide explicit bounds constraints via @requires, loop invariants, or wrap the access in an unsafe block.", func_name));
                      }
                  }
 
