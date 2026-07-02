@@ -2,7 +2,7 @@
 
 ## Zero-Cost Formal Verification
 
-Salt's defining feature: the **Z3 theorem prover** is embedded directly in the compiler. Contracts that Z3 can prove have **zero runtime cost** — the check is elided entirely. Contracts Z3 cannot prove emit a runtime assertion as a safe fallback.
+Salt's defining feature: the **Z3 theorem prover** is embedded directly in the compiler. Contracts that Z3 can prove have **zero runtime cost** — the check is elided entirely. Contracts Z3 cannot prove (timeout within 100ms, or genuinely ambiguous symbolic inputs) emit a runtime assertion as a safe fallback. The set of provable cases expands over time as the solver heuristics and proof tactics improve.
 
 ## `requires` — Preconditions
 

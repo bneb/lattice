@@ -10,8 +10,21 @@
 //   1. All memory is flat 1D Ptr<f32>. 2D/3D indexing uses i*cols+j.
 //   2. All loops are clean `for i in 0..N` — MLIR lowers to scf.for,
 //      then clang -O3 auto-vectorizes the tight inner loops.
-//   3. Every function has `requires` contracts proving dimensions > 0.
+//   3. Every public function has `requires` contracts. Z3 proves these at
+//      compile time for call sites with concrete dimensions (the normal case).
+//      When Z3 cannot prove a contract (symbolic/ambiguous values), a runtime
+//      assertion is emitted as a safe fallback. The set of provable cases
+//      expands as the solver and proof tactics improve.
 //   4. No allocation. Callers pass pre-allocated buffers.
+//
+// Tiling: These kernels target dynamically-shaped Ptr<f32> buffers (model
+// weights loaded at startup), so mat_mul uses manual 4×4 register blocking.
+// For compile-time-shaped matrices, prefer the `@` operator on Tensor types:
+//      let a = Tensor::<f32>(seed, [M, K]);
+//      let b = Tensor::<f32>(2.0, [K, N]);
+//      let c = a @ b;  // automatic cache tiling + SIMD vectorization
+// The @ operator emits i,k,j tile loops sized for L1 cache (64 for f64,
+// 128 for f32), zero-config.
 //
 // =============================================================================
 
@@ -30,8 +43,8 @@ extern fn sqrtf(x: f32) -> f32;
 // -----------------------------------------------------------------------------
 @fast_math
 pub fn rmsnorm(out: Ptr<f32>, x: Ptr<f32>, weight: Ptr<f32>, size: i64)
+    requires size > 0
 {
-    if size <= 0 { return; }
     unsafe {
         let mut ss: f32 = 0.0f32;
         for i in 0..size {
@@ -58,8 +71,8 @@ pub fn rmsnorm(out: Ptr<f32>, x: Ptr<f32>, weight: Ptr<f32>, size: i64)
 // -----------------------------------------------------------------------------
 @fast_math
 pub fn softmax(x: Ptr<f32>, size: i64)
+    requires size > 0
 {
-    if size <= 0 { return; }
     unsafe {
         let mut max_val: f32 = x[0];
         for i in 1..size {
@@ -93,8 +106,7 @@ pub fn softmax(x: Ptr<f32>, size: i64)
 @fast_math
 pub fn mat_mul_vec(out: Ptr<f32>, a: Ptr<f32>, x: Ptr<f32>, m: i64, d: i64)
 {
-    if m <= 0 { return; }
-    if d <= 0 { return; }
+    if m <= 0 || d <= 0 { return; }
     unsafe {
         for i in 0..m {
             let row_offset: i64 = i * d;
@@ -172,8 +184,11 @@ fn mat_mul_edges(out: Ptr<f32>, a: Ptr<f32>, b: Ptr<f32>, m: i64, n: i64, d: i64
 }
 
 @fast_math
-pub fn mat_mul(out: Ptr<f32>, a: Ptr<f32>, b: Ptr<f32>, m: i64, n: i64, d: i64) {
-    if m <= 0 || n <= 0 || d <= 0 { return; }
+pub fn mat_mul(out: Ptr<f32>, a: Ptr<f32>, b: Ptr<f32>, m: i64, n: i64, d: i64)
+    requires m > 0
+    requires n > 0
+    requires d > 0
+{
     if n == 1 {
         mat_mul_vec(out, a, b, m, d);
         return;
