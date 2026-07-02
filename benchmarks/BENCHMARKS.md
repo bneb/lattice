@@ -12,7 +12,7 @@ Within 15% of C is "Parity." Beyond that, Salt is faster or slower.
 | :--- | :--- | :--- | :--- | :--- |
 | `fib` | 289ms | 263ms | 0.9x | Parity |
 | `sieve` | 219ms | 217ms | 1.0x | Parity |
-| `matmul` | 249ms | 241ms | 1.0x | Parity |
+| `matmul` | 249ms | 241ms | 1.0x | Parity (see E2E: cache tiling beats C by 3-6% at 2K-4K) |
 | `fannkuch` | 215ms | 205ms | 0.9x | Parity |
 | `sudoku_solver` | 37ms | 35ms | 0.9x | Parity |
 | `hashmap_bench` | 58ms | 36ms | 0.6x | Salt faster |

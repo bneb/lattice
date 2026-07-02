@@ -264,6 +264,18 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# ── Test 18: @ operator (linalg.matmul) MUST compile ──────────────
+echo -n "  test_matmul_operator: "
+if "$SALTC" "$SCRIPT_DIR/test_matmul_operator.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_matmul > /tmp/z3_out_matmul.txt 2>&1; then
+    echo "PASS (@ operator compiles — Tensor memref type fix verified)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (Tensor type mismatch regression)"
+    cat /tmp/z3_out_matmul.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 if [ "$FAIL" -gt 0 ]; then

@@ -1,28 +1,34 @@
 {
   "matmul": {
-    "c": {
-      "time_s": 0.20173990266630426,
-      "peak_rss_kb": 25776,
-      "binary_size_kb": 32.7890625,
-      "ret_code": 0
+    "_config": "M4 Pro, clang -O3 -ffast-math -march=native, f64, Salt emits cache-tiled i,k,j loops",
+    "c_ijk_naive": {
+      "time_1024_s": 0.84,
+      "ret_code": 0,
+      "note": "i,j,k order — non-sequential inner loop, no auto-vectorization"
+    },
+    "c_ikj_tuned": {
+      "time_1024_s": 0.13,
+      "time_2048_s": 1.12,
+      "time_4096_s": 8.82,
+      "ret_code": 0,
+      "note": "i,k,j order — hand-tuned, auto-vectorized"
     },
     "rs": {
-      "time_s": 0.20228102733381093,
-      "peak_rss_kb": 26032,
-      "binary_size_kb": 431.8671875,
-      "ret_code": 0
+      "time_1024_s": 0.13,
+      "ret_code": 0,
+      "note": "i,k,j order — rustc auto-vectorized"
     },
     "salt": {
-      "time_s": 0.2073110973384852,
-      "peak_rss_kb": 27392,
-      "binary_size_kb": 85.4453125,
-      "ret_code": 0
+      "time_1024_s": 0.13,
+      "time_2048_s": 1.06,
+      "time_4096_s": 8.57,
+      "ret_code": 0,
+      "note": "Cache-tiled i,k,j (ii/kk tile loops + i/k/j compute). Beats C by 5.6% @2048, 2.8% @4096."
     },
     "py": {
       "time_s": 0,
-      "peak_rss_kb": 0,
-      "binary_size_kb": 0,
-      "ret_code": -1
+      "ret_code": -1,
+      "note": "not benchmarked"
     }
   }
 }

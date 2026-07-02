@@ -1,0 +1,16 @@
+// Z3 Contract Test: @ operator (linalg.matmul) MUST compile
+// Expected: PASS — @ operator on Tensor produces valid MLIR
+// This regression test guards against the Tensor type mismatch bug
+// where Tensor was inconsistently lowered as both !llvm.ptr and memref.
+
+package test_matmul_operator
+
+extern fn salt_get_argc() -> i32;
+
+pub fn main() -> i32 {
+    let seed: f64 = (salt_get_argc() as f64) + 1.0;
+    let a = Tensor::<f64>(seed, [4, 4]);
+    let b = Tensor::<f64>(2.0, [4, 4]);
+    let _res = a @ b;
+    return 0;
+}

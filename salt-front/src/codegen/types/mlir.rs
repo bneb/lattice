@@ -15,8 +15,10 @@ impl Type {
             return Ok("!llvm.ptr".to_string());
         }
 
-        if let Type::Tensor(_inner, _shape) = self {
-             return Ok("!llvm.ptr".to_string());
+        if let Type::Tensor(inner, shape) = self {
+            let elem = inner.to_mlir_storage_type(ctx)?;
+            let dims: Vec<String> = shape.iter().map(|d| d.to_string()).collect();
+            return Ok(format!("memref<{}x{}>", dims.join("x"), elem));
         }
 
         if let Type::Concrete(base, args) = self {

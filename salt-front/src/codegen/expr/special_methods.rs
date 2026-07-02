@@ -202,18 +202,26 @@ fn emit_matmul_method(
             let c_memref_ty = format!("memref<{}x{}>", m_dim, elem_mlir);
             
             // JIT MemRef Casting
-            // Zero-cost metadata wrap: !llvm.ptr → memref via unrealized_conversion_cast
-            // This tells MLIR the exact strides/sizes for tiling optimization
-            
-            // Cast A: !llvm.ptr → memref<MxKxf32>
-            let a_memref = format!("%a_view_{}", ctx.next_id());
-            out.push_str(&format!("    {} = builtin.unrealized_conversion_cast {} : !llvm.ptr to {}\n", 
-                a_memref, a_val, a_memref_ty));
-            
-            // Cast B: !llvm.ptr → memref<Kxf32>  
-            let b_memref = format!("%b_view_{}", ctx.next_id());
-            out.push_str(&format!("    {} = builtin.unrealized_conversion_cast {} : !llvm.ptr to {}\n",
-                b_memref, b_val, b_memref_ty));
+            // If the value is already a memref (Tensor type directly), use it as-is.
+            // If it's behind a pointer (Ptr<Tensor>), cast from !llvm.ptr → memref.
+
+            let a_memref = if matches!(a_ty, Type::Tensor(..)) {
+                a_val.clone()
+            } else {
+                let view = format!("%a_view_{}", ctx.next_id());
+                out.push_str(&format!("    {} = builtin.unrealized_conversion_cast {} : !llvm.ptr to {}\n",
+                    view, a_val, a_memref_ty));
+                view
+            };
+
+            let b_memref = if matches!(b_ty, Type::Tensor(..)) {
+                b_val.clone()
+            } else {
+                let view = format!("%b_view_{}", ctx.next_id());
+                out.push_str(&format!("    {} = builtin.unrealized_conversion_cast {} : !llvm.ptr to {}\n",
+                    view, b_val, b_memref_ty));
+                view
+            };
             
             // Allocate output: memref<Mxf32> (for result vector)
             let c_memref = format!("%c_buf_{}", ctx.next_id());
@@ -225,9 +233,36 @@ fn emit_matmul_method(
             out.push_str(&format!("    linalg.fill ins({} : {}) outs({} : {})\n", 
                 zero, elem_mlir, c_memref, c_memref_ty));
             
-            // Emit linalg.matvec - enables register blocking, software pipelining, AMX
-            out.push_str(&format!("    linalg.matvec ins({} : {}, {} : {}) outs({} : {})\n",
-                a_memref, a_memref_ty, b_memref, b_memref_ty, c_memref, c_memref_ty));
+            // i,k loop nest for matvec C[i] += A[i,k] * B[k]
+            // Explicit loops (not linalg.matvec) so clang can auto-vectorize
+            // the inner k-loop with sequential B[k] access.
+            let z_idx = format!("%mv_z_{}", ctx.next_id());
+            let o_idx = format!("%mv_1_{}", ctx.next_id());
+            let m_idx = format!("%mv_m_{}", ctx.next_id());
+            let k_idx = format!("%mv_k_{}", ctx.next_id());
+            out.push_str(&format!("    {} = arith.constant 0 : index\n", z_idx));
+            out.push_str(&format!("    {} = arith.constant 1 : index\n", o_idx));
+            out.push_str(&format!("    {} = arith.constant {} : index\n", m_idx, m_dim));
+            out.push_str(&format!("    {} = arith.constant {} : index\n", k_idx, k_dim));
+
+            let i_iv = format!("%mv_i_{}", ctx.next_id());
+            let k_iv = format!("%mv_k_{}", ctx.next_id());
+            let a_ik = format!("%mv_ak_{}", ctx.next_id());
+            let b_k = format!("%mv_bk_{}", ctx.next_id());
+            let m = format!("%mv_m_{}", ctx.next_id());
+            let c_val = format!("%mv_c_{}", ctx.next_id());
+            let c_new = format!("%mv_cn_{}", ctx.next_id());
+
+            out.push_str(&format!("    scf.for {} = {} to {} step {} {{\n", i_iv, z_idx, m_idx, o_idx));
+            out.push_str(&format!("      scf.for {} = {} to {} step {} {{\n", k_iv, z_idx, k_idx, o_idx));
+            out.push_str(&format!("        {} = memref.load {}[{}, {}] : {}\n", a_ik, a_memref, i_iv, k_iv, a_memref_ty));
+            out.push_str(&format!("        {} = memref.load {}[{}] : {}\n", b_k, b_memref, k_iv, b_memref_ty));
+            out.push_str(&format!("        {} = arith.mulf {}, {} : {}\n", m, a_ik, b_k, elem_mlir));
+            out.push_str(&format!("        {} = memref.load {}[{}] : {}\n", c_val, c_memref, i_iv, c_memref_ty));
+            out.push_str(&format!("        {} = arith.addf {}, {} : {}\n", c_new, c_val, m, elem_mlir));
+            out.push_str(&format!("        memref.store {}, {}[{}] : {}\n", c_new, c_memref, i_iv, c_memref_ty));
+            out.push_str("      }\n");
+            out.push_str("    }\n");
             
             // Extract raw pointer from memref for fluent chaining (.add_bias().relu())
             let c_idx = format!("%c_idx_{}", ctx.next_id());
@@ -265,14 +300,15 @@ fn emit_matmul_method(
             let b_memref_ty = format!("memref<{}x{}x{}>", k_dim, n_dim, elem_mlir);
             let c_memref_ty = format!("memref<{}x{}x{}>", m_dim, n_dim, elem_mlir);
             
-            // JIT memref casting for matrix operands
-            let a_memref = format!("%a_view_{}", ctx.next_id());
-            out.push_str(&format!("    {} = builtin.unrealized_conversion_cast {} : !llvm.ptr to {}\n", 
-                a_memref, a_val, a_memref_ty));
-            
-            let b_memref = format!("%b_view_{}", ctx.next_id());
-            out.push_str(&format!("    {} = builtin.unrealized_conversion_cast {} : !llvm.ptr to {}\n",
-                b_memref, b_val, b_memref_ty));
+            // JIT memref casting: skip if already memref, cast only Ptr<Tensor>
+            let a_memref = if matches!(a_ty, Type::Tensor(..)) { a_val.clone() } else {
+                let v = format!("%a_view_{}", ctx.next_id());
+                out.push_str(&format!("    {} = builtin.unrealized_conversion_cast {} : !llvm.ptr to {}\n", v, a_val, a_memref_ty)); v
+            };
+            let b_memref = if matches!(b_ty, Type::Tensor(..)) { b_val.clone() } else {
+                let v = format!("%b_view_{}", ctx.next_id());
+                out.push_str(&format!("    {} = builtin.unrealized_conversion_cast {} : !llvm.ptr to {}\n", v, b_val, b_memref_ty)); v
+            };
             
             // Allocate output buffer
             let c_memref = format!("%matmul_buf_{}", ctx.next_id());
@@ -284,9 +320,34 @@ fn emit_matmul_method(
             out.push_str(&format!("    linalg.fill ins({} : {}) outs({} : {})\n", 
                 zero, elem_mlir, c_memref, c_memref_ty));
             
-            // Emit linalg.matmul - enables AMX on Apple Silicon
-            out.push_str(&format!("    linalg.matmul ins({} : {}, {} : {}) outs({} : {})\n",
-                a_memref, a_memref_ty, b_memref, b_memref_ty, c_memref, c_memref_ty));
+            // Cache-tiled matmul: ii, kk tile loops over L1-sized blocks.
+            // Inner j-loop has constant bound 0..N → clang auto-vectorizes.
+            let (ii, i_max, kk, k_max, z_idx, n_idx, o_idx) =
+                emit_matmul_tile_loops(ctx, out, m_dim, k_dim, n_dim, &elem_mlir);
+
+            let i_iv = format!("%t_i_{}", ctx.next_id());
+            let k_iv = format!("%t_k_{}", ctx.next_id());
+            let j_iv = format!("%t_j_{}", ctx.next_id());
+            let a_ik = format!("%t_ak_{}", ctx.next_id());
+            let b_kj = format!("%t_bk_{}", ctx.next_id());
+            let c_ij = format!("%t_ci_{}", ctx.next_id());
+            let m = format!("%t_mul_{}", ctx.next_id());
+            let s = format!("%t_sum_{}", ctx.next_id());
+
+            out.push_str(&format!("        scf.for {} = {} to {} step {} {{\n", i_iv, ii, i_max, o_idx));
+            out.push_str(&format!("          scf.for {} = {} to {} step {} {{\n", k_iv, kk, k_max, o_idx));
+            out.push_str(&format!("            {} = memref.load {}[{}, {}] : {}\n", a_ik, a_memref, i_iv, k_iv, a_memref_ty));
+            out.push_str(&format!("            scf.for {} = {} to {} step {} {{\n", j_iv, z_idx, n_idx, o_idx));
+            out.push_str(&format!("              {} = memref.load {}[{}, {}] : {}\n", b_kj, b_memref, k_iv, j_iv, b_memref_ty));
+            out.push_str(&format!("              {} = arith.mulf {}, {} : {}\n", m, a_ik, b_kj, elem_mlir));
+            out.push_str(&format!("              {} = memref.load {}[{}, {}] : {}\n", c_ij, c_memref, i_iv, j_iv, c_memref_ty));
+            out.push_str(&format!("              {} = arith.addf {}, {} : {}\n", s, c_ij, m, elem_mlir));
+            out.push_str(&format!("              memref.store {}, {}[{}, {}] : {}\n", s, c_memref, i_iv, j_iv, c_memref_ty));
+            out.push_str("            }\n");  // close j
+            out.push_str("          }\n");    // close k
+            out.push_str("        }\n");      // close i
+            out.push_str("      }\n");        // close kk
+            out.push_str("    }\n");          // close ii
             
             // Extract pointer for chaining
             let c_idx = format!("%c_idx_{}", ctx.next_id());
@@ -310,6 +371,44 @@ fn emit_matmul_method(
         
         Err(format!("matmul: unsupported operand ranks: {} @ {}", a_rank, b_rank))
     }
+
+/// Tile size for cache blocking: ~32KB f64, ~64KB f32 per tile — fits L1.
+fn matmul_tile_size(elem_mlir: &str) -> usize {
+    match elem_mlir { "f64" | "i64" | "u64" => 64, _ => 128 }
+}
+
+/// Emit cache-tile wrapper loops for matrix multiplication.
+/// Tiles the i and k dimensions; j stays untiled for constant-bound
+/// auto-vectorization. Returns (ii, i_max, kk, k_max, z_idx, n_idx, o_idx)
+/// — tile IVs, inner bounds, and the j-loop bounds (always 0..N).
+fn emit_matmul_tile_loops(
+    ctx: &mut LoweringContext, out: &mut String,
+    m: usize, k: usize, n: usize, elem_mlir: &str,
+) -> (String, String, String, String, String, String, String) {
+    let tile = matmul_tile_size(elem_mlir);
+    let z = format!("%tz_{}", ctx.next_id());
+    let o = format!("%to_{}", ctx.next_id());
+    let mc = format!("%tm_{}", ctx.next_id());
+    let kc = format!("%tk_{}", ctx.next_id());
+    let nc = format!("%tn_{}", ctx.next_id());
+    let ti = format!("%tTi_{}", ctx.next_id());
+    let tk = format!("%tTk_{}", ctx.next_id());
+    out.push_str(&format!(
+        "    {z} = arith.constant 0 : index\n    {o} = arith.constant 1 : index\n    {mc} = arith.constant {m} : index\n    {kc} = arith.constant {k} : index\n    {nc} = arith.constant {n} : index\n    {ti} = arith.constant {tile} : index\n    {tk} = arith.constant {tile} : index\n",
+    ));
+    // Tile i and k dimensions; j stays untiled for constant-bound vectorization
+    let ii = format!("%tii_{}", ctx.next_id());
+    let i_ub = format!("%tiub_{}", ctx.next_id());
+    let i_max = format!("%timx_{}", ctx.next_id());
+    let kk = format!("%tkk_{}", ctx.next_id());
+    let k_ub = format!("%tkub_{}", ctx.next_id());
+    let k_max = format!("%tkmx_{}", ctx.next_id());
+    out.push_str(&format!(
+        "    scf.for {ii} = {z} to {mc} step {ti} {{\n      {i_ub} = arith.addi {ii}, {ti} : index\n      {i_max} = arith.minsi {i_ub}, {mc} : index\n      scf.for {kk} = {z} to {kc} step {tk} {{\n        {k_ub} = arith.addi {kk}, {tk} : index\n        {k_max} = arith.minsi {k_ub}, {kc} : index\n",
+    ));
+    (ii, i_max, kk, k_max, z, nc, o)
+}
+
 #[allow(clippy::too_many_arguments)] // REASON: all 8 params independently meaningful; bundling would obscure intent
 fn emit_ufcs_method(
     ctx: &mut LoweringContext,

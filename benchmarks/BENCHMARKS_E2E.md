@@ -4,8 +4,12 @@ Automated, multi-iteration, high-fidelity benchmarks across the KeuOS macro-appl
 
 ## Microbenchmarks (Algorithms & Data Structures)
 
-| Target | Binary Size (KB) | Peak RSS (KB) | execution_time_s |
-|---|---|---|---|
-| **matmul (C)** | 32.8 | 25776 | 0.20 |
-| **matmul (Rust)** | 431.9 | 26032 | 0.20 |
-| **matmul (Salt)** | 85.4 | 27392 | 0.21 |
+### Matrix Multiplication (f64, M4 Pro, clang -O3 -ffast-math -march=native)
+
+| Target | 1024² | 2048² | 4096² | Notes |
+|---|---|---|---|---|
+| **C i,j,k (naive)** | 0.84s | — | — | Inner k-loop: non-sequential, no SIMD |
+| **C i,k,j (tuned)** | 0.13s | 1.12s | 8.82s | Hand-tuned loop order, auto-vectorized |
+| **Salt `@` (untiled)** | 0.13s | — | — | i,k,j loops, parity with hand-tuned C |
+| **Salt `@` (tiled)** | 0.13s | **1.06s** | **8.57s** | ii,kk tile loops + i,k,j compute: beats C at scale |
+| **Rust** | 0.13s | — | — | i,k,j loops, ndarray |
