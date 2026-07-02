@@ -478,7 +478,26 @@ Postconditions are checked similarly at each return site, with `result` bound to
 
 Before checking a contract, the compiler injects type range constraints into the solver. For a parameter `x: u8`, the solver is informed that `0 <= x <= 255`. This means `requires(x < 256)` on a `u8` parameter is trivially proved for any argument value, even when the argument is not a compile-time constant.
 
-### 7.4 Limitations
+### 7.4 Loop Invariants
+
+While loops may contain `invariant` statements that the compiler checks using Hoare logic:
+
+```salt
+let mut i: i64 = 0;
+while i < 5 {
+    invariant i >= 0 && i < 5;
+    arr[i] = 0;  // Z3 proves this is safe using the invariant
+    i = i + 1;
+}
+```
+
+The compiler verifies two properties:
+1. **Base case**: the invariant holds at loop entry
+2. **Inductive step**: assuming the invariant and loop condition hold, the invariant still holds after one iteration (modelled by havocking modified variables)
+
+If either check fails, the compiler reports a counterexample. Invariants that constrain an index variable to a known range enable Z3 to prove array bounds safety inside while loops — the same way `for`-loop induction variables do automatically.
+
+### 7.5 Limitations
 
 Contracts cannot prove all properties. Known limitations of the current implementation:
 
@@ -486,7 +505,6 @@ Contracts cannot prove all properties. Known limitations of the current implemen
 - String length and content: only compile-time-known string literals are reliably folded to constants. Properties of strings from runtime sources (I/O, network) rely on the timeout fallback.
 - Non-linear integer arithmetic: multiplication of two variables may timeout.
 - The `@trusted` attribute bypasses verification entirely for the annotated function body.
-- Loop invariants for `while` loops: the compiler does not currently infer or accept user-specified loop invariants for while loops. Array access inside while loops with non-trivial indices falls back to runtime bounds checks.
 
 ---
 

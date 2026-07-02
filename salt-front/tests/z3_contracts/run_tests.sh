@@ -235,6 +235,18 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# ── Test 16: while-loop invariant enables array bounds proof ─────
+echo -n "  test_while_invariant: "
+if "$SALTC" "$SCRIPT_DIR/test_while_invariant.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_while_inv > /tmp/z3_out_while_inv.txt 2>&1; then
+    echo "PASS (while invariant proves array bounds — i >= 0 && i < 5)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (unexpected error — while invariant should prove bounds)"
+    cat /tmp/z3_out_while_inv.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 if [ "$FAIL" -gt 0 ]; then
