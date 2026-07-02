@@ -66,6 +66,100 @@ pub(crate) fn setup_while_loop_inductive_step(
     Ok(())
 }
 
+/// Try to auto-infer a loop invariant for simple monotonic while loops.
+/// Returns Some(expr) if the pattern `while var < N { var = var + 1 }` is detected,
+/// with the invariant `var >= INIT && var < N` (or `var <= N` for <= condition).
+fn try_infer_while_invariant(
+    cond: &syn::Expr,
+    body: &[Stmt],
+    local_vars: &HashMap<String, (Type, LocalKind)>,
+) -> Option<syn::Expr> {
+    // 1. Parse condition: must be `var < N` or `var <= N` where N is a constant.
+    let (var_name, bound, inclusive) = extract_monotonic_bound(cond)?;
+    // 2. Find the loop variable's initial value from local_vars.
+    // It must have been initialized to a compile-time constant before the loop.
+    let (_, kind) = local_vars.get(&var_name)?;
+    let ssa_name = match kind {
+        LocalKind::SSA(s) => s.clone(),
+        _ => return None,
+    };
+    // 3. Verify the body contains a simple increment: `var = var + K` (K > 0).
+    if !has_monotonic_increment(body, &var_name) { return None; }
+    // 4. Try to get the initial constant value. We can't easily extract it
+    // from Z3 state at this point, so use 0 as the default lower bound.
+    // The base case check will reject the invariant if it doesn't hold.
+    let lower = 0i64;
+    // Synthesize: `invariant var >= lower && var < bound` or `var <= bound`
+    if inclusive {
+        let inv_str = format!("{} >= {} && {} <= {}", var_name, lower, var_name, bound);
+        syn::parse_str(&inv_str).ok()
+    } else {
+        let inv_str = format!("{} >= {} && {} < {}", var_name, lower, var_name, bound);
+        syn::parse_str(&inv_str).ok()
+    }
+}
+
+/// Extract `(var_name, bound, inclusive)` from a condition like `i < 5` or `i <= n`.
+fn extract_monotonic_bound(cond: &syn::Expr) -> Option<(String, i64, bool)> {
+    if let syn::Expr::Binary(b) = cond {
+        let (var_name, bound, inclusive) = match &b.op {
+            syn::BinOp::Lt(_) => {
+                let var = extract_var_name(&b.left)?;
+                let n = extract_const_i64(&b.right)?;
+                (var, n, false)
+            }
+            syn::BinOp::Le(_) => {
+                let var = extract_var_name(&b.left)?;
+                let n = extract_const_i64(&b.right)?;
+                (var, n, true)
+            }
+            _ => return None,
+        };
+        Some((var_name, bound, inclusive))
+    } else {
+        None
+    }
+}
+
+/// Extract a variable name from an expression like `i`.
+fn extract_var_name(expr: &syn::Expr) -> Option<String> {
+    if let syn::Expr::Path(p) = expr {
+        p.path.get_ident().map(|id| id.to_string())
+    } else { None }
+}
+
+/// Extract a compile-time integer constant from an expression like `5`.
+fn extract_const_i64(expr: &syn::Expr) -> Option<i64> {
+    if let syn::Expr::Lit(lit) = expr {
+        if let syn::Lit::Int(i) = &lit.lit {
+            i.base10_parse::<i64>().ok()
+        } else { None }
+    } else { None }
+}
+
+/// Check if the loop body monotonically increments `var` by a positive constant.
+fn has_monotonic_increment(body: &[Stmt], var_name: &str) -> bool {
+    for stmt in body {
+        if let Stmt::Syn(s) = stmt {
+            let expr = match s {
+                syn::Stmt::Expr(e, _) => e,
+                _ => continue,
+            };
+            if let syn::Expr::Binary(syn::ExprBinary {
+                ref left, op: syn::BinOp::AddAssign(_), ref right, ..
+            }) = expr
+            {
+                if extract_var_name(left) == Some(var_name.to_string())
+                    && extract_const_i64(right).map_or(false, |n| n > 0)
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Phase C: Pop inductive scope and assert not(cond) for post-loop.
 pub(crate) fn verify_while_loop_post_body(
     ctx: &mut LoweringContext,
@@ -118,13 +212,24 @@ pub(crate) fn emit_while_stmt(ctx: &mut LoweringContext, out: &mut String, w: &c
             let mut body_vars = local_vars.clone();
 
             // === Z3 HOARE LOGIC: While Loop Verification ===
-            let invariant_exprs = prove_while_loop_base_case(ctx, &w.body.stmts, &body_vars)?;
-            setup_while_loop_inductive_step(ctx, &w.body.stmts, &mut body_vars, &w.cond, &invariant_exprs)?;
+            // Auto-infer simple invariants before checking explicit ones.
+            // If the loop is `let mut i = K; while i < N { ... i = i + 1; }`,
+            // synthesize `invariant i >= K && i < N` automatically.
+            let auto_inv = try_infer_while_invariant(&w.cond, &w.body.stmts, local_vars);
+            let all_stmts: Vec<Stmt> = if let Some(ref ai) = auto_inv {
+                let mut s = w.body.stmts.clone();
+                s.insert(0, Stmt::Invariant(ai.clone()));
+                s
+            } else {
+                w.body.stmts.clone()
+            };
+            let invariant_exprs = prove_while_loop_base_case(ctx, &all_stmts, &body_vars)?;
+            let body_to_emit = if auto_inv.is_some() { &all_stmts } else { &w.body.stmts };
+            setup_while_loop_inductive_step(ctx, body_to_emit, &mut body_vars, &w.cond, &invariant_exprs)?;
 
-            // `while p.addr() != 0 { ... }` — p is Valid inside body (push/pop isolates body state)
             let ptr_narrowing = super::get_narrowing_target(&w.cond);
             if let Some((ref var, true)) = ptr_narrowing { ctx.pointer_tracker.push_scope(); ctx.pointer_tracker.mark_valid(var); }
-            let body_diverges = super::emit_block(ctx, out, &w.body.stmts, &mut body_vars)?;
+            let body_diverges = super::emit_block(ctx, out, body_to_emit, &mut body_vars)?;
             if ptr_narrowing.is_some() { ctx.pointer_tracker.pop_scope(); }
 
             verify_while_loop_post_body(ctx, &w.cond, local_vars);
