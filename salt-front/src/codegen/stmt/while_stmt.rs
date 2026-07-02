@@ -79,10 +79,8 @@ fn try_infer_while_invariant(
     // 2. Find the loop variable's initial value from local_vars.
     // It must have been initialized to a compile-time constant before the loop.
     let (_, kind) = local_vars.get(&var_name)?;
-    let ssa_name = match kind {
-        LocalKind::SSA(s) => s.clone(),
-        _ => return None,
-    };
+    // Verify the variable has an SSA tracking entry (exists in local_vars).
+    if !matches!(kind, LocalKind::SSA(_)) { return None; }
     // 3. Verify the body contains a simple increment: `var = var + K` (K > 0).
     if !has_monotonic_increment(body, &var_name) { return None; }
     // 4. Try to get the initial constant value. We can't easily extract it
@@ -150,7 +148,7 @@ fn has_monotonic_increment(body: &[Stmt], var_name: &str) -> bool {
             }) = expr
             {
                 if extract_var_name(left) == Some(var_name.to_string())
-                    && extract_const_i64(right).map_or(false, |n| n > 0)
+                    && extract_const_i64(right).is_some_and(|n| n > 0)
                 {
                     return true;
                 }
