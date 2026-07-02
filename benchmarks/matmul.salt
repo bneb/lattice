@@ -23,10 +23,12 @@ fn main() -> i32 {
     let mut res = Tensor::<f64>(0.0, [1024, 1024]);
 
     for i in 0..n {
-        for k in 0..n {
-            for j in 0..n {
-                res[(i, j)] += a[(i, k)] * b[(k, j)];
+        for j in 0..n {
+            let mut sum: f64 = 0.0;
+            for k in 0..n {
+                sum += a[(i, k)] * b[(k, j)];
             }
+            res[(i, j)] = sum;
         }
     }
 
