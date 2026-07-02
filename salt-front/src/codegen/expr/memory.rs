@@ -350,20 +350,16 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                  // Z3 Bounds Verification Integration
                  // Extract array length from the type to prove bounds safety.
                  // &[T; N] → N elements known at compile time.
-                 // The global Z3 solver already has loop bounds from for-loop
-                 // induction variables (emit_z3_for_loop_bounds).
                  let func_name = ctx.current_fn_name().clone();
                  let array_len = extract_array_length(base_ty);
+                 let mut need_runtime_check: Option<i64> = None;
                  if let Some(n) = array_len {
-                     // Try fast path: if the index is a for-loop induction variable
-                     // tracked in the Z3 solver, assert the violation directly.
                      let mut proven = false;
-                     // Resolve the source-level index name through local_vars
-                     // to find the Z3-tracked SSA variable (e.g., "i" → "%iv_i64_5").
+                     // Fast path: if the index is a for-loop induction variable
+                     // tracked in the Z3 solver, assert the violation directly.
                      if let syn::Expr::Path(p) = &*i.index {
                          if let Some(ident) = p.path.get_ident() {
                              let src_name = ident.to_string();
-                             // Look up the SSA name in local_vars
                              let ssa_name = local_vars.get(&src_name)
                                  .and_then(|(_, kind)| {
                                      if let LocalKind::SSA(ssa) = kind { Some(ssa.clone()) }
@@ -382,8 +378,8 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                      }
                      if proven {
                          *ctx.elided_checks += 1;
-                     } else if !ctx.config.no_verify && !*ctx.is_unsafe_block() {
-                         return Err(format!("Unsafe pointer indexing in '{}': Z3 could not prove bounds safety for raw pointer indexing. The index may access element {} or beyond (array has {} elements). Use a for loop with known bounds (for i in 0..{}) or add a @requires contract.", func_name, n, n, n));
+                     } else {
+                         need_runtime_check = Some(n);
                      }
                  } else if !ctx.config.no_verify && !*ctx.is_unsafe_block() {
                      let mut info = crate::codegen::verification::ptr_bounds_verifier::PtrBoundsInfo::new(&func_name);
@@ -393,17 +389,27 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                      }
                  }
 
-                 // Trace array-ref indexing path
-                 // Pass None to sever Context Contamination
+                 // Emit the index computation
                  let idx_expr = &*i.index;
                  let (raw_idx_val, raw_idx_ty) = emit_expr(ctx, out, idx_expr, local_vars, None)?;
-                 
-                 // 
                  let idx_final = if raw_idx_ty == Type::I64 {
                      raw_idx_val
                  } else {
                      promote_numeric(ctx, out, &raw_idx_val, &raw_idx_ty, &Type::I64)?
                  };
+
+                 // Emit runtime bounds check if Z3 couldn't prove the index is safe
+                 if let Some(n) = need_runtime_check {
+                     let ok = format!("%bounds_ok_{}", ctx.next_id());
+                     let upper = format!("%upper_{}", ctx.next_id());
+                     out.push_str(&format!("    {} = arith.constant {} : i64\n", upper, n));
+                     out.push_str(&format!("    {} = arith.cmpi ult, {}, {} : i64\n", ok, idx_final, upper));
+                     out.push_str(&format!("    scf.if {} {{\n", ok));
+                     out.push_str("      scf.yield\n");
+                     out.push_str("    } else {\n");
+                     out.push_str(&format!("      func.call @__salt_contract_violation() : () -> ()\n"));
+                     out.push_str("    }\n");
+                 }
                                 // LValueKind: Ptr/Local → load alloca; SSA & Reference → use pointer directly.
                   let ptr_for_gep = if matches!(base_ty, Type::Reference(_, _)) {
                       // For references, base_ptr IS the address of the data (even if kind is Ptr)

@@ -11,24 +11,29 @@ package main
 
 use std.core.result.Result
 
-fn find(arr: &[i64; 5], target: i64) -> Result<i64>
+fn binary_search(arr: &[i64; 5], target: i64) -> Result<i64>
 {
-    for i in 0..5 {
-        if arr[i] == target { return Result::Ok(i); }
+    let mut lo: i64 = 0;
+    let mut hi: i64 = 4;
+    while lo <= hi {
+        let mid = (lo + hi) / 2;
+        if arr[mid] == target { return Result::Ok(mid); }
+        if arr[mid] < target { lo = mid + 1; }
+        else { hi = mid - 1; }
     }
     return Result::Err(Status::from_code(5)); // NOT_FOUND
 }
 
 pub fn main() -> i32 {
     let data: [i64; 5] = [1, 3, 5, 7, 9];
-    match find(&data, 5) {
+    match binary_search(&data, 5) {
         Result::Ok(idx) => { return idx as i32; }
         Result::Err(_) => { return -1; }
     }
 }
 ```
 
-Z3 proves every array access is in bounds at compile time. The loop index `i` is statically constrained to `0..5` by the `for` loop — Z3 sees this and elides all bounds checks. The `Result::Err` path returns `NOT_FOUND` instead of a sentinel value.
+Z3 proves the array is 5 elements at compile time and emits a bounds check. With a `for`-loop induction variable, Z3 elides the check entirely. The `Result::Err` path returns `NOT_FOUND` instead of a sentinel value.
 
 ---
 
