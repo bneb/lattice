@@ -8,6 +8,7 @@
 //! - `exhaustiveness`: Z3-based match exhaustiveness checking
 
 mod state_tracker;
+pub(crate) mod loop_bounds;
 pub mod malloc_tracker;
 pub mod exhaustiveness;
 pub mod arena_verifier;

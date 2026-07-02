@@ -477,6 +477,14 @@ impl<'a> CodegenContext<'a> {
         out.push_str(&bodies);
         
         out.push_str("}\n");
+
+        // Report Z3 verification coverage
+        let elided = *self.elided_checks.borrow();
+        let total = *self.total_checks.borrow();
+        eprintln!("Z3: {}/{} checks proven ({}%), {} deferred to runtime",
+            elided, total,
+            if total > 0 { (elided * 100) / total } else { 0 },
+            total - elided);
         Ok(out)
     }
 
@@ -1541,11 +1549,13 @@ fn emit_requires_verification(ctx: &CodegenContext, func: &crate::grammar::SaltF
             let sym_ctx = crate::codegen::verification::SymbolicContext::new(lctx.z3_ctx);
             let z3_result = crate::codegen::expr::translate_bool_to_z3(lctx, req, local_vars, &sym_ctx);
             if let Ok(z3_req) = z3_result {
+                *lctx.total_checks += 1;
                 lctx.z3_solver.push();
                 lctx.z3_solver.assert(&z3_req.not());
                 let result = lctx.z3_solver.check();
                 lctx.z3_solver.pop(1);
                 let is_proven = matches!(result, crate::z3_shim::SatResult::Unsat);
+                if is_proven { *lctx.elided_checks += 1; }
                 lctx.z3_solver.assert(&z3_req);
                 is_proven
             } else {

@@ -328,19 +328,30 @@ pub(crate) fn emit_scf_for_runtime_reduction(
 
     // === Z3 HOARE LOGIC: For Loop Induction Variable Bounds ===
     let _z3_for_loop_active = emit_z3_for_loop_bounds(ctx, &z3_iv_name, &f.iter, &*local_vars);
-    
+
+    // Track loop upper bound for pointer bounds verification
+    let ub_name = if let syn::Expr::Range(ref r) = f.iter {
+        r.end.as_ref().and_then(|e| {
+            if let syn::Expr::Path(p) = &**e { p.path.get_ident().map(|i| i.to_string()) }
+            else { None }
+        })
+    } else { None };
+    if let Some(ref name) = ub_name {
+        crate::codegen::verification::loop_bounds::set_loop_bound_name(Some(name.clone()));
+    }
+
     // Enable fast-math context for reduction body
     // Allows LLVM to reorder FP operations for vectorization
     ctx.emission.in_fast_math_reduction = true;
-    
+
     // Emit statements before the reduction update
     let stmts = &f.body.stmts;
     let update_idx = reduction.update_stmt_idx;
-    
+
     for stmt in stmts.iter().take(update_idx) {
         crate::codegen::stmt::emit_stmt(ctx, out, stmt, &mut body_vars)?;
     }
-    
+
     // Get the next value from the reduction statement
     let next_val = {
         let stmt = &stmts[update_idx];
@@ -352,11 +363,13 @@ pub(crate) fn emit_scf_for_runtime_reduction(
         let (val, _) = emit_expr(ctx, out, assign.right.as_ref(), &mut body_vars, Some(&reduction.ty))?;
         val
     };
-    
+
     // Emit scf.yield with the new accumulator value
     out.push_str(&format!("      scf.yield {} : {}\n", next_val, mlir_ty));
     out.push_str("    }\n");
-    
+
+    crate::codegen::verification::loop_bounds::set_loop_bound_name(None);
+
     // === Z3 HOARE LOGIC: Pop for-loop solver scope ===
     if _z3_for_loop_active {
         ctx.z3_solver.pop(1);

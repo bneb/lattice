@@ -381,10 +381,45 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                          need_runtime_check = Some(n);
                      }
                  } else if !ctx.config.no_verify && !*ctx.is_unsafe_block() {
-                     let info = crate::codegen::verification::ptr_bounds_verifier::PtrBoundsInfo::new(&func_name);
-                     let proof_result = crate::codegen::verification::ptr_bounds_verifier::verify_ptr_dynamic_index(ctx.z3_ctx, ctx.z3_solver, &info);
-                     if proof_result != crate::codegen::verification::ptr_bounds_verifier::PtrProofResult::Proven {
-                         return Err(format!("Unsafe pointer indexing in '{}': Z3 could not prove bounds safety for raw pointer indexing. You must provide explicit bounds constraints via @requires, loop invariants, or wrap the access in an unsafe block.", func_name));
+                     // Try loop upper bound as allocation bound for Ptr<T>
+                     let mut proven_by_loop = false;
+                     if let syn::Expr::Path(p) = &*i.index {
+                         if let Some(ident) = p.path.get_ident() {
+                             let src_name = ident.to_string();
+                             let ssa_name = local_vars.get(&src_name)
+                                 .and_then(|(_, kind)| {
+                                     if let LocalKind::SSA(ssa) = kind { Some(ssa.clone()) }
+                                     else { None }
+                                 });
+                             let lookup_name = ssa_name.as_deref().unwrap_or(&src_name);
+                             let ub_name = crate::codegen::verification::loop_bounds::get_loop_bound_name();
+                             let ub_lookup = ub_name.as_ref().and_then(|n| {
+                                 // Resolve through local_vars (may have SSA name)
+                                 if let Some((_, LocalKind::SSA(ssa))) = local_vars.get(n) {
+                                     ctx.symbolic_tracker.get(ssa).cloned()
+                                 } else {
+                                     ctx.symbolic_tracker.get(n).cloned()
+                                 }
+                             });
+                             if let (Some(z3_idx), Some(z3_ub)) = (
+                                 ctx.symbolic_tracker.get(lookup_name).cloned(),
+                                 ub_lookup,
+                             ) {
+                                 *ctx.total_checks += 1;
+                                 ctx.z3_solver.push();
+                                 ctx.z3_solver.assert(&z3_idx.ge(&z3_ub));
+                                 proven_by_loop = ctx.z3_solver.check() == crate::z3_shim::SatResult::Unsat;
+                                 ctx.z3_solver.pop(1);
+                                 if proven_by_loop { *ctx.elided_checks += 1; }
+                             }
+                         }
+                     }
+                     if !proven_by_loop {
+                         let info = crate::codegen::verification::ptr_bounds_verifier::PtrBoundsInfo::new(&func_name);
+                         let proof_result = crate::codegen::verification::ptr_bounds_verifier::verify_ptr_dynamic_index(ctx.z3_ctx, ctx.z3_solver, &info);
+                         if proof_result != crate::codegen::verification::ptr_bounds_verifier::PtrProofResult::Proven {
+                             return Err(format!("Unsafe pointer indexing in '{}': Z3 could not prove bounds safety for raw pointer indexing. You must provide explicit bounds constraints via @requires, loop invariants, or wrap the access in an unsafe block.", func_name));
+                         }
                      }
                  }
 
@@ -859,11 +894,17 @@ pub fn translate_to_z3<'a, 'ctx>(
             // First check local variables for SSA value
             if let Some((_, LocalKind::SSA(ssa))) = local_vars.get(&name) {
                     if let Some(z3_val) = ctx.get_symbolic_int(ssa) {
-                        return Ok(z3_val);
+                                                return Ok(z3_val);
                     }
             }
-            // Fallback to fresh variable
-            Ok(ctx.mk_var(&name))
+            // Check symbolic tracker by original name (function params, etc.)
+            if let Some(_z3_val) = ctx.symbolic_tracker.get(&name).cloned() {
+                                return Ok(_z3_val);
+            }
+            // Fallback to fresh variable — store it so subsequent lookups find it
+                        let fresh = ctx.mk_var(&name);
+            ctx.symbolic_tracker.insert(name.clone(), fresh.clone());
+            Ok(fresh)
         }
         syn::Expr::Binary(b) => {
             let lhs = translate_to_z3(ctx, &b.left, local_vars)?;

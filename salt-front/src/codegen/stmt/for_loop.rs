@@ -152,14 +152,27 @@ pub(crate) fn emit_scf_for_simple(
     
     // Register the induction variable with Z3 and assert domain constraints.
     let _z3_for_loop_active = emit_z3_for_loop_bounds(ctx, &iv_i64, &f.iter, &*local_vars);
-    
+
+    // Track loop upper bound for pointer bounds verification
+    let ub_name = if let syn::Expr::Range(ref r) = f.iter {
+        r.end.as_ref().and_then(|e| {
+            if let syn::Expr::Path(p) = &**e { p.path.get_ident().map(|i| i.to_string()) }
+            else { None }
+        })
+    } else { None };
+    if let Some(ref name) = ub_name {
+        crate::codegen::verification::loop_bounds::set_loop_bound_name(Some(name.clone()));
+    }
+
     ctx.enter_affine_context();
-    
+
     // Emit body
     let _body_diverges = super::emit_block(ctx, out, &f.body.stmts, &mut body_vars)?;
-    
+
     ctx.exit_affine_context();
-    
+
+    crate::codegen::verification::loop_bounds::set_loop_bound_name(None);
+
     if _z3_for_loop_active {
         ctx.z3_solver.pop(1);
     }
@@ -428,14 +441,28 @@ pub(crate) fn emit_cf_br_for_loop(ctx: &mut LoweringContext, out: &mut String, f
     } else {
         false
     };
-    
+
+    // Track loop upper bound for pointer bounds verification
+    let ub_name = if let syn::Expr::Range(ref r) = f.iter {
+        r.end.as_ref().and_then(|e| {
+            if let syn::Expr::Path(p) = &**e { p.path.get_ident().map(|i| i.to_string()) }
+            else { None }
+        })
+    } else { None };
+    if let Some(ref name) = ub_name {
+        crate::codegen::verification::loop_bounds::set_loop_bound_name(Some(name.clone()));
+    }
+
     ctx.break_labels_mut().push(label_exit.clone());
     ctx.continue_labels_mut().push(label_header.clone());
     ctx.push_cleanup_scope();
-    
+
     let body_diverges = super::emit_block(ctx, out, &f.body.stmts, &mut body_vars)?;
     ctx.break_labels_mut().pop();
     ctx.continue_labels_mut().pop();
+
+    crate::codegen::verification::loop_bounds::set_loop_bound_name(None);
+
     if _z3_for_loop_active {
         ctx.z3_solver.pop(1);
     }
