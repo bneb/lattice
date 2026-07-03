@@ -967,9 +967,21 @@ pub fn translate_to_z3<'a, 'ctx>(
                 "unknown_arr".to_string()
             };
             let index_z3 = translate_to_z3(ctx, &idx.index, local_vars)?;
-            // Versioned uninterpreted function: arr_v0, arr_v1, etc.
-            // Each indexed store bumps the version so subsequent reads see the new state.
+            // Lazy frame axiom emission: if stores have occurred since last read,
+            // assert update+frame axioms connecting old and new array versions.
             let version = crate::codegen::verification::array_tracker::get_version(&base_name);
+            if version > 0 && !crate::codegen::verification::array_tracker::frame_emitted(&base_name, version) {
+                let stores = crate::codegen::verification::array_tracker::get_stores(&base_name, 0);
+                for store in &stores {
+                    if let (Some(idx_z3), Some(val_z3)) = (
+                        ctx.symbolic_tracker.get(&store.index_name).cloned(),
+                        ctx.symbolic_tracker.get(&store.value_name).cloned(),
+                    ) {
+                        apply_array_store_in_z3(ctx, &base_name, &idx_z3, &val_z3);
+                    }
+                }
+                crate::codegen::verification::array_tracker::mark_frame_emitted(&base_name, version);
+            }
             let func_name = format!("{}_v{}", base_name, version);
             let sym = crate::z3_shim::Symbol::String(func_name);
             let domain = &[&crate::z3_shim::Sort::int(ctx.z3_ctx)];
