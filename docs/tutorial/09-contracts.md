@@ -210,10 +210,75 @@ fn main() -> i32 {
 }
 ```
 
+## Forall Quantifier
+
+The `forall` quantifier expresses properties over ranges of array elements:
+
+```salt
+package main
+
+fn array_fill(arr: Ptr<i32>, value: i32, n: i64)
+    requires n > 0
+    ensures forall i in 0..(n-1) => arr[i] == value
+{
+    for i in 0..n {
+        unsafe { arr[i] = value; }
+    }
+}
+```
+
+When the range bounds are compile-time constants (e.g., `0..3`), the forall expands to concrete comparisons at the call site — no Z3 quantifier needed. For symbolic bounds, Z3's ForAll quantifier handles the proof.
+
+```salt
+// Constant bounds: expands to arr[0] == 5 && arr[1] == 5 && arr[2] == 5
+array_fill(ptr, 5, 3);
+```
+
+## Loop Invariants
+
+For-loops support `invariant` clauses. The compiler checks the invariant at entry (base case) and proves it's preserved by the body (inductive step):
+
+```salt
+fn count_to_n(n: i64) -> i64
+    requires n >= 0
+{
+    let mut sum: i64 = 0;
+    for i in 0..n {
+        invariant i >= 0;
+        sum = sum + i;
+    }
+    return sum;
+}
+```
+
+When both loop bounds are compile-time constants, the compiler unrolls the loop at the Z3 level — each iteration is proved separately with concrete values. After compilation, Salt reports proof coverage:
+
+```
+Z3: 8/8 checks proven (100%), 0 deferred to runtime
+```
+
+## Verifying Sorting Algorithms
+
+Array-content invariants use `forall` inside `invariant` clauses:
+
+```salt
+fn bubble_sort(arr: Ptr<i32>, n: i64)
+    requires n > 0
+    ensures forall i in 0..(n-1) => arr[i] <= arr[i+1]
+{
+    for i in 0..n {
+        invariant forall k in 0..(i-1) => arr[k] <= arr[k+1];
+        // ... bubble pass ...
+    }
+}
+```
+
+The outer loop invariant states "the prefix arr[0..i-1] is sorted." Z3 proves the base case (vacuously true at i=0) and the inductive step when the inner loop has fixed trip counts (like bubble sort). For data-dependent inner loops (like insertion sort's while-loop), the infrastructure is in place but full proof requires case-splitting on the loop condition — an active area of development.
+
 ## Compiler Flags
 
 ```bash
-# Full verification (default)
+# Full verification (default) — emits Z3 coverage report
 salt-front my_program.salt -o my_program
 
 # Skip verification for fast iteration
@@ -226,9 +291,9 @@ salt-front --no-verify my_program.salt -o my_program
 |---------|--------|---------|
 | Precondition | `fn foo(x: T) requires(cond)` | Prove condition at every call site |
 | Postcondition | `fn foo(x: T) -> R ensures(cond)` | Prove condition at every return site |
-| Invariant | `invariant x > 0;` | Statement-level assertion for verification |
+| Forall | `forall i in lo..hi => expr` | Quantified array property |
+| Invariant | `invariant x > 0;` | Loop invariant (checked at entry + inductive step) |
 | Trusted | `@trusted fn foo(...) { ... }` | Skip Z3 verification (FFI, hand-audited) |
-| Pure | `@pure fn foo(...) { ... }` | Z3 uninterpreted function |
 | No-verify flag | `salt-front --no-verify ...` | Skip verification for fast iteration |
 
 ---

@@ -182,11 +182,17 @@ z3_stub has `Z3String` and `Regexp` types ready.
 - Struct field bounds
 - Pointer non-null
 - StringView `.length()` (in function bodies)
+- **Forall quantifier** — `forall i in lo..hi => body` in requires/ensures/invariant
+- **Constant-bound forall expansion** — `forall i in 0..3 => arr[i] <= arr[i+1]` → 3 concrete comparisons
+- **For-loop invariant base case** — checked at loop entry, pinned to `i == start`
+- **For-loop invariant inductive step** — `invariant(i) → invariant(i+1)` verified after body
+- **Concrete for-loop unrolling** — when bounds are constants, each iteration proved separately
 - **For-loop induction variable bounds** — automatically asserted as invariants
 - **Ptr<T> index bounds via loop invariants** — `for i in 0..size { x[i] }` proved when `requires size > 0`
-- **Constant-index Ptr<T> bounds via requires** — `x[0]` proved when `requires size > 0`
-- **Arithmetic index bounds** — `out[i*n + j]` proved from nested loop bounds `i<m, j<n` via pairwise product `m*n`
-- **Proof coverage metrics** — after compilation: `Z3: 10/24 checks proven (41%), 14 deferred to runtime`
+- **Arithmetic index bounds** — `out[i*n + j]` proved from nested loop bounds
+- **Array-content invariants** — `invariant forall k in 0..(i-1): arr[k] <= arr[k+1]` for sorting proofs
+- **Proof coverage metrics** — after compilation: `Z3: 8/8 checks proven (100%), 0 deferred to runtime`
+- **Array store tracking** — versioned UFs with update assertions + bounded frame axioms
 
 **Wired (bridge complete, limited by Z3 100ms timeout):**
 - `Real` (exact rational arithmetic) — symbolic + literal, all comparisons
@@ -195,9 +201,10 @@ z3_stub has `Z3String` and `Regexp` types ready.
 - `Regexp` (pattern matching) — stub type
 
 **Not currently expressible:**
-- Quantifiers (`forall`/`exists`) — Z3 supports them; Salt has no syntax
+- Z3 native Array theory (`select`/`store`) — stub ready, real z3-0.12 crashes on store()
 - Heap reachability (no cycles, no dangling pointers)
 - Temporal properties (eventually, always)
+- Data-dependent loop proofs (while-loop with data-dependent iterations)
 
 ## How to Use
 
