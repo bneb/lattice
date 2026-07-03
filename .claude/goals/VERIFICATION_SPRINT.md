@@ -40,7 +40,7 @@
 **Files:** `tests/z3_contracts/test_*.salt`, `run_tests.sh`
 **Effort:** 1-2 days
 
-## Phase 3: `exists` Quantifier [ ]
+## Phase 3: `exists` Quantifier [x] 2026-07-03
 
 **Goal:** `exists i in lo..hi => body` syntax. Same expansion pattern as forall.
 
@@ -53,7 +53,7 @@
 **Files:** `grammar/expr_utils.rs`, `memory.rs`, `keywords.rs`
 **Effort:** 1 day
 
-## Phase 4: Z3 Native Array Theory [ ]
+## Phase 4: Z3 Native Array Theory [BLOCKED] — z3-0.12 Array::store crashes, z3-0.20 has 377 API breakages
 
 **Goal:** Replace versioned UFs with Z3 `store`/`select`. Eliminates manual frame axioms. Currently blocked on z3-0.12 crash — needs either z3 upgrade or C API workaround.
 
