@@ -155,19 +155,51 @@ pub(crate) fn prove_for_loop_concrete(
             process_array_stores_in_body(stmts);
             // Assert while-loop exit conditions to constrain store indices
             assert_while_exit_conditions(ctx, stmts, bv);
-            // Check invariant at i+1 (inductive step)
+            // Case-split on while-loop variables for data-dependent branches
+            let mut loop_vars: Vec<String> = Vec::new();
+            extract_while_loop_vars(stmts, &mut loop_vars);
+            // Check invariant at i+1 (inductive step) with case-splitting
             let next_val: syn::Expr = syn::parse_quote! { #var_ident + 1 };
             for e in &inv {
                 let next_inv = crate::grammar::expr_utils::substitute_ident(e, &var_ident, &next_val);
                 if let Ok(z3_next) = crate::codegen::expr::translate_bool_to_z3(ctx, &next_inv, bv, &sc) {
-                    *ctx.total_checks += 1;
-                    ctx.z3_solver.push(); ctx.z3_solver.assert(&z3_next.not());
-                    if ctx.z3_solver.check() == crate::z3_shim::SatResult::Sat {
-                        ctx.z3_solver.pop(1); ctx.z3_solver.pop(1);
-                        return Err(format!("Z3: invariant not preserved at i={}", i_val + 1));
+                    if loop_vars.is_empty() {
+                        // No while-loop variables: check invariant directly
+                        *ctx.total_checks += 1;
+                        ctx.z3_solver.push(); ctx.z3_solver.assert(&z3_next.not());
+                        if ctx.z3_solver.check() == crate::z3_shim::SatResult::Sat {
+                            ctx.z3_solver.pop(1); ctx.z3_solver.pop(1);
+                            return Err(format!("Z3: invariant not preserved at i={}", i_val + 1));
+                        }
+                        ctx.z3_solver.pop(1);
+                        *ctx.elided_checks += 1;
+                    } else {
+                        // Case-split on each while-loop variable
+                        for var_name in &loop_vars {
+                            if let Some(z3_var) = resolve_var_z3(ctx, var_name, bv) {
+                                let z3_zero = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 0);
+                                // Case A: var < 0 (loop exited via counter exhaustion)
+                                *ctx.total_checks += 1;
+                                ctx.z3_solver.push();
+                                ctx.z3_solver.assert(&z3_var.lt(&z3_zero));
+                                ctx.z3_solver.assert(&z3_next.not());
+                                let case_a_proven = ctx.z3_solver.check() == crate::z3_shim::SatResult::Unsat;
+                                ctx.z3_solver.pop(1);
+                                // Case B: var >= 0 (loop exited via sorted element)
+                                *ctx.total_checks += 1;
+                                ctx.z3_solver.push();
+                                ctx.z3_solver.assert(&z3_var.ge(&z3_zero));
+                                ctx.z3_solver.assert(&z3_next.not());
+                                let case_b_proven = ctx.z3_solver.check() == crate::z3_shim::SatResult::Unsat;
+                                ctx.z3_solver.pop(1);
+                                if !case_a_proven || !case_b_proven {
+                                    ctx.z3_solver.pop(1);
+                                    return Err(format!("Z3: invariant not preserved at i={} (case-split on {})", i_val + 1, var_name));
+                                }
+                                *ctx.elided_checks += 2;
+                            }
+                        }
                     }
-                    ctx.z3_solver.pop(1);
-                    *ctx.elided_checks += 1;
                 }
             }
             ctx.z3_solver.pop(1);
@@ -222,5 +254,64 @@ fn assert_while_exit_depth(
             }
             _ => {}
         }
+    }
+}
+
+/// Extract loop variable names from while-loop conditions in the body.
+fn extract_while_loop_vars(stmts: &[crate::grammar::Stmt], out: &mut Vec<String>) {
+    extract_vars_depth(stmts, out, 0);
+}
+
+fn extract_vars_depth(stmts: &[crate::grammar::Stmt], out: &mut Vec<String>, depth: usize) {
+    if depth > 32 { return; }
+    use crate::grammar::Stmt;
+    for stmt in stmts {
+        match stmt {
+            Stmt::Syn(syn::Stmt::Expr(syn::Expr::While(w), _)) |
+            Stmt::Expr(syn::Expr::While(w), _) => {
+                collect_loop_var(&w.cond, out);
+            }
+            Stmt::While(w) => {
+                collect_loop_var(&w.cond, out);
+                extract_vars_depth(&w.body.stmts, out, depth + 1);
+            }
+            Stmt::Unsafe(block) => extract_vars_depth(&block.stmts, out, depth + 1),
+            Stmt::For(f) => extract_vars_depth(&f.body.stmts, out, depth + 1),
+            Stmt::If(salt_if) => {
+                extract_vars_depth(&salt_if.then_branch.stmts, out, depth + 1);
+                if let Some(else_branch) = &salt_if.else_branch {
+                    if let crate::grammar::SaltElse::Block(b) = else_branch.as_ref() {
+                        extract_vars_depth(&b.stmts, out, depth + 1);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Extract the primary loop variable from a while condition like `j >= 0 && arr[j] > key`.
+fn collect_loop_var(cond: &syn::Expr, out: &mut Vec<String>) {
+    if let syn::Expr::Binary(bin) = cond {
+        if let syn::Expr::Binary(inner) = &*bin.left {
+            if let syn::Expr::Path(p) = &*inner.left {
+                if let Some(name) = p.path.get_ident().map(|i| i.to_string()) {
+                    out.push(name);
+                }
+            }
+        }
+    }
+}
+
+/// Resolve a variable name through body_vars to get its Z3 Int.
+fn resolve_var_z3<'a>(
+    ctx: &crate::codegen::context::LoweringContext<'a, '_>,
+    name: &str,
+    bv: &HashMap<String, (crate::types::Type, crate::codegen::context::LocalKind)>,
+) -> Option<crate::z3_shim::ast::Int<'a>> {
+    if let Some((_, crate::codegen::context::LocalKind::SSA(ssa))) = bv.get(name) {
+        ctx.symbolic_tracker.get(ssa).cloned()
+    } else {
+        ctx.symbolic_tracker.get(name).cloned()
     }
 }
