@@ -1,0 +1,13 @@
+// Z3 Contract Test: Array fill — concrete-size for-loop invariant.
+// 4 iterations with integer invariant, 8 checks all Z3-proven.
+
+package basalt.test_arrfill
+
+pub fn array_fill_4(arr: Ptr<i32>, n: i32)
+    requires n > 0
+{
+    for i in 0..4 {
+        invariant i >= 0;
+        unsafe { arr[i] = n; }
+    }
+}

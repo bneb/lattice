@@ -276,6 +276,54 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# ── Test 19: Bubble sort with array-content invariants ──────────────
+echo -n "  test_bubble_sort: "
+if "$SALTC" "$SCRIPT_DIR/test_bubble_sort.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_bubble > /tmp/z3_out_bubble.txt 2>&1; then
+    echo "PASS (bubble sort compiles with forall invariants)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (bubble sort verification regression)"
+    cat /tmp/z3_out_bubble.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 20: Selection sort with integer invariants ─────────────────
+echo -n "  test_selection_sort: "
+if "$SALTC" "$SCRIPT_DIR/test_selection_sort.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_sel > /tmp/z3_out_sel.txt 2>&1; then
+    echo "PASS (selection sort compiles with invariants)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (selection sort verification regression)"
+    cat /tmp/z3_out_sel.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 21: Binary search with while-loop invariants ───────────────
+echo -n "  test_binary_search: "
+if "$SALTC" "$SCRIPT_DIR/test_binary_search.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_bs > /tmp/z3_out_bs.txt 2>&1; then
+    echo "PASS (binary search with while-loop invariants)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (binary search verification regression)"
+    cat /tmp/z3_out_bs.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 22: Array fill with concrete unrolling ─────────────────────
+echo -n "  test_array_fill: "
+if "$SALTC" "$SCRIPT_DIR/test_array_fill.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_af > /tmp/z3_out_af.txt 2>&1; then
+    echo "PASS (array fill with concrete unrolling)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (array fill verification regression)"
+    cat /tmp/z3_out_af.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 if [ "$FAIL" -gt 0 ]; then

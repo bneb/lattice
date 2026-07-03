@@ -1,0 +1,25 @@
+// Z3 Contract Test: Selection sort — integer invariant on outer loop
+// Data-dependent stores in inner loop require conditional store application
+// (same gap as insertion sort). Integer invariants are Z3-proven.
+
+package basalt.test_sel_sort
+
+pub fn selection_sort(arr: Ptr<i32>, n: i64)
+    requires n > 0
+{
+    for i in 0..(n - 1) {
+        invariant i >= 0;
+        let mut min_idx: i64 = i;
+        for j in (i + 1)..n {
+            invariant min_idx >= i;
+            unsafe {
+                if arr[j] < arr[min_idx] { min_idx = j; }
+            }
+        }
+        unsafe {
+            let tmp = arr[i];
+            arr[i] = arr[min_idx];
+            arr[min_idx] = tmp;
+        }
+    }
+}

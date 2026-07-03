@@ -1,0 +1,22 @@
+// Z3 Contract Test: Binary search with while-loop invariants
+// Proves bounds safety via invariant on the search window.
+
+package basalt.test_binsearch
+
+pub fn binary_search(arr: Ptr<i32>, n: i64, target: i32) -> i64
+    requires n > 0
+{
+    let mut lo: i64 = 0;
+    let mut hi: i64 = n - 1;
+    while lo <= hi {
+        invariant lo >= 0;
+        invariant hi < n;
+        let mid = lo + (hi - lo) / 2;
+        unsafe {
+            if arr[mid] == target { return mid; }
+            if arr[mid] < target { lo = mid + 1; }
+            else { hi = mid - 1; }
+        }
+    }
+    return -1;
+}
