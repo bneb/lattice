@@ -14,7 +14,7 @@
 - Red-team fixes — honest claims, no @trusted bypass, UNSAFE.md accuracy
 - CI stability — clippy::manual-checked-ops fixed
 
-## Phase 1: Case-Splitting for Data-Dependent Loops [ ]
+## Phase 1: Case-Splitting for Data-Dependent Loops [x] 2026-07-03
 
 **Goal:** Insertion sort fully verified. The inner while-loop exit condition `j < 0 || arr[j] <= key` is already asserted. Split the inductive step into two Z3 cases: `j == -1` and `j >= 0 && arr[j] <= key`. Prove each separately.
 
