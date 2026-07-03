@@ -982,14 +982,14 @@ pub fn translate_to_z3<'a, 'ctx>(
             };
             let index_z3 = translate_to_z3(ctx, &idx.index, local_vars)?;
             let ver = crate::codegen::verification::array_tracker::get_version(&base_name);
-            // Emit update constraints for unapplied stores: arr_v{k+1}(idx) == val
+            // Lazy store emission: update assertion + bounded frame axiom
             let stores = crate::codegen::verification::array_tracker::get_stores(&base_name);
             let applied = crate::codegen::verification::array_tracker::stores_applied(&base_name);
             if applied < stores.len() {
                 crate::codegen::verification::array_tracker::mark_stores_applied(&base_name, stores.len());
                 let mut cur_ver = applied;
                 let loop_bounds = crate::codegen::verification::loop_bounds::get_loop_bound_stack();
-                let frame_bound = loop_bounds.last(); // use innermost loop bound for frame axiom range
+                let frame_bound = loop_bounds.last();
                 for store in &stores[applied..] {
                     let old_ver = cur_ver;
                     let new_ver = cur_ver + 1;
@@ -1004,12 +1004,10 @@ pub fn translate_to_z3<'a, 'ctx>(
                         translate_to_z3(ctx, &store.value_expr, local_vars),
                     ) {
                         use crate::z3_shim::ast::Ast;
-                        // Update assertion: arr_new(i) = value
                         let new_at_idx = new_func.apply(&[&s_idx]);
                         if let Some(new_int) = new_at_idx.as_int() {
                             ctx.z3_solver.assert(&new_int._eq(&s_val));
                         }
-                        // Frame axiom (bounded): forall k in 0..bound, k != i => arr_new(k) = arr_old(k)
                         if let Some(bound_name) = frame_bound {
                             if let Some(z3_bound) = resolve_bound(bound_name, local_vars, ctx) {
                                 let k_name = format!("k_fr_{}", ctx.next_id());
