@@ -414,6 +414,37 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                              }
                          }
                      }
+                     // Try literal index against requires-constrained parameters
+                     if !proven_by_loop {
+                         if let syn::Expr::Lit(lit) = &*i.index {
+                             if let syn::Lit::Int(li) = &lit.lit {
+                                 if let Ok(idx_val) = li.base10_parse::<i64>() {
+                                     let z3_idx = ctx.mk_int(idx_val);
+                                     let req_params = crate::codegen::verification::loop_bounds::get_requires_params();
+                                     for param in &req_params {
+                                         // Resolve through local_vars to get SSA name
+                                         let z3_ub = if let Some((_, LocalKind::SSA(ssa))) = local_vars.get(param) {
+                                             ctx.symbolic_tracker.get(ssa).cloned()
+                                         } else {
+                                             ctx.symbolic_tracker.get(param).cloned()
+                                         };
+                                         if let Some(z3_ub) = z3_ub {
+                                             *ctx.total_checks += 1;
+                                             ctx.z3_solver.push();
+                                             ctx.z3_solver.assert(&z3_idx.ge(&z3_ub));
+                                             let r = ctx.z3_solver.check();
+                                             if r == crate::z3_shim::SatResult::Unsat {
+                                                 proven_by_loop = true;
+                                                 *ctx.elided_checks += 1;
+                                             }
+                                             ctx.z3_solver.pop(1);
+                                             if proven_by_loop { break; }
+                                         }
+                                     }
+                                 }
+                             }
+                         }
+                     }
                      if !proven_by_loop {
                          let info = crate::codegen::verification::ptr_bounds_verifier::PtrBoundsInfo::new(&func_name);
                          let proof_result = crate::codegen::verification::ptr_bounds_verifier::verify_ptr_dynamic_index(ctx.z3_ctx, ctx.z3_solver, &info);

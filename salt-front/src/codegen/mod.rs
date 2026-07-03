@@ -1544,6 +1544,13 @@ fn promote_mutated_args(ctx: &CodegenContext, func: &crate::grammar::SaltFn, bod
 }
 
 fn emit_requires_verification(ctx: &CodegenContext, func: &crate::grammar::SaltFn, body_out: &mut String, local_vars: &mut std::collections::HashMap<String, (Type, crate::codegen::context::LocalKind)>) -> Result<(), String> {
+    // Collect parameter names constrained by requires clauses for Ptr<T> bounds proofs
+    let mut req_params: Vec<String> = Vec::new();
+    for req in &func.requires {
+        collect_path_idents(req, &mut req_params);
+    }
+    crate::codegen::verification::loop_bounds::set_requires_params(req_params);
+
     for req in &func.requires {
         let proven = ctx.with_lowering_ctx(|lctx| {
             let sym_ctx = crate::codegen::verification::SymbolicContext::new(lctx.z3_ctx);
@@ -1577,6 +1584,24 @@ fn emit_requires_verification(ctx: &CodegenContext, func: &crate::grammar::SaltF
         }
     }
     Ok(())
+}
+
+/// Recursively collect all Path identifiers from a syn::Expr (for requires clause analysis).
+fn collect_path_idents(expr: &syn::Expr, out: &mut Vec<String>) {
+    match expr {
+        syn::Expr::Path(p) => {
+            if let Some(ident) = p.path.get_ident() {
+                out.push(ident.to_string());
+            }
+        }
+        syn::Expr::Binary(b) => {
+            collect_path_idents(&b.left, out);
+            collect_path_idents(&b.right, out);
+        }
+        syn::Expr::Unary(u) => { collect_path_idents(&u.expr, out); }
+        syn::Expr::Paren(p) => { collect_path_idents(&p.expr, out); }
+        _ => {}
+    }
 }
 
 fn emit_fn_cleanup(ctx: &CodegenContext, func: &crate::grammar::SaltFn, out: &mut String, local_vars: &std::collections::HashMap<String, (Type, crate::codegen::context::LocalKind)>, terminator: bool, ret_ty: &Type) -> Result<(), String> {
