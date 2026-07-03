@@ -501,8 +501,8 @@ impl Interpreter {
             syn::BinOp::AddAssign(_) => Value::I64(l.wrapping_add(r)),
             syn::BinOp::SubAssign(_) => Value::I64(l.wrapping_sub(r)),
             syn::BinOp::MulAssign(_) => Value::I64(l.wrapping_mul(r)),
-            syn::BinOp::DivAssign(_) => { if r == 0 { return Err("Division by zero".into()); } Value::I64(l / r) }
-            syn::BinOp::RemAssign(_) => { if r == 0 { return Err("Modulo by zero".into()); } Value::I64(l % r) }
+            syn::BinOp::DivAssign(_) => Value::I64(l.checked_div(r).ok_or("Division by zero")?),
+            syn::BinOp::RemAssign(_) => Value::I64(l.checked_rem(r).ok_or("Modulo by zero")?),
             _ => unreachable!(),
         };
         scope.insert(name, new_val);
@@ -514,8 +514,8 @@ impl Interpreter {
             syn::BinOp::Add(_) => Ok(Value::I64(l.wrapping_add(r))),
             syn::BinOp::Sub(_) => Ok(Value::I64(l.wrapping_sub(r))),
             syn::BinOp::Mul(_) => Ok(Value::I64(l.wrapping_mul(r))),
-            syn::BinOp::Div(_) => { if r == 0 { return Err("Division by zero".into()); } Ok(Value::I64(l / r)) }
-            syn::BinOp::Rem(_) => { if r == 0 { return Err("Modulo by zero".into()); } Ok(Value::I64(l % r)) }
+            syn::BinOp::Div(_) => Ok(Value::I64(l.checked_div(r).ok_or("Division by zero")?)),
+            syn::BinOp::Rem(_) => Ok(Value::I64(l.checked_rem(r).ok_or("Modulo by zero")?)),
             _ => unreachable!(),
         }
     }
