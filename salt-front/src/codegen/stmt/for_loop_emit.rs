@@ -337,7 +337,7 @@ pub(crate) fn emit_scf_for_runtime_reduction(
         })
     } else { None };
     if let Some(ref name) = ub_name {
-        crate::codegen::verification::loop_bounds::set_loop_bound_name(Some(name.clone()));
+        crate::codegen::verification::loop_bounds::push_loop_bound(name.clone());
     }
 
     // Enable fast-math context for reduction body
@@ -368,7 +368,7 @@ pub(crate) fn emit_scf_for_runtime_reduction(
     out.push_str(&format!("      scf.yield {} : {}\n", next_val, mlir_ty));
     out.push_str("    }\n");
 
-    crate::codegen::verification::loop_bounds::set_loop_bound_name(None);
+    crate::codegen::verification::loop_bounds::pop_loop_bound();
 
     // === Z3 HOARE LOGIC: Pop for-loop solver scope ===
     if _z3_for_loop_active {

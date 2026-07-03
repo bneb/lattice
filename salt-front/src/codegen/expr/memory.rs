@@ -334,6 +334,70 @@ fn extract_array_length(ty: &Type) -> Option<i64> {
     }
 }
 
+/// Prove Ptr<T> bounds safety using loop invariants and requires clauses.
+/// Returns Ok(true) if Z3 proved the index is within bounds, Ok(false) if not.
+fn prove_ptr_bounds_loop_aware(
+    ctx: &mut LoweringContext,
+    index: &syn::Expr,
+    local_vars: &HashMap<String, (Type, LocalKind)>,
+    _func_name: &str,
+) -> Result<bool, String> {
+    let loop_stack = crate::codegen::verification::loop_bounds::get_loop_bound_stack();
+    let req_params = crate::codegen::verification::loop_bounds::get_requires_params();
+
+    // Resolve a bound name to its Z3 Int
+    let resolve_z3 = |name: &str| -> Option<crate::z3_shim::ast::Int<'_>> {
+        if let Some((_, LocalKind::SSA(ssa))) = local_vars.get(name) {
+            ctx.symbolic_tracker.get(ssa).cloned()
+        } else { ctx.symbolic_tracker.get(name).cloned() }
+    };
+
+    // Candidate bounds: individual loop bounds + pairwise products + requires params
+    let mut bounds: Vec<crate::z3_shim::ast::Int<'_>> = Vec::new();
+    for ub_name in &loop_stack {
+        if let Some(z3_ub) = resolve_z3(ub_name) { bounds.push(z3_ub); }
+    }
+    for a in 0..loop_stack.len() {
+        for b in (a + 1)..loop_stack.len() {
+            if let (Some(za), Some(zb)) = (resolve_z3(&loop_stack[a]), resolve_z3(&loop_stack[b])) {
+                bounds.push(za * zb);
+            }
+        }
+    }
+    for param in &req_params {
+        if let Some(z3_ub) = resolve_z3(param) { bounds.push(z3_ub); }
+    }
+    if bounds.is_empty() { return Ok(false); }
+
+    // Translate the index expression to a Z3 integer
+    let z3_idx: Option<crate::z3_shim::ast::Int<'_>> = match index {
+        syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(li), .. }) => {
+            li.base10_parse::<i64>().ok().map(|v| ctx.mk_int(v))
+        }
+        syn::Expr::Path(p) => {
+            p.path.get_ident().and_then(|ident| {
+                let name = ident.to_string();
+                let ssa = local_vars.get(&name)
+                    .and_then(|(_, kind)| if let LocalKind::SSA(s) = kind { Some(s.clone()) } else { None });
+                ctx.symbolic_tracker.get(ssa.as_deref().unwrap_or(&name)).cloned()
+            })
+        }
+        _ => translate_to_z3(ctx, index, local_vars).ok(),
+    };
+    let Some(z3_idx) = z3_idx else { return Ok(false) };
+
+    // Check each candidate bound
+    for z3_ub in &bounds {
+        *ctx.total_checks += 1;
+        ctx.z3_solver.push();
+        ctx.z3_solver.assert(&z3_idx.ge(z3_ub));
+        let proven = ctx.z3_solver.check() == crate::z3_shim::SatResult::Unsat;
+        ctx.z3_solver.pop(1);
+        if proven { *ctx.elided_checks += 1; return Ok(true); }
+    }
+    Ok(false)
+}
+
 #[allow(clippy::too_many_arguments)] // REASON: all 8 params independently meaningful; bundling would obscure intent
 fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, base_ptr: String, base_ty: &Type, kind: LValueKind, element: &Type) -> Result<(String, Type), String> {
 // Check deref validity
@@ -381,71 +445,8 @@ fn emit_index_ptr_ref(ctx: &mut LoweringContext, out: &mut String, i: &syn::Expr
                          need_runtime_check = Some(n);
                      }
                  } else if !ctx.config.no_verify && !*ctx.is_unsafe_block() {
-                     // Try loop upper bound as allocation bound for Ptr<T>
-                     let mut proven_by_loop = false;
-                     if let syn::Expr::Path(p) = &*i.index {
-                         if let Some(ident) = p.path.get_ident() {
-                             let src_name = ident.to_string();
-                             let ssa_name = local_vars.get(&src_name)
-                                 .and_then(|(_, kind)| {
-                                     if let LocalKind::SSA(ssa) = kind { Some(ssa.clone()) }
-                                     else { None }
-                                 });
-                             let lookup_name = ssa_name.as_deref().unwrap_or(&src_name);
-                             let ub_name = crate::codegen::verification::loop_bounds::get_loop_bound_name();
-                             let ub_lookup = ub_name.as_ref().and_then(|n| {
-                                 // Resolve through local_vars (may have SSA name)
-                                 if let Some((_, LocalKind::SSA(ssa))) = local_vars.get(n) {
-                                     ctx.symbolic_tracker.get(ssa).cloned()
-                                 } else {
-                                     ctx.symbolic_tracker.get(n).cloned()
-                                 }
-                             });
-                             if let (Some(z3_idx), Some(z3_ub)) = (
-                                 ctx.symbolic_tracker.get(lookup_name).cloned(),
-                                 ub_lookup,
-                             ) {
-                                 *ctx.total_checks += 1;
-                                 ctx.z3_solver.push();
-                                 ctx.z3_solver.assert(&z3_idx.ge(&z3_ub));
-                                 proven_by_loop = ctx.z3_solver.check() == crate::z3_shim::SatResult::Unsat;
-                                 ctx.z3_solver.pop(1);
-                                 if proven_by_loop { *ctx.elided_checks += 1; }
-                             }
-                         }
-                     }
-                     // Try literal index against requires-constrained parameters
-                     if !proven_by_loop {
-                         if let syn::Expr::Lit(lit) = &*i.index {
-                             if let syn::Lit::Int(li) = &lit.lit {
-                                 if let Ok(idx_val) = li.base10_parse::<i64>() {
-                                     let z3_idx = ctx.mk_int(idx_val);
-                                     let req_params = crate::codegen::verification::loop_bounds::get_requires_params();
-                                     for param in &req_params {
-                                         // Resolve through local_vars to get SSA name
-                                         let z3_ub = if let Some((_, LocalKind::SSA(ssa))) = local_vars.get(param) {
-                                             ctx.symbolic_tracker.get(ssa).cloned()
-                                         } else {
-                                             ctx.symbolic_tracker.get(param).cloned()
-                                         };
-                                         if let Some(z3_ub) = z3_ub {
-                                             *ctx.total_checks += 1;
-                                             ctx.z3_solver.push();
-                                             ctx.z3_solver.assert(&z3_idx.ge(&z3_ub));
-                                             let r = ctx.z3_solver.check();
-                                             if r == crate::z3_shim::SatResult::Unsat {
-                                                 proven_by_loop = true;
-                                                 *ctx.elided_checks += 1;
-                                             }
-                                             ctx.z3_solver.pop(1);
-                                             if proven_by_loop { break; }
-                                         }
-                                     }
-                                 }
-                             }
-                         }
-                     }
-                     if !proven_by_loop {
+                     let proven = prove_ptr_bounds_loop_aware(ctx, &i.index, local_vars, &func_name)?;
+                     if !proven {
                          let info = crate::codegen::verification::ptr_bounds_verifier::PtrBoundsInfo::new(&func_name);
                          let proof_result = crate::codegen::verification::ptr_bounds_verifier::verify_ptr_dynamic_index(ctx.z3_ctx, ctx.z3_solver, &info);
                          if proof_result != crate::codegen::verification::ptr_bounds_verifier::PtrProofResult::Proven {

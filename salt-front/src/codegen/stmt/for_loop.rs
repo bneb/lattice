@@ -161,7 +161,7 @@ pub(crate) fn emit_scf_for_simple(
         })
     } else { None };
     if let Some(ref name) = ub_name {
-        crate::codegen::verification::loop_bounds::set_loop_bound_name(Some(name.clone()));
+        crate::codegen::verification::loop_bounds::push_loop_bound(name.clone());
     }
 
     ctx.enter_affine_context();
@@ -171,7 +171,7 @@ pub(crate) fn emit_scf_for_simple(
 
     ctx.exit_affine_context();
 
-    crate::codegen::verification::loop_bounds::set_loop_bound_name(None);
+    crate::codegen::verification::loop_bounds::pop_loop_bound();
 
     if _z3_for_loop_active {
         ctx.z3_solver.pop(1);
@@ -450,7 +450,7 @@ pub(crate) fn emit_cf_br_for_loop(ctx: &mut LoweringContext, out: &mut String, f
         })
     } else { None };
     if let Some(ref name) = ub_name {
-        crate::codegen::verification::loop_bounds::set_loop_bound_name(Some(name.clone()));
+        crate::codegen::verification::loop_bounds::push_loop_bound(name.clone());
     }
 
     ctx.break_labels_mut().push(label_exit.clone());
@@ -461,7 +461,7 @@ pub(crate) fn emit_cf_br_for_loop(ctx: &mut LoweringContext, out: &mut String, f
     ctx.break_labels_mut().pop();
     ctx.continue_labels_mut().pop();
 
-    crate::codegen::verification::loop_bounds::set_loop_bound_name(None);
+    crate::codegen::verification::loop_bounds::pop_loop_bound();
 
     if _z3_for_loop_active {
         ctx.z3_solver.pop(1);
