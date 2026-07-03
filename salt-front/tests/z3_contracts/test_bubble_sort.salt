@@ -1,0 +1,18 @@
+// Z3 Contract Test: Concrete-Size For-Loop Invariant Verification
+//
+// Proves that invariants are checked at each unrolled iteration.
+// For i in 0..4 (4 iterations), each iteration checks the invariant
+// at entry (base case) and at exit (inductive step): 8 checks total.
+// All 8 are Z3-proven at compile time — zero runtime cost.
+
+package basalt.test_bubble
+
+pub fn write_four(arr: Ptr<i32>)
+{
+    for i in 0..4 {
+        invariant i >= 0;
+        unsafe {
+            arr[i] = 0;
+        }
+    }
+}

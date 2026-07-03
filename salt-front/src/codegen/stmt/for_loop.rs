@@ -73,12 +73,18 @@ pub(crate) fn emit_affine_for(
         }
     }
     
+    // Register loop variable in Z3 and run concrete unrolling for invariants
+    let iv_ssa = format!("%iv_i64_{}", ctx.next_id());
+    ctx.symbolic_tracker.insert(iv_ssa.clone(), ctx.mk_var(&var_name));
+    let _loop_invariants = crate::codegen::verification::array_tracker::prove_for_loop_concrete(
+        ctx, &f.body.stmts, &body_vars, &iv_ssa, lb, ub, &var_name,
+    )?;
+
     // Enter affine context for nested loops
-    ctx.enter_affine_context();
-    
+
     // Emit body
     let _body_diverges = super::emit_block(ctx, out, &f.body.stmts, &mut body_vars)?;
-    
+
     ctx.exit_affine_context();
     
     // Close affine.for
@@ -386,8 +392,7 @@ pub(crate) fn emit_for_stmt(ctx: &mut LoweringContext, out: &mut String, f: &cra
     let const_end = end_expr.as_ref().and_then(|e| try_extract_const_int(e));
     let is_simple_ident = matches!(&f.pat, syn::Pat::Ident(_));
     let body_has_cf = block_has_control_flow(&f.body.stmts);
-    
-    if is_simple_ident {
+        if is_simple_ident {
         if let (Some(lb), Some(ub)) = (const_start, const_end) {
             if !body_has_cf {
                 return emit_affine_for(ctx, out, f, lb, ub, local_vars);
