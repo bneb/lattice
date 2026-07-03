@@ -146,14 +146,8 @@ impl Evaluator {
                 BinOp::Add(_) => Ok(ConstValue::Integer(l + r)),
                 BinOp::Sub(_) => Ok(ConstValue::Integer(l - r)),
                 BinOp::Mul(_) => Ok(ConstValue::Integer(l * r)),
-                BinOp::Div(_) => {
-                    if r == 0 { Err(EvalError::MathError("Division by zero".into())) }
-                    else { Ok(ConstValue::Integer(l / r)) }
-                },
-                BinOp::Rem(_) => {
-                    if r == 0 { Err(EvalError::MathError("Division by zero".into())) }
-                     else { Ok(ConstValue::Integer(l % r)) }
-                },
+                BinOp::Div(_) => Ok(ConstValue::Integer(l.checked_div(r).ok_or(EvalError::MathError("Division by zero".into()))?)),
+                BinOp::Rem(_) => Ok(ConstValue::Integer(l.checked_rem(r).ok_or(EvalError::MathError("Division by zero".into()))?)),
                 
                 // Comparisons
                 BinOp::Eq(_) => Ok(ConstValue::Bool(l == r)),
