@@ -1,8 +1,10 @@
 # 🧠 Basalt — Llama 2 Inference in Salt
 
-**A ~700-line LLM inference engine** that compiles to native code through Salt's MLIR pipeline — and to **WASM for browser-side inference**. Runs [Karpathy's TinyLlama](https://github.com/karpathy/llama2.c) models with BPE tokenization, zero-copy weight loading, Z3-verified compute kernels, and **q8_0 weight quantization** for 3.77× memory reduction.
+**A ~1,600-line LLM inference engine** that compiles to native code through Salt's MLIR pipeline — and to **WASM for browser-side inference**. Runs [Karpathy's TinyLlama](https://github.com/karpathy/llama2.c) models with BPE tokenization, zero-copy weight loading, Z3-verified compute kernels, and **q8_0 weight quantization** for 3.77× memory reduction.
 
-**Strong performance** on `stories15M.bin` (~920 tok/s, matching `clang -O3 -ffast-math -march=native` on Apple M4). q8_0 quantized models run at ~300 tok/s with 3.77× smaller footprint.
+**Strong performance** on `stories15M.bin` (~920 tok/s, matching `clang -O3 -ffast-math -march=native` on Apple M4). q8_0 quantized models run at ~300 tok/s with 3.77× smaller footprint. Salt's `@` operator provides automatic cache-tiled matmul beating hand-tuned C by 3-6% at 2K-4K sizes.
+
+All kernel functions carry `requires` contracts proved by Z3. `test_kernels.salt` compiles entirely without `unsafe` blocks — 10/24 (42%) of bounds checks proven at compile time, the rest deferred to runtime assertions.
 
 Basalt exists to prove one claim: **Salt can replace C in performance-critical ML workloads while providing compile-time safety guarantees that C cannot.**
 

@@ -182,12 +182,17 @@ z3_stub has `Z3String` and `Regexp` types ready.
 - Struct field bounds
 - Pointer non-null
 - StringView `.length()` (in function bodies)
+- **For-loop induction variable bounds** — automatically asserted as invariants
+- **Ptr<T> index bounds via loop invariants** — `for i in 0..size { x[i] }` proved when `requires size > 0`
+- **Constant-index Ptr<T> bounds via requires** — `x[0]` proved when `requires size > 0`
+- **Arithmetic index bounds** — `out[i*n + j]` proved from nested loop bounds `i<m, j<n` via pairwise product `m*n`
+- **Proof coverage metrics** — after compilation: `Z3: 10/24 checks proven (41%), 14 deferred to runtime`
 
-**Infrastructure ready, bridge wiring in progress:**
-- `Real` (exact rational arithmetic) — stub type, Z3Numeric designed
-- `String` content (Z3-str: equality, contains, prefix, suffix) — stub type
+**Wired (bridge complete, limited by Z3 100ms timeout):**
+- `Real` (exact rational arithmetic) — symbolic + literal, all comparisons
+- `String` content (Z3-str: equality, contains, prefix, suffix) — literal args via constant folder, symbolic via substitution
+- `BV` (bitvectors) — Int→BV→Int for bitwise ops (&, |, ^, <<, >>)
 - `Regexp` (pattern matching) — stub type
-- `BV` (bitvectors for masks and flags) — stub type
 
 **Not currently expressible:**
 - Quantifiers (`forall`/`exists`) — Z3 supports them; Salt has no syntax

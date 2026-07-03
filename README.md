@@ -1,6 +1,6 @@
 # Salt
 
-**A systems language where the compiler proves your code correct at compile time.** Z3 contracts, arena memory, MLIR codegen. No garbage collector, no borrow checker, no lifetime annotations.
+**A systems language with Z3-powered compile-time verification.** Write `requires`/`ensures` contracts — the compiler proves them with Z3. Provable checks have zero runtime cost; the rest become runtime assertions as a safe fallback. Arena memory, MLIR codegen. No GC, no borrow checker, no lifetime annotations.
 
 [![CI](https://github.com/bneb/lattice/actions/workflows/ci.yml/badge.svg)](https://github.com/bneb/lattice/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/bneb/lattice/releases/tag/v1.0.0)
@@ -33,7 +33,7 @@ pub fn main() -> i32 {
 }
 ```
 
-Z3 proves the array is 5 elements at compile time and emits a bounds check. With a `for`-loop induction variable, Z3 elides the check entirely. The `Result::Err` path returns `NOT_FOUND` instead of a sentinel value.
+Z3 proves array bounds at compile time and elides the check. With loop induction variables, Z3 elides bounds checks for the entire loop body. The `Result::Err` path returns `NOT_FOUND` instead of a sentinel value.
 
 ---
 
@@ -49,7 +49,7 @@ make lettuce-verify     # Z3 contract verification tests pass
 make bench              # LETTUCE vs Redis comparison
 ```
 
-Prerequisites: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 18+ (`brew install llvm@18`), QEMU (`brew install qemu`).
+Prerequisites: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 21+ (`brew install llvm@21`), QEMU (`brew install qemu`).
 
 Your first Salt program:
 
@@ -124,6 +124,13 @@ Salt embeds Z3 as a compiler pass. Functions carry `requires` and `ensures` clau
 **TIMEOUT** — Z3 cannot decide within 100ms. A runtime assertion is emitted. Your program still compiles and runs.
 
 Verification is progressive: add the contracts you can prove today. The rest become runtime checks you can address later.
+
+After compilation, Salt reports proof coverage:
+```
+Z3: 10/24 checks proven (41%), 14 deferred to runtime
+```
+
+Salt also provides automatic optimizations: the `@` operator on `Tensor` types emits cache-tiled matrix multiplication with L1-sized blocks. On M4 Pro at 2048×2048 f64, Salt's tiled matmul runs in 1.06s vs. hand-tuned C at 1.12s (5.6% faster). [Benchmarks →](benchmarks/BENCHMARKS_E2E.md)
 
 ## Performance
 

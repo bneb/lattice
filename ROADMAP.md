@@ -5,14 +5,14 @@ This roadmap outlines the planned development and hardening phases for the KeuOS
 ---
 
 ## 🛡️ Hardening Statement
-*Early versions of KeuOS relied heavily on the premise of formal verification, but security audits revealed issues in the prover integration (Z3 `SAT` inversion) and Ring 0/Ring 3 boundary enforcement. This roadmap incorporates defense-in-depth, negative-testing, and fuzzing to complement the formal verification pipeline.*
+*Early versions of KeuOS relied heavily on the premise of formal verification, but security audits revealed issues in the prover integration (Z3 `SAT` inversion, since fixed) and Ring 0/Ring 3 boundary enforcement. This roadmap incorporates defense-in-depth, negative-testing, and fuzzing to complement the formal verification pipeline.*
 
 ---
 
 ## Phase 1: Verification and Boundary Hardening *(Months 0-6)*
 **Objective:** Address foundational security issues and improve the reliability of the compiler and kernel boundary.
 
-- **Compiler Integrity:** Fix the Z3 `SAT` vs `UNSAT` logical inversion that affected `@requires`. Implement negative-test suites (code that must fail to compile).
+- **Compiler Integrity:** ✅ Fixed — Z3 SAT inversion resolved, `@trusted` bypass closed, negative-test suite (17 Z3 contracts) passes. For-loop invariants and Ptr<T> bounds proofs wired. Proof coverage metrics reported at compile time.
 - **Memory Boundaries:** Enforce KASLR, SMAP/SMEP, and strict `vaddr` validation in `map_user_page` to protect kernel page tables.
 - **IPC Hardening:** Clamp `capacity` and `tail` reads from SPSC shared memory rings. Prevent wrap-around out-of-bounds reads.
 - **Resource Management:** Fix user memory leaks on process exit (`destroy_user_pml4`) and Treiber stack double-frees.
@@ -21,7 +21,7 @@ This roadmap outlines the planned development and hardening phases for the KeuOS
 **Objective:** Prevent Use-After-Free (UAF) and Double-Free vulnerabilities while maintaining runtime performance.
 
 - **Tier 1: Intraprocedural State Machine:** Implement basic affine type tracking (`Uninitialized → Valid → Freed`) in the MLIR generator to catch local UAFs statically.
-- **Tier 2: Interprocedural Z3 Proofs:** Extend `@requires` and `@ensures` decorators to support `valid(ptr)`. Inject memory state tokens into the Z3 context to model temporal transitions across function boundaries. Support cryptographic `.text` segment pointer validation for System Interface Programs (SIP).
+- **Tier 2: Interprocedural Z3 Proofs:** Extend `requires()` and `ensures()` contracts to support `valid(ptr)`. Inject memory state tokens into the Z3 context to model temporal transitions across function boundaries. Support cryptographic `.text` segment pointer validation for System Interface Programs (SIP).
 - **Tier 3: Epoch-Tagged Dynamic Checking:** For concurrent or unprovable paths, introduce the `@dynamic_check` decorator. Implement Software Memory Tagging by embedding allocation Epoch IDs in the top 16 bits of the pointer.
 
 ## Phase 2: Networking and SMP *(Months 6-12)*
