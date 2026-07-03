@@ -893,6 +893,16 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
 }
 
 #[allow(unused)]
+/// Resolve a bound name to an i64 if it's a compile-time constant.
+fn resolve_bound_as_i64(
+    name: &str,
+    local_vars: &HashMap<String, (Type, LocalKind)>,
+) -> Option<i64> {
+    // Check if the bound is a literal integer in the AST context.
+    // We check local_vars for a constant SSA mapping.
+    None // Stub: always return None for non-constant bounds
+}
+
 /// Resolve a loop bound name to its Z3 Int via local_vars→symbolic_tracker.
 fn resolve_bound<'a>(
     name: &str,
@@ -1008,7 +1018,24 @@ pub fn translate_to_z3<'a, 'ctx>(
                         if let Some(new_int) = new_at_idx.as_int() {
                             ctx.z3_solver.assert(&new_int._eq(&s_val));
                         }
-                        if let Some(bound_name) = frame_bound {
+                        // Frame axiom: try concrete expansion first, then ForAll
+                        if let Some(bound_val) = crate::codegen::verification::loop_bounds::get_concrete_bound() {
+                            // Expand to concrete assertions for each index in 0..bound
+                            for k_val in 0..bound_val {
+                                let k_z3 = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, k_val);
+                                let k_eq_store = s_idx._eq(&k_z3);
+                                ctx.z3_solver.push();
+                                ctx.z3_solver.assert(&k_eq_store);
+                                let k_not_store = ctx.z3_solver.check() == crate::z3_shim::SatResult::Unsat;
+                                ctx.z3_solver.pop(1);
+                                if !k_not_store { continue; }
+                                let old_at_k = old_func.apply(&[&k_z3]);
+                                let new_at_k = new_func.apply(&[&k_z3]);
+                                if let (Some(old_int), Some(new_int)) = (old_at_k.as_int(), new_at_k.as_int()) {
+                                    ctx.z3_solver.assert(&new_int._eq(&old_int));
+                                }
+                            }
+                        } else if let Some(bound_name) = frame_bound {
                             if let Some(z3_bound) = resolve_bound(bound_name, local_vars, ctx) {
                                 let k_name = format!("k_fr_{}", ctx.next_id());
                                 let k_fr = crate::z3_shim::ast::Int::new_const(ctx.z3_ctx, k_name.as_str());

@@ -164,9 +164,17 @@ pub(crate) fn emit_scf_for_simple(
         crate::codegen::verification::loop_bounds::push_loop_bound(name.clone());
     }
 
-    // Pin loop variable to start value for base case, then assert invariants
+    // Verify for-loop invariants: concrete unrolling if bounds are constants
+    let const_start = start_expr.as_ref().and_then(|e| try_extract_const_int(e));
+    let const_end = end_expr.as_ref().and_then(|e| try_extract_const_int(e));
     let _loop_invariants = if _z3_for_loop_active {
-        prove_for_loop_invariants(ctx, &f.body.stmts, &body_vars, &iv_i64, start_expr)?
+        if let (Some(s), Some(e)) = (const_start, const_end) {
+            crate::codegen::verification::array_tracker::prove_for_loop_concrete(
+                ctx, &f.body.stmts, &body_vars, &iv_i64, s, e, &var_name,
+            )?
+        } else {
+            prove_for_loop_invariants(ctx, &f.body.stmts, &body_vars, &iv_i64, start_expr)?
+        }
     } else {
         Vec::new()
     };
@@ -466,10 +474,19 @@ pub(crate) fn emit_cf_br_for_loop(ctx: &mut LoweringContext, out: &mut String, f
         crate::codegen::verification::loop_bounds::push_loop_bound(name.clone());
     }
 
-    // Verify for-loop invariants at entry (pinned to start value)
-    let start_boxed: Option<Box<syn::Expr>> = start_expr.map(|e| Box::new(e.clone()));
+    // Verify for-loop invariants: concrete unrolling if bounds are constants
+    let const_start = start_expr.and_then(try_extract_const_int);
+    let const_end = end_expr.and_then(try_extract_const_int);
     let loop_invariants = if _z3_for_loop_active {
-        super::for_loop_emit::prove_for_loop_invariants(ctx, &f.body.stmts, &body_vars, &current_i, &start_boxed)?
+        if let (Some(s), Some(e)) = (const_start, const_end) {
+            let var_name = if let syn::Pat::Ident(id) = &f.pat { id.ident.to_string() } else { String::new() };
+            crate::codegen::verification::array_tracker::prove_for_loop_concrete(
+                ctx, &f.body.stmts, &body_vars, &current_i, s, e, &var_name,
+            )?
+        } else {
+            let start_boxed: Option<Box<syn::Expr>> = start_expr.map(|e| Box::new(e.clone()));
+            super::for_loop_emit::prove_for_loop_invariants(ctx, &f.body.stmts, &body_vars, &current_i, &start_boxed)?
+        }
     } else { Vec::new() };
 
     ctx.break_labels_mut().push(label_exit.clone());

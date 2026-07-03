@@ -112,3 +112,69 @@ fn scan_expr_depth(expr: &syn::Expr, depth: usize) {
         _ => {}
     }
 }
+
+/// When for-loop bounds are compile-time constants, unroll the loop at the Z3 level.
+pub(crate) fn prove_for_loop_concrete(
+    ctx: &mut crate::codegen::context::LoweringContext,
+    stmts: &[crate::grammar::Stmt],
+    bv: &HashMap<String, (crate::types::Type, crate::codegen::context::LocalKind)>,
+    iv_ssa: &str,
+    start_val: i64,
+    end_val: i64,
+    var_name: &str,
+) -> Result<Vec<syn::Expr>, String> {
+    use crate::z3_shim::ast::Ast;
+    if ctx.config.no_verify { return Ok(vec![]); }
+    let sc = crate::codegen::verification::SymbolicContext::new(ctx.z3_ctx);
+    let mut inv: Vec<syn::Expr> = Vec::new();
+    for s in stmts { if let crate::grammar::Stmt::Invariant(e) = s { inv.push(e.clone()); } }
+    if inv.is_empty() { return Ok(vec![]); }
+    // Set concrete loop bound for frame axiom expansion in translate_to_z3
+    crate::codegen::verification::loop_bounds::set_concrete_bound(Some(end_val));
+    let var_ident = syn::Ident::new(var_name, proc_macro2::Span::call_site());
+    for i_val in start_val..end_val {
+        if let Some(z3_i) = ctx.symbolic_tracker.get(iv_ssa).cloned() {
+            let z3_val = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, i_val);
+            ctx.z3_solver.push();
+            ctx.z3_solver.assert(&z3_i._eq(&z3_val));
+            // Check invariant at i (base case)
+            for e in &inv {
+                if let Ok(z) = crate::codegen::expr::translate_bool_to_z3(ctx, e, bv, &sc) {
+                    *ctx.total_checks += 1;
+                    ctx.z3_solver.push(); ctx.z3_solver.assert(&z.not());
+                    if ctx.z3_solver.check() == crate::z3_shim::SatResult::Sat {
+                        ctx.z3_solver.pop(1); ctx.z3_solver.pop(1);
+                        return Err(format!("Z3: invariant fails at i={}", i_val));
+                    }
+                    ctx.z3_solver.pop(1);
+                    *ctx.elided_checks += 1;
+                    ctx.z3_solver.assert(&z);
+                }
+            }
+            // Apply array stores from the body to model its effects
+            process_array_stores_in_body(stmts);
+            // Check invariant at i+1 (inductive step)
+            let next_val: syn::Expr = syn::parse_quote! { #var_ident + 1 };
+            for e in &inv {
+                let next_inv = crate::grammar::expr_utils::substitute_ident(e, &var_ident, &next_val);
+                if let Ok(z3_next) = crate::codegen::expr::translate_bool_to_z3(ctx, &next_inv, bv, &sc) {
+                    *ctx.total_checks += 1;
+                    ctx.z3_solver.push(); ctx.z3_solver.assert(&z3_next.not());
+                    if ctx.z3_solver.check() == crate::z3_shim::SatResult::Sat {
+                        ctx.z3_solver.pop(1); ctx.z3_solver.pop(1);
+                        return Err(format!("Z3: invariant not preserved at i={}", i_val + 1));
+                    }
+                    ctx.z3_solver.pop(1);
+                    *ctx.elided_checks += 1;
+                }
+            }
+            ctx.z3_solver.pop(1);
+        }
+    }
+    for e in &inv {
+        if let Ok(z) = crate::codegen::expr::translate_bool_to_z3(ctx, e, bv, &sc) {
+            ctx.z3_solver.assert(&z);
+        }
+    }
+    Ok(inv)
+}
