@@ -1147,6 +1147,40 @@ pub fn translate_string_to_z3<'a, 'ctx>(
     }
 }
 
+/// Translate a symbolic exists expression: __z3_exists(var_name, lo, hi, body)
+fn translate_z3_exists<'a, 'ctx>(
+    ctx: &mut LoweringContext<'a, 'ctx>,
+    call: syn::ExprCall,
+    local_vars: &HashMap<String, (Type, LocalKind)>,
+    sym_ctx: &crate::codegen::verification::SymbolicContext<'a>,
+) -> Result<crate::z3_shim::ast::Bool<'a>, String> {
+    let args: Vec<&syn::Expr> = call.args.iter().collect();
+    let var_name = match args[0] { syn::Expr::Lit(l) => match &l.lit { syn::Lit::Str(s) => s.value(), _ => return Err("exists: arg 0 must be string".into()) }, _ => return Err("exists: arg 0 must be string".into()) };
+    let lo = args[1]; let hi = args[2]; let body = args[3];
+    let z3_var = ctx.mk_var(&var_name);
+    let mut body_vars = local_vars.clone();
+    body_vars.insert(var_name.clone(), (Type::I64, crate::codegen::context::LocalKind::SSA(var_name.clone())));
+    let old_val = ctx.symbolic_tracker.get(&var_name).cloned();
+    ctx.symbolic_tracker.insert(var_name.clone(), z3_var.clone());
+    let z3_lo = translate_to_z3(ctx, lo, &body_vars)?;
+    let z3_hi = translate_to_z3(ctx, hi, &body_vars)?;
+    let z3_body = translate_bool_to_z3(ctx, body, &body_vars, sym_ctx)?;
+    if let Some(old) = old_val { ctx.symbolic_tracker.insert(var_name.clone(), old); } else { ctx.symbolic_tracker.remove(&var_name); }
+    // Check empty range: exists k in empty → false
+    let check_k = ctx.mk_var("_ec");
+    ctx.z3_solver.push();
+    ctx.z3_solver.assert(&check_k.ge(&z3_lo)); ctx.z3_solver.assert(&check_k.lt(&z3_hi));
+    let range_empty = ctx.z3_solver.check() == crate::z3_shim::SatResult::Unsat;
+    ctx.z3_solver.pop(1);
+    if range_empty { return Ok(crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, false)); }
+    // exists var. (lo <= var < hi) && body
+    let ge = z3_var.ge(&z3_lo); let lt = z3_var.lt(&z3_hi);
+    let range = crate::z3_shim::ast::Bool::and(ctx.z3_ctx, &[&ge, &lt]);
+    let conjunction = crate::z3_shim::ast::Bool::and(ctx.z3_ctx, &[&range, &z3_body]);
+    let bound: &dyn crate::z3_shim::ast::Ast = &z3_var;
+    Ok(crate::z3_shim::ast::exists_const(ctx.z3_ctx, &[bound], &[], &conjunction))
+}
+
 /// Translate a symbolic forall expression: __z3_forall(var_name, lo, hi, body)
 fn translate_z3_forall<'a, 'ctx>(
     ctx: &mut LoweringContext<'a, 'ctx>,
@@ -1284,6 +1318,9 @@ pub fn translate_bool_to_z3<'a, 'ctx>(
                 let func_name = p.path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("_");
                 if func_name == "__z3_forall" && call.args.len() == 4 {
                     return translate_z3_forall(ctx, call.clone(), local_vars, sym_ctx);
+                }
+                if func_name == "__z3_exists" && call.args.len() == 4 {
+                    return translate_z3_exists(ctx, call.clone(), local_vars, sym_ctx);
                 }
             }
 

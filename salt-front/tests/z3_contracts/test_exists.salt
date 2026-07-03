@@ -1,0 +1,12 @@
+// Z3 Contract Test: exists quantifier syntax
+// Constant expansion: exists k in 0..3 => body → body[0] || body[1] || body[2]
+
+package basalt.test_exists
+
+// Constant-bound exists: expands to disjunction at parse time
+fn check_range(n: i64) -> bool
+    requires exists k in 0..3 => k < n
+    requires n > 0
+{
+    return 0 < n || 1 < n || 2 < n;
+}

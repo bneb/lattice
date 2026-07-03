@@ -53,8 +53,8 @@ pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall,
     // __z3_forall is a symbolic quantifier handled by the Z3 translator.
     // At the MLIR emission level, emit `true` since the contract is Z3-proven.
     if let syn::Expr::Path(p) = &*c.func {
-        if p.path.is_ident("__z3_forall") {
-            let res = format!("%z3forall_{}", ctx.next_id());
+        if p.path.is_ident("__z3_forall") || p.path.is_ident("__z3_exists") {
+            let res = format!("%z3q_{}", ctx.next_id());
             out.push_str(&format!("    {} = arith.constant true\n", res));
             return Ok((res, Type::Bool));
         }

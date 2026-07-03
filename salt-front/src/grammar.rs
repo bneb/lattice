@@ -17,6 +17,8 @@ use pattern::Pattern;
 fn parse_contract_expr(input: ParseStream) -> syn::Result<Expr> {
     if input.peek(crate::keywords::forall) {
         expr_utils::parse_forall_expr(input)
+    } else if input.peek(crate::keywords::exists) {
+        expr_utils::parse_exists_expr(input)
     } else {
         input.parse()
     }

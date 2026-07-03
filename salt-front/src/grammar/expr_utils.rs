@@ -9,9 +9,41 @@ use syn::{
     punctuated::Punctuated,
 };
 
-/// Parse a forall expression: `forall ident in expr..expr : expr`
+/// Parse an exists expression: `exists ident in expr..expr => expr`
+/// Expands to a chain of || disjunctions when bounds are integer literals.
+pub(crate) fn parse_exists_expr(input: ParseStream) -> syn::Result<Expr> {
+    input.parse::<crate::keywords::exists>()?;
+    let var: Ident = input.parse()?;
+    input.parse::<Token![in]>()?;
+    let range: Expr = input.parse()?;
+    let (lo, hi) = match &range {
+        Expr::Range(r) => (r.start.as_deref(), r.end.as_deref()),
+        _ => return Err(syn::Error::new_spanned(&range, "expected range like 0..3 or 0..n")),
+    };
+    let lo = lo.ok_or_else(|| input.error("exists range must have a lower bound"))?;
+    let hi = hi.ok_or_else(|| input.error("exists range must have an upper bound"))?;
+    input.parse::<Token![=>]>()?;
+    let body: Expr = input.parse()?;
+    if let (Some(lo_val), Some(hi_val)) = (extract_int_literal(lo), extract_int_literal(hi)) {
+        if hi_val <= lo_val { return Ok(syn::parse_quote! { false }); }
+        let mut disjuncts: Vec<Expr> = Vec::new();
+        for val in lo_val..hi_val {
+            let replacement = Expr::Lit(ExprLit { attrs: vec![], lit: Lit::Int(LitInt::new(&val.to_string(), proc_macro2::Span::call_site())) });
+            disjuncts.push(substitute_ident(&body, &var, &replacement));
+        }
+        let mut result = disjuncts.pop().unwrap();
+        while let Some(next) = disjuncts.pop() {
+            result = Expr::Binary(syn::ExprBinary { attrs: vec![], left: Box::new(next), op: syn::BinOp::Or(syn::token::OrOr::default()), right: Box::new(result) });
+        }
+        return Ok(result);
+    }
+    let var_name = Expr::Lit(ExprLit { attrs: vec![], lit: Lit::Str(syn::LitStr::new(&var.to_string(), proc_macro2::Span::call_site())) });
+    let args: Punctuated<Expr, Token![,]> = vec![var_name, lo.clone(), hi.clone(), body].into_iter().collect();
+    Ok(Expr::Call(syn::ExprCall { attrs: vec![], func: Box::new(syn::parse_quote! { __z3_exists }), paren_token: syn::token::Paren::default(), args }))
+}
+
+/// Parse a forall expression: `forall ident in expr..expr => expr`
 /// Expands to a chain of && conjunctions when bounds are integer literals.
-/// Returns an error if bounds are not compile-time integer constants.
 pub(crate) fn parse_forall_expr(input: ParseStream) -> syn::Result<Expr> {
     input.parse::<crate::keywords::forall>()?;
 
