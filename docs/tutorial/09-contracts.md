@@ -282,7 +282,7 @@ The outer loop invariant states "the prefix arr[0..i-1] is sorted." Z3 proves th
 salt-front my_program.salt -o my_program
 
 # Skip verification for fast iteration
-salt-front --no-verify my_program.salt -o my_program
+salt-front --danger-no-verify my_program.salt -o my_program
 ```
 
 ## Summary
@@ -294,7 +294,7 @@ salt-front --no-verify my_program.salt -o my_program
 | Forall | `forall i in lo..hi => expr` | Quantified array property |
 | Invariant | `invariant x > 0;` | Loop invariant (checked at entry + inductive step) |
 | Trusted | `@trusted fn foo(...) { ... }` | Skip Z3 verification (FFI, hand-audited) |
-| No-verify flag | `salt-front --no-verify ...` | Skip verification for fast iteration |
+| No-verify flag | `salt-front --danger-no-verify ...` | Skip verification for fast iteration |
 
 ---
 

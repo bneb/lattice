@@ -448,17 +448,18 @@ parameters.
 empirically verified. Z3 resolves all tested cases within its 100ms
 timeout window.
 
-**Not yet wired (Z3 supports these; the compiler bridge does not translate them):**
+**Wired and expressible in Salt syntax:**
 
 | Feature | Z3 support | Bridge status |
 |---------|-----------|---------------|
+| `forall i in lo..hi => body` | Z3 ForAll | Wired — constant expansion + symbolic ForAll fallback |
+| Loop invariants (`invariant` in `for`/`while`) | Z3 | Wired — base case + inductive step with Havoc semantics |
+| Concrete for-loop unrolling | Z3 | Wired — when bounds are constants, each iteration proved separately |
 | String `.contains()`, `.startsWith()`, `.endsWith()`, `.matches()` | Z3-str | Literal args via constant folder, symbolic via substitution |
 | String parameter substitution | Z3 `substitute` | Wired (hash-conses with translate_string_to_z3) |
 | `Real` (exact rationals) | Z3 Real | Wired — symbolic + literal, all comparisons |
-| Float theory (IEEE 754) | Z3 FPA | Real covers exact-rational float literals |
 | `BV` (bitvectors) | Z3 BV | Wired — Int→BV→Int for bitwise ops (`&`, `\|`, `^`, `<<`, `>>`) |
 | Contract chaining (caller preconditions → callee obligations) | Z3 | Wired — `caller_preconditions` injected as solver assumptions |
-| Quantifiers (`forall`, `exists`) | Z3 | Z3 bridge wired (4 unit tests), awaiting Salt syntax |
 
 **Outside Z3's domain:**
 - Heap reachability (no cycles, no dangling pointers) — requires separation logic.
@@ -478,7 +479,7 @@ panics if the contract is violated at runtime. The check is a standard
    `get(&data, idx)` becomes a runtime assertion unless `idx` has a type
    bound that implies the contract.
 
-2. **Leverage type bounds.** `requires(idx < 256)` on `u8` is always true.
+2. **Use type bounds.** `requires(idx < 256)` on `u8` is always true.
    No call-site constant needed. Use `u8`, `u16`, `bool`, and `i8`/`i16`
    for parameters where the type implies your contract.
 
