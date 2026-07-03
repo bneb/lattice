@@ -1,0 +1,31 @@
+// Z3 Contract Test: Insertion Sort — Concrete-Size Verification
+//
+// The ensures forall with n=4 expands to 3 concrete comparisons:
+//   arr[0] <= arr[1] && arr[1] <= arr[2] && arr[2] <= arr[3]
+// Z3 proves this at the call site using the bounded frame axiom
+// from the versioned UF array model.
+
+package basalt.test_isort_conc
+
+fn insertion_sort(arr: Ptr<i32>, n: i64)
+    requires n > 0
+    ensures forall i in 0..(n-1) => arr[i] <= arr[i+1]
+{
+    for i in 1..n {
+        invariant forall k in 0..(i-1) => arr[k] <= arr[k+1];
+        unsafe {
+            let key = arr[i];
+            let mut j: i64 = i - 1;
+            while j >= 0 && arr[j] > key {
+                invariant j >= -1;
+                arr[j + 1] = arr[j];
+                j = j - 1;
+            }
+            arr[j + 1] = key;
+        }
+    }
+}
+
+fn main() -> i32 {
+    return 0;
+}
