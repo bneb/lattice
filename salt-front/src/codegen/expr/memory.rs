@@ -970,21 +970,23 @@ pub fn translate_to_z3<'a, 'ctx>(
             // Lazy frame axiom emission: if stores have occurred since last read,
             // assert update+frame axioms connecting old and new array versions.
             let version = crate::codegen::verification::array_tracker::get_version(&base_name);
+            // Lazy frame axiom emission: DISABLED (Z3 ForAll stack overflow).
+            // To enable: uncomment the block below. Requires Z3 ForAll optimization.
+            // See: apply_array_store_in_z3 in this file for the frame axiom logic.
+            /*
             if version > 0 && !crate::codegen::verification::array_tracker::frame_emitted(&base_name, version) {
                 let stores = crate::codegen::verification::array_tracker::get_stores(&base_name, 0);
                 for store in &stores {
-                    // Resolve store record names through local_vars (may have SSA names)
-                    let resolve = |name: &str| {
-                        if let Some((_, LocalKind::SSA(ssa))) = local_vars.get(name) {
-                            ctx.symbolic_tracker.get(ssa).cloned()
-                        } else { ctx.symbolic_tracker.get(name).cloned() }
-                    };
-                    if let (Some(idx_z3), Some(val_z3)) = (resolve(&store.index_name), resolve(&store.value_name)) {
+                    if let (Ok(idx_z3), Ok(val_z3)) = (
+                        translate_to_z3(ctx, &store.index_expr, local_vars),
+                        translate_to_z3(ctx, &store.value_expr, local_vars),
+                    ) {
                         apply_array_store_in_z3(ctx, &base_name, &idx_z3, &val_z3);
                     }
                 }
                 crate::codegen::verification::array_tracker::mark_frame_emitted(&base_name, version);
             }
+            */
             let func_name = format!("{}_v{}", base_name, version);
             let sym = crate::z3_shim::Symbol::String(func_name);
             let domain = &[&crate::z3_shim::Sort::int(ctx.z3_ctx)];

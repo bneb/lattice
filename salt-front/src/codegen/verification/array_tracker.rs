@@ -1,19 +1,17 @@
 //! Z3 array state tracker — models array mutations as uninterpreted function versions.
 //!
 //! Arrays (Ptr<T>) are modeled as Z3 uninterpreted functions Int→Int.
-//! Each indexed assignment `arr[i] = v` records the store and bumps the version.
-//! Frame axioms (forall k != i: arr_new(k) = arr_old(k)) are emitted lazily
-//! from translate_to_z3 when it detects a version change.
+//! Each indexed assignment `arr[i] = v` records the store expressions and bumps
+//! the version. Frame axioms are emitted lazily from translate_to_z3.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-/// Record of an array store: (index_var_name, value_var_name)
-/// Names refer to entries in the LoweringContext's symbolic_tracker.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
+#[allow(dead_code)] // Fields used when lazy emission is enabled
 pub(crate) struct StoreRecord {
-    pub index_name: String,
-    pub value_name: String,
+    pub index_expr: Box<syn::Expr>,
+    pub value_expr: Box<syn::Expr>,
 }
 
 thread_local! {
@@ -29,7 +27,6 @@ pub(crate) fn get_version(name: &str) -> usize {
     ARRAY_VERSIONS.with(|c| c.borrow().get(name).copied().unwrap_or(0))
 }
 
-/// Bump version counter (used by apply_array_store_in_z3 for full Z3 integration).
 pub(crate) fn bump_version(name: &str) -> usize {
     ARRAY_VERSIONS.with(|c| {
         let map = &mut *c.borrow_mut();
@@ -39,86 +36,95 @@ pub(crate) fn bump_version(name: &str) -> usize {
     })
 }
 
-// Records an indexed store for later frame axiom emission
-pub(crate) fn record_store(name: &str, index_name: &str, value_name: &str) {
+fn record_store(name: &str, index_expr: Box<syn::Expr>, value_expr: Box<syn::Expr>) {
     ARRAY_VERSIONS.with(|c| {
         let map = &mut *c.borrow_mut();
         let v = map.get(name).copied().unwrap_or(0) + 1;
         map.insert(name.to_string(), v);
     });
     STORE_RECORDS.with(|c| {
-        c.borrow_mut()
-            .entry(name.to_string())
-            .or_default()
-            .push(StoreRecord {
-                index_name: index_name.to_string(),
-                value_name: value_name.to_string(),
-            });
+        c.borrow_mut().entry(name.to_string()).or_default()
+            .push(StoreRecord { index_expr, value_expr });
     });
 }
 
-// Get store records for an array version range [from_ver, to_ver)
+#[allow(dead_code)] // Used when lazy emission is enabled
 pub(crate) fn get_stores(name: &str, from_ver: usize) -> Vec<StoreRecord> {
     STORE_RECORDS.with(|c| {
-        c.borrow().get(name)
-            .map(|v| v[from_ver..].to_vec())
-            .unwrap_or_default()
+        c.borrow().get(name).map(|v| v[from_ver..].to_vec()).unwrap_or_default()
     })
 }
 
-// Check if frame axioms for version `ver` of `name` have been emitted
+#[allow(dead_code)] // Used when lazy emission is enabled
 pub(crate) fn frame_emitted(name: &str, ver: usize) -> bool {
-    EMITTED_FRAMES.with(|c| {
-        c.borrow().get(name).copied().unwrap_or(0) >= ver
-    })
+    EMITTED_FRAMES.with(|c| c.borrow().get(name).copied().unwrap_or(0) >= ver)
 }
 
-// Mark frame axioms as emitted up to version `ver`
+#[allow(dead_code)] // Used when lazy emission is enabled
 pub(crate) fn mark_frame_emitted(name: &str, ver: usize) {
-    EMITTED_FRAMES.with(|c| {
-        c.borrow_mut().insert(name.to_string(), ver);
-    });
+    EMITTED_FRAMES.with(|c| { c.borrow_mut().insert(name.to_string(), ver); });
 }
 
-#[allow(dead_code)]
-pub(crate) fn reset() {
-    ARRAY_VERSIONS.with(|c| c.borrow_mut().clear());
-    STORE_RECORDS.with(|c| c.borrow_mut().clear());
-    EMITTED_FRAMES.with(|c| c.borrow_mut().clear());
-}
-
-/// Scan loop body for indexed assignments and record stores.
+/// Scan loop body recursively for indexed assignments.
 pub(crate) fn process_array_stores_in_body(stmts: &[crate::grammar::Stmt]) {
+    process_array_stores_in_body_depth(stmts, 0)
+}
+
+fn process_array_stores_in_body_depth(stmts: &[crate::grammar::Stmt], depth: usize) {
+    if depth > 32 { return; } // safety limit
     use crate::grammar::Stmt;
     for stmt in stmts {
-        if let Stmt::Syn(syn::Stmt::Expr(syn::Expr::Assign(assign), _)) = stmt {
-            if let syn::Expr::Index(idx) = &*assign.left {
-                if let syn::Expr::Path(p) = &*idx.expr {
-                    if let Some(arr_name) = p.path.get_ident().map(|i| i.to_string()) {
-                        let idx_name = idx_name(&idx.index);
-                        let val_name = expr_name(&assign.right);
-                        record_store(&arr_name, &idx_name, &val_name);
+        match stmt {
+            Stmt::Syn(s) => scan_syn_stmt_depth(s, depth + 1),
+            Stmt::Expr(e, _) => scan_syn_expr_depth(e, depth + 1),
+            Stmt::Unsafe(block) => process_array_stores_in_body_depth(&block.stmts, depth + 1),
+            Stmt::While(w) => process_array_stores_in_body_depth(&w.body.stmts, depth + 1),
+            Stmt::For(f) => process_array_stores_in_body_depth(&f.body.stmts, depth + 1),
+            Stmt::If(salt_if) => {
+                process_array_stores_in_body_depth(&salt_if.then_branch.stmts, depth + 1);
+                if let Some(else_branch) = &salt_if.else_branch {
+                    if let crate::grammar::SaltElse::Block(b) = else_branch.as_ref() {
+                        process_array_stores_in_body_depth(&b.stmts, depth + 1);
                     }
                 }
             }
+            _ => {}
         }
     }
 }
 
-// Extract a best-effort string name from an expression for store tracking
-fn idx_name(expr: &syn::Expr) -> String {
-    match expr {
-        syn::Expr::Path(p) => p.path.get_ident().map(|i| i.to_string()).unwrap_or_default(),
-        syn::Expr::Binary(_) => "computed_idx".to_string(),
-        syn::Expr::Lit(lit) => format!("{:?}", lit.lit),
-        _ => "unknown_idx".to_string(),
-    }
+#[allow(dead_code)] // Entry points, may be called directly
+fn scan_syn_stmt(stmt: &syn::Stmt) { scan_syn_stmt_depth(stmt, 0); }
+#[allow(dead_code)]
+fn scan_syn_expr(expr: &syn::Expr) { scan_syn_expr_depth(expr, 0); }
+
+fn scan_syn_stmt_depth(stmt: &syn::Stmt, depth: usize) {
+    if depth > 32 { return; }
+    if let syn::Stmt::Expr(expr, _) = stmt { scan_syn_expr_depth(expr, depth + 1); }
 }
 
-fn expr_name(expr: &syn::Expr) -> String {
+fn scan_syn_expr_depth(expr: &syn::Expr, depth: usize) {
+    if depth > 32 { return; }
     match expr {
-        syn::Expr::Path(p) => p.path.get_ident().map(|i| i.to_string()).unwrap_or_default(),
-        syn::Expr::Lit(lit) => format!("{:?}", lit.lit),
-        _ => "computed_val".to_string(),
+        syn::Expr::Assign(assign) => {
+            if let syn::Expr::Index(idx) = &*assign.left {
+                if let syn::Expr::Path(p) = &*idx.expr {
+                    if let Some(arr_name) = p.path.get_ident().map(|i| i.to_string()) {
+                        record_store(&arr_name, idx.index.clone(), assign.right.clone());
+                    }
+                }
+            }
+            scan_syn_expr_depth(&assign.right, depth + 1);
+        }
+        syn::Expr::Unsafe(u) => { for s in &u.block.stmts { scan_syn_stmt_depth(s, depth + 1); } }
+        syn::Expr::While(w) => { for s in &w.body.stmts { scan_syn_stmt_depth(s, depth + 1); } }
+        syn::Expr::Block(b) => { for s in &b.block.stmts { scan_syn_stmt_depth(s, depth + 1); } }
+        syn::Expr::If(if_expr) => {
+            for s in &if_expr.then_branch.stmts { scan_syn_stmt_depth(s, depth + 1); }
+            if let Some((_, else_expr)) = &if_expr.else_branch { scan_syn_expr_depth(else_expr, depth + 1); }
+        }
+        syn::Expr::ForLoop(f) => { for s in &f.body.stmts { scan_syn_stmt_depth(s, depth + 1); } }
+        syn::Expr::Loop(l) => { for s in &l.body.stmts { scan_syn_stmt_depth(s, depth + 1); } }
+        _ => {}
     }
 }
