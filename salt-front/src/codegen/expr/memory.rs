@@ -959,6 +959,34 @@ pub fn translate_to_z3<'a, 'ctx>(
                 Err("Unsupported unnamed field access in verification".to_string())
             }
         }
+        // Array indexing: arr[i] → Z3 uninterpreted function arr_func(i)
+        syn::Expr::Index(idx) => {
+            let base_name = if let syn::Expr::Path(p) = &*idx.expr {
+                p.path.get_ident().map(|i| i.to_string()).unwrap_or_else(|| "unknown_arr".to_string())
+            } else {
+                "unknown_arr".to_string()
+            };
+            let index_z3 = translate_to_z3(ctx, &idx.index, local_vars)?;
+            // Create or reuse an uninterpreted function for this array
+            let func_key = format!("arr_{}", base_name);
+            let func = if let Some(z3_val) = ctx.symbolic_tracker.get(&func_key) {
+                // Already have a function created; we need the FuncDecl, not an Int.
+                // Re-create — FuncDecl is deterministic given the same name/sorts.
+                let sym = crate::z3_shim::Symbol::String(base_name.clone());
+                let domain = &[&crate::z3_shim::Sort::int(ctx.z3_ctx)];
+                let range = &crate::z3_shim::Sort::int(ctx.z3_ctx);
+                crate::z3_shim::FuncDecl::new(ctx.z3_ctx, sym, domain, range)
+            } else {
+                // First time: create the function and register a sentinel
+                ctx.symbolic_tracker.insert(func_key, ctx.mk_int(0));
+                let sym = crate::z3_shim::Symbol::String(base_name.clone());
+                let domain = &[&crate::z3_shim::Sort::int(ctx.z3_ctx)];
+                let range = &crate::z3_shim::Sort::int(ctx.z3_ctx);
+                crate::z3_shim::FuncDecl::new(ctx.z3_ctx, sym, domain, range)
+            };
+            let result = func.apply(&[&index_z3]);
+            result.as_int().ok_or_else(|| format!("Array access {}[idx] did not return Int", base_name))
+        }
         syn::Expr::Cast(c) => translate_to_z3(ctx, &c.expr, local_vars),
         syn::Expr::Group(g) => translate_to_z3(ctx, &g.expr, local_vars),
         syn::Expr::Unary(u) => {
