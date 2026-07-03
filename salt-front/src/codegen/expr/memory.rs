@@ -967,23 +967,14 @@ pub fn translate_to_z3<'a, 'ctx>(
                 "unknown_arr".to_string()
             };
             let index_z3 = translate_to_z3(ctx, &idx.index, local_vars)?;
-            // Create or reuse an uninterpreted function for this array
-            let func_key = format!("arr_{}", base_name);
-            let func = if let Some(z3_val) = ctx.symbolic_tracker.get(&func_key) {
-                // Already have a function created; we need the FuncDecl, not an Int.
-                // Re-create — FuncDecl is deterministic given the same name/sorts.
-                let sym = crate::z3_shim::Symbol::String(base_name.clone());
-                let domain = &[&crate::z3_shim::Sort::int(ctx.z3_ctx)];
-                let range = &crate::z3_shim::Sort::int(ctx.z3_ctx);
-                crate::z3_shim::FuncDecl::new(ctx.z3_ctx, sym, domain, range)
-            } else {
-                // First time: create the function and register a sentinel
-                ctx.symbolic_tracker.insert(func_key, ctx.mk_int(0));
-                let sym = crate::z3_shim::Symbol::String(base_name.clone());
-                let domain = &[&crate::z3_shim::Sort::int(ctx.z3_ctx)];
-                let range = &crate::z3_shim::Sort::int(ctx.z3_ctx);
-                crate::z3_shim::FuncDecl::new(ctx.z3_ctx, sym, domain, range)
-            };
+            // Versioned uninterpreted function: arr_v0, arr_v1, etc.
+            // Each indexed store bumps the version so subsequent reads see the new state.
+            let version = crate::codegen::verification::array_tracker::get_version(&base_name);
+            let func_name = format!("{}_v{}", base_name, version);
+            let sym = crate::z3_shim::Symbol::String(func_name);
+            let domain = &[&crate::z3_shim::Sort::int(ctx.z3_ctx)];
+            let range = &crate::z3_shim::Sort::int(ctx.z3_ctx);
+            let func = crate::z3_shim::FuncDecl::new(ctx.z3_ctx, sym, domain, range);
             let result = func.apply(&[&index_z3]);
             result.as_int().ok_or_else(|| format!("Array access {}[idx] did not return Int", base_name))
         }
@@ -1067,6 +1058,53 @@ pub fn translate_string_to_z3<'a, 'ctx>(
             Ok(crate::z3_shim::ast::String::new_const(ctx.z3_ctx, name))
         }
         _ => Err("Expected a string expression (literal or variable)".to_string()),
+    }
+}
+
+/// Apply an array store `arr[index] = value` in the Z3 solver.
+/// Creates a new function version with update + frame axioms.
+#[allow(dead_code)] // Called from for_loop.rs when inductive step is active
+pub(crate) fn apply_array_store_in_z3<'a, 'ctx>(
+    ctx: &mut LoweringContext<'a, 'ctx>,
+    arr_name: &str,
+    index_z3: &crate::z3_shim::ast::Int<'a>,
+    value_z3: &crate::z3_shim::ast::Int<'a>,
+) {
+    use crate::z3_shim::ast::Ast;
+    let old_ver = crate::codegen::verification::array_tracker::get_version(arr_name);
+    let new_ver = crate::codegen::verification::array_tracker::bump_version(arr_name);
+
+    let int_sort = crate::z3_shim::Sort::int(ctx.z3_ctx);
+    let mk_func = |name: String| {
+        crate::z3_shim::FuncDecl::new(
+            ctx.z3_ctx,
+            crate::z3_shim::Symbol::String(name),
+            &[&int_sort],
+            &int_sort,
+        )
+    };
+    let old_func = mk_func(format!("{}_v{}", arr_name, old_ver));
+    let new_func = mk_func(format!("{}_v{}", arr_name, new_ver));
+
+    // Update axiom: new(i) = value
+    let new_at_i = new_func.apply(&[index_z3]);
+    if let Some(new_int) = new_at_i.as_int() {
+        ctx.z3_solver.assert(&new_int._eq(value_z3));
+    }
+
+    // Frame axiom: forall k != i => new(k) = old(k)
+    let k_name = format!("k_fr_{}", new_ver);
+    let k = crate::z3_shim::ast::Int::new_const(ctx.z3_ctx, k_name.as_str());
+    let k_ne_i = k._eq(index_z3).not();
+    let old_at_k = old_func.apply(&[&k]);
+    let new_at_k = new_func.apply(&[&k]);
+    if let (Some(old_int), Some(new_int)) = (old_at_k.as_int(), new_at_k.as_int()) {
+        let frame_eq = new_int._eq(&old_int);
+        let frame_impl = crate::z3_shim::ast::Bool::or(ctx.z3_ctx, &[&k_ne_i.not(), &frame_eq]);
+        let frame_forall = crate::z3_shim::ast::forall_const(
+            ctx.z3_ctx, &[&k], &[], &frame_impl,
+        );
+        ctx.z3_solver.assert(&frame_forall);
     }
 }
 

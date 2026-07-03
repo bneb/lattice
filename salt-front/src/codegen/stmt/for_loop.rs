@@ -172,6 +172,9 @@ pub(crate) fn emit_scf_for_simple(
     // Emit body
     let _body_diverges = super::emit_block(ctx, out, &f.body.stmts, &mut body_vars)?;
 
+    // Bump array versions for indexed stores in the body (Z3 inductive step infra)
+    crate::codegen::verification::array_tracker::process_array_stores_in_body(&f.body.stmts);
+
     ctx.exit_affine_context();
 
     crate::codegen::verification::loop_bounds::pop_loop_bound();

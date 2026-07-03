@@ -9,6 +9,7 @@
 
 mod state_tracker;
 pub(crate) mod loop_bounds;
+pub(crate) mod array_tracker;
 pub mod malloc_tracker;
 pub mod exhaustiveness;
 pub mod arena_verifier;
