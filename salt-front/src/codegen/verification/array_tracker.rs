@@ -153,6 +153,8 @@ pub(crate) fn prove_for_loop_concrete(
             }
             // Apply array stores from the body to model its effects
             process_array_stores_in_body(stmts);
+            // Assert while-loop exit conditions to constrain store indices
+            assert_while_exit_conditions(ctx, stmts, bv);
             // Check invariant at i+1 (inductive step)
             let next_val: syn::Expr = syn::parse_quote! { #var_ident + 1 };
             for e in &inv {
@@ -177,4 +179,48 @@ pub(crate) fn prove_for_loop_concrete(
         }
     }
     Ok(inv)
+}
+
+/// Walk loop body and assert while-loop exit conditions in Z3.
+/// This constrains loop variables (like j) to their post-loop values,
+/// enabling the frame axiom to determine which indices were modified.
+fn assert_while_exit_conditions(
+    ctx: &mut crate::codegen::context::LoweringContext,
+    stmts: &[crate::grammar::Stmt],
+    bv: &HashMap<String, (crate::types::Type, crate::codegen::context::LocalKind)>,
+) {
+    assert_while_exit_depth(ctx, stmts, bv, 0);
+}
+
+fn assert_while_exit_depth(
+    ctx: &mut crate::codegen::context::LoweringContext,
+    stmts: &[crate::grammar::Stmt],
+    bv: &HashMap<String, (crate::types::Type, crate::codegen::context::LocalKind)>,
+    depth: usize,
+) {
+    if depth > 32 { return; }
+    use crate::grammar::Stmt;
+    for stmt in stmts {
+        match stmt {
+            Stmt::Syn(syn::Stmt::Expr(syn::Expr::While(w), _)) |
+            Stmt::Expr(syn::Expr::While(w), _) => {
+                let sc = crate::codegen::verification::SymbolicContext::new(ctx.z3_ctx);
+                if let Ok(z) = crate::codegen::expr::translate_bool_to_z3(ctx, &w.cond, bv, &sc) {
+                    ctx.z3_solver.assert(&z.not());
+                }
+            }
+            Stmt::Unsafe(block) => assert_while_exit_depth(ctx, &block.stmts[..], bv, depth + 1),
+            Stmt::While(w) => assert_while_exit_depth(ctx, &w.body.stmts[..], bv, depth + 1),
+            Stmt::For(f) => assert_while_exit_depth(ctx, &f.body.stmts[..], bv, depth + 1),
+            Stmt::If(salt_if) => {
+                assert_while_exit_depth(ctx, &salt_if.then_branch.stmts[..], bv, depth + 1);
+                if let Some(else_branch) = &salt_if.else_branch {
+                    if let crate::grammar::SaltElse::Block(b) = else_branch.as_ref() {
+                        assert_while_exit_depth(ctx, &b.stmts, bv, depth + 1);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }
