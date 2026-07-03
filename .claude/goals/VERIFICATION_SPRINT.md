@@ -14,7 +14,7 @@
 - Red-team fixes — honest claims, no @trusted bypass, UNSAFE.md accuracy
 - CI stability — clippy::manual-checked-ops fixed
 
-## Phase 1: Case-Splitting for Data-Dependent Loops
+## Phase 1: Case-Splitting for Data-Dependent Loops [ ]
 
 **Goal:** Insertion sort fully verified. The inner while-loop exit condition `j < 0 || arr[j] <= key` is already asserted. Split the inductive step into two Z3 cases: `j == -1` and `j >= 0 && arr[j] <= key`. Prove each separately.
 
@@ -26,7 +26,7 @@
 **Files:** `array_tracker.rs`, test: `test_insertion_sort_concrete.salt`
 **Effort:** 1-2 days
 
-## Phase 2: Algorithm Verification Suite
+## Phase 2: Algorithm Verification Suite [ ]
 
 **Goal:** Working, verified implementations of classic algorithms demonstrating each proof technique.
 
@@ -40,7 +40,7 @@
 **Files:** `tests/z3_contracts/test_*.salt`, `run_tests.sh`
 **Effort:** 1-2 days
 
-## Phase 3: `exists` Quantifier
+## Phase 3: `exists` Quantifier [ ]
 
 **Goal:** `exists i in lo..hi => body` syntax. Same expansion pattern as forall.
 
@@ -53,7 +53,7 @@
 **Files:** `grammar/expr_utils.rs`, `memory.rs`, `keywords.rs`
 **Effort:** 1 day
 
-## Phase 4: Z3 Native Array Theory
+## Phase 4: Z3 Native Array Theory [ ]
 
 **Goal:** Replace versioned UFs with Z3 `store`/`select`. Eliminates manual frame axioms. Currently blocked on z3-0.12 crash — needs either z3 upgrade or C API workaround.
 
@@ -67,7 +67,7 @@
 **Files:** `memory.rs`, `array_tracker.rs`, `z3_stub.rs`
 **Effort:** 2-3 days (research-heavy)
 
-## Phase 5: Auto-Invariant Inference
+## Phase 5: Auto-Invariant Inference [ ]
 
 **Goal:** Extend `try_infer_while_invariant` to handle array access patterns. Current version only handles `while i < N { i = i + 1 }`. Add array patterns.
 
@@ -79,7 +79,7 @@
 **Files:** `while_stmt.rs`, `for_loop_emit.rs`
 **Effort:** 2-3 days
 
-## Phase 6: Documentation & Blog
+## Phase 6: Documentation & Blog [ ]
 
 **Goal:** Publish the verification story.
 
