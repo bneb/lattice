@@ -1,4 +1,5 @@
 #![deny(clippy::cognitive_complexity)]
+#![allow(unknown_lints, clippy::manual_checked_ops)] // Rust >1.92 lint on CI
 // removed warnings — pre-existing lints deferred per MASTER_SPRINT.md S1-002
 
 
