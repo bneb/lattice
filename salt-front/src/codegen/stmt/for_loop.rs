@@ -164,8 +164,12 @@ pub(crate) fn emit_scf_for_simple(
         crate::codegen::verification::loop_bounds::push_loop_bound(name.clone());
     }
 
-    // Verify and assert for-loop invariants (reuse while-loop infrastructure)
-    let _loop_invariants = super::while_stmt::prove_while_loop_base_case(ctx, &f.body.stmts, &body_vars)?;
+    // Pin loop variable to start value for base case, then assert invariants
+    let _loop_invariants = if _z3_for_loop_active {
+        prove_for_loop_invariants(ctx, &f.body.stmts, &body_vars, &iv_i64, start_expr)?
+    } else {
+        Vec::new()
+    };
 
     ctx.enter_affine_context();
 
@@ -462,6 +466,12 @@ pub(crate) fn emit_cf_br_for_loop(ctx: &mut LoweringContext, out: &mut String, f
         crate::codegen::verification::loop_bounds::push_loop_bound(name.clone());
     }
 
+    // Verify for-loop invariants at entry (pinned to start value)
+    let start_boxed: Option<Box<syn::Expr>> = start_expr.map(|e| Box::new(e.clone()));
+    let loop_invariants = if _z3_for_loop_active {
+        super::for_loop_emit::prove_for_loop_invariants(ctx, &f.body.stmts, &body_vars, &current_i, &start_boxed)?
+    } else { Vec::new() };
+
     ctx.break_labels_mut().push(label_exit.clone());
     ctx.continue_labels_mut().push(label_header.clone());
     ctx.push_cleanup_scope();
@@ -469,6 +479,11 @@ pub(crate) fn emit_cf_br_for_loop(ctx: &mut LoweringContext, out: &mut String, f
     let body_diverges = super::emit_block(ctx, out, &f.body.stmts, &mut body_vars)?;
     ctx.break_labels_mut().pop();
     ctx.continue_labels_mut().pop();
+
+    // Array store tracking + inductive step
+    crate::codegen::verification::array_tracker::process_array_stores_in_body(&f.body.stmts);
+    let var_name = if let syn::Pat::Ident(id) = &f.pat { id.ident.to_string() } else { String::new() };
+    super::for_loop_emit::check_inductive_step(ctx, &loop_invariants, &var_name, &body_vars)?;
 
     crate::codegen::verification::loop_bounds::pop_loop_bound();
 

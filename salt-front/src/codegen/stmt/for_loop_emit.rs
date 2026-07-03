@@ -433,3 +433,52 @@ pub(crate) fn check_inductive_step(
     Ok(())
 }
 
+/// Prove for-loop invariants at entry with the loop variable pinned to start.
+/// Unlike prove_while_loop_base_case (which checks invariants against i>=start),
+/// this constrains i==start for the base case, so vacuous forall ranges
+/// (e.g., forall k in 0..(i-1) with i=1) are correctly resolved as empty.
+pub(crate) fn prove_for_loop_invariants(
+    ctx: &mut LoweringContext,
+    stmts: &[crate::grammar::Stmt],
+    bv: &HashMap<String, (Type, LocalKind)>,
+    iv_ssa: &str,
+    start_expr: &Option<Box<syn::Expr>>,
+) -> Result<Vec<syn::Expr>, String> {
+    use crate::z3_shim::ast::Ast;
+    if ctx.config.no_verify { return Ok(vec![]); }
+    let sc = crate::codegen::verification::SymbolicContext::new(ctx.z3_ctx);
+    let mut inv: Vec<syn::Expr> = Vec::new();
+    for s in stmts { if let crate::grammar::Stmt::Invariant(e) = s { inv.push(e.clone()); } }
+    if inv.is_empty() { return Ok(vec![]); }
+
+    // Pin i == start for the base case check
+    if let (Some(z3_i), Some(start)) = (ctx.symbolic_tracker.get(iv_ssa).cloned(), start_expr) {
+        if let Ok(z3_start) = crate::codegen::expr::translate_to_z3(ctx, start, bv) {
+            ctx.z3_solver.push();
+            ctx.z3_solver.assert(&z3_i._eq(&z3_start));
+            for e in &inv {
+                if let Ok(z) = crate::codegen::expr::translate_bool_to_z3(ctx, e, bv, &sc) {
+                    *ctx.total_checks += 1;
+                    ctx.z3_solver.push(); ctx.z3_solver.assert(&z.not());
+                    if ctx.z3_solver.check() == crate::z3_shim::SatResult::Sat {
+                        ctx.z3_solver.pop(1); ctx.z3_solver.pop(1);
+                        return Err("Z3 verification failed: loop invariant does not hold at entry (i == start). The solver found a counterexample proving the invariant is false with current variable values.".to_string());
+                    }
+                    ctx.z3_solver.pop(1);
+                    *ctx.elided_checks += 1;
+                    ctx.z3_solver.assert(&z);
+                }
+            }
+            ctx.z3_solver.pop(1);
+        }
+    }
+
+    // Re-assert invariants in the parent frame (i >= start) for body emission
+    for e in &inv {
+        if let Ok(z) = crate::codegen::expr::translate_bool_to_z3(ctx, e, bv, &sc) {
+            ctx.z3_solver.assert(&z);
+        }
+    }
+    Ok(inv)
+}
+

@@ -1160,6 +1160,18 @@ fn translate_z3_forall<'a, 'ctx>(
         ctx.symbolic_tracker.remove(&var_name);
     }
 
+    // Check if the range is provably empty (e.g., 0..0 with i=1)
+    // If so, the forall is vacuously true — skip the quantifier.
+    let check_k = ctx.mk_var("_fc");
+    ctx.z3_solver.push();
+    ctx.z3_solver.assert(&check_k.ge(&z3_lo));
+    ctx.z3_solver.assert(&check_k.lt(&z3_hi));
+    let range_empty = ctx.z3_solver.check() == crate::z3_shim::SatResult::Unsat;
+    ctx.z3_solver.pop(1);
+    if range_empty {
+        return Ok(crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, true));
+    }
+
     // Emit Z3 ForAll: forall var. (lo <= var < hi) => body
     let ge = z3_var.ge(&z3_lo);
     let lt = z3_var.lt(&z3_hi);
