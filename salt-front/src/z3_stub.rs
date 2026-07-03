@@ -65,6 +65,7 @@ impl<'a> Sort<'a> {
     pub fn bool(_ctx: &'a Context) -> Self { Sort(PhantomData) }
     pub fn string(_ctx: &'a Context) -> Self { Sort(PhantomData) }
     pub fn bitvector(_ctx: &'a Context, _sz: u32) -> Self { Sort(PhantomData) }
+    pub fn array(_ctx: &'a Context, _domain: &Sort<'a>, _range: &Sort<'a>) -> Self { Sort(PhantomData) }
 }
 
 /// z3-rs Symbol: either a string or integer name.
@@ -129,6 +130,7 @@ pub mod ast {
     impl<'a> Dynamic<'a> {
         pub fn as_int(&self) -> Option<Int<'a>> { Some(Int(PhantomData)) }
         pub fn as_bool(&self) -> Option<Bool<'a>> { Some(Bool(PhantomData)) }
+        pub fn as_array(&self) -> Option<Array<'a>> { Some(Array(PhantomData)) }
     }
 
     impl<'a> fmt::Display for Dynamic<'a> {
@@ -221,6 +223,23 @@ pub mod ast {
         type Output = Int<'a>;
         fn neg(self) -> Int<'a> { Int(PhantomData) }
     }
+
+    // ─── Array ──────────────────────────────────────────────────────────
+
+    #[derive(Debug, Clone)]
+    pub struct Array<'a>(pub(crate) PhantomData<&'a ()>);
+
+    impl<'a> Array<'a> {
+        pub fn new_const(_ctx: &'a Context, _name: impl Into<Symbol>, _domain: &Sort<'a>, _range: &Sort<'a>) -> Self { Array(PhantomData) }
+        pub fn store(&self, _index: &Int<'a>, _value: &Int<'a>) -> Array<'a> { Array(PhantomData) }
+        pub fn select(&self, _index: &Int<'a>) -> Dynamic<'a> { Dynamic(PhantomData) }
+    }
+
+    impl<'a> fmt::Display for Array<'a> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "<z3_stub::Array>") }
+    }
+
+    impl<'a> Ast for Array<'a> {}
 
     // ─── Bool ───────────────────────────────────────────────────────────
 
