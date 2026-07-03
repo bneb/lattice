@@ -8,8 +8,20 @@ use proc_macro2::{TokenStream, TokenTree};
 use crate::keywords::*;
 pub mod attr;
 pub mod pattern;
+pub(crate) mod expr_utils;
 use attr::Attribute;
 use pattern::Pattern;
+
+/// Parse a contract expression (requires/ensures/invariant body).
+/// Dispatches to forall expansion when the `forall` keyword is present.
+fn parse_contract_expr(input: ParseStream) -> syn::Result<Expr> {
+    if input.peek(crate::keywords::forall) {
+        expr_utils::parse_forall_expr(input)
+    } else {
+        input.parse()
+    }
+}
+
 /// Represents the entire source file
 #[derive(Clone, Debug)]
 pub struct SaltFile {
@@ -1152,7 +1164,7 @@ impl Parse for SaltFn {
         let mut requires = Vec::new();
         while input.peek(crate::keywords::requires) {
             input.parse::<crate::keywords::requires>()?;
-            let e: Expr = input.parse()?;
+            let e: Expr = parse_contract_expr(input)?;
              if input.peek(Token![;]) {
                  input.parse::<Token![;]>()?;
              }
@@ -1163,7 +1175,7 @@ impl Parse for SaltFn {
         let mut ensures = Vec::new();
         while input.peek(crate::keywords::ensures) {
             input.parse::<crate::keywords::ensures>()?;
-            let e: Expr = input.parse()?;
+            let e: Expr = parse_contract_expr(input)?;
             if input.peek(Token![;]) {
                 input.parse::<Token![;]>()?;
             }
@@ -1204,7 +1216,7 @@ fn parse(input: ParseStream) -> syn::Result<Self> {
     
         if input.peek(invariant) {
             input.parse::<invariant>()?;
-            let expr: Expr = input.parse()?;
+            let expr: Expr = parse_contract_expr(input)?;
             input.parse::<Token![;]>()?;
             return Ok(Stmt::Invariant(expr));
         }

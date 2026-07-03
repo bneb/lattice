@@ -9,6 +9,7 @@ custom_keyword!(requires);
 custom_keyword!(ensures);
 custom_keyword!(concept);
 custom_keyword!(invariant);
+custom_keyword!(forall);
 custom_keyword!(owned);
 custom_keyword!(window);
 custom_keyword!(move_); // 'move' is a keyword in Rust, so we map it to move_ or verify usage
