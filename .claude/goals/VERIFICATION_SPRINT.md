@@ -1,44 +1,92 @@
 # Verification Sprint — Closing the Gap
 
-## Completed (shipped)
+**Start:** 2026-07-03 | **Target:** 2 weeks | **Tag:** v1.2.0
 
-- `forall i in lo..hi => body` syntax with constant expansion + Z3 ForAll fallback
-- For-loop invariants: base case (i==start pinning) + inductive step (i→i+1 substitution)
-- Concrete for-loop unrolling: when bounds are constants, 100% proof coverage
-- While-loop invariants: base case + inductive step (Havoc semantics)
-- Array store tracking: versioned UFs + update assertions + bounded frame axioms
-- Body scanning: recursive AST walker for indexed assignments
-- Z3 metrics: `Z3: 8/8 checks proven (100%), 0 deferred to runtime`
-- `ensures forall` for postconditions on array contents
-- Red-team fixes: honest claims, no @trusted bypass, UNSAFE.md accuracy
+## Completed (v1.1.0)
 
-## Remaining (in priority order)
+- `forall i in lo..hi => body` syntax — constant expansion + Z3 ForAll
+- For-loop invariants — base case (i==start pinning) + inductive step (i→i+1)
+- Concrete for-loop unrolling — 100% proof coverage on constant-bounded loops
+- While-loop invariants — base case + inductive step (Havoc)
+- Array store tracking — versioned UFs + update assertions + bounded frame axioms
+- Body scanning — recursive AST walker for indexed assignments
+- Z3 metrics — `Z3: 8/8 checks proven (100%), 0 deferred to runtime`
+- Red-team fixes — honest claims, no @trusted bypass, UNSAFE.md accuracy
+- CI stability — clippy::manual-checked-ops fixed
 
-### Phase 1: CI stability (now)
-**All CI runs are failing.** Need to identify root cause — likely Clippy lint on CI platform vs local.
-**Effort**: 1-2 hours. **Impact**: unblocks all future work.
+## Phase 1: Case-Splitting for Data-Dependent Loops
 
-### Phase 2: Case-splitting for data-dependent loops (1-2 days)
-The key missing piece. Insertion sort's inner while-loop (`while j >= 0 && arr[j] > key`) has data-dependent iterations. Fix: assert `(j < 0) || (arr[j] <= key) && j >= 0` as a post-condition, split the proof into two cases, prove each separately in Z3.
-**Effort**: 1-2 days. **Impact**: insertion sort fully verified. Unlocks all algorithms with conditional inner loops.
+**Goal:** Insertion sort fully verified. The inner while-loop exit condition `j < 0 || arr[j] <= key` is already asserted. Split the inductive step into two Z3 cases: `j == -1` and `j >= 0 && arr[j] <= key`. Prove each separately.
 
-### Phase 3: Z3 native Array theory (2-3 days)
-Replace versioned UFs with Z3's `store`/`select`. Eliminates manual frame axioms. z3-0.12 crashes — need to debug or upgrade to z3-0.20 (377 API breakages to fix).
-**Effort**: 2-3 days. **Impact**: simpler code, faster proofs, no frame axiom overhead.
+**Tasks:**
+1. In `array_tracker.rs:prove_for_loop_concrete`, after asserting while-loop exit conditions, push two Z3 sub-frames: one with `j == -1`, one with `j >= 0`
+2. In each sub-frame, check the invariant at i+1
+3. Both must be UNSAT for the invariant to be preserved
 
-### Phase 4: Algorithm verification suite (1-2 days)
-Write verified implementations of:
-- Bubble sort (fixed loops, forall invariants)
-- Selection sort (fixed loops, forall invariants)
-- Matrix multiply (tiled, @ operator)
-- Binary search (while-loop, requires clauses)
-- Array fill (forall ensures)
-**Effort**: 1-2 days. **Impact**: demonstrable verification coverage, blog material.
+**Files:** `array_tracker.rs`, test: `test_insertion_sort_concrete.salt`
+**Effort:** 1-2 days
 
-### Phase 5: `exists` quantifier (1 day)
-Add `exists i in lo..hi => body` syntax. Same expansion pattern as forall. Needed for search algorithm postconditions.
-**Effort**: 1 day. **Impact**: completes quantifier story.
+## Phase 2: Algorithm Verification Suite
 
-### Phase 6: Auto-invariant inference (2-3 days)
-Extend `try_infer_while_invariant` to handle array access patterns. Current version only handles `while i < N { i = i + 1 }`. Add: `while i < N && arr[i] > key` → `invariant i >= 0 && forall k in 0..i: arr[k] >= key`.
-**Effort**: 2-3 days. **Impact**: reduces annotation burden for common patterns.
+**Goal:** Working, verified implementations of classic algorithms demonstrating each proof technique.
+
+**Tasks:**
+1. `test_bubble_sort.salt` — forall ensures + for-loop invariant (already done, 8/8 proven)
+2. `test_selection_sort.salt` — same pattern, different inner loop
+3. `test_array_fill.salt` — forall ensures with concrete unrolling
+4. `test_binary_search.salt` — while-loop invariants for bounds
+5. Add all to `tests/z3_contracts/run_tests.sh`
+
+**Files:** `tests/z3_contracts/test_*.salt`, `run_tests.sh`
+**Effort:** 1-2 days
+
+## Phase 3: `exists` Quantifier
+
+**Goal:** `exists i in lo..hi => body` syntax. Same expansion pattern as forall.
+
+**Tasks:**
+1. Add `Expr::Exists` variant or reuse `__z3_exists` marker (parallel to forall)
+2. Parser: `exists ident in expr..expr => expr`
+3. Z3 translation: `exists_const` (stub already present)
+4. Test: `test_exists.salt`
+
+**Files:** `grammar/expr_utils.rs`, `memory.rs`, `keywords.rs`
+**Effort:** 1 day
+
+## Phase 4: Z3 Native Array Theory
+
+**Goal:** Replace versioned UFs with Z3 `store`/`select`. Eliminates manual frame axioms. Currently blocked on z3-0.12 crash — needs either z3 upgrade or C API workaround.
+
+**Tasks:**
+1. Debug z3-0.12 `Array::store` crash (null AST pointer at `ast.rs:630`)
+2. If unfixable, try z3-sys raw FFI: `Z3_mk_store` / `Z3_mk_select` directly
+3. Replace `FuncDecl` in `translate_to_z3:Expr::Index` with `Array::select`
+4. Replace `apply_array_store_in_z3` with `Array::store`
+5. Remove version tracking, frame axioms, StoreRecord infrastructure
+
+**Files:** `memory.rs`, `array_tracker.rs`, `z3_stub.rs`
+**Effort:** 2-3 days (research-heavy)
+
+## Phase 5: Auto-Invariant Inference
+
+**Goal:** Extend `try_infer_while_invariant` to handle array access patterns. Current version only handles `while i < N { i = i + 1 }`. Add array patterns.
+
+**Tasks:**
+1. Pattern: `while i < N && arr[i] > key` → infer `invariant i >= 0 && arr[i-1] <= arr[i]`
+2. Pattern: `for i in 0..n { arr[i] = v }` → infer `invariant forall k in 0..(i-1): arr[k] == v`
+3. Wire into while-loop and for-loop emitters
+
+**Files:** `while_stmt.rs`, `for_loop_emit.rs`
+**Effort:** 2-3 days
+
+## Phase 6: Documentation & Blog
+
+**Goal:** Publish the verification story.
+
+**Tasks:**
+1. Blog post: "Proving Sorting Algorithms at Compile Time" — based on `docs/blog/forall-invariants.md`
+2. Update BENCHMARKS_E2E.md with algorithm verification coverage
+3. Add tutorial chapter: "Verifying Your First Algorithm"
+4. Update README with verification badge/metrics example
+
+**Effort:** 1-2 days
