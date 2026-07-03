@@ -15,21 +15,15 @@ pub(crate) fn prove_while_loop_base_case(
     let sc = crate::codegen::verification::SymbolicContext::new(ctx.z3_ctx);
     let mut inv: Vec<syn::Expr> = Vec::new();
     for s in stmts { if let Stmt::Invariant(e) = s { inv.push(e.clone()); } }
-    ctx.z3_solver.push();
+    // Check each invariant in an isolated sub-frame, then assert in parent context.
+    // No outer push — surrounding constraints (loop bounds, let bindings) are visible.
     for e in &inv {
         if let Ok(z) = crate::codegen::expr::translate_bool_to_z3(ctx, e, bv, &sc) {
             ctx.z3_solver.push(); ctx.z3_solver.assert(&z.not());
             let ck = ctx.z3_solver.check(); ctx.z3_solver.pop(1);
             if ck == crate::z3_shim::SatResult::Sat {
-                ctx.z3_solver.pop(1);
                 return Err("Z3 verification failed: loop invariant does not hold at entry.                      The solver found a counterexample proving the invariant is false                      with current variable values.".to_string());
             }
-            ctx.z3_solver.assert(&z);
-        }
-    }
-    ctx.z3_solver.pop(1);
-    for e in &inv {
-        if let Ok(z) = crate::codegen::expr::translate_bool_to_z3(ctx, e, bv, &sc) {
             ctx.z3_solver.assert(&z);
         }
     }

@@ -973,10 +973,13 @@ pub fn translate_to_z3<'a, 'ctx>(
             if version > 0 && !crate::codegen::verification::array_tracker::frame_emitted(&base_name, version) {
                 let stores = crate::codegen::verification::array_tracker::get_stores(&base_name, 0);
                 for store in &stores {
-                    if let (Some(idx_z3), Some(val_z3)) = (
-                        ctx.symbolic_tracker.get(&store.index_name).cloned(),
-                        ctx.symbolic_tracker.get(&store.value_name).cloned(),
-                    ) {
+                    // Resolve store record names through local_vars (may have SSA names)
+                    let resolve = |name: &str| {
+                        if let Some((_, LocalKind::SSA(ssa))) = local_vars.get(name) {
+                            ctx.symbolic_tracker.get(ssa).cloned()
+                        } else { ctx.symbolic_tracker.get(name).cloned() }
+                    };
+                    if let (Some(idx_z3), Some(val_z3)) = (resolve(&store.index_name), resolve(&store.value_name)) {
                         apply_array_store_in_z3(ctx, &base_name, &idx_z3, &val_z3);
                     }
                 }
