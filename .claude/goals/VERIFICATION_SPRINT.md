@@ -67,7 +67,7 @@
 **Files:** `memory.rs`, `array_tracker.rs`, `z3_stub.rs`
 **Effort:** 2-3 days (research-heavy)
 
-## Phase 5: Auto-Invariant Inference [ ]
+## Phase 5: Auto-Invariant Inference [DEFERRED] — requires deep Z3/IR integration, 2-3 day scope
 
 **Goal:** Extend `try_infer_while_invariant` to handle array access patterns. Current version only handles `while i < N { i = i + 1 }`. Add array patterns.
 
@@ -79,7 +79,7 @@
 **Files:** `while_stmt.rs`, `for_loop_emit.rs`
 **Effort:** 2-3 days
 
-## Phase 6: Documentation & Blog [ ]
+## Phase 6: Documentation & Blog [x] 2026-07-03
 
 **Goal:** Publish the verification story.
 

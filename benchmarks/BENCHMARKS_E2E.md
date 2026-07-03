@@ -29,3 +29,21 @@ Automated, multi-iteration, high-fidelity benchmarks across the KeuOS macro-appl
 The hybrid model is key: Z3 proves the subset it can resolve within 100ms.
 The rest become runtime assertions — still safe, just not zero-cost.
 The provable set expands as the solver and proof tactics improve.
+
+### Algorithm Verification Coverage (v1.1.0+)
+
+| Algorithm | Checks | Proven | Method |
+|---|---|---|---|
+| `bubble_sort` (n=4) | 8 | 8 (100%) | forall ensures + for-loop invariant + concrete unrolling |
+| `array_fill` (n=4) | 9 | 8 (88%) | for-loop invariant + concrete unrolling |
+| `selection_sort` | 5 | 4 (80%) | integer loop invariants |
+| `binary_search` | 1 | 0 (0%) | while-loop bounds invariants (symbolic) |
+
+**Provable today:**
+- Fixed-bounded loops with unconditional stores (array fill, bubble sort outer loop)
+- Integer invariants on for-loops (i >= 0, min_idx >= i)
+- Constant-bound forall expansion (ensures forall i in 0..3 => ...)
+
+**Requires conditional store application (gap):**
+- Data-dependent inner loops (insertion sort while-loop, selection sort if-guarded swap)
+- Case-splitting infrastructure is wired; conditional store modeling is the next increment
