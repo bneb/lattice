@@ -893,6 +893,19 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
 }
 
 #[allow(unused)]
+/// Resolve a loop bound name to its Z3 Int via local_vars→symbolic_tracker.
+fn resolve_bound<'a>(
+    name: &str,
+    local_vars: &HashMap<String, (Type, LocalKind)>,
+    ctx: &LoweringContext<'a, '_>,
+) -> Option<crate::z3_shim::ast::Int<'a>> {
+    if let Some((_, LocalKind::SSA(ssa))) = local_vars.get(name) {
+        ctx.symbolic_tracker.get(ssa).cloned()
+    } else {
+        ctx.symbolic_tracker.get(name).cloned()
+    }
+}
+
 pub fn translate_to_z3<'a, 'ctx>(
     ctx: &mut LoweringContext<'a, 'ctx>, 
     expr: &syn::Expr, 
@@ -975,6 +988,8 @@ pub fn translate_to_z3<'a, 'ctx>(
             if applied < stores.len() {
                 crate::codegen::verification::array_tracker::mark_stores_applied(&base_name, stores.len());
                 let mut cur_ver = applied;
+                let loop_bounds = crate::codegen::verification::loop_bounds::get_loop_bound_stack();
+                let frame_bound = loop_bounds.last(); // use innermost loop bound for frame axiom range
                 for store in &stores[applied..] {
                     let old_ver = cur_ver;
                     let new_ver = cur_ver + 1;
@@ -989,9 +1004,29 @@ pub fn translate_to_z3<'a, 'ctx>(
                         translate_to_z3(ctx, &store.value_expr, local_vars),
                     ) {
                         use crate::z3_shim::ast::Ast;
+                        // Update assertion: arr_new(i) = value
                         let new_at_idx = new_func.apply(&[&s_idx]);
                         if let Some(new_int) = new_at_idx.as_int() {
                             ctx.z3_solver.assert(&new_int._eq(&s_val));
+                        }
+                        // Frame axiom (bounded): forall k in 0..bound, k != i => arr_new(k) = arr_old(k)
+                        if let Some(bound_name) = frame_bound {
+                            if let Some(z3_bound) = resolve_bound(bound_name, local_vars, ctx) {
+                                let k_name = format!("k_fr_{}", ctx.next_id());
+                                let k_fr = crate::z3_shim::ast::Int::new_const(ctx.z3_ctx, k_name.as_str());
+                                let k_in_range = crate::z3_shim::ast::Bool::and(ctx.z3_ctx, &[
+                                    &k_fr.ge(&crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 0)),
+                                    &k_fr.lt(&z3_bound),
+                                ]);
+                                let k_ne_i = k_fr._eq(&s_idx).not();
+                                let old_at_k = old_func.apply(&[&k_fr]);
+                                let new_at_k = new_func.apply(&[&k_fr]);
+                                if let (Some(old_int), Some(new_int)) = (old_at_k.as_int(), new_at_k.as_int()) {
+                                    let frame_eq = new_int._eq(&old_int);
+                                    let frame_body = crate::z3_shim::ast::Bool::or(ctx.z3_ctx, &[&k_in_range.not(), &k_ne_i.not(), &frame_eq]);
+                                    ctx.z3_solver.assert(&crate::z3_shim::ast::forall_const(ctx.z3_ctx, &[&k_fr], &[], &frame_body));
+                                }
+                            }
                         }
                     }
                 }
