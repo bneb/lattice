@@ -164,6 +164,9 @@ pub(crate) fn emit_scf_for_simple(
         crate::codegen::verification::loop_bounds::push_loop_bound(name.clone());
     }
 
+    // Verify and assert for-loop invariants (reuse while-loop infrastructure)
+    let _loop_invariants = super::while_stmt::prove_while_loop_base_case(ctx, &f.body.stmts, &body_vars)?;
+
     ctx.enter_affine_context();
 
     // Emit body

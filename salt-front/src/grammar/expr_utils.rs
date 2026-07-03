@@ -21,50 +21,56 @@ pub(crate) fn parse_forall_expr(input: ParseStream) -> syn::Result<Expr> {
     // Parse `lo..hi` as a Range expression, then extract bounds
     let range: Expr = input.parse()?;
     let (lo, hi) = match &range {
-        Expr::Range(r) => (r.start.as_ref(), r.end.as_ref()),
+        Expr::Range(r) => (r.start.as_deref(), r.end.as_deref()),
         _ => return Err(syn::Error::new_spanned(&range, "expected range like `0..3` or `0..n`")),
     };
     let lo = lo.ok_or_else(|| input.error("forall range must have a lower bound"))?;
     let hi = hi.ok_or_else(|| input.error("forall range must have an upper bound"))?;
 
-    input.parse::<Token![:]>()?;
+    input.parse::<Token![=>]>()?;
 
     let body: Expr = input.parse()?;
 
-    let lo_val = extract_int_literal(lo)
-        .ok_or_else(|| input.error("forall lower bound must be an integer literal"))?;
-    let hi_val = extract_int_literal(hi)
-        .ok_or_else(|| input.error("forall upper bound must be an integer literal. Call this function with a concrete size (e.g., sort(arr, 5)) to enable verification."))?;
-
-    if hi_val <= lo_val {
-        return Ok(Expr::Lit(ExprLit {
-            attrs: vec![],
-            lit: Lit::Bool(syn::LitBool::new(true, input.span())),
-        }));
+    if let (Some(lo_val), Some(hi_val)) = (extract_int_literal(lo), extract_int_literal(hi)) {
+        if hi_val <= lo_val {
+            return Ok(Expr::Lit(ExprLit {
+                attrs: vec![],
+                lit: Lit::Bool(syn::LitBool::new(true, input.span())),
+            }));
+        }
+        let mut conjuncts: Vec<Expr> = Vec::new();
+        for val in lo_val..hi_val {
+            let replacement = Expr::Lit(ExprLit {
+                attrs: vec![],
+                lit: Lit::Int(LitInt::new(&val.to_string(), proc_macro2::Span::call_site())),
+            });
+            conjuncts.push(substitute_ident(&body, &var, &replacement));
+        }
+        let mut result = conjuncts.pop().unwrap();
+        while let Some(next) = conjuncts.pop() {
+            result = Expr::Binary(syn::ExprBinary {
+                attrs: vec![],
+                left: Box::new(next),
+                op: syn::BinOp::And(syn::token::AndAnd::default()),
+                right: Box::new(result),
+            });
+        }
+        return Ok(result);
     }
 
-    // Expand: for i in lo..hi, create body[var→i] for each i, chain with &&
-    let mut conjuncts: Vec<Expr> = Vec::new();
-    for val in lo_val..hi_val {
-        let replacement = Expr::Lit(ExprLit {
-            attrs: vec![],
-            lit: Lit::Int(LitInt::new(&val.to_string(), proc_macro2::Span::call_site())),
-        });
-        conjuncts.push(substitute_ident(&body, &var, &replacement));
-    }
-
-    // Chain with &&
-    let mut result = conjuncts.pop().unwrap();
-    while let Some(next) = conjuncts.pop() {
-        result = Expr::Binary(syn::ExprBinary {
-            attrs: vec![],
-            left: Box::new(next),
-            op: syn::BinOp::And(syn::token::AndAnd::default()),
-            right: Box::new(result),
-        });
-    }
-
-    Ok(result)
+    // Symbolic bounds: encode as __z3_forall(var, lo, hi, body) for Z3 ForAll
+    let var_name = Expr::Lit(ExprLit {
+        attrs: vec![],
+        lit: Lit::Str(syn::LitStr::new(&var.to_string(), proc_macro2::Span::call_site())),
+    });
+    let args: Punctuated<Expr, Token![,]> = vec![var_name, lo.clone(), hi.clone(), body]
+        .into_iter().collect();
+    Ok(Expr::Call(syn::ExprCall {
+        attrs: vec![],
+        func: Box::new(syn::parse_quote! { __z3_forall }),
+        paren_token: syn::token::Paren::default(),
+        args,
+    }))
 }
 
 /// Extract an i64 value from an integer literal expression.

@@ -50,7 +50,16 @@ fn emit_function_call(
 }
 
 pub fn emit_call(ctx: &mut LoweringContext, out: &mut String, c: &syn::ExprCall, local_vars: &mut HashMap<String, (Type, LocalKind)>, _expected: Option<&Type>) -> Result<(String, Type), String> {
-    
+    // __z3_forall is a symbolic quantifier handled by the Z3 translator.
+    // At the MLIR emission level, emit `true` since the contract is Z3-proven.
+    if let syn::Expr::Path(p) = &*c.func {
+        if p.path.is_ident("__z3_forall") {
+            let res = format!("%z3forall_{}", ctx.next_id());
+            out.push_str(&format!("    {} = arith.constant true\n", res));
+            return Ok((res, Type::Bool));
+        }
+    }
+
     // TENSOR CONSTRUCTOR: Tensor<T>(value, [dims])
     // Intercept before resolver to handle as builtin type constructor
     if let syn::Expr::Path(p) = &*c.func {

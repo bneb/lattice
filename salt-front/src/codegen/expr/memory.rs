@@ -798,7 +798,7 @@ let (idx_val, idx_ty) = emit_expr(ctx, out, &i.index, local_vars, Some(&Type::I6
 }
 
 pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprIndex, local_vars: &mut HashMap<String, (Type, LocalKind)>, _expected: Option<&Type>) -> Result<(String, Type), String> {
-    // Try LValue first (Handles Arrays/Windows properly, and Tensors)
+        // Try LValue first (Handles Arrays/Windows properly, and Tensors)
     // Try LValue first (Handles Arrays/Windows properly, and Tensors)
     // typo in original code? i.expr is the thing being indexed.
     
@@ -865,23 +865,13 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
         // : First-Class Pointer Indexing (Fallback Path)
         // This handles Ptr<T> when emit_lvalue didn't catch it
         Type::Pointer { ref element, .. } => {
-             // Z3 Bounds Verification Integration
              let func_name = ctx.current_fn_name().clone();
-             let info = crate::codegen::verification::ptr_bounds_verifier::PtrBoundsInfo::new(&func_name);
-             
-             // Extract loop invariant upper bounds or known local array sizes
-             // Note: An advanced version would query MallocTracker or loop invariants
-             // For now, the Z3 context has the path conditions mapped.
-             let proof_result = crate::codegen::verification::ptr_bounds_verifier::verify_ptr_dynamic_index(ctx.z3_ctx, ctx.z3_solver, &info);
-             
-             match proof_result {
-                 crate::codegen::verification::ptr_bounds_verifier::PtrProofResult::Proven => {
-                     *ctx.elided_checks += 1;
-                 }
-                 _ => {
-                     // Since Ptr<T> has no runtime length, a runtime bounds check cannot be emitted.
-                     // Therefore, to enforce memory safety, unproven pointer indexing MUST be rejected at compile time.
-                     if !ctx.config.no_verify && !*ctx.is_unsafe_block() {
+             if !ctx.config.no_verify && !*ctx.is_unsafe_block() {
+                 let proven = prove_ptr_bounds_loop_aware(ctx, &i.index, local_vars, &func_name)?;
+                 if !proven {
+                     let info = crate::codegen::verification::ptr_bounds_verifier::PtrBoundsInfo::new(&func_name);
+                     let proof_result = crate::codegen::verification::ptr_bounds_verifier::verify_ptr_dynamic_index(ctx.z3_ctx, ctx.z3_solver, &info);
+                     if proof_result != crate::codegen::verification::ptr_bounds_verifier::PtrProofResult::Proven {
                          return Err(format!("Unsafe pointer indexing in '{}': Z3 could not prove bounds safety for raw pointer indexing. You must provide explicit bounds constraints via @requires, loop invariants, or wrap the access in an unsafe block.", func_name));
                      }
                  }
@@ -1052,6 +1042,60 @@ pub fn translate_string_to_z3<'a, 'ctx>(
     }
 }
 
+/// Translate a symbolic forall expression: __z3_forall(var_name, lo, hi, body)
+fn translate_z3_forall<'a, 'ctx>(
+    ctx: &mut LoweringContext<'a, 'ctx>,
+    call: syn::ExprCall,
+    local_vars: &HashMap<String, (Type, LocalKind)>,
+    sym_ctx: &crate::codegen::verification::SymbolicContext<'a>,
+) -> Result<crate::z3_shim::ast::Bool<'a>, String> {
+    let args: Vec<&syn::Expr> = call.args.iter().collect();
+    let var_name = match args[0] {
+        syn::Expr::Lit(lit) => match &lit.lit {
+            syn::Lit::Str(s) => s.value(),
+            _ => return Err("forall: first arg must be a string literal".to_string()),
+        },
+        _ => return Err("forall: first arg must be a string literal".to_string()),
+    };
+    let lo = args[1];
+    let hi = args[2];
+    let body = args[3];
+
+    let z3_var = ctx.mk_var(&var_name);
+    let mut body_vars = local_vars.clone();
+    body_vars.insert(var_name.clone(), (Type::I64, crate::codegen::context::LocalKind::SSA(var_name.clone())));
+
+    let old_val = ctx.symbolic_tracker.get(&var_name).cloned();
+    ctx.symbolic_tracker.insert(var_name.clone(), z3_var.clone());
+
+    // Translate lo and hi to Z3 Ints for range constraints
+    let z3_lo = translate_to_z3(ctx, lo, &body_vars)?;
+    let z3_hi = translate_to_z3(ctx, hi, &body_vars)?;
+
+    // Translate the body
+    let z3_body = translate_bool_to_z3(ctx, body, &body_vars, sym_ctx)?;
+
+    // Restore the symbolic tracker
+    if let Some(old) = old_val {
+        ctx.symbolic_tracker.insert(var_name.clone(), old);
+    } else {
+        ctx.symbolic_tracker.remove(&var_name);
+    }
+
+    // Emit Z3 ForAll: forall var. (lo <= var < hi) => body
+    let ge = z3_var.ge(&z3_lo);
+    let lt = z3_var.lt(&z3_hi);
+    let range_holds = crate::z3_shim::ast::Bool::and(ctx.z3_ctx, &[&ge, &lt]);
+    let implication = crate::z3_shim::ast::Bool::or(ctx.z3_ctx, &[&range_holds.not(), &z3_body]);
+    let bound: &dyn crate::z3_shim::ast::Ast = &z3_var;
+    Ok(crate::z3_shim::ast::forall_const(
+        ctx.z3_ctx,
+        &[bound],
+        &[],
+        &implication,
+    ))
+}
+
 #[allow(clippy::only_used_in_recursion)] // pub API: params passed in recursive calls
 pub fn translate_bool_to_z3<'a, 'ctx>(
     ctx: &mut LoweringContext<'a, 'ctx>,
@@ -1116,8 +1160,17 @@ pub fn translate_bool_to_z3<'a, 'ctx>(
         syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Bool(b), .. }) => {
             Ok(crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, b.value))
         }
-        // Function calls returning bool in contracts → Z3 uninterpreted Bool functions
+        // __z3_forall(var_name, lo, hi, body) — symbolic forall quantifier
         syn::Expr::Call(call) => {
+            // Check for symbolic forall before general function call handling
+            if let syn::Expr::Path(p) = &*call.func {
+                let func_name = p.path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("_");
+                if func_name == "__z3_forall" && call.args.len() == 4 {
+                    return translate_z3_forall(ctx, call.clone(), local_vars, sym_ctx);
+                }
+            }
+
+            // General function calls returning bool in contracts
             let func_name = if let syn::Expr::Path(p) = &*call.func {
                 p.path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("_")
             } else {
