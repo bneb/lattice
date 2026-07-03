@@ -92,7 +92,7 @@ fn extract_int_literal(expr: &Expr) -> Option<i64> {
 }
 
 /// Substitute all occurrences of `var` in `expr` with `replacement`.
-fn substitute_ident(expr: &Expr, var: &Ident, replacement: &Expr) -> Expr {
+pub(crate) fn substitute_ident(expr: &Expr, var: &Ident, replacement: &Expr) -> Expr {
     match expr {
         Expr::Path(path) => {
             if path.path.is_ident(var) {

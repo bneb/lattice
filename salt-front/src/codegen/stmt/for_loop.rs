@@ -175,6 +175,9 @@ pub(crate) fn emit_scf_for_simple(
     // Bump array versions for indexed stores in the body (Z3 inductive step infra)
     crate::codegen::verification::array_tracker::process_array_stores_in_body(&f.body.stmts);
 
+    // Inductive step: prove invariant(i) is preserved → invariant(i+1)
+    super::for_loop_emit::check_inductive_step(ctx, &_loop_invariants, &var_name, &body_vars)?;
+
     ctx.exit_affine_context();
 
     crate::codegen::verification::loop_bounds::pop_loop_bound();

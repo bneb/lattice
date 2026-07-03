@@ -170,6 +170,7 @@ pub(crate) fn emit_affine_for_reduction(
     
     Ok(false)
 }
+
 /// Register a for-loop induction variable with the Z3 solver and assert domain bounds.
 /// Extracted to eliminate duplication across three for-loop emitting functions.
 pub(crate) fn emit_z3_for_loop_bounds(
@@ -398,5 +399,37 @@ pub(crate) fn emit_scf_for_runtime_reduction(
     }
     
     Ok(false)
+}
+
+/// Check that each for-loop invariant is preserved by the body:
+/// if invariant(i) holds before the body, invariant(i+1) must hold after.
+pub(crate) fn check_inductive_step(
+    ctx: &mut LoweringContext,
+    invariants: &[syn::Expr],
+    var_name: &str,
+    body_vars: &HashMap<String, (Type, LocalKind)>,
+) -> Result<(), String> {
+    if ctx.config.no_verify || invariants.is_empty() { return Ok(()); }
+    let var_ident = syn::Ident::new(var_name, proc_macro2::Span::call_site());
+    let next_val: syn::Expr = syn::parse_quote! { #var_ident + 1 };
+    let sc = crate::codegen::verification::SymbolicContext::new(ctx.z3_ctx);
+    for inv in invariants {
+        let next_inv = crate::grammar::expr_utils::substitute_ident(inv, &var_ident, &next_val);
+        if let Ok(z3_next) = crate::codegen::expr::translate_bool_to_z3(ctx, &next_inv, body_vars, &sc) {
+            *ctx.total_checks += 1;
+            ctx.z3_solver.push();
+            ctx.z3_solver.assert(&z3_next.not());
+            if ctx.z3_solver.check() == crate::z3_shim::SatResult::Sat {
+                ctx.z3_solver.pop(1);
+                return Err(format!(
+                    "Z3 verification failed: for-loop invariant does not hold after iteration.\n  The solver found a counterexample proving the invariant is not preserved by the loop body.\n  Invariant: {:?}\n  hint: check that the loop body establishes the invariant for the next iteration.",
+                    inv
+                ));
+            }
+            ctx.z3_solver.pop(1);
+            *ctx.elided_checks += 1;
+        }
+    }
+    Ok(())
 }
 
