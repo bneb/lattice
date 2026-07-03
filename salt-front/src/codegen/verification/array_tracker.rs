@@ -18,6 +18,8 @@ thread_local! {
     static STORE_RECORDS: RefCell<HashMap<String, Vec<StoreRecord>>> = RefCell::new(HashMap::new());
     #[allow(clippy::missing_const_for_thread_local)]
     static STORES_APPLIED: RefCell<HashMap<String, usize>> = RefCell::new(HashMap::new());
+    #[allow(clippy::missing_const_for_thread_local)]
+    static VERSIONS: RefCell<HashMap<String, usize>> = RefCell::new(HashMap::new());
 }
 
 fn record_store(name: &str, index_expr: Box<syn::Expr>, value_expr: Box<syn::Expr>) {
@@ -25,6 +27,16 @@ fn record_store(name: &str, index_expr: Box<syn::Expr>, value_expr: Box<syn::Exp
         c.borrow_mut().entry(name.to_string()).or_default()
             .push(StoreRecord { index_expr, value_expr });
     });
+    // Bump version: subsequent reads use arr_v{new_version} (fresh UF)
+    VERSIONS.with(|c| {
+        let mut map = c.borrow_mut();
+        let v = map.get(name).copied().unwrap_or(0) + 1;
+        map.insert(name.to_string(), v);
+    });
+}
+
+pub(crate) fn get_version(name: &str) -> usize {
+    VERSIONS.with(|c| c.borrow().get(name).copied().unwrap_or(0))
 }
 
 #[allow(dead_code)] // Used when array store emission is enabled

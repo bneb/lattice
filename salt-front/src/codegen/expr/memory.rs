@@ -959,7 +959,8 @@ pub fn translate_to_z3<'a, 'ctx>(
                 Err("Unsupported unnamed field access in verification".to_string())
             }
         }
-        // Array indexing: arr[i] → Z3 uninterpreted function arr(i)
+        // Array indexing: arr[i] → versioned uninterpreted function arr_vN(i)
+        // Each indexed store bumps the version; reads use the latest version.
         syn::Expr::Index(idx) => {
             let base_name = if let syn::Expr::Path(p) = &*idx.expr {
                 p.path.get_ident().map(|i| i.to_string()).unwrap_or_else(|| "unknown_arr".to_string())
@@ -967,7 +968,36 @@ pub fn translate_to_z3<'a, 'ctx>(
                 "unknown_arr".to_string()
             };
             let index_z3 = translate_to_z3(ctx, &idx.index, local_vars)?;
-            let sym = crate::z3_shim::Symbol::String(base_name.clone());
+            let ver = crate::codegen::verification::array_tracker::get_version(&base_name);
+            // Emit update constraints for unapplied stores: arr_v{k+1}(idx) == val
+            let stores = crate::codegen::verification::array_tracker::get_stores(&base_name);
+            let applied = crate::codegen::verification::array_tracker::stores_applied(&base_name);
+            if applied < stores.len() {
+                crate::codegen::verification::array_tracker::mark_stores_applied(&base_name, stores.len());
+                let mut cur_ver = applied;
+                for store in &stores[applied..] {
+                    let old_ver = cur_ver;
+                    let new_ver = cur_ver + 1;
+                    cur_ver = new_ver;
+                    let old_name = format!("{}_v{}", base_name, old_ver);
+                    let new_name = format!("{}_v{}", base_name, new_ver);
+                    let int_sort = crate::z3_shim::Sort::int(ctx.z3_ctx);
+                    let old_func = crate::z3_shim::FuncDecl::new(ctx.z3_ctx, crate::z3_shim::Symbol::String(old_name), &[&int_sort], &int_sort);
+                    let new_func = crate::z3_shim::FuncDecl::new(ctx.z3_ctx, crate::z3_shim::Symbol::String(new_name), &[&int_sort], &int_sort);
+                    if let (Ok(s_idx), Ok(s_val)) = (
+                        translate_to_z3(ctx, &store.index_expr, local_vars),
+                        translate_to_z3(ctx, &store.value_expr, local_vars),
+                    ) {
+                        use crate::z3_shim::ast::Ast;
+                        let new_at_idx = new_func.apply(&[&s_idx]);
+                        if let Some(new_int) = new_at_idx.as_int() {
+                            ctx.z3_solver.assert(&new_int._eq(&s_val));
+                        }
+                    }
+                }
+            }
+            let func_name = format!("{}_v{}", base_name, ver);
+            let sym = crate::z3_shim::Symbol::String(func_name);
             let domain = &[&crate::z3_shim::Sort::int(ctx.z3_ctx)];
             let range = &crate::z3_shim::Sort::int(ctx.z3_ctx);
             let func = crate::z3_shim::FuncDecl::new(ctx.z3_ctx, sym, domain, range);
