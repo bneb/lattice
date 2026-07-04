@@ -324,7 +324,103 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-# ── Test 23: Element preservation across mutations (frame axioms) ─
+# ── Test 23: Exists quantifier ────────────────────────────────────
+echo -n "  test_exists: "
+if "$SALTC" "$SCRIPT_DIR/test_exists.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_ex > /tmp/z3_out_ex.txt 2>&1; then
+    echo "PASS (exists quantifier — Z3 existentially quantified)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (exists quantifier regression)"
+    cat /tmp/z3_out_ex.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 24: For-loop invariant + forall (inductive step) ─────────
+echo -n "  test_insertion_sort: "
+if "$SALTC" "$SCRIPT_DIR/test_insertion_sort.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_is > /tmp/z3_out_is.txt 2>&1; then
+    echo "PASS (forall ensures/requires + for-loop invariant)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (forall / for-loop invariant regression)"
+    cat /tmp/z3_out_is.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 25: Forall ensures at concrete call site ─────────────────
+echo -n "  test_insertion_sort_concrete: "
+if "$SALTC" "$SCRIPT_DIR/test_insertion_sort_concrete.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_isc > /tmp/z3_out_isc.txt 2>&1; then
+    echo "PASS (forall ensures — concrete call-site expansion)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (concrete call-site forall regression)"
+    cat /tmp/z3_out_isc.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 26: Comprehensive contract types ─────────────────────────
+echo -n "  test_comprehensive: "
+if "$SALTC" "$SCRIPT_DIR/test_comprehensive.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_comp > /tmp/z3_out_comp.txt 2>&1; then
+    echo "PASS (bounds/division/multiplication/bitwise/branch postconditions)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (comprehensive contract regression)"
+    cat /tmp/z3_out_comp.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 27: String content operations ────────────────────────────
+echo -n "  test_string_ops: "
+if "$SALTC" "$SCRIPT_DIR/test_string_ops.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_sop > /tmp/z3_out_sop.txt 2>&1; then
+    echo "PASS (string starts_with/ends_with/matches)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (string ops regression)"
+    cat /tmp/z3_out_sop.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 28: Basic string contracts ───────────────────────────────
+echo -n "  test_strings: "
+if "$SALTC" "$SCRIPT_DIR/test_strings.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_str > /tmp/z3_out_str.txt 2>&1; then
+    echo "PASS (string length contracts)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (string contracts regression)"
+    cat /tmp/z3_out_str.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 29: String contract violations (negative test) ───────────
+echo -n "  test_strings_rejected: "
+if ! "$SALTC" "$SCRIPT_DIR/test_strings_rejected.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_srj > /tmp/z3_out_srj.txt 2>&1; then
+    echo "PASS (contract violation caught)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (failed to reject invalid string contracts)"
+    cat /tmp/z3_out_srj.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 30: Type-bound proofs ────────────────────────────────────
+echo -n "  test_type_bounds: "
+if "$SALTC" "$SCRIPT_DIR/test_type_bounds.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_tb > /tmp/z3_out_tb.txt 2>&1; then
+    echo "PASS (type-bound proofs: u8/bool/u16)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (type-bound proof regression)"
+    cat /tmp/z3_out_tb.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 31: Element preservation across mutations (frame axioms) ─
 echo -n "  test_preservation: "
 if "$SALTC" "$SCRIPT_DIR/test_preservation.salt" \
     --lib --disable-alias-scopes -o /tmp/z3_test_pr > /tmp/z3_out_pr.txt 2>&1; then

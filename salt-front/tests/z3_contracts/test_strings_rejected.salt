@@ -13,8 +13,8 @@ pub fn require_bounded(key: StringView) -> i32
 
 pub fn main() -> i32 {
     // These should FAIL: empty string violates requires(key.length() > 0)
-    // let a = require_nonempty("");
+    let _a = require_nonempty("");
     // "too-long" has length 8, violates requires(key.length() <= 5)
-    // let b = require_bounded("too-long");
+    let _b = require_bounded("too-long");
     return 0;
 }

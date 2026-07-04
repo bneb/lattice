@@ -1,31 +1,31 @@
-// Z3 Contract Test: Insertion Sort — Concrete-Size Verification
+// Z3 Contract Test: Forall Ensures at Concrete Call Site
 //
-// The ensures forall with n=4 expands to 3 concrete comparisons:
-//   arr[0] <= arr[1] && arr[1] <= arr[2] && arr[2] <= arr[3]
-// Z3 proves this at the call site using the bounded frame axiom
-// from the versioned UF array model.
+// Proves that when a function with 'ensures forall' is called with
+// concrete array arguments, Z3 unrolls the forall into individual
+// element assertions and verifies them against the function body.
+//
+// Distinction from test_insertion_sort.salt: that test defines
+// make_sorted but never calls it — the ensures is checked only at
+// the definition site (0 checks). Here, the concrete call triggers
+// the full expansion path: 3 element comparisons, 3 Z3 proofs.
 
 package basalt.test_isort_conc
 
-fn insertion_sort(arr: Ptr<i32>, n: i64)
-    requires n > 0
-    ensures forall i in 0..(n-1) => arr[i] <= arr[i+1]
+fn make_sorted_4(arr: Ptr<i32>)
+    ensures forall i in 0..3 => arr[i] <= arr[i+1]
 {
-    for i in 1..n {
-        invariant forall k in 0..(i-1) => arr[k] <= arr[k+1];
-        unsafe {
-            let key = arr[i];
-            let mut j: i64 = i - 1;
-            while j >= 0 && arr[j] > key {
-                invariant j >= -1;
-                arr[j + 1] = arr[j];
-                j = j - 1;
-            }
-            arr[j + 1] = key;
-        }
+    unsafe {
+        arr[0] = 10;
+        arr[1] = 20;
+        arr[2] = 30;
+        arr[3] = 40;
     }
 }
 
 fn main() -> i32 {
+    unsafe {
+        let mut data: [i32; 4] = [0, 0, 0, 0];
+        make_sorted_4(&data as Ptr<i32>);
+    }
     return 0;
 }
