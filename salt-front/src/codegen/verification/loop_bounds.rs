@@ -10,6 +10,7 @@
 //!   Set at function entry. Used for constant-index Ptr<T> bounds proofs.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 thread_local! {
     #[allow(clippy::missing_const_for_thread_local)]
@@ -18,6 +19,8 @@ thread_local! {
     static REQUIRES_PARAMS: RefCell<Vec<String>> = RefCell::new(Vec::new());
     #[allow(clippy::missing_const_for_thread_local)]
     static CONCRETE_BOUND: RefCell<Option<i64>> = RefCell::new(None);
+    #[allow(clippy::missing_const_for_thread_local)]
+    static CALL_SITE_PARAMS: RefCell<HashMap<String, i64>> = RefCell::new(HashMap::new());
 }
 
 // --- Loop bound stack ---
@@ -50,5 +53,18 @@ pub(crate) fn set_concrete_bound(bound: Option<i64>) {
 
 pub(crate) fn get_concrete_bound() -> Option<i64> {
     CONCRETE_BOUND.with(|c| *c.borrow())
+}
+
+pub(crate) fn set_call_site_param(name: &str, val: i64) {
+    CALL_SITE_PARAMS.with(|c| { c.borrow_mut().insert(name.to_string(), val); });
+}
+
+pub(crate) fn get_call_site_param(name: &str) -> Option<i64> {
+    CALL_SITE_PARAMS.with(|c| c.borrow().get(name).copied())
+}
+
+#[allow(dead_code)]
+pub(crate) fn clear_call_site_params() {
+    CALL_SITE_PARAMS.with(|c| c.borrow_mut().clear());
 }
 

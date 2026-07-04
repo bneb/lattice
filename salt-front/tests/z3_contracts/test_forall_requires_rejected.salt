@@ -1,0 +1,19 @@
+// Z3 Contract Test: forall requires — counterexample with scalars
+//
+// forall i in 0..n => i < 5 claims all indices 0..n-1 are less than 5.
+// Called with n=6: expands to 0<5 && 1<5 && 2<5 && 3<5 && 4<5 && 5<5.
+// 5<5 is false, so Z3 must reject.
+
+package basalt.test_forall_rej
+
+pub fn check_range(n: i64) -> i32
+    requires forall i in 0..n => i < 5
+    requires n > 0
+{
+    return n as i32;
+}
+
+pub fn main() -> i32 {
+    let result = check_range(6);
+    return result;
+}

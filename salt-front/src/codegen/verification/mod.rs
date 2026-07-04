@@ -151,6 +151,17 @@ impl VerificationEngine {
             .map(|(f, t)| (*f, *t))
             .collect();
 
+        // 2.4. Record call-site concrete parameter values for quantifier expansion.
+        // Enables forall/exists bounds like 0..(n-1) to be resolved to concrete
+        // integers at call sites where n is a literal argument.
+        for (i, p_name) in params.iter().enumerate() {
+            if i < call_vals_z3.len() {
+                if let Some(val) = call_vals_z3[i].as_i64() {
+                    crate::codegen::verification::loop_bounds::set_call_site_param(p_name, val);
+                }
+            }
+        }
+
         // 2.5. Build known-length map for .length()/.len() constant folding
         let mut known_lengths: HashMap<String, i64> = HashMap::new();
         for (i, arg) in arg_exprs.iter().enumerate() {

@@ -1,0 +1,18 @@
+// Z3 Contract Test: forall requires — proved with scalar call-site expansion
+//
+// forall i in 0..n => i < 10 with n=5 expands to 5 conjuncts,
+// all true. Z3 must prove the requires at the call site.
+
+package basalt.test_forall_proved
+
+pub fn check_range(n: i64) -> i32
+    requires forall i in 0..n => i < 10
+    requires n > 0
+{
+    return n as i32;
+}
+
+pub fn main() -> i32 {
+    let result = check_range(5);
+    return result;
+}

@@ -1145,6 +1145,34 @@ pub fn translate_string_to_z3<'a, 'ctx>(
     }
 }
 
+/// Try to evaluate a bound expression to an i64 using concrete values
+/// from call-site parameter bindings (set by verify()). Handles:
+/// literal ints, param names, and simple binary expressions.
+fn try_eval_bound_as_i64(expr: &syn::Expr) -> Option<i64> {
+    match expr {
+        syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(li), .. }) => {
+            li.base10_parse::<i64>().ok()
+        }
+        syn::Expr::Paren(p) => try_eval_bound_as_i64(&p.expr),
+        syn::Expr::Path(p) => {
+            let name = p.path.get_ident()?.to_string();
+            crate::codegen::verification::loop_bounds::get_call_site_param(&name)
+        }
+        syn::Expr::Binary(syn::ExprBinary { left, op, right, .. }) => {
+            let l = try_eval_bound_as_i64(left)?;
+            let r = try_eval_bound_as_i64(right)?;
+            match op {
+                syn::BinOp::Add(_) => Some(l + r),
+                syn::BinOp::Sub(_) => Some(l - r),
+                syn::BinOp::Mul(_) => Some(l * r),
+                syn::BinOp::Div(_) => if r != 0 { Some(l / r) } else { None },
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 /// Translate a symbolic exists expression: __z3_exists(var_name, lo, hi, body)
 fn translate_z3_exists<'a, 'ctx>(
     ctx: &mut LoweringContext<'a, 'ctx>,
@@ -1164,13 +1192,28 @@ fn translate_z3_exists<'a, 'ctx>(
     let z3_hi = translate_to_z3(ctx, hi, &body_vars)?;
     let z3_body = translate_bool_to_z3(ctx, body, &body_vars, sym_ctx)?;
     if let Some(old) = old_val { ctx.symbolic_tracker.insert(var_name.clone(), old); } else { ctx.symbolic_tracker.remove(&var_name); }
-    // Check empty range: exists k in empty → false
-    let check_k = ctx.mk_var("_ec");
-    ctx.z3_solver.push();
-    ctx.z3_solver.assert(&check_k.ge(&z3_lo)); ctx.z3_solver.assert(&check_k.lt(&z3_hi));
-    let range_empty = ctx.z3_solver.check() == crate::z3_shim::SatResult::Unsat;
-    ctx.z3_solver.pop(1);
-    if range_empty { return Ok(crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, false)); }
+    // If bounds are concrete (call-site constant propagation), expand
+    // to disjuncts instead of emitting a Z3 exists_const quantifier.
+    if let (Some(lo_val), Some(hi_val)) = (
+        try_eval_bound_as_i64(lo),
+        try_eval_bound_as_i64(hi),
+    ) {
+        if hi_val <= lo_val {
+            return Ok(crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, false));
+        }
+        use crate::z3_shim::ast::Ast;
+        let mut disjuncts: Vec<crate::z3_shim::ast::Bool<'_>> = Vec::new();
+        for val in lo_val..hi_val {
+            let concrete = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, val);
+            let body_at_val = z3_body.substitute(&[(&z3_var, &concrete)]);
+            disjuncts.push(body_at_val);
+        }
+        let mut result = disjuncts.pop().unwrap();
+        while let Some(next) = disjuncts.pop() {
+            result = crate::z3_shim::ast::Bool::or(ctx.z3_ctx, &[&next, &result]);
+        }
+        return Ok(result);
+    }
     // exists var. (lo <= var < hi) && body
     let ge = z3_var.ge(&z3_lo); let lt = z3_var.lt(&z3_hi);
     let range = crate::z3_shim::ast::Bool::and(ctx.z3_ctx, &[&ge, &lt]);
@@ -1219,16 +1262,28 @@ fn translate_z3_forall<'a, 'ctx>(
         ctx.symbolic_tracker.remove(&var_name);
     }
 
-    // Check if the range is provably empty (e.g., 0..0 with i=1)
-    // If so, the forall is vacuously true — skip the quantifier.
-    let check_k = ctx.mk_var("_fc");
-    ctx.z3_solver.push();
-    ctx.z3_solver.assert(&check_k.ge(&z3_lo));
-    ctx.z3_solver.assert(&check_k.lt(&z3_hi));
-    let range_empty = ctx.z3_solver.check() == crate::z3_shim::SatResult::Unsat;
-    ctx.z3_solver.pop(1);
-    if range_empty {
-        return Ok(crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, true));
+    // If bounds are concrete (call-site constant propagation), expand
+    // to conjuncts instead of emitting a Z3 ForAll quantifier.
+    // This enables Z3 to reject invalid forall requires at call sites.
+    if let (Some(lo_val), Some(hi_val)) = (
+        try_eval_bound_as_i64(lo),
+        try_eval_bound_as_i64(hi),
+    ) {
+        if hi_val <= lo_val {
+            return Ok(crate::z3_shim::ast::Bool::from_bool(ctx.z3_ctx, true));
+        }
+        use crate::z3_shim::ast::Ast;
+        let mut conjuncts: Vec<crate::z3_shim::ast::Bool<'_>> = Vec::new();
+        for val in lo_val..hi_val {
+            let concrete = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, val);
+            let body_at_val = z3_body.substitute(&[(&z3_var, &concrete)]);
+            conjuncts.push(body_at_val);
+        }
+        let mut result = conjuncts.pop().unwrap();
+        while let Some(next) = conjuncts.pop() {
+            result = crate::z3_shim::ast::Bool::and(ctx.z3_ctx, &[&next, &result]);
+        }
+        return Ok(result);
     }
 
     // Emit Z3 ForAll: forall var. (lo <= var < hi) => body

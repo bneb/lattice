@@ -444,7 +444,31 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-# ── Test 35: BV shift operations ──────────────────────────────────
+# ── Test 35: Forall requires at call site (positive) ──────────────
+echo -n "  test_forall_requires_proved: "
+if "$SALTC" "$SCRIPT_DIR/test_forall_requires_proved.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_frp > /tmp/z3_out_frp.txt 2>&1; then
+    echo "PASS (forall requires proved with call-site expansion)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (forall requires expansion regression)"
+    cat /tmp/z3_out_frp.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 36: Forall requires at call site (negative) ──────────────
+echo -n "  test_forall_requires_rejected: "
+if ! "$SALTC" "$SCRIPT_DIR/test_forall_requires_rejected.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_frr > /tmp/z3_out_frr.txt 2>&1; then
+    echo "PASS (forall requires violation caught — i<5 with n=6)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (failed to reject invalid forall requires)"
+    cat /tmp/z3_out_frr.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 37: BV shift operations ──────────────────────────────────
 echo -n "  test_bv_shifts: "
 if "$SALTC" "$SCRIPT_DIR/test_bv_shifts.salt" \
     --lib --disable-alias-scopes -o /tmp/z3_test_bvs > /tmp/z3_out_bvs.txt 2>&1; then
