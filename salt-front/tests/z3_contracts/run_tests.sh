@@ -420,7 +420,31 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-# ── Test 33: BV shift operations ──────────────────────────────────
+# ── Test 33: Ensures forall on body array writes ──────────────────
+echo -n "  test_ensures_forall_body: "
+if "$SALTC" "$SCRIPT_DIR/test_ensures_forall_body.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_efb > /tmp/z3_out_efb.txt 2>&1; then
+    echo "PASS (ensures forall proved from body array stores)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (ensures forall body store regression)"
+    cat /tmp/z3_out_efb.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 34: Ensures forall rejected from body stores ─────────────
+echo -n "  test_ensures_forall_body_rejected: "
+if ! "$SALTC" "$SCRIPT_DIR/test_ensures_forall_body_rejected.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_efbr > /tmp/z3_out_efbr.txt 2>&1; then
+    echo "PASS (ensures forall violation caught from body stores)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (failed to reject invalid ensures forall)"
+    cat /tmp/z3_out_efbr.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 35: BV shift operations ──────────────────────────────────
 echo -n "  test_bv_shifts: "
 if "$SALTC" "$SCRIPT_DIR/test_bv_shifts.salt" \
     --lib --disable-alias-scopes -o /tmp/z3_test_bvs > /tmp/z3_out_bvs.txt 2>&1; then

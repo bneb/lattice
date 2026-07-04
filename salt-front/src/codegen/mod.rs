@@ -1250,7 +1250,12 @@ pub fn emit_fn(ctx: &CodegenContext, func: &crate::grammar::SaltFn, override_nam
     ctx.consumption_locs_mut().clear();
     ctx.devoured_vars_mut().clear();
     *ctx.mutated_vars_mut() = crate::codegen::stmt::collect_mutations(&func.body.stmts);
-    
+
+    // Record array stores (arr[i] = val) for postcondition verification.
+    // Previously only called inside for-loops; this enables ensures forall
+    // on function bodies with direct array writes.
+    crate::codegen::verification::array_tracker::process_array_stores_in_body(&func.body.stmts);
+
     let mut local_vars = std::collections::HashMap::new();
     let mut args_code = Vec::new();
     

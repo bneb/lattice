@@ -448,6 +448,64 @@ impl VerificationEngine {
         }
     }
 
+    /// Apply store records for a specific array to a solver.
+    /// Asserts update assertions + unbounded ForAll frame axioms.
+    fn apply_stores_for_array(
+        ctx: &mut LoweringContext<'_, '_>,
+        solver: &crate::z3_shim::Solver<'_>,
+        base_name: &str,
+        local_vars: &HashMap<String, (Type, crate::codegen::context::LocalKind)>,
+    ) {
+        let stores = crate::codegen::verification::array_tracker::get_stores(base_name);
+        let applied = crate::codegen::verification::array_tracker::stores_applied(base_name);
+        if applied >= stores.len() {
+            return;
+        }
+        let mut cur_ver = applied;
+        for store in &stores[applied..] {
+            let old_ver = cur_ver;
+            let new_ver = cur_ver + 1;
+            cur_ver = new_ver;
+            let old_name = format!("{}_v{}", base_name, old_ver);
+            let new_name = format!("{}_v{}", base_name, new_ver);
+            let int_sort = crate::z3_shim::Sort::int(ctx.z3_ctx);
+            let old_func = crate::z3_shim::FuncDecl::new(
+                ctx.z3_ctx, crate::z3_shim::Symbol::String(old_name),
+                &[&int_sort], &int_sort,
+            );
+            let new_func = crate::z3_shim::FuncDecl::new(
+                ctx.z3_ctx, crate::z3_shim::Symbol::String(new_name),
+                &[&int_sort], &int_sort,
+            );
+            if let (Ok(s_idx), Ok(s_val)) = (
+                crate::codegen::expr::translate_to_z3(ctx, &store.index_expr, local_vars),
+                crate::codegen::expr::translate_to_z3(ctx, &store.value_expr, local_vars),
+            ) {
+                use crate::z3_shim::ast::Ast;
+                // Update assertion: new_func(store_idx) == store_val
+                let new_at_idx = new_func.apply(&[&s_idx]);
+                if let Some(new_int) = new_at_idx.as_int() {
+                    solver.assert(&new_int._eq(&s_val));
+                }
+                // Unbounded ForAll frame axiom: forall k, k != store_idx ⇒ new(k)==old(k)
+                let k_name = format!("k_fr_pc_{}", ctx.next_id());
+                let k_fr = crate::z3_shim::ast::Int::new_const(ctx.z3_ctx, k_name.as_str());
+                let k_ne_i = k_fr._eq(&s_idx).not();
+                let old_at_k = old_func.apply(&[&k_fr]);
+                let new_at_k = new_func.apply(&[&k_fr]);
+                if let (Some(old_int), Some(new_int)) = (old_at_k.as_int(), new_at_k.as_int()) {
+                    let frame_eq = new_int._eq(&old_int);
+                    let frame_body = crate::z3_shim::ast::Bool::or(
+                        ctx.z3_ctx, &[&k_ne_i.not(), &frame_eq],
+                    );
+                    solver.assert(&crate::z3_shim::ast::forall_const(
+                        ctx.z3_ctx, &[&k_fr], &[], &frame_body,
+                    ));
+                }
+            }
+        }
+    }
+
     /// Weakest Precondition verification for `ensures` clauses.
     ///
     /// At each return site, substitutes `result` in the ensures expression with
@@ -564,7 +622,20 @@ impl VerificationEngine {
 
         // 2c. [v4.0] Axiomatize intrinsics in the return expression
         Self::axiomatize_intrin_find_byte(ctx, return_expr, &solver, &z3_locals);
-        
+
+        // 2d. Apply array stores from the function body to the postcondition solver.
+        // This connects body writes (arr[0]=10) to ensures forall (arr[0]<=arr[1]).
+        // Sets STORES_APPLIED so translate_to_z3:Expr::Index (called during ensures
+        // checking below) skips store re-application into ctx.z3_solver.
+        {
+            let store_names = crate::codegen::verification::array_tracker::get_store_names();
+            for name in &store_names {
+                Self::apply_stores_for_array(ctx, &solver, name, &z3_locals);
+                let stores = crate::codegen::verification::array_tracker::get_stores(name);
+                crate::codegen::verification::array_tracker::mark_stores_applied(name, stores.len());
+            }
+        }
+
         // 3. Translate the return value expression to Z3
         let z3_return_val = crate::codegen::expr::translate_to_z3(ctx, return_expr, &z3_locals);
 

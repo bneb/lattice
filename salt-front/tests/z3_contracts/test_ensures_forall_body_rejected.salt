@@ -1,0 +1,21 @@
+// Z3 Contract Test: ensures forall — counterexample rejection from body stores
+//
+// The ensures claims all elements are equal, but the body writes
+// arr[0]=10, arr[1]=20 (not equal). Z3 must reject.
+
+package basalt.test_ens_body_rej
+
+fn fill_not_equal(arr: Ptr<i32>) -> i32
+    ensures forall i in 0..2 => arr[i] == arr[i+1]
+{
+    unsafe {
+        arr[0] = 10;
+        arr[1] = 20;
+        arr[2] = 20;
+    }
+    return 0;
+}
+
+fn main() -> i32 {
+    return 0;
+}

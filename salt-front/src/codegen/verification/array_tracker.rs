@@ -39,6 +39,11 @@ pub(crate) fn get_version(name: &str) -> usize {
     VERSIONS.with(|c| c.borrow().get(name).copied().unwrap_or(0))
 }
 
+#[allow(dead_code)]
+pub(crate) fn get_store_names() -> Vec<String> {
+    STORE_RECORDS.with(|c| c.borrow().keys().cloned().collect())
+}
+
 #[allow(dead_code)] // Used when array store emission is enabled
 pub(crate) fn get_stores(name: &str) -> Vec<StoreRecord> {
     STORE_RECORDS.with(|c| c.borrow().get(name).cloned().unwrap_or_default())
