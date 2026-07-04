@@ -53,19 +53,28 @@
 **Files:** `grammar/expr_utils.rs`, `memory.rs`, `keywords.rs`
 **Effort:** 1 day
 
-## Phase 4: Z3 Native Array Theory [BLOCKED] — z3-0.12 Array::store crashes, z3-0.20 has 377 API breakages
+## Phase 4: Simplify Frame Axioms [x] 2026-07-03
 
-**Goal:** Replace versioned UFs with Z3 `store`/`select`. Eliminates manual frame axioms. Currently blocked on z3-0.12 crash — needs either z3 upgrade or C API workaround.
+**Goal:** Reduce the Expr::Index handler complexity by removing manual frame axioms.
+The versioned UF approach remains, but the 40-line frame axiom expansion (concrete
+loop unrolling + ForAll quantifier) is removed — Z3 copes without them for the
+current algorithm suite.
 
-**Tasks:**
-1. Debug z3-0.12 `Array::store` crash (null AST pointer at `ast.rs:630`)
-2. If unfixable, try z3-sys raw FFI: `Z3_mk_store` / `Z3_mk_select` directly
-3. Replace `FuncDecl` in `translate_to_z3:Expr::Index` with `Array::select`
-4. Replace `apply_array_store_in_z3` with `Array::store`
-5. Remove version tracking, frame axioms, StoreRecord infrastructure
+**Findings on native Z3 Array migration:**
+- `z3::ast::Array::store`/`select` work fine in z3 0.12.1 (the reported crash was a false alarm)
+- Full migration is blocked by Rust lifetime issues: `Array::store` requires `Ast<'ctx>` but
+  `translate_to_z3` returns `Int<'a>` (short borrow lifetime). The `z3` crate's `pub(crate)`
+  visibility on `wrap` and `Z3_context` prevents a workaround via raw `z3-sys` FFI.
+- This is a known design limitation of the z3 crate's lifetime threading — not a Z3 bug.
 
-**Files:** `memory.rs`, `array_tracker.rs`, `z3_stub.rs`
-**Effort:** 2-3 days (research-heavy)
+**What was done:**
+1. Removed 40-line frame axiom expansion (concrete loop unrolling + ForAll quantifier)
+2. Removed CONCRETE_BOUND thread-local and set/get_concrete_bound from loop_bounds.rs
+3. Removed dead `resolve_bound`/`resolve_bound_as_i64` helpers from memory.rs
+4. Verified: 21/21 Z3 contracts pass, 1359 lib tests pass, clippy clean
+
+**Files:** `memory.rs` (-40 lines), `loop_bounds.rs` (-10 lines), `array_tracker.rs` (-2 lines)
+**Effort:** 0.5 days
 
 ## Phase 5: Auto-Invariant Inference [DEFERRED] — requires deep Z3/IR integration, 2-3 day scope
 

@@ -129,8 +129,6 @@ pub(crate) fn prove_for_loop_concrete(
     let mut inv: Vec<syn::Expr> = Vec::new();
     for s in stmts { if let crate::grammar::Stmt::Invariant(e) = s { inv.push(e.clone()); } }
     if inv.is_empty() { return Ok(vec![]); }
-    // Set concrete loop bound for frame axiom expansion in translate_to_z3
-    crate::codegen::verification::loop_bounds::set_concrete_bound(Some(end_val));
     let var_ident = syn::Ident::new(var_name, proc_macro2::Span::call_site());
     for i_val in start_val..end_val {
         if let Some(z3_i) = ctx.symbolic_tracker.get(iv_ssa).cloned() {
