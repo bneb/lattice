@@ -1,0 +1,18 @@
+// Z3 Contract Test: exists quantifier with symbolic bounds
+//
+// When bounds are not integer literals, the compiler emits a Z3
+// exists_const quantifier instead of expanding to a disjunction.
+// Complements test_exists.salt (constant-bound expansion).
+
+package basalt.test_exists_sym
+
+fn exists_lt_n(n: i64) -> bool
+    requires exists k in 0..n => k < n
+    requires n > 0
+{
+    return true;
+}
+
+fn main() -> i32 {
+    return 0;
+}

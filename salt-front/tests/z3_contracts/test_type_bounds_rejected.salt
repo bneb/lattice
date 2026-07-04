@@ -1,0 +1,16 @@
+// Z3 Contract Test: Type bounds — counterexample rejection
+//
+// u8 ∈ [0, 255] is provable at compile time, so requires(x < 256) passes.
+// But requires(x < 100) is stricter than the type bound — Z3 must NOT
+// prove it from the type alone. When called with x=200, it fails.
+
+package main
+
+pub fn check_u8_lt(x: u8) -> i32
+    requires(x < 100)
+{ return x as i32; }
+
+pub fn main() -> i32 {
+    let a: u8 = 200;
+    return check_u8_lt(a);
+}

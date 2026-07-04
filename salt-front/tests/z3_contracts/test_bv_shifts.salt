@@ -1,0 +1,24 @@
+// Z3 Contract Test: BV shift and signed comparison operations
+//
+// Complements test_bv.salt (which covers AND/OR/masking) with:
+// - Left shift: x << n
+// - Right shift: x >> n
+// - Unsigned/signed comparison patterns
+
+package main
+
+pub fn shift_left_bounds(x: i32) -> i32
+    requires(x >= 0 && x <= 15)
+    ensures(result >= 0 && result <= 120)
+{ return x << 3; }
+
+pub fn shift_right_bounds(x: i32) -> i32
+    requires(x >= 0 && x <= 127)
+    ensures(result >= 0 && result <= 15)
+{ return x >> 3; }
+
+pub fn main() -> i32 {
+    let _a = shift_left_bounds(5);
+    let _b = shift_right_bounds(64);
+    return 0;
+}

@@ -336,7 +336,19 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-# ── Test 24: For-loop invariant + forall (inductive step) ─────────
+# ── Test 24: Exists with symbolic bounds ───────────────────────────
+echo -n "  test_exists_symbolic: "
+if "$SALTC" "$SCRIPT_DIR/test_exists_symbolic.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_exs > /tmp/z3_out_exs.txt 2>&1; then
+    echo "PASS (symbolic exists — Z3 exists_const quantifier)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (symbolic exists regression)"
+    cat /tmp/z3_out_exs.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 25: For-loop invariant + forall (inductive step) ─────────
 echo -n "  test_insertion_sort: "
 if "$SALTC" "$SCRIPT_DIR/test_insertion_sort.salt" \
     --lib --disable-alias-scopes -o /tmp/z3_test_is > /tmp/z3_out_is.txt 2>&1; then
@@ -408,7 +420,31 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-# ── Test 30: Type-bound proofs ────────────────────────────────────
+# ── Test 33: BV shift operations ──────────────────────────────────
+echo -n "  test_bv_shifts: "
+if "$SALTC" "$SCRIPT_DIR/test_bv_shifts.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_bvs > /tmp/z3_out_bvs.txt 2>&1; then
+    echo "PASS (BV shift bounds — x<<3 and x>>3 with ensures)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (BV shift regression)"
+    cat /tmp/z3_out_bvs.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 34: Type bounds — counterexample rejection ───────────────
+echo -n "  test_type_bounds_rejected: "
+if ! "$SALTC" "$SCRIPT_DIR/test_type_bounds_rejected.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_tbr > /tmp/z3_out_tbr.txt 2>&1; then
+    echo "PASS (type bound violation caught — u8(x<100) with x=200)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (failed to reject type-bound violation)"
+    cat /tmp/z3_out_tbr.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 35: Type-bound proofs ────────────────────────────────────
 echo -n "  test_type_bounds: "
 if "$SALTC" "$SCRIPT_DIR/test_type_bounds.salt" \
     --lib --disable-alias-scopes -o /tmp/z3_test_tb > /tmp/z3_out_tb.txt 2>&1; then
