@@ -210,15 +210,42 @@ constraints from the caller.
 - Float comparisons via exact rational arithmetic (`Real` sort)
 - Bitwise operations via bitvector theory (`BV` sort)
 - Postconditions across conditional branches
-- Type-bound proofs for all integer types
+- Type-bound proofs for all integer types and struct fields
 - String length, prefix, suffix, containment, and regex (literal + symbolic)
-- Contract chaining across function calls (caller preconditions → callee obligations)
+- `forall` and `exists` quantifiers with constant expansion + Z3 fallback
+- Loop invariants with base case + inductive step (for and while)
+- Array store tracking with versioned frame axioms
+- Cross-function contract chaining (callee ensures → caller solver)
+- Case splitting for data-dependent loops
 
 **Runtime assertion (Z3 can't decide, safe fallback):**
 - Contracts with unbounded symbolic parameters not implied by type bounds
+- Non-linear arithmetic with two symbolic variables (`x * y`)
 
-**Z3 bridge wired, awaiting Salt syntax:**
-- `forall`/`exists` quantifiers (unit-tested, no parser support yet)
+---
+
+## New in v1.2.0 (July 2026)
+
+**Cross-function chaining.** When `f` calls `g`, the compiler now flows
+`g`'s `ensures` into `f`'s Z3 solver. This means the caller can prove
+properties that depend on the callee's guarantees:
+
+```salt
+fn negate(x: i64) -> i64
+    ensures(result == 0 - x)
+{ return 0 - x; }
+
+fn double_negate(x: i64) -> i64
+    ensures(result == x)           // Proven because Z3 knows a == -x
+{ let a = negate(x); return negate(a); }
+```
+
+**Struct field type bounds.** Field accesses in contracts now carry their
+type-domain constraints. `requires(p.x < 256)` on a struct with `x: u8`
+is always true — Z3 knows `0 <= p.x <= 255`.
+
+**39 contract regression tests** cover all verification modes. Full
+capability/limitation tables at `docs/deep-dives/z3-contracts.md`.
 
 ---
 
