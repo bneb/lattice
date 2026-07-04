@@ -44,8 +44,7 @@ Progress is tracked in `.claude/goals/STATUS.md` — read that file to see what'
 13. Verified network service (Lettuce productionization)
 ### Phase 5: Sustainability
 14. CI: macOS build, kernel smoke test, benchmark regression ✅
-15. v1.0.0 exit criteria document ✅
-16. Blog posts (3+ technical deep-dives) ✅
+15. Blog posts (3+ technical deep-dives) ✅
 17. Ongoing improvements
 
 ## Code Quality Goals

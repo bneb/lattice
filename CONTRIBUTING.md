@@ -72,7 +72,6 @@ Key reference files:
 - Standard library: [`std/README.md`](std/README.md)
 - Design decisions: [`docs/adr/`](docs/adr/)
 - System call ABI: [`docs/abi/`](docs/abi/)
-- V1.0 exit criteria: [`docs/V1_EXIT_CRITERIA.md`](docs/V1_EXIT_CRITERIA.md)
 
 ---
 
