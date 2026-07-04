@@ -53,16 +53,20 @@
 **Files:** `grammar/expr_utils.rs`, `memory.rs`, `keywords.rs`
 **Effort:** 1 day
 
-## Phase 4: Frame Axiom Validation [x] 2026-07-03
+## Phase 4: Frame Axiom Validation [x] 2026-07-03 — CLOSED
 
-**Goal:** Confirm frame axioms work and are exercised by a concrete test. Native
-Z3 Array migration is deferred (Rust lifetime issue, not a Z3 bug), but the
-existing versioned UF approach with frame axioms is validated.
+**Status:** Versioned UF + frame axioms provide equivalent guarantees. Native Z3 Array
+migration is permanently deferred — blocked by the LoweringContext two-lifetime
+architecture (`translate_to_z3` returns `Int<'a>` but `Array::store` requires
+`Ast<'ctx>`). Collapsing lifetimes would cascade through every verification-path
+function. The UF approach passes 37/37 contracts including preservation tests.
 
 **Findings on native Z3 Array migration:**
 - `z3::ast::Array::store`/`select` work fine in z3 0.12.1 (the reported crash was a false alarm)
 - Full migration blocked by Rust lifetime issues: `Array::store` requires `Ast<'ctx>` but
   `translate_to_z3` returns `Int<'a>`; `pub(crate)` visibility on wrap/Z3_context prevents FFI
+- Versioned UF + frame axioms provide the same guarantees through a different mechanism
+- DESIGN NOTE added at `memory.rs:987` documenting the rationale
 - Versioned UF + frame axioms provide the same guarantees through a different mechanism
 
 **What was done:**
@@ -97,3 +101,38 @@ existing versioned UF approach with frame axioms is validated.
 4. Update README with verification badge/metrics example
 
 **Effort:** 1-2 days
+
+## Phase 7: Verification Depth [x] 2026-07-04
+
+**Goal:** Close high-ROI verification gaps identified in the stack-ranked audit.
+
+**Tasks:**
+1. `let`-binding in Z3 translation — defensive `Expr::Let` handling in translators,
+   evaluator, and constant folder. Prevents silent catch-all failures.
+2. Cross-function contract chaining — wired `caller_preconditions` (dead code→live),
+   `apply_ensures_to_solver` flows callee postconditions into caller's Z3 solver.
+3. Struct field type bounds — `assert_field_type_bounds` constrains field values
+   to their type domains (u8 ∈ [0,255], etc.) with thread-local dedup cache.
+4. Nested body scanner — `scan_expr_depth` recurses into `Binary`, `Call`,
+   `MethodCall`, `Index`, `Unary`, `Field`, `Let` for complete store detection.
+5. Auto-invariant `&&` conditions — `try_infer_while_invariant` handles
+   `while cond1 && cond2` by trying each sub-condition independently.
+
+**Files:** `memory.rs`, `fold_constants.rs`, `evaluator.rs`, `call_helpers.rs`,
+`calls.rs`, `while_stmt.rs`, `array_tracker.rs`
+**Tests:** `test_cross_fn_chain.salt`, `test_struct_field_bounds.salt`
+**Effort:** 2 sessions (2026-07-03 — 2026-07-04)
+
+## Phase 8: Verification Documentation [x] 2026-07-04
+
+**Goal:** Canonical reference document for what can and cannot be verified.
+
+**Tasks:**
+1. Create `docs/VERIFICATION_CAPABILITIES.md` — 16 provable capabilities,
+   11 explicit limitations, pipeline architecture, rules of thumb
+2. Update BENCHMARKS_E2E.md with new verification coverage
+3. Update forall-invariants.md with cross-function chaining + struct bounds examples
+
+**Files:** `docs/VERIFICATION_CAPABILITIES.md` (new), `BENCHMARKS_E2E.md`,
+`docs/blog/forall-invariants.md`
+**Effort:** 1 session

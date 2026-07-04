@@ -97,9 +97,50 @@ The invariant states "the prefix arr[0..i-1] is sorted." Z3 proves this holds at
 | Bubble sort | 2 nested for-loops, fixed bounds | Proven for concrete sizes |
 | Selection sort | 2 nested for-loops, fixed bounds | Proven for concrete sizes |
 | Matrix multiply | 3 nested for-loops, fixed bounds | Proven for concrete sizes |
-| Insertion sort | for + while (data-dependent) | Base case proven, inductive step needs case-splitting |
+| Insertion sort | for + while (data-dependent) | Base + inductive with case-splitting |
+| Cross-function chain | ensures propagation | Proven (caller uses callee postcondition) |
+| Struct field bounds | field access in contracts | Proven (u8 field → 0..255) |
 
-The gap for data-dependent loops (insertion sort's inner while-loop, binary search) is case-splitting on the loop condition -- infrastructure is in place, not yet wired.
+### Cross-function contract chaining (new in v1.2.0)
+
+When one function calls another, the callee's `ensures` postcondition
+flows into the caller's Z3 solver. This enables compositional verification
+without repeating contracts:
+
+```salt
+fn negate(x: i64) -> i64
+    ensures(result == 0 - x)
+{ return 0 - x; }
+
+fn double_negate(x: i64) -> i64
+    ensures(result == x)    // Provable because Z3 knows negate's postcondition
+{
+    let a = negate(x);      // Z3 knows: a == -x
+    let b = negate(a);      // Z3 knows: b == -a == x
+    return b;
+}
+```
+
+Without chaining, `double_negate`'s `result == x` would be unprovable --
+Z3 wouldn't know that `a == -x`. With chaining, the postcondition is
+asserted as a fact after the call site, and the proof goes through.
+
+### Struct field type bounds (new in v1.2.0)
+
+When a struct field is accessed in a contract, its type bounds are
+automatically asserted. This means contracts on struct fields benefit
+from the same type-bound proofs as primitives:
+
+```salt
+struct Point { x: u8, y: u8 }
+
+fn check_point(p: Point) -> bool
+    requires(p.x < 256)     // Proven: field x is u8, bound is [0,255]
+{ return true; }
+```
+
+Z3 knows `p.x` is a `u8` and therefore `0 <= p.x <= 255`, so
+`p.x < 256` is always true. No annotation needed beyond the type.
 
 ## Proof coverage metrics
 

@@ -1,0 +1,27 @@
+// Cross-function contract chaining test.
+// Verifies that a callee's `ensures` flows into the caller's Z3 solver.
+
+package basalt.test_cross_chain
+
+// negate: postcondition result == -x is always true
+fn negate(x: i64) -> i64
+    ensures(result == 0 - x)
+{
+    return 0 - x;
+}
+
+// double_negate: calls negate twice, uses postcondition to prove result == x
+fn double_negate(x: i64) -> i64
+    ensures(result == x)
+{
+    let a = negate(x);
+    // a == -x (from negate's postcondition)
+    let b = negate(a);
+    // b == -a == -(-x) == x
+    return b;
+}
+
+fn main() -> i32 {
+    let a = double_negate(42);
+    return 0;
+}

@@ -1,5 +1,73 @@
 use crate::types::Type;
-use crate::codegen::context::LoweringContext;
+use crate::codegen::context::{LoweringContext, LocalKind};
+use std::collections::HashMap;
+
+/// Assert callee postconditions into the caller's Z3 solver.
+///
+/// After `y = f(x)`, if f has `#ensures { result > 0 }`, this asserts
+/// `y > 0` into the caller's solver so subsequent verification can
+/// rely on the postcondition.
+pub(crate) fn apply_ensures_to_solver(
+    ctx: &mut LoweringContext,
+    ensures: &[syn::Expr],
+    param_names: &[String],
+    args_vec: &[syn::Expr],
+    result_ssa: &str,
+) {
+    if ensures.is_empty() || ctx.config.no_verify {
+        return;
+    }
+    let sym_ctx = crate::codegen::verification::SymbolicContext::new(ctx.z3_ctx);
+    use crate::z3_shim::ast::Ast;
+
+    // Build local_vars: map param names to SSA-friendly entries,
+    // plus "result" → the call's return SSA value.
+    let mut locals: HashMap<String, (Type, LocalKind)> = HashMap::new();
+    for p_name in param_names.iter() {
+        locals.insert(p_name.clone(), (Type::I32, LocalKind::SSA(p_name.clone())));
+    }
+    locals.insert("result".to_string(), (Type::I32, LocalKind::SSA(result_ssa.to_string())));
+
+    // Create param symbols and substitution pairs
+    let mut from_vec: Vec<crate::z3_shim::ast::Int> = Vec::new();
+    let mut to_vec: Vec<crate::z3_shim::ast::Int> = Vec::new();
+    for (i, p_name) in param_names.iter().enumerate() {
+        let p_sym = crate::z3_shim::ast::Int::new_const(ctx.z3_ctx, p_name.clone());
+        let p_clone = p_sym.clone();
+        from_vec.push(p_sym);
+        if i < args_vec.len() {
+            if let Ok(arg_z3) = crate::codegen::expr::translate_to_z3(ctx, &args_vec[i], &locals) {
+                to_vec.push(arg_z3);
+            } else {
+                to_vec.push(p_clone);
+            }
+        } else {
+            to_vec.push(p_clone);
+        }
+    }
+
+    let subs: Vec<(&crate::z3_shim::ast::Int, &crate::z3_shim::ast::Int)> =
+        from_vec.iter().zip(to_vec.iter()).collect();
+
+    for ens in ensures {
+        let actual_ens = if let syn::Expr::Block(block) = ens {
+            if let Some(syn::Stmt::Expr(inner, _)) = block.block.stmts.first() {
+                inner
+            } else {
+                continue;
+            }
+        } else {
+            ens
+        };
+
+        if let Ok(z3_ens) = crate::codegen::expr::translate_bool_to_z3(
+            ctx, actual_ens, &locals, &sym_ctx,
+        ) {
+            let z3_subst = z3_ens.substitute(&subs);
+            ctx.z3_solver.assert(&z3_subst);
+        }
+    }
+}
 
 #[allow(clippy::too_many_arguments)] // REASON: all 9 params independently meaningful; bundling would obscure intent
 pub(crate) fn emit_low_level_call(

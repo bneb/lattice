@@ -442,34 +442,149 @@ parameters.
 
 ---
 
+## 9. Cross-Function Contract Chaining (v1.2.0)
+
+When `f` calls `g`, the compiler flows `g`'s `ensures` postcondition into
+`f`'s Z3 solver. This enables compositional verification — the caller can
+prove properties that depend on the callee's guarantees.
+
+```bash
+cat > chain.salt << 'EOF'
+package main
+
+fn negate(x: i64) -> i64
+    ensures(result == 0 - x)
+{ return 0 - x; }
+
+fn double_negate(x: i64) -> i64
+    ensures(result == x)
+{
+    let a = negate(x);        // Z3 learns: a == -x
+    let b = negate(a);        // Z3 learns: b == -a == x
+    return b;
+}
+
+pub fn main() -> i32 {
+    let r = double_negate(42);  // r == 42 — proven
+    return 0;
+}
+EOF
+saltc chain.salt --lib --disable-alias-scopes -o /dev/null
+```
+
+```
+Z3: 2/2 checks proven (100%), 0 deferred to runtime
+✅ MLIR compiled successfully.
+```
+
+Without chaining, `double_negate`'s `result == x` would be unprovable —
+Z3 wouldn't know that `a == -x`. With chaining, the callee's
+postcondition is asserted as a solver fact after the call.
+
+**How it works.** After `let a = negate(x)`, the compiler:
+1. Translates `result == 0 - x` to a Z3 boolean
+2. Substitutes `result` with the actual return SSA value (`a`)
+3. Substitutes `x` with the argument expression
+4. Asserts the resulting fact into the caller's solver
+
+The caller's own `requires` clauses also flow into callee verification,
+narrowing the argument domain before checking the callee's preconditions.
+
+---
+
+## 10. Struct Field Type Bounds (v1.2.0)
+
+When a struct field is accessed in a contract expression, its type bounds
+are automatically asserted. The same type-bound proofs that work for
+function parameters now work for struct fields.
+
+```bash
+cat > struct_bounds.salt << 'EOF'
+package main
+
+struct Point { x: u8, y: u8 }
+
+pub fn check(p: Point) -> bool
+    requires(p.x < 256)       // Proven: field x is u8, domain is [0,255]
+{ return true; }
+
+pub fn main() -> i32 {
+    let p = Point { x: 200, y: 100 };
+    return check(p) as i32;
+}
+EOF
+saltc struct_bounds.salt --lib --disable-alias-scopes -o /dev/null
+```
+
+```
+Z3: 1/1 checks proven (100%), 0 deferred to runtime
+✅ MLIR compiled successfully.
+```
+
+Z3 knows `p.x` is a `u8` and therefore `0 <= p.x <= 255`, so
+`p.x < 256` is always true. Bounds are asserted once per struct+field
+combination (thread-local dedup cache), then Z3 reuses the constraint
+across all contract clauses.
+
+Supported field types: `u8`, `u16`, `u32`, `u64`, `usize`, `i8`, `i16`, `bool`.
+
+---
+
 ## The Frontier
 
-**What Z3 proves or rejects.** Every contract type in sections 1–7 has been
-empirically verified. Z3 resolves all tested cases within its 100ms
-timeout window.
+**What Z3 proves or rejects.** Every contract type in sections 1–8 has been
+empirically verified against 39 regression tests. Z3 resolves all tested
+cases within its 100ms timeout window.
 
-**Wired and expressible in Salt syntax:**
+### Provable Today (v1.2.0)
 
-| Feature | Z3 support | Bridge status |
-|---------|-----------|---------------|
-| `forall i in lo..hi => body` | Z3 ForAll | Wired — constant expansion + symbolic ForAll fallback |
-| Loop invariants (`invariant` in `for`/`while`) | Z3 | Wired — base case + inductive step with Havoc semantics |
-| Concrete for-loop unrolling | Z3 | Wired — when bounds are constants, each iteration proved separately |
-| String `.contains()`, `.startsWith()`, `.endsWith()`, `.matches()` | Z3-str | Literal args via constant folder, symbolic via substitution |
-| String parameter substitution | Z3 `substitute` | Wired (hash-conses with translate_string_to_z3) |
-| `Real` (exact rationals) | Z3 Real | Wired — symbolic + literal, all comparisons |
-| `BV` (bitvectors) | Z3 BV | Wired — Int→BV→Int for bitwise ops (`&`, `\|`, `^`, `<<`, `>>`) |
-| Contract chaining (caller preconditions → callee obligations) | Z3 | Wired — `caller_preconditions` injected as solver assumptions |
+| Capability | Mechanism |
+|---|---|
+| Integer arithmetic (add/sub/mul/div) | Z3 Int theory |
+| All six comparison operators | Z3 Int + Real |
+| Compound `&&` and `\|\|` conditions | Z3 Bool theory |
+| Path-sensitive branch reasoning | Z3 solver push/pop per branch |
+| Type-bound proofs (u8, u16, bool, i8, i16) | `assert_type_bounds` in solver |
+| Struct field type bounds | `assert_field_type_bounds` with thread-local dedup |
+| Float comparisons | Exact rational (num/den) translation |
+| Bitwise ops (&, \|, ^, <<, >>) | BV theory via Int→BV→Int bridge |
+| String length (`.length()`) | Constant folder for literals, Z3-str for symbolic |
+| String content (`.starts_with()`, `.ends_with()`, `.contains()`, `.matches()`) | Constant folder (literals) + Z3-str (symbolic) |
+| `forall` quantifier | Constant expansion + Z3 ForAll fallback |
+| `exists` quantifier | Constant expansion + Z3 exists_const fallback |
+| For-loop invariants | Base case (i==start) + inductive step (i→i+1) |
+| While-loop invariants | Base case + Havoc inductive step |
+| Concrete loop unrolling | Per-iteration Z3 proof when bounds are constants |
+| Case splitting (data-dependent loops) | Z3 sub-frames for each exit condition |
+| Array store tracking | Versioned UF + update axioms + bounded frame axioms |
+| Array preservation (frame axioms) | Concrete expansion + ForAll quantifier per array version |
+| Cross-function contract chaining | `caller_preconditions` → callee verify; callee `ensures` → caller solver |
+| `let`-expression handling | Defensive translation in `translate_to_z3` / `translate_bool_to_z3` |
+| Nested array access scanning | `scan_expr_depth` recurses into Binary, Call, MethodCall, etc. |
+| `&&` condition auto-inference | `try_infer_while_invariant` tries each conjunct independently |
 
-**Outside Z3's domain:**
-- Heap reachability (no cycles, no dangling pointers) — requires separation logic.
-- Temporal properties (eventually, always) — requires a model checker.
+### Not Currently Verifiable
 
-**What becomes a runtime assertion.** When arguments are symbolic
-(variables from an outer caller) and the contract is not implied by type
-bounds, Z3 emits a runtime check. This is safe — the program compiles and
-panics if the contract is violated at runtime. The check is a standard
-`scf.if` branch, compiled through the same LLVM pipeline.
+| Limitation | Detail |
+|---|---|
+| Multi-statement contract blocks | `requires { let x = 5; predicate(x) }` — block unwrapper only handles single expressions |
+| Native Z3 Array theory | Blocked by LoweringContext two-lifetime architecture; UF+frame axioms provide equivalent guarantees |
+| Termination proofs | No ranking functions or well-founded ordering |
+| Concurrency / thread safety | No thread interleaving or happens-before model |
+| Pointer aliasing | `a[i]` vs `b[j]` disjointness not modeled |
+| Recursive function induction | No inductive hypothesis at call sites |
+| Non-linear arithmetic (symbolic) | `x * y` with both symbolic → typically Unknown → runtime guard |
+| Array equality / extensionality | `forall k, arr[k] == brr[k]` not expressible |
+| IEEE 754 rounding semantics | Float comparisons use exact rationals, not bit-level IEEE 754 |
+| Heap reachability | Requires separation logic |
+
+### What Becomes a Runtime Assertion
+
+When arguments are symbolic (variables from an outer caller) and the
+contract is not implied by type bounds, Z3 emits a runtime check. This is
+safe — the program compiles and panics if the contract is violated at
+runtime. The check is a standard `scf.if` branch, compiled through the
+same LLVM pipeline.
 
 ---
 
@@ -492,7 +607,17 @@ panics if the contract is violated at runtime. The check is a standard
    Compound conditions are fine but each conjunct is a separate proof
    obligation.
 
-5. **Verify with `saltc` directly.** No special flag needed — verification
+5. **Chain contracts across functions.** When `f` calls `g`, `g`'s
+   `ensures` flows into `f`'s solver. Design postconditions that are
+   useful to callers — `ensures(result * 2 == x)` rather than
+   `ensures(result == x / 2)`. The former lets the caller reconstruct
+   `x` from the result.
+
+6. **Use bounded types for struct fields.** `u8`, `u16`, `bool`, `i8`,
+   and `i16` fields get automatic type-bound constraints in contracts.
+   `requires(p.x < 256)` on a `u8` field is always true.
+
+7. **Verify with `saltc` directly.** No special flag needed — verification
    is on by default:
 
    ```bash

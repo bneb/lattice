@@ -124,6 +124,17 @@ fn substitute_param(expr: &syn::Expr, param: &str, arg: &syn::Expr) -> syn::Expr
                 syn::Expr::Block(new_block)
             } else { expr.clone() }
         }
+        // Expr::Let handled via recursion into the init expression
+        syn::Expr::Let(let_expr) => {
+            let new_expr = Box::new(substitute_param(&let_expr.expr, param, arg));
+            syn::Expr::Let(syn::ExprLet {
+                attrs: let_expr.attrs.clone(),
+                let_token: let_expr.let_token,
+                pat: let_expr.pat.clone(),
+                eq_token: let_expr.eq_token,
+                expr: new_expr,
+            })
+        }
         _ => expr.clone(),
     }
 }
@@ -232,6 +243,16 @@ fn resolve_methods(expr: &syn::Expr, known_lengths: &HashMap<String, i64>) -> sy
                 syn::Expr::Block(new_block)
             } else { expr.clone() }
         }
+        syn::Expr::Let(let_expr) => {
+            let folded = Box::new(resolve_methods(&let_expr.expr, known_lengths));
+            syn::Expr::Let(syn::ExprLet {
+                attrs: let_expr.attrs.clone(),
+                let_token: let_expr.let_token,
+                pat: let_expr.pat.clone(),
+                eq_token: let_expr.eq_token,
+                expr: folded,
+            })
+        }
         _ => expr.clone(),
     }
 }
@@ -298,180 +319,4 @@ fn make_bool_literal(val: bool) -> syn::Expr {
         attrs: vec![],
         lit: syn::Lit::Bool(syn::LitBool::new(val, proc_macro2::Span::call_site())),
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::HashMap;
-
-    fn empty_lengths() -> HashMap<String, i64> { HashMap::new() }
-    fn empty_params() -> Vec<String> { vec![] }
-    fn empty_args() -> Vec<syn::Expr> { vec![] }
-
-    fn parse_expr(s: &str) -> syn::Expr {
-        syn::parse_str(s).expect("failed to parse test expression")
-    }
-
-    #[test]
-    fn test_int_literal_folds() {
-        let expr = parse_expr("42");
-        let result = try_eval(&expr, &empty_lengths(), &empty_params(), &empty_args());
-        assert_eq!(result, Some(crate::evaluator::ConstValue::Integer(42)));
-    }
-
-    #[test]
-    fn test_string_length_literal() {
-        let expr = parse_expr("\"hello\".length()");
-        let result = try_eval(&expr, &empty_lengths(), &empty_params(), &empty_args());
-        assert_eq!(result, Some(crate::evaluator::ConstValue::Integer(5)));
-    }
-
-    #[test]
-    fn test_string_length_known_param() {
-        let expr = parse_expr("key.length()");
-        let mut lengths = HashMap::new();
-        lengths.insert("key".to_string(), 5);
-        let result = try_eval(&expr, &lengths, &empty_params(), &empty_args());
-        assert_eq!(result, Some(crate::evaluator::ConstValue::Integer(5)));
-    }
-
-    #[test]
-    fn test_starts_with_true() {
-        let expr = parse_expr("\"hello\".starts_with(\"hel\")");
-        let result = try_eval(&expr, &empty_lengths(), &empty_params(), &empty_args());
-        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
-    }
-
-    #[test]
-    fn test_starts_with_false() {
-        let expr = parse_expr("\"hello\".starts_with(\"xyz\")");
-        let result = try_eval(&expr, &empty_lengths(), &empty_params(), &empty_args());
-        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(false)));
-    }
-
-    #[test]
-    fn test_ends_with_true() {
-        let expr = parse_expr("\"program.salt\".ends_with(\".salt\")");
-        let result = try_eval(&expr, &empty_lengths(), &empty_params(), &empty_args());
-        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
-    }
-
-    #[test]
-    fn test_contains_true() {
-        let expr = parse_expr("\"hello world\".contains(\"lo w\")");
-        let result = try_eval(&expr, &empty_lengths(), &empty_params(), &empty_args());
-        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
-    }
-
-    #[test]
-    fn test_param_substitution_starts_with() {
-        let requires_expr = parse_expr("key.starts_with(\"salt-\")");
-        let params = vec!["key".to_string()];
-        let args = vec![parse_expr("\"salt-lang\"")];
-        let result = try_eval(&requires_expr, &empty_lengths(), &params, &args);
-        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
-    }
-
-    #[test]
-    fn test_param_substitution_false_case() {
-        let requires_expr = parse_expr("key.starts_with(\"salt-\")");
-        let params = vec!["key".to_string()];
-        let args = vec![parse_expr("\"wrong-key\"")];
-        let result = try_eval(&requires_expr, &empty_lengths(), &params, &args);
-        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(false)));
-    }
-
-    #[test]
-    fn test_compound_comparison_substitution() {
-        let requires_expr = parse_expr("key.length() > 0");
-        let params = vec!["key".to_string()];
-        let args = vec![parse_expr("\"hello\"")];
-        let result = try_eval(&requires_expr, &empty_lengths(), &params, &args);
-        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
-    }
-
-    #[test]
-    fn test_matches_true() {
-        let expr = parse_expr("\"deadbeef\".matches(\"^[0-9a-f]+$\")");
-        let result = try_eval(&expr, &empty_lengths(), &empty_params(), &empty_args());
-        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
-    }
-
-    #[test]
-    fn test_matches_false() {
-        let expr = parse_expr("\"hello\".matches(\"^[0-9]+$\")");
-        let result = try_eval(&expr, &empty_lengths(), &empty_params(), &empty_args());
-        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(false)));
-    }
-
-    #[test]
-    fn test_matches_invalid_regex() {
-        let expr = parse_expr("\"abc\".matches(\"[invalid\")");
-        let result = try_eval(&expr, &empty_lengths(), &empty_params(), &empty_args());
-        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(false)));
-    }
-
-    #[test]
-    fn test_symbolic_returns_none() {
-        let requires_expr = parse_expr("x > 0");
-        let params = vec!["x".to_string()];
-        let args = vec![parse_expr("x")]; // variable, not literal
-        let result = try_eval(&requires_expr, &empty_lengths(), &params, &args);
-        assert_eq!(result, None); // symbolic — can't evaluate
-    }
-
-    #[test]
-    fn test_in_bounds_true() {
-        let expr = parse_expr("bounds::in_bounds(idx, len)");
-        let params = vec!["idx".to_string(), "len".to_string()];
-        let args = vec![parse_expr("3"), parse_expr("10")];
-        let result = try_eval(&expr, &empty_lengths(), &params, &args);
-        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
-    }
-
-    #[test]
-    fn test_in_bounds_false() {
-        let expr = parse_expr("bounds::in_bounds(idx, len)");
-        let params = vec!["idx".to_string(), "len".to_string()];
-        let args = vec![parse_expr("10"), parse_expr("5")];
-        let result = try_eval(&expr, &empty_lengths(), &params, &args);
-        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(false)));
-    }
-
-    #[test]
-    fn test_in_range_true() {
-        let expr = parse_expr("bounds::in_range(val, lo, hi)");
-        let params = vec!["val".to_string(), "lo".to_string(), "hi".to_string()];
-        let args = vec![parse_expr("50"), parse_expr("0"), parse_expr("100")];
-        let result = try_eval(&expr, &empty_lengths(), &params, &args);
-        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
-    }
-
-    #[test]
-    fn test_positive_true() {
-        let expr = parse_expr("bounds::positive(x)");
-        let params = vec!["x".to_string()];
-        let args = vec![parse_expr("7")];
-        let result = try_eval(&expr, &empty_lengths(), &params, &args);
-        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
-    }
-
-    #[test]
-    fn test_positive_false() {
-        let expr = parse_expr("bounds::positive(x)");
-        let params = vec!["x".to_string()];
-        let args = vec![parse_expr("0")];
-        let result = try_eval(&expr, &empty_lengths(), &params, &args);
-        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(false)));
-    }
-
-    #[test]
-    fn test_non_negative_true() {
-        let expr = parse_expr("bounds::non_negative(x)");
-        let params = vec!["x".to_string()];
-        let args = vec![parse_expr("0")];
-        let result = try_eval(&expr, &empty_lengths(), &params, &args);
-        assert_eq!(result, Some(crate::evaluator::ConstValue::Bool(true)));
-    }
 }

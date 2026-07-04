@@ -104,6 +104,37 @@ fn scan_expr_depth(expr: &syn::Expr, depth: usize) {
                     }
                 }
             }
+            // Recurse into the RHS for nested array accesses
+            scan_expr_depth(&assign.right, depth + 1);
+        }
+        // Recurse into binary ops for patterns like: arr[i] + arr[j]
+        syn::Expr::Binary(b) => {
+            scan_expr_depth(&b.left, depth + 1);
+            scan_expr_depth(&b.right, depth + 1);
+        }
+        // Recurse into call args for: f(arr[i])
+        syn::Expr::Call(c) => {
+            scan_expr_depth(&c.func, depth + 1);
+            for arg in &c.args { scan_expr_depth(arg, depth + 1); }
+        }
+        // Recurse into method call args for: arr[i].method()
+        syn::Expr::MethodCall(mc) => {
+            scan_expr_depth(&mc.receiver, depth + 1);
+            for arg in &mc.args { scan_expr_depth(arg, depth + 1); }
+        }
+        // Recurse into index expressions for nested: arr[arr[i]]
+        syn::Expr::Index(idx) => {
+            scan_expr_depth(&idx.expr, depth + 1);
+            scan_expr_depth(&idx.index, depth + 1);
+        }
+        // Recurse into unary ops for: !cond, -arr[i]
+        syn::Expr::Unary(u) => scan_expr_depth(&u.expr, depth + 1),
+        syn::Expr::Paren(p) => scan_expr_depth(&p.expr, depth + 1),
+        syn::Expr::Group(g) => scan_expr_depth(&g.expr, depth + 1),
+        syn::Expr::Cast(c) => scan_expr_depth(&c.expr, depth + 1),
+        syn::Expr::Field(f) => scan_expr_depth(&f.base, depth + 1),
+        syn::Expr::Let(let_expr) => {
+            scan_expr_depth(&let_expr.expr, depth + 1);
         }
         syn::Expr::Unsafe(u) => { for s in &u.block.stmts { scan_syn_depth(s, depth + 1); } }
         syn::Expr::While(w) => { for s in &w.body.stmts { scan_syn_depth(s, depth + 1); } }

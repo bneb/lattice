@@ -159,7 +159,9 @@ impl LoweringContext {
             kind: ItemKind::Struct(Struct {
                 fields,
                 generics,
-                invariants: vec![], // Invariant lowering deferred
+                invariants: s.invariants.iter()
+                    .map(|e| self.lower_syn_expr(e))
+                    .collect(),
             }),
             span: s.name.span(),
         })

@@ -1,0 +1,22 @@
+// Z3 Contract Test: Struct field type-bound proofs.
+// Verifies that Z3 knows field types (e.g., u8 field ∈ [0, 255]).
+
+package basalt.test_struct_fields
+
+struct Point {
+    x: u8,
+    y: u8,
+}
+
+// Without field type bounds, Z3 treats p.x as an unbounded integer
+// and cannot prove p.x < 256. With bounds, it's provable.
+fn check_point_x(p: Point) -> i32
+    requires(p.x < 256)
+{
+    return p.x as i32;
+}
+
+fn main() -> i32 {
+    let p = Point { x: 42, y: 10 };
+    return check_point_x(p);
+}

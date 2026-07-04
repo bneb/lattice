@@ -95,6 +95,7 @@ impl Evaluator {
                     Err(EvalError::NonConstExpression(format!("Namespaced constant '{}' not found", segments.join("."))))
                 }
             }
+            Expr::Let(expr_let) => self.eval_expr_depth(&expr_let.expr, depth + 1),
             _ => Err(EvalError::UnsupportedExpr("Expression type not supported in const eval".to_string())),
         }
     }

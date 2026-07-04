@@ -34,6 +34,13 @@ fn emit_function_call(
 
              handle_post_call_state(ctx, &mangled_name);
 
+             // Flow callee postconditions into caller's Z3 solver
+             if !ensures.is_empty() && !res_val.is_empty() {
+                 crate::codegen::expr::call_helpers::apply_ensures_to_solver(
+                     ctx, &ensures, &param_names, &args_vec, &res_val,
+                 );
+             }
+
              let mut final_res = res_val;
              let mut final_ret_ty_out = final_ret_ty.clone();
 

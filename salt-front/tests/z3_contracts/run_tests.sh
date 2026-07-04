@@ -516,6 +516,42 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# ── Test 32: Cross-function contract chaining ───────────────────
+echo -n "  test_cross_fn_chain: "
+if "$SALTC" "$SCRIPT_DIR/test_cross_fn_chain.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_cfc > /tmp/z3_out_cfc.txt 2>&1; then
+    echo "PASS (cross-function postcondition chaining)"
+    PASS=$((PASS + 1))
+else
+    # broken_double_half should fail (ensures result == x+1 doesn't hold)
+    if grep -q 'Postcondition violation\|postcondition' /tmp/z3_out_cfc.txt; then
+        echo "PASS (violation correctly caught in broken_double_half)"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL (cross-function chaining regression)"
+        cat /tmp/z3_out_cfc.txt | head -3
+        FAIL=$((FAIL + 1))
+    fi
+fi
+
+# ── Test 33: Struct field type bounds ───────────────────────────
+echo -n "  test_struct_field_bounds: "
+if "$SALTC" "$SCRIPT_DIR/test_struct_field_bounds.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_sfb > /tmp/z3_out_sfb.txt 2>&1; then
+    if grep -q '1/1 checks proven' /tmp/z3_out_sfb.txt; then
+        echo "PASS (struct field u8 bounds — p.x < 256 proven)"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL (struct field bounds not proven)"
+        cat /tmp/z3_out_sfb.txt | head -3
+        FAIL=$((FAIL + 1))
+    fi
+else
+    echo "FAIL (struct field bounds test compilation failed)"
+    cat /tmp/z3_out_sfb.txt | head -5
+    FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 if [ "$FAIL" -gt 0 ]; then

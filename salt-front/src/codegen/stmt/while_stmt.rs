@@ -61,13 +61,27 @@ pub(crate) fn setup_while_loop_inductive_step(
 }
 
 /// Try to auto-infer a loop invariant for simple monotonic while loops.
-/// Returns Some(expr) if the pattern `while var < N { var = var + 1 }` is detected,
-/// with the invariant `var >= INIT && var < N` (or `var <= N` for <= condition).
+///
+/// Supported patterns:
+///   `while var < N { var = var + 1 }` → invariant `var >= 0 && var < N`
+///   `while var <= N { var = var + 1 }` → invariant `var >= 0 && var <= N`
+///   `while cond1 && cond2 { ... }` → tries each sub-condition independently
 fn try_infer_while_invariant(
     cond: &syn::Expr,
     body: &[Stmt],
     local_vars: &HashMap<String, (Type, LocalKind)>,
 ) -> Option<syn::Expr> {
+    // 0. Unwrap && conditions: try each side independently.
+    if let syn::Expr::Binary(syn::ExprBinary {
+        op: syn::BinOp::And(_), left, right, ..
+    }) = cond
+    {
+        if let Some(inv) = try_infer_while_invariant(left, body, local_vars) {
+            return Some(inv);
+        }
+        return try_infer_while_invariant(right, body, local_vars);
+    }
+
     // 1. Parse condition: must be `var < N` or `var <= N` where N is a constant.
     let (var_name, bound, inclusive) = extract_monotonic_bound(cond)?;
     // 2. Find the loop variable's initial value from local_vars.

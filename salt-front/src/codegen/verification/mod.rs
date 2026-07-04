@@ -273,6 +273,19 @@ impl VerificationEngine {
                  solver_params.set_u32("timeout", 100);
                  solver.set_params(&solver_params);
                  
+                 // Assert the caller's preconditions (this function's requires)
+                 // to narrow the argument domain. Enabled when the caller has
+                 // its own requires clauses that constrain parameters.
+                 let caller_pcs = ctx.emission.caller_preconditions.clone();
+                 for pc in &caller_pcs {
+                     let dummy_locals_for_caller = local_vars.clone();
+                     if let Ok(z3_pc) = crate::codegen::expr::translate_bool_to_z3(
+                         ctx, pc, &dummy_locals_for_caller, &sym_ctx,
+                     ) {
+                         solver.assert(&z3_pc);
+                     }
+                 }
+
                  // Also add path conditions from the caller's context to constrain the arguments
                  let path_conditions = ctx.emission.path_conditions.clone();
                  for pc in &path_conditions {

@@ -30,7 +30,7 @@ The hybrid model is key: Z3 proves the subset it can resolve within 100ms.
 The rest become runtime assertions — still safe, just not zero-cost.
 The provable set expands as the solver and proof tactics improve.
 
-### Algorithm Verification Coverage (v1.1.0+)
+### Algorithm Verification Coverage (v1.2.0)
 
 | Algorithm | Checks | Proven | Method |
 |---|---|---|---|
@@ -38,12 +38,14 @@ The provable set expands as the solver and proof tactics improve.
 | `array_fill` (n=4) | 9 | 8 (88%) | for-loop invariant + concrete unrolling |
 | `selection_sort` | 5 | 4 (80%) | integer loop invariants |
 | `binary_search` | 1 | 0 (0%) | while-loop bounds invariants (symbolic) |
+| `insertion_sort` (n=4) | 5 | 2 (40%) | forall ensures + case-splitting for inner while-loop |
+| `cross_fn_chain` | 2 | 2 (100%) | cross-function ensures chaining (negate + double_negate) |
+| `struct_field_bounds` | 1 | 1 (100%) | struct field u8 type bounds (p.x < 256) |
 
-**Provable today:**
-- Fixed-bounded loops with unconditional stores (array fill, bubble sort outer loop)
-- Integer invariants on for-loops (i >= 0, min_idx >= i)
-- Constant-bound forall expansion (ensures forall i in 0..3 => ...)
+### New in v1.2.0
 
-**Requires conditional store application (gap):**
-- Data-dependent inner loops (insertion sort while-loop, selection sort if-guarded swap)
-- Case-splitting infrastructure is wired; conditional store modeling is the next increment
+- **Cross-function contract chaining**: callee postconditions flow into caller's Z3 solver
+- **Struct field type bounds**: field accesses in contracts receive type-domain constraints
+- **`let`-expression handling**: defensive translation prevents silent failures
+- **Nested body scanner**: array store detection recurses into function calls and binary ops
+- **`&&` condition auto-inference**: while-loop invariant inference handles conjunctions
