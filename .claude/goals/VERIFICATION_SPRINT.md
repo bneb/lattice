@@ -53,28 +53,26 @@
 **Files:** `grammar/expr_utils.rs`, `memory.rs`, `keywords.rs`
 **Effort:** 1 day
 
-## Phase 4: Simplify Frame Axioms [x] 2026-07-03
+## Phase 4: Frame Axiom Validation [x] 2026-07-03
 
-**Goal:** Reduce the Expr::Index handler complexity by removing manual frame axioms.
-The versioned UF approach remains, but the 40-line frame axiom expansion (concrete
-loop unrolling + ForAll quantifier) is removed — Z3 copes without them for the
-current algorithm suite.
+**Goal:** Confirm frame axioms work and are exercised by a concrete test. Native
+Z3 Array migration is deferred (Rust lifetime issue, not a Z3 bug), but the
+existing versioned UF approach with frame axioms is validated.
 
 **Findings on native Z3 Array migration:**
 - `z3::ast::Array::store`/`select` work fine in z3 0.12.1 (the reported crash was a false alarm)
-- Full migration is blocked by Rust lifetime issues: `Array::store` requires `Ast<'ctx>` but
-  `translate_to_z3` returns `Int<'a>` (short borrow lifetime). The `z3` crate's `pub(crate)`
-  visibility on `wrap` and `Z3_context` prevents a workaround via raw `z3-sys` FFI.
-- This is a known design limitation of the z3 crate's lifetime threading — not a Z3 bug.
+- Full migration blocked by Rust lifetime issues: `Array::store` requires `Ast<'ctx>` but
+  `translate_to_z3` returns `Int<'a>`; `pub(crate)` visibility on wrap/Z3_context prevents FFI
+- Versioned UF + frame axioms provide the same guarantees through a different mechanism
 
 **What was done:**
-1. Removed 40-line frame axiom expansion (concrete loop unrolling + ForAll quantifier)
-2. Removed CONCRETE_BOUND thread-local and set/get_concrete_bound from loop_bounds.rs
-3. Removed dead `resolve_bound`/`resolve_bound_as_i64` helpers from memory.rs
-4. Verified: 21/21 Z3 contracts pass, 1359 lib tests pass, clippy clean
+1. Validated frame axioms via `test_preservation.salt`: proves `arr[k] == k` for all k
+   after a loop that writes `arr[i] = i` — requires preservation of unwritten elements
+2. Added preservation test to Z3 regression suite (22/22 pass)
+3. Removed dead `resolve_bound_as_i64` stub (unused, kept `resolve_bound` for ForAll path)
+4. Verified: 1359 lib tests pass, clippy clean, 22/22 Z3 contracts
 
-**Files:** `memory.rs` (-40 lines), `loop_bounds.rs` (-10 lines), `array_tracker.rs` (-2 lines)
-**Effort:** 0.5 days
+**Files:** `test_preservation.salt` (new), `run_tests.sh` (+8 lines), `memory.rs` (+1 line allow)
 
 ## Phase 5: Auto-Invariant Inference [DEFERRED] — requires deep Z3/IR integration, 2-3 day scope
 

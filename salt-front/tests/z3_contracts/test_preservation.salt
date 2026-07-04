@@ -1,0 +1,30 @@
+// Z3 Contract Test: Element Preservation Across Array Mutations
+//
+// Proves that writing to arr[i] does not disturb arr[k] for k != i.
+// The frame axiom (concrete expansion for bound=4) asserts that each
+// arr[i] = i store preserves all other indices in 0..4.
+//
+// Without frame axioms, Z3 cannot connect arr_v1(k) to arr_v0(k)
+// for k != i. With them, the forall ensures is proven automatically.
+
+package basalt.test_preservation
+
+fn fill_identity(arr: Ptr<i32>, n: i64)
+    requires n == 4
+    ensures forall k in 0..n => arr[k] == (k as i32)
+{
+    for i in 0..n {
+        invariant forall k in 0..i => arr[k] == (k as i32);
+        unsafe {
+            arr[i] = i as i32;
+        }
+    }
+}
+
+fn main() -> i32 {
+    unsafe {
+        let mut data: [i32; 4] = [0, 0, 0, 0];
+        fill_identity(&data as Ptr<i32>, 4);
+    }
+    return 0;
+}

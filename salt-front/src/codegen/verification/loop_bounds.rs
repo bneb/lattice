@@ -16,6 +16,8 @@ thread_local! {
     static LOOP_UB_STACK: RefCell<Vec<String>> = RefCell::new(Vec::new());
     #[allow(clippy::missing_const_for_thread_local)]
     static REQUIRES_PARAMS: RefCell<Vec<String>> = RefCell::new(Vec::new());
+    #[allow(clippy::missing_const_for_thread_local)]
+    static CONCRETE_BOUND: RefCell<Option<i64>> = RefCell::new(None);
 }
 
 // --- Loop bound stack ---
@@ -40,5 +42,13 @@ pub(crate) fn set_requires_params(params: Vec<String>) {
 
 pub(crate) fn get_requires_params() -> Vec<String> {
     REQUIRES_PARAMS.with(|c| c.borrow().clone())
+}
+
+pub(crate) fn set_concrete_bound(bound: Option<i64>) {
+    CONCRETE_BOUND.with(|c| *c.borrow_mut() = bound);
+}
+
+pub(crate) fn get_concrete_bound() -> Option<i64> {
+    CONCRETE_BOUND.with(|c| *c.borrow())
 }
 

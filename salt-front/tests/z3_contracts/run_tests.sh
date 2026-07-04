@@ -324,6 +324,18 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# ── Test 23: Element preservation across mutations (frame axioms) ─
+echo -n "  test_preservation: "
+if "$SALTC" "$SCRIPT_DIR/test_preservation.salt" \
+    --lib --disable-alias-scopes -o /tmp/z3_test_pr > /tmp/z3_out_pr.txt 2>&1; then
+    echo "PASS (element preservation with frame axioms)"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL (preservation proof regression)"
+    cat /tmp/z3_out_pr.txt | head -3
+    FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 if [ "$FAIL" -gt 0 ]; then

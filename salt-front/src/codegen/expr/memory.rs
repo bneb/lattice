@@ -892,6 +892,27 @@ pub fn emit_index(ctx: &mut LoweringContext, out: &mut String, i: &syn::ExprInde
     }
 }
 
+#[allow(dead_code)]
+fn resolve_bound_as_i64(
+    _name: &str,
+    _local_vars: &HashMap<String, (Type, LocalKind)>,
+) -> Option<i64> {
+    None
+}
+
+/// Resolve a loop bound name to its Z3 Int via local_vars→symbolic_tracker.
+fn resolve_bound<'a>(
+    name: &str,
+    local_vars: &HashMap<String, (Type, LocalKind)>,
+    ctx: &LoweringContext<'a, '_>,
+) -> Option<crate::z3_shim::ast::Int<'a>> {
+    if let Some((_, LocalKind::SSA(ssa))) = local_vars.get(name) {
+        ctx.symbolic_tracker.get(ssa).cloned()
+    } else {
+        ctx.symbolic_tracker.get(name).cloned()
+    }
+}
+
 pub fn translate_to_z3<'a, 'ctx>(
     ctx: &mut LoweringContext<'a, 'ctx>,
     expr: &syn::Expr,
@@ -960,6 +981,9 @@ pub fn translate_to_z3<'a, 'ctx>(
         }
         // Array indexing: arr[i] → versioned uninterpreted function arr_vN(i)
         // Each indexed store bumps the version; reads use the latest version.
+        // Frame axioms ensure unwritten indices are preserved across stores:
+        //   concrete expansion for constant-bounded loops,
+        //   ForAll quantifier for symbolic-bounded loops.
         syn::Expr::Index(idx) => {
             let base_name = if let syn::Expr::Path(p) = &*idx.expr {
                 p.path.get_ident().map(|i| i.to_string()).unwrap_or_else(|| "unknown_arr".to_string())
@@ -968,18 +992,21 @@ pub fn translate_to_z3<'a, 'ctx>(
             };
             let index_z3 = translate_to_z3(ctx, &idx.index, local_vars)?;
             let ver = crate::codegen::verification::array_tracker::get_version(&base_name);
-            // Lazy store emission: update assertion only (no frame axioms needed
-            // for the algorithm verification suite — Z3 copes with weak UF models)
             let stores = crate::codegen::verification::array_tracker::get_stores(&base_name);
             let applied = crate::codegen::verification::array_tracker::stores_applied(&base_name);
             if applied < stores.len() {
                 crate::codegen::verification::array_tracker::mark_stores_applied(&base_name, stores.len());
                 let mut cur_ver = applied;
+                let loop_bounds = crate::codegen::verification::loop_bounds::get_loop_bound_stack();
+                let frame_bound = loop_bounds.last();
                 for store in &stores[applied..] {
+                    let old_ver = cur_ver;
                     let new_ver = cur_ver + 1;
                     cur_ver = new_ver;
+                    let old_name = format!("{}_v{}", base_name, old_ver);
                     let new_name = format!("{}_v{}", base_name, new_ver);
                     let int_sort = crate::z3_shim::Sort::int(ctx.z3_ctx);
+                    let old_func = crate::z3_shim::FuncDecl::new(ctx.z3_ctx, crate::z3_shim::Symbol::String(old_name), &[&int_sort], &int_sort);
                     let new_func = crate::z3_shim::FuncDecl::new(ctx.z3_ctx, crate::z3_shim::Symbol::String(new_name), &[&int_sort], &int_sort);
                     if let (Ok(s_idx), Ok(s_val)) = (
                         translate_to_z3(ctx, &store.index_expr, local_vars),
@@ -989,6 +1016,40 @@ pub fn translate_to_z3<'a, 'ctx>(
                         let new_at_idx = new_func.apply(&[&s_idx]);
                         if let Some(new_int) = new_at_idx.as_int() {
                             ctx.z3_solver.assert(&new_int._eq(&s_val));
+                        }
+                        // Frame axiom: try concrete expansion first, then ForAll
+                        if let Some(bound_val) = crate::codegen::verification::loop_bounds::get_concrete_bound() {
+                            for k_val in 0..bound_val {
+                                let k_z3 = crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, k_val);
+                                let k_eq_store = s_idx._eq(&k_z3);
+                                ctx.z3_solver.push();
+                                ctx.z3_solver.assert(&k_eq_store);
+                                let k_not_store = ctx.z3_solver.check() == crate::z3_shim::SatResult::Unsat;
+                                ctx.z3_solver.pop(1);
+                                if !k_not_store { continue; }
+                                let old_at_k = old_func.apply(&[&k_z3]);
+                                let new_at_k = new_func.apply(&[&k_z3]);
+                                if let (Some(old_int), Some(new_int)) = (old_at_k.as_int(), new_at_k.as_int()) {
+                                    ctx.z3_solver.assert(&new_int._eq(&old_int));
+                                }
+                            }
+                        } else if let Some(bound_name) = frame_bound {
+                            if let Some(z3_bound) = resolve_bound(bound_name, local_vars, ctx) {
+                                let k_name = format!("k_fr_{}", ctx.next_id());
+                                let k_fr = crate::z3_shim::ast::Int::new_const(ctx.z3_ctx, k_name.as_str());
+                                let k_in_range = crate::z3_shim::ast::Bool::and(ctx.z3_ctx, &[
+                                    &k_fr.ge(&crate::z3_shim::ast::Int::from_i64(ctx.z3_ctx, 0)),
+                                    &k_fr.lt(&z3_bound),
+                                ]);
+                                let k_ne_i = k_fr._eq(&s_idx).not();
+                                let old_at_k = old_func.apply(&[&k_fr]);
+                                let new_at_k = new_func.apply(&[&k_fr]);
+                                if let (Some(old_int), Some(new_int)) = (old_at_k.as_int(), new_at_k.as_int()) {
+                                    let frame_eq = new_int._eq(&old_int);
+                                    let frame_body = crate::z3_shim::ast::Bool::or(ctx.z3_ctx, &[&k_in_range.not(), &k_ne_i.not(), &frame_eq]);
+                                    ctx.z3_solver.assert(&crate::z3_shim::ast::forall_const(ctx.z3_ctx, &[&k_fr], &[], &frame_body));
+                                }
+                            }
                         }
                     }
                 }
