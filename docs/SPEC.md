@@ -1,7 +1,30 @@
 # The Salt Programming Language — Specification
 
-**Version 4.0 (July 2026)**  
+**Version 4.1 (July 2026)**  
 **Status**: Draft — tracks the reference implementation (`salt-front`).
+
+---
+
+## Contents
+
+1. [Lexical Structure](#1-lexical-structure)
+2. [Types](#2-types)
+3. [Expressions](#3-expressions)
+4. [Statements](#4-statements)
+5. [Functions](#5-functions)
+6. [Modules and Name Resolution](#6-modules-and-name-resolution)
+7. [Verification](#7-verification)
+8. [Memory Model](#8-memory-model)
+9. [Concurrency](#9-concurrency)
+10. [Patterns](#10-patterns)
+11. [The Preprocessor](#11-the-preprocessor)
+12. [Standard Library](#12-standard-library)
+13. [FFI and Unsafe](#13-ffi-and-unsafe)
+
+[Appendix A: Complete EBNF Grammar](#appendix-a-complete-ebnf-grammar)  
+[Appendix B: Operator Precedence](#appendix-b-operator-precedence-complete)  
+[Appendix C: Compiler CLI](#appendix-c-compiler-cli)  
+[Appendix D: Error Codes](#appendix-d-error-codes)
 
 ---
 
@@ -115,22 +138,22 @@ The tokenizer uses maximal munch: at each position, the longest sequence of char
 ### 2.1 Type Grammar
 
 ```ebnf
-TYPE = PRIMITIVE_TYPE
-     | PTR_TYPE | REF_TYPE | ARRAY_TYPE | TUPLE_TYPE
-     | FNPTR_TYPE | TENSOR_TYPE | NAMED_TYPE ;
+TYPE = PRIMITIVE
+     | PtrType | RefType | ArrayType | TupleType
+     | FnPtrType | TensorType | NamedType ;
 
-PRIMITIVE_TYPE = "i8" | "i16" | "i32" | "i64"
-               | "u8" | "u16" | "u32" | "u64" | "usize"
-               | "f32" | "f64" | "bool" | "char" | "()" ;
+PRIMITIVE = "i8" | "i16" | "i32" | "i64"
+              | "u8" | "u16" | "u32" | "u64" | "usize"
+              | "f32" | "f64" | "bool" | "char" | "()" ;
 
-PTR_TYPE   = "Ptr", "<", TYPE, ">" ;
-REF_TYPE   = "&", [ "mut" ], TYPE ;
-ARRAY_TYPE = "[", TYPE, ";", EXPRESSION, "]" ;
-TUPLE_TYPE = "(", [ TYPE, { ",", TYPE } ], ")" ;
-FNPTR_TYPE = "fn", "(", [ TYPE, { ",", TYPE } ], ")", [ "->", TYPE ] ;
-TENSOR_TYPE = "Tensor", "<", TYPE, ",", "{", TENSOR_DIMS, "}", ">" ;
-NAMED_TYPE = IDENTIFIER, [ "<", TYPE, { ",", TYPE }, ">" ]
-           | PATH, ".", IDENTIFIER, [ "<", TYPE, { ",", TYPE }, ">" ] ;
+PtrType   = "Ptr", "<", TYPE, ">" ;
+RefType   = "&", [ "mut" ], TYPE ;
+ArrayType = "[", TYPE, ";", EXPRESSION, "]" ;
+TupleType = "(", [ TYPE, { ",", TYPE } ], ")" ;
+FnPtrType = "fn", "(", [ TYPE, { ",", TYPE } ], ")", [ "->", TYPE ] ;
+TensorType = "Tensor", "<", TYPE, ",", "{", TENSOR_DIMS, "}", ">" ;
+NamedType = IDENTIFIER, [ "<", TYPE, { ",", TYPE }, ">" ]
+          | PATH, ".", IDENTIFIER, [ "<", TYPE, { ",", TYPE }, ">" ] ;
 ```
 
 ### 2.2 Primitive Types
@@ -631,15 +654,15 @@ The prelude implicitly imports `Ptr`, `Option`, `Result`, `Status`, `DefaultAllo
 
 ## 13. FFI and Unsafe
 
-### 12.1 Extern Functions
+### 13.1 Extern Functions
 
 `extern fn` declares a function with C ABI linkage. The compiler does not generate a body. At link time, the symbol must be provided by an external object file. Only the following types may cross the FFI boundary: `i8` through `i64`, `u8` through `u64`, `f32`, `f64`, `bool`, `Ptr<T>`, `fn(T₁,...,Tₙ) -> R`. Attempting to use any other type in an extern function signature is a compile-time error.
 
-### 12.2 `@export`
+### 13.2 `@export`
 
 The `@export` attribute suppresses name mangling. An exported function can be called from C code by its declared name.
 
-### 12.3 Unsafe Blocks
+### 13.3 Unsafe Blocks
 
 Within `unsafe { ... }`, the following operations are permitted:
 - Raw pointer arithmetic on `Ptr<T>`
