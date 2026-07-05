@@ -2,7 +2,17 @@ use crate::types::Type;
 use crate::codegen::context::{LoweringContext, LocalKind};
 use crate::codegen::type_bridge::*;
 use std::collections::HashMap;
+use std::cell::RefCell;
 use super::{emit_expr, emit_lvalue, LValueKind};
+
+thread_local! {
+    static AXIOMATIZED_FIELDS: RefCell<std::collections::HashSet<String>> =
+        RefCell::new(std::collections::HashSet::new());
+}
+
+pub(crate) fn clear_field_axioms_cache() {
+    AXIOMATIZED_FIELDS.with(|c| c.borrow_mut().clear());
+}
 fn emit_field_get_base(
     ctx: &mut LoweringContext,
     out: &mut String,
@@ -937,11 +947,6 @@ fn assert_field_type_bounds(
 
     let cache_key = format!("{}:{}", struct_name, field_name);
     {
-        use std::cell::RefCell;
-        thread_local! {
-            static AXIOMATIZED_FIELDS: RefCell<std::collections::HashSet<String>> =
-                RefCell::new(std::collections::HashSet::new());
-        }
         if AXIOMATIZED_FIELDS.with(|c| c.borrow().contains(&cache_key)) { return; }
         AXIOMATIZED_FIELDS.with(|c| { c.borrow_mut().insert(cache_key); });
     }
@@ -1036,7 +1041,6 @@ pub fn translate_to_z3<'a, 'ctx>(
                 let result = func.apply(&[&base_z3]);
                 let field_val = result.as_int()
                     .ok_or_else(|| format!("Field access {} did not return Int", field_name))?;
-                // Assert type bounds (e.g., u8 ∈ [0, 255]) on the field value
                 assert_field_type_bounds(ctx, &f.base, &field_name, local_vars, &field_val);
                 Ok(field_val)
             } else {

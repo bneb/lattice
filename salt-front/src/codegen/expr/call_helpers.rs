@@ -28,21 +28,28 @@ pub(crate) fn apply_ensures_to_solver(
     }
     locals.insert("result".to_string(), (Type::I32, LocalKind::SSA(result_ssa.to_string())));
 
-    // Create param symbols and substitution pairs
+    // Create param symbols and substitution pairs.
+    // Insert each param symbol into symbolic_tracker so translate_to_z3
+    // resolves parameter references to the same Z3 constant used in the
+    // substitution. Save old bindings and restore after translation.
     let mut from_vec: Vec<crate::z3_shim::ast::Int> = Vec::new();
     let mut to_vec: Vec<crate::z3_shim::ast::Int> = Vec::new();
+    let mut saved: Vec<(String, Option<crate::z3_shim::ast::Int>)> = Vec::new();
     for (i, p_name) in param_names.iter().enumerate() {
         let p_sym = crate::z3_shim::ast::Int::new_const(ctx.z3_ctx, p_name.clone());
-        let p_clone = p_sym.clone();
+        let for_tracker = p_sym.clone();
+        let for_fallback = p_sym.clone();
         from_vec.push(p_sym);
+        let old = ctx.symbolic_tracker.insert(p_name.clone(), for_tracker);
+        saved.push((p_name.clone(), old));
         if i < args_vec.len() {
             if let Ok(arg_z3) = crate::codegen::expr::translate_to_z3(ctx, &args_vec[i], &locals) {
                 to_vec.push(arg_z3);
             } else {
-                to_vec.push(p_clone);
+                to_vec.push(for_fallback);
             }
         } else {
-            to_vec.push(p_clone);
+            to_vec.push(for_fallback);
         }
     }
 
@@ -65,6 +72,15 @@ pub(crate) fn apply_ensures_to_solver(
         ) {
             let z3_subst = z3_ens.substitute(&subs);
             ctx.z3_solver.assert(&z3_subst);
+        }
+    }
+
+    // Restore symbolic_tracker bindings saved before translation
+    for (name, old) in saved {
+        if let Some(old_val) = old {
+            ctx.symbolic_tracker.insert(name, old_val);
+        } else {
+            ctx.symbolic_tracker.remove(&name);
         }
     }
 }

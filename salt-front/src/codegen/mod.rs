@@ -138,6 +138,7 @@ use std::collections::{HashMap, HashSet};
         let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(file, release_mode, Some(&loader_registry), &z3_ctx);
         initialize_context(&mut ctx, file, &loader, no_verify, disable_alias_scopes, lib_mode, sip_mode, debug_info, source_file);
+        crate::codegen::expr::memory::clear_field_axioms_cache();
         register_all_templates_and_signatures(&ctx, file, &loader)?;
         scan_definitions(&mut ctx, file, &loader)?;
         let call_graph_analyzer = run_call_graph_analysis(file, release_mode);
