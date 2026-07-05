@@ -250,39 +250,44 @@ pub fn load_imports(file: &crate::grammar::SaltFile, registry: &mut crate::regis
                 break;
             }
 
-            let path_str = format!("{}.salt", parts.join("/"));
-            let path_str_mod = format!("{}/mod.salt", parts.join("/"));
-            let path_str_lower = format!("{}.salt", parts.iter().map(|s| s.to_lowercase()).collect::<Vec<_>>().join("/"));
-            let path_str_mod_lower = format!("{}/mod.salt", parts.iter().map(|s| s.to_lowercase()).collect::<Vec<_>>().join("/"));
-
-            // Search paths: CWD, parent directories, project root
-            let search_paths = vec![
-                path_str.clone(),                          // CWD-relative (original case)
-                path_str_mod.clone(),                      // CWD-relative/mod (original case)
-                path_str_lower.clone(),                    // CWD-relative (lowercase)
-                path_str_mod_lower.clone(),                // CWD-relative/mod (lowercase)
-                format!("../{}", path_str),                // Parent directory
-                format!("../{}", path_str_mod),
-                format!("../{}", path_str_lower),          // Parent directory (lowercase)
-                format!("../{}", path_str_mod_lower),
-                format!("../../{}", path_str),             // Grandparent
-                format!("../../{}", path_str_mod),
-                format!("../../{}", path_str_lower),       // Grandparent (lowercase)
-                format!("../../{}", path_str_mod_lower),
-                format!("../../../{}", path_str),          // Great-grandparent
-                format!("../../../{}", path_str_mod),
-                format!("../../../{}", path_str_lower),    // Great-grandparent (lowercase)
-                format!("../../../{}", path_str_mod_lower),
-            ];
-
+            // Check bundled stdlib before filesystem search.
+            // Resolves e.g. "std.core.str" from embedded sources without
+            // needing std/ on disk. Required for cargo-installed saltc.
             let mut code_result = None;
-            let mut found_path = path_str.clone();
+            let mut found_path = String::new();
+            if pkg_name.starts_with("std") {
+                let bundle = crate::stdlib_bundle::stdlib_sources();
+                // Try exact package name match
+                if let Some(source) = bundle.get(&pkg_name) {
+                    code_result = Some(source.to_string());
+                    found_path = format!("<bundled>/{}.salt", pkg_name.replace('.', "/"));
+                }
+            }
 
-            for search_path in &search_paths {
-                if let Ok(code) = fs::read_to_string(search_path) {
-                    code_result = Some(code);
-                    found_path = search_path.clone();
-                    break;
+            if code_result.is_none() {
+                let path_str = format!("{}.salt", parts.join("/"));
+                let path_str_mod = format!("{}/mod.salt", parts.join("/"));
+                let path_str_lower = format!("{}.salt", parts.iter().map(|s| s.to_lowercase()).collect::<Vec<_>>().join("/"));
+                let path_str_mod_lower = format!("{}/mod.salt", parts.iter().map(|s| s.to_lowercase()).collect::<Vec<_>>().join("/"));
+
+                let search_paths = vec![
+                    path_str.clone(), path_str_mod.clone(),
+                    path_str_lower.clone(), path_str_mod_lower.clone(),
+                    format!("../{}", path_str), format!("../{}", path_str_mod),
+                    format!("../{}", path_str_lower), format!("../{}", path_str_mod_lower),
+                    format!("../../{}", path_str), format!("../../{}", path_str_mod),
+                    format!("../../{}", path_str_lower), format!("../../{}", path_str_mod_lower),
+                    format!("../../../{}", path_str), format!("../../../{}", path_str_mod),
+                    format!("../../../{}", path_str_lower), format!("../../../{}", path_str_mod_lower),
+                ];
+
+                found_path = path_str.clone();
+                for search_path in &search_paths {
+                    if let Ok(code) = fs::read_to_string(search_path) {
+                        code_result = Some(code);
+                        found_path = search_path.clone();
+                        break;
+                    }
                 }
             }
 

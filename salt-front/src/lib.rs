@@ -18,6 +18,10 @@ pub mod codegen;
 pub mod evaluator;
 pub mod cli;
 pub mod cli_build;
+
+mod stdlib_bundle {
+    include!(concat!(env!("OUT_DIR"), "/stdlib_bundle.rs"));
+}
 pub mod driver;
 #[cfg(test)] mod driver_tests;
 pub mod passes;
