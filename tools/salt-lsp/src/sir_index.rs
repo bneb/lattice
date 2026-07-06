@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use tower_lsp::lsp_types::Url;
 
-pub use salt_front::codegen::sir::types::{
+pub use saltc::codegen::sir::types::{
     SirModule, SirFunction, SirStruct, SirParam, SirContract, SirBlock,
     SirInstruction, SirType, SirValue, SirLocation,
 };
@@ -233,10 +233,10 @@ pub struct CompileResult {
 
 /// Compile Salt source text in-memory via salt-front's library API.
 pub fn compile_in_memory(source: &str, module_name: &str) -> CompileResult {
-    use salt_front::grammar::SaltFile;
-    use salt_front::codegen::sir::sir_emit::extract_sir_from_ast;
+    use saltc::grammar::SaltFile;
+    use saltc::codegen::sir::sir_emit::extract_sir_from_ast;
 
-    let preprocessed = salt_front::preprocess(source);
+    let preprocessed = saltc::preprocess(source);
     let ast: SaltFile = match syn::parse_str(&preprocessed) {
         Ok(ast) => ast,
         Err(err) => {

@@ -148,7 +148,7 @@ fn parse_error_to_diagnostic(error: &str, source: &str) -> Diagnostic {
                 severity: Some(DiagnosticSeverity::ERROR),
                 code: None,
                 code_description: None,
-                source: Some("salt-front".to_string()),
+                source: Some("saltc".to_string()),
                 message: parts[3].trim().to_string(),
                 related_information: None,
                 tags: None,
@@ -174,7 +174,7 @@ fn parse_error_to_diagnostic(error: &str, source: &str) -> Diagnostic {
         severity: Some(DiagnosticSeverity::ERROR),
         code: None,
         code_description: None,
-        source: Some("salt-front".to_string()),
+        source: Some("saltc".to_string()),
         message: error.to_string(),
         related_information: None,
         tags: None,
@@ -278,7 +278,7 @@ fn main() -> i32 {
         assert!(!diags.is_empty(), "Invalid code should produce diagnostics");
         assert!(sir.is_none());
         assert_eq!(diags[0].severity, Some(DiagnosticSeverity::ERROR));
-        assert!(diags[0].source.as_deref() == Some("salt-front"));
+        assert!(diags[0].source.as_deref() == Some("saltc"));
     }
 
     #[test]

@@ -12,5 +12,5 @@ fn main() -> anyhow::Result<()> {
     if args.get(1).map(|s| s.as_str()) == Some("fmt") {
         return cli_fmt::run_fmt(&args[1..]);
     }
-    salt_front::cli::run_cli(args)
+    saltc::cli::run_cli(args)
 }

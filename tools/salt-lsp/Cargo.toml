@@ -16,6 +16,6 @@ serde_json = "1"
 
 # In-memory compilation: link salt-front as a library crate
 # This gives us <5ms diagnostic latency instead of ~150ms subprocess overhead
-salt-front = { path = "../../salt-front" }
+saltc = { path = "../../salt-front" }
 syn = { version = "2.0", features = ["full", "extra-traits"] }
 proc-macro2 = { version = "1.0", features = ["span-locations"] }

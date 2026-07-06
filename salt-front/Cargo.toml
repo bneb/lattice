@@ -1,6 +1,9 @@
 [package]
-name = "salt-front"
-version = "1.1.0"
+name = "saltc"
+version = "1.2.0"
+description = "The Salt compiler — a systems language with Z3-powered compile-time verification"
+repository = "https://github.com/bneb/lattice"
+license = "MIT"
 edition = "2021"
 
 [[bin]]

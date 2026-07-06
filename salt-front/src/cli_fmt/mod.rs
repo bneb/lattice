@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use salt_front::preprocess;
-use salt_front::grammar::SaltFile;
+use saltc::preprocess;
+use saltc::grammar::SaltFile;
 
 pub mod format;
 pub mod spacing;

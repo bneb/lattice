@@ -55,10 +55,10 @@ pub fn compile(source: &str) -> String {
     ensure_panic_hook();
 
     // Preprocess Salt syntax extensions into syn-parseable Rust
-    let processed = salt_front::preprocess(source);
+    let processed = saltc::preprocess(source);
 
     // Parse into AST using salt-front's re-exported syn
-    let parse_result: Result<salt_front::grammar::SaltFile, _> = syn::parse_str(&processed);
+    let parse_result: Result<saltc::grammar::SaltFile, _> = syn::parse_str(&processed);
     let mut file = match parse_result {
         Ok(f) => f,
         Err(e) => {
@@ -75,7 +75,7 @@ pub fn compile(source: &str) -> String {
     };
 
     // Compile AST to MLIR with Z3 disabled
-    match salt_front::compile_ast(
+    match saltc::compile_ast(
         &mut file,
         false,    // release_mode
         None,     // registry
@@ -112,8 +112,8 @@ pub fn compile(source: &str) -> String {
 /// Faster than `compile()` — use for real-time editor feedback on keystroke.
 #[wasm_bindgen]
 pub fn check(source: &str) -> String {
-    let processed = salt_front::preprocess(source);
-    match syn::parse_str::<salt_front::grammar::SaltFile>(&processed) {
+    let processed = saltc::preprocess(source);
+    match syn::parse_str::<saltc::grammar::SaltFile>(&processed) {
         Ok(_) => to_json(&CompileResult {
             success: true,
             mlir: String::new(),
@@ -148,9 +148,9 @@ pub struct RunResult {
 pub fn run(source: &str) -> String {
     ensure_panic_hook();
 
-    let processed = salt_front::preprocess(source);
+    let processed = saltc::preprocess(source);
 
-    let file: salt_front::grammar::SaltFile = match syn::parse_str(&processed) {
+    let file: saltc::grammar::SaltFile = match syn::parse_str(&processed) {
         Ok(f) => f,
         Err(e) => {
             let result = RunResult {
@@ -163,7 +163,7 @@ pub fn run(source: &str) -> String {
         }
     };
 
-    let mut interp = salt_front::interpreter::Interpreter::new();
+    let mut interp = saltc::interpreter::Interpreter::new();
     match interp.run(&file) {
         Ok(val) => {
             let exit_code = val.as_i32();
