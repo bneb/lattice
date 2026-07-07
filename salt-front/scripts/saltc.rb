@@ -4,8 +4,8 @@
 class Saltc < Formula
   desc "Systems language compiler with Z3-powered compile-time verification"
   homepage "https://github.com/bneb/lattice"
-  url "https://github.com/bneb/lattice/releases/download/v1.2.0/saltc-v1.2.0-macos-arm64.tar.gz"
-  sha256 "REPLACE_WITH_ACTUAL_SHA256"
+  url "https://github.com/bneb/lattice/releases/download/v1.2.0/saltc-v1.2.0-darwin-arm64.tar.gz"
+  sha256 "83863a95d2fb19dc52d50def1618a14b02d325fbf9aa1b468640b2bf1c84f933"
   version "1.2.0"
   license "MIT"
 
