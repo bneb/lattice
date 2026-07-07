@@ -1,7 +1,7 @@
-use salt_front::grammar::*;
-use salt_front::codegen::context::{CodegenContext, LocalKind};
-use salt_front::codegen::stmt::emit_stmt;
-use salt_front::types::Type;
+use saltc::grammar::*;
+use saltc::codegen::context::{CodegenContext, LocalKind};
+use saltc::codegen::stmt::emit_stmt;
+use saltc::types::Type;
 use std::collections::{BTreeMap, HashMap};
 
 macro_rules! with_ctx {

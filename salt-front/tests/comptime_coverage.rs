@@ -1,6 +1,6 @@
 // Comptime pass coverage tests
 
-use salt_front::compile;
+use saltc::compile;
 
 #[test]
 fn test_comptime_basic() {

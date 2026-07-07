@@ -1,9 +1,9 @@
 // Tests for MLIR Builder Pattern Helpers in CodegenContext
 #![allow(clippy::approx_constant)]
 
-use salt_front::codegen::context::CodegenContext;
-use salt_front::grammar::SaltFile;
-use salt_front::types::Type;
+use saltc::codegen::context::CodegenContext;
+use saltc::grammar::SaltFile;
+use saltc::types::Type;
 
 // Helper macro for tests - injects Z3 context properly with correct lifetime
 macro_rules! test_ctx {

@@ -9,12 +9,12 @@
 /// 3. emit_assign uses peeled element type for RHS hint  
 /// 4. promote_numeric rejects Integer→Pointer promotion
 
-use salt_front::grammar::*;
-use salt_front::codegen::context::{CodegenContext, LocalKind};
-use salt_front::codegen::stmt::emit_stmt;
-use salt_front::codegen::expr::emit_expr;
-use salt_front::codegen::type_bridge::promote_numeric;
-use salt_front::types::Type;
+use saltc::grammar::*;
+use saltc::codegen::context::{CodegenContext, LocalKind};
+use saltc::codegen::stmt::emit_stmt;
+use saltc::codegen::expr::emit_expr;
+use saltc::codegen::type_bridge::promote_numeric;
+use saltc::types::Type;
 use std::collections::{BTreeMap, HashMap};
 
 macro_rules! with_ctx {
@@ -92,7 +92,7 @@ fn test_pointer_index_assignment_compiles() {
     locals.insert("w".to_string(), (
         Type::Pointer { 
             element: Box::new(Type::F32), 
-            provenance: salt_front::types::Provenance::Naked,
+            provenance: saltc::types::Provenance::Naked,
             is_mutable: true 
         }, 
         LocalKind::SSA("%w".to_string())
@@ -125,7 +125,7 @@ fn test_promote_numeric_rejects_integer_to_pointer() {
         
         let pointer_type = Type::Pointer { 
             element: Box::new(Type::F32), 
-            provenance: salt_front::types::Provenance::Naked,
+            provenance: saltc::types::Provenance::Naked,
             is_mutable: true 
         };
         
@@ -181,7 +181,7 @@ fn test_pointer_read_in_loop_compiles() {
     locals.insert("arr".to_string(), (
         Type::Pointer { 
             element: Box::new(Type::F32), 
-            provenance: salt_front::types::Provenance::Naked,
+            provenance: saltc::types::Provenance::Naked,
             is_mutable: false 
         }, 
         LocalKind::SSA("%arr".to_string())
@@ -234,7 +234,7 @@ fn test_init_xavier_pattern_compiles() {
     locals.insert("w".to_string(), (
         Type::Pointer { 
             element: Box::new(Type::F32), 
-            provenance: salt_front::types::Provenance::Naked,
+            provenance: saltc::types::Provenance::Naked,
             is_mutable: true 
         }, 
         LocalKind::SSA("%w".to_string())

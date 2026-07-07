@@ -12,7 +12,7 @@
 
 #[cfg(test)]
 mod unification_tests {
-    use salt_front::types::Type;
+    use saltc::types::Type;
     use std::collections::BTreeMap;
 
     /// Helper to create a simple CallSiteResolver context for testing

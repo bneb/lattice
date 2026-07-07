@@ -1,8 +1,8 @@
 // Unit tests for std.io.file module
 // Tests cover: File struct, Ptr returns, mmap codegen
 
-use salt_front::codegen::emit_mlir;
-use salt_front::grammar::SaltFile;
+use saltc::codegen::emit_mlir;
+use saltc::grammar::SaltFile;
 
 // =============================================================================
 // File Struct Parsing Tests
@@ -223,6 +223,6 @@ fn test_file_mlir_emits_correct_syscall_types() {
             return 0;
         }
     "#;
-    let res = salt_front::compile(src, false, None, true);
+    let res = saltc::compile(src, false, None, true);
     assert!(res.is_ok(), "Syscall types failed: {:?}", res.err());
 }

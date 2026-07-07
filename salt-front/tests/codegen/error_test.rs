@@ -1,6 +1,6 @@
 // Targeting error path coverage in codegen.rs
 
-use salt_front::compile;
+use saltc::compile;
 
 // =============================================================================
 // Error cases that exercise error handling paths

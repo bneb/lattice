@@ -8,8 +8,8 @@
 
 #[cfg(test)]
 mod tests {
-    use salt_front::types::Type;
-    use salt_front::codegen::type_bridge::{flatten_nested_ptr, extract_ptr_inner};
+    use saltc::types::Type;
+    use saltc::codegen::type_bridge::{flatten_nested_ptr, extract_ptr_inner};
 
     // ============================================================================
     // Test: extract_ptr_inner helper

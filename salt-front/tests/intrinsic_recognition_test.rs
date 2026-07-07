@@ -2,7 +2,7 @@
 // Guards against the "Lookup Trap" where intrinsics get mangled as regular functions
 // Regression tests for Ptr Unification work (ref_to_addr intrinsic routing)
 
-use salt_front::grammar::SaltFile;
+use saltc::grammar::SaltFile;
 
 // =============================================================================
 // INTRINSIC RECOGNITION TESTS
@@ -18,7 +18,7 @@ fn compiles_intrinsic(code: &str) -> bool {
             let _z3_ctx = z3::Context::new(&z3_cfg);
             let mut file: SaltFile = syn::parse_str(&src).unwrap();
             // emit_mlir(file, release_mode, registry, skip_scan, vverify)
-            let result = salt_front::codegen::emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
+            let result = saltc::codegen::emit_mlir(&mut file, false, None, false, false, false, false, false, false, "");
             result.is_ok()
         }
         Err(_) => false,

@@ -14,9 +14,9 @@
 
 #[cfg(test)]
 mod hashmap_eq_dispatch_tests {
-    use salt_front::codegen::context::CodegenContext;
-    use salt_front::grammar::SaltFile;
-    use salt_front::types::Type;
+    use saltc::codegen::context::CodegenContext;
+    use saltc::grammar::SaltFile;
+    use saltc::types::Type;
 
     macro_rules! with_ctx {
         ($name:ident, $block:block) => {
@@ -146,7 +146,7 @@ mod hashmap_eq_dispatch_tests {
             let eq_name = format!("{}__{}", struct_name, "eq");
             
             // Create a minimal function definition for the eq method
-            let method: salt_front::grammar::SaltFn = syn::parse_str(
+            let method: saltc::grammar::SaltFn = syn::parse_str(
                 "fn eq(self: &MyStruct, other: &MyStruct) -> bool { true }"
             ).expect("valid fn");
             

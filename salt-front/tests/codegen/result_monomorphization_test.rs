@@ -9,7 +9,7 @@
 // resolve_path_to_enum then rejects the enum variant construction.
 // ============================================================================
 
-use salt_front::compile;
+use saltc::compile;
 
 fn check_compiles(name: &str, source: &str, expected_error: Option<&str>) {
     match compile(source, false, None, true) {

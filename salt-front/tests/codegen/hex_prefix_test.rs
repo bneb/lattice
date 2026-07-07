@@ -5,8 +5,8 @@
 
 #[cfg(test)]
 mod tests {
-    use salt_front::codegen::context::CodegenContext;
-    use salt_front::grammar::SaltFile;
+    use saltc::codegen::context::CodegenContext;
+    use saltc::grammar::SaltFile;
 
     macro_rules! with_ctx {
         ($name:ident, $block:block) => {

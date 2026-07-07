@@ -4,8 +4,8 @@
 //
 // These tests protect the window_access optimization that achieved 2.2x speedup over C.
 
-use salt_front::codegen::emit_mlir;
-use salt_front::grammar::SaltFile;
+use saltc::codegen::emit_mlir;
+use saltc::grammar::SaltFile;
 
 // =============================================================================
 // Test 1: Struct field access via reinterpret_cast should NOT spill to stack

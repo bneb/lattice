@@ -11,10 +11,10 @@
 
 #[cfg(test)]
 mod tests {
-    use salt_front::codegen::context::CodegenContext;
-    use salt_front::registry::EnumInfo;
-    use salt_front::types::{Type, TypeKey};
-    use salt_front::grammar::SaltFile;
+    use saltc::codegen::context::CodegenContext;
+    use saltc::registry::EnumInfo;
+    use saltc::types::{Type, TypeKey};
+    use saltc::grammar::SaltFile;
 
     macro_rules! with_ctx {
         ($name:ident, $block:block) => {
@@ -141,7 +141,7 @@ mod tests {
             ctx.enum_registry_mut().insert(enum_key, enum_info);
 
             // Also register struct with same name
-            let struct_info = salt_front::registry::StructInfo {
+            let struct_info = saltc::registry::StructInfo {
                 name: "Status".to_string(),
                 fields: std::collections::HashMap::new(),
                 field_order: vec![],

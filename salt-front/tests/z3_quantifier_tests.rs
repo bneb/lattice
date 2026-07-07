@@ -2,8 +2,8 @@
 
 #[cfg(test)]
 mod quantifier_tests {
-    use salt_front::z3_shim;
-    use salt_front::z3_shim::ast::Ast;
+    use saltc::z3_shim;
+    use saltc::z3_shim::ast::Ast;
 
     fn p<'a>() -> &'a [&'a z3_shim::Pattern<'a>] { &[] }
 

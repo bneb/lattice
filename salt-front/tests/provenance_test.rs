@@ -1,10 +1,10 @@
 // Unit tests for provenance-aware codegen optimization
 // Tests cover: ProvenanceMap, reinterpret_cast GEP emission, Buffer<T> intercept
 
-use salt_front::codegen::emit_mlir;
-use salt_front::codegen::types::ProvenanceMap;
-use salt_front::grammar::SaltFile;
-use salt_front::types::Type;
+use saltc::codegen::emit_mlir;
+use saltc::codegen::types::ProvenanceMap;
+use saltc::grammar::SaltFile;
+use saltc::types::Type;
 
 // =============================================================================
 // ProvenanceMap Unit Tests

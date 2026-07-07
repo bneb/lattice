@@ -7,13 +7,13 @@
 // Regression tests for: Non-deterministic Vec<T, A> mangling producing
 // _ArenaAllocator_i64 instead of _i64_ArenaAllocator.
 
-use salt_front::grammar::SaltFile;
+use saltc::grammar::SaltFile;
 
 /// Helper: compile Salt source and return MLIR output
 fn compile(src: &str) -> Result<String, String> {
     let mut file: SaltFile = syn::parse_str(src)
         .map_err(|e| format!("Parse error: {}", e))?;
-    salt_front::codegen::emit_mlir(&mut file, false, None, false, true, false, false, false, false, "")
+    saltc::codegen::emit_mlir(&mut file, false, None, false, true, false, false, false, false, "")
 }
 
 // ─── Two-Parameter Struct: Declaration Order ───────────────────────────────

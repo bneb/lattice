@@ -16,7 +16,7 @@
 // stored into the alloca.
 // ============================================================================
 
-use salt_front::compile;
+use saltc::compile;
 
 // ============================================================================
 // Core Regression: mut parameter in while loop

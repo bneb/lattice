@@ -12,8 +12,8 @@
 
 #[cfg(test)]
 mod keuos_authority_tests {
-    use salt_front::codegen::phases::DiscoveryState;
-    use salt_front::grammar::SaltFile;
+    use saltc::codegen::phases::DiscoveryState;
+    use saltc::grammar::SaltFile;
 
     /// Helper to create a DiscoveryState with a dummy file for tests
     fn make_disc_state(file: &SaltFile) -> DiscoveryState {
@@ -209,7 +209,7 @@ mod keuos_authority_tests {
     // Phase 4: Trait Dispatch Integration Tests (via CodegenContext)
     // =========================================================================
 
-    use salt_front::codegen::context::CodegenContext;
+    use saltc::codegen::context::CodegenContext;
 
     macro_rules! with_ctx {
         ($name:ident, $block:block) => {

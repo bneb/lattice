@@ -14,9 +14,9 @@
 // deps (std.core.arena, std.core.ptr). Struct fmt tests also need std.core.fmt.
 // =============================================================================
 
-use salt_front::preprocess;
-use salt_front::codegen::emit_mlir;
-use salt_front::grammar::SaltFile;
+use saltc::preprocess;
+use saltc::codegen::emit_mlir;
+use saltc::grammar::SaltFile;
 
 /// Helper: preprocess Salt source, parse, and emit MLIR
 fn compile_salt(src: &str) -> Result<String, String> {

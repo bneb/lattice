@@ -1,11 +1,11 @@
 // Comprehensive Type Tests for types.rs coverage
 // Tests all Type variants for is_numeric, is_unsigned, mangle_suffix, size_of
 
-use salt_front::types::Type;
+use saltc::types::Type;
 use std::collections::HashMap;
-use salt_front::grammar::SaltFile;
-use salt_front::codegen::context::CodegenContext;
-use salt_front::types::TypeKey;
+use saltc::grammar::SaltFile;
+use saltc::codegen::context::CodegenContext;
+use saltc::types::TypeKey;
 
 // =============================================================================
 // is_numeric tests - parameterized across all Type variants
@@ -152,7 +152,7 @@ fn test_mangle_suffix_tuple() {
 
 #[test]
 fn test_size_of_primitives() {
-    let reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+    let reg: HashMap<TypeKey, saltc::registry::StructInfo> = HashMap::new();
     
     assert_eq!(Type::I8.size_of(&reg), 1);
     assert_eq!(Type::U8.size_of(&reg), 1);
@@ -170,7 +170,7 @@ fn test_size_of_primitives() {
 
 #[test]
 fn test_size_of_wrappers() {
-    let reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+    let reg: HashMap<TypeKey, saltc::registry::StructInfo> = HashMap::new();
     
     // All pointer types are 8 bytes
     assert_eq!(Type::Owned(Box::new(Type::I32)).size_of(&reg), 8);
@@ -185,7 +185,7 @@ fn test_size_of_wrappers() {
 
 #[test]
 fn test_size_of_array() {
-    let reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+    let reg: HashMap<TypeKey, saltc::registry::StructInfo> = HashMap::new();
     
     assert_eq!(Type::Array(Box::new(Type::I32), 10, false).size_of(&reg), 40); // 4 * 10
     assert_eq!(Type::Array(Box::new(Type::I8), 100, false).size_of(&reg), 100); // 1 * 100
@@ -194,7 +194,7 @@ fn test_size_of_array() {
 
 #[test]
 fn test_size_of_tuple() {
-    let reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+    let reg: HashMap<TypeKey, saltc::registry::StructInfo> = HashMap::new();
     
     let tuple = Type::Tuple(vec![Type::I32, Type::I64, Type::I8]);
     assert_eq!(tuple.size_of(&reg), 24); // Aligned: 4 + (4pad) + 8 + 1 + (7pad) = 24
@@ -205,13 +205,13 @@ fn test_size_of_tuple() {
 
 #[test]
 fn test_size_of_struct_with_registry() {
-    let mut reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+    let mut reg: HashMap<TypeKey, saltc::registry::StructInfo> = HashMap::new();
     let fields = vec![Type::I32, Type::I32];
     let mut fields_map = HashMap::new();
     fields_map.insert("x".to_string(), (0, Type::I32));
     fields_map.insert("y".to_string(), (1, Type::I32));
     
-    let info = salt_front::registry::StructInfo {
+    let info = saltc::registry::StructInfo {
         name: "Point".to_string(),
         fields: fields_map,
         field_order: fields,
@@ -231,13 +231,13 @@ fn test_size_of_struct_with_registry() {
 
 #[test]
 fn test_size_of_enum() {
-    let reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+    let reg: HashMap<TypeKey, saltc::registry::StructInfo> = HashMap::new();
     assert_eq!(Type::Enum("Option".to_string()).size_of(&reg), 16); // Tag + Max Payload
 }
 
 #[test]
 fn test_size_of_fallback_types() {
-    let reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+    let reg: HashMap<TypeKey, saltc::registry::StructInfo> = HashMap::new();
     
     // Generic and Concrete fall through to default 8
     assert_eq!(Type::Generic("T".to_string()).size_of(&reg), 8);
@@ -251,7 +251,7 @@ fn test_size_of_fallback_types() {
 
 #[test]
 fn test_align_of_primitives() {
-    let reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+    let reg: HashMap<TypeKey, saltc::registry::StructInfo> = HashMap::new();
     assert_eq!(Type::I8.align_of(&reg), 1);
     assert_eq!(Type::I32.align_of(&reg), 4);
     assert_eq!(Type::I64.align_of(&reg), 8);
@@ -260,7 +260,7 @@ fn test_align_of_primitives() {
 
 #[test]
 fn test_align_of_aggregates() {
-    let reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+    let reg: HashMap<TypeKey, saltc::registry::StructInfo> = HashMap::new();
     
     // Tuple alignment is max of elements
     let t1 = Type::Tuple(vec![Type::I8, Type::I8]);
@@ -279,7 +279,7 @@ fn test_align_of_aggregates() {
 
 #[test]
 fn test_align_of_pointers() {
-    let reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+    let reg: HashMap<TypeKey, saltc::registry::StructInfo> = HashMap::new();
     // All pointers are 8-byte aligned on 64-bit systems
     assert_eq!(Type::Owned(Box::new(Type::I8)).align_of(&reg), 8);
     assert_eq!(Type::Reference(Box::new(Type::I8), false).align_of(&reg), 8);
@@ -293,7 +293,7 @@ fn test_align_of_pointers() {
 fn test_recursive_struct_definition() {
     // Defines a linked list node: struct Node { next: *Node }
     // This tests that size_of/align_of don't infinite loop
-    let _reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+    let _reg: HashMap<TypeKey, saltc::registry::StructInfo> = HashMap::new();
     
     // We can't easily mock the recursive registry lookup here without 
     // simulating the full compilation context, but we can verify
@@ -309,7 +309,7 @@ fn test_recursive_struct_definition() {
 fn test_deep_recursion_layout_caching() {
     // Simulate deeply nested struct: S0 { S1 }, S1 { S2 }, ... S100 { i32 }
     // This exercises the caching mechanism in size_of/align_of to prevent O(N^2) or stack overflow
-    let mut reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+    let mut reg: HashMap<TypeKey, saltc::registry::StructInfo> = HashMap::new();
     
     let depth = 100;
     for i in 0..depth {
@@ -325,7 +325,7 @@ fn test_deep_recursion_layout_caching() {
         let mut fields_map = HashMap::new();
         fields_map.insert("val".to_string(), (0, field_ty));
         
-        let info = salt_front::registry::StructInfo {
+        let info = saltc::registry::StructInfo {
             name: name.clone(),
             fields: fields_map,
             field_order: fields_vec,
@@ -379,10 +379,10 @@ fn test_deep_recursion_layout_caching() {
 
 #[test]
 fn test_abi_boundary_torture() {
-    let reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+    let reg: HashMap<TypeKey, saltc::registry::StructInfo> = HashMap::new();
 
     // Helper to verify exact layout
-    fn verify_layout(reg: &HashMap<TypeKey, salt_front::registry::StructInfo>, types: Vec<Type>, expected_size: usize, expected_align: usize) {
+    fn verify_layout(reg: &HashMap<TypeKey, saltc::registry::StructInfo>, types: Vec<Type>, expected_size: usize, expected_align: usize) {
         let tuple = Type::Tuple(types.clone());
         let size = tuple.size_of(reg);
         let align = tuple.align_of(reg);
@@ -458,7 +458,7 @@ fn test_usize_to_i64_emits_index_cast() {
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     
     let mut out = String::new();
-    let res = ctx.with_lowering_ctx(|lctx| salt_front::codegen::type_bridge::promote_numeric(
+    let res = ctx.with_lowering_ctx(|lctx| saltc::codegen::type_bridge::promote_numeric(
         lctx, &mut out, "%iv", &Type::Usize, &Type::I64
     ));
     assert!(res.is_ok(), "Usize->I64 promotion failed: {:?}", res);
@@ -476,7 +476,7 @@ fn test_i64_to_usize_emits_index_cast() {
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     
     let mut out = String::new();
-    let res = ctx.with_lowering_ctx(|lctx| salt_front::codegen::type_bridge::promote_numeric(
+    let res = ctx.with_lowering_ctx(|lctx| saltc::codegen::type_bridge::promote_numeric(
         lctx, &mut out, "%val", &Type::I64, &Type::Usize
     ));
     assert!(res.is_ok(), "I64->Usize promotion failed: {:?}", res);
@@ -494,7 +494,7 @@ fn test_usize_to_i32_emits_index_cast_then_trunci() {
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     
     let mut out = String::new();
-    let res = ctx.with_lowering_ctx(|lctx| salt_front::codegen::type_bridge::cast_numeric(
+    let res = ctx.with_lowering_ctx(|lctx| saltc::codegen::type_bridge::cast_numeric(
         lctx, &mut out, "%idx", &Type::Usize, &Type::I32
     ));
     assert!(res.is_ok(), "Usize->I32 cast failed: {:?}", res);
@@ -517,7 +517,7 @@ fn test_i32_to_usize_emits_extsi_then_index_cast() {
     let ctx = CodegenContext::new(&file, false, None, &z3_ctx);
     
     let mut out = String::new();
-    let res = ctx.with_lowering_ctx(|lctx| salt_front::codegen::type_bridge::promote_numeric(
+    let res = ctx.with_lowering_ctx(|lctx| saltc::codegen::type_bridge::promote_numeric(
         lctx, &mut out, "%val32", &Type::I32, &Type::Usize
     ));
     assert!(res.is_ok(), "I32->Usize promotion failed: {:?}", res);
@@ -546,21 +546,21 @@ fn test_prove_layout_compatibility_primitives() {
     
     // Same-size primitives should be compatible
     assert!(
-        salt_front::codegen::type_bridge::prove_layout_compatibility(&ctx.struct_registry(), &Type::I64, &Type::U64),
+        saltc::codegen::type_bridge::prove_layout_compatibility(&ctx.struct_registry(), &Type::I64, &Type::U64),
         "i64 and u64 should be compatible (same size/align)"
     );
     assert!(
-        salt_front::codegen::type_bridge::prove_layout_compatibility(&ctx.struct_registry(), &Type::I32, &Type::F32),
+        saltc::codegen::type_bridge::prove_layout_compatibility(&ctx.struct_registry(), &Type::I32, &Type::F32),
         "i32 and f32 should be compatible (both 4 bytes, align 4)"
     );
     
     // Different-size primitives should NOT be compatible
     assert!(
-        !salt_front::codegen::type_bridge::prove_layout_compatibility(&ctx.struct_registry(), &Type::I32, &Type::I64),
+        !saltc::codegen::type_bridge::prove_layout_compatibility(&ctx.struct_registry(), &Type::I32, &Type::I64),
         "i32 and i64 should NOT be compatible (4 vs 8 bytes)"
     );
     assert!(
-        !salt_front::codegen::type_bridge::prove_layout_compatibility(&ctx.struct_registry(), &Type::I8, &Type::I32),
+        !saltc::codegen::type_bridge::prove_layout_compatibility(&ctx.struct_registry(), &Type::I8, &Type::I32),
         "i8 and i32 should NOT be compatible (1 vs 4 bytes)"
     );
 }
@@ -574,11 +574,11 @@ fn test_prove_layout_compatibility_self() {
     
     // A type should always be compatible with itself
     assert!(
-        salt_front::codegen::type_bridge::prove_layout_compatibility(&ctx.struct_registry(), &Type::I64, &Type::I64),
+        saltc::codegen::type_bridge::prove_layout_compatibility(&ctx.struct_registry(), &Type::I64, &Type::I64),
         "i64 should be compatible with itself"
     );
     assert!(
-        salt_front::codegen::type_bridge::prove_layout_compatibility(&ctx.struct_registry(), &Type::F64, &Type::F64),
+        saltc::codegen::type_bridge::prove_layout_compatibility(&ctx.struct_registry(), &Type::F64, &Type::F64),
         "f64 should be compatible with itself"
     );
 }
@@ -597,7 +597,7 @@ fn test_prove_layout_compatibility_struct_same_size() {
         fields_map.insert("x".to_string(), (0, Type::I64));
         fields_map.insert("y".to_string(), (1, Type::I64));
         
-        let info = salt_front::registry::StructInfo {
+        let info = saltc::registry::StructInfo {
             name: name.to_string(),
             fields: fields_map,
             field_order: fields,
@@ -609,7 +609,7 @@ fn test_prove_layout_compatibility_struct_same_size() {
         ctx.struct_registry_mut().insert(key, info);
     }
     
-    let compatible = salt_front::codegen::type_bridge::prove_layout_compatibility(
+    let compatible = saltc::codegen::type_bridge::prove_layout_compatibility(
         &ctx.struct_registry(),
         &Type::Struct("LayoutTestA".to_string()),
         &Type::Struct("LayoutTestB".to_string())
@@ -628,7 +628,7 @@ fn test_prove_layout_compatibility_struct_different_size() {
     {
         let mut fields_map = std::collections::HashMap::new();
         fields_map.insert("x".to_string(), (0, Type::I32));
-        let info = salt_front::registry::StructInfo {
+        let info = saltc::registry::StructInfo {
             name: "LayoutSmall".to_string(),
             fields: fields_map,
             field_order: vec![Type::I32],
@@ -645,7 +645,7 @@ fn test_prove_layout_compatibility_struct_different_size() {
         let mut fields_map = std::collections::HashMap::new();
         fields_map.insert("x".to_string(), (0, Type::I64));
         fields_map.insert("y".to_string(), (1, Type::I64));
-        let info = salt_front::registry::StructInfo {
+        let info = saltc::registry::StructInfo {
             name: "LayoutLarge".to_string(),
             fields: fields_map,
             field_order: vec![Type::I64, Type::I64],
@@ -657,7 +657,7 @@ fn test_prove_layout_compatibility_struct_different_size() {
         ctx.struct_registry_mut().insert(key, info);
     }
     
-    let compatible = salt_front::codegen::type_bridge::prove_layout_compatibility(
+    let compatible = saltc::codegen::type_bridge::prove_layout_compatibility(
         &ctx.struct_registry(),
         &Type::Struct("LayoutSmall".to_string()),
         &Type::Struct("LayoutLarge".to_string())
@@ -676,7 +676,7 @@ fn test_struct_cast_rejects_incompatible_layouts() {
     {
         let mut fields_map = std::collections::HashMap::new();
         fields_map.insert("x".to_string(), (0, Type::I32));
-        let info = salt_front::registry::StructInfo {
+        let info = saltc::registry::StructInfo {
             name: "CastSmall".to_string(),
             fields: fields_map,
             field_order: vec![Type::I32],
@@ -693,7 +693,7 @@ fn test_struct_cast_rejects_incompatible_layouts() {
         let mut fields_map = std::collections::HashMap::new();
         fields_map.insert("x".to_string(), (0, Type::I64));
         fields_map.insert("y".to_string(), (1, Type::I64));
-        let info = salt_front::registry::StructInfo {
+        let info = saltc::registry::StructInfo {
             name: "CastLarge".to_string(),
             fields: fields_map,
             field_order: vec![Type::I64, Type::I64],
@@ -706,7 +706,7 @@ fn test_struct_cast_rejects_incompatible_layouts() {
     }
     
     let mut out = String::new();
-    let result = ctx.with_lowering_ctx(|lctx| salt_front::codegen::type_bridge::cast_numeric(
+    let result = ctx.with_lowering_ctx(|lctx| saltc::codegen::type_bridge::cast_numeric(
         lctx, &mut out, "%val",
         &Type::Struct("CastSmall".to_string()),
         &Type::Struct("CastLarge".to_string())
@@ -724,7 +724,7 @@ fn test_struct_cast_rejects_incompatible_layouts() {
 
 #[test]
 fn test_pointer_type_basics() {
-    use salt_front::types::Provenance;
+    use saltc::types::Provenance;
     
     // First-class Pointer variant
     let ptr_f32 = Type::Pointer { 
@@ -744,7 +744,7 @@ fn test_pointer_type_basics() {
 
 #[test]
 fn test_pointer_type_not_confused_with_reference() {
-    use salt_front::types::Provenance;
+    use saltc::types::Provenance;
     
     // Reference is NOT a pointer
     let ref_i32 = Type::Reference(Box::new(Type::I32), false);
@@ -761,7 +761,7 @@ fn test_pointer_type_not_confused_with_reference() {
 
 #[test]
 fn test_pointer_nested() {
-    use salt_front::types::Provenance;
+    use saltc::types::Provenance;
     
     // Nested Ptr<Ptr<i32>>
     let inner = Type::Pointer { 
@@ -779,7 +779,7 @@ fn test_pointer_nested() {
 
 #[test]
 fn test_pointer_primitives() {
-    use salt_front::types::Provenance;
+    use saltc::types::Provenance;
     
     // Test across all primitive types
     let primitive_types = vec![
@@ -886,10 +886,10 @@ fn test_structural_eq_wrapper_types() {
     assert!(owned_a.structural_eq(&owned_b));
     
     // Pointer types (replaced NativePtr)
-    let ptr_a = Type::Pointer { element: Box::new(Type::U8), provenance: salt_front::types::Provenance::Naked, is_mutable: true };
-    let ptr_b = Type::Pointer { element: Box::new(Type::U8), provenance: salt_front::types::Provenance::Naked, is_mutable: true };
+    let ptr_a = Type::Pointer { element: Box::new(Type::U8), provenance: saltc::types::Provenance::Naked, is_mutable: true };
+    let ptr_b = Type::Pointer { element: Box::new(Type::U8), provenance: saltc::types::Provenance::Naked, is_mutable: true };
     assert!(ptr_a.structural_eq(&ptr_b));
-    let ptr_i32 = Type::Pointer { element: Box::new(Type::I32), provenance: salt_front::types::Provenance::Naked, is_mutable: true };
+    let ptr_i32 = Type::Pointer { element: Box::new(Type::I32), provenance: saltc::types::Provenance::Naked, is_mutable: true };
     assert!(!ptr_a.structural_eq(&ptr_i32));
 }
 
@@ -952,7 +952,7 @@ fn test_base_names_equal() {
 #[test]
 fn test_pointer_not_equal_to_other_types() {
     // Pointer should only equal other Pointers with same element type
-    let ptr = Type::Pointer { element: Box::new(Type::U8), provenance: salt_front::types::Provenance::Naked, is_mutable: true };
+    let ptr = Type::Pointer { element: Box::new(Type::U8), provenance: saltc::types::Provenance::Naked, is_mutable: true };
     
     assert!(!ptr.structural_eq(&Type::I64));
     assert!(!ptr.structural_eq(&Type::Reference(Box::new(Type::U8), false)));
@@ -983,14 +983,14 @@ fn test_align64_forces_field_to_cacheline_boundary() {
     // With @align(64):    head starts at offset 0 (trivially 64-aligned),
     //                     tail starts at offset 64 (forced to next cache line),
     //                     total size = 128 (64 + 8 tail, padded to 64 align)
-    let mut reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+    let mut reg: HashMap<TypeKey, saltc::registry::StructInfo> = HashMap::new();
 
     let fields = vec![Type::U64, Type::U64];
     let mut fields_map = HashMap::new();
     fields_map.insert("head".to_string(), (0, Type::U64));
     fields_map.insert("tail".to_string(), (1, Type::U64));
 
-    let info = salt_front::registry::StructInfo {
+    let info = saltc::registry::StructInfo {
         name: "SpscRing".to_string(),
         fields: fields_map,
         field_order: fields,
@@ -1023,9 +1023,9 @@ fn test_align64_single_field() {
     //   }
     //
     // With @align(64): size = 64 (8 bytes of data, padded to 64 alignment)
-    let mut reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+    let mut reg: HashMap<TypeKey, saltc::registry::StructInfo> = HashMap::new();
 
-    let info = salt_front::registry::StructInfo {
+    let info = saltc::registry::StructInfo {
         name: "Header".to_string(),
         fields: {
             let mut m = HashMap::new();
@@ -1051,9 +1051,9 @@ fn test_align64_single_field() {
 #[test]
 fn test_no_align_attribute_unchanged() {
     // Sanity check: without any @align attribute, layout is unchanged
-    let mut reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+    let mut reg: HashMap<TypeKey, saltc::registry::StructInfo> = HashMap::new();
 
-    let info = salt_front::registry::StructInfo {
+    let info = saltc::registry::StructInfo {
         name: "NormalStruct".to_string(),
         fields: {
             let mut m = HashMap::new();
@@ -1090,9 +1090,9 @@ fn test_align64_with_trailing_data_field() {
     //
     // head at offset 0 (64-aligned), tail at offset 64 (64-aligned),
     // data at offset 72 (8-aligned), size = 72 + 4096 = 4168, padded to 64 = 4224
-    let mut reg: HashMap<TypeKey, salt_front::registry::StructInfo> = HashMap::new();
+    let mut reg: HashMap<TypeKey, saltc::registry::StructInfo> = HashMap::new();
 
-    let info = salt_front::registry::StructInfo {
+    let info = saltc::registry::StructInfo {
         name: "FullSpsc".to_string(),
         fields: {
             let mut m = HashMap::new();

@@ -1,5 +1,5 @@
-use salt_front::codegen::seeker::Seeker;
-use salt_front::types::Type;
+use saltc::codegen::seeker::Seeker;
+use saltc::types::Type;
 
 #[test]
 fn test_mangle_method_name_no_params() {

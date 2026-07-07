@@ -2,7 +2,7 @@
 // Issue: Struct literals inside non-main functions failed to compile because
 // the struct wasn't in the registry when the function was hydrated via monomorphization task.
 
-use salt_front::compile;
+use saltc::compile;
 
 /// Test that struct literals work correctly inside non-main functions
 #[test]

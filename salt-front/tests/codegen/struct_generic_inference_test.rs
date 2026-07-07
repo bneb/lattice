@@ -11,10 +11,10 @@
 
 #[cfg(test)]
 mod tests {
-    use salt_front::codegen::context::CodegenContext;
-    use salt_front::types::Type;
-    use salt_front::grammar::SaltFile;
-    use salt_front::codegen::expr::resolver::CallSiteResolver;
+    use saltc::codegen::context::CodegenContext;
+    use saltc::types::Type;
+    use saltc::grammar::SaltFile;
+    use saltc::codegen::expr::resolver::CallSiteResolver;
     use std::collections::BTreeMap;
 
     macro_rules! with_ctx {
@@ -80,7 +80,7 @@ mod tests {
                 let mut resolver = CallSiteResolver::new(lctx);
             
                 // Build a mock template for empty(): fn empty() -> Ptr<T>
-                let template: salt_front::grammar::SaltFn = syn::parse_str(
+                let template: saltc::grammar::SaltFn = syn::parse_str(
                     "fn empty() -> Ptr<T> {}"
                 ).expect("valid fn");
             
@@ -118,7 +118,7 @@ mod tests {
                 let mut resolver = CallSiteResolver::new(lctx);
             
                 // Template: fn empty() -> Ptr<T> (NO function-level generics)
-                let template: salt_front::grammar::SaltFn = syn::parse_str(
+                let template: saltc::grammar::SaltFn = syn::parse_str(
                     "fn empty() -> Ptr<T> {}"
                 ).expect("valid fn");
             
@@ -164,7 +164,7 @@ mod tests {
             ctx.with_lowering_ctx(|lctx| {
                 let mut resolver = CallSiteResolver::new(lctx);
             
-                let template: salt_front::grammar::SaltFn = syn::parse_str(
+                let template: saltc::grammar::SaltFn = syn::parse_str(
                     "fn empty() -> Ptr<T> {}"
                 ).expect("valid fn");
             
@@ -211,7 +211,7 @@ mod tests {
             ctx.with_lowering_ctx(|lctx| {
                 let mut resolver = CallSiteResolver::new(lctx);
             
-                let template: salt_front::grammar::SaltFn = syn::parse_str(
+                let template: saltc::grammar::SaltFn = syn::parse_str(
                     "fn empty() -> Ptr<T> {}"
                 ).expect("valid fn");
             

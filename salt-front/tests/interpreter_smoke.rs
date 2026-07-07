@@ -1,7 +1,7 @@
 // Smoke tests for the Salt interpreter — basic expression evaluation,
 // control flow, and variable binding.
-use salt_front::grammar::SaltFile;
-use salt_front::interpreter::{Interpreter, Value};
+use saltc::grammar::SaltFile;
+use saltc::interpreter::{Interpreter, Value};
 use syn::parse::Parse;
 
 fn run_salt(source: &str) -> Result<Value, String> {

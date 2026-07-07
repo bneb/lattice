@@ -1,5 +1,5 @@
 // Smoke tests for the entity registry
-use salt_front::compile;
+use saltc::compile;
 
 #[test]
 fn test_compile_with_struct() {

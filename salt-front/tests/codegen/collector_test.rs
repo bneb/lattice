@@ -1,5 +1,5 @@
 // Smoke tests for the monomorphization collector
-use salt_front::compile;
+use saltc::compile;
 
 #[test]
 fn test_compile_simple_function() {

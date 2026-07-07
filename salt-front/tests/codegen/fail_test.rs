@@ -1,6 +1,6 @@
 // Fail case tests - exercising error handling paths in codegen
 
-use salt_front::compile;
+use saltc::compile;
 
 // =============================================================================
 // Expected failures - these test error handling

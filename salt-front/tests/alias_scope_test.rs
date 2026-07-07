@@ -1,9 +1,9 @@
 // Unit tests for V7.3 per-argument alias scope tracking
 // Tests cover: ControlFlowState scope registration, propagation, and MLIR emission
 
-use salt_front::codegen::emit_mlir;
-use salt_front::codegen::phases::ControlFlowState;
-use salt_front::grammar::SaltFile;
+use saltc::codegen::emit_mlir;
+use saltc::codegen::phases::ControlFlowState;
+use saltc::grammar::SaltFile;
 
 // =============================================================================
 // ControlFlowState Scope Tracking Unit Tests

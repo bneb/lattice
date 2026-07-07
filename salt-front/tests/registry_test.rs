@@ -1,4 +1,4 @@
-use salt_front::registry::{Registry, ModuleInfo};
+use saltc::registry::{Registry, ModuleInfo};
 
 #[test]
 fn test_registry_basic() {

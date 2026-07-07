@@ -11,9 +11,9 @@
 
 #[cfg(test)]
 mod tests {
-    use salt_front::codegen::context::CodegenContext;
-    use salt_front::types::Type;
-    use salt_front::grammar::SaltFile;
+    use saltc::codegen::context::CodegenContext;
+    use saltc::types::Type;
+    use saltc::grammar::SaltFile;
 
     // Helper macro for creating test contexts
     macro_rules! with_ctx {
@@ -98,9 +98,9 @@ mod tests {
     #[test]
     fn test_concrete_type_to_mlir_includes_specialization() {
         with_ctx!(ctx, {
-            use salt_front::registry::StructInfo;
+            use saltc::registry::StructInfo;
             use std::collections::HashMap;
-            use salt_front::types::TypeKey;
+            use saltc::types::TypeKey;
             
             // Register a generic struct template
             let template_name = "std__core__ptr__Ptr".to_string();
@@ -154,9 +154,9 @@ mod tests {
     #[test] 
     fn test_concrete_type_distinct_from_reference() {
         with_ctx!(ctx, {
-            use salt_front::registry::StructInfo;
+            use saltc::registry::StructInfo;
             use std::collections::HashMap;
-            use salt_front::types::TypeKey;
+            use saltc::types::TypeKey;
             
             // Register a concrete struct
             let name = "TestStruct".to_string();
@@ -270,7 +270,7 @@ mod tests {
     #[test]
     fn test_type_to_type_key_concrete() {
         let ty = Type::Concrete("std__core__ptr__Ptr".to_string(), vec![Type::U8]);
-        let key = salt_front::codegen::type_bridge::type_to_type_key(&ty);
+        let key = saltc::codegen::type_bridge::type_to_type_key(&ty);
         
         // type_to_type_key stores the full FQN in name (needed for downstream registry lookups)
         assert_eq!(key.name, "std__core__ptr__Ptr", "Name should be full FQN for registry match: {:?}", key);
@@ -282,10 +282,10 @@ mod tests {
     fn test_type_key_without_specialization_for_template_lookup() {
         // When looking up templates, we create a key without specialization
         let ty = Type::Concrete("std__core__ptr__Ptr".to_string(), vec![Type::U8]);
-        let key = salt_front::codegen::type_bridge::type_to_type_key(&ty);
+        let key = saltc::codegen::type_bridge::type_to_type_key(&ty);
         
         // Create base key for template lookup
-        let base_key = salt_front::types::TypeKey {
+        let base_key = saltc::types::TypeKey {
             path: key.path.clone(),
             name: key.name.clone(),
             specialization: None,

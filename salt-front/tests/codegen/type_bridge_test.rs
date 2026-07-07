@@ -1,10 +1,10 @@
 
 #[cfg(test)]
 mod tests {
-    use salt_front::codegen::context::CodegenContext;
-    use salt_front::types::Type;
+    use saltc::codegen::context::CodegenContext;
+    use saltc::types::Type;
 
-    use salt_front::grammar::SaltFile;
+    use saltc::grammar::SaltFile;
 
     // Helper macro to avoid lifetime complexity in return types
     macro_rules! with_ctx {
@@ -65,7 +65,7 @@ mod tests {
             let arr = Type::Array(Box::new(inner), 2);
             
             // zero_attr should return a defined constant string for MLIR
-            let res = salt_front::codegen::type_bridge::zero_attr(&mut ctx, &arr);
+            let res = saltc::codegen::type_bridge::zero_attr(&mut ctx, &arr);
             assert!(res.is_ok());
             let s = res.unwrap();
             
@@ -81,19 +81,19 @@ mod tests {
             let mut out = String::new();
             
             // i32 -> i64 (Extension)
-            let res = salt_front::codegen::type_bridge::promote_numeric(&mut ctx, &mut out, "%val", &Type::I32, &Type::I64);
+            let res = saltc::codegen::type_bridge::promote_numeric(&mut ctx, &mut out, "%val", &Type::I32, &Type::I64);
             assert!(res.is_ok());
             assert!(out.contains("arith.extsi"));
             
             out.clear();
             // u8 -> i32 (Extension)
-            let res = salt_front::codegen::type_bridge::promote_numeric(&mut ctx, &mut out, "%val_u8", &Type::U8, &Type::I32);
+            let res = saltc::codegen::type_bridge::promote_numeric(&mut ctx, &mut out, "%val_u8", &Type::U8, &Type::I32);
             assert!(res.is_ok());
             assert!(out.contains("arith.extui")); // Unsigned extension
             
             out.clear();
             // f32 -> f64 (Float extension)
-            let res = salt_front::codegen::type_bridge::promote_numeric(&mut ctx, &mut out, "%val_f", &Type::F32, &Type::F64);
+            let res = saltc::codegen::type_bridge::promote_numeric(&mut ctx, &mut out, "%val_f", &Type::F32, &Type::F64);
             assert!(res.is_ok());
             assert!(out.contains("arith.extf"));
         });
@@ -111,9 +111,9 @@ mod tests {
             // 17..24: Padding (7 bytes) -> struct size aligned to max align (8)
             
             // We need to manually register the struct info to simulate a parsed struct
-            use salt_front::registry::StructInfo;
+            use saltc::registry::StructInfo;
             use std::collections::{BTreeMap, HashMap};
-            use salt_front::types::TypeKey;
+            use saltc::types::TypeKey;
             
             let name = "PaddingTest".to_string();
             let fields = vec![Type::I8, Type::I64, Type::I8];
@@ -156,7 +156,7 @@ mod tests {
             // Salt parser might allow it.
             let fields = vec![Type::I32, Type::Struct(name.clone())];
             
-            use salt_front::registry::StructInfo;
+            use saltc::registry::StructInfo;
             use std::collections::{BTreeMap, HashMap};
              let info = StructInfo {
                 name: name.clone(),
@@ -166,7 +166,7 @@ mod tests {
                 template_name: None,
                 specialization_args: vec![],
             };
-            let key = salt_front::types::TypeKey { path: vec![], name: name.clone(), specialization: None };
+            let key = saltc::types::TypeKey { path: vec![], name: name.clone(), specialization: None };
             ctx.struct_registry_mut().insert(key, info);
             
             let ty = Type::Struct(name.clone());
@@ -193,7 +193,7 @@ mod tests {
             for t1 in &numeric_types {
                 for t2 in &numeric_types {
                     let mut out = String::new();
-                    let res = salt_front::codegen::type_bridge::promote_numeric(&mut ctx, &mut out, "%val", t1, t2);
+                    let res = saltc::codegen::type_bridge::promote_numeric(&mut ctx, &mut out, "%val", t1, t2);
                     
                     // Self-promotion is always Ok
                     if t1 == t2 {
@@ -218,7 +218,7 @@ mod tests {
             
             // Boundary checks
             let mut out = String::new();
-            let res = salt_front::codegen::type_bridge::promote_numeric(&mut ctx, &mut out, "%val", &Type::Bool, &Type::I32);
+            let res = saltc::codegen::type_bridge::promote_numeric(&mut ctx, &mut out, "%val", &Type::Bool, &Type::I32);
             assert!(res.is_err());
         });
     }
@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn test_enum_recursive_equality() {
          with_ctx!(ctx, {
-            use salt_front::registry::EnumInfo;
+            use saltc::registry::EnumInfo;
 
             // Enum List { Cons(Box<List>), Nil }
             let name = "List".to_string();
@@ -242,7 +242,7 @@ mod tests {
                 template_name: None,
                 specialization_args: vec![],
             };
-            let key = salt_front::types::TypeKey { path: vec![], name: name.clone(), specialization: None };
+            let key = saltc::types::TypeKey { path: vec![], name: name.clone(), specialization: None };
             ctx.enum_registry_mut().insert(key, info);
             
             let ty = Type::Enum(name.clone());
@@ -250,7 +250,7 @@ mod tests {
             let op: syn::BinOp = syn::parse_str("==").unwrap();
             
             // Should generate tag comparison + payload comparison (ptr)
-            let res = salt_front::codegen::expr::aggregate_eq::emit_aggregate_eq(&mut ctx, &mut out, &op, "%lhs", "%rhs", &ty);
+            let res = saltc::codegen::expr::aggregate_eq::emit_aggregate_eq(&mut ctx, &mut out, &op, "%lhs", "%rhs", &ty);
             assert!(res.is_ok());
             
             // Check for Tag comparison
@@ -271,7 +271,7 @@ mod tests {
     #[test]
     fn test_zero_sized_variant_mix() {
          with_ctx!(ctx, {
-            use salt_front::registry::EnumInfo;
+            use saltc::registry::EnumInfo;
             
             // Enum Mixed { Unit, Large([u8; 100]) }
             let name = "Mixed".to_string();
@@ -284,14 +284,14 @@ mod tests {
                 template_name: None,
                 specialization_args: vec![],
             };
-            let key = salt_front::types::TypeKey { path: vec![], name: name.clone(), specialization: None };
+            let key = saltc::types::TypeKey { path: vec![], name: name.clone(), specialization: None };
             ctx.enum_registry_mut().insert(key, info);
             
             let ty = Type::Enum(name);
             let mut out = String::new();
             let op: syn::BinOp = syn::parse_str("==").unwrap();
             
-            let res = salt_front::codegen::expr::aggregate_eq::emit_aggregate_eq(&mut ctx, &mut out, &op, "%lhs", "%rhs", &ty);
+            let res = saltc::codegen::expr::aggregate_eq::emit_aggregate_eq(&mut ctx, &mut out, &op, "%lhs", "%rhs", &ty);
             assert!(res.is_ok());
             
             // Should contain padding check (Field 1) and Payload check (Field 2)
@@ -303,7 +303,7 @@ mod tests {
     #[test]
     fn test_heterogeneous_enum_payload() {
         with_ctx!(ctx, {
-            use salt_front::registry::EnumInfo;
+            use saltc::registry::EnumInfo;
             // Enum Hetero { Tiny(u8), Huge([f64; 8]) }
             // Tiny: size 1
             // Huge: size 64
@@ -330,7 +330,7 @@ mod tests {
                 specialization_args: vec![],
             };
             
-            let key = salt_front::types::TypeKey { path: vec![], name: name.clone(), specialization: None };
+            let key = saltc::types::TypeKey { path: vec![], name: name.clone(), specialization: None };
             ctx.enum_registry_mut().insert(key, info);
             
             let ty = Type::Enum(name.clone());
@@ -346,7 +346,7 @@ mod tests {
     #[test]
     fn test_recursive_list_equality() {
         with_ctx!(ctx, {
-             use salt_front::registry::EnumInfo;
+             use saltc::registry::EnumInfo;
              // Enum List { Cons(i32, Box<List>), Nil }
              // Payload: Tuple(i32, Owned) -> Size 16 (4 + 4pad + 8).
              
@@ -371,14 +371,14 @@ mod tests {
                  template_name: None,
                  specialization_args: vec![],
              };
-             let key = salt_front::types::TypeKey { path: vec![], name: name.clone(), specialization: None };
+             let key = saltc::types::TypeKey { path: vec![], name: name.clone(), specialization: None };
              ctx.enum_registry_mut().insert(key, info);
              
              let ty = Type::Enum(name);
              let mut out = String::new();
              let op: syn::BinOp = syn::parse_str("==").unwrap();
              
-             let res = salt_front::codegen::expr::aggregate_eq::emit_aggregate_eq(&mut ctx, &mut out, &op, "%lhs", "%rhs", &ty);
+             let res = saltc::codegen::expr::aggregate_eq::emit_aggregate_eq(&mut ctx, &mut out, &op, "%lhs", "%rhs", &ty);
              assert!(res.is_ok());
              
              assert!(out.contains("cmp_tag_"), "Missing tag comparison");
@@ -396,7 +396,7 @@ mod tests {
     fn test_usize_to_i64_emits_index_cast() {
         with_ctx!(ctx, {
             let mut out = String::new();
-            let res = salt_front::codegen::type_bridge::promote_numeric(
+            let res = saltc::codegen::type_bridge::promote_numeric(
                 &mut ctx, &mut out, "%iv", &Type::Usize, &Type::I64
             );
             assert!(res.is_ok(), "Usize->I64 promotion failed: {:?}", res);
@@ -411,7 +411,7 @@ mod tests {
     fn test_i64_to_usize_emits_index_cast() {
         with_ctx!(ctx, {
             let mut out = String::new();
-            let res = salt_front::codegen::type_bridge::promote_numeric(
+            let res = saltc::codegen::type_bridge::promote_numeric(
                 &mut ctx, &mut out, "%val", &Type::I64, &Type::Usize
             );
             assert!(res.is_ok(), "I64->Usize promotion failed: {:?}", res);
@@ -427,7 +427,7 @@ mod tests {
         with_ctx!(ctx, {
             let mut out = String::new();
             // Use cast_numeric for truncation (smaller type)
-            let res = salt_front::codegen::type_bridge::cast_numeric(
+            let res = saltc::codegen::type_bridge::cast_numeric(
                 &mut ctx, &mut out, "%idx", &Type::Usize, &Type::I32
             );
             assert!(res.is_ok(), "Usize->I32 cast failed: {:?}", res);
@@ -447,7 +447,7 @@ mod tests {
     fn test_i32_to_usize_emits_extsi_then_index_cast() {
         with_ctx!(ctx, {
             let mut out = String::new();
-            let res = salt_front::codegen::type_bridge::promote_numeric(
+            let res = saltc::codegen::type_bridge::promote_numeric(
                 &mut ctx, &mut out, "%val32", &Type::I32, &Type::Usize
             );
             assert!(res.is_ok(), "I32->Usize promotion failed: {:?}", res);
@@ -467,7 +467,7 @@ mod tests {
     fn test_usize_self_promotion_is_noop() {
         with_ctx!(ctx, {
             let mut out = String::new();
-            let res = salt_front::codegen::type_bridge::promote_numeric(
+            let res = saltc::codegen::type_bridge::promote_numeric(
                 &mut ctx, &mut out, "%idx", &Type::Usize, &Type::Usize
             );
             assert!(res.is_ok());
@@ -492,9 +492,9 @@ mod tests {
     #[test]
     fn test_prove_layout_compatibility_same_size() {
         with_ctx!(ctx, {
-            use salt_front::registry::StructInfo;
+            use saltc::registry::StructInfo;
             use std::collections::{BTreeMap, HashMap};
-            use salt_front::types::TypeKey;
+            use saltc::types::TypeKey;
             
             // Register two structs with identical layouts: { x: i64, y: i64 }
             for name in &["StructA", "StructB"] {
@@ -511,7 +511,7 @@ mod tests {
                 ctx.struct_registry_mut().insert(key, info);
             }
             
-            let compatible = salt_front::codegen::type_bridge::prove_layout_compatibility(
+            let compatible = saltc::codegen::type_bridge::prove_layout_compatibility(
                 &ctx,
                 &Type::Struct("StructA".to_string()),
                 &Type::Struct("StructB".to_string())
@@ -523,9 +523,9 @@ mod tests {
     #[test]
     fn test_prove_layout_compatibility_different_size() {
         with_ctx!(ctx, {
-            use salt_front::registry::StructInfo;
+            use saltc::registry::StructInfo;
             use std::collections::{BTreeMap, HashMap};
-            use salt_front::types::TypeKey;
+            use saltc::types::TypeKey;
             
             // Small: { x: i32 } = 4 bytes
             let small_info = StructInfo {
@@ -551,7 +551,7 @@ mod tests {
             let large_key = TypeKey { path: vec![], name: "Large".to_string(), specialization: None };
             ctx.struct_registry_mut().insert(large_key, large_info);
             
-            let compatible = salt_front::codegen::type_bridge::prove_layout_compatibility(
+            let compatible = saltc::codegen::type_bridge::prove_layout_compatibility(
                 &ctx,
                 &Type::Struct("Small".to_string()),
                 &Type::Struct("Large".to_string())
@@ -563,9 +563,9 @@ mod tests {
     #[test]
     fn test_struct_cast_rejects_incompatible_layouts() {
         with_ctx!(ctx, {
-            use salt_front::registry::StructInfo;
+            use saltc::registry::StructInfo;
             use std::collections::{BTreeMap, HashMap};
-            use salt_front::types::TypeKey;
+            use saltc::types::TypeKey;
             
             // Small: { x: i32 } = 4 bytes
             let small_info = StructInfo {
@@ -592,7 +592,7 @@ mod tests {
             ctx.struct_registry_mut().insert(large_key, large_info);
             
             let mut out = String::new();
-            let result = salt_front::codegen::type_bridge::cast_numeric(
+            let result = saltc::codegen::type_bridge::cast_numeric(
                 &ctx, &mut out, "%val",
                 &Type::Struct("SmallCast".to_string()),
                 &Type::Struct("LargeCast".to_string())
@@ -608,9 +608,9 @@ mod tests {
     #[test]
     fn test_struct_cast_accepts_compatible_layouts() {
         with_ctx!(ctx, {
-            use salt_front::registry::StructInfo;
+            use saltc::registry::StructInfo;
             use std::collections::{BTreeMap, HashMap};
-            use salt_front::types::TypeKey;
+            use saltc::types::TypeKey;
             
             // Both structs have identical layout: { i64, i64 } = 16 bytes, align 8
             for name in &["CompatA", "CompatB"] {
@@ -627,7 +627,7 @@ mod tests {
             }
             
             let mut out = String::new();
-            let result = salt_front::codegen::type_bridge::cast_numeric(
+            let result = saltc::codegen::type_bridge::cast_numeric(
                 &ctx, &mut out, "%val",
                 &Type::Struct("CompatA".to_string()),
                 &Type::Struct("CompatB".to_string())
@@ -643,21 +643,21 @@ mod tests {
         with_ctx!(ctx, {
             // Same-size primitives should be compatible
             assert!(
-                salt_front::codegen::type_bridge::prove_layout_compatibility(&ctx, &Type::I64, &Type::U64),
+                saltc::codegen::type_bridge::prove_layout_compatibility(&ctx, &Type::I64, &Type::U64),
                 "i64 and u64 should be compatible (same size/align)"
             );
             assert!(
-                salt_front::codegen::type_bridge::prove_layout_compatibility(&ctx, &Type::I32, &Type::F32),
+                saltc::codegen::type_bridge::prove_layout_compatibility(&ctx, &Type::I32, &Type::F32),
                 "i32 and f32 should be compatible (both 4 bytes, align 4)"
             );
             
             // Different-size primitives should NOT be compatible
             assert!(
-                !salt_front::codegen::type_bridge::prove_layout_compatibility(&ctx, &Type::I32, &Type::I64),
+                !saltc::codegen::type_bridge::prove_layout_compatibility(&ctx, &Type::I32, &Type::I64),
                 "i32 and i64 should NOT be compatible (4 vs 8 bytes)"
             );
             assert!(
-                !salt_front::codegen::type_bridge::prove_layout_compatibility(&ctx, &Type::I8, &Type::I32),
+                !saltc::codegen::type_bridge::prove_layout_compatibility(&ctx, &Type::I8, &Type::I32),
                 "i8 and i32 should NOT be compatible (1 vs 4 bytes)"
             );
         });
@@ -666,9 +666,9 @@ mod tests {
     #[test]
     fn test_prove_layout_compatibility_same_size_different_align() {
         with_ctx!(ctx, {
-            use salt_front::registry::StructInfo;
+            use saltc::registry::StructInfo;
             use std::collections::{BTreeMap, HashMap};
-            use salt_front::types::TypeKey;
+            use saltc::types::TypeKey;
             
             // StructAlign8: { x: i64 } = 8 bytes, align 8
             let align8_info = StructInfo {
@@ -695,7 +695,7 @@ mod tests {
             ctx.struct_registry_mut().insert(align4_key, align4_info);
             
             // Both 8 bytes, but different alignments (8 vs 4)
-            let compatible = salt_front::codegen::type_bridge::prove_layout_compatibility(
+            let compatible = saltc::codegen::type_bridge::prove_layout_compatibility(
                 &ctx,
                 &Type::Struct("StructAlign8".to_string()),
                 &Type::Struct("StructAlign4".to_string())
@@ -711,11 +711,11 @@ mod tests {
         with_ctx!(ctx, {
             // A type should always be compatible with itself
             assert!(
-                salt_front::codegen::type_bridge::prove_layout_compatibility(&ctx, &Type::I64, &Type::I64),
+                saltc::codegen::type_bridge::prove_layout_compatibility(&ctx, &Type::I64, &Type::I64),
                 "i64 should be compatible with itself"
             );
             assert!(
-                salt_front::codegen::type_bridge::prove_layout_compatibility(&ctx, &Type::F64, &Type::F64),
+                saltc::codegen::type_bridge::prove_layout_compatibility(&ctx, &Type::F64, &Type::F64),
                 "f64 should be compatible with itself"
             );
         });

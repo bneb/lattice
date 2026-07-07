@@ -1,6 +1,6 @@
 
 fn check_compile(source: &str, should_pass: bool, error_pattern: Option<&str>, mlir_pattern: Option<&str>) -> Option<String> {
-    let res = salt_front::compile(source, false, None, true);
+    let res = saltc::compile(source, false, None, true);
     if should_pass {
         if let Err(e) = res {
             return Some(format!("Expected success but failed: {}", e));

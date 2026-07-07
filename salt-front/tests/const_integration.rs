@@ -13,7 +13,7 @@ fn test_const_global_compilation() {
     // Wait, cli.rs uses `run_cli`. `lib.rs` uses `compile`.
     
     // Let's use `compile`:
-    let res = salt_front::compile(&source, false, None, true);
+    let res = saltc::compile(&source, false, None, true);
     
     assert!(res.is_ok(), "Compilation failed: {:?}", res.err());
     let mlir_output = res.unwrap();
@@ -49,7 +49,7 @@ fn test_const_global_compilation() {
 fn test_const_exhaustive() {
     let source_path = "tests/cases/const_exhaustive.salt";
     let source = fs::read_to_string(source_path).expect("Failed to read test case");
-    let res = salt_front::compile(&source, false, None, true);
+    let res = saltc::compile(&source, false, None, true);
     
     // We expect success because all const expressions are valid
     assert!(res.is_ok(), "Exhaustive compilation failed: {:?}", res.err());

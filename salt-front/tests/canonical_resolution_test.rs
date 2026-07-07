@@ -2,7 +2,7 @@
 // Tests that struct literal tracing resolves FQNs via the Symbol Table,
 // not via string-matching heuristics.
 
-use salt_front::compile;
+use saltc::compile;
 
 /// TDD Test: Box::new(StructLiteral) must resolve to main__StructName
 /// without explicit type annotations.

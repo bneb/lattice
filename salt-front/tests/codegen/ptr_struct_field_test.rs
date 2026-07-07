@@ -9,10 +9,10 @@
 
 #[cfg(test)]
 mod tests {
-    use salt_front::codegen::context::CodegenContext;
-    use salt_front::types::{Type, TypeKey, Provenance};
-    use salt_front::grammar::SaltFile;
-    use salt_front::registry::StructInfo;
+    use saltc::codegen::context::CodegenContext;
+    use saltc::types::{Type, TypeKey, Provenance};
+    use saltc::grammar::SaltFile;
+    use saltc::registry::StructInfo;
     use std::collections::HashMap;
 
     macro_rules! with_ctx {
@@ -84,7 +84,7 @@ mod tests {
             let mut out = String::new();
             let target = ptr_ty(Type::I32);
 
-            let result = ctx.with_lowering_ctx(|lctx| salt_front::codegen::type_bridge::cast_numeric(
+            let result = ctx.with_lowering_ctx(|lctx| saltc::codegen::type_bridge::cast_numeric(
                 lctx, &mut out, "%addr", &Type::U64, &target
             ));
 
@@ -102,7 +102,7 @@ mod tests {
             let mut out = String::new();
             let target = ptr_ty(Type::Struct("Node".to_string()));
 
-            let result = ctx.with_lowering_ctx(|lctx| salt_front::codegen::type_bridge::cast_numeric(
+            let result = ctx.with_lowering_ctx(|lctx| saltc::codegen::type_bridge::cast_numeric(
                 lctx, &mut out, "%addr", &Type::I64, &target
             ));
 
@@ -124,7 +124,7 @@ mod tests {
             let mut out = String::new();
             let source = ptr_ty(Type::I32);
 
-            let result = ctx.with_lowering_ctx(|lctx| salt_front::codegen::type_bridge::cast_numeric(
+            let result = ctx.with_lowering_ctx(|lctx| saltc::codegen::type_bridge::cast_numeric(
                 lctx, &mut out, "%ptr", &source, &Type::U64
             ));
 
@@ -147,14 +147,14 @@ mod tests {
             let ptr = ptr_ty(Type::I64);
 
             // u64 → Ptr<i64>
-            let res1 = ctx.with_lowering_ctx(|lctx| salt_front::codegen::type_bridge::cast_numeric(
+            let res1 = ctx.with_lowering_ctx(|lctx| saltc::codegen::type_bridge::cast_numeric(
                 lctx, &mut out, "%addr", &Type::U64, &ptr
             ));
             assert!(res1.is_ok(), "u64 → Ptr should succeed");
             let ptr_var = res1.unwrap();
 
             // Ptr<i64> → u64
-            let res2 = ctx.with_lowering_ctx(|lctx| salt_front::codegen::type_bridge::cast_numeric(
+            let res2 = ctx.with_lowering_ctx(|lctx| saltc::codegen::type_bridge::cast_numeric(
                 lctx, &mut out, &ptr_var, &ptr, &Type::U64
             ));
             assert!(res2.is_ok(), "Ptr → u64 should succeed");
@@ -176,7 +176,7 @@ mod tests {
             let mut out = String::new();
             let target = ptr_ty(Type::I32);
 
-            let result = ctx.with_lowering_ctx(|lctx| salt_front::codegen::type_bridge::promote_numeric(
+            let result = ctx.with_lowering_ctx(|lctx| saltc::codegen::type_bridge::promote_numeric(
                 lctx, &mut out, "%val", &Type::U64, &target
             ));
 
@@ -199,7 +199,7 @@ mod tests {
             let mut out = String::new();
             let ptr = ptr_ty(Type::I32);
 
-            let result = ctx.with_lowering_ctx(|lctx| salt_front::codegen::type_bridge::promote_numeric(
+            let result = ctx.with_lowering_ctx(|lctx| saltc::codegen::type_bridge::promote_numeric(
                 lctx, &mut out, "%ptr", &ptr, &ptr
             ));
 

@@ -1,4 +1,4 @@
-use salt_front::cli::run_cli;
+use saltc::cli::run_cli;
 
 #[test]
 fn test_cli_usage() {

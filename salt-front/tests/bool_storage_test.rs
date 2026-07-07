@@ -2,7 +2,7 @@
 // Issue: Bool fields in structs were emitted as i1 instead of i8, causing
 // MLIR type mismatches when storing bool values to struct fields.
 
-use salt_front::compile;
+use saltc::compile;
 
 /// Test that bool fields in structs are correctly stored as i8
 #[test]

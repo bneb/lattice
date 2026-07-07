@@ -1,6 +1,6 @@
 // Additional evaluator tests to boost coverage
 #![allow(clippy::approx_constant)]
-use salt_front::evaluator::{Evaluator, ConstValue};
+use saltc::evaluator::{Evaluator, ConstValue};
 
 fn parse_expr(s: &str) -> syn::Expr {
     syn::parse_str(s).unwrap()

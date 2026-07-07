@@ -1,18 +1,18 @@
-use salt_front::codegen::context::CodegenContext;
-use salt_front::types::{Type, TypeKey};
-use salt_front::codegen::context::LocalKind;
-use salt_front::codegen::expr::{emit_expr, emit_path};
-use salt_front::codegen::stmt::{emit_stmt, emit_block};
-use salt_front::codegen::type_bridge::{resolve_type, resolve_codegen_type};
+use saltc::codegen::context::CodegenContext;
+use saltc::types::{Type, TypeKey};
+use saltc::codegen::context::LocalKind;
+use saltc::codegen::expr::{emit_expr, emit_path};
+use saltc::codegen::stmt::{emit_stmt, emit_block};
+use saltc::codegen::type_bridge::{resolve_type, resolve_codegen_type};
 use std::collections::{BTreeMap, HashMap};
-use salt_front::registry::StructInfo;
-use salt_front::grammar::SaltFile;
+use saltc::registry::StructInfo;
+use saltc::grammar::SaltFile;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 macro_rules! with_ctx {
     ($ctx:ident, $code:expr) => {
-        let mut file = salt_front::grammar::SaltFile {
+        let mut file = saltc::grammar::SaltFile {
             package: None,
             imports: vec![],
             items: vec![],
@@ -29,7 +29,7 @@ fn test_saturation_attack_salt_file() {
     let torture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/torture/coverage_torture.salt");
     let code = std::fs::read_to_string(torture_path).expect("Failed to read coverage_torture.salt");
     
-    let result = salt_front::compile(&code, false, None, true);
+    let result = saltc::compile(&code, false, None, true);
     match result {
         Ok(mlir) => {
             // Salt-opt verification if available
@@ -60,35 +60,35 @@ fn test_stmt_error_paths_saturation() {
 
         // 1. Non-bool while condition
         let code_while = "while 123 { }";
-        let stmt_while: salt_front::grammar::Stmt = syn::parse_str(code_while).unwrap();
+        let stmt_while: saltc::grammar::Stmt = syn::parse_str(code_while).unwrap();
         let res_while = emit_stmt(&ctx, &mut out, &stmt_while, &mut locals);
         assert!(res_while.is_err());
         assert!(res_while.unwrap_err().contains("While condition must be boolean"));
 
         // 2. Non-bool if condition
         let code_if = "if 123 { }";
-        let stmt_if: salt_front::grammar::Stmt = syn::parse_str(code_if).unwrap();
+        let stmt_if: saltc::grammar::Stmt = syn::parse_str(code_if).unwrap();
         let res_if = emit_stmt(&ctx, &mut out, &stmt_if, &mut locals);
         assert!(res_if.is_err());
         assert!(res_if.unwrap_err().contains("If condition must be boolean"));
 
         // 3. Continue outside loop
         let code_cont = "continue;";
-        let stmt_cont: salt_front::grammar::Stmt = syn::parse_str(code_cont).unwrap();
+        let stmt_cont: saltc::grammar::Stmt = syn::parse_str(code_cont).unwrap();
         let res_cont = emit_stmt(&ctx, &mut out, &stmt_cont, &mut locals);
         assert!(res_cont.is_err());
         assert!(res_cont.unwrap_err().contains("Continue outside of loop"));
 
         // 4. Break outside loop
         let code_break = "break;";
-        let stmt_break: salt_front::grammar::Stmt = syn::parse_str(code_break).unwrap();
+        let stmt_break: saltc::grammar::Stmt = syn::parse_str(code_break).unwrap();
         let res_break = emit_stmt(&ctx, &mut out, &stmt_break, &mut locals);
         assert!(res_break.is_err());
         assert!(res_break.unwrap_err().contains("Break outside of loop"));
 
         // 5. Tuple pattern length mismatch
         let code_tuple = "let (a, b) = (1, 2, 3);";
-        let stmt_tuple: salt_front::grammar::Stmt = syn::parse_str(code_tuple).unwrap();
+        let stmt_tuple: saltc::grammar::Stmt = syn::parse_str(code_tuple).unwrap();
         let res_tuple = emit_stmt(&ctx, &mut out, &stmt_tuple, &mut locals);
         assert!(res_tuple.is_err());
         assert!(res_tuple.unwrap_err().contains("Tuple pattern length mismatch"));
@@ -96,7 +96,7 @@ fn test_stmt_error_paths_saturation() {
         // 6. Unknown struct in pattern
         let code_struct = "let Unknown { x } = some_val;";
         locals.insert("some_val".to_string(), (Type::Struct("Unknown".to_string()), LocalKind::SSA("%v".to_string())));
-        let stmt_struct: salt_front::grammar::Stmt = syn::parse_str(code_struct).unwrap();
+        let stmt_struct: saltc::grammar::Stmt = syn::parse_str(code_struct).unwrap();
         let res_struct = emit_stmt(&ctx, &mut out, &stmt_struct, &mut locals);
         assert!(res_struct.is_err());
         assert!(res_struct.unwrap_err().contains("Unknown struct Unknown"));
@@ -105,7 +105,7 @@ fn test_stmt_error_paths_saturation() {
         let mut locals_ptr = BTreeMap::new();
         locals_ptr.insert("x".to_string(), (Type::I32, LocalKind::Ptr("%x_ptr".to_string())));
         let code_ptr = "let x = 10;";
-        let stmt_ptr: salt_front::grammar::Stmt = syn::parse_str(code_ptr).unwrap();
+        let stmt_ptr: saltc::grammar::Stmt = syn::parse_str(code_ptr).unwrap();
         let res_ptr = emit_stmt(&ctx, &mut out, &stmt_ptr, &mut locals_ptr);
         assert!(res_ptr.is_ok());
         assert!(out.contains("llvm.store"));
@@ -126,7 +126,7 @@ fn test_stmt_error_paths_saturation() {
             init: None,
             semi_token: Default::default(),
         };
-        let stmt_hoist = salt_front::grammar::Stmt::Syn(syn::Stmt::Local(manual_local));
+        let stmt_hoist = saltc::grammar::Stmt::Syn(syn::Stmt::Local(manual_local));
         let mut locals_hoist = BTreeMap::new();
         let res_hoist = emit_block(&ctx, &mut out, &[stmt_hoist], &mut locals_hoist);
         assert!(res_hoist.is_ok());
@@ -142,7 +142,7 @@ fn test_expr_error_paths_saturation() {
         let mut locals = BTreeMap::new();
 
         // 1. Package used as value
-        ctx.imports.borrow_mut().push(salt_front::grammar::ImportDecl {
+        ctx.imports.borrow_mut().push(saltc::grammar::ImportDecl {
             name: {
                 let mut p = syn::punctuated::Punctuated::new();
                 p.push(syn::Ident::new("std", proc_macro2::Span::call_site()));
@@ -188,7 +188,7 @@ fn test_expr_error_paths_saturation() {
 
         // 6. Unknown variant in match
         let key = TypeKey { path: vec![], name: "MyEnum".to_string(), specialization: None };
-        ctx.enum_registry_mut().insert(key, salt_front::registry::EnumInfo {
+        ctx.enum_registry_mut().insert(key, saltc::registry::EnumInfo {
             name: "MyEnum".to_string(),
             variants: vec![("V1".to_string(), None, 0)],
             max_payload_size: 0,
@@ -223,7 +223,7 @@ fn test_expr_error_paths_saturation() {
 
         // 11. Stmt::Return
         let code_ret = "return 123;";
-        let stmt_ret: salt_front::grammar::Stmt = syn::parse_str(code_ret).unwrap();
+        let stmt_ret: saltc::grammar::Stmt = syn::parse_str(code_ret).unwrap();
         ctx.current_ret_ty.borrow_mut().replace(Type::I32);
         let res_ret = emit_stmt(&ctx, &mut out, &stmt_ret, &mut locals);
         assert!(res_ret.is_ok());
@@ -231,37 +231,37 @@ fn test_expr_error_paths_saturation() {
 
         // 12. Stmt::Unsafe
         let code_unsafe = "unsafe { let x = 1; }";
-        let stmt_unsafe: salt_front::grammar::Stmt = syn::parse_str(code_unsafe).unwrap();
+        let stmt_unsafe: saltc::grammar::Stmt = syn::parse_str(code_unsafe).unwrap();
         let res_unsafe = emit_stmt(&ctx, &mut out, &stmt_unsafe, &mut locals);
         assert!(res_unsafe.is_ok());
 
         // 13. Stmt::For with no start/end
         let code_for_no_start = "for i in ..10 { }";
-        let stmt_for: salt_front::grammar::Stmt = syn::parse_str(code_for_no_start).unwrap();
+        let stmt_for: saltc::grammar::Stmt = syn::parse_str(code_for_no_start).unwrap();
         let res_for = emit_stmt(&ctx, &mut out, &stmt_for, &mut locals);
         assert!(res_for.is_ok());
 
         // 14. Nested SaltElse::If
         let code_else_if = "if true { } else if false { } else { }";
-        let stmt_else_if: salt_front::grammar::Stmt = syn::parse_str(code_else_if).unwrap();
+        let stmt_else_if: saltc::grammar::Stmt = syn::parse_str(code_else_if).unwrap();
         let res_else_if = emit_stmt(&ctx, &mut out, &stmt_else_if, &mut locals);
         assert!(res_else_if.is_ok());
 
         // 15. emit_cleanup_for_return with Type::Owned
         let mut locals_owned = BTreeMap::new();
         locals_owned.insert("pkg_ptr".to_string(), (Type::Owned(Box::new(Type::I32)), LocalKind::Ptr("%ptr".to_string())));
-        let res_cleanup = salt_front::codegen::stmt::emit_cleanup_for_return(&ctx, &mut out, &locals_owned);
+        let res_cleanup = saltc::codegen::stmt::emit_cleanup_for_return(&ctx, &mut out, &locals_owned);
         assert!(res_cleanup.is_ok());
         assert!(out.contains("salt.drop"));
         // 16. Stmt::For with open-ended ranges (Error case)
         let code_for_no_end = "for i in 0.. { }";
-        let stmt_for_no_end: salt_front::grammar::Stmt = syn::parse_str(code_for_no_end).unwrap();
+        let stmt_for_no_end: saltc::grammar::Stmt = syn::parse_str(code_for_no_end).unwrap();
         let res_for_no_end = emit_stmt(&ctx, &mut out, &stmt_for_no_end, &mut locals);
         assert!(res_for_no_end.is_err());
         assert!(res_for_no_end.unwrap_err().contains("Infinite for-loops not supported yet"));
 
         // 17. Constant lookup in emit_expr (with package prefix)
-        ctx.imports.borrow_mut().push(salt_front::grammar::ImportDecl {
+        ctx.imports.borrow_mut().push(saltc::grammar::ImportDecl {
             name: {
                 let mut p = syn::punctuated::Punctuated::new();
                 p.push(syn::Ident::new("std", proc_macro2::Span::call_site()));
@@ -270,7 +270,7 @@ fn test_expr_error_paths_saturation() {
             alias: None,
             group: None,
         });
-        ctx.evaluator.borrow_mut().constant_table.insert("std__MY_CONST".to_string(), salt_front::evaluator::ConstValue::Integer(42));
+        ctx.evaluator.borrow_mut().constant_table.insert("std__MY_CONST".to_string(), saltc::evaluator::ConstValue::Integer(42));
         let expr_const: syn::Expr = syn::parse_str("std.MY_CONST").unwrap();
         let res_const = emit_expr(&ctx, &mut out, &expr_const, &mut locals, None);
         assert!(res_const.is_ok());
@@ -282,13 +282,13 @@ fn test_expr_error_paths_saturation() {
 
         // 20. Stmt::For with pulse(off)
         let code_for_off = "@pulse(off) for i in 0..10 { }";
-        let stmt_for_off: salt_front::grammar::Stmt = syn::parse_str(code_for_off).unwrap();
+        let stmt_for_off: saltc::grammar::Stmt = syn::parse_str(code_for_off).unwrap();
         let res_for_off = emit_stmt(&ctx, &mut out, &stmt_for_off, &mut locals);
         assert!(res_for_off.is_ok());
 
         // 21. Successful Try operator on Result enum
         let key = TypeKey { path: vec![], name: "Result_i32".to_string(), specialization: None };
-        ctx.enum_registry_mut().insert(key, salt_front::registry::EnumInfo {
+        ctx.enum_registry_mut().insert(key, saltc::registry::EnumInfo {
             name: "Result_i32".to_string(),
             variants: vec![
                 ("Ok".to_string(), Some(Type::I32), 0),
@@ -306,7 +306,7 @@ fn test_expr_error_paths_saturation() {
 
         // 22. Struct name canonicalization in to_mlir_type
         let key = TypeKey { path: vec!["std".to_string()], name: "MyStruct".to_string(), specialization: None };
-        ctx.struct_registry_mut().insert(key, salt_front::registry::StructInfo {
+        ctx.struct_registry_mut().insert(key, saltc::registry::StructInfo {
             name: "std.MyStruct".to_string(),
             fields: HashMap::new(),
             field_order: vec![],
@@ -348,7 +348,7 @@ fn test_expr_error_paths_saturation() {
         // 27. Stmt::Return(Some) with promotion
         *ctx.current_ret_ty.borrow_mut() = Some(Type::I64);
         let code_ret = "salt_return 1;";
-        let stmt_ret: salt_front::grammar::Stmt = syn::parse_str(code_ret).unwrap();
+        let stmt_ret: saltc::grammar::Stmt = syn::parse_str(code_ret).unwrap();
         let res_ret = emit_stmt(&ctx, &mut out, &stmt_ret, &mut locals);
         assert!(res_ret.is_ok());
         assert!(out.contains("func.return"));
@@ -357,14 +357,14 @@ fn test_expr_error_paths_saturation() {
         // 28. Stmt::Return(None)
         *ctx.current_ret_ty.borrow_mut() = None;
         let code_ret_none = "salt_return;";
-        let stmt_ret_none: salt_front::grammar::Stmt = syn::parse_str(code_ret_none).unwrap();
+        let stmt_ret_none: saltc::grammar::Stmt = syn::parse_str(code_ret_none).unwrap();
         let res_ret_none = emit_stmt(&ctx, &mut out, &stmt_ret_none, &mut locals);
         assert!(res_ret_none.is_ok());
 
         // 29. Stmt::Invariant
         locals.insert("i".to_string(), (Type::I32, LocalKind::SSA("%i".to_string())));
         let code_inv = "invariant i < 10;";
-        let stmt_inv: salt_front::grammar::Stmt = syn::parse_str(code_inv).unwrap();
+        let stmt_inv: saltc::grammar::Stmt = syn::parse_str(code_inv).unwrap();
         let res_inv = emit_stmt(&ctx, &mut out, &stmt_inv, &mut locals);
         assert!(res_inv.is_ok());
         assert!(out.contains("salt.verify"));
@@ -372,8 +372,8 @@ fn test_expr_error_paths_saturation() {
         // 30. Stmt::Break / Stmt::Continue
         ctx.break_labels.borrow_mut().push("break_target".to_string());
         ctx.continue_labels.borrow_mut().push("continue_target".to_string());
-        let res_break = emit_stmt(&ctx, &mut out, &salt_front::grammar::Stmt::Break, &mut locals);
-        let res_continue = emit_stmt(&ctx, &mut out, &salt_front::grammar::Stmt::Continue, &mut locals);
+        let res_break = emit_stmt(&ctx, &mut out, &saltc::grammar::Stmt::Break, &mut locals);
+        let res_continue = emit_stmt(&ctx, &mut out, &saltc::grammar::Stmt::Continue, &mut locals);
         assert!(res_break.is_ok());
         assert!(res_continue.is_ok());
         ctx.break_labels.borrow_mut().pop();
@@ -381,7 +381,7 @@ fn test_expr_error_paths_saturation() {
 
         // 31. Stmt::Unsafe
         let code_unsafe = "unsafe { let x = 1; }";
-        let stmt_unsafe: salt_front::grammar::Stmt = syn::parse_str(code_unsafe).unwrap();
+        let stmt_unsafe: saltc::grammar::Stmt = syn::parse_str(code_unsafe).unwrap();
         let res_unsafe = emit_stmt(&ctx, &mut out, &stmt_unsafe, &mut locals);
         assert!(res_unsafe.is_ok());
 
@@ -400,7 +400,7 @@ fn test_expr_extreme_paths_saturation() {
 
         // 1. Try (?) operator on Result
         let key = TypeKey { path: vec![], name: "Result_i32".to_string(), specialization: None };
-        ctx.enum_registry_mut().insert(key, salt_front::registry::EnumInfo {
+        ctx.enum_registry_mut().insert(key, saltc::registry::EnumInfo {
             name: "Result_i32".to_string(),
             variants: vec![
                 ("Ok".to_string(), Some(Type::I32), 0),
@@ -438,8 +438,8 @@ fn test_expr_extreme_paths_saturation() {
         assert_eq!(res_hex.unwrap().1, Type::I32);
 
         // 6. Bool and Float constants in emit_expr
-        ctx.evaluator.borrow_mut().constant_table.insert("MY_BOOL".to_string(), salt_front::evaluator::ConstValue::Bool(true));
-        ctx.evaluator.borrow_mut().constant_table.insert("MY_FLOAT".to_string(), salt_front::evaluator::ConstValue::Float(3.14));
+        ctx.evaluator.borrow_mut().constant_table.insert("MY_BOOL".to_string(), saltc::evaluator::ConstValue::Bool(true));
+        ctx.evaluator.borrow_mut().constant_table.insert("MY_FLOAT".to_string(), saltc::evaluator::ConstValue::Float(3.14));
         let _res_bool = emit_expr(&ctx, &mut out, &syn::parse_str("MY_BOOL").unwrap(), &mut locals, None);
         let _res_float = emit_expr(&ctx, &mut out, &syn::parse_str("MY_FLOAT").unwrap(), &mut locals, None);
         assert!(_res_bool.is_ok());
@@ -461,7 +461,7 @@ fn test_expr_extreme_paths_saturation() {
 
         // 10. Match with TupleStruct pattern (payload)
         let key = TypeKey { path: vec![], name: "PayloadEnum".to_string(), specialization: None };
-        ctx.enum_registry_mut().insert(key, salt_front::registry::EnumInfo {
+        ctx.enum_registry_mut().insert(key, saltc::registry::EnumInfo {
             name: "PayloadEnum".to_string(),
             variants: vec![("V1".to_string(), Some(Type::I32), 0)],
             max_payload_size: 4,
@@ -481,7 +481,7 @@ fn test_expr_extreme_paths_saturation() {
 
         // 12. Reference to Struct field
         let key = TypeKey { path: vec![], name: "Point".to_string(), specialization: None };
-        ctx.struct_registry_mut().insert(key, salt_front::registry::StructInfo {
+        ctx.struct_registry_mut().insert(key, saltc::registry::StructInfo {
             name: "Point".to_string(),
             fields: vec![("x".to_string(), (0, Type::I32))].into_iter().collect(),
             field_order: vec![Type::I32],
@@ -518,7 +518,7 @@ fn test_expr_extreme_paths_saturation() {
         // 16. Float Assignment Operators
         locals.insert("f".to_string(), (Type::F64, LocalKind::Ptr("%f_ptr".to_string())));
         let code_f_add = "f += 1.0;";
-        let stmt_f_add: salt_front::grammar::Stmt = syn::parse_str(code_f_add).unwrap();
+        let stmt_f_add: saltc::grammar::Stmt = syn::parse_str(code_f_add).unwrap();
         let res_f_add = emit_stmt(&ctx, &mut out, &stmt_f_add, &mut locals);
         assert!(res_f_add.is_ok());
 
@@ -556,7 +556,7 @@ fn test_expr_extreme_paths_saturation() {
 
         // 23. resolve_codegen_type self-type
         *ctx.current_self_ty.borrow_mut() = Some(Type::I32);
-        let res_self = salt_front::codegen::type_bridge::resolve_codegen_type(&ctx, &Type::SelfType);
+        let res_self = saltc::codegen::type_bridge::resolve_codegen_type(&ctx, &Type::SelfType);
         assert_eq!(res_self, Type::I32);
 
         // 24. reinterpret_cast (aggregate spill)

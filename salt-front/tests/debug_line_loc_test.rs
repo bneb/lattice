@@ -10,8 +10,8 @@
 // Pillar 3: Zero-cost — when debug_info is false, no loc annotations appear.
 // =============================================================================
 
-use salt_front::codegen::emit_mlir;
-use salt_front::grammar::SaltFile;
+use saltc::codegen::emit_mlir;
+use saltc::grammar::SaltFile;
 
 /// Helper: compile Salt source with debug info enabled.
 /// Returns the MLIR string on success.

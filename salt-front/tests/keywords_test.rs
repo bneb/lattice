@@ -1,6 +1,6 @@
 // Smoke tests for Salt custom keywords: fn, struct, package, requires, ensures.
 
-use salt_front::compile;
+use saltc::compile;
 
 #[test]
 fn test_package_and_fn_keyword() {

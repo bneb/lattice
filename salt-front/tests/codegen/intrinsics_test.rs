@@ -1,8 +1,8 @@
 // Unit tests for println/print intrinsic implementation
 // Tests cover: Early intrinsic intercept, format string parsing, type dispatch, string literals
 
-use salt_front::codegen::emit_mlir;
-use salt_front::grammar::SaltFile;
+use saltc::codegen::emit_mlir;
+use saltc::grammar::SaltFile;
 
 // =============================================================================
 // Test 1: Basic println emits __salt_print_literal hook

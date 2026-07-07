@@ -1,4 +1,4 @@
-use salt_front::compile;
+use saltc::compile;
 
 // ============================================================================
 // Fix 1: SSA Dominance — GlobalLVN Snapshot Isolation
@@ -8,7 +8,7 @@ use salt_front::compile;
 fn test_global_lvn_snapshot_unit() {
     // Unit test: push_snapshot / pop_snapshot round-trip.
     // Values cached inside a snapshot must be discarded after pop.
-    use salt_front::codegen::types::provenance::GlobalLVN;
+    use saltc::codegen::types::provenance::GlobalLVN;
 
     let mut lvn = GlobalLVN::new();
     lvn.set_current_function("test_fn".to_string());
@@ -37,7 +37,7 @@ fn test_global_lvn_snapshot_unit() {
 #[test]
 fn test_global_lvn_nested_snapshots() {
     // Nested snapshots (if/else inside if/else) must restore correctly.
-    use salt_front::codegen::types::provenance::GlobalLVN;
+    use saltc::codegen::types::provenance::GlobalLVN;
 
     let mut lvn = GlobalLVN::new();
     lvn.set_current_function("nested_fn".to_string());

@@ -1,6 +1,6 @@
 // Grammar coverage tests - exercising parsing paths
 
-use salt_front::compile;
+use saltc::compile;
 
 // =============================================================================
 // Parsing different constructs

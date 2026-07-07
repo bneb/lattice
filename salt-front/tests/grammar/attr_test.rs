@@ -1,7 +1,7 @@
 // Comprehensive Attribute Tests for grammar/attr.rs coverage
 // Tests all attribute parsing functions - only @ decorator syntax supported
 
-use salt_front::grammar::attr::{Attribute, PulseSpec, extract_pulse, parse_attributes};
+use saltc::grammar::attr::{Attribute, PulseSpec, extract_pulse, parse_attributes};
 
 // =============================================================================
 // Attribute parsing tests
@@ -136,7 +136,7 @@ fn test_extract_align_with_value() {
     let attr1: Attribute = syn::parse_str("@align(64)").unwrap();
     let attrs = vec![attr1];
     
-    let result = salt_front::grammar::attr::extract_align(&attrs);
+    let result = saltc::grammar::attr::extract_align(&attrs);
     assert_eq!(result, Some(64));
 }
 
@@ -145,6 +145,6 @@ fn test_extract_align_no_attribute() {
     let attr1: Attribute = syn::parse_str("@hot").unwrap();
     let attrs = vec![attr1];
     
-    let result = salt_front::grammar::attr::extract_align(&attrs);
+    let result = saltc::grammar::attr::extract_align(&attrs);
     assert_eq!(result, None);
 }

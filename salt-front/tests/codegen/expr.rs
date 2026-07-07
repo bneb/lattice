@@ -1,6 +1,6 @@
-use salt_front::compile;
-use salt_front::registry::{Registry, ModuleInfo};
-use salt_front::types::Type;
+use saltc::compile;
+use saltc::registry::{Registry, ModuleInfo};
+use saltc::types::Type;
 
 #[test]
 fn test_struct_equality() {

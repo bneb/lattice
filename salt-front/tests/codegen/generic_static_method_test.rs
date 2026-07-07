@@ -38,7 +38,7 @@ fn test_generic_static_method_called_twice() {
             return a.len as i32 + b.len as i32;
         }
     "#;
-    let result = salt_front::compile(code, false, None, true);
+    let result = saltc::compile(code, false, None, true);
     assert!(result.is_ok(), "Second Slice::new call failed (import clobbering bug): {:?}", result.err());
 }
 
@@ -62,7 +62,7 @@ fn test_generic_static_method_different_type_params() {
             return a.len as i32;
         }
     "#;
-    let result = salt_front::compile(code, false, None, true);
+    let result = saltc::compile(code, false, None, true);
     assert!(result.is_ok(), "Different type param calls failed: {:?}", result.err());
 }
 
@@ -86,7 +86,7 @@ fn test_generic_static_method_called_three_times() {
             return a.size as i32;
         }
     "#;
-    let result = salt_front::compile(code, false, None, true);
+    let result = saltc::compile(code, false, None, true);
     assert!(result.is_ok(), "Third call failed (import clobbering persists): {:?}", result.err());
 }
 
@@ -110,7 +110,7 @@ fn test_non_generic_static_method_from_package() {
             return a.result + b.result;
         }
     "#;
-    let result = salt_front::compile(code, false, None, true);
+    let result = saltc::compile(code, false, None, true);
     assert!(result.is_ok(), "Non-generic static method failed: {:?}", result.err());
 }
 
@@ -134,7 +134,7 @@ fn test_fqn_resolution_in_mlir_output() {
             return 0;
         }
     "#;
-    let result = salt_front::compile(code, false, None, true);
+    let result = saltc::compile(code, false, None, true);
     assert!(result.is_ok(), "Compilation failed: {:?}", result.err());
     
     let mlir = result.unwrap();

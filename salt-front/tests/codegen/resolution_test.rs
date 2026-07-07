@@ -1,6 +1,6 @@
-use salt_front::codegen::context::CodegenContext;
-use salt_front::grammar::SaltFile;
-use salt_front::types::{Type, TypeKey};
+use saltc::codegen::context::CodegenContext;
+use saltc::grammar::SaltFile;
+use saltc::types::{Type, TypeKey};
 
 #[test]
 fn test_enum_result_resolution() {
@@ -17,7 +17,7 @@ fn test_enum_result_resolution() {
         }
     "#;
     let mut file: SaltFile = syn::parse_str(src).unwrap();
-    let res = salt_front::codegen::emit_mlir(&mut file, false, None, false, true, false, false, false, false, "");
+    let res = saltc::codegen::emit_mlir(&mut file, false, None, false, true, false, false, false, false, "");
     assert!(res.is_ok(), "Enum resolution failed via codegen_file entry point: {:?}", res.err());
     
     // Check for correct mangling in output
@@ -47,9 +47,9 @@ fn test_scope_merging_generic_leak() {
     // Wait, SaltFile is usually aliased or used? 
     // In resolution_tests.rs line 19: `let mut file: SaltFile = syn::parse_str(src).unwrap();`
     // SaltFile might be `crate::grammar::SaltFile`.
-    let file: salt_front::grammar::SaltFile = syn::parse_str(src).expect("Failed to parse test source");
+    let file: saltc::grammar::SaltFile = syn::parse_str(src).expect("Failed to parse test source");
 
-    let res = salt_front::codegen::emit_mlir(&mut file, false, None, false, true, false, false, false, false, "");
+    let res = saltc::codegen::emit_mlir(&mut file, false, None, false, true, false, false, false, false, "");
     
     // P0: MUST NOT PANIC and MUST NOT ERROR with "Generic Leak Detected"
     assert!(res.is_ok(), "Compilation failed: {:?}", res.err());
@@ -77,13 +77,13 @@ fn test_scope_merging_generic_leak() {
 
 #[test]
 fn test_self_hydration_invariant() {
-    use salt_front::codegen::{CodegenContext, GenericContextGuard};
-    use salt_front::types::Type;
+    use saltc::codegen::{CodegenContext, GenericContextGuard};
+    use saltc::types::Type;
     use std::collections::{BTreeMap, HashMap};
 
     // 1. Setup: Create a generic context
     let src = ""; 
-    let mut file = syn::parse_str::<salt_front::grammar::SaltFile>(src).unwrap_or(salt_front::grammar::SaltFile { package: None, items: vec![], imports: vec![] });
+    let mut file = syn::parse_str::<saltc::grammar::SaltFile>(src).unwrap_or(saltc::grammar::SaltFile { package: None, items: vec![], imports: vec![] });
     let z3_cfg = z3::Config::new();
     let z3_ctx = z3::Context::new(&z3_cfg);
     let mut ctx = CodegenContext::new(&file, false, None, &z3_ctx);
@@ -95,7 +95,7 @@ fn test_self_hydration_invariant() {
     // 3. Scenario: We are specializing Vec for u8
     // FIX: Populate struct_templates so hydration logic works
     {
-        use salt_front::grammar::{Generics, GenericParam, StructDef};
+        use saltc::grammar::{Generics, GenericParam, StructDef};
         use syn::{Ident, Token};
         use proc_macro2::Span;
         use syn::punctuated::Punctuated;
@@ -137,7 +137,7 @@ fn test_self_hydration_invariant() {
 
         // 5. Test: Resolve 'Self'
         // We simulate the failure mode: resolve_Type::SelfType
-        let resolved_self = salt_front::codegen::type_bridge::resolve_codegen_type(&ctx, &Type::SelfType);
+        let resolved_self = saltc::codegen::type_bridge::resolve_codegen_type(&ctx, &Type::SelfType);
 
         // ASSERTION: Self must be Vec<u8>, not just 'Vec' or 'T'
         assert_eq!(
@@ -148,7 +148,7 @@ fn test_self_hydration_invariant() {
 
         // 6. Test: Resolve 'T'
         // T should resolve to U8 (This usually works, but verifying map presence)
-        let resolved_t = salt_front::codegen::type_bridge::resolve_codegen_type(&ctx, &Type::Struct("T".to_string()));
+        let resolved_t = saltc::codegen::type_bridge::resolve_codegen_type(&ctx, &Type::Struct("T".to_string()));
          assert_eq!(resolved_t, Type::U8);
     }
 }

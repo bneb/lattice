@@ -1,7 +1,7 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use salt_front::fuzz_ast::FuzzSaltFile;
-use salt_front::codegen::emit_mlir;
+use saltc::fuzz_ast::FuzzSaltFile;
+use saltc::codegen::emit_mlir;
 
 fuzz_target!(|fuzz_file: FuzzSaltFile| {
     let salt_file = fuzz_file.to_salt();

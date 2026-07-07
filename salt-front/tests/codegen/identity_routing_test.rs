@@ -8,8 +8,8 @@
 
 #[cfg(test)]
 mod tests {
-    use salt_front::registry::StructInfo;
-    use salt_front::types::Type;
+    use saltc::registry::StructInfo;
+    use saltc::types::Type;
     use std::collections::HashMap;
     
     // ============================================================================
@@ -105,7 +105,7 @@ mod tests {
     
     #[test]
     fn test_typeid_registry_register_and_lookup() {
-        use salt_front::codegen::types::TypeIDRegistry;
+        use saltc::codegen::types::TypeIDRegistry;
         
         let mut registry = TypeIDRegistry::new();
         let id = registry.register("MyStruct");
@@ -118,7 +118,7 @@ mod tests {
     
     #[test]
     fn test_typeid_registry_same_name_same_id() {
-        use salt_front::codegen::types::TypeIDRegistry;
+        use saltc::codegen::types::TypeIDRegistry;
         
         let mut registry = TypeIDRegistry::new();
         let id1 = registry.register("TestType");
@@ -129,7 +129,7 @@ mod tests {
     
     #[test]
     fn test_typeid_registry_different_names_different_ids() {
-        use salt_front::codegen::types::TypeIDRegistry;
+        use saltc::codegen::types::TypeIDRegistry;
         
         let mut registry = TypeIDRegistry::new();
         let id1 = registry.register("TypeA");

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
-use salt_front::types::Type;
-use salt_front::types::TypeKey;
-use salt_front::registry::StructInfo;
+use saltc::types::Type;
+use saltc::types::TypeKey;
+use saltc::registry::StructInfo;
 
 #[test]
 fn test_specialized_concrete_layout() {
@@ -177,7 +177,7 @@ fn test_empty_tuple() {
 
 #[test]
 fn test_from_syn_comprehensive() {
-    use salt_front::grammar::SynType;
+    use saltc::grammar::SynType;
     
     // Empty tuple -> Unit
     let syn_ty: syn::Type = syn::parse_str("()").unwrap();

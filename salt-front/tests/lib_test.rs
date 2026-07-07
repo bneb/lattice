@@ -1,6 +1,6 @@
 // Lib function coverage tests
 
-use salt_front::compile;
+use saltc::compile;
 
 #[test]
 fn test_compile_empty_file() {

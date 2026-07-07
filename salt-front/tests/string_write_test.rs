@@ -14,9 +14,9 @@
 // All tests run through: preprocess → parse → emit_mlir
 // =============================================================================
 
-use salt_front::preprocess;
-use salt_front::codegen::emit_mlir;
-use salt_front::grammar::SaltFile;
+use saltc::preprocess;
+use saltc::codegen::emit_mlir;
+use saltc::grammar::SaltFile;
 
 fn compile_salt(src: &str) -> Result<String, String> {
     let preprocessed = preprocess(src);

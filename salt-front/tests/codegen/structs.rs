@@ -1,4 +1,4 @@
-use salt_front::compile;
+use saltc::compile;
 
 #[test]
 fn test_nested_struct() {

@@ -1,4 +1,4 @@
-use salt_front::compile;
+use saltc::compile;
 
 #[test]
 fn test_use_after_free_fails_to_compile() {

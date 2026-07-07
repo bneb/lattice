@@ -1,9 +1,9 @@
 
 #[cfg(test)]
 mod tests {
-    use salt_front::codegen::context::{StringInterner, CodegenContext};
-    use salt_front::grammar::SaltFile;
-    use salt_front::types::Type;
+    use saltc::codegen::context::{StringInterner, CodegenContext};
+    use saltc::grammar::SaltFile;
+    use saltc::types::Type;
     use std::rc::Rc;
     // use std::collections::{BTreeMap, HashMap}; // unused
 

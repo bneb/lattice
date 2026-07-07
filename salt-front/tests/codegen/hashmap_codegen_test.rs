@@ -21,10 +21,10 @@
 #[cfg(test)]
 mod hashmap_codegen_tests {
     #[allow(unused_imports)]
-    use salt_front::codegen::context::CodegenContext;
+    use saltc::codegen::context::CodegenContext;
     #[allow(unused_imports)]
-    use salt_front::grammar::SaltFile;
-    use salt_front::types::{Type, Provenance};
+    use saltc::grammar::SaltFile;
+    use saltc::types::{Type, Provenance};
 
     #[allow(unused_macros)]
     macro_rules! with_ctx {

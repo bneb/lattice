@@ -1,5 +1,5 @@
 // Smoke tests for the Z3 verification module
-use salt_front::z3_shim;
+use saltc::z3_shim;
 
 #[test]
 fn test_z3_context_creation() {

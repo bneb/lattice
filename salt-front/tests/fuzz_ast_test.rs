@@ -1,6 +1,6 @@
 // Integration smoke tests for fuzz_ast: FuzzSaltFile, FuzzFn, FuzzType, and AST generation.
 
-use salt_front::fuzz_ast::{FuzzSaltFile, FuzzFn, FuzzBlock, FuzzType};
+use saltc::fuzz_ast::{FuzzSaltFile, FuzzFn, FuzzBlock, FuzzType};
 
 #[test]
 fn test_fuzz_file_with_multiple_fns() {

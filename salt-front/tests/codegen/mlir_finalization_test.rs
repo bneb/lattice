@@ -8,7 +8,7 @@
 
 #[cfg(test)]
 mod tests {
-    use salt_front::codegen::phases::emission::{EmissionState, normalize_type_name_for_mlir};
+    use saltc::codegen::phases::emission::{EmissionState, normalize_type_name_for_mlir};
     
     // ============================================================================
     // Test: normalize_type_name_for_mlir
