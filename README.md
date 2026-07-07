@@ -1,161 +1,31 @@
-# Salt
+# Lattice
 
-**A systems language with Z3-powered compile-time verification.** Write `requires`/`ensures` contracts — the compiler proves them with Z3. Provable checks have zero runtime cost; the rest become runtime assertions as a safe fallback. Arena memory, MLIR codegen. No GC, no borrow checker, no lifetime annotations.
+**The Lattice project has been split into standalone repositories.** This
+monorepo is preserved as a historical reference and index.
 
-[![CI](https://github.com/bneb/lattice/actions/workflows/ci.yml/badge.svg)](https://github.com/bneb/lattice/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/bneb/lattice/releases/tag/v1.0.0)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+## Projects
 
-```salt
-package main
+| Repository | Description |
+|------------|-------------|
+| **[salt](https://github.com/bneb/salt)** | The Salt programming language — systems programming with Z3-powered compile-time verification |
+| **[keuos](https://github.com/bneb/keuos)** | KeuOS microkernel — SMP, SPSC IPC, TCP stack, arena memory, Ring 3 userspace |
+| **[basalt](https://github.com/bneb/basalt)** | Llama 2 inference in 1,600 lines of Salt — 920 tok/s, Z3-verified kernels, WASM |
+| **[lettuce](https://github.com/bneb/lettuce)** | Redis-compatible server in 314 lines of Salt with Z3-proven buffer bounds |
+| **[facet](https://github.com/bneb/facet)** | GPU 2D compositor in Salt — Metal backend, matches C performance |
+| **[lattice-ecs](https://github.com/bneb/lattice-ecs)** | Entity Component System for Rust — no_std, used by KeuOS |
 
-use std.core.result.Result
+## Why the split?
 
-fn binary_search(arr: &[i64; 5], target: i64) -> Result<i64>
-{
-    let mut lo: i64 = 0;
-    let mut hi: i64 = 4;
-    while lo <= hi {
-        let mid = (lo + hi) / 2;
-        if arr[mid] == target { return Result::Ok(mid); }
-        if arr[mid] < target { lo = mid + 1; }
-        else { hi = mid - 1; }
-    }
-    return Result::Err(Status::from_code(5)); // NOT_FOUND
-}
+The monorepo served its purpose during initial development, but each project
+deserves its own identity, issue tracker, and release cadence. Salt is a
+language. KeuOS is an OS. Basalt is an ML inference engine. They're different
+things with different audiences.
 
-pub fn main() -> i32 {
-    let data: [i64; 5] = [1, 3, 5, 7, 9];
-    match binary_search(&data, 5) {
-        Result::Ok(idx) => { return idx as i32; }
-        Result::Err(_) => { return -1; }
-    }
-}
-```
+## History
 
-Z3 proves array bounds at compile time and elides the check. With loop induction variables, Z3 elides bounds checks for the entire loop body. The `Result::Err` path returns `NOT_FOUND` instead of a sentinel value.
-
----
-
-## Getting started
-
-```bash
-git clone https://github.com/bneb/lattice.git
-cd lattice
-make setup              # Install dependencies (once)
-make build              # Build the compiler (~2 min)
-make test               # All compiler unit tests pass (1323+)
-make lettuce-verify     # Z3 contract verification tests pass
-make bench              # LETTUCE vs Redis comparison
-```
-
-Prerequisites: Rust 1.75+, Z3 4.12+ (`brew install z3`), LLVM 21+ (`brew install llvm@21`), QEMU (`brew install qemu`).
-
-Your first Salt program:
-
-```salt
-// hello.salt
-package main
-
-fn main() -> i32 {
-    println("Hello, Salt!");
-    return 0;
-}
-```
-
-```bash
-salt-front hello.salt --lib --disable-alias-scopes -o /tmp/hello && /tmp/hello
-```
-
-[Full tutorial →](docs/tutorial/your-first-verified-program.md) — build a verified key-value store in 15 minutes.
-
----
-
-## Architecture
-
-```
-Salt Source (.salt)
-    │
-    ▼
-Parser → Type Checker → Z3 Verifier → MLIR Emitter    [salt-front/]
-    │
-    ▼
-mlir-opt → mlir-translate → LLVM IR → clang -O3       [LLVM backend]
-    │
-    ▼
-KeuOS Kernel: boot.S → kmain → Drivers → Ring 3        [kernel/]
-    │
-    ▼
-User Programs: LETTUCE, Basalt, FACET, NetD            [user/]
-```
-
-[Full architecture reference →](docs/ARCH.md)
-
-## What's here
-
-| | |
-|---|---|
-| `salt-front/` | Compiler (Rust → MLIR → LLVM → native) |
-| `salt-front/std/` | Standard library (arenas, collections, networking, I/O) |
-| `kernel/` | KeuOS microkernel — SMP, SPSC IPC, TCP stack, Ring 3 daemons |
-| `user/` | User-space programs (echo_server, fetch, NetD, FACET) |
-| `docs/` | [Documentation](docs/) — tutorials, blog, specs, deep-dives |
-| `tools/salt-lsp/` | LSP server (VS Code extension) |
-
-## Built with Salt
-
-| Project | What it is | Lines |
-|---------|-----------|-------|
-| [KeuOS](kernel/) | Microkernel — 16-core SMP, SPSC IPC, Ring 3 daemons | — |
-| [LETTUCE](lettuce/) | Redis-compatible server — leads Redis at every concurrency level | ~1500 |
-| [Basalt](basalt/) | Llama 2 inference engine | ~600 |
-| [FACET](user/facet/) | GPU-accelerated 2D compositor with Metal shaders | — |
-
----
-
-## Verification
-
-Salt embeds Z3 as a compiler pass. Functions carry `requires` and `ensures` clauses. The compiler translates them to Z3 formulas and checks them during normal compilation.
-
-**UNSAT** — the condition always holds. The check is elided. Zero instructions.
-
-**SAT** — Z3 found a counterexample. You get the specific values before your program runs.
-
-**TIMEOUT** — Z3 cannot decide within 100ms. A runtime assertion is emitted. Your program still compiles and runs.
-
-Verification is progressive: add the contracts you can prove today. The rest become runtime checks you can address later.
-
-After compilation, Salt reports proof coverage:
-```
-Z3: 10/24 checks proven (41%), 14 deferred to runtime
-```
-
-Salt also provides automatic optimizations: the `@` operator on `Tensor` types emits cache-tiled matrix multiplication with L1-sized blocks. On M4 Pro at 2048×2048 f64, Salt's tiled matmul runs in 1.06s vs. hand-tuned C at 1.12s (5.6% faster). [Benchmarks →](benchmarks/BENCHMARKS_E2E.md)
-
-## Performance
-
-LETTUCE, a 314-line Salt server implementing 9 Redis commands, was benchmarked against Redis 7 on the same machine using `redis-benchmark`. 13-point concurrency sweep, 50,000 requests per test.
-
-| Clients | LETTUCE | Redis 7 |
-|---------|---------|---------|
-| 1 | 5,219 req/s | 1,437 req/s |
-| 10 | 21,758 | 5,178 |
-| 50 | 14,144 | 12,710 |
-| 100 | 22,381 | 17,876 |
-
-LETTUCE leads at every concurrency level. The structural advantage is the arena allocator — zero `malloc` per request vs. Redis's `zmalloc`/`zfree` contention under load. [Full benchmark data →](benchmarks/LETTUCE_BENCH.md)
-
-## Further reading
-
-- [Tutorial: Your First Verified Program](docs/tutorial/your-first-verified-program.md) — 15-minute walkthrough
-- [Blog: Zero-Cost Safety](docs/blog/zero-cost-safety.md) — Z3 contracts at compile time
-- [Blog: Microkernel IPC](docs/blog/microkernel-ipc.md) — SPSC rings, zero-copy, proof-carrying IPC
-- [Blog: Arenas Over Borrow Checking](docs/blog/arenas-over-borrow-checking.md) — Scope Ladder escape analysis
-- [LETTUCE vs Redis](benchmarks/LETTUCE_BENCH.md) — benchmark data and analysis
-- [Architecture Reference](docs/ARCH.md) — compiler pipeline, kernel design, memory model
-- [Language Specification](docs/SPEC.md) — formal language definition
-- [Contributor Guide](CONTRIBUTING.md)
+This monorepo contains the full commit history from January–July 2026, including
+the compiler, kernel, and all applications. It is archived and read-only.
 
 ## License
 
-MIT
+MIT — applies to all split projects.
