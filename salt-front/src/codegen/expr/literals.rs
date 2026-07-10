@@ -464,9 +464,11 @@ fn resolve_enum_variant_full(
     }
     let enum_name = &segments[0];
     let variant_name = segments.last().ok_or_else(|| "Empty segments in Enum Variant Lookup".to_string())?;
-    
+
     let mut resolved_enum_name = enum_name.clone();
+    let is_local = ctx.enum_templates().contains_key(enum_name) || ctx.enum_registry().values().any(|i| i.name == *enum_name);
     for imp in ctx.imports() {
+         if is_local { break; }
          if let Some(alias) = &imp.alias {
              if *alias == *enum_name {
                  resolved_enum_name = Mangler::mangle(&imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>());
@@ -486,7 +488,6 @@ fn resolve_enum_variant_full(
              }
          }
     }
-    
     let mut generic_args = Vec::new();
     if let Some(seg) = p.path.segments.first() {
         if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
@@ -498,7 +499,6 @@ fn resolve_enum_variant_full(
             }
         }
     }
-
     let found_enum = if ctx.enum_registry().values().any(|i| i.name == resolved_enum_name) {
          Some(Type::Enum(resolved_enum_name.clone()))
     } else if ctx.enum_templates().get(&resolved_enum_name).is_some() {

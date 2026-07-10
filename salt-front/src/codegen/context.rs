@@ -945,34 +945,30 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         let mut fallback_match = None;    // Free function (lowest priority)
         
         let method_suffix = format!("__{}", method_name);
-        for (key, (func, imports)) in &self.discovery.generic_impls {
-            if key.ends_with(&method_suffix) || key == method_name {
-                let has_self = !func.args.is_empty() && func.args[0].name == "self";
-                
-                // Check if this method belongs to the receiver's type.
-                // Keys may be registered with either short names (e.g. "Ptr_T__offset")
-                // or fully-qualified names (e.g. "std__core__ptr__Ptr__offset").
-                // Both the full prefix and the basename must be checked.
-                let matches_receiver = if let Some(ref prefix) = receiver_prefix {
-                    if key.starts_with(prefix) {
-                        true
-                    } else {
-                        // Extract basename: "std__core__ptr__Ptr" -> "Ptr"
-                        let basename = prefix.rsplit("__").next().unwrap_or(prefix);
-                        // Check: "Ptr_T__offset" starts with "Ptr"
-                        key.starts_with(basename)
-                    }
-                } else {
-                    false
-                };
-                
-                if has_self && matches_receiver && receiver_match.is_none() {
-                    receiver_match = Some((func.clone(), Some(receiver_ty.clone()), imports.clone()));
-                } else if has_self && instance_method_match.is_none() {
-                    instance_method_match = Some((func.clone(), Some(receiver_ty.clone()), imports.clone()));
-                } else if !has_self && fallback_match.is_none() {
-                    fallback_match = Some((func.clone(), Some(receiver_ty.clone()), imports.clone()));
-                }
+        // Iterate in sorted order: generic_impls is a HashMap, so taking the
+        // first match in iteration order made constructor resolution flaky
+        // (Box::new vs Layout::new — both no-`self`, HashMap order decided).
+        let mut keys: Vec<&String> = self.discovery.generic_impls.keys()
+            .filter(|k| k.ends_with(&method_suffix) || k.as_str() == method_name).collect();
+        keys.sort();
+        for key in keys {
+            let (func, imports) = &self.discovery.generic_impls[key];
+            let has_self = !func.args.is_empty() && func.args[0].name == "self";
+            // Receiver-specific match wins regardless of `self`: a constructor
+            // (no self) must still bind to its own type, not any type's method.
+            // Match the type as a mangled segment so both registered key forms
+            // (`main__Box_T__new` and `std__core__boxed__Box__Box_T__new`) resolve.
+            let matches_receiver = receiver_prefix.as_ref().is_some_and(|prefix| {
+                let base = prefix.rsplit("__").next().unwrap_or(prefix);
+                key.starts_with(prefix.as_str())
+                    || key.split("__").any(|s| s == base || s.starts_with(&format!("{}_", base)))
+            });
+            if matches_receiver && receiver_match.is_none() {
+                receiver_match = Some((func.clone(), Some(receiver_ty.clone()), imports.clone()));
+            } else if has_self && instance_method_match.is_none() {
+                instance_method_match = Some((func.clone(), Some(receiver_ty.clone()), imports.clone()));
+            } else if !has_self && fallback_match.is_none() {
+                fallback_match = Some((func.clone(), Some(receiver_ty.clone()), imports.clone()));
             }
         }
         

@@ -1,7 +1,28 @@
 #[cfg(test)]
 mod tests {
     use crate::types::{Type, TypeKey};
-    use crate::codegen::types::resolution::type_to_type_key;
+    use crate::codegen::types::resolution::{type_to_type_key, pick_canonical_key};
+    use crate::registry::{Registry, ModuleInfo};
+
+    #[test]
+    fn test_pick_canonical_prefers_loaded_module() {
+        // A stdlib type leaked under the entry package (`main__Slice`) must not
+        // shadow its real FQN when the defining module is loaded.
+        let mut reg = Registry::new();
+        reg.register(ModuleInfo::new("std.core.slice"));
+        let keys = ["main__Slice".to_string(), "std__core__slice__Slice".to_string()];
+        let picked = pick_canonical_key(keys.iter(), "Slice", Some(&reg));
+        assert_eq!(picked.as_deref(), Some("std__core__slice__Slice"));
+    }
+
+    #[test]
+    fn test_pick_canonical_single_and_sorted_fallback() {
+        // Single match returns as-is; with no loaded module, pick is deterministic.
+        let one = ["main__Foo".to_string()];
+        assert_eq!(pick_canonical_key(one.iter(), "Foo", None).as_deref(), Some("main__Foo"));
+        let two = ["b__Bar".to_string(), "a__Bar".to_string()];
+        assert_eq!(pick_canonical_key(two.iter(), "Bar", None).as_deref(), Some("a__Bar"));
+    }
 
     #[test]
     fn test_type_to_type_key_concrete_no_path() {

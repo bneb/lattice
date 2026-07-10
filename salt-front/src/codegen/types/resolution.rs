@@ -2,6 +2,32 @@ use crate::types::{Type, TypeKey};
 use crate::codegen::context::LoweringContext;
 use crate::codegen::types::layout::flatten_nested_ptr;
 use std::collections::HashMap;
+
+/// Deterministically pick the canonical template key for a bare `name` among
+/// keys ending in `__name`. When several match — e.g. a stdlib type also
+/// mangled under the entry package (`main__Slice` vs `std__core__slice__Slice`)
+/// — prefer the one whose package path is a real loaded module; otherwise take
+/// the lexicographically-first, so resolution never depends on HashMap order.
+pub(crate) fn pick_canonical_key<'a>(
+    keys: impl Iterator<Item = &'a String>,
+    name: &str,
+    registry: Option<&crate::registry::Registry>,
+) -> Option<String> {
+    let suffix = format!("__{}", name);
+    let mut matches: Vec<&String> = keys.filter(|k| k.ends_with(&suffix)).collect();
+    matches.sort();
+    if matches.len() > 1 {
+        if let Some(reg) = registry {
+            let owned = matches.iter().find(|k| {
+                reg.modules.contains_key(&k[..k.len() - suffix.len()].replace("__", "."))
+            });
+            if let Some(hit) = owned.copied() {
+                return Some(hit.clone());
+            }
+        }
+    }
+    matches.first().map(|k| (*k).clone())
+}
 fn collect_self_concrete_args(ctx: &mut LoweringContext, struct_name: &str) -> Option<Vec<Type>> {
     let template = ctx.struct_templates().get(struct_name)?;
     let generics = template.generics.as_ref()?;
@@ -72,15 +98,9 @@ fn resolve_codegen_type_struct(ctx: &mut LoweringContext, ty: &Type, name: &str)
     if let Some(concrete_ty) = concrete_opt {
         concrete_ty
     } else {
-        let suffix = format!("__{}", name);
-        let canonical_candidate = ctx.struct_templates().keys()
-            .find(|k| k.ends_with(&suffix))
-            .cloned()
-            .or_else(|| {
-                ctx.enum_templates().keys()
-                    .find(|k| k.ends_with(&suffix))
-                    .cloned()
-            });
+        let reg = ctx.config.registry;
+        let canonical_candidate = pick_canonical_key(ctx.struct_templates().keys(), name, reg)
+            .or_else(|| pick_canonical_key(ctx.enum_templates().keys(), name, reg));
         
         if let Some(ref candidate) = canonical_candidate {
             let resolved_base = candidate.clone();
@@ -201,15 +221,9 @@ fn resolve_codegen_type_concrete(ctx: &mut LoweringContext, base_name: &str, tar
     } else {
         let mut resolved_base = base_name.to_string();
         if !resolved_base.contains("__") {
-            let suffix = format!("__{}", base_name);
-            let canonical_candidate = ctx.struct_templates().keys()
-                .find(|k| k.ends_with(&suffix))
-                .cloned()
-                .or_else(|| {
-                    ctx.enum_templates().keys()
-                        .find(|k| k.ends_with(&suffix))
-                        .cloned()
-                });
+            let reg = ctx.config.registry;
+            let canonical_candidate = pick_canonical_key(ctx.struct_templates().keys(), base_name, reg)
+                .or_else(|| pick_canonical_key(ctx.enum_templates().keys(), base_name, reg));
             
             if let Some(candidate) = canonical_candidate {
                 resolved_base = candidate;

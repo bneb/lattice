@@ -134,20 +134,17 @@ use std::collections::{HashMap, HashSet};
     #[allow(unused_mut)]
     pub fn emit_mlir(file: &mut SaltFile, release_mode: bool, _registry: Option<&Registry>, _skip_scan: bool, no_verify: bool, disable_alias_scopes: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> Result<String, String> {
         let (mut loader, loader_registry) = load_modules(file)?;
-        // Build combined AST for type resolution but compile only the
-        // entry file's functions. Imported modules provide type info
-        // and templates; their function bodies are hydrated on-demand
-        // when called from the entry file or other reachable code.
-        let mut combined = loader.combined_ast.clone();
-        combined.package = file.package.clone();
-        combined.items.extend(file.items.clone());
-        combined.imports.extend(file.imports.clone());
+        // Register/scan a resolved copy of the ENTRY file (under its own package)
+        // plus each imported module (under its own package, via the loops inside
+        // register_all_templates_and_signatures / scan_definitions). The previous
+        // code merged every module's items into one AST and scanned it under the
+        // entry package, re-mangling stdlib types as `main__Slice` and breaking
+        // method + unsafe resolution. Codegen still runs on the original `file`,
+        // so entry-file lowering (and its name resolution) is unchanged.
+        let mut combined = file.clone();
         resolve_names(&mut combined, &mut loader)?;
         let z3_cfg = crate::z3_shim::Config::new();
         let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
-        // Use the combined AST for type/template registration only.
-        // Codegen executes on the entry file — imported module bodies
-        // are hydrated on-demand when called.
         let mut ctx = CodegenContext::new(file, release_mode, Some(&loader_registry), &z3_ctx);
         initialize_context(&mut ctx, file, &loader, no_verify, disable_alias_scopes, lib_mode, sip_mode, debug_info, source_file);
         crate::codegen::expr::memory::clear_field_axioms_cache();
@@ -237,8 +234,22 @@ use std::collections::{HashMap, HashSet};
         ctx.register_builtins();
     }
 
+    /// Modules to register/scan: dependency (topological) order when available,
+    /// followed by any loaded modules missing from it (compilation order can be
+    /// empty when the dependency graph wasn't populated). Ensures every loaded
+    /// module's definitions — e.g. stdlib externs like `salt_arena_alloc` — are
+    /// registered, deterministically.
+    fn module_scan_order(loader: &ModuleLoader) -> Vec<String> {
+        let mut order = loader.get_compilation_order().unwrap_or_default();
+        let mut extras: Vec<String> = loader.loaded_files.keys()
+            .filter(|k| !order.contains(k)).cloned().collect();
+        extras.sort();
+        order.extend(extras);
+        order
+    }
+
     fn register_all_templates_and_signatures(ctx: &CodegenContext, file: &SaltFile, loader: &ModuleLoader) -> Result<(), String> {
-        let order = loader.get_compilation_order()?;
+        let order = module_scan_order(loader);
         for ns in &order {
             if let Some(ast) = loader.loaded_files.get(ns) {
                 register_templates(ctx, ast)?;
@@ -256,9 +267,8 @@ use std::collections::{HashMap, HashSet};
     }
 
     fn scan_definitions(ctx: &mut CodegenContext, file: &SaltFile, loader: &ModuleLoader) -> Result<(), String> {
-        let dep_order = loader.get_compilation_order()?;
         ctx.init_registry_definitions();
-        for ns in &dep_order {
+        for ns in &module_scan_order(loader) {
             if let Some(f) = loader.loaded_files.get(ns) {
                  ctx.scan_defs_from_file(f, false)?;
             }

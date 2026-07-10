@@ -7,12 +7,15 @@ pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, f
 
     // Auto-deref: unwrap &T to T before promotion.
     // Loads the value through the reference so the inner type
-    // can be promoted normally.
+    // can be promoted normally. Skipped when the target is also a
+    // reference — ref-to-ref stays pointer-level (handled in the cast path).
     if let Type::Reference(inner, _) = from {
-        let loaded = format!("%deref_prom_{}", ctx.next_id());
-        let mlir_ty = inner.to_mlir_type(ctx)?;
-        ctx.emit_load(out, &loaded, var, &mlir_ty);
-        return promote_numeric(ctx, out, &loaded, inner, to);
+        if !matches!(to, Type::Reference(..)) {
+            let loaded = format!("%deref_prom_{}", ctx.next_id());
+            let mlir_ty = inner.to_mlir_type(ctx)?;
+            ctx.emit_load(out, &loaded, var, &mlir_ty);
+            return promote_numeric(ctx, out, &loaded, inner, to);
+        }
     }
 
     if let Some(res) = promote_numeric_linear(ctx, out, var, from, to)? {
