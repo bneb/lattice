@@ -2,8 +2,18 @@ use crate::types::Type;
 use crate::codegen::context::LoweringContext;
 use crate::codegen::type_casts::cast_numeric;
 
-pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, from: &Type, to: &Type) -> Result<String, String> {    
+pub fn promote_numeric(ctx: &mut LoweringContext, out: &mut String, var: &str, from: &Type, to: &Type) -> Result<String, String> {
     if from == to { return Ok(var.to_string()); }
+
+    // Auto-deref: unwrap &T to T before promotion.
+    // Loads the value through the reference so the inner type
+    // can be promoted normally.
+    if let Type::Reference(inner, _) = from {
+        let loaded = format!("%deref_prom_{}", ctx.next_id());
+        let mlir_ty = inner.to_mlir_type(ctx)?;
+        ctx.emit_load(out, &loaded, var, &mlir_ty);
+        return promote_numeric(ctx, out, &loaded, inner, to);
+    }
 
     if let Some(res) = promote_numeric_linear(ctx, out, var, from, to)? {
         return Ok(res);
@@ -274,7 +284,7 @@ fn promote_numeric_fallback(ctx: &mut LoweringContext, out: &mut String, var: &s
         return Ok(var.to_string());
     }
 
-    Err(format!("Numeric promotion not supported from {:?} to {:?} (var: {})", from, to, var))
+    Err(format!("Numeric promotion not supported from {:?} to {:?} (var: {}) in function '{}'", from, to, var, ctx.current_fn_name()))
 }
 
 fn promote_array_packing(ctx: &mut LoweringContext, out: &mut String, var: &str, f_len: usize, to: &Type) -> Result<String, String> {

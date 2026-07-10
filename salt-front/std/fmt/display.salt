@@ -91,6 +91,14 @@ impl Display for &u8 {
     }
 }
 
+// Implementation for StringView — writes the view's bytes via ptr cast
+impl Display for StringView {
+    fn fmt(&self, buf: &mut String) {
+        let ptr = (*self).ptr as &u8;
+        buf.write_str_unchecked(ptr, self.len());
+    }
+}
+
 // Implementation for f64
 impl Display for f64 {
     fn fmt(&self, buf: &mut String) {
