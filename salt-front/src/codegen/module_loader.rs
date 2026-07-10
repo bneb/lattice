@@ -108,6 +108,24 @@ impl ModuleLoader {
     }
 
     /// Recursively loads a module and its dependencies
+    /// Check the bundled stdlib for a namespace before hitting the filesystem.
+    fn try_bundled_stdlib(&self, namespace: &str) -> Option<String> {
+        if !namespace.starts_with("std") {
+            return None;
+        }
+        let bundle = crate::stdlib_bundle::stdlib_sources();
+        // Try exact match first, then try stripping the last component
+        // (e.g., std.core.ptr.Ptr → std.core.ptr)
+        let parts: Vec<&str> = namespace.split('.').collect();
+        for len in (1..=parts.len()).rev() {
+            let key = parts[..len].join(".");
+            if bundle.contains_key(&key) {
+                return bundle.get(&key).map(|s| s.to_string());
+            }
+        }
+        None
+    }
+
     pub fn load_module(&mut self, namespace: &str, registry: &mut Registry) -> Result<(), String> {
         // 1. Check if already loaded
         if self.loaded_modules.contains(namespace) {
@@ -124,7 +142,32 @@ impl ModuleLoader {
 
         self.loading_stack.push(namespace.to_string());
 
-        // 3. Resolve Filepath
+        // 3. Check bundled stdlib first (no filesystem needed)
+        if let Some(source) = self.try_bundled_stdlib(namespace) {
+            let processed = crate::preprocess(&source);
+            if let Ok(mut ast) = syn::parse_str::<crate::grammar::SaltFile>(&processed) {
+                let mut info = ModuleInfo::new(namespace);
+                info.imports = ast.imports.clone();
+                for item in &ast.items {
+                    self.extract_item_info(item, &mut info, &ast.imports);
+                }
+                registry.register(info);
+                self.merge_into_combined(ast.clone());
+                self.loaded_files.insert(namespace.to_string(), ast.clone());
+                self.loaded_modules.insert(namespace.to_string());
+                // Recursively load the stdlib module's own imports
+                let sub_imports: Vec<String> = ast.imports.iter()
+                    .map(|imp| imp.name.iter().map(|id| id.to_string()).collect::<Vec<_>>().join("."))
+                    .collect();
+                self.loading_stack.pop();
+                for sub in &sub_imports {
+                    let _ = self.load_module(sub, registry);
+                }
+                return Ok(());
+            }
+        }
+
+        // 4. Resolve Filepath
         let path = match self.resolve_filepath(namespace) {
             Ok(p) => p,
             Err(e) => {

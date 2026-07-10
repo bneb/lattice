@@ -133,14 +133,11 @@ use std::collections::{HashMap, HashSet};
     // REASON: all 10 parameters are independently meaningful; bundling would obscure intent
     pub fn emit_mlir(file: &mut SaltFile, release_mode: bool, _registry: Option<&Registry>, _skip_scan: bool, no_verify: bool, disable_alias_scopes: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> Result<String, String> {
         let (mut loader, loader_registry) = load_modules(file)?;
-        resolve_names(file, &mut loader)?;
-        // Use the combined AST (all imported modules merged) as the
-        // compilation unit. This links all module bodies into one MLIR
-        // output, resolving cross-module function calls.
-        // Carry the entry file's package declaration so the unsafe policy
-        // and name mangling work correctly.
         let mut combined = loader.combined_ast.clone();
         combined.package = file.package.clone();
+        combined.items.extend(file.items.clone());
+        combined.imports.extend(file.imports.clone());
+        resolve_names(&mut combined, &mut loader)?;
         let z3_cfg = crate::z3_shim::Config::new();
         let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
         let mut ctx = CodegenContext::new(&combined, release_mode, Some(&loader_registry), &z3_ctx);
