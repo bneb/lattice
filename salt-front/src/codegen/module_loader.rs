@@ -145,7 +145,7 @@ impl ModuleLoader {
         // 3. Check bundled stdlib first (no filesystem needed)
         if let Some(source) = self.try_bundled_stdlib(namespace) {
             let processed = crate::preprocess(&source);
-            if let Ok(mut ast) = syn::parse_str::<crate::grammar::SaltFile>(&processed) {
+            if let Ok(ast) = syn::parse_str::<crate::grammar::SaltFile>(&processed) {
                 let mut info = ModuleInfo::new(namespace);
                 info.imports = ast.imports.clone();
                 for item in &ast.items {

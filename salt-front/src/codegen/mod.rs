@@ -131,8 +131,13 @@ use crate::registry::Registry;
 use std::collections::{HashMap, HashSet};
     #[allow(clippy::too_many_arguments)]
     // REASON: all 10 parameters are independently meaningful; bundling would obscure intent
+    #[allow(unused_mut)]
     pub fn emit_mlir(file: &mut SaltFile, release_mode: bool, _registry: Option<&Registry>, _skip_scan: bool, no_verify: bool, disable_alias_scopes: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> Result<String, String> {
         let (mut loader, loader_registry) = load_modules(file)?;
+        // Build combined AST for type resolution but compile only the
+        // entry file's functions. Imported modules provide type info
+        // and templates; their function bodies are hydrated on-demand
+        // when called from the entry file or other reachable code.
         let mut combined = loader.combined_ast.clone();
         combined.package = file.package.clone();
         combined.items.extend(file.items.clone());
@@ -145,10 +150,10 @@ use std::collections::{HashMap, HashSet};
         crate::codegen::expr::memory::clear_field_axioms_cache();
         register_all_templates_and_signatures(&ctx, &combined, &loader)?;
         scan_definitions(&mut ctx, &combined, &loader)?;
-        let call_graph_analyzer = run_call_graph_analysis(&combined, release_mode);
-        run_pulse_analysis(&mut ctx, &combined, &call_graph_analyzer, release_mode);
-        run_liveness_analysis(&mut ctx, &combined, release_mode);
-        lower_state_machines(&mut ctx, &combined);
+        let call_graph_analyzer = run_call_graph_analysis(file, release_mode);
+        run_pulse_analysis(&mut ctx, file, &call_graph_analyzer, release_mode);
+        run_liveness_analysis(&mut ctx, file, release_mode);
+        lower_state_machines(&mut ctx, file);
         ctx.drive_codegen()
     }
 

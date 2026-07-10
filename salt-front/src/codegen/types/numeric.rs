@@ -274,12 +274,6 @@ fn promote_numeric_fallback(ctx: &mut LoweringContext, out: &mut String, var: &s
         return Ok(var.to_string());
     }
 
-    if let Type::Pointer { ref element, .. } = from {
-        if element.as_ref() == to {
-            return Ok(var.to_string());
-        }
-    }
-
     Err(format!("Numeric promotion not supported from {:?} to {:?} (var: {})", from, to, var))
 }
 
