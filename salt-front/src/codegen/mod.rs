@@ -365,13 +365,24 @@ impl<'a> CodegenContext<'a> {
                 _ => {}
             }
         }
-        for task in tasks { self.hydrate_specialization(task)?; }
+        for task in tasks {
+            if let Err(e) = self.hydrate_specialization(task) {
+                // Skip functions with unresolved generics — they will be
+                // hydrated on-demand when monomorphized at a call site.
+                if e.contains("Unresolved generic") { continue; }
+                return Err(e);
+            }
+        }
         Ok(())
     }
 
     fn collect_fn_tasks(&self, f: &SaltFn) -> Vec<crate::codegen::collector::MonomorphizationTask> {
-        // Hydrate any function with contracts so requires/ensures are
-        // verified at call sites, regardless of visibility.
+        // Skip generic functions — they are hydrated on-demand when
+        // monomorphized at a call site. Only concrete functions are
+        // compiled eagerly.
+        if f.generics.is_some() {
+            return vec![];
+        }
         let has_contracts = !f.requires.is_empty() || !f.ensures.is_empty();
         if !f.attributes.iter().any(|a| a.name == "no_mangle" || a.name == "export") && !f.is_pub && !has_contracts {
             return vec![];
