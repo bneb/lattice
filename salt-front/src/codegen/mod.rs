@@ -145,8 +145,11 @@ use std::collections::{HashMap, HashSet};
         resolve_names(&mut combined, &mut loader)?;
         let z3_cfg = crate::z3_shim::Config::new();
         let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
-        let mut ctx = CodegenContext::new(&combined, release_mode, Some(&loader_registry), &z3_ctx);
-        initialize_context(&mut ctx, &combined, &loader, no_verify, disable_alias_scopes, lib_mode, sip_mode, debug_info, source_file);
+        // Use the combined AST for type/template registration only.
+        // Codegen executes on the entry file — imported module bodies
+        // are hydrated on-demand when called.
+        let mut ctx = CodegenContext::new(file, release_mode, Some(&loader_registry), &z3_ctx);
+        initialize_context(&mut ctx, file, &loader, no_verify, disable_alias_scopes, lib_mode, sip_mode, debug_info, source_file);
         crate::codegen::expr::memory::clear_field_axioms_cache();
         register_all_templates_and_signatures(&ctx, &combined, &loader)?;
         scan_definitions(&mut ctx, &combined, &loader)?;
