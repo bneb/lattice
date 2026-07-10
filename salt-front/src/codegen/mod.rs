@@ -134,17 +134,24 @@ use std::collections::{HashMap, HashSet};
     pub fn emit_mlir(file: &mut SaltFile, release_mode: bool, _registry: Option<&Registry>, _skip_scan: bool, no_verify: bool, disable_alias_scopes: bool, lib_mode: bool, sip_mode: bool, debug_info: bool, source_file: &str) -> Result<String, String> {
         let (mut loader, loader_registry) = load_modules(file)?;
         resolve_names(file, &mut loader)?;
+        // Use the combined AST (all imported modules merged) as the
+        // compilation unit. This links all module bodies into one MLIR
+        // output, resolving cross-module function calls.
+        // Carry the entry file's package declaration so the unsafe policy
+        // and name mangling work correctly.
+        let mut combined = loader.combined_ast.clone();
+        combined.package = file.package.clone();
         let z3_cfg = crate::z3_shim::Config::new();
         let z3_ctx = crate::z3_shim::Context::new(&z3_cfg);
-        let mut ctx = CodegenContext::new(file, release_mode, Some(&loader_registry), &z3_ctx);
-        initialize_context(&mut ctx, file, &loader, no_verify, disable_alias_scopes, lib_mode, sip_mode, debug_info, source_file);
+        let mut ctx = CodegenContext::new(&combined, release_mode, Some(&loader_registry), &z3_ctx);
+        initialize_context(&mut ctx, &combined, &loader, no_verify, disable_alias_scopes, lib_mode, sip_mode, debug_info, source_file);
         crate::codegen::expr::memory::clear_field_axioms_cache();
-        register_all_templates_and_signatures(&ctx, file, &loader)?;
-        scan_definitions(&mut ctx, file, &loader)?;
-        let call_graph_analyzer = run_call_graph_analysis(file, release_mode);
-        run_pulse_analysis(&mut ctx, file, &call_graph_analyzer, release_mode);
-        run_liveness_analysis(&mut ctx, file, release_mode);
-        lower_state_machines(&mut ctx, file);
+        register_all_templates_and_signatures(&ctx, &combined, &loader)?;
+        scan_definitions(&mut ctx, &combined, &loader)?;
+        let call_graph_analyzer = run_call_graph_analysis(&combined, release_mode);
+        run_pulse_analysis(&mut ctx, &combined, &call_graph_analyzer, release_mode);
+        run_liveness_analysis(&mut ctx, &combined, release_mode);
+        lower_state_machines(&mut ctx, &combined);
         ctx.drive_codegen()
     }
 
