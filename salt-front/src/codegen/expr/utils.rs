@@ -239,10 +239,9 @@ pub fn resolve_package_prefix(
         return Some(res);
     }
     
-    let pkg_name = if let Some(pkg) = current_package {
+    let pkg_name = {
+        let pkg = current_package?;
         Mangler::mangle(&pkg.name.iter().map(|id| id.to_string()).collect::<Vec<_>>())
-    } else {
-        return None;
     };
     
     if pkg_name.is_empty() {

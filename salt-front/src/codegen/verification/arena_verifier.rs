@@ -115,7 +115,7 @@ impl ArenaVerifier {
         let mark_epoch = mark.epoch;
         
         // Invalidate all pointers allocated after or at mark epoch
-        for (_, ptr) in self.pointers.iter_mut() {
+        for ptr in self.pointers.values_mut() {
             if ptr.birth_epoch >= mark_epoch {
                 ptr.valid = false;
             }

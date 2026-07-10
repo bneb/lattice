@@ -18,7 +18,7 @@ mod tests {
 
         let mut registry = crate::registry::Registry::new();
         registry.register(crate::registry::ModuleInfo::new("main"));
-        crate::cli::load_imports(&file, &mut registry);
+        crate::cli::load_imports(&file, &mut registry, None);
 
         crate::compile_ast(&mut file, true, Some(&registry), false, false, false, false, false, false, "<test>")
             .map_err(|e| format!("{}", e))

@@ -455,7 +455,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         // This mirrors CodegenContext::ensure_struct_exists which delegates to
         // specialize_template for on-demand struct registration.
         if params.is_empty() {
-            for (tk, _info) in self.discovery.struct_registry.iter() {
+            for tk in self.discovery.struct_registry.keys() {
                 if tk.name == base_name || tk.mangle() == base_name {
                     return Ok(tk.mangle());
                 }
@@ -473,7 +473,7 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         // Check enum_registry for non-generic enums,
         // then fall back to specialize_template for generic specializations.
         if params.is_empty() {
-            for (tk, _info) in self.discovery.enum_registry.iter() {
+            for tk in self.discovery.enum_registry.keys() {
                 if tk.name == base_name || tk.mangle() == base_name {
                     return Ok(tk.mangle());
                 }
@@ -1592,7 +1592,7 @@ impl<'a> CodegenContext<'a> {
         let mut map = HashMap::new();
         // Iterate over struct_registry (keyed by TypeKey)
         // info.name is used for the string map key (mangled name)
-        for (_key, info) in self.struct_registry().iter() {
+        for info in self.struct_registry().values() {
             // ...
             let n: String = info.name.clone();
             map.insert(n, info.field_order.clone());
@@ -2002,7 +2002,7 @@ pub fn hydrate_specialization(&self, task: MonomorphizationTask) -> Result<(), S
 
     fn canonicalize_type_map(&self, type_map: &std::collections::BTreeMap<String, Type>) -> std::collections::BTreeMap<String, Type> {
         let mut canonical_type_map = type_map.clone();
-        for (_key, ty) in canonical_type_map.iter_mut() {
+        for ty in canonical_type_map.values_mut() {
             if let crate::types::Type::Struct(name) = ty {
                 if !name.contains("__") {
                     let suffix = format!("__{}", name);

@@ -17,6 +17,7 @@ pub struct CliConfig {
     pub debug_info: bool,
     pub emit_sir: bool,
     pub target_name: Option<String>,
+    pub pkg_root: Option<String>,
 }
 
 pub fn parse_args(args: Vec<String>) -> anyhow::Result<Option<CliConfig>> {
@@ -34,6 +35,7 @@ pub fn parse_args(args: Vec<String>) -> anyhow::Result<Option<CliConfig>> {
     let mut debug_info = false;
     let mut emit_sir = false;
     let mut target_name: Option<String> = None;
+    let mut pkg_root: Option<String> = None;
     
     let mut i = 1;
     while i < args.len() {
@@ -116,6 +118,13 @@ pub fn parse_args(args: Vec<String>) -> anyhow::Result<Option<CliConfig>> {
             lib_mode = true;
         } else if arg == "--emit-sir" {
             emit_sir = true;
+        } else if arg == "--pkg" {
+            if i + 1 < args.len() {
+                pkg_root = Some(args[i+1].clone());
+                i += 1;
+            } else {
+                anyhow::bail!("[E004] --pkg requires a directory argument");
+            }
         } else if arg == "-g" || arg == "--debug-info" {
             debug_info = true;
         } else if arg == "-o" {
@@ -155,6 +164,7 @@ pub fn parse_args(args: Vec<String>) -> anyhow::Result<Option<CliConfig>> {
         debug_info,
         emit_sir,
         target_name,
+        pkg_root,
     }))
 }
 
@@ -196,7 +206,7 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
         }
     }
 
-    load_imports(&file, &mut registry);
+    load_imports(&file, &mut registry, config.pkg_root.as_deref());
 
     match crate::compile_ast(&mut file, config.release_mode, Some(&registry), config.skip_scan, config.disable_alias_scopes, config.no_verify, config.lib_mode, config.sip_mode, config.debug_info, &config.path) {
         Ok(mlir) => {
@@ -231,15 +241,22 @@ pub fn run_cli(args: Vec<String>) -> anyhow::Result<()> {
 }
 
 
-pub fn load_imports(file: &crate::grammar::SaltFile, registry: &mut crate::registry::Registry) {
+pub fn load_imports(
+    file: &crate::grammar::SaltFile,
+    registry: &mut crate::registry::Registry,
+    pkg_root: Option<&str>,
+) {
     use crate::grammar::Item;
+
+    // Read salt.toml for the package name if a package root is specified
+    let salt_pkg_name = pkg_root.and_then(read_package_name);
 
     for imp in &file.imports {
         // Convert package path to file path
         // e.g. kernel.arch.x86.gdt -> kernel/arch/x86/gdt.salt
         let original_parts: Vec<String> = imp.name.iter().map(|id| id.to_string()).collect();
         let mut parts = original_parts.clone();
-        
+
         // Loop to support fallback (peeling off the last component to find the module file)
         // e.g., std.core.ptr.Ptr -> std/core/ptr.salt
         loop {
@@ -265,23 +282,42 @@ pub fn load_imports(file: &crate::grammar::SaltFile, registry: &mut crate::regis
             }
 
             if code_result.is_none() {
-                let path_str = format!("{}.salt", parts.join("/"));
-                let path_str_mod = format!("{}/mod.salt", parts.join("/"));
-                let path_str_lower = format!("{}.salt", parts.iter().map(|s| s.to_lowercase()).collect::<Vec<_>>().join("/"));
-                let path_str_mod_lower = format!("{}/mod.salt", parts.iter().map(|s| s.to_lowercase()).collect::<Vec<_>>().join("/"));
+                let rel_path = format!("{}.salt", parts.join("/"));
+                let rel_path_mod = format!("{}/mod.salt", parts.join("/"));
+                let rel_path_lower = format!("{}.salt", parts.iter().map(|s| s.to_lowercase()).collect::<Vec<_>>().join("/"));
+                let rel_path_mod_lower = format!("{}/mod.salt", parts.iter().map(|s| s.to_lowercase()).collect::<Vec<_>>().join("/"));
 
-                let search_paths = vec![
-                    path_str.clone(), path_str_mod.clone(),
-                    path_str_lower.clone(), path_str_mod_lower.clone(),
-                    format!("../{}", path_str), format!("../{}", path_str_mod),
-                    format!("../{}", path_str_lower), format!("../{}", path_str_mod_lower),
-                    format!("../../{}", path_str), format!("../../{}", path_str_mod),
-                    format!("../../{}", path_str_lower), format!("../../{}", path_str_mod_lower),
-                    format!("../../../{}", path_str), format!("../../../{}", path_str_mod),
-                    format!("../../../{}", path_str_lower), format!("../../../{}", path_str_mod_lower),
-                ];
+                // Build search paths. When a package root is set and the import
+                // starts with the package name, resolve relative to the package
+                // root with the package prefix stripped.
+                let mut search_paths = Vec::new();
+                if let (Some(root), Some(name)) = (pkg_root, salt_pkg_name.as_ref()) {
+                    if original_parts.first().map(|s| s.as_str()) == Some(name.as_str()) {
+                        let stripped: Vec<&str> = original_parts.iter()
+                            .skip(1).map(|s| s.as_str()).collect();
+                        if !stripped.is_empty() {
+                            let pkg_rel = format!("{}/{}.salt", root, stripped.join("/"));
+                            let pkg_rel_mod = format!("{}/{}/mod.salt", root, stripped.join("/"));
+                            search_paths.push(pkg_rel);
+                            search_paths.push(pkg_rel_mod);
+                        } else {
+                            search_paths.push(format!("{}/mod.salt", root));
+                        }
+                    }
+                }
+                // Standard CWD-relative search
+                search_paths.extend_from_slice(&[
+                    rel_path.clone(), rel_path_mod.clone(),
+                    rel_path_lower.clone(), rel_path_mod_lower.clone(),
+                    format!("../{}", rel_path), format!("../{}", rel_path_mod),
+                    format!("../{}", rel_path_lower), format!("../{}", rel_path_mod_lower),
+                    format!("../../{}", rel_path), format!("../../{}", rel_path_mod),
+                    format!("../../{}", rel_path_lower), format!("../../{}", rel_path_mod_lower),
+                    format!("../../../{}", rel_path), format!("../../../{}", rel_path_mod),
+                    format!("../../../{}", rel_path_lower), format!("../../../{}", rel_path_mod_lower),
+                ]);
 
-                found_path = path_str.clone();
+                found_path = rel_path.clone();
                 for search_path in &search_paths {
                     if let Ok(code) = fs::read_to_string(search_path) {
                         code_result = Some(code);
@@ -357,7 +393,7 @@ pub fn load_imports(file: &crate::grammar::SaltFile, registry: &mut crate::regis
                     registry.register(info);
                     
                     // Recurse
-                    load_imports(&imported_file, registry);
+                    load_imports(&imported_file, registry, pkg_root);
                     
                     // Break the fallback loop as we found the module
                     break;
@@ -380,5 +416,20 @@ pub fn load_imports(file: &crate::grammar::SaltFile, registry: &mut crate::regis
             }
         }
     }
+}
+
+/// Read the package name from a salt.toml file in the given directory.
+/// Returns `None` if the file doesn't exist or can't be parsed.
+fn read_package_name(pkg_root: &str) -> Option<String> {
+    let toml_path = format!("{}/salt.toml", pkg_root);
+    let contents = fs::read_to_string(&toml_path).ok()?;
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("name") {
+            return trimmed.split('=').nth(1)
+                .map(|s| s.trim().trim_matches('"').to_string());
+        }
+    }
+    None
 }
 
