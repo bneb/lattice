@@ -936,7 +936,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
                     let fields: Vec<(String, Type)> = fields_with_idx.into_iter().map(|(n, _, t)| (n, t)).collect();
                     return Ok(Some(CallKind::StructLiteral(mangled_name.to_string(), fields)));
                 }
-                if let Some(info) = struct_reg.values().find(|i| i.name == raw_name) {
+                if let Some(info) = struct_reg.values().filter(|i| i.name == raw_name).min_by(|a, b| a.name.cmp(&b.name)) {
                     let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
                         .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
                         .collect::<Vec<_>>();
@@ -1045,7 +1045,7 @@ impl<'a, 'ctx, 'b> CallSiteResolver<'a, 'ctx, 'b> {
 
         {
             let struct_reg = self.ctx.struct_registry();
-            if let Some(info) = struct_reg.values().find(|i| i.name == func_name) {
+            if let Some(info) = struct_reg.values().filter(|i| i.name == func_name).min_by(|a, b| a.name.cmp(&b.name)) {
                 let mut fields_with_idx: Vec<(String, usize, Type)> = info.fields.iter()
                     .map(|(name, (offset, ty))| (name.clone(), *offset, ty.clone()))
                     .collect::<Vec<_>>();

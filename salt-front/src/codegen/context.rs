@@ -221,12 +221,14 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
     }
 
     pub fn find_struct_by_name(&self, name: &str) -> Option<crate::registry::StructInfo> {
-        for info in self.discovery.struct_registry.values() {
-            if info.name == name || info.name.ends_with(&format!("__{}", name)) {
-                return Some(info.clone());
-            }
+        let mut candidates: Vec<_> = self.discovery.struct_registry.values()
+            .filter(|i| i.name == name || i.name.ends_with(&format!("__{}", name)))
+            .collect();
+        candidates.sort_by(|a, b| a.name.cmp(&b.name));
+        if let Some(i) = candidates.iter().position(|i| i.name == name) {
+            return Some(candidates[i].clone());
         }
-        None
+        candidates.into_iter().next().cloned()
     }
 
     pub fn find_struct_by_key(&self, key: &crate::types::TypeKey) -> Option<crate::registry::StructInfo> {
@@ -234,12 +236,14 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
     }
 
     pub fn find_enum_by_name(&self, name: &str) -> Option<crate::registry::EnumInfo> {
-        for info in self.discovery.enum_registry.values() {
-            if info.name == name || info.name.ends_with(&format!("__{}", name)) {
-                return Some(info.clone());
-            }
+        let mut candidates: Vec<_> = self.discovery.enum_registry.values()
+            .filter(|i| i.name == name || i.name.ends_with(&format!("__{}", name)))
+            .collect();
+        candidates.sort_by(|a, b| a.name.cmp(&b.name));
+        if let Some(i) = candidates.iter().position(|i| i.name == name) {
+            return Some(candidates[i].clone());
         }
-        None
+        candidates.into_iter().next().cloned()
     }
 
     pub fn find_enum_by_key(&self, key: &crate::types::TypeKey) -> Option<crate::registry::EnumInfo> {
@@ -450,18 +454,14 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         if let Some(mangled) = self.expansion.specializations.get(&key) {
             return Ok(mangled.clone());
         }
-        // Check struct_registry for non-generic structs,
-        // then fall back to specialize_template for generic specializations.
-        // This mirrors CodegenContext::ensure_struct_exists which delegates to
-        // specialize_template for on-demand struct registration.
         if params.is_empty() {
-            for tk in self.discovery.struct_registry.keys() {
-                if tk.name == base_name || tk.mangle() == base_name {
-                    return Ok(tk.mangle());
-                }
-            }
+            let mut candidates: Vec<String> = self.discovery.struct_registry.keys()
+                .filter(|tk| tk.name == base_name || tk.mangle() == base_name)
+                .map(|tk| tk.mangle())
+                .collect();
+            candidates.sort();
+            if let Some(m) = candidates.into_iter().next() { return Ok(m); }
         }
-        // Delegate to specialize_template which handles template instantiation
         Ok(self.specialize_template(base_name, params, false)?.mangle())
     }
 
@@ -470,16 +470,14 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         if let Some(mangled) = self.expansion.specializations.get(&key) {
             return Ok(mangled.clone());
         }
-        // Check enum_registry for non-generic enums,
-        // then fall back to specialize_template for generic specializations.
         if params.is_empty() {
-            for tk in self.discovery.enum_registry.keys() {
-                if tk.name == base_name || tk.mangle() == base_name {
-                    return Ok(tk.mangle());
-                }
-            }
+            let mut candidates: Vec<String> = self.discovery.enum_registry.keys()
+                .filter(|tk| tk.name == base_name || tk.mangle() == base_name)
+                .map(|tk| tk.mangle())
+                .collect();
+            candidates.sort();
+            if let Some(m) = candidates.into_iter().next() { return Ok(m); }
         }
-        // Delegate to specialize_template which handles template instantiation
         Ok(self.specialize_template(base_name, params, true)?.mangle())
     }
 
@@ -492,23 +490,19 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
     }
 
     pub fn get_struct_fields_lowering(&self, struct_name: &str) -> Option<Vec<(String, Type)>> {
-        for info in self.discovery.struct_registry.values() {
-            if info.name == struct_name || info.name.ends_with(&format!("__{}", struct_name)) {
-                let _fields: Vec<(String, Type)> = info.fields.iter()
-                    .map(|(name, (idx, ty))| (name.clone(), ty.clone(), *idx))
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .map(|(name, ty, _)| (name, ty))
-                    .collect();
-                // Sort by index for stable ordering
-                let mut indexed: Vec<(usize, String, Type)> = info.fields.iter()
-                    .map(|(name, (idx, ty))| (*idx, name.clone(), ty.clone()))
-                    .collect();
-                indexed.sort_by_key(|(idx, _, _)| *idx);
-                return Some(indexed.into_iter().map(|(_, name, ty)| (name, ty)).collect());
-            }
-        }
-        None
+        let suffix = format!("__{}", struct_name);
+        let mut candidates: Vec<_> = self.discovery.struct_registry.values()
+            .filter(|i| i.name == struct_name || i.name.ends_with(&suffix))
+            .collect();
+        candidates.sort_by(|a, b| a.name.cmp(&b.name));
+        let info = if let Some(i) = candidates.iter().position(|i| i.name == struct_name) {
+            candidates[i]
+        } else { candidates.into_iter().next()? };
+        let mut indexed: Vec<(usize, String, Type)> = info.fields.iter()
+            .map(|(name, (idx, ty))| (*idx, name.clone(), ty.clone()))
+            .collect();
+        indexed.sort_by_key(|(idx, _, _)| *idx);
+        Some(indexed.into_iter().map(|(_, name, ty)| (name, ty)).collect())
     }
 
     pub fn resolve_global_func(&self, name: &str) -> Option<(Type, String)> {
@@ -552,34 +546,34 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         if self.discovery.struct_templates.contains_key(name) {
             return Some(name.to_string());
         }
-        for key in self.discovery.struct_templates.keys() {
-            if key.ends_with(&format!("__{}", name)) {
-                return Some(key.clone());
-            }
-        }
-        None
+        let suffix = format!("__{}", name);
+        let mut candidates: Vec<&str> = self.discovery.struct_templates.keys()
+            .filter(|k| k.ends_with(&suffix))
+            .map(|k| k.as_str())
+            .collect();
+        candidates.sort();
+        candidates.into_iter().next().map(|s| s.to_string())
     }
 
     pub fn find_enum_template_by_name(&self, name: &str) -> Option<String> {
         if self.discovery.enum_templates.contains_key(name) {
             return Some(name.to_string());
         }
-        for key in self.discovery.enum_templates.keys() {
-            if key.ends_with(&format!("__{}", name)) {
-                return Some(key.clone());
-            }
-        }
-        None
+        let suffix = format!("__{}", name);
+        let mut candidates: Vec<&str> = self.discovery.enum_templates.keys()
+            .filter(|k| k.ends_with(&suffix))
+            .map(|k| k.as_str())
+            .collect();
+        candidates.sort();
+        candidates.into_iter().next().map(|s| s.to_string())
     }
 
     pub fn find_methods_for_template(&self, template_name: &str) -> Vec<String> {
         let suffix = format!("__{}", template_name);
-        let mut methods = Vec::new();
-        for key in self.discovery.generic_impls.keys() {
-            if key.contains(&suffix) || key.starts_with(template_name) {
-                methods.push(key.clone());
-            }
-        }
+        let mut methods: Vec<_> = self.discovery.generic_impls.keys()
+            .filter(|k| k.contains(&suffix) || k.starts_with(template_name))
+            .cloned().collect();
+        methods.sort();
         methods
     }
 
@@ -627,12 +621,14 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
     pub fn lookup_struct_by_type(&self, ty: &Type) -> Option<crate::registry::StructInfo> {
         match ty {
             Type::Struct(name) => {
-                for (key, info) in &self.discovery.struct_registry {
-                    if info.name == *name || key.name == *name || key.mangle() == *name {
-                        return Some(info.clone());
-                    }
+                let mut candidates: Vec<_> = self.discovery.struct_registry.iter()
+                    .filter(|(key, info)| info.name == *name || key.name == *name || key.mangle() == *name)
+                    .map(|(_, info)| info).collect();
+                candidates.sort_by(|a, b| a.name.cmp(&b.name));
+                if let Some(i) = candidates.iter().position(|i| i.name == *name) {
+                    return Some(candidates[i].clone());
                 }
-                None
+                candidates.into_iter().next().cloned()
             }
             _ => None,
         }
@@ -1330,8 +1326,6 @@ impl<'a> CodegenContext<'a> {
     // These provide backward-compatible access while state is organized by phase.
     
 
-    /// Structurally detect whether a type is a Result enum — any enum with Ok + Err variants.
-    /// Returns the EnumInfo if matched. Uses enum registry lookup, zero string hacks.
     pub fn is_result_enum(&self, ty: &Type) -> Option<EnumInfo> {
         let name = match ty {
             Type::Enum(n) | Type::Concrete(n, _) => n,
@@ -1339,25 +1333,25 @@ impl<'a> CodegenContext<'a> {
         };
         let base = name.split("__").last().unwrap_or(name);
         let registry = self.enum_registry();
-        registry.values().find(|info| {
+        let mut candidates: Vec<&EnumInfo> = registry.values().filter(|info| {
             let info_base = info.name.split("__").last().unwrap_or(&info.name);
-            // Match by: exact name, FQN contains, base names, or template_name
             let name_match = info.name == *name
                 || name.ends_with(&format!("__{}", info.name))
                 || info.name.ends_with(&format!("__{}", name))
-                || base == info_base
-                || info_base.starts_with(base)
+                || base == info_base || info_base.starts_with(base)
                 || base.starts_with(info_base)
                 || info.template_name.as_deref() == Some(base);
-            // Structural gate: must have Ok + Err variants
             name_match
                 && info.variants.iter().any(|(v, _, _)| v == "Ok")
                 && info.variants.iter().any(|(v, _, _)| v == "Err")
-        }).cloned()
+        }).collect();
+        if let Some(i) = candidates.iter().position(|info| info.name == *name) {
+            return Some(candidates[i].clone());
+        }
+        candidates.sort_by(|a, b| a.name.cmp(&b.name));
+        candidates.into_iter().next().cloned()
     }
 
-    /// Structurally detect whether a type is an Option enum — any enum with Some + None variants.
-    /// Returns the EnumInfo if matched. Uses enum registry lookup, zero string hacks.
     pub fn is_option_enum(&self, ty: &Type) -> Option<EnumInfo> {
         let name = match ty {
             Type::Enum(n) | Type::Concrete(n, _) => n,
@@ -1365,19 +1359,23 @@ impl<'a> CodegenContext<'a> {
         };
         let base = name.split("__").last().unwrap_or(name);
         let registry = self.enum_registry();
-        registry.values().find(|info| {
+        let mut candidates: Vec<&EnumInfo> = registry.values().filter(|info| {
             let info_base = info.name.split("__").last().unwrap_or(&info.name);
             let name_match = info.name == *name
                 || name.ends_with(&format!("__{}", info.name))
                 || info.name.ends_with(&format!("__{}", name))
-                || base == info_base
-                || info_base.starts_with(base)
+                || base == info_base || info_base.starts_with(base)
                 || base.starts_with(info_base)
                 || info.template_name.as_deref() == Some(base);
             name_match
                 && info.variants.iter().any(|(v, _, _)| v == "Some")
                 && info.variants.iter().any(|(v, _, _)| v == "None")
-        }).cloned()
+        }).collect();
+        if let Some(i) = candidates.iter().position(|info| info.name == *name) {
+            return Some(candidates[i].clone());
+        }
+        candidates.sort_by(|a, b| a.name.cmp(&b.name));
+        candidates.into_iter().next().cloned()
     }
     
     /// Check if comptime is ready (std discovery complete)

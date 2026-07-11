@@ -154,7 +154,8 @@ extern fn fast_memcpy(dst: u64, src: u64, count: u64);
 // uses internal 256-bit vector registers on Skylake+ (ERMS).
 // Returns number of bytes written (may be less than len if ring fills).
 // =============================================================================
-pub fn spsc_push_bulk(base_addr: u64, src: u64, len: u64) -> u64 {
+pub fn spsc_push_bulk(base_addr: u64, src: u64, len: u64) -> u64
+{
     let head = volatile_read_i64(base_addr + HEAD_OFFSET) as u64;
     let tail = volatile_read_i64(base_addr + TAIL_OFFSET) as u64;
     let mut cap = volatile_read_i64(base_addr + CAPACITY_OFFSET) as u64;
@@ -169,11 +170,20 @@ pub fn spsc_push_bulk(base_addr: u64, src: u64, len: u64) -> u64 {
         cap = DATA_CAPACITY;
     }
 
+    // Validate ring invariant: consumer's tail must not exceed producer's head,
+    // and occupancy must not exceed capacity. Untrusted consumer writes tail.
+    if tail > head || (head - tail) > cap {
+        return 0;
+    }
+
     let avail = cap - (head - tail);
-    let count = if len < avail { len } else { avail };
+    let mut count = if len < avail { len } else { avail };
     if count == 0 {
         return 0;
     }
+
+    // Defense-in-depth: clamp count to capacity
+    if count > cap { count = cap; }
 
     let start_idx = head % cap;
     // Segment 1: contiguous bytes from start_idx to end of ring (or count)
@@ -200,7 +210,8 @@ pub fn spsc_push_bulk(base_addr: u64, src: u64, len: u64) -> u64 {
 // Computes at most 2 contiguous copy segments to avoid per-byte modulo.
 // Returns number of bytes read (may be less than len if ring is emptied).
 // =============================================================================
-pub fn spsc_pop_bulk(base_addr: u64, dst: u64, len: u64) -> u64 {
+pub fn spsc_pop_bulk(base_addr: u64, dst: u64, len: u64) -> u64
+{
     let head = volatile_read_i64(base_addr + HEAD_OFFSET) as u64;
     let tail = volatile_read_i64(base_addr + TAIL_OFFSET) as u64;
     let mut cap = volatile_read_i64(base_addr + CAPACITY_OFFSET) as u64;
@@ -214,11 +225,20 @@ pub fn spsc_pop_bulk(base_addr: u64, dst: u64, len: u64) -> u64 {
         cap = DATA_CAPACITY;
     }
 
+    // Validate ring invariant: producer may have advanced head past consumer's tail,
+    // but tail must not exceed head and occupancy must not exceed capacity.
+    if tail > head || (head - tail) > cap {
+        return 0;
+    }
+
     let avail = head - tail;
-    let count = if len < avail { len } else { avail };
+    let mut count = if len < avail { len } else { avail };
     if count == 0 {
         return 0;
     }
+
+    // Defense-in-depth: clamp count to capacity
+    if count > cap { count = cap; }
 
     let start_idx = tail % cap;
     // Segment 1: contiguous bytes from start_idx to end of ring (or count)
@@ -406,6 +426,9 @@ pub fn spsc_push_frame(base_addr: u64, src: u64, len: u64) -> bool {
     if cap == 0 { return false; }
     if cap > DATA_CAPACITY { cap = DATA_CAPACITY; }
 
+    // Validate ring invariant: consumer's tail must not exceed producer's head
+    if tail > head || (head - tail) >= cap { return false; }
+
     let total_len = len + 2;
     let avail = cap - (head - tail);
     if avail < total_len { return false; }
@@ -413,7 +436,7 @@ pub fn spsc_push_frame(base_addr: u64, src: u64, len: u64) -> bool {
     let start_idx = head % cap;
     let len_lo = (len & 0xFF) as u8;
     *((base_addr + DATA_OFFSET + start_idx) as &mut u8) = len_lo;
-    
+
     let mut next_idx = start_idx + 1;
     if next_idx >= cap { next_idx = 0; }
     let len_hi = ((len >> 8) & 0xFF) as u8;
@@ -447,17 +470,20 @@ pub fn spsc_pop_frame_len(base_addr: u64) -> u64 {
     if cap == 0 { return 0; }
     if cap > DATA_CAPACITY { cap = DATA_CAPACITY; }
 
+    // Validate ring invariant: producer's head must not trail consumer's tail
+    if tail > head || (head - tail) > cap { return 0; }
+
     let avail = head - tail;
     if avail < 2 { return 0; }
 
     let start_idx = tail % cap;
     let lo = *((base_addr + DATA_OFFSET + start_idx) as &u8);
-    
+
     let mut next_idx = start_idx + 1;
     if next_idx >= cap { next_idx = 0; }
     let hi = *((base_addr + DATA_OFFSET + next_idx) as &u8);
 
     volatile_write_i64(base_addr + TAIL_OFFSET, (tail + 2) as i64);
-    
+
     return (lo as u64) | ((hi as u64) << 8);
 }

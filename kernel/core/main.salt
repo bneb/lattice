@@ -181,6 +181,11 @@ pub fn verify_user_pml4(user_pml4_phys: u64, kernel_pml4: u64) {
 @no_mangle
 pub fn kmain(magic: u32, mb_info: &u8) {
     serial.print("\n\n=== KeuOS v0.10.0 — NetD Ring 3 ===\n\n");
+    if magic != 0x2BADB002 {
+        serial.print("[PANIC] Bad multiboot magic: ");
+        serial.print_u64(magic as u64);
+        serial.print("\n");
+    }
 
     multiboot_parse(mb_info as u64);
     gdt_init();

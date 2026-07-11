@@ -6,6 +6,8 @@
 use crate::manifest::{Manifest, Dependency};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use sha2::{Digest, Sha256};
 
 /// Resolved dependency information.
 #[derive(Debug)]
@@ -146,15 +148,125 @@ fn resolve_single(
             resolve_version_dep(name, version, resolved)
         }
 
-        Dependency::Git { git, .. } => {
-            Err(format!(
-                "git dependency '{}' from '{}' requires git clone support.\n  \
-                 Workaround: clone the repo manually and use a path dependency.\n  \
-                 Git dependency support is planned for sp v0.3.0.",
-                name, git
-            ))
+        Dependency::Git { git, rev, branch, tag } => {
+            resolve_git_dep(name, git, rev.as_deref(), branch.as_deref(), tag.as_deref(), resolved)
         }
     }
+}
+
+/// Resolve a git dependency by cloning/fetching it into ~/.salt/git.
+fn resolve_git_dep(
+    name: &str,
+    git_url: &str,
+    rev: Option<&str>,
+    branch: Option<&str>,
+    tag: Option<&str>,
+    resolved: &mut HashSet<String>,
+) -> Result<Vec<ResolvedDep>, String> {
+    if resolved.contains(name) {
+        return Ok(vec![]);
+    }
+    resolved.insert(name.to_string());
+
+    let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
+    
+    // Create a deterministic directory name for this repo
+    let mut hasher = Sha256::new();
+    hasher.update(git_url.as_bytes());
+    let url_hash = hex::encode(hasher.finalize());
+    let git_dir = PathBuf::from(home)
+        .join(".salt")
+        .join("git")
+        .join(format!("{}-{}", name, &url_hash[..8]));
+
+    if !git_dir.exists() {
+        std::fs::create_dir_all(git_dir.parent().unwrap()).map_err(|e| e.to_string())?;
+        // Clone
+        let status = Command::new("git")
+            .arg("clone")
+            .arg(git_url)
+            .arg(&git_dir)
+            .status()
+            .map_err(|e| format!("failed to run git clone: {}", e))?;
+        
+        if !status.success() {
+            return Err(format!("git clone failed for '{}'", git_url));
+        }
+    } else {
+        // Fetch updates
+        let status = Command::new("git")
+            .current_dir(&git_dir)
+            .arg("fetch")
+            .arg("--all")
+            .arg("--tags")
+            .status()
+            .map_err(|e| format!("failed to run git fetch: {}", e))?;
+            
+        if !status.success() {
+            return Err(format!("git fetch failed in '{}'", git_dir.display()));
+        }
+    }
+
+    // Checkout the target
+    let target = rev.or(tag).or(branch);
+    if let Some(t) = target {
+        let status = Command::new("git")
+            .current_dir(&git_dir)
+            .arg("checkout")
+            .arg(t)
+            .status()
+            .map_err(|e| format!("failed to run git checkout: {}", e))?;
+            
+        if !status.success() {
+            return Err(format!("git checkout '{}' failed in '{}'", t, git_dir.display()));
+        }
+    } else {
+        let _ = Command::new("git")
+            .current_dir(&git_dir)
+            .arg("pull")
+            .status();
+    }
+
+    // Get the resolved commit SHA for the lockfile
+    let output = Command::new("git")
+        .current_dir(&git_dir)
+        .arg("rev-parse")
+        .arg("HEAD")
+        .output()
+        .map_err(|e| format!("failed to run git rev-parse: {}", e))?;
+    
+    let commit_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    let dep_manifest_path = git_dir.join("salt.toml");
+    let mut result = vec![];
+
+    if dep_manifest_path.exists() {
+        if let Ok(dep_manifest) = crate::manifest::load(&dep_manifest_path) {
+            for (trans_name, trans_dep) in &dep_manifest.dependencies {
+                let trans_resolved = resolve_single(trans_name, trans_dep, &git_dir, resolved)?;
+                result.extend(trans_resolved);
+            }
+        }
+    }
+
+    let source_str = if let Some(r) = rev {
+        format!("git+{}?rev={}", git_url, r)
+    } else if let Some(t) = tag {
+        format!("git+{}?tag={}", git_url, t)
+    } else if let Some(b) = branch {
+        format!("git+{}?branch={}", git_url, b)
+    } else {
+        format!("git+{}", git_url)
+    };
+
+    result.push(ResolvedDep {
+        name: name.to_string(),
+        source: source_str,
+        root_path: git_dir.canonicalize().unwrap_or(git_dir),
+        resolved_version: Some(commit_sha),
+    });
+
+    Ok(result)
 }
 
 /// Resolve a version-constrained dependency from the local publish directory.

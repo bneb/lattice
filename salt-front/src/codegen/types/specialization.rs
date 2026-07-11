@@ -12,9 +12,9 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
         old_const_vals: &mut Vec<(String, Option<crate::evaluator::ConstValue>)>,
     ) {
         let template_name = if let Type::Struct(name) = st {
-            self.struct_registry().values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
+            self.struct_registry().values().filter(|i| i.name == *name).min_by_key(|i| &i.name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
         } else if let Type::Enum(name) = st {
-            self.enum_registry().values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
+            self.enum_registry().values().filter(|i| i.name == *name).min_by_key(|i| &i.name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
         } else if let Type::Concrete(name, _) = st {
             name.clone()
         } else if let Type::Pointer { .. } = st {
@@ -188,9 +188,9 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
              };
              
             let template_name = if let Type::Struct(name) = st {
-                 self.struct_registry().values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
+                 self.struct_registry().values().filter(|i| i.name == *name).min_by_key(|i| &i.name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
              } else if let Type::Enum(name) = st {
-                 self.enum_registry().values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
+                 self.enum_registry().values().filter(|i| i.name == *name).min_by_key(|i| &i.name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
              // Handle Type::Pointer method lookup with fully-qualified template name
              } else if let Type::Pointer { .. } = st {
                  "std__core__ptr__Ptr".to_string()

@@ -133,7 +133,7 @@ def compile_salt(src_file):
     print(f"  [SALT] Compiling {src_file} → {safe_name}.o")
     
     # 1. Salt -> MLIR
-    cmd = [SALT_FRONT, src_file, "--lib", "--disable-alias-scopes", "-o", mlir_file]
+    cmd = [SALT_FRONT, src_file, "--lib", "--disable-alias-scopes", "--release", "-o", mlir_file]
     print(f"    Running: {' '.join(cmd)}")
     subprocess.check_call(cmd)
 

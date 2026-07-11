@@ -5,7 +5,7 @@ use crate::codegen::type_bridge::resolve_codegen_type;
 fn zero_attr_struct_enum(ctx: &mut LoweringContext<'_, '_>, ty: &Type) -> Result<String, String> {
     match ty {
         Type::Struct(name) => {
-            let info_opt = ctx.struct_registry().values().find(|i| i.name == *name).cloned();
+            let info_opt = ctx.struct_registry().values().filter(|i| i.name == *name).min_by_key(|i| &i.name).cloned();
             if let Some(info) = info_opt {
                 let mut parts = Vec::new();
                 for ty in &info.field_order {
@@ -19,7 +19,7 @@ fn zero_attr_struct_enum(ctx: &mut LoweringContext<'_, '_>, ty: &Type) -> Result
             }
         }
         Type::Enum(name) => {
-            if let Some(info) = ctx.enum_registry().values().find(|i| i.name == *name).cloned() {
+            if let Some(info) = ctx.enum_registry().values().filter(|i| i.name == *name).min_by_key(|i| &i.name).cloned() {
                 let mut parts = vec!["0 : i32".to_string()];
                 if info.max_payload_size > 0 {
                     parts.push("[0 : i8, 0 : i8, 0 : i8, 0 : i8]".to_string());

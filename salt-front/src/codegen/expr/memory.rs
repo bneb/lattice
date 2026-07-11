@@ -172,12 +172,12 @@ pub fn emit_field(
         let info = ctx.lookup_struct_by_type(&current_ty)
             .or_else(|| {
                 let canonical = current_ty.to_canonical_name();
-                ctx.struct_registry().values()
-                    .find(|i| {
-                        let i_canonical = Type::Struct(i.name.clone()).to_canonical_name();
-                        i.name == canonical || i_canonical == canonical || i.name == *name
-                    })
-                    .cloned()
+                let mut candidates: Vec<_> = ctx.struct_registry().values()
+                    .filter(|i| i.name == canonical || Type::Struct(i.name.clone()).to_canonical_name() == canonical || i.name == *name)
+                    .collect();
+                candidates.sort_by(|a, b| a.name.cmp(&b.name));
+                if let Some(i) = candidates.iter().position(|i| i.name == *name) { return Some(candidates[i].clone()); }
+                candidates.into_iter().next().cloned()
             })
             .ok_or_else(|| {
                 let available: Vec<String> = ctx.struct_registry().values().map(|i| i.name.clone()).collect();
@@ -307,7 +307,7 @@ pub fn emit_field(
                   let struct_ty = Type::Struct(sn.clone());
                   let info = ctx.lookup_struct_by_type(&struct_ty)
                       .or_else(|| ctx.struct_registry().values().find(|i| i.name == *sn).cloned())
-                      .unwrap_or_else(|| panic!("Struct info missing for '{}' (available: {:?})", sn, ctx.struct_registry().keys().map(|k| k.name.clone()).collect::<Vec<_>>()));
+                      .ok_or_else(|| format!("Struct info missing for '{}'", sn))?;
                   if let Some((idx, field_ty)) = info.fields.get(&field_name) {
                        let gep_var = format!("%owned_gep_{}", ctx.next_id());
                        let mlir_ty = inner.to_mlir_type(ctx)?;

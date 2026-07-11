@@ -9,6 +9,7 @@ import kernel.drivers.serial
 // The bootloader passes a physical pointer to the mb_info struct.
 pub fn parse(mb_info_phys: u64) {
     let mb_info_virt = memory.phys_to_virt_raw(mb_info_phys);
+
     let flags = *(mb_info_virt as &u32);
     serial.print("[multiboot] MB1 parsing starting... Flags: ");
     serial.print_u64(flags as u64);

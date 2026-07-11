@@ -93,6 +93,16 @@ pub fn spawn_process_from_inode(inode_ptr: u64, kernel_pml4: u64) -> u64 {
     }
 
     let mut highest_elf_vaddr: u64 = 0;
+
+    // SECURITY: Bound program headers against the ELF blob's actual size
+    let phdr_table_size = (phnum as u64) * (phentsize as u64);
+    if phoff > read_count || phoff + phdr_table_size > read_count {
+        process.free_kernel_stack(kstack_base_phys);
+        user_paging.destroy_user_pml4(user_pml4);
+        pmm.free(hdr_phys);
+        return MAX_PROCS;
+    }
+
     let mut seg_i: u16 = 0;
     while seg_i < phnum {
         let phdr_addr = elf_base + phoff + (seg_i as u64 * phentsize as u64);

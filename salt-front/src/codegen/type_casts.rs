@@ -12,6 +12,7 @@ fn cast_pointer_and_references(
 ) -> Result<Option<String>, String> {
     match (from, to) {
         (Type::Reference(_, _), Type::Reference(_, _)) => Ok(Some(var.to_string())),
+        (Type::Reference(_, _), Type::Pointer { .. }) => Ok(Some(var.to_string())),
         (Type::U64 | Type::Usize | Type::I64, Type::Pointer { .. }) => {
             let src_ty = from.to_mlir_type(ctx)?;
             let int_val = if src_ty != "i64" {

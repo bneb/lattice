@@ -41,9 +41,7 @@ fn infer_struct_generics(ctx: &mut LoweringContext, s: &syn::ExprStruct, full_na
         param_names.iter().filter_map(|pname| {
             inferred_map.get(pname).cloned()
         }).collect()
-    } else {
-        ctx.current_type_map().values().cloned().collect()
-    }
+    } else { let mut s: Vec<_> = ctx.current_type_map().iter().collect(); s.sort_by_key(|(k,_)|*k); s.into_iter().map(|(_,v)|v.clone()).collect() }
 }
 
 fn eval_struct_fields(
@@ -298,7 +296,7 @@ fn resolve_constant_path(
                 crate::evaluator::ConstValue::Float(_) => Type::F64,
                 crate::evaluator::ConstValue::String(_) => Type::Reference(Box::new(Type::U8), false),
                 crate::evaluator::ConstValue::Array(_) => Type::Array(Box::new(Type::I64), 0, false),
-                crate::evaluator::ConstValue::Complex => panic!("Complex constants not supported"),
+                crate::evaluator::ConstValue::Complex => Type::Unit,
             }
         });
         
@@ -417,7 +415,9 @@ fn resolve_enum_variant_suffix(
     if !ctx.globals().contains_key(mangled) && !ctx.evaluator.constant_table.contains_key(mangled) {
         let mut found_variant = None;
 
-        for info in ctx.enum_registry().values() {
+        let mut sorted_enums: Vec<_> = ctx.enum_registry().values().collect();
+        sorted_enums.sort_by_key(|e| &e.name);
+        for info in sorted_enums {
              for (var_name, payload, disc) in &info.variants {
                  if var_name == name {
                      found_variant = Some((info.name.clone(), *disc, payload.is_none()));

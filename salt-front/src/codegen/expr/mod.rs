@@ -1095,7 +1095,7 @@ fn emit_lvalue_field_owned(ctx: &mut LoweringContext, out: &mut String, f: &syn:
                     }
                 }
             }
-            let info = info_opt.expect("Struct info missing");
+            let info = info_opt.ok_or_else(|| format!("Struct info missing for '{}'", sn))?;
 
             if let Some((idx, raw_field_ty)) = info.fields.get(&field_name) {
                 let local_spec_map = build_local_spec_map(ctx, &info);
@@ -1173,7 +1173,7 @@ fn emit_lvalue_field_reference(ctx: &mut LoweringContext, out: &mut String, f: &
                 info_opt = best_match;
             }
 
-            let info = info_opt.unwrap_or_else(|| panic!("Struct info missing for '{}'", sn));
+            let info = info_opt.ok_or_else(|| format!("Struct info missing for '{}'", sn))?;
 
             if let Some((idx, field_ty)) = info.fields.get(&field_name) {
                 let gep_var = format!("%gep_f_{}", ctx.next_id());
@@ -1230,7 +1230,7 @@ fn emit_lvalue_field_pointer(ctx: &mut LoweringContext, out: &mut String, f: &sy
                 }
                 info_opt = best_match;
             }
-            let info = info_opt.unwrap_or_else(|| panic!("Struct info missing for '{}' in Ptr<T> field access", sn));
+            let info = info_opt.ok_or_else(|| format!("Struct info missing for '{}' in Ptr<T> field access", sn))?;
 
             if let Some((idx, raw_field_ty)) = info.fields.get(&field_name) {
                 let local_spec_map = build_local_spec_map(ctx, &info);

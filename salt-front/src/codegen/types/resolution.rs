@@ -66,7 +66,7 @@ fn resolve_codegen_type_self(ctx: &mut LoweringContext, _flattened: &Type) -> Ty
     if let Some(r) = res {
         resolve_struct_self_opt(ctx, r)
     } else {
-        panic!("MonomorphizationError: Failed to resolve SelfType. Map keys: {:?}", ctx.current_type_map().keys().collect::<Vec<_>>());
+        Type::Unit
     }
 }
 

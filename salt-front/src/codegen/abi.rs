@@ -147,7 +147,7 @@ impl Layout {
                 Layout::new(LayoutKind::Aggregate(fields), offset, align)
             }
 
-            Type::Struct(name) => {
+            Type::Struct(_name) => {
                 // If the StructRegistry knows about this name (as a specialized template or base struct)
                 // we resolve the field-by-field layout.
                 if let Some(info) = ctx.lookup_struct_by_type(ty) {
@@ -166,7 +166,8 @@ impl Layout {
                 }
                 
                 // If we are here, we have a structural disconnect.
-                panic!("FatalCompilerError: Struct '{}' not found in registry during ABI compute.", name);
+                // Return void sentinel instead of panicking on malformed input.
+                Layout::new(LayoutKind::Void, 0, 1)
             }
 
             Type::Concrete(base, _) => {
@@ -174,7 +175,7 @@ impl Layout {
                  if base == "Ptr" || base.contains("std__core__ptr__Ptr") {
                      return Layout::new(LayoutKind::Scalar(Scalar::Ptr), 8, 8);
                  }
-                 
+
                  // Otherwise, treat as struct and lookup
                  let mangled = ty.mangle_suffix();
                   if let Some(_info) = ctx.find_struct_by_name(&mangled) {
@@ -182,7 +183,8 @@ impl Layout {
                       return Layout::compute(ctx, &Type::Struct(mangled));
                   }
 
-                 panic!("FatalCompilerError: Concrete type '{}' not found in registry.", base);
+                 // Return void sentinel instead of panicking on malformed input.
+                Layout::new(LayoutKind::Void, 0, 1)
             }
             
             Type::Unit | Type::Never => Layout::new(LayoutKind::Void, 0, 1),

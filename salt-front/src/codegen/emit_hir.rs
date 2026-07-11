@@ -456,8 +456,12 @@ fn emit_hir_field(
         ctx.resolve_field_index(sname, field)
     } else if field == "__state" { 0 } else {
         let mut found = 0;
-        for fields in ctx.struct_fields.values() {
-            if let Some(pos) = fields.iter().position(|f| f == field) { found = pos; break; }
+        let mut names: Vec<&String> = ctx.struct_fields.keys().collect();
+        names.sort();
+        for sname in names {
+            if let Some(fields) = ctx.struct_fields.get(sname) {
+                if let Some(pos) = fields.iter().position(|f| f == field) { found = pos; break; }
+            }
         }
         found
     };
@@ -465,7 +469,7 @@ fn emit_hir_field(
     let struct_ty = if let Some(ref sname) = struct_name {
         format!("!struct_{}", sname)
     } else {
-        ctx.struct_fields.keys().next().map(|name| format!("!struct_{}", name)).unwrap_or_else(|| resolve_hir_type(&base.ty))
+        ctx.struct_fields.keys().min().map(|name| format!("!struct_{}", name)).unwrap_or_else(|| resolve_hir_type(&base.ty))
     };
 
     let field_ptr = format!("%field_ptr_{}", id);
@@ -489,8 +493,12 @@ fn emit_hir_assign(
             ctx.resolve_field_index(sname, field)
         } else if field == "__state" { 0 } else {
             let mut found = 0;
-            for fields in ctx.struct_fields.values() {
-                if let Some(pos) = fields.iter().position(|f| f == field) { found = pos; break; }
+            let mut keys: Vec<&String> = ctx.struct_fields.keys().collect();
+            keys.sort();
+            for k in keys {
+                if let Some(fields) = ctx.struct_fields.get(k) {
+                    if let Some(pos) = fields.iter().position(|f| f == field) { found = pos; break; }
+                }
             }
             found
         };
@@ -498,7 +506,7 @@ fn emit_hir_assign(
         let struct_ty = if let Some(ref sname) = struct_name {
             format!("!struct_{}", sname)
         } else {
-            ctx.struct_fields.keys().next().map(|name| format!("!struct_{}", name)).unwrap_or_else(|| resolve_hir_type(&base.ty))
+            ctx.struct_fields.keys().min().map(|name| format!("!struct_{}", name)).unwrap_or_else(|| resolve_hir_type(&base.ty))
         };
 
         let rhs_ty = resolve_hir_type(&rhs.ty);

@@ -34,7 +34,7 @@ pub fn emit_aggregate_eq(ctx: &mut LoweringContext, out: &mut String, op: &syn::
 #[allow(clippy::too_many_arguments)]
 // REASON: all 8 parameters are independently meaningful for struct equality codegen; bundling would obscure emitter semantics.
 fn emit_struct_eq(ctx: &mut LoweringContext, out: &mut String, op: &syn::BinOp, lhs: &str, rhs: &str, ty: &Type, name: &str, is_eq: bool) -> Result<String, String> {
-    let canonical = ctx.struct_registry().values().find(|i| i.name == *name).cloned();
+    let canonical = ctx.struct_registry().values().filter(|i| i.name == *name).min_by_key(|i| &i.name).cloned();
     
     if let Some(info) = canonical {
         let mut conds = Vec::new();
@@ -70,7 +70,7 @@ fn emit_struct_eq(ctx: &mut LoweringContext, out: &mut String, op: &syn::BinOp, 
     } else {
         let stripped_name = name.rsplit("__").next().unwrap_or(name);
         
-        if let Some(e) = ctx.enum_registry().values().find(|i| i.name == *name || i.name == stripped_name).cloned() {
+        if let Some(e) = ctx.enum_registry().values().filter(|i| i.name == *name || i.name == stripped_name).min_by_key(|i| &i.name).cloned() {
             let res = format!("%cmp_enum_{}", ctx.next_id());
             let l_val = format!("%l_disc_{}", ctx.next_id());
             let r_val = format!("%r_disc_{}", ctx.next_id());
@@ -214,7 +214,7 @@ fn emit_array_eq(ctx: &mut LoweringContext, out: &mut String, op: &syn::BinOp, l
 #[allow(clippy::too_many_arguments)]
 // REASON: all 8 parameters are independently meaningful for enum equality codegen; bundling would obscure emitter semantics.
 fn emit_enum_eq(ctx: &mut LoweringContext, out: &mut String, op: &syn::BinOp, lhs: &str, rhs: &str, ty: &Type, name: &str, is_eq: bool) -> Result<String, String> {
-    if let Some(info) = ctx.enum_registry().values().find(|i| i.name == *name).cloned() {
+    if let Some(info) = ctx.enum_registry().values().filter(|i| i.name == *name).min_by_key(|i| &i.name).cloned() {
         let mut conds = Vec::new();
         let mlir_ty = ty.to_mlir_storage_type(ctx)?;
         

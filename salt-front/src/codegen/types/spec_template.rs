@@ -67,9 +67,9 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
              
              // If st_base is a specialized name, resolve it to template name
              let template_name = if let Type::Struct(name) = st {
-                 self.struct_registry().values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
+                 self.struct_registry().values().filter(|i| i.name == *name).min_by_key(|i| &i.name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
              } else if let Type::Enum(name) = st {
-                 self.enum_registry().values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
+                 self.enum_registry().values().filter(|i| i.name == *name).min_by_key(|i| &i.name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone())
              } else {
                  st_base
              };
@@ -108,10 +108,10 @@ impl<'a, 'ctx> LoweringContext<'a, 'ctx> {
                 if let Some(st) = &s_ty {
                     // Extract concrete args from Type::Concrete for struct generics
                     let (template_name, struct_concrete_args) = if let Type::Struct(name) = st {
-                        let tname = self.struct_registry().values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone());
+                        let tname = self.struct_registry().values().filter(|i| i.name == *name).min_by_key(|i| &i.name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone());
                         (tname, vec![])
                     } else if let Type::Enum(name) = st {
-                        let tname = self.enum_registry().values().find(|i| i.name == *name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone());
+                        let tname = self.enum_registry().values().filter(|i| i.name == *name).min_by_key(|i| &i.name).and_then(|i| i.template_name.clone()).unwrap_or(name.clone());
                         (tname, vec![])
                     } else if let Type::Concrete(name, args) = st {
                         // The args here are the concrete types for the struct generics

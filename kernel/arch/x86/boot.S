@@ -37,6 +37,7 @@ multiboot_header:
 .extern syscall_entry_fast
 
 start:
+    mov ebp, eax            # Preserve multiboot magic before AL is clobbered
     # ROBUST DIAGNOSTIC: 'Y' (32-bit entry)
     mov dx, 0x3F8 + 5      # LSR Register
 wait_y:
@@ -337,8 +338,8 @@ wait_x_diag:
     # (Removed: now handled per-CPU via GS segment)
 
     # 7. Call Salt kmain
-    # Magic in EAX (MB1: 0x2BADB002), Info ptr in EBX (preserved)
-    mov rdi, rax
+    # EBP = magic (saved at entry), RBX = info_ptr (callee-preserved)
+    mov edi, ebp
     mov rsi, rbx
     call kmain
 
