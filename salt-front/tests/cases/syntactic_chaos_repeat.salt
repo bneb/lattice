@@ -1,7 +1,0 @@
-fn main() -> i32 {
-    // Array repeat with non-zero value.
-    // Codegen has optimization for 0, but fallback/undef for others.
-    // This hits the fallback path.
-    let arr = [1; 5];
-    return 0;
-}

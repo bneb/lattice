@@ -1,7 +1,0 @@
-// Fail: ? in non-Result function
-extern fn get_res() -> Result<i32, i32>;
-
-pub fn main() -> i32 {
-    let x = get_res()?; // ERROR: Function must return Result
-    return 0;
-}

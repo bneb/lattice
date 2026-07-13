@@ -1,9 +1,0 @@
-
-fn main() -> i32 {
-    let a: std::Owned<i32> = std::mem::alloc(4);
-    // Deliberate type mismatch: assigning Owned<i32> to a variable expecting Owned<f64>
-    // This should fail type checking or assignment logic in codegen/verification
-    let b: std::Owned<f64> = a;
-    
-    return 0;
-}

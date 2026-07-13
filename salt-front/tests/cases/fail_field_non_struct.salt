@@ -1,4 +1,0 @@
-fn main() -> i32 {
-    let x = 10;
-    return x.field;
-}

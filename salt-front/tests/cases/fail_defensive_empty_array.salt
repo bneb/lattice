@@ -1,4 +1,0 @@
-fn main() -> i32 {
-    let a = []; // Error "Empty array literal not supported yet"
-    return 0;
-}

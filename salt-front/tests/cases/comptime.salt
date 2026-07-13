@@ -1,8 +1,0 @@
-fn main() -> i32 {
-    let x = 10 + 20;
-    let y = x > 20 && true;
-    if y {
-        return x;
-    }
-    return 0;
-}

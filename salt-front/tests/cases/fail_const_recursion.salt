@@ -1,3 +1,0 @@
-
-// 6. Recursion (Self-reference)
-const C_REC: i32 = C_REC + 1;

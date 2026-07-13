@@ -1,9 +1,0 @@
-fn main() -> i32 {
-    // popcount expects 1 arg.
-    // If 0 args, it falls through intrinsic check and tries to find function "popcount".
-    // "popcount" is not defined as user function.
-    // Error: Function 'popcount' not found.
-    // This covers the fall-through path in emit_expr(Call).
-    popcount();
-    return 0;
-}

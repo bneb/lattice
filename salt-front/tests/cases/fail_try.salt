@@ -1,6 +1,0 @@
-// Fail: Try operator on non-Result
-pub fn main() -> i32 {
-    let x = 42;
-    let y = x?; // ERROR: ? on non-Result
-    return 0;
-}

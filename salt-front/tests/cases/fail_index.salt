@@ -1,6 +1,0 @@
-// Fail: Index on non-array
-pub fn main() -> i32 {
-    let x = 42;
-    let y = x[0]; // ERROR: Index on non-array
-    return 0;
-}

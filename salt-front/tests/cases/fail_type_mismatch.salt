@@ -1,5 +1,0 @@
-// Fail: Type mismatch in declaration
-pub fn main() -> i32 {
-    let x: i32 = "string"; // ERROR: Type mismatch (or string not supported yet, but still a failure)
-    return 0;
-}

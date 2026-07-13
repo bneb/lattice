@@ -1,5 +1,0 @@
-fn main() -> i32 {
-    // Target emit_addr Cast error
-    (1 as i32) = 2;
-    return 0;
-}

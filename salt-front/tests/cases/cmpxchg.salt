@@ -1,6 +1,0 @@
-package tests.cmpxchg
-
-pub fn test_cas(ptr: &mut u64, expected: u64, new_val: u64) -> (u64, bool) {
-    let res = cmpxchg(ptr, expected, new_val);
-    return res;
-}

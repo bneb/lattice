@@ -1,7 +1,0 @@
-fn main(p: !llvm.ptr) -> i32 {
-    let a = (p as &mut Atomic<i32>);
-    a.store(10);
-    let val = a.load();
-    a.add(1);
-    return val;
-}

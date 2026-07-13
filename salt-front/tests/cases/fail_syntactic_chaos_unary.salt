@@ -1,6 +1,0 @@
-fn main() -> i32 {
-    let x: i32 = 1;
-    // Target emit_addr Unary error (Not is a unary op, but cannot take address)
-    (!x) = 2;
-    return 0;
-}

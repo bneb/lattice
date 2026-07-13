@@ -1,6 +1,0 @@
-// Fail: Field access on non-struct
-pub fn main() -> i32 {
-    let x = 42;
-    let y = x.field; // ERROR: Field access on non-struct
-    return 0;
-}

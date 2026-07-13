@@ -1,5 +1,0 @@
-fn main() -> i32 {
-    let x = 1;
-    // Uses statement syntax 'move expr'
-    move x;
-}

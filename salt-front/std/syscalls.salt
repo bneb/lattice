@@ -1,4 +1,0 @@
-package std.syscalls
-
-// System Call Numbers
-pub const SYS_YIELD: u32 = 0x77

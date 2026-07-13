@@ -1,3 +1,0 @@
-fn main(w: Window<u8, RAM>) -> u8 {
-    return w[0];
-}

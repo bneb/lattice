@@ -1,8 +1,0 @@
-fn main() -> i32 {
-    let arr = [1, 2, 3];
-    // Error: Salt currently only supports range-based for loops
-    for x in arr {
-        // ...
-    }
-    return 0;
-}

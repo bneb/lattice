@@ -1,7 +1,0 @@
-struct S { x: i32 }
-fn main() -> i32 {
-    let s = S { x: 1 };
-    // Error: Method missing not found
-    s.missing();
-    return 0;
-}

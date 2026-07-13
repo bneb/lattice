@@ -1,7 +1,0 @@
-fn main() -> i32 {
-    let addr = 0x1000;
-    let size = 0x100;
-    // syntax: map_window(expr, expr, Ident);
-    map_window(addr, size, RAM);
-    return 0;
-}

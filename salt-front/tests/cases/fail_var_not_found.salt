@@ -1,4 +1,0 @@
-fn main() -> i32 {
-    let x = unknown_var; // ERROR: Unknown variable
-    return 0;
-}

@@ -1,8 +1,0 @@
-// Test: Explicit pulse 4096 (AI/Heavy tensor mode)
-fn test_explicit_pulse(n: i32) -> i32 {
-    let mut sum: i32 = 0;
-    for i in 0..n {
-        sum = sum + i;
-    }
-    return sum;
-}

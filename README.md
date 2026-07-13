@@ -12,6 +12,7 @@ monorepo is preserved as a historical reference and index.
 | **[basalt](https://github.com/bneb/basalt)** | Llama 2 inference in 1,600 lines of Salt — 920 tok/s, Z3-verified kernels, WASM |
 | **[lettuce](https://github.com/bneb/lettuce)** | Redis-compatible server in 314 lines of Salt with Z3-proven buffer bounds |
 | **[facet](https://github.com/bneb/facet)** | GPU 2D compositor in Salt — Metal backend, matches C performance |
+| **[salt-benchmarks](https://github.com/bneb/salt-benchmarks)** | Salt vs C/Rust across 36 leetcode-style problems and micro-benchmarks |
 
 ## Why the split?
 

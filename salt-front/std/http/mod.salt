@@ -1,6 +1,0 @@
-// std.http — Zero-Copy HTTP/1.1 Protocol Module
-
-package std.http
-
-pub use std.http.parser
-pub use std.http.response

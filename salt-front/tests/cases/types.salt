@@ -1,7 +1,0 @@
-fn main() -> f32 {
-    let a: u32 = 10;
-    let b: u64 = 20;
-    let c: f32 = 3.14;
-    let d: usize = 0;
-    return c;
-}

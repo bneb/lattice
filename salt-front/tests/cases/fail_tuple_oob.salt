@@ -1,6 +1,0 @@
-// Fail: Tuple index out of bounds
-pub fn main() -> i32 {
-    let t = (1, 2);
-    let x = t.2; // ERROR: Tuple index out of bounds
-    return 0;
-}

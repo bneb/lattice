@@ -1,7 +1,0 @@
-fn main() -> i32 {
-    let x = {
-        let y = 10;
-        y + 20
-    };
-    return x;
-}

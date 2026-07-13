@@ -1,7 +1,0 @@
-fn foo() -> i32 {
-    if true { 10 } else { 0 }
-}
-
-fn main() {
-    foo();
-}

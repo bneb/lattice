@@ -1,9 +1,0 @@
-// Fail: If condition not boolean (multi-field)
-struct Foo { x: i32, y: i32 }
-pub fn main() -> i32 {
-    let s = Foo { x: 1, y: 2 };
-    if s { // ERROR: Non-boolean condition (multi-field)
-        return 1;
-    }
-    return 0;
-}

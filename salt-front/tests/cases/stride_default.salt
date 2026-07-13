@@ -1,8 +1,0 @@
-// Test: Default pulse (1024) with bitwise mask guard
-fn test_default_pulse(n: i32) -> i32 {
-    let mut sum: i32 = 0;
-    for i in 0..n {
-        sum = sum + i;
-    }
-    return sum;
-}

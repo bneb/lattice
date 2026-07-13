@@ -1,9 +1,0 @@
-enum Option<T> { Some(T), None }
-pub fn main(argc: i32) -> i32 {
-    let x = Option::<i32>::None;
-    match x {
-        Option::None => return 0,
-        Option::Some(v) => return 1
-    }
-    return 0;
-}

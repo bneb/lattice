@@ -1,7 +1,0 @@
-struct Foo { x: i32, y: i32 }
-fn takes_bool(b: bool) {}
-fn main() -> i32 {
-    let f = Foo { x: 1, y: 2 };
-    takes_bool(f); // ERROR: Multi-field struct to bool promotion
-    return 0;
-}

@@ -1,7 +1,0 @@
-struct Point { x: i32 }
-
-fn main() -> i32 {
-    let p = Point { x: 1 };
-    let y = p.y; // Error "Field not found y"
-    return 0;
-}

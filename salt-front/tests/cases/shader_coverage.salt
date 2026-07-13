@@ -1,9 +1,0 @@
-@shader
-fn compute_kernel(input: Window<f32, VRAM>, output: Window<f32, VRAM>) {
-    return;
-}
-
-fn main() -> i32 {
-    // We don't call the shader, just compiling it should trigger the codegen path
-    return 0;
-}

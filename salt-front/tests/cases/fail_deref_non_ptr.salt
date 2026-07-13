@@ -1,5 +1,0 @@
-fn main() -> i32 {
-    let x = 42;
-    let y = *x; // ERROR: Deref on non-pointer
-    return 0;
-}

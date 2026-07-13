@@ -1,9 +1,0 @@
-// Fail: Use of moved value
-fn takes_owned(n: Owned<i32>) {}
-
-pub fn main() -> i32 {
-    let n: Owned<i32> = 42;
-    takes_owned(n);
-    let x = n; // ERROR: Use of moved value
-    return 0;
-}

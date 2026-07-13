@@ -1,9 +1,0 @@
-struct Node { val: i32 }
-extern fn alloc() -> owned Node;
-
-fn main() -> i32 {
-    let n = alloc(); // Infers type: owned Node
-    // n is never consumed (no move, no return)
-    // Should trigger "Resource Leak" at end of scope
-    return 0;
-}

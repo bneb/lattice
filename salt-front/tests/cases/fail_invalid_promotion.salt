@@ -1,6 +1,0 @@
-// Fail: Invalid promotion
-struct Point { x: i32, y: i32 }
-pub fn main() -> i32 {
-    let p: Point = 42; // ERROR: Invalid promotion
-    return 0;
-}

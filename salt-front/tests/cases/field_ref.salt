@@ -1,7 +1,0 @@
-struct Point { x: i32 }
-fn main() -> i32 {
-    let mut p = Point { x: 10 };
-    let px = &mut p.x;
-    (px as &mut i32)[0] = 20;
-    return p.x;
-}

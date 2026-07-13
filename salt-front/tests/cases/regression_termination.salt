@@ -1,9 +1,0 @@
-enum MyEnum { A, B }
-pub fn main(argc: i32) -> i32 {
-    let x = MyEnum::A;
-    let res = match x {
-        MyEnum::A => { return 0; }
-        MyEnum::B => 42
-    };
-    return 1;
-}

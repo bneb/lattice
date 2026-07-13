@@ -1,7 +1,0 @@
-fn main() -> i32 {
-    // Target emit_addr Deref error (Valid syntax *foo(), invalid semantics if foo returns i32)
-    *foo() = 5;
-    return 0;
-}
-
-fn foo() -> i32 { 0 }

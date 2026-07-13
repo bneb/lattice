@@ -1,4 +1,0 @@
-
-// 9. Forward Reference (Not Supported in single-pass)
-const C_DEPENDENT: i32 = C_LATER + 1;
-const C_LATER: i32 = 10;

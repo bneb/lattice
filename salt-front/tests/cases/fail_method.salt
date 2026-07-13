@@ -1,6 +1,0 @@
-// Fail: Method not found
-pub fn main() -> i32 {
-    let x = 42;
-    x.non_existent_method(); // ERROR: Method not found
-    return 0;
-}

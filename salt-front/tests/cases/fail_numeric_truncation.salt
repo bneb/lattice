@@ -1,8 +1,0 @@
-
-fn main() -> i32 {
-    // Deliberate type mismatch that CANNOT be implicitly promoted.
-    // String literal is Window<u8>, cannot be assigned to i32.
-    let a: i32 = "this should fail"; 
-    
-    return 0;
-}

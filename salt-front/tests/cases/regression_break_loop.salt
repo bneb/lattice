@@ -1,9 +1,0 @@
-pub fn main(argc: i32) -> i32 {
-    let mut i = 0;
-    while i < 10 {
-        if i == 5 { break; }
-        i = i + 1;
-    }
-    if i == 5 { return 0; }
-    return 1;
-}

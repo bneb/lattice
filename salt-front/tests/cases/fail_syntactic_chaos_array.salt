@@ -1,8 +1,0 @@
-fn main() -> i32 {
-    // Target emit_addr catch-all (Assign to Array Literal)
-    // [1] = [2]; 
-    // This parses as Expr::Array = ...
-    // emit_addr should fail with "Expression ... not valid L-Value"
-    [1] = [2];
-    return 0;
-}

@@ -1,9 +1,0 @@
-// Test: pulse off (Metal mode - no yield check)
-@hot_path
-fn test_off_pulse(n: i32) -> i32 {
-    let mut sum: i32 = 0;
-    for i in 0..n {
-        sum = sum + i;
-    }
-    return sum;
-}
